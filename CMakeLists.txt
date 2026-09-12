@@ -149,6 +149,7 @@ add_library(meshclient_core
     src/ui/icon_glyphs.c
     src/ui/preferences.c
     src/ui/layout.c
+    src/ui/trend.c
 )
 
 target_include_directories(meshclient_core

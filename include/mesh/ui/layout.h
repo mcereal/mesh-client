@@ -527,7 +527,11 @@ uint32_t mesh_ui_proportion_split(const uint32_t *values, uint32_t count, int32_
  *     see was missing. `gap_ms` is how long a silence has to be before the pen lifts.
  *   - **The y axis is the reading's own domain**, the same `struct mesh_ui_scale` the bar beside
  *     it uses - never the range the samples happen to span. Auto-scaling is what a spreadsheet
- *     does, and on a battery that fell two percent overnight it draws a cliff.
+ *     does, and on a battery that fell two percent overnight it draws a cliff. A chart may
+ *     contract that domain's *ceiling* down a fixed ladder and says on the axis which rung it
+ *     landed on (mesh_ui_trend_domain()); the floor stays where the reading's domain put it, and
+ *     a sparkline never contracts anything, because it shares its domain with the bar beside it
+ *     and has nowhere to write down that it has moved.
  *
  * The clock is the *client's* monotonic one rather than the radio's stamp, because the client
  * is the thing that has been watching: a Brick with no wall clock still knows how long ago it
@@ -648,6 +652,23 @@ void mesh_ui_series_project(const struct mesh_ui_series *series, struct mesh_ui_
 bool mesh_ui_series_has_segment(const struct mesh_ui_series *series);
 
 /*
+ * Whether the `index`th reading begins a segment rather than continuing the one before it.
+ *
+ * The same test the projection lifts the pen on and mesh_ui_series_has_segment() counts, asked of
+ * one sample - which is what a caller needs to know whether a reading is *drawn*. A sample that
+ * starts a segment and has no reading continuing it is on no line at all: the projection emits it
+ * and every component skips it, because a stroke needs two ends.
+ *
+ * It matters wherever a reading the picture does not draw would otherwise be allowed to change
+ * the picture. mesh_ui_trend_domain()'s ceiling is the case that found it - an isolated reading
+ * high above the visible line held the axis open over it, which is exactly the flattening that
+ * contracting the ceiling exists to undo.
+ *
+ * True past the end and for no series: nothing there continues anything.
+ */
+bool mesh_ui_series_starts_segment(const struct mesh_ui_series *series, uint32_t index);
+
+/*
  * The clock window a set of series covers: the oldest stamp on any of them, and the newest.
  *
  * One window for several series rather than one each, because that is the whole of what makes
@@ -680,5 +701,27 @@ bool mesh_ui_series_window(const struct mesh_ui_series *const *series, uint32_t 
  */
 void mesh_ui_series_project_over(const struct mesh_ui_series *series, struct mesh_ui_scale scale,
                                  uint32_t from, uint32_t to, struct mesh_ui_polyline *out);
+
+/*
+ * The same window, with a sample outside it dropped rather than held at the edge.
+ *
+ * The two differ in one case and it is the case a *reader* creates. A window taken from the
+ * series themselves (mesh_ui_series_window()) contains every sample by construction, so nothing
+ * ever falls outside one and clamping is a rule that never fires. A window the reader narrowed -
+ * "show me the last quarter of an hour" - contains only part of the ring, and clamping there
+ * stacks every older reading on the left-hand edge as a column of points at one x: a vertical
+ * stroke up the side of the plot, drawn in the data's own colour, that is not a reading of
+ * anything.
+ *
+ * So a chart with a span picker asks for this one. The line then starts at the first reading
+ * inside the window - which is a pen lifted at the frame's edge rather than a claim about what
+ * happened before it - and a series with nothing inside the window comes back empty, which the
+ * components already treat as "no line".
+ *
+ * Neither of these interpolates a crossing at the edge, and that is deliberate: a point on the
+ * frame's boundary is a reading nobody took, and this client draws the readings it was given.
+ */
+void mesh_ui_series_project_within(const struct mesh_ui_series *series, struct mesh_ui_scale scale,
+                                   uint32_t from, uint32_t to, struct mesh_ui_polyline *out);
 
 #endif /* MESH_UI_LAYOUT_H */

@@ -166,14 +166,15 @@ evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 proportion bars (a whole and the disjoint parts it is made of, in the theme's categorical
 series palette rather than in tones, with the parts filling the track exactly and a part that
 is there never rounded away to nothing), the chart (`fb_draw_chart()`: the same readings a
-sparkline draws in a row, in a whole body, with its domain's ends labelled, its time span named,
-its thresholds ruled across the plot and more than one line on it - the one component here that
-is a screen rather than a slot), bubbles (whose trailing run is four typed slots the component measures, never a string a screen assembled), the top app bar, the navigation bar, the screen progress bar, the banner, the action bar, the snackbar |
+sparkline draws in a row, in a whole body, with its domain's ends labelled, its time span named
+and picked, its thresholds ruled across the plot, its legend saying where each line has got to,
+and more than one line on it - the one component here that is a screen rather than a slot), bubbles (whose trailing run is four typed slots the component measures, never a string a screen assembled), the top app bar, the navigation bar, the screen progress bar, the banner, the action bar, the snackbar |
 | Button hints | `src/ui/actions.c`, `include/mesh/ui/actions.h` | what the buttons do here, as (button, verb) pairs the action bar iterates |
 | The pad | `src/ui/input.c`, `src/ui/input_profile.c` | `input.c` is the evdev reader - which nodes are worth watching, key repeat, the quit keys, and the codes a *convention* decides (keyboard keys, shoulders, START/SELECT, the hat). `input_profile.c` is what the **case** decides: a row per device holding both which evdev code each printed face button reports *and* what is printed on it, because a port that corrected one without the other leaves the action bar naming a key that does something else. `MESHCLIENT_INPUT_PROFILE` picks one |
 | Status verbs | `src/ui/status.c`, `include/mesh/ui/status.h` | which Status card carries which verb, in the order the cards draw — read by `nav.c`, `actions.c` and the renderer alike, and walked by a cursor that names a *verb* (`nav->status_verb`) rather than a position |
 | Help | `src/ui/help.c`, `include/mesh/ui/help.h` | what the client can explain about where the user is standing, as a title, a subject and a list of paragraphs — ids the whole way down. A settings section's notes live on the things they describe (a section's beside its icon in `settings.c`, a field's in its own `k_fields` row) and this assembles them; a *feature's* are a table here, keyed on the route under the help screen |
-| The trend screens | `src/ui/backends/fb_screens.c` (`fb_render_trend`, `fb_render_node_trend`), `src/ui/status.c`, `src/ui/route.c` | The two charts, drawn by the one component that fills a body and carrying no cursor. The airtime one is a level of the Status tab (`nav->trend_open`); a node's is a level of its detail (`nav->node_trend`, which holds the *reading* rather than a flag). Both are `MESH_UI_ROUTE_TREND` - the node's fills `subject` and `slot`, which is what makes one node's temperature and its humidity two places |
+| The trend screens | `src/ui/backends/fb_screens.c` (`fb_render_chart`, and the two descriptions `fb_render_trend`/`fb_render_node_trend` hand it), `src/ui/status.c`, `src/ui/route.c` | The two charts, drawn by the one component that fills a body and by the one renderer that composes it, carrying no cursor. The airtime one is a level of the Status tab (`nav->trend_open`); a node's is a level of its detail (`nav->node_trend`, which holds the *reading* rather than a flag). Both are `MESH_UI_ROUTE_TREND` - the node's fills `subject` and `slot`, which is what makes one node's temperature and its humidity two places |
+| Chart frames | `src/ui/trend.c`, `include/mesh/ui/trend.h` | How far back a chart looks and how far up it goes: the span the reader picked, the window it cuts, and the rung of the domain ladder the ceiling contracts to. Both chart screens ask it, which is what makes them one picture drawn twice |
 | Durations | `src/ui/duration.c`, `include/mesh/ui/duration.h` | "4m ago" and "3h 20m", once. A UI file with no pixels in it, because what a ladder of unit thresholds answers with is a *string id* |
 | Waypoints UI | `src/ui/waypoints.c`, `src/ui/nav_waypoints.c` | the list's order (nearest first, from our own fix), a place's detail rows, and the distance/compass formatting the same two screens read |
 | Tapbacks | `src/ui/reactions.c`, `include/mesh/ui/reactions.h` | the fixed emoji set X offers over a bubble: the glyph, which goes on the air unchanged, and the catalog id that names it |
@@ -724,6 +725,32 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   on it gets believed. So the press on a node's row names a *reading*, `nav->node_trend` holds it,
   and the route carries it in `slot`. Drawing them together is the fix that looks obvious and is
   the bug.
+- **Both chart screens are one renderer, and a third caller adds a description rather than a
+  function.** `fb_render_chart()` takes a `struct fb_chart_screen` - the series, their labels, the
+  domain, the band, and what unit the axis is *worded* in - and does everything else: the span,
+  the window, the ceiling, the projection, the caption, the picker. The airtime chart and a
+  node's were forty duplicated lines apart, which is forty lines in which two screens meant to be
+  one picture can quietly stop being one. `actions_trend()` is shared for the same reason.
+- **A chart's span picker only narrows, and it is anchored at the newest reading rather than at
+  the clock.** A span wider than the readings leaves the window at the readings' own ends, so the
+  caption under the axis names what was drawn rather than what was asked for. Anchored at "now",
+  a link that dropped twenty minutes ago would answer every span but All with an empty plot -
+  which says nothing about a radio that was reporting perfectly well until it went away. The
+  window is also cut **before** the ceiling is picked (`mesh_ui_trend_frame()` does both, in that
+  order, which is why it is one function): the other way round, narrowing to the last quarter
+  hour leaves the axis held open by a busy spell that is no longer on the panel.
+- **A narrowed window drops the readings outside it rather than clamping them.**
+  `mesh_ui_series_project_over()` holds an outside sample at the edge it fell off, which is right
+  for a window taken from the series themselves - nothing is ever outside one. Over a window the
+  *reader* narrowed it draws every older reading at one x: a vertical stroke up the side of the
+  plot, in the data's own colour, that is not a reading of anything.
+  `mesh_ui_series_project_within()` is the one a chart asks for.
+- **`nav->trend_span` is one field for both charts, and that is a claim about what it is.** Every
+  other level flag on the nav says where a tab is standing, one per tab, so each tab keeps its
+  own place. A span is not a place - it is how the reader likes their charts read, which is the
+  theme's kind of setting - so narrowing the airtime chart and opening a node's temperature finds
+  the same span picked. `mesh_ui_nav_init()` sets it to `MESH_UI_TREND_SPAN_ALL` rather than
+  leaving the zero, which is the narrowest: All is what the screen did before there was a picker.
 - **A node chart takes its whole statement off the row it was opened from, and must not switch on
   the reading itself.** `fb_render_node_trend()` rebuilds the detail's rows and finds the one
   whose `trend_reading` matches the nav, then reads the series, the domain, the band and the words
@@ -745,10 +772,13 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   carrying neither reading takes no slot, or a barometer would evict the node somebody is watching.
 - **The chart swallows the d-pad and A, and does not take the shoulders.** It is the map's split
   in reverse. The map takes the four directions because Left there means "look west"; the chart
-  takes them because there is nothing on it to move - and what a press would otherwise fall
-  through to is the Status cards, where Down moves a cursor nobody can see and A runs whichever
-  verb it lands on. The shoulders stay the tab switch they are everywhere, and `trend_open`
-  outliving a change of tab is why the key handler checks `nav->screen` as well.
+  takes Up and Down because there is nothing on it to move - and what a press would otherwise
+  fall through to is the Status cards, where Down moves a cursor nobody can see and A runs
+  whichever verb it lands on. **Left and Right it takes because there *is* something to move**:
+  the span picker over the plot is the only control on the screen, and until it existed those two
+  presses fell through to the tabs. The shoulders stay the tab switch they are everywhere, which
+  is what pays for the d-pad here exactly as it does on the map, and `trend_open` outliving a
+  change of tab is why the key handler checks `nav->screen` as well.
 - **Two lines on one chart are projected over a window neither of them owns.**
   `mesh_ui_series_project()` stretches a series across its own span, which is right for a line
   drawn alone and wrong beside a second one: a series that stopped reporting is drawn as though
@@ -1013,9 +1043,20 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   contract is luminance rather than hue - 1.4:1 against the grounds *and against each other* -
   which is why the colour-blind theme spends four of Okabe-Ito's eight rather than any four: its
   sky blue and its orange are 1.02:1 apart in lightness, so as adjacent slices they are one slice.
-- **A trend's axes are not its data.** A sparkline's x is *time* and its y is the reading's own
-  `struct mesh_ui_scale` - the same one the bar beside it fills against - never the range the
-  samples happen to span. Every spreadsheet does the opposite, and on the two readings this draws
+- **A trend's axes are not its data, and the one exception is stated on the axis.** A sparkline's
+  x is *time* and its y is the reading's own `struct mesh_ui_scale` - the same one the bar beside
+  it fills against - never the range the samples happen to span. What a *chart* may do, and a
+  sparkline may not, is contract that domain's **ceiling** to a rung of a fixed ladder
+  (`mesh_ui_trend_domain()`: a hundredth, a fiftieth, a twentieth, a tenth, a quarter, a half,
+  all of it) so that a mesh at 1.1% busy is a shape rather than a flat line along the bottom of
+  an empty rectangle. Three things make that not auto-scaling: the **floor never moves**, so a
+  fall of two percent is two percent of something; the rungs are fractions of the *domain* rather
+  than of the data, so two visits inside one rung are comparable; and the ceiling is the axis's
+  own top label, so a contracted plot says so. A sparkline is excluded because it shares its
+  domain with the bar beside it and has nowhere to write down that it has moved. A threshold
+  above the contracted ceiling is not drawn at all - and that test is made against the *reading*,
+  because `mesh_ui_scale_permille()` clamps and a test made against the projection can never
+  fire. Every spreadsheet does the opposite, and on the two readings this draws
   it is wrong both times: a battery that fell two percent overnight becomes a cliff, and a quiet
   mesh becomes a mesh in trouble. A silence longer than the series' own `gap_ms` breaks the line
   rather than sloping across it, for the same reason - and so does a reading that was *refused*

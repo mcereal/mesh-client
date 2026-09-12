@@ -4430,14 +4430,30 @@ int fb_chart_min_height(const struct mesh_ui_backend_fb_state *state,
  * the eye has already found; there is no track here to cut, so the mark has to be visibly a mark.
  */
 static void fb_chart_threshold(const struct mesh_ui_backend_fb_state *state,
-                               const struct fb_rect *plot, int travel, int32_t permille, int rule,
-                               struct mesh_ui_rgb ink) {
-    if (permille < 0 || permille > MESH_UI_ANIM_ONE) {
-        /* Outside the domain the lines are drawn on. Nothing is clamped to an edge here: a
-           threshold pinned to the top of a chart is a threshold the trend can never be seen
-           crossing, which is worse than one the reader can see is off the picture. */
+                               const struct fb_rect *plot, int travel, int32_t value,
+                               struct mesh_ui_scale scale, int rule, struct mesh_ui_rgb ink) {
+    /*
+     * Outside the domain the lines are drawn on. Nothing is clamped to an edge here: a threshold
+     * pinned to the top of a chart is a threshold the trend can never be seen crossing, which is
+     * worse than one the reader can see is off the picture.
+     *
+     * Asked of the *reading* rather than of its projection, and that is not a tidy-up:
+     * mesh_ui_scale_permille() clamps, so a threshold above the domain's ceiling comes back as
+     * 1000 and this test - written against the projection - could never fire. It never had to
+     * until the ceiling learned to contract (mesh_ui_trend_domain()), and the first quiet mesh
+     * drawn on a fifth of the domain would have had a rule ruled across the top of it saying the
+     * air was as busy as the picture goes.
+     *
+     * Both ends of the comparison rather than one, because a domain may be stated either way
+     * round: a descending scale reads backwards, and its ceiling is the smaller number.
+     */
+    const int32_t max = scale.min == scale.max ? MESH_UI_ANIM_ONE : scale.max;
+    const int32_t low = scale.min < max ? scale.min : max;
+    const int32_t high = scale.min < max ? max : scale.min;
+    if (value < low || value > high) {
         return;
     }
+    const int32_t permille = mesh_ui_scale_permille(scale, value);
     const int y = plot->y + travel - (int)(((int64_t)permille * travel) / MESH_UI_ANIM_ONE);
     const int dash = rule * 3;
     for (int x = plot->x; x < plot->x + plot->w; x += dash * 2) {
@@ -4466,11 +4482,18 @@ static void fb_chart_legend(const struct mesh_ui_backend_fb_state *state,
 
     for (uint32_t i = 0U; i < chart->count && i < FB_CHART_LINES; ++i) {
         const enum mesh_str_id label = chart->lines[i].label;
-        if (label == MESH_STR_NONE) {
+        const char *value = chart->lines[i].value;
+        /* A name, a reading, or both - and an entry with neither is a swatch standing for
+           nothing, which is furniture. One line drawn alone is named by the screen's own title,
+           so this is where its current reading gets said. */
+        if (label == MESH_STR_NONE && value == NULL) {
             continue;
         }
-        const char *word = mesh_str(label);
-        const int width = cap + adv + (int)mesh_ui_text_cells(word) * adv;
+        const char *word = label != MESH_STR_NONE ? mesh_str(label) : NULL;
+        int width = cap + adv;
+        width += word != NULL ? (int)mesh_ui_text_cells(word) * adv : 0;
+        width +=
+            value != NULL ? (int)mesh_ui_text_cells(value) * adv + (word != NULL ? adv : 0) : 0;
         if (x + width > chart->rect.x + chart->rect.w) {
             /* Out of line. The entry is dropped whole rather than cut, for the reason a bubble's
                trailing run drops a chip rather than truncating one: half a word beside a colour
@@ -4483,7 +4506,17 @@ static void fb_chart_legend(const struct mesh_ui_backend_fb_state *state,
         fb_fill_round_rect(state, x, y + (line - cap) / 2, cap, cap,
                            fb_radius(state, MESH_UI_SHAPE_SM),
                            mesh_ui_theme_series(state->theme, i));
-        fb_draw_text(state, x + cap + adv, y, word, scale, ink, ground);
+        int text_x = x + cap + adv;
+        if (word != NULL) {
+            fb_draw_text(state, text_x, y, word, scale, ink, ground);
+            text_x += (int)mesh_ui_text_cells(word) * adv + adv;
+        }
+        if (value != NULL) {
+            /* The reading in the body's own ink rather than dimmed: it is the only number on
+               this line and the words beside it are its label, not the other way round. */
+            fb_draw_text(state, text_x, y, value, scale, fb_color(state, MESH_UI_COLOR_TEXT),
+                         ground);
+        }
         x += width + adv * 2;
     }
 }
@@ -4502,6 +4535,38 @@ void fb_draw_chart(const struct mesh_ui_backend_fb_state *state, const struct fb
     const int rule = fb_chart_rule(state->scale);
 
     /*
+     * The span picker, off the top before the plot is measured.
+     *
+     * Above the plot rather than below it, which is Material's placement for a filter over a
+     * view and is also the only one that reads correctly here: the strip says what the picture is
+     * of, and the two lines under the plot say what came out - the axis's own span and the names
+     * of the lines. Put underneath, the control the reader is pressing would be the third line of
+     * a caption.
+     *
+     * Centred on the plot for the caption's reason, one component down: it is about the whole
+     * horizontal rather than about either end of it.
+     */
+    struct fb_rect body = chart->rect;
+    if (chart->spans != NULL) {
+        const int strip = fb_segmented_height(state, scale);
+        const int width = fb_segmented_width(state, chart->spans, scale);
+        const int gap = fb_gutter(state);
+        /* Measured against what would be left before it is drawn, never after: a strip drawn and
+           then found to have taken the plot's room is a control floating over nothing, which is
+           the clipped chart this component refuses one level up. The picture wins the room. */
+        if (strip > 0 && width > 0 && width <= body.w &&
+            body.h - (strip + gap) >= fb_chart_min_height(state, layout)) {
+            const struct fb_rect box = {
+                .x = body.x + (body.w - width) / 2, .y = body.y, .w = width, .h = strip};
+            /* Selected, always: it is the only control on the screen and the d-pad always reaches
+               it - see `spans`. Its ground is the body's, because that is what is behind it. */
+            fb_draw_segmented(state, &box, chart->spans, true, MESH_UI_COLOR_BG, scale);
+            body.y += strip + gap;
+            body.h -= strip + gap;
+        }
+    }
+
+    /*
      * The room the vertical's two ends want, taken off the left before anything is placed.
      *
      * Measured from the labels themselves rather than reserved as a fixed column: this is the
@@ -4515,10 +4580,10 @@ void fb_draw_chart(const struct mesh_ui_backend_fb_state *state, const struct fb
     const int gutter = axis_cells > 0U ? (int)(axis_cells + 1U) * adv : 0;
 
     struct fb_rect plot = {
-        .x = chart->rect.x + gutter,
-        .y = chart->rect.y,
-        .w = chart->rect.w - gutter,
-        .h = chart->rect.h - FB_CHART_FOOTER_LINES * layout->line,
+        .x = body.x + gutter,
+        .y = body.y,
+        .w = body.w - gutter,
+        .h = body.h - FB_CHART_FOOTER_LINES * layout->line,
     };
     if (plot.w <= 0 || plot.h <= rule) {
         return;
@@ -4551,11 +4616,8 @@ void fb_draw_chart(const struct mesh_ui_backend_fb_state *state, const struct fb
     /* The thresholds, under the lines: a mark the data can be seen crossing has to be behind it,
        or the mark is what is on top of the reading. */
     if (chart->band != NULL) {
-        fb_chart_threshold(state, &plot, travel,
-                           mesh_ui_scale_permille(chart->scale, chart->band->warn), rule,
-                           furniture);
-        fb_chart_threshold(state, &plot, travel,
-                           mesh_ui_scale_permille(chart->scale, chart->band->bad), rule, furniture);
+        fb_chart_threshold(state, &plot, travel, chart->band->warn, chart->scale, rule, furniture);
+        fb_chart_threshold(state, &plot, travel, chart->band->bad, chart->scale, rule, furniture);
     }
 
     /* The two ends of the vertical, against the plot's own top and bottom. */
@@ -4577,6 +4639,7 @@ void fb_draw_chart(const struct mesh_ui_backend_fb_state *state, const struct fb
      * slice 0 is the same colour on every frame and every theme, so the legend under the plot
      * goes on meaning what it said the last time this screen was opened.
      */
+    bool drawn = false;
     for (uint32_t i = 0U; i < chart->count && i < FB_CHART_LINES; ++i) {
         const struct mesh_ui_polyline *points = chart->lines[i].points;
         if (points == NULL || points->count < 2U) {
@@ -4591,10 +4654,27 @@ void fb_draw_chart(const struct mesh_ui_backend_fb_state *state, const struct fb
             const int y = plot.y + travel - (int)(((int64_t)point->y * travel) / MESH_UI_ANIM_ONE);
             if (!point->gap && j > 0U) {
                 fb_spark_segment(state, previous_x, previous_y, x, y, stroke, colour);
+                drawn = true;
             }
             previous_x = x;
             previous_y = y;
         }
+    }
+
+    /*
+     * And what to say when none of that put a mark on the panel.
+     *
+     * Asked of the drawing rather than of the data, which is the only place the question can be
+     * answered honestly: two readings either side of a break are a polyline of two points and no
+     * line at all, and a caller counting samples would offer a picture this then declines to
+     * draw. `drawn` is set by the one call that actually strokes something.
+     */
+    if (!drawn && chart->empty != MESH_STR_NONE) {
+        const char *word = mesh_str(chart->empty);
+        const int width = (int)mesh_ui_text_cells(word) * adv;
+        const int x = plot.x + (plot.w - width) / 2;
+        fb_draw_text(state, x > plot.x ? x : plot.x, plot.y + (interior - layout->line) / 2, word,
+                     scale, fb_color(state, MESH_UI_COLOR_TEXT_DIM), ground);
     }
 
     /*

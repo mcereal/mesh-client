@@ -174,6 +174,10 @@ mesh_ui_actions_node_trend(const struct mesh_ui_snapshot *snapshot) {
                                         snapshot->nav.cursor[MESH_UI_SCREEN_NODES]);
 }
 
+/* The chart's bar, defined below beside the Status arm that first needed it - a node's chart is
+   the same screen, so it calls that rather than restating it. */
+static void actions_trend(const struct mesh_ui_snapshot *snapshot, struct mesh_ui_action_bar *bar);
+
 static void actions_nodes(const struct mesh_ui_nav *nav, const struct mesh_ui_snapshot *snapshot,
                           struct mesh_ui_action_bar *bar) {
     if (nav->node_remove_armed) {
@@ -183,15 +187,14 @@ static void actions_nodes(const struct mesh_ui_nav *nav, const struct mesh_ui_sn
     }
     if (nav->node_detail_open) {
         /*
-         * A chart of one of this node's readings, over the detail. The Status tab's trend arm
-         * exactly: a picture has nothing on it to choose between, so the only presses that mean
-         * anything are the one that leaves, the one that explains and the tabs - and naming X or
-         * Y here would be naming the detail's presses over a screen that does not have them.
+         * A chart of one of this node's readings, over the detail - and the Status tab's chart
+         * bar, called rather than copied. The two screens are one picture with different readings
+         * on it, so the presses are the same four: B leaves, Left and Right walk the span picker,
+         * SELECT explains and the shoulders change tab. Naming X or Y here would be naming the
+         * detail's presses over a screen that does not have them.
          */
         if (nav->node_trend != MESH_UI_HISTORY_NONE) {
-            bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
-            bar_add_help(snapshot, bar);
-            bar_add_tabs(bar);
+            actions_trend(snapshot, bar);
             return;
         }
         /*
@@ -412,17 +415,26 @@ static void actions_settings(const struct mesh_ui_nav *nav, const struct mesh_ui
 }
 
 /*
- * The chart, which is the one screen in the client with nothing on it to choose.
+ * The chart, which has one thing on it to choose and no cursor to choose it with.
  *
- * Three keycaps, and the shortest bar there is outside a dialog: B leaves, SELECT explains, the
- * shoulders change tab. There is deliberately no d-pad entry - a chart has no cursor and nothing
- * to pan, and naming "move" here would be the one thing this table exists to prevent, a keycap
- * that does nothing. Quit is left off for the same reason it is on the cards underneath: the
- * status line already ends in it when there is no radio, and this screen only exists while
- * there is one.
+ * Four keycaps, and the d-pad entry is the change: Left and Right walk the span picker over the
+ * plot, which is the only control on the screen. It is named here for the rule that got it named
+ * nowhere before - a keycap that does something must be in this table, exactly as a keycap that
+ * does nothing must not - and it says "span" rather than "move", because what those two presses
+ * move is the picture's own horizontal rather than a cursor.
+ *
+ * The shoulders are still the tabs and still named, which is what separates this from the map:
+ * there the d-pad is taken to pan and the same pair of gestures do two things on one screen. Quit
+ * is left off for the reason it is on the cards underneath: the status line already ends in it
+ * when there is no radio, and this screen only exists while there is one.
+ *
+ * Both charts read this one function. There was never a second copy and there must not be: the
+ * airtime chart and a node's are one screen drawn twice, and a bar that named the span press on
+ * one of them would be describing a difference the two do not have.
  */
 static void actions_trend(const struct mesh_ui_snapshot *snapshot, struct mesh_ui_action_bar *bar) {
     bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
+    bar_add(bar, MESH_UI_BUTTON_LEFT_RIGHT, MESH_STR_ACTION_SPAN);
     bar_add_help(snapshot, bar);
     bar_add_tabs(bar);
 }

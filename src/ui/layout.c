@@ -765,6 +765,15 @@ static bool series_breaks_at(const struct mesh_ui_series *series,
            (series->gap_ms > 0U && (sample->time - previous) > series->gap_ms);
 }
 
+bool mesh_ui_series_starts_segment(const struct mesh_ui_series *series, uint32_t index) {
+    if (series == NULL || index >= series->count) {
+        return true; /* nothing there, so nothing continues into it */
+    }
+    const struct mesh_ui_sample *sample = mesh_ui_series_at(series, index);
+    const uint32_t previous = index > 0U ? mesh_ui_series_at(series, index - 1U)->time : 0U;
+    return series_breaks_at(series, sample, index, previous);
+}
+
 bool mesh_ui_series_has_segment(const struct mesh_ui_series *series) {
     if (series == NULL || series->count < 2U) {
         return false; /* one reading is a level, and there is a component for that */
@@ -836,8 +845,17 @@ bool mesh_ui_series_window(const struct mesh_ui_series *const *series, uint32_t 
     return true;
 }
 
-void mesh_ui_series_project_over(const struct mesh_ui_series *series, struct mesh_ui_scale scale,
-                                 uint32_t from, uint32_t to, struct mesh_ui_polyline *out) {
+/*
+ * The projection both public windows share: `clip` says what to do with a sample that falls
+ * outside the window, and it is the whole of the difference between them.
+ *
+ * Written once because the two differ in one branch and agree about everything else - the ring
+ * walk, the break test, the even-spacing fallback and the y placement - and a second copy of that
+ * is a copy that gets the pen-lifting rule right in one of them.
+ */
+static void series_project_window(const struct mesh_ui_series *series, struct mesh_ui_scale scale,
+                                  uint32_t from, uint32_t to, bool clip,
+                                  struct mesh_ui_polyline *out) {
     if (out == NULL) {
         return;
     }
@@ -847,19 +865,40 @@ void mesh_ui_series_project_over(const struct mesh_ui_series *series, struct mes
     }
 
     const uint32_t span = to > from ? to - from : 0U;
-    const uint32_t last = series->count > 1U ? series->count - 1U : 1U;
 
+    /* How many points there will be, counted before any is placed - the even-spacing fallback
+       divides by it, and a clipped projection cannot know it from series->count. */
+    uint32_t kept = series->count;
+    if (clip) {
+        kept = 0U;
+        for (uint32_t i = 0U; i < series->count; ++i) {
+            const struct mesh_ui_sample *sample = mesh_ui_series_at(series, i);
+            if (sample->time >= from && sample->time <= to) {
+                ++kept;
+            }
+        }
+        if (kept == 0U) {
+            return; /* the window holds none of this series, which is a line and not an error */
+        }
+    }
+    const uint32_t last = kept > 1U ? kept - 1U : 1U;
+
+    uint32_t written = 0U;
     uint32_t previous = 0U;
     for (uint32_t i = 0U; i < series->count; ++i) {
         const struct mesh_ui_sample *sample = mesh_ui_series_at(series, i);
-        struct mesh_ui_point *point = &out->items[i];
+        if (clip && (sample->time < from || sample->time > to)) {
+            continue;
+        }
+        struct mesh_ui_point *point = &out->items[written];
         /* Across the window - or evenly, when it has no width at all, which is the one case the
            sample number is the axis and is what `span == 0` means here. */
-        int32_t x = (int32_t)(((uint64_t)i * MESH_UI_ANIM_ONE) / last);
+        int32_t x = (int32_t)(((uint64_t)written * MESH_UI_ANIM_ONE) / last);
         if (span > 0U) {
             /* Held at the edge it fell off, rather than wrapped: `sample->time - from` is
                unsigned, so a reading older than the window would otherwise come out as a point
-               most of a picture to the right of everything it happened before. */
+               most of a picture to the right of everything it happened before. Unreachable while
+               `clip` is set, which is what that flag is for. */
             if (sample->time <= from) {
                 x = 0;
             } else if (sample->time >= to) {
@@ -871,8 +910,22 @@ void mesh_ui_series_project_over(const struct mesh_ui_series *series, struct mes
         }
         point->x = (int16_t)x;
         point->y = (int16_t)mesh_ui_scale_permille(scale, sample->value);
-        point->gap = series_breaks_at(series, sample, i, previous);
+        /* `written` rather than `i`, which is the pen-lifting rule surviving the clip: the first
+           point of the line starts a segment wherever in the ring it was found, and every one
+           after it is tested against the previous point *drawn*. */
+        point->gap = series_breaks_at(series, sample, written, previous);
         previous = sample->time;
+        ++written;
     }
-    out->count = series->count;
+    out->count = written;
+}
+
+void mesh_ui_series_project_over(const struct mesh_ui_series *series, struct mesh_ui_scale scale,
+                                 uint32_t from, uint32_t to, struct mesh_ui_polyline *out) {
+    series_project_window(series, scale, from, to, false, out);
+}
+
+void mesh_ui_series_project_within(const struct mesh_ui_series *series, struct mesh_ui_scale scale,
+                                   uint32_t from, uint32_t to, struct mesh_ui_polyline *out) {
+    series_project_window(series, scale, from, to, true, out);
 }

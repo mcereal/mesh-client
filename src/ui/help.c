@@ -94,9 +94,27 @@ static const struct mesh_ui_help_entry k_help_devices[] = {
     {MESH_STR_HELP_LABEL_DEVICES_FORGET, MESH_STR_HELP_NOTE_DEVICES_FORGET},
 };
 
+/*
+ * The Status tab, whose cards are almost entirely numbers - which is what makes its topic
+ * different in kind from the tabs either side of it.
+ *
+ * The other tabs' paragraphs are about *presses*: what X does to a node, why a place cannot be
+ * deleted. Three of these four are about *readings*, because that is what a reader standing in a
+ * field with a radio is actually stuck on. "1.1% busy, 0.1% tx, -120 dBm floor" is three figures
+ * in three units with no room on the card to say what any of them is, and the card cannot grow
+ * the room: this screen is the one column in the client that runs out of it (see
+ * fb_draw_card_reserving()). A note is where the sentence goes when the row cannot hold one,
+ * which is the same rule a settings field's note follows one screen over.
+ *
+ * In the order the cards draw, as every other list about this screen is - the counts and the
+ * airtime are the Mesh card, and the traffic totals are the Radio card under it.
+ */
 static const struct mesh_ui_help_entry k_help_status[] = {
     {MESH_STR_NONE, MESH_STR_HELP_NOTE_STATUS},
     {MESH_STR_HELP_LABEL_STATUS_COUNTS, MESH_STR_HELP_NOTE_STATUS_COUNTS},
+    {MESH_STR_HELP_LABEL_STATUS_AIRTIME, MESH_STR_HELP_NOTE_STATUS_AIRTIME},
+    {MESH_STR_HELP_LABEL_STATUS_FLOOR, MESH_STR_HELP_NOTE_STATUS_FLOOR},
+    {MESH_STR_HELP_LABEL_STATUS_TRAFFIC, MESH_STR_HELP_NOTE_STATUS_TRAFFIC},
 };
 
 /* The airtime chart, whose two paragraphs are both about reading a picture rather than about
@@ -107,6 +125,9 @@ static const struct mesh_ui_help_entry k_help_trend[] = {
     {MESH_STR_NONE, MESH_STR_HELP_NOTE_TREND},
     {MESH_STR_HELP_LABEL_TREND_AXES, MESH_STR_HELP_NOTE_TREND_AXES},
     {MESH_STR_HELP_LABEL_TREND_MARKS, MESH_STR_HELP_NOTE_TREND_MARKS},
+    /* And the one press the screen has. It is last rather than first because a reader arrives
+       here wanting to know what the picture means; the control is what they want next. */
+    {MESH_STR_HELP_LABEL_TREND_SPAN, MESH_STR_HELP_NOTE_TREND_SPAN},
 };
 
 /*
@@ -122,6 +143,10 @@ static const struct mesh_ui_help_entry k_help_trend[] = {
 static const struct mesh_ui_help_entry k_help_node_chart[] = {
     {MESH_STR_HELP_LABEL_NODE_CHART, MESH_STR_HELP_NOTE_NODE_CHART},
     {MESH_STR_HELP_LABEL_NODE_CHART_GAPS, MESH_STR_HELP_NOTE_NODE_CHART_GAPS},
+    /* The same press with its own sentence, which is this table's whole argument: a node reports
+       every half hour, so what the span picker does *here* is not what it does over a radio
+       reporting every few minutes, and the general form of that would have said neither. */
+    {MESH_STR_HELP_LABEL_NODE_CHART_SPAN, MESH_STR_HELP_NOTE_NODE_CHART_SPAN},
 };
 
 struct help_feature {
