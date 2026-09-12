@@ -953,10 +953,26 @@ static void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
              * settings rows use instead of spelling "Yes" into the value column; everything
              * else keeps the chevron that means "this row does something".
              */
+            /*
+             * Keyed on the node and the verb, never on the row.
+             *
+             * The animation table is twelve slots reused by least-recently-touched, so an id is
+             * a claim that two draws are the *same control* - which a row index is not. Closing
+             * a pinned node and opening an unpinned one lands the second node's pin row on the
+             * first node's slot at the same `i`, so its knob starts where the other node's was
+             * and slides across on the frame the screen opens: a control announcing a change
+             * nobody made. A traceroute completing under an open detail does it the other way,
+             * inserting rows and moving the mute and ignore switches onto each other's slots.
+             *
+             * The verb is unique within the frame - a node offers each of the three at most
+             * once - and the node is what makes two nodes' switches different controls, which
+             * is the pair `struct fb_switch` asks for. The id is folded rather than truncated
+             * so two node numbers agreeing in their low bits are not one control; it sits above
+             * everything the settings fields and this screen's meters can reach.
+             */
+            const uint32_t node_key = (node->node_id ^ (node->node_id >> 20)) & 0x000FFFFFU;
             struct fb_switch sw = {
-                /* Keyed above everything the settings fields and this screen's meters can
-                   reach, so a switch here and a switch there cannot share an animation slot. */
-                .id = 0x05000000U | i,
+                .id = 0x05000000U | ((uint32_t)item->action << 20) | node_key,
                 .family = item->tone == (uint8_t)MESH_UI_TONE_WARNING ? MESH_UI_FAMILY_WARNING
                                                                       : MESH_UI_FAMILY_PRIMARY,
                 .on = item->on,

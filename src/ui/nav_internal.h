@@ -103,6 +103,21 @@ void mesh_ui_nav_keyboard_close(struct mesh_ui_nav *nav);
 bool mesh_ui_nav_keyboard_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                               enum mesh_ui_key key, struct mesh_ui_action *action);
 
+/* ---- nav.c ------------------------------------------------------------------------------- */
+
+/*
+ * Puts `screen`'s cursor on the first row it may stand on, which is row 0 on every list whose
+ * first row is not a group title.
+ *
+ * Declared here rather than kept static because opening a level is not one file's job: the node
+ * detail is opened from the Nodes list in nav.c *and* from a marker in nav_map.c, and the second
+ * of those wrote a bare 0 - which was the same answer until the detail's first row became the
+ * actions group's heading. Two opinions about where a level opens is exactly the split this
+ * group of files keeps collapsing.
+ */
+void mesh_ui_nav_cursor_to_first_row(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                                     enum mesh_ui_screen screen);
+
 /* ---- nav_settings.c ---------------------------------------------------------------------- */
 
 /* The store's handshake if it holds one, else NULL - what the settings model takes as its

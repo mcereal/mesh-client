@@ -641,15 +641,14 @@ static uint32_t mesh_ui_nav_skip_headings(const struct mesh_ui_nav *nav,
  * Puts `screen`'s cursor on the first row it may stand on, which is row 0 on every list whose
  * first row is not a group title.
  *
- * Four places open a level and every one of them used to write 0, which was the same answer
+ * Five places open a level and every one of them used to write 0, which was the same answer
  * until the two screens that draw headings grew one at the top: the node detail's actions group
  * now names itself, and a settings section has opened on a heading since it had them. Reading
  * it rather than writing 1 is what keeps a level whose first group is conditional - our own
  * node offers no actions at all - from opening on a title anyway.
  */
-static void mesh_ui_nav_cursor_to_first_row(struct mesh_ui_nav *nav,
-                                            const struct mesh_ui_store *store,
-                                            enum mesh_ui_screen screen) {
+void mesh_ui_nav_cursor_to_first_row(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                                     enum mesh_ui_screen screen) {
     nav->cursor[screen] =
         mesh_ui_nav_skip_headings(nav, store, 0U, mesh_ui_nav_row_count(nav, store, screen), +1);
 }
