@@ -864,17 +864,22 @@ static void node_rows_neighbors(struct node_rows *rows, const struct mesh_ui_nod
 }
 
 /*
- * The traced route, if the one trace slot is holding this node's. Two paths of stops, each
- * row a node and the SNR of the link that reached it - the first stop of a path is the sender
- * and has no incoming link, so it carries no reading rather than a zero.
+ * The verb that starts a trace, and what the one trace slot currently says about this node.
  *
- * The action row is emitted whatever the state, because it is also how a trace is started and
- * re-run; the path rows only when there is a path. A trace of some *other* node shows nothing
- * here beyond a plain "press A", so opening a second node never appears to describe it with
+ * Emitted whatever the state, because it is also how a trace is re-run. A trace of some *other*
+ * node leaves it a plain "press A", so opening a second node never appears to describe it with
  * the first one's route.
+ *
+ * Split from the path rows below, and the split is load-bearing rather than tidying. This is an
+ * action and it belongs among the actions; a measured route is a *report*, and a report between
+ * two verbs is a group interrupting a group. A renderer that draws each group as a card has no
+ * way back from that - what says a card ends is the next heading, and nothing says a run of rows
+ * has rejoined the group it left - so the verbs after the route were drawn inside the "Route
+ * back" card, under a heading that had nothing to do with them. Keeping every group a single
+ * unbroken run is what the cards need and what the flat list wanted anyway.
  */
-static void node_rows_route(struct node_rows *rows, const struct mesh_ui_node_summary *node,
-                            const struct mesh_ui_traceroute *trace, uint32_t now) {
+static void node_rows_route_action(struct node_rows *rows, const struct mesh_ui_node_summary *node,
+                                   const struct mesh_ui_traceroute *trace) {
     const bool ours = trace != NULL && trace->target == node->node_id;
     const char *value = mesh_str(MESH_STR_COMMON_PRESS_A);
     if (ours) {
@@ -890,7 +895,16 @@ static void node_rows_route(struct node_rows *rows, const struct mesh_ui_node_su
         }
     }
     rows_action(rows, MESH_STR_NODE_TRACE_ROUTE, value, MESH_UI_NODE_ACTION_TRACEROUTE);
+}
 
+/*
+ * The traced route itself, when the one trace slot is holding a finished trace of this node.
+ * Two paths of stops, each row a node and the SNR of the link that reached it - the first stop
+ * of a path is the sender and has no incoming link, so it carries no reading rather than a zero.
+ */
+static void node_rows_route_path(struct node_rows *rows, const struct mesh_ui_node_summary *node,
+                                 const struct mesh_ui_traceroute *trace, uint32_t now) {
+    const bool ours = trace != NULL && trace->target == node->node_id;
     if (!ours || trace->state != MESH_TRACEROUTE_DONE) {
         return;
     }
@@ -969,7 +983,7 @@ uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool
         /* Pinning our own node would be meaningless - it already ranks above everything. */
         rows_toggle(&rows, MESH_STR_NODE_ACT_PIN, node->is_favorite, MESH_UI_NODE_ACTION_FAVORITE);
         /* Tracing the route to ourselves is a question with no links in it. */
-        node_rows_route(&rows, node, trace, now);
+        node_rows_route_action(&rows, node, trace);
         /* The one row that answers "who is this?" for a node that joined after the NodeDB
            replay and has been sitting in the list as a bare id ever since. */
         rows_action(&rows, MESH_STR_NODE_ACT_REQUEST_INFO, mesh_str(MESH_STR_COMMON_PRESS_A),
@@ -1021,6 +1035,35 @@ uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool
                     MESH_UI_NODE_ACTION_SHOW_ON_MAP);
         rows_action(&rows, MESH_STR_NODE_ACT_WAYPOINT, mesh_str(MESH_STR_COMMON_PRESS_A),
                     MESH_UI_NODE_ACTION_WAYPOINT);
+    }
+    /*
+     * The traced route, after every verb rather than beside the one that starts it.
+     *
+     * It reads as the first of the report groups, which is what it is - a measurement, like the
+     * readings under it, rather than something to press. Beside its verb it was a group in the
+     * middle of the action block, and the rows after it went on being actions under a "Route
+     * back" heading: harmless-looking in a flat list and a card whose heading lies about its
+     * contents once the groups are drawn as cards. Every group on this screen is now one
+     * unbroken run.
+     *
+     * Still gated on `is_self` with the block above: the verb is not offered for our own node,
+     * so a trace targeting it is a trace nothing here could have started.
+     */
+    /*
+     * The traced route, after every verb rather than beside the one that starts it.
+     *
+     * It reads as the first of the report groups, which is what it is - a measurement, like the
+     * readings under it, rather than something to press. Beside its verb it was a group in the
+     * middle of the action block, and the rows after it went on being actions under a "Route
+     * back" heading: harmless-looking in a flat list and a card whose heading lies about its
+     * contents once the groups are drawn as cards. Every group on this screen is now one
+     * unbroken run, which is what node_detail_groups_are_unbroken_runs pins.
+     *
+     * Still gated on `is_self` with the action block: the verb is not offered for our own node,
+     * so a trace targeting it is a trace nothing here could have started.
+     */
+    if (!is_self) {
+        node_rows_route_path(&rows, node, trace, now);
     }
     node_rows_identity(&rows, node);
     node_rows_signal(&rows, node, is_self, now);
