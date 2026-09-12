@@ -82,8 +82,7 @@ const char *mesh_firmware_update_error_name(enum mesh_firmware_update_error erro
 static void update_set(struct mesh_firmware_update *update, enum mesh_firmware_update_state state,
                        const char *detail) {
     if (update->state != state) {
-        mesh_log_info("firmware-update", "%s -> %s",
-                      mesh_firmware_update_state_name(update->state),
+        mesh_log_info("firmware-update", "%s -> %s", mesh_firmware_update_state_name(update->state),
                       mesh_firmware_update_state_name(state));
     }
     update->state = state;
@@ -123,8 +122,9 @@ static void update_release_link(struct mesh_firmware_update *update) {
 static void update_finish(struct mesh_firmware_update *update,
                           enum mesh_firmware_update_error error, const char *detail) {
     update->error = error;
-    update_set(update, error == MESH_FIRMWARE_UPDATE_ERROR_NONE ? MESH_FIRMWARE_UPDATE_DONE
-                                                                : MESH_FIRMWARE_UPDATE_FAILED,
+    update_set(update,
+               error == MESH_FIRMWARE_UPDATE_ERROR_NONE ? MESH_FIRMWARE_UPDATE_DONE
+                                                        : MESH_FIRMWARE_UPDATE_FAILED,
                detail);
     if (update->on_done != NULL) {
         update->on_done(update->userdata, update);
@@ -225,7 +225,7 @@ static enum mesh_firmware_update_error update_error_of_ota(enum mesh_firmware_ot
 static void update_usb_done(void *userdata, const struct mesh_firmware_install *install) {
     struct mesh_firmware_update *const update = (struct mesh_firmware_update *)userdata;
     if (install->state == MESH_FIRMWARE_INSTALL_DONE) {
-        update_finish(update, MESH_FIRMWARE_UPDATE_ERROR_NONE, update->version);
+        update_finish(update, MESH_FIRMWARE_UPDATE_ERROR_NONE, update->release.version);
         return;
     }
     update_finish(update, update_error_of_install(install->error),
@@ -245,14 +245,13 @@ static void update_ble_done(void *userdata, const struct mesh_firmware_ota *ota)
      */
     update_close_bluez(update);
     if (ota->state == MESH_FIRMWARE_OTA_DONE) {
-        update_finish(update, MESH_FIRMWARE_UPDATE_ERROR_NONE, update->version);
+        update_finish(update, MESH_FIRMWARE_UPDATE_ERROR_NONE, update->release.version);
         return;
     }
     /* The radio's words or the loader's where there are any: a firmware that said why is more
        use than our name for the category it fell into. */
     update_finish(update, update_error_of_ota(ota->error),
-                  ota->reason[0] != '\0' ? ota->reason
-                                         : mesh_firmware_ota_error_name(ota->error));
+                  ota->reason[0] != '\0' ? ota->reason : mesh_firmware_ota_error_name(ota->error));
 }
 
 static void update_begin_usb(struct mesh_firmware_update *update, const char *image_path) {
@@ -372,7 +371,8 @@ static void update_image_done(void *userdata, const struct mesh_firmware_fetch *
     update->deadline_ms = 0U;
 }
 
-/* ---- lifecycle -------------------------------------------------------------------------------- */
+/* ---- lifecycle --------------------------------------------------------------------------------
+ */
 
 int mesh_firmware_update_init(struct mesh_firmware_update *update, struct mesh_event_loop *loop) {
     if (update == NULL) {
@@ -439,7 +439,7 @@ int mesh_firmware_update_start(struct mesh_firmware_update *update,
     update->board = *board;
     update->path = board->path;
     update->hw_model = board->hw_model;
-    mesh_str_copy(update->version, sizeof update->version, release->version);
+    update->release = *release;
     mesh_str_copy(update->where, sizeof update->where, where != NULL ? where : "");
     mesh_str_copy(update->staging, sizeof update->staging, firmware_update_staging());
     update->hooks = *hooks;
@@ -515,8 +515,8 @@ void mesh_firmware_update_tick(struct mesh_firmware_update *update, uint64_t now
         if (update->deadline_ms == 0U) {
             update->deadline_ms = now_ms + MESH_FIRMWARE_UPDATE_READY_TIMEOUT_MS;
         }
-        const bool ready = update->hooks.radio_ready == NULL ||
-                           update->hooks.radio_ready(update->hooks.userdata);
+        const bool ready =
+            update->hooks.radio_ready == NULL || update->hooks.radio_ready(update->hooks.userdata);
         if (ready) {
             update_begin_handover(update);
         } else if (now_ms >= update->deadline_ms) {
@@ -597,6 +597,11 @@ bool mesh_firmware_update_radio_in_loader(const struct mesh_firmware_update *upd
     return update != NULL && mesh_firmware_ota_radio_in_loader(&update->ble);
 }
 
+bool mesh_firmware_update_can_resume(const struct mesh_firmware_update *update) {
+    return mesh_firmware_update_radio_in_loader(update) && !mesh_firmware_update_busy(update) &&
+           update->board.target[0] != '\0' && update->release.manifest_url[0] != '\0';
+}
+
 unsigned mesh_firmware_update_progress(const struct mesh_firmware_update *update) {
     if (update == NULL) {
         return 0U;
@@ -605,9 +610,8 @@ unsigned mesh_firmware_update_progress(const struct mesh_firmware_update *update
     case MESH_FIRMWARE_UPDATE_DOWNLOADING:
         return mesh_firmware_fetch_progress(&update->image);
     case MESH_FIRMWARE_UPDATE_WRITING:
-        return update->path == MESH_FIRMWARE_PATH_USB
-                   ? mesh_firmware_install_progress(&update->usb)
-                   : mesh_firmware_ota_progress(&update->ble);
+        return update->path == MESH_FIRMWARE_PATH_USB ? mesh_firmware_install_progress(&update->usb)
+                                                      : mesh_firmware_ota_progress(&update->ble);
     default:
         return 0U;
     }

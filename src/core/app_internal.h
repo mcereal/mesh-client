@@ -69,6 +69,17 @@ void mesh_app_track_settings_save(struct mesh_app *app,
 
 /* ---- app_publish.c ---------------------------------------------------------------------- */
 
+/*
+ * Which bus the radio is on, as the firmware module's own idea of a path - NONE for nothing
+ * connected *and* for a link no firmware can travel on, which today is TCP.
+ *
+ * Shared because the press and the row have to agree about it: the row is built from what this
+ * answered at publish time, and the press re-asks it before arming because the link can have
+ * moved in between. Two readings of the bus would be two answers about which radio is being
+ * sent into a loader.
+ */
+enum mesh_firmware_path mesh_app_firmware_bus(void);
+
 void mesh_app_flush_ui_cache(struct mesh_app *app);
 void mesh_app_close_ui_cache_timer(struct mesh_app *app);
 

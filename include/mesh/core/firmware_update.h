@@ -170,10 +170,17 @@ struct mesh_firmware_update {
     enum mesh_firmware_update_error error;
     char detail[MESH_FIRMWARE_UPDATE_DETAIL_MAX];
 
-    /* What was asked for, kept so a row can name it while the job runs and a caller can tell
-       whether the answer it is holding is about the radio in front of it. */
+    /*
+     * What was asked for, kept so a row can name it while the job runs - and so a job that
+     * ended with the radio in its loader can be started again from what it already knows.
+     *
+     * That second use is why the whole release is here rather than its version: the recovery
+     * press has no check behind it. The radio is in the loader, so it is answering nothing, so
+     * the *check's* answer has been dropped as being about a radio that is no longer there -
+     * and re-fetching the image needs the manifest URL that answer was carrying.
+     */
     struct mesh_firmware_board board;
-    char version[MESH_FIRMWARE_VERSION_MAX];
+    struct mesh_firmware_release release;
     uint32_t hw_model;
     enum mesh_firmware_path path;
     char staging[MESH_FETCH_PATH_MAX];
@@ -221,6 +228,17 @@ void mesh_firmware_update_use_ca_bundle(struct mesh_firmware_update *update, con
 
 /* True when a fetcher was found, i.e. when a press could do anything at all. */
 bool mesh_firmware_update_available(const struct mesh_firmware_update *update);
+
+/*
+ * True when this job knows enough to be started again without a check behind it: it ran, it
+ * left the radio in its loader, and it still holds the board and the release it was running.
+ *
+ * The recovery press, and the thing that makes the banner's promise true. A radio in the loader
+ * answers no handshake, so by the time the banner is up the check's answer has been dropped as
+ * being about a radio that is not there - and without this the row the banner points at is not
+ * on the screen.
+ */
+bool mesh_firmware_update_can_resume(const struct mesh_firmware_update *update);
 
 /*
  * Starts the whole thing for `board` at `release`.

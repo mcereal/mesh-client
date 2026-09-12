@@ -22,6 +22,7 @@
 
 #include "mesh/core/event_loop.h"
 #include "mesh/core/firmware_update.h"
+#include "mesh/utils/text.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -100,9 +101,7 @@ static bool update_probe_radio_ready(void *userdata) {
     return ((struct update_probe *)userdata)->radio_ready;
 }
 
-static void update_probe_release(void *userdata) {
-    ((struct update_probe *)userdata)->released++;
-}
+static void update_probe_release(void *userdata) { ((struct update_probe *)userdata)->released++; }
 
 static struct mesh_firmware_update_hooks update_hooks(struct update_probe *probe) {
     struct mesh_firmware_update_hooks hooks;
@@ -221,8 +220,9 @@ static void update_harness_down(struct update_harness *harness) {
     if (harness->dir[0] == '\0') {
         return;
     }
-    static const char *const k_files[] = {"curl",         "firmware.window", "firmware.central",
-                                          "firmware.header", "firmware.gz",  "firmware.image"};
+    static const char *const k_files[] = {
+        "curl",        "firmware.window", "firmware.central", "firmware.header",
+        "firmware.gz", "firmware.image"};
     char path[512];
     for (size_t i = 0; i < sizeof k_files / sizeof k_files[0]; ++i) {
         snprintf(path, sizeof path, "%s/%s", harness->dir, k_files[i]);
@@ -511,5 +511,49 @@ MESH_TEST_CASE(firmware_update_refuses_a_second_press, unit) {
 cleanup:
     update_harness_down(&harness);
     MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * The recovery press: what a job knows after it has left a radio in its loader.
+ *
+ * A radio in the ESP32 loader answers no handshake, so by the time this question is asked the
+ * *check's* answer has been dropped as being about a radio that is not there - which means the
+ * job's own memory of the board, the release and the address is the only thing left to start
+ * from. Without it the banner points at a row that is not on the screen, which is a banner that
+ * cannot resolve.
+ */
+MESH_TEST_CASE(firmware_update_knows_when_it_can_go_back, unit) {
+    struct mesh_firmware_update update;
+    MESH_TEST_FAIL_IF(mesh_firmware_update_init(&update, NULL) != 0, "init should succeed");
+    MESH_TEST_FAIL_IF(mesh_firmware_update_can_resume(&update),
+                      "a job that never ran has nowhere to go back to");
+    MESH_TEST_FAIL_IF(mesh_firmware_update_can_resume(NULL), "and neither has no job at all");
+
+    /* A transfer that broke with the radio already in the loader, which is the state the banner
+       reads and the one this press exists for. */
+    update.board = update_t114_board();
+    update.release = update_release();
+    mesh_str_copy(update.where, sizeof update.where, "9C:13:9E:9D:0A:D9");
+    update.ble.state = MESH_FIRMWARE_OTA_FAILED;
+    update.ble.error = MESH_FIRMWARE_OTA_ERROR_TRANSFER;
+    MESH_TEST_FAIL_IF(!mesh_firmware_update_radio_in_loader(&update),
+                      "a broken transfer leaves the radio in its loader");
+    MESH_TEST_FAIL_IF(!mesh_firmware_update_can_resume(&update),
+                      "and the job still holds the board and the release to finish with");
+
+    /* A failure that left the radio *running* is not one to go back to - there is nothing
+       stranded, and the ordinary press is the way to try again. */
+    update.ble.error = MESH_FIRMWARE_OTA_ERROR_REFUSED;
+    MESH_TEST_FAIL_IF(mesh_firmware_update_can_resume(&update),
+                      "a radio that refused is still on the mesh");
+
+    /* A release whose manifest went missing cannot be re-fetched, so it is not resumable
+       however stranded the radio is: the recovery press downloads the image again. */
+    update.ble.error = MESH_FIRMWARE_OTA_ERROR_TRANSFER;
+    update.release.manifest_url[0] = '\0';
+    MESH_TEST_FAIL_IF(mesh_firmware_update_can_resume(&update),
+                      "and there has to be something to fetch");
+    mesh_firmware_update_shutdown(&update);
     record_success(test_name);
 }

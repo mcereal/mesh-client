@@ -787,12 +787,27 @@ static void mesh_app_flatten_client_info(const struct mesh_app *app,
  * done from where we are standing" is one comparison - and a flag set at connect time is a
  * second opinion about a fact the transport registry already holds.
  */
-static enum mesh_firmware_path mesh_app_firmware_bus(void) {
+enum mesh_firmware_path mesh_app_firmware_bus(void) {
     if (mesh_app_connected_identifier() == NULL) {
         return MESH_FIRMWARE_PATH_NONE;
     }
-    return mesh_app_active_transport() == mesh_serial_transport() ? MESH_FIRMWARE_PATH_USB
-                                                                  : MESH_FIRMWARE_PATH_BLE;
+    const struct mesh_transport *const active = mesh_app_active_transport();
+    if (active == mesh_serial_transport()) {
+        return MESH_FIRMWARE_PATH_USB;
+    }
+    /*
+     * **Named rather than defaulted, and a network link is neither.** This read "anything that
+     * is not serial is BLE" while the rows only reported, and that was already wrong about TCP -
+     * it just cost nothing. It costs everything once the row is a press: an ESP32 on a network
+     * cable would pass every check, queue its ota_request down the TCP link, and then hand the
+     * loader scan a hostname to look for a Bluetooth address at. Wi-Fi OTA is not a path here
+     * (one antenna - see the roadmap), so a TCP link is a bus with no firmware on it, and
+     * `bus_connected` is what keeps that from reading as "no radio".
+     */
+    if (active == mesh_ble_transport()) {
+        return MESH_FIRMWARE_PATH_BLE;
+    }
+    return MESH_FIRMWARE_PATH_NONE;
 }
 
 /*
@@ -805,7 +820,8 @@ static enum mesh_firmware_path mesh_app_firmware_bus(void) {
  */
 static void mesh_app_flatten_firmware(struct mesh_app *app, struct mesh_ui_settings *dst) {
     struct mesh_firmware *const firmware = &app->firmware;
-    mesh_firmware_set_bus(firmware, mesh_app_firmware_bus());
+    mesh_firmware_set_bus(firmware, mesh_app_firmware_bus(),
+                          mesh_app_connected_identifier() != NULL);
 
     /*
      * A check whose answer is about a radio that is no longer the one on the other end.
@@ -875,6 +891,24 @@ static void mesh_app_flatten_firmware(struct mesh_app *app, struct mesh_ui_setti
         firmware->blocker == MESH_FIRMWARE_BLOCKER_NONE && board != NULL &&
         board->path != MESH_FIRMWARE_PATH_NONE && firmware->release.manifest_url[0] != '\0' &&
         mesh_firmware_update_available(update) && !mesh_firmware_update_busy(update);
+    /*
+     * The recovery press, which has none of the above and must be offered anyway.
+     *
+     * A radio in the OTA loader answers no handshake, so the check's answer has already been
+     * dropped as being about a radio that is not there: the state is IDLE, the blocker is
+     * NO_RADIO, and every condition above is false. The banner meanwhile says to press Install
+     * again - so without this the banner points at a row that is not on the screen, which is a
+     * banner that cannot resolve, and that is the one thing src/ui/chrome.c's table is written
+     * to prevent.
+     *
+     * What makes it safe to offer is that the job still holds what it needs: the board, the
+     * release and the address it was going to. The bus is stated rather than read, because what
+     * we are going back to is a loader rather than a radio and there is no link to ask.
+     */
+    if (mesh_firmware_update_can_resume(update) && mesh_firmware_update_available(update)) {
+        dst->fw_can_install = true;
+        dst->fw_bus = (uint8_t)MESH_FIRMWARE_PATH_BLE;
+    }
 }
 
 static void mesh_app_flatten_settings(const struct mesh_radio_settings *src,

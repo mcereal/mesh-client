@@ -94,10 +94,20 @@ struct mesh_firmware {
     /*
      * The bus the client is talking to the radio over, borrowing the path enum: a serial link
      * is over the same USB port a UF2 write would use, and a BLE link is where an OTA would
-     * happen, so "can this be done from here" is one comparison rather than a table. NONE when
-     * nothing is connected.
+     * happen, so "can this be done from here" is one comparison rather than a table.
+     *
+     * NONE means *no bus that could carry firmware*, which is two situations rather than one -
+     * hence `bus_connected` beside it. A TCP link is the second: there is a radio, it answers
+     * everything else this client asks, and Wi-Fi OTA is not a path here (the Brick's Wi-Fi and
+     * its Bluetooth are one part behind one antenna). Folding it into "no radio" would have the
+     * rows say there is nothing attached while the client is plainly talking to something;
+     * folding it into BLE - which is what "anything that is not serial" did - is worse, because
+     * it makes an ESP32 on a network cable look installable and sends the loader scan hunting
+     * for a hostname.
      */
     enum mesh_firmware_path bus;
+    /* Whether a radio is attached at all, whatever bus it is on. */
+    bool bus_connected;
 
     /* What the radio said about itself when the check started, kept so the answer cannot drift
        under the rows while a radio reconnects mid-check. */
@@ -142,11 +152,16 @@ bool mesh_firmware_available(const struct mesh_firmware *firmware);
 bool mesh_firmware_busy(const struct mesh_firmware *firmware);
 
 /*
- * Tells the module which bus the radio is on, as the app sees it. Cheap and idempotent; a
- * change forgets nothing, because the check's *answer* does not depend on the bus - only the
- * blocker does, and that is recomputed from here.
+ * Tells the module which bus the radio is on, as the app sees it, and whether there is one at
+ * all. Cheap and idempotent; a change forgets nothing, because the check's *answer* does not
+ * depend on the bus - only the blocker does, and that is recomputed from here.
+ *
+ * The two arguments are not one: `bus` NONE with `connected` true is a radio on a bus that
+ * carries no firmware, and the row for that says which bus to go and use rather than claiming
+ * there is no radio.
  */
-void mesh_firmware_set_bus(struct mesh_firmware *firmware, enum mesh_firmware_path bus);
+void mesh_firmware_set_bus(struct mesh_firmware *firmware, enum mesh_firmware_path bus,
+                           bool connected);
 
 /*
  * Starts a check for the radio described by `hw_model` and `running`.
