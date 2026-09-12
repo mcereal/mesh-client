@@ -188,6 +188,9 @@ bool mesh_ui_nav_settings_commit_text(struct mesh_ui_nav *nav, const struct mesh
     char text[MESH_UI_SETTING_TEXT_MAX];
     mesh_str_copy(text, sizeof text, nav->draft);
     size_t cap = mesh_ui_settings_text_max(field);
+    /* The buffer is measured from the field limits (mesh/ui/settings_text.def), so this is the
+       bound holding rather than a cut: a field wide enough to need it would fail the test that
+       walks the table. It stays because the cut below indexes `text` by `cap`. */
     if (cap >= sizeof text) {
         cap = sizeof text - 1U;
     }

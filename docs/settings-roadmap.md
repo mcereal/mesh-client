@@ -575,9 +575,10 @@ new rows. Four things, in the order they would have to be built:
 - **`flags` is a bitfield** (`FLAG_LISTEN_ENABLED`, `FLAG_BROADCAST_ENABLED`, `FLAG_LEGACY_SPLIT`).
   Three toggle rows over one `uint32` - the first field in the client whose rows are bits rather
   than the whole value. The field table has no way to say "bit 2 of this field" yet.
-- **`broadcast_message` is 100 bytes**, against a `MESH_UI_SETTING_TEXT_MAX` of 80. That cap has
-  now been raised twice, once per module that outgrew it; a third bump is the moment to ask
-  whether the edit buffer should be sized from the field table instead of from a constant.
+- **`broadcast_message` is 100 bytes**, against a `MESH_UI_SETTING_TEXT_MAX` of 80 - and this
+  one is **done**, ahead of the rest of the phase: the buffer is now measured from the field
+  table (the interlude below), so the beacon's message row costs a line in
+  `settings_text.def` rather than a third hand-raised constant.
 - **`broadcast_offer_channel`** embeds a `ChannelSettings` - a name and a PSK, with the key rows
   the Channels section already has, but inside another section.
 - **`broadcast_targets` is a repeated submessage**, up to four `{preset, region, channel_index}`
@@ -591,6 +592,67 @@ a candidate for the confirm overlay - the first module that would need one.
 
 Worth doing on its own, after the hardware modules are decided rather than before: it is the one
 place where the settings UI grows a new capability instead of another list of rows.
+
+### Interlude - the edit buffer is measured, not declared
+
+Not a phase, and taken out of phase 12 ahead of the rest of it, because it is the half of that
+phase that is a *capability* rather than a list of rows: the settings layer gains it once and
+every field after it inherits it.
+
+`MESH_UI_SETTING_TEXT_MAX` is the width of the buffer a TEXT or KEY edit is held in - one per
+pending edit, one per row the screen builds. It was a number in `nav.h`, and it had been raised
+twice: 72 for `DeviceConfig.tzdef`'s 65, then 80 for `StatusMessageConfig.node_status`'s 80.
+Mesh beacon's 100-byte `broadcast_message` would have been the third.
+
+What made a third bump the moment to stop is *how* the number fails when it is too small.
+`mesh_ui_nav_settings_commit_text()` copies the draft into the buffer and cuts what does not
+fit, and `mesh_ui_settings_text_max()` used to clamp the field's own limit to the buffer on the
+way out - so a field wider than the buffer got a shorter keyboard cap, a value cut where nothing
+could see it, and a radio that would have taken the whole string sent part of one. Nothing on
+the frame says a setting was shortened, which is the same fault as the marker gutter and the
+silent `mesh_radio_settings_enqueue` drop: a mistake that is invisible until somebody reads the
+value back off the radio.
+
+So the limits moved to [`include/mesh/ui/settings_text.def`](../include/mesh/ui/settings_text.def)
+and the buffer is measured from them:
+
+```c
+union mesh_ui_setting_text_widest {
+#define MESH_UI_TEXT_FIELD(name, bytes) char name[(bytes) + 1U];
+#include "mesh/ui/settings_text.def"
+#undef MESH_UI_TEXT_FIELD
+};
+#define MESH_UI_SETTING_TEXT_MAX (sizeof(union mesh_ui_setting_text_widest))
+```
+
+A union is as wide as its widest member and no wider, and a member here is one field's bytes
+plus its NUL - so the buffer *is* the widest field, and a field wider than every other one
+widens it by being added. The same file is included a second time, in `settings_internal.h`,
+as an enum of `MESH_UI_TEXT_LIMIT_*` values that each `k_fields` row names instead of writing
+its number again: the shape `catalog.def` and `icons.def` already use, and for the same reason -
+one list, read twice with the macro defined differently, so the two readings cannot drift.
+
+Four things worth keeping from doing it:
+
+- **The clamp came out of `mesh_ui_settings_text_max()`.** It can no longer fire, and while it
+  stood it was the silent truncation one layer up. The defensive bound in `commit_text()` stays,
+  because the cut there indexes the buffer by it.
+- **`_Static_assert` holds the def to the constants it restates.** A canned slot's 31 is
+  `MESH_UI_CANNED_SLOT_MAX` less its NUL and a key's 64 is two hex characters per byte of
+  `MESH_UI_PSK_MAX`, and the def has to write both out because it is read from `nav.h`, which
+  sits below the headers those live in. `settings.c` sees both, so the pair is checked where
+  they meet rather than remembered.
+- **The def is not the whole field table and must not become it.** What a field *is* - its
+  label, its section, its note - stays on its `k_fields` row. Only the limit moved, and only
+  because two things need it.
+- **A test walks the table in both directions.** `settings_text_fields_fit_the_edit_buffer`
+  fails on a TEXT row written with a bare number the def does not know about - which is the way
+  back to the old bug - and on a def row the table no longer has, which would leave every edit
+  slot carrying bytes nothing can put in them. It names the field, because the failure that
+  matters is "which one".
+
+- Exit criteria: none on the device. The buffer's width is unchanged at 80 today, so nothing a
+  reader can see changes; what changes is that the next field to outgrow it is a line in a list.
 
 ### Phase 13 - the four hardware modules, or not at all
 

@@ -81,15 +81,36 @@ enum mesh_ui_screen {
 #define MESH_UI_CANNED_TEXT_MAX 64U
 /* Upstream Data.payload caps at 233 bytes; the draft and action text hold that plus a NUL. */
 #define MESH_UI_DRAFT_MAX 234U
-/* Pending Settings edits held until Save, and the longest text a setting can take. */
-/* A section with fifteen editable fields has to be able to carry fifteen edits: below that,
-   mesh_ui_nav_edit_set() returns false and the press silently does nothing. */
+/* Pending Settings edits held until Save. A section with fifteen editable fields has to be
+   able to carry fifteen edits: below that, mesh_ui_nav_edit_set() returns false and the press
+   silently does nothing. */
 #define MESH_UI_SETTINGS_EDITS_MAX 16U
-/* Long enough for a 32-byte key typed as hex. */
-/* The longest TEXT field plus its NUL: StatusMessageConfig.node_status is char[80], so
-   anything smaller would truncate a status the radio accepts (mesh_ui_nav_settings_commit_text
-   caps at this, silently). Was 72, sized for DeviceConfig.tzdef's 65. */
-#define MESH_UI_SETTING_TEXT_MAX 80U
+
+/*
+ * The longest TEXT or KEY value a field will take, plus its NUL.
+ *
+ * Measured from the field table rather than declared beside it. A union is as wide as its
+ * widest member and no wider, and every member here is one field's bytes and its NUL, so this
+ * is exactly the widest field in mesh/ui/settings_text.def - which is where a field's limit is
+ * written, and which the field table's own rows read the same number out of.
+ *
+ * It was a constant, and the constant was raised twice (72 for DeviceConfig.tzdef, then 80 for
+ * StatusMessageConfig.node_status) because a value too long for the buffer is truncated by
+ * mesh_ui_nav_settings_commit_text() rather than refused: the radio would have taken the whole
+ * string and is sent part of one, with nothing on the frame saying so. A number that has to be
+ * raised by hand is a number that is raised one field too late, so the third field to outgrow
+ * it - mesh beacon's 100-byte broadcast_message - widens the buffer by being listed instead.
+ *
+ * The member names are the field enumerators without their prefix. Nothing reads them; what is
+ * wanted is the sizeof, and naming them after their fields is what makes a debugger's view of
+ * the union say which field each width belongs to.
+ */
+union mesh_ui_setting_text_widest {
+#define MESH_UI_TEXT_FIELD(name, bytes) char name[(bytes) + 1U];
+#include "mesh/ui/settings_text.def"
+#undef MESH_UI_TEXT_FIELD
+};
+#define MESH_UI_SETTING_TEXT_MAX (sizeof(union mesh_ui_setting_text_widest))
 
 /*
  * Which press writes an edit. The Position section is the one with two: Y writes
