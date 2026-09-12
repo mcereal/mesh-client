@@ -105,8 +105,10 @@ uint8_t mesh_ui_trend_span_step(uint8_t span, int delta);
  *     makes this honest where auto-scaling is not: the lie is never the scale, it is a scale the
  *     picture does not state.
  *
- * `high` is the largest reading the picture will draw - the largest *inside the window*, because
- * a ceiling picked from readings that scrolled off is a plot with empty air at the top of it.
+ * `high` is the largest reading the picture will draw, which is narrower than "the largest" in
+ * two ways: it is inside the window, because a ceiling picked from readings that scrolled off is
+ * a plot with empty air at the top of it; and it is on a line, because a reading nothing draws
+ * must not move an axis. Both are mesh_ui_trend_frame()'s to establish.
  *
  * The domain comes back unchanged in the three cases where contracting it would be a guess: a
  * descending domain (min > max, which reads backwards and whose "ceiling" is its floor), a `high`

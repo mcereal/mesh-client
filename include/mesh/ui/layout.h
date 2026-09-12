@@ -646,6 +646,23 @@ void mesh_ui_series_project(const struct mesh_ui_series *series, struct mesh_ui_
 bool mesh_ui_series_has_segment(const struct mesh_ui_series *series);
 
 /*
+ * Whether the `index`th reading begins a segment rather than continuing the one before it.
+ *
+ * The same test the projection lifts the pen on and mesh_ui_series_has_segment() counts, asked of
+ * one sample - which is what a caller needs to know whether a reading is *drawn*. A sample that
+ * starts a segment and has no reading continuing it is on no line at all: the projection emits it
+ * and every component skips it, because a stroke needs two ends.
+ *
+ * It matters wherever a reading the picture does not draw would otherwise be allowed to change
+ * the picture. mesh_ui_trend_domain()'s ceiling is the case that found it - an isolated reading
+ * high above the visible line held the axis open over it, which is exactly the flattening that
+ * contracting the ceiling exists to undo.
+ *
+ * True past the end and for no series: nothing there continues anything.
+ */
+bool mesh_ui_series_starts_segment(const struct mesh_ui_series *series, uint32_t index);
+
+/*
  * The clock window a set of series covers: the oldest stamp on any of them, and the newest.
  *
  * One window for several series rather than one each, because that is the whole of what makes

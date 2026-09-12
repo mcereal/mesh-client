@@ -765,6 +765,15 @@ static bool series_breaks_at(const struct mesh_ui_series *series,
            (series->gap_ms > 0U && (sample->time - previous) > series->gap_ms);
 }
 
+bool mesh_ui_series_starts_segment(const struct mesh_ui_series *series, uint32_t index) {
+    if (series == NULL || index >= series->count) {
+        return true; /* nothing there, so nothing continues into it */
+    }
+    const struct mesh_ui_sample *sample = mesh_ui_series_at(series, index);
+    const uint32_t previous = index > 0U ? mesh_ui_series_at(series, index - 1U)->time : 0U;
+    return series_breaks_at(series, sample, index, previous);
+}
+
 bool mesh_ui_series_has_segment(const struct mesh_ui_series *series) {
     if (series == NULL || series->count < 2U) {
         return false; /* one reading is a level, and there is a component for that */

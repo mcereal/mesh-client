@@ -14,10 +14,10 @@
 #include "framework/mesh_test.h"
 #include "support/ui_fixture.h"
 
+#include "mesh/ui/actions.h"
 #include "mesh/ui/anim.h"
 #include "mesh/ui/history.h"
 #include "mesh/ui/layout.h"
-#include "mesh/ui/actions.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
@@ -100,6 +100,44 @@ MESH_TEST_CASE(trend_leaves_a_domain_it_cannot_contract, unit) {
     record_success(test_name);
 }
 
+/*
+ * A reading the picture does not draw does not move the axis either.
+ *
+ * A stroke needs two ends, so a reading that starts a segment with nothing continuing it - the
+ * first report after a silence longer than the series' own gap, then silence again - is on no
+ * line at all. Counted towards the ceiling it holds the axis open over the readings that *are*
+ * drawn, which is precisely the flattening contracting the ceiling exists to undo: a node coming
+ * back from an outage with one reading of 30% and going quiet again would put an afternoon of 1%
+ * readings along the floor.
+ */
+MESH_TEST_CASE(trend_ceiling_ignores_a_reading_nothing_draws, unit) {
+    struct mesh_ui_series series;
+    mesh_ui_series_reset(&series, 60U * 1000U);
+    /* Three readings a few seconds apart: one line, all of it low. */
+    push_every(&series, 1000U, 5U * 1000U, 3U, 11);
+    /* Then a silence past the gap, and a single high reading with nothing after it. */
+    mesh_ui_series_push(&series, 1000U + 10U * 60U * 1000U, 300);
+
+    MESH_TEST_FAIL_IF(!mesh_ui_series_starts_segment(&series, 3U),
+                      "a reading after a long silence starts a segment");
+    MESH_TEST_FAIL_IF(mesh_ui_series_starts_segment(&series, 1U),
+                      "a reading a few seconds after the last one continues it");
+
+    const struct mesh_ui_series *const list[] = {&series};
+    struct mesh_ui_trend frame;
+    MESH_TEST_FAIL_IF(!mesh_ui_trend_frame(list, 1U, k_permille, MESH_UI_TREND_SPAN_ALL, &frame),
+                      "four readings should frame");
+    MESH_TEST_FAIL_IF(frame.scale.max > 20,
+                      "an isolated reading held the ceiling open over the line that is drawn");
+
+    /* And the same reading, once something continues it, is on a line and does count. */
+    mesh_ui_series_push(&series, 1000U + 10U * 60U * 1000U + 5U * 1000U, 290);
+    MESH_TEST_FAIL_IF(!mesh_ui_trend_frame(list, 1U, k_permille, MESH_UI_TREND_SPAN_ALL, &frame),
+                      "five readings should frame");
+    MESH_TEST_FAIL_IF(frame.scale.max < 300, "a reading on a line has to fit under the ceiling");
+    record_success(test_name);
+}
+
 /* The strip's four spans, in the order it draws them, walked by the d-pad and wrapping at both
    ends - a press that did nothing at the end of a set of four would be a keycap the action bar is
    still naming. */
@@ -136,9 +174,8 @@ MESH_TEST_CASE(trend_span_narrows_the_window_and_never_pads_it, unit) {
     const struct mesh_ui_series *const list[] = {&series};
     struct mesh_ui_trend frame;
 
-    MESH_TEST_FAIL_IF(
-        !mesh_ui_trend_frame(list, 1U, k_permille, MESH_UI_TREND_SPAN_ALL, &frame),
-        "an hour of readings should frame");
+    MESH_TEST_FAIL_IF(!mesh_ui_trend_frame(list, 1U, k_permille, MESH_UI_TREND_SPAN_ALL, &frame),
+                      "an hour of readings should frame");
     MESH_TEST_FAIL_IF(frame.to - frame.from != 60U * 60U * 1000U,
                       "ALL should be the readings' own span");
 
@@ -221,7 +258,8 @@ MESH_TEST_CASE(trend_projection_drops_readings_outside_the_window, unit) {
     for (uint32_t i = 0U; i < clamped.count; ++i) {
         stacked += clamped.items[i].x == 0 ? 1U : 0U;
     }
-    MESH_TEST_FAIL_IF(stacked < 2U, "the clamping projection is the one that stacks; it still does");
+    MESH_TEST_FAIL_IF(stacked < 2U,
+                      "the clamping projection is the one that stacks; it still does");
     record_success(test_name);
 }
 

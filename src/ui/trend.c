@@ -95,12 +95,25 @@ struct mesh_ui_scale mesh_ui_trend_domain(struct mesh_ui_scale domain, int32_t h
 /* ---- the frame ------------------------------------------------------------------------------ */
 
 /*
- * The largest reading inside the window, across every series on the picture.
+ * The largest reading inside the window that the picture will actually draw.
  *
- * Inside the window rather than across the ring, because the ceiling is picked for what is
- * *drawn*: a busy spell that has just scrolled off the left-hand edge would otherwise go on
- * holding the axis open over an empty plot, which is the complaint this whole file answers,
- * arriving through the span picker instead of through the domain.
+ * Two qualifications on "largest", and each of them is a way an axis gets held open over a plot
+ * with nothing in it.
+ *
+ * *Inside the window*, because the ceiling is picked for what is drawn: a busy spell that has
+ * just scrolled off the left-hand edge would otherwise go on holding the axis open, which is the
+ * complaint this whole file answers arriving through the span picker instead of through the
+ * domain.
+ *
+ * *That the picture will draw*, because a stroke needs two ends. A reading that starts a segment
+ * and has nothing continuing it - the first report after a silence longer than the series'
+ * `gap_ms`, or after a mesh_ui_series_break() - is emitted by the projection and drawn by
+ * nothing. A node that comes back from an outage with one reading of 80C and then goes quiet
+ * again would take the axis to 80 and flatten the afternoon of real readings underneath it: the
+ * same flattening, from the same cause, that contracting the ceiling exists to undo.
+ *
+ * The two ends of a drawn segment both count, which is what the pair of tests says: a reading
+ * that continues the one before it is on a line, and so is one the next reading continues.
  */
 static bool series_high(const struct mesh_ui_series *const *series, uint32_t count, uint32_t from,
                         uint32_t to, int32_t *out) {
@@ -111,9 +124,27 @@ static bool series_high(const struct mesh_ui_series *const *series, uint32_t cou
         if (one == NULL) {
             continue;
         }
+        uint32_t placed = 0U; /* how many of this series the window has kept so far */
         for (uint32_t j = 0U; j < one->count; ++j) {
             const struct mesh_ui_sample *sample = mesh_ui_series_at(one, j);
             if (sample == NULL || sample->time < from || sample->time > to) {
+                continue;
+            }
+            const uint32_t here = placed++;
+            /*
+             * The first reading the window kept always starts a segment, whatever the ring says
+             * about it - that is mesh_ui_series_project_within()'s own rule, and asking the raw
+             * break test here instead would count a reading as drawn because of a predecessor the
+             * clip has already thrown away.
+             */
+            const bool starts = here == 0U || mesh_ui_series_starts_segment(one, j);
+            bool drawn = !starts;
+            if (!drawn) {
+                const struct mesh_ui_sample *next = mesh_ui_series_at(one, j + 1U);
+                drawn =
+                    next != NULL && next->time <= to && !mesh_ui_series_starts_segment(one, j + 1U);
+            }
+            if (!drawn) {
                 continue;
             }
             if (!any || sample->value > high) {
