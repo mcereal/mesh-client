@@ -1,3 +1,13 @@
+## [2.69.0](https://github.com/mcereal/mesh-client/compare/v2.68.8...v2.69.0) (2026-09-12)
+
+### Features
+
+* **crash:** leave a readable report behind when the client faults ([8478566](https://github.com/mcereal/mesh-client/commit/84785668f077536f52b53fc623c12bb76c9a5140))
+
+### Bug Fixes
+
+* **crash:** stop the report promising privacy it cannot deliver, and survive an exhausted stack ([6592d8f](https://github.com/mcereal/mesh-client/commit/6592d8f260bf28b3f1c41d4994a324e7d4da48ba))
+
 ## [2.68.8](https://github.com/mcereal/mesh-client/compare/v2.68.7...v2.68.8) (2026-09-12)
 
 ### Bug Fixes
