@@ -1599,6 +1599,32 @@ struct fb_list_item {
     bool marker_slot;
     const char *value;
     enum mesh_ui_tone tone;
+    /*
+     * The label column's own ink, where it is not the value's.
+     *
+     * A label and the value beside it are two tiers of one row, and until now they were one
+     * string: fb_item_headline() pasted the column, the marker gutter and the value together
+     * and the row drew the result in a single colour - so on every fact this client states,
+     * the question and the answer were typographically identical and a card of them read as a
+     * block of text with no way into it. That is the bubble's trailing run one component over,
+     * and it is fixed the same way: the pieces are drawn as pieces, so each can take its own
+     * ink.
+     *
+     * Which tier is quiet is the row's to say, because it depends on what the row *is*. On a
+     * control row the label is what the reader is choosing and the value is where it currently
+     * stands, so the label leads - which is MESH_UI_TONE_NORMAL, the zero, and what every
+     * settings row has always drawn. On a stated fact the label is the question and repeats
+     * down the column while the value is what the reader came for, so the label recedes to
+     * MESH_UI_TONE_DIM and the value keeps the row's own tone.
+     *
+     * DIM is also what the cursor reads: a tier quiet on the ground stays quiet on the fill,
+     * taking TEXT_ON_SEL_DIM where the value takes TEXT_ON_SEL - the pairing `supporting_quiet`
+     * already names one line down, derived here rather than declared so a row cannot ask for a
+     * dim label that shouts the moment it is pointed at.
+     *
+     * Ignored on a plain row, which has no label column to ink.
+     */
+    enum mesh_ui_tone label_tone;
     struct fb_trailing trailing;
 
     /*

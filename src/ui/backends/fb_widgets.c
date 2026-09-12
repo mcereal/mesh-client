@@ -1141,6 +1141,26 @@ void fb_list_row(const struct mesh_ui_backend_fb_state *state, struct fb_list *l
     list->y += (int)fb_list_row_height(list, index) * list->line;
 }
 
+/*
+ * One tier of a row's text: the tone on the ground, and the cursor's own pair over the fill.
+ *
+ * A row under the cursor is drawn against a different fill rather than in a dimmer version of
+ * the same colour, so "which ink" is two questions and not one - and a tier that is quiet on
+ * the ground has to stay quiet on the fill or a label column flashes to full strength on
+ * precisely the row being read. MESH_UI_TONE_DIM is what says a tier is the quiet one, which
+ * is the same thing it says everywhere else the theme answers for ink.
+ *
+ * Shared by the headline, its label column and the supporting line, because the three were
+ * three copies of this conditional and the supporting one had already grown a flag of its own.
+ */
+static struct mesh_ui_rgb fb_item_ink(const struct mesh_ui_backend_fb_state *state,
+                                      enum mesh_ui_tone tone, bool selected, bool quiet) {
+    if (!selected) {
+        return fb_tone_color(state, tone);
+    }
+    return fb_color(state, quiet ? MESH_UI_COLOR_TEXT_ON_SEL_DIM : MESH_UI_COLOR_TEXT_ON_SEL);
+}
+
 void fb_list_subheader(const struct mesh_ui_backend_fb_state *state, struct fb_list *list,
                        uint32_t index, const char *text) {
     fb_list_subheader_icon(state, list, index, text, (struct fb_leading){.kind = FB_LEADING_NONE});
@@ -1200,16 +1220,37 @@ void fb_list_subheader_icon(const struct mesh_ui_backend_fb_state *state, struct
      * list is asked which it is drawing, so a caller passes the icon either way and nothing
      * decides twice - and the indent is the same whether or not it was drawn.
      */
+    /*
+     * And the ink, from the same question the icon is: what this heading *is*.
+     *
+     * On a flat list it is a break between two runs of rows, so it stays quiet on the ground and
+     * quiet on the fill alike - it is not one of the rows the cursor came here to read, and a
+     * loud break would be the screen shouting its own furniture.
+     *
+     * On a column of cards it is the card's label, and there quiet is wrong twice over. It is
+     * the cell the eye lands on when it is looking for Signal rather than Identity on a screen a
+     * hundred and twenty rows long, which is the argument its icon is already drawn for - and
+     * fb_draw_card() has been inking the heading beside *its* icon in the card's own tone since
+     * the Status tab got cards, so a heading dimmed here was the two card kinds holding two
+     * opinions about the same line. The primary is what a card with nothing wrong with it takes
+     * there, and it is what a group of a node's facts is: the brand colour marking where the
+     * reader is meant to look, which is the whole of what this palette keeps it for.
+     *
+     * Asked of the list rather than declared by the caller, exactly as the icon's own drawn/not
+     * drawn is: the list knows which of the two it is drawing, so a screen passes a heading and
+     * nothing decides twice.
+     */
+    const enum mesh_ui_tone tone =
+        fb_list_has_cards(list) ? MESH_UI_TONE_PRIMARY : MESH_UI_TONE_DIM;
+    const struct mesh_ui_rgb ink = fb_item_ink(state, tone, selected, tone == MESH_UI_TONE_DIM);
+
     int x = fb_row_box(state).text_x;
     if (leading.kind != FB_LEADING_NONE) {
         if (mesh_ui_icon_is_valid(leading.icon) && fb_list_has_cards(list)) {
             /* On the heading's own baseline rather than the body's: this row draws at the label
                scale, and a symbol standing where a body row's would floats a third of a row
                clear of the word it belongs to. */
-            fb_draw_icon(state, x, baseline, leading.icon, scale,
-                         selected ? fb_color(state, MESH_UI_COLOR_TEXT_ON_SEL_DIM)
-                                  : fb_tone_color(state, MESH_UI_TONE_DIM),
-                         ground);
+            fb_draw_icon(state, x, baseline, leading.icon, scale, ink, ground);
         }
         x += fb_icon_box(state, state->scale) + fb_char_adv(state, state->scale) / 2;
     }
@@ -1217,12 +1258,7 @@ void fb_list_subheader_icon(const struct mesh_ui_backend_fb_state *state, struct
     mesh_ui_line_reset(&line);
     mesh_ui_line_printf(&line, "%s", text != NULL ? text : "");
     mesh_ui_line_fit(&line, fb_row_cols(state, scale));
-    /* Quiet on the ground and quiet on the fill alike: a heading names the group under it, and
-       it is not one of the rows the cursor came here to read. */
-    fb_draw_text(state, x, baseline, mesh_ui_line_text(&line), scale,
-                 selected ? fb_color(state, MESH_UI_COLOR_TEXT_ON_SEL_DIM)
-                          : fb_tone_color(state, MESH_UI_TONE_DIM),
-                 ground);
+    fb_draw_text(state, x, baseline, mesh_ui_line_text(&line), scale, ink, ground);
     list->y += (int)rows * list->line;
 }
 
@@ -1914,20 +1950,25 @@ static void fb_draw_trailing(struct mesh_ui_backend_fb_state *state, const struc
    it, which is what keeps the values in one column. */
 #define FB_ITEM_MARKER_CELLS 3U
 
-/* The headline, as one line: either the whole row, or a label column with the marker gutter and
-   a value after it. The gutter is left blank here and the icon is drawn into it afterwards. */
-static void fb_item_headline(struct mesh_ui_line *line, const struct fb_list_item *item) {
-    mesh_ui_line_reset(line);
-    if (item->label_cols > 0U) {
-        /* The label occupies its column exactly - clipped when long, padded when short -
-           measured in cells so a value column still lines up under a label that is not all
-           ASCII. */
-        mesh_ui_line_column(line, item->label != NULL ? item->label : "", item->label_cols);
-        mesh_ui_line_pad_to(line, item->label_cols + FB_ITEM_MARKER_CELLS);
-        mesh_ui_line_printf(line, "%s", item->value != NULL ? item->value : "");
+/*
+ * One piece of a headline: the words, clipped to the cells it was given, in the ink it was
+ * given.
+ *
+ * The headline is drawn in pieces rather than composed into one string and drawn once, which is
+ * the whole of what lets a label and its value take two inks - see fb_list_item.label_tone. The
+ * clipping is per piece and the positions are absolute, so the value column lands in exactly
+ * the cell the composed line used to put it in.
+ */
+static void fb_item_piece(struct mesh_ui_backend_fb_state *state, int x, int y, const char *text,
+                          size_t cols, struct mesh_ui_rgb ink, struct mesh_ui_rgb ground) {
+    if (cols == 0U) {
         return;
     }
-    mesh_ui_line_printf(line, "%s", item->text != NULL ? item->text : "");
+    struct mesh_ui_line line;
+    mesh_ui_line_reset(&line);
+    mesh_ui_line_printf(&line, "%s", text != NULL ? text : "");
+    mesh_ui_line_fit(&line, cols);
+    fb_draw_text(state, x, y, mesh_ui_line_text(&line), state->scale, ink, ground);
 }
 
 void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, uint32_t index,
@@ -1967,8 +2008,7 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
      * Under the cursor everything is drawn against that fill instead of against the ground,
      * which is a different pair of colours and not a dimmer version of the same one.
      */
-    const struct mesh_ui_rgb head_ink =
-        selected ? fb_color(state, MESH_UI_COLOR_TEXT_ON_SEL) : fb_tone_color(state, item->tone);
+    const struct mesh_ui_rgb head_ink = fb_item_ink(state, item->tone, selected, false);
     /* What every icon on this row is blended against: the fill if the cursor laid one down, and
        otherwise whatever the row is standing on - the panel, or the surface of the card its
        group was drawn on. Asked of the list rather than assumed, because a glyph carries
@@ -1990,8 +2030,6 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
         fb_draw_icon(state, g.content_x, g.head_y, item->leading.icon, scale, head_ink, ground);
     }
 
-    struct mesh_ui_line line;
-    fb_item_headline(&line, item);
     /*
      * What the headline has already spent *inside `g.cols`* before its trailing slot gets a say.
      *
@@ -2003,12 +2041,33 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
      */
     const size_t reserved = item->label_cols > 0U ? item->label_cols + FB_ITEM_MARKER_CELLS : 0U;
     const size_t head_take = fb_trailing_cols(state, g.cols, reserved, &item->trailing);
-    mesh_ui_line_fit(&line, g.cols - head_take);
-    fb_draw_text(state, g.text_x, g.head_y, mesh_ui_line_text(&line), scale, head_ink, ground);
-    /* Into the blank cell fb_item_headline() left between the label column and the value, and
-       only when the value column actually got that far - a label column wider than the row is
-       clipped, and a marker drawn at a column the line no longer reaches would sit on top of
-       the label. */
+    const size_t head_cols = g.cols - head_take;
+    if (item->label_cols > 0U) {
+        /*
+         * The label column, then the value in the cell the marker gutter leaves after it. Two
+         * draws rather than one, so the question and the answer can be two tiers - which is the
+         * whole of what fb_list_item.label_tone is for.
+         *
+         * Both are clipped against `head_cols` rather than against their own widths, which is
+         * what keeps this identical to the composed line it replaced: a label column wider than
+         * the row cut the label and left the value nowhere to start, and a value column that
+         * the trailing slot has eaten into is cut at the same cell either way.
+         */
+        const bool label_quiet = item->label_tone == MESH_UI_TONE_DIM;
+        const size_t label_cols = item->label_cols < head_cols ? item->label_cols : head_cols;
+        fb_item_piece(state, g.text_x, g.head_y, item->label, label_cols,
+                      fb_item_ink(state, item->label_tone, selected, label_quiet), ground);
+        const size_t gutter = item->label_cols + FB_ITEM_MARKER_CELLS;
+        if (head_cols > gutter) {
+            fb_item_piece(state, g.text_x + (int)gutter * fb_char_adv(state, scale), g.head_y,
+                          item->value, head_cols - gutter, head_ink, ground);
+        }
+    } else {
+        fb_item_piece(state, g.text_x, g.head_y, item->text, head_cols, head_ink, ground);
+    }
+    /* Into the blank cell the label column and the value leave between them, and only when the
+       value column actually got that far - a label column wider than the row is clipped, and a
+       marker drawn at a column the words no longer reach would sit on top of the label. */
     if (item->label_cols > 0U && mesh_ui_icon_is_valid(item->marker_icon) &&
         g.cols > item->label_cols + FB_ITEM_MARKER_CELLS) {
         fb_draw_icon(state, g.text_x + (int)(item->label_cols + 1U) * fb_char_adv(state, scale),
@@ -2026,9 +2085,7 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
 
     if (g.rows >= 2U && item->supporting != NULL) {
         const struct mesh_ui_rgb supp_ink =
-            selected ? fb_color(state, item->supporting_quiet ? MESH_UI_COLOR_TEXT_ON_SEL_DIM
-                                                              : MESH_UI_COLOR_TEXT_ON_SEL)
-                     : fb_tone_color(state, item->supporting_tone);
+            fb_item_ink(state, item->supporting_tone, selected, item->supporting_quiet);
         /* Nothing reserved: a supporting line has no label column, and the icon that may take
            its first cell is tested against what the slot leaves rather than before it. */
         const size_t supp_take = fb_trailing_cols(state, g.cols, 0U, &item->supporting_trailing);
@@ -2040,10 +2097,8 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
         if (supp_icon) {
             fb_draw_icon(state, g.text_x, g.supp_y, item->supporting_icon, scale, supp_ink, ground);
         }
-        mesh_ui_line_reset(&line);
-        mesh_ui_line_printf(&line, "%s", item->supporting);
-        mesh_ui_line_fit(&line, g.cols - supp_take - (supp_icon ? 1U : 0U));
-        fb_draw_text(state, supp_x, g.supp_y, mesh_ui_line_text(&line), scale, supp_ink, ground);
+        fb_item_piece(state, supp_x, g.supp_y, item->supporting,
+                      g.cols - supp_take - (supp_icon ? 1U : 0U), supp_ink, ground);
         if (supp_take > 0U) {
             fb_draw_trailing(state, &g, 0U, &item->supporting_trailing, g.supp_y, g.supp_slot_top,
                              selected, rest_role);

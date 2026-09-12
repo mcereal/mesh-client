@@ -3601,3 +3601,126 @@ MESH_TEST_CASE(ui_capture_node_detail_cards_survive_the_cursor, unit) {
     MESH_TEST_FAIL_IF(!rail_seen, "no scroll rail beside the node detail at any glyph scale");
     record_success(test_name);
 }
+
+/*
+ * Scanlines on which a label's ink stands entirely to the left of a value's.
+ *
+ * The question a two-tier fact row answers in pixels. A row that draws its label column and its
+ * value in one ink puts one colour across the whole line, so no scanline has the quiet ink at
+ * all; a row that draws them as two pieces puts TEXT_DIM in the label column and TEXT after it,
+ * in that order, on every scanline the glyphs' cores reach.
+ *
+ * Ordered rather than merely both-present, because both-present is satisfied by a screen that
+ * happens to carry a dim word somewhere to the right of an ordinary one - a trailing age beside
+ * a name, which is most of the lists in this client. The label column is what is being pinned,
+ * and what makes it the label column is that it comes first.
+ *
+ * Glyph cores only: a glyph carries coverage, so its edges are blends of the ink and the ground
+ * and match no role exactly. That is the whole of why this counts scanlines rather than pixels -
+ * a run of them is a row of text, and one is a stray antialiased hit.
+ */
+static unsigned two_tier_rows(const struct mesh_ui_capture *capture, const uint8_t *pixels,
+                              uint32_t width, uint32_t height, size_t stride) {
+    unsigned rows = 0U;
+    for (uint32_t y = 0U; y < height; ++y) {
+        const uint8_t *row = pixels + (size_t)y * stride;
+        bool dim = false;
+        bool text = false;
+        bool text_before_dim = false;
+        for (uint32_t x = 0U; x < width; ++x) {
+            const uint8_t *pixel = row + (size_t)x * 4U;
+            if (pixel_is_role(capture, pixel, MESH_UI_COLOR_TEXT_DIM)) {
+                dim = true;
+                text_before_dim = text_before_dim || text;
+            } else if (pixel_is_role(capture, pixel, MESH_UI_COLOR_TEXT)) {
+                text = true;
+            }
+        }
+        if (dim && text && !text_before_dim) {
+            rows++;
+        }
+    }
+    return rows;
+}
+
+/*
+ * A node's facts are two tiers, not one.
+ *
+ * The whole of this screen is label-and-value rows, and they were composed into a single string
+ * and drawn in a single ink - so the question and the answer were typographically identical and
+ * a card of them read as a block of text with no way into it. That is the bubble's trailing run
+ * one component over: pieces pasted together cannot take two inks, and the fix is the same one,
+ * which is to draw them as pieces.
+ *
+ * Asked in the ink rather than in the layout, because the layout was never wrong: the columns
+ * lined up before this and they line up now. What changed is that the label recedes to the quiet
+ * tier and the value keeps the row's own, so a reader scanning a hundred and twenty rows for the
+ * answers is not reading the questions as well.
+ *
+ * Across the scale range, because the label column is a cell count and the row it has to fit in
+ * is a measurement - a fit that collapses at the largest glyphs would take the value column with
+ * it, and this screen is the one that runs out of width first.
+ */
+MESH_TEST_CASE(ui_capture_node_detail_states_its_labels_quietly, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    /* Walked rather than assigned, the rest of this suite's rule: a test that set the nav by
+       hand would keep passing while the presses that get a user here stopped working. */
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    while (store.nav.screen != MESH_UI_SCREEN_NODES) {
+        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    }
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action); /* past the map row */
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action); /* a node that is not us */
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(!store.nav.node_detail_open, mesh_ui_store_shutdown(&store),
+                              "A should open the node detail");
+    /* Down past the verbs, which are plain rows and say nothing about a label column. Far
+       enough that the window is showing facts whichever groups this node turns out to have. */
+    for (unsigned step = 0U; step < 12U; ++step) {
+        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    }
+
+    struct mesh_ui_snapshot snapshot;
+    memset(&snapshot, 0, sizeof snapshot);
+    mesh_ui_store_request_refresh(&store);
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_ui_store_consume_updates(&store, &snapshot),
+                              mesh_ui_store_shutdown(&store), "no snapshot to render");
+
+    const char *failure = NULL;
+    static char detail[160];
+    for (int scale = MESH_UI_SCALE_MIN; scale <= MESH_UI_SCALE_MAX && failure == NULL; ++scale) {
+        struct mesh_ui_capture *capture = NULL;
+        if (mesh_ui_capture_open(&capture, MESH_UI_CAPTURE_WIDTH, MESH_UI_CAPTURE_HEIGHT, scale) !=
+            0) {
+            failure = "capture open failed";
+            break;
+        }
+        mesh_ui_capture_set_scale(capture, scale);
+        uint32_t width = 0U;
+        uint32_t height = 0U;
+        size_t stride = 0U;
+        const uint8_t *pixels = mesh_ui_capture_pixels(capture, &width, &height, &stride);
+        mesh_ui_capture_render(capture, &snapshot);
+
+        /* More than one, so a single antialiased hit cannot pass for a row: the smallest glyph
+           this ships draws its cores over several scanlines, and the screen is a column of
+           these rows rather than one of them. */
+        const unsigned rows = two_tier_rows(capture, pixels, width, height, stride);
+        if (rows < 2U) {
+            snprintf(detail, sizeof detail,
+                     "the node detail draws its labels in the value's own ink (%u two-tier "
+                     "scanlines at glyph scale %d)",
+                     rows, scale);
+            failure = detail;
+        }
+        mesh_ui_capture_close(capture);
+    }
+
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}

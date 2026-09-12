@@ -1077,6 +1077,9 @@ static void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
                 .leading = blank,
                 .label = item->label,
                 .label_cols = label_cols,
+                /* The question recedes and the answer keeps the row - see the INFO row below,
+                   which is the same statement about the same kind of row. */
+                .label_tone = MESH_UI_TONE_DIM,
                 .value = item->value,
                 .tone = MESH_UI_TONE_NORMAL,
                 .meter = &meter,
@@ -1084,10 +1087,27 @@ static void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
             };
             fb_list_item(state, &list, i, &row);
         } else {
+            /*
+             * A stated fact, and the two halves of it are not one tier.
+             *
+             * The label is the question - "Long name", "SNR", "Hops away" - and it repeats down
+             * a column the reader is scanning for the *answers*; the value is what they opened
+             * the node to find out. Drawn in one ink they were typographically identical, which
+             * is what made a card of them read as a block of text with no way into it, and it
+             * is the complaint this screen earns before any other: a hundred and twenty rows of
+             * facts, all the same weight.
+             *
+             * So the label takes the quiet tier and the value keeps the row's own. It is stated
+             * per row rather than assumed by the component because the opposite row exists and
+             * is just as common: on a settings field the label is what the reader is choosing
+             * and the value is merely where it stands, so there the label leads. Which of the
+             * two a row is, is the row's to say.
+             */
             const struct fb_list_item row = {
                 .leading = blank,
                 .label = item->label,
                 .label_cols = label_cols,
+                .label_tone = MESH_UI_TONE_DIM,
                 .value = item->value,
                 .tone = MESH_UI_TONE_NORMAL,
             };
@@ -1199,9 +1219,13 @@ static void fb_render_waypoint_detail(struct mesh_ui_backend_fb_state *state,
             fb_list_item(state, &list, i, &row);
             continue;
         }
+        /* A stated fact, and its label is the question - the node detail's rule, and the same
+           screen shape one tab over. Coordinates, a range and a bearing are what the reader
+           opened the place to read; "Latitude" is what they already knew they were asking. */
         const struct fb_list_item row = {
             .label = item->label,
             .label_cols = label_cols,
+            .label_tone = MESH_UI_TONE_DIM,
             .value = item->value,
         };
         fb_list_item(state, &list, i, &row);
