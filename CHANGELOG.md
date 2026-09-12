@@ -1,3 +1,13 @@
+## [2.65.0](https://github.com/mcereal/mesh-client/compare/v2.64.0...v2.65.0) (2026-09-12)
+
+### Features
+
+* **ui:** bring the node detail up to the component set ([9a34278](https://github.com/mcereal/mesh-client/commit/9a342783b28cbd03040f18ca0be236fd699796f0))
+
+### Bug Fixes
+
+* **ui:** open the detail on a real row from the map, and key its switches by node ([6ec75da](https://github.com/mcereal/mesh-client/commit/6ec75dad7bce607e44a4661ec743fb50f1ca3038)), closes [#158](https://github.com/mcereal/mesh-client/issues/158)
+
 ## [2.64.0](https://github.com/mcereal/mesh-client/compare/v2.63.1...v2.64.0) (2026-09-12)
 
 ### Features
