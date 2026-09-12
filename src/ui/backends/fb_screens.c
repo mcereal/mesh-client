@@ -30,6 +30,7 @@
 #include "mesh/ui/reactions.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/status.h"
+#include "mesh/ui/trend.h"
 #include "mesh/ui/waypoints.h"
 #include "mesh/utils/text.h"
 #include "mesh/utils/time.h"
@@ -3065,79 +3066,235 @@ static void fb_render_begin(struct mesh_ui_backend_fb_state *state,
     state->animation_damage.valid = false;
 }
 
+/* ---- the two chart screens ------------------------------------------------------------------
+ *
+ * One picture, opened from two places: the radio's airtime over the Status cards, and one of a
+ * node's readings over its detail. They were two renderers with the same forty lines in them -
+ * take a window, project against a domain, word the two ends of the vertical, word the span,
+ * divide the body, fill a struct fb_chart - and the forty lines were where the two screens could
+ * quietly stop agreeing about what a chart is.
+ *
+ * So the frame is one function and what differs is a description handed to it. What differs is
+ * genuinely small: which series, what the legend calls them, what domain they are measured on,
+ * which thresholds are ruled across them, and what unit the axis is worded in. Everything else -
+ * the span picker, the window it cuts, the ceiling it picks, the projection, the caption, the
+ * empty state - is the same question with the same answer, and it is answered in
+ * include/mesh/ui/trend.h and here.
+ */
+
+/*
+ * How the two ends of the vertical are put into words.
+ *
+ * The one thing about a chart that cannot be derived from its domain once the ceiling has been
+ * contracted: mesh_ui_trend_domain() turns the identity domain into real permille ends, so
+ * "already a fraction" stops being visible in the numbers. The caller states it, because the
+ * caller is what chose the unit its readings travel in.
+ */
+enum fb_chart_axis {
+    FB_CHART_AXIS_PERMILLE, /* a share of something, kept in permille, read as whole percent */
+    FB_CHART_AXIS_PERCENT,  /* already whole percent, which is all the wire carries for a battery */
+    FB_CHART_AXIS_CELSIUS,  /* tenths of a degree, read as whole ones */
+};
+
+/*
+ * Where a line has got to, in the reading's own units, for the legend under the plot.
+ *
+ * The axis ends are whole numbers because they are read rather than measured; this one is the
+ * *reading*, so it carries the precision the row the reader came from was showing - a mesh at
+ * 1.1% busy and one at 1.9% are the same whole percent and are not the same mesh.
+ */
+static void fb_chart_reading(uint8_t axis, int32_t value, char *out, size_t len) {
+    switch ((enum fb_chart_axis)axis) {
+    case FB_CHART_AXIS_CELSIUS:
+        mesh_str_format(out, len, MESH_STR_TREND_VALUE_CELSIUS, (double)value / 10.0);
+        return;
+    case FB_CHART_AXIS_PERMILLE:
+        /* The Status card's own format, so the chart and the card round one figure one way. */
+        mesh_str_format(out, len, MESH_STR_STATUS_PERCENT, (double)value / 10.0);
+        return;
+    case FB_CHART_AXIS_PERCENT:
+    default:
+        break;
+    }
+    mesh_str_format(out, len, MESH_STR_TREND_AXIS_PERCENT, (unsigned)(value > 0 ? value : 0));
+}
+
+/* One end of the vertical, in the reading's own units. Whole numbers throughout: an axis end is
+   read rather than measured, and a tenth of a percent there is precision nobody is asking it
+   for. */
+static void fb_chart_axis_end(uint8_t axis, int32_t value, char *out, size_t len) {
+    switch ((enum fb_chart_axis)axis) {
+    case FB_CHART_AXIS_CELSIUS:
+        mesh_str_format(out, len, MESH_STR_NODE_TREND_AXIS_CELSIUS, value / 10);
+        return;
+    case FB_CHART_AXIS_PERMILLE:
+        /* Rounded rather than truncated: the ladder's rungs are whole percents of the domain, so
+           this is exact on every rung, and a domain that is not on one is better read up than
+           cut down - an axis end under the readings it is labelling is the one error a reader
+           cannot see. */
+        value = (value + 5) / 10;
+        break;
+    case FB_CHART_AXIS_PERCENT:
+    default:
+        break;
+    }
+    mesh_str_format(out, len, MESH_STR_TREND_AXIS_PERCENT, (unsigned)(value > 0 ? value : 0));
+}
+
+/*
+ * What one chart screen is: the description, and nothing about how it is drawn.
+ *
+ * The app bar travels whole rather than as a title and a trail, because a bar is already a
+ * component with slots and taking it apart here would be this struct restating them.
+ */
+struct fb_chart_screen {
+    struct fb_app_bar bar;
+    /* Borrowed for the call, as every pointer in this file's descriptions is. */
+    const struct mesh_ui_series *series[FB_CHART_LINES];
+    enum mesh_str_id labels[FB_CHART_LINES];
+    uint32_t count;
+    /* The domain the readings are measured on, before the ceiling is contracted to fit them. */
+    struct mesh_ui_scale domain;
+    /* Ruled across the plot, or NULL for a reading with no thresholds. */
+    const struct mesh_ui_band *band;
+    uint8_t axis; /* enum fb_chart_axis */
+};
+
+/*
+ * The frame, drawn from that description.
+ *
+ * The order here is the whole of what makes the picture honest, and it is stated in
+ * mesh_ui_trend_frame(): the reader's span cuts the window first, and the ceiling is then picked
+ * from the readings *left inside it*. Done the other way round, narrowing the span to the last
+ * quarter hour would leave the axis held open by a busy spell that is no longer on the panel.
+ *
+ * The projection is mesh_ui_series_project_within() rather than _over(): a window the reader
+ * narrowed contains only part of the ring, and the older readings have to be left out rather than
+ * stacked on the left-hand edge. See layout.h.
+ */
+static void fb_render_chart(struct mesh_ui_backend_fb_state *state,
+                            const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout,
+                            const struct fb_chart_screen *screen) {
+    fb_draw_app_bar(state, layout, &screen->bar);
+
+    const uint8_t span_choice = snapshot->nav.trend_span;
+    struct mesh_ui_trend frame;
+    memset(&frame, 0, sizeof frame);
+    const bool framed =
+        mesh_ui_trend_frame(screen->series, screen->count, screen->domain, span_choice, &frame);
+    const struct mesh_ui_scale scale = framed ? frame.scale : screen->domain;
+
+    struct mesh_ui_polyline points[FB_CHART_LINES];
+    memset(points, 0, sizeof points);
+    for (uint32_t i = 0U; framed && i < screen->count && i < FB_CHART_LINES; ++i) {
+        mesh_ui_series_project_within(screen->series[i], scale, frame.from, frame.to, &points[i]);
+    }
+
+    /* The ends in the reading's own units, off the domain the lines were actually placed on - so
+       a contracted ceiling is a number the reader can see, which is what separates this from the
+       auto-scaling it would otherwise be. */
+    char top[16];
+    char bottom[16];
+    fb_chart_axis_end(screen->axis, scale.min == scale.max ? MESH_UI_ANIM_ONE : scale.max, top,
+                      sizeof top);
+    fb_chart_axis_end(screen->axis, scale.min, bottom, sizeof bottom);
+
+    /*
+     * How far back the picture goes - which is what there turned out to be, not what was asked
+     * for. The strip above the plot says the choice; this says the measurement, and on a span
+     * wider than the readings the two differ on purpose.
+     */
+    char span[48];
+    span[0] = '\0';
+    if (framed) {
+        char words[24];
+        mesh_ui_format_duration((frame.to - frame.from) / 1000U, words, sizeof words);
+        mesh_str_format(span, sizeof span, MESH_STR_TREND_SPAN, words);
+    }
+
+    /* The picker itself: four words and which one is lit. What they mean is trend.h's. */
+    struct fb_segmented spans;
+    memset(&spans, 0, sizeof spans);
+    spans.count = (size_t)MESH_UI_TREND_SPAN_COUNT;
+    for (size_t i = 0U; i < spans.count && i < FB_SEGMENTED_MAX; ++i) {
+        spans.labels[i] = mesh_str(mesh_ui_trend_span_label((uint8_t)i));
+    }
+    spans.active = (size_t)span_choice < spans.count ? (size_t)span_choice : spans.count - 1U;
+    spans.value = spans.labels[spans.active];
+
+    const int margin = fb_margin(state);
+    struct fb_chart chart = {
+        .rect = {.x = margin,
+                 .y = layout->body_y,
+                 .w = (int)state->var.xres - margin * 2,
+                 .h = layout->footer_y - fb_gutter(state) - layout->body_y},
+        .count = screen->count,
+        .top = top,
+        .bottom = bottom,
+        .span = span[0] != '\0' ? span : NULL,
+        .band = screen->band,
+        .scale = scale,
+        .spans = &spans,
+        /* Reachable now that the span can be narrowed past the last two readings, and the one
+           thing a plot with nothing in it must not look like is a frame that failed to draw. */
+        .empty = MESH_STR_TREND_EMPTY,
+    };
+    /*
+     * And where each line has got to, which is the one number the picture could not say.
+     *
+     * From the series' newest sample rather than from anything the screen was handed, because
+     * this is a caption on the *line*: a figure taken from the store while the line came from the
+     * history would be two readings of one thing, and the day they disagreed the picture would be
+     * the one that was right.
+     *
+     * A line with no readings in the window still names none: the reading it would state is
+     * outside the picture, and a legend entry saying otherwise is the frame contradicting the
+     * plot.
+     */
+    char readings[FB_CHART_LINES][24];
+    memset(readings, 0, sizeof readings);
+    for (uint32_t i = 0U; i < screen->count && i < FB_CHART_LINES; ++i) {
+        chart.lines[i].points = &points[i];
+        chart.lines[i].label = screen->labels[i];
+        const struct mesh_ui_sample *newest = mesh_ui_series_newest(screen->series[i]);
+        if (newest != NULL && points[i].count > 0U) {
+            fb_chart_reading(screen->axis, newest->value, readings[i], sizeof readings[i]);
+            chart.lines[i].value = readings[i];
+        }
+    }
+    fb_draw_chart(state, layout, &chart);
+}
+
 /*
  * The airtime trend, over the Status cards that offered it.
- *
- * The one screen in this client whose whole content is a picture, and the smallest renderer here
- * because of it: no list, no cursor, no rows to measure. What it does is name the two ends of the
- * domain, hand the history to fb_draw_chart() and get out of the way.
  *
  * The two series arrive in one LocalStats report and are drawn on one window - see
  * mesh_ui_series_window(). Projecting each on its own span is the way this screen would be wrong
  * quietly: our own transmit share is inside the channel's total, so two lines stretched to
  * different widths would show ours crossing above it.
+ *
+ * A zeroed domain: both readings are already permille, which is what the Status card's own meter
+ * fills against. The same domain for both lines and for the band, which is the whole reason our
+ * share can be read against the total by looking at them.
  */
 static void fb_render_trend(struct mesh_ui_backend_fb_state *state,
                             const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
-    /* No trail. The navigation bar above is already saying Status, and an overline says only
-       what nothing else on the frame says. */
-    fb_draw_app_bar(state, layout,
-                    &(const struct fb_app_bar){.title = mesh_str(MESH_STR_TREND_TITLE)});
-
-    const struct mesh_ui_series *const series[] = {
-        &snapshot->history.channel_utilization,
-        &snapshot->history.air_util_tx,
-    };
-    const uint32_t count = (uint32_t)(sizeof series / sizeof series[0]);
-
-    uint32_t from = 0U;
-    uint32_t to = 0U;
-    const bool windowed = mesh_ui_series_window(series, count, &from, &to);
-
-    /*
-     * A zeroed scale: both readings are already permille, which is what the Status card's own
-     * meter fills against. The same domain for both lines and for the band, which is the whole
-     * reason our share can be read against the total by looking at them.
-     */
-    const struct mesh_ui_scale domain = {0, 0};
-    struct mesh_ui_polyline points[2];
-    for (uint32_t i = 0U; i < count; ++i) {
-        mesh_ui_series_project_over(series[i], domain, from, to, &points[i]);
-    }
-
-    char top[16];
-    char bottom[16];
-    mesh_str_format(top, sizeof top, MESH_STR_TREND_AXIS_PERCENT, 100U);
-    mesh_str_format(bottom, sizeof bottom, MESH_STR_TREND_AXIS_PERCENT, 0U);
-
-    /* How far back the picture goes, or nothing at all when every reading landed inside one tick
-       of the client's clock and there is no span to name. */
-    char span[48];
-    span[0] = '\0';
-    if (windowed) {
-        char words[24];
-        mesh_ui_format_duration((to - from) / 1000U, words, sizeof words);
-        mesh_str_format(span, sizeof span, MESH_STR_TREND_SPAN, words);
-    }
-
-    const int margin = fb_margin(state);
-    const struct fb_chart chart = {
-        .rect = {.x = margin,
-                 .y = layout->body_y,
-                 .w = (int)state->var.xres - margin * 2,
-                 .h = layout->footer_y - fb_gutter(state) - layout->body_y},
-        .lines = {{.points = &points[0], .label = MESH_STR_TREND_SERIES_CHANNEL},
-                  {.points = &points[1], .label = MESH_STR_TREND_SERIES_TX}},
-        .count = count,
-        .top = top,
-        .bottom = bottom,
-        .span = span[0] != '\0' ? span : NULL,
+    const struct fb_chart_screen screen = {
+        /* No trail. The navigation bar above is already saying Status, and an overline says only
+           what nothing else on the frame says. */
+        .bar = {.title = mesh_str(MESH_STR_TREND_TITLE)},
+        .series = {&snapshot->history.channel_utilization, &snapshot->history.air_util_tx},
+        .labels = {MESH_STR_TREND_SERIES_CHANNEL, MESH_STR_TREND_SERIES_TX},
+        .count = 2U,
+        .domain = {0, 0},
         /* The same thresholds the card's bar cuts notches at, so the amber the reader saw there
-           is a line here they can watch the trend cross. */
+           is a line here they can watch the trend cross - on the rungs of the ladder that still
+           have room for it. A quiet mesh drawn on a twentieth of the domain has both of them off
+           the top, and the chart says so by drawing neither. */
         .band = &fb_air_band,
-        .scale = domain,
+        .axis = FB_CHART_AXIS_PERMILLE,
     };
-    fb_draw_chart(state, layout, &chart);
+    fb_render_chart(state, snapshot, layout, &screen);
 }
 
 /*
@@ -3151,6 +3308,10 @@ static void fb_render_trend(struct mesh_ui_backend_fb_state *state,
  * twice at two sizes. Taking them from a switch here would be a second opinion about what a
  * temperature is measured between, and the first thing it would get wrong is the day one of them
  * changed.
+ *
+ * The unit the axis is *worded* in is the one thing that is not on the row, and it is a switch on
+ * the reading rather than a fifth column: what a row states is where a reading sits between two
+ * ends, and whether those ends are read as degrees or as percent is a question about the words.
  *
  * A reading whose row has gone - the node stopped reporting it, the history was forgotten under
  * us - draws the detail instead. mesh_ui_nav_clamp() closes the chart on the same condition a
@@ -3180,9 +3341,12 @@ static void fb_render_node_trend(struct mesh_ui_backend_fb_state *state,
        says only what nothing else on the frame says and the navigation bar is already saying
        Nodes. */
     enum mesh_str_id title = MESH_STR_NODE_TREND_BATTERY;
+    uint8_t axis =
+        row->scale.min == row->scale.max ? FB_CHART_AXIS_PERMILLE : FB_CHART_AXIS_PERCENT;
     switch ((enum mesh_ui_history_reading)nav->node_trend) {
     case MESH_UI_HISTORY_TEMPERATURE:
         title = MESH_STR_NODE_TREND_TEMPERATURE;
+        axis = FB_CHART_AXIS_CELSIUS;
         break;
     case MESH_UI_HISTORY_HUMIDITY:
         title = MESH_STR_NODE_TREND_HUMIDITY;
@@ -3202,73 +3366,30 @@ static void fb_render_node_trend(struct mesh_ui_backend_fb_state *state,
     } else {
         mesh_str_format(trail, sizeof trail, MESH_STR_NODE_VAL_USER_ID_HEX, node->node_id);
     }
-    /* The node *is* the trail here, and it is the one screen where that does not repeat the
-       frame: the title is the reading, and without this nothing on the panel would say which
-       node's temperature is being drawn. The detail underneath spends its title line on the same
-       name for the opposite reason - there, nothing else was competing for it. */
-    fb_draw_app_bar(
-        state, layout,
-        &(const struct fb_app_bar){.trail = {trail}, .trail_count = 1U, .title = mesh_str(title)});
 
-    /*
-     * One line, and so no legend to name it: the title says which reading this is, and a legend
-     * repeating it would be the frame saying one thing twice. That is also the whole reason the
-     * two readings the user asked for are two screens - a chart carries one domain, and a
-     * temperature in degrees and a humidity in percent do not share one, so drawing them
-     * together would put a label on an axis only one of them was measured against.
-     */
-    struct mesh_ui_polyline points;
-    uint32_t from = 0U;
-    uint32_t to = 0U;
-    const struct mesh_ui_series *const series[] = {row->trend};
-    const bool windowed = mesh_ui_series_window(series, 1U, &from, &to);
-    mesh_ui_series_project_over(row->trend, row->scale, from, to, &points);
-
-    /* The ends in the reading's own units, which is what the row's scale is already stated in -
-       so the axis and the bar the reader came from are labelled off one pair of numbers. A
-       zeroed domain is the identity one: the reading is already permille, and its ends are the
-       whole percentages either side of it. */
-    char top[16];
-    char bottom[16];
-    if (nav->node_trend == MESH_UI_HISTORY_TEMPERATURE) {
-        mesh_str_format(top, sizeof top, MESH_STR_NODE_TREND_AXIS_CELSIUS, row->scale.max / 10);
-        mesh_str_format(bottom, sizeof bottom, MESH_STR_NODE_TREND_AXIS_CELSIUS,
-                        row->scale.min / 10);
-    } else if (row->scale.min == row->scale.max) {
-        mesh_str_format(top, sizeof top, MESH_STR_TREND_AXIS_PERCENT, 100U);
-        mesh_str_format(bottom, sizeof bottom, MESH_STR_TREND_AXIS_PERCENT, 0U);
-    } else {
-        mesh_str_format(top, sizeof top, MESH_STR_TREND_AXIS_PERCENT, (unsigned)row->scale.max);
-        mesh_str_format(bottom, sizeof bottom, MESH_STR_TREND_AXIS_PERCENT,
-                        (unsigned)row->scale.min);
-    }
-
-    char span[48];
-    span[0] = '\0';
-    if (windowed) {
-        char words[24];
-        mesh_ui_format_duration((to - from) / 1000U, words, sizeof words);
-        mesh_str_format(span, sizeof span, MESH_STR_TREND_SPAN, words);
-    }
-
-    const int margin = fb_margin(state);
-    const struct fb_chart chart = {
-        .rect = {.x = margin,
-                 .y = layout->body_y,
-                 .w = (int)state->var.xres - margin * 2,
-                 .h = layout->footer_y - fb_gutter(state) - layout->body_y},
-        .lines = {{.points = &points, .label = MESH_STR_NONE}},
+    const struct fb_chart_screen screen = {
+        /* The node *is* the trail here, and it is the one screen where that does not repeat the
+           frame: the title is the reading, and without this nothing on the panel would say which
+           node's temperature is being drawn. The detail underneath spends its title line on the
+           same name for the opposite reason - there, nothing else was competing for it. */
+        .bar = {.trail = {trail}, .trail_count = 1U, .title = mesh_str(title)},
+        /*
+         * One line, and so no legend to name it: the title says which reading this is, and a
+         * legend repeating it would be the frame saying one thing twice. That is also the whole
+         * reason the two readings the user asked for are two screens - a chart carries one
+         * domain, and a temperature in degrees and a humidity in percent do not share one.
+         */
+        .series = {row->trend},
+        .labels = {MESH_STR_NONE},
         .count = 1U,
-        .top = top,
-        .bottom = bottom,
-        .span = span[0] != '\0' ? span : NULL,
+        .domain = row->scale,
         /* The row's own band, so the amber the reader saw under the figure is a rule here they
            can watch the trend cross - and a row with no band rules none rather than inventing
            thresholds the bar did not have. */
         .band = row->banded ? &row->band : NULL,
-        .scale = row->scale,
+        .axis = axis,
     };
-    fb_draw_chart(state, layout, &chart);
+    fb_render_chart(state, snapshot, layout, &screen);
 }
 
 void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,

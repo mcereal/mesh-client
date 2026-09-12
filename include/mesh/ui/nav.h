@@ -354,6 +354,25 @@ struct mesh_ui_nav {
      */
     bool trend_open;
     /*
+     * How far back both charts look: `enum mesh_ui_trend_span`, stepped by Left and Right.
+     *
+     * One field for the two chart screens rather than one each, and that is a claim about what
+     * this is. A span is not *where the reader is* - which is what every other field on this
+     * struct records, one per tab, so that every tab keeps its own place - it is how they like
+     * their charts read, the same way the theme is not a place. Two fields would mean opening a
+     * node's temperature at the quarter hour and finding the airtime chart still on all of it,
+     * which is the client having two opinions about one preference.
+     *
+     * It survives a chart being closed and reopened for the same reason, and it is deliberately
+     * not persisted: the history it slices is not persisted either, so a span restored across a
+     * restart would be a choice made about readings that no longer exist.
+     *
+     * MESH_UI_TREND_SPAN_ALL rather than zero at rest - mesh_ui_nav_init() says so - because ALL
+     * is what these screens did before there was a picker, and a reader who never touches Left
+     * or Right should see what the screen has always shown them.
+     */
+    uint8_t trend_span;
+    /*
      * Waypoints tab: a place's detail is open (cursor[WAYPOINTS] indexes its rows) rather than
      * the list, whose position is parked in waypoint_list_cursor meanwhile. The same two-level
      * shape as Nodes, Messages and Settings.

@@ -1591,14 +1591,30 @@ why the roadmap's entry for it said its cost would be a *route* rather than a co
 
 The Status screen's Mesh card carries the verb (`MESH_UI_STATUS_VERB_TREND`), `nav->trend_open`
 is the level, `MESH_UI_ROUTE_TREND` is the place, and
-[`fb_render_trend()`](../src/ui/backends/fb_screens.c) is a dozen lines because a chart has no
-rows to measure and no cursor to place.
+[`fb_render_trend()`](../src/ui/backends/fb_screens.c) is a description rather than a renderer
+because a chart has no rows to measure and no cursor to place.
 
 It is spent twice. A node's detail carries the same component over its own readings —
 `nav->node_trend` is the level, the same `MESH_UI_ROUTE_TREND` with the node in `subject` and the
 *reading* in `slot` is the place, and [`fb_render_node_trend()`](../src/ui/backends/fb_screens.c)
-draws it. Three things about the second caller are worth stating, because each is a decision the
-first one never had to make:
+draws it.
+
+**Both of them go through one `fb_render_chart()`**, and that is worth stating before anything
+else about them. They were two renderers holding the same forty lines — take a window, project
+against a domain, word the two ends of the vertical, word the span, divide the body, fill a
+`struct fb_chart` — and forty duplicated lines between two screens that are meant to be one
+picture is forty lines in which they can quietly stop being one. What differs is a
+`struct fb_chart_screen`: which series, what the legend calls them, what domain they are on,
+which band is ruled across them, and what unit the axis is *worded* in. Everything else — the
+span picker, the window it cuts, the ceiling it picks, the projection, the caption, the empty
+state — is the same question and is answered once, in
+[`include/mesh/ui/trend.h`](../include/mesh/ui/trend.h) and in that one function. The action bar
+follows the same rule: `actions_trend()` is called by both arms rather than copied into the
+second, because a bar that named the span press on one chart would be describing a difference the
+two do not have.
+
+Three things about the second caller are worth stating, because each is a decision the first one
+never had to make:
 
 - **A chart carries one vertical, so two readings are two screens.** Temperature in degrees and
   humidity in percent do not share a domain, and `struct fb_chart` has one `scale` and one pair
@@ -1626,7 +1642,11 @@ What the room buys, in the order it matters:
   units, so *high* is a number rather than a feeling. The domain is still the reading's own
   `struct mesh_ui_scale` and never the range these samples happened to span — the sparkline's
   first rule, and it is *more* load-bearing here: an axis with numbers on it gets believed, so an
-  axis that rescaled itself would be a labelled lie rather than a misleading shape.
+  axis that rescaled itself would be a labelled lie rather than a misleading shape. What it may
+  do is contract its ceiling; see below.
+- **The horizontal says how much of the record is on it, and the reader picks.** Left and Right
+  step a segmented button over the plot — 15m, 1h, 6h, All — and the window ends at the newest
+  reading rather than at the clock. See below.
 - **The horizontal says how long.** A shape with no time under it cannot distinguish a battery
   that fell ten percent in an hour from one that fell ten percent in a week.
 - **The thresholds are drawn.** The band `fb_draw_meter()` cuts notches into becomes a broken
@@ -1641,6 +1661,79 @@ because a stroke does not say which end is now, and a chart has the answer writt
 **No grid**: two threshold rules and two axes are the marks that mean something, and a lattice of
 evenly spaced lines makes a picture look measured without measuring anything. **Nothing
 animates**, for the sparkline's reason.
+
+##### The ceiling contracts; the floor never does
+
+A mesh at 1.1% busy drawn on a domain of 0–100% is a flat line along the bottom of an empty
+rectangle. There is nothing wrong with the number and nothing to see in the picture — and it is
+the ordinary case, because a healthy mesh is a quiet one. The first instinct is to auto-scale,
+which is what layout.h has always refused, so it is worth being precise about *what* auto-scaling
+gets wrong. It is not that it moves the ceiling. It is that it moves **both ends to the data**,
+so the shape is normalised away: a battery that fell two percent overnight fills the plot corner
+to corner and reads as a cliff, and two visits to one screen cannot be compared because neither
+axis stood still.
+
+[`mesh_ui_trend_domain()`](../include/mesh/ui/trend.h) takes the half that works:
+
+- **The floor never moves.** It is the domain's own, so a reading near the bottom is drawn near
+  the bottom and a fall of two percent is two percent of something.
+- **The ceiling moves only to a rung**, and the rungs are fractions of *the domain* rather than
+  of the data — a hundredth, a fiftieth, a twentieth, a tenth, a quarter, a half, all of it,
+  which is the 1‑2‑5 ladder graph paper has always been ruled in. Readings anywhere inside one
+  rung come back on the same ceiling, so two visits an hour apart are comparable unless the mesh
+  genuinely crossed one.
+- **The rung is written on the axis**, because the top label is the ceiling. That is the whole of
+  what makes this honest where auto-scaling is not: the lie was never the scale, it was a scale
+  the picture did not state.
+- **A sparkline never contracts anything.** It shares its domain with the bar beside it — that is
+  its first rule — and it has nowhere to write down that it has moved. A row carries a glance; a
+  screen carries a study, and only the study has an axis to be honest on.
+
+Two consequences fall out. A threshold above the contracted ceiling is **not drawn**: `warn` at
+25% on a plot that runs to 2% would otherwise be a rule across the top saying the air is as busy
+as the picture goes — and `mesh_ui_scale_permille()` *clamps*, so the test has to be made against
+the reading rather than against its projection. And a domain that cannot be contracted honestly —
+descending, already full, or too narrow for the arithmetic — comes back untouched.
+
+##### The span picker
+
+`enum mesh_ui_trend_span` is how far back the picture looks: 15m, 1h, 6h, All, drawn as
+`fb_draw_segmented()` above the plot (Material's placement for a filter over a view — put
+underneath, the control the reader is pressing would be the third line of a caption) and stepped
+by Left and Right. Four spans because `FB_SEGMENTED_MAX` is four. It is the second screen after
+the map where the d-pad's Left and Right are not the tab switch, and the same thing pays for it:
+the **shoulders are not taken**, so the tab strip stays alive and the action bar goes on saying
+"L/R tabs" and meaning it. Before this, those two presses fell through to the tabs on a screen
+with a control sitting on it and nothing able to reach it.
+
+Three rules it carries:
+
+- **The span is one choice across both charts** (`nav->trend_span`). Every other level flag on
+  the nav records *where a tab is standing*, one per tab, so each tab keeps its own place. A span
+  is not a place — it is how the reader likes their charts read, which is the theme's kind of
+  setting — so narrowing the airtime chart and then opening a node's temperature finds the same
+  span already picked. It is not persisted, because the history it slices is not persisted
+  either.
+- **It only ever narrows, and it is anchored at the newest reading.** A span wider than the
+  readings leaves the window at the readings' own ends, so the caption under the axis says what
+  there turned out to be rather than what was asked for. Anchoring at *now* is the obvious
+  reading of "the last fifteen minutes" and is the wrong one here: a link that dropped twenty
+  minutes ago would answer every span but All with an empty plot, which tells the reader nothing
+  about a radio that was reporting perfectly well until it went away.
+- **The window is cut before the ceiling is picked.** `mesh_ui_trend_frame()` does both, in that
+  order, which is why it is one function: done the other way round, narrowing to the last quarter
+  hour would leave the axis held open by a busy spell that is no longer on the panel — an empty
+  plot with a correct-looking label.
+
+It also made two states reachable that the component had never had to draw. A window the reader
+narrowed contains only part of the ring, so the projection has to be
+[`mesh_ui_series_project_within()`](../include/mesh/ui/layout.h), which *drops* the readings
+outside it — `_over()` holds them at the edge they fell off, which over a narrowed window is a
+vertical stroke up the side of the plot, in the data's own colour, that is not a reading of
+anything. And a span narrowed past the last two readings leaves a frame with nothing between its
+axes, which is indistinguishable from a rendering fault, so `fb_chart.empty` is a caption the
+component draws in the middle of the plot — the component's rather than a screen's, because it is
+the only thing that knows whether a line actually came out.
 
 Two rules came out of building it, and both are about what a *fill* is:
 
@@ -1658,8 +1751,16 @@ Two rules came out of building it, and both are about what a *fill* is:
   `fb_spark_stroke()`: the room a chart has is spent making the mark wide enough to be the fill
   the palette was validated for.
 
-The legend is a swatch and a word per line, the swatch in the series colour and the word in the
-row's own ink — the same rule, from the other side. Rendered by
+The legend is a swatch, a word and a reading per line: the swatch in the series colour, the word
+in the dim ink a caption takes, and where that line has *got to* in the body's own ink. The
+reading is the one number a chart could not otherwise say — the shape and the two ends tell you
+the air got busier and that the ceiling is 5%, and leave you not knowing whether it is at 4% or
+at 1%, which is the figure the card the reader came from was showing them. It sits in the legend
+rather than at the end of the line because a label pinned to the last point moves with the data
+and collides with its neighbour the moment two lines converge; and it is what gives the legend
+something to draw on a chart whose single line is named by the screen's own title, where before
+it drew nothing at all. A line with no readings inside the window names none, because a caption
+stating a reading the plot does not contain is the frame contradicting the picture. Rendered by
 `make ui-capture ARGS="devtools/ui_capture/scenes/chart.scene"`.
 
 #### `struct fb_snackbar` — the transient notice

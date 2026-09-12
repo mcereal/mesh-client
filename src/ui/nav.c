@@ -19,6 +19,7 @@
 #include "mesh/ui/reactions.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/status.h"
+#include "mesh/ui/trend.h"
 #include "mesh/utils/array.h"
 #include "mesh/utils/text.h"
 
@@ -142,6 +143,29 @@ static bool mesh_ui_nav_close_thread(struct mesh_ui_nav *nav) {
     return true;
 }
 
+/*
+ * Left and Right on either chart: the span picker, one segment along.
+ *
+ * The one screen in the client where the d-pad's Left and Right are not the tab switch, and it
+ * is the map's split arriving at the other picture - with the same thing paying for it. The
+ * shoulders are *not* taken, so the tab strip above the body stays alive and the action bar goes
+ * on saying "L/R tabs" and meaning it; what the d-pad gets is the control that is actually on the
+ * screen. Before this it got nothing at all: a chart has no cursor, so Left and Right fell
+ * through to the tabs and the two halves of the same gesture did different things.
+ *
+ * Both charts, and one span between them - see `trend_span`. The step itself is
+ * mesh_ui_trend_span_step(), because the order the segments draw in is the strip's rather than
+ * this file's.
+ */
+static bool mesh_ui_nav_step_trend_span(struct mesh_ui_nav *nav, int delta) {
+    const uint8_t next = mesh_ui_trend_span_step(nav->trend_span, delta);
+    if (next == nav->trend_span) {
+        return false;
+    }
+    nav->trend_span = next;
+    return true;
+}
+
 /* B out of a node's detail. Returns false when the node list is already showing. */
 static bool mesh_ui_nav_close_node_detail(struct mesh_ui_nav *nav) {
     if (!nav->node_detail_open) {
@@ -203,6 +227,9 @@ void mesh_ui_nav_init(struct mesh_ui_nav *nav) {
     nav->settings_section = MESH_UI_SETTINGS_NO_SECTION;
     nav->settings_parent = MESH_UI_SETTINGS_NO_SECTION;
     nav->settings_channel = MESH_UI_SETTINGS_NO_CHANNEL;
+    /* Not zero, which is the narrowest span: a chart opens on everything it has, which is what
+       it drew before there was a picker - see `trend_span`. */
+    nav->trend_span = (uint8_t)MESH_UI_TREND_SPAN_ALL;
 }
 
 /* ---- message filter ----------------------------------------------------------------------- */
@@ -1354,15 +1381,18 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
      * had moved onto. Swallowing them is what makes B the only way out, which is what the action
      * bar says.
      *
-     * The shoulders and the d-pad's own Left and Right are deliberately not taken, which is
-     * where this differs from the map: there is nothing to pan, so they stay the tab switch they
-     * are on every other screen. And the screen is checked as well as the flag, because the flag
-     * outlives the tab - see `trend_open`.
+     * Left and Right are taken, and the shoulders are not - which is the map's split with the
+     * halves swapped over. There is nothing to pan here, but there is something to choose: the
+     * span picker over the plot is the only control on the screen, and the d-pad is what aims at
+     * it. The shoulders staying the tab switch is what pays for that, exactly as it does on the
+     * map. And the screen is checked as well as the flag, because the flag outlives the tab -
+     * see `trend_open`.
      */
     if (nav->trend_open && nav->screen == MESH_UI_SCREEN_STATUS) {
         switch (key) {
         case MESH_UI_KEY_LEFT:
         case MESH_UI_KEY_RIGHT:
+            return mesh_ui_nav_step_trend_span(nav, key == MESH_UI_KEY_RIGHT ? 1 : -1);
         case MESH_UI_KEY_L1:
         case MESH_UI_KEY_R1:
         case MESH_UI_KEY_SELECT:
@@ -1388,6 +1418,7 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
         switch (key) {
         case MESH_UI_KEY_LEFT:
         case MESH_UI_KEY_RIGHT:
+            return mesh_ui_nav_step_trend_span(nav, key == MESH_UI_KEY_RIGHT ? 1 : -1);
         case MESH_UI_KEY_L1:
         case MESH_UI_KEY_R1:
         case MESH_UI_KEY_SELECT:

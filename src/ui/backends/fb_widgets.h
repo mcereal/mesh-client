@@ -939,6 +939,20 @@ struct fb_chart_line {
        honest only when there is exactly one line - with two it is the picture asking the reader
        to guess. */
     enum mesh_str_id label;
+    /*
+     * Where this line has got to, already formatted in the reading's own units, or NULL.
+     *
+     * The one number a chart could not say. Everything else on the screen is a shape and two
+     * ends: the reader can see that the air got busier and that the ceiling is five percent, and
+     * still not know whether it is at four or at one - which is the figure the card they came
+     * from was showing them, and the figure they would go back for.
+     *
+     * In the legend rather than at the end of the line, because a label pinned to the last point
+     * moves with the data and collides with the other line's the moment two readings converge.
+     * It is also what gives the legend something to draw on a chart with one unnamed line: a
+     * swatch and a reading, which is the whole of what there is to say about it.
+     */
+    const char *value;
 };
 
 struct fb_chart {
@@ -971,6 +985,34 @@ struct fb_chart {
      */
     const struct mesh_ui_band *band;
     struct mesh_ui_scale scale;
+    /*
+     * How far back the picture goes, as the set of spans the reader may pick between, drawn as a
+     * segmented button above the plot. NULL draws none and gives the room back to the plot.
+     *
+     * A `struct fb_segmented` rather than anything that knows what a span is, which is the rule
+     * every slot in this component set follows: the strip draws four labels and lights one, and
+     * what those labels *mean* is include/mesh/ui/trend.h's business. It is inside the chart
+     * rather than beside it because the two are one statement - a picture and the words saying
+     * how much of the record is on it - and a caller placing the strip itself would be a caller
+     * computing coordinates, which is the thing fb_screens.c does not do.
+     *
+     * It is drawn selected, always. There is no cursor on this screen to move onto it: it is the
+     * only control here, Left and Right always reach it, and a control that drew unfocused while
+     * being the only thing the d-pad can touch would be the frame disagreeing with the keys.
+     */
+    const struct fb_segmented *spans;
+    /*
+     * What to say in the middle of the plot when no line could be drawn in it, or MESH_STR_NONE
+     * to leave it empty.
+     *
+     * A picture with nothing in it is the one state this component could not distinguish from a
+     * bug, and the span picker is what made it reachable: narrow the span past the last two
+     * readings and the frame, the axis labels and the legend are all still true and there is
+     * nothing between them. So the empty state is the component's rather than a screen's - it is
+     * the only thing that knows whether a line came out - and it is a string id, because it is a
+     * sentence about the picture and this file does not hold sentences.
+     */
+    enum mesh_str_id empty;
 };
 
 /*

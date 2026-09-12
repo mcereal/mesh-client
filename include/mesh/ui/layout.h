@@ -521,7 +521,11 @@ uint32_t mesh_ui_proportion_split(const uint32_t *values, uint32_t count, int32_
  *     see was missing. `gap_ms` is how long a silence has to be before the pen lifts.
  *   - **The y axis is the reading's own domain**, the same `struct mesh_ui_scale` the bar beside
  *     it uses - never the range the samples happen to span. Auto-scaling is what a spreadsheet
- *     does, and on a battery that fell two percent overnight it draws a cliff.
+ *     does, and on a battery that fell two percent overnight it draws a cliff. A chart may
+ *     contract that domain's *ceiling* down a fixed ladder and says on the axis which rung it
+ *     landed on (mesh_ui_trend_domain()); the floor stays where the reading's domain put it, and
+ *     a sparkline never contracts anything, because it shares its domain with the bar beside it
+ *     and has nowhere to write down that it has moved.
  *
  * The clock is the *client's* monotonic one rather than the radio's stamp, because the client
  * is the thing that has been watching: a Brick with no wall clock still knows how long ago it
@@ -674,5 +678,27 @@ bool mesh_ui_series_window(const struct mesh_ui_series *const *series, uint32_t 
  */
 void mesh_ui_series_project_over(const struct mesh_ui_series *series, struct mesh_ui_scale scale,
                                  uint32_t from, uint32_t to, struct mesh_ui_polyline *out);
+
+/*
+ * The same window, with a sample outside it dropped rather than held at the edge.
+ *
+ * The two differ in one case and it is the case a *reader* creates. A window taken from the
+ * series themselves (mesh_ui_series_window()) contains every sample by construction, so nothing
+ * ever falls outside one and clamping is a rule that never fires. A window the reader narrowed -
+ * "show me the last quarter of an hour" - contains only part of the ring, and clamping there
+ * stacks every older reading on the left-hand edge as a column of points at one x: a vertical
+ * stroke up the side of the plot, drawn in the data's own colour, that is not a reading of
+ * anything.
+ *
+ * So a chart with a span picker asks for this one. The line then starts at the first reading
+ * inside the window - which is a pen lifted at the frame's edge rather than a claim about what
+ * happened before it - and a series with nothing inside the window comes back empty, which the
+ * components already treat as "no line".
+ *
+ * Neither of these interpolates a crossing at the edge, and that is deliberate: a point on the
+ * frame's boundary is a reading nobody took, and this client draws the readings it was given.
+ */
+void mesh_ui_series_project_within(const struct mesh_ui_series *series, struct mesh_ui_scale scale,
+                                   uint32_t from, uint32_t to, struct mesh_ui_polyline *out);
 
 #endif /* MESH_UI_LAYOUT_H */

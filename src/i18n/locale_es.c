@@ -69,6 +69,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_ACTION_FORGET] = "olvidar",
     [MESH_STR_ACTION_REFRESH] = "recargar",
     [MESH_STR_ACTION_TREND] = "tendencia",
+    [MESH_STR_ACTION_SPAN] = "periodo",
     [MESH_STR_ACTION_SAVE] = "guardar",
     [MESH_STR_ACTION_DISCARD] = "descartar",
     [MESH_STR_ACTION_EDIT] = "editar",
@@ -288,9 +289,18 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_TREND_SERIES_TX] = "Lo nuestro",
     [MESH_STR_TREND_SPAN] = "últimos %s",
     [MESH_STR_TREND_AXIS_PERCENT] = "%u%%",
+    /* The picker's four spans. The unit letters follow the clock rather than the language, as
+       "15m" does in Spanish too; "Todo" is the one of the four that is a word. */
+    [MESH_STR_TREND_SPAN_15M] = "15m",
+    [MESH_STR_TREND_SPAN_1H] = "1h",
+    [MESH_STR_TREND_SPAN_6H] = "6h",
+    [MESH_STR_TREND_SPAN_ALL] = "Todo",
+    [MESH_STR_TREND_EMPTY] = "Lecturas insuficientes en este periodo",
+    [MESH_STR_TREND_VALUE_CELSIUS] = "%.1f C",
     [MESH_STR_HELP_SUBJECT_TREND] = "Tendencia del aire",
     [MESH_STR_HELP_LABEL_TREND_AXES] = "Qué dicen los ejes",
     [MESH_STR_HELP_LABEL_TREND_MARKS] = "Las líneas que lo cruzan",
+    [MESH_STR_HELP_LABEL_TREND_SPAN] = "Elegir cuánto tiempo atrás",
 
     /* A node's own chart. The three titles are the reading's name rather than a sentence about
        it, exactly as the row labels further down are - and the axis keeps its bare "C", which is
@@ -466,6 +476,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_HELP_LABEL_NODE_TREND] = "Los gráficos pequeños",
     [MESH_STR_HELP_LABEL_NODE_CHART] = "Qué muestra esto",
     [MESH_STR_HELP_LABEL_NODE_CHART_GAPS] = "Huecos y líneas",
+    [MESH_STR_HELP_LABEL_NODE_CHART_SPAN] = "Elegir cuánto tiempo atrás",
     [MESH_STR_HELP_LABEL_WAYPOINT_NEW] = "Nombrar un lugar",
     [MESH_STR_HELP_LABEL_WAYPOINT_SHARE] = "Quién más lo ve",
     [MESH_STR_HELP_LABEL_WAYPOINT_DROP] = "Borrar uno",
@@ -475,6 +486,9 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_HELP_LABEL_DEVICES_PAIR] = "Emparejamiento",
     [MESH_STR_HELP_LABEL_DEVICES_FORGET] = "Olvidar uno",
     [MESH_STR_HELP_LABEL_STATUS_COUNTS] = "Por qué difieren los dos recuentos",
+    [MESH_STR_HELP_LABEL_STATUS_AIRTIME] = "Las cifras del uso del aire",
+    [MESH_STR_HELP_LABEL_STATUS_TRAFFIC] = "Enviado y escuchado",
+    [MESH_STR_HELP_LABEL_STATUS_FLOOR] = "El ruido de fondo",
     [MESH_STR_SETTINGS_FIELD_USER_LONG_NAME] = "Nombre largo",
     [MESH_STR_SETTINGS_FIELD_USER_SHORT_NAME] = "Nombre corto",
     [MESH_STR_SETTINGS_FIELD_USER_LICENSED] = "Operador con licencia",

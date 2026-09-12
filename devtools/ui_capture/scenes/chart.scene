@@ -10,7 +10,8 @@
 # busy this afternoon and one that got busy in the last ten minutes. The thresholds the card's
 # bar cuts notches at are rules across the plot, so the trend can be *seen* crossing them. And
 # there are two lines, which is the thing a row could never have: our own transmit share inside
-# the channel's total, named by a legend a row has no space for.
+# the channel's total, named by a legend a row has no space for - and the legend says where each
+# of them has got to, which is the one number the shape and the two ends cannot state.
 
 scene demo
 delay 240
@@ -49,6 +50,31 @@ hold 900
 key a
 hold 2400
 
+# ---- how far back, and how far up ------------------------------------------------------------
+#
+# The two things the picture decides for itself, and the two the reader can see it deciding.
+#
+# The vertical does not run to 100% unless something has been near it. The ceiling contracts to a
+# rung of a fixed ladder - a hundredth, a fiftieth, a twentieth, a tenth, a quarter, a half, all
+# of it - and the top label is that rung, which is the whole of what makes it honest: the lie in
+# auto-scaling was never the scale, it was a scale the picture did not state. The floor stays
+# where the reading's domain put it, so a mesh at one percent is a shape rather than a flat line
+# along the bottom of an empty rectangle, and a fall of two percent is still two percent of
+# something.
+#
+# The horizontal is the reader's. Left and Right walk the strip over the plot - the one screen
+# after the map where those two are not the tab switch, and the shoulders staying the tabs is
+# what pays for it. The window only ever narrows, so a span wider than the readings leaves the
+# caption naming what there turned out to be rather than what was asked for.
+key left
+hold 1000
+key left
+hold 1000
+key right
+hold 1000
+key right
+hold 1200
+
 # The same picture in every theme. Nothing here is switched by hand: the lines take the series
 # palette by position, so line 0 is the same colour on every theme and the legend under the plot
 # goes on meaning what it said. The colour-blind theme is where that contract bites - its
@@ -61,10 +87,10 @@ hold 1300
 theme colorblind
 hold 1600
 
-# And back out. B is the only way off this screen and the action bar says so: there is no cursor
-# on a chart, so the presses that walk and open things mean nothing here and are swallowed rather
-# than reaching the cards underneath - where Down would move a cursor nobody can see and A would
-# run whichever verb it had moved onto.
+# And back out. B is the only way off this screen and the action bar says so. Up, Down and A are
+# swallowed rather than reaching the cards underneath - there is no cursor on a chart, and down
+# there Down would move one nobody can see and A would run whichever verb it had landed on. Left
+# and Right are the exception and the reason is on the screen: they have something here to move.
 theme dark
 hold 600
 key b

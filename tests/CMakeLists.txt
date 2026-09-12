@@ -69,6 +69,7 @@ set(MESHCLIENT_TEST_SUITES
     suites/ui_store.c
     suites/ui_text.c
     suites/ui_theme.c
+    suites/ui_trend.c
     suites/uf2.c
     suites/updater.c
     suites/utils.c
