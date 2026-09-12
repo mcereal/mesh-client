@@ -1,3 +1,10 @@
+## [2.67.1](https://github.com/mcereal/mesh-client/compare/v2.67.0...v2.67.1) (2026-09-12)
+
+### Bug Fixes
+
+* **build:** clear every compiler warning the build, the pak and CI emit ([e816320](https://github.com/mcereal/mesh-client/commit/e8163207471c8f179003ebcce61235bdc4cb3af8))
+* **build:** settle the libc branch inside the ioctl header, and make it a helper ([638df88](https://github.com/mcereal/mesh-client/commit/638df8826d4727ede9996beec40aebc794e01ba8)), closes [#161](https://github.com/mcereal/mesh-client/issues/161)
+
 ## [2.67.0](https://github.com/mcereal/mesh-client/compare/v2.66.0...v2.67.0) (2026-09-12)
 
 ### Features
