@@ -82,9 +82,13 @@ struct field_spec {
      * Last in the struct rather than beside `label`, where it belongs by meaning, because
      * k_fields is initialised *positionally*: a member added in the middle would renumber
      * every one of the hundred and fifty rows below it, silently and in a way the compiler
-     * would only catch where the types happened to disagree. At the end it is the trailing
-     * member a designated initialiser leaves zeroed, which is MESH_STR_NONE, which is "this
-     * row has no note" - so every existing row stays correct without being touched.
+     * would only catch where the types happened to disagree.
+     *
+     * Every row states it, MESH_STR_NONE included, which is what makes that renumbering a
+     * diagnostic rather than a silence. Leaving it off and relying on the trailing member
+     * being zeroed says the same thing to the language and nothing at all to a reader - and
+     * it is a -Wmissing-field-initializers on each such row under clang, which is fifty-two
+     * warnings standing between a CI log and the one that would matter.
      *
      * See docs/help.md for what a note may say and how long it may be.
      */

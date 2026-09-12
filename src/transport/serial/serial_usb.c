@@ -3,6 +3,7 @@
 
 #include "mesh/transport/serial_usb.h"
 
+#include "mesh/utils/ioctl.h"
 #include "mesh/utils/log.h"
 #include "mesh/utils/text.h"
 
@@ -45,17 +46,6 @@ static const char *sysfs_usb_root(void) {
 #define MESH_USB_CLASS_MASS_STORAGE 0x08U
 #define MESH_USB_SUBCLASS_SCSI 0x06U
 #define MESH_USB_PROTOCOL_BULK_ONLY 0x50U
-
-/*
- * The USBDEVFS request codes have the high bit set, and the two libcs disagree on the parameter:
- * glibc takes `unsigned long`, musl (which the release build links against) takes `int`. Narrow
- * explicitly for each rather than letting one of them overflow the constant.
- */
-#if defined(__GLIBC__)
-#define MESH_IOCTL_REQUEST(req) ((unsigned long)(req))
-#else
-#define MESH_IOCTL_REQUEST(req) ((int)(req))
-#endif
 
 /* CDC SET_CONTROL_LINE_STATE (USB CDC 1.1, 6.2.14). */
 #define MESH_CDC_REQUEST_TYPE 0x21U

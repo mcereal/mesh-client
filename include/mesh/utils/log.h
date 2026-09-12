@@ -19,8 +19,14 @@ void mesh_log_set_level(enum mesh_log_level level);
 enum mesh_log_level mesh_log_get_level(void);
 const char *mesh_log_level_to_string(enum mesh_log_level level);
 
+/*
+ * The archetype is `printf` and the argument index is 0, which is how the attribute spells a
+ * va_list variant: there are no further arguments here to check `fmt` against, and saying so is
+ * what tells the compiler this format *is* a parameter rather than a string assembled somewhere
+ * it cannot see. Without it the vfprintf() inside is a -Wformat-nonliteral on every clang build.
+ */
 void mesh_log_message_v(enum mesh_log_level level, const char *component, const char *fmt,
-                        va_list args);
+                        va_list args) __attribute__((format(printf, 3, 0)));
 
 static inline void mesh_log_trace(const char *component, const char *fmt, ...)
     __attribute__((format(printf, 2, 3)));

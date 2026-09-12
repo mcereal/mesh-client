@@ -56,7 +56,13 @@ void mesh_ui_line_printf(struct mesh_ui_line *line, const char *fmt, ...)
     __attribute__((format(printf, 2, 3)))
 #endif
     ;
-void mesh_ui_line_vprintf(struct mesh_ui_line *line, const char *fmt, va_list args);
+void mesh_ui_line_vprintf(struct mesh_ui_line *line, const char *fmt, va_list args)
+#if defined(__GNUC__)
+    /* Index 0 is how the attribute spells a va_list variant: nothing further to check `fmt`
+       against, and saying so is what stops the vsnprintf() inside being a -Wformat-nonliteral. */
+    __attribute__((format(printf, 2, 0)))
+#endif
+    ;
 
 /*
  * Append a catalog entry, formatted.

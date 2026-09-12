@@ -7,6 +7,7 @@
 #include "mesh/ui/input_profile.h"
 #include "mesh/utils/array.h"
 #include "mesh/utils/env.h"
+#include "mesh/utils/ioctl.h"
 #include "mesh/utils/log.h"
 #include "mesh/utils/text.h"
 
@@ -580,8 +581,10 @@ static bool mesh_ui_input_device_is_useful(int fd, const char *path) {
     memset(keys, 0, sizeof keys);
     memset(axes, 0, sizeof axes);
 
-    const bool keys_known = ioctl(fd, EVIOCGBIT(EV_KEY, sizeof keys), keys) >= 0;
-    const bool axes_known = ioctl(fd, EVIOCGBIT(EV_ABS, sizeof axes), axes) >= 0;
+    const bool keys_known =
+        ioctl(fd, MESH_IOCTL_REQUEST(EVIOCGBIT(EV_KEY, sizeof keys)), keys) >= 0;
+    const bool axes_known =
+        ioctl(fd, MESH_IOCTL_REQUEST(EVIOCGBIT(EV_ABS, sizeof axes)), axes) >= 0;
     if (!keys_known && !axes_known) {
         mesh_log_debug("input", "%s cannot say what it reports; watching it anyway", path);
     }
@@ -602,7 +605,7 @@ static void mesh_ui_input_device_name(int fd, char *out, size_t out_len) {
         return;
     }
     out[0] = '\0';
-    if (ioctl(fd, EVIOCGNAME(out_len), out) < 0) {
+    if (ioctl(fd, MESH_IOCTL_REQUEST(EVIOCGNAME(out_len)), out) < 0) {
         out[0] = '\0';
     }
     out[out_len - 1U] = '\0';

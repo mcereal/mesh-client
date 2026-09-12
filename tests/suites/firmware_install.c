@@ -21,6 +21,7 @@
  */
 
 #include "framework/mesh_test.h"
+#include "support/fs_fixture.h"
 #include "support/uf2_fixture.h"
 
 #include "mesh/core/firmware_install.h"
@@ -59,13 +60,6 @@ static bool fixture_append(const char *path, const char *contents) {
     }
     const bool ok = fputs(contents, file) >= 0;
     return fclose(file) == 0 && ok;
-}
-
-static void fixture_remove(const char *root) {
-    char command[PATH_MAX + 16];
-    if (snprintf(command, sizeof command, "rm -rf '%s'", root) < (int)sizeof command) {
-        (void)system(command);
-    }
 }
 
 static bool usb_interface(const char *root, const char *name, const char *cls, const char *subclass,
@@ -225,9 +219,9 @@ static void fixture_close(struct install_fixture *fixture) {
     (void)unsetenv("MESHCLIENT_SYSFS_BLOCK");
     (void)unsetenv("MESHCLIENT_DEV_ROOT");
     (void)unsetenv("MESHCLIENT_PROC_MOUNTS");
-    fixture_remove(fixture->usb);
-    fixture_remove(fixture->block);
-    fixture_remove(fixture->dev);
+    (void)mesh_test_remove_tree(fixture->usb);
+    (void)mesh_test_remove_tree(fixture->block);
+    (void)mesh_test_remove_tree(fixture->dev);
 }
 
 /* The scan's entry for the bootloader's CDC-Data interface, which is what a caller holds. */
@@ -692,9 +686,7 @@ MESH_TEST_CASE(install_writes_the_image_and_waits_for_the_board_to_restart, unit
 
     /* The board goes into DFU: the CDC pair comes back beside a mass-storage interface, with a
        new product id, and `usb-storage` publishes the disk a moment later. */
-    char command[256];
-    snprintf(command, sizeof command, "rm -rf '%s'/2-1*", fixture.usb);
-    MESH_TEST_FAIL_IF_CLEANUP(system(command) != 0,
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_test_remove_matching(fixture.usb, "2-1"),
                               (mesh_firmware_install_cancel(&install), fixture_close(&fixture)),
                               "could not take the radio off the bus");
     offset += 1000U;
@@ -736,7 +728,7 @@ MESH_TEST_CASE(install_writes_the_image_and_waits_for_the_board_to_restart, unit
     /* The bootloader counted `numBlocks` blocks and reset itself; nothing told it to. The bus
        is empty for the moment it takes to come back, and that on its own is not the answer -
        a pulled cable looks exactly like it. */
-    MESH_TEST_FAIL_IF_CLEANUP(system(command) != 0,
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_test_remove_matching(fixture.usb, "2-1"),
                               (mesh_firmware_install_cancel(&install), fixture_close(&fixture)),
                               "could not take the bootloader off the bus");
     offset += 1000U;
@@ -886,9 +878,8 @@ MESH_TEST_CASE(install_tells_a_radio_that_stayed_from_a_bootloader_that_never_ca
     mesh_firmware_install_cancel(&install);
 
     /* Nothing on the bus at all: the double-tap that never came. */
-    char command[256];
-    snprintf(command, sizeof command, "rm -rf '%s'/2-1*", fixture.usb);
-    (void)system(command);
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_test_remove_matching(fixture.usb, "2-1"),
+                              fixture_close(&fixture), "could not clear the bus");
     memset(&run, 0, sizeof run);
     memset(&install, 0, sizeof install);
     MESH_TEST_FAIL_IF_CLEANUP(mesh_firmware_install_start(&install, NULL, image_path, "",
@@ -963,9 +954,7 @@ MESH_TEST_CASE(install_reads_a_write_that_ended_with_the_bootloader_as_the_board
                               "the drive is there, so the write should be running");
 
     /* The board resets: the bootloader leaves the bus, and the write it was taking stops. */
-    char command[256];
-    snprintf(command, sizeof command, "rm -rf '%s'/2-1*", fixture.usb);
-    MESH_TEST_FAIL_IF_CLEANUP(system(command) != 0,
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_test_remove_matching(fixture.usb, "2-1"),
                               (mesh_firmware_install_cancel(&install), fixture_close(&fixture)),
                               "could not take the bootloader off the bus");
 
@@ -1026,9 +1015,7 @@ MESH_TEST_CASE(install_does_not_call_a_pulled_cable_a_finished_install, unit) {
                               (mesh_firmware_install_cancel(&install), fixture_close(&fixture)),
                               "the drive is there, so the write should be running");
 
-    char command[256];
-    snprintf(command, sizeof command, "rm -rf '%s'/2-1*", fixture.usb);
-    MESH_TEST_FAIL_IF_CLEANUP(system(command) != 0,
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_test_remove_matching(fixture.usb, "2-1"),
                               (mesh_firmware_install_cancel(&install), fixture_close(&fixture)),
                               "could not take the board off the bus");
 

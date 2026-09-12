@@ -11,6 +11,9 @@
 #include <string.h>
 
 static void mesh_ui_backend_cli_write(struct mesh_ui_backend_cli_context *context, const char *fmt,
+                                      ...) __attribute__((format(printf, 2, 3)));
+
+static void mesh_ui_backend_cli_write(struct mesh_ui_backend_cli_context *context, const char *fmt,
                                       ...) {
     va_list args;
     va_start(args, fmt);
