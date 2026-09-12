@@ -3289,6 +3289,120 @@ MESH_TEST_CASE(ui_capture_nav_bar_badges_unread_messages, unit) {
  * At every scale, because the gutter, the hairline and the corner radius all come off the glyph
  * scale and they do not all come off it at the same rate.
  */
+/*
+ * A group's heading is drawn after the cards, so anything of it that lands on a card's edge
+ * paints through the edge - and the scale it happens at is the one nobody renders.
+ *
+ * At MESH_UI_SCALE_MIN the type scale clamps the label onto the body, because a label cannot be
+ * rasterised below the registry's smallest size. A heading's cell is then exactly as tall as a
+ * row's, the step holds one line gap of air, and an inset taken out of that leaves the cell a
+ * pixel longer than the gap it is centred in - so its last row is the next card's top edge and
+ * every heading with a descender in it draws through the hairline.
+ *
+ * What this asks is that a card's edge is only ever card: a scanline that is mostly outline
+ * carries nothing but the card's own colours, the cursor's fill included - whether the highlight
+ * may stand *on* an edge is the question cursor_stays_inside_its_card() asks, and answering it
+ * twice in two ways is how the two come to disagree. The scroll rail is outside the margin and
+ * outside this, for the reason it is outside that one.
+ */
+static const char *card_edges_carry_no_ink(const struct mesh_ui_capture *capture,
+                                           const uint8_t *pixels, uint32_t width, uint32_t height,
+                                           size_t stride, int scale) {
+    /* The rail's gutter is half a margin, and the margin does not scale - see fb_list_rail(). */
+    const uint32_t right = width > 16U ? width - 16U : width;
+    for (uint32_t y = 0U; y < height; ++y) {
+        const uint8_t *row = pixels + (size_t)y * stride;
+        uint32_t edge = 0U;
+        for (uint32_t x = 0U; x < right; ++x) {
+            if (pixel_is_role(capture, row + (size_t)x * 4U, MESH_UI_COLOR_OUTLINE)) {
+                edge++;
+            }
+        }
+        /* A card runs nearly the whole panel, so its edge rows are the only ones that can be
+           mostly outline. Nothing else on the frame draws a rule in that role. */
+        if (edge * 5U < right * 3U) {
+            continue;
+        }
+        for (uint32_t x = 0U; x < right; ++x) {
+            const uint8_t *px = row + (size_t)x * 4U;
+            if (pixel_is_role(capture, px, MESH_UI_COLOR_OUTLINE) ||
+                pixel_is_role(capture, px, MESH_UI_COLOR_SURFACE) ||
+                pixel_is_role(capture, px, MESH_UI_COLOR_SURFACE_SEL) ||
+                pixel_is_role(capture, px, MESH_UI_COLOR_BG)) {
+                continue;
+            }
+            (void)scale;
+            return "a group's heading drew through the edge of the card under it";
+        }
+    }
+    return NULL;
+}
+
+/*
+ * Whether the cursor's fill is standing inside a card's edge on every scanline it covers.
+ *
+ * Asked of the rows where the fill is at its widest, because the fill is a rounded shape and its
+ * first and last rows are inset by the corner radius - an edge pixel beside those is the card's
+ * corner rather than its side, which is a different question and a weaker one.
+ *
+ * The *contiguous* run, and its own two ends, because the cursor fill is not the only thing on a
+ * scanline wearing that colour: the scroll rail's track is the same ink, four pixels wide and out
+ * in the gutter past everything the card contains. Taken as the first and last pixel of the
+ * colour anywhere on the row, the rail moves the right-hand end outside the card and every
+ * scrolling list fails a check about its cursor. Returns the failure, or NULL.
+ */
+static const char *cursor_stays_inside_its_card(const struct mesh_ui_capture *capture,
+                                                const uint8_t *pixels, uint32_t width,
+                                                uint32_t height, size_t stride) {
+    uint32_t widest = 0U;
+    for (uint32_t y = 0U; y < height; ++y) {
+        const uint8_t *row = pixels + (size_t)y * stride;
+        uint32_t run = 0U;
+        for (uint32_t x = 0U; x < width; ++x) {
+            run = pixel_is_role(capture, row + (size_t)x * 4U, MESH_UI_COLOR_SURFACE_SEL) ? run + 1U
+                                                                                          : 0U;
+            if (run > widest) {
+                widest = run;
+            }
+        }
+    }
+    if (widest == 0U) {
+        return "no cursor fill on the node detail to check the card edge against";
+    }
+    for (uint32_t y = 0U; y < height; ++y) {
+        const uint8_t *row = pixels + (size_t)y * stride;
+        uint32_t run = 0U;
+        uint32_t first = width;
+        uint32_t last = width;
+        for (uint32_t x = 0U; x < width; ++x) {
+            if (pixel_is_role(capture, row + (size_t)x * 4U, MESH_UI_COLOR_SURFACE_SEL)) {
+                run++;
+                if (run == widest) {
+                    first = x + 1U - run;
+                    last = x;
+                }
+            } else {
+                run = 0U;
+            }
+        }
+        if (last == width) {
+            continue;
+        }
+        bool left = false;
+        bool right = false;
+        for (uint32_t x = 0U; x < first; ++x) {
+            left = left || pixel_is_role(capture, row + (size_t)x * 4U, MESH_UI_COLOR_OUTLINE);
+        }
+        for (uint32_t x = last + 1U; x < width; ++x) {
+            right = right || pixel_is_role(capture, row + (size_t)x * 4U, MESH_UI_COLOR_OUTLINE);
+        }
+        if (!left || !right) {
+            return "the cursor fill painted out the card's edge on its own row";
+        }
+    }
+    return NULL;
+}
+
 MESH_TEST_CASE(ui_capture_node_detail_cards_survive_the_cursor, unit) {
     struct mesh_ui_store store;
     MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
@@ -3339,59 +3453,55 @@ MESH_TEST_CASE(ui_capture_node_detail_cards_survive_the_cursor, unit) {
             failure = "the node detail draws no card edge across the body";
         }
 
-        /*
-         * Every scanline the cursor fill reaches, and whether the card it is inside still has
-         * sides there. The fill is a rounded shape, so its first and last rows are inset by the
-         * corner radius and an edge pixel beside them would be the corner rather than the side -
-         * which is why this asks only of the rows where the fill is at its widest.
-         */
-        uint32_t widest = 0U;
-        for (uint32_t y = 0U; y < height && failure == NULL; ++y) {
-            const uint8_t *row = pixels + (size_t)y * stride;
-            uint32_t run = 0U;
-            for (uint32_t x = 0U; x < width; ++x) {
-                run = pixel_is_role(capture, row + (size_t)x * 4U, MESH_UI_COLOR_SURFACE_SEL)
-                          ? run + 1U
-                          : 0U;
-                if (run > widest) {
-                    widest = run;
-                }
-            }
+        if (failure == NULL) {
+            failure = cursor_stays_inside_its_card(capture, pixels, width, height, stride);
         }
-        if (failure == NULL && widest == 0U) {
-            failure = "no cursor fill on the node detail to check the card edge against";
-        }
-        for (uint32_t y = 0U; y < height && failure == NULL; ++y) {
-            const uint8_t *row = pixels + (size_t)y * stride;
-            uint32_t first = width;
-            uint32_t last = width;
-            uint32_t run = 0U;
-            for (uint32_t x = 0U; x < width; ++x) {
-                if (pixel_is_role(capture, row + (size_t)x * 4U, MESH_UI_COLOR_SURFACE_SEL)) {
-                    if (first == width) {
-                        first = x;
-                    }
-                    last = x;
-                    run++;
-                }
-            }
-            if (run != widest) {
-                continue;
-            }
-            bool left = false;
-            bool right = false;
-            for (uint32_t x = 0U; x < first; ++x) {
-                left = left || pixel_is_role(capture, row + (size_t)x * 4U, MESH_UI_COLOR_OUTLINE);
-            }
-            for (uint32_t x = last + 1U; x < width; ++x) {
-                right =
-                    right || pixel_is_role(capture, row + (size_t)x * 4U, MESH_UI_COLOR_OUTLINE);
-            }
-            if (!left || !right) {
-                failure = "the cursor fill painted out the card's edge on its own row";
-            }
+        if (failure == NULL) {
+            failure = card_edges_carry_no_ink(capture, pixels, width, height, stride, scale);
         }
 
+        mesh_ui_capture_close(capture);
+    }
+
+    /*
+     * And the same question of every row of a group rather than only of the one the screen opens
+     * on, because the two rows that can get it wrong are the *first* and the *last* of a card.
+     * Those are the rows the card's corners are curving through, and a card drawn to a rounder
+     * shape than the highlight is still turning where the highlight has reached its full width -
+     * so the cursor's ends stand outside the card, on precisely the rows a reader walks through
+     * to get from one group to the next. The screen's first row is in the middle of its card and
+     * saw none of it.
+     *
+     * Walked with the key rather than by setting the cursor, the same rule as above, and far
+     * enough to cross several groups - the detail's first dozen rows are the actions, the
+     * identity and the signal, which is three cards and both ends of two of them.
+     */
+    for (unsigned step = 0U; step < 16U && failure == NULL; ++step) {
+        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+        mesh_ui_store_request_refresh(&store);
+        if (!mesh_ui_store_consume_updates(&store, &snapshot)) {
+            failure = "no snapshot after walking the node detail";
+            break;
+        }
+        struct mesh_ui_capture *capture = NULL;
+        if (mesh_ui_capture_open(&capture, MESH_UI_CAPTURE_WIDTH, MESH_UI_CAPTURE_HEIGHT, 0) != 0) {
+            failure = "capture open failed";
+            break;
+        }
+        uint32_t width = 0U;
+        uint32_t height = 0U;
+        size_t stride = 0U;
+        const uint8_t *pixels = mesh_ui_capture_pixels(capture, &width, &height, &stride);
+        mesh_ui_capture_render(capture, &snapshot);
+        const char *broke = cursor_stays_inside_its_card(capture, pixels, width, height, stride);
+        if (broke != NULL) {
+            /* Which press it was, because "somewhere in the first sixteen rows" is the half of
+               this failure that costs the time - the rows differ by what the node reported. */
+            static char detail[160];
+            snprintf(detail, sizeof detail, "%s (%u rows into the detail, cursor %u)", broke,
+                     step + 1U, snapshot.nav.cursor[MESH_UI_SCREEN_NODES]);
+            failure = detail;
+        }
         mesh_ui_capture_close(capture);
     }
 

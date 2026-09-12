@@ -683,7 +683,23 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   straight line. `fb_fill_round_rect_ends()` draws it, and
   `ui_capture_node_detail_cards_survive_the_cursor` is what catches the first of the two - it is
   invisible in a still of a resting screen and invisible in a count of how much card fill is on
-  the panel.
+  the panel. It also takes the *highlight's* corner radius rather than `fb_draw_card()`'s, which
+  is the width rule on the other axis: a card still curving where the highlight has reached full
+  width lets the cursor's ends stand outside it on the first and last row of every group.
+- **A group's heading stands between two cards rather than inside either, and a card in a list is
+  padded at the bottom only.** Both are where the column's air comes from, and there is very
+  little of it: a card here is painted round row boxes that were laid out for a flat list, so the
+  only room to pad it with is whatever a heading's step is not using - a line advance less a
+  label's, nine pixels at the device's scale. Split three ways between a card's bottom, the break
+  and the next card's top, none of the three was big enough to see: two cards read as one box with
+  a rule across it, and the last row of each sat on its own edge. So the heading takes
+  `FB_LIST_NO_CARD` and stands in the break - centred in that step, because a label sat on the
+  bottom of it names the card that ended rather than the one it opens - and the two edges spend
+  the rest. The bottom takes the inset because a row's box carries its line's leading at the *top*
+  while its descenders run to the bottom edge, so padding both ends alike leaves a card
+  top-heavy by exactly that leading; the top takes the hairline instead, spent outward for the
+  reason the sides spend it. The grouping still costs no rows, which is what keeps the nav and
+  every count in the `ui_nav_nodes` suite out of it.
 - **A card's rows are drawn against the card, and a control on one takes the row's *resting*
   ground rather than its current one.** The first is a glyph carrying coverage rather than a mask:
   text told the wrong ground keeps its shape and gains a halo, so `fb_draw_row_fill_on()` takes

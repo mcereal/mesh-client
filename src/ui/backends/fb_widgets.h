@@ -1250,12 +1250,25 @@ struct fb_list fb_list_begin_rows(const struct fb_layout *layout, uint32_t count
  *     the ink they blend their edges into is the colour actually under them. Every list entry
  *     point below takes that from the model, so a screen cannot get it wrong by forgetting.
  *
- * The gap between two cards is the air at the top of a heading row, which is air that was
- * already there: fb_list_subheader() draws at the label scale sat on the bottom of its step
- * precisely so the space the smaller glyphs free becomes the section break. A column of cards
- * spends half of it as the card's own top padding and leaves the other half as the gap - so the
- * grouping costs **no rows at all**, and the nav, the row budget and every count in the
- * ui_nav_nodes suite are untouched by it.
+ * What separates two cards is a group's own heading, standing between them rather than inside
+ * either: a screen gives its heading rows FB_LIST_NO_CARD, so the card above closes under its
+ * last row and the card below opens at its first, with the label in the break naming the group
+ * it opens. That is where the column gets the only air it has. A card here is a surface painted
+ * round row boxes that were laid out for a flat list, so the room it can be padded with is
+ * whatever a heading's step is not using - a line advance less a label's, which is a few pixels
+ * at the device's scale - and split three ways between a card's bottom, the break and the next
+ * card's top, none of the three was big enough to see. Spent on two edges instead of three, with
+ * the heading itself standing in the break, each is the inset fb_draw_card() uses one tab over.
+ *
+ * The inset is at the bottom only, and the hairline is spent outward at the top. A row's box is
+ * a line advance tall and a glyph's ink sits high in its cell, so the top of a card's first row
+ * already carries most of a line's leading as air while the bottom of its last carries none -
+ * padding both ends alike leaves the card top-heavy by exactly that leading. What the top does
+ * take is the edge, for the reason the sides do: the first row of a card is a row the cursor can
+ * stand on, and a hairline drawn inside the row box is a hairline the highlight paints out.
+ *
+ * So the grouping still costs **no rows at all**, and the nav, the row budget and every count in
+ * the ui_nav_nodes suite are untouched by it.
  */
 
 /* An item standing on the panel rather than on a card. The whole array, for a list with no
@@ -1357,12 +1370,15 @@ void fb_list_row_line(const struct mesh_ui_backend_fb_state *state, struct fb_li
  * Still a row of the list, and still highlightable - the cursor walks onto these on both
  * screens that draw them - so the fill is the step, whatever size the words in it are.
  *
- * On a list drawn as a column of cards this is the card's heading, and the air above it is what
- * separates one card from the last - which is why the grouping costs no rows. Its leading slot
- * carries a symbol there and nowhere else: a heading over rows already carrying icons of their
- * own would be a second thing saying what the words under it say, but a *card* heading is the
- * one cell the eye finds when it is looking for Signal rather than Identity, which is the same
- * argument struct fb_card's own icon is there for.
+ * On a list drawn as a column of cards this is the card's label, and it stands in the gap
+ * between that card and the one that ended rather than on either - which is what pays for both
+ * cards' insets and why the grouping costs no rows. It is centred in that gap instead of sitting
+ * on the bottom of its step, because there it is not a break between two runs of rows: it names
+ * the card under it, and a label seated against the card above would be naming the wrong one.
+ * Its leading slot carries a symbol there and nowhere else: a heading over rows already carrying
+ * icons of their own would be a second thing saying what the words under it say, but a *card*
+ * heading is the one cell the eye finds when it is looking for Signal rather than Identity,
+ * which is the same argument struct fb_card's own icon is there for.
  */
 void fb_list_subheader(const struct mesh_ui_backend_fb_state *state, struct fb_list *list,
                        uint32_t index, const char *text);
