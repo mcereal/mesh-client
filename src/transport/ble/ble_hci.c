@@ -3,6 +3,7 @@
 
 #include "mesh/transport/ble_hci.h"
 
+#include "mesh/utils/ioctl.h"
 #include "mesh/utils/log.h"
 
 #include <ctype.h>
@@ -27,14 +28,6 @@
 #define MESH_HCI_COMMAND_PKT 0x01U
 #define MESH_HCI_LE_LINK 0x80U
 #define MESH_HCIGETCONNLIST _IOR('H', 212, int)
-/* HCIGETCONNLIST has the high bit set, and the two libcs disagree on ioctl's parameter: glibc
-   takes `unsigned long`, musl - which the release build links - `int`. The same narrowing
-   serial_usb.c makes for the USBDEVFS codes, for the same reason. */
-#if defined(__GLIBC__)
-#define MESH_HCI_IOCTL_REQUEST(req) ((unsigned long)(req))
-#else
-#define MESH_HCI_IOCTL_REQUEST(req) ((int)(req))
-#endif
 /* OGF 0x08 (LE controller) << 10 | OCF 0x0013. */
 #define MESH_HCI_OP_LE_CONN_UPDATE 0x2013U
 #define MESH_HCI_CONN_MAX 16U
@@ -179,7 +172,7 @@ int mesh_ble_hci_request_interval(int dev_id, const char *address,
     memset(&list, 0, sizeof list);
     list.dev_id = (uint16_t)dev_id;
     list.conn_num = MESH_HCI_CONN_MAX;
-    if (ioctl(fd, MESH_HCI_IOCTL_REQUEST(MESH_HCIGETCONNLIST), &list) < 0) {
+    if (ioctl(fd, mesh_ioctl_request_of(MESH_HCIGETCONNLIST), &list) < 0) {
         const int error = -errno;
         close(fd);
         return error;

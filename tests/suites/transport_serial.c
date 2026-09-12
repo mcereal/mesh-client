@@ -3,6 +3,7 @@
 /* Stream framing and the USB-serial transport. */
 
 #include "framework/mesh_test.h"
+#include "support/fs_fixture.h"
 #include "support/proto_fixture.h"
 #include "support/serial_fixture.h"
 
@@ -502,13 +503,6 @@ static bool fixture_device(const char *root, const char *name, const char *vid, 
     return true;
 }
 
-static void fixture_remove(const char *root) {
-    char command[PATH_MAX + 16];
-    if (snprintf(command, sizeof command, "rm -rf '%s'", root) < (int)sizeof command) {
-        (void)system(command);
-    }
-}
-
 static const struct mesh_serial_device_info *find_by_id(const struct mesh_serial_device_info *list,
                                                         size_t count, const char *id) {
     for (size_t i = 0; i < count; ++i) {
@@ -537,15 +531,17 @@ MESH_TEST_CASE(serial_scan_reads_the_role_off_sysfs, unit) {
     /* 4-1: a Heltec V3 - a CP2102 bridge, one vendor-class interface, driver already bound. */
     built = built && fixture_device(root, "4-1", "10c4", "ea60", "CP2102 USB to UART Bridge");
     built = built && fixture_interface(root, "4-1:1.0", "ff", "00", "00", "00", "cp210x");
-    MESH_TEST_FAIL_IF_CLEANUP(!built, fixture_remove(root), "could not lay out the fixture tree");
+    MESH_TEST_FAIL_IF_CLEANUP(!built, (void)mesh_test_remove_tree(root),
+                              "could not lay out the fixture tree");
 
-    MESH_TEST_FAIL_IF_CLEANUP(setenv("MESHCLIENT_SYSFS_USB", root, 1) != 0, fixture_remove(root),
+    MESH_TEST_FAIL_IF_CLEANUP(setenv("MESHCLIENT_SYSFS_USB", root, 1) != 0,
+                              (void)mesh_test_remove_tree(root),
                               "could not point the scan at the fixture");
 
     struct mesh_serial_device_info devices[MESH_SERIAL_MAX_DEVICES];
     const size_t count = mesh_serial_usb_scan(devices, MESH_SERIAL_MAX_DEVICES);
     (void)unsetenv("MESHCLIENT_SYSFS_USB");
-    fixture_remove(root);
+    (void)mesh_test_remove_tree(root);
 
     MESH_TEST_FAIL_IF(count != 3U, "the scan should offer all three interfaces, bootloader too");
 
