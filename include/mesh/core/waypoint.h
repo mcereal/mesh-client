@@ -42,17 +42,28 @@ extern "C" {
  * Stated one too high, the limit is refused nowhere: the keyboard takes the character, the book
  * keeps it and the list draws it, and the encoder drops it on the way out with nothing on the
  * frame saying so - the place on this Brick and the place on every other client one character
- * apart. The _Static_asserts below pin both numbers to the generated struct so a regeneration
+ * apart. The two assertions below pin both numbers to the generated struct so a regeneration
  * that widens or narrows either field fails the build rather than the mesh.
  */
 #define MESH_WAYPOINT_NAME_MAX 29U
 #define MESH_WAYPOINT_DESCRIPTION_MAX 99U
 
-_Static_assert(MESH_WAYPOINT_NAME_MAX + 1U == sizeof(((meshtastic_Waypoint *)0)->name),
-               "a waypoint's name is its wire buffer less the NUL");
-_Static_assert(MESH_WAYPOINT_DESCRIPTION_MAX + 1U ==
-                   sizeof(((meshtastic_Waypoint *)0)->description),
-               "a waypoint's description is its wire buffer less the NUL");
+/* Spelled through a macro because of the extern "C" block above, which says this header may be
+   included from C++ - and `_Static_assert` is a C keyword g++ rejects outright. The same bridge
+   mesh/ui/theme.h writes for the same reason, and written again here rather than shared: a
+   three-line macro is not a module boundary, and a core header reaching into the UI's for one
+   would be. */
+#ifdef __cplusplus
+#define MESH_WAYPOINT_STATIC_ASSERT(cond, msg) static_assert(cond, msg)
+#else
+#define MESH_WAYPOINT_STATIC_ASSERT(cond, msg) _Static_assert(cond, msg)
+#endif
+
+MESH_WAYPOINT_STATIC_ASSERT(MESH_WAYPOINT_NAME_MAX + 1U == sizeof(((meshtastic_Waypoint *)0)->name),
+                            "a waypoint's name is its wire buffer less the NUL");
+MESH_WAYPOINT_STATIC_ASSERT(MESH_WAYPOINT_DESCRIPTION_MAX + 1U ==
+                                sizeof(((meshtastic_Waypoint *)0)->description),
+                            "a waypoint's description is its wire buffer less the NUL");
 
 /*
  * How many places the client remembers.
