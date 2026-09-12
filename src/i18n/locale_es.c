@@ -1265,6 +1265,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_FW_BLOCK_NO_PATH] = "no desde este cliente",
     [MESH_STR_FW_BLOCK_CONNECT_USB] = "conéctala por USB",
     [MESH_STR_FW_BLOCK_CONNECT_BLE] = "conéctala por Bluetooth",
+    [MESH_STR_FW_BLOCK_NO_ASSETS] = "aún sin descarga",
     [MESH_STR_FW_CHANNEL] = "Canal de firmware",
     [MESH_STR_FW_LATEST] = "Firmware de la radio",
     [MESH_STR_FW_NEWER] = "Firmware más nuevo",

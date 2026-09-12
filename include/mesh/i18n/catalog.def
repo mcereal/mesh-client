@@ -2227,6 +2227,10 @@ MESH_STR_ENTRY(FW_BLOCK_NO_PATH,          "not from this client")
 /* The two halves of the same refusal: the board can be updated, over the other bus. */
 MESH_STR_ENTRY(FW_BLOCK_CONNECT_USB,      "connect it by USB")
 MESH_STR_ENTRY(FW_BLOCK_CONNECT_BLE,      "connect by Bluetooth")
+/* The one refusal that is about the release rather than the board: an index entry can exist
+   before its assets do, which is ordinary on the alpha channel for the first minutes of a
+   publish. Nothing is wrong and there is still nothing to fetch. */
+MESH_STR_ENTRY(FW_BLOCK_NO_ASSETS,        "no download yet")
 /*
  * The labels, under Settings > About radio. Two of them name the same row: the question is
  * "what firmware is out there", and once the answer is a version worth having, the row is named

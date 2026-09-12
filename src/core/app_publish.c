@@ -892,6 +892,23 @@ static void mesh_app_flatten_firmware(struct mesh_app *app, struct mesh_ui_setti
         board->path != MESH_FIRMWARE_PATH_NONE && firmware->release.manifest_url[0] != '\0' &&
         mesh_firmware_update_available(update) && !mesh_firmware_update_busy(update);
     /*
+     * The one of those five the blocker cannot phrase, said here so that an empty reason always
+     * means there is nothing to say.
+     *
+     * `firmware_blocker()` is computed from the board and the bus, and this refusal is about
+     * neither: the index entry is real and the board is fine, but the release has published no
+     * assets yet, so there is no manifest to fetch an image through. That is ordinary on the
+     * alpha channel in the minutes after a publish. Left unstated it is the one way an
+     * AVAILABLE release reaches the section with no press and a blocker of NONE, and the row
+     * that exists to explain a refusal would have nothing to draw.
+     */
+    if (!dst->fw_can_install && firmware->state == MESH_FIRMWARE_AVAILABLE &&
+        firmware->blocker == MESH_FIRMWARE_BLOCKER_NONE && dst->fw_blocker_reason[0] == '\0' &&
+        firmware->release.manifest_url[0] == '\0') {
+        mesh_str_copy(dst->fw_blocker_reason, sizeof dst->fw_blocker_reason,
+                      mesh_str(MESH_STR_FW_BLOCK_NO_ASSETS));
+    }
+    /*
      * The recovery press, which has none of the above and must be offered anyway.
      *
      * A radio in the OTA loader answers no handshake, so the check's answer has already been
