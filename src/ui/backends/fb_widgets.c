@@ -786,7 +786,6 @@ static struct fb_list fb_list_open(const struct fb_layout *layout, struct mesh_u
     list.model = model;
     list.y = layout->body_y;
     list.line = layout->line;
-    list.cols = layout->cols;
     /* The window the rail measures, which is the body rather than the rows that happened to be
        filled: a list of three items in a body of fifteen has no rail at all, and a list of
        forty-two wants one the height of what a full window would have been. */
@@ -910,13 +909,15 @@ static void fb_list_cards(const struct mesh_ui_backend_fb_state *state, struct f
      * in a list is the cursor's highlight: drawn to the same rectangle, the highlight lands on
      * the hairline and paints it out for the length of one row, so the card appears to lose its
      * sides wherever the cursor is - and only there, which is the row the reader is looking at.
-     * So the edge is spent outward, into the gutter the scroll rail is centred much further
-     * into. The highlight then fills the card's interior exactly, which is where Material puts a
-     * state layer inside a container.
+     * So the edge is spent outward, into the gutter fb_rail_gutter() keeps clear beside the
+     * box. The highlight then fills the card's interior exactly, which is where Material puts a
+     * state layer inside a container - and the card, being the box plus its hairline, is the
+     * widest thing on the list and so the thing the rail measures its clearance from.
      */
     const int edge = fb_edge(state);
-    const int x = fb_gutter(state) - edge;
-    const int width = (int)state->var.xres - fb_margin(state) + 2 * edge;
+    const struct fb_row_box box = fb_row_box(state);
+    const int x = box.x - edge;
+    const int width = box.w + 2 * edge;
     /*
      * The row highlight's shape, not fb_draw_card()'s - and that is the same rule as the width,
      * one axis over. A card's fill and a row's highlight are the same rectangle here (the fill
@@ -1031,10 +1032,11 @@ static void fb_list_cards(const struct mesh_ui_backend_fb_state *state, struct f
 /*
  * The scroll rail. Drawn once per list, by the first row that draws - see fb_widgets.h.
  *
- * It sits in the half-margin outside the row fill, so it costs no row a single cell: rows clip
- * their text at `xres - margin` and the cursor fill stops at `xres - margin / 2`, which leaves
- * this gutter free. Its width comes from the glyph scale like every other control here, so it
- * stays in proportion when a theme asks for bigger text.
+ * It stands in fb_rail_gutter()'s strip, which every list has already been measured to leave
+ * clear - so it is beside the content rather than over it, on a flat list and on a column of
+ * cards alike. Where that strip *is* is asked of fb_row_box() rather than worked out from the
+ * margin: the card spends its hairline outward from the box, so the free space starts one
+ * hairline past the box's own edge and a rail measured from the margin lands on the card.
  */
 static void fb_list_rail(const struct mesh_ui_backend_fb_state *state, struct fb_list *list) {
     if (list->track_h <= 0) {
@@ -1053,6 +1055,26 @@ static void fb_list_rail(const struct mesh_ui_backend_fb_state *state, struct fb
         width = 2;
     }
 
+    /*
+     * The free strip: from the outer edge of the widest thing the list draws - the box plus the
+     * hairline a card spends outward - to the panel edge. The rail is centred in it, so the gap
+     * to the content and the gap to the screen edge are the same number and neither is a
+     * constant anybody has to keep in step with the card.
+     *
+     * Narrowed rather than moved if the strip cannot hold it with clearance either side: a rail
+     * touching the card is what this exists to prevent, and a thinner one still reports the
+     * scroll.
+     */
+    const struct fb_row_box box = fb_row_box(state);
+    const int strip_x = box.x + box.w + fb_edge(state);
+    const int strip_w = (int)state->var.xres - strip_x;
+    if (strip_w < 3) {
+        return;
+    }
+    if (width > strip_w - 2) {
+        width = strip_w - 2;
+    }
+
     /* The proportion is mesh_ui_list_scroll()'s - no pixels in it, and unit tested there. A
        length of 0 is a list that fits, which draws nothing at all rather than a full track. */
     const struct mesh_ui_scroll scroll =
@@ -1061,8 +1083,7 @@ static void fb_list_rail(const struct mesh_ui_backend_fb_state *state, struct fb
         return;
     }
 
-    /* Centred in the gutter between the row fill's right edge and the panel edge. */
-    const int x = (int)state->var.xres - fb_gutter(state) / 2 - width / 2;
+    const int x = strip_x + (strip_w - width) / 2;
     const int radius = fb_radius(state, MESH_UI_SHAPE_FULL);
 
     /* The track is the role that already means one - the same groove a meter's fill sits in -
@@ -1111,7 +1132,7 @@ void fb_list_row(const struct mesh_ui_backend_fb_state *state, struct fb_list *l
     const bool selected = mesh_ui_list_is_cursor(&list->model, index);
     const struct mesh_ui_rgb ground = fb_draw_row_fill_on(
         state, list->y, fb_list_row_height(list, index), selected, fb_list_ground(list, index));
-    fb_draw_text(state, fb_margin(state), list->y, text, state->scale,
+    fb_draw_text(state, fb_row_box(state).text_x, list->y, text, state->scale,
                  selected ? fb_color(state, MESH_UI_COLOR_TEXT_ON_SEL) : fb_tone_color(state, tone),
                  ground);
     /* By what the model says this row is, not by one row: a plain row in a list of mixed
@@ -1179,7 +1200,7 @@ void fb_list_subheader_icon(const struct mesh_ui_backend_fb_state *state, struct
      * list is asked which it is drawing, so a caller passes the icon either way and nothing
      * decides twice - and the indent is the same whether or not it was drawn.
      */
-    int x = fb_margin(state);
+    int x = fb_row_box(state).text_x;
     if (leading.kind != FB_LEADING_NONE) {
         if (mesh_ui_icon_is_valid(leading.icon) && fb_list_has_cards(list)) {
             /* On the heading's own baseline rather than the body's: this row draws at the label
@@ -1195,7 +1216,7 @@ void fb_list_subheader_icon(const struct mesh_ui_backend_fb_state *state, struct
     struct mesh_ui_line line;
     mesh_ui_line_reset(&line);
     mesh_ui_line_printf(&line, "%s", text != NULL ? text : "");
-    mesh_ui_line_fit(&line, fb_cols(state, scale));
+    mesh_ui_line_fit(&line, fb_row_cols(state, scale));
     /* Quiet on the ground and quiet on the fill alike: a heading names the group under it, and
        it is not one of the rows the cursor came here to read. */
     fb_draw_text(state, x, baseline, mesh_ui_line_text(&line), scale,
@@ -1210,7 +1231,7 @@ void fb_list_subheader_icon(const struct mesh_ui_backend_fb_state *state, struct
 /* The width a note's body wraps to. The list's own columns: a paragraph indented past the rows
    around it would be a second left margin on a panel that has room for one. */
 static size_t fb_note_cols(const struct mesh_ui_backend_fb_state *state) {
-    return fb_cols(state, state->scale);
+    return fb_row_cols(state, state->scale);
 }
 
 uint32_t fb_list_note_steps(const struct mesh_ui_backend_fb_state *state, const char *heading,
@@ -1239,7 +1260,7 @@ void fb_list_note(const struct mesh_ui_backend_fb_state *state, struct fb_list *
     const struct mesh_ui_rgb ground =
         fb_draw_row_fill_on(state, list->y, rows, selected, fb_list_ground(list, index));
 
-    const int margin = fb_margin(state);
+    const int margin = fb_row_box(state).text_x;
     const int body_line = fb_line_adv(state, state->scale);
     const bool titled = heading != NULL && heading[0] != '\0';
     int y = list->y;
@@ -1251,7 +1272,7 @@ void fb_list_note(const struct mesh_ui_backend_fb_state *state, struct fb_list *
         struct mesh_ui_line line;
         mesh_ui_line_reset(&line);
         mesh_ui_line_printf(&line, "%s", heading);
-        mesh_ui_line_fit(&line, fb_cols(state, scale));
+        mesh_ui_line_fit(&line, fb_row_cols(state, scale));
         /*
          * The ink is chosen with the fill rather than beside it. A heading painted in the
          * primary whether or not the row was selected is a pair no theme was measured against -
@@ -1291,7 +1312,9 @@ void fb_list_note(const struct mesh_ui_backend_fb_state *state, struct fb_list *
 
 void fb_list_row_line(const struct mesh_ui_backend_fb_state *state, struct fb_list *list,
                       uint32_t index, struct mesh_ui_line *line, enum mesh_ui_tone tone) {
-    mesh_ui_line_fit(line, list->cols);
+    /* The row's columns, not the panel's: fb_rail_gutter() is kept clear of the box every row
+       is drawn in, so a line fitted to fb_cols() is a line fitted to a width no row has. */
+    mesh_ui_line_fit(line, fb_row_cols(state, state->scale));
     fb_list_row(state, list, index, mesh_ui_line_text(line), tone);
 }
 
@@ -1363,12 +1386,14 @@ static void fb_draw_avatar(const struct mesh_ui_backend_fb_state *state, int x, 
  */
 struct fb_item_geom {
     uint32_t rows;
+    int fill_x, fill_w;   /* the row's own rectangle, fb_row_box()'s and nobody else's */
     int fill_top, fill_h; /* the box the cursor fill paints, and a control centres on */
     int head_y;           /* headline baseline */
     int supp_y;           /* supporting baseline; only meaningful on a two-row item */
     int slot_h;           /* height of a box-shaped trailing - a badge */
     int head_slot_top, supp_slot_top;
     int text_x, text_right;
+    int content_x;    /* where the row's content starts, before any leading slot is reserved */
     int marker_x;     /* a plain row's marker cell; only meaningful when the row reserved one */
     size_t cols;      /* text columns between the leading slot and the trailing edge */
     int bar_y, bar_h; /* a stacked meter's track; bar_h of 0 is a row that has none */
@@ -1379,7 +1404,7 @@ static struct fb_item_geom fb_item_measure(const struct mesh_ui_backend_fb_state
                                            const struct fb_list_item *item, uint32_t rows) {
     const int scale = state->scale;
     const int adv = fb_char_adv(state, scale);
-    const int margin = fb_margin(state);
+    const struct fb_row_box box = fb_row_box(state);
     struct fb_item_geom g;
     memset(&g, 0, sizeof g);
 
@@ -1395,7 +1420,9 @@ static struct fb_item_geom fb_item_measure(const struct mesh_ui_backend_fb_state
      */
     g.rows = rows > 0U ? rows : 1U;
     g.head_y = list->y;
-    g.text_right = (int)state->var.xres - margin;
+    g.fill_x = box.x;
+    g.fill_w = box.w;
+    g.text_right = box.text_right;
     g.slot_h = list->line - scale;
 
     if (g.rows >= 2U) {
@@ -1414,14 +1441,15 @@ static struct fb_item_geom fb_item_measure(const struct mesh_ui_backend_fb_state
         g.supp_slot_top = g.fill_top;
     }
 
-    g.text_x = margin;
+    g.content_x = box.text_x;
+    g.text_x = g.content_x;
     if (item->leading.kind == FB_LEADING_AVATAR) {
-        g.text_x = margin + (g.fill_h - scale) + adv / 2;
+        g.text_x = g.content_x + (g.fill_h - scale) + adv / 2;
     } else if (item->leading.kind == FB_LEADING_ICON) {
         /* Reserved whether or not this row filled it, so every row's words start in the same
            column - a list that indents only the rows with something to say is a list the eye
            cannot run down. */
-        g.text_x = margin + fb_icon_box(state, scale) + adv / 2;
+        g.text_x = g.content_x + fb_icon_box(state, scale) + adv / 2;
     }
     /* The plain row's marker gutter, between whatever the leading slot put down and the words.
        Reserved for the whole list rather than for the rows that filled it, on the same terms as
@@ -1912,8 +1940,8 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
 
     if (selected) {
         const int radius = fb_radius(state, MESH_UI_SHAPE_SM);
-        const int row_x = fb_margin(state) / 2;
-        const int row_w = (int)state->var.xres - fb_margin(state);
+        const int row_x = g.fill_x;
+        const int row_w = g.fill_w;
         if (item->accent_edge) {
             /*
              * The bar is laid the way a card's edge is: the marker shape first, the fill over
@@ -1956,11 +1984,10 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
             item->leading.role < MESH_UI_COLOR_COUNT
                 ? fb_color(state, item->leading.role)
                 : mesh_ui_theme_avatar(state->theme, item->leading.tint);
-        fb_draw_avatar(state, fb_margin(state), g.fill_top + fb_space(state, MESH_UI_SPACE_XS),
-                       size, item->leading.label, item->leading.icon, tint);
+        fb_draw_avatar(state, g.content_x, g.fill_top + fb_space(state, MESH_UI_SPACE_XS), size,
+                       item->leading.label, item->leading.icon, tint);
     } else if (item->leading.kind == FB_LEADING_ICON) {
-        fb_draw_icon(state, fb_margin(state), g.head_y, item->leading.icon, scale, head_ink,
-                     ground);
+        fb_draw_icon(state, g.content_x, g.head_y, item->leading.icon, scale, head_ink, ground);
     }
 
     struct mesh_ui_line line;

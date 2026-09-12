@@ -3339,6 +3339,80 @@ static const char *card_edges_carry_no_ink(const struct mesh_ui_capture *capture
 }
 
 /*
+ * Whether the scroll rail is beside the cards rather than on them.
+ *
+ * This is the bug the rail's gutter exists to prevent, and it is one the two card cases above
+ * cannot see: both stop scanning short of the rail's strip, precisely so that a control drawn
+ * out there is not mistaken for ink on a card. So the question has to be asked from the other
+ * end - of the space *between* the two.
+ *
+ * It went wrong by arithmetic rather than by anybody moving the rail. The rail was placed in the
+ * half-margin left over beside a row's fill, which was right until a card started spending its
+ * hairline outward into that same half-margin to keep the cursor's highlight off its sides. The
+ * two then met exactly: the card's outline ended on one pixel and the rail's track began on the
+ * next, so on the node detail - the one screen that is a column of cards - the rail read as part
+ * of the card's edge rather than as a control standing beside it.
+ *
+ * Nothing about that is visible in a count of card fill, in a widest-run measurement, or in a
+ * still at the scale a screenshot is looked at. What it is, is a missing gap, so that is what is
+ * measured: on every scanline carrying card ink, whatever is drawn to the right of the card is
+ * required to have clear ground between it and the card. The rail is not named - it is asked for
+ * as "the next thing on this row", which is also what keeps this honest if anything else ever
+ * moves into that strip.
+ *
+ * `saw_rail` is the other half, and it is an out-parameter rather than a failure here because a
+ * list that fits its window draws no rail at all - which is the design, and which the node
+ * detail really does do at the smallest glyph scale on a node that has not reported much. So
+ * "something was drawn beside the cards" is reported up to the caller, which has the whole
+ * ladder of scales to ask it of and can require that at least one of them scrolled.
+ */
+static const char *rail_clears_the_cards(const struct mesh_ui_capture *capture,
+                                         const uint8_t *pixels, uint32_t width, uint32_t height,
+                                         size_t stride, bool *saw_rail) {
+    for (uint32_t y = 0U; y < height; ++y) {
+        const uint8_t *row = pixels + (size_t)y * stride;
+        /* The card's own outer edge: its hairline, or its fill on the ends the window cut. The
+           cursor's own fill is inside both and so can never be the rightmost of the three. */
+        int card_right = -1;
+        for (uint32_t x = 0U; x < width; ++x) {
+            const uint8_t *px = row + (size_t)x * 4U;
+            if (pixel_is_role(capture, px, MESH_UI_COLOR_OUTLINE) ||
+                pixel_is_role(capture, px, MESH_UI_COLOR_SURFACE)) {
+                card_right = (int)x;
+            }
+        }
+        /* A row with no card on it - a group's heading, the chrome above and below the body -
+           has nothing for the rail to be too close to. */
+        if (card_right < 0) {
+            continue;
+        }
+        for (uint32_t x = (uint32_t)card_right + 1U; x < width; ++x) {
+            if (pixel_is_background(capture, row + (size_t)x * 4U)) {
+                continue;
+            }
+            /*
+             * Two pixels of clear ground, not one.
+             *
+             * Flush is how it actually broke, but a single pixel between two filled shapes is
+             * not a gap the eye reads as one - it reads as a seam in the card's own edge, which
+             * is the same complaint. Two is also the floor rather than the figure: the shipped
+             * layout leaves the rail centred in fb_rail_gutter()'s strip, which is several
+             * pixels either side at every scale and every panel this is drawn at, so a frame
+             * that comes back with two has already lost the gutter and kept only the rounding.
+             */
+            if (x < (uint32_t)card_right + 3U) {
+                return "the scroll rail is drawn against the card beside it";
+            }
+            if (saw_rail != NULL) {
+                *saw_rail = true;
+            }
+            break;
+        }
+    }
+    return NULL;
+}
+
+/*
  * Whether the cursor's fill is standing inside a card's edge on every scanline it covers.
  *
  * Asked of the rows where the fill is at its widest, because the fill is a rounded shape and its
@@ -3428,6 +3502,11 @@ MESH_TEST_CASE(ui_capture_node_detail_cards_survive_the_cursor, unit) {
                               mesh_ui_store_shutdown(&store), "no snapshot to render");
 
     const char *failure = NULL;
+    /* Whether any of the scales below put a rail beside the cards. Asked once over the whole
+       ladder rather than per scale: bigger glyphs fit fewer rows, so a detail that fits its
+       window at the smallest scale cannot at the largest, and a rail that stopped being drawn
+       at all is what this catches. */
+    bool rail_seen = false;
     for (int scale = MESH_UI_SCALE_MIN; scale <= MESH_UI_SCALE_MAX && failure == NULL; ++scale) {
         struct mesh_ui_capture *capture = NULL;
         if (mesh_ui_capture_open(&capture, MESH_UI_CAPTURE_WIDTH, MESH_UI_CAPTURE_HEIGHT, scale) !=
@@ -3458,6 +3537,15 @@ MESH_TEST_CASE(ui_capture_node_detail_cards_survive_the_cursor, unit) {
         }
         if (failure == NULL) {
             failure = card_edges_carry_no_ink(capture, pixels, width, height, stride, scale);
+        }
+        if (failure == NULL) {
+            const char *broke =
+                rail_clears_the_cards(capture, pixels, width, height, stride, &rail_seen);
+            if (broke != NULL) {
+                static char detail[160];
+                snprintf(detail, sizeof detail, "%s (at glyph scale %d)", broke, scale);
+                failure = detail;
+            }
         }
 
         mesh_ui_capture_close(capture);
@@ -3494,6 +3582,9 @@ MESH_TEST_CASE(ui_capture_node_detail_cards_survive_the_cursor, unit) {
         const uint8_t *pixels = mesh_ui_capture_pixels(capture, &width, &height, &stride);
         mesh_ui_capture_render(capture, &snapshot);
         const char *broke = cursor_stays_inside_its_card(capture, pixels, width, height, stride);
+        if (broke == NULL) {
+            broke = rail_clears_the_cards(capture, pixels, width, height, stride, &rail_seen);
+        }
         if (broke != NULL) {
             /* Which press it was, because "somewhere in the first sixteen rows" is the half of
                this failure that costs the time - the rows differ by what the node reported. */
@@ -3507,5 +3598,6 @@ MESH_TEST_CASE(ui_capture_node_detail_cards_survive_the_cursor, unit) {
 
     mesh_ui_store_shutdown(&store);
     MESH_TEST_FAIL_IF(failure != NULL, failure);
+    MESH_TEST_FAIL_IF(!rail_seen, "no scroll rail beside the node detail at any glyph scale");
     record_success(test_name);
 }

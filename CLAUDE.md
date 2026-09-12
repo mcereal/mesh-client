@@ -674,9 +674,10 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   the widest thing in it, and in a list that is the *cursor's highlight*: drawn to the same
   rectangle - both are measured from the row gutter - the highlight lands exactly on the hairline
   and paints it out for the length of one row, so the card loses its sides on precisely the row
-  being read and nowhere else. The edge is therefore spent outward, into the gutter the scroll
-  rail is centred much further into, and the highlight fills the card's interior, which is where
-  Material puts a state layer inside a container. The square end is the same rule about honesty
+  being read and nowhere else. The edge is therefore spent outward, past the box
+  `fb_row_box()` states, and the highlight fills the card's interior, which is where Material
+  puts a state layer inside a container - which is also what makes the card, rather than the
+  row, the widest thing a list draws and so what the scroll rail clears. The square end is the same rule about honesty
   one level up: a rounded corner halfway down a scroll is a card claiming to *end* where the panel
   merely stopped, and a reader cannot tell that from a card that really did. The cut end keeps its
   inset along with its corners, or the hairline runs across the cut and says it again in a
@@ -686,6 +687,20 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   the panel. It also takes the *highlight's* corner radius rather than `fb_draw_card()`'s, which
   is the width rule on the other axis: a card still curving where the highlight has reached full
   width lets the cursor's ends stand outside it on the first and last row of every group.
+- **A list's rows, its cards and its scroll rail are one rectangle asked for once, and the rail
+  has a gutter of its own that nothing else may enter.** `fb_row_box()` states where a list's
+  rows stand - the fill the cursor highlights, and the span its words are drawn in - and
+  `fb_rail_gutter()` is the strip kept clear beside it. Both are corrections of the same
+  arithmetic. The rectangle was derived three times (the highlight in `fb_draw_row_fill_on()`,
+  the list item's own copy, and the card surfaces under a grouped list) with a fourth opinion in
+  `fb_list_rail()` about the room left over, and the four agreed right up until the cards began
+  spending their hairline outward: the card's edge then ended on one pixel and the rail's track
+  began on the next, so on the node detail - the one screen that is a column of cards - the rail
+  read as part of the card rather than as a control beside it. The gutter is reserved on **every
+  list and whether or not the rail draws**, which is the other half: taken only when a list
+  outgrows its window, it would be a layout that reflows the moment a node reports one more
+  reading. It costs no text column at the device's scale, because the strip is narrower than a
+  cell. `ui_capture_node_detail_cards_survive_the_cursor` measures the gap.
 - **A group's heading stands between two cards rather than inside either, and a card in a list is
   padded at the bottom only.** Both are where the column's air comes from, and there is very
   little of it: a card here is painted round row boxes that were laid out for a flat list, so the

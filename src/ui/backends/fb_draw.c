@@ -275,6 +275,35 @@ int fb_margin(const struct mesh_ui_backend_fb_state *state) {
     return (int)fb_metrics(state)->margin;
 }
 
+int fb_rail_gutter(const struct mesh_ui_backend_fb_state *state) { return fb_gutter(state); }
+
+struct fb_row_box fb_row_box(const struct mesh_ui_backend_fb_state *state) {
+    const int gutter = fb_gutter(state);
+    /*
+     * The row's own padding: how far its words sit inside its fill. Derived rather than stated,
+     * because the leading edge is what every row has always been drawn at - the fill starts at
+     * the gutter and the text at the margin - and the trailing edge owes the same, or a value
+     * column against the fill's right edge would be padded on one side only.
+     */
+    const int pad = fb_margin(state) - gutter;
+    struct fb_row_box box;
+    box.x = gutter;
+    box.w = (int)state->var.xres - 2 * gutter - fb_rail_gutter(state);
+    /* A panel too narrow to hold a padded row still has to hand back a box the fills and the
+       measurements agree about: one pixel wide, with the text span collapsed onto it. Every
+       caller that divides by a column width already guards its own division. */
+    if (box.w < 1) {
+        box.w = 1;
+    }
+    box.text_x = box.x + pad;
+    box.text_right = box.x + box.w - pad;
+    if (box.text_right < box.text_x) {
+        box.text_x = box.x;
+        box.text_right = box.x + box.w;
+    }
+    return box;
+}
+
 /* Scale an 8-bit channel into a framebuffer bitfield and shift it into place. */
 static inline uint32_t fb_pack_channel(uint8_t value, const struct fb_bitfield *field) {
     if (field->length == 0U) {
@@ -1141,6 +1170,16 @@ size_t fb_cols(const struct mesh_ui_backend_fb_state *state, int scale) {
     return (size_t)(usable / fb_char_adv(state, scale));
 }
 
+size_t fb_row_cols(const struct mesh_ui_backend_fb_state *state, int scale) {
+    const struct fb_row_box box = fb_row_box(state);
+    const int usable = box.text_right - box.text_x;
+    const int adv = fb_char_adv(state, scale);
+    if (usable <= 0 || adv <= 0 || usable < adv) {
+        return 1U;
+    }
+    return (size_t)(usable / adv);
+}
+
 /* Clip a line to `cols` columns. Counted in drawn cells, not bytes, so a character is never
    cut in half - half a sequence would draw as the replacement box and, on the paths that also
    log or serialise the line, would be malformed UTF-8 - and a flag or a ZWJ sequence is never
@@ -1174,8 +1213,8 @@ struct mesh_ui_rgb fb_draw_row_fill_on(const struct mesh_ui_backend_fb_state *st
     }
     const struct mesh_ui_rgb fill = fb_color(state, MESH_UI_COLOR_SURFACE_SEL);
     const int line = fb_line_adv(state, state->scale);
-    fb_fill_round_rect(state, fb_gutter(state), y - state->scale,
-                       (int)state->var.xres - fb_margin(state), (int)(rows > 0U ? rows : 1U) * line,
+    const struct fb_row_box box = fb_row_box(state);
+    fb_fill_round_rect(state, box.x, y - state->scale, box.w, (int)(rows > 0U ? rows : 1U) * line,
                        fb_radius(state, MESH_UI_SHAPE_SM), fill);
     return fill;
 }
@@ -1192,7 +1231,7 @@ void fb_draw_row(const struct mesh_ui_backend_fb_state *state, int y, const char
     if (selected) {
         color = fb_color(state, MESH_UI_COLOR_TEXT_ON_SEL);
     }
-    fb_draw_text(state, fb_margin(state), y, text, state->scale, color, ground);
+    fb_draw_text(state, fb_row_box(state).text_x, y, text, state->scale, color, ground);
 }
 
 /* "3m", "2h", "5d" since a radio-reported epoch; "?" when either clock is unusable. */

@@ -1184,7 +1184,6 @@ struct fb_list {
     struct mesh_ui_list model;
     int y;    /* next row's baseline */
     int line; /* one step's advance - a body row */
-    size_t cols;
     /* The body the list was opened against, for the scroll rail: where it starts and how tall
        it is. Taken from the layout at fb_list_begin*() rather than accumulated as rows are
        drawn, because a rail has to be the length of the *window* whether or not the items

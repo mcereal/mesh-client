@@ -1169,7 +1169,7 @@ static void fb_render_waypoint_detail(struct mesh_ui_backend_fb_state *state,
             first[0] = '\0';
             second[0] = '\0';
             struct mesh_ui_wrap wrap;
-            mesh_ui_wrap_begin(&wrap, item->value, list.cols);
+            mesh_ui_wrap_begin(&wrap, item->value, fb_row_cols(state, state->scale));
             if (mesh_ui_wrap_next(&wrap)) {
                 mesh_str_copy(first, sizeof first, wrap.line);
             }
