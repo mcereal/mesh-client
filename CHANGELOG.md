@@ -1,3 +1,13 @@
+## [2.68.0](https://github.com/mcereal/mesh-client/compare/v2.67.1...v2.68.0) (2026-09-12)
+
+### Features
+
+* **ui:** give the charts a span picker, a contracting ceiling and one renderer ([3bdb91f](https://github.com/mcereal/mesh-client/commit/3bdb91fccd9cf7b29c27fc07fbc41f60fe3870ae))
+
+### Bug Fixes
+
+* **ui:** pick a chart's ceiling from the readings it draws ([b6f4b68](https://github.com/mcereal/mesh-client/commit/b6f4b6871f27144dc27447f7eb9812430c0dbada))
+
 ## [2.67.1](https://github.com/mcereal/mesh-client/compare/v2.67.0...v2.67.1) (2026-09-12)
 
 ### Bug Fixes
