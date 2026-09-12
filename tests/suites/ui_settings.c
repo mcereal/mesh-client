@@ -2437,3 +2437,98 @@ cleanup:
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
+
+/*
+ * Every group on the node detail is one unbroken run of rows.
+ *
+ * This is the invariant the fb backend's card grouping rests on. A card there is a *contiguous*
+ * run of rows sharing an ordinal, and the ordinal is derived from the headings - a heading opens
+ * a card and everything under it belongs to that card until the next heading. That derivation
+ * has no way back: nothing in the row list says a run has *rejoined* a group it left, so a group
+ * interrupted by another one is drawn as two cards, the second of them under a heading that has
+ * nothing to do with it.
+ *
+ * The traced route is how that happened. It was emitted beside the verb that starts it, which
+ * put two heading-led groups in the middle of the action block - so Request info, Mute, Ignore
+ * and Remove were drawn inside the "Route back" card. Harmless-looking in a flat list of dimmed
+ * headings and a card telling a lie once the groups became cards.
+ *
+ * So the assertion is the property rather than the ordering: walk the rows, and require that no
+ * `kind` ever comes back after something else has intervened. It is checked against a node with
+ * a finished trace *and* a fix, which is the arrangement that broke - the fix adds two more
+ * action rows after the trace, so a fix that merely moved the route one row earlier would still
+ * fail this.
+ */
+MESH_TEST_CASE(node_detail_groups_are_unbroken_runs, unit) {
+    struct mesh_ui_node_summary node;
+    memset(&node, 0, sizeof node);
+    node.node_id = 0x5000U;
+    snprintf(node.short_name, sizeof node.short_name, "TRCE");
+    node.last_heard = 1750000000U;
+    /* A fix, so the two position-gated action rows are emitted after the trace's own. */
+    node.position.valid = true;
+    node.position.latitude_i = 375000000;
+    node.position.longitude_i = -1224000000;
+    node.position.received = 1750000000U;
+
+    struct mesh_ui_traceroute trace;
+    memset(&trace, 0, sizeof trace);
+    trace.state = MESH_TRACEROUTE_DONE;
+    trace.target = node.node_id;
+    trace.completed = 1750000500U;
+    trace.forward_count = 3U;
+    trace.back_count = 2U;
+    for (uint8_t i = 0; i < MESH_UI_TRACEROUTE_MAX_HOPS; ++i) {
+        trace.forward[i].node_id = 0x7000U + i;
+        trace.forward[i].has_snr = true;
+        trace.forward[i].snr_quarter_db = 20;
+        snprintf(trace.forward[i].name, sizeof trace.forward[i].name, "hop%u", (unsigned)i);
+        trace.back[i] = trace.forward[i];
+    }
+
+    struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
+    const uint32_t count = mesh_ui_node_detail_build(&node, false, 1750000600U, &trace, false, NULL,
+                                                     NULL, items, MESH_UI_NODE_ITEMS_MAX);
+    MESH_TEST_FAIL_IF(count == 0U, "a node with a trace and a fix should produce rows");
+
+    /*
+     * The group a row is in, derived exactly as the renderer derives it: a heading opens one and
+     * every row under it belongs to that one. Then the check is that a group, once left, is
+     * never returned to.
+     */
+    bool closed[MESH_UI_NODE_ITEMS_MAX];
+    memset(closed, 0, sizeof closed);
+    uint32_t group = 0U;
+    bool saw_route = false;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (items[i].kind == (uint8_t)MESH_UI_NODE_ROW_HEADING) {
+            MESH_TEST_FAIL_IF(closed[group], "a group was reopened after another one intervened");
+            closed[group] = true;
+            group++;
+            MESH_TEST_FAIL_IF(group >= MESH_UI_NODE_ITEMS_MAX, "more headings than rows");
+            saw_route = saw_route || strstr(items[i].label, "Route") != NULL;
+        }
+    }
+    /* And that the arrangement this is about was actually built - a node whose trace did not
+       land would pass the walk above by having no route headings at all. */
+    MESH_TEST_FAIL_IF(!saw_route, "the fixture should have produced the traced route's groups");
+
+    /* The action rows are the run that broke, so say so directly as well: every one of them
+       falls between the first and the last, with nothing of another kind among them. */
+    uint32_t first = count;
+    uint32_t last = count;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (items[i].kind == (uint8_t)MESH_UI_NODE_ROW_ACTION) {
+            if (first == count) {
+                first = i;
+            }
+            last = i;
+        }
+    }
+    MESH_TEST_FAIL_IF(first == count, "the node should offer actions");
+    for (uint32_t i = first; i <= last; ++i) {
+        MESH_TEST_FAIL_IF(items[i].kind != (uint8_t)MESH_UI_NODE_ROW_ACTION,
+                          "a non-action row sits inside the run of action rows");
+    }
+    record_success(test_name);
+}

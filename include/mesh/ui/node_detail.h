@@ -118,6 +118,12 @@ struct mesh_ui_node_item {
      * one. A row with nothing to say leaves it unset and the slot still holds its width, which
      * is what stops a list whose icons are optional from starting its text in two columns -
      * see FB_LEADING_ICON.
+     *
+     * A HEADING carries one too, and it is the group's subject rather than a row's: a backend
+     * that draws these groups as cards draws it as the card's own icon, which is the cell the
+     * eye finds when it is looking for Signal rather than Identity on a screen a hundred and
+     * twenty rows long. A flat list leaves that slot empty, and the group states its subject
+     * either way - which of the two is happening is the renderer's business, not the builder's.
      */
     uint8_t icon; /* enum mesh_ui_icon */
     /*

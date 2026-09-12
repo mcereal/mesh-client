@@ -162,7 +162,7 @@ evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 | Fetching | `src/core/fetch.c` | one HTTPS GET as a forked curl/wget read through the loop: fetcher probing, the CA bundle the Brick has no system store for, a deadline, a cap and a reap that never blocks. Shared by the two things that reach the network |
 | Radio firmware | `src/core/firmware.c`, `firmware_catalog.c`, `firmware_download.c`, `firmware_fetch.c`, `firmware_install.c`, `firmware_ota.c`, `firmware_update.c`, `uf2.c`, `esp_image.c`, `src/utils/zip.c`, `src/transport/serial/usb_msc.c`, `src/transport/ble/ble_ota.c`, `ble_hci.c` | the *other* binary. `firmware.c` says which board this is (upstream's `deviceHardware`), what the newest release is (its firmware index) and which bus - if any - could carry an install; `firmware_fetch.c` turns that into a zip URL and a member name; `firmware_download.c` range-reads the member out of a 46 MB zip and inflates it through the device's own `gzip`, which is also where the CRC gets checked; `uf2.c` refuses a file that is not for this chip; `firmware_install.c` sends the radio into DFU, waits for its bootloader to enumerate and writes the blocks, and `usb_msc.c` is the drive half of that - finding the block device, taking the platform's mounts off it, and the forked child that copies. The BLE half is the ESP32's: `firmware_ota.c` sends `ota_request` holding the radio to the image's SHA-256, finds the loader at the radio's address plus one, streams and watches the radio come back, retrying a broken transfer from the start; `ble_ota.c` is the loader's text protocol (one chunk per GATT write, one outstanding, `mtu - 3` bytes); `ble_hci.c` asks for a 7.5 ms interval with a raw `LE Connection Update`, because BlueZ has no call for it and the Brick would hold the loader at 30 ms; `esp_image.c` refuses an image for another chip before the radio is asked anything. `firmware_update.c` is the **composition**: the download, the arm and the handover in order, with those three modules' state enums folded onto one ladder a row can name and their errors onto the four a reader acts on - and it is what makes Settings > About radio > Install firmware a press rather than a command line. The two questions it answers for the app are deliberately separate: a download holds the *antenna* (Wi-Fi and Bluetooth are one part) and a handover holds the *radio*, and collapsing them would leave the BLE link down through the one step that is waiting for it to come back. `--fetch-firmware` runs the download and `--install-firmware` runs the whole thing from the CLI. See [`docs/radio-firmware-roadmap.md`](docs/radio-firmware-roadmap.md) |
 | UI | `src/ui/` | store/controller + `nav*.c` + `settings*.c` + `layout.c` + `history.c` + `backends/{fb*,cli,stub}.c`; **`fb` is the device UI**. `backends/fb_map.c` is the one screen renderer that places things at coordinates rather than describing rows, which is why it is its own file |
-| UI components | `src/ui/layout.c`, `src/ui/backends/fb_widgets.c` | cell-measured line builder + scroll window (counted in **steps**, so one row may be taller than its neighbours); cards (filled/elevated/outlined, with verbs on the heading line), buttons, chips, badges, list items (leading/marker/supporting/trailing slots, an optional full-width bar on a second step), section subheaders (indented to their list's leading gutter, and never a row the cursor stops on), switches, selection controls (checkbox/radio), segmented buttons (which fall back to the chosen word when the row is too narrow), meters (with domains and drawn threshold bands), sliders (a settings number on the scale of the values it could have had, with a value the scale cannot place drawn as a track with no handle), signal staircases, sparklines (a reading over time, on the bar's own domain, from a sample ring the client keeps),
+| UI components | `src/ui/layout.c`, `src/ui/backends/fb_widgets.c` | cell-measured line builder + scroll window (counted in **steps**, so one row may be taller than its neighbours); cards (filled/elevated/outlined, with verbs on the heading line - and, in a *scrolling* list, as a surface behind a run of rows the list already places, cut square where the window cut it), buttons, chips, badges, list items (leading/marker/supporting/trailing slots, an optional full-width bar on a second step), section subheaders (indented to their list's leading gutter, carrying the card's icon when the list is a column of cards and nothing when it is not, and never a row the cursor stops on), switches, selection controls (checkbox/radio), segmented buttons (which fall back to the chosen word when the row is too narrow), meters (with domains and drawn threshold bands), sliders (a settings number on the scale of the values it could have had, with a value the scale cannot place drawn as a track with no handle), signal staircases, sparklines (a reading over time, on the bar's own domain, from a sample ring the client keeps),
 proportion bars (a whole and the disjoint parts it is made of, in the theme's categorical
 series palette rather than in tones, with the parts filling the track exactly and a part that
 is there never rounded away to nothing), the chart (`fb_draw_chart()`: the same readings a
@@ -668,6 +668,31 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   chip is what is lost and the mark saying the message failed is what survives. Concatenating
   them back into one string reintroduces the bug, and `ui_capture_bubble_contains_its_own_ink`
   is what catches it.
+- **A card in a scrolling list is wider than the rows standing in it, and its ends are square
+  wherever the window cut it.** Both look like off-by-ones and neither is. A card has to contain
+  the widest thing in it, and in a list that is the *cursor's highlight*: drawn to the same
+  rectangle - both are measured from the row gutter - the highlight lands exactly on the hairline
+  and paints it out for the length of one row, so the card loses its sides on precisely the row
+  being read and nowhere else. The edge is therefore spent outward, into the gutter the scroll
+  rail is centred much further into, and the highlight fills the card's interior, which is where
+  Material puts a state layer inside a container. The square end is the same rule about honesty
+  one level up: a rounded corner halfway down a scroll is a card claiming to *end* where the panel
+  merely stopped, and a reader cannot tell that from a card that really did. The cut end keeps its
+  inset along with its corners, or the hairline runs across the cut and says it again in a
+  straight line. `fb_fill_round_rect_ends()` draws it, and
+  `ui_capture_node_detail_cards_survive_the_cursor` is what catches the first of the two - it is
+  invisible in a still of a resting screen and invisible in a count of how much card fill is on
+  the panel.
+- **A card's rows are drawn against the card, and a control on one takes the row's *resting*
+  ground rather than its current one.** The first is a glyph carrying coverage rather than a mask:
+  text told the wrong ground keeps its shape and gains a halo, so `fb_draw_row_fill_on()` takes
+  the ground and `fb_list_ground()` answers. The second is the opposite-looking rule and it is not
+  an inconsistency. A switch's ring and a meter's track bed are laid *to escape* the cursor fill -
+  both controls are contracted against what the row rests on, and on two of the four themes that
+  fill is the resting track's own colour - so handing them the current ground makes the control
+  vanish on the row being pointed at, which is the bug they were added to prevent. Words blend
+  against the fill; a patch under a control replaces it. `fb_draw_trailing()` derives the first
+  from the second so the two cannot be passed the wrong way round.
 - **A group heading is a row of the list and is not a row the cursor may stand on.** The node
   detail and an open settings section both draw `fb_list_subheader()`, and the cursor used to
   land on one: a full-width highlight under a dimmed word, with A doing nothing and the action

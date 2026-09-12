@@ -502,6 +502,16 @@ Device metrics / Position / Environment groups), and **a row simply is not emitt
 has not reported it**, so the count the nav walks and the list the backend draws can never
 disagree.
 
+Those groups are drawn as a [column of cards](#a-list-drawn-as-a-column-of-cards), which is the
+one thing about this screen that is a picture rather than a list of facts: a card ordinal per row
+is derived in the same pass that measures the heights, and a heading opens a card while
+everything under it belongs to that card until the next heading. The grouping is derived rather
+than declared because the groups are already in the rows — a `group` field on the item would be a
+second way of saying what `kind` says, with the drift that implies the first time a group is
+added. A heading carries an icon, which the card draws as its own; four ids are spent twice, on
+`k_action_icons[]`'s terms — three sensor reports are all `DETECTION`, the two neighbour groups
+are one subject read in both directions, and the two halves of a traced route are one trace.
+
 A opens the detail, its first row ("Message this node") opens the conversation, B backs out, Y
 still writes from either level, X pins.
 
@@ -821,10 +831,71 @@ Two rules come out of it:
   half of the type scale that could not be done while the list counted rows: a group title is no
   longer distinguished from the rows it heads by colour alone.
   `fb_list_subheader_icon()` is the same row for a list that declares a leading slot: it takes
-  the row's gutter so the title starts in the column its rows do, and draws **nothing** in it — a
-  group is not one subject the way each of its rows is, so a symbol there would be repeating the
-  words beside it. And the cursor no longer stops on one at all; see
+  the row's gutter so the title starts in the column its rows do. Whether it draws anything in
+  that gutter depends on what it is heading — nothing on a flat list, where a group is not one
+  subject the way each of its rows is and a symbol would repeat the words beside it; the card's
+  own icon on a [column of cards](#a-list-drawn-as-a-column-of-cards), where the heading *is* the
+  card's. And the cursor no longer stops on one at all; see
   [Node detail](#node-detail--srcuinode_detailc).
+
+#### A list drawn as a column of cards
+
+`fb_list_begin_cards()` is the same scrolling list with its groups standing on card surfaces
+instead of on the panel. It takes one card ordinal per item, borrowed for the life of the list
+exactly as the heights are: items sharing an ordinal *and lying next to each other* are one card,
+and `FB_LIST_NO_CARD` is an item on the bare panel, which is every row of a list that passes no
+array at all. One screen calls it — the node detail — and a Settings section is the obvious
+second.
+
+It exists for the reason [`fb_draw_card()`](#a-column-of-cards-and-the-one-at-the-bottom) does
+one tab over: a hundred and twenty label-and-value rows separated by dimmed words is a wall, and
+a dimmed heading is a group distinguished from its own rows by colour alone — the thing the type
+scale landed to stop.
+
+What it is **not** is `fb_draw_card()`. That component is declared-then-drawn and measures itself
+against the body, which is right for the Status tab's fixed column of four and impossible here:
+this list is eight panels long, the window moves a row at a time, and a card is routinely cut by
+both edges of it at once. So a card here is a *surface behind a run of rows the list already
+knows how to place* — no second measure, no second clip, and above all no second opinion about
+how tall a row is. The model stays the authority, as it is for `fb_list_begin_heights()`.
+
+Four things follow, and each was a way of getting it wrong:
+
+- **No screen asks for the surfaces.** They are drawn by the first row that draws, exactly as the
+  scroll rail is and for the rail's reason: which card covers which rows is derived entirely from
+  the model and the array, so a screen has nothing to say about it and a screen that had to
+  remember the call is a screen that would forget on one list out of nine. `fb_list_chrome()`
+  decides the order once — a surface goes under the ink standing on it, and the rail is outside
+  both.
+- **A card cut by the window keeps square corners and its full width on the cut end.** A rounded
+  corner halfway down a scroll is a card claiming to end where the panel merely stopped, and a
+  reader cannot tell that from a card that really did end there. The cut end keeps its inset as
+  well, or the hairline runs *across* the cut and says it again in a straight line.
+  `fb_fill_round_rect_ends()` is the primitive, and it gives a square end its corner band back to
+  the straight middle rather than patching over a rounded one — so there is no seam.
+- **The card is the row fill's rectangle with the hairline spent outward.** A card has to be at
+  least as wide as the widest thing standing in it, and in a list that is the cursor's highlight.
+  Drawn to the same rectangle the highlight lands on the edge and paints it out for the length of
+  one row, so the card loses its sides exactly where the reader is looking — invisible in a still
+  of a resting screen. The highlight now fills the card's interior, which is where Material puts a
+  state layer inside a container.
+- **Rows on a card are drawn against the card's surface.** A glyph carries
+  [coverage and not a mask](#a-glyph-is-coverage), so text told the wrong ground keeps its shape
+  and gains a halo. `fb_draw_row_fill_on()` takes the ground and `fb_list_ground()` answers, so a
+  screen cannot get it wrong by forgetting. A control that lays a patch of its own — the switch's
+  ring, the meter's track bed, the meter's band notches — takes the row's **resting** ground
+  rather than its current one: the patch exists to escape the cursor fill, and on two of the four
+  themes that fill is the resting track's own colour.
+
+The grouping costs **no rows**. The gap between two cards and the inset above a heading both come
+out of air that was already on the panel — a subheader draws at the label scale sat on the bottom
+of its step, so the difference between the two line advances is empty at the top of every group —
+which is why the node detail's row budget, its nav and every count in the `ui_nav_nodes` suite
+were untouched by it.
+
+`ui_capture_node_detail_cards_survive_the_cursor` pins two of those at every scale: that the
+cards are drawn at all, and that an edge survives on the cursor's own row.
+`devtools/ui_capture/scenes/node-cards.scene` is the picture.
 
 #### `struct fb_list_item` — one row with slots
 

@@ -3266,3 +3266,136 @@ MESH_TEST_CASE(ui_capture_nav_bar_badges_unread_messages, unit) {
     mesh_ui_store_shutdown(&store);
     record_success(test_name);
 }
+
+/*
+ * The node detail is drawn as a column of cards, and the cursor does not eat their sides.
+ *
+ * Two assertions, and the second is the one worth having.
+ *
+ * The first is the Status screen's, one tab over: a card is a filled panel with a hairline
+ * round it, and a screen of plain rows on the bare ground is neither - so this fails if the
+ * grouping is lost and passes whatever the rows inside the cards come to say. Pinning pixels
+ * would fail on every legitimate change to this screen, which is not what is being protected.
+ *
+ * The second is the failure the widening was for. A card's box and a row's cursor fill were the
+ * same rectangle, both measured from the row gutter, so the highlight landed exactly on the
+ * hairline and painted it out for the length of one row: the card appeared to lose its sides
+ * wherever the cursor stood, and *only* there. That is invisible in a still of a resting screen
+ * and invisible in a count of how much card fill is on the panel - it is one row of one card,
+ * and the row it happens on is the one the reader is looking at. So the check is that on the
+ * scanlines the cursor fill covers there is still an edge pixel outside it on both sides, which
+ * is the whole of what "a card contains the widest thing standing in it" means.
+ *
+ * At every scale, because the gutter, the hairline and the corner radius all come off the glyph
+ * scale and they do not all come off it at the same rate.
+ */
+MESH_TEST_CASE(ui_capture_node_detail_cards_survive_the_cursor, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    /* Walked rather than assigned, the Status case's rule: a test that set the nav by hand would
+       keep passing while the presses that get a user here stopped working. */
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    while (store.nav.screen != MESH_UI_SCREEN_NODES) {
+        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    }
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action); /* past the map row */
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action); /* a node that is not us */
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(!store.nav.node_detail_open, mesh_ui_store_shutdown(&store),
+                              "A should open the node detail");
+
+    struct mesh_ui_snapshot snapshot;
+    memset(&snapshot, 0, sizeof snapshot);
+    mesh_ui_store_request_refresh(&store);
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_ui_store_consume_updates(&store, &snapshot),
+                              mesh_ui_store_shutdown(&store), "no snapshot to render");
+
+    const char *failure = NULL;
+    for (int scale = MESH_UI_SCALE_MIN; scale <= MESH_UI_SCALE_MAX && failure == NULL; ++scale) {
+        struct mesh_ui_capture *capture = NULL;
+        if (mesh_ui_capture_open(&capture, MESH_UI_CAPTURE_WIDTH, MESH_UI_CAPTURE_HEIGHT, scale) !=
+            0) {
+            failure = "capture open failed";
+            break;
+        }
+        mesh_ui_capture_set_scale(capture, scale);
+
+        uint32_t width = 0U;
+        uint32_t height = 0U;
+        size_t stride = 0U;
+        const uint8_t *pixels = mesh_ui_capture_pixels(capture, &width, &height, &stride);
+        mesh_ui_capture_render(capture, &snapshot);
+
+        const unsigned fill =
+            widest_row_run(capture, pixels, width, height, stride, MESH_UI_COLOR_SURFACE);
+        const unsigned edge =
+            widest_row_run(capture, pixels, width, height, stride, MESH_UI_COLOR_OUTLINE);
+        if (fill < 80U) {
+            failure = "the node detail draws no card fill across the body";
+        } else if (edge < 80U) {
+            failure = "the node detail draws no card edge across the body";
+        }
+
+        /*
+         * Every scanline the cursor fill reaches, and whether the card it is inside still has
+         * sides there. The fill is a rounded shape, so its first and last rows are inset by the
+         * corner radius and an edge pixel beside them would be the corner rather than the side -
+         * which is why this asks only of the rows where the fill is at its widest.
+         */
+        uint32_t widest = 0U;
+        for (uint32_t y = 0U; y < height && failure == NULL; ++y) {
+            const uint8_t *row = pixels + (size_t)y * stride;
+            uint32_t run = 0U;
+            for (uint32_t x = 0U; x < width; ++x) {
+                run = pixel_is_role(capture, row + (size_t)x * 4U, MESH_UI_COLOR_SURFACE_SEL)
+                          ? run + 1U
+                          : 0U;
+                if (run > widest) {
+                    widest = run;
+                }
+            }
+        }
+        if (failure == NULL && widest == 0U) {
+            failure = "no cursor fill on the node detail to check the card edge against";
+        }
+        for (uint32_t y = 0U; y < height && failure == NULL; ++y) {
+            const uint8_t *row = pixels + (size_t)y * stride;
+            uint32_t first = width;
+            uint32_t last = width;
+            uint32_t run = 0U;
+            for (uint32_t x = 0U; x < width; ++x) {
+                if (pixel_is_role(capture, row + (size_t)x * 4U, MESH_UI_COLOR_SURFACE_SEL)) {
+                    if (first == width) {
+                        first = x;
+                    }
+                    last = x;
+                    run++;
+                }
+            }
+            if (run != widest) {
+                continue;
+            }
+            bool left = false;
+            bool right = false;
+            for (uint32_t x = 0U; x < first; ++x) {
+                left = left || pixel_is_role(capture, row + (size_t)x * 4U, MESH_UI_COLOR_OUTLINE);
+            }
+            for (uint32_t x = last + 1U; x < width; ++x) {
+                right =
+                    right || pixel_is_role(capture, row + (size_t)x * 4U, MESH_UI_COLOR_OUTLINE);
+            }
+            if (!left || !right) {
+                failure = "the cursor fill painted out the card's edge on its own row";
+            }
+        }
+
+        mesh_ui_capture_close(capture);
+    }
+
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}

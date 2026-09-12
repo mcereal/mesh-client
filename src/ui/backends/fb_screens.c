@@ -920,6 +920,20 @@ static void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
      */
     uint8_t heights[MESH_UI_NODE_ITEMS_MAX];
     /*
+     * Which card each row stands on, measured in the same pass.
+     *
+     * A heading opens a card and everything under it belongs to that card until the next one -
+     * which is the whole of the grouping rule, and it is derived rather than declared because
+     * the groups are already in the rows. node_detail.c emits a heading per subject and nothing
+     * else in this screen is a group, so a `group` field on the item would be a second way of
+     * saying what `kind` says, with the drift that implies the first time a group is added.
+     *
+     * The ordinal wraps well below FB_LIST_NO_CARD: the row budget is 128 and a node's headings
+     * are a dozen at the very most, so the counter cannot reach it.
+     */
+    uint8_t cards[MESH_UI_NODE_ITEMS_MAX];
+    uint8_t card = FB_LIST_NO_CARD;
+    /*
      * And whether this list leads with a symbol at all, measured in the same pass.
      *
      * The slot is declared for the whole list or for none of it - FB_LEADING_ICON's own rule,
@@ -929,22 +943,45 @@ static void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
      * are not coming is an indent that buys nothing. Same shape as the settings list's
      * mesh_ui_settings_section_icons_rows(), asked of the built rows rather than of a table
      * because here it is a property of the node rather than of the screen.
+     *
+     * A *heading's* icon is deliberately not counted. Every group has one, so counting them
+     * would make the answer "always" and indent a hundred rows of facts behind a gutter that
+     * only the card headings above them ever fill - which is the two-column start this test
+     * exists to prevent, reached by way of the thing that was meant to prevent it.
      */
     bool leads_with_icon = false;
     for (uint32_t r = 0; r < count; ++r) {
         heights[r] = items[r].kind == MESH_UI_NODE_ROW_METER ? 2U : 1U;
-        leads_with_icon = leads_with_icon || items[r].icon != MESH_UI_ICON_NONE;
+        if (items[r].kind == MESH_UI_NODE_ROW_HEADING) {
+            card = (uint8_t)(card == FB_LIST_NO_CARD ? 0U : card + 1U);
+        } else {
+            leads_with_icon = leads_with_icon || items[r].icon != MESH_UI_ICON_NONE;
+        }
+        cards[r] = card;
     }
     const struct fb_leading blank =
         leads_with_icon ? (struct fb_leading){.kind = FB_LEADING_ICON, .icon = MESH_UI_ICON_NONE}
                         : (struct fb_leading){.kind = FB_LEADING_NONE};
     struct fb_list list =
-        fb_list_begin_heights(layout, count, nav->cursor[MESH_UI_SCREEN_NODES], heights);
+        fb_list_begin_cards(layout, count, nav->cursor[MESH_UI_SCREEN_NODES], heights, cards);
     uint32_t i;
     while (fb_list_next(&list, &i)) {
         const struct mesh_ui_node_item *item = &items[i];
         if (item->kind == MESH_UI_NODE_ROW_HEADING) {
-            fb_list_subheader_icon(state, &list, i, item->label, blank);
+            /*
+             * The card's own symbol, from the group rather than from here.
+             *
+             * In `blank`'s slot rather than in one of its own, which matters on the one node
+             * that declares no slot at all: our own, with no fix, produces no action rows and so
+             * no icons among the rows. A heading that took a gutter there would start its words
+             * an icon-box further in than every row under it - the two-column start this screen
+             * tests for, arrived at from the heading's side. The slot is declared for the whole
+             * list or for none of it, headings included, and the icon is drawn into it when
+             * there is one to draw into.
+             */
+            fb_list_subheader_icon(
+                state, &list, i, item->label,
+                (struct fb_leading){.kind = blank.kind, .icon = (enum mesh_ui_icon)item->icon});
         } else if (item->kind == MESH_UI_NODE_ROW_ACTION) {
             /*
              * What the row is about, on its leading edge, and what it costs, in its ink - both
