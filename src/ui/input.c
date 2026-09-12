@@ -582,9 +582,9 @@ static bool mesh_ui_input_device_is_useful(int fd, const char *path) {
     memset(axes, 0, sizeof axes);
 
     const bool keys_known =
-        ioctl(fd, MESH_IOCTL_REQUEST(EVIOCGBIT(EV_KEY, sizeof keys)), keys) >= 0;
+        ioctl(fd, mesh_ioctl_request_of(EVIOCGBIT(EV_KEY, sizeof keys)), keys) >= 0;
     const bool axes_known =
-        ioctl(fd, MESH_IOCTL_REQUEST(EVIOCGBIT(EV_ABS, sizeof axes)), axes) >= 0;
+        ioctl(fd, mesh_ioctl_request_of(EVIOCGBIT(EV_ABS, sizeof axes)), axes) >= 0;
     if (!keys_known && !axes_known) {
         mesh_log_debug("input", "%s cannot say what it reports; watching it anyway", path);
     }
@@ -605,7 +605,7 @@ static void mesh_ui_input_device_name(int fd, char *out, size_t out_len) {
         return;
     }
     out[0] = '\0';
-    if (ioctl(fd, MESH_IOCTL_REQUEST(EVIOCGNAME(out_len)), out) < 0) {
+    if (ioctl(fd, mesh_ioctl_request_of(EVIOCGNAME(out_len)), out) < 0) {
         out[0] = '\0';
     }
     out[out_len - 1U] = '\0';

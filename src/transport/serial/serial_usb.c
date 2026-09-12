@@ -482,7 +482,7 @@ int mesh_serial_usb_set_line_state(const struct mesh_serial_device_info *device,
     /* The control interface has no driver (the generic one refused it), so claiming it is what
        lets usbfs deliver the request. */
     unsigned int iface = (unsigned int)device->control_interface;
-    bool claimed = ioctl(fd, MESH_IOCTL_REQUEST(USBDEVFS_CLAIMINTERFACE), &iface) == 0;
+    bool claimed = ioctl(fd, mesh_ioctl_request_of(USBDEVFS_CLAIMINTERFACE), &iface) == 0;
     if (!claimed) {
         mesh_log_debug("serial", "Claim of interface %u on %s failed: %s", iface, usbfs_path,
                        strerror(errno));
@@ -499,7 +499,7 @@ int mesh_serial_usb_set_line_state(const struct mesh_serial_device_info *device,
     transfer.data = NULL;
 
     int result = 0;
-    if (ioctl(fd, MESH_IOCTL_REQUEST(USBDEVFS_CONTROL), &transfer) < 0) {
+    if (ioctl(fd, mesh_ioctl_request_of(USBDEVFS_CONTROL), &transfer) < 0) {
         result = -errno;
         mesh_log_warn("serial", "SET_CONTROL_LINE_STATE on %s failed: %s", usbfs_path,
                       strerror(errno));
@@ -508,7 +508,7 @@ int mesh_serial_usb_set_line_state(const struct mesh_serial_device_info *device,
     }
 
     if (claimed) {
-        (void)ioctl(fd, MESH_IOCTL_REQUEST(USBDEVFS_RELEASEINTERFACE), &iface);
+        (void)ioctl(fd, mesh_ioctl_request_of(USBDEVFS_RELEASEINTERFACE), &iface);
     }
     close(fd);
     return result;
@@ -577,7 +577,7 @@ int mesh_serial_port_set_dtr(int fd, bool on) {
         return -EINVAL;
     }
     int bits = TIOCM_DTR;
-    if (ioctl(fd, MESH_IOCTL_REQUEST(on ? TIOCMBIS : TIOCMBIC), &bits) < 0) {
+    if (ioctl(fd, mesh_ioctl_request_of(on ? TIOCMBIS : TIOCMBIC), &bits) < 0) {
         return -errno;
     }
     return 0;

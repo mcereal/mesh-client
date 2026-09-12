@@ -172,7 +172,7 @@ int mesh_ble_hci_request_interval(int dev_id, const char *address,
     memset(&list, 0, sizeof list);
     list.dev_id = (uint16_t)dev_id;
     list.conn_num = MESH_HCI_CONN_MAX;
-    if (ioctl(fd, MESH_IOCTL_REQUEST(MESH_HCIGETCONNLIST), &list) < 0) {
+    if (ioctl(fd, mesh_ioctl_request_of(MESH_HCIGETCONNLIST), &list) < 0) {
         const int error = -errno;
         close(fd);
         return error;
