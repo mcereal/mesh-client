@@ -1,3 +1,9 @@
+## [2.68.2](https://github.com/mcereal/mesh-client/compare/v2.68.1...v2.68.2) (2026-09-12)
+
+### Bug Fixes
+
+* **ui:** give the airtime trend a gap the radio's own cadence fits in ([18f9a69](https://github.com/mcereal/mesh-client/commit/18f9a69a2785ef4b5b269839406b829349a65330))
+
 ## [2.68.1](https://github.com/mcereal/mesh-client/compare/v2.68.0...v2.68.1) (2026-09-12)
 
 ### Bug Fixes
