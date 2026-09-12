@@ -322,6 +322,47 @@ MESH_TEST_CASE(history_says_when_there_is_an_airtime_trend, unit) {
     record_success(test_name);
 }
 
+/*
+ * A series has to survive the cadence its own readings arrive on.
+ *
+ * This is the test the two next door cannot make. Both of them space their pushes against
+ * MESH_UI_HISTORY_RADIO_GAP_MS - a minute apart is inside it, the gap plus a second is outside
+ * it - so they go on passing whatever that constant is, including the fifteen minutes that made
+ * it exactly one LocalStats report. Written that way round the arithmetic is always consistent
+ * and always about nothing: a gap no larger than the cadence breaks at every sample, so
+ * mesh_ui_history_has_airtime() is false for the life of a session, the Mesh card is offered no
+ * verb and the Status cursor walks from the Link card to the Radio one. Every capture scene
+ * stamps its readings milliseconds apart on the harness clock, so nothing but a device showed it.
+ *
+ * So the pushes here are spaced by the *cadence*, which is what the radio does rather than what
+ * the client believes: a report every MESH_UI_HISTORY_RADIO_REPORT_MS, plus the minute of slop
+ * the firmware's once-a-minute tick adds to its own throttle. A gap that stops being a few
+ * reports fails here rather than on somebody's Brick.
+ */
+MESH_TEST_CASE(history_draws_a_line_at_the_radios_own_cadence, unit) {
+    /* The interval two reports actually land on: the throttle, tested a tick late. */
+    const uint32_t cadence = MESH_UI_HISTORY_RADIO_REPORT_MS + 60U * 1000U;
+
+    struct mesh_ui_history history;
+    mesh_ui_history_reset(&history);
+    for (uint32_t i = 0U; i < 4U; ++i) {
+        mesh_ui_history_note_airtime(&history, 1000U + i * cadence, (int32_t)(60U + i * 10U),
+                                     (int32_t)(20U + i * 5U));
+    }
+    MESH_TEST_FAIL_IF(!mesh_ui_history_has_airtime(&history),
+                      "reports arriving on the radio's own schedule should draw a line");
+
+    /* And the same claim stated directly, so the reason survives a rewrite of the loop above.
+       Two cadences rather than one: a report is skipped as well as delayed - the firmware sends
+       its stats only on the turns it is not broadcasting to the mesh - so a gap that merely
+       outlasts one report still breaks on an ordinary pair of them. */
+    MESH_TEST_FAIL_IF(MESH_UI_HISTORY_RADIO_GAP_MS <= 2U * MESH_UI_HISTORY_RADIO_REPORT_MS,
+                      "the radio's gap must outlast a skipped report, not just a late one");
+    MESH_TEST_FAIL_IF(MESH_UI_HISTORY_NODE_GAP_MS <= 2U * MESH_UI_HISTORY_NODE_REPORT_MS,
+                      "a node's gap must outlast a skipped report, not just a late one");
+    record_success(test_name);
+}
+
 /* A silence longer than the series' own gap breaks the line rather than sloping across it. */
 MESH_TEST_CASE(series_breaks_the_line_at_a_gap, unit) {
     struct mesh_ui_series series;

@@ -1919,6 +1919,11 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         /* The bar eases to the new reading rather than jumping to it, so the frames between the
            two figures are the point - the same reason a press settles. */
         uicap_settle(cap);
+        /* Two `airtime` lines are a few hundred milliseconds apart on the harness clock, whatever
+           the scene's comment says they stand for, so the trend they build is always unbroken
+           here and a series that breaks at the cadence a radio actually reports on looks exactly
+           the same in a capture. That is a device question, and it is pinned as one:
+           history_draws_a_line_at_the_radios_own_cadence in tests/suites/ui_history.c. */
         return;
     }
 
