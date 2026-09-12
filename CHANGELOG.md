@@ -1,3 +1,10 @@
+## [2.68.3](https://github.com/mcereal/mesh-client/compare/v2.68.2...v2.68.3) (2026-09-12)
+
+### Bug Fixes
+
+* **ui:** say why an assetless release cannot be installed ([673a4a7](https://github.com/mcereal/mesh-client/commit/673a4a7e28b36aa1f8a89e53342201b7a3a6ebae))
+* **ui:** stop an up-to-date radio reporting the installer as unbuilt ([b66ed1b](https://github.com/mcereal/mesh-client/commit/b66ed1ba5213c26580bf0c51475a7d40b3ddfae4))
+
 ## [2.68.2](https://github.com/mcereal/mesh-client/compare/v2.68.1...v2.68.2) (2026-09-12)
 
 ### Bug Fixes
