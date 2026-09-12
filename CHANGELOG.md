@@ -1,3 +1,15 @@
+## [2.67.0](https://github.com/mcereal/mesh-client/compare/v2.66.0...v2.67.0) (2026-09-12)
+
+### Features
+
+* **ui:** draw the node detail's groups as cards ([cde4442](https://github.com/mcereal/mesh-client/commit/cde4442b80ceecc32a9637e7b57c832cd3834b2e))
+
+### Bug Fixes
+
+* **ui:** give a list control the row's resting ground, not its current one ([186920e](https://github.com/mcereal/mesh-client/commit/186920edc02a4c8a97e4e40422840f5efb176d94))
+* **ui:** keep a card heading in the list's own leading gutter ([7836cb9](https://github.com/mcereal/mesh-client/commit/7836cb9485cde31eaa53e9ba522011136b906520))
+* **ui:** keep the traced route out of the node detail's action block ([05d2b6e](https://github.com/mcereal/mesh-client/commit/05d2b6eeb0fcf9020531b2b4db3faa96525d226e))
+
 ## [2.66.0](https://github.com/mcereal/mesh-client/compare/v2.65.0...v2.66.0) (2026-09-12)
 
 ### Features
