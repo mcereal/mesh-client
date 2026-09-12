@@ -1,3 +1,9 @@
+## [2.68.7](https://github.com/mcereal/mesh-client/compare/v2.68.6...v2.68.7) (2026-09-12)
+
+### Bug Fixes
+
+* **ui:** keep the radio's airtime trend across a restart ([1296598](https://github.com/mcereal/mesh-client/commit/1296598d752b65dfb5a604bccf98ffaa0b43459b))
+
 ## [2.68.6](https://github.com/mcereal/mesh-client/compare/v2.68.5...v2.68.6) (2026-09-12)
 
 ### Bug Fixes
