@@ -47,13 +47,33 @@ static struct mesh_ui_node_item *rows_next(struct node_rows *rows) {
     return item;
 }
 
-static void rows_heading(struct node_rows *rows, enum mesh_str_id label) {
+/*
+ * A group's heading, and the symbol beside it.
+ *
+ * The icon is on the heading because a backend that draws these groups as cards draws it as the
+ * *card's* icon - one cell that says what the card is about, which is what the eye finds when it
+ * is looking for Signal rather than Identity on a screen a hundred and twenty rows long. A flat
+ * list leaves the slot empty and nothing about this changes; which of the two is happening is
+ * the renderer's business, and the group states its subject either way.
+ *
+ * Stated at the call site rather than in a table because a heading is emitted in exactly one
+ * place each - unlike k_action_icons[] above, where the same verb is reached from several. What
+ * would be a table with one reader per row is a parameter.
+ *
+ * Four ids are spent twice and that is honest rather than lazy, on the terms k_action_icons[]
+ * already sets: Environment, Air quality and Health are three sensor reports and DETECTION is
+ * what a sensor report is, the two neighbour groups are one subject read in both directions, and
+ * the two halves of a traced route are the two halves of one trace. In every pair the labels are
+ * what tells them apart, which is the thing a heading is for.
+ */
+static void rows_heading(struct node_rows *rows, enum mesh_str_id label, enum mesh_ui_icon icon) {
     struct mesh_ui_node_item *item = rows_next(rows);
     if (item == NULL) {
         return;
     }
     snprintf(item->label, sizeof item->label, "%s", mesh_str(label));
     item->kind = MESH_UI_NODE_ROW_HEADING;
+    item->icon = (uint8_t)icon;
 }
 
 /*
@@ -337,7 +357,7 @@ static void rows_trend(struct node_rows *rows, enum mesh_ui_history_reading read
 }
 
 static void node_rows_identity(struct node_rows *rows, const struct mesh_ui_node_summary *node) {
-    rows_heading(rows, MESH_STR_NODE_HEAD_IDENTITY);
+    rows_heading(rows, MESH_STR_NODE_HEAD_IDENTITY, MESH_UI_ICON_USER);
 
     if (node->long_name[0] != '\0') {
         rows_text(rows, MESH_STR_NODE_LONG_NAME, node->long_name);
@@ -402,7 +422,7 @@ static void node_rows_identity(struct node_rows *rows, const struct mesh_ui_node
 
 static void node_rows_signal(struct node_rows *rows, const struct mesh_ui_node_summary *node,
                              bool is_self, uint32_t now) {
-    rows_heading(rows, MESH_STR_NODE_HEAD_SIGNAL);
+    rows_heading(rows, MESH_STR_NODE_HEAD_SIGNAL, MESH_UI_ICON_LORA);
 
     char age[24];
     mesh_ui_format_age(node->last_heard, now, age, sizeof age);
@@ -454,7 +474,7 @@ static void node_rows_power(struct node_rows *rows, const struct mesh_ui_node_su
     if (!metrics->valid) {
         return;
     }
-    rows_heading(rows, MESH_STR_NODE_HEAD_METRICS);
+    rows_heading(rows, MESH_STR_NODE_HEAD_METRICS, MESH_UI_ICON_TELEMETRY);
 
     if (metrics->has_battery) {
         /* 101 is upstream's "running off USB", not a 101% battery. */
@@ -504,7 +524,7 @@ static void node_rows_position(struct node_rows *rows, const struct mesh_ui_node
     if (!position->valid) {
         return;
     }
-    rows_heading(rows, MESH_STR_NODE_HEAD_POSITION);
+    rows_heading(rows, MESH_STR_NODE_HEAD_POSITION, MESH_UI_ICON_POSITION);
 
     /* Fixed-point 1e-7 degrees on the wire; five decimals is about a metre, which is finer
        than anything a LoRa node reports. */
@@ -557,7 +577,7 @@ static void node_rows_environment(struct node_rows *rows, const struct mesh_ui_n
     if (!env->valid) {
         return;
     }
-    rows_heading(rows, MESH_STR_NODE_HEAD_ENVIRONMENT);
+    rows_heading(rows, MESH_STR_NODE_HEAD_ENVIRONMENT, MESH_UI_ICON_DETECTION);
 
     /*
      * The two readings the client keeps a trend of, so each is a figure, a bar and a line.
@@ -616,7 +636,7 @@ static void node_rows_power_metrics(struct node_rows *rows, const struct mesh_ui
     if (!power->valid) {
         return;
     }
-    rows_heading(rows, MESH_STR_NODE_HEAD_POWER);
+    rows_heading(rows, MESH_STR_NODE_HEAD_POWER, MESH_UI_ICON_POWER);
     for (size_t ch = 0; ch < sizeof power->channel / sizeof power->channel[0]; ++ch) {
         const struct mesh_ui_node_power_channel *channel = &power->channel[ch];
         if (!channel->has_voltage && !channel->has_current) {
@@ -646,7 +666,7 @@ static void node_rows_air_quality(struct node_rows *rows, const struct mesh_ui_n
     if (!air->valid) {
         return;
     }
-    rows_heading(rows, MESH_STR_NODE_HEAD_AIR_QUALITY);
+    rows_heading(rows, MESH_STR_NODE_HEAD_AIR_QUALITY, MESH_UI_ICON_DETECTION);
     /* PM2.5 first and on its own row: it is the number air quality is judged by, and the one a
        person looks for. The coarser fractions share a row because they are read against it. */
     if (air->has_pm25) {
@@ -683,7 +703,7 @@ static void node_rows_health(struct node_rows *rows, const struct mesh_ui_node_s
     if (!health->valid) {
         return;
     }
-    rows_heading(rows, MESH_STR_NODE_HEAD_HEALTH);
+    rows_heading(rows, MESH_STR_NODE_HEAD_HEALTH, MESH_UI_ICON_DETECTION);
     if (health->has_heart_bpm) {
         rows_info(rows, MESH_STR_NODE_HEART_RATE, MESH_STR_NODE_VAL_BPM,
                   (unsigned)health->heart_bpm);
@@ -706,7 +726,7 @@ static void node_rows_host(struct node_rows *rows, const struct mesh_ui_node_sum
     if (!host->valid) {
         return;
     }
-    rows_heading(rows, MESH_STR_NODE_HEAD_HOST);
+    rows_heading(rows, MESH_STR_NODE_HEAD_HOST, MESH_UI_ICON_STATUS);
     if (host->has_uptime) {
         char uptime[32];
         mesh_ui_format_duration(host->uptime_seconds, uptime, sizeof uptime);
@@ -780,7 +800,7 @@ static void node_rows_neighbors(struct node_rows *rows, const struct mesh_ui_nod
 
     const struct mesh_ui_node_neighbors *heard = &node->neighbors;
     if (heard->valid) {
-        rows_heading(rows, MESH_STR_NODE_HEAD_NEIGHBOURS);
+        rows_heading(rows, MESH_STR_NODE_HEAD_NEIGHBOURS, MESH_UI_ICON_NEIGHBORS);
         if (heard->count == 0U) {
             /* A node that hears nobody is a real state and an interesting one - it is how a
                repeater that has fallen off the mesh looks - so it says so rather than showing
@@ -823,7 +843,7 @@ static void node_rows_neighbors(struct node_rows *rows, const struct mesh_ui_nod
                 continue;
             }
             if (listeners == 0U) {
-                rows_heading(rows, MESH_STR_NODE_HEAD_HEARD_BY);
+                rows_heading(rows, MESH_STR_NODE_HEAD_HEARD_BY, MESH_UI_ICON_NEIGHBORS);
             }
             listeners++;
             /* The roster is already ordered by mesh_app_node_rank, so the first ten are the
@@ -881,8 +901,11 @@ static void node_rows_route(struct node_rows *rows, const struct mesh_ui_node_su
         if (count == 0U) {
             continue;
         }
-        rows_heading(rows, direction == 0U ? MESH_STR_NODE_HEAD_ROUTE_OUT
-                                           : MESH_STR_NODE_HEAD_ROUTE_BACK);
+        /* LINK is what k_action_icons[] gives the traceroute verb, which is the press these rows
+           came out of - one trace, one symbol, whichever end of it is being read. */
+        rows_heading(rows,
+                     direction == 0U ? MESH_STR_NODE_HEAD_ROUTE_OUT : MESH_STR_NODE_HEAD_ROUTE_BACK,
+                     MESH_UI_ICON_LINK);
         for (uint8_t i = 0; i < count && i < MESH_UI_TRACEROUTE_MAX_HOPS; ++i) {
             const struct mesh_ui_traceroute_hop *hop = &path[i];
             char label[MESH_UI_NODE_LABEL_MAX];
@@ -941,7 +964,7 @@ uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool
      */
     const uint32_t actions_at = rows.count;
     if (!is_self) {
-        rows_heading(&rows, MESH_STR_NODE_HEAD_ACTIONS);
+        rows_heading(&rows, MESH_STR_NODE_HEAD_ACTIONS, MESH_UI_ICON_ACTIONS);
         rows_action(&rows, MESH_STR_NODE_ACT_MESSAGE, NULL, MESH_UI_NODE_ACTION_MESSAGE);
         /* Pinning our own node would be meaningless - it already ranks above everything. */
         rows_toggle(&rows, MESH_STR_NODE_ACT_PIN, node->is_favorite, MESH_UI_NODE_ACTION_FAVORITE);
@@ -989,7 +1012,7 @@ uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool
            rather than re-testing `is_self` keeps the two conditions from drifting: what decides
            is whether anything is under the heading, which is what a heading is about. */
         if (rows.count == actions_at) {
-            rows_heading(&rows, MESH_STR_NODE_HEAD_ACTIONS);
+            rows_heading(&rows, MESH_STR_NODE_HEAD_ACTIONS, MESH_UI_ICON_ACTIONS);
         }
         /* Looking at it, and keeping it: the two things a fix is good for, and both gated on
            there being one. A "show on map" row over a node with no position would open a map

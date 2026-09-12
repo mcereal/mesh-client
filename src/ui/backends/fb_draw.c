@@ -1067,9 +1067,14 @@ void fb_fill_rect(const struct mesh_ui_backend_fb_state *state, int x, int y, in
     fb_fill_packed(state, x, y, w, h, compose_color(state, color.r, color.g, color.b));
 }
 
-void fb_fill_round_rect(const struct mesh_ui_backend_fb_state *state, int x, int y, int w, int h,
-                        int radius, struct mesh_ui_rgb color) {
+void fb_fill_round_rect_ends(const struct mesh_ui_backend_fb_state *state, int x, int y, int w,
+                             int h, int radius, struct mesh_ui_rgb color, bool round_top,
+                             bool round_bottom) {
     if (w <= 0 || h <= 0) {
+        return;
+    }
+    if (!round_top && !round_bottom) {
+        fb_fill_rect(state, x, y, w, h, color);
         return;
     }
     const int limit = (w < h ? w : h) / 2;
@@ -1082,8 +1087,12 @@ void fb_fill_round_rect(const struct mesh_ui_backend_fb_state *state, int x, int
     }
 
     const uint32_t packed = compose_color(state, color.r, color.g, color.b);
-    /* The straight middle, then a span per row of each corner band. */
-    fb_fill_packed(state, x, y + radius, w, h - 2 * radius, packed);
+    /* The straight middle, then a span per row of each corner band. A square end takes its own
+       band back into the middle, so the two are one fill rather than a fill and a patch - which
+       is what keeps a squared corner from showing a seam where the two would have met. */
+    const int top_band = round_top ? radius : 0;
+    const int bottom_band = round_bottom ? radius : 0;
+    fb_fill_packed(state, x, y + top_band, w, h - top_band - bottom_band, packed);
 
     /*
      * How far in the fill starts on each of the rounded rows.
@@ -1105,9 +1114,18 @@ void fb_fill_round_rect(const struct mesh_ui_backend_fb_state *state, int x, int
             ++dx;
         }
         const int span = w - 2 * dx;
-        fb_fill_packed(state, x + dx, y + dy, span, 1, packed);
-        fb_fill_packed(state, x + dx, y + h - 1 - dy, span, 1, packed);
+        if (round_top) {
+            fb_fill_packed(state, x + dx, y + dy, span, 1, packed);
+        }
+        if (round_bottom) {
+            fb_fill_packed(state, x + dx, y + h - 1 - dy, span, 1, packed);
+        }
     }
+}
+
+void fb_fill_round_rect(const struct mesh_ui_backend_fb_state *state, int x, int y, int w, int h,
+                        int radius, struct mesh_ui_rgb color) {
+    fb_fill_round_rect_ends(state, x, y, w, h, radius, color, true, true);
 }
 
 void fb_clear(const struct mesh_ui_backend_fb_state *state, struct mesh_ui_rgb color) {
@@ -1145,17 +1163,26 @@ size_t fb_width(const char *line) { return mesh_ui_text_cells(line); }
  * same list highlighting to two slightly different rectangles is a cursor that changes shape as
  * it walks, and two copies of `y - scale` is exactly how that happens.
  */
-struct mesh_ui_rgb fb_draw_row_fill(const struct mesh_ui_backend_fb_state *state, int y,
-                                    uint32_t rows, bool selected) {
+struct mesh_ui_rgb fb_draw_row_fill_on(const struct mesh_ui_backend_fb_state *state, int y,
+                                       uint32_t rows, bool selected, enum mesh_ui_color ground) {
     if (!selected) {
-        return fb_color(state, MESH_UI_COLOR_BG);
+        /* Nothing is painted: the row is already standing on whatever laid that colour down -
+           the panel, or the card surface a grouped list drew before any row was placed. What is
+           returned is what the text will be blended against, which is the only thing a caller
+           wanted from an unselected row. */
+        return fb_color(state, ground);
     }
-    const struct mesh_ui_rgb ground = fb_color(state, MESH_UI_COLOR_SURFACE_SEL);
+    const struct mesh_ui_rgb fill = fb_color(state, MESH_UI_COLOR_SURFACE_SEL);
     const int line = fb_line_adv(state, state->scale);
     fb_fill_round_rect(state, fb_gutter(state), y - state->scale,
                        (int)state->var.xres - fb_margin(state), (int)(rows > 0U ? rows : 1U) * line,
-                       fb_radius(state, MESH_UI_SHAPE_SM), ground);
-    return ground;
+                       fb_radius(state, MESH_UI_SHAPE_SM), fill);
+    return fill;
+}
+
+struct mesh_ui_rgb fb_draw_row_fill(const struct mesh_ui_backend_fb_state *state, int y,
+                                    uint32_t rows, bool selected) {
+    return fb_draw_row_fill_on(state, y, rows, selected, MESH_UI_COLOR_BG);
 }
 
 /* One list row of text, highlighted when it is the cursor: the fill above, then the words. */

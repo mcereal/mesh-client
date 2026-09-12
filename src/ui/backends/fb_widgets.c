@@ -823,8 +823,137 @@ struct fb_list fb_list_begin_heights(const struct fb_layout *layout, uint32_t co
     return fb_list_open(layout, mesh_ui_list_begin_heights(count, cursor, layout->rows, heights));
 }
 
+struct fb_list fb_list_begin_cards(const struct fb_layout *layout, uint32_t count, uint32_t cursor,
+                                   const uint8_t *heights, const uint8_t *cards) {
+    struct fb_list list = heights != NULL ? fb_list_begin_heights(layout, count, cursor, heights)
+                                          : fb_list_begin(layout, count, cursor);
+    list.cards = cards;
+    return list;
+}
+
+/* Which card item `index` is on, or FB_LIST_NO_CARD. Past the end counts as no card, which is
+   what lets the run walk below terminate without knowing the list's length. */
+static uint8_t fb_list_card_of(const struct fb_list *list, uint32_t index) {
+    if (list == NULL || list->cards == NULL || index >= list->model.count) {
+        return FB_LIST_NO_CARD;
+    }
+    return list->cards[index];
+}
+
+enum mesh_ui_color fb_list_ground(const struct fb_list *list, uint32_t index) {
+    return fb_list_card_of(list, index) == FB_LIST_NO_CARD ? MESH_UI_COLOR_BG
+                                                           : MESH_UI_COLOR_SURFACE;
+}
+
 uint32_t fb_list_row_height(const struct fb_list *list, uint32_t index) {
     return mesh_ui_list_item_height(&list->model, index);
+}
+
+/*
+ * The card surfaces, for a list whose groups are drawn as cards.
+ *
+ * One rounded panel per *contiguous run* of items sharing a card ordinal, painted before any row
+ * puts ink down - a fill has to go under text rather than over it, and there is no alpha on this
+ * panel to recover from getting that the wrong way round.
+ *
+ * The run walk is over the window rather than over the list, which is what makes this cost the
+ * same on a node with six rows and a node with a hundred and twenty. Heights come from the model
+ * for the same reason every other measurement here does: the list is the authority once it has
+ * been told, so a card can never be a row out from the rows standing on it.
+ */
+static void fb_list_cards(const struct mesh_ui_backend_fb_state *state, struct fb_list *list) {
+    if (list == NULL || list->cards == NULL || list->model.visible == 0U) {
+        return;
+    }
+
+    /*
+     * The row fill's own rectangle with the hairline outside it.
+     *
+     * A card has to be at least as wide as the widest thing standing in it, and the widest thing
+     * in a list is the cursor's highlight: drawn to the same rectangle, the highlight lands on
+     * the hairline and paints it out for the length of one row, so the card appears to lose its
+     * sides wherever the cursor is - and only there, which is the row the reader is looking at.
+     * So the edge is spent outward, into the gutter the scroll rail is centred much further
+     * into. The highlight then fills the card's interior exactly, which is where Material puts a
+     * state layer inside a container.
+     */
+    const int edge = fb_edge(state);
+    const int x = fb_gutter(state) - edge;
+    const int width = (int)state->var.xres - fb_margin(state) + 2 * edge;
+    const int radius = fb_radius(state, MESH_UI_SHAPE_MD);
+
+    /*
+     * The card's top padding, and with it the gap to the card above.
+     *
+     * Both come out of air that is already on the panel: a heading draws at the label scale sat
+     * on the bottom of its step (see fb_list_subheader_icon), so the difference between the two
+     * line advances is empty at the top of every group. Half of it becomes the card's inset
+     * above its heading and half stays outside as the break between two cards - which is why a
+     * column of cards here costs no rows, and why no count anywhere else had to move.
+     */
+    const int label = mesh_ui_theme_type_scale(state->theme, MESH_UI_TYPE_LABEL, state->scale);
+    const int air = fb_line_adv(state, state->scale) - fb_line_adv(state, label);
+    const int pad = air / 2 > edge ? air / 2 : edge;
+
+    const uint32_t first = list->model.first;
+    const uint32_t last = first + list->model.visible; /* one past */
+    /* Where the first visible row's fill starts, which is a glyph scale above its baseline -
+       fb_draw_row_fill()'s own top edge. A card measured from the baseline would sit a few
+       pixels low and clip the ascenders of the row it opens with. */
+    int top = list->track_y - state->scale;
+    uint32_t i = first;
+    while (i < last && i < list->model.count) {
+        const uint8_t card = fb_list_card_of(list, i);
+        int height = (int)mesh_ui_list_item_height(&list->model, i) * list->line;
+        uint32_t run = i + 1U;
+        while (run < last && run < list->model.count && fb_list_card_of(list, run) == card) {
+            height += (int)mesh_ui_list_item_height(&list->model, run) * list->line;
+            run++;
+        }
+        if (card == FB_LIST_NO_CARD) {
+            top += height;
+            i = run;
+            continue;
+        }
+
+        /*
+         * Whether this run is the whole card or a slice of one the window cut, asked of the
+         * items on either side of it rather than of the window - which is the same question and
+         * the one that stays right when a card happens to end exactly where the window does.
+         *
+         * A cut end keeps square corners and takes no padding, so the card runs to the edge of
+         * the body and reads as continuing past it. Everything drawn here is inside the window
+         * by construction: the first run starts at the body's own top edge and the last ends
+         * where the visible steps do, so there is nothing to clip.
+         */
+        const bool cut_top = i > 0U && fb_list_card_of(list, i - 1U) == card;
+        const bool cut_bottom = run < list->model.count && fb_list_card_of(list, run) == card;
+        const int box_top = cut_top ? top : top + pad;
+        const int box_h = (top + height) - box_top;
+
+        /*
+         * The edge first and the fill inside it, which is fb_draw_card()'s shape and for its
+         * reason: fb_fill_round_rect() fills rather than strokes, so an outline is the larger
+         * shape with the smaller one laid over it. The hairline is not decoration - on every
+         * theme that ships the surface is one step off the ground, and the edge is most of what
+         * says a card is there. It is OUTLINE rather than RULE for fb_draw_card()'s reason too:
+         * a separator may fade politely into what it divides and an edge may not.
+         *
+         * A cut end loses its inset along with its corners. Insetting there would draw the
+         * hairline *across* the cut, which is the card claiming to end again - in a straight
+         * line this time.
+         */
+        fb_fill_round_rect_ends(state, x, box_top, width, box_h, radius + edge,
+                                fb_color(state, MESH_UI_COLOR_OUTLINE), !cut_top, !cut_bottom);
+        const int inner_top = cut_top ? box_top : box_top + edge;
+        const int inner_bottom = cut_bottom ? box_top + box_h : box_top + box_h - edge;
+        fb_fill_round_rect_ends(state, x + edge, inner_top, width - 2 * edge,
+                                inner_bottom - inner_top, radius,
+                                fb_color(state, MESH_UI_COLOR_SURFACE), !cut_top, !cut_bottom);
+
+        top += height;
+        i = run;
+    }
 }
 
 /*
@@ -836,10 +965,6 @@ uint32_t fb_list_row_height(const struct fb_list *list, uint32_t index) {
  * stays in proportion when a theme asks for bigger text.
  */
 static void fb_list_rail(const struct mesh_ui_backend_fb_state *state, struct fb_list *list) {
-    if (list == NULL || list->rail_drawn) {
-        return;
-    }
-    list->rail_drawn = true;
     if (list->track_h <= 0) {
         return;
     }
@@ -879,15 +1004,44 @@ static void fb_list_rail(const struct mesh_ui_backend_fb_state *state, struct fb
                        fb_tone_color(state, MESH_UI_TONE_DIM));
 }
 
+/*
+ * Everything the list draws that is not a row: the card surfaces its groups stand on, then the
+ * scroll rail.
+ *
+ * **No screen asks for it.** It is drawn by the first row that draws, because both halves are
+ * derived entirely from the model - `count`, `first`, `visible`, the heights and the grouping -
+ * so a screen has nothing to say about either and a screen that had to remember the call is a
+ * screen that would forget on one list out of nine. Same reasoning the list item's clipping
+ * follows: geometry belongs down here and the screen describes content.
+ *
+ * The order is the only thing this function decides, and it decides it once: a surface goes
+ * under the ink standing on it, and the rail is outside both.
+ */
+static void fb_list_chrome(const struct mesh_ui_backend_fb_state *state, struct fb_list *list) {
+    if (list == NULL || list->chrome_drawn) {
+        return;
+    }
+    list->chrome_drawn = true;
+    fb_list_cards(state, list);
+    fb_list_rail(state, list);
+}
+
 bool fb_list_next(struct fb_list *list, uint32_t *index) {
     return mesh_ui_list_next(&list->model, index);
 }
 
 void fb_list_row(const struct mesh_ui_backend_fb_state *state, struct fb_list *list, uint32_t index,
                  const char *text, enum mesh_ui_tone tone) {
-    fb_list_rail(state, list);
-    fb_draw_row(state, list->y, text, fb_tone_color(state, tone),
-                mesh_ui_list_is_cursor(&list->model, index));
+    fb_list_chrome(state, list);
+    /* Drawn out rather than through fb_draw_row(), which lays its fill on the panel's own
+       ground: a row in a list may be standing on a card, and the ink its glyph edges blend into
+       has to be the colour actually under it. */
+    const bool selected = mesh_ui_list_is_cursor(&list->model, index);
+    const struct mesh_ui_rgb ground = fb_draw_row_fill_on(
+        state, list->y, fb_list_row_height(list, index), selected, fb_list_ground(list, index));
+    fb_draw_text(state, fb_margin(state), list->y, text, state->scale,
+                 selected ? fb_color(state, MESH_UI_COLOR_TEXT_ON_SEL) : fb_tone_color(state, tone),
+                 ground);
     /* By what the model says this row is, not by one row: a plain row in a list of mixed
        heights is still whatever height that list gave it, and advancing by a row would put
        every row under it in the wrong place. */
@@ -901,7 +1055,7 @@ void fb_list_subheader(const struct mesh_ui_backend_fb_state *state, struct fb_l
 
 void fb_list_subheader_icon(const struct mesh_ui_backend_fb_state *state, struct fb_list *list,
                             uint32_t index, const char *text, struct fb_leading leading) {
-    fb_list_rail(state, list);
+    fb_list_chrome(state, list);
     const int scale = mesh_ui_theme_type_scale(state->theme, MESH_UI_TYPE_LABEL, state->scale);
     const uint32_t rows = fb_list_row_height(list, index);
     const bool selected = mesh_ui_list_is_cursor(&list->model, index);
@@ -909,7 +1063,8 @@ void fb_list_subheader_icon(const struct mesh_ui_backend_fb_state *state, struct
     /* The fill is the whole step whatever size the words are, and it is the same rectangle a
        plain row lays down - a highlight that shrank to the label would be a cursor that changes
        shape as it walks down a list. */
-    const struct mesh_ui_rgb ground = fb_draw_row_fill(state, list->y, rows, selected);
+    const struct mesh_ui_rgb ground =
+        fb_draw_row_fill_on(state, list->y, rows, selected, fb_list_ground(list, index));
 
     /*
      * Sat on the bottom of the step, so the space the smaller glyphs free is air above the
@@ -926,12 +1081,27 @@ void fb_list_subheader_icon(const struct mesh_ui_backend_fb_state *state, struct
      * label scale this draws at, because it is the rows' gutter being matched rather than one
      * of this row's own.
      *
-     * Nothing is drawn in it. A heading is a break between groups, and a symbol on it would be
-     * a second thing saying what the words underneath already say - the icons on this screen
-     * are what each row is about, and a group has no single answer to that.
+     * Whether anything is *drawn* in it is the card distinction. On a flat list the slot stays
+     * empty: a heading there is a break between runs of rows, and a symbol on it would be a
+     * second thing saying what the words underneath say - the icons on such a list are what each
+     * row is about, and a group has no single answer to that. On a card the heading is the
+     * card's own, and there the symbol is the cell the eye finds when it is looking for Signal
+     * rather than Identity, which is exactly what struct fb_card's icon is for. The list is
+     * asked which it is drawing, so a caller passes the icon either way and nothing decides
+     * twice - and the indent is the same whether or not it was drawn.
      */
     int x = fb_margin(state);
     if (leading.kind != FB_LEADING_NONE) {
+        if (mesh_ui_icon_is_valid(leading.icon) &&
+            fb_list_ground(list, index) != MESH_UI_COLOR_BG) {
+            /* On the heading's own baseline rather than the body's: this row draws at the label
+               scale sat on the bottom of its step, and a symbol standing where a body row's
+               would floats a third of a row clear of the word it belongs to. */
+            fb_draw_icon(state, x, baseline, leading.icon, scale,
+                         selected ? fb_color(state, MESH_UI_COLOR_TEXT_ON_SEL_DIM)
+                                  : fb_tone_color(state, MESH_UI_TONE_DIM),
+                         ground);
+        }
         x += fb_icon_box(state, state->scale) + fb_char_adv(state, state->scale) / 2;
     }
     struct mesh_ui_line line;
@@ -972,13 +1142,14 @@ uint32_t fb_list_note_steps(const struct mesh_ui_backend_fb_state *state, const 
 
 void fb_list_note(const struct mesh_ui_backend_fb_state *state, struct fb_list *list,
                   uint32_t index, const char *heading, const char *body) {
-    fb_list_rail(state, list);
+    fb_list_chrome(state, list);
     const uint32_t rows = fb_list_row_height(list, index);
     const bool selected = mesh_ui_list_is_cursor(&list->model, index);
     /* One fill for the whole note, the height the *model* gave it - not the height its words
        want. The two agree when the screen measured with fb_list_note_steps(), and when they do
        not it is the model that is right, because it is what every row below was placed against. */
-    const struct mesh_ui_rgb ground = fb_draw_row_fill(state, list->y, rows, selected);
+    const struct mesh_ui_rgb ground =
+        fb_draw_row_fill_on(state, list->y, rows, selected, fb_list_ground(list, index));
 
     const int margin = fb_margin(state);
     const int body_line = fb_line_adv(state, state->scale);
@@ -1392,9 +1563,14 @@ static size_t fb_trailing_cols(const struct mesh_ui_backend_fb_state *state, siz
    two forms reads it, and it has to: a segmented button that measured itself against the free
    room and then drew itself against the whole line would be the one kind able to disagree with
    the measure that placed it. */
+/* `ground_role` is what the row is standing on - the cursor's fill, the panel, or the surface of
+   the card its group was drawn on. The role rather than the mixed colour because two of the
+   controls in here take a role: fb_draw_segmented() needs to name what it is over, not to be
+   handed pixels. */
 static void fb_draw_trailing(struct mesh_ui_backend_fb_state *state, const struct fb_item_geom *g,
                              size_t reserved, const struct fb_trailing *trailing, int baseline,
-                             int slot_top, bool selected, struct mesh_ui_rgb ground) {
+                             int slot_top, bool selected, enum mesh_ui_color ground_role) {
+    const struct mesh_ui_rgb ground = fb_color(state, ground_role);
     const int scale = state->scale;
     const int adv = fb_char_adv(state, scale);
     const size_t cells =
@@ -1429,7 +1605,7 @@ static void fb_draw_trailing(struct mesh_ui_backend_fb_state *state, const struc
                      scale,
                      selected ? fb_color(state, MESH_UI_COLOR_TEXT_ON_SEL_DIM)
                               : fb_tone_color(state, MESH_UI_TONE_DIM),
-                     fb_color(state, selected ? MESH_UI_COLOR_SURFACE_SEL : MESH_UI_COLOR_BG));
+                     ground);
         return;
     case FB_TRAILING_SWITCH: {
         if (trailing->sw == NULL) {
@@ -1448,6 +1624,10 @@ static void fb_draw_trailing(struct mesh_ui_backend_fb_state *state, const struc
         trailing->sw->rect.x = g->text_right - width;
         trailing->sw->rect.y = g->fill_top + (g->fill_h - height) / 2;
         trailing->sw->selected = selected;
+        /* The row's ground, written here for the reason `selected` is: what a control is
+           standing on is a fact about the row, and a screen asked to remember it is a screen
+           that would forget on one list out of nine. */
+        trailing->sw->ground = ground_role;
         fb_draw_switch(state, trailing->sw);
         return;
     }
@@ -1502,7 +1682,7 @@ static void fb_draw_trailing(struct mesh_ui_backend_fb_state *state, const struc
                                     .y = g->fill_top + (g->fill_h - height) / 2,
                                     .w = width,
                                     .h = height};
-        fb_draw_segmented(state, &box, trailing->segmented, selected, MESH_UI_COLOR_BG, seg_scale);
+        fb_draw_segmented(state, &box, trailing->segmented, selected, ground_role, seg_scale);
         return;
     }
     case FB_TRAILING_METER: {
@@ -1517,6 +1697,7 @@ static void fb_draw_trailing(struct mesh_ui_backend_fb_state *state, const struc
         trailing->meter->rect.x = g->text_right - trailing->meter->rect.w;
         trailing->meter->rect.y = g->fill_top + (g->fill_h - height) / 2;
         trailing->meter->selected = selected;
+        trailing->meter->ground = ground_role;
         fb_draw_meter(state, trailing->meter);
         return;
     }
@@ -1622,7 +1803,7 @@ static void fb_item_headline(struct mesh_ui_line *line, const struct fb_list_ite
 
 void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, uint32_t index,
                   const struct fb_list_item *item) {
-    fb_list_rail(state, list);
+    fb_list_chrome(state, list);
     const int scale = state->scale;
     const bool selected = mesh_ui_list_is_cursor(&list->model, index);
     const uint32_t rows = fb_list_row_height(list, index);
@@ -1659,10 +1840,14 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
      */
     const struct mesh_ui_rgb head_ink =
         selected ? fb_color(state, MESH_UI_COLOR_TEXT_ON_SEL) : fb_tone_color(state, item->tone);
-    /* What every icon on this row is blended against: the fill if the cursor laid one down, the
-       ground otherwise. The row is the only thing that knows. */
-    const struct mesh_ui_rgb ground =
-        fb_color(state, selected ? MESH_UI_COLOR_SURFACE_SEL : MESH_UI_COLOR_BG);
+    /* What every icon on this row is blended against: the fill if the cursor laid one down, and
+       otherwise whatever the row is standing on - the panel, or the surface of the card its
+       group was drawn on. Asked of the list rather than assumed, because a glyph carries
+       coverage and not a mask: text told the wrong ground keeps its shape and gains a halo of a
+       colour that is nowhere near it. */
+    const enum mesh_ui_color ground_role =
+        selected ? MESH_UI_COLOR_SURFACE_SEL : fb_list_ground(list, index);
+    const struct mesh_ui_rgb ground = fb_color(state, ground_role);
 
     if (item->leading.kind == FB_LEADING_AVATAR) {
         const int size = g.fill_h - scale;
@@ -1708,7 +1893,7 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
     }
     if (head_take > 0U) {
         fb_draw_trailing(state, &g, reserved, &item->trailing, g.head_y, g.head_slot_top, selected,
-                         ground);
+                         ground_role);
     }
 
     if (g.rows >= 2U && item->supporting != NULL) {
@@ -1733,7 +1918,7 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
         fb_draw_text(state, supp_x, g.supp_y, mesh_ui_line_text(&line), scale, supp_ink, ground);
         if (supp_take > 0U) {
             fb_draw_trailing(state, &g, 0U, &item->supporting_trailing, g.supp_y, g.supp_slot_top,
-                             selected, ground);
+                             selected, ground_role);
         }
     }
 
@@ -1752,6 +1937,7 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
         item->meter->rect.h = g.bar_h;
         item->meter->rect.y = g.bar_y;
         item->meter->selected = selected;
+        item->meter->ground = ground_role;
         fb_draw_meter(state, item->meter);
     } else if (item->slider != NULL && g.bar_h > 0) {
         /* The same box the meter would have had, and the control centres its own track in it -
@@ -1788,7 +1974,7 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
  */
 void fb_draw_conversation(struct mesh_ui_backend_fb_state *state, struct fb_list *list,
                           uint32_t index, const struct fb_conversation *conversation) {
-    fb_list_rail(state, list);
+    fb_list_chrome(state, list);
     /*
      * Unread, and allowed to say so.
      *
@@ -3213,7 +3399,7 @@ void fb_draw_switch(struct mesh_ui_backend_fb_state *state, const struct fb_swit
            control overhung the highlight bar top and bottom and notched it. */
         const int pad = fb_space(state, MESH_UI_SPACE_XS);
         fb_fill_round_rect(state, sw->rect.x - pad, sw->rect.y - pad, sw->rect.w + 2 * pad,
-                           sw->rect.h + 2 * pad, radius + pad, fb_color(state, MESH_UI_COLOR_BG));
+                           sw->rect.h + 2 * pad, radius + pad, fb_color(state, sw->ground));
     }
 
     /*
@@ -3599,7 +3785,7 @@ void fb_draw_meter(struct mesh_ui_backend_fb_state *state, const struct fb_meter
     if (meter->selected) {
         const int pad = fb_space(state, MESH_UI_SPACE_XS);
         fb_fill_round_rect(state, r.x - pad, r.y - pad, r.w + 2 * pad, r.h + 2 * pad, radius + pad,
-                           fb_color(state, MESH_UI_COLOR_BG));
+                           fb_color(state, meter->ground));
     }
 
     fb_fill_round_rect(state, r.x, r.y, r.w, r.h, radius,
@@ -3693,7 +3879,9 @@ void fb_draw_meter(struct mesh_ui_backend_fb_state *state, const struct fb_meter
      * what is behind the bar on the row the cursor is on.
      */
     const int notch = fb_space(state, MESH_UI_SPACE_XS) > 0 ? fb_space(state, MESH_UI_SPACE_XS) : 1;
-    const struct mesh_ui_rgb ground = fb_color(state, MESH_UI_COLOR_BG);
+    /* The ground the *row* is on, not the panel's: a notch is a gap, and a gap is only a gap
+       when it is the colour of what is behind the bar. On a card, BG would punch a hole. */
+    const struct mesh_ui_rgb ground = fb_color(state, meter->ground);
     const int32_t bounds[] = {meter->band->warn, meter->band->bad};
     for (size_t i = 0U; i < sizeof bounds / sizeof bounds[0]; i++) {
         const int mark = fb_band_mark(meter, bounds[i]);

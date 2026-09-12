@@ -383,7 +383,21 @@ struct fb_switch {
     enum mesh_ui_family family;
     bool on;
     bool selected; /* the row under it carries the cursor fill */
-    bool dim;      /* it reports a state rather than offering one: drawn muted */
+    /*
+     * What the control is standing on when the row under it is not the cursor's: the panel, or
+     * the surface of the card its list drew the group on.
+     *
+     * It matters because this control lays its own ground under a cursor fill - the colour pairs
+     * it is contracted against are contracted against what it sits on, and on two of the four
+     * themes the cursor fill *is* one of them. That patch has to be the row's ground and not the
+     * panel's, or a control on a card gets a hole punched round it.
+     *
+     * MESH_UI_COLOR_BG is 0, so a caller drawing onto the panel leaves it zeroed and says
+     * nothing. A control in a list never sets it at all: fb_list_item() writes it from the
+     * model, the same way it already writes `selected`.
+     */
+    enum mesh_ui_color ground;
+    bool dim; /* it reports a state rather than offering one: drawn muted */
 };
 
 /* The size a switch wants at `scale`. Both out params may be NULL. */
@@ -609,6 +623,20 @@ struct fb_meter {
        MESH_UI_COLOR_METER_TRACK - and anything else is drawn in the accent. */
     enum mesh_ui_tone tone;
     bool selected; /* the row under it carries the cursor fill */
+    /*
+     * What the control is standing on when the row under it is not the cursor's: the panel, or
+     * the surface of the card its list drew the group on.
+     *
+     * It matters because this control lays its own ground under a cursor fill - the colour pairs
+     * it is contracted against are contracted against what it sits on, and on two of the four
+     * themes the cursor fill *is* one of them. That patch has to be the row's ground and not the
+     * panel's, or a control on a card gets a hole punched round it.
+     *
+     * MESH_UI_COLOR_BG is 0, so a caller drawing onto the panel leaves it zeroed and says
+     * nothing. A control in a list never sets it at all: fb_list_item() writes it from the
+     * model, the same way it already writes `selected`.
+     */
+    enum mesh_ui_color ground;
 };
 
 /* The height a meter wants at `scale`, in pixels. From the theme's metrics, so a bar keeps its
@@ -1121,9 +1149,16 @@ struct fb_list {
        filled it. */
     int track_y;
     int track_h;
-    /* Whether the rail has been drawn for this list. It is drawn by the first row that draws,
-       not by the screen - see fb_list_rail() in fb_widgets.c. */
-    bool rail_drawn;
+    /*
+     * The card ordinal per item, or NULL for a list drawn straight onto the panel. Borrowed for
+     * the life of the list, on the same terms as the model's heights - see the card-list note
+     * below.
+     */
+    const uint8_t *cards;
+    /* Whether the chrome - the card surfaces, then the scroll rail - has been drawn for this
+       list. It is drawn by the first row that draws, not by the screen: see fb_list_chrome() in
+       fb_widgets.c. */
+    bool chrome_drawn;
 };
 
 /* One row per item, filling the body. */
@@ -1132,6 +1167,58 @@ struct fb_list fb_list_begin(const struct fb_layout *layout, uint32_t count, uin
 /* `per_item` rows per item - the conversation list spends two, a name and a preview. */
 struct fb_list fb_list_begin_rows(const struct fb_layout *layout, uint32_t count, uint32_t cursor,
                                   uint32_t per_item);
+
+/*
+ * ---- a list drawn as a column of cards ----
+ *
+ * The same scrolling list, with its groups standing on card surfaces instead of on the panel.
+ *
+ * It exists for the reason fb_card does one screen over: a hundred and twenty label-and-value
+ * rows separated by dimmed words is a wall, and nothing in it says that Long name and Short name
+ * are one subject while Temperature and Humidity are another. A dimmed heading is a group
+ * distinguished from its own rows by *colour alone*, which is the one thing the type scale
+ * landed to stop; a fill and an edge say it the way every phone and desktop platform says it.
+ *
+ * What it is not is fb_draw_card(). That component is declared-then-drawn and measures itself
+ * against the body, which is right for the Status tab's fixed column of four and impossible
+ * here: this list is longer than the panel by a factor of eight, the window moves a row at a
+ * time, and a card is routinely cut by both edges of it at once. So a card here is a *surface
+ * behind a run of rows the list already knows how to place* - no second measure, no second
+ * clip, and above all no second opinion about how tall a row is. The model stays the authority
+ * on every height, exactly as it is for fb_list_begin_heights(), and the cards are painted from
+ * the window it settled.
+ *
+ * A screen declares the grouping the same way it declares the heights: one byte per item,
+ * borrowed for the life of the list. Items carrying the same card ordinal *and lying next to
+ * each other* are one card; FB_LIST_NO_CARD is an item standing on the bare panel, which is
+ * what a list with no grouping at all passes for every row.
+ *
+ * Three things follow from the surface being painted before the rows rather than by them:
+ *
+ *   - **The cards are drawn by the first row that draws, not by the screen.** The scroll rail's
+ *     rule, for the rail's reason: which card covers which rows is derived entirely from the
+ *     model and the array, so a screen has nothing to say about it and a screen that had to
+ *     remember the call is a screen that would forget on one list out of nine.
+ *   - **A card cut by the window keeps its corners square on the cut end.** A rounded corner
+ *     halfway down a scroll is a card claiming to end where the panel merely stopped, and a
+ *     reader cannot tell that from a card that really did end there. The cut end keeps its
+ *     inset as well as its corners, or the hairline would run across the cut and say it again -
+ *     in a straight line this time. fb_fill_round_rect_ends() is what draws it.
+ *   - **Rows on a card are drawn against the card's surface**, not against the background, so
+ *     the ink they blend their edges into is the colour actually under them. Every list entry
+ *     point below takes that from the model, so a screen cannot get it wrong by forgetting.
+ *
+ * The gap between two cards is the air at the top of a heading row, which is air that was
+ * already there: fb_list_subheader() draws at the label scale sat on the bottom of its step
+ * precisely so the space the smaller glyphs free becomes the section break. A column of cards
+ * spends half of it as the card's own top padding and leaves the other half as the gap - so the
+ * grouping costs **no rows at all**, and the nav, the row budget and every count in the
+ * ui_nav_nodes suite are untouched by it.
+ */
+
+/* An item standing on the panel rather than on a card. The whole array, for a list with no
+   grouping - which is every list that passes no array at all. */
+#define FB_LIST_NO_CARD 0xFFU
 
 /*
  * Rows that are not all the same height: `heights` is one row count per item, and it is
@@ -1150,6 +1237,25 @@ struct fb_list fb_list_begin_rows(const struct fb_layout *layout, uint32_t count
  */
 struct fb_list fb_list_begin_heights(const struct fb_layout *layout, uint32_t count,
                                      uint32_t cursor, const uint8_t *heights);
+
+/*
+ * The same, with the items grouped onto card surfaces: `cards` is one ordinal per item and is
+ * borrowed for the life of the list, exactly as `heights` is. See the card-list note above.
+ *
+ * `heights` may be NULL for a list whose rows are all one row tall, and `cards` may be NULL for
+ * no grouping - in which case this is fb_list_begin_heights() and nothing is painted.
+ */
+struct fb_list fb_list_begin_cards(const struct fb_layout *layout, uint32_t count, uint32_t cursor,
+                                   const uint8_t *heights, const uint8_t *cards);
+
+/*
+ * The colour item `index` is standing on: a card's surface, or the panel's background.
+ *
+ * Every row entry point below already asks this for itself, so a screen needs it only when it
+ * draws something of its own beside a row - and when it does, it must ask rather than assume,
+ * because a glyph blended against the wrong ground keeps its shape and gains a halo.
+ */
+enum mesh_ui_color fb_list_ground(const struct fb_list *list, uint32_t index);
 
 /* An explicit window, for a screen that reserves body rows for something else. */
 struct fb_list fb_list_begin_visible(const struct fb_layout *layout, uint32_t count,
@@ -1208,6 +1314,13 @@ void fb_list_row_line(const struct mesh_ui_backend_fb_state *state, struct fb_li
  *
  * Still a row of the list, and still highlightable - the cursor walks onto these on both
  * screens that draw them - so the fill is the step, whatever size the words in it are.
+ *
+ * On a list drawn as a column of cards this is the card's heading, and the air above it is what
+ * separates one card from the last - which is why the grouping costs no rows. Its leading slot
+ * carries a symbol there and nowhere else: a heading over rows already carrying icons of their
+ * own would be a second thing saying what the words under it say, but a *card* heading is the
+ * one cell the eye finds when it is looking for Signal rather than Identity, which is the same
+ * argument struct fb_card's own icon is there for.
  */
 void fb_list_subheader(const struct mesh_ui_backend_fb_state *state, struct fb_list *list,
                        uint32_t index, const char *text);
@@ -1504,11 +1617,19 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
 /*
  * The same heading, indented to a list that declares a leading slot.
  *
- * `leading` is the row's gutter rather than anything drawn: a heading over rows whose words
- * begin an icon-box in would otherwise name a column nothing is in. Only its `kind` is read -
- * the slot stays empty, because a group is not one subject the way its rows each are, and a
- * symbol there would be repeating the words beside it. fb_list_subheader() is this with no
- * slot, which is every list that has no icons in it.
+ * `leading` is the row's gutter and, on a card, its symbol. The gutter half is why it exists at
+ * all: a heading over rows whose words begin an icon-box in would otherwise name a column
+ * nothing is in.
+ *
+ * Whether the slot is *filled* is the card distinction. On a flat list it stays empty, because a
+ * group there is a break between runs of rows and a symbol on it would repeat the words beside
+ * it - the icons on such a list say what each row is about, and a group has no single answer to
+ * that. On a column of cards the heading is the card's own, and there the symbol is what the eye
+ * finds first when it is looking for Signal rather than Identity: the argument struct fb_card
+ * states for the icon beside *its* heading, which this is. The list knows which it is drawing,
+ * so a caller passes the icon either way and nothing has to decide twice.
+ *
+ * fb_list_subheader() is this with no slot, which is every list that has no icons in it.
  */
 void fb_list_subheader_icon(const struct mesh_ui_backend_fb_state *state, struct fb_list *list,
                             uint32_t index, const char *text, struct fb_leading leading);

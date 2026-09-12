@@ -364,7 +364,17 @@ void fb_draw_glyph(const struct mesh_ui_backend_fb_state *state, int x, int y, u
  * section heading in the same list highlighting to two slightly different rectangles is a
  * cursor that changes shape as it walks, which is exactly what a duplicated `y - scale` and a
  * duplicated height produced. `rows` is how many body rows the row occupies.
+ *
+ * `ground` is what the row is standing on when it is *not* selected, which is the background on
+ * every list that draws straight onto the panel and a card's surface on one whose groups are
+ * drawn as cards. It is asked for rather than assumed because a glyph carries coverage rather
+ * than a mask: text blended against the wrong ground keeps its shape and gains a faint halo of
+ * the colour it was told about, which is the same fact fb_draw_glyph() is documented on.
  */
+struct mesh_ui_rgb fb_draw_row_fill_on(const struct mesh_ui_backend_fb_state *state, int y,
+                                       uint32_t rows, bool selected, enum mesh_ui_color ground);
+
+/* The same on the panel's own background, which is every list that is not a column of cards. */
 struct mesh_ui_rgb fb_draw_row_fill(const struct mesh_ui_backend_fb_state *state, int y,
                                     uint32_t rows, bool selected);
 
@@ -425,6 +435,22 @@ void fb_blit_bgra(const struct mesh_ui_backend_fb_state *state, int x, int y, in
  */
 void fb_fill_round_rect(const struct mesh_ui_backend_fb_state *state, int x, int y, int w, int h,
                         int radius, struct mesh_ui_rgb color);
+
+/*
+ * The same, with either end left square.
+ *
+ * It is here for the one shape that is honestly open at an end: a card in a scrolling list, cut
+ * by the window rather than finished. A rounded corner halfway down a scroll is a card claiming
+ * to end where the panel merely stopped, and a reader has no way to tell that from a card that
+ * really did end - so the cut end keeps square corners and reads as continuing.
+ *
+ * A square end is not a patch over a rounded one: the corner band it would have spent is given
+ * back to the straight middle, so the two are one fill and there is no seam where they met.
+ * Both ends square is fb_fill_rect(), which is what it calls.
+ */
+void fb_fill_round_rect_ends(const struct mesh_ui_backend_fb_state *state, int x, int y, int w,
+                             int h, int radius, struct mesh_ui_rgb color, bool round_top,
+                             bool round_bottom);
 void fb_fit(char *line, size_t cols);
 void fb_format_age(uint32_t last_heard, char *out, size_t out_len);
 void fb_format_clock(uint32_t rx_time, char *out, size_t out_len);
