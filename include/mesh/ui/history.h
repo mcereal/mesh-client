@@ -51,16 +51,35 @@ extern "C" {
 #define MESH_UI_HISTORY_NODES 12U
 
 /*
- * How long a silence has to be before a line breaks rather than sloping across it, per source.
+ * How often each source's readings actually arrive, and how long a silence has to be before a
+ * line breaks rather than sloping across it.
  *
- * Both are a few times the interval the readings actually arrive on, so an ordinary late report
- * is still a slope and a link that was down is a gap. LocalStats is the radio talking to the
- * client it is attached to and comes every few minutes; a node's device metrics ride the
- * telemetry broadcast, which is half an hour at the firmware's default and longer on anything
- * running on a battery it cares about.
+ * The cadence is stated first and the gap is a multiple of it, because the gap is not a duration
+ * anybody picked: it is "a few reports missed", and writing it as a bare number is how it comes
+ * to be *one* report - which is a series that breaks at every sample and so never has a line in
+ * it at all. The radio's was exactly that. LocalStats reaches the attached client on the
+ * firmware's `sendStatsToPhoneIntervalMs`, which is fifteen minutes, and the gap was fifteen
+ * minutes - and the two are never equal in practice, because that throttle is tested on a
+ * once-a-minute thread tick and only on the turns the module is not sending telemetry to the
+ * mesh instead. Consecutive reports therefore land a little *over* fifteen minutes apart, every
+ * sample starts a segment of its own, and mesh_ui_history_has_airtime() answered false for the
+ * life of every session: the Mesh card was offered no verb, its chart could not be opened, and
+ * the Status cursor walked from the Link card past it to the Radio one. On hardware only - a
+ * capture scene stamps its readings on the harness clock, a few hundred milliseconds apart, so
+ * every still and every film of this screen showed a button the device never drew.
+ *
+ * Three reports rather than two, because a report is skipped as well as delayed: the module
+ * sends its stats only on the turns it is not broadcasting telemetry to the mesh and only while
+ * the phone's queue is empty, so a spacing of two cadences is ordinary and a gap of two would
+ * break on it. A node's device metrics ride that same broadcast instead, which is half an hour
+ * at the firmware's default and longer on anything running on a battery it cares about - four
+ * of those, on the same reasoning, and the value it already had.
  */
-#define MESH_UI_HISTORY_RADIO_GAP_MS (15U * 60U * 1000U)
-#define MESH_UI_HISTORY_NODE_GAP_MS (2U * 60U * 60U * 1000U)
+#define MESH_UI_HISTORY_RADIO_REPORT_MS (15U * 60U * 1000U)
+#define MESH_UI_HISTORY_NODE_REPORT_MS (30U * 60U * 1000U)
+
+#define MESH_UI_HISTORY_RADIO_GAP_MS (3U * MESH_UI_HISTORY_RADIO_REPORT_MS)
+#define MESH_UI_HISTORY_NODE_GAP_MS (4U * MESH_UI_HISTORY_NODE_REPORT_MS)
 
 /*
  * Which reading a series is of.
