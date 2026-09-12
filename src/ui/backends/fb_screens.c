@@ -968,12 +968,20 @@ static void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
     while (fb_list_next(&list, &i)) {
         const struct mesh_ui_node_item *item = &items[i];
         if (item->kind == MESH_UI_NODE_ROW_HEADING) {
-            /* The card's own symbol, from the group rather than from here - and in the gutter
-               the rows under it are already using, so a heading with no icon still starts its
-               words in the same column as a heading with one. */
-            fb_list_subheader_icon(state, &list, i, item->label,
-                                   (struct fb_leading){.kind = FB_LEADING_ICON,
-                                                       .icon = (enum mesh_ui_icon)item->icon});
+            /*
+             * The card's own symbol, from the group rather than from here.
+             *
+             * In `blank`'s slot rather than in one of its own, which matters on the one node
+             * that declares no slot at all: our own, with no fix, produces no action rows and so
+             * no icons among the rows. A heading that took a gutter there would start its words
+             * an icon-box further in than every row under it - the two-column start this screen
+             * tests for, arrived at from the heading's side. The slot is declared for the whole
+             * list or for none of it, headings included, and the icon is drawn into it when
+             * there is one to draw into.
+             */
+            fb_list_subheader_icon(
+                state, &list, i, item->label,
+                (struct fb_leading){.kind = blank.kind, .icon = (enum mesh_ui_icon)item->icon});
         } else if (item->kind == MESH_UI_NODE_ROW_ACTION) {
             /*
              * What the row is about, on its leading edge, and what it costs, in its ink - both
