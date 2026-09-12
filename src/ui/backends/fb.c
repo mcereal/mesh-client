@@ -74,7 +74,11 @@ static int mesh_ui_backend_fb_init(void **state_out, void *userdata) {
 
     state->bytes_per_pixel = state->var.bits_per_pixel / 8;
     state->line_bytes = state->fix.line_length;
-    state->fb_size = state->line_bytes * state->var.yres_virtual;
+    /* Widened before the multiply, not after: both operands are 32-bit, so the product is a
+       32-bit one whatever it is assigned to. The kernel's own numbers put an overflow out of
+       reach today, and a wrapped fb_size would be a short mapping that every later bounds
+       check believes - so it takes the cast page_bytes below already takes. */
+    state->fb_size = (size_t)state->line_bytes * (size_t)state->var.yres_virtual;
     state->fb_ptr = mmap(NULL, state->fb_size, PROT_READ | PROT_WRITE, MAP_SHARED, state->fb_fd, 0);
     if (state->fb_ptr == MAP_FAILED) {
         mesh_log_warn("ui", "mmap on framebuffer failed: %s", strerror(errno));
