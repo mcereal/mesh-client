@@ -490,6 +490,62 @@ MESH_TEST_CASE(waypoint_encode_round_trip, unit) {
 }
 
 /*
+ * A name as long as the client says it may be survives the wire.
+ *
+ * nanopb's `max_size` counts the NUL - `*Waypoint.name max_size:30` is `char name[30]`, and
+ * pb_enc_string() writes at most `data_size - 1` bytes - so the wire holds 29 characters, not
+ * 30. A limit stated one higher than that is not refused anywhere: the keyboard takes the
+ * character, the book keeps it and draws it, and the encoder drops it on the way out with
+ * nothing on the frame saying so. The place on this Brick and the place on everybody else's
+ * would then be one character apart, which is the silent truncation
+ * settings_text_fields_fit_the_edit_buffer exists to prevent one seam over.
+ *
+ * The check is the round trip rather than the constant, because what the limit has to agree
+ * with is what a receiving client gets back.
+ */
+MESH_TEST_CASE(waypoint_encode_keeps_a_full_length_name, unit) {
+    struct mesh_waypoint waypoint;
+    memset(&waypoint, 0, sizeof waypoint);
+    waypoint.id = 4243U;
+    for (size_t i = 0; i < MESH_WAYPOINT_NAME_MAX; ++i) {
+        waypoint.name[i] = (char)('a' + (int)(i % 26U));
+    }
+    for (size_t i = 0; i < MESH_WAYPOINT_DESCRIPTION_MAX; ++i) {
+        waypoint.description[i] = (char)('A' + (int)(i % 26U));
+    }
+
+    const struct mesh_waypoint_request request = {
+        .waypoint = &waypoint,
+        .packet_id = 78U,
+        .channel = 0U,
+    };
+    uint8_t buffer[MESH_SESSION_MAX_PACKET];
+    size_t written = 0U;
+    MESH_TEST_FAIL_IF(mesh_waypoint_encode(&request, buffer, sizeof buffer, &written) != 0,
+                      "a waypoint at the stated limits should encode");
+
+    meshtastic_ToRadio to_radio = meshtastic_ToRadio_init_default;
+    pb_istream_t stream = pb_istream_from_buffer(buffer, written);
+    MESH_TEST_FAIL_IF(!pb_decode(&stream, meshtastic_ToRadio_fields, &to_radio),
+                      "the packet should decode");
+
+    struct mesh_waypoint_book book;
+    mesh_waypoint_book_reset(&book);
+    to_radio.packet.from = 0x9999U;
+    MESH_TEST_FAIL_IF(mesh_waypoint_ingest(&book, &to_radio.packet, 0U, WP_NOW) != 1,
+                      "the encoded waypoint should be ingestable");
+    const struct mesh_waypoint *back = mesh_waypoint_book_get(&book, 4243U);
+    MESH_TEST_FAIL_IF(back == NULL, "the round trip should keep the id");
+    MESH_TEST_FAIL_IF(strcmp(back->name, waypoint.name) != 0,
+                      "a name of MESH_WAYPOINT_NAME_MAX characters should reach the mesh whole");
+    MESH_TEST_FAIL_IF(strcmp(back->description, waypoint.description) != 0,
+                      "a description of MESH_WAYPOINT_DESCRIPTION_MAX characters should reach "
+                      "the mesh whole");
+
+    record_success(test_name);
+}
+
+/*
  * Sharing through the session, and the one thing a re-share must not do.
  *
  * Re-broadcasting somebody else's place is a broadcast from this radio of a waypoint that is

@@ -1149,7 +1149,7 @@ static void fb_render_waypoint_detail(struct mesh_ui_backend_fb_state *state,
              * squeezed into a value column sized for a coordinate.
              *
              * Two steps, and the wrap is the layout's own walk rather than a split at some
-             * character count: upstream caps a description at a hundred characters and the row
+             * character count: upstream caps a description at ninety-nine characters and the row
              * is nearly sixty cells wide, so two lines hold every description that can exist -
              * which is why the second line is the item's `supporting` slot rather than the
              * beginning of a third row nothing would measure.
