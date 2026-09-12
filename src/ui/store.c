@@ -1154,6 +1154,40 @@ static void mesh_ui_store_save_read_state(FILE *file, const struct mesh_ui_read_
     }
 }
 
+/*
+ * The radio's airtime trend, as ages rather than as stamps.
+ *
+ * A sample's time is CLOCK_MONOTONIC, which counts from boot, so the number itself means
+ * nothing to the next run - what survives a restart is how far apart the readings were. Ages
+ * are taken from the newest sample, so the newest is 0 and the file reads oldest-first in the
+ * order the loader pushes them.
+ *
+ * One list for the pair: mesh_ui_history_note_airtime() pushes both series under one stamp, so
+ * they hold the same clock and the same breaks, and saving them separately would be two records
+ * that can disagree about a moment they were written from.
+ */
+static void mesh_ui_store_save_history(FILE *file, const struct mesh_ui_history *history) {
+    if (file == NULL || history == NULL) {
+        return;
+    }
+    const struct mesh_ui_series *util = &history->channel_utilization;
+    const struct mesh_ui_series *tx = &history->air_util_tx;
+    const struct mesh_ui_sample *newest = mesh_ui_series_newest(util);
+    if (newest == NULL || util->count != tx->count) {
+        return;
+    }
+    fprintf(file, "airtime=%u\n", util->count);
+    for (uint32_t i = 0U; i < util->count; ++i) {
+        const struct mesh_ui_sample *sample = mesh_ui_series_at(util, i);
+        const struct mesh_ui_sample *share = mesh_ui_series_at(tx, i);
+        if (sample == NULL || share == NULL) {
+            continue;
+        }
+        fprintf(file, "airtime[%u]=%u,%d,%d,%u\n", i, newest->time - sample->time, sample->value,
+                share->value, mesh_ui_series_starts_segment(util, i) ? 1U : 0U);
+    }
+}
+
 int mesh_ui_store_save(const struct mesh_ui_store *store, const char *path) {
     if (store == NULL || path == NULL || path[0] == '\0') {
         return -EINVAL;
@@ -1170,6 +1204,7 @@ int mesh_ui_store_save(const struct mesh_ui_store *store, const char *path) {
     }
     mesh_ui_store_save_messages(file, &store->messages);
     mesh_ui_store_save_read_state(file, &store->read_state);
+    mesh_ui_store_save_history(file, &store->history);
 
     int result = ferror(file) ? -EIO : 0;
     if (fclose(file) != 0) {
@@ -1203,6 +1238,17 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
 
     struct mesh_ui_read_state read_state;
     memset(&read_state, 0, sizeof(read_state));
+
+    /* The saved airtime trend, collected before it is placed: every sample's age is measured
+       from the newest, so where the oldest goes is not known until the whole list is in. */
+    struct {
+        uint32_t age_ms;
+        int32_t utilization;
+        int32_t tx;
+        bool gap;
+    } airtime[MESH_UI_SERIES_MAX];
+    memset(airtime, 0, sizeof airtime);
+    uint32_t airtime_loaded = 0U;
 
     char line[1280];
     while (fgets(line, sizeof line, file) != NULL) {
@@ -1265,6 +1311,22 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
         } else if (strcmp(key, "handshake_channels") == 0) {
             uint32_t count = (uint32_t)strtoul(value, NULL, 10);
             handshake.channel_count = count > MESH_UI_MAX_CHANNELS ? MESH_UI_MAX_CHANNELS : count;
+        } else if (strncmp(key, "airtime[", 8) == 0) {
+            unsigned int index = 0U;
+            unsigned int age = 0U;
+            int utilization = 0;
+            int tx = 0;
+            unsigned int gap = 0U;
+            if (sscanf(key, "airtime[%u]", &index) == 1 && index < MESH_UI_SERIES_MAX &&
+                sscanf(value, "%u,%d,%d,%u", &age, &utilization, &tx, &gap) == 4) {
+                airtime[index].age_ms = age;
+                airtime[index].utilization = utilization;
+                airtime[index].tx = tx;
+                airtime[index].gap = (gap != 0U);
+                if (index + 1U > airtime_loaded) {
+                    airtime_loaded = index + 1U;
+                }
+            }
         } else if (strncmp(key, "channel[", 8) == 0) {
             unsigned int index = 0U;
             unsigned int slot = 0U;
@@ -1753,6 +1815,33 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
     store->messages = messages;
     read_state.stamp = read_state.count;
     store->read_state = read_state;
+
+    /*
+     * And the airtime trend, put back on a timeline of its own.
+     *
+     * The oldest sample sits at zero and the rest follow their saved spacing, so the series is
+     * the same shape it was written as. mesh_ui_history_resume() then fits the live clock to it
+     * and lifts the pen over the seam - what the client did while it was not running is the one
+     * thing the cache cannot say, and a Brick has no clock that could measure it.
+     *
+     * This is what makes the Mesh card's chart survive a relaunch. Without it the trend starts
+     * empty every time, the radio's LocalStats is a quarter of an hour apart, and the card is
+     * offered no verb for the first half hour of every session - which on the device is
+     * indistinguishable from a card that does nothing at all.
+     */
+    if (airtime_loaded > 0U) {
+        uint32_t span_ms = 0U;
+        for (uint32_t i = 0U; i < airtime_loaded; ++i) {
+            if (airtime[i].age_ms > span_ms) {
+                span_ms = airtime[i].age_ms;
+            }
+        }
+        for (uint32_t i = 0U; i < airtime_loaded; ++i) {
+            mesh_ui_history_restore_airtime(&store->history, span_ms - airtime[i].age_ms,
+                                            airtime[i].utilization, airtime[i].tx, airtime[i].gap);
+        }
+        mesh_ui_history_resume(&store->history, MESH_UI_HISTORY_RADIO_GAP_MS);
+    }
 
     mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_HANDSHAKE | MESH_UI_UPDATE_MESSAGES);
     return 0;

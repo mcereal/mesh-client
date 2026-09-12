@@ -12,12 +12,120 @@
 #include "framework/mesh_test.h"
 #include "support/ui_fixture.h"
 
+#include "mesh/ui/history.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/status.h"
 #include "mesh/ui/store.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+
+/*
+ * Down from the Link card lands on the Mesh card, driven through the real key handler.
+ *
+ * Every other case here asks mesh_ui_status_actions() the three booleans directly, which is the
+ * table's own question and answers it correctly whatever the client is actually holding. What
+ * none of them could see is the step before: whether a radio reporting the way a radio really
+ * reports ever *produces* the third boolean. It did not - MESH_UI_HISTORY_RADIO_GAP_MS was one
+ * LocalStats interval, so every sample started a segment, and the verb this file spent four
+ * cases on was never once offered on hardware. The table was right and the screen was dead.
+ *
+ * So this one starts at the store, pushes the radio's report at the cadence the firmware sends
+ * it, and presses Down. It is the only case here that would have caught that.
+ */
+MESH_TEST_CASE(status_cursor_reaches_the_mesh_card_from_a_radios_reports, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+    MESH_TEST_FAIL_IF(!mesh_test_open_tab(&store, MESH_UI_SCREEN_STATUS), "no Status tab");
+
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    struct mesh_ui_action action;
+    uint64_t now = 1000U;
+
+    /* One report in, and the card is still not offered: one reading is a level, not a trend. */
+    now += MESH_UI_HISTORY_RADIO_REPORT_MS;
+    mesh_ui_store_tick(&store, now);
+    settings.stats.valid = true;
+    settings.stats.uptime_seconds = 100U;
+    settings.stats.channel_utilization = 5.0f;
+    settings.stats.air_util_tx = 1.0f;
+    mesh_ui_store_set_settings(&store, &settings);
+    store.nav.status_verb = (uint8_t)MESH_UI_STATUS_VERB_DISCONNECT;
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    MESH_TEST_FAIL_IF(store.nav.status_verb != (uint8_t)MESH_UI_STATUS_VERB_REFRESH,
+                      "one reading offers no chart, so Down goes on to the Radio card");
+
+    /* A second, at the interval the radio really sends them - the throttle is a quarter of an
+       hour and it is tested a tick late, so this is the spacing hardware produces. */
+    now += MESH_UI_HISTORY_RADIO_REPORT_MS + 60U * 1000U;
+    mesh_ui_store_tick(&store, now);
+    settings.stats.uptime_seconds = 1060U;
+    settings.stats.channel_utilization = 7.0f;
+    settings.stats.air_util_tx = 2.0f;
+    mesh_ui_store_set_settings(&store, &settings);
+
+    store.nav.status_verb = (uint8_t)MESH_UI_STATUS_VERB_DISCONNECT;
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    MESH_TEST_FAIL_IF(store.nav.status_verb != (uint8_t)MESH_UI_STATUS_VERB_TREND,
+                      "two reports at the radio's own cadence should put Down on the Mesh card");
+
+    /* And A on it opens the chart rather than asking the radio for anything. */
+    memset(&action, 0, sizeof action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    MESH_TEST_FAIL_IF(!store.nav.trend_open, "A on the Mesh card should open the chart");
+    record_success(test_name);
+}
+
+/*
+ * And it is offered straight away on the run after, which is what persisting the trend bought.
+ *
+ * Without it the history starts empty at every launch, the radio's report is a quarter of an
+ * hour apart, and the Mesh card is dead for the first half hour of every session - which on a
+ * handheld picked up for a few minutes is a card that never works at all.
+ */
+MESH_TEST_CASE(status_mesh_card_is_live_on_the_run_after, unit) {
+    char path[] = "/tmp/mesh_ui_status_relaunchXXXXXX";
+    const int fd = mkstemp(path);
+    MESH_TEST_FAIL_IF(fd < 0, "could not make a cache path");
+    close(fd);
+
+    struct mesh_ui_store first;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&first) != 0, "store init failed");
+    mesh_test_nav_populate(&first);
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    uint64_t now = 1000U;
+    for (uint32_t i = 0U; i < 3U; ++i) {
+        now += MESH_UI_HISTORY_RADIO_REPORT_MS + 60U * 1000U;
+        mesh_ui_store_tick(&first, now);
+        settings.stats.valid = true;
+        settings.stats.uptime_seconds = 100U + i * 960U;
+        settings.stats.channel_utilization = 5.0f + (float)i;
+        settings.stats.air_util_tx = 1.0f + (float)i;
+        mesh_ui_store_set_settings(&first, &settings);
+    }
+    MESH_TEST_FAIL_IF(mesh_ui_store_save(&first, path) != 0, "save failed");
+
+    /* The next launch: the cache, the devices, and not one word from the radio yet. */
+    struct mesh_ui_store next;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&next) != 0, "store init failed");
+    MESH_TEST_FAIL_IF(mesh_ui_store_load(&next, path) != 0, "load failed");
+    mesh_test_nav_populate(&next);
+    MESH_TEST_FAIL_IF(!mesh_test_open_tab(&next, MESH_UI_SCREEN_STATUS), "no Status tab");
+
+    struct mesh_ui_action action;
+    next.nav.status_verb = (uint8_t)MESH_UI_STATUS_VERB_DISCONNECT;
+    mesh_ui_store_handle_key(&next, MESH_UI_KEY_DOWN, &action);
+    MESH_TEST_FAIL_IF(next.nav.status_verb != (uint8_t)MESH_UI_STATUS_VERB_TREND,
+                      "a relaunch should reach the Mesh card before the radio reports again");
+
+    remove(path);
+    record_success(test_name);
+}
 
 MESH_TEST_CASE(ui_status_verbs_follow_the_link, unit) {
     struct mesh_ui_status_actions actions;

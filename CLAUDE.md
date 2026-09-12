@@ -1093,9 +1093,20 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   rather than sloping across it, for the same reason - and so does a reading that was *refused*
   rather than missing, which the clock cannot see: a node on external power reports punctually
   and reports something that is not a level, so `mesh_ui_series_break()` is how the source says
-  the next reading starts a segment. And **the history is never persisted**: the
-  roster is what we know and survives a restart, a trend is what we *watched*, and the hours the
-  client was not running are not a silence it can draw.
+  the next reading starts a segment. And **the radio's airtime pair is persisted and a node's
+  trends are not**, which is a change from the rule this file used to state. The argument against
+  persisting - a trend is what we *watched*, and the hours the client was not running are not a
+  silence it can draw - is answered by the break rather than by throwing the readings away:
+  `mesh_ui_history_resume()` lifts the pen over the seam, so the gap is drawn as a gap. What
+  forced it is arithmetic: LocalStats reaches the client every fifteen minutes and two readings
+  make a line, so a history starting empty at every launch left the Mesh card's chart unoffered
+  for the first half hour of *every session* - on a handheld picked up for a few minutes, a card
+  that never worked. A node's trends keep the old rule for now, and have the same problem on a
+  half-hour cadence. The saved sample is an **age, not a stamp**: a time here is
+  `CLOCK_MONOTONIC`, which counts from boot, so restoring the numbers themselves would hand
+  `mesh_ui_series_push()` a reading from before the oldest one it holds - which it reads as the
+  clock going backwards and answers by emptying the series, undoing the whole restore with
+  nothing on the frame saying so.
 - **A history sample is stamped with the client's clock, and a new reading is detected by the
   report having changed.** The radio's own `time` fields are our clock when the packet landed,
   and a Brick has no wall clock - so on the device they are 0 on every report, and a series keyed

@@ -19,10 +19,14 @@
  *     number of nodes. Not every reading, not every node: session.c decodes six telemetry
  *     variants and a general store of everything the mesh ever said is a database, so what
  *     earns a slot here is a reading some screen has somewhere to draw it.
- *   - **It is never persisted.** The store's cache carries the node roster across restarts on
- *     purpose - a roster is what we know about the mesh - but a trend is what we *watched*, and
- *     the gap where the client was not running is not a silence it can draw. A trend that
- *     resumed across a restart would put a line over a period nothing observed.
+ *   - **The radio's pair is persisted and a node's trends are not.** A trend is what we
+ *     *watched*, so a resumed one must not put a line over a period nothing observed - but that
+ *     is an argument for drawing the seam as a seam, not for throwing the readings away, and
+ *     mesh_ui_history_resume() is what lifts the pen over it. The radio's pair earns the cache
+ *     because of its cadence: LocalStats arrives every fifteen minutes and two readings make a
+ *     line, so starting empty left the Status tab's chart unoffered for the first half hour of
+ *     every session. A node's readings keep the old rule for now and have the same problem on a
+ *     half-hour cadence.
  *   - **Nothing here knows what a node is.** The store walks the roster and hands over
  *     readings; this holds series and decides which ones are worth a slot. That is what lets
  *     store.h include this rather than the other way round, and it is the same seam
@@ -131,6 +135,25 @@ struct mesh_ui_history {
     struct mesh_ui_series channel_utilization;
     struct mesh_ui_series air_util_tx;
     struct mesh_ui_history_node nodes[MESH_UI_HISTORY_NODES];
+    /*
+     * What the caller's clock has to be shifted by to land on this history's own timeline, and
+     * the shift a resumed history has not worked out yet.
+     *
+     * A sample is stamped with CLOCK_MONOTONIC, which counts from *boot* - so a series restored
+     * from the cache carries times from a clock that no longer exists, and the first live push
+     * after it would be a reading from before the oldest one we hold. mesh_ui_series_push()
+     * reads that as the clock having gone backwards and empties the series, which is right for
+     * what it can see and would silently undo the whole restore.
+     *
+     * So the restored samples define the timeline and the live clock is fitted to *them*:
+     * mesh_ui_history_resume() says where the next reading goes, the first note_* after it
+     * works out the difference, and everything after that rides the same offset. Modular
+     * arithmetic on purpose - the offset is a uint32 difference, so it is correct wrapped and
+     * the sum lands exactly on the target.
+     */
+    uint32_t clock_offset_ms;
+    uint32_t resume_target_ms;
+    bool resume_pending;
 };
 
 /* Empties everything and states the per-source gaps. Call before the first note. */
@@ -217,6 +240,30 @@ const struct mesh_ui_series *mesh_ui_history_series(const struct mesh_ui_history
  * same event mesh_session_forget_nodes() is, and for the same reason.
  */
 void mesh_ui_history_forget(struct mesh_ui_history *history);
+
+/*
+ * Puts one saved airtime reading back, at `time_ms` on the history's *own* timeline.
+ *
+ * Separate from note_airtime() because the two answer different questions about the clock. A
+ * note is a reading arriving now, so it is stamped with the caller's clock and shifted onto
+ * this timeline; a restore *is* the timeline, so it is placed exactly where it is told. Call
+ * these oldest first, then mesh_ui_history_resume() once.
+ */
+void mesh_ui_history_restore_airtime(struct mesh_ui_history *history, uint32_t time_ms,
+                                     int32_t utilization_permille, int32_t tx_permille, bool gap);
+
+/*
+ * Closes a restore: the next reading lands `seam_ms` after the newest sample held, and starts a
+ * segment of its own.
+ *
+ * Both halves are deliberate and either alone would do it. The break is armed explicitly
+ * because how long the client was *not running* is unknowable on a Brick - it has no RTC, so
+ * there is no clock that can measure the seam - and a line sloping across it would be the one
+ * claim the history has no evidence for. The seam is then the shortest silence that is already
+ * a break (MESH_UI_HISTORY_RADIO_GAP_MS at the call site), so the gap drawn on the axis and the
+ * pen lifted over it say the same thing whichever rule a reader believes.
+ */
+void mesh_ui_history_resume(struct mesh_ui_history *history, uint32_t seam_ms);
 
 #ifdef __cplusplus
 }

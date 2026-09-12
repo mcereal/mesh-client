@@ -11,6 +11,24 @@ static void mesh_ui_history_clear_node(struct mesh_ui_history_node *slot) {
     mesh_ui_series_reset(&slot->humidity, MESH_UI_HISTORY_NODE_GAP_MS);
 }
 
+/*
+ * The caller's clock, shifted onto this history's own timeline.
+ *
+ * Resolves a pending resume on the way through: the first reading after a restore is the one
+ * that says what the offset is, because it is the first time both clocks are in hand at once.
+ * Every note_* goes through this, node readings included - a restore only ever brings the
+ * radio's pair back, but one history is one timeline, and a node series stamped with the raw
+ * clock while the airtime pair carried the shift would put two readings taken together minutes
+ * apart on the same axis.
+ */
+static uint32_t mesh_ui_history_stamp(struct mesh_ui_history *history, uint32_t now_ms) {
+    if (history->resume_pending) {
+        history->clock_offset_ms = history->resume_target_ms - now_ms;
+        history->resume_pending = false;
+    }
+    return now_ms + history->clock_offset_ms;
+}
+
 void mesh_ui_history_reset(struct mesh_ui_history *history) {
     if (history == NULL) {
         return;
@@ -30,8 +48,40 @@ void mesh_ui_history_note_airtime(struct mesh_ui_history *history, uint32_t now_
     if (history == NULL) {
         return;
     }
-    mesh_ui_series_push(&history->channel_utilization, now_ms, utilization_permille);
-    mesh_ui_series_push(&history->air_util_tx, now_ms, tx_permille);
+    const uint32_t stamp = mesh_ui_history_stamp(history, now_ms);
+    mesh_ui_series_push(&history->channel_utilization, stamp, utilization_permille);
+    mesh_ui_series_push(&history->air_util_tx, stamp, tx_permille);
+}
+
+void mesh_ui_history_restore_airtime(struct mesh_ui_history *history, uint32_t time_ms,
+                                     int32_t utilization_permille, int32_t tx_permille, bool gap) {
+    if (history == NULL) {
+        return;
+    }
+    /* A break inside the restored window is part of what was watched, so it is put back with
+       the reading that carried it rather than recomputed - the elapsed-time rule would see the
+       silence, but a reading the *source* refused (mesh_ui_series_break()) leaves no trace in
+       the clock and would come back as a line across it. */
+    if (gap) {
+        mesh_ui_series_break(&history->channel_utilization);
+        mesh_ui_series_break(&history->air_util_tx);
+    }
+    mesh_ui_series_push(&history->channel_utilization, time_ms, utilization_permille);
+    mesh_ui_series_push(&history->air_util_tx, time_ms, tx_permille);
+}
+
+void mesh_ui_history_resume(struct mesh_ui_history *history, uint32_t seam_ms) {
+    if (history == NULL) {
+        return;
+    }
+    const struct mesh_ui_sample *newest = mesh_ui_series_newest(&history->channel_utilization);
+    if (newest == NULL) {
+        return; /* nothing came back, so there is no timeline to fit the clock to */
+    }
+    history->resume_target_ms = newest->time + seam_ms;
+    history->resume_pending = true;
+    mesh_ui_series_break(&history->channel_utilization);
+    mesh_ui_series_break(&history->air_util_tx);
 }
 
 /* The slot this node already has, or NULL. Separate from the one below because two callers
@@ -103,14 +153,15 @@ void mesh_ui_history_note_battery(struct mesh_ui_history *history, uint32_t now_
     if (battery_level > 100U) {
         struct mesh_ui_history_node *known = mesh_ui_history_find(history, node_id);
         if (known != NULL && known->battery.count > 0U) {
-            known->seen = now_ms;
+            known->seen = mesh_ui_history_stamp(history, now_ms);
             mesh_ui_series_break(&known->battery);
         }
         return;
     }
+    const uint32_t stamp = mesh_ui_history_stamp(history, now_ms);
     struct mesh_ui_history_node *slot = mesh_ui_history_slot(history, node_id);
-    slot->seen = now_ms;
-    mesh_ui_series_push(&slot->battery, now_ms, (int32_t)battery_level);
+    slot->seen = stamp;
+    mesh_ui_series_push(&slot->battery, stamp, (int32_t)battery_level);
 }
 
 bool mesh_ui_history_has_airtime(const struct mesh_ui_history *history) {
@@ -145,8 +196,9 @@ void mesh_ui_history_note_environment(struct mesh_ui_history *history, uint32_t 
     if (!has_temperature && !has_humidity) {
         return;
     }
+    const uint32_t stamp = mesh_ui_history_stamp(history, now_ms);
     struct mesh_ui_history_node *slot = mesh_ui_history_slot(history, node_id);
-    slot->seen = now_ms;
+    slot->seen = stamp;
     /*
      * Each reading on its own, because a node reports the two independently and a report that
      * dropped one of them is a silence in that series rather than in the other. Pushed under one
@@ -159,10 +211,10 @@ void mesh_ui_history_note_environment(struct mesh_ui_history *history, uint32_t 
      * external-power case, which arrives *punctually* and so is invisible to the clock.
      */
     if (has_temperature) {
-        mesh_ui_series_push(&slot->temperature, now_ms, temperature_decidegrees);
+        mesh_ui_series_push(&slot->temperature, stamp, temperature_decidegrees);
     }
     if (has_humidity) {
-        mesh_ui_series_push(&slot->humidity, now_ms, humidity_permille);
+        mesh_ui_series_push(&slot->humidity, stamp, humidity_permille);
     }
 }
 
