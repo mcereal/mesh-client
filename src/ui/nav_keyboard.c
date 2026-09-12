@@ -77,8 +77,9 @@ static size_t mesh_ui_nav_draft_cap(const struct mesh_ui_nav *nav) {
         return cap < MESH_UI_DRAFT_MAX - 1U ? cap : MESH_UI_DRAFT_MAX - 1U;
     }
     if (nav->keyboard_waypoint) {
-        /* Upstream's own limit on Waypoint.name. A thirty-first character would be one the
-           radio's own encoder drops, so it is refused where it is typed instead. */
+        /* Upstream's own limit on Waypoint.name, which is its generated buffer less the NUL -
+           see mesh/core/waypoint.h. A thirtieth character is one nanopb's own encoder drops, so
+           it is refused where it is typed instead. */
         return MESH_UI_WAYPOINT_NAME_MAX - 1U;
     }
     return MESH_UI_DRAFT_MAX - 1U;

@@ -28,9 +28,31 @@ extern "C" {
  * `expire` set to a moment already past. See mesh_waypoint_state().
  */
 
-/* Upstream's own limits (proto/meshtastic/meshtastic/mesh.options), NUL-terminated on top. */
-#define MESH_WAYPOINT_NAME_MAX 30U
-#define MESH_WAYPOINT_DESCRIPTION_MAX 100U
+/*
+ * Upstream's own limits (proto/meshtastic/meshtastic/mesh.options), as *characters*.
+ *
+ * `max_size` is the generated buffer rather than the string: nanopb emits `char name[30]` for
+ * `max_size:30`, pb_enc_string() writes at most `data_size - 1` bytes and pb_dec_string()
+ * refuses anything that would not leave room for the terminator - so the wire carries 29
+ * characters and a thirtieth is one no client can send or receive. That is the same reading
+ * settings_text.def takes of every other string field on the radio (CHANNEL_NAME is 11 of a
+ * `max_size:12`, STATUS_TEXT 79 of an 80), and it is not the reading the message payload takes,
+ * because a `bytes` field's max_size has no terminator in it.
+ *
+ * Stated one too high, the limit is refused nowhere: the keyboard takes the character, the book
+ * keeps it and the list draws it, and the encoder drops it on the way out with nothing on the
+ * frame saying so - the place on this Brick and the place on every other client one character
+ * apart. The _Static_asserts below pin both numbers to the generated struct so a regeneration
+ * that widens or narrows either field fails the build rather than the mesh.
+ */
+#define MESH_WAYPOINT_NAME_MAX 29U
+#define MESH_WAYPOINT_DESCRIPTION_MAX 99U
+
+_Static_assert(MESH_WAYPOINT_NAME_MAX + 1U == sizeof(((meshtastic_Waypoint *)0)->name),
+               "a waypoint's name is its wire buffer less the NUL");
+_Static_assert(MESH_WAYPOINT_DESCRIPTION_MAX + 1U ==
+                   sizeof(((meshtastic_Waypoint *)0)->description),
+               "a waypoint's description is its wire buffer less the NUL");
 
 /*
  * How many places the client remembers.

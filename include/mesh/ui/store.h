@@ -62,7 +62,7 @@ extern "C" {
  * declarations of one limit honest.
  */
 #define MESH_UI_MAX_WAYPOINTS 32U
-#define MESH_UI_WAYPOINT_NAME_MAX 31U
+#define MESH_UI_WAYPOINT_NAME_MAX 30U
 
 /*
  * The radio firmware catalog's two string limits, restated for the same reason - though the
@@ -74,7 +74,7 @@ extern "C" {
  */
 #define MESH_UI_FW_VERSION_MAX 24U
 #define MESH_UI_FW_BOARD_MAX 48U
-#define MESH_UI_WAYPOINT_DESCRIPTION_MAX 101U
+#define MESH_UI_WAYPOINT_DESCRIPTION_MAX 100U
 #define MESH_UI_MAX_CHANNELS 8U
 #define MESH_UI_CHANNEL_NAME_MAX 12U
 #define MESH_UI_MESSAGE_TEXT_MAX 234U
