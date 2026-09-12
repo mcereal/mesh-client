@@ -896,6 +896,11 @@ void fb_list_row(const struct mesh_ui_backend_fb_state *state, struct fb_list *l
 
 void fb_list_subheader(const struct mesh_ui_backend_fb_state *state, struct fb_list *list,
                        uint32_t index, const char *text) {
+    fb_list_subheader_icon(state, list, index, text, (struct fb_leading){.kind = FB_LEADING_NONE});
+}
+
+void fb_list_subheader_icon(const struct mesh_ui_backend_fb_state *state, struct fb_list *list,
+                            uint32_t index, const char *text, struct fb_leading leading) {
     fb_list_rail(state, list);
     const int scale = mesh_ui_theme_type_scale(state->theme, MESH_UI_TYPE_LABEL, state->scale);
     const uint32_t rows = fb_list_row_height(list, index);
@@ -912,13 +917,30 @@ void fb_list_subheader(const struct mesh_ui_backend_fb_state *state, struct fb_l
      * the gap belongs to the group beginning, not to the row that ended.
      */
     const int baseline = list->y + fb_line_adv(state, state->scale) - fb_line_adv(state, scale);
+    /*
+     * Indented to where its own rows start, when the list declares a leading slot.
+     *
+     * A heading that stayed at the margin over rows whose words begin an icon-box further in is
+     * a heading naming a column nothing is in, which is the two-column problem the leading slot
+     * already refuses one row at a time. The slot is measured at the *body* scale, not the
+     * label scale this draws at, because it is the rows' gutter being matched rather than one
+     * of this row's own.
+     *
+     * Nothing is drawn in it. A heading is a break between groups, and a symbol on it would be
+     * a second thing saying what the words underneath already say - the icons on this screen
+     * are what each row is about, and a group has no single answer to that.
+     */
+    int x = fb_margin(state);
+    if (leading.kind != FB_LEADING_NONE) {
+        x += fb_icon_box(state, state->scale) + fb_char_adv(state, state->scale) / 2;
+    }
     struct mesh_ui_line line;
     mesh_ui_line_reset(&line);
     mesh_ui_line_printf(&line, "%s", text != NULL ? text : "");
     mesh_ui_line_fit(&line, fb_cols(state, scale));
     /* Quiet on the ground and quiet on the fill alike: a heading names the group under it, and
        it is not one of the rows the cursor came here to read. */
-    fb_draw_text(state, fb_margin(state), baseline, mesh_ui_line_text(&line), scale,
+    fb_draw_text(state, x, baseline, mesh_ui_line_text(&line), scale,
                  selected ? fb_color(state, MESH_UI_COLOR_TEXT_ON_SEL_DIM)
                           : fb_tone_color(state, MESH_UI_TONE_DIM),
                  ground);

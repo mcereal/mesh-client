@@ -505,10 +505,38 @@ disagree.
 A opens the detail, its first row ("Message this node") opens the conversation, B backs out, Y
 still writes from either level, X pins.
 
+The verbs are a group with a heading of their own, exactly like every reading group below them —
+they were the one block on the screen that named nothing, so eleven of them simply *began* the
+detail and "Identity" four rows down read as the first heading rather than the second. That
+heading is row 0, and the message row under it is where the cursor opens: **a heading is not a
+row the cursor may stand on**, on this screen or in a settings section. It was, and the result
+was a full-width highlight under a dimmed word with A doing nothing and the action bar still
+promising "select", which is the keycap-that-does-nothing this UI refuses everywhere else. The
+walk is `mesh_ui_nav_skip_headings()` in `nav.c`, asked of the built rows for the reason every
+other question about these two screens is: which rows exist depends on what has been reported.
+
+Each verb says what it is about with an icon in the leading slot and what it costs with its ink,
+and both come off the row rather than out of the renderer — `k_action_icons[]` and
+`k_action_tones[]` in `node_detail.c`, which is `settings.c`'s `k_section_icons[]` one tab over.
+Two of the eleven cost something and until then nothing on the frame said so: "Message this node"
+and "Remove from radio" were one colour and the only thing between them was reading the words.
+Ignoring a node takes the warning family and removing it takes the error family and the accent
+edge with it. The three verbs that are a *boolean* rather than an errand — pinned, muted,
+ignored — draw the switch the settings rows use instead of spelling "Yes" into the value column;
+the words stay in `value` for a backend with no sprites, exactly as a settings `TOGGLE` row keeps
+its own.
+
 Five actions is already a lot to walk past with a d-pad before reaching the readings, which is
 why the set is closed: message, trace route, ask for its name, pin, ignore. What each does and
 why the neighbouring admin verbs are absent is in
 [`architecture.md`](architecture.md#asking-the-radio-about-a-node).
+
+The heading's badge carries the one fact that is true of the whole node — how long ago anything
+was heard from it, in the same shorthand the Nodes list puts against the row this was opened
+from. It is a row of the Signal group too, and that is the point rather than a duplication: this
+screen is a hundred and twenty rows long, that row is below the fold from the moment the reader
+starts walking, and "is this node still there?" is the qualifier on every other row. The app bar
+does not scroll, so neither does the qualifier. Our own node gets none — nothing *heard* it.
 
 A reading with ends the reader does not carry around gets a banded bar on a second step
 (`MESH_UI_NODE_ROW_METER`) — battery, SNR, the two airtime figures — and the battery row also
@@ -792,6 +820,11 @@ Two rules come out of it:
   becomes the gap above the heading, which is where a section break wants it. That closes the
   half of the type scale that could not be done while the list counted rows: a group title is no
   longer distinguished from the rows it heads by colour alone.
+  `fb_list_subheader_icon()` is the same row for a list that declares a leading slot: it takes
+  the row's gutter so the title starts in the column its rows do, and draws **nothing** in it — a
+  group is not one subject the way each of its rows is, so a symbol there would be repeating the
+  words beside it. And the cursor no longer stops on one at all; see
+  [Node detail](#node-detail--srcuinode_detailc).
 
 #### `struct fb_list_item` — one row with slots
 

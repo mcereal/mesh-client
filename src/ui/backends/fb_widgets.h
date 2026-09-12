@@ -1502,6 +1502,18 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
                   const struct fb_list_item *item);
 
 /*
+ * The same heading, indented to a list that declares a leading slot.
+ *
+ * `leading` is the row's gutter rather than anything drawn: a heading over rows whose words
+ * begin an icon-box in would otherwise name a column nothing is in. Only its `kind` is read -
+ * the slot stays empty, because a group is not one subject the way its rows each are, and a
+ * symbol there would be repeating the words beside it. fb_list_subheader() is this with no
+ * slot, which is every list that has no icons in it.
+ */
+void fb_list_subheader_icon(const struct mesh_ui_backend_fb_state *state, struct fb_list *list,
+                            uint32_t index, const char *text, struct fb_leading leading);
+
+/*
  * A conversation cell: the component the Messages list is made of.
  *
  * Two body rows, laid out the way every messenger lays this out - a tinted disc with the

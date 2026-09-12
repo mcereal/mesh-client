@@ -644,9 +644,39 @@ MESH_TEST_CASE(ui_node_detail_items, unit) {
                                                items, MESH_UI_NODE_ITEMS_MAX);
     MESH_TEST_FAIL_IF(count != mesh_ui_node_detail_count(&node, false, NULL, NULL),
                       "the count the nav walks disagrees with the built list");
-    MESH_TEST_FAIL_IF(count == 0U || items[0].kind != MESH_UI_NODE_ROW_ACTION ||
-                          items[0].action != MESH_UI_NODE_ACTION_MESSAGE,
-                      "the first row should be the message action");
+    /* The actions group names itself, so row 0 is its heading and the message row is the first
+       thing under it - which is also the first row the nav's cursor may stand on. */
+    MESH_TEST_FAIL_IF(count < 2U || items[0].kind != MESH_UI_NODE_ROW_HEADING ||
+                          strcmp(items[0].label, "Actions") != 0,
+                      "the actions group should open the screen with its own heading");
+    MESH_TEST_FAIL_IF(items[1].kind != MESH_UI_NODE_ROW_ACTION ||
+                          items[1].action != MESH_UI_NODE_ACTION_MESSAGE,
+                      "the message action should be the first row under the actions heading");
+    /* Every action row says what it is with a symbol and how much it costs with its ink - the
+       two tables in node_detail.c, checked here so a verb added without an entry in either is a
+       failure rather than a blank gutter nobody notices. */
+    for (uint32_t i = 0; i < count; ++i) {
+        if (items[i].kind != MESH_UI_NODE_ROW_ACTION) {
+            continue;
+        }
+        MESH_TEST_FAIL_IF(items[i].icon == MESH_UI_ICON_NONE,
+                          "every action row should name an icon");
+        if (items[i].action == MESH_UI_NODE_ACTION_REMOVE) {
+            MESH_TEST_FAIL_IF(items[i].tone != MESH_UI_TONE_ERROR,
+                              "removing a node should be drawn in the error family");
+        } else if (items[i].action == MESH_UI_NODE_ACTION_IGNORE) {
+            MESH_TEST_FAIL_IF(items[i].tone != MESH_UI_TONE_WARNING,
+                              "ignoring a node should be drawn in the warning family");
+        }
+        /* The three flags are controls rather than errands, and each carries its state as a
+           field as well as in the words a text backend prints. */
+        const bool boolean = items[i].action == MESH_UI_NODE_ACTION_FAVORITE ||
+                             items[i].action == MESH_UI_NODE_ACTION_MUTE ||
+                             items[i].action == MESH_UI_NODE_ACTION_IGNORE;
+        MESH_TEST_FAIL_IF(items[i].toggle != boolean, "only the flag rows should be toggles");
+        MESH_TEST_FAIL_IF(boolean && items[i].value[0] == '\0',
+                          "a toggle row should still say its state in words");
+    }
 
     /* A bare node has no metrics, position or environment to show. */
     for (uint32_t i = 0; i < count; ++i) {

@@ -15,6 +15,7 @@
  */
 
 #include "mesh/ui/history.h"
+#include "mesh/ui/icon.h"
 #include "mesh/ui/layout.h"
 #include "mesh/ui/store.h"
 #include "mesh/ui/theme.h"
@@ -31,14 +32,14 @@ extern "C" {
 #define MESH_UI_NODE_VALUE_MAX 48U
 /*
  * Every row every node can produce, all at once. rows_next() drops silently past this, so it
- * has to be an upper bound rather than a guess: the arithmetic is 32 action rows (ten
- * actions, plus a traced route of up to ten stops in each direction with its two headings and
- * its stamp), 11 identity, 7 signal, and then one group per kind of reading - 7 device
- * metrics, 7 position, 9 environment, 5 power, 7 air quality, 5 health, 6 host - which comes
- * to 96 for a node that reports everything at the end of a ten-hop trace - plus the two
- * neighbour groups: 12 for the list the node reported (heading, ten out-edges - upstream's own
- * cap - and the stamp) and 12 for the nodes that report hearing it (heading, ten rows and the
- * line saying how many were left out), making 120.
+ * has to be an upper bound rather than a guess: the arithmetic is 33 action rows (the group's
+ * own heading and ten actions, plus a traced route of up to ten stops in each direction with
+ * its two headings and its stamp), 11 identity, 7 signal, and then one group per kind of
+ * reading - 7 device metrics, 7 position, 9 environment, 5 power, 7 air quality, 5 health, 6
+ * host - which comes to 97 for a node that reports everything at the end of a ten-hop trace -
+ * plus the two neighbour groups: 12 for the list the node reported (heading, ten out-edges -
+ * upstream's own cap - and the stamp) and 12 for the nodes that report hearing it (heading, ten
+ * rows and the line saying how many were left out), making 121.
  *
  * Rounded up for headroom, and pinned by node_detail_row_budget in the ui_settings suite so a
  * new group cannot quietly push the last one off the screen.
@@ -108,6 +109,39 @@ struct mesh_ui_node_item {
     char value[MESH_UI_NODE_VALUE_MAX];
     uint8_t kind;   /* enum mesh_ui_node_row_kind */
     uint8_t action; /* enum mesh_ui_node_action */
+    /*
+     * The symbol in the row's leading slot, or MESH_UI_ICON_NONE.
+     *
+     * Here rather than in the renderer for the reason settings.c's k_section_icons[] is there
+     * and not in fb_screens.c: what a row is *about* is a property of the row, and a backend
+     * that decided by switching on `action` would be a second table to keep in step with this
+     * one. A row with nothing to say leaves it unset and the slot still holds its width, which
+     * is what stops a list whose icons are optional from starting its text in two columns -
+     * see FB_LEADING_ICON.
+     */
+    uint8_t icon; /* enum mesh_ui_icon */
+    /*
+     * The ink the row's words take: how much of a statement pressing it makes.
+     *
+     * A plain fact is MESH_UI_TONE_NORMAL and an ordinary verb is the primary, which is what
+     * every row here used to be - so "Message this node" and "Remove from radio" were the same
+     * colour and the only difference between them was the reading. The two that cost something
+     * name the warning and the error family instead, on the same terms as the dialog that
+     * confirms a reboot: a destructive control says so before it is pressed, not after.
+     */
+    uint8_t tone; /* enum mesh_ui_tone */
+    /*
+     * ACTION: the row is a boolean the press flips, and `on` is where it stands.
+     *
+     * The three rows that are one - pinned, muted, ignored - said "Yes" and "No" in the value
+     * column, which is a control written down as a word. `value` still holds those words,
+     * exactly as a settings TOGGLE row does: a backend with no sprites draws the fact and the
+     * fb backend draws the control instead, which is the one choice a backend is for. What is
+     * new is that the state is a *field* rather than a string the renderer would have had to
+     * parse back, so the knob and the verb the action bar names read the same flag.
+     */
+    bool toggle;
+    bool on;
     /*
      * METER: the reading, the ends it is measured between, and where it changes meaning.
      *

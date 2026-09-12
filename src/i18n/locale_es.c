@@ -300,6 +300,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_NODE_TREND_HUMIDITY] = "Humedad",
     [MESH_STR_NODE_TREND_AXIS_CELSIUS] = "%dC",
     [MESH_STR_HELP_SUBJECT_NODE_CHART] = "Tendencia de este nodo",
+    [MESH_STR_NODE_HEAD_ACTIONS] = "Acciones",
     [MESH_STR_NODE_HEAD_IDENTITY] = "Identidad",
     [MESH_STR_NODE_HEAD_SIGNAL] = "Señal",
     [MESH_STR_NODE_HEAD_METRICS] = "Métricas del equipo",

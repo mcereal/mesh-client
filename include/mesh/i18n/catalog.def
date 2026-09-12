@@ -650,6 +650,7 @@ MESH_STR_ENTRY(NODE_TREND_AXIS_CELSIUS,   "%dC")
  * is the spacing and the order, which is why the whole value is one string rather than a
  * number with a suffix glued on.
  */
+MESH_STR_ENTRY(NODE_HEAD_ACTIONS,         "Actions")
 MESH_STR_ENTRY(NODE_HEAD_IDENTITY,        "Identity")
 MESH_STR_ENTRY(NODE_HEAD_SIGNAL,          "Signal")
 MESH_STR_ENTRY(NODE_HEAD_METRICS,         "Device metrics")

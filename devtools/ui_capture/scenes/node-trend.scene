@@ -45,9 +45,13 @@ hold 260
 # ---- the row, and then the picture ----------------------------------------------------------
 #
 # Row 6 of the Nodes list is Echo Repeater - row 0 is the Map, so a node's row is its index in
-# the roster plus one. Row 21 of its detail is Temperature: the Environment heading is row 20,
-# and this node has no device-metrics group above it because a repeater on mains reports no
-# battery.
+# the roster plus one. Temperature is the first row under its Environment heading, and this node
+# has no device-metrics group above it because a repeater on mains reports no battery.
+#
+# The count is presses rather than row numbers, and the two stopped being the same number when
+# the cursor learned to step over a group's title: a press moves to the next row it may stand
+# on, so walking from the top of the detail to Temperature costs one press per row *minus* the
+# headings passed on the way. Count it against a render rather than against the list.
 #
 # The row is a meter now rather than a bare figure, which is what earns it the press: it has a
 # bar, a band and six cells of line in its trailing slot, and A opens the same reading with the
@@ -55,7 +59,7 @@ hold 260
 # glance, a screen carries a study - reached from the other direction.
 key down 6
 key a
-key down 21
+key down 18
 hold 1400
 key a
 hold 2600

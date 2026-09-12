@@ -562,6 +562,98 @@ static bool mesh_ui_nav_switch_screen(struct mesh_ui_nav *nav, int delta) {
     return true;
 }
 
+/*
+ * Whether row `row` of the screen the nav is on is a group heading.
+ *
+ * Two screens draw them - the node detail and an open settings section - and on both the
+ * cursor used to land on one: a full-width highlight under a dimmed word, with A doing nothing
+ * and the action bar going on promising "select". That is the keycap-that-does-nothing this
+ * client refuses everywhere else, and on the node detail it was also what the reader met
+ * *first*, because the actions group now names itself and its heading is row 0.
+ *
+ * Asked of the built rows rather than of a rule about where headings fall, because which rows
+ * exist depends on what the node has reported and what the radio has sent - the same reason
+ * every other question about these two screens is answered by building. Both callers below are
+ * already in a build's company, and both are a key press rather than a frame.
+ *
+ * A screen with no headings answers false for every row, which is what makes this a question
+ * the mover can ask unconditionally.
+ */
+static bool mesh_ui_nav_row_is_heading(const struct mesh_ui_nav *nav,
+                                       const struct mesh_ui_store *store, uint32_t row) {
+    if (nav == NULL || store == NULL) {
+        return false;
+    }
+    if (nav->screen == MESH_UI_SCREEN_NODES && nav->node_detail_open) {
+        const struct mesh_ui_node_summary *node =
+            mesh_ui_node_detail_find(&store->handshake, nav->node_detail_node);
+        if (node == NULL) {
+            return false;
+        }
+        struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
+        /* No clock and no arming: neither adds or removes a row, and a row's *existence* is the
+           only thing this reads - the same two arguments mesh_ui_node_detail_trend_at() passes
+           nothing for, and for the same reason. */
+        const uint32_t count = mesh_ui_node_detail_build(
+            node, mesh_ui_nav_node_is_self(store, node), 0U, &store->traceroute, false,
+            &store->handshake, NULL, items, MESH_UI_NODE_ITEMS_MAX);
+        return row < count && items[row].kind == MESH_UI_NODE_ROW_HEADING;
+    }
+    if (nav->screen == MESH_UI_SCREEN_SETTINGS &&
+        nav->settings_section != MESH_UI_SETTINGS_NO_SECTION) {
+        struct mesh_ui_settings_item items[MESH_UI_SETTINGS_ITEMS_MAX];
+        const uint32_t count = mesh_ui_settings_items(
+            &store->settings, store->handshake_valid ? &store->handshake : NULL,
+            nav->settings_edits, nav->settings_edit_count,
+            (enum mesh_ui_settings_section)nav->settings_section, nav->settings_channel, items,
+            MESH_UI_SETTINGS_ITEMS_MAX);
+        return row < count && items[row].kind == MESH_UI_SETTING_HEADING;
+    }
+    return false;
+}
+
+/*
+ * The first row at or after `row` the cursor may stand on, walking `delta`'s way.
+ *
+ * Headings come in ones, so a single step would do for every list here today - but a group with
+ * a heading and nothing under it is a list one condition away, and a loop that stops when it
+ * runs out of rows costs nothing to write correctly. Answers `row` itself when nothing on that
+ * side is selectable, which leaves the caller's own bounds check to refuse the move.
+ */
+static uint32_t mesh_ui_nav_skip_headings(const struct mesh_ui_nav *nav,
+                                          const struct mesh_ui_store *store, uint32_t row,
+                                          uint32_t rows, int delta) {
+    uint32_t at = row;
+    while (at < rows && mesh_ui_nav_row_is_heading(nav, store, at)) {
+        if (delta < 0) {
+            if (at == 0U) {
+                return row;
+            }
+            at -= 1U;
+        } else {
+            at += 1U;
+        }
+    }
+    return at < rows ? at : row;
+}
+
+/*
+ * Puts `screen`'s cursor on the first row it may stand on, which is row 0 on every list whose
+ * first row is not a group title.
+ *
+ * Four places open a level and every one of them used to write 0, which was the same answer
+ * until the two screens that draw headings grew one at the top: the node detail's actions group
+ * now names itself, and a settings section has opened on a heading since it had them. Reading
+ * it rather than writing 1 is what keeps a level whose first group is conditional - our own
+ * node offers no actions at all - from opening on a title anyway.
+ */
+static void mesh_ui_nav_cursor_to_first_row(struct mesh_ui_nav *nav,
+                                            const struct mesh_ui_store *store,
+                                            enum mesh_ui_screen screen) {
+    nav->cursor[screen] =
+        mesh_ui_nav_skip_headings(nav, store, 0U, mesh_ui_nav_row_count(nav, store, screen), +1);
+}
+
 static bool mesh_ui_nav_move_cursor(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                                     int delta) {
     if (nav->screen == MESH_UI_SCREEN_STATUS) {
@@ -582,17 +674,31 @@ static bool mesh_ui_nav_move_cursor(struct mesh_ui_nav *nav, const struct mesh_u
         return false;
     }
     uint32_t *cursor = &nav->cursor[nav->screen];
+    /*
+     * One step, then over any heading the step landed on - the step is what the press means and
+     * the skip is what keeps it on a row that answers. Going up, a heading at the very top has
+     * nothing above it to skip to, so the walk gives the cursor back and the guards below
+     * refuse the move: the reader stays on the first real row rather than parking on its title.
+     */
     if (delta < 0) {
         if (*cursor == 0U) {
             return false;
         }
-        *cursor -= 1U;
+        const uint32_t next = mesh_ui_nav_skip_headings(nav, store, *cursor - 1U, rows, -1);
+        if (next == *cursor || mesh_ui_nav_row_is_heading(nav, store, next)) {
+            return false;
+        }
+        *cursor = next;
         return true;
     }
     if (*cursor + 1U >= rows) {
         return false;
     }
-    *cursor += 1U;
+    const uint32_t next = mesh_ui_nav_skip_headings(nav, store, *cursor + 1U, rows, +1);
+    if (next == *cursor || mesh_ui_nav_row_is_heading(nav, store, next)) {
+        return false;
+    }
+    *cursor = next;
     return true;
 }
 
@@ -800,7 +906,7 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
             nav->node_list_cursor = cursor;
             nav->node_detail_node = node->node_id;
             nav->node_detail_open = true;
-            nav->cursor[MESH_UI_SCREEN_NODES] = 0U;
+            mesh_ui_nav_cursor_to_first_row(nav, store, MESH_UI_SCREEN_NODES);
             return true;
         }
         const struct mesh_ui_node_summary *node =
@@ -940,7 +1046,7 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
             }
             nav->settings_channel_list_cursor = cursor;
             nav->settings_channel = (uint8_t)slot;
-            nav->cursor[MESH_UI_SCREEN_SETTINGS] = 0U;
+            mesh_ui_nav_cursor_to_first_row(nav, store, MESH_UI_SCREEN_SETTINGS);
             return true;
         }
         if (nav->settings_section == MESH_UI_SETTINGS_MODULES) {
@@ -955,7 +1061,7 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
             nav->settings_module_list_cursor = cursor;
             nav->settings_parent = MESH_UI_SETTINGS_MODULES;
             nav->settings_section = (uint8_t)row.number;
-            nav->cursor[MESH_UI_SCREEN_SETTINGS] = 0U;
+            mesh_ui_nav_cursor_to_first_row(nav, store, MESH_UI_SCREEN_SETTINGS);
             return true;
         }
         if (nav->settings_section != MESH_UI_SETTINGS_NO_SECTION) {
@@ -1014,7 +1120,7 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
         nav->settings_list_cursor = cursor;
         nav->settings_parent = MESH_UI_SETTINGS_NO_SECTION;
         nav->settings_section = (uint8_t)mesh_ui_settings_root_at(cursor);
-        nav->cursor[MESH_UI_SCREEN_SETTINGS] = 0U;
+        mesh_ui_nav_cursor_to_first_row(nav, store, MESH_UI_SCREEN_SETTINGS);
         return true;
     }
     case MESH_UI_SCREEN_STATUS:

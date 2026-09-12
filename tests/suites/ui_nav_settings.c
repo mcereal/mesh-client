@@ -133,19 +133,22 @@ MESH_TEST_CASE(ui_nav_modules, unit) {
            mesh_ui_settings_module_at(telemetry_row) != MESH_UI_SETTINGS_TELEMETRY) {
         telemetry_row++;
     }
-    for (uint32_t i = 0; i < telemetry_row; ++i) {
-        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    while (store.nav.cursor[MESH_UI_SCREEN_SETTINGS] < telemetry_row &&
+           mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action)) {
     }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    /* Telemetry groups its rows under a "Device" heading, so the module opens on row 1 - the
+       first row its cursor may stand on - rather than on the title above it. */
     if (store.nav.settings_section != MESH_UI_SETTINGS_TELEMETRY ||
         store.nav.settings_parent != MESH_UI_SETTINGS_MODULES ||
-        store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != 0U || action.type != MESH_UI_ACTION_NONE) {
+        store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != 1U || action.type != MESH_UI_ACTION_NONE) {
         failure = "A on a module row should open that module";
         goto cleanup;
     }
 
-    /* An edit inside the module still belongs to the module's own section, not to Modules. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action); /* Enabled */
+    /* An edit inside the module still belongs to the module's own section, not to Modules.
+       The cursor is already on Enabled - the section opened there - so one step reaches
+       Interval. */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action); /* Interval */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
     if (store.nav.settings_edit_count != 1U ||
@@ -627,8 +630,9 @@ MESH_TEST_CASE(ui_nav_radio_actions, unit) {
         goto cleanup;
     }
 
-    /* Row 0 is the "Power" heading, as Telemetry's row 0 is "Device": a section that groups
-       its rows opens with the cursor on an inert one, which here is the safest row there is. */
+    /* Row 0 is the "Power" heading, as Telemetry's row 0 is "Device" - and a section that
+       groups its rows no longer opens *on* one: a heading is not a row the cursor may stand on,
+       so the walk steps over it and the section opens on Reboot underneath. */
     struct mesh_ui_settings_item item;
     if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
                                MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL, 0U, &item) ||
@@ -644,13 +648,18 @@ MESH_TEST_CASE(ui_nav_radio_actions, unit) {
         failure = "Reboot should be the first row under it";
         goto cleanup;
     }
-    /* A on the heading does nothing at all; it takes a press to reach Reboot. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
-    if (store.nav.confirm_open || action.type != MESH_UI_ACTION_NONE) {
-        failure = "A on a heading should do nothing";
+    /* The heading is unreachable rather than merely inert, which is the stronger half of the
+       same rule: the cursor opens on Reboot, and UP from there stays put rather than parking on
+       a row where A would do nothing and the action bar would still promise it. */
+    if (store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != 1U) {
+        failure = "the section should open on Reboot rather than on the heading above it";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    if (store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != 1U) {
+        failure = "UP off the first real row should not land on a heading";
+        goto cleanup;
+    }
 
     /* A opens the question on Cancel, and asking is not doing. */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
@@ -818,10 +827,13 @@ MESH_TEST_CASE(ui_nav_forget_nodes, unit) {
         failure = "Radio actions did not open";
         goto cleanup;
     }
-    /* Six rows down from the "Power" heading: past Reboot and Shutdown, past "Nodes on the
-       radio" and its one row, past "Nodes cached here", onto the first forget row. */
-    for (int i = 0; i < 6; ++i) {
-        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    /* Down to the first forget row, which is row 6: Reboot and Shutdown under the "Power"
+       heading, then "Nodes on the radio" and its one row, then "Nodes cached here". The section
+       opens on Reboot rather than on the heading above it and the walk steps over the two
+       headings between, so this walks to the row rather than counting presses - what the test
+       is about is which row the forget verb is on, not how many times DOWN was pressed. */
+    while (store.nav.cursor[MESH_UI_SCREEN_SETTINGS] < 6U &&
+           mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action)) {
     }
     if (store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != 6U) {
         failure = "six presses should land on the first forget row";
