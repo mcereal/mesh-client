@@ -908,7 +908,12 @@ Six things follow, and each was a way of getting it wrong:
   most of a line's leading as air while the bottom of its last carries none — its descenders run
   to the box's edge, and padding both ends alike leaves the card top-heavy by exactly that
   leading. What the top does take is the hairline, spent outward for the reason the sides spend
-  it: the first row of a card is a row the cursor can stand on.
+  it: the first row of a card is a row the cursor can stand on. And the inset is never more than
+  the heading's step can spare: at `MESH_UI_SCALE_MIN` the type scale clamps the label *onto* the
+  body, so a heading's cell is as tall as a row's and the step's only air is one line gap — taken
+  out of that, the cell is longer than the gap it is centred in and its descenders land on the
+  next card's edge. Where there is no air the cards give up their inset rather than the heading
+  its room.
 
 The grouping still costs **no rows**: everything above is spent inside a step the heading was
 already taking, which is why the node detail's row budget, its nav and every count in the

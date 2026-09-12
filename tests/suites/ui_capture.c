@@ -3290,6 +3290,55 @@ MESH_TEST_CASE(ui_capture_nav_bar_badges_unread_messages, unit) {
  * scale and they do not all come off it at the same rate.
  */
 /*
+ * A group's heading is drawn after the cards, so anything of it that lands on a card's edge
+ * paints through the edge - and the scale it happens at is the one nobody renders.
+ *
+ * At MESH_UI_SCALE_MIN the type scale clamps the label onto the body, because a label cannot be
+ * rasterised below the registry's smallest size. A heading's cell is then exactly as tall as a
+ * row's, the step holds one line gap of air, and an inset taken out of that leaves the cell a
+ * pixel longer than the gap it is centred in - so its last row is the next card's top edge and
+ * every heading with a descender in it draws through the hairline.
+ *
+ * What this asks is that a card's edge is only ever card: a scanline that is mostly outline
+ * carries nothing but the card's own colours, the cursor's fill included - whether the highlight
+ * may stand *on* an edge is the question cursor_stays_inside_its_card() asks, and answering it
+ * twice in two ways is how the two come to disagree. The scroll rail is outside the margin and
+ * outside this, for the reason it is outside that one.
+ */
+static const char *card_edges_carry_no_ink(const struct mesh_ui_capture *capture,
+                                           const uint8_t *pixels, uint32_t width, uint32_t height,
+                                           size_t stride, int scale) {
+    /* The rail's gutter is half a margin, and the margin does not scale - see fb_list_rail(). */
+    const uint32_t right = width > 16U ? width - 16U : width;
+    for (uint32_t y = 0U; y < height; ++y) {
+        const uint8_t *row = pixels + (size_t)y * stride;
+        uint32_t edge = 0U;
+        for (uint32_t x = 0U; x < right; ++x) {
+            if (pixel_is_role(capture, row + (size_t)x * 4U, MESH_UI_COLOR_OUTLINE)) {
+                edge++;
+            }
+        }
+        /* A card runs nearly the whole panel, so its edge rows are the only ones that can be
+           mostly outline. Nothing else on the frame draws a rule in that role. */
+        if (edge * 5U < right * 3U) {
+            continue;
+        }
+        for (uint32_t x = 0U; x < right; ++x) {
+            const uint8_t *px = row + (size_t)x * 4U;
+            if (pixel_is_role(capture, px, MESH_UI_COLOR_OUTLINE) ||
+                pixel_is_role(capture, px, MESH_UI_COLOR_SURFACE) ||
+                pixel_is_role(capture, px, MESH_UI_COLOR_SURFACE_SEL) ||
+                pixel_is_role(capture, px, MESH_UI_COLOR_BG)) {
+                continue;
+            }
+            (void)scale;
+            return "a group's heading drew through the edge of the card under it";
+        }
+    }
+    return NULL;
+}
+
+/*
  * Whether the cursor's fill is standing inside a card's edge on every scanline it covers.
  *
  * Asked of the rows where the fill is at its widest, because the fill is a rounded shape and its
@@ -3406,6 +3455,9 @@ MESH_TEST_CASE(ui_capture_node_detail_cards_survive_the_cursor, unit) {
 
         if (failure == NULL) {
             failure = cursor_stays_inside_its_card(capture, pixels, width, height, stride);
+        }
+        if (failure == NULL) {
+            failure = card_edges_carry_no_ink(capture, pixels, width, height, stride, scale);
         }
 
         mesh_ui_capture_close(capture);

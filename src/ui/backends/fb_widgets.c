@@ -853,11 +853,28 @@ static bool fb_list_has_cards(const struct fb_list *list) {
  * The same number fb_draw_card() insets by, so a card in a list and a card on the Status tab are
  * padded alike. Asked in two places - the surface takes it below its last row, and a group's
  * heading is centred in what it leaves - which is why it is a function rather than a local.
+ *
+ * Never more than the heading's own step can spare, and that bound is not a belt-and-braces
+ * clamp: at MESH_UI_SCALE_MIN the type scale clamps the label *onto* the body - a label cannot
+ * be rasterised below the smallest size the registry has - so a heading's cell is exactly as
+ * tall as a row's and the only air in the step is one line gap. An inset taken out of that
+ * leaves the cell longer than the gap it is centred in, the halved remainder truncates to zero,
+ * and the last row of the cell lands on the next card's top edge: every heading with a
+ * descender in it paints through the hairline, and only at the one scale nothing is rendered at.
+ * Where there is no air the cards give up their inset rather than the heading its room.
  */
 static int fb_list_card_pad(const struct mesh_ui_backend_fb_state *state) {
-    const int pad = ((int)fb_metrics(state)->card_pad * state->scale) / 2;
     const int edge = fb_edge(state);
-    return pad > edge ? pad : edge;
+    int pad = ((int)fb_metrics(state)->card_pad * state->scale) / 2;
+    if (pad < edge) {
+        pad = edge;
+    }
+    const int label = mesh_ui_theme_type_scale(state->theme, MESH_UI_TYPE_LABEL, state->scale);
+    const int spare = fb_line_adv(state, state->scale) - (int)fb_font(state)->height * label - edge;
+    if (pad > spare) {
+        pad = spare;
+    }
+    return pad > 0 ? pad : 0;
 }
 
 enum mesh_ui_color fb_list_ground(const struct fb_list *list, uint32_t index) {
