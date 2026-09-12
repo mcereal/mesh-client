@@ -33,6 +33,7 @@
 #include "mesh/ui/nav.h"
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -94,6 +95,36 @@ enum mesh_ui_transition {
 /* Reads the place this nav is showing. Never fails; a NULL nav yields the Messages list, which
    is where mesh_ui_nav_init() leaves one. */
 void mesh_ui_route_of(const struct mesh_ui_nav *nav, struct mesh_ui_route *out);
+
+/*
+ * A tab's *identifier*, in ASCII and deliberately untranslated: "messages", "nodes", "settings".
+ *
+ * Not to be confused with `mesh_ui_screen_name()` in nav.h, which is the tab's label and comes
+ * out of the catalog in whatever language is in force. The two answer different questions and
+ * the difference is load-bearing: a name is for a reader who is holding the device, an id is for
+ * a file that somebody else will read - a capture harness's scene script naming a tab, and a
+ * crash report naming where the client was standing. Both belong with the log levels and the
+ * region codes on the short list of strings the i18n layer does not touch (docs/i18n.md),
+ * because a scene that only ran under one locale, or a bug report that arrived in a language the
+ * maintainer does not read, is the failure this prevents.
+ *
+ * A screen outside the enum answers "?" rather than indexing past the table.
+ */
+const char *mesh_ui_screen_id(enum mesh_ui_screen screen);
+
+/*
+ * This place as one short untranslated line: "nodes/map", "settings/section:3",
+ * "nodes/node:a1b2c3d4", "messages/list".
+ *
+ * For a diagnostic rather than for a reader - it is what a crash report carries so that "it
+ * crashed" becomes "it crashed on the map", and the same reason it is not built out of catalog
+ * entries is the reason a log line is not: a report is read by whoever fixes the bug, and a
+ * translated one would arrive in a language they may not have.
+ *
+ * `out` is always NUL-terminated. Truncates rather than failing, because a clipped route is
+ * still most of the answer and a crash report is not the place to be strict.
+ */
+void mesh_ui_route_describe(const struct mesh_ui_route *route, char *out, size_t out_len);
 
 /*
  * The same, with the help screen taken off the top: where the user was standing when they asked.

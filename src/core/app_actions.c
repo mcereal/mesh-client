@@ -19,6 +19,7 @@
 #include "mesh/transport/tcp.h"
 #include "mesh/ui/node_detail.h"
 #include "mesh/ui/preferences.h"
+#include "mesh/utils/crash.h"
 #include "mesh/utils/log.h"
 #include "mesh/utils/text.h"
 #include "mesh/utils/time.h"
@@ -1035,6 +1036,31 @@ void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *action) 
         mesh_ui_store_set_toast(&app->ui_store, now,
                                 mesh_str(app->updater.allow_dev ? MESH_STR_TOAST_DEV_UPDATES_ON
                                                                 : MESH_STR_TOAST_DEV_UPDATES_OFF));
+        return;
+    }
+    case MESH_UI_ACTION_DISCARD_CRASH_REPORT: {
+        /*
+         * Local, immediate and its own confirmation, like the theme above: About has no Y-save
+         * because there is no radio write behind any of it.
+         *
+         * No confirm dialog either. The five questions that get one all take something away
+         * that cannot be had back - a radio's config, a node the mesh may not mention again -
+         * and this takes away a copy of a file the user has already been told where to find.
+         * A dialog here would be spending a press to protect a diagnostic.
+         *
+         * The publish is what clears the banner and the two rows in the same frame: both read
+         * `crash_report_waiting`, which is re-read from the module rather than assumed, so a
+         * discard that somehow failed leaves the notice standing rather than hiding a report
+         * that is still on the card.
+         */
+        const int result = mesh_crash_discard();
+        if (result < 0) {
+            mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_CRASH_DISCARD_FAILED, -result);
+            mesh_ui_store_set_toast(&app->ui_store, now, toast);
+            return;
+        }
+        mesh_ui_store_set_toast(&app->ui_store, now, mesh_str(MESH_STR_TOAST_CRASH_DISCARDED));
+        mesh_app_publish_ui_state(app);
         return;
     }
     case MESH_UI_ACTION_CHECK_UPDATE: {

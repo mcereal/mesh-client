@@ -312,6 +312,55 @@ MESH_TEST_CASE(ui_chrome_banner_says_the_radio_is_in_its_loader, unit) {
     record_success(test_name);
 }
 
+MESH_TEST_CASE(ui_chrome_banner_reports_a_crash_from_the_previous_run, unit) {
+    struct mesh_ui_snapshot snapshot;
+    struct mesh_ui_banner banner;
+
+    chrome_fixture(&snapshot);
+    snapshot.settings.client.crash_report_waiting = true;
+    MESH_TEST_FAIL_IF(!mesh_ui_chrome_banner(&snapshot, &banner),
+                      "a client that stopped on its own is worth saying on every screen");
+    MESH_TEST_FAIL_IF(banner.kind != (uint8_t)MESH_UI_BANNER_CRASH_REPORT,
+                      "the wrong banner for a waiting crash report");
+    MESH_TEST_FAIL_IF(banner.family != MESH_UI_FAMILY_ERROR,
+                      "something was plainly broken, which is what separates this from the "
+                      "loader's warning");
+    MESH_TEST_FAIL_IF(banner.supporting == MESH_STR_NONE,
+                      "it has to name where the report is, or it is a banner that cannot resolve");
+
+    /*
+     * The order, from both sides. A fault outranks the updater's news; a radio sitting off the
+     * mesh right now outranks a fault that has already finished happening.
+     */
+    snapshot.settings.client.update_state = (uint8_t)MESH_UPDATE_READY;
+    MESH_TEST_FAIL_IF(!mesh_ui_chrome_banner(&snapshot, &banner) ||
+                          banner.kind != (uint8_t)MESH_UI_BANNER_CRASH_REPORT,
+                      "a crash outranks a release waiting for a restart");
+    snapshot.settings.fw_radio_in_loader = true;
+    MESH_TEST_FAIL_IF(!mesh_ui_chrome_banner(&snapshot, &banner) ||
+                          banner.kind != (uint8_t)MESH_UI_BANNER_RADIO_IN_LOADER,
+                      "a radio off the mesh now outranks a fault that is over");
+
+    /* Down inside About, which is the section holding the path and the press that discards it. */
+    chrome_fixture(&snapshot);
+    snapshot.settings.client.crash_report_waiting = true;
+    snapshot.nav.screen = MESH_UI_SCREEN_SETTINGS;
+    snapshot.nav.settings_section = (uint8_t)MESH_UI_SETTINGS_ABOUT;
+    MESH_TEST_FAIL_IF(mesh_ui_chrome_banner(&snapshot, &banner),
+                      "About already says this, and offers the row that clears it");
+
+    /*
+     * And it goes away when the report does. This is the resolvability rule rather than a
+     * restatement of the flag: the banner table refuses anything a user cannot make untrue, and
+     * what makes this one resolvable is that one press in About clears exactly this field.
+     */
+    chrome_fixture(&snapshot);
+    snapshot.settings.client.crash_report_waiting = false;
+    MESH_TEST_FAIL_IF(mesh_ui_chrome_banner(&snapshot, &banner),
+                      "a discarded report left the banner standing");
+    record_success(test_name);
+}
+
 /*
  * An install in flight is the longest thing this client ever does, and until the bar learned
  * about it there was no sign of it anywhere but the one section it runs from.

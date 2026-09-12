@@ -411,6 +411,22 @@ struct mesh_ui_client_info {
      */
     uint16_t update_progress;
     bool update_progress_known;
+    /*
+     * The crash report a *previous* run left behind, if there is one: where it is, and whether
+     * to say so.
+     *
+     * Two fields rather than one, because they answer different questions and the path outlives
+     * the flag. `crash_report_path` is where a report would be whether or not one exists - the
+     * About row shows it so somebody can go and find the file - while `crash_report_waiting` is
+     * what raises the banner and what the discard row clears. Collapsed into "a non-empty path
+     * means there is one", the discard would have to blank the path, and the screen would then
+     * stop being able to say where the next one will go.
+     *
+     * Both are read once at startup rather than from a stat() per frame; see
+     * mesh_crash_report_waiting() for why a client must not learn mid-run that it has crashed.
+     */
+    char crash_report_path[MESH_UI_CLIENT_PATH_MAX];
+    bool crash_report_waiting;
 };
 
 /*

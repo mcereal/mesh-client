@@ -90,6 +90,19 @@ enum mesh_ui_banner_kind {
      * has to promise to come back for.
      */
     MESH_UI_BANNER_RADIO_IN_LOADER,
+    /*
+     * The run before this one ended in a fault, and there is a report on the card.
+     *
+     * It resolves by being discarded from Settings > About, which is the same shape every other
+     * entry here has: something the user can do makes it stop being true. It is deliberately not
+     * cleared by merely being seen - a notice that vanished on its own would take the one
+     * pointer to the report with it, and the reader would be left knowing something had gone
+     * wrong and not where to look.
+     *
+     * It says nothing about *this* run. mesh_crash_install() reads the disk once, at startup,
+     * so a fault happening now cannot make the frame announce itself mid-crash.
+     */
+    MESH_UI_BANNER_CRASH_REPORT,
     MESH_UI_BANNER_KIND_COUNT,
 };
 

@@ -69,6 +69,7 @@
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/backends/fb_capture.h"
 #include "mesh/ui/nav.h"
+#include "mesh/ui/route.h"
 #include "mesh/ui/store.h"
 #include "mesh/ui/theme.h"
 #include "mesh/utils/text.h"
@@ -721,11 +722,13 @@ static enum mesh_ui_key uicap_key_from_name(const char *name) {
     return MESH_UI_KEY_NONE;
 }
 
+/* The ids come from src/ui/route.c rather than from a copy here: a scene file naming a tab and
+   a crash report naming one are the same strings, and two tables stay in step only until a tab
+   is added. Deliberately mesh_ui_screen_id() and not mesh_ui_screen_name() - the latter is
+   translated, and a scene would then only run under one locale. */
 static int uicap_screen_from_name(const char *name) {
-    static const char *const names[MESH_UI_SCREEN_COUNT] = {"messages", "nodes",  "waypoints",
-                                                            "devices",  "status", "settings"};
     for (int i = 0; i < (int)MESH_UI_SCREEN_COUNT; ++i) {
-        if (strcmp(names[i], name) == 0) {
+        if (strcmp(mesh_ui_screen_id((enum mesh_ui_screen)i), name) == 0) {
             return i;
         }
     }
@@ -1975,6 +1978,39 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
                                                              : 0U);
         snprintf(settings.client.update_latest, sizeof settings.client.update_latest, "%s",
                  "999.0.0");
+        mesh_ui_store_set_settings(&cap->store, &settings);
+        uicap_emit(cap);
+        uicap_settle(cap);
+        return;
+    }
+
+    /*
+     * A crash report left by a previous run.
+     *
+     *   crash on|off
+     *
+     * There is no crash handler behind the harness and there had better not be - a capture that
+     * faulted would be a capture of nothing - so this sets what mesh_app_publish_ui_state()
+     * publishes after mesh_crash_install() has found a report on the card: the flag the banner
+     * reads, and the path the About rows show. The path is a plausible one rather than a real
+     * file, because nothing here opens it.
+     */
+    if (strcmp(command, "crash") == 0) {
+        char *state = uicap_word(&rest);
+        if (state == NULL || (strcmp(state, "on") != 0 && strcmp(state, "off") != 0)) {
+            fprintf(stderr, "uicap: line %u: 'crash' needs on or off\n", line_number);
+            exit(1);
+        }
+        struct mesh_ui_settings settings = cap->store.settings;
+        settings.client.crash_report_waiting = strcmp(state, "on") == 0;
+        snprintf(settings.client.crash_report_path, sizeof settings.client.crash_report_path, "%s",
+                 "/mnt/SDCARD/.userdata/tg5040/MeshClient/.meshclient/crash.txt");
+        /* The data directory with it, because About draws the two together: the Data row points
+           at the directory and the crash row names the file in it. A capture showing one without
+           the other would be a picture of a screen the client never draws - the app publishes
+           both or neither, since they come from the same preferences path. */
+        snprintf(settings.client.data_dir, sizeof settings.client.data_dir, "%s",
+                 "/mnt/SDCARD/.userdata/tg5040/MeshClient/.meshclient");
         mesh_ui_store_set_settings(&cap->store, &settings);
         uicap_emit(cap);
         uicap_settle(cap);

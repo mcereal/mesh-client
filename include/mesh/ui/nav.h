@@ -520,6 +520,11 @@ enum mesh_ui_action_type {
        through the client info in the next snapshot. */
     MESH_UI_ACTION_CYCLE_THEME,
     MESH_UI_ACTION_CYCLE_LANGUAGE,
+    /* Throw away the crash report a previous run left on the card. Purely local, like the theme
+       and the language beside it - there is no radio behind About - and it is what the crash
+       banner resolves by: a notice with nowhere to go is the one thing the banner table refuses
+       to raise. */
+    MESH_UI_ACTION_DISCARD_CRASH_REPORT,
     /* About radio: ask what firmware exists for the *radio*, which is a different binary on a
        different computer and a different pair of documents. Its own action rather than a flag
        on CHECK_UPDATE because the two can be in flight at once and fail separately, and

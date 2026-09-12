@@ -359,6 +359,48 @@ static void build_about(const struct mesh_ui_settings *s, struct item_list *list
     if (client->data_dir[0] != '\0') {
         item_text(list, MESH_STR_ABOUT_DATA, MESH_UI_SETTING_INFO, client->data_dir);
     }
+
+    /*
+     * The crash report, when a previous run left one.
+     *
+     * High up on purpose. Every row below this is something somebody came here to read at their
+     * leisure; this one is the reason the banner sent them, and About is a screen that runs off
+     * the bottom of the panel on a device this size. It also sits above the three early returns
+     * further down - a row placed after those would be missing on exactly the builds where the
+     * updater is unavailable, which is every hand-deployed one.
+     *
+     * Two rows because they do two things: the path is for copying off the screen, the verb is
+     * what makes the banner resolvable. The path is shown as a plain fact even when there is no
+     * report, so the question "where would it go" has an answer before there is anything to
+     * find - the same reason the data directory above is always drawn.
+     */
+    if (client->crash_report_waiting) {
+        /*
+         * The file's name, not its path.
+         *
+         * The value column is about two dozen cells and an absolute path on the Brick is three
+         * times that, so the row drew "/mnt/SDCARD/.userdata/tg50" - a location cut off exactly
+         * where it stops being a location, which is worse than not saying it. It is the firmware
+         * rows' rule ("short values, never sentences") reached from the other direction.
+         *
+         * What makes the short answer sufficient is the Data row directly above, which already
+         * points at the directory. That row is clipped too - it is shown for orientation and has
+         * always accepted that - but a *filename* is short enough to be whole at any scale, and
+         * "it is called crash.txt and it is in the data directory" is what somebody needs in
+         * order to go and find it. Two clipped halves of one path would have been neither.
+         *
+         * Derived from the published path rather than printed as a constant, so a report that
+         * moved would take the row with it.
+         */
+        const char *name = client->crash_report_path;
+        const char *slash = strrchr(client->crash_report_path, '/');
+        if (slash != NULL && slash[1] != '\0') {
+            name = slash + 1;
+        }
+        item_text(list, MESH_STR_ABOUT_CRASH_REPORT, MESH_UI_SETTING_INFO, name);
+        item_action(list, MESH_STR_ABOUT_CRASH_DISCARD, mesh_str(MESH_STR_COMMON_PRESS_A),
+                    MESH_UI_SETTINGS_ACTION_DISCARD_CRASH_REPORT);
+    }
     /* Keep each language's own name visible so users can always find their way back. */
     if (client->language_name[0] != '\0') {
         if (client->language_from_env) {

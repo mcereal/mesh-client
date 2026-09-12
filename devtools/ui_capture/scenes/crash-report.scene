@@ -1,0 +1,55 @@
+# What the client says after it has stopped on its own.
+#
+# A fault used to be invisible from the device: the process died, the launcher came back, and
+# the only trace was a log on the card that stopped mid-sentence. The user's whole report was
+# "it crashed", and there was nothing to ask them for.
+#
+# So a crash now leaves a file, and the file is announced. This scene is the announcement and
+# the press that clears it - the two halves that make it a banner rather than a warning nobody
+# can act on.
+
+scene demo
+scale 4
+delay 220
+
+tab nodes
+hold 900
+
+# The previous run faulted. The banner is the error family rather than the loader's warning:
+# nothing is broken about a radio waiting in its bootloader, and something was plainly broken
+# about a client that stopped by itself. It costs rows, because it has settled - the list below
+# gets what is left, exactly as it does under the update banner.
+crash on
+hold 1800
+
+# It follows across the tabs, because it is not about any of them. What it is about is the
+# client, which is the whole test for whether something belongs up here.
+tab status
+hold 1200
+tab messages
+hold 1200
+
+# And it stands down inside the one section that says the same thing in more detail - the same
+# rule that keeps the update banner out of About, and the app bar's overline from repeating the
+# tab name underneath it.
+tab settings
+key a
+hold 1600
+
+# The two rows it was pointing at. The value column is two dozen cells, so the row names the
+# file rather than its path - the Data row above points at the directory, and a filename is the
+# half that survives being drawn at any scale. The verb below is what makes the notice
+# resolvable, which is the condition every banner here has to meet before it may be raised.
+key down 3
+hold 1400
+
+# Pressed. The report is deleted, the rows go with it, and the banner has nowhere left to be.
+key a
+hold 1800
+
+# Back out, and the frame is quiet again - which is the proof that it resolved rather than
+# merely being scrolled past.
+key b
+hold 1200
+tab nodes
+hold 1400

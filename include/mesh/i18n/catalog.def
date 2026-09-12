@@ -889,7 +889,7 @@ MESH_STR_ENTRY(HELP_OVERVIEW,             "About this screen")
  * an omitted note reads in English while the rest of that language stays correct. They are the
  * one class of string in this catalog with that dispensation - see docs/i18n.md.
  */
-MESH_STR_ENTRY(SETTINGS_NOTE_ABOUT,                       "MeshClient itself: which version is running, where it keeps its data, and the self-update rows. Nothing on this screen reaches the radio.")
+MESH_STR_ENTRY(SETTINGS_NOTE_ABOUT,                       "MeshClient itself: which version is running, where it keeps its data, the self-update rows, and the report it leaves behind if it ever stops unexpectedly. Nothing here reaches the radio.")
 MESH_STR_ENTRY(SETTINGS_NOTE_RADIO,                       "What the radio says about itself, and what firmware upstream publishes for its board. Installing one takes the radio off the mesh for minutes and cannot be undone; a row says why it cannot be.")
 MESH_STR_ENTRY(SETTINGS_NOTE_USER,                        "Your identity on the mesh. The long name is what node lists show; the short name is the few characters other radios draw on their own screens.")
 MESH_STR_ENTRY(SETTINGS_NOTE_DEVICE,                      "How this radio behaves on the mesh: the role it plays, how often it announces itself, and what it repeats for other nodes. Role has the widest effect of anything here.")
@@ -1570,6 +1570,16 @@ MESH_STR_ENTRY(SETTINGS_UNSAVED,          "%u unsaved")
 MESH_STR_ENTRY(ABOUT_VERSION,             "Version")
 MESH_STR_ENTRY(ABOUT_UI_BACKEND,          "UI backend")
 MESH_STR_ENTRY(ABOUT_DATA,                "Data")
+/*
+ * The crash report rows, shown only when a previous run left one behind.
+ *
+ * "Crash report" names the file and the value column says where it is; the discard row is the
+ * verb. Two rows rather than one because the path is the half somebody has to copy off the
+ * screen and the press is the half that makes the banner go away, and a single row cannot both
+ * show a path and offer a press.
+ */
+MESH_STR_ENTRY(ABOUT_CRASH_REPORT,        "Crash report")
+MESH_STR_ENTRY(ABOUT_CRASH_DISCARD,       "Discard report")
 MESH_STR_ENTRY(ABOUT_THEME,               "Theme")
 /* The theme is being held by MESHCLIENT_THEME, so the row is a fact rather than a switch. */
 MESH_STR_ENTRY(ABOUT_THEME_ENV,           "Theme (env)")
@@ -1962,6 +1972,17 @@ MESH_STR_ENTRY(BANNER_UPDATE_AVAILABLE,   "Update available")
    that tab, and a hint carrying the whole path would be a breadcrumb spelled into a sentence. */
 MESH_STR_ENTRY(BANNER_UPDATE_AVAILABLE_HINT, "Install it from the Settings tab")
 
+/*
+ * The previous run ended in a fault and left a report on the card.
+ *
+ * The headline says what happened rather than what was written, because "MeshClient crashed" is
+ * the thing the reader already half knows and is waiting to have confirmed. The hint sends them
+ * to the tab, exactly as the update hint does and for the same reason - the section is the first
+ * row of it, and a path spelled into a sentence is a breadcrumb in the wrong place.
+ */
+MESH_STR_ENTRY(BANNER_CRASH_REPORT,       "MeshClient stopped unexpectedly")
+MESH_STR_ENTRY(BANNER_CRASH_REPORT_HINT,  "A report is saved; see the Settings tab")
+
 /* ---- toasts ------------------------------------------------------------------------------------ */
 
 /*
@@ -2083,6 +2104,11 @@ MESH_STR_ENTRY(TOAST_THEME_HELD,          "MESHCLIENT_THEME is holding the theme
 MESH_STR_ENTRY(TOAST_THEME,               "Theme: %.*s")
 MESH_STR_ENTRY(TOAST_DEV_UPDATES_ON,      "Dev updates on; check again")
 MESH_STR_ENTRY(TOAST_DEV_UPDATES_OFF,     "Dev updates off")
+/* The crash report has been deleted. The "(%d)" on the failure is an errno, for the reason
+   every other errno in this section is there: a toast saying only that something did not work
+   cannot be turned into a bug report. */
+MESH_STR_ENTRY(TOAST_CRASH_DISCARDED,     "Crash report deleted")
+MESH_STR_ENTRY(TOAST_CRASH_DISCARD_FAILED, "Could not delete the report (%d)")
 MESH_STR_ENTRY(TOAST_CHECKING_UPDATES,    "Checking for updates")
 MESH_STR_ENTRY(TOAST_UPDATES_UNAVAILABLE, "Updates are unavailable here")
 MESH_STR_ENTRY(TOAST_ALREADY_CHECKING,    "Already checking")

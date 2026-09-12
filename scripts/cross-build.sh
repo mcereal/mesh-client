@@ -15,13 +15,19 @@ BUILD_ROOT="${BUILD_ROOT:-build}"
 BUILD_DIR="${BUILD_ROOT}/release"
 DBUS_CFLAGS="-I${CROSS_DBUS_PREFIX}/include/dbus-1.0 -I${CROSS_DBUS_PREFIX}/lib/dbus-1.0/include"
 
+# -fno-omit-frame-pointer is for src/utils/crash.c and costs about 20 KB of text.
+# At -Os both GCC and Clang drop the frame pointer, and without it the crash handler's stack
+# walk has no chain to follow - so the one build that actually runs on a Brick would be the one
+# build whose reports have no backtrace in them, while every debug and test build produced a
+# full one. The PC alone still resolves to a line, so this buys the call chain rather than the
+# crash site; at well under one percent of the binary that is the right way round.
 cmake -S . -B "$BUILD_DIR" \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_C_COMPILER="${CROSS_COMPILE}gcc" \
     -DCMAKE_SYSTEM_NAME=Linux \
     -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
     -DCMAKE_EXE_LINKER_FLAGS="-static -L${CROSS_DBUS_PREFIX}/lib" \
-    -DCMAKE_C_FLAGS="-Os ${CROSS_CFLAGS:-} ${DBUS_CFLAGS}" \
+    -DCMAKE_C_FLAGS="-Os -fno-omit-frame-pointer ${CROSS_CFLAGS:-} ${DBUS_CFLAGS}" \
     -DPython3_EXECUTABLE="$(command -v python3)" \
     "$@"
 cmake --build "$BUILD_DIR"

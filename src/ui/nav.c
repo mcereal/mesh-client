@@ -1128,6 +1128,9 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
                     } else if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CYCLE_THEME) {
                         action->type = MESH_UI_ACTION_CYCLE_THEME;
                     } else if (item.number ==
+                               (uint32_t)MESH_UI_SETTINGS_ACTION_DISCARD_CRASH_REPORT) {
+                        action->type = MESH_UI_ACTION_DISCARD_CRASH_REPORT;
+                    } else if (item.number ==
                                (uint32_t)MESH_UI_SETTINGS_ACTION_CHECK_RADIO_FIRMWARE) {
                         action->type = MESH_UI_ACTION_CHECK_RADIO_FIRMWARE;
                     } else if (item.number ==

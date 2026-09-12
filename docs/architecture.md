@@ -550,6 +550,60 @@ Names are radio input exactly like message text is — whoever owns the node pic
 `User.short_name` is `char[5]`, sized for one four-byte emoji and its NUL, so multi-byte names
 are the norm, not an edge case.
 
+### `src/utils/crash.c` — what the client leaves behind when it faults
+
+A SIGSEGV used to take the process down mid-sentence. `launch.sh` pipes the client through
+`tee`, so the log on the card simply stopped: nothing in it said the process had died, or where.
+A report from a stranger was therefore "it crashed", and the one fact worth having was the one
+the fault had destroyed.
+
+`mesh_crash_install()` catches SIGSEGV, SIGBUS, SIGILL, SIGFPE and SIGABRT and writes
+`$HOME/.meshclient/crash.txt`: the signal and fault address, the uptime, the load base, three
+notes (version, route, transport status), the last 32 log lines, the program counter and a frame
+walk. Then it re-raises, so the process still dies of the signal it was given.
+
+**Nothing leaves the device.** This is deliberately not a crash-reporting service. The memory of
+this process holds node names, every positioned node's coordinates, the message log and the
+channel keys, so a minidump of it is the last thing that should go anywhere by itself — and the
+audience for a Meshtastic client is not the audience for silent telemetry. What lands on disk is
+a page of text the user can read in full before deciding whether to attach it to an issue, and
+the file opens by saying what it does and does not contain.
+
+Four things about it are rules rather than implementation details:
+
+- **The handler builds no strings.** POSIX names the functions that stay safe in a signal
+  handler and neither `printf` nor `malloc` is among them — a fault inside `malloc` leaves the
+  allocator's lock held, and a handler that takes it deadlocks instead of reporting anything. So
+  the report's path, the load base read out of `/proc/self/maps`, and every fixed heading are
+  built by `mesh_crash_install()` in ordinary context; the handler formats its own integers with
+  `write()` and assembles nothing it did not already have.
+- **The stack walk is probed, not dereferenced.** `mesh_crash_install()` makes a pipe it never
+  sends anything through. Writing an address to a descriptor turns an unreadable page into
+  `EFAULT` — a return value — where `*(uint64_t *)fp` would be a second SIGSEGV inside the
+  handler for the first one. That is what lets the walk be attempted at all rather than being
+  left out as too dangerous, and the frame checks (readable, pointer-aligned, climbing) only stop
+  nonsense being *printed*.
+- **The risky half goes last.** Headings, notes and the log tail are written before the
+  registers are touched, so a handler that dies part way through has already put the useful half
+  on disk. `write()` has handed the data to the kernel by the time it returns.
+- **Whether a report is waiting is read once, at install.** Answered by a `stat` on demand, the
+  flag would flip the moment *this* run wrote its own report — so About would start telling the
+  user they had crashed while they were still using the client, and the banner would appear
+  underneath a fault that had not finished happening.
+
+The report is fixed at one path, so a second crash replaces the first. The reader has just
+watched the client die; a file describing a fault from last week, kept while the one they are
+holding is thrown away, is the wrong half saved.
+
+What the user sees is `MESH_UI_BANNER_CRASH_REPORT` on every screen until Settings → About
+discards it — which is what makes it resolvable, the condition `chrome.c` holds every banner to.
+The About rows show the path (for copying) and the discard verb (for clearing), and the banner
+stands down inside About the way the update banners do.
+
+An address resolves with `addr2line -fpe meshclient <address - load base>`. On the device that is
+exact, because the release build is one static binary; on a host build the frames that fall in
+libc resolve against libc instead.
+
 ## Protobufs
 
 `CMakeLists.txt` has a hardcoded `MESH_PROTO_NAMES` list (mesh, portnums, interdevice, config,
@@ -577,6 +631,10 @@ Things that look like bugs, are not, and have each cost a debugging round alread
   `BTN_THUMBL`/`BTN_THUMBR`. `make deploy-input-map` re-measures the lot; the table is in
   [`device.md`](device.md#the-buttons-and-what-they-report).
 - **A radio reboot after a settings write is expected**, not a dropped link to chase.
+- **The crash handler builds no strings and walks the stack through a pipe.** Both look
+  roundabout and both are the only safe way to do it; see `src/utils/crash.c` above before
+  simplifying either. So is re-raising the signal at the end: a handler that returned or exited
+  tidily would report a clean exit for a process that faulted.
 - **A replayed message has a packet id that is not its own.** The router wraps it in a packet of
   its own, so the id belongs to the delivery; `mesh_message_log_holds_replay()` matching on the
   content rather than on the id is the point, not an oversight.

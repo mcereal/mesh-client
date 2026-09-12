@@ -20,6 +20,8 @@
 #include "mesh/transport/tcp.h"
 #include "mesh/ui/node_detail.h"
 #include "mesh/ui/preferences.h"
+#include "mesh/ui/route.h"
+#include "mesh/utils/crash.h"
 #include "mesh/utils/log.h"
 #include "mesh/utils/text.h"
 #include "mesh/utils/time.h"
@@ -747,6 +749,18 @@ static void mesh_app_flatten_client_info(const struct mesh_app *app,
             *slash = '\0';
         }
     }
+
+    /*
+     * Where a crash report would be, and whether one is waiting from the run before this.
+     *
+     * Published rather than asked for, exactly as the data directory above is: the About row
+     * and the banner both need it, and neither the nav nor a backend is a place that may open a
+     * file. The path is shown whether or not a report exists, because a row that only appeared
+     * after a crash could never answer "where would it go" - which is the question somebody
+     * setting up a bug report asks first.
+     */
+    (void)mesh_crash_report_path(dst->crash_report_path, sizeof dst->crash_report_path);
+    dst->crash_report_waiting = mesh_crash_report_waiting();
 
     /* The theme every backend draws this frame with. Published like any other fact about the
        client, so the switch needs no path of its own down to the renderer. */
@@ -1584,6 +1598,23 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
     mesh_ui_store_set_transport_status(&app->ui_store, transport_status != NULL
                                                            ? transport_status
                                                            : mesh_str(MESH_STR_TRANSPORT_UNKNOWN));
+
+    /*
+     * The two facts a crash report wants about the moment before the fault: where the reader
+     * was, and what the link was doing.
+     *
+     * Refreshed here, on every publish, rather than from the places that move the nav. That is
+     * the same argument the route itself is built on - eleven presses open a level, and a note
+     * updated by each of them is a note one of them forgets. Publishing already happens whenever
+     * anything the user can see has changed, and a bounded copy into a static buffer is cheap
+     * enough to do unconditionally.
+     */
+    struct mesh_ui_route place;
+    mesh_ui_route_of(&app->ui_store.nav, &place);
+    char route_note[MESH_CRASH_NOTE_MAX];
+    mesh_ui_route_describe(&place, route_note, sizeof route_note);
+    mesh_crash_note(MESH_CRASH_NOTE_ROUTE, route_note);
+    mesh_crash_note(MESH_CRASH_NOTE_TRANSPORT, transport_status);
 
     struct mesh_ui_device ui_devices[MESH_UI_MAX_DEVICES];
     memset(ui_devices, 0, sizeof(ui_devices));

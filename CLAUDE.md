@@ -190,6 +190,7 @@ and more than one line on it - the one component here that is a screen rather th
 | Dev tools | `devtools/`, `scripts/{ui-capture.sh,frames.py}` | off-screen UI capture; PNG/GIF encoding, stdlib only |
 | Geography | `src/geo/` | `mesh_geo_coords_valid()` — the bounds test every coordinate ingress asks, so the air, the cache and the keyboard cannot disagree about where Earth ends — `mesh_geo_vector_between()`, the haversine distance and initial bearing the Waypoints tab reads a range from, and `mesh_geo_mercator_forward()`, the projection the map places a marker with. **The only directory in the tree that includes `<math.h>`**, and the reason libm is linked |
 | The map | `src/map/viewport.c`, `src/map/tile.c`, `src/map/source_pack.c`, `src/map/tile_image.c`, `src/map/tile_cache.c`, `src/ui/map.c`, `src/ui/nav_map.c`, `src/ui/backends/fb_map.c` | Where the map is looking (centre, integer zoom, pan, fit, metres per pixel), which tiles that box is standing on (`mesh_map_viewport_tiles()`), where a tile's bytes come from (`source.h`, and the single-file `MCTPACK2` pack behind it), what those bytes decode to (`mesh_map_tile_decode()`, the one file that includes Wuffs), which decoded tiles are still held (`tile_cache.c`: byte-budgeted, LRU, and holding the *holes* as well as the pixels), the markers built from the map's own roster (`handshake.map_nodes` - **not** the node list's 128) and the waypoint book, the presses, and the drawing. A tile is read, decoded, kept and **drawn**: `fb_map.c` holds the fill loop and `fb_blit_bgra()` is the blit, one tile read per frame with the graticule showing through wherever there is not one. Where a pack comes from is `fb_basemap_open_default()` (`MESHCLIENT_MAP_PACK`, else `$HOME/.meshclient/map.mctp`); `devtools/map_pack/map_pack.py synth` draws one to try it with. See [`docs/maps-roadmap.md`](docs/maps-roadmap.md). `viewport.c` deliberately has **no `<math.h>`**: everything transcendental about a map is a property of the projection, one directory down |
+| Crash reports | `src/utils/crash.c` | what the client leaves behind when it faults: a signal handler that writes `$HOME/.meshclient/crash.txt` - signal, fault address, load base, the route and transport it was on, the last 32 log lines, the PC and a frame walk - and then re-raises so the process still dies of what killed it. Local only, deliberately not a service: this process's memory holds names, coordinates, the message log and the channel keys. The banner and Settings > About are the press that clears it |
 | Shared utils | `src/utils/` | `text` (UTF-8 + `mesh_str_copy`), `time` (`mesh_time_monotonic_ms`), `env` (`mesh_env_bool`/`_int`), `json` (a cursor that walks structure, because a release note eventually contains the keys a scanner would look for), `log`, `sha256`, `array` |
 
 `include/mesh/` mirrors `src/` one-for-one — `core/`, `transport/`, `ui/`, `proto/`, `geo/`, `utils/` —
@@ -819,6 +820,31 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   1.4:1 and that was measured on the width of a bar - the palette is a fill's contract, never an
   ink's - so a hairline in one of those colours is a line the reader has to hunt for. The room a
   chart has is spent making the mark wide enough to be the fill the palette was validated for.
+- **The crash handler builds no strings, and walks the stack through a pipe.** Both look
+  roundabout and both are load-bearing. A signal handler may not call `printf` or `malloc` - a
+  fault inside the allocator leaves its lock held and a handler that takes it deadlocks instead
+  of reporting - so the report's path, the load base and every heading are built at *install*
+  time and the handler only formats integers into `write()`. And the frame walk probes each
+  address by writing it to a pipe made at install: an unreadable page comes back as `EFAULT`
+  rather than as a second SIGSEGV inside the handler for the first one. The ordering is a safety
+  property too: headings, notes and the log tail go down before the registers are touched, so a
+  handler that dies part way has already saved the useful half. **Re-raising at the end is not
+  tidiness either** - a handler that returned or `_exit`ed would report a clean exit for a
+  process that faulted, and the launcher would believe it.
+- **The frame walk requires pointer alignment, not 16-byte alignment.** AAPCS64 keeps the stack
+  16-aligned throughout so an aarch64 `x29` is always 0 mod 16, which makes the tighter test look
+  safer; x86-64 only promises that at a call boundary, and asking for 16 ended every walk on
+  every host build after a single frame - one plausible address where a chain was expected, which
+  looks exactly like a shallow stack. `crash_handler_walks_more_than_one_frame` is what counts.
+- **Whether a crash report is waiting is read once, at install, and must not become a `stat`.**
+  Asked on demand, the flag flips the moment *this* run writes its own report - so the client
+  starts telling the user it has crashed while they are still using it, and the banner appears
+  underneath a fault that has not finished happening.
+- **`mesh_ui_screen_id()` is not `mesh_ui_screen_name()`.** The first is the untranslated
+  identifier ("nodes", "settings") that a capture scene names a tab with and a crash report names
+  a place with; the second is the tab's label out of the catalog, in whatever language is in
+  force. Using the name for either would mean a scene that only runs under one locale, and a bug
+  report arriving in a language the maintainer may not read.
 - **The framebuffer needs all three steps** — draw page 0, `FBIOPAN_DISPLAY`, mirror into page 1
   — or the screen is black.
 - **`deploy-start` kills NextUI's launcher with `SIGKILL`, and `TERM` there powers the Brick

@@ -3,6 +3,7 @@
 #include "mesh/core/message.h"
 #include "mesh/ui/settings.h"
 
+#include <stdio.h>
 #include <string.h>
 
 /*
@@ -284,4 +285,68 @@ enum mesh_ui_transition mesh_ui_route_move(const struct mesh_ui_route *from,
         return to->depth > from->depth ? MESH_UI_TRANSITION_FORWARD : MESH_UI_TRANSITION_BACK;
     }
     return MESH_UI_TRANSITION_FORWARD;
+}
+
+/* ---- naming a place ---------------------------------------------------------------------------
+ *
+ * The two tables below are the client's only spelling of these identifiers - which are not the
+ * tab labels in nav.c, and must not become them: see mesh_ui_screen_id() for why a name that is
+ * read by a person holding the device and one that is read out of a file are different strings.
+ * The capture harness reads the first here rather than keeping its own copy, because a scene
+ * file naming a tab and a crash report naming one have to agree, and two arrays in two
+ * directories agree only until somebody adds a tab.
+ */
+
+static const char *const k_screen_names[MESH_UI_SCREEN_COUNT] = {
+    [MESH_UI_SCREEN_MESSAGES] = "messages",   [MESH_UI_SCREEN_NODES] = "nodes",
+    [MESH_UI_SCREEN_WAYPOINTS] = "waypoints", [MESH_UI_SCREEN_DEVICES] = "devices",
+    [MESH_UI_SCREEN_STATUS] = "status",       [MESH_UI_SCREEN_SETTINGS] = "settings",
+};
+
+static const char *const k_level_names[MESH_UI_ROUTE_COUNT] = {
+    [MESH_UI_ROUTE_LIST] = "list",         [MESH_UI_ROUTE_THREAD] = "thread",
+    [MESH_UI_ROUTE_MAP] = "map",           [MESH_UI_ROUTE_NODE] = "node",
+    [MESH_UI_ROUTE_WAYPOINT] = "waypoint", [MESH_UI_ROUTE_TREND] = "trend",
+    [MESH_UI_ROUTE_SECTION] = "section",   [MESH_UI_ROUTE_CHANNEL] = "channel",
+    [MESH_UI_ROUTE_COMPOSE] = "compose",   [MESH_UI_ROUTE_PICKER] = "picker",
+    [MESH_UI_ROUTE_KEYBOARD] = "keyboard", [MESH_UI_ROUTE_CONFIRM] = "confirm",
+    [MESH_UI_ROUTE_REACTION] = "reaction", [MESH_UI_ROUTE_HELP] = "help",
+};
+
+const char *mesh_ui_screen_id(enum mesh_ui_screen screen) {
+    if ((unsigned)screen >= (unsigned)MESH_UI_SCREEN_COUNT) {
+        return "?";
+    }
+    return k_screen_names[screen];
+}
+
+void mesh_ui_route_describe(const struct mesh_ui_route *route, char *out, size_t out_len) {
+    if (out == NULL || out_len == 0U) {
+        return;
+    }
+    out[0] = '\0';
+    if (route == NULL) {
+        return;
+    }
+
+    const char *const screen = mesh_ui_screen_id((enum mesh_ui_screen)route->screen);
+    const char *const level =
+        (unsigned)route->level < (unsigned)MESH_UI_ROUTE_COUNT ? k_level_names[route->level] : "?";
+
+    /*
+     * The subject and the slot are appended only where the level fills one, because they are
+     * read in that level's terms: a `slot` of 3 is the third settings section under SECTION and
+     * means nothing at all under MAP. Printing them unconditionally would put two zeroes on
+     * every line that a reader would reasonably take for facts.
+     *
+     * A node is written in hex because that is how every other part of this client and the
+     * whole of upstream spells a node number.
+     */
+    if (route->subject != 0U) {
+        (void)snprintf(out, out_len, "%s/%s:%08x", screen, level, (unsigned)route->subject);
+    } else if (route->slot != 0U) {
+        (void)snprintf(out, out_len, "%s/%s:%u", screen, level, (unsigned)route->slot);
+    } else {
+        (void)snprintf(out, out_len, "%s/%s", screen, level);
+    }
 }
