@@ -2227,9 +2227,6 @@ MESH_STR_ENTRY(FW_BLOCK_NO_PATH,          "not from this client")
 /* The two halves of the same refusal: the board can be updated, over the other bus. */
 MESH_STR_ENTRY(FW_BLOCK_CONNECT_USB,      "connect it by USB")
 MESH_STR_ENTRY(FW_BLOCK_CONNECT_BLE,      "connect by Bluetooth")
-/* Phase 1 reports and installs nothing, and a row that stopped short of saying so would read
-   as a button somebody forgot to wire up. */
-MESH_STR_ENTRY(FW_NOT_YET_IMPLEMENTED,    "not built yet")
 /*
  * The labels, under Settings > About radio. Two of them name the same row: the question is
  * "what firmware is out there", and once the answer is a version worth having, the row is named

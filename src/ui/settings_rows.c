@@ -679,9 +679,25 @@ static void build_radio_firmware(const struct mesh_ui_settings *s, struct item_l
         return;
     }
     if (!s->fw_can_install) {
-        item_text(list, MESH_STR_FW_INSTALLING, MESH_UI_SETTING_INFO,
-                  s->fw_blocker_reason[0] != '\0' ? s->fw_blocker_reason
-                                                  : mesh_str(MESH_STR_FW_NOT_YET_IMPLEMENTED));
+        /*
+         * An empty reason is not a refusal, and must not be drawn as one.
+         *
+         * `firmware_blocker()` answers NONE when every question about the board came back
+         * right - it is attached, it resolved to exactly one entry, and that entry's path is
+         * the bus it is on - so a radio that is simply already on the newest release reaches
+         * here with nothing to say. `fw_can_install` is false because its first condition is
+         * MESH_FIRMWARE_AVAILABLE, not because anything is in the way.
+         *
+         * This used to fall through to a "not built yet" placeholder left over from before the
+         * install press existed, so an up-to-date radio on its own correct bus - the ordinary
+         * case, a few seconds after any flash - was told the installer had not been written.
+         * The status row above already says "up to date", which is the whole of what a row
+         * here could add.
+         */
+        if (s->fw_blocker_reason[0] == '\0') {
+            return;
+        }
+        item_text(list, MESH_STR_FW_INSTALLING, MESH_UI_SETTING_INFO, s->fw_blocker_reason);
         return;
     }
     /*
