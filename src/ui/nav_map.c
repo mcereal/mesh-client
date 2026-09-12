@@ -226,7 +226,12 @@ static bool mesh_ui_nav_map_confirm(struct mesh_ui_nav *nav, const struct mesh_u
     nav->node_detail_node = marker->id;
     nav->node_detail_open = true;
     nav->node_remove_armed = false;
-    nav->cursor[MESH_UI_SCREEN_NODES] = 0U;
+    /* The same landing the Nodes list's own A gets, asked for rather than written as 0: the
+       detail's row 0 is the actions group's heading, and a heading is not a row the cursor may
+       stand on. A marker that opened the detail on its title would be this press arriving at a
+       row where A does nothing - which is the state the heading skip exists to remove, reached
+       through the one door that did not go through nav.c. */
+    mesh_ui_nav_cursor_to_first_row(nav, store, MESH_UI_SCREEN_NODES);
     return true;
 }
 

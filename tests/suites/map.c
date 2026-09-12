@@ -1028,6 +1028,23 @@ MESH_TEST_CASE(map_opens_a_marker_and_comes_back_to_the_map, unit) {
     MESH_TEST_FAIL_IF(!store.nav.node_detail_open, "A opened the marker under the crosshair");
     MESH_TEST_FAIL_IF(store.nav.node_detail_node != alfa, "and it is that node");
     MESH_TEST_FAIL_IF(!store.nav.map_open, "with the map still underneath it");
+    /*
+     * And on a row the cursor may stand on, which is the marker's door into a screen whose row
+     * 0 is the actions group's heading. This press does not go through nav.c's own open, so it
+     * is the one that can quietly go back to writing 0 and land the reader on a title where A
+     * does nothing - the exact state the heading skip exists to remove.
+     */
+    {
+        struct mesh_ui_node_item rows[MESH_UI_NODE_ITEMS_MAX];
+        const struct mesh_ui_node_summary *opened =
+            mesh_ui_node_detail_find(&store.handshake, store.nav.node_detail_node);
+        const uint32_t rowc =
+            mesh_ui_node_detail_build(opened, false, 0U, &store.traceroute, false, &store.handshake,
+                                      NULL, rows, MESH_UI_NODE_ITEMS_MAX);
+        const uint32_t at = store.nav.cursor[MESH_UI_SCREEN_NODES];
+        MESH_TEST_FAIL_IF(at >= rowc || rows[at].kind == MESH_UI_NODE_ROW_HEADING,
+                          "and on a row the cursor may stand on, not the heading above it");
+    }
 
     (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
     MESH_TEST_FAIL_IF(store.nav.node_detail_open, "B closes the detail");

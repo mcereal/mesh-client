@@ -403,8 +403,10 @@ MESH_TEST_CASE(ui_nav_node_favorite, unit) {
         record_failure(test_name, "the detail should carry a pin row showing the current state");
         return;
     }
-    for (uint32_t i = 0; i < favorite_row; ++i) {
-        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    /* Walk to it rather than counting presses from 0: the cursor opens on the first row it may
+       stand on, which is the row *under* the actions group's heading. */
+    while (store.nav.cursor[MESH_UI_SCREEN_NODES] < favorite_row &&
+           mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action)) {
     }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
     if (action.type != MESH_UI_ACTION_TOGGLE_FAVORITE || action.dest != 0x3000U ||
@@ -785,8 +787,8 @@ MESH_TEST_CASE(ui_nav_node_mute_remove, unit) {
         goto cleanup;
     }
 
-    for (uint32_t i = 0; i < mute_row; ++i) {
-        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    while (store.nav.cursor[MESH_UI_SCREEN_NODES] < mute_row &&
+           mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action)) {
     }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
     if (action.type != MESH_UI_ACTION_TOGGLE_MUTE || action.dest != node->node_id) {

@@ -873,7 +873,31 @@ static void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
      * and we cannot bound. What the breadcrumb was really carrying - that B leaves - is the
      * leading arrow now, which says it in a cell rather than in seven.
      */
-    fb_draw_app_bar(state, layout, &(const struct fb_app_bar){.title = title});
+    /*
+     * And, in the heading's badge, the one thing that is true of the whole node: how long ago
+     * anything was heard from it.
+     *
+     * It is on the "Signal" group's first row too, and that is the point rather than a
+     * duplication - this screen is a hundred and twenty rows long and that row is below the
+     * fold from the moment the reader starts walking, while "is this node still there?" is the
+     * question every other row on the screen is qualified by. The app bar does not scroll, so
+     * the qualifier does not either. Same rule the Settings bar's unsaved badge follows: one
+     * fact, about the screen rather than about a row.
+     *
+     * Our own node gets none. Nothing heard it - it is us - so an age there would be this
+     * client reporting how long ago it last spoke to itself.
+     */
+    char heard[24];
+    heard[0] = '\0';
+    if (!is_self && node->last_heard != 0U) {
+        /* The same shorthand the Nodes list puts against the row this was opened from, so the
+           two screens cannot report the node's age in two different spellings. */
+        fb_format_age(node->last_heard, heard, sizeof heard);
+    }
+    fb_draw_app_bar(state, layout,
+                    &(const struct fb_app_bar){.title = title,
+                                               .badge = heard[0] != '\0' ? heard : NULL,
+                                               .badge_family = MESH_UI_FAMILY_SECONDARY});
 
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
     const uint32_t count = mesh_ui_node_detail_build(
@@ -895,21 +919,78 @@ static void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
      * a row apart.
      */
     uint8_t heights[MESH_UI_NODE_ITEMS_MAX];
+    /*
+     * And whether this list leads with a symbol at all, measured in the same pass.
+     *
+     * The slot is declared for the whole list or for none of it - FB_LEADING_ICON's own rule,
+     * because a list that indents only the rows carrying an icon starts its text in two
+     * columns. What decides is whether anything fills it: our own node with no fix produces no
+     * action rows at all, and reserving a gutter across a hundred rows of facts for icons that
+     * are not coming is an indent that buys nothing. Same shape as the settings list's
+     * mesh_ui_settings_section_icons_rows(), asked of the built rows rather than of a table
+     * because here it is a property of the node rather than of the screen.
+     */
+    bool leads_with_icon = false;
     for (uint32_t r = 0; r < count; ++r) {
         heights[r] = items[r].kind == MESH_UI_NODE_ROW_METER ? 2U : 1U;
+        leads_with_icon = leads_with_icon || items[r].icon != MESH_UI_ICON_NONE;
     }
+    const struct fb_leading blank =
+        leads_with_icon ? (struct fb_leading){.kind = FB_LEADING_ICON, .icon = MESH_UI_ICON_NONE}
+                        : (struct fb_leading){.kind = FB_LEADING_NONE};
     struct fb_list list =
         fb_list_begin_heights(layout, count, nav->cursor[MESH_UI_SCREEN_NODES], heights);
     uint32_t i;
     while (fb_list_next(&list, &i)) {
         const struct mesh_ui_node_item *item = &items[i];
         if (item->kind == MESH_UI_NODE_ROW_HEADING) {
-            fb_list_subheader(state, &list, i, item->label);
+            fb_list_subheader_icon(state, &list, i, item->label, blank);
         } else if (item->kind == MESH_UI_NODE_ROW_ACTION) {
+            /*
+             * What the row is about, on its leading edge, and what it costs, in its ink - both
+             * read off the item rather than decided here, which is the whole of why
+             * node_detail.c grew the two tables. A boolean says its state with the switch the
+             * settings rows use instead of spelling "Yes" into the value column; everything
+             * else keeps the chevron that means "this row does something".
+             */
+            /*
+             * Keyed on the node and the verb, never on the row.
+             *
+             * The animation table is twelve slots reused by least-recently-touched, so an id is
+             * a claim that two draws are the *same control* - which a row index is not. Closing
+             * a pinned node and opening an unpinned one lands the second node's pin row on the
+             * first node's slot at the same `i`, so its knob starts where the other node's was
+             * and slides across on the frame the screen opens: a control announcing a change
+             * nobody made. A traceroute completing under an open detail does it the other way,
+             * inserting rows and moving the mute and ignore switches onto each other's slots.
+             *
+             * The verb is unique within the frame - a node offers each of the three at most
+             * once - and the node is what makes two nodes' switches different controls, which
+             * is the pair `struct fb_switch` asks for. The id is folded rather than truncated
+             * so two node numbers agreeing in their low bits are not one control; it sits above
+             * everything the settings fields and this screen's meters can reach.
+             */
+            const uint32_t node_key = (node->node_id ^ (node->node_id >> 20)) & 0x000FFFFFU;
+            struct fb_switch sw = {
+                .id = 0x05000000U | ((uint32_t)item->action << 20) | node_key,
+                .family = item->tone == (uint8_t)MESH_UI_TONE_WARNING ? MESH_UI_FAMILY_WARNING
+                                                                      : MESH_UI_FAMILY_PRIMARY,
+                .on = item->on,
+            };
             const struct fb_list_item row = {
+                .leading = {.kind = leads_with_icon ? FB_LEADING_ICON : FB_LEADING_NONE,
+                            .icon = (enum mesh_ui_icon)item->icon},
                 .text = item->label,
-                .tone = MESH_UI_TONE_PRIMARY,
-                .trailing = {.kind = FB_TRAILING_ICON, .icon = MESH_UI_ICON_CHEVRON},
+                .tone = (enum mesh_ui_tone)item->tone,
+                .trailing = item->toggle
+                                ? (struct fb_trailing){.kind = FB_TRAILING_SWITCH, .sw = &sw}
+                                : (struct fb_trailing){.kind = FB_TRAILING_ICON,
+                                                       .icon = MESH_UI_ICON_CHEVRON},
+                /* A row whose press cannot be walked back gets the leading bar as well as the
+                   ink, in its own tone - the accent edge is drawn in the row's family, so the
+                   one row on the screen that deletes something is the one row marked in red on
+                   both of its edges. */
+                .accent_edge = item->tone == (uint8_t)MESH_UI_TONE_ERROR,
             };
             fb_list_item(state, &list, i, &row);
         } else if (item->kind == MESH_UI_NODE_ROW_METER) {
@@ -945,6 +1026,7 @@ static void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
             mesh_ui_series_project(item->trend, item->scale, &points);
             struct fb_sparkline trend = {.points = &points, .tone = MESH_UI_TONE_PRIMARY};
             const struct fb_list_item row = {
+                .leading = blank,
                 .label = item->label,
                 .label_cols = label_cols,
                 .value = item->value,
@@ -955,6 +1037,7 @@ static void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
             fb_list_item(state, &list, i, &row);
         } else {
             const struct fb_list_item row = {
+                .leading = blank,
                 .label = item->label,
                 .label_cols = label_cols,
                 .value = item->value,

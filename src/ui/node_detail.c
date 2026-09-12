@@ -56,11 +56,84 @@ static void rows_heading(struct node_rows *rows, enum mesh_str_id label) {
     item->kind = MESH_UI_NODE_ROW_HEADING;
 }
 
-static void rows_action(struct node_rows *rows, enum mesh_str_id label, const char *value,
-                        enum mesh_ui_node_action action) {
+/*
+ * What each verb on this screen is *about*, and how much of a statement pressing it makes.
+ *
+ * Two tables in the enum's own order rather than two switches, which is settings.c's
+ * k_section_icons[] one tab over and for the same three reasons: a lookup with no cases in it
+ * cannot fall through, an action added without an entry reads as "no icon" rather than failing
+ * to compile somewhere unrelated, and - the one that matters here - the renderer never has to
+ * hold a second opinion about which row is the dangerous one.
+ *
+ * The icons are all ids that already exist, because the meaning is already in the set: asking a
+ * node for its name is the same subject the User settings section is, and saving its fix as a
+ * waypoint is the same place-pin the Waypoints tab drops. Two rows share POSITION, and that is
+ * honest rather than lazy - "Ask where it is" and "Save this place" are two verbs about one
+ * subject, and their labels are what tells them apart.
+ */
+static const enum mesh_ui_icon k_action_icons[] = {
+    [MESH_UI_NODE_ACTION_NONE] = MESH_UI_ICON_NONE,
+    [MESH_UI_NODE_ACTION_MESSAGE] = MESH_UI_ICON_MESSAGES,
+    [MESH_UI_NODE_ACTION_FAVORITE] = MESH_UI_ICON_PINNED,
+    /* A traced route is the chain of links that reaches the node, which is what LINK says on
+       the Status card's transport row. */
+    [MESH_UI_NODE_ACTION_TRACEROUTE] = MESH_UI_ICON_LINK,
+    [MESH_UI_NODE_ACTION_REQUEST_INFO] = MESH_UI_ICON_USER,
+    [MESH_UI_NODE_ACTION_REQUEST_POSITION] = MESH_UI_ICON_POSITION,
+    [MESH_UI_NODE_ACTION_REQUEST_TELEMETRY] = MESH_UI_ICON_TELEMETRY,
+    /* The bell with a stroke through it, which is the mark the Messages tab already puts on a
+       muted conversation - one mute, one symbol, whichever screen turns it on. */
+    [MESH_UI_NODE_ACTION_MUTE] = MESH_UI_ICON_MUTED,
+    /* Ignoring is the harder one and gets the harder rune: a mute still lets the traffic
+       arrive, an ignore has the radio drop it before we ever see it. */
+    [MESH_UI_NODE_ACTION_IGNORE] = MESH_UI_ICON_CLOSE,
+    [MESH_UI_NODE_ACTION_REMOVE] = MESH_UI_ICON_DELETE,
+    [MESH_UI_NODE_ACTION_WAYPOINT] = MESH_UI_ICON_POSITION,
+    [MESH_UI_NODE_ACTION_SHOW_ON_MAP] = MESH_UI_ICON_MAP,
+};
+
+/*
+ * Two of these eleven rows cost something, and until now nothing on the frame said so: "Message
+ * this node" and "Remove from radio" were one colour and one weight, and the only thing between
+ * them was reading the words. Ignoring a node is the radio dropping its packets - recoverable,
+ * and a surprise if it was not meant - so it takes the warning family; removing it takes the
+ * node's own row away, which is the error family and the same ink the confirm dialog uses.
+ *
+ * Stated here rather than at each call site so the arming press, the row's ink and the action
+ * bar's "confirm remove" cannot come from three different opinions about which row is which.
+ */
+static const enum mesh_ui_tone k_action_tones[] = {
+    [MESH_UI_NODE_ACTION_NONE] = MESH_UI_TONE_PRIMARY,
+    [MESH_UI_NODE_ACTION_MESSAGE] = MESH_UI_TONE_PRIMARY,
+    [MESH_UI_NODE_ACTION_FAVORITE] = MESH_UI_TONE_PRIMARY,
+    [MESH_UI_NODE_ACTION_TRACEROUTE] = MESH_UI_TONE_PRIMARY,
+    [MESH_UI_NODE_ACTION_REQUEST_INFO] = MESH_UI_TONE_PRIMARY,
+    [MESH_UI_NODE_ACTION_REQUEST_POSITION] = MESH_UI_TONE_PRIMARY,
+    [MESH_UI_NODE_ACTION_REQUEST_TELEMETRY] = MESH_UI_TONE_PRIMARY,
+    [MESH_UI_NODE_ACTION_IGNORE] = MESH_UI_TONE_WARNING,
+    [MESH_UI_NODE_ACTION_MUTE] = MESH_UI_TONE_PRIMARY,
+    [MESH_UI_NODE_ACTION_REMOVE] = MESH_UI_TONE_ERROR,
+    [MESH_UI_NODE_ACTION_WAYPOINT] = MESH_UI_TONE_PRIMARY,
+    [MESH_UI_NODE_ACTION_SHOW_ON_MAP] = MESH_UI_TONE_PRIMARY,
+};
+
+static enum mesh_ui_icon action_icon(enum mesh_ui_node_action action) {
+    return (size_t)action < sizeof k_action_icons / sizeof k_action_icons[0]
+               ? k_action_icons[action]
+               : MESH_UI_ICON_NONE;
+}
+
+static enum mesh_ui_tone action_tone(enum mesh_ui_node_action action) {
+    return (size_t)action < sizeof k_action_tones / sizeof k_action_tones[0]
+               ? k_action_tones[action]
+               : MESH_UI_TONE_PRIMARY;
+}
+
+static struct mesh_ui_node_item *rows_action(struct node_rows *rows, enum mesh_str_id label,
+                                             const char *value, enum mesh_ui_node_action action) {
     struct mesh_ui_node_item *item = rows_next(rows);
     if (item == NULL) {
-        return;
+        return NULL;
     }
     snprintf(item->label, sizeof item->label, "%s", mesh_str(label));
     if (value != NULL) {
@@ -68,6 +141,29 @@ static void rows_action(struct node_rows *rows, enum mesh_str_id label, const ch
     }
     item->kind = MESH_UI_NODE_ROW_ACTION;
     item->action = (uint8_t)action;
+    item->icon = (uint8_t)action_icon(action);
+    item->tone = (uint8_t)action_tone(action);
+    return item;
+}
+
+/*
+ * The three action rows that are a boolean rather than an errand, said as one.
+ *
+ * Pinned, muted and ignored are each a flag the press flips, and each spelled its state into
+ * the value column as "Yes" or "No" - a control written down as a word, which is the thing
+ * fb_draw_switch() was added to stop on the settings rows. The words stay, for the backend with
+ * no sprites; what is new is that the state is also a field, so a screen that can draw the
+ * control draws it from the same flag this read.
+ */
+static void rows_toggle(struct node_rows *rows, enum mesh_str_id label, bool on,
+                        enum mesh_ui_node_action action) {
+    struct mesh_ui_node_item *item =
+        rows_action(rows, label, mesh_str(on ? MESH_STR_COMMON_YES : MESH_STR_COMMON_NO), action);
+    if (item == NULL) {
+        return;
+    }
+    item->toggle = true;
+    item->on = on;
 }
 
 /*
@@ -832,14 +928,23 @@ uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool
         .node_id = node->node_id,
     };
 
-    /* The actions lead: opening a node from the Nodes tab used to go straight to its
-       conversation, so the first thing under the cursor still gets you there. */
+    /*
+     * The actions lead: opening a node from the Nodes tab used to go straight to its
+     * conversation, so the first thing under the cursor still gets you there.
+     *
+     * Under a heading of their own since, which is the smaller half of the same point. Every
+     * other group on this screen names itself and this one did not, so eleven verbs simply
+     * *began* the screen and the first thing the eye met was a wall of them with no word saying
+     * what they had in common - and the "Identity" heading four rows down then read as the
+     * first heading rather than the second. A heading costs one row and is what turns the block
+     * into a group the reader can skip past.
+     */
+    const uint32_t actions_at = rows.count;
     if (!is_self) {
+        rows_heading(&rows, MESH_STR_NODE_HEAD_ACTIONS);
         rows_action(&rows, MESH_STR_NODE_ACT_MESSAGE, NULL, MESH_UI_NODE_ACTION_MESSAGE);
         /* Pinning our own node would be meaningless - it already ranks above everything. */
-        rows_action(&rows, MESH_STR_NODE_ACT_PIN,
-                    mesh_str(node->is_favorite ? MESH_STR_COMMON_YES : MESH_STR_COMMON_NO),
-                    MESH_UI_NODE_ACTION_FAVORITE);
+        rows_toggle(&rows, MESH_STR_NODE_ACT_PIN, node->is_favorite, MESH_UI_NODE_ACTION_FAVORITE);
         /* Tracing the route to ourselves is a question with no links in it. */
         node_rows_route(&rows, node, trace, now);
         /* The one row that answers "who is this?" for a node that joined after the NodeDB
@@ -857,14 +962,10 @@ uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool
         /* Muting is the gentle one of the three below: the node's traffic still arrives and
            still shows in its conversation, the radio just stops announcing it. The wire verb
            is a toggle rather than a set, so this row states the flag and flips it. */
-        rows_action(&rows, MESH_STR_NODE_ACT_MUTE,
-                    mesh_str(node->is_muted ? MESH_STR_COMMON_YES : MESH_STR_COMMON_NO),
-                    MESH_UI_NODE_ACTION_MUTE);
+        rows_toggle(&rows, MESH_STR_NODE_ACT_MUTE, node->is_muted, MESH_UI_NODE_ACTION_MUTE);
         /* Then, stated as what the radio will do rather than as a preference: an ignored
            node's packets are dropped before they reach us. */
-        rows_action(&rows, MESH_STR_NODE_ACT_IGNORE,
-                    mesh_str(node->is_ignored ? MESH_STR_COMMON_YES : MESH_STR_COMMON_NO),
-                    MESH_UI_NODE_ACTION_IGNORE);
+        rows_toggle(&rows, MESH_STR_NODE_ACT_IGNORE, node->is_ignored, MESH_UI_NODE_ACTION_IGNORE);
         /* Last, because it is the only row here that takes its own row away with it: the node
            leaves the list and there is nothing left to press to undo it. It comes back on its
            own when the node next transmits, which is why this is an arming press rather than
@@ -882,6 +983,14 @@ uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool
      * offering a place that is nowhere.
      */
     if (node->position.valid) {
+        /* Our own node reaches here having emitted none of the block above, so the group's
+           heading has not been written yet and these two rows would open the screen ungrouped -
+           which is the state the heading was added to remove. Asking where the group started
+           rather than re-testing `is_self` keeps the two conditions from drifting: what decides
+           is whether anything is under the heading, which is what a heading is about. */
+        if (rows.count == actions_at) {
+            rows_heading(&rows, MESH_STR_NODE_HEAD_ACTIONS);
+        }
         /* Looking at it, and keeping it: the two things a fix is good for, and both gated on
            there being one. A "show on map" row over a node with no position would open a map
            aimed at nowhere. */

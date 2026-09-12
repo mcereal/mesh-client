@@ -242,8 +242,10 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    /* Row 0 of the detail is the actions group's heading, which is not a row the cursor may
+       stand on - so opening a node lands on the message row under it. */
     if (!store.nav.node_detail_open || store.nav.node_detail_node != 0x3000U ||
-        store.nav.node_list_cursor != 3U || store.nav.cursor[MESH_UI_SCREEN_NODES] != 0U) {
+        store.nav.node_list_cursor != 3U || store.nav.cursor[MESH_UI_SCREEN_NODES] != 1U) {
         failure = "A on a node should open that node's detail";
         goto cleanup;
     }
