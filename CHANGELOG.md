@@ -1,3 +1,13 @@
+## [2.64.0](https://github.com/mcereal/mesh-client/compare/v2.63.1...v2.64.0) (2026-09-12)
+
+### Features
+
+* **firmware:** install the radio's firmware from Settings ([d159342](https://github.com/mcereal/mesh-client/commit/d159342a1cf70a697bbdb2ab7316ba103de2eec1))
+
+### Bug Fixes
+
+* **firmware:** revalidate the radio, refuse TCP, and let the loader be recovered from ([274f301](https://github.com/mcereal/mesh-client/commit/274f301ccf8459a508a63b78eca977b3485b4759)), closes [#157](https://github.com/mcereal/mesh-client/issues/157)
+
 ## [2.63.1](https://github.com/mcereal/mesh-client/compare/v2.63.0...v2.63.1) (2026-09-11)
 
 ### Bug Fixes
