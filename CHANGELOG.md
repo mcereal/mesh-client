@@ -1,3 +1,9 @@
+## [2.68.5](https://github.com/mcereal/mesh-client/compare/v2.68.4...v2.68.5) (2026-09-12)
+
+### Bug Fixes
+
+* **ui:** widen the framebuffer size multiply before it overflows ([7f6ed1a](https://github.com/mcereal/mesh-client/commit/7f6ed1aec0606b1fb45c03668bd1eed82c3a98fc))
+
 ## [2.68.4](https://github.com/mcereal/mesh-client/compare/v2.68.3...v2.68.4) (2026-09-12)
 
 ### Bug Fixes
