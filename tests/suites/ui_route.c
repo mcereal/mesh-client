@@ -424,3 +424,67 @@ MESH_TEST_CASE(ui_route_the_chart_is_a_level_of_the_status_tab, unit) {
                       "walking the verbs is not a change of place");
     record_success(test_name);
 }
+
+/*
+ * Naming a place for a file rather than for a screen.
+ *
+ * The identifiers here are what a capture scene names a tab with and what a crash report names
+ * the client's position with, so the two things worth pinning are that they are *stable* and
+ * that they are not the catalog's. A report that arrived in the reader's language rather than
+ * the maintainer's would be the i18n layer doing exactly the wrong thing for once.
+ */
+MESH_TEST_CASE(ui_route_describes_a_place_without_a_locale, unit) {
+    /* Every tab has one, and each is distinct - a table with a hole in it reads as "?" on the
+       screen that happens to fall in it, and a table with a duplicate names two places the
+       same. */
+    for (int i = 0; i < (int)MESH_UI_SCREEN_COUNT; ++i) {
+        const char *const id = mesh_ui_screen_id((enum mesh_ui_screen)i);
+        MESH_TEST_FAIL_IF(id == NULL || id[0] == '\0' || id[0] == '?', "a tab has no identifier");
+        for (int j = 0; j < i; ++j) {
+            MESH_TEST_FAIL_IF(strcmp(id, mesh_ui_screen_id((enum mesh_ui_screen)j)) == 0,
+                              "two tabs share an identifier");
+        }
+    }
+    MESH_TEST_FAIL_IF(strcmp(mesh_ui_screen_id((enum mesh_ui_screen)MESH_UI_SCREEN_COUNT), "?") !=
+                          0,
+                      "a screen outside the enum should answer '?' rather than index past it");
+
+    struct mesh_ui_nav nav;
+    mesh_ui_nav_init(&nav);
+    struct mesh_ui_route place;
+    char text[96];
+
+    mesh_ui_route_of(&nav, &place);
+    mesh_ui_route_describe(&place, text, sizeof text);
+    MESH_TEST_FAIL_IF(strcmp(text, "messages/list") != 0, "the opening place is the message list");
+
+    /* A level with neither a slot nor a subject says only where it is. */
+    nav.screen = MESH_UI_SCREEN_NODES;
+    nav.map_open = true;
+    mesh_ui_route_of(&nav, &place);
+    mesh_ui_route_describe(&place, text, sizeof text);
+    MESH_TEST_FAIL_IF(strcmp(text, "nodes/map") != 0, "the map should name itself");
+
+    /*
+     * A node is appended in hex, because that is how this client and the whole of upstream
+     * spell a node number - a report quoting one in decimal is a report nobody can grep for.
+     */
+    nav.map_open = false;
+    nav.node_detail_open = true;
+    nav.node_detail_node = 0xA1B2C3D4U;
+    mesh_ui_route_of(&nav, &place);
+    mesh_ui_route_describe(&place, text, sizeof text);
+    MESH_TEST_FAIL_IF(strcmp(text, "nodes/node:a1b2c3d4") != 0,
+                      "an open node should be named in hex");
+
+    /* A short buffer truncates rather than failing: a clipped route is most of an answer, and a
+       crash report is not the place to be strict about it. */
+    char tiny[6];
+    mesh_ui_route_describe(&place, tiny, sizeof tiny);
+    MESH_TEST_FAIL_IF(strlen(tiny) >= sizeof tiny, "a short buffer was overrun");
+
+    /* And a NULL route leaves an empty string rather than whatever was in the buffer. */
+    mesh_ui_route_describe(NULL, text, sizeof text);
+    MESH_TEST_FAIL_IF(text[0] != '\0', "a NULL route should describe nothing");
+    record_success(test_name);
+}

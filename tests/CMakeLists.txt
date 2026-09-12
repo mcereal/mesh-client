@@ -26,6 +26,7 @@ set(MESHCLIENT_TEST_SUITES
     suites/app.c
     suites/ble_ota.c
     suites/core_basics.c
+    suites/crash.c
     suites/fetch.c
     suites/firmware.c
     suites/firmware_catalog.c

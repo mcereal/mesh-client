@@ -351,6 +351,8 @@ enum mesh_ui_settings_action {
        when MESHCLIENT_THEME is holding the choice. */
     MESH_UI_SETTINGS_ACTION_CYCLE_THEME,
     MESH_UI_SETTINGS_ACTION_CYCLE_LANGUAGE,
+    /* About's crash-report row. Local, and offered only when there is a report to discard. */
+    MESH_UI_SETTINGS_ACTION_DISCARD_CRASH_REPORT,
     /* Radio actions. Every one of these goes through the confirm overlay, so A on the row
        opens the question rather than doing the thing. */
     MESH_UI_SETTINGS_ACTION_REBOOT,

@@ -11,6 +11,7 @@
 
 #include "app_internal.h"
 
+#include "mesh/core/version.h"
 #include "mesh/i18n/strings.h"
 #include "mesh/transport/ble.h"
 #include "mesh/transport/serial.h"
@@ -18,6 +19,7 @@
 #include "mesh/ui/backends/cli.h"
 #include "mesh/ui/backends/stub.h"
 #include "mesh/ui/preferences.h"
+#include "mesh/utils/crash.h"
 #include "mesh/utils/env.h"
 #include "mesh/utils/log.h"
 #include "mesh/utils/text.h"
@@ -686,6 +688,35 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
                 }
             }
         }
+        /*
+         * The crash handler, as soon as there is a directory to write into.
+         *
+         * Here rather than at the top of main() because the report has to land beside the
+         * preferences and the caches - the one directory a user on a handheld can be told to
+         * look in - and that path is not known until now. What is lost by waiting is a fault
+         * during the few hundred microseconds of argument parsing above, which is code that
+         * runs identically on every launch: a crash in it would be the one crash nobody needs
+         * a report to reproduce.
+         *
+         * A failure is logged and otherwise ignored. A client that cannot write crash reports
+         * is still a client, and refusing to start over it would turn a diagnostic into an
+         * outage.
+         */
+        char data_dir[sizeof app->ui_preferences_path];
+        mesh_str_copy(data_dir, sizeof data_dir, app->ui_preferences_path);
+        char *data_slash = strrchr(data_dir, '/');
+        if (data_slash != NULL && data_slash != data_dir) {
+            *data_slash = '\0';
+            const int crash_result = mesh_crash_install(data_dir);
+            if (crash_result < 0) {
+                mesh_log_warn("app", "Crash reports unavailable: %d", crash_result);
+            } else if (mesh_crash_report_waiting()) {
+                mesh_log_warn("app", "A crash report from a previous run is waiting in %s",
+                              data_dir);
+            }
+        }
+        mesh_crash_note(MESH_CRASH_NOTE_VERSION, mesh_version_string());
+
         int handshake_written =
             snprintf(app->ui_handshake_cache_path, sizeof(app->ui_handshake_cache_path),
                      "%s.handshake", app->ui_preferences_path);

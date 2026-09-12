@@ -108,6 +108,29 @@ bool mesh_ui_chrome_banner(const struct mesh_ui_snapshot *snapshot, struct mesh_
     }
 
     const struct mesh_ui_client_info *client = &snapshot->settings.client;
+
+    /*
+     * Ahead of the updater's two, behind the radio's loader.
+     *
+     * The loader outranks it because that is a radio off the mesh *now* and this is a fault that
+     * has already finished happening. It outranks the update pair because a fault is a fault and
+     * those are news: an update will still be there in an hour, and the report is the only one
+     * of the three that says something went wrong. It is also the shortest-lived of them - one
+     * press discards it - so ranking it high costs the others very little.
+     *
+     * ERROR rather than the loader's WARNING, and the difference is exactly the one that entry
+     * draws: nothing is broken about a radio waiting in its bootloader, and something was
+     * plainly broken about a client that stopped on its own.
+     */
+    if (client->crash_report_waiting) {
+        out->kind = (uint8_t)MESH_UI_BANNER_CRASH_REPORT;
+        out->icon = MESH_UI_ICON_WARNING;
+        out->text = MESH_STR_BANNER_CRASH_REPORT;
+        out->supporting = MESH_STR_BANNER_CRASH_REPORT_HINT;
+        out->family = MESH_UI_FAMILY_ERROR;
+        return true;
+    }
+
     /*
      * Both entries are the updater's, and the icon is the one Material puts on an informational
      * banner - which is also the icon the About section wears, because "there is something you

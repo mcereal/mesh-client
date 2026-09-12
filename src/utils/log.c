@@ -2,6 +2,8 @@
 
 #include "mesh/utils/log.h"
 
+#include "mesh/utils/crash.h"
+
 #include <errno.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -59,6 +61,52 @@ static void format_timestamp(char *buffer, size_t buffer_len) {
     }
 }
 
+/*
+ * The same line again, into the ring a crash report carries.
+ *
+ * A copy rather than a redirect, which is the point: stderr keeps streaming through vfprintf
+ * exactly as it did, so nothing about the log on the card changes, and the ring gets a bounded
+ * rendering of the same line. `va_copy` is what lets both read the arguments - a va_list is
+ * consumed by the first thing that walks it, and handing the same one to two formatters is the
+ * kind of bug that works on one architecture.
+ *
+ * It is taken *after* the level check on purpose. The ring is meant to be the tail of the log
+ * the user is looking at, and a ring holding lines the log file never showed would have the
+ * crash report and the log disagree about what the client did - which is worse than a ring that
+ * is quiet because the level was set high.
+ */
+static void log_capture(const char *timestamp, enum mesh_log_level level, const char *component,
+                        const char *fmt, va_list args) {
+    char line[MESH_CRASH_LOG_LINE_MAX];
+    int used = snprintf(line, sizeof line, "%s [%s]", timestamp, mesh_log_level_to_string(level));
+    if (used < 0) {
+        return;
+    }
+    size_t offset = (size_t)used < sizeof line ? (size_t)used : sizeof line - 1U;
+
+    if (component != NULL && component[0] != '\0') {
+        used = snprintf(line + offset, sizeof line - offset, " (%s)", component);
+        if (used > 0) {
+            offset +=
+                (size_t)used < sizeof line - offset ? (size_t)used : sizeof line - offset - 1U;
+        }
+    }
+    used = snprintf(line + offset, sizeof line - offset, ": ");
+    if (used > 0) {
+        offset += (size_t)used < sizeof line - offset ? (size_t)used : sizeof line - offset - 1U;
+    }
+    (void)vsnprintf(line + offset, sizeof line - offset, fmt, args);
+
+    /* The message may have ended in the newline the stderr path below adds for itself. A ring
+       entry is one line by construction, so it is taken back off rather than written out as a
+       blank line in the middle of the report. */
+    size_t len = strlen(line);
+    while (len > 0U && (line[len - 1U] == '\n' || line[len - 1U] == '\r')) {
+        line[--len] = '\0';
+    }
+    mesh_crash_log_line(line);
+}
+
 void mesh_log_message_v(enum mesh_log_level level, const char *component, const char *fmt,
                         va_list args) {
     if (level < g_log_level || level == MESH_LOG_LEVEL_NONE) {
@@ -67,6 +115,11 @@ void mesh_log_message_v(enum mesh_log_level level, const char *component, const 
 
     char timestamp[32];
     format_timestamp(timestamp, sizeof timestamp);
+
+    va_list captured;
+    va_copy(captured, args);
+    log_capture(timestamp, level, component, fmt, captured);
+    va_end(captured);
 
     fprintf(stderr, "%s [%s]", timestamp, mesh_log_level_to_string(level));
     if (component != NULL && component[0] != '\0') {

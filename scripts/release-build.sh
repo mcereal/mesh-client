@@ -80,7 +80,7 @@ cmake -S . -B build/release \
     -DCMAKE_SYSTEM_NAME=Linux \
     -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
     -DCMAKE_EXE_LINKER_FLAGS="-static ${DBUS_LDFLAGS:-}" \
-    -DCMAKE_C_FLAGS="-Os ${DBUS_CFLAGS:-}" \
+    -DCMAKE_C_FLAGS="-Os -fno-omit-frame-pointer ${DBUS_CFLAGS:-}" \
     -DPython3_EXECUTABLE="${SYSTEM_PYTHON}" \
     -DMESHCLIENT_VERSION_OVERRIDE="${VERSION}" \
     -DMESHCLIENT_RELEASE_BUILD=ON

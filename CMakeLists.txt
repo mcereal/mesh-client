@@ -95,6 +95,7 @@ add_library(meshclient_core
     src/map/wuffs_png.c
     src/i18n/strings.c
     src/i18n/locale_es.c
+    src/utils/crash.c
     src/utils/env.c
     src/utils/file.c
     src/utils/json.c
