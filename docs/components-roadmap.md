@@ -1422,10 +1422,15 @@ quietly, and those are the step.
   `store.c` walks the roster and hands over readings. That is `mesh_ui_signal_level()`'s seam
   one level up, and it is what makes `struct mesh_ui_history` a member of the snapshot rather
   than a circular include.
-- **It is not persisted, and that is a rule rather than an omission.** The node cache carries
-  the roster across restarts because a roster is what we *know*; a trend is what we *watched*,
-  and the hours the client was not running are not a silence it can draw. A resumed trend would
-  put a line over a period nothing observed - the same argument as the gap, on a longer scale.
+- **The radio's airtime pair is persisted; a node's trends are not.** The original rule was that
+  none of it was: a roster is what we *know* and a trend is what we *watched*, so a resumed trend
+  would put a line over a period nothing observed. What that missed is that the seam can be
+  *drawn* - `mesh_ui_history_resume()` lifts the pen over it, which is the gap rule on a longer
+  scale rather than an exception to it - and that the cadence made the rule unaffordable:
+  LocalStats is a quarter of an hour apart and two readings make a line, so a history starting
+  empty at every launch meant the Status tab's chart could not be opened for the first half hour
+  of any session. A node's trends still start empty and have the same problem at half an hour a
+  report.
 - **The component costs a card a row, and a bar costs it none.** The first version gave the card
   trend one line, like the meter, on the assumption that a picture in a row is a picture in a
   row. It is not: a meter's whole reading is a *length*, so it can be as thin as the theme

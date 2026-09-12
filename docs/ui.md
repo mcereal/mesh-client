@@ -1812,8 +1812,10 @@ Three rules it carries:
   the nav records *where a tab is standing*, one per tab, so each tab keeps its own place. A span
   is not a place — it is how the reader likes their charts read, which is the theme's kind of
   setting — so narrowing the airtime chart and then opening a node's temperature finds the same
-  span already picked. It is not persisted, because the history it slices is not persisted
-  either.
+  span already picked. It is not persisted: the radio's airtime readings now survive a restart,
+  but how far back somebody last looked is a question about the reading session rather than
+  about the readings, and a launch that opened on a quarter-hour window of a trend that has been
+  running for days would hide the history it had just restored.
 - **It only ever narrows, and it is anchored at the newest reading.** A span wider than the
   readings leaves the window at the readings' own ends, so the caption under the axis says what
   there turned out to be rather than what was asked for. Anchoring at *now* is the obvious

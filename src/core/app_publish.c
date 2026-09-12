@@ -2037,7 +2037,28 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
     mesh_app_flatten_store_forward(status, mesh_session_store_forward(&app->session),
                                    &ui_settings.store_forward);
     ui_settings.reboot_notices = app->session.reboot_notices;
+    /*
+     * A new airtime reading is worth a save, and the test is the newest sample's stamp rather
+     * than the count: the series is a ring of 24, so a client that has been up six hours stops
+     * growing and a count would stop noticing. Settings change for a dozen other reasons - the
+     * queue, a notice, a reboot count - so dirtying on MESH_UI_UPDATE_SETTINGS would write the
+     * cache far more often than there is anything new in it to write.
+     *
+     * Without this the trend reaches disk only when something else happens to dirty the cache,
+     * or at a clean exit - so a battery pull, or the SIGKILL that `deploy-stop` sends, would
+     * lose the readings that make the Mesh card's chart offerable on the next run.
+     */
+    const struct mesh_ui_sample *airtime_was =
+        mesh_ui_series_newest(&app->ui_store.history.channel_utilization);
+    const uint32_t airtime_stamp = airtime_was != NULL ? airtime_was->time : 0U;
+    const bool had_airtime = airtime_was != NULL;
     mesh_ui_store_set_settings(&app->ui_store, &ui_settings);
+    const struct mesh_ui_sample *airtime_now =
+        mesh_ui_series_newest(&app->ui_store.history.channel_utilization);
+    if (app->ui_handshake_cache_path[0] != '\0' && airtime_now != NULL &&
+        (!had_airtime || airtime_now->time != airtime_stamp)) {
+        app->ui_handshake_cache_dirty = true;
+    }
     mesh_app_track_settings_save(app, radio_settings, link_connected);
 
     struct mesh_ui_traceroute ui_traceroute;

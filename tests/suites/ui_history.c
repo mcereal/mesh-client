@@ -18,7 +18,10 @@
 #include "mesh/ui/layout.h"
 #include "mesh/ui/store.h"
 
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 MESH_TEST_CASE(series_keeps_the_newest_readings, unit) {
     struct mesh_ui_series series;
@@ -360,6 +363,77 @@ MESH_TEST_CASE(history_draws_a_line_at_the_radios_own_cadence, unit) {
                       "the radio's gap must outlast a skipped report, not just a late one");
     MESH_TEST_FAIL_IF(MESH_UI_HISTORY_NODE_GAP_MS <= 2U * MESH_UI_HISTORY_NODE_REPORT_MS,
                       "a node's gap must outlast a skipped report, not just a late one");
+    record_success(test_name);
+}
+
+/*
+ * The airtime trend survives a restart, and the clock it comes back to is not the one it left.
+ *
+ * This is the case the whole persistence exists for and the one that is easy to get wrong in a
+ * way no other test would see. A sample is stamped with CLOCK_MONOTONIC, which counts from
+ * *boot*: a Brick that has been up for hours writes samples in the millions, and the next run -
+ * a fresh boot, or simply an earlier point in a long uptime - pushes its first live reading at
+ * a smaller number. mesh_ui_series_push() reads a time below the newest as the clock having
+ * gone backwards and empties the series, so a restore that kept the saved stamps would undo
+ * itself on the first report with nothing on the frame saying so.
+ *
+ * So the second session's clock here is deliberately *far below* the first's, which is what
+ * makes this a regression test rather than a round trip.
+ */
+MESH_TEST_CASE(history_airtime_survives_a_restart_onto_a_new_clock, unit) {
+    char path[] = "/tmp/mesh_ui_history_restartXXXXXX";
+    const int fd = mkstemp(path);
+    MESH_TEST_FAIL_IF(fd < 0, "could not make a cache path");
+    close(fd);
+
+    /* Session one, on a machine that has been up for a while. */
+    struct mesh_ui_store first;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&first) != 0, "store init failed");
+    const uint32_t old_clock = 9U * 60U * 60U * 1000U; /* nine hours of uptime */
+    const uint32_t cadence = MESH_UI_HISTORY_RADIO_REPORT_MS + 60U * 1000U;
+    for (uint32_t i = 0U; i < 4U; ++i) {
+        mesh_ui_history_note_airtime(&first.history, old_clock + i * cadence,
+                                     (int32_t)(50U + i * 10U), (int32_t)(10U + i * 5U));
+    }
+    MESH_TEST_FAIL_IF(!mesh_ui_history_has_airtime(&first.history), "the first session had a line");
+    MESH_TEST_FAIL_IF(mesh_ui_store_save(&first, path) != 0, "save failed");
+
+    /* Session two, on a clock that starts again from a cold boot. */
+    struct mesh_ui_store second;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&second) != 0, "store init failed");
+    MESH_TEST_FAIL_IF(mesh_ui_store_load(&second, path) != 0, "load failed");
+
+    MESH_TEST_FAIL_IF(second.history.channel_utilization.count != 4U,
+                      "every saved reading should come back");
+    MESH_TEST_FAIL_IF(second.history.air_util_tx.count != 4U,
+                      "the transmit share rides the same record");
+    MESH_TEST_FAIL_IF(!mesh_ui_history_has_airtime(&second.history),
+                      "a restored trend should be drawable before the radio says anything");
+
+    /* The readings themselves, oldest first, in the order they were written. */
+    for (uint32_t i = 0U; i < 4U; ++i) {
+        const struct mesh_ui_sample *sample =
+            mesh_ui_series_at(&second.history.channel_utilization, i);
+        MESH_TEST_FAIL_IF(sample == NULL || sample->value != (int32_t)(50U + i * 10U),
+                          "a restored reading should be the one that was saved");
+    }
+
+    /* And now the live clock, which is thirty seconds into this boot - far below every stamp
+       the first session wrote. */
+    const uint32_t new_clock = 30U * 1000U;
+    mesh_ui_history_note_airtime(&second.history, new_clock, 90, 30);
+    MESH_TEST_FAIL_IF(second.history.channel_utilization.count != 5U,
+                      "a reading on a lower clock must not empty the restored series");
+    MESH_TEST_FAIL_IF(!mesh_ui_series_starts_segment(&second.history.channel_utilization, 4U),
+                      "the first reading after a restart starts a segment of its own");
+
+    /* A second live reading continues it, so the new session draws a line of its own. */
+    mesh_ui_history_note_airtime(&second.history, new_clock + 60U * 1000U, 95, 32);
+    MESH_TEST_FAIL_IF(mesh_ui_series_starts_segment(&second.history.channel_utilization, 5U),
+                      "a punctual reading after the seam continues the live segment");
+    MESH_TEST_FAIL_IF(second.history.channel_utilization.count != 6U, "both live readings kept");
+
+    remove(path);
     record_success(test_name);
 }
 
