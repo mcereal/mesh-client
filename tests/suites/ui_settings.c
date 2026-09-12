@@ -5,6 +5,8 @@
 #include "framework/mesh_test.h"
 #include "support/ui_fixture.h"
 
+#include "mesh/core/firmware.h"
+#include "mesh/core/firmware_update.h"
 #include "mesh/core/radio_settings.h"
 /* For enum mesh_traceroute_state, which the UI's traceroute carries as a byte. */
 #include "mesh/core/session.h"
@@ -2105,5 +2107,264 @@ MESH_TEST_CASE(ui_settings_connection_status, unit) {
                                                   MESH_UI_SETTINGS_NO_CHANNEL) >
                           MESH_UI_SETTINGS_ITEMS_MAX,
                       "a radio reporting every interface must still fit the item list");
+    record_success(test_name);
+}
+
+/*
+ * The firmware rows, from "there is something newer" through the press to the job running.
+ *
+ * Three things are being pinned and each of them is a decision rather than an observation:
+ * **the press exists only when the app said so**, because `fw_can_install` is five questions
+ * the app answers once so the row cannot answer them differently; **the row names the bus**, so
+ * the confirm sheet behind it can say what is actually true; and **a job in flight takes the
+ * section over**, because there is no second install to start and the check would take the
+ * download's own child.
+ */
+MESH_TEST_CASE(ui_settings_radio_firmware_install_row, unit) {
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_metadata = true;
+    settings.fw_supported = true;
+    settings.fw_state = (uint8_t)MESH_FIRMWARE_AVAILABLE;
+    snprintf(settings.fw_latest, sizeof settings.fw_latest, "%s", "2.7.26.54e0d8d");
+    snprintf(settings.fw_channel, sizeof settings.fw_channel, "%s", "stable");
+
+    /* A check that found something the client cannot install says why, and offers nothing. */
+    snprintf(settings.fw_blocker_reason, sizeof settings.fw_blocker_reason, "%s",
+             "connect it by USB");
+    uint32_t count = mesh_ui_settings_item_count(&settings, NULL, MESH_UI_SETTINGS_RADIO,
+                                                 MESH_UI_SETTINGS_NO_CHANNEL);
+    struct mesh_ui_settings_item item;
+    for (uint32_t i = 0; i < count; ++i) {
+        MESH_TEST_FAIL_IF(mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_RADIO,
+                                                MESH_UI_SETTINGS_NO_CHANNEL, i, &item) &&
+                              item.kind == MESH_UI_SETTING_ACTION &&
+                              mesh_ui_settings_action_is_install_firmware(
+                                  (enum mesh_ui_settings_action)item.number),
+                          "a blocked board should offer no install row");
+    }
+
+    /* With the app's permission and a serial link, the press appears and names the USB install.
+       A on it opens the sheet rather than doing anything: this is the row that cannot be taken
+       back. */
+    settings.fw_blocker_reason[0] = '\0';
+    settings.fw_can_install = true;
+    settings.fw_bus = (uint8_t)MESH_FIRMWARE_PATH_USB;
+    count = mesh_ui_settings_item_count(&settings, NULL, MESH_UI_SETTINGS_RADIO,
+                                        MESH_UI_SETTINGS_NO_CHANNEL);
+    bool found_usb = false;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_RADIO,
+                                  MESH_UI_SETTINGS_NO_CHANNEL, i, &item) &&
+            item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB) {
+            found_usb = true;
+        }
+    }
+    MESH_TEST_FAIL_IF(!found_usb, "a board on the cable should offer the USB install");
+
+    settings.fw_bus = (uint8_t)MESH_FIRMWARE_PATH_BLE;
+    count = mesh_ui_settings_item_count(&settings, NULL, MESH_UI_SETTINGS_RADIO,
+                                        MESH_UI_SETTINGS_NO_CHANNEL);
+    bool found_ble = false;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_RADIO,
+                                  MESH_UI_SETTINGS_NO_CHANNEL, i, &item) &&
+            item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE) {
+            found_ble = true;
+        }
+    }
+    MESH_TEST_FAIL_IF(!found_ble, "a radio on the air should offer the Bluetooth install");
+
+    /*
+     * A job in flight. The section drops to the meter and the release it is installing, and the
+     * two presses that were there - the channel and the check - are gone, because both would
+     * take the fetcher the download is using.
+     */
+    settings.fw_update_state = (uint8_t)MESH_FIRMWARE_UPDATE_WRITING;
+    settings.fw_update_progress = 43U;
+    settings.fw_can_install = false;
+    count = mesh_ui_settings_item_count(&settings, NULL, MESH_UI_SETTINGS_RADIO,
+                                        MESH_UI_SETTINGS_NO_CHANNEL);
+    bool metered = false;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_RADIO,
+                                   MESH_UI_SETTINGS_NO_CHANNEL, i, &item)) {
+            continue;
+        }
+        MESH_TEST_FAIL_IF(
+            item.kind == MESH_UI_SETTING_ACTION &&
+                (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CHECK_RADIO_FIRMWARE ||
+                 item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CYCLE_FIRMWARE_CHANNEL),
+            "nothing else in the section is pressable while an install runs");
+        if (item.kind == MESH_UI_SETTING_METER && strstr(item.value, "43%") != NULL) {
+            metered = true;
+            /* A fraction the module answered with, on the bar rather than only in the words. */
+            MESH_TEST_FAIL_IF(item.number != 430U, "the meter should carry the same fraction");
+        }
+    }
+    MESH_TEST_FAIL_IF(!metered, "a running install should draw its own progress");
+
+    /* A step with no fraction draws no bar rather than a bar stuck at nothing: forty seconds of
+       waiting for a bootloader at 0% reads as a job that stalled. */
+    settings.fw_update_state = (uint8_t)MESH_FIRMWARE_UPDATE_WAITING;
+    settings.fw_update_progress = 0U;
+    count = mesh_ui_settings_item_count(&settings, NULL, MESH_UI_SETTINGS_RADIO,
+                                        MESH_UI_SETTINGS_NO_CHANNEL);
+    bool indeterminate = false;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_RADIO,
+                                  MESH_UI_SETTINGS_NO_CHANNEL, i, &item) &&
+            item.kind == MESH_UI_SETTING_METER && item.number == MESH_UI_METER_UNKNOWN) {
+            indeterminate = true;
+        }
+    }
+    MESH_TEST_FAIL_IF(!indeterminate, "a step with no fraction should say so rather than draw 0%");
+    record_success(test_name);
+}
+
+/*
+ * The confirm sheet, which is the reason there are two install actions rather than one.
+ *
+ * Over USB the worst case is a board sitting in its bootloader that any computer can write
+ * again; over Bluetooth the radio leaves the mesh for a loader it cannot come back out of on
+ * its own. Those are different warnings, and a sheet that gave both the same one would be
+ * understating exactly the case that needs the warning.
+ */
+MESH_TEST_CASE(ui_settings_firmware_confirm_says_what_is_true, unit) {
+    char usb_title[96];
+    char ble_title[96];
+    char usb_text[256];
+    char ble_text[256];
+
+    MESH_TEST_FAIL_IF(
+        !mesh_ui_settings_action_needs_confirm(MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB) ||
+            !mesh_ui_settings_action_needs_confirm(MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE),
+        "neither install may happen on the press that selected it");
+
+    mesh_ui_settings_confirm_title(MESH_UI_SETTINGS_RADIO, MESH_UI_SETTINGS_NO_CHANNEL,
+                                   MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB, usb_title,
+                                   sizeof usb_title);
+    mesh_ui_settings_confirm_title(MESH_UI_SETTINGS_RADIO, MESH_UI_SETTINGS_NO_CHANNEL,
+                                   MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE, ble_title,
+                                   sizeof ble_title);
+    mesh_ui_settings_confirm_text(MESH_UI_SETTINGS_RADIO,
+                                  MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB, usb_text,
+                                  sizeof usb_text);
+    mesh_ui_settings_confirm_text(MESH_UI_SETTINGS_RADIO,
+                                  MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE, ble_text,
+                                  sizeof ble_text);
+
+    MESH_TEST_FAIL_IF(usb_title[0] == '\0' || ble_title[0] == '\0', "both sheets need a question");
+    MESH_TEST_FAIL_IF(strcmp(usb_title, ble_title) == 0, "the two buses are not the same question");
+    MESH_TEST_FAIL_IF(strcmp(usb_text, ble_text) == 0, "and they are not the same warning either");
+    MESH_TEST_FAIL_IF(
+        strcmp(mesh_ui_settings_confirm_accept(MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB),
+               mesh_ui_settings_confirm_accept(MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE)) == 0,
+        "nor the same thing to agree to");
+    /* Neither may fall through to the section save's wording, which says the radio will reboot
+       to apply a setting - true of neither of these and reassuring about both. */
+    char save_text[256];
+    mesh_ui_settings_confirm_text(MESH_UI_SETTINGS_RADIO, MESH_UI_SETTINGS_ACTION_NONE, save_text,
+                                  sizeof save_text);
+    MESH_TEST_FAIL_IF(strcmp(usb_text, save_text) == 0 || strcmp(ble_text, save_text) == 0,
+                      "an install is not a settings save with a longer wait");
+    record_success(test_name);
+}
+
+/*
+ * The press that goes through the sheet reaches the app as its own action, carrying the bus the
+ * sheet named.
+ *
+ * The bus rides the action rather than being re-read from the snapshot because a link that
+ * moved between the question and the answer would otherwise have the user agreeing to one thing
+ * and getting the other - which on this press is a radio sent into a loader it was never
+ * promised it would be.
+ */
+MESH_TEST_CASE(ui_settings_firmware_install_goes_through_the_sheet, unit) {
+    struct mesh_ui_store store;
+    struct mesh_ui_settings settings;
+    struct mesh_ui_action action;
+    const char *failure = NULL;
+
+    mesh_ui_store_init(&store);
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_metadata = true;
+    settings.fw_supported = true;
+    settings.fw_state = (uint8_t)MESH_FIRMWARE_AVAILABLE;
+    settings.fw_can_install = true;
+    settings.fw_bus = (uint8_t)MESH_FIRMWARE_PATH_BLE;
+    snprintf(settings.fw_latest, sizeof settings.fw_latest, "%s", "2.7.26.54e0d8d");
+    snprintf(settings.fw_channel, sizeof settings.fw_channel, "%s", "stable");
+    mesh_ui_store_set_settings(&store, &settings);
+
+    store.nav.screen = MESH_UI_SCREEN_SETTINGS;
+    store.nav.settings_section = (uint8_t)MESH_UI_SETTINGS_RADIO;
+    store.nav.settings_channel = MESH_UI_SETTINGS_NO_CHANNEL;
+
+    const uint32_t rows = mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS);
+    uint32_t install_row = rows;
+    struct mesh_ui_settings_item item;
+    for (uint32_t i = 0; i < rows; ++i) {
+        if (mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_RADIO,
+                                  MESH_UI_SETTINGS_NO_CHANNEL, i, &item) &&
+            item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE) {
+            install_row = i;
+        }
+    }
+    if (install_row >= rows) {
+        failure = "the section should offer the install";
+        goto cleanup;
+    }
+
+    store.nav.cursor[MESH_UI_SCREEN_SETTINGS] = install_row;
+    memset(&action, 0, sizeof action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (action.type != MESH_UI_ACTION_NONE) {
+        failure = "A on the row opens the question rather than sending the radio anywhere";
+        goto cleanup;
+    }
+    if (!store.nav.confirm_open ||
+        store.nav.confirm_action != (uint8_t)MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE) {
+        failure = "and the sheet should be the one for this bus";
+        goto cleanup;
+    }
+    if (store.nav.confirm_cursor != 1U) {
+        failure = "the sheet opens on Cancel, so a repeated press changes nothing";
+        goto cleanup;
+    }
+
+    /* B backs out and nothing happens, which is the half of the sheet that matters most. */
+    memset(&action, 0, sizeof action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    if (store.nav.confirm_open || action.type != MESH_UI_ACTION_NONE) {
+        failure = "backing out of the sheet should install nothing";
+        goto cleanup;
+    }
+
+    /* And through it: the action carries the bus rather than making the app look it up again. */
+    store.nav.cursor[MESH_UI_SCREEN_SETTINGS] = install_row;
+    memset(&action, 0, sizeof action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    store.nav.confirm_cursor = 0U;
+    memset(&action, 0, sizeof action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (action.type != MESH_UI_ACTION_INSTALL_RADIO_FIRMWARE) {
+        failure = "agreeing to the sheet should ask the app to install";
+        goto cleanup;
+    }
+    if (action.number != 1U) {
+        failure = "and should carry the bus the sheet named";
+        goto cleanup;
+    }
+    if (store.nav.confirm_open) {
+        failure = "the sheet closes behind it";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }

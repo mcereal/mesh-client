@@ -114,9 +114,16 @@ static void firmware_set(struct mesh_firmware *firmware, enum mesh_firmware_stat
  * opinion about a fact already on hand is a second opinion that can be wrong.
  */
 static enum mesh_firmware_blocker firmware_blocker(const struct mesh_firmware *firmware) {
-    if (firmware->bus == MESH_FIRMWARE_PATH_NONE) {
+    if (!firmware->bus_connected) {
         return MESH_FIRMWARE_BLOCKER_NO_RADIO;
     }
+    /*
+     * Attached, but not over a bus firmware can travel on - a network link, today. It falls
+     * through rather than answering here, so the board's own path decides: `board->path` can
+     * never equal a NONE bus, so this lands on WRONG_BUS and the row names the bus to go and
+     * use. That is a thing the reader can act on, where "no radio" would be a thing they can
+     * see is untrue.
+     */
     if (firmware->boards.found == 0U) {
         return MESH_FIRMWARE_BLOCKER_UNKNOWN_BOARD;
     }
@@ -317,11 +324,13 @@ bool mesh_firmware_busy(const struct mesh_firmware *firmware) {
     return firmware != NULL && mesh_fetch_busy(&firmware->fetch);
 }
 
-void mesh_firmware_set_bus(struct mesh_firmware *firmware, enum mesh_firmware_path bus) {
-    if (firmware == NULL || firmware->bus == bus) {
+void mesh_firmware_set_bus(struct mesh_firmware *firmware, enum mesh_firmware_path bus,
+                           bool connected) {
+    if (firmware == NULL || (firmware->bus == bus && firmware->bus_connected == connected)) {
         return;
     }
     firmware->bus = bus;
+    firmware->bus_connected = connected;
     firmware->revision++;
     firmware_recompute_blocker(firmware);
 }

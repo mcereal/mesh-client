@@ -39,6 +39,17 @@ void mesh_app_note_connected_device(struct mesh_app *app, const char *identifier
 /* What the UI asked for; installed on the UI controller as its action handler. */
 void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *action);
 
+/*
+ * Drives a radio firmware install and feeds it what the radio has said since the last turn.
+ *
+ * Here rather than in app.c because the install's hooks are here: the thing that owns the
+ * callbacks is the thing that should own the pump. The notification relay is part of it for the
+ * same reason - the BLE path's go-ahead and its refusal arrive as a ClientNotification on the
+ * session's read path and the install runs from the tick, so this is the only place the two
+ * meet. Call every loop turn.
+ */
+void mesh_app_firmware_update_tick(struct mesh_app *app, uint64_t now);
+
 /* ---- app_settings.c --------------------------------------------------------------------- */
 
 /* Queues the admin write a MESH_UI_ACTION_SAVE_SETTINGS asks for and toasts the outcome. */
@@ -57,6 +68,17 @@ void mesh_app_track_settings_save(struct mesh_app *app,
                                   bool link_connected);
 
 /* ---- app_publish.c ---------------------------------------------------------------------- */
+
+/*
+ * Which bus the radio is on, as the firmware module's own idea of a path - NONE for nothing
+ * connected *and* for a link no firmware can travel on, which today is TCP.
+ *
+ * Shared because the press and the row have to agree about it: the row is built from what this
+ * answered at publish time, and the press re-asks it before arming because the link can have
+ * moved in between. Two readings of the bus would be two answers about which radio is being
+ * sent into a loader.
+ */
+enum mesh_firmware_path mesh_app_firmware_bus(void);
 
 void mesh_app_flush_ui_cache(struct mesh_app *app);
 void mesh_app_close_ui_cache_timer(struct mesh_app *app);

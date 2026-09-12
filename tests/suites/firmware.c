@@ -173,7 +173,7 @@ MESH_TEST_CASE(firmware_check_identifies_and_compares, unit) {
         failure = "the harness should come up with a fetcher";
         goto cleanup;
     }
-    mesh_firmware_set_bus(&harness.firmware, MESH_FIRMWARE_PATH_USB);
+    mesh_firmware_set_bus(&harness.firmware, MESH_FIRMWARE_PATH_USB, true);
 
     if (mesh_firmware_check(&harness.firmware, 69U, "2.7.20.6658ec2", 0U) != 0) {
         failure = "the check should start";
@@ -219,7 +219,7 @@ MESH_TEST_CASE(firmware_check_identifies_and_compares, unit) {
      * anyway, because the refusal is derived from the board and the bus rather than recorded
      * when the documents landed.
      */
-    mesh_firmware_set_bus(&harness.firmware, MESH_FIRMWARE_PATH_BLE);
+    mesh_firmware_set_bus(&harness.firmware, MESH_FIRMWARE_PATH_BLE, true);
     if (harness.firmware.blocker != MESH_FIRMWARE_BLOCKER_WRONG_BUS) {
         failure = "the same board over BLE is the wrong-bus refusal";
         goto cleanup;
@@ -228,7 +228,27 @@ MESH_TEST_CASE(firmware_check_identifies_and_compares, unit) {
         failure = "and the check's own answer should not have moved";
         goto cleanup;
     }
-    mesh_firmware_set_bus(&harness.firmware, MESH_FIRMWARE_PATH_NONE);
+    /*
+     * A radio attached over a bus no firmware can travel on, which today is a network link.
+     *
+     * The two halves of this are one answer each and they are easy to get backwards. It is not
+     * "no radio": there is one, it is answering everything else, and a row saying otherwise is
+     * a row the reader can see is untrue. And it is emphatically not the BLE refusal either,
+     * which is what "anything that is not serial" used to make it - that made an ESP32 on a
+     * network cable look installable, and would have sent the loader scan looking for a
+     * hostname at a Bluetooth address.
+     */
+    mesh_firmware_set_bus(&harness.firmware, MESH_FIRMWARE_PATH_NONE, true);
+    if (harness.firmware.blocker != MESH_FIRMWARE_BLOCKER_WRONG_BUS) {
+        failure = "a radio on a bus with no firmware path gets the wrong-bus refusal";
+        goto cleanup;
+    }
+    if (harness.firmware.state != MESH_FIRMWARE_AVAILABLE) {
+        failure = "and that check's answer should still stand too";
+        goto cleanup;
+    }
+
+    mesh_firmware_set_bus(&harness.firmware, MESH_FIRMWARE_PATH_NONE, false);
     if (harness.firmware.blocker != MESH_FIRMWARE_BLOCKER_NO_RADIO) {
         failure = "with the radio gone the refusal is that there is no radio";
         goto cleanup;
@@ -254,7 +274,7 @@ MESH_TEST_CASE(firmware_channel_picks_the_list_and_forgets, unit) {
         failure = "the harness should come up with a fetcher";
         goto cleanup;
     }
-    mesh_firmware_set_bus(&harness.firmware, MESH_FIRMWARE_PATH_USB);
+    mesh_firmware_set_bus(&harness.firmware, MESH_FIRMWARE_PATH_USB, true);
 
     if (harness.firmware.channel != MESH_FIRMWARE_CHANNEL_STABLE) {
         failure = "an untouched client follows stable";
@@ -356,7 +376,7 @@ MESH_TEST_CASE(firmware_check_names_its_refusals, unit) {
         goto cleanup;
     }
     for (size_t i = 0; i < sizeof k_cases / sizeof k_cases[0]; ++i) {
-        mesh_firmware_set_bus(&harness.firmware, k_cases[i].bus);
+        mesh_firmware_set_bus(&harness.firmware, k_cases[i].bus, true);
         if (mesh_firmware_check(&harness.firmware, k_cases[i].hw_model, "2.7.20.6658ec2", 0U) !=
             0) {
             failure = "the check should start";
@@ -397,7 +417,7 @@ MESH_TEST_CASE(firmware_check_survives_a_silent_radio_and_a_bad_reply, unit) {
         failure = "the harness should come up with a fetcher";
         goto cleanup;
     }
-    mesh_firmware_set_bus(&harness.firmware, MESH_FIRMWARE_PATH_USB);
+    mesh_firmware_set_bus(&harness.firmware, MESH_FIRMWARE_PATH_USB, true);
 
     if (mesh_firmware_check(&harness.firmware, 0U, "", 0U) != 0) {
         failure = "a check for a radio that has not said should still start";
@@ -470,7 +490,7 @@ MESH_TEST_CASE(firmware_answer_belongs_to_the_radio_it_was_asked_about, unit) {
         goto cleanup;
     }
 
-    mesh_firmware_set_bus(&harness.firmware, MESH_FIRMWARE_PATH_USB);
+    mesh_firmware_set_bus(&harness.firmware, MESH_FIRMWARE_PATH_USB, true);
     if (mesh_firmware_check(&harness.firmware, 69U, "2.7.20.6658ec2", 0U) != 0 ||
         !firmware_settle(&harness)) {
         failure = "the check should run";

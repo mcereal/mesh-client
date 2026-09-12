@@ -854,9 +854,35 @@ struct mesh_ui_settings {
        Either may be empty: a check that has not run, or a board nothing claimed. */
     char fw_latest[MESH_UI_FW_VERSION_MAX];
     char fw_board[MESH_UI_FW_BOARD_MAX];
-    /* Why nothing can be installed from here, already turned into a line - empty when the only
-       reason is that the phase that would do it has not been written. */
+    /* Why nothing can be installed from here, already turned into a line - empty when there is
+       no reason, which is when the press below is offered. */
     char fw_blocker_reason[64];
+
+    /*
+     * Installing it: the other half, flattened out of src/core/firmware_update.c the same way.
+     *
+     * `fw_can_install` is the press being offered and is deliberately not derivable from the
+     * two bytes below - it is the check having found something, the board having a path, the
+     * radio being on that bus and nothing else already running, which is four questions the
+     * app answers once so the row, the action bar and the confirm sheet cannot answer them
+     * three different ways.
+     */
+    bool fw_can_install;
+    /* Which bus the radio is on, as enum mesh_firmware_path spells it - so the row can name the
+       install it is offering without asking the device list what kind of link this is. */
+    uint8_t fw_bus;
+    uint8_t fw_update_state;    /* enum mesh_firmware_update_state (mesh/core/firmware_update.h) */
+    uint8_t fw_update_error;    /* enum mesh_firmware_update_error */
+    uint8_t fw_update_progress; /* 0-100 over the step that has a fraction; 0 for the rest */
+    /* The radio's own words, the loader's, or a sub-module's name for what broke. Untranslated,
+       like a log line - see docs/i18n.md. */
+    char fw_update_detail[96];
+    /*
+     * The radio is sitting in its ESP32 update loader: off the mesh, and out of it only by an
+     * image finishing. What the banner reads, and the one client state that is true about a
+     * computer this client is not currently talking to.
+     */
+    bool fw_radio_in_loader;
 };
 
 struct mesh_ui_my_info {

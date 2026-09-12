@@ -1888,6 +1888,17 @@ the audit expected:
 bar running with the list unmoved under it, the banner following you across the tabs, and it
 standing down on the one screen that already says the same thing.
 
+The third entry is the one that is not about this client at all. A radio sent into the ESP32 OTA
+loader is off the mesh and cannot get itself back — the loader has no timer, no reboot counter and
+no fallback to the old firmware, so it advertises there until an image finishes arriving — and
+that is both more urgent than either update notice and the only one of the three nothing but this
+client can clear, so it is answered first. It still obeys both rules: it resolves by pressing
+Install again, and it stands down inside Settings → About radio, which is where that press lives.
+There is deliberately no USB counterpart, and the absence is the feature: a board left in its UF2
+bootloader is talking to any computer in the world.
+`make ui-capture ARGS="devtools/ui_capture/scenes/radio-firmware-install.scene -o fw.gif"` walks
+the whole install and ends on it.
+
 The banner's slots are the app bar's lesson applied again: a headline string id, a supporting
 string id, and a `detail` that is a runtime string rather than an id — a version number, in the
 same category as a region code (see [i18n](i18n.md)). Keeping the version out of the words is

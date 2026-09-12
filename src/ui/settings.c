@@ -1625,7 +1625,16 @@ bool mesh_ui_settings_action_needs_confirm(enum mesh_ui_settings_action action) 
            action == MESH_UI_SETTINGS_ACTION_BACKUP_CONFIG ||
            action == MESH_UI_SETTINGS_ACTION_RESTORE_CONFIG ||
            action == MESH_UI_SETTINGS_ACTION_REMOVE_BACKUP ||
+           mesh_ui_settings_action_is_install_firmware(action) ||
            mesh_ui_settings_action_is_forget(action);
+}
+
+/* The two firmware installs, which are one press with two sheets in front of it. Asked as a
+   predicate rather than compared inline for the reason mesh_ui_settings_action_is_forget() is:
+   four places want the question and a fifth arriving is how they stop agreeing. */
+bool mesh_ui_settings_action_is_install_firmware(enum mesh_ui_settings_action action) {
+    return action == MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB ||
+           action == MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE;
 }
 
 /* Spelled out rather than "everything that needs confirming, plus the position pair": the
@@ -1686,6 +1695,12 @@ void mesh_ui_settings_confirm_title(enum mesh_ui_settings_section section, uint8
     case MESH_UI_SETTINGS_ACTION_REMOVE_BACKUP:
         snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TITLE_RM_BACKUP));
         return;
+    case MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB:
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TITLE_FW_USB));
+        return;
+    case MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE:
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TITLE_FW_BLE));
+        return;
     default:
         break;
     }
@@ -1719,6 +1734,10 @@ const char *mesh_ui_settings_confirm_accept(enum mesh_ui_settings_action action)
         return mesh_str(MESH_STR_CONFIRM_ACCEPT_RESTORE);
     case MESH_UI_SETTINGS_ACTION_REMOVE_BACKUP:
         return mesh_str(MESH_STR_CONFIRM_ACCEPT_RM_BACKUP);
+    case MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB:
+        return mesh_str(MESH_STR_CONFIRM_ACCEPT_FW_USB);
+    case MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE:
+        return mesh_str(MESH_STR_CONFIRM_ACCEPT_FW_BLE);
     default:
         return mesh_str(MESH_STR_CONFIRM_ACCEPT_SAVE);
     }
@@ -1764,6 +1783,15 @@ void mesh_ui_settings_confirm_text(enum mesh_ui_settings_section section,
         return;
     case MESH_UI_SETTINGS_ACTION_RESTORE_CONFIG:
         snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TEXT_RESTORE));
+        return;
+    /* The two that are not about settings at all. Each says what is actually true of its own
+       bus, which is the whole reason there are two: an interrupted USB write leaves a
+       bootloader anything can talk to, and an interrupted OTA leaves a radio off the mesh. */
+    case MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB:
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TEXT_FW_USB));
+        return;
+    case MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE:
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TEXT_FW_BLE));
         return;
     case MESH_UI_SETTINGS_ACTION_REMOVE_BACKUP:
         snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TEXT_RM_BACKUP));

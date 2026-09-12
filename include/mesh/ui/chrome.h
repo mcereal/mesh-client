@@ -78,6 +78,18 @@ enum mesh_ui_banner_kind {
     /* A check found a newer release and this build is allowed to install it. Resolved by
        installing it, or by a later check finding this one is current. */
     MESH_UI_BANNER_UPDATE_AVAILABLE,
+    /*
+     * The *radio* is in its ESP32 update loader: off the mesh, advertising the loader's service
+     * and waiting for an image with the hash it was given. There is no timer in there and no
+     * fallback to the old firmware - the only way out is an update finishing - so this is the
+     * one banner about a state the user cannot wait out.
+     *
+     * It resolves by pressing Install again, which finds the loader at the radio's address plus
+     * one and finishes the job. There is deliberately no USB equivalent: a board left in its
+     * UF2 bootloader is talking to any computer in the world, so there is nothing this client
+     * has to promise to come back for.
+     */
+    MESH_UI_BANNER_RADIO_IN_LOADER,
     MESH_UI_BANNER_KIND_COUNT,
 };
 

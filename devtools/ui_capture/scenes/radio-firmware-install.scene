@@ -1,0 +1,65 @@
+# Settings > About radio, installing what the check found.
+#
+# The half of this screen no picture could reach any other way: every state below needs a radio
+# in a bootloader, half a megabyte on the way down, or a loader advertising on the air. What is
+# worth looking at is that it reads as one ladder from both buses - "writing" is blocks to a
+# drive over a cable and chunks to a characteristic over the air, and a row answering "where has
+# this got to" should not have to care which.
+scene demo
+clock 2026-09-09 14:20
+delay 1800
+config
+
+tab settings
+key down 1
+key a
+
+# The press, on a radio attached by cable. The row above it is the check's answer and the row
+# below is what to do about it, which is the pair this whole section is built around.
+firmware-install idle usb
+hold 2000
+
+# The question in front of it, which is not optional and is not "OK/Cancel": over USB the worst
+# case is a board sitting in its bootloader that any computer can write again, so the sheet says
+# that rather than a warning borrowed from the other bus.
+key a
+hold 2600
+key b
+hold 900
+
+# The same row on a radio connected over Bluetooth, and the sheet that belongs to it. This is the
+# one that has to be read: the radio leaves the mesh for a loader there is no way back out of
+# except finishing.
+firmware-install idle ble
+key a
+hold 3000
+key b
+hold 900
+
+# The ladder. The two steps with a fraction fill the meter; the ones without draw an
+# indeterminate bar rather than a bar stuck at nothing, because forty seconds of waiting for a
+# bootloader at 0% reads as a job that stalled.
+firmware-install resolving ble
+hold 1400
+firmware-install downloading ble 62
+hold 1800
+firmware-install ready ble
+hold 1400
+firmware-install arming ble
+hold 1400
+firmware-install waiting ble
+hold 1400
+firmware-install writing ble 43
+hold 1800
+firmware-install restarting ble
+hold 1400
+firmware-install done ble
+hold 1800
+
+# And the failure that leaves a radio somewhere it cannot leave on its own. The row carries the
+# radio's own words, and the banner is what says the same thing from every other screen - so the
+# scene walks off this tab to show it, since About radio is precisely where it stands down.
+firmware-install failed ble
+hold 2400
+tab status
+hold 3000

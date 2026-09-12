@@ -14,6 +14,7 @@
 #include "mesh/geo/coords.h"
 #include "mesh/i18n/strings.h"
 #include "mesh/transport/ble.h"
+#include "mesh/transport/ble_hci.h"
 #include "mesh/transport/serial.h"
 #include "mesh/transport/tcp.h"
 #include "mesh/ui/node_detail.h"
@@ -28,6 +29,178 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+
+/* ---- installing the radio's firmware ------------------------------------------------------ */
+
+/*
+ * The four things src/core/firmware_update.c cannot do for itself, because doing any of them
+ * would mean knowing what a session or a transport registry is.
+ *
+ * Both arms *queue*: the admin queue drains from the session's tick, which a transport calls
+ * from its own, so what these return is "it is on its way out" rather than "the radio has it".
+ * That is the same split every other admin verb here lives with, and it is why the link is not
+ * released until the handover has left arming.
+ */
+/* The loader wants 7.5 ms and BlueZ has no D-Bus call for it, so it is a raw HCI command - see
+   mesh/transport/ble_hci.h. A wrapper because the hook's shape is (device, address) and the
+   parameters are this one connection's business rather than the caller's. */
+static int mesh_app_firmware_interval(int hci_dev, const char *address) {
+    return mesh_ble_hci_request_interval(hci_dev, address, &mesh_ble_hci_ota_params);
+}
+
+static int mesh_app_firmware_arm_usb(void *userdata) {
+    struct mesh_app *const app = (struct mesh_app *)userdata;
+    return mesh_session_radio_action(&app->session, MESH_ADMIN_ENTER_DFU_MODE);
+}
+
+static int mesh_app_firmware_arm_ble(void *userdata, const uint8_t sha256[32]) {
+    struct mesh_app *const app = (struct mesh_app *)userdata;
+    const int queued = mesh_session_request_ble_ota(&app->session, sha256);
+    return queued < 0 ? queued : 0;
+}
+
+/*
+ * Whether the radio to arm on is back - **the same one**, not any one.
+ *
+ * A connected link with metadata was the first answer and it was wrong in the one way that
+ * matters here. The BLE path takes the antenna down for the length of the download, so by the
+ * time this is asked auto-connect has been running free for half a minute: it may have landed
+ * on a different node, and a USB radio plugged in meanwhile wins its priority outright. Arming
+ * whatever answered would put the `ota_request` down a session belonging to another radio while
+ * the job still held the first one's board, image and address - so the wrong radio goes into a
+ * loader, holding the hash of an image that is not for it.
+ *
+ * Three questions, because it takes three to be sure it is the same radio: the bus the job is
+ * for, the address or port it was on, and the model the image was chosen for. The model alone
+ * is not enough - two Heltec V3s on one desk share it - and the address alone is not enough
+ * either, since it is the one field a reconnect to a *different* transport does not compare
+ * against anything.
+ *
+ * `has_metadata` is what makes the last of those answerable: a link whose handshake has not
+ * landed has not said what it is yet, and this is deliberately not the place to guess.
+ */
+static bool mesh_app_firmware_radio_ready(void *userdata) {
+    struct mesh_app *const app = (struct mesh_app *)userdata;
+    const struct mesh_firmware_update *const update = &app->firmware_update;
+    const char *const identifier = mesh_app_connected_identifier();
+    const struct mesh_radio_settings *const settings = mesh_session_settings(&app->session);
+    if (identifier == NULL || settings == NULL || !settings->has_metadata) {
+        return false;
+    }
+    if (mesh_app_firmware_bus() != update->path) {
+        return false;
+    }
+    if (update->hw_model != 0U && (uint32_t)settings->metadata.hw_model != update->hw_model) {
+        return false;
+    }
+    /* The USB path names the port by the transport's own id rather than by the row's label, for
+       the reason the install does - see where `where` is filled in below. An empty `where` is
+       the recovery case and matches anything, which is the same "any" the handover means. */
+    const char *const now_at = update->path == MESH_FIRMWARE_PATH_USB
+                                   ? mesh_serial_transport_connected_id(mesh_serial_transport())
+                                   : identifier;
+    if (update->where[0] == '\0') {
+        return true;
+    }
+    return now_at != NULL && strcasecmp(now_at, update->where) == 0;
+}
+
+/*
+ * The radio has said everything it is going to; stop using the bus.
+ *
+ * How much of the bus depends on which one, and the two are not the same amount - see below.
+ */
+static void mesh_app_firmware_release_link(void *userdata) {
+    struct mesh_app *const app = (struct mesh_app *)userdata;
+    if (app->firmware_update.path == MESH_FIRMWARE_PATH_USB) {
+        /*
+         * The tty, and only the tty. The registry goes on ticking on purpose: the radio's port
+         * disappearing is what the serial transport notices, and there is no second scan to get
+         * out of the way of - a UF2 bootloader is found by walking sysfs, not over a bus this
+         * client is sharing. Stopping everything here would be taking away the one thing
+         * watching for the board to come back.
+         */
+        mesh_log_info("ui", "Releasing the serial link for the firmware install");
+        (void)mesh_serial_transport_disconnect(mesh_serial_transport());
+        return;
+    }
+    if (app->firmware_transports_stopped) {
+        return;
+    }
+    /*
+     * Over Bluetooth it is the whole registry, and that is the point: the thing on the other end
+     * from here is a loader's GATT, and a transport left running would scan for radios beside an
+     * install doing its own discovery and then connect to the one device it found - which is the
+     * radio being written to. The install has its own D-Bus connection for the neighbouring
+     * reason, and gets the adapter to itself by this.
+     *
+     * Restarted when the job ends, by the completion below.
+     */
+    mesh_log_info("ui", "Stopping transports for the firmware install");
+    mesh_transport_registry_stop_all(&app->transport_registry);
+    app->firmware_transports_stopped = true;
+}
+
+static void mesh_app_firmware_update_done(void *userdata,
+                                          const struct mesh_firmware_update *update) {
+    struct mesh_app *const app = (struct mesh_app *)userdata;
+    const uint64_t now = mesh_time_monotonic_ms();
+    char toast[MESH_UI_NAV_TOAST_MAX];
+
+    if (app->firmware_transports_stopped) {
+        /* Whatever happened, the bus is ours to give back: a radio that came through this is
+           one auto-connect should be reaching for again, and one that did not is still a device
+           the Devices tab has to be able to show. */
+        (void)mesh_transport_registry_start_all(&app->transport_registry, &app->config, &app->loop);
+        app->firmware_transports_stopped = false;
+    }
+
+    if (update->state == MESH_FIRMWARE_UPDATE_DONE) {
+        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_FIRMWARE_INSTALLED,
+                        update->release.version);
+        mesh_log_info("ui", "Radio firmware %s installed", update->release.version);
+        /*
+         * The check's answer was about the firmware this radio *was* running. Dropping it means
+         * the rows go back to "not checked" rather than going on offering an install of what is
+         * now installed - and the next handshake carries the new version, which is what a fresh
+         * check would compare against anyway.
+         */
+        mesh_firmware_forget(&app->firmware);
+    } else {
+        /* The radio's own words where it supplied any, our name for the category where not.
+           Untranslated either way, like a log line. */
+        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_FIRMWARE_FAILED,
+                        update->detail[0] != '\0' ? update->detail
+                                                  : mesh_firmware_update_error_name(update->error));
+        mesh_log_warn("ui", "Radio firmware install failed: %s (%s)",
+                      mesh_firmware_update_error_name(update->error), update->detail);
+    }
+    /* Posted rather than set: the press that started this was minutes ago and whatever is on
+       the screen now is the answer to something else. */
+    mesh_ui_store_post_toast(&app->ui_store, now, toast);
+}
+
+void mesh_app_firmware_update_tick(struct mesh_app *app, uint64_t now) {
+    if (app == NULL) {
+        return;
+    }
+    /*
+     * What the radio said since the last turn, handed to an install that is waiting for it.
+     *
+     * Only while something is running, and only once per notification: the sequence is what
+     * stops a "Rebooting to BLE OTA" from an earlier install - or from another client on the
+     * same radio - being replayed into the arming step of the next one.
+     */
+    if (mesh_firmware_update_busy(&app->firmware_update)) {
+        const struct mesh_client_notification *const note =
+            mesh_session_notification(&app->session);
+        if (note != NULL && note->seq != app->firmware_notification_seq) {
+            app->firmware_notification_seq = note->seq;
+            mesh_firmware_update_radio_said(&app->firmware_update, note->text);
+        }
+    }
+    mesh_firmware_update_tick(&app->firmware_update, now);
+}
 
 void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *action) {
     struct mesh_app *app = (struct mesh_app *)userdata;
@@ -935,6 +1108,129 @@ void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *action) 
         } else {
             mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_UPDATE_FAILED, result);
             mesh_log_warn("ui", "Update install could not start: %d", result);
+        }
+        mesh_ui_store_set_toast(&app->ui_store, now, toast);
+        return;
+    }
+    case MESH_UI_ACTION_INSTALL_RADIO_FIRMWARE: {
+        /*
+         * The board the check identified, never one of several candidates: mesh_firmware_board()
+         * answers NULL when the model is claimed by more than one target, and flashing the wrong
+         * variant of the right board is the failure this feature must not have.
+         */
+        /*
+         * Going back to a radio already in its loader, which is the press the banner promises.
+         *
+         * It is answered before everything below because none of it applies: there is no link,
+         * so no bus and no board to identify, and the check's answer was dropped when the radio
+         * stopped answering. What stands in for all of it is the job's own memory of what it was
+         * doing - and the hooks lose their two radio-facing halves, because a loader is not a
+         * radio: nothing is armed (firmware_ota.c takes a NULL arm as "already in there") and
+         * nothing is waited for (a NULL radio_ready is "go now").
+         */
+        if (mesh_firmware_update_can_resume(&app->firmware_update)) {
+            const struct mesh_firmware_board board = app->firmware_update.board;
+            const struct mesh_firmware_release release = app->firmware_update.release;
+            char where[sizeof app->firmware_update.where];
+            mesh_str_copy(where, sizeof where, app->firmware_update.where);
+            const struct mesh_firmware_update_hooks resume = {
+                .release_link = mesh_app_firmware_release_link,
+                .request_interval = mesh_app_firmware_interval,
+                .userdata = app,
+            };
+            const int resumed =
+                mesh_firmware_update_start(&app->firmware_update, &board, &release, where, &resume,
+                                           mesh_app_firmware_update_done, app);
+            if (resumed == 0) {
+                mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_INSTALLING_FIRMWARE,
+                                release.version);
+                mesh_log_info("ui", "Resuming the firmware install: %s is in its OTA loader",
+                              where[0] != '\0' ? where : board.target);
+            } else {
+                mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_FIRMWARE_FAILED,
+                                mesh_firmware_update_error_name(app->firmware_update.error));
+                mesh_log_warn("ui", "Firmware install could not resume: %d", resumed);
+            }
+            mesh_ui_store_set_toast(&app->ui_store, now, toast);
+            return;
+        }
+        const struct mesh_firmware_board *const board = mesh_firmware_board(&app->firmware);
+        if (board == NULL || app->firmware.state != MESH_FIRMWARE_AVAILABLE) {
+            mesh_ui_store_set_toast(&app->ui_store, now, mesh_str(MESH_STR_TOAST_CHECK_FIRST));
+            return;
+        }
+        /*
+         * The bus the sheet named, against the bus this would actually use.
+         *
+         * `number` is what the user agreed to and the other two are what is true now, and the
+         * whole reason the sheet carries a bus at all is that the two warnings are different
+         * sentences: one is a cable that has to stay in and the other is a radio leaving the
+         * mesh. A link that changed between the question and the answer - a cable pulled while
+         * the sheet was up, an auto-connect landing on the other transport - would otherwise
+         * have somebody agree to the mild warning and get the severe one. Refused rather than
+         * re-asked: the row is still there, and it will be offering the right sheet.
+         */
+        const enum mesh_firmware_path agreed =
+            action->number == 1U ? MESH_FIRMWARE_PATH_BLE : MESH_FIRMWARE_PATH_USB;
+        if (board->path != agreed || app->firmware.bus != agreed) {
+            mesh_ui_store_set_toast(&app->ui_store, now, mesh_str(MESH_STR_TOAST_CHECK_FIRST));
+            mesh_log_warn("ui",
+                          "Refusing a firmware install: the sheet said %s and the radio is "
+                          "on %s",
+                          agreed == MESH_FIRMWARE_PATH_BLE ? "BLE" : "USB",
+                          app->firmware.bus == MESH_FIRMWARE_PATH_BLE ? "BLE" : "USB");
+            return;
+        }
+        /*
+         * Where the radio is, in whichever terms its own bus uses - a serial port id, or a BLE
+         * address. It is what the handover watches for the radio coming back on, and on the USB
+         * path it is also what stops a write following a board that moved to another port.
+         *
+         * Read now rather than when the handover starts, because the download takes the link
+         * down: by the time the image has landed there is nothing to ask.
+         */
+        const char *where = mesh_app_connected_identifier();
+        if (agreed == MESH_FIRMWARE_PATH_USB) {
+            /*
+             * The transport's own id, not the identifier the device row carries. That field is a
+             * *label* - the tty when there is one - and the bootloader is looked for on the USB
+             * device, so a label makes the handover wait out its timeout and report that no
+             * bootloader came. The same correction phase 3's CLI path already carries.
+             */
+            where = mesh_serial_transport_connected_id(mesh_serial_transport());
+        }
+        /*
+         * Where the radio's own notices have got to, so this install starts from now.
+         *
+         * Without it, a "Rebooting to BLE OTA" left over from an earlier install - or from
+         * another client on the same radio - is the first thing the relay below hands over, and
+         * arming believes it and moves on before the radio has heard anything.
+         */
+        const struct mesh_client_notification *const seen =
+            mesh_session_notification(&app->session);
+        app->firmware_notification_seq = seen != NULL ? seen->seq : 0U;
+        const struct mesh_firmware_update_hooks hooks = {
+            .arm_usb = mesh_app_firmware_arm_usb,
+            .arm_ble = mesh_app_firmware_arm_ble,
+            .radio_ready = mesh_app_firmware_radio_ready,
+            .release_link = mesh_app_firmware_release_link,
+            .request_interval = mesh_app_firmware_interval,
+            .userdata = app,
+        };
+        const int result = mesh_firmware_update_start(
+            &app->firmware_update, board, &app->firmware.release, where != NULL ? where : "",
+            &hooks, mesh_app_firmware_update_done, app);
+        if (result == 0) {
+            mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_INSTALLING_FIRMWARE,
+                            app->firmware.release.version);
+            mesh_log_info("ui", "Installing radio firmware %s on %s", app->firmware.release.version,
+                          board->target);
+        } else if (result == -EBUSY) {
+            mesh_str_copy(toast, sizeof toast, mesh_str(MESH_STR_TOAST_ALREADY_WORKING));
+        } else {
+            mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_FIRMWARE_FAILED,
+                            mesh_firmware_update_error_name(app->firmware_update.error));
+            mesh_log_warn("ui", "Radio firmware install could not start: %d", result);
         }
         mesh_ui_store_set_toast(&app->ui_store, now, toast);
         return;

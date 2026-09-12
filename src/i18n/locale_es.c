@@ -908,6 +908,8 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_CONFIRM_TITLE_BACKUP] = "¿Copiar la configuración?",
     [MESH_STR_CONFIRM_TITLE_RESTORE] = "¿Restaurar la configuración?",
     [MESH_STR_CONFIRM_TITLE_RM_BACKUP] = "¿Borrar la copia?",
+    [MESH_STR_CONFIRM_TITLE_FW_USB] = "¿Actualizar la radio por USB?",
+    [MESH_STR_CONFIRM_TITLE_FW_BLE] = "¿Actualizar la radio por Bluetooth?",
     [MESH_STR_CONFIRM_TITLE_SAVE_CHANNEL] = "¿Guardar canal %u?",
     [MESH_STR_CONFIRM_TITLE_SAVE] = "¿Guardar %s?",
     [MESH_STR_CONFIRM_ACCEPT_REBOOT] = "Reiniciar ahora",
@@ -920,6 +922,8 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_CONFIRM_ACCEPT_BACKUP] = "Copiar",
     [MESH_STR_CONFIRM_ACCEPT_RESTORE] = "Restaurar",
     [MESH_STR_CONFIRM_ACCEPT_RM_BACKUP] = "Borrar copia",
+    [MESH_STR_CONFIRM_ACCEPT_FW_USB] = "Actualizar por USB",
+    [MESH_STR_CONFIRM_ACCEPT_FW_BLE] = "Actualizar por Bluetooth",
     [MESH_STR_CONFIRM_ACCEPT_SAVE] = "Guardar en la radio",
     [MESH_STR_CONFIRM_TEXT_REBOOT] =
         "La radio se reinicia en unos segundos. Se pierde el enlace y la conexión automática lo "
@@ -952,6 +956,14 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_CONFIRM_TEXT_RM_BACKUP] =
         "La copia guardada se borra de la flash de la radio. Los ajustes en uso no cambian, y ya "
         "no habrá nada que restaurar.",
+    [MESH_STR_CONFIRM_TEXT_FW_USB] =
+        "Se descarga la imagen, la radio se reinicia en su gestor de arranque y los bloques se "
+        "escriben por el cable. No lo desconectes: una escritura interrumpida deja el gestor de "
+        "arranque en marcha y se reintenta escribiendo otra vez.",
+    [MESH_STR_CONFIRM_TEXT_FW_BLE] =
+        "Se descarga la imagen, la radio sale de la malla y se reinicia en su cargador de "
+        "actualización. De ahí solo se sale terminando, lo que tarda unos cuatro minutos. Manten "
+        "el Brick cerca de la radio hasta entonces.",
     [MESH_STR_CONFIRM_TEXT_BLUETOOTH] =
         "La radio se reiniciará. Cambiar el modo de vinculación o el PIN invalida el vínculo del "
         "Brick: olvida el nodo en Equipos (Y) y conecta de nuevo con el nuevo PIN. Desactivar "
@@ -1246,6 +1258,33 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_FW_INSTALLING] = "Instalación",
     [MESH_STR_TOAST_CHECKING_FIRMWARE] = "Buscando firmware para la radio...",
     [MESH_STR_TOAST_FIRMWARE_CHANNEL] = "Canal de firmware: %s",
+    [MESH_STR_FW_UPDATE_IDLE] = "sin empezar",
+    [MESH_STR_FW_UPDATE_RESOLVING] = "resolviendo",
+    [MESH_STR_FW_UPDATE_DOWNLOADING] = "descargando",
+    [MESH_STR_FW_UPDATE_READY] = "esperando la radio",
+    [MESH_STR_FW_UPDATE_ARMING] = "preparando",
+    [MESH_STR_FW_UPDATE_WAITING] = "esperando",
+    [MESH_STR_FW_UPDATE_WRITING] = "escribiendo",
+    [MESH_STR_FW_UPDATE_RESTARTING] = "reiniciando",
+    [MESH_STR_FW_UPDATE_DONE] = "instalado",
+    [MESH_STR_FW_UPDATE_FAILED] = "falló",
+    [MESH_STR_FW_UPDATE_ERR_UNAVAILABLE] = "no se puede instalar",
+    [MESH_STR_FW_UPDATE_ERR_DOWNLOAD] = "falló la descarga",
+    [MESH_STR_FW_UPDATE_ERR_WRONG_IMAGE] = "imagen equivocada",
+    [MESH_STR_FW_UPDATE_ERR_NO_RADIO] = "ninguna radio respondió",
+    [MESH_STR_FW_UPDATE_ERR_REFUSED] = "la radio lo rechazó",
+    [MESH_STR_FW_UPDATE_ERR_HANDOVER] = "falló la instalación",
+    [MESH_STR_FW_UPDATE_ERR_NO_ADAPTER] = "sin adaptador Bluetooth",
+    [MESH_STR_FW_UPDATE_ERR_NO_IMAGE] = "imagen no preparada",
+    [MESH_STR_FW_UPDATE_ERR_CANCELLED] = "cancelado",
+    [MESH_STR_FW_INSTALL] = "Instalar firmware",
+    [MESH_STR_TOAST_INSTALLING_FIRMWARE] = "Instalando %s en la radio...",
+    [MESH_STR_TOAST_FIRMWARE_INSTALLED] = "La radio está ejecutando %s",
+    [MESH_STR_TOAST_FIRMWARE_FAILED] = "Falló la instalación del firmware: %s",
+    [MESH_STR_BANNER_RADIO_IN_LOADER] = "La radio está en modo de actualización",
+    [MESH_STR_BANNER_RADIO_IN_LOADER_HINT] =
+        "Sigue fuera de la malla hasta que termine una actualización. Ajustes > Sobre la radio > "
+        "Instalar firmware",
     [MESH_STR_ABOUT_LANGUAGE] = "Idioma",
     [MESH_STR_DATE_SUN] = "dom",
     [MESH_STR_DATE_MON] = "lun",
