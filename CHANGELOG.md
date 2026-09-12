@@ -1,3 +1,10 @@
+## [2.68.4](https://github.com/mcereal/mesh-client/compare/v2.68.3...v2.68.4) (2026-09-12)
+
+### Bug Fixes
+
+* **ui:** give the node detail's cards room to be cards ([e5e3ad2](https://github.com/mcereal/mesh-client/commit/e5e3ad243e6e405ff751afac0e642ae9ca8c8fb0))
+* **ui:** keep a card's inset out of a heading's room at the smallest scale ([2ee1de6](https://github.com/mcereal/mesh-client/commit/2ee1de6880b147c9b000313508168cb1d8568a63))
+
 ## [2.68.3](https://github.com/mcereal/mesh-client/compare/v2.68.2...v2.68.3) (2026-09-12)
 
 ### Bug Fixes
