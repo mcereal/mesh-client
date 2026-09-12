@@ -88,12 +88,19 @@ MESH_TEST_CASE(crash_report_carries_its_notes, unit) {
     MESH_TEST_FAIL_IF(strstr(body, "SIGSEGV") == NULL, "the signal was not named");
 
     /*
-     * The promise the file opens with is load-bearing rather than decorative. It is what a user
-     * reads before deciding whether to attach the thing to a public issue, so a change that
-     * started putting message text or coordinates in here has to fail something.
+     * The warning the file opens with is load-bearing rather than decorative: it is what a user
+     * reads before deciding whether to attach the thing to a public issue.
+     *
+     * The assertion is that it *warns*, and deliberately not that it reassures. The first
+     * version of this file claimed to hold "no message text, no node names, no coordinates" and
+     * three quarters of that was false - the log tail below is the ordinary log, which quotes
+     * outbound messages and names channels and places. A test pinning the reassuring wording
+     * would have locked the wrong half in.
      */
-    MESH_TEST_FAIL_IF(strstr(body, "no message") == NULL,
-                      "the report no longer says what it leaves out");
+    MESH_TEST_FAIL_IF(strstr(body, "Please read it before attaching it") == NULL,
+                      "the report no longer asks to be read before it is shared");
+    MESH_TEST_FAIL_IF(strstr(body, "quote a message you sent") == NULL,
+                      "the report no longer warns what its log tail can contain");
     record_success(test_name);
 }
 
@@ -219,6 +226,7 @@ enum crash_child_mode {
     CRASH_CHILD_SEGV = 0,
     CRASH_CHILD_ABORT,
     CRASH_CHILD_CLEAN,
+    CRASH_CHILD_STACK_OVERFLOW,
 };
 
 /*
@@ -246,6 +254,26 @@ static int crash_child_three(volatile int *p) {
 static int crash_child_two(volatile int *p) { return crash_child_three(p) + 1; }
 static int crash_child_one(volatile int *p) { return crash_child_two(p) + 1; }
 
+/*
+ * Run the stack out.
+ *
+ * Recursive, with an argument that depends on the recursion so nothing can turn it into a loop,
+ * and a local array big enough to get there quickly. The `volatile` is what stops the whole
+ * thing being optimised away as having no effect.
+ */
+static int crash_child_exhaust_stack(int depth) {
+    volatile char block[4096];
+    /* `| 1` so the byte is always odd and so never zero. Written as (char)depth first time out,
+       which reached exactly depth 256, truncated to 0, took the guard below and returned - a
+       recursion that terminates is a stack that never runs out, and the case passed nothing. */
+    block[0] = (char)(depth | 1);
+    block[sizeof block - 1U] = (char)(depth | 1);
+    if (block[0] == 0) {
+        return 0; /* unreachable, and deliberately not provably so */
+    }
+    return crash_child_exhaust_stack(depth + 1) + (int)block[sizeof block - 1U];
+}
+
 static pid_t crash_test_fork_child(const char *dir, enum crash_child_mode mode) {
     const pid_t pid = fork();
     if (pid != 0) {
@@ -267,6 +295,8 @@ static pid_t crash_test_fork_child(const char *dir, enum crash_child_mode mode) 
         _exit(crash_child_one((volatile int *)0) == 0 ? 41 : 42);
     case CRASH_CHILD_ABORT:
         abort();
+    case CRASH_CHILD_STACK_OVERFLOW:
+        _exit(crash_child_exhaust_stack(1) == 0 ? 50 : 51);
     case CRASH_CHILD_CLEAN:
     default:
         _exit(mesh_crash_report_waiting() ? 1 : 0);
@@ -374,6 +404,39 @@ MESH_TEST_CASE(crash_handler_catches_an_abort, unit) {
     mesh_test_remove_tree(dir);
     MESH_TEST_FAIL_IF(!read, "an abort left no report");
     MESH_TEST_FAIL_IF(strstr(body, "SIGABRT") == NULL, "the report does not name the signal");
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(crash_handler_survives_an_exhausted_stack, unit) {
+    /*
+     * The case the alternate signal stack exists for, and the one that silently produced nothing
+     * before it did.
+     *
+     * When the fault *is* the stack running out, the kernel has nowhere to build the signal
+     * frame: without sigaltstack() it cannot deliver the signal, so the process dies having
+     * never entered the handler - and the crash with the most interesting backtrace in it is the
+     * one that leaves no file. Raised by review on this PR, and reproduced by taking SA_ONSTACK
+     * back out, where this is the only case that notices.
+     */
+    char dir[] = "/tmp/mesh_crash_stackXXXXXX";
+    MESH_TEST_FAIL_IF(!crash_test_tempdir(dir), "mkdtemp failed");
+
+    const pid_t pid = crash_test_fork_child(dir, CRASH_CHILD_STACK_OVERFLOW);
+    MESH_TEST_FAIL_IF_CLEANUP(pid < 0, mesh_test_remove_tree(dir), "fork failed");
+    int status = 0;
+    MESH_TEST_FAIL_IF_CLEANUP(waitpid(pid, &status, 0) != pid, mesh_test_remove_tree(dir),
+                              "waitpid failed");
+    MESH_TEST_FAIL_IF_CLEANUP(!WIFSIGNALED(status), mesh_test_remove_tree(dir),
+                              "running the stack out did not kill the child");
+
+    char path[256];
+    snprintf(path, sizeof path, "%s/%s", dir, MESH_CRASH_REPORT_NAME);
+    static char body[16384];
+    const bool read = crash_test_slurp(path, body, sizeof body);
+    mesh_test_remove_tree(dir);
+    MESH_TEST_FAIL_IF(!read, "an exhausted stack left no report");
+    MESH_TEST_FAIL_IF(strstr(body, "--- end") == NULL,
+                      "the report stops before its end marker, so the handler died writing it");
     record_success(test_name);
 }
 

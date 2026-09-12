@@ -831,6 +831,18 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   handler that dies part way has already saved the useful half. **Re-raising at the end is not
   tidiness either** - a handler that returned or `_exit`ed would report a clean exit for a
   process that faulted, and the launcher would believe it.
+- **The crash report does not promise to be free of private data, and must not start.** Its
+  header claimed to carry no message text, no names and no coordinates; the log tail it carries
+  is the *ordinary* log, which says `Sent "%s" to %s`, names channels and waypoints, and prints a
+  hand-entered position as the two numbers typed. A user attaching the file *because it said it
+  was safe* would publish exactly what it promised was absent. The header names those categories
+  instead - a reader can act on "it may quote a message you sent" and cannot act on an assurance
+  that is false. Redacting the ring means the logger knowing which of its arguments are private,
+  which is a bigger feature than the report.
+- **The handler runs on an alternate signal stack, and SA_ONSTACK is not belt-and-braces.** When
+  the fault *is* the stack running out, the kernel has nowhere to build the signal frame and
+  cannot deliver the signal at all - so the crash with the most interesting backtrace in it is
+  the one that leaves no file. `crash_handler_survives_an_exhausted_stack` is what notices.
 - **The frame walk requires pointer alignment, not 16-byte alignment.** AAPCS64 keeps the stack
   16-aligned throughout so an aarch64 `x29` is always 0 mod 16, which makes the tighter test look
   safer; x86-64 only promises that at a call boundary, and asking for 16 ended every walk on

@@ -566,8 +566,19 @@ walk. Then it re-raises, so the process still dies of the signal it was given.
 this process holds node names, every positioned node's coordinates, the message log and the
 channel keys, so a minidump of it is the last thing that should go anywhere by itself — and the
 audience for a Meshtastic client is not the audience for silent telemetry. What lands on disk is
-a page of text the user can read in full before deciding whether to attach it to an issue, and
-the file opens by saying what it does and does not contain.
+a page of text the user can read in full before deciding whether to attach it to an issue.
+
+**The file does not promise to be free of private data, and must not start.** Its header first
+claimed to carry "no message text, no node names, no coordinates and no channel keys", and three
+quarters of that was false: the log tail it carries is the client's *ordinary* log, which says
+`Sent "%s" to %s` (`app_actions.c`), names channels and waypoints (`session.c`), and prints a
+hand-entered fixed position as the two numbers that were typed. A user who attached the file
+*because the file told them it was safe* would have published exactly what it promised was
+absent. The header now names those categories instead — a reader can act on "it may quote a
+message you sent" and cannot act on an assurance that is wrong. Channel keys really are never
+logged; the one line mentioning a passkey prints `held` or `absent` rather than the value.
+Redacting the ring instead would mean the logger knowing which of its arguments are private,
+which is a real feature and a larger one than this.
 
 Four things about it are rules rather than implementation details:
 
@@ -586,6 +597,11 @@ Four things about it are rules rather than implementation details:
 - **The risky half goes last.** Headings, notes and the log tail are written before the
   registers are touched, so a handler that dies part way through has already put the useful half
   on disk. `write()` has handed the data to the kernel by the time it returns.
+- **The handler runs on an alternate signal stack.** When the fault *is* the stack running out,
+  the kernel has nowhere to build the signal frame: without `sigaltstack()` and `SA_ONSTACK` it
+  cannot deliver the signal at all, so the process dies having never entered the handler — and
+  the crash with the most interesting backtrace in it is the one that leaves no file.
+  `crash_handler_survives_an_exhausted_stack` is the only case that notices when the flag goes.
 - **Whether a report is waiting is read once, at install.** Answered by a `stat` on demand, the
   flag would flip the moment *this* run wrote its own report — so About would start telling the
   user they had crashed while they were still using the client, and the banner would appear

@@ -14,6 +14,15 @@
  * and the channel keys, so a dump of it is the last thing that should go anywhere by itself.
  * What lands on disk is a page of text the user can read before they decide to share it.
  *
+ * **The file does not promise to be free of private data, and must not start.** The report's own
+ * header used to say it carried no message text, no names and no coordinates; the log tail it
+ * carries is the client's ordinary log, which says `Sent "%s" to %s`, names channels and
+ * waypoints, and prints a hand-entered position as the two numbers that were typed. The header
+ * now names those categories instead, because a user deciding whether to attach the file to a
+ * public issue can act on "it may quote a message you sent" and cannot act on an assurance that
+ * is false. Redacting the ring instead would mean the logger knowing which of its arguments are
+ * private - a real feature, and a larger one than this.
+ *
  * ---- the discipline -------------------------------------------------------------------------
  *
  * A handler runs on a process that is already broken, which rules out most of libc. POSIX names

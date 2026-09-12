@@ -57,6 +57,23 @@ static int g_probe_fd[2] = {-1, -1};
  * consequence is only a garbled line, but a crash handler is the last place to leave a read
  * that is unbounded in principle, and a permanent zero at the end costs three bytes.
  */
+/*
+ * The stack the handler runs on.
+ *
+ * Without this a SIGSEGV raised by *exhausting* the stack cannot be reported at all: the kernel
+ * builds the signal frame on the stack that has just run out, fails, and kills the process
+ * without ever entering the handler - so the one class of crash where a backtrace is most
+ * valuable is the class that silently produced no file. `sigaltstack()` hands the kernel
+ * somewhere else to put that frame, and SA_ONSTACK is what asks for it.
+ *
+ * Sized as a constant rather than from SIGSTKSZ, which stopped being a compile-time constant in
+ * glibc 2.34 (it reads sysconf(_SC_SIGSTKSZ) now) and so cannot size a static array. 64 KiB is
+ * far more than this handler needs - its deepest frame holds a 64-byte probe sink and a 32-byte
+ * digit buffer - and being generous here costs bss on a device with a gigabyte of it.
+ */
+#define MESH_CRASH_SIGSTACK_SIZE (64U * 1024U)
+static char g_sig_stack[MESH_CRASH_SIGSTACK_SIZE];
+
 static char g_notes[MESH_CRASH_NOTE_SLOT_COUNT][MESH_CRASH_NOTE_MAX + 1U];
 
 static const char *const k_note_labels[MESH_CRASH_NOTE_SLOT_COUNT] = {
@@ -141,6 +158,27 @@ static size_t crash_format_unsigned(char *out, size_t out_len, uint64_t value, u
         out[len] = '\0';
     }
     return len;
+}
+
+/*
+ * A signed integer, for the one field that is one.
+ *
+ * `si_code` is an int and is routinely negative - SI_TKILL is -6, which a raise() produces - so
+ * casting it to uint64_t printed 18446744073709551610 where a reader wanted -6. It is the only
+ * signed number in the report, which is why this is a wrapper rather than the general case.
+ */
+static void crash_write_signed(int fd, int64_t value) {
+    uint64_t magnitude;
+    if (value < 0) {
+        crash_puts(fd, "-");
+        /* Negated through the unsigned type, because -INT64_MIN is not representable. */
+        magnitude = (uint64_t)(-(value + 1)) + 1U;
+    } else {
+        magnitude = (uint64_t)value;
+    }
+    char buffer[32];
+    const size_t len = crash_format_unsigned(buffer, sizeof buffer, magnitude, 10U, 0U);
+    crash_write(fd, buffer, len);
 }
 
 static void crash_write_unsigned(int fd, uint64_t value) {
@@ -331,14 +369,36 @@ static void crash_write_log(int fd) {
  * take those pages with it.
  */
 static void crash_report(int fd, int signal_number, const siginfo_t *info, void *ucontext) {
+    /*
+     * What this says is a promise, so it says only what is true.
+     *
+     * It opened by claiming the file held "no message text, no node names, no coordinates and no
+     * channel keys". Three quarters of that was wrong, and wrong in the direction that matters:
+     * the log tail below is the client's ordinary log, and the ordinary log says "Sent \"%s\" to
+     * %s" (src/core/app_actions.c), names channels and waypoints, and prints a fixed position as
+     * the two numbers the user typed. A reader who attached the file *because the file told them
+     * it was safe* would have published exactly what it promised was absent.
+     *
+     * So the invitation is gone and the warning is specific. A user can act on "it may quote a
+     * message you sent" - the log is thirty-two lines of plain text at the end of a short file,
+     * and they can look. They cannot act on a blanket assurance that turns out to be false.
+     * Channel keys really are never logged: the one line that mentions a passkey prints "held"
+     * or "absent" rather than the value.
+     */
     crash_puts(fd,
                "MeshClient crash report\n"
                "=======================\n"
                "\n"
-               "MeshClient wrote this file when it stopped unexpectedly. It carries no message\n"
-               "text, no node names, no coordinates and no channel keys - only the lines below.\n"
-               "Nothing was sent anywhere; it is yours to read, and to attach to a bug report at\n"
-               "https://github.com/mcereal/mesh-client/issues if you would like it fixed.\n"
+               "MeshClient wrote this file when it stopped unexpectedly. Nothing was sent\n"
+               "anywhere - it is on your device, and it is yours.\n"
+               "\n"
+               "Please read it before attaching it to a bug report. Everything above the log is\n"
+               "addresses and counters, and channel keys are never written here - but the log\n"
+               "lines at the end are the client's ordinary log, so depending on what you were\n"
+               "doing they can name nodes, channels and places, quote a message you sent, or\n"
+               "hold a position you entered by hand.\n"
+               "\n"
+               "Issues: https://github.com/mcereal/mesh-client/issues\n"
                "\n");
 
     crash_puts(fd, "signal       ");
@@ -349,7 +409,7 @@ static void crash_report(int fd, int signal_number, const siginfo_t *info, void 
 
     if (info != NULL) {
         crash_puts(fd, "code         ");
-        crash_write_unsigned(fd, (uint64_t)info->si_code);
+        crash_write_signed(fd, (int64_t)info->si_code);
         crash_puts(fd, "\nfault addr   ");
         crash_write_address(fd, (uint64_t)(uintptr_t)info->si_addr);
         crash_puts(fd, "\n");
@@ -533,10 +593,22 @@ int mesh_crash_install(const char *dir) {
         return 0;
     }
 
+    /*
+     * Before the handlers, because SA_ONSTACK below is a reference to it. A failure is not fatal
+     * to the install: the handler then runs on the ordinary stack, which is what it did before
+     * this existed and is right for every crash except the overflow.
+     */
+    stack_t alt;
+    memset(&alt, 0, sizeof alt);
+    alt.ss_sp = g_sig_stack;
+    alt.ss_size = sizeof g_sig_stack;
+    alt.ss_flags = 0;
+    const bool have_alt_stack = sigaltstack(&alt, NULL) == 0;
+
     struct sigaction action;
     memset(&action, 0, sizeof action);
     action.sa_sigaction = crash_handler;
-    action.sa_flags = SA_SIGINFO | SA_RESTART;
+    action.sa_flags = SA_SIGINFO | SA_RESTART | (have_alt_stack ? SA_ONSTACK : 0);
     /* Block the other fault signals while one is being reported, so two arriving together are
        one report rather than two interleaved into the same file. */
     sigemptyset(&action.sa_mask);
