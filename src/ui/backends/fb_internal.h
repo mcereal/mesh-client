@@ -275,7 +275,7 @@ int fb_space_at(const struct mesh_ui_backend_fb_state *state, enum mesh_ui_space
 int fb_type_scale(const struct mesh_ui_backend_fb_state *state, enum mesh_ui_type type);
 
 /*
- * The half-margin: the inset a panel sits in, and the gutter the scroll rail lives in.
+ * The half-margin: the inset a panel sits in, and the row's own padding either side of it.
  *
  * Not part of the spacing scale, deliberately. The spacing scale is glyph-relative - it is the
  * room around *text* - and this tracks the body margin instead, because what it measures is how
@@ -290,6 +290,51 @@ uint32_t fb_motion(const struct mesh_ui_backend_fb_state *state, enum mesh_ui_mo
 /* The hairline thickness an edge is drawn at - a card's, a field's. One place, because an
    outline is two fills and both have to agree about how thick it is. */
 int fb_edge(const struct mesh_ui_backend_fb_state *state);
+
+/*
+ * The strip kept clear at a list's trailing edge for its scroll rail.
+ *
+ * A gutter rather than an overlay, and reserved on every list rather than on the ones that
+ * happen to scroll. Both halves are the same decision: a rail drawn over the content it
+ * measures sits on top of whatever is widest there - which on a column of cards is the card -
+ * and a gutter taken only when a list outgrows its window is a layout that reflows the moment a
+ * node reports one more reading. So the room is spent whether or not the rail is drawn, and
+ * nothing a list puts down ever reaches into it.
+ *
+ * The half-margin, for fb_gutter()'s reason: what it measures is clearance from the panel edge,
+ * not room around text, so it tracks the body margin rather than the glyph scale.
+ */
+int fb_rail_gutter(const struct mesh_ui_backend_fb_state *state);
+
+/*
+ * Where a list's rows stand, horizontally. The one answer, asked by everything that draws one.
+ *
+ * This was three separate derivations of the same rectangle - the cursor's highlight in
+ * fb_draw_row_fill_on(), the list item's own copy of it, and the card surfaces a grouped list
+ * paints under its rows - plus a fourth opinion in the scroll rail about how much room was left
+ * over beside them. They agreed until the cards started spending their hairline outward into the
+ * gutter, at which point the rail was flush against the card edge on the one screen that is a
+ * column of cards: the node detail, where it read as part of the card rather than as a control
+ * beside it.
+ *
+ * So the box is stated once and derived from nowhere else. `x`/`w` is the row fill - the
+ * cursor's highlight, and a card's interior - and the text span is that inset by the row's own
+ * padding. A card is this rectangle with its hairline spent outward (fb_list_cards()), which
+ * makes the card the widest thing a list draws and therefore what the rail has to clear.
+ */
+struct fb_row_box {
+    int x, w;               /* the row fill */
+    int text_x, text_right; /* where a row's content starts, and where it stops */
+};
+
+struct fb_row_box fb_row_box(const struct mesh_ui_backend_fb_state *state);
+
+/* Columns of a list row's text at `scale`: the box above, measured in cells. fb_cols() is the
+   panel's answer and is what a dialog or a wrapped empty state wants; a row inside a list has
+   the rail's gutter taken off it, and measuring one with the other is how a value column comes
+   to sit a cell wider than the row it is drawn in. */
+size_t fb_row_cols(const struct mesh_ui_backend_fb_state *state, int scale);
+
 const struct mesh_ui_metrics *fb_metrics(const struct mesh_ui_backend_fb_state *state);
 const struct mesh_ui_font *fb_font(const struct mesh_ui_backend_fb_state *state);
 

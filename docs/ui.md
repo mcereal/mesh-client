@@ -886,6 +886,18 @@ Six things follow, and each was a way of getting it wrong:
   curving where the highlight has already reached full width, so the cursor's ends stand outside
   the card on the first and last row of every group. The card takes the highlight's shape, and the
   two nest exactly.
+- **The rectangle is `fb_row_box()`'s, and the scroll rail has a gutter outside it.** Three
+  places used to derive that rectangle — the highlight in `fb_draw_row_fill_on()`, the list
+  item's own copy of it, the card surfaces here — with a fourth opinion in `fb_list_rail()`
+  about the room left over beside them. They agreed until the cards started spending the
+  hairline outward into that same room: the card's edge ended on one pixel and the rail's track
+  began on the next, which on the node detail read as the rail being part of the card. So the
+  box is stated once and the rail asks it where the free space starts, measuring from the card's
+  outer edge rather than from the margin. `fb_rail_gutter()` is the strip that keeps clear, and
+  it is reserved on **every list and whether or not the rail is drawn** — taken only when a list
+  outgrows its window, it would be a layout that reflows the first time a node reports one more
+  reading. The strip is narrower than a cell, so no row loses a column to it at the device's
+  scale.
 - **Rows on a card are drawn against the card's surface.** A glyph carries
   [coverage and not a mask](#a-glyph-is-coverage), so text told the wrong ground keeps its shape
   and gains a halo. `fb_draw_row_fill_on()` takes the ground and `fb_list_ground()` answers, so a
