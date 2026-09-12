@@ -1388,6 +1388,133 @@ cleanup:
 }
 
 /*
+ * A release that exists in the index but has published no assets.
+ *
+ * This is the one refusal `firmware_blocker()` cannot phrase. It is computed from the board and
+ * the bus, and both are fine here - the board resolved, it is actively supported, and it is on
+ * the bus its own path names - so the blocker is NONE and has no line to offer. What is missing
+ * is the release's manifest, which `fw_can_install` asks for separately because an index entry
+ * can appear before its assets do; ordinary on the alpha channel in the minutes after a publish,
+ * and the state tests/suites/firmware_catalog.c's newest alpha fixture is in.
+ *
+ * Unstated, that combination reaches Settings > About radio as a newer version with no install
+ * press and nothing saying why - the section's whole job, missed in the one case where nothing
+ * is actually wrong. It cannot move into the blocker, because firmware.c recomputes that before
+ * it sets the state, so a state-dependent answer there would be computed against the old one.
+ */
+MESH_TEST_CASE(app_assetless_release_says_why_it_cannot_install, unit) {
+    const char *failure = NULL;
+    int pair[2] = {-1, -1};
+    bool app_ready = false;
+    struct mesh_app app;
+    memset(&app, 0, sizeof app);
+
+    MESH_TEST_FAIL_IF(socketpair(AF_UNIX, SOCK_STREAM, 0, pair) != 0, "socketpair failed");
+    (void)fcntl(pair[0], F_SETFL, O_NONBLOCK);
+    (void)fcntl(pair[1], F_SETFL, O_NONBLOCK);
+
+    struct mesh_bluez_mock_config mock_config = {.adapter_path = "/org/bluez/hci0"};
+    mesh_bluez_client_mock_enable(&mock_config);
+
+    const struct mesh_serial_device_info ports[] = {mesh_test_serial_device()};
+    struct mesh_serial_usb_mock_config serial_mock;
+    memset(&serial_mock, 0, sizeof serial_mock);
+    serial_mock.devices = ports;
+    serial_mock.device_count = 1U;
+    serial_mock.bound_path = "/dev/ttyUSB0";
+    serial_mock.open_fd = pair[0];
+    mesh_serial_usb_mock_enable(&serial_mock);
+
+    char home_dir[] = "/tmp/mesh_app_assetlessXXXXXX";
+    if (mkdtemp(home_dir) == NULL) {
+        failure = "mkdtemp failed";
+        goto cleanup;
+    }
+    setenv("HOME", home_dir, 1);
+    setenv("MESHCLIENT_UI_BACKEND", "stub", 1);
+    unsetenv("MESHCLIENT_AUTOCONNECT");
+
+    struct mesh_app_config config = mesh_app_config_default();
+    config.run_mode = MESH_APP_RUN_FOREGROUND;
+    if (mesh_app_init(&app, &config) != 0) {
+        failure = "app init failed";
+        goto cleanup;
+    }
+    app_ready = true;
+
+    struct mesh_transport *serial = mesh_serial_transport();
+    if (mesh_transport_registry_start_all(&app.transport_registry, &app.config, &app.loop) < 0) {
+        failure = "transport start failed";
+        goto cleanup;
+    }
+    mesh_serial_transport_refresh_devices(serial);
+    mesh_app_autoconnect(&app);
+    mesh_test_serial_sleep_ms(150);
+    mesh_transport_registry_tick(&app.transport_registry);
+    if (mesh_app_connected_identifier() == NULL) {
+        failure = "the USB port should be the connected radio";
+        goto cleanup;
+    }
+
+    /*
+     * A check that found something, on a board that could take it, over the bus that board is
+     * flashed on - and a release with no manifest behind it. No metadata is fed to the session,
+     * so mesh_app_flatten_firmware()'s radio-swap guard reads a model of 0 and leaves this
+     * answer alone.
+     */
+    app.firmware.state = MESH_FIRMWARE_AVAILABLE;
+    app.firmware.blocker = MESH_FIRMWARE_BLOCKER_NONE;
+    app.firmware.boards.count = 1U;
+    app.firmware.boards.found = 1U;
+    app.firmware.boards.entries[0].actively_supported = true;
+    app.firmware.boards.entries[0].path = MESH_FIRMWARE_PATH_USB;
+    snprintf(app.firmware.boards.entries[0].target, sizeof app.firmware.boards.entries[0].target,
+             "%s", "heltec-mesh-node-t114");
+    snprintf(app.firmware.release.version, sizeof app.firmware.release.version, "%s",
+             "2.8.0.47db0e3");
+    app.firmware.release.manifest_url[0] = '\0';
+
+    mesh_app_publish_ui_state(&app);
+    if (app.ui_store.settings.fw_can_install) {
+        failure = "a release with no manifest has nothing to install";
+        goto cleanup;
+    }
+    if (app.ui_store.settings.fw_blocker_reason[0] == '\0') {
+        failure = "a newer release that cannot be installed must say why";
+        goto cleanup;
+    }
+
+    /* And with the manifest present the refusal goes away again, so the reason is answering the
+       missing asset rather than standing in for every empty blocker. */
+    snprintf(app.firmware.release.manifest_url, sizeof app.firmware.release.manifest_url, "%s",
+             "https://example.invalid/firmware-2.8.0.47db0e3.json");
+    mesh_app_publish_ui_state(&app);
+    if (app.ui_store.settings.fw_blocker_reason[0] != '\0') {
+        failure = "a release with its manifest is not refused";
+        goto cleanup;
+    }
+
+cleanup:
+    if (app_ready) {
+        mesh_app_shutdown(&app);
+    }
+    mesh_bluez_client_mock_disable();
+    mesh_serial_usb_mock_disable();
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    if (pair[0] >= 0) {
+        close(pair[0]);
+    }
+    if (pair[1] >= 0) {
+        close(pair[1]);
+    }
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
+}
+
+/*
  * A BLE connect can return 0 and still fail seconds later, when BlueZ finishes service discovery
  * and StartNotify is rejected because the node was never paired. That used to leave the UI stuck
  * on "connecting" with the reason only in the log.

@@ -2293,6 +2293,59 @@ MESH_TEST_CASE(ui_settings_radio_firmware_install_row, unit) {
 }
 
 /*
+ * The Installing row when nothing is refusing the install, which is not the same as a refusal
+ * with nothing to say.
+ *
+ * `fw_can_install` is false here for the one reason that is not a blocker: the radio is already
+ * on the newest release, so `firmware_blocker()` answered NONE and `fw_blocker_reason` is
+ * empty. That emptiness used to be filled with a placeholder written while the install press
+ * did not exist yet, so a radio that was perfectly installable - attached, resolved to one
+ * board, on the bus that board names - was told the installer had not been built.
+ *
+ * Nothing caught it because every other case in this section has something to install, and it
+ * is the ordinary state a few seconds after any flash: the state the section is in most of the
+ * time is the one nothing was asserting about.
+ */
+MESH_TEST_CASE(ui_settings_up_to_date_radio_says_nothing_about_installing, unit) {
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_metadata = true;
+    settings.fw_supported = true;
+    settings.fw_state = (uint8_t)MESH_FIRMWARE_UP_TO_DATE;
+    settings.fw_can_install = false;
+    settings.fw_bus = (uint8_t)MESH_FIRMWARE_PATH_BLE;
+    snprintf(settings.fw_channel, sizeof settings.fw_channel, "%s", "stable");
+
+    uint32_t count = mesh_ui_settings_item_count(&settings, NULL, MESH_UI_SETTINGS_RADIO,
+                                                 MESH_UI_SETTINGS_NO_CHANNEL);
+    struct mesh_ui_settings_item item;
+    for (uint32_t i = 0; i < count; ++i) {
+        MESH_TEST_FAIL_IF(mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_RADIO,
+                                                MESH_UI_SETTINGS_NO_CHANNEL, i, &item) &&
+                              strcmp(item.label, "Installing") == 0,
+                          "an up-to-date radio has nothing to say about installing");
+    }
+
+    /* A real refusal still gets its row. What means "nothing to say" is the empty reason, not
+       the state - an up-to-date radio on the wrong bus is still worth explaining. */
+    snprintf(settings.fw_blocker_reason, sizeof settings.fw_blocker_reason, "%s",
+             "connect it by USB");
+    count = mesh_ui_settings_item_count(&settings, NULL, MESH_UI_SETTINGS_RADIO,
+                                        MESH_UI_SETTINGS_NO_CHANNEL);
+    bool said_why = false;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_RADIO,
+                                  MESH_UI_SETTINGS_NO_CHANNEL, i, &item) &&
+            strcmp(item.label, "Installing") == 0 && strcmp(item.value, "connect it by USB") == 0) {
+            said_why = true;
+        }
+    }
+    MESH_TEST_FAIL_IF(!said_why, "a blocked install should still say why");
+    record_success(test_name);
+}
+
+/*
  * The confirm sheet, which is the reason there are two install actions rather than one.
  *
  * Over USB the worst case is a board sitting in its bootloader that any computer can write
