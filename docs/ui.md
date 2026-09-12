@@ -834,8 +834,11 @@ Two rules come out of it:
   the row's gutter so the title starts in the column its rows do. Whether it draws anything in
   that gutter depends on what it is heading — nothing on a flat list, where a group is not one
   subject the way each of its rows is and a symbol would repeat the words beside it; the card's
-  own icon on a [column of cards](#a-list-drawn-as-a-column-of-cards), where the heading *is* the
-  card's. And the cursor no longer stops on one at all; see
+  own icon on a [column of cards](#a-list-drawn-as-a-column-of-cards), where the heading names
+  the card under it. On such a list the heading is *centred* in its step rather than sat on the
+  bottom of it, because there the step is the gap between two cards and the label belongs to
+  neither — it names the one it opens, and sat on the bottom it would read as the label of the
+  card that just ended. And the cursor no longer stops on one at all; see
   [Node detail](#node-detail--srcuinode_detailc).
 
 #### A list drawn as a column of cards
@@ -859,7 +862,7 @@ both edges of it at once. So a card here is a *surface behind a run of rows the 
 knows how to place* — no second measure, no second clip, and above all no second opinion about
 how tall a row is. The model stays the authority, as it is for `fb_list_begin_heights()`.
 
-Four things follow, and each was a way of getting it wrong:
+Six things follow, and each was a way of getting it wrong:
 
 - **No screen asks for the surfaces.** They are drawn by the first row that draws, exactly as the
   scroll rail is and for the rail's reason: which card covers which rows is derived entirely from
@@ -873,12 +876,16 @@ Four things follow, and each was a way of getting it wrong:
   well, or the hairline runs *across* the cut and says it again in a straight line.
   `fb_fill_round_rect_ends()` is the primitive, and it gives a square end its corner band back to
   the straight middle rather than patching over a rounded one — so there is no seam.
-- **The card is the row fill's rectangle with the hairline spent outward.** A card has to be at
-  least as wide as the widest thing standing in it, and in a list that is the cursor's highlight.
-  Drawn to the same rectangle the highlight lands on the edge and paints it out for the length of
-  one row, so the card loses its sides exactly where the reader is looking — invisible in a still
-  of a resting screen. The highlight now fills the card's interior, which is where Material puts a
-  state layer inside a container.
+- **The card is the row fill's rectangle with the hairline spent outward — and the row fill's
+  *shape*.** A card has to be at least as wide as the widest thing standing in it, and in a list
+  that is the cursor's highlight. Drawn to the same rectangle the highlight lands on the edge and
+  paints it out for the length of one row, so the card loses its sides exactly where the reader is
+  looking — invisible in a still of a resting screen. The highlight now fills the card's interior,
+  which is where Material puts a state layer inside a container. The corner is the same argument
+  on the other axis: a card at `MESH_UI_SHAPE_MD` over a highlight at `MESH_UI_SHAPE_SM` is still
+  curving where the highlight has already reached full width, so the cursor's ends stand outside
+  the card on the first and last row of every group. The card takes the highlight's shape, and the
+  two nest exactly.
 - **Rows on a card are drawn against the card's surface.** A glyph carries
   [coverage and not a mask](#a-glyph-is-coverage), so text told the wrong ground keeps its shape
   and gains a halo. `fb_draw_row_fill_on()` takes the ground and `fb_list_ground()` answers, so a
@@ -887,14 +894,31 @@ Four things follow, and each was a way of getting it wrong:
   rather than its current one: the patch exists to escape the cursor fill, and on two of the four
   themes that fill is the resting track's own colour.
 
-The grouping costs **no rows**. The gap between two cards and the inset above a heading both come
-out of air that was already on the panel — a subheader draws at the label scale sat on the bottom
-of its step, so the difference between the two line advances is empty at the top of every group —
-which is why the node detail's row budget, its nav and every count in the `ui_nav_nodes` suite
-were untouched by it.
+- **A group's heading stands between the cards, not on either.** A screen gives its heading rows
+  `FB_LIST_NO_CARD`, so the card above closes under its last row and the card below opens at its
+  first with the label in the break. That is where the whole column's air comes from. A card here
+  is painted round row boxes laid out for a flat list, so the only room it has to be padded with
+  is whatever a heading's step is not using — a line advance less a label's, nine pixels at the
+  device's scale — and split three ways between a card's bottom, the break and the next card's
+  top, none of the three was big enough to see: the cards read as one box with a rule across it
+  and the last row of each sat on its own edge. Spent on two edges instead of three, each is the
+  inset `fb_draw_card()` uses one tab over.
+- **The inset is at the bottom; the top spends the edge instead.** A row's box is a line advance
+  tall and a glyph's ink sits high in its cell, so the top of a card's first row already carries
+  most of a line's leading as air while the bottom of its last carries none — its descenders run
+  to the box's edge, and padding both ends alike leaves the card top-heavy by exactly that
+  leading. What the top does take is the hairline, spent outward for the reason the sides spend
+  it: the first row of a card is a row the cursor can stand on.
 
-`ui_capture_node_detail_cards_survive_the_cursor` pins two of those at every scale: that the
-cards are drawn at all, and that an edge survives on the cursor's own row.
+The grouping still costs **no rows**: everything above is spent inside a step the heading was
+already taking, which is why the node detail's row budget, its nav and every count in the
+`ui_nav_nodes` suite were untouched by it.
+
+`ui_capture_node_detail_cards_survive_the_cursor` pins three of those: that the cards are drawn
+at all and that an edge survives on the cursor's own row, both at every scale, and then that it
+still does with the cursor walked down through several groups — the rows that get it wrong are
+the *first* and *last* of a card, which are the ones its corners are curving through, and the row
+a detail opens on is in the middle of its own card and saw none of it.
 `devtools/ui_capture/scenes/node-cards.scene` is the picture.
 
 #### `struct fb_list_item` — one row with slots

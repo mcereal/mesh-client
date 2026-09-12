@@ -929,6 +929,15 @@ static void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
      * else in this screen is a group, so a `group` field on the item would be a second way of
      * saying what `kind` says, with the drift that implies the first time a group is added.
      *
+     * The heading itself stands on no card, and that is where the column gets its air. A card
+     * is a surface painted round row boxes that were laid out for a flat list, so the only room
+     * it has to be padded with is whatever a group's own heading step is not using - and split
+     * three ways between a card's bottom, the break, and the next card's top, none of the three
+     * was big enough to see. Standing the heading in the break instead gives the step to the
+     * two edges that need it: the card above closes under its last row and the card below opens
+     * at its first, with the heading centred between them naming the group it opens. It is also
+     * what every settings list on a phone does with a section label, and it still costs no rows.
+     *
      * The ordinal wraps well below FB_LIST_NO_CARD: the row budget is 128 and a node's headings
      * are a dozen at the very most, so the counter cannot reach it.
      */
@@ -955,9 +964,10 @@ static void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
         heights[r] = items[r].kind == MESH_UI_NODE_ROW_METER ? 2U : 1U;
         if (items[r].kind == MESH_UI_NODE_ROW_HEADING) {
             card = (uint8_t)(card == FB_LIST_NO_CARD ? 0U : card + 1U);
-        } else {
-            leads_with_icon = leads_with_icon || items[r].icon != MESH_UI_ICON_NONE;
+            cards[r] = FB_LIST_NO_CARD;
+            continue;
         }
+        leads_with_icon = leads_with_icon || items[r].icon != MESH_UI_ICON_NONE;
         cards[r] = card;
     }
     const struct fb_leading blank =

@@ -840,6 +840,26 @@ static uint8_t fb_list_card_of(const struct fb_list *list, uint32_t index) {
     return list->cards[index];
 }
 
+/* Whether this list draws its groups as cards at all, which is a question about the list and
+   not about one row of it - see fb_list_subheader_icon(), where a heading stands *between* two
+   cards and so has a card list's ground under it either way. */
+static bool fb_list_has_cards(const struct fb_list *list) {
+    return list != NULL && list->cards != NULL;
+}
+
+/*
+ * A card's vertical inset, and the gap it leaves between one card and the next.
+ *
+ * The same number fb_draw_card() insets by, so a card in a list and a card on the Status tab are
+ * padded alike. Asked in two places - the surface takes it below its last row, and a group's
+ * heading is centred in what it leaves - which is why it is a function rather than a local.
+ */
+static int fb_list_card_pad(const struct mesh_ui_backend_fb_state *state) {
+    const int pad = ((int)fb_metrics(state)->card_pad * state->scale) / 2;
+    const int edge = fb_edge(state);
+    return pad > edge ? pad : edge;
+}
+
 enum mesh_ui_color fb_list_ground(const struct fb_list *list, uint32_t index) {
     return fb_list_card_of(list, index) == FB_LIST_NO_CARD ? MESH_UI_COLOR_BG
                                                            : MESH_UI_COLOR_SURFACE;
@@ -880,20 +900,30 @@ static void fb_list_cards(const struct mesh_ui_backend_fb_state *state, struct f
     const int edge = fb_edge(state);
     const int x = fb_gutter(state) - edge;
     const int width = (int)state->var.xres - fb_margin(state) + 2 * edge;
-    const int radius = fb_radius(state, MESH_UI_SHAPE_MD);
+    /*
+     * The row highlight's shape, not fb_draw_card()'s - and that is the same rule as the width,
+     * one axis over. A card's fill and a row's highlight are the same rectangle here (the fill
+     * is the card inset by its hairline, which is exactly the row gutter), so wherever the two
+     * disagree about a corner the highlight wins: it reaches its full width while the card is
+     * still curving, and the cursor's ends stand outside the card on the first and last rows of
+     * every group. Drawn to one shape they nest exactly, and the hairline stays outside the
+     * highlight all the way round.
+     */
+    const int radius = fb_radius(state, MESH_UI_SHAPE_SM);
 
     /*
-     * The card's top padding, and with it the gap to the card above.
+     * The card's vertical inset, and it is spent at the bottom only.
      *
-     * Both come out of air that is already on the panel: a heading draws at the label scale sat
-     * on the bottom of its step (see fb_list_subheader_icon), so the difference between the two
-     * line advances is empty at the top of every group. Half of it becomes the card's inset
-     * above its heading and half stays outside as the break between two cards - which is why a
-     * column of cards here costs no rows, and why no count anywhere else had to move.
+     * The same number fb_draw_card() insets by, so a card here and a card on the Status tab are
+     * padded alike - but a list row is not a card row, and where that inset is *needed* differs.
+     * A row's box is a line advance tall and a glyph's ink sits high in its cell, so the top of
+     * the first row already carries most of a line's leading as air while the bottom of the last
+     * carries none: its descenders run to the box's edge. Padding both ends equally would leave
+     * the card top-heavy by exactly that leading. So the top of the box is the first row's own,
+     * which is also what keeps the cursor's highlight inside the card on the row that opens it,
+     * and the whole of the inset goes under the last row.
      */
-    const int label = mesh_ui_theme_type_scale(state->theme, MESH_UI_TYPE_LABEL, state->scale);
-    const int air = fb_line_adv(state, state->scale) - fb_line_adv(state, label);
-    const int pad = air / 2 > edge ? air / 2 : edge;
+    const int pad = fb_list_card_pad(state);
 
     const uint32_t first = list->model.first;
     const uint32_t last = first + list->model.visible; /* one past */
@@ -928,8 +958,33 @@ static void fb_list_cards(const struct mesh_ui_backend_fb_state *state, struct f
          */
         const bool cut_top = i > 0U && fb_list_card_of(list, i - 1U) == card;
         const bool cut_bottom = run < list->model.count && fb_list_card_of(list, run) == card;
-        const int box_top = cut_top ? top : top + pad;
-        const int box_h = (top + height) - box_top;
+        /*
+         * The hairline is spent outward at the top, exactly as it is at the sides and for the
+         * same reason: the first row of a card is a row the cursor can stand on, and a fill
+         * drawn to the card's own rectangle lands on the edge and paints it out - so the card
+         * reads as open at the top on precisely the row being pointed at. It never climbs past
+         * the body, where the rows themselves start.
+         */
+        int box_top = top;
+        if (!cut_top) {
+            box_top -= edge;
+            const int ceiling = list->track_y - state->scale;
+            if (box_top < ceiling) {
+                box_top = ceiling;
+            }
+        }
+        int box_bottom = top + height;
+        if (!cut_bottom) {
+            /* Into the step the group's next heading stands in, which is where the break between
+               two cards comes from - never past the body, or the bottom card of a list that
+               filled its window would put its edge through the action bar. */
+            box_bottom += pad;
+            const int floor_y = list->track_y + list->track_h;
+            if (box_bottom > floor_y) {
+                box_bottom = floor_y;
+            }
+        }
+        const int box_h = box_bottom - box_top;
 
         /*
          * The edge first and the fill inside it, which is fb_draw_card()'s shape and for its
@@ -1070,8 +1125,23 @@ void fb_list_subheader_icon(const struct mesh_ui_backend_fb_state *state, struct
      * Sat on the bottom of the step, so the space the smaller glyphs free is air above the
      * heading rather than under it. That is the whole of what makes it read as a section break:
      * the gap belongs to the group beginning, not to the row that ended.
+     *
+     * On a column of cards it is centred instead, because there the heading is not a break
+     * between two runs of rows - it is the label of the card under it, standing in the gap
+     * between that card and the one that ended. The gap is the whole of this step bar the inset
+     * the card above took out of its top (fb_list_cards()), and the *cell* is what is centred
+     * in it rather than the line advance: a line carries its leading at the top, so centring
+     * the advance would seat the words low and leave the heading hanging off the card above.
      */
-    const int baseline = list->y + fb_line_adv(state, state->scale) - fb_line_adv(state, scale);
+    const int step_top = list->y - state->scale;
+    const int step_h = (int)rows * list->line;
+    int baseline = list->y + fb_line_adv(state, state->scale) - fb_line_adv(state, scale);
+    if (fb_list_has_cards(list)) {
+        const int gap_top = step_top + fb_list_card_pad(state);
+        const int gap_bottom = step_top + step_h - fb_edge(state);
+        const int cell = (int)fb_font(state)->height * scale;
+        baseline = gap_top + (gap_bottom - gap_top - cell) / 2;
+    }
     /*
      * Indented to where its own rows start, when the list declares a leading slot.
      *
@@ -1081,22 +1151,23 @@ void fb_list_subheader_icon(const struct mesh_ui_backend_fb_state *state, struct
      * label scale this draws at, because it is the rows' gutter being matched rather than one
      * of this row's own.
      *
-     * Whether anything is *drawn* in it is the card distinction. On a flat list the slot stays
+     * Whether anything is *drawn* in it is the card distinction, and it is asked of the *list*
+     * rather than of this row's ground - a heading on a column of cards stands between two of
+     * them, so the ground under it is the panel's either way. On a flat list the slot stays
      * empty: a heading there is a break between runs of rows, and a symbol on it would be a
      * second thing saying what the words underneath say - the icons on such a list are what each
-     * row is about, and a group has no single answer to that. On a card the heading is the
-     * card's own, and there the symbol is the cell the eye finds when it is looking for Signal
-     * rather than Identity, which is exactly what struct fb_card's icon is for. The list is
-     * asked which it is drawing, so a caller passes the icon either way and nothing decides
-     * twice - and the indent is the same whether or not it was drawn.
+     * row is about, and a group has no single answer to that. On a column of cards the heading
+     * names the card below it, and there the symbol is the cell the eye finds when it is looking
+     * for Signal rather than Identity, which is exactly what struct fb_card's icon is for. The
+     * list is asked which it is drawing, so a caller passes the icon either way and nothing
+     * decides twice - and the indent is the same whether or not it was drawn.
      */
     int x = fb_margin(state);
     if (leading.kind != FB_LEADING_NONE) {
-        if (mesh_ui_icon_is_valid(leading.icon) &&
-            fb_list_ground(list, index) != MESH_UI_COLOR_BG) {
+        if (mesh_ui_icon_is_valid(leading.icon) && fb_list_has_cards(list)) {
             /* On the heading's own baseline rather than the body's: this row draws at the label
-               scale sat on the bottom of its step, and a symbol standing where a body row's
-               would floats a third of a row clear of the word it belongs to. */
+               scale, and a symbol standing where a body row's would floats a third of a row
+               clear of the word it belongs to. */
             fb_draw_icon(state, x, baseline, leading.icon, scale,
                          selected ? fb_color(state, MESH_UI_COLOR_TEXT_ON_SEL_DIM)
                                   : fb_tone_color(state, MESH_UI_TONE_DIM),
