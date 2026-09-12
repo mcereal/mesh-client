@@ -1,3 +1,14 @@
+## [2.68.8](https://github.com/mcereal/mesh-client/compare/v2.68.7...v2.68.8) (2026-09-12)
+
+### Bug Fixes
+
+* **ui:** draw a row's label and its value as two tiers ([02030c1](https://github.com/mcereal/mesh-client/commit/02030c174e30647412ce1481151fcefb61c09275))
+* **ui:** let a row's label inherit its tone ([7eeecab](https://github.com/mcereal/mesh-client/commit/7eeecab9a8708a32c6ec828afd84a722621f8c60))
+
+### Documentation
+
+* **ui:** stop naming the helper the headline no longer has ([6360dcd](https://github.com/mcereal/mesh-client/commit/6360dcd2b063785edeea5970f9beb97d0ecb0de7))
+
 ## [2.68.7](https://github.com/mcereal/mesh-client/compare/v2.68.6...v2.68.7) (2026-09-12)
 
 ### Bug Fixes
