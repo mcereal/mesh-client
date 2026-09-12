@@ -1,3 +1,10 @@
+## [2.68.1](https://github.com/mcereal/mesh-client/compare/v2.68.0...v2.68.1) (2026-09-12)
+
+### Bug Fixes
+
+* **waypoint:** keep the header's assertions spellable from C++ ([b414da7](https://github.com/mcereal/mesh-client/commit/b414da7d86ef97f1555d94384066557125d66a95))
+* **waypoint:** state the name and description limits as characters, not buffers ([af3bcc4](https://github.com/mcereal/mesh-client/commit/af3bcc4b88c593cce590be8c4691fb92756b7654))
+
 ## [2.68.0](https://github.com/mcereal/mesh-client/compare/v2.67.1...v2.68.0) (2026-09-12)
 
 ### Features
