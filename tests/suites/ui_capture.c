@@ -3601,3 +3601,248 @@ MESH_TEST_CASE(ui_capture_node_detail_cards_survive_the_cursor, unit) {
     MESH_TEST_FAIL_IF(!rail_seen, "no scroll rail beside the node detail at any glyph scale");
     record_success(test_name);
 }
+
+/*
+ * Scanlines on which `first` ink appears and no `second` ink stands to the left of it.
+ *
+ * The question a two-tier row answers in pixels, and it is asked in both directions. A row that
+ * draws its label column and its value in one ink puts one colour across the whole line; a row
+ * that draws them as two pieces puts one ink in the label column and the other after it, in that
+ * order, on every scanline the glyphs' cores reach.
+ *
+ * Ordered rather than merely both-present, because both-present is satisfied by a screen that
+ * happens to carry the two inks anywhere at all - a trailing age beside a name, which is most of
+ * the lists in this client. The label column is what is being pinned, and what makes it the
+ * label column is that it comes first.
+ *
+ * Glyph cores only: a glyph carries coverage, so its edges are blends of the ink and the ground
+ * and match no role exactly. That is the whole of why this counts scanlines rather than pixels -
+ * a run of them is a row of text, and one is a stray antialiased hit.
+ */
+static unsigned scanlines_led_by(const struct mesh_ui_capture *capture, const uint8_t *pixels,
+                                 uint32_t width, uint32_t height, size_t stride,
+                                 enum mesh_ui_color first, enum mesh_ui_color second) {
+    unsigned rows = 0U;
+    for (uint32_t y = 0U; y < height; ++y) {
+        const uint8_t *row = pixels + (size_t)y * stride;
+        bool saw_first = false;
+        bool saw_second = false;
+        bool second_led = false;
+        for (uint32_t x = 0U; x < width; ++x) {
+            const uint8_t *pixel = row + (size_t)x * 4U;
+            if (pixel_is_role(capture, pixel, first)) {
+                saw_first = true;
+            } else if (pixel_is_role(capture, pixel, second)) {
+                saw_second = true;
+                second_led = second_led || !saw_first;
+            }
+        }
+        if (saw_first && saw_second && !second_led) {
+            rows++;
+        }
+    }
+    return rows;
+}
+
+MESH_TEST_CASE(ui_capture_node_detail_states_its_labels_quietly, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    /* Walked rather than assigned, the rest of this suite's rule: a test that set the nav by
+       hand would keep passing while the presses that get a user here stopped working. */
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    while (store.nav.screen != MESH_UI_SCREEN_NODES) {
+        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    }
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action); /* past the map row */
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action); /* a node that is not us */
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(!store.nav.node_detail_open, mesh_ui_store_shutdown(&store),
+                              "A should open the node detail");
+    /* Down past the verbs, which are plain rows and say nothing about a label column. Far
+       enough that the window is showing facts whichever groups this node turns out to have. */
+    for (unsigned step = 0U; step < 12U; ++step) {
+        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    }
+
+    struct mesh_ui_snapshot snapshot;
+    memset(&snapshot, 0, sizeof snapshot);
+    mesh_ui_store_request_refresh(&store);
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_ui_store_consume_updates(&store, &snapshot),
+                              mesh_ui_store_shutdown(&store), "no snapshot to render");
+
+    const char *failure = NULL;
+    static char detail[160];
+    for (int scale = MESH_UI_SCALE_MIN; scale <= MESH_UI_SCALE_MAX && failure == NULL; ++scale) {
+        struct mesh_ui_capture *capture = NULL;
+        if (mesh_ui_capture_open(&capture, MESH_UI_CAPTURE_WIDTH, MESH_UI_CAPTURE_HEIGHT, scale) !=
+            0) {
+            failure = "capture open failed";
+            break;
+        }
+        mesh_ui_capture_set_scale(capture, scale);
+        uint32_t width = 0U;
+        uint32_t height = 0U;
+        size_t stride = 0U;
+        const uint8_t *pixels = mesh_ui_capture_pixels(capture, &width, &height, &stride);
+        mesh_ui_capture_render(capture, &snapshot);
+
+        /* More than one, so a single antialiased hit cannot pass for a row: the smallest glyph
+           this ships draws its cores over several scanlines, and the screen is a column of
+           these rows rather than one of them. */
+        const unsigned rows = scanlines_led_by(capture, pixels, width, height, stride,
+                                               MESH_UI_COLOR_TEXT_DIM, MESH_UI_COLOR_TEXT);
+        if (rows < 2U) {
+            snprintf(detail, sizeof detail,
+                     "the node detail draws its labels in the value's own ink (%u two-tier "
+                     "scanlines at glyph scale %d)",
+                     rows, scale);
+            failure = detail;
+        }
+        mesh_ui_capture_close(capture);
+    }
+
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * A row that states something about itself states it across both of its halves.
+ *
+ * The other side of the two-tier rule, and the case splitting the headline got wrong first. A
+ * settings row's `tone` is a fact about the *row*: an unsaved field is MESH_UI_TONE_STRONG and a
+ * section the radio has not answered for is MESH_UI_TONE_DIM, and while the headline was one
+ * composed string both halves took it for free. Split into pieces with the label's tier spelled
+ * as a tone of its own, the label fell to the zero - MESH_UI_TONE_NORMAL - so an unsaved field
+ * kept a strong value beside an ordinary name and an unloaded section read as available. The
+ * flag replaced the tone for that reason: a row that says nothing here keeps what it had.
+ *
+ * Asked as two frames rather than as an ink, and the failed attempts are why. Matching
+ * MESH_UI_COLOR_TEXT_STRONG in the label column passes on the broken code, because the roles are
+ * compared exactly and the dark palette draws TEXT_STRONG, TEXT_ON_SEL and a switch's knob in
+ * one pure white - so the *cursor's own row* supplies the strong ink wherever it stands. Asking
+ * it across the whole frame is worse: the scroll rail is dim ink at the panel's edge, so every
+ * ordinary row on a scrolling list reads as a label that lost its tone.
+ *
+ * So the question is what an edit *changes*, in the one strip where only the label lives. A
+ * toggle rather than a number, because a number's row carries a slider across its full width and
+ * that bar reaches into the label column - it would answer this question by itself. On a toggle,
+ * everything an edit touches (the value's word, the marker's dot, the switch, the app bar's
+ * badge) is to the right of the boundary, so the label's own ink is all that is left to move.
+ *
+ * The cursor sits one row below the edited one in both frames, because a selected row draws
+ * against the highlight in TEXT_ON_SEL whatever its tone - on the row it is standing on, a
+ * tone is not on the panel to be read at all.
+ */
+MESH_TEST_CASE(ui_capture_settings_marks_both_halves_of_an_unsaved_row, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+    /* A section the radio has answered for, or it holds no editable field to dirty. */
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_display = true;
+    settings.screen_on_secs = 60U;
+    mesh_ui_store_set_settings(&store, &settings);
+
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    while (store.nav.screen != MESH_UI_SCREEN_SETTINGS) {
+        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    }
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_test_settings_open(&store, MESH_UI_SETTINGS_DISPLAY),
+                              mesh_ui_store_shutdown(&store), "could not open a settings section");
+
+    /* Down to the first toggle in the section, found by asking the rows rather than by counting
+       them here: which fields Display offers is settings_rows.c's business, and a hard-coded
+       index would land on a number the day one is added above it. */
+    const char *failure = NULL;
+    uint32_t toggle_row = 0U;
+    bool found = false;
+    for (uint32_t r = 0U; r < 32U && !found; ++r) {
+        struct mesh_ui_settings_item item;
+        if (!mesh_ui_settings_item(&store.settings, NULL, store.nav.settings_edits,
+                                   store.nav.settings_edit_count, MESH_UI_SETTINGS_DISPLAY,
+                                   MESH_UI_SETTINGS_NO_CHANNEL, r, &item)) {
+            break;
+        }
+        if (item.kind == MESH_UI_SETTING_TOGGLE) {
+            toggle_row = r;
+            found = true;
+        }
+    }
+    MESH_TEST_FAIL_IF_CLEANUP(!found, mesh_ui_store_shutdown(&store),
+                              "Display should offer a toggle to dirty");
+    for (uint32_t r = 0U; r < toggle_row; ++r) {
+        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    }
+    /* Off the row first, so the clean frame has it at rest. */
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+
+    static char detail[192];
+    for (int scale = MESH_UI_SCALE_MIN; scale <= MESH_UI_SCALE_MAX && failure == NULL; ++scale) {
+        uint32_t width = 0U;
+        uint32_t height = 0U;
+        size_t stride = 0U;
+        const struct mesh_ui_theme *theme = mesh_ui_theme_at(0U);
+        uint8_t *clean = capture_frame(&store, theme, scale, &width, &height, &stride);
+        if (clean == NULL) {
+            failure = "could not render the settings section";
+            break;
+        }
+
+        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+        if (store.nav.settings_edit_count == 0U) {
+            free(clean);
+            failure = "Right on a toggle should leave an unsaved edit";
+            break;
+        }
+        uint8_t *dirty = capture_frame(&store, theme, scale, &width, &height, &stride);
+        if (dirty == NULL) {
+            free(clean);
+            failure = "could not render the edited settings section";
+            break;
+        }
+
+        /*
+         * The list's own band, and the chrome above and below it is excluded rather than
+         * trusted. An unsaved edit rewrites the action bar - "back" becomes "save" and
+         * "discard" - and those verbs start at the left margin, well inside the label column,
+         * so a frame comparison that kept them answers this question with the footer whatever
+         * the labels did. The app bar's badge is right-aligned and outside the column already;
+         * the sixth at either end is the suite's own estimate of the two bars, the one
+         * ui_capture_app_bar_badges_unsaved_edits() uses to say the body starts well below.
+         */
+        const uint32_t chrome = height / 6U;
+        const uint32_t label_right = settings_label_right(theme, width, scale);
+        const size_t moved =
+            differing_in(clean, dirty, stride, 0U, label_right, chrome, height - chrome);
+        if (moved == 0U) {
+            snprintf(detail, sizeof detail,
+                     "dirtying a row left its label untouched (nothing changed left of column %u "
+                     "in the body at glyph scale %d)",
+                     label_right, scale);
+            failure = detail;
+        }
+        free(clean);
+        free(dirty);
+
+        /* Back to clean for the next scale: the edit is discarded the way a user discards one. */
+        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action);
+        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+        if (failure == NULL && store.nav.settings_edit_count != 0U) {
+            failure = "Left should have taken the toggle back to the radio's value";
+        }
+    }
+
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}

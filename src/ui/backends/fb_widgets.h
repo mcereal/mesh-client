@@ -1599,6 +1599,39 @@ struct fb_list_item {
     bool marker_slot;
     const char *value;
     enum mesh_ui_tone tone;
+    /*
+     * Whether the label column is the row's quiet tier.
+     *
+     * A label and the value beside it are two tiers of one row, and until now they were one
+     * string: fb_item_headline() pasted the column, the marker gutter and the value together
+     * and the row drew the result in a single colour - so on every fact this client states,
+     * the question and the answer were typographically identical and a card of them read as a
+     * block of text with no way into it. That is the bubble's trailing run one component over,
+     * and it is fixed the same way: the pieces are drawn as pieces, so each can take its own
+     * ink.
+     *
+     * Which tier is quiet is the row's to say, because it depends on what the row *is*. On a
+     * control row the label is what the reader is choosing and the value is where it currently
+     * stands, so the label leads - which is the zero, and the whole row draws in `tone` exactly
+     * as the composed line did. On a stated fact the label is the question and repeats down the
+     * column while the value is what the reader came for, so the label recedes and the value
+     * keeps the row's own tone.
+     *
+     * A flag rather than a tone of its own, and that is the correction rather than a shorthand.
+     * A tone cannot say "whatever the row is": MESH_UI_TONE_NORMAL is the zero, so a field
+     * holding one would silently flatten every row whose tone is *not* normal - a settings
+     * section that is not loaded is dim and an unsaved field is strong, and both state that
+     * about the whole row. Spelled as a tone, an unloaded section drew its name at full
+     * strength and read as available. Spelled as a flag, a row that says nothing here keeps
+     * what it always had, by construction rather than by every caller remembering.
+     *
+     * It is also the shape `supporting_quiet` already has one line down, and it means the same
+     * thing: a tier quiet on the ground stays quiet on the fill, taking TEXT_ON_SEL_DIM where
+     * the rest of the row takes TEXT_ON_SEL.
+     *
+     * Ignored on a plain row, which has no label column to ink.
+     */
+    bool label_quiet;
     struct fb_trailing trailing;
 
     /*
