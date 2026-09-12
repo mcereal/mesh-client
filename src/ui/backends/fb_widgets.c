@@ -1563,14 +1563,26 @@ static size_t fb_trailing_cols(const struct mesh_ui_backend_fb_state *state, siz
    two forms reads it, and it has to: a segmented button that measured itself against the free
    room and then drew itself against the whole line would be the one kind able to disagree with
    the measure that placed it. */
-/* `ground_role` is what the row is standing on - the cursor's fill, the panel, or the surface of
-   the card its group was drawn on. The role rather than the mixed colour because two of the
-   controls in here take a role: fb_draw_segmented() needs to name what it is over, not to be
-   handed pixels. */
+/*
+ * `rest_role` is what the row is standing on when it is *not* the cursor's: the panel, or the
+ * surface of the card its group was drawn on. A role rather than a mixed colour because the
+ * controls in here take a role - fb_draw_segmented() needs to name what it is over, not to be
+ * handed pixels.
+ *
+ * The two grounds below are deliberately different and it is not a shortcut that they come from
+ * one parameter. Words and symbols are drawn *on* the cursor fill, so they blend against it. A
+ * control that lays a patch of its own - the switch's ring, the meter's track bed - is laying
+ * the row's **resting** ground under itself precisely to escape that fill: both are contracted
+ * against what the row rests on, and on two of the four themes the cursor fill is the resting
+ * track's own colour, so a patch in it would make the control vanish on exactly the row being
+ * pointed at. `selected` is already here, so the ink's ground is derived rather than passed and
+ * the two cannot be handed the wrong way round.
+ */
 static void fb_draw_trailing(struct mesh_ui_backend_fb_state *state, const struct fb_item_geom *g,
                              size_t reserved, const struct fb_trailing *trailing, int baseline,
-                             int slot_top, bool selected, enum mesh_ui_color ground_role) {
-    const struct mesh_ui_rgb ground = fb_color(state, ground_role);
+                             int slot_top, bool selected, enum mesh_ui_color rest_role) {
+    const struct mesh_ui_rgb ground =
+        fb_color(state, selected ? MESH_UI_COLOR_SURFACE_SEL : rest_role);
     const int scale = state->scale;
     const int adv = fb_char_adv(state, scale);
     const size_t cells =
@@ -1624,10 +1636,11 @@ static void fb_draw_trailing(struct mesh_ui_backend_fb_state *state, const struc
         trailing->sw->rect.x = g->text_right - width;
         trailing->sw->rect.y = g->fill_top + (g->fill_h - height) / 2;
         trailing->sw->selected = selected;
-        /* The row's ground, written here for the reason `selected` is: what a control is
-           standing on is a fact about the row, and a screen asked to remember it is a screen
-           that would forget on one list out of nine. */
-        trailing->sw->ground = ground_role;
+        /* The row's resting ground, written here for the reason `selected` is: what a control
+           is standing on is a fact about the row, and a screen asked to remember it is a screen
+           that would forget on one list out of nine. Resting rather than current, because the
+           ring exists to get the control *out* from under the cursor fill. */
+        trailing->sw->ground = rest_role;
         fb_draw_switch(state, trailing->sw);
         return;
     }
@@ -1682,7 +1695,7 @@ static void fb_draw_trailing(struct mesh_ui_backend_fb_state *state, const struc
                                     .y = g->fill_top + (g->fill_h - height) / 2,
                                     .w = width,
                                     .h = height};
-        fb_draw_segmented(state, &box, trailing->segmented, selected, ground_role, seg_scale);
+        fb_draw_segmented(state, &box, trailing->segmented, selected, rest_role, seg_scale);
         return;
     }
     case FB_TRAILING_METER: {
@@ -1697,7 +1710,7 @@ static void fb_draw_trailing(struct mesh_ui_backend_fb_state *state, const struc
         trailing->meter->rect.x = g->text_right - trailing->meter->rect.w;
         trailing->meter->rect.y = g->fill_top + (g->fill_h - height) / 2;
         trailing->meter->selected = selected;
-        trailing->meter->ground = ground_role;
+        trailing->meter->ground = rest_role;
         fb_draw_meter(state, trailing->meter);
         return;
     }
@@ -1845,9 +1858,9 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
        group was drawn on. Asked of the list rather than assumed, because a glyph carries
        coverage and not a mask: text told the wrong ground keeps its shape and gains a halo of a
        colour that is nowhere near it. */
-    const enum mesh_ui_color ground_role =
-        selected ? MESH_UI_COLOR_SURFACE_SEL : fb_list_ground(list, index);
-    const struct mesh_ui_rgb ground = fb_color(state, ground_role);
+    const enum mesh_ui_color rest_role = fb_list_ground(list, index);
+    const struct mesh_ui_rgb ground =
+        fb_color(state, selected ? MESH_UI_COLOR_SURFACE_SEL : rest_role);
 
     if (item->leading.kind == FB_LEADING_AVATAR) {
         const int size = g.fill_h - scale;
@@ -1893,7 +1906,7 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
     }
     if (head_take > 0U) {
         fb_draw_trailing(state, &g, reserved, &item->trailing, g.head_y, g.head_slot_top, selected,
-                         ground_role);
+                         rest_role);
     }
 
     if (g.rows >= 2U && item->supporting != NULL) {
@@ -1918,7 +1931,7 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
         fb_draw_text(state, supp_x, g.supp_y, mesh_ui_line_text(&line), scale, supp_ink, ground);
         if (supp_take > 0U) {
             fb_draw_trailing(state, &g, 0U, &item->supporting_trailing, g.supp_y, g.supp_slot_top,
-                             selected, ground_role);
+                             selected, rest_role);
         }
     }
 
@@ -1937,7 +1950,7 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
         item->meter->rect.h = g.bar_h;
         item->meter->rect.y = g.bar_y;
         item->meter->selected = selected;
-        item->meter->ground = ground_role;
+        item->meter->ground = rest_role;
         fb_draw_meter(state, item->meter);
     } else if (item->slider != NULL && g.bar_h > 0) {
         /* The same box the meter would have had, and the control centres its own track in it -

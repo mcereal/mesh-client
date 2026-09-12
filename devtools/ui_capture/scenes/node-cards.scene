@@ -1,0 +1,37 @@
+# The node detail as a column of cards.
+#
+# The screen this replaced was a hundred and twenty label-and-value rows with dimmed words
+# between them, which is a group distinguished from its own rows by colour alone. What a card
+# says instead is said by a fill and an edge, and there are three things about doing that in a
+# *scrolling* list that a still of the top of the screen cannot show. So this walks down.
+#
+# Row 0 of the Nodes list is the Map, so a node's row is its index in the demo roster plus one -
+# Echo Repeater is seeds[5] and row 6. It is the node worth opening here because it reports
+# nearly everything: actions, identity, signal, an environment reading with a bar under it, a
+# two-channel power monitor and both neighbour groups, which is six cards and a cut one.
+
+scene demo
+tab nodes
+key down 6
+key a
+hold 1200
+
+# The cursor on the first verb's switch, which is the one control that lays a ground of its own.
+# It has to lay the *card's* rather than the panel's, or it punches a black hole in the card on
+# precisely the row being pointed at.
+key down 1
+hold 1200
+
+# Down through the groups. What to watch is the card the window is cutting: it keeps square
+# corners and its full width on the cut end, because a rounded corner halfway down a scroll is a
+# card claiming to end where the panel merely stopped.
+key down 8
+hold 800
+key down 8
+hold 800
+key down 8
+hold 1600
+
+# And back up, so the cut lands on the other end of a card as well.
+key up 12
+hold 1600
