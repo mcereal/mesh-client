@@ -31,6 +31,7 @@
 #include "mesh/utils/crash.h"
 #include "mesh/utils/log.h"
 
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -54,9 +55,7 @@ static bool crash_test_slurp(const char *path, char *out, size_t out_len) {
 }
 
 /* A directory of this case's own under /tmp, in the shape the rest of the suite uses. */
-static bool crash_test_tempdir(char *template_path) {
-    return mkdtemp(template_path) != NULL;
-}
+static bool crash_test_tempdir(char *template_path) { return mkdtemp(template_path) != NULL; }
 
 /* ---- the writer ------------------------------------------------------------------------------ */
 
@@ -166,8 +165,8 @@ MESH_TEST_CASE(crash_log_ring_takes_what_the_logger_formats, unit) {
     char path[256];
     snprintf(path, sizeof path, "%s/report.txt", dir);
     FILE *file = fopen(path, "we");
-    MESH_TEST_FAIL_IF_CLEANUP(file == NULL, mesh_log_set_level(restore); mesh_test_remove_tree(dir),
-                              "could not open a report");
+    MESH_TEST_FAIL_IF_CLEANUP(file == NULL, mesh_log_set_level(restore);
+                              mesh_test_remove_tree(dir), "could not open a report");
     mesh_crash_write_report(fileno(file), 6);
     (void)fclose(file);
 
@@ -206,7 +205,8 @@ MESH_TEST_CASE(crash_log_ring_takes_what_the_logger_formats, unit) {
     record_success(test_name);
 }
 
-/* ---- the handler, from a process that really crashes ------------------------------------------ */
+/* ---- the handler, from a process that really crashes ------------------------------------------
+ */
 
 /*
  * Fault in a child and report how it went.
@@ -221,10 +221,28 @@ enum crash_child_mode {
     CRASH_CHILD_CLEAN,
 };
 
-/* Deep enough that a walk which stops early is visibly wrong rather than plausibly short.
-   `volatile` and the pointer argument are what stop the compiler folding the three together and
-   handing the walk one frame to find. */
-static int crash_child_three(volatile int *p) { return *p; }
+/*
+ * Four calls deep, so a walk that stops early is visibly wrong rather than plausibly short. The
+ * `volatile` argument is what stops the compiler folding the three together and handing the walk
+ * one frame to find.
+ *
+ * The fault is `raise()` rather than a dereference of NULL, and that is not squeamishness. A
+ * null dereference is undefined behaviour, which means a sanitizer is entitled to do something
+ * other than let it fault - and UBSan does exactly that: by default it *reports* the load and
+ * lets the program carry on, so under the sanitizer build these children never died at all and
+ * every case here failed on a report that was never written. Asking for the signal directly is
+ * what the handler's contract is actually about - a fatal signal arrives, a report is written,
+ * and the process still dies of it - and it behaves the same under every build this repo makes.
+ *
+ * What the raise does not exercise is a genuinely bad `si_addr` on a genuinely damaged stack;
+ * nothing here asserts on either, and a real dereference was used by hand to confirm the report
+ * resolves through addr2line to the faulting line.
+ */
+static int crash_child_three(volatile int *p) {
+    (void)p;
+    raise(SIGSEGV);
+    return 0;
+}
 static int crash_child_two(volatile int *p) { return crash_child_three(p) + 1; }
 static int crash_child_one(volatile int *p) { return crash_child_two(p) + 1; }
 
@@ -244,6 +262,8 @@ static pid_t crash_test_fork_child(const char *dir, enum crash_child_mode mode) 
 
     switch (mode) {
     case CRASH_CHILD_SEGV:
+        /* Reached only if the signal did not kill us, which is itself a failure worth a code of
+           its own rather than a silent pass. */
         _exit(crash_child_one((volatile int *)0) == 0 ? 41 : 42);
     case CRASH_CHILD_ABORT:
         abort();
@@ -357,7 +377,8 @@ MESH_TEST_CASE(crash_handler_catches_an_abort, unit) {
     record_success(test_name);
 }
 
-/* ---- what the client is told afterwards -------------------------------------------------------- */
+/* ---- what the client is told afterwards --------------------------------------------------------
+ */
 
 MESH_TEST_CASE(crash_report_waiting_is_read_once_at_install, unit) {
     /*
@@ -496,8 +517,8 @@ MESH_TEST_CASE(crash_install_re_aims_rather_than_ignoring_a_second_call, unit) {
                               "mkdtemp failed");
 
     const pid_t pid = fork();
-    MESH_TEST_FAIL_IF_CLEANUP(pid < 0, mesh_test_remove_tree(first); mesh_test_remove_tree(second),
-                              "fork failed");
+    MESH_TEST_FAIL_IF_CLEANUP(pid < 0, mesh_test_remove_tree(first);
+                              mesh_test_remove_tree(second), "fork failed");
     if (pid == 0) {
         if (mesh_crash_install(first) != 0) {
             _exit(40);
@@ -512,9 +533,8 @@ MESH_TEST_CASE(crash_install_re_aims_rather_than_ignoring_a_second_call, unit) {
         _exit(strstr(path, second) != NULL ? 0 : 43);
     }
     int status = 0;
-    MESH_TEST_FAIL_IF_CLEANUP(waitpid(pid, &status, 0) != pid,
-                              mesh_test_remove_tree(first); mesh_test_remove_tree(second),
-                              "waitpid failed");
+    MESH_TEST_FAIL_IF_CLEANUP(waitpid(pid, &status, 0) != pid, mesh_test_remove_tree(first);
+                              mesh_test_remove_tree(second), "waitpid failed");
     const bool re_aimed = WIFEXITED(status) && WEXITSTATUS(status) == 0;
     mesh_test_remove_tree(first);
     mesh_test_remove_tree(second);

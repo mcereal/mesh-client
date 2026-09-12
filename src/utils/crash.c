@@ -463,8 +463,8 @@ static void crash_capture_load_base(void) {
         size_t len = 0U;
         while (len < sizeof g_load_base - 3U && line[len] != '\0' && line[len] != '-') {
             const char c = line[len];
-            const bool hex = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
-                             (c >= 'A' && c <= 'F');
+            const bool hex =
+                (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
             if (!hex) {
                 len = 0U;
                 break;
