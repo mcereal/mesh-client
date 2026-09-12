@@ -337,7 +337,8 @@ MESH_TEST_CASE(ui_settings_small_modules, unit) {
             strcmp(mesh_ui_settings_enum_name(MESH_UI_FIELD_TAK_ROLE, 5U), "Medic") != 0,
         "the TAK enum tables are wrong");
 
-    /* node_status is 79 bytes on the wire and the edit buffer has to hold all of them. */
+    /* node_status is 79 bytes on the wire and the edit buffer has to hold all of them - which
+       it does by being measured from this field, today the widest one in the table. */
     MESH_TEST_FAIL_IF(mesh_ui_settings_text_max(MESH_UI_FIELD_STATUS_TEXT) != 79U ||
                           MESH_UI_SETTING_TEXT_MAX < 80U,
                       "a status message should not be truncated by the edit buffer");
@@ -625,6 +626,44 @@ MESH_TEST_CASE(ui_settings_key_text, unit) {
                            MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_DEFAULT)) == 0U ||
                           mesh_ui_settings_key_choices(MESH_UI_FIELD_LORA_HOPS) != 0U,
                       "key choices are wrong");
+    record_success(test_name);
+}
+
+/*
+ * The edit buffer is the widest TEXT or KEY field and its NUL, walked from the field table
+ * rather than taken on trust from mesh/ui/settings_text.def.
+ *
+ * That file sizes MESH_UI_SETTING_TEXT_MAX and the table's rows name their limits out of it, so
+ * the two agree by construction - for every field that is *in* it. A TEXT row written with a
+ * bare number instead is the way back to the bug the def removed: the value is cut to the
+ * buffer as it is committed, silently, and the radio would have taken the whole string. So this
+ * asks the table, one field at a time, and names the field that does not fit.
+ *
+ * The equality at the end is the other direction: a field listed in the def and since dropped
+ * from the table leaves every edit slot carrying bytes no field can use, which is 16 slots and
+ * 32 rows' worth of a mistake nothing else would report.
+ */
+MESH_TEST_CASE(settings_text_fields_fit_the_edit_buffer, unit) {
+    uint32_t widest = 0U;
+    for (unsigned f = 0; f < (unsigned)MESH_UI_FIELD_COUNT; ++f) {
+        const enum mesh_ui_setting_field field = (enum mesh_ui_setting_field)f;
+        const enum mesh_ui_setting_kind kind = mesh_ui_settings_field_kind(field);
+        if (kind != MESH_UI_SETTING_TEXT && kind != MESH_UI_SETTING_KEY) {
+            continue;
+        }
+        const uint32_t limit = mesh_ui_settings_text_max(field);
+        char message[128];
+        snprintf(message, sizeof message, "%s takes %u bytes and the edit buffer holds %u",
+                 mesh_ui_settings_field_label(field), (unsigned)limit,
+                 (unsigned)MESH_UI_SETTING_TEXT_MAX - 1U);
+        MESH_TEST_FAIL_IF((size_t)limit + 1U > MESH_UI_SETTING_TEXT_MAX, message);
+        if (limit > widest) {
+            widest = limit;
+        }
+    }
+    MESH_TEST_FAIL_IF(widest == 0U, "no text field was found at all");
+    MESH_TEST_FAIL_IF((size_t)widest + 1U != MESH_UI_SETTING_TEXT_MAX,
+                      "the edit buffer is wider than the widest field plus its NUL");
     record_success(test_name);
 }
 

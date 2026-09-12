@@ -22,6 +22,21 @@
 #include <stdint.h>
 
 /*
+ * Every TEXT and KEY field's byte limit, named so a `k_fields` row can state its own without
+ * writing the number down a second time.
+ *
+ * The list itself is mesh/ui/settings_text.def, because the edit buffer is sized from the same
+ * rows (MESH_UI_SETTING_TEXT_MAX, mesh/ui/nav.h) and a limit written in two places is a limit
+ * that will eventually be raised in one of them. See that file for why the buffer is measured
+ * rather than declared.
+ */
+enum mesh_ui_setting_text_limit {
+#define MESH_UI_TEXT_FIELD(name, bytes) MESH_UI_TEXT_LIMIT_##name = (bytes),
+#include "mesh/ui/settings_text.def"
+#undef MESH_UI_TEXT_FIELD
+};
+
+/*
  * What one editable field is: its label, how it is edited, and what values it will take.
  *
  * `label` and `zero_label` are catalog ids rather than text, so the table describes what a row

@@ -778,6 +778,16 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   before the fill they are gaps the fill closes, and a full track shows none of them.
   Which lists are a scale at all is stated per field (`SCALE_PRESETS` / `NAMED_PRESETS`) and is
   not derivable: `{0, 1, ... 7}` is a hop limit under one field and a GPIO pin under the next.
+- **The settings edit buffer's width is a `sizeof`, not a number, and raising it by hand is
+  what that replaced.** `MESH_UI_SETTING_TEXT_MAX` is the size of a union of every TEXT and KEY
+  field's bytes plus its NUL (`include/mesh/ui/settings_text.def`, read once in `nav.h` for the
+  width and once in `settings_internal.h` for the per-field limits a `k_fields` row names), so
+  the buffer *is* the widest field and a wider field widens it by being listed. It was a
+  constant raised twice, once per module that outgrew it, and the failure when it was too small
+  was silent: `mesh_ui_nav_settings_commit_text()` cuts what does not fit, so a radio that would
+  have taken the whole string was sent part of one with nothing on the frame saying so. A field
+  written with a bare limit the def does not know about fails
+  `settings_text_fields_fit_the_edit_buffer` rather than being truncated at the keyboard.
 - **Three settings rows are shown and cannot be pressed, and that is the point.** The radio's
   screen and settings locks (`store_ui_config` can turn them on and no verb turns them off, and
   the PIN behind them is not on the wire), the **ringtone** (RTTTL is 231 bytes against a

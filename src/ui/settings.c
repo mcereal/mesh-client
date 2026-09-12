@@ -763,17 +763,29 @@ static void format_count(uint32_t value, char *out, size_t out_len) {
 #define NAMED_PRESETS(array) (array), MESH_ARRAY_LEN(array), false, false
 #define NO_PRESETS NULL, 0U, false, false
 
-/* User.long_name is 39 bytes on the wire but the firmware truncates to 24 (mesh.proto). */
+/*
+ * Two of the limits in settings_text.def are the same number as a constant declared elsewhere,
+ * and are written out there because that file is read from mesh/ui/nav.h, which sits below the
+ * headers those constants live in. Held together here, where both are in scope, so a change to
+ * either side fails the build instead of quietly shortening a row.
+ */
+_Static_assert(MESH_UI_TEXT_LIMIT_CANNED_0 + 1U == MESH_UI_CANNED_SLOT_MAX,
+               "a canned slot's typed limit is its wire slot less the NUL");
+_Static_assert(MESH_UI_TEXT_LIMIT_CHANNEL_KEY == 2U * MESH_UI_PSK_MAX &&
+                   MESH_UI_TEXT_LIMIT_SECURITY_PRIVATE_KEY == 2U * MESH_UI_PSK_MAX,
+               "a key is typed as two hex characters per byte");
+
 static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
     [MESH_UI_FIELD_NONE] = {MESH_STR_COMMON_UNKNOWN_SHORT, MESH_UI_SETTING_INFO,
                             MESH_UI_SETTINGS_SECTION_COUNT, 0U, NULL, NO_PRESETS, MESH_STR_NONE,
                             NULL, 0U},
     [MESH_UI_FIELD_USER_LONG_NAME] = {MESH_STR_SETTINGS_FIELD_USER_LONG_NAME, MESH_UI_SETTING_TEXT,
-                                      MESH_UI_SETTINGS_USER, 24U, NULL, NO_PRESETS, MESH_STR_NONE,
-                                      NULL, 0U},
+                                      MESH_UI_SETTINGS_USER, MESH_UI_TEXT_LIMIT_USER_LONG_NAME,
+                                      NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U},
     [MESH_UI_FIELD_USER_SHORT_NAME] = {MESH_STR_SETTINGS_FIELD_USER_SHORT_NAME,
-                                       MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_USER, 4U, NULL,
-                                       NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+                                       MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_USER,
+                                       MESH_UI_TEXT_LIMIT_USER_SHORT_NAME, NULL, NO_PRESETS,
+                                       MESH_STR_NONE, NULL, 0U},
     [MESH_UI_FIELD_USER_LICENSED] = {MESH_STR_SETTINGS_FIELD_USER_LICENSED, MESH_UI_SETTING_TOGGLE,
                                      MESH_UI_SETTINGS_USER, 0U, NULL, NO_PRESETS, MESH_STR_NONE,
                                      NULL, 0U, MESH_STR_SETTINGS_NOTE_USER_LICENSED},
@@ -785,11 +797,12 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
     [MESH_UI_FIELD_DEVICE_ROLE] = {MESH_STR_SETTINGS_FIELD_DEVICE_ROLE, MESH_UI_SETTING_ENUM,
                                    MESH_UI_SETTINGS_DEVICE, 13U, role_enum_name, NO_PRESETS,
                                    MESH_STR_NONE, NULL, 0U, MESH_STR_SETTINGS_NOTE_DEVICE_ROLE},
-    /* tzdef is 64 bytes on the wire. The radio applies it to its own clock only; it has no
-       bearing on what this client shows, which follows the Brick's own TZ. */
+    /* The radio applies tzdef to its own clock only; it has no bearing on what this client
+       shows, which follows the Brick's own TZ. */
     [MESH_UI_FIELD_DEVICE_TZDEF] = {MESH_STR_SETTINGS_FIELD_DEVICE_TZDEF, MESH_UI_SETTING_TEXT,
-                                    MESH_UI_SETTINGS_DEVICE, 64U, NULL, NO_PRESETS, MESH_STR_NONE,
-                                    NULL, 0U, MESH_STR_SETTINGS_NOTE_DEVICE_TZDEF},
+                                    MESH_UI_SETTINGS_DEVICE, MESH_UI_TEXT_LIMIT_DEVICE_TZDEF, NULL,
+                                    NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                    MESH_STR_SETTINGS_NOTE_DEVICE_TZDEF},
     [MESH_UI_FIELD_DEVICE_REBROADCAST] = {MESH_STR_SETTINGS_FIELD_DEVICE_REBROADCAST,
                                           MESH_UI_SETTING_ENUM, MESH_UI_SETTINGS_DEVICE, 6U,
                                           rebroadcast_name, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
@@ -838,15 +851,18 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                                              MESH_STR_ZERO_DEFAULT, NULL, 0U,
                                              MESH_STR_SETTINGS_NOTE_POSITION_GPS_INTERVAL},
     [MESH_UI_FIELD_POSITION_LATITUDE] = {MESH_STR_SETTINGS_FIELD_POSITION_LATITUDE,
-                                         MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_POSITION, 15U, NULL,
-                                         NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                         MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_POSITION,
+                                         MESH_UI_TEXT_LIMIT_POSITION_LATITUDE, NULL, NO_PRESETS,
+                                         MESH_STR_NONE, NULL, 0U,
                                          MESH_STR_SETTINGS_NOTE_POSITION_FIXED},
     [MESH_UI_FIELD_POSITION_LONGITUDE] = {MESH_STR_SETTINGS_FIELD_POSITION_LONGITUDE,
-                                          MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_POSITION, 15U,
-                                          NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+                                          MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_POSITION,
+                                          MESH_UI_TEXT_LIMIT_POSITION_LONGITUDE, NULL, NO_PRESETS,
+                                          MESH_STR_NONE, NULL, 0U},
     [MESH_UI_FIELD_POSITION_ALTITUDE] = {MESH_STR_SETTINGS_FIELD_POSITION_ALTITUDE,
-                                         MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_POSITION, 7U, NULL,
-                                         NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+                                         MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_POSITION,
+                                         MESH_UI_TEXT_LIMIT_POSITION_ALTITUDE, NULL, NO_PRESETS,
+                                         MESH_STR_NONE, NULL, 0U},
     [MESH_UI_FIELD_POWER_SAVING] = {MESH_STR_SETTINGS_FIELD_POWER_SAVING, MESH_UI_SETTING_TOGGLE,
                                     MESH_UI_SETTINGS_POWER, 0U, NULL, NO_PRESETS, MESH_STR_NONE,
                                     NULL, 0U, MESH_STR_SETTINGS_NOTE_POWER_SAVING},
@@ -895,17 +911,19 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                                     MESH_UI_SETTINGS_MQTT, 0U, NULL, NO_PRESETS, MESH_STR_NONE,
                                     NULL, 0U, MESH_STR_SETTINGS_NOTE_MQTT_ENABLED},
     [MESH_UI_FIELD_MQTT_ADDRESS] = {MESH_STR_SETTINGS_FIELD_MQTT_ADDRESS, MESH_UI_SETTING_TEXT,
-                                    MESH_UI_SETTINGS_MQTT, 63U, NULL, NO_PRESETS, MESH_STR_NONE,
-                                    NULL, 0U, MESH_STR_SETTINGS_NOTE_MQTT_ADDRESS},
+                                    MESH_UI_SETTINGS_MQTT, MESH_UI_TEXT_LIMIT_MQTT_ADDRESS, NULL,
+                                    NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                    MESH_STR_SETTINGS_NOTE_MQTT_ADDRESS},
     [MESH_UI_FIELD_MQTT_USERNAME] = {MESH_STR_SETTINGS_FIELD_MQTT_USERNAME, MESH_UI_SETTING_TEXT,
-                                     MESH_UI_SETTINGS_MQTT, 63U, NULL, NO_PRESETS, MESH_STR_NONE,
-                                     NULL, 0U},
+                                     MESH_UI_SETTINGS_MQTT, MESH_UI_TEXT_LIMIT_MQTT_USERNAME, NULL,
+                                     NO_PRESETS, MESH_STR_NONE, NULL, 0U},
     [MESH_UI_FIELD_MQTT_PASSWORD] = {MESH_STR_SETTINGS_FIELD_MQTT_PASSWORD, MESH_UI_SETTING_TEXT,
-                                     MESH_UI_SETTINGS_MQTT, 31U, NULL, NO_PRESETS, MESH_STR_NONE,
-                                     NULL, 0U},
+                                     MESH_UI_SETTINGS_MQTT, MESH_UI_TEXT_LIMIT_MQTT_PASSWORD, NULL,
+                                     NO_PRESETS, MESH_STR_NONE, NULL, 0U},
     [MESH_UI_FIELD_MQTT_ROOT] = {MESH_STR_SETTINGS_FIELD_MQTT_ROOT, MESH_UI_SETTING_TEXT,
-                                 MESH_UI_SETTINGS_MQTT, 31U, NULL, NO_PRESETS, MESH_STR_NONE, NULL,
-                                 0U, MESH_STR_SETTINGS_NOTE_MQTT_ROOT},
+                                 MESH_UI_SETTINGS_MQTT, MESH_UI_TEXT_LIMIT_MQTT_ROOT, NULL,
+                                 NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                 MESH_STR_SETTINGS_NOTE_MQTT_ROOT},
     [MESH_UI_FIELD_MQTT_ENCRYPTION] = {MESH_STR_SETTINGS_FIELD_MQTT_ENCRYPTION,
                                        MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_MQTT, 0U, NULL,
                                        NO_PRESETS, MESH_STR_NONE, NULL, 0U,
@@ -1015,14 +1033,16 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                                                MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_TELEMETRY,
                                                0U, NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U},
     [MESH_UI_FIELD_CHANNEL_NAME] = {MESH_STR_SETTINGS_FIELD_CHANNEL_NAME, MESH_UI_SETTING_TEXT,
-                                    MESH_UI_SETTINGS_CHANNELS, 11U, NULL, NO_PRESETS, MESH_STR_NONE,
-                                    NULL, 0U, MESH_STR_SETTINGS_NOTE_CHANNEL_NAME},
+                                    MESH_UI_SETTINGS_CHANNELS, MESH_UI_TEXT_LIMIT_CHANNEL_NAME,
+                                    NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                    MESH_STR_SETTINGS_NOTE_CHANNEL_NAME},
     [MESH_UI_FIELD_CHANNEL_ROLE] = {MESH_STR_SETTINGS_FIELD_CHANNEL_ROLE, MESH_UI_SETTING_ENUM,
                                     MESH_UI_SETTINGS_CHANNELS, 2U, channel_role_name, NO_PRESETS,
                                     MESH_STR_NONE, NULL, 0U, MESH_STR_SETTINGS_NOTE_CHANNEL_ROLE},
     [MESH_UI_FIELD_CHANNEL_KEY] = {MESH_STR_SETTINGS_FIELD_CHANNEL_KEY, MESH_UI_SETTING_KEY,
-                                   MESH_UI_SETTINGS_CHANNELS, 64U, NULL, NO_PRESETS, MESH_STR_NONE,
-                                   NULL, CHANNEL_KEY_CHOICES, MESH_STR_SETTINGS_NOTE_CHANNEL_KEY},
+                                   MESH_UI_SETTINGS_CHANNELS, MESH_UI_TEXT_LIMIT_CHANNEL_KEY, NULL,
+                                   NO_PRESETS, MESH_STR_NONE, NULL, CHANNEL_KEY_CHOICES,
+                                   MESH_STR_SETTINGS_NOTE_CHANNEL_KEY},
     [MESH_UI_FIELD_CHANNEL_UPLINK] = {MESH_STR_SETTINGS_FIELD_CHANNEL_UPLINK,
                                       MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_CHANNELS, 0U, NULL,
                                       NO_PRESETS, MESH_STR_NONE, NULL, 0U,
@@ -1043,8 +1063,8 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                                MESH_UI_SETTINGS_BLUETOOTH, 3U, pairing_enum_name, NO_PRESETS,
                                MESH_STR_NONE, NULL, 0U, MESH_STR_SETTINGS_NOTE_BT_MODE},
     [MESH_UI_FIELD_BT_PIN] = {MESH_STR_SETTINGS_FIELD_BT_PIN, MESH_UI_SETTING_TEXT,
-                              MESH_UI_SETTINGS_BLUETOOTH, 6U, NULL, NO_PRESETS, MESH_STR_NONE, NULL,
-                              0U, MESH_STR_SETTINGS_NOTE_BT_PIN},
+                              MESH_UI_SETTINGS_BLUETOOTH, MESH_UI_TEXT_LIMIT_BT_PIN, NULL,
+                              NO_PRESETS, MESH_STR_NONE, NULL, 0U, MESH_STR_SETTINGS_NOTE_BT_PIN},
     [MESH_UI_FIELD_LORA_REGION] = {MESH_STR_SETTINGS_FIELD_LORA_REGION, MESH_UI_SETTING_ENUM,
                                    MESH_UI_SETTINGS_LORA, 38U, region_enum_name, NO_PRESETS,
                                    MESH_STR_NONE, NULL, 0U, MESH_STR_SETTINGS_NOTE_LORA_REGION},
@@ -1087,23 +1107,23 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                                        NO_PRESETS, MESH_STR_NONE, NULL, 0U,
                                        MESH_STR_SETTINGS_NOTE_LORA_OK_TO_MQTT},
     [MESH_UI_FIELD_SECURITY_PRIVATE_KEY] = {MESH_STR_SETTINGS_FIELD_SECURITY_PRIVATE_KEY,
-                                            MESH_UI_SETTING_KEY, MESH_UI_SETTINGS_SECURITY, 64U,
-                                            NULL, NO_PRESETS, MESH_STR_NONE, NULL,
-                                            PRIVATE_KEY_CHOICES,
+                                            MESH_UI_SETTING_KEY, MESH_UI_SETTINGS_SECURITY,
+                                            MESH_UI_TEXT_LIMIT_SECURITY_PRIVATE_KEY, NULL,
+                                            NO_PRESETS, MESH_STR_NONE, NULL, PRIVATE_KEY_CHOICES,
                                             MESH_STR_SETTINGS_NOTE_SECURITY_PRIVATE_KEY},
     [MESH_UI_FIELD_SECURITY_ADMIN_KEY_0] = {MESH_STR_SETTINGS_FIELD_SECURITY_ADMIN_KEY_0,
-                                            MESH_UI_SETTING_KEY, MESH_UI_SETTINGS_SECURITY, 64U,
-                                            NULL, NO_PRESETS, MESH_STR_NONE, NULL,
-                                            ADMIN_KEY_CHOICES,
+                                            MESH_UI_SETTING_KEY, MESH_UI_SETTINGS_SECURITY,
+                                            MESH_UI_TEXT_LIMIT_SECURITY_ADMIN_KEY_0, NULL,
+                                            NO_PRESETS, MESH_STR_NONE, NULL, ADMIN_KEY_CHOICES,
                                             MESH_STR_SETTINGS_NOTE_SECURITY_ADMIN_KEYS},
     [MESH_UI_FIELD_SECURITY_ADMIN_KEY_1] = {MESH_STR_SETTINGS_FIELD_SECURITY_ADMIN_KEY_1,
-                                            MESH_UI_SETTING_KEY, MESH_UI_SETTINGS_SECURITY, 64U,
-                                            NULL, NO_PRESETS, MESH_STR_NONE, NULL,
-                                            ADMIN_KEY_CHOICES},
+                                            MESH_UI_SETTING_KEY, MESH_UI_SETTINGS_SECURITY,
+                                            MESH_UI_TEXT_LIMIT_SECURITY_ADMIN_KEY_1, NULL,
+                                            NO_PRESETS, MESH_STR_NONE, NULL, ADMIN_KEY_CHOICES},
     [MESH_UI_FIELD_SECURITY_ADMIN_KEY_2] = {MESH_STR_SETTINGS_FIELD_SECURITY_ADMIN_KEY_2,
-                                            MESH_UI_SETTING_KEY, MESH_UI_SETTINGS_SECURITY, 64U,
-                                            NULL, NO_PRESETS, MESH_STR_NONE, NULL,
-                                            ADMIN_KEY_CHOICES},
+                                            MESH_UI_SETTING_KEY, MESH_UI_SETTINGS_SECURITY,
+                                            MESH_UI_TEXT_LIMIT_SECURITY_ADMIN_KEY_2, NULL,
+                                            NO_PRESETS, MESH_STR_NONE, NULL, ADMIN_KEY_CHOICES},
     [MESH_UI_FIELD_SECURITY_MANAGED] = {MESH_STR_SETTINGS_FIELD_SECURITY_MANAGED,
                                         MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_SECURITY, 0U, NULL,
                                         NO_PRESETS, MESH_STR_NONE, NULL, 0U,
@@ -1190,17 +1210,16 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                                     MESH_UI_SETTINGS_AMBIENT, 0U, NULL,
                                     SCALE_PRESETS(k_led_level_presets), MESH_STR_NONE, format_level,
                                     0U},
-    /* 79 bytes on the wire; MESH_UI_SETTING_TEXT_MAX was raised to 80 to hold it. */
     [MESH_UI_FIELD_STATUS_TEXT] = {MESH_STR_SETTINGS_FIELD_STATUS_TEXT, MESH_UI_SETTING_TEXT,
-                                   MESH_UI_SETTINGS_STATUS_MESSAGE, 79U, NULL, NO_PRESETS,
-                                   MESH_STR_NONE, NULL, 0U},
+                                   MESH_UI_SETTINGS_STATUS_MESSAGE, MESH_UI_TEXT_LIMIT_STATUS_TEXT,
+                                   NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U},
     [MESH_UI_FIELD_DETECT_ENABLED] = {MESH_STR_SETTINGS_FIELD_DETECT_ENABLED,
                                       MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_DETECTION, 0U, NULL,
                                       NO_PRESETS, MESH_STR_NONE, NULL, 0U},
-    /* 20 bytes on the wire including the NUL, so 19 typed. */
     [MESH_UI_FIELD_DETECT_NAME] = {MESH_STR_SETTINGS_FIELD_DETECT_NAME, MESH_UI_SETTING_TEXT,
-                                   MESH_UI_SETTINGS_DETECTION, 19U, NULL, NO_PRESETS, MESH_STR_NONE,
-                                   NULL, 0U, MESH_STR_SETTINGS_NOTE_DETECT_NAME},
+                                   MESH_UI_SETTINGS_DETECTION, MESH_UI_TEXT_LIMIT_DETECT_NAME, NULL,
+                                   NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                   MESH_STR_SETTINGS_NOTE_DETECT_NAME},
     [MESH_UI_FIELD_DETECT_MIN_BROADCAST] = {MESH_STR_SETTINGS_FIELD_DETECT_MIN_BROADCAST,
                                             MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_DETECTION, 0U,
                                             NULL, SCALE_PRESETS(k_detect_min_presets),
@@ -1347,25 +1366,26 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
     [MESH_UI_FIELD_UI_CLOCKFACE] = {MESH_STR_SETTINGS_FIELD_UI_CLOCKFACE, MESH_UI_SETTING_ENUM,
                                     MESH_UI_SETTINGS_RADIO_UI, 2U, ui_clockface_name, NO_PRESETS,
                                     MESH_STR_NONE, NULL, 0U, MESH_STR_SETTINGS_NOTE_UI_CLOCKFACE},
-    /* The per-slot cap, not the wire's 200: see MESH_UI_CANNED_SLOTS for why the two are
-       chosen together. The keyboard reads `limit` as the number of bytes it may commit. */
+    /* The per-slot cap, not the wire's 200: see MESH_UI_CANNED_SLOTS for why the count and
+       the length are chosen together. The keyboard reads `limit` as the number of bytes it may
+       commit. */
     [MESH_UI_FIELD_CANNED_0] = {MESH_STR_SETTINGS_FIELD_CANNED_0, MESH_UI_SETTING_TEXT,
-                                MESH_UI_SETTINGS_CANNED, MESH_UI_CANNED_SLOT_MAX - 1U, NULL,
+                                MESH_UI_SETTINGS_CANNED, MESH_UI_TEXT_LIMIT_CANNED_0, NULL,
                                 NO_PRESETS, MESH_STR_NONE, NULL, 0U},
     [MESH_UI_FIELD_CANNED_1] = {MESH_STR_SETTINGS_FIELD_CANNED_1, MESH_UI_SETTING_TEXT,
-                                MESH_UI_SETTINGS_CANNED, MESH_UI_CANNED_SLOT_MAX - 1U, NULL,
+                                MESH_UI_SETTINGS_CANNED, MESH_UI_TEXT_LIMIT_CANNED_1, NULL,
                                 NO_PRESETS, MESH_STR_NONE, NULL, 0U},
     [MESH_UI_FIELD_CANNED_2] = {MESH_STR_SETTINGS_FIELD_CANNED_2, MESH_UI_SETTING_TEXT,
-                                MESH_UI_SETTINGS_CANNED, MESH_UI_CANNED_SLOT_MAX - 1U, NULL,
+                                MESH_UI_SETTINGS_CANNED, MESH_UI_TEXT_LIMIT_CANNED_2, NULL,
                                 NO_PRESETS, MESH_STR_NONE, NULL, 0U},
     [MESH_UI_FIELD_CANNED_3] = {MESH_STR_SETTINGS_FIELD_CANNED_3, MESH_UI_SETTING_TEXT,
-                                MESH_UI_SETTINGS_CANNED, MESH_UI_CANNED_SLOT_MAX - 1U, NULL,
+                                MESH_UI_SETTINGS_CANNED, MESH_UI_TEXT_LIMIT_CANNED_3, NULL,
                                 NO_PRESETS, MESH_STR_NONE, NULL, 0U},
     [MESH_UI_FIELD_CANNED_4] = {MESH_STR_SETTINGS_FIELD_CANNED_4, MESH_UI_SETTING_TEXT,
-                                MESH_UI_SETTINGS_CANNED, MESH_UI_CANNED_SLOT_MAX - 1U, NULL,
+                                MESH_UI_SETTINGS_CANNED, MESH_UI_TEXT_LIMIT_CANNED_4, NULL,
                                 NO_PRESETS, MESH_STR_NONE, NULL, 0U},
     [MESH_UI_FIELD_CANNED_5] = {MESH_STR_SETTINGS_FIELD_CANNED_5, MESH_UI_SETTING_TEXT,
-                                MESH_UI_SETTINGS_CANNED, MESH_UI_CANNED_SLOT_MAX - 1U, NULL,
+                                MESH_UI_SETTINGS_CANNED, MESH_UI_TEXT_LIMIT_CANNED_5, NULL,
                                 NO_PRESETS, MESH_STR_NONE, NULL, 0U},
 };
 
@@ -1569,12 +1589,22 @@ bool mesh_ui_settings_number_track(enum mesh_ui_setting_field field, uint32_t va
     return true;
 }
 
+/*
+ * The field's own limit, unclamped, because the edit buffer is measured from these limits
+ * rather than the other way round (mesh/ui/settings_text.def).
+ *
+ * It used to be clamped to MESH_UI_SETTING_TEXT_MAX - 1, which is the same silent truncation
+ * one layer up: a field wider than the buffer was offered a shorter keyboard cap and nothing
+ * anywhere said the value had been cut. With the buffer sized from the table the clamp can
+ * never fire, and a field that would have needed it fails
+ * `settings_text_fields_fit_the_edit_buffer` instead - which names the field.
+ */
 uint32_t mesh_ui_settings_text_max(enum mesh_ui_setting_field field) {
     const struct field_spec *spec = field_spec(field);
     if (spec->kind != MESH_UI_SETTING_TEXT && spec->kind != MESH_UI_SETTING_KEY) {
         return 0U;
     }
-    return spec->limit < MESH_UI_SETTING_TEXT_MAX ? spec->limit : MESH_UI_SETTING_TEXT_MAX - 1U;
+    return spec->limit;
 }
 
 uint32_t mesh_ui_settings_key_choices(enum mesh_ui_setting_field field) {

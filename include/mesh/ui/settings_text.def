@@ -1,0 +1,80 @@
+/*
+ * Every TEXT and KEY field's byte limit, in one list, because two things need the same number
+ * and the price of them disagreeing is silent.
+ *
+ * A row in the field table (src/ui/settings.c) says how many bytes that field will take, and
+ * the keyboard refuses the next character past it. The edit buffer
+ * (`MESH_UI_SETTING_TEXT_MAX`, mesh/ui/nav.h) has to be wide enough to hold whichever field is
+ * widest, because `mesh_ui_nav_settings_commit_text()` copies the draft into it and a value too
+ * long for the buffer is *cut* rather than refused - so a radio that would have accepted the
+ * whole string is sent part of one, with nothing on the frame saying so.
+ *
+ * That number was a hand-written constant, and it was raised twice - 72 for DeviceConfig.tzdef,
+ * then 80 for StatusMessageConfig.node_status - each time by somebody who noticed. Mesh beacon's
+ * 100-byte `broadcast_message` would have been the third, and the third is where a constant
+ * somebody remembers to raise stops being worth keeping: the limits are right here, so the
+ * buffer is `sizeof` a union of them (a union is as wide as its widest member, and a member
+ * here is one field's bytes plus its NUL). Adding a field wider than every other one now widens
+ * the buffer by being added.
+ *
+ * The list is the limits and nothing else. What a field *is* - its label, its section, its
+ * note - stays on its own `k_fields` row, which names its limit from here:
+ *
+ *     MESH_UI_TEXT_FIELD(name, bytes)
+ *
+ * `name` is the field's enumerator without the MESH_UI_FIELD_ prefix, so
+ * MESH_UI_FIELD_STATUS_TEXT's limit is MESH_UI_TEXT_LIMIT_STATUS_TEXT. `bytes` is what the user
+ * may type: the NUL is the buffer's business and is added here, once, rather than on every row.
+ *
+ * Not a header: it is included several times with MESH_UI_TEXT_FIELD defined differently each
+ * time, which is what keeps the buffer and the rows from drifting apart - the same shape as
+ * mesh/i18n/catalog.def and mesh/ui/icons.def, and the same reason clang-format leaves it alone.
+ *
+ * `settings_text_fields_fit_the_edit_buffer` walks the field table against this list and holds
+ * the two to each other in both directions: a TEXT field in the table and missing from here is
+ * the bug this exists to prevent, and a field listed here that the table no longer has leaves
+ * every edit slot in the nav carrying bytes nothing can put in them.
+ */
+
+/* User.long_name is 39 bytes on the wire but the firmware truncates to 24 (mesh.proto). */
+MESH_UI_TEXT_FIELD(USER_LONG_NAME, 24)
+MESH_UI_TEXT_FIELD(USER_SHORT_NAME, 4)
+/* tzdef is 64 bytes on the wire. */
+MESH_UI_TEXT_FIELD(DEVICE_TZDEF, 64)
+/* A typed coordinate: sign, three degrees, a point and seven places, with room to spare. */
+MESH_UI_TEXT_FIELD(POSITION_LATITUDE, 15)
+MESH_UI_TEXT_FIELD(POSITION_LONGITUDE, 15)
+MESH_UI_TEXT_FIELD(POSITION_ALTITUDE, 7)
+MESH_UI_TEXT_FIELD(MQTT_ADDRESS, 63)
+MESH_UI_TEXT_FIELD(MQTT_USERNAME, 63)
+MESH_UI_TEXT_FIELD(MQTT_PASSWORD, 31)
+MESH_UI_TEXT_FIELD(MQTT_ROOT, 31)
+MESH_UI_TEXT_FIELD(CHANNEL_NAME, 11)
+/*
+ * A key is typed as hex, so it is two characters per byte of a 32-byte PSK. Written out rather
+ * than as (2 * MESH_UI_PSK_MAX) because this file is read where that constant is not - nav.h
+ * sits below store.h - and settings.c holds the two together with a _Static_assert.
+ */
+MESH_UI_TEXT_FIELD(CHANNEL_KEY, 64)
+MESH_UI_TEXT_FIELD(BT_PIN, 6)
+MESH_UI_TEXT_FIELD(SECURITY_PRIVATE_KEY, 64)
+MESH_UI_TEXT_FIELD(SECURITY_ADMIN_KEY_0, 64)
+MESH_UI_TEXT_FIELD(SECURITY_ADMIN_KEY_1, 64)
+MESH_UI_TEXT_FIELD(SECURITY_ADMIN_KEY_2, 64)
+/* StatusMessageConfig.node_status is char[80]: 79 bytes on the wire and the NUL. The widest
+   field in the client, and so the one the edit buffer is currently the size of. */
+MESH_UI_TEXT_FIELD(STATUS_TEXT, 79)
+/* 20 bytes on the wire including the NUL, so 19 typed. */
+MESH_UI_TEXT_FIELD(DETECT_NAME, 19)
+/*
+ * The canned slots are one '|'-separated 200-byte string on the wire, so the slot count and the
+ * slot length are one decision (MESH_UI_CANNED_SLOTS): six slots of 32 plus five separators is
+ * 197 and seven would not fit. 31 typed plus the NUL is that 32, held to MESH_UI_CANNED_SLOT_MAX
+ * by a _Static_assert in settings.c for the reason the key rows above state.
+ */
+MESH_UI_TEXT_FIELD(CANNED_0, 31)
+MESH_UI_TEXT_FIELD(CANNED_1, 31)
+MESH_UI_TEXT_FIELD(CANNED_2, 31)
+MESH_UI_TEXT_FIELD(CANNED_3, 31)
+MESH_UI_TEXT_FIELD(CANNED_4, 31)
+MESH_UI_TEXT_FIELD(CANNED_5, 31)
