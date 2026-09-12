@@ -1,3 +1,9 @@
+## [2.66.0](https://github.com/mcereal/mesh-client/compare/v2.65.0...v2.66.0) (2026-09-12)
+
+### Features
+
+* **settings:** measure the edit buffer from the field table ([84e0aa2](https://github.com/mcereal/mesh-client/commit/84e0aa29d196caa3e58896b772b74db415d4c4c4))
+
 ## [2.65.0](https://github.com/mcereal/mesh-client/compare/v2.64.0...v2.65.0) (2026-09-12)
 
 ### Features
