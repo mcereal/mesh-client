@@ -62,6 +62,7 @@
  */
 
 #include "mesh/core/firmware.h"
+#include "mesh/core/firmware_update.h"
 #include "mesh/core/message.h"
 #include "mesh/core/store_forward.h"
 #include "mesh/core/updater.h"
@@ -2077,6 +2078,89 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         }
         mesh_str_copy(settings.fw_blocker_reason, sizeof settings.fw_blocker_reason,
                       reason != MESH_STR_NONE ? mesh_str(reason) : "");
+        mesh_ui_store_set_settings(&cap->store, &settings);
+        uicap_emit(cap);
+        uicap_settle(cap);
+        return;
+    }
+
+    /*
+     * Installing it, which is the half of this screen no picture could reach any other way: the
+     * states below need a radio in a bootloader, an image on the way down, or a loader on the
+     * air, and none of the three is a thing a harness has.
+     *
+     * `idle` is the settled screen with the press offered, which is also what a scene needs to
+     * film the confirm sheet - the row has to exist before A can open the question in front of
+     * it. The rest are the ladder, and `percent` fills the meter for the two steps that have a
+     * fraction.
+     *
+     *   firmware-install idle|resolving|downloading|ready|arming|waiting|writing|restarting|
+     *                    done|failed [usb|ble] [percent]
+     */
+    if (strcmp(command, "firmware-install") == 0) {
+        static const struct {
+            const char *name;
+            enum mesh_firmware_update_state state;
+        } k_steps[] = {
+            {"idle", MESH_FIRMWARE_UPDATE_IDLE},
+            {"resolving", MESH_FIRMWARE_UPDATE_RESOLVING},
+            {"downloading", MESH_FIRMWARE_UPDATE_DOWNLOADING},
+            {"ready", MESH_FIRMWARE_UPDATE_READY},
+            {"arming", MESH_FIRMWARE_UPDATE_ARMING},
+            {"waiting", MESH_FIRMWARE_UPDATE_WAITING},
+            {"writing", MESH_FIRMWARE_UPDATE_WRITING},
+            {"restarting", MESH_FIRMWARE_UPDATE_RESTARTING},
+            {"done", MESH_FIRMWARE_UPDATE_DONE},
+            {"failed", MESH_FIRMWARE_UPDATE_FAILED},
+        };
+        char *const step = uicap_word(&rest);
+        enum mesh_firmware_update_state state = MESH_FIRMWARE_UPDATE_STATE_COUNT;
+        for (size_t i = 0; step != NULL && i < sizeof k_steps / sizeof k_steps[0]; ++i) {
+            if (strcmp(step, k_steps[i].name) == 0) {
+                state = k_steps[i].state;
+            }
+        }
+        if (state == MESH_FIRMWARE_UPDATE_STATE_COUNT) {
+            fprintf(stderr, "uicap: line %u: 'firmware-install' needs a step name\n", line_number);
+            exit(1);
+        }
+        const char *const bus = uicap_word(&rest);
+        const char *const percent = uicap_word(&rest);
+        uicap_start(cap);
+        struct mesh_ui_settings settings = cap->store.settings;
+        settings.fw_supported = true;
+        settings.fw_state = (uint8_t)MESH_FIRMWARE_AVAILABLE;
+        if (settings.fw_latest[0] == '\0') {
+            mesh_str_copy(settings.fw_latest, sizeof settings.fw_latest, "2.7.26.54e0d8d");
+            mesh_str_copy(settings.fw_message, sizeof settings.fw_message, settings.fw_latest);
+            mesh_str_copy(settings.fw_board, sizeof settings.fw_board, "Heltec Mesh Node T114");
+        }
+        if (settings.fw_channel[0] == '\0') {
+            mesh_str_copy(settings.fw_channel, sizeof settings.fw_channel,
+                          mesh_firmware_channel_name(MESH_FIRMWARE_CHANNEL_STABLE));
+        }
+        settings.fw_blocker_reason[0] = '\0';
+        settings.fw_bus =
+            (uint8_t)((bus != NULL && strcmp(bus, "ble") == 0) ? MESH_FIRMWARE_PATH_BLE
+                                                               : MESH_FIRMWARE_PATH_USB);
+        settings.fw_update_state = (uint8_t)state;
+        settings.fw_update_progress =
+            percent != NULL ? (uint8_t)strtoul(percent, NULL, 10) : (uint8_t)0U;
+        /* The press is offered exactly when nothing is running, which is what the app derives
+           and what the row reads - so the harness derives it the same way rather than taking
+           it as a third argument nobody could get wrong quietly. */
+        settings.fw_can_install = !mesh_firmware_update_state_busy(state);
+        /* A failure carries a line of its own, because the row that reports one shows the
+           radio's words rather than the category. */
+        if (state == MESH_FIRMWARE_UPDATE_FAILED) {
+            settings.fw_update_error = (uint8_t)MESH_FIRMWARE_UPDATE_ERROR_REFUSED;
+            mesh_str_copy(settings.fw_update_detail, sizeof settings.fw_update_detail,
+                          "No OTA partition");
+        }
+        /* And a radio left in its loader is what raises the banner, which is the one state of
+           this feature that is visible from every other screen. */
+        settings.fw_radio_in_loader = state == MESH_FIRMWARE_UPDATE_FAILED &&
+                                      settings.fw_bus == (uint8_t)MESH_FIRMWARE_PATH_BLE;
         mesh_ui_store_set_settings(&cap->store, &settings);
         uicap_emit(cap);
         uicap_settle(cap);

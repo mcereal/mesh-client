@@ -343,6 +343,20 @@ void mesh_app_autoconnect(struct mesh_app *app) {
     if (mesh_updater_holds_the_radio(&app->updater)) {
         return;
     }
+    /*
+     * A radio firmware install, at either end of what it does with a bus.
+     *
+     * Two questions rather than one, and the difference is what makes the BLE path work at all.
+     * The **antenna** is held while the image comes down - Wi-Fi and Bluetooth are one part
+     * here - and released the moment it lands, which is precisely so auto-connect can bring the
+     * radio back to be armed. The **radio** is held from the admin verb onwards, because what
+     * is on the other end from there is a bootloader's CDC or a loader's GATT and connecting to
+     * either would be this client binding the thing it is trying to write to.
+     */
+    if (mesh_firmware_update_holds_the_antenna(&app->firmware_update) ||
+        mesh_firmware_update_holds_the_radio(&app->firmware_update)) {
+        return;
+    }
 
     struct mesh_transport *ble = mesh_ble_transport();
     const bool link_up = (mesh_app_connected_identifier() != NULL);
@@ -758,6 +772,13 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
     (void)mesh_firmware_set_channel(
         &app->firmware, (enum mesh_firmware_channel)app->ui_preferences.firmware_channel);
 
+    /* Installing it, on a third fetcher. The check and the install are one press each and
+       either can be pressed while the other is in flight - a check that took the download's
+       child out from under it would be this client stopping mid-image because somebody asked a
+       question. Same CA bundle, for the same reason. */
+    (void)mesh_firmware_update_init(&app->firmware_update, &app->loop);
+    mesh_firmware_update_use_ca_bundle(&app->firmware_update, app->updater.fetch.ca_bundle);
+
     /* Optional canned.txt next to the preferences file replaces the built-in quick replies. */
     if (app->ui_preferences_path[0] != '\0') {
         char canned_path[sizeof app->ui_preferences_path + 16U];
@@ -832,6 +853,7 @@ void mesh_app_shutdown(struct mesh_app *app) {
        download to clean up. */
     mesh_updater_shutdown(&app->updater);
     mesh_firmware_shutdown(&app->firmware);
+    mesh_firmware_update_shutdown(&app->firmware_update);
     mesh_ui_controller_shutdown(&app->ui_controller);
     mesh_app_close_ui_cache_timer(app);
     if (app->ui_handshake_cache_path[0] != '\0') {
@@ -896,6 +918,24 @@ int mesh_app_run(struct mesh_app *app) {
             if (mesh_updater_holds_the_radio(&app->updater)) {
                 mesh_app_release_other_link(NULL);
             }
+            /*
+             * The same hold, for the same antenna, taken by the other download - and it keeps
+             * the cable.
+             *
+             * A serial link needs no antenna at all, so a USB install has no reason to drop the
+             * radio it is about to send into DFU, and every reason not to: the arm goes out down
+             * that link, and a link taken away for the length of the download would have to come
+             * back before the press could finish. Over Bluetooth there is nothing to keep, which
+             * is what makes MESH_FIRMWARE_UPDATE_READY a step on that bus and a no-op on this
+             * one. Lifted when the image lands either way - see mesh_app_autoconnect() for why
+             * the antenna and the radio are two questions.
+             */
+            if (mesh_firmware_update_holds_the_antenna(&app->firmware_update)) {
+                mesh_app_release_other_link(app->firmware_update.path == MESH_FIRMWARE_PATH_USB
+                                                ? mesh_serial_transport()
+                                                : NULL);
+            }
+            mesh_app_firmware_update_tick(app, mesh_time_monotonic_ms());
             /* Before auto-connect, not after: a retry starts the link over and clears the
                reason the last attempt failed. */
             (void)mesh_app_report_link_errors(app);

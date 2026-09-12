@@ -39,6 +39,17 @@ void mesh_app_note_connected_device(struct mesh_app *app, const char *identifier
 /* What the UI asked for; installed on the UI controller as its action handler. */
 void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *action);
 
+/*
+ * Drives a radio firmware install and feeds it what the radio has said since the last turn.
+ *
+ * Here rather than in app.c because the install's hooks are here: the thing that owns the
+ * callbacks is the thing that should own the pump. The notification relay is part of it for the
+ * same reason - the BLE path's go-ahead and its refusal arrive as a ClientNotification on the
+ * session's read path and the install runs from the tick, so this is the only place the two
+ * meet. Call every loop turn.
+ */
+void mesh_app_firmware_update_tick(struct mesh_app *app, uint64_t now);
+
 /* ---- app_settings.c --------------------------------------------------------------------- */
 
 /* Queues the admin write a MESH_UI_ACTION_SAVE_SETTINGS asks for and toasts the outcome. */

@@ -1,5 +1,6 @@
 #include "mesh/ui/chrome.h"
 
+#include "mesh/core/firmware_update.h"
 #include "mesh/core/updater.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/settings.h"
@@ -37,9 +38,13 @@ bool mesh_ui_chrome_busy(const struct mesh_ui_snapshot *snapshot) {
     if (settings->admin_busy || settings->write_pending) {
         return true;
     }
-    /* A check or a download. The About row draws the download's own length; this only says the
-       client has work outstanding, which is the half that was invisible from any other tab. */
-    return settings->client.update_busy;
+    /* A check or a download, either project's. The rows that own them draw their own lengths;
+       this only says the client has work outstanding, which is the half that was invisible from
+       any other tab - and a firmware install is the longest thing this client ever does, so it
+       is the one that most needed saying. */
+    return settings->client.update_busy || settings->fw_busy ||
+           mesh_firmware_update_state_busy(
+               (enum mesh_firmware_update_state)settings->fw_update_state);
 }
 
 /*
@@ -63,6 +68,15 @@ static bool mesh_ui_chrome_on_about(const struct mesh_ui_nav *nav) {
            nav->settings_section == (uint8_t)MESH_UI_SETTINGS_ABOUT;
 }
 
+/* The same rule for the radio's firmware, one section over: About radio is where the install
+   lives, so standing in it is already reading the thing the banner would point at. Two
+   predicates rather than one taking a section, because the pair they answer for is two
+   different banners and a shared one would be a table that had to be read to be believed. */
+static bool mesh_ui_chrome_on_about_radio(const struct mesh_ui_nav *nav) {
+    return nav->screen == MESH_UI_SCREEN_SETTINGS &&
+           nav->settings_section == (uint8_t)MESH_UI_SETTINGS_RADIO;
+}
+
 bool mesh_ui_chrome_banner(const struct mesh_ui_snapshot *snapshot, struct mesh_ui_banner *out) {
     if (out == NULL) {
         return false;
@@ -74,6 +88,23 @@ bool mesh_ui_chrome_banner(const struct mesh_ui_snapshot *snapshot, struct mesh_
     }
     if (mesh_ui_chrome_modal_open(&snapshot->nav) || mesh_ui_chrome_on_about(&snapshot->nav)) {
         return false;
+    }
+
+    /*
+     * Ahead of the updater's two, because it outranks them on both halves of what a banner is
+     * for: it is about a radio that is off the mesh right now rather than about a release that
+     * will still be there in an hour, and it is the only one of the three that nothing but this
+     * client can resolve.
+     */
+    if (snapshot->settings.fw_radio_in_loader && !mesh_ui_chrome_on_about_radio(&snapshot->nav)) {
+        out->kind = (uint8_t)MESH_UI_BANNER_RADIO_IN_LOADER;
+        out->icon = MESH_UI_ICON_WARNING;
+        out->text = MESH_STR_BANNER_RADIO_IN_LOADER;
+        out->supporting = MESH_STR_BANNER_RADIO_IN_LOADER_HINT;
+        /* Warning rather than error: nothing is broken and the radio is fine. What is true is
+           that it is not on the mesh and will not be until somebody finishes this. */
+        out->family = MESH_UI_FAMILY_WARNING;
+        return true;
     }
 
     const struct mesh_ui_client_info *client = &snapshot->settings.client;

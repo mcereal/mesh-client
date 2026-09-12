@@ -859,7 +859,7 @@ MESH_STR_ENTRY(HELP_OVERVIEW,             "About this screen")
  * one class of string in this catalog with that dispensation - see docs/i18n.md.
  */
 MESH_STR_ENTRY(SETTINGS_NOTE_ABOUT,                       "MeshClient itself: which version is running, where it keeps its data, and the self-update rows. Nothing on this screen reaches the radio.")
-MESH_STR_ENTRY(SETTINGS_NOTE_RADIO,                       "What the attached radio says about itself, and what firmware upstream publishes for its board. Read-only: a setting you can change lives in the section that owns it, and installing is not built yet.")
+MESH_STR_ENTRY(SETTINGS_NOTE_RADIO,                       "What the radio says about itself, and what firmware upstream publishes for its board. Installing one takes the radio off the mesh for minutes and cannot be undone; a row says why it cannot be.")
 MESH_STR_ENTRY(SETTINGS_NOTE_USER,                        "Your identity on the mesh. The long name is what node lists show; the short name is the few characters other radios draw on their own screens.")
 MESH_STR_ENTRY(SETTINGS_NOTE_DEVICE,                      "How this radio behaves on the mesh: the role it plays, how often it announces itself, and what it repeats for other nodes. Role has the widest effect of anything here.")
 MESH_STR_ENTRY(SETTINGS_NOTE_DISPLAY,                     "The radio's own screen: how long it stays lit, which way up it draws, and whether it reads in metric or imperial. None of it changes what the Brick shows.")
@@ -1721,6 +1721,8 @@ MESH_STR_ENTRY(CONFIRM_TITLE_FACTORY_DEV, "Factory reset everything?")
 MESH_STR_ENTRY(CONFIRM_TITLE_BACKUP,      "Back up the configuration?")
 MESH_STR_ENTRY(CONFIRM_TITLE_RESTORE,     "Restore the configuration?")
 MESH_STR_ENTRY(CONFIRM_TITLE_RM_BACKUP,   "Delete the backup?")
+MESH_STR_ENTRY(CONFIRM_TITLE_FW_USB,      "Update the radio over USB?")
+MESH_STR_ENTRY(CONFIRM_TITLE_FW_BLE,      "Update the radio over Bluetooth?")
 MESH_STR_ENTRY(CONFIRM_TITLE_SAVE_CHANNEL,"Save channel %u?")
 MESH_STR_ENTRY(CONFIRM_TITLE_SAVE,        "Save %s?")
 
@@ -1736,6 +1738,8 @@ MESH_STR_ENTRY(CONFIRM_ACCEPT_FACTORY_DEV,"Factory reset device")
 MESH_STR_ENTRY(CONFIRM_ACCEPT_BACKUP,     "Back up")
 MESH_STR_ENTRY(CONFIRM_ACCEPT_RESTORE,    "Restore")
 MESH_STR_ENTRY(CONFIRM_ACCEPT_RM_BACKUP,  "Delete backup")
+MESH_STR_ENTRY(CONFIRM_ACCEPT_FW_USB,     "Update over USB")
+MESH_STR_ENTRY(CONFIRM_ACCEPT_FW_BLE,     "Update over Bluetooth")
 MESH_STR_ENTRY(CONFIRM_ACCEPT_SAVE,       "Save to radio")
 
 /*
@@ -1760,6 +1764,15 @@ MESH_STR_ENTRY(CONFIRM_TEXT_CHANNELS,     "The radio will reboot. A new key or n
 MESH_STR_ENTRY(CONFIRM_TEXT_LORA,         "The radio will reboot. A region or preset the other nodes do not share takes this radio off the mesh, and a wrong region may be illegal to transmit on. Transmit off makes it receive-only.")
 MESH_STR_ENTRY(CONFIRM_TEXT_SECURITY,     "A new private key changes this node's identity: peers must learn it again and old direct messages stay unreadable. Managed mode locks out every client whose key is not an admin key, this one included.")
 MESH_STR_ENTRY(CONFIRM_TEXT_POWER,        "The radio will reboot. Power saving puts the radio to sleep between packets, and a short light-sleep or wake time can leave too little Bluetooth on for this client to reconnect on its own.")
+/*
+ * The two firmware sheets, and they are two sheets rather than one with a noun swapped,
+ * because what is actually true differs. Over USB the worst case is a board sitting in its
+ * bootloader waiting to be written again, which any computer can do; over Bluetooth the radio
+ * reboots into a loader it cannot leave until an image finishes arriving. That second sentence
+ * is the whole reason the sheet is not optional.
+ */
+MESH_STR_ENTRY(CONFIRM_TEXT_FW_USB,       "The image downloads, then the radio restarts into its bootloader and the blocks are written over the cable. Keep it plugged in: an interrupted write leaves the bootloader running and is retried by writing again.")
+MESH_STR_ENTRY(CONFIRM_TEXT_FW_BLE,       "The image downloads, then the radio leaves the mesh and reboots into its update loader. There is no way back out of that loader except finishing, which takes about four minutes. Keep the Brick near the radio until it does.")
 MESH_STR_ENTRY(CONFIRM_TEXT_DEFAULT,      "The radio will reboot to apply this.")
 
 /* ---- transport status ------------------------------------------------------------------------- */
@@ -2190,6 +2203,63 @@ MESH_STR_ENTRY(FW_INSTALLING,             "Installing")
 MESH_STR_ENTRY(TOAST_CHECKING_FIRMWARE,   "Checking for radio firmware...")
 /* The %s is upstream's own name for the list and is not translated. */
 MESH_STR_ENTRY(TOAST_FIRMWARE_CHANNEL,    "Firmware channel: %s")
+
+/*
+ * Installing it: where the job has got to, as the Installing row's value.
+ *
+ * **Bus-neutral on purpose.** There is one ladder for both buses (see
+ * mesh/core/firmware_update.h): "arming" is an enter_dfu_mode_request over a cable and an
+ * ota_request over the air, "waiting" is a bootloader enumerating and a loader advertising,
+ * "writing" is blocks to a drive and chunks to a characteristic. A row is answering "where has
+ * this got to", and to that question those really are one word each - naming the bus in them
+ * would be the value column carrying a fact the screen above it already states.
+ *
+ * Short, because the value column is about two dozen cells and has no line to wrap onto.
+ */
+MESH_STR_ENTRY(FW_UPDATE_IDLE,            "not started")
+MESH_STR_ENTRY(FW_UPDATE_RESOLVING,       "resolving")
+MESH_STR_ENTRY(FW_UPDATE_DOWNLOADING,     "downloading")
+/* The image is staged and the radio is being waited for. Only ever seen on the Bluetooth path,
+   where the download had the antenna and the link went down for the length of it. */
+MESH_STR_ENTRY(FW_UPDATE_READY,           "waiting for radio")
+MESH_STR_ENTRY(FW_UPDATE_ARMING,          "arming")
+MESH_STR_ENTRY(FW_UPDATE_WAITING,         "waiting")
+MESH_STR_ENTRY(FW_UPDATE_WRITING,         "writing")
+MESH_STR_ENTRY(FW_UPDATE_RESTARTING,      "restarting")
+MESH_STR_ENTRY(FW_UPDATE_DONE,            "installed")
+MESH_STR_ENTRY(FW_UPDATE_FAILED,          "failed")
+/*
+ * Why it stopped. Four of these mean the radio was never touched and is still running, which is
+ * the distinction a reader acts on; the fifth deliberately does not promise that, because a
+ * handover that broke may have left a board in a bootloader or a radio in a loader.
+ */
+MESH_STR_ENTRY(FW_UPDATE_ERR_UNAVAILABLE, "cannot install this")
+MESH_STR_ENTRY(FW_UPDATE_ERR_DOWNLOAD,    "download failed")
+MESH_STR_ENTRY(FW_UPDATE_ERR_WRONG_IMAGE, "wrong image")
+MESH_STR_ENTRY(FW_UPDATE_ERR_NO_RADIO,    "no radio answered")
+MESH_STR_ENTRY(FW_UPDATE_ERR_REFUSED,     "the radio refused")
+MESH_STR_ENTRY(FW_UPDATE_ERR_HANDOVER,    "install failed")
+/* Three details rather than states: they fill the line under the row, where the sub-module
+   would otherwise have had nothing of its own to say. */
+MESH_STR_ENTRY(FW_UPDATE_ERR_NO_ADAPTER,  "no Bluetooth adapter")
+MESH_STR_ENTRY(FW_UPDATE_ERR_NO_IMAGE,    "image not staged")
+MESH_STR_ENTRY(FW_UPDATE_ERR_CANCELLED,   "cancelled")
+/* The row that offers the press, and the two toasts around it. The version is a version and
+   arrives untranslated. */
+MESH_STR_ENTRY(FW_INSTALL,                "Install firmware")
+MESH_STR_ENTRY(TOAST_INSTALLING_FIRMWARE, "Installing %s on the radio...")
+MESH_STR_ENTRY(TOAST_FIRMWARE_INSTALLED,  "The radio is running %s")
+MESH_STR_ENTRY(TOAST_FIRMWARE_FAILED,     "Firmware install failed: %s")
+/*
+ * The banner, which exists for one state and one bus: the radio is in its ESP32 update loader,
+ * off the mesh, and the only way out is an image finishing. A banner has to be resolvable and
+ * this one is - by pressing Install again, which finds the loader and finishes the job.
+ *
+ * There is deliberately no USB equivalent. A board left in its UF2 bootloader is talking to any
+ * computer in the world, so there is nothing the client has to promise to come back for.
+ */
+MESH_STR_ENTRY(BANNER_RADIO_IN_LOADER,    "The radio is in update mode")
+MESH_STR_ENTRY(BANNER_RADIO_IN_LOADER_HINT, "It stays off the mesh until an update finishes. Settings > About radio > Install firmware")
 
 /* ---- language ------------------------------------------------------------------------------------ */
 

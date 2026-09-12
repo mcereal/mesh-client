@@ -260,6 +260,20 @@ void mesh_ui_nav_fill_settings_action(const struct mesh_ui_nav *nav,
         action->number = which == MESH_UI_SETTINGS_ACTION_FORGET_ALL_NODES ? 1U : 0U;
         return;
     }
+    /*
+     * The firmware installs leave as their own type for the same reason the forget rows do:
+     * nothing about them is an admin request the radio answers. What the app has to do is
+     * download half a megabyte, send one verb, and then talk to something that is no longer a
+     * Meshtastic node at all - which is not a thing MESH_UI_ACTION_RADIO_ACTION can carry.
+     * `number` says which bus, which is the one fact the nav knows and the app would otherwise
+     * have to re-derive from a snapshot that has moved on since the press.
+     */
+    if (mesh_ui_settings_action_is_install_firmware(which)) {
+        action->type = MESH_UI_ACTION_INSTALL_RADIO_FIRMWARE;
+        action->section = nav->settings_section;
+        action->number = which == MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE ? 1U : 0U;
+        return;
+    }
     action->type = MESH_UI_ACTION_RADIO_ACTION;
     action->section = nav->settings_section;
     action->number = (uint32_t)which;

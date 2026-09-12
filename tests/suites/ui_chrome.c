@@ -13,6 +13,7 @@
 
 #include "framework/mesh_test.h"
 
+#include "mesh/core/firmware_update.h"
 #include "mesh/core/updater.h"
 #include "mesh/ui/chrome.h"
 #include "mesh/ui/nav.h"
@@ -261,5 +262,78 @@ MESH_TEST_CASE(ui_chrome_answers_without_a_snapshot, unit) {
     MESH_TEST_FAIL_IF(mesh_ui_chrome_banner(NULL, &banner), "nothing is announced about nothing");
     MESH_TEST_FAIL_IF(banner.detail == NULL, "a cleared banner still has to be safe to draw");
     MESH_TEST_FAIL_IF(mesh_ui_chrome_banner(NULL, NULL), "and no output is not a crash");
+    record_success(test_name);
+}
+
+/*
+ * The one banner that is about a different computer.
+ *
+ * A radio in the ESP32 update loader is off the mesh and cannot get itself back: the loader has
+ * no timer, no reboot counter and no fallback to the old firmware, so it sits there advertising
+ * until an image finishes arriving. That is why it outranks the updater's two - both of those
+ * are about a release that will still be there in an hour - and why it is a warning rather than
+ * an error: nothing is broken, and what is true is that the radio is not on the mesh.
+ *
+ * It stands down inside Settings > About radio for the rule the updater's pair follow one
+ * section over: that screen is where the press that resolves it lives, so a banner over it would
+ * be the client telling you something while you are already reading it.
+ */
+MESH_TEST_CASE(ui_chrome_banner_says_the_radio_is_in_its_loader, unit) {
+    struct mesh_ui_snapshot snapshot;
+    struct mesh_ui_banner banner;
+
+    chrome_fixture(&snapshot);
+    snapshot.settings.fw_radio_in_loader = true;
+    MESH_TEST_FAIL_IF(!mesh_ui_chrome_banner(&snapshot, &banner),
+                      "a radio stuck in its loader is worth saying on every screen");
+    MESH_TEST_FAIL_IF(banner.kind != (uint8_t)MESH_UI_BANNER_RADIO_IN_LOADER,
+                      "the wrong banner for a radio in its loader");
+    MESH_TEST_FAIL_IF(banner.family != MESH_UI_FAMILY_WARNING,
+                      "nothing is broken, so it is a warning rather than an error");
+    MESH_TEST_FAIL_IF(banner.supporting == MESH_STR_NONE,
+                      "and it has to say what resolves it, or it is a banner that cannot");
+
+    /* Ahead of the updater's, which is the whole point of there being an order. */
+    snapshot.settings.client.update_state = (uint8_t)MESH_UPDATE_READY;
+    MESH_TEST_FAIL_IF(!mesh_ui_chrome_banner(&snapshot, &banner) ||
+                          banner.kind != (uint8_t)MESH_UI_BANNER_RADIO_IN_LOADER,
+                      "a radio off the mesh outranks a release waiting for a restart");
+
+    /* And down inside the section that offers the press. */
+    chrome_fixture(&snapshot);
+    snapshot.settings.fw_radio_in_loader = true;
+    snapshot.nav.screen = MESH_UI_SCREEN_SETTINGS;
+    snapshot.nav.settings_section = (uint8_t)MESH_UI_SETTINGS_RADIO;
+    MESH_TEST_FAIL_IF(mesh_ui_chrome_banner(&snapshot, &banner),
+                      "About radio already says this, and offers the row that fixes it");
+    snapshot.nav.settings_section = (uint8_t)MESH_UI_SETTINGS_LORA;
+    MESH_TEST_FAIL_IF(!mesh_ui_chrome_banner(&snapshot, &banner),
+                      "no other section says anything about it");
+    record_success(test_name);
+}
+
+/*
+ * An install in flight is the longest thing this client ever does, and until the bar learned
+ * about it there was no sign of it anywhere but the one section it runs from.
+ *
+ * The settled states are deliberately not the bar's: DONE and FAILED are facts, and a bar that
+ * went on turning after a job ended would be saying work is happening that is not.
+ */
+MESH_TEST_CASE(ui_chrome_bar_follows_a_firmware_install, unit) {
+    struct mesh_ui_snapshot snapshot;
+
+    for (int state = 0; state < (int)MESH_FIRMWARE_UPDATE_STATE_COUNT; ++state) {
+        chrome_fixture(&snapshot);
+        snapshot.settings.fw_update_state = (uint8_t)state;
+        const bool expected =
+            mesh_firmware_update_state_busy((enum mesh_firmware_update_state)state);
+        MESH_TEST_FAIL_IF(mesh_ui_chrome_busy(&snapshot) != expected,
+                          "the bar should turn for exactly the states that are work in flight");
+    }
+    /* The check next door is the same question about the other press. */
+    chrome_fixture(&snapshot);
+    snapshot.settings.fw_busy = true;
+    MESH_TEST_FAIL_IF(!mesh_ui_chrome_busy(&snapshot),
+                      "a firmware check is a request already sent");
     record_success(test_name);
 }

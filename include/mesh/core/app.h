@@ -3,6 +3,7 @@
 #include "mesh/core/config.h"
 #include "mesh/core/event_loop.h"
 #include "mesh/core/firmware.h"
+#include "mesh/core/firmware_update.h"
 #include "mesh/core/session.h"
 #include "mesh/core/signals.h"
 #include "mesh/core/updater.h"
@@ -55,6 +56,27 @@ struct mesh_app {
      * later phases are what turn that into a press.
      */
     struct mesh_firmware firmware;
+    /*
+     * Installing it, which is the other half and a separate module because it is a separate
+     * press: the check reads two documents and touches nothing, and this downloads half a
+     * megabyte, sends one admin verb and then talks to a bootloader or an OTA loader over a
+     * bus. Its own fetcher, for the reason the check has one - two presses must not take each
+     * other's child.
+     */
+    struct mesh_firmware_update firmware_update;
+    /*
+     * The ClientNotification sequence the install has already been shown.
+     *
+     * The BLE path's go-ahead and its refusal both arrive as one, on the session's read path,
+     * and the install is driven from the tick - so somebody has to notice a new one and hand it
+     * over. A sequence rather than a flag because the radio says other things too, and a
+     * notification arriving while nothing is arming must not be replayed into the next install.
+     */
+    uint32_t firmware_notification_seq;
+    /* Whether an install stopped the transports and owes them back. A flag rather than a
+       question, because "stopped" and "stopped by us" are not the same state and only the
+       second one should be restarted. */
+    bool firmware_transports_stopped;
     /*
      * The look the UI is drawn with. Resolved once at start-up from MESHCLIENT_THEME, then the
      * saved preference, then the default, and published in the client info on every frame -

@@ -6,7 +6,9 @@ This document is about the other binary in the room: the Meshtastic firmware run
 node the Brick is talking to, which today can only be changed with a computer and a cable.
 
 Status: **phases 0 through 4 have shipped and are confirmed on hardware**, the last of them on
-2026-09-11 — a Heltec V3 updated over Bluetooth from a Brick, with nothing plugged in. The client
+2026-09-11 — a Heltec V3 updated over Bluetooth from a Brick, with nothing plugged in. **Phase 5's
+press is built and has not yet been run against a radio**; what it covers and what it still owes
+is in [§Phases](#phases). The client
 now updates the radio's firmware on both buses: over USB `--install-firmware` sends an nRF52
 into DFU, writes the `.uf2` to its bootloader and watches it come back in about twenty seconds;
 over BLE it sends an ESP32 into its OTA loader, streams the image and watches it come back in
@@ -1363,11 +1365,60 @@ Five decisions in it are worth stating:
 The banner and the startup recovery the roadmap filed here are UI, and moved to phase 5 with the
 rest of it: the command line's recovery is the command.
 
-**Phase 5 — the UI and the edges.** The Firmware rows, the confirm sheet, the progress screen,
-the "radio is in update mode" banner (`mesh_firmware_ota_radio_in_loader()` is its predicate) and
-recovery on startup - scan for a loader before scanning for radios. Then a battery floor, the
-variant picker, a "the loader answered but this is the old one" path, a bootloader that needs a double-tap because the
-admin verb never reached it, and the help notes that explain what any of it means.
+**Phase 5 — the UI and the edges. The press is built; the edges are not, and none of it has been
+run against a radio.** Settings → About radio's "Installing" row was a sentence saying this was
+not built yet, and it is now a press: a confirm sheet per bus, the ladder in the row's own meter,
+the banner, and both handovers driven from the event loop the UI draws on rather than from a
+command line.
+
+What it turned into: [`src/core/firmware_update.c`](../src/core/firmware_update.c), which is what
+`--install-firmware` was doing by hand in `main.c` - the download, the arm, the handover, in order
+- with the three sub-modules' state enums folded onto **one ladder** and their twenty-odd errors
+onto the four a row asks about. Then `MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB`/`_BLE` in
+[`settings.h`](../include/mesh/ui/settings.h), `MESH_UI_BANNER_RADIO_IN_LOADER` in
+[`chrome.c`](../src/ui/chrome.c), and
+`make ui-capture ARGS="devtools/ui_capture/scenes/radio-firmware-install.scene -o fw.gif"`, which
+films every state of it without a radio.
+
+Four decisions in it are worth stating:
+
+- **One state ladder for both buses.** "Writing" is blocks to a drive over a cable and chunks to a
+  characteristic over the air, and a row answering *where has this got to* should not have to care
+  which. So the bus is carried where it is load-bearing - the confirm sheet - rather than in the
+  words the row draws, and the catalog says the words are bus-neutral on purpose.
+- **The download holds the *antenna*, not the radio, and those are two questions.** Wi-Fi and
+  Bluetooth are one part here, so the image cannot come down with a BLE link up - but the
+  `ota_request` needs that link *back*. Holding "the radio" through the download would leave it
+  down through the one step whose whole purpose is waiting for it to return, which is what
+  `MESH_FIRMWARE_UPDATE_READY` is and what `mesh_firmware_update_holds_the_antenna()` exists
+  beside `_holds_the_radio()` for. The USB path has nothing to wait for: a cable needs no antenna,
+  so the serial link stays up and READY is one turn of the loop.
+- **The link is released when arming *ends*, not when the arm call returns.** Both arms queue and
+  the admin queue drains from the session's tick, so a link dropped on the call's return takes the
+  wire out from under the packet that is the point of the press. The signal is the handover
+  leaving `ARMING` - the radio's own "Rebooting to BLE OTA" on one bus, the port going away on the
+  other. It is the queue-here-drain-there split every admin verb here already lives with, and it
+  is the one thing in this phase a suite cannot prove.
+- **Two confirm actions rather than one.** The sheet's title, body and accept label are three
+  tables keyed on the action, and what they have to say differs by bus: over USB an interrupted
+  write leaves a bootloader any computer can talk to, and over Bluetooth it leaves a radio off the
+  mesh. Making the bus part of the action keeps those tables tables, instead of three functions
+  each having to be right about a link that may have moved since the question was asked.
+
+**What is left is the "edges" half.** Recovery on startup - scan for a loader before scanning for
+radios - is not written, so the way back from an interrupted OTA is to press Install again with
+the radio still the preferred one: it works, and it is not discoverable. Nor is the battery floor
+(question 8 still has no number), the variant picker for an ambiguous `hw_model`, the "the loader
+answered but this is the old one" path, or the prompt for a bootloader that needs a double-tap
+because the admin verb never reached it. Help is the section's note rather than a note per row,
+which is [`docs/help.md`](help.md)'s rule rather than a shortcut.
+
+**And it has not been confirmed on hardware.** Every phase before it was, before being called
+shipped. What is claimed here is that it builds under both toolchains, that the suite covers the
+composition and the rows, and that the capture harness draws every state. The two runs it owes are
+a T114 on the cable and a Heltec V3 on the air, both started from the screen rather than from the
+command line, and the thing to watch in both is the arming paragraph above: the CLI pumps the
+transport 200 turns by hand there, and the UI path leaves it to the loop.
 
 **Later, maybe never.** nRF52 over *Nordic DFU*, i.e. over BLE. Note what this is and is not:
 phase 3 already updates those boards, with a cable. What this would add is doing it without

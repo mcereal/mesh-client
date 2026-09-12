@@ -16,6 +16,11 @@
    it as a byte so store.h stays nanopb-free, and this file already pulls nanopb in through
    radio_settings.h - so naming the real enum here beats keeping a second copy of it in step. */
 #include "mesh/core/firmware.h"
+/* For the install's state ladder and the two functions that name it. Four symbols out of a
+   header that also declares the job's own storage, which is a wide door for what is read here -
+   but it is the same door mesh/core/firmware.h next to it already opens, and the alternative is
+   the UI keeping its own copy of an enum whose whole purpose is that there is one of it. */
+#include "mesh/core/firmware_update.h"
 #include "mesh/core/store_forward.h"
 #include "mesh/core/updater.h"
 #include "mesh/core/version.h"
@@ -566,6 +571,44 @@ static void build_connection(const struct mesh_ui_connection_status *conn, struc
 }
 
 /*
+ * An install already running, which takes the whole section over.
+ *
+ * Nothing else here is pressable while it does: the channel decides which question a *check*
+ * asks and the check would take the fetcher, and there is no second install to start. So the
+ * section drops to one row that says where the job has got to, plus its detail where the radio
+ * or the loader said something in its own words.
+ *
+ * A meter rather than a plain row, and only two of the states carry a level: `firmware_update.c`
+ * answers 0 for the steps that have no fraction, and a bar drawn at 0% through a forty-second
+ * wait for a bootloader is a bar that says the work stalled. MESH_UI_METER_UNKNOWN is the
+ * honest reading there - the same one About's own check row uses for a reply with no length.
+ */
+static bool build_radio_firmware_running(const struct mesh_ui_settings *s, struct item_list *list) {
+    const enum mesh_firmware_update_state state =
+        (enum mesh_firmware_update_state)s->fw_update_state;
+    if (!mesh_firmware_update_state_busy(state)) {
+        return false;
+    }
+
+    char value[MESH_UI_SETTINGS_VALUE_MAX];
+    uint32_t level = MESH_UI_METER_UNKNOWN;
+    if (s->fw_update_progress > 0U) {
+        level = (uint32_t)s->fw_update_progress * 10U;
+        snprintf(value, sizeof value, "%s %u%%", mesh_firmware_update_state_name(state),
+                 (unsigned)s->fw_update_progress);
+    } else {
+        mesh_str_copy(value, sizeof value, mesh_firmware_update_state_name(state));
+    }
+    item_meter(list, MESH_STR_FW_INSTALLING, value, level);
+    /* What is being installed, so the one row that is left still names the release. The
+       version is a version and is not translated. */
+    if (s->fw_latest[0] != '\0') {
+        item_text(list, MESH_STR_FW_NEWER, MESH_UI_SETTING_INFO, s->fw_latest);
+    }
+    return true;
+}
+
+/*
  * What newer firmware exists for the radio, under the version row that prompted the question.
  *
  * Three rows at most, and every one of them is a fact rather than an offer: this client
@@ -591,6 +634,9 @@ static void build_radio_firmware(const struct mesh_ui_settings *s, struct item_l
         /* No curl and no wget. Said once rather than offering a press that cannot run. */
         item_str(list, MESH_STR_FW_LATEST, MESH_UI_SETTING_INFO,
                  MESH_STR_ABOUT_UPDATES_UNAVAILABLE);
+        return;
+    }
+    if (build_radio_firmware_running(s, list)) {
         return;
     }
     /*
@@ -632,9 +678,39 @@ static void build_radio_firmware(const struct mesh_ui_settings *s, struct item_l
     if (!newer && s->fw_state != (uint8_t)MESH_FIRMWARE_UP_TO_DATE) {
         return;
     }
-    item_text(list, MESH_STR_FW_INSTALLING, MESH_UI_SETTING_INFO,
-              s->fw_blocker_reason[0] != '\0' ? s->fw_blocker_reason
-                                              : mesh_str(MESH_STR_FW_NOT_YET_IMPLEMENTED));
+    if (!s->fw_can_install) {
+        item_text(list, MESH_STR_FW_INSTALLING, MESH_UI_SETTING_INFO,
+                  s->fw_blocker_reason[0] != '\0' ? s->fw_blocker_reason
+                                                  : mesh_str(MESH_STR_FW_NOT_YET_IMPLEMENTED));
+        return;
+    }
+    /*
+     * How the last one went, above the press that would try again.
+     *
+     * Only after one has run this session - MESH_FIRMWARE_UPDATE_IDLE draws nothing, because a
+     * row saying "not started" under a row offering to start it is the same sentence twice. A
+     * failure shows the module's word for what broke plus, where the radio or the loader said
+     * something, its own words; those stay untranslated, like a log line.
+     */
+    if (s->fw_update_state == (uint8_t)MESH_FIRMWARE_UPDATE_FAILED) {
+        item_text(list, MESH_STR_FW_INSTALLING, MESH_UI_SETTING_INFO,
+                  s->fw_update_detail[0] != '\0'
+                      ? s->fw_update_detail
+                      : mesh_firmware_update_error_name(
+                            (enum mesh_firmware_update_error)s->fw_update_error));
+    } else if (s->fw_update_state == (uint8_t)MESH_FIRMWARE_UPDATE_DONE) {
+        item_text(list, MESH_STR_FW_INSTALLING, MESH_UI_SETTING_INFO,
+                  mesh_firmware_update_state_name(MESH_FIRMWARE_UPDATE_DONE));
+    }
+    /*
+     * The press, and which bus it is over. The row is the only place in the UI that has to know
+     * - the confirm sheet, the action bar and the app all read the action it emits - which is
+     * why the bus is baked into the action rather than looked up again downstream.
+     */
+    item_action(list, MESH_STR_FW_INSTALL, mesh_str(MESH_STR_COMMON_PRESS_A),
+                s->fw_bus == (uint8_t)MESH_FIRMWARE_PATH_BLE
+                    ? MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE
+                    : MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB);
 }
 
 static void build_radio(const struct mesh_ui_settings *s, const struct mesh_ui_handshake_state *hs,

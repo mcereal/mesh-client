@@ -850,6 +850,31 @@ static void mesh_app_flatten_firmware(struct mesh_app *app, struct mesh_ui_setti
         mesh_str_copy(dst->fw_blocker_reason, sizeof dst->fw_blocker_reason,
                       mesh_firmware_blocker_reason(firmware->blocker));
     }
+
+    /* The install's half. The state and the progress are flattened the same way the check's
+       are; `fw_can_install` is the one derived answer, and it is derived once so the row, the
+       confirm sheet and the action bar cannot each decide it differently. */
+    const struct mesh_firmware_update *const update = &app->firmware_update;
+    dst->fw_bus = (uint8_t)firmware->bus;
+    dst->fw_update_state = (uint8_t)update->state;
+    dst->fw_update_error = (uint8_t)update->error;
+    dst->fw_update_progress = (uint8_t)mesh_firmware_update_progress(update);
+    mesh_str_copy(dst->fw_update_detail, sizeof dst->fw_update_detail, update->detail);
+    dst->fw_radio_in_loader = mesh_firmware_update_radio_in_loader(update);
+    /*
+     * Whether the press is offered at all.
+     *
+     * Five conditions, and every one of them is a way this could go wrong rather than a
+     * tidiness point: something to install, a board that is exactly one board, a path from
+     * here, a release with a manifest behind it (an index entry can exist before its assets
+     * do), and a fetcher to get it with. Nothing already running is the sixth, and it is asked
+     * as the state rather than as a lock - a failed install lifts it by failing.
+     */
+    dst->fw_can_install =
+        firmware->state == MESH_FIRMWARE_AVAILABLE &&
+        firmware->blocker == MESH_FIRMWARE_BLOCKER_NONE && board != NULL &&
+        board->path != MESH_FIRMWARE_PATH_NONE && firmware->release.manifest_url[0] != '\0' &&
+        mesh_firmware_update_available(update) && !mesh_firmware_update_busy(update);
 }
 
 static void mesh_app_flatten_settings(const struct mesh_radio_settings *src,

@@ -488,6 +488,17 @@ enum mesh_ui_action_type {
     /* Steps the firmware channel and remembers it, as CYCLE_UPDATE_CHANNEL does for the
        client's own. Its own action for the same reason the check is: two projects. */
     MESH_UI_ACTION_CYCLE_FIRMWARE_CHANNEL,
+    /*
+     * Install what the check found. `number` is the bus - 0 for USB, 1 for Bluetooth - taken
+     * from which of the two rows was confirmed rather than re-read from the snapshot, because
+     * the sheet the user answered named a bus and a link that moved between the press and the
+     * reply would otherwise have them agreeing to one thing and getting the other.
+     *
+     * Not a RADIO_ACTION: nothing here is an admin request with a read-back behind it. It is a
+     * download, one verb, and then a conversation with a bootloader or a loader, neither of
+     * which is a Meshtastic node.
+     */
+    MESH_UI_ACTION_INSTALL_RADIO_FIRMWARE,
     /* Radio actions section: `number` is the enum mesh_ui_settings_action the user confirmed.
        One action type rather than five because the nav has nothing to say about any of them
        beyond which row it was - the app owns what each one means. */
