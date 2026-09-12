@@ -2036,8 +2036,8 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
      * Only the label column, and that is the whole of the subtlety. A plain row's marker gutter
      * is spent too, but it is spent by fb_item_measure() moving `g.text_x` past it before the
      * columns are counted - so it is already outside this number, and reserving it again took a
-     * cell off every row with a marker slot. The label column is the other way round: it lives
-     * inside the line fb_item_headline() builds, so nothing has counted it yet.
+     * cell off every row with a marker slot. The label column is the other way round: it is
+     * drawn inside `g.cols` rather than measured out of it, so nothing has counted it yet.
      */
     const size_t reserved = item->label_cols > 0U ? item->label_cols + FB_ITEM_MARKER_CELLS : 0U;
     const size_t head_take = fb_trailing_cols(state, g.cols, reserved, &item->trailing);
