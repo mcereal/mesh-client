@@ -134,11 +134,21 @@ when it is a release. Nothing on that path reaches a user who has not asked for 
 and `CHANGELOG.md` are skipped for prereleases, so the store cannot see one, and `releases/latest`
 hides them from a client that has not been set to the Prerelease channel in Settings → About.
 
-### One run at a time
+### One run at a time, per branch
 
-The workflow takes a `concurrency` group and **does not cancel in progress**. Two runs would be
-two version bumps pushed at one branch tip, and a cancelled one can leave a tag published with
-nothing behind it - which is reachable now that a dispatch and the cron can land together.
+The workflow's `concurrency` group is `semantic-release-${{ github.ref }}` and it **does not
+cancel in progress**. Both halves are load-bearing, and the second is subtler than it reads:
+`cancel-in-progress: false` protects a run that has *started*, while a run still **pending** in
+the group is cancelled by default the moment a newer one queues behind the same busy run. Under
+one literal group that is a push to `beta` discarding the Sunday cron's queued `main` run - an
+unrelated prerelease cancelling the safety net, which is the one failure a safety net may not
+have.
+
+Keyed on the ref, the pair worth serialising still is: a dispatch and the cron are both `main`,
+and they can now land together. What that prevents is two version bumps pushed at one branch tip,
+and a cancelled run leaving a tag published with nothing behind it. A pending duplicate lost
+*within* one branch costs nothing, because the run ahead of it has already released everything
+the second would have found.
 
 ## Workflow
 

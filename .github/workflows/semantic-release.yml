@@ -26,12 +26,21 @@ on:
       - beta
       - rc
 
-# One release at a time, and never cancelled. Two runs racing would be two version bumps pushed
-# at one branch tip, and a cancelled one can leave a tag published with no commit behind it -
-# the dispatch and the cron can otherwise land together the moment somebody presses the button
-# on a Sunday evening.
+# One release at a time *per branch*, and a run that has started is never cancelled. The ref is
+# in the group rather than out of it because `cancel-in-progress: false` does not mean what it
+# reads as: it protects a run that is in progress, while a run still *pending* in the group is
+# cancelled by default the moment a newer one queues behind the same busy run. Under one literal
+# group that is a push to `beta` quietly discarding the Sunday cron's queued `main` run - an
+# unrelated prerelease cancelling the safety net, which is the one failure a safety net may not
+# have.
+#
+# Keyed on the ref, the pair worth serialising still is: a dispatch and the cron are both `main`,
+# and they can land together the moment somebody presses the button on a Sunday evening - two
+# version bumps pushed at one branch tip, or a cancelled run leaving a tag with no commit behind
+# it. A pending duplicate lost *within* one branch costs nothing, because the run ahead of it has
+# already released everything the second would have found.
 concurrency:
-  group: semantic-release
+  group: semantic-release-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
