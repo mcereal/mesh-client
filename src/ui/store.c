@@ -599,7 +599,9 @@ uint32_t mesh_ui_store_forget_conversation(struct mesh_ui_store *store, uint8_t 
         state->marks[i] = state->marks[state->count - 1U];
         memset(&state->marks[state->count - 1U], 0, sizeof state->marks[0]);
         state->count--;
-        state->stamp++; /* the app persists the read state when this moves */
+        /* One mark fewer is one line fewer in the file, so both counters move. */
+        state->stamp++;
+        state->revision++; /* the app persists the read state when this moves */
         break;
     }
 
@@ -766,10 +768,12 @@ bool mesh_ui_store_set_conversation_mute(struct mesh_ui_store *store, uint8_t ki
     }
     mark->muted = muted;
     /* The stamp is what the eviction above orders by, and a mute is the user touching this
-       conversation as much as reading it is. Bumping it also moves the read state, which is
-       what tells the app there is something new to persist. */
+       conversation as much as reading it is. The revision moves with it because a mute is a
+       field of the saved line: unlike a re-read that found the mark already in place, this one
+       really does leave the file out of date. */
     store->read_state.stamp++;
     mark->stamp = store->read_state.stamp;
+    store->read_state.revision++;
 
     /*
      * An unmute that leaves the mark saying nothing takes the mark with it.
@@ -838,12 +842,25 @@ bool mesh_ui_store_mark_open_conversation_read(struct mesh_ui_store *store) {
 
     struct mesh_ui_read_mark *mark = mesh_ui_store_read_mark_slot(
         &store->read_state, kind, store->nav.target_node, store->nav.target_channel);
+    /* The ordering moves whatever comes of it: this ran because the reader is in here, and
+       "least recently read" has to count a conversation they came back to with nothing new in
+       it. Claiming the slot is also what can evict another mark, and that is a change to the
+       file - but it cannot happen without the position below moving too, because a slot this
+       call just claimed holds packet id 0 and `newest` is never 0. */
     store->read_state.stamp++;
     mark->stamp = store->read_state.stamp;
     if (mark->packet_id == newest) {
+        /*
+         * The mark is already where it belongs, which is the ordinary case rather than the
+         * corner: this runs from consume_updates() on every update while a thread is open - a
+         * node reporting, a position arriving, a press - and the read position moves only when
+         * a message does. Moving the revision here dirtied the cache each time and rewrote the
+         * whole snapshot a batching window later, for as long as the thread stayed open.
+         */
         return false;
     }
     mark->packet_id = newest;
+    store->read_state.revision++;
     return true;
 }
 
@@ -1813,7 +1830,10 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
     }
     messages.count = message_count;
     store->messages = messages;
+    /* File order stands in for the ordering nothing saved; the revision starts where a freshly
+       initialised store's does, because what was just loaded *is* what the file holds. */
     read_state.stamp = read_state.count;
+    read_state.revision = 0U;
     store->read_state = read_state;
 
     /*

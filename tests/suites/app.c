@@ -2367,7 +2367,7 @@ MESH_TEST_CASE(app_cache_batches_and_retries_persistence, unit) {
     const int timer = app->ui_cache_timer_fd;
     struct itimerspec before, after;
     timerfd_gettime(timer, &before);
-    app->ui_store.read_state.stamp++;
+    app->ui_store.read_state.revision++;
     mesh_app_publish_ui_state(app);
     timerfd_gettime(timer, &after);
     if (!app->ui_cache_timer_armed || timer != app->ui_cache_timer_fd || access(path, F_OK) == 0 ||

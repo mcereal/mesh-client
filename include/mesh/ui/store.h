@@ -1138,10 +1138,29 @@ struct mesh_ui_read_mark {
     bool muted;
 };
 
+/*
+ * The table, and the two counters over it - which are two counters because they answer two
+ * questions, and answering both with one was a file written every couple of seconds for as long
+ * as a conversation was open.
+ *
+ * `stamp` is the ordering: it hands out the `mark->stamp` the eviction above sorts by, and it
+ * moves every time a conversation is *touched*, whether or not that changed anything. It has to,
+ * or "least recently read" would mean "least recently read something new in", and a conversation
+ * the user keeps coming back to with nothing new in it would be evicted ahead of one they have
+ * not opened since.
+ *
+ * `revision` is what the file holds: kind, channel, node, packet_id and muted, for as many marks
+ * as there are. It moves only when one of those changes.
+ * mesh_ui_store_mark_open_conversation_read() runs from consume_updates() on every update while a
+ * thread is open - a node reporting, a position arriving, a press - and almost all of those find
+ * the mark already where it belongs. Watching `stamp` for persistence turned each of them into a
+ * dirty cache and a rewrite of the whole snapshot on a card that is mounted `sync`.
+ */
 struct mesh_ui_read_state {
     struct mesh_ui_read_mark marks[MESH_UI_READ_MARKS_MAX];
     uint32_t count;
     uint32_t stamp;
+    uint32_t revision;
 };
 
 struct mesh_ui_snapshot {
