@@ -1215,6 +1215,7 @@ bump versions by hand. Both fields the Pak Store reads out of `pak.json` — `ve
 | [`docs/cli.md`](docs/cli.md) | flags, environment variables, on-device controls |
 | [`docs/device.md`](docs/device.md) | Brick setup, deploy loop, screenshots, troubleshooting |
 | [`docs/steamdeck.md`](docs/steamdeck.md) | building and running on a Steam Deck: the distrobox toolchain, and what a UI on its panel would take |
+| [`docs/portability.md`](docs/portability.md) | other handhelds: the five questions a device has to answer, and where the Smart Pro, the Anbernic H700/RK3566 families and the Miyoo Mini Plus land against them. What is measured is marked apart from what is inferred |
 | [`docs/settings-roadmap.md`](docs/settings-roadmap.md) | radio settings phases and admin verbs |
 | [`docs/radio-firmware-roadmap.md`](docs/radio-firmware-roadmap.md) | updating the *radio's* firmware - UF2 over USB, OTA over BLE - what is reachable and in what order. Phases 0-4 have shipped and are confirmed on hardware, so both buses work from the CLI; phase 5's press is built - Settings > About radio installs firmware, with a confirm sheet per bus and a banner for a radio left in its loader - and has **not** been run against a radio yet, and its edges (startup recovery, a battery floor, the variant picker) are still open |
 | [`docs/components-roadmap.md`](docs/components-roadmap.md) | UI component set audit and the order to close its gaps |
