@@ -673,6 +673,16 @@ It is also what keeps the repository free of tiles. A pack of the demo roster's 
 is 244 tiles and about a megabyte; `make demo-pack` writes it in four seconds from a stdlib-only
 script, deterministically, which is what a scene compared against a reference frame needs.
 
+**It is a fixture and not a candidate style, and that is worth writing down because it is the
+easy mistake to make from here.** What it draws is noise shaped like a city - a road grid nobody
+laid out, blocks that go nowhere, at a density that reads as chaotic rather than as a map - and
+it is right for what it is for, which is costing a filled panel and giving a capture something
+deterministic to compare. Put in front of a reader it is worse than nothing: **the bare
+graticule is a better basemap than this**, because a grid says honestly that there is no map
+here and a plausible-looking street pattern that is not a place says the opposite. So it goes on
+a device only for a measurement, and it comes off afterwards. Nothing in the pak, the listing
+stills or the README carries it, and nothing should.
+
 ### What is still open
 
 - ~~**The integrated latency number**~~, on a Brick, with BLE being serviced. **Measured
