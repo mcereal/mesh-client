@@ -2130,9 +2130,11 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
         }
     }
 
-    /* Marking a conversation read touches nothing else, so watch the stamp for it. */
-    if (app->ui_store.read_state.stamp != app->ui_read_state_stamp) {
-        app->ui_read_state_stamp = app->ui_store.read_state.stamp;
+    /* Marking a conversation read touches nothing else, so watch the read state's own revision
+       for it - which moves when a mark's saved fields do and not when one is merely looked at
+       again, or an open thread would dirty the cache on every update reaching the store. */
+    if (app->ui_store.read_state.revision != app->ui_read_state_revision) {
+        app->ui_read_state_revision = app->ui_store.read_state.revision;
         if (app->ui_handshake_cache_path[0] != '\0') {
             app->ui_handshake_cache_dirty = true;
         }

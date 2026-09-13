@@ -93,8 +93,10 @@ struct mesh_app {
     bool ui_cache_timer_armed;
     int ui_cache_timer_fd;
     /* Read marks change without any message or handshake changing, so the cache save needs its
-       own trigger: the store bumps this stamp every time a conversation is marked read. */
-    uint32_t ui_read_state_stamp;
+       own trigger: the store's read-state revision, which moves when a mark's saved fields do.
+       Deliberately not that state's `stamp`, which is its eviction ordering and moves every
+       time a conversation is looked at - see struct mesh_ui_read_state. */
+    uint32_t ui_read_state_revision;
     /* Foreground auto-connect bookkeeping; see mesh_app_autoconnect(). */
     uint64_t autoconnect_started_ms;
     uint64_t autoconnect_retry_at_ms;

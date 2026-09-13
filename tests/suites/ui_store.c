@@ -787,6 +787,83 @@ cleanup:
  * ring's evictions safe - and it is exactly the wrong answer here, where the messages went
  * because somebody asked for them to go.
  */
+/*
+ * The read state's two counters, and which of them the cache save is allowed to watch.
+ *
+ * mesh_ui_store_mark_open_conversation_read() runs from consume_updates() on every update that
+ * reaches the store while a thread is open - a node reporting, a position arriving, a press -
+ * and almost every one of them finds the mark already on the newest message. It still has to
+ * refresh `stamp`, because that is the eviction ordering and a conversation the reader keeps
+ * coming back to is not the one to throw away; what it must not do is claim the *file* is out
+ * of date, which on a Brick is the whole snapshot rewritten onto a card mounted `sync` every
+ * couple of seconds for as long as the thread stays open.
+ */
+MESH_TEST_CASE(ui_store_read_revision_moves_only_when_the_mark_does, unit) {
+    const char *failure = NULL;
+
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    struct mesh_ui_snapshot snapshot;
+    struct mesh_ui_action action;
+
+    /* Open BRVO's thread, which is what puts a mark down in the first place. */
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    if (!store.nav.thread_open || store.read_state.count == 0U) {
+        failure = "opening the thread should have left a read mark";
+        goto cleanup;
+    }
+    const uint32_t settled = store.read_state.revision;
+    const uint32_t marked = store.read_state.stamp;
+    if (settled == 0U) {
+        failure = "putting the first mark down is a change to what the file holds";
+        goto cleanup;
+    }
+
+    /* Three updates about something else entirely, with the thread still open and nothing new
+       said in it. The ordering may move as often as it likes; the revision may not move at all. */
+    for (uint8_t i = 0U; i < 3U; ++i) {
+        struct mesh_ui_device device = {.identifier = "AA:BB:CC:DD:EE:01", .name = "NodeOne"};
+        device.rssi = (int8_t)(-40 - (int)i);
+        mesh_ui_store_set_discovery(&store, &device, 1U);
+        (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    }
+    if (store.read_state.revision != settled) {
+        failure = "a re-read that found the mark in place must not report the file out of date";
+        goto cleanup;
+    }
+    if (store.read_state.stamp <= marked) {
+        failure = "the eviction ordering still has to count a conversation being looked at";
+        goto cleanup;
+    }
+
+    /* And a message actually arriving in the open thread does move it, or the mark would never
+       reach disk at all. */
+    struct mesh_ui_message_list messages = store.messages;
+    struct mesh_ui_message *fresh = &messages.entries[messages.count++];
+    memset(fresh, 0, sizeof *fresh);
+    fresh->packet_id = 0x5150U;
+    fresh->peer = store.nav.target_node;
+    fresh->rx_time = 1700000900U;
+    snprintf(fresh->peer_name, sizeof fresh->peer_name, "%s", "BRVO");
+    snprintf(fresh->text, sizeof fresh->text, "%s", "still there?");
+    mesh_ui_store_set_messages(&store, &messages);
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    if (store.read_state.revision == settled) {
+        failure = "reading a newly arrived message moves the position, and the file with it";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(ui_store_forget_conversation, unit) {
     const char *failure = NULL;
 

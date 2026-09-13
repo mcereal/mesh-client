@@ -668,7 +668,7 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
     app->ui_handshake_cache_dirty = false;
     app->ui_cache_timer_armed = false;
     app->ui_cache_timer_fd = -1;
-    app->ui_read_state_stamp = 0U;
+    app->ui_read_state_revision = 0U;
 
     if (mesh_ui_preferences_default_path(app->ui_preferences_path,
                                          sizeof(app->ui_preferences_path)) == 0) {
@@ -745,7 +745,7 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
        transport log at startup never overwrites it. */
     app->ui_messages_cached = app->ui_store.messages;
     /* Restored read marks are already on disk; only later ones need a save. */
-    app->ui_read_state_stamp = app->ui_store.read_state.stamp;
+    app->ui_read_state_revision = app->ui_store.read_state.revision;
 
     void *backend_userdata = NULL;
     const struct mesh_ui_backend *ui_backend = mesh_app_select_backend(app, &backend_userdata);
