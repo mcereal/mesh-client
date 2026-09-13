@@ -465,10 +465,20 @@ void mesh_ui_input_handle_device_event(struct mesh_ui_input *input, int source_f
     }
 
     mesh_ui_input_repeat_start(input, key, type, code, source_fd);
-    /* The press is stamped before the store sees it, so what the probe measures ends at the
-       panel rather than at the top of this function. A repeat from our own timer reaches here
-       with no event behind it and is not counted - it has no kernel stamp to be counted from. */
-    mesh_ui_latency_press();
+    /*
+     * The press is offered to the probe before the store sees it, so what gets measured ends at
+     * the panel rather than at the top of this function - and only a button going *down* is
+     * offered. A kernel autorepeat (value 2) reaches here for a face button on purpose, because
+     * the client acts on it, but a held button is one press: counted, its repeats would weigh
+     * whatever screen that button drives by how long somebody leant on it. Our own timer's
+     * repeat is refused by the probe instead, having no kernel stamp behind it at all.
+     *
+     * Whether this press cost anything is not knowable here; mesh_ui_controller_handle_key()
+     * has the store's answer and confirms it.
+     */
+    if (type != EV_KEY || value == 1) {
+        mesh_ui_latency_press();
+    }
     if (input->on_key != NULL) {
         input->on_key(input->key_userdata, key);
     }

@@ -24,8 +24,14 @@ static bool s_env_read;
 
 static struct mesh_ui_latency_histogram s_metrics[MESH_UI_LATENCY_METRIC_COUNT];
 
-/* The event the mapping is currently looking at, and the oldest press no frame has answered. */
+/*
+ * The three stages a press goes through, which are three different claims:
+ *   s_event_us      an evdev event was read, and this is when the kernel says it happened
+ *   s_candidate_us  ...and it was a button going down on a key this client maps
+ *   s_pending_us    ...and the store said it would change the frame, so a frame owes it an answer
+ */
 static uint64_t s_event_us;
+static uint64_t s_candidate_us;
 static uint64_t s_pending_press_us;
 
 static uint64_t s_frame_start_us;
@@ -36,6 +42,7 @@ static uint64_t s_written;
 static uint32_t s_frames;
 static uint32_t s_tile_frames;
 static uint32_t s_presses;
+static uint32_t s_inert;
 static uint32_t s_coalesced;
 static uint32_t s_unanswered;
 
@@ -63,6 +70,7 @@ bool mesh_ui_latency_enabled(void) {
 void mesh_ui_latency_reset(void) {
     memset(s_metrics, 0, sizeof s_metrics);
     s_event_us = 0U;
+    s_candidate_us = 0U;
     s_pending_press_us = 0U;
     s_frame_start_us = 0U;
     s_frame_drawn_us = 0U;
@@ -71,6 +79,7 @@ void mesh_ui_latency_reset(void) {
     s_frames = 0U;
     s_tile_frames = 0U;
     s_presses = 0U;
+    s_inert = 0U;
     s_coalesced = 0U;
     s_unanswered = 0U;
 }
@@ -105,8 +114,8 @@ static uint32_t mesh_ui_latency_bucket_edge(const struct mesh_ui_latency_histogr
     }
     if (bucket < MESH_UI_LATENCY_FINE_BUCKETS + MESH_UI_LATENCY_COARSE_BUCKETS) {
         const uint32_t fine_span = MESH_UI_LATENCY_FINE_US * MESH_UI_LATENCY_FINE_BUCKETS;
-        return fine_span + (uint32_t)(bucket - MESH_UI_LATENCY_FINE_BUCKETS + 1U) *
-                               MESH_UI_LATENCY_COARSE_US;
+        return fine_span +
+               (uint32_t)(bucket - MESH_UI_LATENCY_FINE_BUCKETS + 1U) * MESH_UI_LATENCY_COARSE_US;
     }
     return histogram->max_us;
 }
@@ -139,26 +148,44 @@ void mesh_ui_latency_press(void) {
     if (!mesh_ui_latency_enabled()) {
         return;
     }
-    const uint64_t now = mesh_ui_latency_now_us();
+    const uint64_t event_us = s_event_us;
+    s_event_us = 0U;
     /* A press with no event behind it is a repeat from our own timer, which has no kernel
        stamp and so no latency this probe can honestly state. It is not counted at all rather
        than counted from now, which would report the queueing delay as zero. */
-    if (s_event_us == 0U) {
+    if (event_us == 0U) {
         return;
     }
-    /* A stamp from the future, or from before the machine booted, is a device evdev would not
-       put on CLOCK_MONOTONIC - a node opened before the ioctl, or a host that refused it. */
-    if (s_event_us > now) {
-        s_event_us = 0U;
+    /* A stamp from the future is a device evdev would not put on CLOCK_MONOTONIC - a node
+       opened before the ioctl, or a host that refused it. */
+    if (event_us > mesh_ui_latency_now_us()) {
+        return;
+    }
+    s_candidate_us = event_us;
+}
+
+void mesh_ui_latency_press_handled(bool repaints) {
+    if (!mesh_ui_latency_enabled()) {
+        return;
+    }
+    const uint64_t candidate = s_candidate_us;
+    s_candidate_us = 0U;
+    if (candidate == 0U) {
+        return;
+    }
+    if (!repaints) {
+        /* Nothing was published, so no frame is coming for this. Counted, because a run made
+           mostly of presses that did nothing is a run whose percentiles describe very little,
+           and the count is the only thing that says so. */
+        s_inert += 1U;
         return;
     }
     s_presses += 1U;
     if (s_pending_press_us != 0U) {
         s_coalesced += 1U;
     } else {
-        s_pending_press_us = s_event_us;
+        s_pending_press_us = candidate;
     }
-    s_event_us = 0U;
 }
 
 void mesh_ui_latency_frame_begin(void) {
@@ -249,34 +276,23 @@ uint32_t mesh_ui_latency_percentile(const struct mesh_ui_latency_histogram *hist
     return histogram->max_us;
 }
 
-void mesh_ui_latency_counts(uint32_t *frames, uint32_t *tile_frames, uint32_t *presses,
-                            uint32_t *coalesced, uint32_t *unanswered) {
-    if (frames != NULL) {
-        *frames = s_frames;
+void mesh_ui_latency_counts(struct mesh_ui_latency_counts *out) {
+    if (out == NULL) {
+        return;
     }
-    if (tile_frames != NULL) {
-        *tile_frames = s_tile_frames;
-    }
-    if (presses != NULL) {
-        *presses = s_presses;
-    }
-    if (coalesced != NULL) {
-        *coalesced = s_coalesced;
-    }
-    if (unanswered != NULL) {
-        *unanswered = s_unanswered;
-    }
+    out->frames = s_frames;
+    out->tile_frames = s_tile_frames;
+    out->presses = s_presses;
+    out->inert = s_inert;
+    out->coalesced = s_coalesced;
+    out->unanswered = s_unanswered;
+    out->written = s_written;
 }
 
-uint64_t mesh_ui_latency_written(void) { return s_written; }
-
 static const char *const k_metric_names[MESH_UI_LATENCY_METRIC_COUNT] = {
-    [MESH_UI_LATENCY_PRESS] = "press",
-    [MESH_UI_LATENCY_FRAME] = "frame",
-    [MESH_UI_LATENCY_DRAW] = "draw",
-    [MESH_UI_LATENCY_FLIP] = "flip",
-    [MESH_UI_LATENCY_READ] = "read",
-    [MESH_UI_LATENCY_DECODE] = "decode",
+    [MESH_UI_LATENCY_PRESS] = "press", [MESH_UI_LATENCY_FRAME] = "frame",
+    [MESH_UI_LATENCY_DRAW] = "draw",   [MESH_UI_LATENCY_FLIP] = "flip",
+    [MESH_UI_LATENCY_READ] = "read",   [MESH_UI_LATENCY_DECODE] = "decode",
 };
 
 /* Microseconds as milliseconds to two places, without floating point - the client has none on
@@ -290,10 +306,17 @@ void mesh_ui_latency_report(const char *why) {
         return;
     }
     const char *const moment = why != NULL ? why : "report";
+    /* A press still waiting when the run ends never got its frame - the client was stopped
+       before it drew one. Expired here, or the last press of every run goes missing from both
+       columns: not in the percentiles, and not in the count of the ones nothing answered. */
+    if (s_pending_press_us != 0U) {
+        s_pending_press_us = 0U;
+        s_unanswered += 1U;
+    }
     mesh_log_info("latency",
-                  "%s: %u frames, %u with a tile, %u presses (%u coalesced, %u unanswered), "
-                  "%llu KiB to the panel",
-                  moment, s_frames, s_tile_frames, s_presses, s_coalesced, s_unanswered,
+                  "%s: %u frames, %u with a tile, %u presses (%u inert, %u coalesced, "
+                  "%u unanswered), %llu KiB to the panel",
+                  moment, s_frames, s_tile_frames, s_presses, s_inert, s_coalesced, s_unanswered,
                   (unsigned long long)(s_written / 1024U));
 
     for (size_t i = 0; i < MESH_UI_LATENCY_METRIC_COUNT; ++i) {

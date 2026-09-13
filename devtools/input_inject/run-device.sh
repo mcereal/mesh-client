@@ -2,7 +2,7 @@
 # Drive a real run of the client on a Brick from a script of presses, and keep what its latency
 # probe printed. Run from the repository root after devtools/input_inject/build.sh:
 #
-#   devtools/input_inject/run-device.sh [--every MS] [--tag NAME] [--cold] [--] TOKEN...
+#   devtools/input_inject/run-device.sh [--every MS] [--tag NAME] [--cold] [--log-level L] [--] TOKEN...
 #   devtools/input_inject/run-device.sh --every 600 --tag map r1 a wait:6 x:3 right:20 down:10
 #
 # The order is the whole of this script and it is not negotiable in either direction:
@@ -25,6 +25,7 @@ AFTER=22000
 HOLD=4000
 TAG=""
 COLD=0
+LOG_LEVEL=""
 DEVICE_BIN=/mnt/UDISK/input_inject
 REMOTE_LOG=/mnt/SDCARD/.userdata/tg5040/logs/MeshClient.txt
 OUT_DIR=build/input_inject/results
@@ -39,6 +40,10 @@ while [[ $# -gt 0 ]]; do
         # than out of RAM. A pack pushed minutes ago is entirely in page cache, which is the
         # difference between a 0.05 ms read and the 0.80 ms one devtools/tile_bench measured.
         --cold) COLD=1; shift ;;
+        # launch.sh runs the client at debug, which on a sync-mounted card is a lot of writing
+        # through a pipe. `--log-level info` after it wins, which is how that gets ruled in or
+        # out of a latency tail.
+        --log-level) LOG_LEVEL="$2"; shift 2 ;;
         --) shift; break ;;
         -*) echo "unknown option $1" >&2; exit 2 ;;
         *) break ;;
@@ -65,15 +70,27 @@ if [[ $COLD -eq 1 ]]; then
     echo "Page cache dropped"
 fi
 
+# What the cleanup has to undo, and the client is the half that matters. Killing the host side
+# of a run does not stop the client on the device: a Ctrl-C, an adb hiccup or a nonzero injector
+# exit would otherwise leave MeshClient running behind NextUI's launcher, which goes on painting
+# fb0 and acting on every button. See docs/device.md.
+STARTED=0
+cleanup() {
+    kill $INJECTOR 2>/dev/null || true
+    [[ $STARTED -eq 1 ]] && ./scripts/deploy-device.sh stop >/dev/null 2>&1
+    return 0
+}
+
 echo "Injector up (${AFTER} ms before the first press, ${EVERY} ms between)"
 adb shell "$DEVICE_BIN --after $AFTER --every $EVERY --hold $HOLD $*" &
 INJECTOR=$!
-trap 'kill $INJECTOR 2>/dev/null || true' EXIT
+trap cleanup EXIT INT TERM
 
 # Long enough for the uinput device to exist before the client scans for it, and short enough to
 # leave most of --after for the client's own startup and BLE handshake.
 sleep 2
-./scripts/deploy-device.sh start -- --trace-latency >/dev/null
+STARTED=1
+./scripts/deploy-device.sh start -- --trace-latency ${LOG_LEVEL:+--log-level "$LOG_LEVEL"} >/dev/null
 
 # Read while the client is up, not after it: NextUI's launch loop pins `performance` for a pak
 # and hands the launcher back `schedutil`, so the governor asked for afterwards is the
@@ -81,12 +98,13 @@ sleep 2
 GOVERNOR=$(adb shell 'cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor' | tr -d '\r')
 
 wait $INJECTOR
-trap - EXIT
 
 ./scripts/deploy-device.sh stop >/dev/null
+STARTED=0
+trap - EXIT INT TERM
 {
     echo "# input_inject $(date -u +%Y-%m-%dT%H:%M:%SZ) $(git rev-parse --short HEAD)"
-    echo "# every=${EVERY}ms cold=${COLD} script: $*"
+    echo "# every=${EVERY}ms cold=${COLD} log=${LOG_LEVEL:-debug} script: $*"
     echo "# governor while running: ${GOVERNOR}"
     adb shell "tail -n +$((lines + 1)) $REMOTE_LOG" | tr -d '\r'
 } > "$LOG"

@@ -60,18 +60,15 @@ struct inject_button {
  * code here presses the wrong button, visibly, in the first run.
  */
 static const struct inject_button k_buttons[] = {
-    {"a", EV_KEY, BTN_EAST, 1},      /* 305 - printed A, on the right */
-    {"b", EV_KEY, BTN_SOUTH, 1},     /* 304 - printed B, at the bottom */
-    {"x", EV_KEY, BTN_WEST, 1},      /* 308 - printed X, on top */
-    {"y", EV_KEY, BTN_NORTH, 1},     /* 307 - printed Y, on the left */
-    {"l1", EV_KEY, BTN_TL, 1},       /* 310 */
-    {"r1", EV_KEY, BTN_TR, 1},       /* 311 */
-    {"select", EV_KEY, BTN_SELECT, 1},
-    {"start", EV_KEY, BTN_START, 1},
-    {"left", EV_ABS, ABS_HAT0X, -1},
-    {"right", EV_ABS, ABS_HAT0X, 1},
-    {"up", EV_ABS, ABS_HAT0Y, -1},
-    {"down", EV_ABS, ABS_HAT0Y, 1},
+    {"a", EV_KEY, BTN_EAST, 1},  /* 305 - printed A, on the right */
+    {"b", EV_KEY, BTN_SOUTH, 1}, /* 304 - printed B, at the bottom */
+    {"x", EV_KEY, BTN_WEST, 1},  /* 308 - printed X, on top */
+    {"y", EV_KEY, BTN_NORTH, 1}, /* 307 - printed Y, on the left */
+    {"l1", EV_KEY, BTN_TL, 1},   /* 310 */
+    {"r1", EV_KEY, BTN_TR, 1},   /* 311 */
+    {"select", EV_KEY, BTN_SELECT, 1}, {"start", EV_KEY, BTN_START, 1},
+    {"left", EV_ABS, ABS_HAT0X, -1},   {"right", EV_ABS, ABS_HAT0X, 1},
+    {"up", EV_ABS, ABS_HAT0Y, -1},     {"down", EV_ABS, ABS_HAT0Y, 1},
 };
 
 static void sleep_ms(long ms) {

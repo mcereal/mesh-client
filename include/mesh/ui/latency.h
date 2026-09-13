@@ -102,10 +102,32 @@ void mesh_ui_latency_reset(void);
    the mapping decides whether it is a key at all. */
 void mesh_ui_latency_event(uint64_t event_us);
 
-/* ...and that event turned out to be a key the store acted on. The *oldest* press not yet
-   answered is the one a frame is charged with: several presses coalesce into one snapshot and
-   so into one frame, and the reader who pressed first is the one who waited. */
+/*
+ * ...and that event was a button going down on a key this client maps.
+ *
+ * It is held as a *candidate* rather than counted, because whether a press costs anything is
+ * not knowable here: one that changes nothing - Down at the end of a list, a button a screen
+ * does not use - publishes no snapshot and draws no frame. mesh_ui_latency_press_handled()
+ * below is the store's answer, and only a confirmed press is ever charged to a frame.
+ *
+ * A repeat is deliberately not a press, and there are two kinds. Ours comes from input.c's own
+ * timerfd and reaches the probe with no event behind it at all, so it is refused here. The
+ * kernel's autorepeat on a face button does carry a stamp, and is refused by the caller: a held
+ * button is one press, and counting its repeats would weigh whatever screen that button drives
+ * by how long somebody leant on it.
+ */
 void mesh_ui_latency_press(void);
+
+/*
+ * Whether that press changed the frame, which is mesh_ui_store_handle_key()'s own return value.
+ *
+ * With it, the candidate becomes the press a frame is charged with - the *oldest* one not yet
+ * answered, because several presses coalesce into one snapshot and so into one frame, and the
+ * reader who pressed first is the one who waited. Without it the candidate is dropped and
+ * counted as inert, so the next frame to arrive - an animation, or the map fill loop asking for
+ * another turn - is not charged to a press that nobody ever waited on.
+ */
+void mesh_ui_latency_press_handled(bool repaints);
 
 void mesh_ui_latency_frame_begin(void);
 
@@ -134,15 +156,21 @@ const struct mesh_ui_latency_histogram *mesh_ui_latency_metric(enum mesh_ui_late
 uint32_t mesh_ui_latency_percentile(const struct mesh_ui_latency_histogram *histogram,
                                     unsigned int percent);
 
-/* How many frames were drawn, how many of them read a tile, how many presses were answered, how
-   many coalesced into a frame with an older one, and how many nothing ever answered. Any
-   pointer may be NULL. */
-void mesh_ui_latency_counts(uint32_t *frames, uint32_t *tile_frames, uint32_t *presses,
-                            uint32_t *coalesced, uint32_t *unanswered);
+/* What the run did, as opposed to how long it took. A struct rather than a row of out
+   parameters: these are read together, by a report and by a test, and there are now seven. */
+struct mesh_ui_latency_counts {
+    uint32_t frames;
+    uint32_t tile_frames; /* ...of which this many read a tile. Never more than one each. */
+    uint32_t presses;     /* key-downs the store said would repaint */
+    uint32_t inert;       /* ...and key-downs it said would not, which are timed by nothing */
+    uint32_t coalesced;   /* presses that shared a frame with an older one */
+    uint32_t unanswered;  /* presses the frame never came for */
+    /* What the damage compare handed the panel, which is the other half of the partial-redraw
+       question: a frame's cost is what it drew *and* what it copied. */
+    uint64_t written;
+};
 
-/* How many bytes the damage compare handed the panel over the whole run, which is the other
-   half of the partial-redraw question: a frame's cost is what it drew *and* what it copied. */
-uint64_t mesh_ui_latency_written(void);
+void mesh_ui_latency_counts(struct mesh_ui_latency_counts *out);
 
 #ifdef __cplusplus
 }

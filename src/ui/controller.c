@@ -3,6 +3,7 @@
 #include "mesh/ui/controller.h"
 
 #include "mesh/ui/backend.h"
+#include "mesh/ui/latency.h"
 #include "mesh/ui/nav.h"
 #include "mesh/utils/log.h"
 
@@ -185,7 +186,16 @@ void mesh_ui_controller_handle_key(struct mesh_ui_controller *controller, enum m
     }
 
     struct mesh_ui_action action;
-    mesh_ui_store_handle_key(controller->store, key, &action);
+    const bool repaints = mesh_ui_store_handle_key(controller->store, key, &action);
+    /*
+     * The latency probe's press is confirmed here rather than where the button was read,
+     * because only the store knows whether the press changed anything. One that did not - Down
+     * at the end of a list, a button a screen does not use - publishes no snapshot and draws no
+     * frame, so the next frame to arrive belongs to something else: an animation settling, or
+     * the map's fill loop asking for another turn. Charged to the press, that frame would be a
+     * latency nobody ever waited.
+     */
+    mesh_ui_latency_press_handled(repaints);
     if (action.type != MESH_UI_ACTION_NONE && controller->on_action != NULL) {
         controller->on_action(controller->action_userdata, &action);
     }

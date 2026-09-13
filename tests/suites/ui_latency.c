@@ -24,12 +24,20 @@ static void begin(void) {
     mesh_ui_latency_reset();
 }
 
-/* One press, answered by one frame, `wait_us` after the kernel stamped it. The stamp is taken
-   from the probe's own clock so the arithmetic is the same one the client does. */
+static struct mesh_ui_latency_counts counted(void) {
+    struct mesh_ui_latency_counts counts;
+    memset(&counts, 0, sizeof counts);
+    mesh_ui_latency_counts(&counts);
+    return counts;
+}
+
+/* One press that changed the frame, answered by one frame, `age_us` after the kernel stamped
+   it. The stamp is taken from the probe's own clock so the arithmetic is the one the client
+   does. */
 static void press_answered(uint64_t age_us) {
-    const uint64_t now = mesh_ui_latency_now_us();
-    mesh_ui_latency_event(now - age_us);
+    mesh_ui_latency_event(mesh_ui_latency_now_us() - age_us);
     mesh_ui_latency_press();
+    mesh_ui_latency_press_handled(true);
     mesh_ui_latency_frame_begin();
     mesh_ui_latency_frame_drawn(4096U);
     mesh_ui_latency_frame_end(4096U);
@@ -41,10 +49,9 @@ MESH_TEST_CASE(latency_reset_leaves_nothing_behind, unit) {
     /* There is no way back to "off" once a run has asked for it - the knob is read once - so
        what this checks is that a reset leaves nothing behind, which is the state a client that
        never enabled it is in. */
-    uint32_t frames = 1U;
-    uint32_t presses = 1U;
-    mesh_ui_latency_counts(&frames, NULL, &presses, NULL, NULL);
-    MESH_TEST_FAIL_IF(frames != 0U || presses != 0U, "a reset should leave no samples behind");
+    const struct mesh_ui_latency_counts counts = counted();
+    MESH_TEST_FAIL_IF(counts.frames != 0U || counts.presses != 0U,
+                      "a reset should leave no samples behind");
     MESH_TEST_FAIL_IF(mesh_ui_latency_metric(MESH_UI_LATENCY_PRESS)->count != 0U,
                       "and no histogram either");
     record_success(test_name);
@@ -72,6 +79,35 @@ MESH_TEST_CASE(latency_measures_a_press_from_the_kernels_stamp, unit) {
 }
 
 /*
+ * A press that changed nothing is not charged the next frame that happens to arrive.
+ *
+ * Down at the end of a list publishes no snapshot, so no frame is drawn for it - but a map
+ * filling tiles or an animation settling is asking for one every 33 ms anyway. Held pending,
+ * the press would be answered by that frame, and the histogram would fill up with the frame
+ * rate of whatever else was moving. The store's own "does this repaint" is what tells them
+ * apart, and mesh_ui_controller_handle_key() passes it straight through.
+ */
+MESH_TEST_CASE(latency_does_not_charge_an_inert_press_to_the_next_frame, unit) {
+    begin();
+    mesh_ui_latency_event(mesh_ui_latency_now_us() - 5000U);
+    mesh_ui_latency_press();
+    mesh_ui_latency_press_handled(false);
+
+    /* Something else draws, a moment later. */
+    mesh_ui_latency_frame_begin();
+    mesh_ui_latency_frame_drawn(4096U);
+    mesh_ui_latency_frame_end(4096U);
+
+    const struct mesh_ui_latency_counts counts = counted();
+    MESH_TEST_FAIL_IF(counts.presses != 0U, "a press that repaints nothing is not timed");
+    MESH_TEST_FAIL_IF(counts.inert != 1U, "but it is counted, so the run says how many there were");
+    MESH_TEST_FAIL_IF(counts.frames != 1U, "the frame that did happen still happened");
+    MESH_TEST_FAIL_IF(mesh_ui_latency_metric(MESH_UI_LATENCY_PRESS)->count != 0U,
+                      "and it must not have been charged to the press");
+    record_success(test_name);
+}
+
+/*
  * A repeat has no kernel stamp, so it is not counted at all.
  *
  * src/ui/input.c generates key repeat from its own timerfd - the d-pad is an absolute axis and
@@ -82,15 +118,15 @@ MESH_TEST_CASE(latency_measures_a_press_from_the_kernels_stamp, unit) {
 MESH_TEST_CASE(latency_does_not_count_a_repeat_as_a_press, unit) {
     begin();
     mesh_ui_latency_press(); /* no mesh_ui_latency_event() before it */
+    mesh_ui_latency_press_handled(true);
     mesh_ui_latency_frame_begin();
     mesh_ui_latency_frame_drawn(4096U);
     mesh_ui_latency_frame_end(4096U);
 
-    uint32_t presses = 99U;
-    uint32_t frames = 0U;
-    mesh_ui_latency_counts(&frames, NULL, &presses, NULL, NULL);
-    MESH_TEST_FAIL_IF(presses != 0U, "a repeat is not a press this probe can time");
-    MESH_TEST_FAIL_IF(frames != 1U, "the frame it drew still happened");
+    const struct mesh_ui_latency_counts counts = counted();
+    MESH_TEST_FAIL_IF(counts.presses != 0U, "a repeat is not a press this probe can time");
+    MESH_TEST_FAIL_IF(counts.inert != 0U, "nor is it an inert one - it is not a press at all");
+    MESH_TEST_FAIL_IF(counts.frames != 1U, "the frame it drew still happened");
     MESH_TEST_FAIL_IF(mesh_ui_latency_metric(MESH_UI_LATENCY_PRESS)->count != 0U,
                       "and nothing should have been charged to it");
     record_success(test_name);
@@ -108,17 +144,17 @@ MESH_TEST_CASE(latency_charges_a_coalesced_frame_to_the_oldest_press, unit) {
     const uint64_t now = mesh_ui_latency_now_us();
     mesh_ui_latency_event(now - 30000U);
     mesh_ui_latency_press();
+    mesh_ui_latency_press_handled(true);
     mesh_ui_latency_event(now - 1000U);
     mesh_ui_latency_press();
+    mesh_ui_latency_press_handled(true);
     mesh_ui_latency_frame_begin();
     mesh_ui_latency_frame_drawn(4096U);
     mesh_ui_latency_frame_end(4096U);
 
-    uint32_t presses = 0U;
-    uint32_t coalesced = 0U;
-    mesh_ui_latency_counts(NULL, NULL, &presses, &coalesced, NULL);
-    MESH_TEST_FAIL_IF(presses != 2U, "both presses arrived");
-    MESH_TEST_FAIL_IF(coalesced != 1U, "and one of them shared the frame the other got");
+    const struct mesh_ui_latency_counts counts = counted();
+    MESH_TEST_FAIL_IF(counts.presses != 2U, "both presses arrived");
+    MESH_TEST_FAIL_IF(counts.coalesced != 1U, "and one of them shared the frame the other got");
     const struct mesh_ui_latency_histogram *const press =
         mesh_ui_latency_metric(MESH_UI_LATENCY_PRESS);
     MESH_TEST_FAIL_IF(press->count != 1U, "one frame is one latency");
@@ -127,22 +163,44 @@ MESH_TEST_CASE(latency_charges_a_coalesced_frame_to_the_oldest_press, unit) {
 }
 
 /*
- * A press nothing answered is dropped rather than charged to the next frame.
- *
- * Down at the end of a list changes nothing, so no snapshot is published and no frame is drawn
- * for it. Left pending, it would be handed to whatever came next - an animation tick, a packet
- * arriving a minute later - and the probe would report a latency of a minute for a press that
- * was answered correctly by doing nothing.
+ * A press whose frame never came within the timeout is dropped rather than charged to a later
+ * one. The store said it would repaint, so something went wrong - a frame that took a second is
+ * not a press latency anybody should read as one.
  */
 MESH_TEST_CASE(latency_drops_a_press_no_frame_answered, unit) {
     begin();
     press_answered(MESH_UI_LATENCY_PRESS_TIMEOUT_US + 500000U);
 
-    uint32_t unanswered = 0U;
-    mesh_ui_latency_counts(NULL, NULL, NULL, NULL, &unanswered);
-    MESH_TEST_FAIL_IF(unanswered != 1U, "the press should be recorded as unanswered");
+    const struct mesh_ui_latency_counts counts = counted();
+    MESH_TEST_FAIL_IF(counts.unanswered != 1U, "the press should be recorded as unanswered");
     MESH_TEST_FAIL_IF(mesh_ui_latency_metric(MESH_UI_LATENCY_PRESS)->count != 0U,
                       "and must not appear in the percentiles");
+    record_success(test_name);
+}
+
+/*
+ * ...and so is one still waiting when the run ends.
+ *
+ * The last press of a run is the likely one: the client is stopped a moment later, so no frame
+ * was ever drawn for it. Left in the pending slot it appears in neither column - not in the
+ * percentiles, and not in the count of what nothing answered - which is a press that quietly
+ * never happened.
+ */
+MESH_TEST_CASE(latency_expires_a_pending_press_when_the_run_ends, unit) {
+    begin();
+    mesh_ui_latency_event(mesh_ui_latency_now_us() - 2000U);
+    mesh_ui_latency_press();
+    mesh_ui_latency_press_handled(true);
+
+    MESH_TEST_FAIL_IF(counted().unanswered != 0U, "nothing has ended yet");
+    mesh_ui_latency_report("test");
+    MESH_TEST_FAIL_IF(counted().unanswered != 1U, "the report should have expired it");
+    MESH_TEST_FAIL_IF(mesh_ui_latency_metric(MESH_UI_LATENCY_PRESS)->count != 0U,
+                      "without inventing a latency for it");
+
+    /* And a second report does not count it twice. */
+    mesh_ui_latency_report("test");
+    MESH_TEST_FAIL_IF(counted().unanswered != 1U, "expiring is not something that repeats");
     record_success(test_name);
 }
 
@@ -153,15 +211,37 @@ MESH_TEST_CASE(latency_refuses_a_stamp_that_is_not_on_its_own_clock, unit) {
     begin();
     mesh_ui_latency_event(mesh_ui_latency_now_us() + 60000000U);
     mesh_ui_latency_press();
+    mesh_ui_latency_press_handled(true);
     mesh_ui_latency_frame_begin();
     mesh_ui_latency_frame_drawn(4096U);
     mesh_ui_latency_frame_end(4096U);
 
-    uint32_t presses = 99U;
-    mesh_ui_latency_counts(NULL, NULL, &presses, NULL, NULL);
-    MESH_TEST_FAIL_IF(presses != 0U, "a wall-clock stamp is not a press this probe can time");
+    MESH_TEST_FAIL_IF(counted().presses != 0U,
+                      "a wall-clock stamp is not a press this probe can time");
     MESH_TEST_FAIL_IF(mesh_ui_latency_metric(MESH_UI_LATENCY_PRESS)->count != 0U,
                       "and nothing should have been charged to it");
+    record_success(test_name);
+}
+
+/* One press is one candidate: a second key-down before the first was confirmed replaces it
+   rather than queueing behind it, so a caller that forgets to confirm cannot leave a stamp
+   lying about to be charged to some later press's frame. */
+MESH_TEST_CASE(latency_keeps_one_candidate_press_at_a_time, unit) {
+    begin();
+    const uint64_t now = mesh_ui_latency_now_us();
+    mesh_ui_latency_event(now - 90000U);
+    mesh_ui_latency_press(); /* never confirmed */
+    mesh_ui_latency_event(now - 3000U);
+    mesh_ui_latency_press();
+    mesh_ui_latency_press_handled(true);
+    mesh_ui_latency_frame_begin();
+    mesh_ui_latency_frame_drawn(4096U);
+    mesh_ui_latency_frame_end(4096U);
+
+    const struct mesh_ui_latency_histogram *const press =
+        mesh_ui_latency_metric(MESH_UI_LATENCY_PRESS);
+    MESH_TEST_FAIL_IF(press->count != 1U, "only the confirmed press is timed");
+    MESH_TEST_FAIL_IF(press->max_us > 60000U, "and it is the recent one, not the abandoned one");
     record_success(test_name);
 }
 
@@ -178,10 +258,8 @@ MESH_TEST_CASE(latency_keeps_the_read_and_the_decode_apart, unit) {
                       "the read should be recorded as itself");
     MESH_TEST_FAIL_IF(mesh_ui_latency_metric(MESH_UI_LATENCY_DECODE)->max_us != 1240U,
                       "and so should the decode");
-    uint32_t frames = 0U;
-    uint32_t tile_frames = 0U;
-    mesh_ui_latency_counts(&frames, &tile_frames, NULL, NULL, NULL);
-    MESH_TEST_FAIL_IF(frames != 1U || tile_frames != 1U,
+    const struct mesh_ui_latency_counts counts = counted();
+    MESH_TEST_FAIL_IF(counts.frames != 1U || counts.tile_frames != 1U,
                       "the frame that read a tile should be counted as one");
     record_success(test_name);
 }
@@ -194,11 +272,9 @@ MESH_TEST_CASE(latency_counts_a_frame_with_no_tile_in_it, unit) {
     mesh_ui_latency_frame_drawn(4096U);
     mesh_ui_latency_frame_end(4096U);
 
-    uint32_t frames = 0U;
-    uint32_t tile_frames = 99U;
-    mesh_ui_latency_counts(&frames, &tile_frames, NULL, NULL, NULL);
-    MESH_TEST_FAIL_IF(frames != 1U, "the frame happened");
-    MESH_TEST_FAIL_IF(tile_frames != 0U, "and it read no tile");
+    const struct mesh_ui_latency_counts counts = counted();
+    MESH_TEST_FAIL_IF(counts.frames != 1U, "the frame happened");
+    MESH_TEST_FAIL_IF(counts.tile_frames != 0U, "and it read no tile");
     record_success(test_name);
 }
 
@@ -271,7 +347,7 @@ MESH_TEST_CASE(latency_does_not_call_an_unwritten_frame_a_flip, unit) {
                       "but it was still drawn, and the drawing is what it cost");
     MESH_TEST_FAIL_IF(mesh_ui_latency_metric(MESH_UI_LATENCY_FRAME)->count != 1U,
                       "and it is still a frame");
-    MESH_TEST_FAIL_IF(mesh_ui_latency_written() != 0U, "and it put no bytes on the panel");
+    MESH_TEST_FAIL_IF(counted().written != 0U, "and it put no bytes on the panel");
     record_success(test_name);
 }
 
@@ -289,7 +365,7 @@ MESH_TEST_CASE(latency_splits_a_frame_into_the_draw_and_the_flip, unit) {
                       "a frame that wrote bytes flipped");
     MESH_TEST_FAIL_IF(draw > frame || flip > frame,
                       "neither half may be larger than the frame it is half of");
-    MESH_TEST_FAIL_IF(mesh_ui_latency_written() != 65536U,
+    MESH_TEST_FAIL_IF(counted().written != 65536U,
                       "the bytes handed to the panel should be counted");
     record_success(test_name);
 }
@@ -297,9 +373,9 @@ MESH_TEST_CASE(latency_splits_a_frame_into_the_draw_and_the_flip, unit) {
 /* An empty histogram answers 0 rather than walking off the end of its buckets. */
 MESH_TEST_CASE(latency_percentile_of_nothing_is_nothing, unit) {
     begin();
-    MESH_TEST_FAIL_IF(mesh_ui_latency_percentile(mesh_ui_latency_metric(MESH_UI_LATENCY_PRESS),
-                                                 50U) != 0U,
-                      "no readings, no percentile");
+    MESH_TEST_FAIL_IF(
+        mesh_ui_latency_percentile(mesh_ui_latency_metric(MESH_UI_LATENCY_PRESS), 50U) != 0U,
+        "no readings, no percentile");
     MESH_TEST_FAIL_IF(mesh_ui_latency_percentile(NULL, 50U) != 0U, "and no histogram either");
     record_success(test_name);
 }

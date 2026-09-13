@@ -727,30 +727,36 @@ set §"What the Brick measured" used, rather than `map_pack.py synth`'s much lig
 page cache was dropped before every map run, so the reads are off the card. All numbers are
 milliseconds.
 
-**A press to the panel:**
+**A press to the panel.** The control was run five times over, because the tail turned out to be
+the one column that does not repeat - see the third finding below; the map rows are one run each:
 
 | What was being done | Presses | Tiles read | p50 | p90 | p99 | max | mean |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| the Nodes list, no map anywhere | 61 | 0 | **26.8** | 32.8 | 35.5 | 35.5 | 26.0 |
-| the map, a press at a time (600 ms) | 65 | 138 | **25.8** | 33.8 | 63.9 | 63.9 | 25.8 |
-| the map, panning steadily (150 ms) | 185 | 155 | **25.8** | 36.8 | 58.8 | 64.8 | 26.5 |
-| the same, pressing through the connect and the NodeDB sync | 185 | 137 | **26.8** | 42.8 | 101.8 | 117.5 | 28.8 |
+| the Nodes list, no map anywhere (5 runs) | 61 each | 0 | **25.8-26.8** | 31.8-32.8 | 33.5-529 | 33.5-529 | 25.3-34.0 |
+| the map, a press at a time (600 ms) | 65 | 138 | **25.8** | 31.8 | 60.9 | 60.9 | 25.1 |
+| the map, panning steadily (150 ms) | 185 | 155 | **24.8** | 36.8 | 64.8 | 93.7 | 26.4 |
+| the same, pressing through the connect and the NodeDB sync | 185 | 137 | **26.8** | 43.8 | 98.8 | 108.5 | 29.1 |
+
+Every run above recorded **no inert presses**: the probe counts a press only once the store has
+said it changes the frame, and in these scripts every press moved a cursor, a tab or the
+viewport. That is what makes the medians worth reading - a run padded with presses that did
+nothing would be a histogram of whatever else happened to be drawing.
 
 **What a frame is made of**, split at the moment the drawing is done and the damage compare has
 said how many bytes are new - so `draw` is the client's own work and `flip` is handing it over:
 
 | What was being done | frame p50 | draw p50 | draw mean | flip p50 | flip p99 | tile read p50 / p99 | decode p50 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| the Nodes list | 16.8 | **2.65** | 7.95 | 14.8 | 16.7 | - | - |
-| the map, a press at a time | 17.8 | **15.8** | 11.0 | 14.8 | 16.8 | 0.75 / 2.2 | 0.75 |
-| the map, panning steadily | 21.8 | 15.8 | 12.0 | 14.8 | 16.8 | 0.80 / 2.9 | 0.75 |
-| the same, through the sync | 23.8 | 16.8 | 13.2 | 14.8 | 16.8 | 0.85 / 2.4 | 0.75 |
+| the Nodes list | 16.8 | **2.65** | 7.9 | 14.8 | 16.5 | - | - |
+| the map, a press at a time | 17.8 | **15.8** | 10.9 | 14.8 | 16.8 | 0.70 / 2.1 | 0.75 |
+| the map, panning steadily | 20.8 | 15.8 | 11.9 | 14.8 | 16.8 | 0.80 / 2.6 | 0.75 |
+| the same, through the sync | 24.8 | 15.8 | 13.1 | 14.8 | 16.8 | 0.85 / 2.1 | 0.75 |
 
 What this settles, and one of the four is a correction to something this document assumed:
 
-- **The basemap costs the reader nothing.** A press reaches the panel in the same 26 ms with a
-  map and twenty tiles under it as it does on a list of nodes - the map is a millisecond *faster*
-  at the median, which is noise. The fill loop's shape is what makes that true rather than a
+- **The basemap costs the reader nothing.** A press reaches the panel in the same 25-27 ms with
+  a map and twenty tiles under it as it does on a list of nodes - the map is a millisecond
+  *faster* at the median, which is inside the run-to-run spread of the control on its own. The fill loop's shape is what makes that true rather than a
   happy accident: the frame's one read is 0.8 ms and its decode is 0.75 ms, so the whole of a
   tile is 1.5 ms of a 22 ms frame, and no frame ever does two.
 - **Half of a press is the panel, not the client, and that is why the drawing does not show.**
@@ -762,12 +768,21 @@ What this settles, and one of the four is a correction to something this documen
   tiles to move twenty tiles is real and there is CPU in it, but there are no milliseconds of
   *latency* in it, because the vblank is already paid for. It is a battery argument now, not a
   responsiveness one, and it should be re-costed as such before anybody writes it.
-- **The tail is the loop, and the radio is what lengthens it.** p99 is 59-64 ms on a link with
-  nothing to say and **102 ms** while the radio is streaming its NodeDB, with a worst press of
-  118 ms. That is the single-threaded design showing exactly where it was always going to: a
-  press that arrives while a 100-packet burst is being decoded waits for it. It is also the
-  argument for the one-tile-a-frame rule holding under load - the burst is what a twenty-tile
-  frame would have been *added to*.
+- **The tail is not the map's, and it is the column to distrust.** The obvious reading of the
+  first table is that tiles cost tail latency: 61 ms and 94 ms against the control's 35 ms.
+  Running the control five times says otherwise - its own worst press came out at 33, 34, 68, 83
+  and **529** ms, with the median and p90 identical to a tenth of a millisecond each time. So
+  the client stalls occasionally on any screen, the worst one seen was on a screen with no map
+  and no tiles in it, and a single run's maximum is not a statistic. `frame` max in that 529 ms
+  run was 35 ms, which says the stall was **not** in the drawing - it was the loop not getting
+  to the event, and where it went is not something this probe can see.
+
+  What does survive the repetition is the *sync* row, because p99 over 185 presses is the second
+  worst rather than the only one: pressing through the connect and the NodeDB burst moves p99
+  from 65 ms to 99 ms and p90 from 37 to 44. That is the single-threaded design showing where it
+  was always going to - a press arriving while a hundred-packet burst is decoded waits for it -
+  and it is the argument for the one-tile-a-frame rule holding under load, since the burst is
+  what a twenty-tile frame would have been *added to*.
 - **Nothing was ever dropped.** 496 presses across the four runs, none coalesced into another
   press's frame and none left unanswered, at up to 6.7 presses a second - faster than the
   client's own key repeat produces them. The loop keeps up with the pad while reading tiles.
@@ -778,6 +793,11 @@ Two things this did **not** measure, and they are the same two the standalone be
   connect - about a hundred packets over nine seconds - and the run that overlaps it is the last
   row above. A mesh with continuous traffic would push that tail further and nothing here says
   how far.
+- **What the occasional stall actually is.** The probe can say it was not the drawing and not a
+  tile, because it times both and neither moved. It cannot say what it *was*: the card, the
+  logger writing through a pipe to a `sync`-mounted card, or something in BlueZ. Running the
+  control at `--log-level info` rather than the `debug` `launch.sh` forces did not remove it, so
+  the log is not the whole answer. Anyone chasing it needs a probe further down than this one.
 - **`schedutil`.** Every run above is at the fixed 2 GHz NextUI gives a pak. A client that
   dropped the clock to save battery would pay the 4x on the decode that §"What the Brick
   measured" recorded, and the first press after a quiet spell is where it would show.
