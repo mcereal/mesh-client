@@ -1,3 +1,9 @@
+## [2.69.2](https://github.com/mcereal/mesh-client/compare/v2.69.1...v2.69.2) (2026-09-13)
+
+### Bug Fixes
+
+* **ui:** stop a read conversation rewriting the cache on every update ([3f6e314](https://github.com/mcereal/mesh-client/commit/3f6e314b4fea1e91fe512631738b748548520078))
+
 ## [2.69.1](https://github.com/mcereal/mesh-client/compare/v2.69.0...v2.69.1) (2026-09-13)
 
 ### Bug Fixes
