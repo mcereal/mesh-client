@@ -1,3 +1,20 @@
+## [2.70.0](https://github.com/mcereal/mesh-client/compare/v2.69.2...v2.70.0) (2026-09-13)
+
+### Features
+
+* **ui:** measure a press to the panel, and close step 3 of the map ([5c1db2d](https://github.com/mcereal/mesh-client/commit/5c1db2da39e1b2fdfdb39bae33c2d1ceec7e938f))
+* **ui:** walk the node detail by card, and stop promising presses it does not have ([09ee3f4](https://github.com/mcereal/mesh-client/commit/09ee3f48941c7a52921b39733dcc6673d8211bbd))
+
+### Bug Fixes
+
+* **ui:** time only presses that changed the frame, and stop the client on a failed run ([dc76066](https://github.com/mcereal/mesh-client/commit/dc760667d8fd65b4a04748a338282582384a4ce0)), closes [#177](https://github.com/mcereal/mesh-client/issues/177)
+
+### Documentation
+
+* assess other handhelds against what the client actually requires ([e13dfa2](https://github.com/mcereal/mesh-client/commit/e13dfa2e928a0a52500b2820e4f93c046445bd13)), closes [#else](https://github.com/mcereal/mesh-client/issues/else)
+* **maps:** say plainly that the synthetic pack is a fixture, not a style ([a7f9fb5](https://github.com/mcereal/mesh-client/commit/a7f9fb568e2e8624a2c4b3d3a30a0f7f7ffd741e))
+* name the serial driver allowlist rather than implying there is none ([5d42531](https://github.com/mcereal/mesh-client/commit/5d425319794a178107ce8a1f732af52c24c37c3c))
+
 ## [2.69.2](https://github.com/mcereal/mesh-client/compare/v2.69.1...v2.69.2) (2026-09-13)
 
 ### Bug Fixes
