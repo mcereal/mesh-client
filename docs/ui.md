@@ -515,6 +515,30 @@ are one subject read in both directions, and the two halves of a traced route ar
 A opens the detail, its first row ("Message this node") opens the conversation, B backs out, Y
 still writes from either level, X pins.
 
+**Left and Right walk the cards**, a group per press, and that is what the screen's own d-pad
+axis is spent on. It is the map's split and the chart's a third time, and it is bought the same
+way: the shoulders are deliberately *not* taken, so the tab strip above the body never goes dead
+and the action bar goes on saying "L/R tabs" and meaning it. What buys it here is the length of
+the thing — a repeater reporting everything is a hundred and twenty rows, and Up and Down cross
+them one at a time past four dozen facts no press does anything to, so the cheap way across is
+the one the eye is already using. Left is "the top of this group, then the top of the one
+before", which is what every editor's paragraph key does and what makes three presses of Left
+walk three cards rather than landing one row short of each. At either end the press is *spent*
+rather than falling through to the tab switch: Left on the first card meaning "leave the node"
+would be the one screen in the client where the d-pad changes tab from inside a level. The walk
+is `mesh_ui_node_detail_group_step()`, asked of the built rows for the reason every other
+question about this screen is.
+
+**A is named only where it does something.** Two rows in three of this screen are facts, and
+`mesh_ui_nav_confirm()` has always returned false on them — but the action bar named "A select"
+over all of them anyway, which is the keycap-that-does-nothing the table exists to prevent,
+offered on the longest screen in the client. `mesh_ui_node_detail_press_at()` answers the
+question once (`NONE` / `SELECT` / `TREND`) and the bar and the press read the one answer, which
+is `status.c`'s rule about verbs applied to rows. This is the Nodes *list*'s rule inverted, and
+deliberately: there X and Y are named over the map row where they do nothing because they are
+true of every *other* row, and a bar that shed keycaps as the cursor moved would be describing
+the row rather than the screen. Here A is not true of every other row and never was.
+
 The verbs are a group with a heading of their own, exactly like every reading group below them —
 they were the one block on the screen that named nothing, so eleven of them simply *began* the
 detail and "Identity" four rows down read as the first heading rather than the second. That
@@ -549,7 +573,9 @@ starts walking, and "is this node still there?" is the qualifier on every other 
 does not scroll, so neither does the qualifier. Our own node gets none — nothing *heard* it.
 
 A reading with ends the reader does not carry around gets a banded bar on a second step
-(`MESH_UI_NODE_ROW_METER`) — battery, SNR, the two airtime figures — and the battery row also
+(`MESH_UI_NODE_ROW_METER`) — battery, SNR, the two airtime figures, temperature and humidity,
+and the three air readings whose ends somebody else published (IAQ, CO2, PM2.5) — and the
+battery row also
 gets a trend in its trailing slot, because a percentage is nearly always a proxy for the question
 about the direction. Both are measured on the same scale, so the line and the bar are one reading
 drawn twice rather than two. What the reading is *now* gets the wider picture, because that is
@@ -816,7 +842,17 @@ heights instead. That arithmetic is in `layout.c` and unit tested there
 (`layout_list_window_counts_steps`, `layout_list_scroll_counts_steps`), because a second backend
 that grew a taller row would want the same answer rather than a second derivation of it.
 
-Two rules come out of it:
+And one rule about where in the window the cursor sits. It used to sit on the **bottom line** of
+it: `list_settle()` filled the window upward from the cursor and nothing else moved it, so a list
+that had outgrown its panel slid by a row on every press of Down and the reader could never see
+what the next press would land on. The window now ends a **look-ahead** past the cursor —
+`MESH_UI_LIST_LOOKAHEAD`, three steps, trimmed to a third of the window so a short panel does not
+spend itself on what is coming. It is still a function of the cursor alone: a window that
+remembered where it was last frame would only move at its own edges, which is what a phone does
+and is genuinely better, and it would be *state* in a model whose whole shape is that a frame is
+derived from the snapshot. Three steps off the bottom is what that buys without it.
+
+Two more rules come out of it:
 
 - **The measure is the caller's; the authority is the list's.** A screen knows whether a row
   carries a bar and has already walked its items to find out, so it builds the heights — the
@@ -936,7 +972,8 @@ at all and that an edge survives on the cursor's own row, both at every scale, a
 still does with the cursor walked down through several groups — the rows that get it wrong are
 the *first* and *last* of a card, which are the ones its corners are curving through, and the row
 a detail opens on is in the middle of its own card and saw none of it.
-`devtools/ui_capture/scenes/node-cards.scene` is the picture.
+`devtools/ui_capture/scenes/node-cards.scene` is the picture, and
+`devtools/ui_capture/scenes/node-groups.scene` is the walk across them.
 
 #### `struct fb_list_item` — one row with slots
 

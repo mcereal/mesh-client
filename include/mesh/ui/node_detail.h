@@ -193,6 +193,25 @@ struct mesh_ui_node_item {
 };
 
 /*
+ * What A does on a row of this screen.
+ *
+ * The answer used to be spelled out twice and the two copies disagreed: the nav returns false on
+ * every row that is not an action or a charted reading, while the action bar named "A select" on
+ * all of them - so two thirds of this screen promised a press that did nothing. A fact is not a
+ * control, and the one table in this client that exists to stop a keycap being offered where it
+ * means nothing was the thing saying otherwise.
+ *
+ * So the question gets a name and one answer, on the terms mesh_ui_node_detail_trend_at() is
+ * already on: the bar asks it to decide whether to name the press at all, and what it says and
+ * what the press does are the same build of the same rows.
+ */
+enum mesh_ui_node_press {
+    MESH_UI_NODE_PRESS_NONE = 0, /* a fact; A is not named */
+    MESH_UI_NODE_PRESS_SELECT,   /* an action row: A runs its verb */
+    MESH_UI_NODE_PRESS_TREND,    /* a reading the client has watched: A opens its chart */
+};
+
+/*
  * Fills `out` with the node's rows and returns how many were written (at most `capacity`).
  * `is_self` drops the rows that make no sense for our own node. `now` is the wall clock used
  * to age timestamps; pass 0 to leave ages out, which is what a Brick with no clock wants.
@@ -272,6 +291,44 @@ bool mesh_ui_node_detail_trend_row(const struct mesh_ui_node_summary *node, bool
 uint32_t mesh_ui_node_detail_count(const struct mesh_ui_node_summary *node, bool is_self,
                                    const struct mesh_ui_traceroute *trace,
                                    const struct mesh_ui_handshake_state *roster);
+
+/*
+ * What A means on row `row`, or NONE when it means nothing there.
+ *
+ * Builds to answer, exactly as mesh_ui_node_detail_trend_at() does and for its reason: which
+ * rows exist depends on what the node has reported, so there is no arithmetic from a row number
+ * to a row's kind. `history` may be NULL, which answers SELECT or NONE and never TREND - a
+ * caller with no history is a caller for whom no reading has a chart behind it.
+ */
+enum mesh_ui_node_press mesh_ui_node_detail_press_at(const struct mesh_ui_node_summary *node,
+                                                     bool is_self,
+                                                     const struct mesh_ui_traceroute *trace,
+                                                     const struct mesh_ui_handshake_state *roster,
+                                                     const struct mesh_ui_history *history,
+                                                     uint32_t row);
+
+/*
+ * The row Left or Right lands on from `row`: the top of the previous or the next group.
+ *
+ * This screen is the longest list in the client - a repeater reporting everything is a hundred
+ * and twenty rows - and Up and Down walk it one row at a time, past four dozen facts that no
+ * press does anything to. The groups are already there and already drawn as cards, so the cheap
+ * way across is the one the eye is using: card to card.
+ *
+ * Left is "the top of this group, then the top of the one before", which is what every editor's
+ * paragraph key does and what makes three presses of Left walk three cards up rather than
+ * landing one row short of each. Right has no such halfway house - the next group's first row is
+ * the only thing forward means - so it does not need one.
+ *
+ * Answers `row` itself when there is no group that way, which leaves refusing the move to the
+ * caller, exactly as mesh_ui_nav_skip_headings() does one file over. The landing is always a row
+ * the cursor may stand on: a heading is not one (see mesh_ui_nav_skip_headings()), so this
+ * returns the first row *under* the heading it found and never the heading itself.
+ */
+uint32_t mesh_ui_node_detail_group_step(const struct mesh_ui_node_summary *node, bool is_self,
+                                        const struct mesh_ui_traceroute *trace,
+                                        const struct mesh_ui_handshake_state *roster, uint32_t row,
+                                        int delta);
 
 /*
  * Whether `node`'s SNR is a measurement of *this node's own link*, and so whether it can be

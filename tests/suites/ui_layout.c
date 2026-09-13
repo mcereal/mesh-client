@@ -139,9 +139,11 @@ MESH_TEST_CASE(layout_list_window_follows_cursor, unit) {
     /* The cursor is inside the first window. */
     MESH_TEST_FAIL_IF(mesh_ui_list_first_visible(2U, 20U, 5U) != 0U,
                       "a cursor inside the first window should not scroll it");
-    /* Past it, the window follows so the cursor sits on the last visible row. */
-    MESH_TEST_FAIL_IF(mesh_ui_list_first_visible(5U, 20U, 5U) != 1U,
-                      "the window should follow the cursor by one row at a time");
+    /* Past it, the window follows - and stops a look-ahead short of the cursor rather than on
+       it, so the reader can see what the next press moves onto. Five rows of window buys one
+       step of that (a third of it), so a cursor on row 5 puts row 6 on the bottom line. */
+    MESH_TEST_FAIL_IF(mesh_ui_list_first_visible(5U, 20U, 5U) != 2U,
+                      "the window should follow the cursor with a row to spare below it");
     /* At the end, the window stops rather than running off the list. */
     MESH_TEST_FAIL_IF(mesh_ui_list_first_visible(19U, 20U, 5U) != 15U,
                       "the last window should end on the last item");
@@ -408,7 +410,9 @@ MESH_TEST_CASE(ui_layout_scroll_reports_the_window, unit) {
        asked for rather than poked into the struct: the offset is now derived from the steps
        above `first`, so a `first` written straight over the top of a settled list describes a
        window nothing else in it agrees with. */
-    struct mesh_ui_list middle = mesh_ui_list_begin(40U, 24U, 10U); /* first 15, travel 30 */
+    /* Ten rows of window buys three steps of look-ahead, so the window starts six rows above
+       the cursor rather than nine. */
+    struct mesh_ui_list middle = mesh_ui_list_begin(40U, 21U, 10U); /* first 15, travel 30 */
     MESH_TEST_FAIL_IF(middle.first != 15U, "the window did not start where the cursor put it");
     struct mesh_ui_scroll at_middle = mesh_ui_list_scroll(&middle, 400, 8);
     const int centre = (400 - at_middle.length) / 2;

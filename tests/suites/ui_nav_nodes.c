@@ -324,6 +324,197 @@ MESH_TEST_CASE(ui_nav_node_trend_closes_when_it_empties, unit) {
 
 /* The Nodes tab's pin: X from either level, and the detail's own row. The nav sends the state
    it wants rather than a bare toggle, so a press that races a NodeInfo cannot cancel itself. */
+/*
+ * Left and Right walk the detail's groups, a card at a time.
+ *
+ * The screen this is on is the longest list in the client - a repeater reporting everything is a
+ * hundred and twenty rows - and Up and Down cross it a row at a time past four dozen facts that
+ * no press does anything to. Three things are worth pinning rather than looking at:
+ *
+ *   - the landing is never a heading, because the cursor may not stand on one and a jump that
+ *     put it there would leave A promising "select" over a group title;
+ *   - Left is "the top of this group, then the one before", so three presses of Left walk three
+ *     cards rather than landing one row short of each;
+ *   - the press is spent at either end rather than falling through to the tab switch, which is
+ *     the one way this could take the reader off the node entirely.
+ */
+MESH_TEST_CASE(ui_nav_node_detail_walks_its_groups, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.has_my_info = true;
+    handshake.my_info.node_num = 0x1000U;
+    handshake.node_count = 1U;
+    handshake.nodes[0].node_id = 0x2000U;
+    /* Enough reported for a third and fourth group beyond the actions: the environment and the
+       device metrics are separate Telemetry variants and separate cards. */
+    handshake.nodes[0].environment.valid = true;
+    handshake.nodes[0].environment.has_temperature = true;
+    handshake.nodes[0].environment.temperature = 21.0f;
+    handshake.nodes[0].metrics.valid = true;
+    handshake.nodes[0].metrics.has_battery = true;
+    handshake.nodes[0].metrics.battery_level = 82U;
+    mesh_ui_store_set_handshake(&store, &handshake);
+
+    struct mesh_ui_nav nav;
+    mesh_ui_nav_init(&nav);
+    nav.screen = MESH_UI_SCREEN_NODES;
+    nav.node_detail_open = true;
+    nav.node_detail_node = 0x2000U;
+
+    struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
+    const uint32_t count =
+        mesh_ui_node_detail_build(&handshake.nodes[0], false, 0U, NULL, false, &handshake, NULL,
+                                  items, MESH_UI_NODE_ITEMS_MAX);
+    /* Where opening the detail leaves the cursor: the first row that is not a group title. */
+    for (uint32_t i = 0U; i < count; ++i) {
+        if (items[i].kind != MESH_UI_NODE_ROW_HEADING) {
+            nav.cursor[MESH_UI_SCREEN_NODES] = i;
+            break;
+        }
+    }
+    uint32_t groups = 0U;
+    for (uint32_t i = 0U; i < count; ++i) {
+        if (items[i].kind == MESH_UI_NODE_ROW_HEADING) {
+            groups += 1U;
+        }
+    }
+    MESH_TEST_FAIL_IF(groups < 3U, "this node should report enough for three groups");
+
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+
+    /* Right walks forward, one group per press, and never lands on a title. */
+    uint32_t seen[MESH_UI_NODE_ITEMS_MAX];
+    uint32_t visited = 0U;
+    seen[visited++] = nav.cursor[MESH_UI_SCREEN_NODES];
+    for (uint32_t i = 1U; i < groups; ++i) {
+        const uint32_t before = nav.cursor[MESH_UI_SCREEN_NODES];
+        (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_RIGHT, &action);
+        const uint32_t at = nav.cursor[MESH_UI_SCREEN_NODES];
+        MESH_TEST_FAIL_IF(at <= before, "Right should move forward to the next group");
+        MESH_TEST_FAIL_IF(items[at].kind == MESH_UI_NODE_ROW_HEADING,
+                          "the cursor may not land on a group title");
+        MESH_TEST_FAIL_IF(at == 0U || items[at - 1U].kind != MESH_UI_NODE_ROW_HEADING,
+                          "the landing should be the first row under a heading");
+        MESH_TEST_FAIL_IF(nav.screen != MESH_UI_SCREEN_NODES, "the press should not change tab");
+        seen[visited++] = at;
+    }
+
+    /* The last group: Right has nowhere to go and spends the press rather than changing tab. */
+    const uint32_t last = nav.cursor[MESH_UI_SCREEN_NODES];
+    (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_RIGHT, &action);
+    MESH_TEST_FAIL_IF(nav.cursor[MESH_UI_SCREEN_NODES] != last,
+                      "Right past the last group should stay put");
+    MESH_TEST_FAIL_IF(nav.screen != MESH_UI_SCREEN_NODES,
+                      "and must not fall through to the tab switch");
+
+    /* Left off the top of a group goes to the group before, so the walk comes back the way it
+       went. */
+    for (uint32_t i = visited; i-- > 1U;) {
+        (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_LEFT, &action);
+        MESH_TEST_FAIL_IF(nav.cursor[MESH_UI_SCREEN_NODES] != seen[i - 1U],
+                          "Left should retrace the groups Right walked");
+    }
+    (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_LEFT, &action);
+    MESH_TEST_FAIL_IF(nav.cursor[MESH_UI_SCREEN_NODES] != seen[0],
+                      "Left at the first group should stay put");
+    MESH_TEST_FAIL_IF(nav.screen != MESH_UI_SCREEN_NODES,
+                      "and must not fall through to the tab switch");
+
+    /* And Left from inside a group is "the top of this one" before it is "the one before". */
+    (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_RIGHT, &action);
+    const uint32_t top = nav.cursor[MESH_UI_SCREEN_NODES];
+    (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_DOWN, &action);
+    MESH_TEST_FAIL_IF(nav.cursor[MESH_UI_SCREEN_NODES] == top, "Down should move within a group");
+    (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_LEFT, &action);
+    MESH_TEST_FAIL_IF(nav.cursor[MESH_UI_SCREEN_NODES] != top,
+                      "Left from inside a group should go to the top of it");
+
+    /* The shoulders are deliberately not taken, which is what pays for the d-pad here. */
+    (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_R1, &action);
+    MESH_TEST_FAIL_IF(nav.screen == MESH_UI_SCREEN_NODES,
+                      "the shoulders should still change tab from inside a node");
+
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
+/*
+ * What A does on a row, asked once.
+ *
+ * The nav returns false on every row that is not an action or a charted reading, and the action
+ * bar used to name "A select" over all of them - two rows in three of this screen. One answer,
+ * so the bar and the press cannot disagree again.
+ */
+MESH_TEST_CASE(ui_node_detail_press_matches_the_row, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.has_my_info = true;
+    handshake.my_info.node_num = 0x1000U;
+    handshake.node_count = 1U;
+    handshake.nodes[0].node_id = 0x2000U;
+    handshake.nodes[0].environment.valid = true;
+    handshake.nodes[0].environment.has_temperature = true;
+    handshake.nodes[0].environment.temperature = 21.0f;
+    mesh_ui_store_tick(&store, 1000U);
+    mesh_ui_store_set_handshake(&store, &handshake);
+    handshake.nodes[0].environment.temperature = 23.0f;
+    mesh_ui_store_tick(&store, 2000U);
+    mesh_ui_store_set_handshake(&store, &handshake);
+
+    struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
+    const uint32_t count =
+        mesh_ui_node_detail_build(&handshake.nodes[0], false, 0U, NULL, false, &handshake,
+                                  &store.history, items, MESH_UI_NODE_ITEMS_MAX);
+    MESH_TEST_FAIL_IF(count == 0U, "the node should produce rows");
+
+    uint32_t facts = 0U;
+    uint32_t selects = 0U;
+    uint32_t trends = 0U;
+    for (uint32_t row = 0U; row < count; ++row) {
+        const enum mesh_ui_node_press press = mesh_ui_node_detail_press_at(
+            &handshake.nodes[0], false, NULL, &handshake, &store.history, row);
+        switch (items[row].kind) {
+        case MESH_UI_NODE_ROW_ACTION:
+            MESH_TEST_FAIL_IF(press != MESH_UI_NODE_PRESS_SELECT, "an action row runs its verb");
+            selects += 1U;
+            break;
+        case MESH_UI_NODE_ROW_METER:
+            if (items[row].trend_reading != MESH_UI_HISTORY_NONE) {
+                MESH_TEST_FAIL_IF(press != MESH_UI_NODE_PRESS_TREND,
+                                  "a watched reading opens its chart");
+                trends += 1U;
+                break;
+            }
+            /* fall through: a bar with nothing watched behind it is a fact like any other */
+            MESH_TEST_FAIL_IF(press != MESH_UI_NODE_PRESS_NONE, "an unwatched bar is a fact");
+            facts += 1U;
+            break;
+        default:
+            MESH_TEST_FAIL_IF(press != MESH_UI_NODE_PRESS_NONE,
+                              "a fact and a heading are not presses");
+            facts += 1U;
+            break;
+        }
+    }
+    MESH_TEST_FAIL_IF(selects == 0U || trends == 0U || facts == 0U,
+                      "this node should offer all three kinds of row");
+    /* Past the end answers NONE rather than reading off the end of the build. */
+    MESH_TEST_FAIL_IF(mesh_ui_node_detail_press_at(&handshake.nodes[0], false, NULL, &handshake,
+                                                   &store.history,
+                                                   count + 5U) != MESH_UI_NODE_PRESS_NONE,
+                      "a row past the end is not a press");
+
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(ui_nav_node_favorite, unit) {
     struct mesh_ui_store store;
     MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");

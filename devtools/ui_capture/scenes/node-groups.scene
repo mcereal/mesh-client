@@ -1,0 +1,44 @@
+# Walking a node's detail by card rather than by row.
+#
+# The screen this is on is the longest list in the client, and until Left and Right meant
+# something here the only way down it was Up and Down - a row at a time, past four dozen facts
+# no press does anything to. Echo Repeater is seven cards; crossing it by row is twenty-two
+# presses and crossing it by card is six.
+#
+# Two things to watch besides the jump itself. The action bar's A comes and goes: it is named on
+# the verbs at the top of the screen and on a reading with a chart behind it, and on nothing
+# else, because those are the only rows the press does anything on. And the window now stops a
+# look-ahead short of the cursor rather than on it, so a card jumped onto has its heading and
+# its first rows on the panel instead of one row at the bottom edge.
+#
+# Row 0 of the Nodes list is the Map, so a node's row is its index in the demo roster plus one -
+# Echo Repeater is seeds[5] and row 6.
+
+scene demo
+tab nodes
+key down 6
+key a
+hold 1200
+
+# Right, a card per press: Identity, Signal, Environment, Power, then the two neighbour groups.
+key right
+hold 900
+key right
+hold 900
+key right
+hold 900
+key right
+hold 900
+key right
+hold 1200
+
+# And back. Left from inside a group is "the top of this one" first, which is why this steps
+# down into a card before walking out of it.
+key down 1
+hold 900
+key left
+hold 900
+key left
+hold 900
+key left
+hold 1600
