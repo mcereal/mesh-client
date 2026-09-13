@@ -46,7 +46,7 @@
                     },
                     {
                         "type": "refactor",
-                        "release": "patch"
+                        "release": false
                     },
                     {
                         "type": "test",

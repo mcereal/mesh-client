@@ -66,8 +66,10 @@ frame test. Full guidance in [`docs/testing.md`](docs/testing.md).
 ## Commit & Pull Request Guidelines
 
 Commits follow [Conventional Commits](https://www.conventionalcommits.org/) — the type decides
-the release bump, so it is not cosmetic. Write subjects in imperative mood with an optional scope
-(`fix(ble): retry mtu negotiation`), keep bodies wrapped at 72 characters, and mention relevant
+the release bump, so it is not cosmetic. It no longer decides *when* a release happens: merging
+to `main` publishes nothing, and a release is run from Actions when there is one to make. Write
+subjects in imperative mood with an optional scope (`fix(ble): retry mtu negotiation`), keep
+bodies wrapped at 72 characters, and mention relevant
 Meshtastic issue IDs where they apply. See [`docs/semantic-release.md`](docs/semantic-release.md).
 
 PRs should include a concise summary, validation notes (commands run or hardware tested),

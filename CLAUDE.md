@@ -866,6 +866,12 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   Do not "gentle" the kill, and never `kill $(pidof nextui.elf)` in a device shell.
 - **Only the release build is a release.** Do not stamp a local build to test the updater; lift
   the guard (`MESHCLIENT_UPDATE_ALLOW_DEV=1`, or Settings → About → Dev updates).
+- **`main` is deliberately missing from the release workflow's `push` trigger.** It reads as a
+  workflow that forgot its own branch, and adding it back is how every merged pull request
+  became a release again - sixteen on one day, a Pak Store nagging on each, and a five-entry
+  store changelog covering eight hours. A release is pressed (`workflow_dispatch`, with a weekly
+  cron behind it) because a merge and a release are two decisions. `beta` and `rc` keep their
+  push trigger, because a prerelease reaches only a client that asked for one.
 - **Do not edit `project(meshclient VERSION x.y.z ...)`** in `CMakeLists.txt` or bump it by hand;
   the release workflow rewrites that line with `sed`.
 - **`launch.sh` and the pak's CA bundle do not ship through self-update.** Only the bare binary
@@ -1188,11 +1194,14 @@ means adding it there.** Headers are included as `meshtastic/<name>.pb.h`. The g
 
 ## Releasing
 
-semantic-release on `main`/`beta`/`rc`, driven by Conventional Commits. The version rewrite, the
-prerelease/`VERSION_OVERRIDE` split, `pak.json`, the four release assets and the release-build
-guard are all in [`docs/semantic-release.md`](docs/semantic-release.md). Do not bump versions by
-hand. Both fields the Pak Store reads out of `pak.json` — `version` and `changelog` — are
-generated during the release; hand edits to either are overwritten.
+semantic-release on `main`/`beta`/`rc`, driven by Conventional Commits. **A merge to `main`
+releases nothing**: a stable release is `workflow_dispatch` - Actions > Semantic Release > Run
+workflow - with a Sunday cron as the safety net, so a day's pull requests batch into one release
+rather than sixteen. `beta` and `rc` still release on push, as prereleases. The version rewrite,
+the prerelease/`VERSION_OVERRIDE` split, `pak.json`, the four release assets and the
+release-build guard are all in [`docs/semantic-release.md`](docs/semantic-release.md). Do not
+bump versions by hand. Both fields the Pak Store reads out of `pak.json` — `version` and
+`changelog` — are generated during the release; hand edits to either are overwritten.
 
 ## Docs map
 
