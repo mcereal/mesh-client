@@ -263,6 +263,7 @@ prints `[not in range]` for a bond with nothing behind it rather than an RSSI of
 | `MESHCLIENT_KEY_REPEAT_MS` | the gap between repeats once it starts, 10–2000; default 90, halving after eight rows |
 | `MESHCLIENT_UPDATE_REPO`, `MESHCLIENT_UPDATE_ASSET` | where the self-updater looks |
 | `MESHCLIENT_UPDATE_ALLOW_DEV` | let a `-dev` build install what it finds; same switch as Settings → About → Dev updates |
+| `MESHCLIENT_LATENCY_TRACE` | measure how long a press takes to reach the panel and print percentiles on exit, the same as `--trace-latency`. Both exist because neither covers the other: this one is the knob a host shell sets, and the flag is the one that reaches a Brick, whose launcher hands a pak no environment of its own. See [`docs/performance.md`](performance.md#a-press-to-the-panel-on-the-device) |
 
 The boolean knobs above (`MESHCLIENT_DISABLE_*`, `MESHCLIENT_AUTOCONNECT`,
 `MESHCLIENT_UPDATE_ALLOW_DEV`) all read the same vocabulary, case-insensitively: `1`/`true`/

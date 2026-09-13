@@ -60,6 +60,7 @@ set(MESHCLIENT_TEST_SUITES
     suites/ui_history.c
     suites/ui_icon.c
     suites/ui_input.c
+    suites/ui_latency.c
     suites/ui_layout.c
     suites/ui_nav_messaging.c
     suites/ui_nav_nodes.c

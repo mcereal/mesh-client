@@ -11,6 +11,7 @@
 #include "fb_internal.h"
 
 #include "mesh/ui/backends/fb.h"
+#include "mesh/ui/latency.h"
 
 #include "mesh/utils/env.h"
 #include "mesh/utils/log.h"
@@ -224,6 +225,7 @@ static void mesh_ui_backend_fb_present(void *state_ptr, const struct mesh_ui_sna
        that read the clock for itself would draw two halves of one frame at two different
        times, and a capture could not pin either of them. */
     fb_state_set_now(state, mesh_time_monotonic_ms());
+    mesh_ui_latency_frame_begin();
     const size_t page_bytes = (size_t)state->line_bytes * state->var.yres;
     size_t written;
     if (state->draw_buffer != NULL) {
@@ -246,6 +248,7 @@ static void mesh_ui_backend_fb_present(void *state_ptr, const struct mesh_ui_sna
             written *= 2U;
         }
     }
+    mesh_ui_latency_frame_drawn(written);
     if (written > 0U) {
         fb_show_page0(state);
         const size_t pages =
@@ -254,6 +257,10 @@ static void mesh_ui_backend_fb_present(void *state_ptr, const struct mesh_ui_sna
                 : 1U;
         msync(state->fb_ptr, page_bytes * pages, MS_ASYNC);
     }
+    /* After the pan, because the pan is what puts the frame in front of the reader - a
+       measurement that stopped at the end of the draw would be timing this function rather
+       than answering how long the press took. */
+    mesh_ui_latency_frame_end(written);
 }
 
 static bool mesh_ui_backend_fb_animating(void *state_ptr, void *userdata) {

@@ -91,6 +91,53 @@ Regenerate the clip with:
 make docker-ui-capture ARGS="devtools/ui_capture/scenes/toggle.scene -o docs/assets/performance-toggle.gif"
 ```
 
+## A press to the panel, on the device
+
+Everything above is measured on a host, against a reference render. What it cannot answer is how
+long a *press* takes to reach the panel on a Brick, with the radio on the link and the map
+reading tiles - which is one epoll loop doing all three, and is the number
+[`docs/maps-roadmap.md`](maps-roadmap.md#what-the-press-turned-out-to-cost) needed before it
+would call the basemap finished.
+
+`--trace-latency` (or `MESHCLIENT_LATENCY_TRACE=1`) switches on the probe in
+[`src/ui/latency.c`](../src/ui/latency.c). It is off otherwise, and costs a predictable branch
+per frame when it is. Six readings, printed as percentiles on exit:
+
+| Reading | From | To |
+|---|---|---|
+| `press` | the kernel's own timestamp on the evdev event | the end of the `present()` that answered it |
+| `frame` | `present()` in | `present()` out |
+| `draw` | `present()` in | the render and the damage compare done |
+| `flip` | there | `FBIOPAN_DISPLAY` and the `msync` after it |
+| `read` | the frame's one tile | off the card |
+| `decode` | that tile's bytes | pixels |
+
+Three things about it are decisions rather than details:
+
+- **It starts at the kernel, not at the read.** A loop busy decoding does not wake for the event
+  at all, and that wait is the whole of what an integrated number adds to a standalone one. The
+  input reader asks evdev for `CLOCK_MONOTONIC` stamps (`EVIOCSCLOCKID`) so the two ends are
+  comparable; a device that refuses is not counted rather than counted wrongly.
+- **A key repeat is not a press.** `src/ui/input.c` generates repeat from its own timerfd, so a
+  held direction reaches the store with no evdev event behind it and nothing to measure from.
+  Counted from "now" it would report zero queueing delay on exactly the presses a held pan is
+  made of.
+- **It keeps histograms, not samples.** A fill frame is twenty times as common as a press, so a
+  ring sized for one is a window on the other. The price is resolution - 50 us below 12.8 ms,
+  1 ms above - and the report says so rather than printing a bucket edge as a measurement.
+
+Driving it by hand works once. `devtools/input_inject` is what makes a run repeatable: a uinput
+pad the client cannot tell from the plastic one, a script of presses, and a runner that gets the
+ordering right.
+
+```sh
+./scripts/docker.sh --cross devtools/input_inject/build.sh
+devtools/input_inject/run-device.sh --every 600 --cold --tag map r1 a wait:6 x:3 right:20 down:10
+```
+
+The measured answer, and what it says about where a frame goes, is in the roadmap rather than
+here, because it is a fact about the map rather than about the probe.
+
 ## Validation and remaining device checks
 
 `make docker-test` exercises the store, cached publication, glyph rendering, row-span copies,

@@ -19,6 +19,7 @@
 #include "mesh/geo/coords.h"
 #include "mesh/i18n/strings.h"
 #include "mesh/map/tile_image.h"
+#include "mesh/ui/latency.h"
 #include "mesh/ui/map.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/waypoints.h"
@@ -734,12 +735,19 @@ static bool fb_map_draw_basemap(struct mesh_ui_backend_fb_state *state,
      * on the frame that fetched it rather than on the one after, which halves how long a view
      * takes to fill for the cost of the blit being written twice in this function.
      */
+    const uint64_t read_at = mesh_ui_latency_now_us();
     const int length =
         mesh_map_source_read(&basemap->source, next, basemap->encoded, MESH_MAP_TILE_BYTES_MAX);
+    const uint64_t decode_at = mesh_ui_latency_now_us();
     uint8_t *const slot = length > 0 ? mesh_map_tile_cache_claim(&basemap->cache, next) : NULL;
     const int decoded = slot == NULL ? -ENOENT
                                      : mesh_map_tile_decode(basemap->encoded, (size_t)length, slot,
                                                             MESH_MAP_TILE_CACHE_TILE_BYTES);
+    /* The two halves separately, because they answer different questions: the read is the
+       card's and the decode is the CPU's, and which of them a slow frame is made of is what
+       docs/maps-roadmap.md's standalone benchmark measured apart and an integrated number
+       would otherwise run together. */
+    mesh_ui_latency_tile(decode_at - read_at, mesh_ui_latency_now_us() - decode_at);
     if (decoded == 0) {
         mesh_map_tile_cache_commit(&basemap->cache, next);
         fb_blit_bgra(state, next_x, next_y, MESH_MAP_TILE_SIZE, MESH_MAP_TILE_SIZE, slot,

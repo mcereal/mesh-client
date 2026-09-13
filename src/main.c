@@ -14,6 +14,7 @@
 #include "mesh/transport/ble_hci.h"
 #include "mesh/transport/serial.h"
 #include "mesh/transport/tcp.h"
+#include "mesh/ui/latency.h"
 #include "mesh/utils/array.h"
 #include "mesh/utils/log.h"
 #include "mesh/utils/sha256.h"
@@ -967,6 +968,11 @@ static void print_usage(const char *program) {
             "      --map-pack PATH       Print what a raster tile pack holds - its\n"
             "                            attribution, coverage and zooms - and read one tile\n"
             "                            out of it. No radio and no network are touched\n"
+            "      --trace-latency       Measure how long a press takes to reach the panel,\n"
+            "                            and what a map tile costs inside the frame that read\n"
+            "                            it. Percentiles go to the log on exit. Same knob as\n"
+            "                            MESHCLIENT_LATENCY_TRACE, for a device whose launcher\n"
+            "                            hands the pak no environment\n"
             "  -V, --version              Print the client version and exit\n"
             "  -h, --help                 Show this help message\n",
             program);
@@ -1041,6 +1047,7 @@ int main(int argc, char **argv) {
         {"staging", required_argument, NULL, 10},
         {"install-firmware", required_argument, NULL, 11},
         {"map-pack", required_argument, NULL, 14},
+        {"trace-latency", no_argument, NULL, 15},
         {"version", no_argument, NULL, 'V'},
         {"help", no_argument, NULL, 'h'},
         {0, 0, 0, 0},
@@ -1134,6 +1141,9 @@ int main(int argc, char **argv) {
             break;
         case 14:
             map_pack_path = optarg;
+            break;
+        case 15:
+            mesh_ui_latency_enable();
             break;
         case 'V':
             printf("meshclient %s\n", mesh_version_string());
@@ -1246,6 +1256,9 @@ int main(int argc, char **argv) {
         if (result < 0) {
             mesh_log_error("main", "mesh_app_run failed: %d", result);
         }
+        /* Before the shutdown, so a report exists even if tearing the transports down takes a
+           while - and only after an interactive run, which is the only one that draws. */
+        mesh_ui_latency_report("exit");
     }
 
     mesh_app_shutdown(&app);
