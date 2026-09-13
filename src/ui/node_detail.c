@@ -268,6 +268,19 @@ static const struct mesh_ui_band node_temperature_band = {.warn = MESH_UI_TEMPER
                                                           .bad = MESH_UI_TEMPERATURE_HOT};
 static const struct mesh_ui_band node_humidity_band = {.warn = MESH_UI_HUMIDITY_DAMP,
                                                        .bad = MESH_UI_HUMIDITY_WET};
+/*
+ * The three air readings whose ends somebody else published - see the note beside them in
+ * layout.h for why these get a band where a temperature's is about the node instead.
+ */
+static const struct mesh_ui_scale node_iaq_scale = {MESH_UI_IAQ_FLOOR, MESH_UI_IAQ_CEILING};
+static const struct mesh_ui_band node_iaq_band = {.warn = MESH_UI_IAQ_POLLUTED,
+                                                  .bad = MESH_UI_IAQ_HEAVY};
+static const struct mesh_ui_scale node_co2_scale = {MESH_UI_CO2_FLOOR, MESH_UI_CO2_CEILING};
+static const struct mesh_ui_band node_co2_band = {.warn = MESH_UI_CO2_STUFFY,
+                                                  .bad = MESH_UI_CO2_BAD};
+static const struct mesh_ui_scale node_pm25_scale = {MESH_UI_PM25_FLOOR, MESH_UI_PM25_CEILING};
+static const struct mesh_ui_band node_pm25_band = {.warn = MESH_UI_PM25_ELEVATED,
+                                                   .bad = MESH_UI_PM25_UNHEALTHY};
 static const struct mesh_ui_scale node_snr_scale = {MESH_UI_SNR_FLOOR, MESH_UI_SNR_CEILING};
 static const struct mesh_ui_band node_snr_band = {.warn = MESH_UI_SNR_FAIR,
                                                   .bad = MESH_UI_SNR_POOR};
@@ -608,6 +621,7 @@ static void node_rows_environment(struct node_rows *rows, const struct mesh_ui_n
     }
     if (env->has_iaq) {
         rows_info(rows, MESH_STR_NODE_AIR_QUALITY, MESH_STR_NODE_VAL_IAQ, (unsigned)env->iaq);
+        rows_gauge(rows, (int32_t)env->iaq, node_iaq_scale, &node_iaq_band);
     }
     if (env->has_lux) {
         rows_info(rows, MESH_STR_NODE_LIGHT, MESH_STR_NODE_VAL_LUX, (double)env->lux);
@@ -672,6 +686,7 @@ static void node_rows_air_quality(struct node_rows *rows, const struct mesh_ui_n
     if (air->has_pm25) {
         rows_info(rows, MESH_STR_NODE_PM25, MESH_STR_NODE_VAL_PARTICULATES,
                   (unsigned)air->pm25_standard);
+        rows_gauge(rows, (int32_t)air->pm25_standard, node_pm25_scale, &node_pm25_band);
     }
     if (air->has_pm10 && air->has_pm100) {
         rows_info(rows, MESH_STR_NODE_PM1_PM10, MESH_STR_NODE_VAL_PARTICULATES_TWO,
@@ -685,6 +700,7 @@ static void node_rows_air_quality(struct node_rows *rows, const struct mesh_ui_n
     }
     if (air->has_co2) {
         rows_info(rows, MESH_STR_NODE_CO2, MESH_STR_NODE_VAL_PPM, (unsigned)air->co2);
+        rows_gauge(rows, (int32_t)air->co2, node_co2_scale, &node_co2_band);
     }
     if (air->has_voc_index) {
         rows_info(rows, MESH_STR_NODE_VOC_INDEX, MESH_STR_NODE_VAL_INDEX, (double)air->voc_index);
@@ -1130,6 +1146,85 @@ bool mesh_ui_node_detail_trend_row(const struct mesh_ui_node_summary *node, bool
         return true;
     }
     return false;
+}
+
+enum mesh_ui_node_press mesh_ui_node_detail_press_at(const struct mesh_ui_node_summary *node,
+                                                     bool is_self,
+                                                     const struct mesh_ui_traceroute *trace,
+                                                     const struct mesh_ui_handshake_state *roster,
+                                                     const struct mesh_ui_history *history,
+                                                     uint32_t row) {
+    if (node == NULL || row >= MESH_UI_NODE_ITEMS_MAX) {
+        return MESH_UI_NODE_PRESS_NONE;
+    }
+    struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
+    const uint32_t count = mesh_ui_node_detail_build(node, is_self, 0U, trace, false, roster,
+                                                     history, items, MESH_UI_NODE_ITEMS_MAX);
+    if (row >= count) {
+        return MESH_UI_NODE_PRESS_NONE;
+    }
+    /*
+     * The chart is tested first because it is the one press on this screen that is not an action
+     * row - the same order mesh_ui_nav_confirm() takes the two in, and it has to be the same
+     * order or the bar and the press name different verbs on one row.
+     */
+    if (items[row].kind == MESH_UI_NODE_ROW_METER &&
+        items[row].trend_reading != (uint8_t)MESH_UI_HISTORY_NONE) {
+        return MESH_UI_NODE_PRESS_TREND;
+    }
+    return items[row].kind == MESH_UI_NODE_ROW_ACTION ? MESH_UI_NODE_PRESS_SELECT
+                                                      : MESH_UI_NODE_PRESS_NONE;
+}
+
+/* The first row under the heading that opens `row`'s group, or 0 for a list that opens with
+   rows rather than with a heading. Walking back to the heading and then forward off it is what
+   keeps the answer a row the cursor may stand on even for a group whose every row is a
+   heading, which is the empty group mesh_ui_nav_skip_headings() is written for. */
+static uint32_t group_top(const struct mesh_ui_node_item *items, uint32_t count, uint32_t row) {
+    uint32_t at = row;
+    while (at > 0U && items[at].kind != MESH_UI_NODE_ROW_HEADING) {
+        at -= 1U;
+    }
+    while (at < count && items[at].kind == MESH_UI_NODE_ROW_HEADING) {
+        at += 1U;
+    }
+    return at < count ? at : row;
+}
+
+uint32_t mesh_ui_node_detail_group_step(const struct mesh_ui_node_summary *node, bool is_self,
+                                        const struct mesh_ui_traceroute *trace,
+                                        const struct mesh_ui_handshake_state *roster, uint32_t row,
+                                        int delta) {
+    if (node == NULL || delta == 0) {
+        return row;
+    }
+    struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
+    const uint32_t count = mesh_ui_node_detail_build(node, is_self, 0U, trace, false, roster, NULL,
+                                                     items, MESH_UI_NODE_ITEMS_MAX);
+    if (row >= count) {
+        return row;
+    }
+    if (delta > 0) {
+        for (uint32_t at = row + 1U; at < count; ++at) {
+            if (items[at].kind == MESH_UI_NODE_ROW_HEADING) {
+                return group_top(items, count, at);
+            }
+        }
+        return row;
+    }
+    /* Not yet at the top of this group, so that is where Left goes - the halfway house the
+       header describes, and the reason Right needs none. */
+    const uint32_t top = group_top(items, count, row);
+    if (top < row) {
+        return top;
+    }
+    /* Otherwise the group before this one, found from the row above its heading: `top` is the
+       first row under a heading, so `top - 2` is inside the previous group whenever there is
+       one and the arithmetic underflows into "no group that way" when there is not. */
+    if (top < 2U) {
+        return row;
+    }
+    return group_top(items, count, top - 2U);
 }
 
 uint32_t mesh_ui_node_detail_count(const struct mesh_ui_node_summary *node, bool is_self,

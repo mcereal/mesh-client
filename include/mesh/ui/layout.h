@@ -451,6 +451,52 @@ uint8_t mesh_ui_signal_level(float snr);
 #define MESH_UI_HUMIDITY_DAMP 800
 #define MESH_UI_HUMIDITY_WET 900
 
+/*
+ * The three air readings whose thresholds the client does not have to invent, and why that is a
+ * different case from the temperature above rather than a relaxation of it.
+ *
+ * The rule those two state is that this client has no business colouring the weather: nothing
+ * here knows whether 35 degrees of air is pleasant, so the bands under a temperature are about
+ * the *node* - where a sealed box starts derating, where condensation forms on the board inside
+ * it. There is no such reading for an air-quality sensor. A particulate count says nothing about
+ * the node carrying it, and a node is not troubled by carbon dioxide at all.
+ *
+ * What makes these sayable anyway is that they are not the client's opinion. Each of the three
+ * arrives on a scale somebody else published, and the breakpoints are part of the scale rather
+ * than a reading of it:
+ *
+ *   - IAQ is Bosch's own index for the BME680, defined 0 to 500 with named bands; 150 is where
+ *     its own documentation stops calling the air good and 250 is "heavily polluted".
+ *   - CO2 in parts per million against the ordinary indoor guidance: outdoor air sits near 420,
+ *     complaints and drowsiness start around 1000, and 2000 is where the effects are measurable
+ *     rather than reported. The ceiling is 3000 rather than the 5000 of an exposure limit, so an
+ *     ordinary room is a shape rather than a stub at the bottom of the bar.
+ *   - PM2.5 in micrograms per cubic metre against the WHO's 24-hour guideline of 15 and the US
+ *     EPA's first unhealthy breakpoint at 35.
+ *
+ * So the bar is reporting the reading's own scale, which is exactly what a meter is for: a
+ * figure with ends the reader does not know. A count of particulates with no bar is a number
+ * nobody but a specialist can act on, which is the case the METER row was added for.
+ *
+ * The health group is deliberately left out of this. Blood oxygen and a heart rate have
+ * published bands too, and they are *clinical* - a client that coloured them would be a radio
+ * accessory telling somebody they are unwell, which is a claim it is in no position to make.
+ */
+#define MESH_UI_IAQ_FLOOR 0
+#define MESH_UI_IAQ_CEILING 500
+#define MESH_UI_IAQ_POLLUTED 150
+#define MESH_UI_IAQ_HEAVY 250
+
+#define MESH_UI_CO2_FLOOR 400
+#define MESH_UI_CO2_CEILING 3000
+#define MESH_UI_CO2_STUFFY 1000
+#define MESH_UI_CO2_BAD 2000
+
+#define MESH_UI_PM25_FLOOR 0
+#define MESH_UI_PM25_CEILING 75
+#define MESH_UI_PM25_ELEVATED 15
+#define MESH_UI_PM25_UNHEALTHY 35
+
 /* ---- a composition ---------------------------------------------------------------------------
  *
  * A whole, and the parts it is made of - the third question a reading can be asked, after how

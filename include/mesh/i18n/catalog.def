@@ -174,6 +174,11 @@ MESH_STR_ENTRY(ACTION_TREND,              "trend")
 /* The chart's span picker, on the d-pad's Left and Right. The one screen in the client where
    those two are not the tab switch - the shoulders still are, which is what pays for it. */
 MESH_STR_ENTRY(ACTION_SPAN,               "span")
+/* Walk the node detail's groups with the d-pad's Left and Right, a card at a time. The second
+   screen where those two are not the tab switch, and it is bought the same way: the shoulders
+   still are. "groups" rather than "cards" because a card is how the fb backend draws one - a
+   backend with no surfaces draws the same group as a heading, and the bar is read by both. */
+MESH_STR_ENTRY(ACTION_GROUPS,             "groups")
 /* Write the pending edits to the radio; throw them away. */
 MESH_STR_ENTRY(ACTION_SAVE,               "save")
 MESH_STR_ENTRY(ACTION_DISCARD,            "discard")
@@ -1161,6 +1166,17 @@ MESH_STR_ENTRY(HELP_LABEL_NODE_TREND,     "The small graphs")
 MESH_STR_ENTRY(HELP_NOTE_NODE,            "What this client knows about one node: who it says it is, where it said it was, and how well this radio hears it. All of it is what the node last told the mesh.")
 MESH_STR_ENTRY(HELP_NOTE_NODE_FIX,        "Fix is when the node's own GPS solved the position. Fix heard is when the packet reached us, and the row changes its name rather than quietly answering the first question with the second.")
 MESH_STR_ENTRY(HELP_NOTE_NODE_TREND,      "A reading over time, drawn against the same scale as the bar beside it. It is only what this client watched while running, so it starts empty after a restart and breaks where the node went quiet.")
+/* The four this screen was missing. It is the longest list in the client - ten verbs and a
+   hundred facts in a dozen cards - and its help said what the screen was and then explained two
+   of the rows, which leaves the reader to discover the presses by trying them. */
+MESH_STR_ENTRY(HELP_LABEL_NODE_GROUPS,    "Getting around")
+MESH_STR_ENTRY(HELP_NOTE_NODE_GROUPS,     "The rows are grouped into cards. Left and Right jump a card at a time, Up and Down walk the rows inside one, and the shoulders still change tab. A is named only where it does something.")
+MESH_STR_ENTRY(HELP_LABEL_NODE_VERBS,     "Mute, ignore, remove")
+MESH_STR_ENTRY(HELP_NOTE_NODE_VERBS,      "Mute stops this node raising notices here and on the radio. Ignore has the radio drop its packets before we ever see them. Remove drops it from the NodeDB; it returns if the node speaks again.")
+MESH_STR_ENTRY(HELP_LABEL_NODE_SIGNAL,    "SNR, RSSI and hops")
+MESH_STR_ENTRY(HELP_NOTE_NODE_SIGNAL,     "SNR is how far above the noise a packet arrived, RSSI how loud it was. Only this radio can measure either, so a node more than one hop away reports the last relay's link and gets no bar.")
+MESH_STR_ENTRY(HELP_LABEL_NODE_NEIGHBOURS, "Neighbours and Heard by")
+MESH_STR_ENTRY(HELP_NOTE_NODE_NEIGHBOURS, "Neighbours is who this node says it hears. Heard by is the reverse, assembled from what every other node reported - nobody broadcasts it, so it is only as complete as this client's own list.")
 
 /* Waypoints. */
 MESH_STR_ENTRY(HELP_LABEL_WAYPOINT_NEW,   "Naming a place")

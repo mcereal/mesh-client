@@ -1434,6 +1434,46 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
         }
     }
 
+    /*
+     * The open node detail, which takes Left and Right to walk its cards.
+     *
+     * It is the chart's split and the map's, a third time, and it is paid for the same way: the
+     * shoulders are deliberately not taken, so the tab strip above the body never goes dead and
+     * the action bar goes on saying "L/R tabs" and meaning it. What buys the d-pad's horizontal
+     * axis here is the length of this screen - a repeater reporting everything is a hundred and
+     * twenty rows, and Up and Down cross it one row at a time past four dozen facts that no
+     * press does anything to. The groups are drawn as cards, so the reader is already navigating
+     * by card; this is the d-pad learning what the eye is doing.
+     *
+     * Below the two chart arms rather than above them, because a chart is drawn *over* this
+     * screen and its Left and Right are its span picker: taken here first, the picture's only
+     * control would move the list underneath it. Which is the same ordering fb_render_snapshot()
+     * draws the two in, and the same reason this file always follows it.
+     *
+     * The screen is checked as well as the flag for `map_open`'s reason: node_detail_open says
+     * where the Nodes tab is standing, not what the reader is looking at, and a shoulder walks
+     * off the tab with the detail still open behind it.
+     */
+    if (nav->node_detail_open && nav->screen == MESH_UI_SCREEN_NODES &&
+        (key == MESH_UI_KEY_LEFT || key == MESH_UI_KEY_RIGHT)) {
+        const struct mesh_ui_node_summary *node =
+            mesh_ui_node_detail_find(&store->handshake, nav->node_detail_node);
+        if (node != NULL) {
+            const uint32_t next = mesh_ui_node_detail_group_step(
+                node, mesh_ui_nav_node_is_self(store, node), &store->traceroute, &store->handshake,
+                nav->cursor[MESH_UI_SCREEN_NODES], key == MESH_UI_KEY_RIGHT ? +1 : -1);
+            if (next == nav->cursor[MESH_UI_SCREEN_NODES]) {
+                /* No group that way. The press is still spent rather than falling through to
+                   the tabs: Left at the top of the first card meaning "leave the node" would be
+                   the one screen in the client where the d-pad changes tab from inside a
+                   level. */
+                return changed;
+            }
+            nav->cursor[MESH_UI_SCREEN_NODES] = next;
+            return true;
+        }
+    }
+
     if (nav->screen == MESH_UI_SCREEN_SETTINGS &&
         nav->settings_section != MESH_UI_SETTINGS_NO_SECTION) {
         /* A second press of anything but B stands the discard question down. */

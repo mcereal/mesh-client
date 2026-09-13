@@ -198,7 +198,7 @@ static uint32_t list_fits_forward(const struct mesh_ui_list *list, uint32_t from
 }
 
 /* The lowest `first` that still keeps `last` on screen: the window filled upward from it. The
-   counterpart of list_fits_forward(), and what puts the cursor on the last line that fits. */
+   counterpart of list_fits_forward(), and what puts `last` on the bottom line of the window. */
 static uint32_t list_fits_backward(const struct mesh_ui_list *list, uint32_t last,
                                    uint32_t capacity) {
     uint32_t first = last;
@@ -212,6 +212,65 @@ static uint32_t list_fits_backward(const struct mesh_ui_list *list, uint32_t las
         first -= 1U;
     }
     return first;
+}
+
+/*
+ * How much of the window is kept *below* the cursor: the rows the reader can see coming.
+ *
+ * The window used to end exactly at the cursor - list_fits_backward() filled it from the cursor
+ * upward and nothing else moved it - which pins the cursor to the bottom line of every list that
+ * has outgrown its panel. Two things follow from that and both read as the list being hard to
+ * work. The reader can never see what is below them, so every press down is into the dark; and
+ * the whole list slides by a row on every one of those presses, so what moves on the panel is
+ * the content rather than the cursor, which is the opposite of what a list on a handheld does.
+ *
+ * Three steps rather than a proportion, because what a look-ahead is worth is a couple of rows
+ * and that does not scale with the panel: the Brick shows fifteen and a wider screen shows
+ * thirty, and a third of thirty spent below the cursor would be a list that scrolls before the
+ * reader has reached its middle. It is trimmed to a third of the window rather than merely to
+ * what fits, though, and that is the other end of the same argument - a three-row panel spending
+ * three of its rows on what is coming would scroll on the first press down, which is the bug
+ * this is fixing rather than an aggressive version of the fix.
+ *
+ * It is still a function of the cursor alone. A window that remembered where it was last frame
+ * would only move at the window's edges, which is what a phone does and is genuinely better -
+ * and it would be state, in a model whose whole shape is that a frame is derived from the
+ * snapshot. So the cursor sits three steps off the bottom instead of on it.
+ */
+#define MESH_UI_LIST_LOOKAHEAD 3U
+
+/*
+ * The row the window ends on: the cursor, plus whatever fits in the look-ahead below it.
+ *
+ * The budget is trimmed to what the window has left after the cursor's own row, so a list whose
+ * panel is barely taller than one item still shows the cursor - the guarantee list_settle()
+ * needs is that [cursor .. anchor] fits inside `capacity`, or list_fits_backward() would settle
+ * on a window the cursor is not in.
+ */
+static uint32_t list_lookahead(const struct mesh_ui_list *list, uint32_t cursor,
+                               uint32_t capacity) {
+    const uint32_t own = list_height(list, cursor);
+    if (capacity <= own) {
+        return cursor;
+    }
+    uint32_t budget = capacity / 3U;
+    if (budget > MESH_UI_LIST_LOOKAHEAD) {
+        budget = MESH_UI_LIST_LOOKAHEAD;
+    }
+    if (budget > capacity - own) {
+        budget = capacity - own;
+    }
+    uint32_t anchor = cursor;
+    uint32_t steps = 0U;
+    while (anchor + 1U < list->count) {
+        const uint32_t h = list_height(list, anchor + 1U);
+        if (steps + h > budget) {
+            break;
+        }
+        steps += h;
+        anchor += 1U;
+    }
+    return anchor;
 }
 
 /*
@@ -238,7 +297,10 @@ static void list_settle(struct mesh_ui_list *list, uint32_t cursor, uint32_t cap
     }
     /* Everything fits, so nothing scrolls - the check `count <= visible` used to make, said in
        the unit the window is measured in. */
-    list->first = list->total <= capacity ? 0U : list_fits_backward(list, list->cursor, capacity);
+    list->first =
+        list->total <= capacity
+            ? 0U
+            : list_fits_backward(list, list_lookahead(list, list->cursor, capacity), capacity);
     list->first_step = list_sum(list, 0U, list->first);
     list->visible = list_fits_forward(list, list->first, capacity, &list->used);
     list->next = list->first;

@@ -75,10 +75,36 @@ static const struct mesh_ui_help_entry k_help_map[] = {
     {MESH_STR_HELP_LABEL_MAP_TRUST, MESH_STR_HELP_NOTE_MAP_TRUST},
 };
 
+/*
+ * One node, which is the longest screen in the client and had the shortest explanation of it.
+ *
+ * Three paragraphs said what the screen was and then explained two of its hundred and twenty
+ * rows, which is a help screen that answers the questions a reader did not arrive with. The four
+ * added here are the ones the screen cannot answer itself, and each is a different kind of
+ * unanswerable:
+ *
+ *   - the presses, because Left and Right stopped being the tab switch here and nothing on the
+ *     frame but the action bar's two-cell verb says so;
+ *   - the three verbs that change what the *radio* does, because "mute", "ignore" and "remove"
+ *     are three words for what reads as one thing and only one of them is recoverable by
+ *     pressing it again;
+ *   - the signal readings, because a decibel figure means nothing to anyone who has not
+ *     memorised the demodulator's floor, and because the row goes on printing a number that is
+ *     about the last relay rather than about this node (mesh_ui_node_signal_heard());
+ *   - the two neighbour groups, because they are the same subject read in both directions and
+ *     one of them is assembled from every other node's report rather than reported at all.
+ *
+ * In the order a reader meets them: what the screen is, how to move around it, what the top of
+ * it does, and then the four kinds of reading down it.
+ */
 static const struct mesh_ui_help_entry k_help_node[] = {
     {MESH_STR_NONE, MESH_STR_HELP_NOTE_NODE},
+    {MESH_STR_HELP_LABEL_NODE_GROUPS, MESH_STR_HELP_NOTE_NODE_GROUPS},
+    {MESH_STR_HELP_LABEL_NODE_VERBS, MESH_STR_HELP_NOTE_NODE_VERBS},
+    {MESH_STR_HELP_LABEL_NODE_SIGNAL, MESH_STR_HELP_NOTE_NODE_SIGNAL},
     {MESH_STR_HELP_LABEL_NODE_FIX, MESH_STR_HELP_NOTE_NODE_FIX},
     {MESH_STR_HELP_LABEL_NODE_TREND, MESH_STR_HELP_NOTE_NODE_TREND},
+    {MESH_STR_HELP_LABEL_NODE_NEIGHBOURS, MESH_STR_HELP_NOTE_NODE_NEIGHBOURS},
 };
 
 static const struct mesh_ui_help_entry k_help_waypoints[] = {

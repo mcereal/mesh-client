@@ -154,22 +154,21 @@ static void actions_map(const struct mesh_ui_snapshot *snapshot, struct mesh_ui_
 }
 
 /*
- * The reading charted by the row the cursor is on in the open node detail, or NONE.
+ * What A does on the row the cursor is on in the open node detail, or NONE.
  *
  * It asks node_detail.c rather than deciding, which is the same seam the Status arm below uses
  * for its verbs: the press and the word naming it come from one table, so the button the nav
  * runs and the keycap this draws cannot name two different things.
  */
-static enum mesh_ui_history_reading
-mesh_ui_actions_node_trend(const struct mesh_ui_snapshot *snapshot) {
+static enum mesh_ui_node_press mesh_ui_actions_node_press(const struct mesh_ui_snapshot *snapshot) {
     const struct mesh_ui_handshake_state *hs = &snapshot->handshake;
     const struct mesh_ui_node_summary *node =
         mesh_ui_node_detail_find(hs, snapshot->nav.node_detail_node);
     if (node == NULL) {
-        return MESH_UI_HISTORY_NONE;
+        return MESH_UI_NODE_PRESS_NONE;
     }
     const bool is_self = hs->has_my_info && node->node_id == hs->my_info.node_num;
-    return mesh_ui_node_detail_trend_at(node, is_self, &snapshot->traceroute, hs,
+    return mesh_ui_node_detail_press_at(node, is_self, &snapshot->traceroute, hs,
                                         &snapshot->history,
                                         snapshot->nav.cursor[MESH_UI_SCREEN_NODES]);
 }
@@ -198,22 +197,43 @@ static void actions_nodes(const struct mesh_ui_nav *nav, const struct mesh_ui_sn
             return;
         }
         /*
-         * A names what it runs on the row the cursor is on, which on this screen is "select"
-         * everywhere except a reading the client has been watching - there it opens that
-         * reading's chart, and the bar says so.
+         * A names what it runs on the row the cursor is on - and on most rows of this screen it
+         * runs nothing, so on most rows it is not named.
          *
          * This is the Status screen's rule rather than the node list's, and the difference is
          * worth stating because both are in this file. The list names X and Y over its map row
          * where they do nothing, because they are true of every *other* row and a bar that shed
          * keycaps as the cursor moved would be describing the row rather than the screen. Here
-         * the keycap does not come and go - A is named either way - only the verb changes, which
-         * is the bar staying accurate rather than flickering.
+         * they are not true of every other row and never were: the screen is ten verbs and a
+         * hundred facts, and mesh_ui_nav_confirm() has always returned false on the facts. The
+         * bar said "A select" over all of them anyway, which is the keycap-that-does-nothing
+         * this whole table exists to prevent, offered on two rows in three of the longest screen
+         * in the client.
          */
-        bar_add(bar, MESH_UI_BUTTON_A,
-                mesh_ui_actions_node_trend(snapshot) != MESH_UI_HISTORY_NONE
-                    ? MESH_STR_ACTION_TREND
-                    : MESH_STR_ACTION_SELECT);
+        switch (mesh_ui_actions_node_press(snapshot)) {
+        case MESH_UI_NODE_PRESS_TREND:
+            bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_TREND);
+            break;
+        case MESH_UI_NODE_PRESS_SELECT:
+            bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_SELECT);
+            break;
+        case MESH_UI_NODE_PRESS_NONE:
+            break;
+        }
         bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
+        /*
+         * The d-pad's other axis, which walks the groups a card at a time.
+         *
+         * Ahead of X and Y because it is the press this screen is *for* - the rule this table's
+         * ordering states - and because it is the one press here a reader has no other way of
+         * discovering: X and Y duplicate the two rows at the top of the screen, while nothing
+         * on the frame says Left and Right stopped being the tab switch.
+         *
+         * Named unconditionally, which is honest rather than lazy: Identity and Signal are
+         * emitted for every node including our own, so this screen has never had fewer than two
+         * groups and the press has never had nowhere to go.
+         */
+        bar_add(bar, MESH_UI_BUTTON_LEFT_RIGHT, MESH_STR_ACTION_GROUPS);
         bar_add(bar, MESH_UI_BUTTON_X, MESH_STR_ACTION_PIN);
         bar_add(bar, MESH_UI_BUTTON_Y, MESH_STR_ACTION_WRITE);
         bar_add_help(snapshot, bar);

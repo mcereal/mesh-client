@@ -86,11 +86,11 @@ const char *mesh_ui_button_cap(enum mesh_ui_button button);
 /*
  * The most a screen offers at once.
  *
- * Six is one above the densest set here (the node detail's five), so reaching the cap means a
- * screen has grown a sixth thing to press rather than that the bar ran out of room - which is a
- * different problem, and the bar's own elision is what answers it.
+ * Seven is one above the densest set here (the node detail's six), so reaching the cap means a
+ * screen has grown a seventh thing to press rather than that the bar ran out of room - which is
+ * a different problem, and the bar's own elision is what answers it.
  */
-#define MESH_UI_ACTIONS_MAX 6U
+#define MESH_UI_ACTIONS_MAX 7U
 
 /*
  * One press and what it does. Named for the button rather than for the bar because `struct
