@@ -115,6 +115,7 @@ add_library(meshclient_core
     src/ui/controller.c
     src/ui/input.c
     src/ui/input_profile.c
+    src/ui/latency.c
     src/ui/map.c
     src/ui/nav.c
     src/ui/nav_canned.c

@@ -32,8 +32,15 @@ is *not* as well as what it is - see §"What the cache turned out to be".
 **Step 3 is complete (2026-09-11): there is a basemap under the markers.** The fill loop and the
 blit are in `fb_map.c`, one tile is read and decoded per frame, and a pack can be drawn on a host
 rather than downloaded - which is what lets a UI capture of the map have streets under it with
-nobody's licence involved. See §"What the fill loop and the blit turned out to be". What is left
-of step 3's *entry* is its last line: the integrated input-latency number, which needs a Brick.
+nobody's licence involved. See §"What the fill loop and the blit turned out to be".
+
+**And its last line is answered (2026-09-13): a press reaches the panel in 26 ms with a map
+under it, and 27 ms without one.** The integrated number was taken inside the shipping client,
+with a pack on the card and a radio on the link, by a probe in the client and a virtual pad
+driving it - so the basemap costs the reader nothing measurable, and what a press actually waits
+for is the panel's own 60 Hz. See §"What the press turned out to cost", which also re-costs the
+partial-redraw item as a battery question rather than a responsiveness one. **Step 3 is closed;
+step 4 is next.**
 
 §"How a pack gets onto the device" (2026-09-10) corrects a premise that ran through the original
 assessment - that the Brick has no network - and re-sequences the delivery steps around the
@@ -416,7 +423,10 @@ above:
 
 - **Input latency inside the real client.** This is a separate process on an idle launcher and a
   running client; the contention it saw is the client's CPU and SD traffic, not the client's own
-  loop doing the decoding. The integrated number comes with the first tile blit in `fb_map.c`.
+  loop doing the decoding. *Measured since, in the client:* §"What the press turned out to cost".
+  The read it predicted holds almost exactly - 0.80 ms there, 0.75-0.85 ms in the fill loop - and
+  the decode comes in faster, because the figure below was taken under `schedutil` where the
+  client runs pinned at 2 GHz.
 - **A like-for-like contention comparison.** The idle and client runs differ in governor as well
   as in load. Pinning it on both sides (`sh /mnt/SDCARD/.system/tg5040/bin/governor.sh
   performance`, then `auto` to hand the launcher back) separates the two.
@@ -663,21 +673,134 @@ It is also what keeps the repository free of tiles. A pack of the demo roster's 
 is 244 tiles and about a megabyte; `make demo-pack` writes it in four seconds from a stdlib-only
 script, deterministically, which is what a scene compared against a reference frame needs.
 
+**It is a fixture and not a candidate style, and that is worth writing down because it is the
+easy mistake to make from here.** What it draws is noise shaped like a city - a road grid nobody
+laid out, blocks that go nowhere, at a density that reads as chaotic rather than as a map - and
+it is right for what it is for, which is costing a filled panel and giving a capture something
+deterministic to compare. Put in front of a reader it is worse than nothing: **the bare
+graticule is a better basemap than this**, because a grid says honestly that there is no map
+here and a plausible-looking street pattern that is not a place says the opposite. So it goes on
+a device only for a measurement, and it comes off afterwards. Nothing in the pak, the listing
+stills or the README carries it, and nothing should.
+
 ### What is still open
 
-- **The integrated latency number**, on a Brick, with BLE being serviced. Everything about the
-  fill loop's shape is derived from the standalone benchmark in §"What the Brick measured"; what
-  has not been measured is a frame of the real client with a decode in it.
+- ~~**The integrated latency number**~~, on a Brick, with BLE being serviced. **Measured
+  2026-09-13** - see §"What the press turned out to cost". A press reaches the panel in 26 ms
+  with a map under it and 27 ms without one, so the basemap costs the reader nothing; what a
+  press waits for is the panel's own 60 Hz.
 - **The blit's cost on a 16-bit panel.** The fast path is a copy with the alpha forced opaque,
   taken when the mapping holds exactly the word the decoder produces - which the Brick's 32 bpp
   fb0 does. Anything else packs per run of one colour, which is cheap on the palette tiles a pack
   is built from and has not been measured on anything else.
-- **Partial redraw.** A map frame redraws the whole body, tiles included, whenever anything
-  changes. The frame is compared against the previous one before it reaches the panel, so nothing
-  *transfers* twice - but the blit runs regardless, and a pan that moves the view by a few pixels
-  redraws twenty tiles to move twenty tiles.
+- **Partial redraw**, now as a *power* question rather than a responsiveness one. A map frame
+  redraws the whole body, tiles included, whenever anything changes. The frame is compared
+  against the previous one before it reaches the panel, so nothing *transfers* twice - but the
+  blit runs regardless, and a pan that moves the view by a few pixels redraws twenty tiles to
+  move twenty tiles. What the measurement below changed is what that is worth: the map draws in
+  15.8 ms at the median where a list of nodes draws in 2.65, so there are perhaps thirteen
+  milliseconds of median-frame CPU in it - and **no milliseconds of latency**, because the frame
+  would then spend what it saved waiting for the vblank instead. Re-cost it before writing it.
 - **Choosing between packs**, which is a settings screen and belongs with step 4's import step.
   Today it is one path and one pack.
+
+## What the press turned out to cost
+
+> **Measured 2026-09-13** on a TrimUI Brick, in the shipping client, with
+> [`src/ui/latency.c`](../src/ui/latency.c) (`--trace-latency`) and
+> [`devtools/input_inject`](../devtools/README.md#input_inject--a-virtual-pad-for-measuring-the-client-with-its-own-buttons),
+> which creates a uinput pad the client cannot tell from the plastic one and plays a script of
+> presses into it.
+
+This is the entry §"What is still open" opened with and the last line of step 3: the number the
+standalone benchmark could not give, because it is a second process on an idle launcher and what
+it measures is the card and the decoder rather than one epoll loop having to do both. What is
+measured here runs from the **kernel's own timestamp on the evdev event** - so a loop that is
+busy decoding and does not wake for the press is counted as having made the reader wait, which
+is the whole of what an integrated number adds - to the return of `FBIOPAN_DISPLAY`, which is as
+close to "on the panel" as this client can observe itself being.
+
+Conditions: a 1024x768 panel at 32 bpp, the `performance` governor NextUI pins a pak to, a BLE
+link up to a connected radio, and a 1360-tile pack of z10-13 built from
+`devtools/tile_bench/gen_tiles.py`'s calibrated drawing - 9.4 KiB median palette PNGs, the same
+set §"What the Brick measured" used, rather than `map_pack.py synth`'s much lighter ones. The
+page cache was dropped before every map run, so the reads are off the card. All numbers are
+milliseconds.
+
+**A press to the panel.** The control was run five times over, because the tail turned out to be
+the one column that does not repeat - see the third finding below; the map rows are one run each:
+
+| What was being done | Presses | Tiles read | p50 | p90 | p99 | max | mean |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| the Nodes list, no map anywhere (5 runs) | 61 each | 0 | **25.8-26.8** | 31.8-32.8 | 33.5-529 | 33.5-529 | 25.3-34.0 |
+| the map, a press at a time (600 ms) | 65 | 138 | **25.8** | 31.8 | 60.9 | 60.9 | 25.1 |
+| the map, panning steadily (150 ms) | 185 | 155 | **24.8** | 36.8 | 64.8 | 93.7 | 26.4 |
+| the same, pressing through the connect and the NodeDB sync | 185 | 137 | **26.8** | 43.8 | 98.8 | 108.5 | 29.1 |
+
+Every run above recorded **no inert presses**: the probe counts a press only once the store has
+said it changes the frame, and in these scripts every press moved a cursor, a tab or the
+viewport. That is what makes the medians worth reading - a run padded with presses that did
+nothing would be a histogram of whatever else happened to be drawing.
+
+**What a frame is made of**, split at the moment the drawing is done and the damage compare has
+said how many bytes are new - so `draw` is the client's own work and `flip` is handing it over:
+
+| What was being done | frame p50 | draw p50 | draw mean | flip p50 | flip p99 | tile read p50 / p99 | decode p50 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| the Nodes list | 16.8 | **2.65** | 7.9 | 14.8 | 16.5 | - | - |
+| the map, a press at a time | 17.8 | **15.8** | 10.9 | 14.8 | 16.8 | 0.70 / 2.1 | 0.75 |
+| the map, panning steadily | 20.8 | 15.8 | 11.9 | 14.8 | 16.8 | 0.80 / 2.6 | 0.75 |
+| the same, through the sync | 24.8 | 15.8 | 13.1 | 14.8 | 16.8 | 0.85 / 2.1 | 0.75 |
+
+What this settles, and one of the four is a correction to something this document assumed:
+
+- **The basemap costs the reader nothing.** A press reaches the panel in the same 25-27 ms with
+  a map and twenty tiles under it as it does on a list of nodes - the map is a millisecond
+  *faster* at the median, which is inside the run-to-run spread of the control on its own. The fill loop's shape is what makes that true rather than a
+  happy accident: the frame's one read is 0.8 ms and its decode is 0.75 ms, so the whole of a
+  tile is 1.5 ms of a 22 ms frame, and no frame ever does two.
+- **Half of a press is the panel, not the client, and that is why the drawing does not show.**
+  `flip` is 14.8 ms at the median in every run and never above 17 ms at p99, which is a 60 Hz
+  refresh period: `FBIOPAN_DISPLAY` waits for the next vblank. So the map's drawing, 15.8 ms at
+  the median against the list's 2.65, is spent in time the client would otherwise have spent
+  waiting - and the two screens come out at the same press latency from opposite directions.
+  **This is the correction to §"What is still open"'s partial-redraw entry**: redrawing twenty
+  tiles to move twenty tiles is real and there is CPU in it, but there are no milliseconds of
+  *latency* in it, because the vblank is already paid for. It is a battery argument now, not a
+  responsiveness one, and it should be re-costed as such before anybody writes it.
+- **The tail is not the map's, and it is the column to distrust.** The obvious reading of the
+  first table is that tiles cost tail latency: 61 ms and 94 ms against the control's 35 ms.
+  Running the control five times says otherwise - its own worst press came out at 33, 34, 68, 83
+  and **529** ms, with the median and p90 identical to a tenth of a millisecond each time. So
+  the client stalls occasionally on any screen, the worst one seen was on a screen with no map
+  and no tiles in it, and a single run's maximum is not a statistic. `frame` max in that 529 ms
+  run was 35 ms, which says the stall was **not** in the drawing - it was the loop not getting
+  to the event, and where it went is not something this probe can see.
+
+  What does survive the repetition is the *sync* row, because p99 over 185 presses is the second
+  worst rather than the only one: pressing through the connect and the NodeDB burst moves p99
+  from 65 ms to 99 ms and p90 from 37 to 44. That is the single-threaded design showing where it
+  was always going to - a press arriving while a hundred-packet burst is decoded waits for it -
+  and it is the argument for the one-tile-a-frame rule holding under load, since the burst is
+  what a twenty-tile frame would have been *added to*.
+- **Nothing was ever dropped.** 496 presses across the four runs, none coalesced into another
+  press's frame and none left unanswered, at up to 6.7 presses a second - faster than the
+  client's own key repeat produces them. The loop keeps up with the pad while reading tiles.
+
+Two things this did **not** measure, and they are the same two the standalone benchmark left:
+
+- **A busier link than this mesh gave.** The heaviest traffic available was the config sync at
+  connect - about a hundred packets over nine seconds - and the run that overlaps it is the last
+  row above. A mesh with continuous traffic would push that tail further and nothing here says
+  how far.
+- **What the occasional stall actually is.** The probe can say it was not the drawing and not a
+  tile, because it times both and neither moved. It cannot say what it *was*: the card, the
+  logger writing through a pipe to a `sync`-mounted card, or something in BlueZ. Running the
+  control at `--log-level info` rather than the `debug` `launch.sh` forces did not remove it, so
+  the log is not the whole answer. Anyone chasing it needs a probe further down than this one.
+- **`schedutil`.** Every run above is at the fixed 2 GHz NextUI gives a pak. A client that
+  dropped the clock to save battery would pay the 4x on the decode that §"What the Brick
+  measured" recorded, and the first press after a quiet spell is where it would show.
 
 ## Proposed module boundaries
 
@@ -878,12 +1001,13 @@ that drawable.
 3. **Offline raster spike.** Small licensed regional pack, decoder, clipped image blit and
    resource lifecycle. Measure cold/warm pan, memory, executable growth and input latency on
    the Brick while receiving mesh traffic. Select the production source based on those results.
-   *Done, bar the measurement on hardware: the source is selected and its reader, its format,
+   *Done, measurement included: the source is selected and its reader, its format,
    its host-side builder, the decoder, the cache, the fill loop and the blit have all landed -
    see §"The pack format", §"What the decoder actually cost", §"What the cache turned out to be"
    and §"What the fill loop and the blit turned out to be". A pack can also now be *drawn* rather
    than converted (`map_pack.py synth`), which is what took the licence question off step 3's
-   path entirely.*
+   path entirely, and the input-latency number the entry asks for is in §"What the press turned
+   out to cost".*
 4. **Offline release.** Pack validation/import instructions, loading/missing/corrupt tile states,
    bounded cache, stale/approximate markers, label prioritization, scale and attribution.
    Include cache/source changes in repaint invalidation and deterministic capture tests.
@@ -949,14 +1073,21 @@ useless without the one before it:
    things came out of building it that the entry did not anticipate, and one of them is a
    correction to a bug that was already there. See §"What the fill loop and the blit turned out
    to be".
-4. **The integrated latency number**, which is the one thing here that needs a Brick: the
-   input-latency measurement the standalone benchmark could not give, taken inside the real
-   client with a pack on the card while BLE is being serviced. The *capture* half of this entry
-   landed with step 3 - `map pack` in a scene script, `make demo-pack` to draw the pack it names,
-   and three cases in `tests/suites/ui_capture.c` that render a fixture pack through the real
-   renderer. A pack is drawn rather than committed: 244 tiles of synthetic streets is a megabyte
-   of binary in a repository, against four seconds of a stdlib script that produces the same
-   bytes every time.
+4. ~~**The integrated latency number.**~~ **Done**, 2026-09-13, and it is the one entry here
+   that needed a Brick. `--trace-latency` measures a press from the kernel's own stamp on the
+   evdev event to the return of `FBIOPAN_DISPLAY`, and `devtools/input_inject` drives the run
+   with a uinput pad the client cannot tell from the plastic one, so the measurement is
+   repeatable rather than a thumb. The answer is 26 ms with a map and 27 ms without, and the
+   surprise is where it goes - see §"What the press turned out to cost". The *capture* half of
+   this entry landed with step 3 - `map pack` in a scene script, `make demo-pack` to draw the
+   pack it names, and three cases in `tests/suites/ui_capture.c` that render a fixture pack
+   through the real renderer. A pack is drawn rather than committed: 244 tiles of synthetic
+   streets is a megabyte of binary in a repository, against four seconds of a stdlib script that
+   produces the same bytes every time.
+
+**With that, step 3 has nothing left in it, and the recommended next work is step 4** - the
+offline release: import instructions, a settings screen for choosing between packs, and the
+loading/missing/corrupt states a pack a reader built themselves will actually produce.
 
 The history of how step 3 was unblocked follows. **It was no longer blocked on anything.** This section
 used to name two decisions it waited on - a first region and zoom range, and a tile source with

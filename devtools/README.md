@@ -54,6 +54,38 @@ devtools/tile_bench/summarize.py build/tile_bench/results/<run>.txt
 The tiles are synthetic and deliberately so: drawn to cost what a Carto-style palette PNG costs,
 and a 24-bit shaded set for the heavy end. The results are in the roadmap.
 
+## `input_inject` — a virtual pad, for measuring the client with its own buttons
+
+Creates a uinput device that reports what the Brick's own pad reports - the face buttons through
+the `BTN_` space with that case's positions, the d-pad as `ABS_HAT0X/Y` - and plays a script of
+presses into it. The client finds it in its ordinary startup scan of `/dev/input/event*`, maps it
+with the ordinary profile, and cannot tell it from the plastic: every millisecond the client's
+latency probe measures is spent in the same evdev read, the same epoll loop and the same
+`present()` a thumb would have gone through.
+
+It exists because a percentile wants a few hundred presses at a known cadence. Taking
+[`docs/maps-roadmap.md`](../docs/maps-roadmap.md#what-the-press-turned-out-to-cost)'s integrated
+latency number by hand works once; taking it the same way twice does not. Like `tile_bench` it
+runs **on the device**, so it is not part of the CMake build.
+
+```bash
+./scripts/docker.sh --cross devtools/input_inject/build.sh
+devtools/input_inject/run-device.sh --every 600 --cold --tag map r1 a wait:6 x:3 right:20 down:10
+```
+
+`run-device.sh` owns the ordering, and the order is the whole of it: the client is stopped, the
+injector is started, the client is started - it scans for input devices **once**, so a pad
+created afterwards is a pad it never watches - the script plays, and the client is stopped with
+`SIGTERM`, which is what makes it print its report rather than take the measurement with it. The
+injector is held open by an adb shell the script owns, so the virtual pad cannot outlive the run
+and be found by the next one. `--cold` drops the page cache first, which is the difference
+between a 0.05 ms tile read out of RAM and the 0.8 ms one off the card.
+
+A token is a button with an optional repeat: `right`, `right:20`, `wait:6`. The separator is a
+colon rather than a star because a star is a glob and every shell in the path would eat it.
+Results land in `build/input_inject/results/`, with the governor the run was pinned to recorded
+beside them - see [`docs/performance.md`](../docs/performance.md#a-press-to-the-panel-on-the-device).
+
 ## `map_pack` — building a raster tile pack
 
 Turns an MBTiles file or a `z/x/y` directory of PNGs into the single-file pack the client reads

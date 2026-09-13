@@ -5,6 +5,7 @@
 #include "mesh/core/event_loop.h"
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/input_profile.h"
+#include "mesh/ui/latency.h"
 #include "mesh/utils/array.h"
 #include "mesh/utils/env.h"
 #include "mesh/utils/ioctl.h"
@@ -21,6 +22,7 @@
 #include <sys/epoll.h>
 #include <sys/ioctl.h>
 #include <sys/timerfd.h>
+#include <time.h>
 #include <unistd.h>
 
 /* Standard evdev codes. The Brick's gamepad device ("TRIMUI Player1") reports the face and
@@ -463,6 +465,20 @@ void mesh_ui_input_handle_device_event(struct mesh_ui_input *input, int source_f
     }
 
     mesh_ui_input_repeat_start(input, key, type, code, source_fd);
+    /*
+     * The press is offered to the probe before the store sees it, so what gets measured ends at
+     * the panel rather than at the top of this function - and only a button going *down* is
+     * offered. A kernel autorepeat (value 2) reaches here for a face button on purpose, because
+     * the client acts on it, but a held button is one press: counted, its repeats would weigh
+     * whatever screen that button drives by how long somebody leant on it. Our own timer's
+     * repeat is refused by the probe instead, having no kernel stamp behind it at all.
+     *
+     * Whether this press cost anything is not knowable here; mesh_ui_controller_handle_key()
+     * has the store's answer and confirms it.
+     */
+    if (type != EV_KEY || value == 1) {
+        mesh_ui_latency_press();
+    }
     if (input->on_key != NULL) {
         input->on_key(input->key_userdata, key);
     }
@@ -503,6 +519,13 @@ static int mesh_ui_input_event_callback(int fd, uint32_t events, void *userdata)
 
         const size_t count = (size_t)bytes / sizeof(struct input_event);
         for (size_t i = 0; i < count; ++i) {
+            /* The kernel's own timestamp for this event, on CLOCK_MONOTONIC because
+               mesh_ui_input_use_monotonic_stamps() asked for it when the device was opened.
+               It is handed over before the mapping runs, so a probe that is measuring gets the
+               moment the button moved rather than the moment this loop got round to it - which
+               on a busy loop are the two ends of the interesting part. */
+            mesh_ui_latency_event((uint64_t)batch[i].time.tv_sec * 1000000U +
+                                  (uint64_t)batch[i].time.tv_usec);
             mesh_ui_input_handle_device_event(input, fd, batch[i].type, batch[i].code,
                                               batch[i].value);
             if (input->loop != NULL && input->loop->stop_requested) {
@@ -526,6 +549,23 @@ static bool mesh_ui_input_bit_set(const unsigned long *bits, size_t words, unsig
         return false;
     }
     return ((bits[word] >> (code % MESH_UI_INPUT_BITS_PER_LONG)) & 1UL) != 0UL;
+}
+
+/*
+ * Put this device's event timestamps on CLOCK_MONOTONIC.
+ *
+ * evdev stamps every event with the wall clock unless it is asked otherwise, and the Brick has
+ * no RTC battery: with no network it boots into the epoch and the wall clock jumps once NTP
+ * lands, so a stamp taken from it cannot be subtracted from anything. Nothing on the reading
+ * path uses the stamp - it is what the latency probe measures from - so a kernel too old to
+ * know the request simply leaves the client as it was, and the probe declines to count a press
+ * whose stamp is not on its own clock.
+ */
+static void mesh_ui_input_use_monotonic_stamps(int fd, const char *path) {
+    const int clockid = CLOCK_MONOTONIC;
+    if (ioctl(fd, mesh_ioctl_request_of(EVIOCSCLOCKID), &clockid) < 0) {
+        mesh_log_debug("input", "%s keeps wall-clock event stamps: %s", path, strerror(errno));
+    }
 }
 
 bool mesh_ui_input_reads_code(uint16_t code) {
@@ -678,6 +718,7 @@ int mesh_ui_input_init(struct mesh_ui_input *input, struct mesh_event_loop *loop
             continue;
         }
 
+        mesh_ui_input_use_monotonic_stamps(fd, path);
         mesh_log_debug("input", "Watching %s (%s)", path, name);
         input->fds[input->count++] = fd;
     }
