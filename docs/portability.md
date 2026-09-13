@@ -34,9 +34,16 @@ because they are not equally available:
   transport out and it reports `disabled`; headers but no reachable bus leaves it compiled in and
   sitting in `waiting-for-bluez`. A handheld whose CFW ships Bluetooth *audio* has usually cleared
   all three, since that is BlueZ too.
-- **USB serial** needs the port to do host mode and the kernel to carry `cdc_acm` or the
-  usb-serial bridges. `mesh_serial_device_is_radio()` keeps no VID/PID allowlist by design, so it
-  finds any of them — if they are there.
+- **USB serial** needs the port to do host mode and the kernel to carry the right driver. There is
+  **no VID/PID allowlist** — that trade is refused on purpose, since it would have to be
+  maintained against every board Meshtastic supports — but there *is* a **driver** allowlist, and
+  a port should check against it rather than against "does USB work". `mesh_serial_usb_scan()`
+  offers an interface when its class is CDC-data, or when its bound driver is one of
+  `k_serial_drivers[]` — `cp210x`, `ch341`, `ch341-uart`, `ftdi_sio`, `generic`, `cdc_acm`
+  ([`src/transport/serial/serial_usb.c`](../src/transport/serial/serial_usb.c)). A vendor-specific
+  interface bound by anything else is skipped, so a board behind a bridge outside that list is not
+  merely unlisted by accident — it will never appear, and the kernel having *a* serial driver is
+  not enough to conclude the transport is available.
 - **TCP** needs only Wi-Fi and a Meshtastic node with its own network access on. This is the
   escape hatch for a device with no Bluetooth at all, and it costs one line in `launch.sh`:
 
@@ -180,9 +187,9 @@ That leaves two:
 
 - **USB serial over the USB-C port.** Unverified, and the honest answer is *probably not without
   kernel work*. The port is used in gadget mode (USB networking) rather than host mode, the
-  firmware is closed, and the kernel ships with no `/proc/config.gz` — so establishing whether
-  `cdc_acm` and the usb-serial bridges are even present, let alone building them out of tree
-  against a config nobody published, is its own project. Do not promise this one.
+  firmware is closed, and the kernel ships with no `/proc/config.gz` — so establishing whether any
+  of the drivers named above is even present, let alone building one out of tree against a config
+  nobody published, is its own project. Do not promise this one.
 - **TCP over Wi-Fi.** This works, and it is the answer. The Mini Plus has Wi-Fi; point it at a
   Meshtastic node that has its own network access enabled:
 
