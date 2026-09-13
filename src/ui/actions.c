@@ -248,14 +248,22 @@ static void actions_nodes(const struct mesh_ui_nav *nav, const struct mesh_ui_sn
         return;
     }
     /*
-     * The list, whose first row is the map rather than a node - so X and Y are named for presses
-     * that do nothing there. They are named anyway, and deliberately: they are true of every
-     * other row on the screen, and a bar that shed two keycaps as the cursor passed over the top
-     * row would be describing the row rather than the list. The Status screen's rule is the
-     * opposite one because its cards offer genuinely different verbs; here there is one verb per
-     * key and one row that happens not to take them.
+     * The list, whose first two rows are the filter and the map rather than nodes - so X and Y
+     * are named for presses that do nothing there. They are named anyway, and deliberately: they
+     * are true of every other row on the screen, and a bar that shed two keycaps as the cursor
+     * passed over the top rows would be describing the row rather than the list. The Status
+     * screen's rule is the opposite one because its cards offer genuinely different verbs; here
+     * there is one verb per key and two rows that happen not to take two of them.
+     *
+     * A is the exception, and it is the Waypoints list's exception rather than a new one: A
+     * genuinely does a different thing on the filter row - it steps the chips - and naming
+     * "open" over a press that filters would be the bar describing something else. That is the
+     * line between the two rules. A keycap whose verb changes is named per row; a keycap that
+     * simply has nothing to do on one row keeps the list's word for it.
      */
-    bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_OPEN);
+    bar_add(bar, MESH_UI_BUTTON_A,
+            nav->cursor[MESH_UI_SCREEN_NODES] == MESH_UI_NODES_FILTER_ROW ? MESH_STR_ACTION_FILTER
+                                                                          : MESH_STR_ACTION_OPEN);
     bar_add(bar, MESH_UI_BUTTON_X, MESH_STR_ACTION_PIN);
     bar_add(bar, MESH_UI_BUTTON_Y, MESH_STR_ACTION_WRITE);
     bar_add_help(snapshot, bar);

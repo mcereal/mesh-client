@@ -16,6 +16,7 @@
 #include "mesh/ui/history.h"
 #include "mesh/ui/map.h"
 #include "mesh/ui/node_detail.h"
+#include "mesh/ui/nodes.h"
 #include "mesh/ui/reactions.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/status.h"
@@ -185,17 +186,21 @@ static bool mesh_ui_nav_close_node_detail(struct mesh_ui_nav *nav) {
 /*
  * The node a Nodes-list row is about, or NULL when the row is not about a node.
  *
- * One place that knows the list has a map row on the front of it, so the four presses the list
- * offers - A, X, Y and the detail's own opening - cannot disagree about which node row 3 is.
- * Every one of them went through mesh_ui_node_detail_at() with the raw cursor before the row
- * existed, and every one of them would have been off by one after it.
+ * One place that knows the list has two rows on the front of it and a filter over the rest, so
+ * the four presses the list offers - A, X, Y and the detail's own opening - cannot disagree
+ * about which node row 3 is. Every one of them went through mesh_ui_node_detail_at() with the
+ * raw cursor before the map row existed, and every one of them would have been off by one after
+ * it; the filter is the same mistake waiting a second time, and it is worse, because a wrong
+ * answer there is a *plausible* node rather than an obviously shifted one.
  */
-static const struct mesh_ui_node_summary *mesh_ui_nav_node_at_row(const struct mesh_ui_store *store,
+static const struct mesh_ui_node_summary *mesh_ui_nav_node_at_row(const struct mesh_ui_nav *nav,
+                                                                  const struct mesh_ui_store *store,
                                                                   uint32_t cursor) {
-    if (store == NULL || cursor == MESH_UI_NODES_MAP_ROW) {
+    if (nav == NULL || store == NULL || cursor < MESH_UI_NODES_LEAD_ROWS) {
         return NULL;
     }
-    return mesh_ui_node_detail_at(&store->handshake, cursor - 1U);
+    return mesh_ui_node_filter_at(&store->handshake, (enum mesh_ui_node_filter)nav->node_filter,
+                                  cursor - MESH_UI_NODES_LEAD_ROWS);
 }
 
 void mesh_ui_nav_conversation_name(const struct mesh_ui_nav *nav, char *out, size_t out_len) {
@@ -342,10 +347,25 @@ uint32_t mesh_ui_nav_row_count(const struct mesh_ui_nav *nav, const struct mesh_
             return 0U;
         }
         if (nav == NULL || !nav->node_detail_open) {
-            /* The map row, and then the nodes. A roster with nothing in it draws an empty
-               state instead of a list, so the row that opens a map of it is not offered
-               either: the screen it would open is the same nothing one level in. */
-            return nodes > 0U ? nodes + 1U : 0U;
+            /*
+             * The filter row, the map row, and then whichever nodes the filter keeps. A roster
+             * with nothing in it draws an empty state instead of a list, so neither of the two
+             * lead rows is offered: the screen the map row would open is the same nothing one
+             * level in, and a filter over an empty roster is a control with nothing to do.
+             *
+             * A filter that keeps *none* of a roster that has something in it is the opposite
+             * case and the list stays: the two lead rows are how the reader gets back out, and
+             * a screen that emptied itself would have taken the chip that emptied it away with
+             * the rows. The renderer says so in words on the row where the nodes would be.
+             */
+            if (nodes == 0U) {
+                return 0U;
+            }
+            return mesh_ui_node_filter_count(&store->handshake,
+                                             nav == NULL
+                                                 ? MESH_UI_NODE_FILTER_ALL
+                                                 : (enum mesh_ui_node_filter)nav->node_filter) +
+                   MESH_UI_NODES_LEAD_ROWS;
         }
         /*
          * The detail's own rows, whether or not a chart is open over them - which is where this
@@ -908,6 +928,27 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
             return false;
         }
         if (!nav->node_detail_open) {
+            if (cursor == MESH_UI_NODES_FILTER_ROW) {
+                /*
+                 * The chips step on, and that is the whole of the interaction.
+                 *
+                 * A rather than Left and Right, which is what a strip of chips looks like it
+                 * wants. Left and Right are the tab switch on every top-level list in this
+                 * client, and taking them for one row of one list is the per-row d-pad the
+                 * three screens that *do* take them deliberately avoid: the map, the node
+                 * detail and both charts take the axis for the whole level and pay for it by
+                 * leaving the shoulders alone. There is no level here to take it for - this is
+                 * the tab's own list - so the press is A, which is exactly how an enum row in
+                 * Settings is stepped (mesh_ui_nav_settings_edit_key). Three chips, so every
+                 * one of them is at most two presses away and a wrap is not a hardship.
+                 *
+                 * The cursor stays where it is, which is on this row: it is the only row that
+                 * cannot be re-numbered by what the press just did.
+                 */
+                nav->node_filter = (uint8_t)mesh_ui_node_filter_step(
+                    (enum mesh_ui_node_filter)nav->node_filter, +1);
+                return true;
+            }
             if (cursor == MESH_UI_NODES_MAP_ROW) {
                 /*
                  * The map, framed on everything the client can place. It cannot be pressed when
@@ -925,7 +966,7 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
             /* A on a contact opens what we know about it, the way tapping one in the phone
                app does. Writing to it is the first row inside, and Y still goes straight
                there from the list. */
-            const struct mesh_ui_node_summary *node = mesh_ui_nav_node_at_row(store, cursor);
+            const struct mesh_ui_node_summary *node = mesh_ui_nav_node_at_row(nav, store, cursor);
             if (node == NULL || node->node_id == 0U) {
                 return false;
             }
@@ -1602,7 +1643,7 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
             const struct mesh_ui_node_summary *node =
                 nav->node_detail_open
                     ? mesh_ui_node_detail_find(&store->handshake, nav->node_detail_node)
-                    : mesh_ui_nav_node_at_row(store, nav->cursor[nav->screen]);
+                    : mesh_ui_nav_node_at_row(nav, store, nav->cursor[nav->screen]);
             if (node != NULL && node->node_id != 0U && !mesh_ui_nav_node_is_self(store, node)) {
                 mesh_ui_nav_fill_favorite(out_action, node);
             }
@@ -1660,7 +1701,7 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
             const struct mesh_ui_node_summary *node =
                 nav->node_detail_open
                     ? mesh_ui_node_detail_find(&store->handshake, nav->node_detail_node)
-                    : mesh_ui_nav_node_at_row(store, nav->cursor[nav->screen]);
+                    : mesh_ui_nav_node_at_row(nav, store, nav->cursor[nav->screen]);
             if (node == NULL || node->node_id == 0U || mesh_ui_nav_node_is_self(store, node)) {
                 return changed;
             }

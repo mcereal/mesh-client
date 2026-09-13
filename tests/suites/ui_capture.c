@@ -3489,8 +3489,11 @@ MESH_TEST_CASE(ui_capture_node_detail_cards_survive_the_cursor, unit) {
     while (store.nav.screen != MESH_UI_SCREEN_NODES) {
         (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
     }
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action); /* past the map row */
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action); /* a node that is not us */
+    /* Past the filter and map rows, then past our own node, onto one that is not us - which is
+       the one with enough reported about it to outgrow the window and put a rail up. */
+    for (uint32_t step = 0; step < MESH_UI_NODES_LEAD_ROWS + 1U; ++step) {
+        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    }
     (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
     MESH_TEST_FAIL_IF_CLEANUP(!store.nav.node_detail_open, mesh_ui_store_shutdown(&store),
                               "A should open the node detail");

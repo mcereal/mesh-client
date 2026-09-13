@@ -158,6 +158,10 @@ MESH_STR_ENTRY(ACTION_UNMUTE,             "unmute")
 MESH_STR_ENTRY(ACTION_NEW,                "new")
 /* Keep this node at the top of the list. The star beside a pinned row is the same fact. */
 MESH_STR_ENTRY(ACTION_PIN,                "pin")
+/* A on the Nodes list's filter row: step the chips on to the next one. A verb rather than
+   "next", because what the press changes is which nodes are below it and not where the cursor
+   is - and rather than "choose", because nothing is being picked from a list of answers. */
+MESH_STR_ENTRY(ACTION_FILTER,             "filter")
 /* Broadcast a place to the channel again - the Waypoints tab's verb, and not the same word as
    "send": a waypoint already exists and goes out unchanged, where a message is written once. */
 MESH_STR_ENTRY(ACTION_SHARE,              "share")
@@ -365,6 +369,19 @@ MESH_STR_ENTRY(NODES_DETAIL_EMPTY,        "Nothing reported for this node yet.")
 /* Titles: how many of the radio's NodeDB we hold, or how many we keep that it has evicted. */
 MESH_STR_ENTRY(NODES_TITLE_OF,            "Nodes (%u of %u)")
 MESH_STR_ENTRY(NODES_TITLE_OFF_RADIO,     "Nodes (%u, %u off radio)")
+/* The filter chips on the list's first row - see include/mesh/ui/nodes.h for why there are
+   three of them and why there is not a fourth. One word each: they are chips in a strip that
+   has to fit across the panel beside two others, and the strip drops the words before it drops
+   the pills. "Direct" is nodes heard with no relay between us and them; "Pinned" is the word X
+   is already called, so it must match ACTION_PIN in whatever language this is. */
+MESH_STR_ENTRY(NODES_FILTER_ALL,          "All")
+MESH_STR_ENTRY(NODES_FILTER_DIRECT,       "Direct")
+MESH_STR_ENTRY(NODES_FILTER_PINNED,       "Pinned")
+/* What the filtered list says when the chip the reader has landed on keeps nothing. The row
+   stays and says why rather than the list going blank - the map row's rule, and the Waypoints
+   tab's before it: a screen that empties explains nothing to the reader wondering what they
+   just pressed. */
+MESH_STR_ENTRY(NODES_FILTER_NONE,         "No nodes match this filter")
 
 /* ---- the map ----------------------------------------------------------------------------------
  *
@@ -1154,9 +1171,11 @@ MESH_STR_ENTRY(HELP_NOTE_REACTION,        "A tapback is an emoji aimed at one me
 MESH_STR_ENTRY(HELP_NOTE_REACTION_SEND,   "One small packet, sent without asking to be acknowledged - so it earns no delivery mark and costs the mesh no retry. The set is fixed so that every client can draw what you sent.")
 
 /* Nodes. */
+MESH_STR_ENTRY(HELP_LABEL_NODES_FILTER,   "The filter row")
 MESH_STR_ENTRY(HELP_LABEL_NODES_PIN,      "Pinned nodes")
 MESH_STR_ENTRY(HELP_LABEL_NODES_CACHED,   "Nodes the radio has forgotten")
 MESH_STR_ENTRY(HELP_NOTE_NODES,           "Everyone this client has heard of, the most recently heard first. A node that has never said what it is called is listed by its node number, exactly as the phone apps list it.")
+MESH_STR_ENTRY(HELP_NOTE_NODES_FILTER,    "The chips on the first row decide what is under them: all of the roster, the nodes heard with no relay in the way, or the ones you pinned. A steps them on, and the heading counts what is shown.")
 MESH_STR_ENTRY(HELP_NOTE_NODES_PIN,       "X pins a node to the top of the list and keeps it there. Pins are this client's own and are kept across a restart; they change nothing on the radio.")
 MESH_STR_ENTRY(HELP_NOTE_NODES_CACHED,    "The radio holds about eighty nodes and drops the oldest, so this list is deliberately longer than its NodeDB and marks what the radio no longer carries. Settings > Radio actions clears them.")
 

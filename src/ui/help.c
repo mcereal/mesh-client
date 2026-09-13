@@ -64,6 +64,7 @@ static const struct mesh_ui_help_entry k_help_reaction[] = {
 
 static const struct mesh_ui_help_entry k_help_nodes[] = {
     {MESH_STR_NONE, MESH_STR_HELP_NOTE_NODES},
+    {MESH_STR_HELP_LABEL_NODES_FILTER, MESH_STR_HELP_NOTE_NODES_FILTER},
     {MESH_STR_HELP_LABEL_NODES_PIN, MESH_STR_HELP_NOTE_NODES_PIN},
     {MESH_STR_HELP_LABEL_NODES_CACHED, MESH_STR_HELP_NOTE_NODES_CACHED},
 };

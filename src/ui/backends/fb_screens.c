@@ -27,6 +27,7 @@
 #include "mesh/ui/map.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/node_detail.h"
+#include "mesh/ui/nodes.h"
 #include "mesh/ui/reactions.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/status.h"
@@ -1333,23 +1334,43 @@ static void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
     }
 
     const struct mesh_ui_handshake_state *hs = &snapshot->handshake;
-    const uint32_t count =
+    /*
+     * Two counts, and keeping them apart is what the filter row cost this screen.
+     *
+     * `held` is the published roster - what the client knows and what "of" is measured against.
+     * `count` is what this list is about to draw, which is however much of it the chip strip
+     * keeps. Every number below is one or the other on purpose: conflated, the title said
+     * "Nodes 42" over three pinned rows, which is the arithmetic-no-screen-should-show rule
+     * reached from the other end.
+     */
+    const enum mesh_ui_node_filter filter = (enum mesh_ui_node_filter)nav->node_filter;
+    const uint32_t held =
         hs->node_count > MESH_UI_MAX_HANDSHAKE_NODES ? MESH_UI_MAX_HANDSHAKE_NODES : hs->node_count;
+    const uint32_t count = mesh_ui_node_filter_count(hs, filter);
     char title[96];
     /* Counted from the rows this screen is about to draw, so the two numbers are always in the
        same scope: the session roster holds twice what the UI carries, and a title reading
        "128 nodes, 200 off radio" would be arithmetic no screen should show. */
     const uint32_t off_radio = mesh_ui_handshake_off_radio(hs);
     /*
-     * Two things can be bigger than this list, and the honest "of" is whichever is bigger.
-     * The radio's database is one; the roster is the other, and it is the one that used to go
+     * Three things can be bigger than this list, and the honest "of" is whichever is biggest.
+     * The radio's database is one; the roster is the second, and it is the one that used to go
      * unsaid - it holds 256 and the UI publishes its best 128, so a busy mesh quietly dropped
      * half of what the client knew with the title still reading "128 nodes". After a NodeDB
      * reset the radio's number is the smaller of the two, which is exactly when taking the max
      * matters rather than preferring either.
+     *
+     * The third is the roster this screen is *itself* holding back, which is the filter. It
+     * needs no title of its own: the heading already says "n of m" whenever something is
+     * bigger than what is drawn, and a chip strip two rows down is where the reader looks for
+     * why. Which of the three is doing the holding back is deliberately not spelled out - one
+     * sentence that says "there is more than this" is worth more than three that compete.
      */
     const uint32_t known_by_radio = hs->has_my_info ? hs->my_info.nodedb_entries : 0U;
-    const uint32_t known = hs->nodes_known > known_by_radio ? hs->nodes_known : known_by_radio;
+    uint32_t known = hs->nodes_known > known_by_radio ? hs->nodes_known : known_by_radio;
+    if (held > known) {
+        known = held;
+    }
     if (known > count) {
         mesh_str_format(title, sizeof title, MESH_STR_NODES_TITLE_OF, count, known);
     } else if (off_radio > 0U) {
@@ -1367,11 +1388,56 @@ static void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
        the same view the conversation list and the picker build, so all three ask one function. */
     struct mesh_ui_store view;
     mesh_ui_store_view(snapshot, &view);
-    /* One row for the map on the front of the list. The count is the same arithmetic
-       mesh_ui_nav_row_count() does, and it is written out here rather than shared because the
-       nav's answer already carries the empty-roster case this branch cannot reach. */
+    /*
+     * The filter row and the map row on the front of the list, and then the nodes the filter
+     * kept. The count is the same arithmetic mesh_ui_nav_row_count() does, and it is written out
+     * here rather than shared because the nav's answer already carries the empty-roster case
+     * this branch cannot reach.
+     *
+     * A filter that keeps nothing still draws its two lead rows and then says so on the row
+     * where the first node would be - so the strip that emptied the list is still on the frame,
+     * and the press that puts it back is one A away. The extra row is the *note's*, not a node's:
+     * mesh_ui_nav_row_count() does not count it and the cursor cannot reach it, exactly as the
+     * empty states elsewhere are not rows.
+     */
+    const bool nothing_matched = (count == 0U);
+    const uint32_t rows = count + MESH_UI_NODES_LEAD_ROWS + (nothing_matched ? 1U : 0U);
+    /*
+     * Every row here is two steps - a name and the line under it - except the strip, which is
+     * one.
+     *
+     * That is the variable-height list model earning its keep rather than a special case. A
+     * chip is a capsule one line advance tall and there is nothing under it to say, so a
+     * two-step strip would spend a whole node row on air - on the one list in this client that
+     * runs to a hundred and twenty-eight rows, which is precisely where a row costs the most.
+     * Declared before the list is opened, because the model is the authority on every height
+     * and can only be if it is told first.
+     */
+    uint8_t node_heights[MESH_UI_MAX_HANDSHAKE_NODES + MESH_UI_NODES_LEAD_ROWS + 1U];
+    for (uint32_t r = 0; r < rows && r < (uint32_t)(sizeof node_heights); ++r) {
+        node_heights[r] = (r == MESH_UI_NODES_FILTER_ROW) ? 1U : 2U;
+    }
     struct fb_list list =
-        fb_list_begin_rows(layout, count + 1U, nav->cursor[MESH_UI_SCREEN_NODES], 2U);
+        fb_list_begin_heights(layout, rows, nav->cursor[MESH_UI_SCREEN_NODES], node_heights);
+    /*
+     * M3's filter chip: the chosen one wears the check, and the pill's tonal fill says the same
+     * thing a second time for a reader who is scanning shape rather than reading.
+     *
+     * A check rather than a symbol per filter, and that is a measurement rather than a
+     * preference. There is no icon in include/mesh/ui/icons.def that means "heard directly", the
+     * set is generated data (scripts/gen-icons.py, run by hand against a font that has moved
+     * since), and adding one to say what the word beside it already says would be a kilobyte of
+     * sprite for a strip that has room for the word. The check is what Material puts there
+     * anyway.
+     */
+    struct fb_chip filter_chips[MESH_UI_NODE_FILTER_COUNT];
+    for (uint32_t f = 0; f < (uint32_t)MESH_UI_NODE_FILTER_COUNT; ++f) {
+        filter_chips[f] = (struct fb_chip){
+            .icon =
+                ((enum mesh_ui_node_filter)f == filter) ? MESH_UI_ICON_CHECK : MESH_UI_ICON_NONE,
+            .label = mesh_str(mesh_ui_node_filter_label((enum mesh_ui_node_filter)f)),
+        };
+    }
     struct mesh_ui_line line;
     char right[32];
     char age[8];
@@ -1394,6 +1460,18 @@ static void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
 
     uint32_t i;
     while (fb_list_next(&list, &i)) {
+        if (i == MESH_UI_NODES_FILTER_ROW) {
+            fb_list_chips(state, &list, i, filter_chips, (size_t)MESH_UI_NODE_FILTER_COUNT,
+                          (size_t)filter);
+            continue;
+        }
+        if (nothing_matched && i > MESH_UI_NODES_MAP_ROW) {
+            /* The row that is not a row: what the filter did, where the nodes would be. Dim
+               because it is not something to press - the same tone the map row takes when it
+               has nothing to open. */
+            fb_list_row(state, &list, i, mesh_str(MESH_STR_NODES_FILTER_NONE), MESH_UI_TONE_DIM);
+            continue;
+        }
         if (i == MESH_UI_NODES_MAP_ROW) {
             const struct fb_list_item map_row = {
                 .leading = {.kind = FB_LEADING_ICON, .icon = MESH_UI_ICON_MAP},
@@ -1408,7 +1486,14 @@ static void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
             fb_list_item(state, &list, i, &map_row);
             continue;
         }
-        const struct mesh_ui_node_summary *node = &hs->nodes[i - 1U];
+        /* Through the filter, never by subtracting from the raw roster: the row-to-node
+           mapping is mesh_ui_nav_node_at_row()'s question and this is the same answer, so the
+           node the cursor opens and the node this row drew cannot be two different nodes. */
+        const struct mesh_ui_node_summary *node =
+            mesh_ui_node_filter_at(hs, filter, i - MESH_UI_NODES_LEAD_ROWS);
+        if (node == NULL) {
+            continue;
+        }
         const char *short_name =
             node->short_name[0] != '\0' ? node->short_name : mesh_str(MESH_STR_NODES_NO_SHORT_NAME);
         const char *long_name = node->long_name[0] != '\0' ? node->long_name : "";

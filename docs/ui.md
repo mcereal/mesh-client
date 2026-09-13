@@ -794,7 +794,7 @@ shoulder, revealed in the one place you went to change it.
 | File | Layer | What belongs there |
 |---|---|---|
 | `fb_draw.c` | ink | pixels, glyphs, the theme lookups, cell metrics (`fb_internal.h`) |
-| `fb_widgets.c` | components | cards (three variants, with verbs), buttons, chips, badges, list items, switches, meters, sliders, sparklines, proportion bars, signal staircases, rules, bubbles, the top app bar, the navigation bar, the screen progress bar, the banner, the action bar, the snackbar (`fb_widgets.h`) |
+| `fb_widgets.c` | components | cards (three variants, with verbs), buttons, chips, chip rows, badges, list items, switches, meters, sliders, sparklines, proportion bars, signal staircases, rules, bubbles, the top app bar, the navigation bar, the screen progress bar, the banner, the action bar, the snackbar (`fb_widgets.h`) |
 | `fb_screens.c` | screens | one renderer per screen, and nothing else |
 | `fb.c` | device | `/dev/fb0`, the page flip, the backend vtable |
 
@@ -1343,6 +1343,50 @@ the same two letters and the same colour everywhere in this client, and marking 
 overwrote the second of those on precisely the row the eye was hunting for. **Identity is the
 leading slot's job and selection is the trailing slot's**, and a row that said both in one disc
 was a row where turning the second on turned the first off.
+
+#### `fb_list_chips()` — a strip of chips as a row of a list
+
+The third caller of `fb_draw_chip_strip()`, and the one the strip was lifted out of
+`fb_screens.c` for. The Nodes list's first row is a filter — *All*, *Direct*, *Pinned* — and A
+steps it, which is a settings enum row's interaction wearing Material's filter chip.
+
+```c
+struct fb_chip chips[MESH_UI_NODE_FILTER_COUNT];
+for (uint32_t f = 0; f < (uint32_t)MESH_UI_NODE_FILTER_COUNT; ++f) {
+    chips[f] = (struct fb_chip){
+        .icon = (f == filter) ? MESH_UI_ICON_CHECK : MESH_UI_ICON_NONE,
+        .label = mesh_str(mesh_ui_node_filter_label((enum mesh_ui_node_filter)f)),
+    };
+}
+fb_list_chips(state, &list, i, chips, MESH_UI_NODE_FILTER_COUNT, filter);
+```
+
+Four decisions in it are worth stating, because each is a rule this component set already had
+and none of them is obvious from the picture.
+
+**The press is A, not Left and Right.** A strip of chips looks like it wants the d-pad's
+horizontal axis, and three screens in this client do take it — the map, the node detail and both
+charts — but every one of them takes it *for the whole level* and pays by leaving the shoulders
+alone. The Nodes list is a tab's own list, so there is no level to take it for, and taking it for
+one row of it would be a d-pad whose meaning changes as the cursor walks. A is what
+`mesh_ui_nav_settings_edit_key()` steps an enum with, and three chips means every one of them is
+at most two presses away.
+
+**The chosen chip wears a check.** M3's filter chip, and here it is also a measurement: there is
+no icon in `include/mesh/ui/icons.def` that means "heard directly", the set is generated data,
+and a symbol saying what the word beside it already says would be a kilobyte of sprite for a
+strip that has room for the word.
+
+**The chips blend against the row's current fill, not its resting one.** This is the opposite of
+the rule a switch and a meter follow, and it is not an inconsistency: those are patches that
+*replace* what is under them, so they take the resting ground or they vanish on the row the
+cursor is on. A chip that is not the chosen one lays no fill at all — it is a word on whatever is
+behind it, and a word told the wrong ground keeps its shape and gains a halo.
+
+**It is one step where the rest of that list is two.** A chip is one line advance tall and there
+is nothing under it to say, so the strip is declared through `fb_list_begin_heights()` rather
+than costing a whole node row on the one list in the client that runs to a hundred and twenty
+eight of them.
 
 #### `struct fb_segmented` — a small set of alternatives, all on screen
 
@@ -2040,8 +2084,9 @@ The **navigation bar** is a recessed surface, a chip strip, and the rule that cl
 strip underneath it is the reusable half — `fb_draw_chip_strip()` takes an array of
 `struct fb_chip`, an active index and the room it has, and owns the label elision described
 under [icons](#srcuiiconc--the-generated-srcuiicon_glyphsc). It was private to `fb_screens.c`
-before, which meant a filter row on Nodes (*All / Direct / Favourites*) would have had to
+before, which meant a filter row on Nodes (*All / Direct / Pinned*) would have had to
 re-derive the measuring loop — the exact duplication `fb_chip_width()` was added to prevent.
+That filter row now exists and is `fb_list_chips()`, below.
 
 The **action bar** is the same surface on the other edge, holding a keycap and a verb per
 action, over the line that says what the transport is doing.

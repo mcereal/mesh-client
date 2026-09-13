@@ -15,7 +15,7 @@ scene demo
 tab nodes
 
 # Echo Repeater: a solar node with a two-channel current monitor.
-key down 6
+key down 7
 key a
 key down 21
 hold 1200
