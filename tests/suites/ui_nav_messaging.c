@@ -639,6 +639,43 @@ cleanup:
     }
 }
 
+/*
+ * Every cell of every layer carries a character, which is the one thing the grid cannot check
+ * for itself.
+ *
+ * The renderer draws a key per column whatever the layer's row holds, and the cursor walks all
+ * ten of them - so a row written one character short is a blank keycap that A does nothing to,
+ * which is precisely the press src/ui/actions.c exists to make unexpressible, arriving through
+ * a table nothing was reading. The symbols layer's third row shipped that way: nine symbols in
+ * a ten-cell row, with the tenth key drawn empty on the one layer a reader goes looking for
+ * punctuation on.
+ *
+ * A row too *long* for the grid is the compiler's job now - the table is a fixed-width array -
+ * so what is left to check here is the short one, and this is what checks it. Printability goes
+ * with it: a control byte in that table would draw as a box on the device and go on the air as
+ * itself.
+ */
+MESH_TEST_CASE(kb_layers_fill_the_grid, unit) {
+    for (unsigned layer = 0U; layer < (unsigned)MESH_UI_KB_LAYER_COUNT; ++layer) {
+        for (unsigned row = 0U; row < MESH_UI_KB_CHAR_ROWS; ++row) {
+            for (unsigned col = 0U; col < MESH_UI_KB_COLS; ++col) {
+                const char ch = mesh_ui_kb_char((enum mesh_ui_kb_layer)layer, row, col);
+                char message[96];
+                snprintf(message, sizeof message, "layer %u row %u column %u draws no key", layer,
+                         row, col);
+                MESH_TEST_FAIL_IF(ch < '!' || ch > '~', message);
+            }
+        }
+    }
+    /* And the grid ends where the constants say it does, so the guard above is the whole of it
+       rather than the part of it a wider table would have left unwalked. */
+    MESH_TEST_FAIL_IF(mesh_ui_kb_char(MESH_UI_KB_SYMBOLS, MESH_UI_KB_CHAR_ROWS, 0U) != '\0',
+                      "a row past the character grid should be empty");
+    MESH_TEST_FAIL_IF(mesh_ui_kb_char(MESH_UI_KB_SYMBOLS, 0U, MESH_UI_KB_COLS) != '\0',
+                      "a column past the grid should be empty");
+    record_success(test_name);
+}
+
 /* Channel table drives the To: cycle and the conversation filter; the keyboard builds a draft. */
 MESH_TEST_CASE(ui_nav_channels_and_keyboard, unit) {
     const char *failure = NULL;

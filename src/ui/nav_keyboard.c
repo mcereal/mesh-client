@@ -20,11 +20,24 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* Keyboard layers. Each string is one row of MESH_UI_KB_COLS cells. */
-static const char *const k_kb_layers[MESH_UI_KB_LAYER_COUNT][MESH_UI_KB_CHAR_ROWS] = {
-    {"1234567890", "qwertyuiop", "asdfghjkl'", "zxcvbnm,.?"},
-    {"1234567890", "QWERTYUIOP", "ASDFGHJKL\"", "ZXCVBNM!-:"},
-    {"!@#$%^&*()", "-_=+[]{}<>", ";:'\"/\\|`~", ",.?!@#&%*+"},
+/*
+ * Keyboard layers, one row of MESH_UI_KB_COLS cells each.
+ *
+ * A fixed-width array rather than a row of pointers, and that is the invariant rather than a
+ * formatting choice: the grid draws a key per column whatever the string holds, so a row one
+ * character short is a blank keycap the cursor stops on and A does nothing to - the press that
+ * does nothing this client refuses everywhere else. Declared this way the compiler rejects a
+ * row too long for the grid, and a row too short is NUL-padded rather than read past its own
+ * terminator; kb_layers_fill_the_grid is what catches the short one.
+ */
+static const char k_kb_layers[MESH_UI_KB_LAYER_COUNT][MESH_UI_KB_CHAR_ROWS][MESH_UI_KB_COLS + 1U] =
+    {
+        {"1234567890", "qwertyuiop", "asdfghjkl'", "zxcvbnm,.?"},
+        {"1234567890", "QWERTYUIOP", "ASDFGHJKL\"", "ZXCVBNM!-:"},
+        /* The symbols layer's quotes-and-slashes row ends in '=' because it was nine cells
+           long and the tenth drew empty; '=' is the one piece of URL punctuation the rest of
+           the row does not already carry, and it was otherwise a layer away on the row above. */
+        {"!@#$%^&*()", "-_=+[]{}<>", ";:'\"/\\|`~=", ",.?!@#&%*+"},
 };
 
 char mesh_ui_kb_char(enum mesh_ui_kb_layer layer, unsigned row, unsigned col) {
