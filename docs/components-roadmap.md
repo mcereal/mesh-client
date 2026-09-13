@@ -1865,14 +1865,31 @@ lines, which is what a component set is supposed to feel like when it is working
   that nobody goes looking for a node by. Written down in `include/mesh/ui/nodes.h`, because the
   argument is what stops the strip growing a chip a year from now.
 
-- **"Direct" asks the list's own question rather than a looser one, and that is the finding.**
+- **A filter matches what the list *draws*, and getting that half-right was the finding.**
   `mesh_ui_node_signal_heard()` already existed, because the Nodes list refuses to draw a
   staircase on three kinds of node: one reached over hops (the SNR is the last relay's), one
   arriving over MQTT (it describes nothing on the air), and one whose `hops_away` the firmware
   never set (unknown is not zero). A filter written as `hops_away == 0` would have put all three
   in Direct and then drawn them with nothing beside their names - the chip and the column
-  disagreeing about one fact, on the same row. This is `status.c`'s rule arriving on a different
-  screen: one predicate, three readers.
+  disagreeing about one fact, on the same row. So Direct asks that predicate, and the entry as
+  first written stopped there and called it settled.
+
+  It was not settled, and review caught both ends of the same mistake. `signal_heard()` is a
+  condition of the renderer's staircase branch; it is not the *whole* of when a staircase is
+  drawn, because `!in_nodedb` is tested **above** it and draws "off radio" instead - and
+  `mesh_session_resolve_nodedb_membership()` clears that flag from the sync epoch alone, leaving
+  `snr` and `hops_away` exactly as they were. So a node heard perfectly well and since dropped
+  from the radio's database passed the filter and drew as off-radio: the disagreement this entry
+  is about, arriving through the branch it was not watching. Pinned had it one field over -
+  `is_favorite` alone kept our own node, which the list deliberately draws no star on and which
+  neither X nor the detail's pin row will toggle, so the row could not be cleared and was never a
+  user pin.
+
+  The general form, and the sentence the next filter should be written against: **match the
+  renderer's precedence, never one of its conditions.** A predicate that is a *condition* of a
+  branch is not the branch, and the branches above it are exactly the cases it cannot see. It is
+  `status.c`'s rule - one predicate, three readers - with the reminder that the predicate has to
+  be the whole question.
 
 - **The press is A, and refusing Left and Right is the load-bearing part.** A strip of chips
   looks like it wants the d-pad's horizontal axis. Three screens here do take it - the map, the

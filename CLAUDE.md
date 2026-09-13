@@ -449,11 +449,20 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   level to take it for, and taking it for one row of one list would be a d-pad whose meaning
   changed as the cursor walked. A on a filter row is exactly how `mesh_ui_nav_settings_edit_key()`
   steps an enum, and three chips means every one is at most two presses away.
-- **"Direct" is `mesh_ui_node_signal_heard()` and not `hops_away == 0`.** The Nodes list already
-  refuses to draw a staircase on three kinds of node - one reached over hops, one arriving over
-  MQTT, and one whose `hops_away` the firmware never set, because unknown is not zero. A filter
-  written the loose way puts all three in Direct and then draws them with nothing beside their
-  names, which is the chip and the column disagreeing about one fact on one row.
+- **A Nodes filter matches what the list *draws*, not one of the conditions behind it.** "Direct"
+  is `in_nodedb && mesh_ui_node_signal_heard(node)` and "Pinned" is `is_favorite && !is_self`,
+  and both extra halves are corrections rather than belt-and-braces. `signal_heard()` is most of
+  the first: the list refuses a staircase to a node reached over hops (the SNR is the relay's),
+  one over MQTT (it describes nothing on the air) and one whose `hops_away` the firmware never
+  set, because unknown is not zero. What it does not carry is `in_nodedb`, which the renderer
+  tests *first* - `mesh_session_resolve_nodedb_membership()` clears that flag from the sync epoch
+  alone and leaves `snr` and `hops_away` intact, so a node heard perfectly well and since dropped
+  from the radio's database still passes `signal_heard()` and still draws "off radio" where the
+  staircase would go. The star is the same shape one field over: a radio can carry a stale
+  `is_favorite` on its own NodeDB entry, the list suppresses the star on our own row for that
+  reason, and both X and the detail's pin row refuse to toggle it - so `is_favorite` alone put a
+  row under Pinned with no star and no press that could clear it. Match the renderer's
+  precedence, never one of its conditions.
 - **The Nodes list has *two* rows before its first node, and nothing may subtract a literal.**
   `MESH_UI_NODES_FILTER_ROW` is the chip strip and `MESH_UI_NODES_MAP_ROW` is under it;
   `MESH_UI_NODES_LEAD_ROWS` is what everything counts off. `mesh_ui_nav_node_at_row()` and the

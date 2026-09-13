@@ -41,31 +41,56 @@ enum mesh_ui_node_filter {
     /* Everything published, in the rank the app put it in. The list as it has always been. */
     MESH_UI_NODE_FILTER_ALL = 0,
     /*
-     * Heard directly: no relay, no MQTT, and a reading behind it.
+     * Heard directly: in the radio's NodeDB, no relay, no MQTT, and a reading behind it.
      *
-     * mesh_ui_node_signal_heard() is the whole of the test rather than a looser one written
-     * here, and that matters more than it looks. A node reached over hops has an SNR that
-     * describes the last relay, one arriving over MQTT describes nothing on the air at all, and
-     * an unset `hops_away` is the firmware declining to say rather than a zero - so a filter
-     * that asked `hops_away == 0` would answer "in earshot" for every node the firmware was
-     * quiet about. The list already refuses to draw a staircase on those three, for exactly
-     * this reason, so a filter with its own opinion would put a node in "Direct" and then draw
-     * it with no signal.
+     * **The test is what the list would draw a staircase on, and nothing narrower.** That is
+     * one sentence and it took two goes to get right, so it is worth spelling out both halves.
+     *
+     * mesh_ui_node_signal_heard() is most of it, for reasons that are not obvious from the
+     * field names: a node reached over hops has an SNR describing the last relay, one arriving
+     * over MQTT describes nothing on the air at all, and an unset `hops_away` is the firmware
+     * declining to say rather than a zero - so a filter asking `hops_away == 0` would answer
+     * "in earshot" for every node the firmware was quiet about.
+     *
+     * `in_nodedb` is the half that predicate does not carry, and leaving it out was a real bug
+     * rather than a hypothetical one. mesh_session_resolve_nodedb_membership() clears that flag
+     * from the sync epoch alone and touches neither `snr` nor `hops_away`, so a node that was
+     * genuinely heard directly and has since dropped out of the radio's database keeps a
+     * perfectly good reading. The renderer tests `!in_nodedb` *first* and draws "off radio"
+     * where a staircase would go - so such a node sat in Direct with nothing beside its name,
+     * which is the chip and the column disagreeing about one fact on one row: the exact failure
+     * the paragraph above exists to prevent, arriving through the branch above the one it was
+     * watching. Match the renderer's precedence, not one of its conditions.
      */
     MESH_UI_NODE_FILTER_DIRECT,
     /*
-     * Pinned: the nodes the reader chose to keep at the top.
+     * Pinned: the nodes the reader chose to keep at the top - and never our own.
      *
      * "Pinned" rather than "favourites" because X is called pin, the row wears
      * MESH_UI_ICON_PINNED, and a third word for one fact is the thing the action bar's table
      * exists to stop.
+     *
+     * Our own node is excluded for the reason it wears no star: a radio can carry a stale
+     * `is_favorite` on its own NodeDB entry, and both nav.c's X and the detail's own pin row
+     * refuse to toggle it - so `is_favorite` alone put a row under Pinned with no star on it
+     * and no press that could clear it. That is the same divergence the Direct arm above had,
+     * one field over: this filter is "the rows the list draws a star on", and the list draws no
+     * star on us.
      */
     MESH_UI_NODE_FILTER_PINNED,
     MESH_UI_NODE_FILTER_COUNT,
 };
 
-/* Whether this node belongs in that filter. NULL is in nothing, including ALL. */
-bool mesh_ui_node_filter_matches(const struct mesh_ui_node_summary *node,
+/*
+ * Whether this node belongs in that filter. NULL is in nothing, including ALL.
+ *
+ * The handshake is here for one field - which node is ours - and it is a parameter rather than
+ * a fact about the summary because that is where every other reader of this question gets it
+ * (`hs->my_info.node_num`). A NULL handshake answers as though nothing is ours, which is what a
+ * roster published before MyInfo arrived actually looks like.
+ */
+bool mesh_ui_node_filter_matches(const struct mesh_ui_handshake_state *handshake,
+                                 const struct mesh_ui_node_summary *node,
                                  enum mesh_ui_node_filter filter);
 
 /* How many of the published roster the filter keeps. */
@@ -80,9 +105,9 @@ uint32_t mesh_ui_node_filter_count(const struct mesh_ui_handshake_state *handsha
  * is re-ranked on every publish: there is nothing to precompute that would not be stale by the
  * next frame.
  */
-const struct mesh_ui_node_summary *mesh_ui_node_filter_at(
-    const struct mesh_ui_handshake_state *handshake, enum mesh_ui_node_filter filter,
-    uint32_t index);
+const struct mesh_ui_node_summary *
+mesh_ui_node_filter_at(const struct mesh_ui_handshake_state *handshake,
+                       enum mesh_ui_node_filter filter, uint32_t index);
 
 /* The next filter along, wrapping. What A on the filter row does - the settings enum row's step,
    and the reason the chips need no second key. */

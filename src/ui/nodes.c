@@ -28,17 +28,33 @@ static uint32_t node_list_count(const struct mesh_ui_handshake_state *handshake)
                                                                : handshake->node_count;
 }
 
-bool mesh_ui_node_filter_matches(const struct mesh_ui_node_summary *node,
+/* Whether this row is our own radio, the way every other reader of that question asks it. */
+static bool node_is_self(const struct mesh_ui_handshake_state *handshake,
+                         const struct mesh_ui_node_summary *node) {
+    if (handshake == NULL || !handshake->has_my_info || handshake->my_info.node_num == 0U) {
+        return false;
+    }
+    return node->node_id == handshake->my_info.node_num;
+}
+
+bool mesh_ui_node_filter_matches(const struct mesh_ui_handshake_state *handshake,
+                                 const struct mesh_ui_node_summary *node,
                                  enum mesh_ui_node_filter filter) {
     if (node == NULL) {
         return false;
     }
     switch (filter) {
     case MESH_UI_NODE_FILTER_DIRECT:
-        /* The list's own test, asked rather than restated - see the enum's note. */
-        return mesh_ui_node_signal_heard(node);
+        /*
+         * What the list draws a staircase on: the NodeDB test the renderer makes *first*, and
+         * then its own. Both halves, in that order - see the enum's note for why leaving the
+         * first out put nodes labelled "off radio" under a chip that promises earshot.
+         */
+        return node->in_nodedb && mesh_ui_node_signal_heard(node);
     case MESH_UI_NODE_FILTER_PINNED:
-        return node->is_favorite;
+        /* What the list draws a star on, which is never ourselves however the radio's own
+           NodeDB entry has us flagged - see the enum's note. */
+        return node->is_favorite && !node_is_self(handshake, node);
     case MESH_UI_NODE_FILTER_ALL:
     case MESH_UI_NODE_FILTER_COUNT:
     default:
@@ -62,16 +78,16 @@ uint32_t mesh_ui_node_filter_count(const struct mesh_ui_handshake_state *handsha
     }
     uint32_t kept = 0U;
     for (uint32_t i = 0; i < count; ++i) {
-        if (mesh_ui_node_filter_matches(&handshake->nodes[i], filter)) {
+        if (mesh_ui_node_filter_matches(handshake, &handshake->nodes[i], filter)) {
             ++kept;
         }
     }
     return kept;
 }
 
-const struct mesh_ui_node_summary *mesh_ui_node_filter_at(
-    const struct mesh_ui_handshake_state *handshake, enum mesh_ui_node_filter filter,
-    uint32_t index) {
+const struct mesh_ui_node_summary *
+mesh_ui_node_filter_at(const struct mesh_ui_handshake_state *handshake,
+                       enum mesh_ui_node_filter filter, uint32_t index) {
     if (filter == MESH_UI_NODE_FILTER_ALL) {
         /* The unfiltered list is the one every other reader already has an answer for. */
         return mesh_ui_node_detail_at(handshake, index);
@@ -79,7 +95,7 @@ const struct mesh_ui_node_summary *mesh_ui_node_filter_at(
     const uint32_t count = node_list_count(handshake);
     uint32_t seen = 0U;
     for (uint32_t i = 0; i < count; ++i) {
-        if (!mesh_ui_node_filter_matches(&handshake->nodes[i], filter)) {
+        if (!mesh_ui_node_filter_matches(handshake, &handshake->nodes[i], filter)) {
             continue;
         }
         if (seen == index) {

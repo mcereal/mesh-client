@@ -1204,7 +1204,10 @@ MESH_TEST_CASE(ui_nav_nodes_filter_that_keeps_nothing_keeps_its_own_rows, unit) 
 MESH_TEST_CASE(ui_nav_nodes_filter_direct_asks_the_lists_own_question, unit) {
     struct mesh_ui_handshake_state handshake;
     memset(&handshake, 0, sizeof handshake);
-    handshake.node_count = 4U;
+    handshake.node_count = 5U;
+    for (uint32_t i = 0; i < handshake.node_count; ++i) {
+        handshake.nodes[i].in_nodedb = true;
+    }
     /* Heard: the firmware said zero hops and there is a reading behind it. */
     handshake.nodes[0].node_id = 0x2000U;
     handshake.nodes[0].has_hops_away = true;
@@ -1221,12 +1224,26 @@ MESH_TEST_CASE(ui_nav_nodes_filter_direct_asks_the_lists_own_question, unit) {
     handshake.nodes[3].has_hops_away = true;
     handshake.nodes[3].snr = 4.2f;
     handshake.nodes[3].via_mqtt = true;
+    /*
+     * And the one mesh_ui_node_signal_heard() cannot see, which is the renderer's *first*
+     * branch rather than one of its conditions: a node heard perfectly well and since dropped
+     * from the radio's NodeDB. mesh_session_resolve_nodedb_membership() clears that flag from
+     * the sync epoch alone and leaves `snr` and `hops_away` exactly as they were, so the
+     * reading is still good and the list still draws "off radio" where the staircase would go.
+     */
+    handshake.nodes[4].node_id = 0x2004U;
+    handshake.nodes[4].has_hops_away = true;
+    handshake.nodes[4].snr = 4.2f;
+    handshake.nodes[4].in_nodedb = false;
 
     MESH_TEST_FAIL_IF(mesh_ui_node_filter_count(&handshake, MESH_UI_NODE_FILTER_DIRECT) != 1U,
                       "only the node the list would draw a staircase on is Direct");
     const struct mesh_ui_node_summary *first =
         mesh_ui_node_filter_at(&handshake, MESH_UI_NODE_FILTER_DIRECT, 0U);
     MESH_TEST_FAIL_IF(first == NULL || first->node_id != 0x2000U, "and it is that node");
+    MESH_TEST_FAIL_IF(
+        mesh_ui_node_filter_matches(&handshake, &handshake.nodes[4], MESH_UI_NODE_FILTER_DIRECT),
+        "a node the radio has forgotten is off radio on the row, so not Direct");
     MESH_TEST_FAIL_IF(mesh_ui_node_filter_at(&handshake, MESH_UI_NODE_FILTER_DIRECT, 1U) != NULL,
                       "past the end of a filter is NULL, not the next node along");
 
@@ -1253,11 +1270,55 @@ MESH_TEST_CASE(ui_nav_nodes_filter_direct_asks_the_lists_own_question, unit) {
     const enum mesh_ui_node_filter bogus = (enum mesh_ui_node_filter)200;
     MESH_TEST_FAIL_IF(mesh_ui_node_filter_count(&handshake, bogus) != handshake.node_count,
                       "an out-of-range filter keeps everything");
+    MESH_TEST_FAIL_IF(
+        !mesh_ui_node_filter_matches(&handshake, &handshake.nodes[4], MESH_UI_NODE_FILTER_ALL),
+        "and All keeps the off-radio node, which is the list as it has always been");
     MESH_TEST_FAIL_IF(mesh_ui_node_filter_step(bogus, +1) != MESH_UI_NODE_FILTER_DIRECT,
                       "and steps on from All rather than from nowhere");
     MESH_TEST_FAIL_IF(mesh_ui_node_filter_step(MESH_UI_NODE_FILTER_ALL, -1) !=
                           (enum mesh_ui_node_filter)(MESH_UI_NODE_FILTER_COUNT - 1),
                       "a backwards step wraps rather than going negative");
+
+    record_success(test_name);
+}
+
+/*
+ * "Pinned" is what the list draws a star on, and it never draws one on us.
+ *
+ * A radio can carry a stale `is_favorite` on its own NodeDB entry - which the Nodes list already
+ * knows, because it suppresses the star on our own row for exactly that reason, and because
+ * both X and the detail's pin row refuse to toggle it. A filter reading `is_favorite` alone put
+ * our own node under Pinned with no star beside it and no press that could clear it: a row the
+ * reader did not put there and cannot take away.
+ */
+MESH_TEST_CASE(ui_nav_nodes_filter_pinned_never_keeps_our_own_node, unit) {
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.has_my_info = true;
+    handshake.my_info.node_num = 0x1000U;
+    handshake.node_count = 2U;
+    handshake.nodes[0].node_id = 0x1000U; /* us, flagged by the radio's own NodeDB entry */
+    handshake.nodes[0].is_favorite = true;
+    handshake.nodes[0].in_nodedb = true;
+    handshake.nodes[1].node_id = 0x3000U; /* a node the reader actually pinned */
+    handshake.nodes[1].is_favorite = true;
+    handshake.nodes[1].in_nodedb = true;
+
+    MESH_TEST_FAIL_IF(mesh_ui_node_filter_count(&handshake, MESH_UI_NODE_FILTER_PINNED) != 1U,
+                      "our own node is not a pin however the radio has it flagged");
+    const struct mesh_ui_node_summary *only =
+        mesh_ui_node_filter_at(&handshake, MESH_UI_NODE_FILTER_PINNED, 0U);
+    MESH_TEST_FAIL_IF(only == NULL || only->node_id != 0x3000U,
+                      "and the one that is kept is the one the reader pinned");
+
+    /*
+     * And with no MyInfo yet, nothing is ours - which is the honest answer rather than a
+     * convenient one. A roster published before the handshake completes has no node number to
+     * compare against, and guessing would drop a real pin from the list.
+     */
+    handshake.has_my_info = false;
+    MESH_TEST_FAIL_IF(mesh_ui_node_filter_count(&handshake, MESH_UI_NODE_FILTER_PINNED) != 2U,
+                      "before MyInfo lands no row is ours, so both pins stand");
 
     record_success(test_name);
 }
