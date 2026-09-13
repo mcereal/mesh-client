@@ -19,7 +19,7 @@ We follow the [Conventional Commits](https://www.conventionalcommits.org/) speci
 - **feat**: A new feature (triggers a **minor** version bump, e.g., 0.1.0 → 0.2.0)
 - **fix**: A bug fix (triggers a **patch** version bump, e.g., 0.1.0 → 0.1.1)
 - **perf**: A performance improvement (triggers a **patch** version bump)
-- **refactor**: A code change that neither fixes a bug nor adds a feature (triggers a **patch** version bump)
+- **refactor**: A code change that neither fixes a bug nor adds a feature (no release)
 - **docs**: Documentation only changes (no release)
 - **style**: Code style changes (formatting, missing semicolons, etc.) (no release)
 - **test**: Adding or updating tests (no release)
@@ -27,6 +27,18 @@ We follow the [Conventional Commits](https://www.conventionalcommits.org/) speci
 - **ci**: Changes to CI configuration files and scripts (no release)
 - **chore**: Other changes that don't modify src or test files (no release)
 - **revert**: Reverts a previous commit (triggers a **patch** version bump)
+
+`refactor` releases nothing, and that is worth a word because it cut a patch until the cadence
+changed. Under a release per merge it was harmless; under a batch it is a trap, because
+`scripts/pak-changelog.py` excludes `refactor` as internals - so a batch that happened to hold
+only refactors would cut a version whose store entry is empty, which is precisely the failure
+[Store changelog](#store-changelog) exists to prevent. It is still *listed* in the release notes
+when something else carried the release; what it no longer does is be the thing that carries one.
+
+A breaking `refactor!:` is unaffected and still cuts a major. `releaseRules` are not first-match:
+the analyzer collects *every* rule a commit matches and takes the highest release among them
+(`lib/analyze-commit.js`), so the `breaking` rule - which matches whatever the type - outranks
+the `false` on the type's own row.
 
 ### Breaking Changes
 
@@ -85,6 +97,59 @@ Semantic release is configured for these branches:
 - **beta**: Pre-release versions (e.g., `v1.0.0-beta.1`, `v1.0.0-beta.2`)
 - **rc**: Release candidate versions (e.g., `v1.0.0-rc.1`, `v1.0.0-rc.2`)
 
+## Cadence: a release is pressed, not merged
+
+`main` is **not** a push trigger. Merging a pull request publishes nothing. A release is a
+`workflow_dispatch` - **Actions → Semantic Release → Run workflow**, on `main` - with a Sunday
+18:00 UTC cron behind it as the safety net.
+
+That is a correction rather than a preference. Bound to the merge, every pull request was a
+release: sixteen shipped on 2026-09-12, and four days took the client from v2.47 to v2.69. Three
+things that costs, and none of them is the tag itself:
+
+- **The Pak Store nags on every one.** Each stable release rewrites `version` in `pak.json`, and
+  the store compares that against what is installed - so a day of merges is a day of "update
+  available" on somebody's handheld.
+- **The store's changelog window is five entries** (see [Store changelog](#store-changelog)). At
+  a release per merge that covers about eight hours, so the "What's new in vX.Y.Z?" panel
+  describes one pull request instead of a release.
+- **The version stops describing anything.** A minor per feature is a reasonable rule when a
+  release is a batch of work and an inflationary one when it is a commit.
+
+What batching does *not* cost is the development loop, because the loop was never the release:
+`ci.yml` is host-only and does not cross-compile, so a build reaches a Brick through `make brick`
+and always did. Nor does it quieten a banner, because there was none to quieten - the in-client
+updater has no automatic check at all (`mesh_updater_check()` has exactly one caller, the row in
+Settings → About), so what a release per merge was reaching was the store, the watch list and the
+changelog rather than anyone's screen.
+
+The one thing it gives up is a fix sitting merged and unreleased. The cron bounds that at a week,
+and a fix worth shipping today is a dispatch rather than a wait.
+
+### `beta` and `rc` still release on push
+
+Their push triggers are untouched, and they are the built-in answer if a per-merge channel is
+ever wanted by people who want it: merge to `beta` for a prerelease per merge, promote to `main`
+when it is a release. Nothing on that path reaches a user who has not asked for it - `pak.json`
+and `CHANGELOG.md` are skipped for prereleases, so the store cannot see one, and `releases/latest`
+hides them from a client that has not been set to the Prerelease channel in Settings → About.
+
+### One run at a time, per branch
+
+The workflow's `concurrency` group is `semantic-release-${{ github.ref }}` and it **does not
+cancel in progress**. Both halves are load-bearing, and the second is subtler than it reads:
+`cancel-in-progress: false` protects a run that has *started*, while a run still **pending** in
+the group is cancelled by default the moment a newer one queues behind the same busy run. Under
+one literal group that is a push to `beta` discarding the Sunday cron's queued `main` run - an
+unrelated prerelease cancelling the safety net, which is the one failure a safety net may not
+have.
+
+Keyed on the ref, the pair worth serialising still is: a dispatch and the cron are both `main`,
+and they can now land together. What that prevents is two version bumps pushed at one branch tip,
+and a cancelled run leaving a tag published with nothing behind it. A pending duplicate lost
+*within* one branch costs nothing, because the run ahead of it has already released everything
+the second would have found.
+
 ## Workflow
 
 1. Make changes to your code
@@ -93,11 +158,12 @@ Semantic release is configured for these branches:
    git add .
    git commit -m "fix: correct BLE connection timeout handling"
    ```
-3. Push to the appropriate branch:
-   ```bash
-   git push origin main
-   ```
-4. The semantic-release workflow will:
+3. Merge to `main`. **The merge releases nothing** - see
+   [Cadence](#cadence-a-release-is-pressed-not-merged).
+4. Release when you decide there is one: **Actions → Semantic Release → Run workflow**, on
+   `main`. Everything merged since the last tag goes into it, and the Sunday cron does it for
+   you if you forget. (A push to `beta` or `rc` still releases on its own.)
+5. The semantic-release workflow will:
    - Analyze your commits since the last release
    - Determine the next version number
    - Update `CMakeLists.txt` with the new version
@@ -107,7 +173,8 @@ Semantic release is configured for these branches:
    - Create a git tag
    - Create a GitHub release with artifacts
 
-The order of steps 3 and 4 matters. `project(meshclient VERSION ...)` in `CMakeLists.txt` is
+The order *within* that list matters - the version rewrite, and only then the build.
+`project(meshclient VERSION ...)` in `CMakeLists.txt` is
 where the client's own version comes from - it becomes the `MESHCLIENT_VERSION` compile
 definition that `meshclient --version` and the About screen report, and that the in-app updater
 compares against GitHub. A build that ran *before* the rewrite would ship the previous
@@ -289,8 +356,9 @@ does the first time a release forgets it.
 subjects semantic-release turns into the release notes, and `release-build.sh` runs it right
 after the version stamp. **Do not write `changelog` by hand**; a release overwrites its entry.
 
-- Only `feat`, `fix`, `perf`, `revert` and breaking changes are summarised. `refactor` bumps a
-  patch but describes internals, so it stays out along with `docs`, `chore`, `test` and `ci`.
+- Only `feat`, `fix`, `perf`, `revert` and breaking changes are summarised. `refactor` describes
+  internals, so it stays out along with `docs`, `chore`, `test` and `ci` - and for that same
+  reason it no longer triggers a release either.
 - A breaking change is included whatever its type, and leads the entry. Both spellings count:
   `feat(cli)!:` in the header and a `BREAKING CHANGE:` footer, which is what a `refactor` that
   triggers a major release looks like. The footer's own wording is used when it has any, wrapped
@@ -373,10 +441,13 @@ This will create version `1.0.0` (since it's a new feature).
 
 ### No release is created
 
-Check that:
+First: on `main`, **nothing is released by a push**, and that is the expected behaviour rather
+than a fault. Run the workflow from Actions, or wait for the Sunday cron. Then check that:
 - Your commit messages follow the conventional format
-- You're pushing to `main`, `beta`, or `rc` branch
-- The commits include release-worthy types (`feat`, `fix`, `perf`, etc.)
+- You dispatched on `main`, or pushed to `beta` or `rc`
+- The commits include release-worthy types (`feat`, `fix`, `perf`, `revert`, or a breaking
+  change). `refactor`, `docs`, `chore`, `test`, `build` and `ci` release nothing on their own,
+  so a batch holding only those is correctly no release
 
 ### Version not updated in CMakeLists.txt
 
