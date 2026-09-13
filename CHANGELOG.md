@@ -1,3 +1,9 @@
+## [2.69.1](https://github.com/mcereal/mesh-client/compare/v2.69.0...v2.69.1) (2026-09-13)
+
+### Bug Fixes
+
+* **ui:** fill the keyboard's tenth symbol key ([fc42ef4](https://github.com/mcereal/mesh-client/commit/fc42ef40b37dfd6d1b3b086206ea1c88476487f2))
+
 ## [2.69.0](https://github.com/mcereal/mesh-client/compare/v2.68.8...v2.69.0) (2026-09-12)
 
 ### Features
