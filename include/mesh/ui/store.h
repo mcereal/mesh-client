@@ -660,6 +660,42 @@ struct mesh_ui_connection_status {
 #define MESH_UI_CANNED_MESSAGES_MAX 201U
 #define MESH_UI_RINGTONE_MAX 231U
 
+/* How many LoRa regions there are (RegionCode 0..37), which is the width of the table below.
+   A literal on this side of the fence, pinned against the protobuf by a test the same way the
+   two caps above are. */
+#define MESH_UI_REGION_COUNT 38U
+
+/*
+ * What one LoRa region will accept, as the firmware's own table says.
+ *
+ * `presets` is a *set*, one bit per ModemPreset, and 0 is what a region the firmware said
+ * nothing about looks like - not "no preset is legal" but "nothing is known, so constrain
+ * nothing", which is what the proto asks a client to do with a region missing from the map.
+ * Seventeen presets fit in the word with room to spare, and a test says so rather than a
+ * reader having to.
+ */
+struct mesh_ui_region_preset {
+    uint32_t presets;
+    bool licensed_only; /* an amateur band: legal to select, illegal to transmit on unlicensed */
+};
+
+/*
+ * FromRadio.region_presets, unpacked.
+ *
+ * The wire carries it grouped - one entry per distinct preset list, and every region pointing
+ * at one by index - because it has to fit in a single packet. That indirection is a fact about
+ * the packet and stops here: the rows read a region, so the publish boundary resolves the
+ * indices once and hands the UI a table it can index.
+ *
+ * `loaded` is false on a firmware that predates the message, which is not an error state and
+ * must not read as one: every region is then unconstrained and the LoRa rows behave exactly as
+ * they did before this table existed.
+ */
+struct mesh_ui_region_presets {
+    bool loaded;
+    struct mesh_ui_region_preset region[MESH_UI_REGION_COUNT];
+};
+
 struct mesh_ui_settings {
     /* The client's own facts. Always populated, radio or no radio - the About section is the
        one part of this tab that does not need a connection. */
@@ -735,6 +771,12 @@ struct mesh_ui_settings {
     /* LoRaConfig.ignore_incoming, kept full width with 0 for an unused slot: three rows, and
        the write closes the gaps a cleared one leaves the way the admin keys do. */
     uint32_t ignore_incoming[3];
+    /*
+     * Which presets each region will take. Not part of `has_lora` and deliberately outside it:
+     * this is the firmware's table rather than the radio's configuration, it arrives on its own
+     * in the handshake, and it stays useful on a radio that has sent no LoRaConfig yet.
+     */
+    struct mesh_ui_region_presets region_presets;
 
     bool has_bluetooth;
     bool bluetooth_enabled;

@@ -616,6 +616,38 @@ struct mesh_ui_settings_item {
     uint32_t number;                     /* toggle 0/1, enum index, raw number, or key choice */
     char text[MESH_UI_SETTING_TEXT_MAX]; /* TEXT: the raw string; KEY: the key as hex */
     /*
+     * Which values this row will take *right now*, one bit per value - and 0 meaning every
+     * value the kind allows, which is what all but a handful of rows say.
+     *
+     * The kinds whose values are a **set** rather than a range share this, and that is the
+     * point of it being on the item rather than on either kind. A KEY row's set is fixed by the
+     * field table (keep / default / a new random key / none). An ENUM row's may be decided by
+     * another row: the modem presets a LoRa region will take are the firmware's own table, so
+     * the set moves as the region above it is edited, and the row it is read off is built after
+     * that edit rather than before it.
+     *
+     * Left and Right step *within* the set - mesh_ui_settings_choice_step() is the one loop
+     * both kinds walk. What is deliberately not done is hiding a value outside it: the radio's
+     * own setting may be one, and a row that cannot show what the node is set to is worse than
+     * a row showing something it should not be. Such a row says so instead - see `conflict`.
+     */
+    uint32_t choices;
+    /*
+     * The row is showing a value that disagrees with another row's, and the radio will not
+     * honour the pair.
+     *
+     * Not the same thing as an invalid entry, and it is not this client's judgement either:
+     * both callers are the firmware's own table saying so. A modem preset that is not legal in
+     * the selected region is one; a region the firmware marks for licensed operators, on a node
+     * whose owner record does not claim a licence, is the other.
+     *
+     * It never blocks a save. The row is a *warning*, drawn in the marker gutter and the row's
+     * tone, because the pairing can be arrived at honestly - a radio configured somewhere else
+     * arrives holding one - and a screen that refused to save would leave no way to correct the
+     * half the user did not come to change.
+     */
+    bool conflict;
+    /*
      * What this row is *about*, for the leading slot: the cloud on MQTT, the shield on
      * Security. MESH_UI_ICON_NONE on a row that is a setting rather than a subject, which is
      * every row of every section except the one that lists the modules.
@@ -819,6 +851,40 @@ const char *mesh_ui_settings_confirm_accept(enum mesh_ui_settings_action action)
    whether a key of `len` bytes is acceptable for the field. */
 uint32_t mesh_ui_settings_key_choices(enum mesh_ui_setting_field field);
 bool mesh_ui_settings_key_len_ok(enum mesh_ui_setting_field field, size_t len);
+
+/*
+ * The two halves of a row whose values are a set: is this one in it, and what is the next one.
+ *
+ * `choices` is a bitmask over 0..count-1 and 0 means unconstrained, so a caller with nothing to
+ * say passes 0 and gets the plain wrap-around it had before the set existed. Values from
+ * `count` up are never in the set, whatever the mask says, which is what keeps a stale mask
+ * from offering a value the field no longer has.
+ *
+ * step() walks in `delta`'s direction until it finds a value in the set, and answers `current`
+ * when there is no other - a row with one legal value is a row Left and Right do nothing to,
+ * which is the truth rather than a press that silently lands where it started.
+ *
+ * One loop for both kinds that have a set: the modem presets a region will take, and the
+ * choices a KEY row offers. Those were two copies of one modulo walk written out separately,
+ * and only the KEY copy knew what a set was - which is why the enums could offer a value the
+ * rest of their section did not allow, and why making them able to say so is a deletion here
+ * rather than an addition.
+ */
+bool mesh_ui_settings_choice_allowed(uint32_t choices, uint32_t count, uint32_t value);
+uint32_t mesh_ui_settings_choice_step(uint32_t choices, uint32_t count, uint32_t current,
+                                      int delta);
+
+/*
+ * What the firmware says one LoRa region will take, or NULL when it has said nothing about it.
+ *
+ * NULL is the answer for a radio whose firmware predates FromRadio.region_presets, for a region
+ * that firmware left out of the map, and for a region code past the end of the table - three
+ * different silences that all mean "constrain nothing", which is what the proto asks for. A
+ * caller that treated NULL as "no preset is legal" would leave the row unsteppable on exactly
+ * the radios that tell us least.
+ */
+const struct mesh_ui_region_preset *
+mesh_ui_settings_region_preset(const struct mesh_ui_settings *settings, uint32_t region);
 
 /* Keys as text. key_text() is base64, what the Meshtastic apps show and accept, so a key
    read off the Brick can be typed into a phone and vice versa. parse() takes base64 or hex

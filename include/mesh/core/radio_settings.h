@@ -275,6 +275,18 @@ struct mesh_radio_settings {
        the whole Channel back. Never persisted. */
     bool has_channel[MESH_RADIO_SETTINGS_MAX_CHANNELS];
     meshtastic_Channel channels[MESH_RADIO_SETTINGS_MAX_CHANNELS];
+    /*
+     * Which modem presets each LoRa region will take, as the firmware sent it once during the
+     * want_config handshake. The one thing the radio tells us that is not a setting at all: it
+     * describes the *firmware's* table, so nothing here is ever written back.
+     *
+     * Kept whole, in the wire's own grouped form, for the reason `ui_config` is: unpacking it
+     * is the publish boundary's job, and this side has no business holding two shapes of the
+     * same fact. A radio whose firmware predates the message sends none, `has_region_presets`
+     * stays false, and nothing is constrained - which is what the proto asks a client to do.
+     */
+    bool has_region_presets;
+    meshtastic_LoRaRegionPresetMap region_presets;
 
     /* Admin session. */
     bool has_session_passkey;
@@ -340,12 +352,16 @@ void mesh_radio_settings_reset(struct mesh_radio_settings *settings);
 
 /*
  * Clears only the half of this struct that belongs to the *link*: the admin session passkey,
- * the request queue and whatever was in flight, and the write tallies. What the radio told us
- * about itself is left alone.
+ * the request queue and whatever was in flight, the write tallies, and the region preset map.
+ * What the radio told us about itself is otherwise left alone.
  *
  * A passkey is issued per admin session and is worthless once the link ends, so it can never
  * survive one. The config it protects is a different question, and the answer changed: a
  * reconnect to the same radio keeps it (see mesh_session_forget_radio).
+ *
+ * The preset map is on the link's side of that line despite being something the radio said,
+ * because it is the one such thing whose *absence* carries meaning - see the reasoning in the
+ * function.
  */
 void mesh_radio_settings_reset_session(struct mesh_radio_settings *settings);
 
@@ -367,6 +383,10 @@ void mesh_radio_settings_apply_channel(struct mesh_radio_settings *settings,
    is why it has an apply of its own rather than only an admin reply arm. */
 void mesh_radio_settings_apply_ui_config(struct mesh_radio_settings *settings,
                                          const meshtastic_DeviceUIConfig *config);
+/* FromRadio.region_presets, which arrives unasked and only there: there is no admin verb that
+   asks for it, so this is the one way the table is ever held. */
+void mesh_radio_settings_apply_region_presets(struct mesh_radio_settings *settings,
+                                              const meshtastic_LoRaRegionPresetMap *map);
 
 /* Folds an ADMIN_APP packet in: captures the session passkey, stores whatever get_*_response
    it carries, and releases the fetch queue when it answers the pending request. A ROUTING_APP

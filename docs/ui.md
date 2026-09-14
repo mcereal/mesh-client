@@ -1064,6 +1064,19 @@ with `marker_slot` on **every** row and fills `marker_icon` on the ones with som
 The Nodes tab is the caller: a pinned node's star sits between the avatar and the name, which is
 where a fact about the row belongs when the leading slot is already carrying the row's identity.
 
+A settings row has a third thing it can say there, and it takes the gutter ahead of both: a value
+that **disagrees with another row's**, marked with `MESH_UI_ICON_WARNING` and drawn in
+`MESH_UI_TONE_WARNING`. The ordering is the point rather than an accident of the chain - the
+pencil says the row *can* be edited and the dot says it is waiting to be written, and neither is
+worth saying about a value the radio will not honour. Its callers are the LoRa pair: a modem
+preset the selected region will not take, and an amateur band on a node whose owner record claims
+no licence. Both are the firmware's own table saying so, which is why the mark is a warning and
+not a refusal - the pairing can be arrived at honestly, and a screen that blocked the save would
+leave no way to correct the half the reader did not come to change. See
+[`settings-roadmap.md`](settings-roadmap.md) phase 14 item 8, and
+`devtools/ui_capture/scenes/lora-region-presets.scene`, which films a region stepped onto a band
+its preset is not legal in.
+
 The settings root and the Modules list under it are the leading slot's own callers, and they are
 what it was added for: twenty-five rows of prose in two lists where every other list here gives
 the eye a disc or a rune. `mesh_ui_settings_section_icon()` answers what a section is about,

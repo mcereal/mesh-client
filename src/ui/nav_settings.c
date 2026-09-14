@@ -141,12 +141,13 @@ bool mesh_ui_nav_settings_edit_key(struct mesh_ui_nav *nav, const struct mesh_ui
     case MESH_UI_SETTING_FLAG:
         return mesh_ui_nav_edit_set(nav, store, field, item.number != 0U ? 0U : 1U, NULL);
     case MESH_UI_SETTING_ENUM: {
+        /* The set of values is the row's, not the field's: a modem preset's depends on the
+           region row above it, and the row was built after that row's edit. */
         const uint32_t count = mesh_ui_settings_enum_count(field);
-        if (count == 0U) {
+        const uint32_t next = mesh_ui_settings_choice_step(item.choices, count, item.number, delta);
+        if (count == 0U || next == item.number) {
             return false;
         }
-        const uint32_t next =
-            (item.number + count + (uint32_t)(delta < 0 ? count - 1U : 1U)) % count;
         return mesh_ui_nav_edit_set(nav, store, field, next, NULL);
     }
     case MESH_UI_SETTING_NUMBER: {
@@ -162,17 +163,12 @@ bool mesh_ui_nav_settings_edit_key(struct mesh_ui_nav *nav, const struct mesh_ui
             return true;
         }
         {
-            /* Left/Right walk the choices the field offers; a typed key counts as "keep". */
-            const uint32_t allowed = mesh_ui_settings_key_choices(field);
-            uint32_t choice = item.number >= MESH_UI_PSK_TYPED ? 0U : item.number;
-            for (unsigned step = 0; step < (unsigned)MESH_UI_PSK_TYPED; ++step) {
-                choice = (choice + (uint32_t)MESH_UI_PSK_TYPED +
-                          (uint32_t)(delta < 0 ? (unsigned)MESH_UI_PSK_TYPED - 1U : 1U)) %
-                         (uint32_t)MESH_UI_PSK_TYPED;
-                if ((allowed & MESH_UI_PSK_CHOICE_BIT(choice)) != 0U) {
-                    break;
-                }
-            }
+            /* Left/Right walk the choices the row offers - the same walk the enums take, over
+               the same kind of set. A typed key is past the end of the stepped range and counts
+               as "keep", so the walk starts there rather than off the end of it. */
+            const uint32_t current = item.number >= MESH_UI_PSK_TYPED ? 0U : item.number;
+            const uint32_t choice = mesh_ui_settings_choice_step(
+                item.choices, (uint32_t)MESH_UI_PSK_TYPED, current, delta);
             return mesh_ui_nav_edit_set(nav, store, field, choice, NULL);
         }
     case MESH_UI_SETTING_TEXT:
