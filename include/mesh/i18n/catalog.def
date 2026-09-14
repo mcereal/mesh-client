@@ -116,6 +116,10 @@ MESH_STR_ENTRY(ACTION_QUIT,               "quit")
 /* Take the highlighted row as the answer, on a screen that exists to ask one. */
 MESH_STR_ENTRY(ACTION_CHOOSE,             "choose")
 MESH_STR_ENTRY(ACTION_CONFIRM,            "confirm")
+/* The verification sheet's A. Deliberately not "confirm": that word promises the user is
+   agreeing to something this client is about to do, and what this press does is report what
+   they can see on somebody else's screen. */
+MESH_STR_ENTRY(ACTION_ANSWER,             "answer")
 MESH_STR_ENTRY(ACTION_CANCEL,             "cancel")
 /* The d-pad, on the two screens where moving the cursor is the whole interaction. */
 MESH_STR_ENTRY(ACTION_MOVE,               "move")
@@ -832,6 +836,54 @@ MESH_STR_ENTRY(NODE_ACT_WAYPOINT,         "Save this place")
    things a fix is good for: one keeps it and one looks at it. */
 MESH_STR_ENTRY(NODE_ACT_SHOW_ON_MAP,      "Show on map")
 
+/*
+ * Key trust: what the padlock on a direct message is entitled to claim.
+ *
+ * Three states rather than two, and the middle one is the ordinary case: almost every key on a
+ * working mesh arrived over the air from whoever transmitted it, and that is neither a problem
+ * nor an achievement. "Verified" is the one that took work, which is why it is the one that is
+ * marked out. See include/mesh/ui/trust.h.
+ */
+MESH_STR_ENTRY(NODE_KEY_TRUST,            "Key")
+MESH_STR_ENTRY(TRUST_NONE,                "no key held")
+MESH_STR_ENTRY(TRUST_UNVERIFIED,          "not verified")
+MESH_STR_ENTRY(TRUST_VERIFIED,            "verified in person")
+
+/* Start the out-of-band ceremony against this node. The second is the same row on a node whose
+   key is already verified: it is not an error to do it again, and a key that changed is exactly
+   when somebody would want to. */
+MESH_STR_ENTRY(NODE_ACT_VERIFY_KEY,       "Verify this key")
+MESH_STR_ENTRY(NODE_ACT_VERIFY_AGAIN,     "Verify it again")
+/* Hand this node - key included - to the radio, for a node we remember and it has evicted.
+   Says what it does to the radio rather than to our list, because our list already has the
+   node: the whole point is that the radio's does not. Kept under MESH_UI_NODE_LABEL_MAX, which
+   is 20 bytes and cuts silently - "Put back on the radio" arrived as "Put back on the rad". */
+MESH_STR_ENTRY(NODE_ACT_ADD_CONTACT,      "Put back on radio")
+
+/* ---- the key verification sheet ------------------------------------------------------------
+ *
+ * A ceremony rather than a setting: every step happens somewhere the mesh cannot reach, which
+ * is what makes it proof of anything. The wording has one job throughout - to make it obvious
+ * that the number and the characters travel by voice. A translation that lets a reader think
+ * they can be typed into the client and sent has undone the feature.
+ */
+MESH_STR_ENTRY(VERIFY_HEAD_WAITING,       "Verifying %s")
+MESH_STR_ENTRY(VERIFY_BODY_WAITING,       "The two radios are working it out. Whichever of you is asked first will be shown something to read to the other; this comes back when it is your turn.")
+/* The headline on this one is the four digits themselves, drawn large. */
+MESH_STR_ENTRY(VERIFY_VAL_NUMBER,         "%04u")
+MESH_STR_ENTRY(VERIFY_BODY_NUMBER,        "Read these four digits to %s out loud - not over the mesh. Once they have typed them in, you will both be shown a short code to compare.")
+MESH_STR_ENTRY(VERIFY_BODY_COMPARE,       "%s is looking at a code too. Say yours to each other. Answer that they match only if every character does.")
+/* The sheet's two answers, per stage. "Later" leaves the exchange running and gets out of the
+   way; "Stop" ends it. */
+MESH_STR_ENTRY(VERIFY_ANSWER_LATER,       "Later")
+MESH_STR_ENTRY(VERIFY_ANSWER_READING,     "Reading it out")
+MESH_STR_ENTRY(VERIFY_ANSWER_STOP,        "Stop")
+MESH_STR_ENTRY(VERIFY_ANSWER_MATCH,       "They match")
+MESH_STR_ENTRY(VERIFY_ANSWER_DIFFER,      "They do not")
+/* The keyboard prompt that collects the number, on the same terms as the pairing PIN prompt:
+   pushed at the user by the radio rather than opened by a press. */
+MESH_STR_ENTRY(VERIFY_NUMBER_PROMPT,      "Four digits from %s")
+
 /* Value formats. */
 MESH_STR_ENTRY(NODE_VAL_USER_ID_HEX,      "!%08x")
 MESH_STR_ENTRY(NODE_VAL_NUMBER,           "%u")
@@ -1215,6 +1267,15 @@ MESH_STR_ENTRY(HELP_LABEL_NODE_GROUPS,    "Getting around")
 MESH_STR_ENTRY(HELP_NOTE_NODE_GROUPS,     "The rows are grouped into cards. Left and Right jump a card at a time, Up and Down walk the rows inside one, and the shoulders still change tab. A is named only where it does something.")
 MESH_STR_ENTRY(HELP_LABEL_NODE_VERBS,     "Mute, ignore, remove")
 MESH_STR_ENTRY(HELP_NOTE_NODE_VERBS,      "Mute stops this node raising notices here and on the radio. Ignore has the radio drop its packets before we ever see them. Remove drops it from the NodeDB; it returns if the node speaks again.")
+/* What the padlock in a conversation means, and the row that changes it. Two paragraphs because
+   a note is capped at 200 characters, and because they answer two questions: what the mark
+   claims, and what to do about it. The last sentence of the second is the one that matters -
+   reading the code over the mesh would prove nothing, since the mesh is exactly where an
+   impostor would be sitting. */
+MESH_STR_ENTRY(HELP_LABEL_NODE_KEY,       "Key")
+MESH_STR_ENTRY(HELP_NOTE_NODE_KEY,        "A direct message is encrypted to this node's public key, and the padlock beside it says so. It does not say the key is theirs: a key arrives over the air from whoever sent it.")
+MESH_STR_ENTRY(HELP_LABEL_NODE_VERIFY,    "Verifying a key")
+MESH_STR_ENTRY(HELP_NOTE_NODE_VERIFY,     "Verify this key swaps a number and a short code with the other person out loud, by phone or face to face, and marks the key proven if both match. Never read either over the mesh.")
 MESH_STR_ENTRY(HELP_LABEL_NODE_SIGNAL,    "SNR, RSSI and hops")
 MESH_STR_ENTRY(HELP_NOTE_NODE_SIGNAL,     "SNR is how far above the noise a packet arrived, RSSI how loud it was. Only this radio can measure either, so a node more than one hop away reports the last relay's link and gets no bar.")
 MESH_STR_ENTRY(HELP_LABEL_NODE_NEIGHBOURS, "Neighbours and Heard by")
@@ -2161,6 +2222,21 @@ MESH_STR_ENTRY(TOAST_CONVO_MUTED_ON_RADIO, "%.20s is muted on the radio")
 MESH_STR_ENTRY(TOAST_REMOVED_NODE,        "Removed %.14s; back when it speaks")
 MESH_STR_ENTRY(TOAST_REMOVE_SELF,         "That is the radio you are connected to")
 MESH_STR_ENTRY(TOAST_REMOVE_FAILED,       "Remove failed (%d)")
+/* Handing a node we remember back to the radio, key and all. "Sent" rather than "added":
+   the radio's database is small and may be full, and what settles it is the node's next
+   NodeInfo rather than the ack for this request. */
+MESH_STR_ENTRY(TOAST_CONTACT_SENT,        "Sent %.14s to the radio")
+MESH_STR_ENTRY(TOAST_CONTACT_NO_KEY,      "No key held for %.16s")
+MESH_STR_ENTRY(TOAST_CONTACT_FAILED,      "Could not send it (%d)")
+/* The key verification ceremony. The first is what happens after the press - the radios have
+   to reach each other before anything is asked of anybody. */
+MESH_STR_ENTRY(TOAST_VERIFY_STARTED,      "Asking %.16s to verify")
+MESH_STR_ENTRY(TOAST_VERIFY_DONE,         "%.16s verified in person")
+MESH_STR_ENTRY(TOAST_VERIFY_REFUSED,      "%.16s left unverified")
+MESH_STR_ENTRY(TOAST_VERIFY_TIMEOUT,      "%.16s never answered")
+MESH_STR_ENTRY(TOAST_VERIFY_NO_KEY,       "Nothing to verify: no key yet")
+MESH_STR_ENTRY(TOAST_VERIFY_BUSY,         "Already verifying that node")
+MESH_STR_ENTRY(TOAST_VERIFY_FAILED,       "Verification failed (%d)")
 MESH_STR_PLURAL_ENTRY(TOAST_DELETED_MESSAGES, "Deleted %u message from %.16s", "Deleted %u messages from %.16s")
 MESH_STR_ENTRY(TOAST_NOTHING_TO_DELETE,   "Nothing to delete in %.20s")
 MESH_STR_ENTRY(TOAST_TRACING,             "Tracing route to %.20s")

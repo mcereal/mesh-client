@@ -142,6 +142,18 @@ struct mesh_app {
     uint32_t ui_notice_seq_seen;
     uint32_t ui_reboot_notices_seen;
     /*
+     * The key-verification ceremony as the UI last saw it: the `seq` that was published, and
+     * the stage the sheet was opened for.
+     *
+     * Two fields rather than one because they answer two different questions. `seq` says
+     * whether the exchange moved at all, and is what stops a sheet the user pressed "Later" on
+     * from being reopened on the next publish - which happens several times a second. `stage`
+     * says whether it moved to a *different question*, which is when the sheet has to come back
+     * whatever the user did with the last one.
+     */
+    uint32_t ui_verify_seq_seen;
+    uint8_t ui_verify_stage_shown;
+    /*
      * How many nodes the roster held that the radio's NodeDB did not, at the last sync that
      * completed - and the id of that sync, so the comparison happens once per sync rather
      * than once per publish.

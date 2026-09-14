@@ -10,6 +10,7 @@
 #include "mesh/core/radio_settings.h"
 #include "mesh/core/session.h"
 #include "mesh/ui/settings.h"
+#include "mesh/ui/trust.h"
 
 #include <limits.h>
 #include <stdarg.h>
@@ -110,6 +111,12 @@ static const enum mesh_ui_icon k_action_icons[] = {
     [MESH_UI_NODE_ACTION_REMOVE] = MESH_UI_ICON_DELETE,
     [MESH_UI_NODE_ACTION_WAYPOINT] = MESH_UI_ICON_POSITION,
     [MESH_UI_NODE_ACTION_SHOW_ON_MAP] = MESH_UI_ICON_MAP,
+    /* The shield the verified state is drawn with, on the row that gets you there - so the
+       verb and the state it produces are the same mark. */
+    [MESH_UI_NODE_ACTION_VERIFY_KEY] = MESH_UI_ICON_SECURITY,
+    /* The radio, because that is what the row is about: our list already has this node and the
+       radio's does not. */
+    [MESH_UI_NODE_ACTION_ADD_CONTACT] = MESH_UI_ICON_RADIO,
 };
 
 /*
@@ -135,6 +142,11 @@ static const enum mesh_ui_tone k_action_tones[] = {
     [MESH_UI_NODE_ACTION_REMOVE] = MESH_UI_TONE_ERROR,
     [MESH_UI_NODE_ACTION_WAYPOINT] = MESH_UI_TONE_PRIMARY,
     [MESH_UI_NODE_ACTION_SHOW_ON_MAP] = MESH_UI_TONE_PRIMARY,
+    /* Ordinary verbs, both of them. Neither costs anything that cannot be done again, and a
+       warning colour on the row that establishes trust would be saying the opposite of what
+       the row is for. */
+    [MESH_UI_NODE_ACTION_VERIFY_KEY] = MESH_UI_TONE_PRIMARY,
+    [MESH_UI_NODE_ACTION_ADD_CONTACT] = MESH_UI_TONE_PRIMARY,
 };
 
 static enum mesh_ui_icon action_icon(enum mesh_ui_node_action action) {
@@ -407,6 +419,28 @@ static void node_rows_identity(struct node_rows *rows, const struct mesh_ui_node
         char key[MESH_UI_NODE_VALUE_MAX];
         mesh_ui_settings_key_text(node->public_key, node->public_key_len, key, sizeof key);
         rows_text(rows, MESH_STR_NODE_PUBLIC_KEY, key);
+    }
+    /*
+     * And what that key is worth, which the fingerprint above cannot say and which is the whole
+     * of what the padlock in the transcript is claiming.
+     *
+     * Always listed, including for a node we hold no key for - that is the case it answers
+     * best. "No key held" is why a direct message to this node goes out under the channel key
+     * instead, and a row that vanished exactly when the answer was most useful would leave a
+     * reader hunting for a setting that does not exist. The same rule the MQTT proxy row set:
+     * a fact worth knowing is worth a row even when nothing about it can be pressed here.
+     */
+    const enum mesh_ui_key_trust trust = mesh_ui_key_trust_of(node);
+    struct mesh_ui_node_item *const trust_row =
+        rows_info_row(rows, mesh_str(MESH_STR_NODE_KEY_TRUST));
+    if (trust_row != NULL) {
+        snprintf(trust_row->value, sizeof trust_row->value, "%s",
+                 mesh_str(mesh_ui_key_trust_label(trust)));
+        /* The tone and not the mark. This card has no icon column - every fact in it is a
+           label and a value - so a leading icon here would start one row's words in a column of
+           their own. The mark belongs where there is no room for the words: the padlock on a
+           bubble, and the row that opens the ceremony. */
+        trust_row->tone = (uint8_t)mesh_ui_key_trust_tone(trust);
     }
 
     /* One row for the handful of booleans, so a plain node does not carry four "no" rows. */
@@ -1027,6 +1061,32 @@ uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool
             &rows, MESH_STR_NODE_ACT_REMOVE,
             mesh_str(remove_armed ? MESH_STR_NODE_ACT_REMOVE_ARMED : MESH_STR_COMMON_PRESS_A),
             MESH_UI_NODE_ACTION_REMOVE);
+        /*
+         * The two key rows, after everything above because they are the pair that acts on what
+         * the Identity group states rather than on the node's traffic - and because one of them
+         * opens a ceremony involving two people and a telephone, which is not something to land
+         * on by overshooting a cursor.
+         *
+         * Both are gated on holding a key: there is nothing to verify without one and nothing
+         * worth giving the radio, which would build an entry with no key for itself the moment
+         * the node transmitted. "Put back on the radio" is gated again on the radio not already
+         * having it - it is the answer to the "not on the radio" line four rows up, and on a
+         * node the NodeDB still carries it would be a press with nothing to do.
+         */
+        const enum mesh_ui_key_trust key_trust = mesh_ui_key_trust_of(node);
+        if (key_trust != MESH_UI_KEY_TRUST_NONE) {
+            if (!node->in_nodedb) {
+                rows_action(&rows, MESH_STR_NODE_ACT_ADD_CONTACT, mesh_str(MESH_STR_COMMON_PRESS_A),
+                            MESH_UI_NODE_ACTION_ADD_CONTACT);
+            }
+            /* Already verified is not a reason to hide the row. A key that changed is exactly
+               when somebody would want to do it again, and the label says which of the two
+               presses this is so the row is not silently a no-op. */
+            rows_action(&rows,
+                        key_trust == MESH_UI_KEY_TRUST_VERIFIED ? MESH_STR_NODE_ACT_VERIFY_AGAIN
+                                                                : MESH_STR_NODE_ACT_VERIFY_KEY,
+                        mesh_str(MESH_STR_COMMON_PRESS_A), MESH_UI_NODE_ACTION_VERIFY_KEY);
+        }
     }
     /*
      * Outside the block above, because this is the one action our own node has a use for too:

@@ -162,6 +162,10 @@ bool mesh_ui_nav_settings_section_key(struct mesh_ui_nav *nav, const struct mesh
 /* One key while a confirm sheet is up. False when the key was not the sheet's to take. */
 bool mesh_ui_nav_confirm_key(struct mesh_ui_nav *nav, enum mesh_ui_key key,
                              struct mesh_ui_action *action);
+/* One key while the key-verification sheet is up. Reads the stage out of the store, because
+   which answer each button gives depends on what the radio is asking. */
+bool mesh_ui_nav_verify_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                            enum mesh_ui_key key, struct mesh_ui_action *action);
 /* Fills `action` with what an ACTION row - or the confirm sheet standing in front of one -
    is asking for. Most are radio actions; the two forget rows are the client's own. */
 void mesh_ui_nav_fill_settings_action(const struct mesh_ui_nav *nav,

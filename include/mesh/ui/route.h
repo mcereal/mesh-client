@@ -63,6 +63,10 @@ enum mesh_ui_route_level {
     MESH_UI_ROUTE_CONFIRM,  /* the confirmation dialog */
     MESH_UI_ROUTE_REACTION, /* the tapback picker over one message */
     MESH_UI_ROUTE_HELP,     /* what this screen is for, over the screen it explains */
+    /* The key-verification sheet. The same shape as the confirm dialog and not the same place:
+       a confirm is raised by the press underneath it, and this arrives because a radio asked
+       something, from any screen, at any time. */
+    MESH_UI_ROUTE_VERIFY,
     MESH_UI_ROUTE_COUNT
 };
 

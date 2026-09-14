@@ -1,5 +1,6 @@
 #pragma once
 
+#include "mesh/core/key_verification.h"
 #include "mesh/core/message.h"
 #include "mesh/core/radio_settings.h"
 #include "mesh/core/store_forward.h"
@@ -353,6 +354,20 @@ struct mesh_node_summary {
     uint8_t public_key[32];
     uint8_t public_key_len;
     /*
+     * Whether that key has been proven to be this node's, out of band.
+     *
+     * `NodeInfo.is_key_manually_verified`, which the firmware sets when a key-verification
+     * ceremony ends in a yes (mesh/core/key_verification.h) and keeps across its own NodeDB
+     * clean-ups. It is the difference between "the radio encrypted to a key it holds for this
+     * name" and "the radio encrypted to a key somebody confirmed is theirs" - which is the
+     * whole of what the padlock on a direct message is able to claim.
+     *
+     * False for every node until somebody does the work, including one whose key has been on
+     * the mesh for months: unverified is the honest default and a key that arrived over the air
+     * is exactly the one this flag exists to distinguish.
+     */
+    bool key_verified;
+    /*
      * Whether the radio's NodeDB still carries this node. The radio's database is small (80
      * entries on the hardware this client targets) and evicts once it fills, while the roster
      * here outlives both the sync and the connection - so a node can be ours to show and a
@@ -471,6 +486,15 @@ struct mesh_session {
        for the same reason `stats` is. */
     struct mesh_client_notification notification;
     struct mesh_queue_status queue;
+    /*
+     * The key-verification ceremony in progress, if any (mesh/core/key_verification.h).
+     *
+     * Cleared with the handshake, and that is not housekeeping: every step of a ceremony is an
+     * AdminMessage to the radio we are attached to, and the nonce it turns on is one that radio
+     * opened. A link that drops takes the exchange with it, so a sheet left standing across a
+     * reconnect would be asking the user to answer a question nothing is listening for.
+     */
+    struct mesh_key_verification verification;
     /* Counts the times the radio has told us it restarted (FromRadio.rebooted) on this link.
        A reboot invalidates everything the config sync told us, so the session re-runs the
        handshake; the counter is what lets the UI say it happened rather than silently
@@ -635,6 +659,56 @@ int mesh_session_toggle_node_muted(struct mesh_session *session, uint32_t node_i
  * queue is full.
  */
 int mesh_session_remove_node(struct mesh_session *session, uint32_t node_id);
+
+/*
+ * Puts a node we remember into the radio's NodeDB, public key and all (`add_contact`).
+ *
+ * This is the verb the Nodes tab has been describing without being able to do anything about.
+ * The radio's database is small - eighty entries on the hardware this client targets - and it
+ * evicts, while the roster here holds 256 and outlives the connection; so a node can be ours to
+ * show and a stranger to the radio, which is what the "off radio" row says and why a direct
+ * message to it has no key to travel with. We still hold that key. Handing it back is a
+ * request, not a rediscovery.
+ *
+ * The contact is built from our own record: the node number, the names, the id, the hardware
+ * and role, the public key, and `manually_verified` from the verified bit - so a key that was
+ * proven out of band stays proven rather than arriving at the radio as a stranger's. There is
+ * no read-back; the node's next NodeInfo is what confirms it landed.
+ *
+ * Returns the number of admin requests queued, -ENOTCONN before the handshake has my_info,
+ * -ENOENT when the node is not in the roster, -EINVAL for our own node or for a record with no
+ * public key, -ENOSPC when the queue is full.
+ */
+int mesh_session_add_contact(struct mesh_session *session, uint32_t node_id);
+
+/*
+ * The key-verification ceremony (mesh/core/key_verification.h). Four entry points, one per
+ * thing the user can do, each queueing the matching admin step behind a passkey refresh.
+ *
+ * `begin` starts one against a node; `provide_number` hands over the four digits the other
+ * person read out; `settle` answers the comparison with a yes or a no and ends the exchange
+ * either way. All three return the number of admin requests queued, -ENOTCONN without a link,
+ * -ENOENT for a node the roster does not have, -EINVAL for our own node or a node with no
+ * public key to verify, -EBUSY when a step for that node is already in flight, or -ENOSPC.
+ *
+ * `settle(true)` also flips our own cached verified bit, the way the favorite and ignore
+ * presses flip theirs: the radio's own answer is the node's next NodeInfo, which on a quiet
+ * mesh is hours away, and a row that still read "not verified" after the ceremony the user had
+ * just completed would be the client disagreeing with itself.
+ */
+int mesh_session_verify_key_begin(struct mesh_session *session, uint32_t node_id);
+int mesh_session_verify_key_number(struct mesh_session *session, uint32_t number);
+int mesh_session_verify_key_settle(struct mesh_session *session, bool verified);
+
+/*
+ * Expires a ceremony nothing has moved for MESH_KEY_VERIFICATION_TIMEOUT_SECONDS, and tells
+ * the radio to stand its own end down. Returns true when it took one, with `out` (may be NULL)
+ * receiving the exchange so the caller can name the node in a notice.
+ */
+bool mesh_session_verify_key_tick(struct mesh_session *session, struct mesh_key_verification *out);
+
+/* The ceremony in progress, or a record with `stage` IDLE when there is none. */
+const struct mesh_key_verification *mesh_session_verification(const struct mesh_session *session);
 
 /*
  * Drops entries from our own roster and asks the radio for nothing. The counterpart to a

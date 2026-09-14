@@ -1006,6 +1006,99 @@ void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *action) 
         mesh_ui_store_set_toast(&app->ui_store, now, mesh_str(MESH_STR_TOAST_PAIRING_CANCELLED));
         return;
     }
+    case MESH_UI_ACTION_ADD_CONTACT: {
+        char name[MESH_UI_NAV_TARGET_NAME_MAX];
+        mesh_app_format_peer_name(mesh_session_handshake(&app->session), action->dest, name,
+                                  sizeof name);
+        const int result = mesh_session_add_contact(&app->session, action->dest);
+        if (result > 0) {
+            /* "Sent", not "added": the radio's database may be full, and what settles whether
+               the entry landed is this node's next NodeInfo rather than the ack for this
+               request. Claiming the row early would promise an encrypted direct message that
+               may still have nothing to encrypt with. */
+            mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_CONTACT_SENT, name);
+            mesh_log_info("ui", "Added node 0x%08x to the NodeDB from the Nodes tab", action->dest);
+        } else if (result == -ENOTCONN) {
+            snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_NOT_CONNECTED));
+        } else if (result == -ENOENT) {
+            snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_NODE_GONE));
+        } else if (result == -EINVAL) {
+            /* The one thing this verb cannot do without, said as the reason rather than as a
+               refusal: an entry with no key is what the radio would build for itself. */
+            mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_CONTACT_NO_KEY, name);
+        } else {
+            mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_CONTACT_FAILED, result);
+            mesh_log_warn("ui", "Add contact for 0x%08x failed: %d", action->dest, result);
+        }
+        mesh_ui_store_set_toast(&app->ui_store, now, toast);
+        return;
+    }
+    case MESH_UI_ACTION_VERIFY_KEY: {
+        char name[MESH_UI_NAV_TARGET_NAME_MAX];
+        mesh_app_format_peer_name(mesh_session_handshake(&app->session), action->dest, name,
+                                  sizeof name);
+        const int result = mesh_session_verify_key_begin(&app->session, action->dest);
+        if (result > 0) {
+            /* Said as what happens next rather than as "started": the two radios have to reach
+               each other before anything is asked of anybody, and on a mesh that is seconds at
+               best. The sheet arrives on its own when there is something to answer. */
+            mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_VERIFY_STARTED, name);
+        } else if (result == -ENOTCONN) {
+            snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_NOT_CONNECTED));
+        } else if (result == -ENOENT) {
+            snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_NODE_GONE));
+        } else if (result == -EINVAL) {
+            snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_VERIFY_NO_KEY));
+        } else if (result == -EBUSY) {
+            snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_VERIFY_BUSY));
+        } else {
+            mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_VERIFY_FAILED, result);
+            mesh_log_warn("ui", "Key verification with 0x%08x failed to start: %d", action->dest,
+                          result);
+        }
+        mesh_ui_store_set_toast(&app->ui_store, now, toast);
+        return;
+    }
+    case MESH_UI_ACTION_VERIFY_NUMBER: {
+        const unsigned long value = strtoul(action->text, NULL, 10);
+        const int result = mesh_session_verify_key_number(&app->session, (uint32_t)value);
+        if (result >= 0) {
+            /* Nothing to announce: the radios now finish the handshake and the sheet comes
+               back with the characters to compare, which is a better answer than a toast. */
+            return;
+        }
+        if (result == -ENOTCONN) {
+            snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_NOT_CONNECTED));
+        } else {
+            mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_VERIFY_FAILED, result);
+            mesh_log_warn("ui", "Security number rejected: %d", result);
+        }
+        mesh_ui_store_set_toast(&app->ui_store, now, toast);
+        return;
+    }
+    case MESH_UI_ACTION_VERIFY_ANSWER: {
+        const bool verified = (action->number != 0U);
+        /* The name is read before the answer, because answering ends the exchange and takes
+           the name with it. */
+        char name[MESH_UI_NAV_TARGET_NAME_MAX];
+        const struct mesh_key_verification *const live = mesh_session_verification(&app->session);
+        (void)mesh_str_copy(name, sizeof name,
+                            live->remote_name[0] != '\0' ? live->remote_name
+                                                         : mesh_str(MESH_STR_COMMON_UNKNOWN));
+        const int result = mesh_session_verify_key_settle(&app->session, verified);
+        if (result < 0 && result != -ENOTCONN) {
+            mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_VERIFY_FAILED, result);
+            mesh_log_warn("ui", "Key verification answer rejected: %d", result);
+        } else if (result == -ENOTCONN) {
+            snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_NOT_CONNECTED));
+        } else {
+            mesh_str_format(toast, sizeof toast,
+                            verified ? MESH_STR_TOAST_VERIFY_DONE : MESH_STR_TOAST_VERIFY_REFUSED,
+                            name);
+        }
+        mesh_ui_store_set_toast(&app->ui_store, now, toast);
+        return;
+    }
     case MESH_UI_ACTION_CYCLE_UPDATE_CHANNEL: {
         /* Steps DEFAULT -> STABLE -> PRERELEASE -> DEFAULT. Saved immediately rather than
            collected as a pending edit: About has no Y-save, because there is no radio write

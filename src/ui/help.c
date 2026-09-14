@@ -102,6 +102,12 @@ static const struct mesh_ui_help_entry k_help_node[] = {
     {MESH_STR_NONE, MESH_STR_HELP_NOTE_NODE},
     {MESH_STR_HELP_LABEL_NODE_GROUPS, MESH_STR_HELP_NOTE_NODE_GROUPS},
     {MESH_STR_HELP_LABEL_NODE_VERBS, MESH_STR_HELP_NOTE_NODE_VERBS},
+    /* Above the readings rather than among them, because it is the one paragraph on this screen
+       that explains something drawn on a *different* screen: the padlock in the transcript. The
+       verification sheet itself has no topic, for the reason the confirm dialog has none - a
+       panel asking the user a question is not a place to open an explanation over. */
+    {MESH_STR_HELP_LABEL_NODE_KEY, MESH_STR_HELP_NOTE_NODE_KEY},
+    {MESH_STR_HELP_LABEL_NODE_VERIFY, MESH_STR_HELP_NOTE_NODE_VERIFY},
     {MESH_STR_HELP_LABEL_NODE_SIGNAL, MESH_STR_HELP_NOTE_NODE_SIGNAL},
     {MESH_STR_HELP_LABEL_NODE_FIX, MESH_STR_HELP_NOTE_NODE_FIX},
     {MESH_STR_HELP_LABEL_NODE_TREND, MESH_STR_HELP_NOTE_NODE_TREND},

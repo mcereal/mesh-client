@@ -1,0 +1,107 @@
+# Key trust: what the padlock on a direct message is entitled to claim, and the ceremony that
+# lets it claim more.
+#
+# Three things to watch, in the order they appear:
+#
+#   1. The transcript. Foxtrot Mobile's key is unverified, so its direct message carries the
+#      padlock it always did. Then the same bubble with the key proven - the mark becomes a
+#      shield, which is a shape rather than a hue, because at this size two tints of one glyph
+#      are not a difference a thumb-held screen can carry. Nothing about the older message is
+#      re-drawn: it was always encrypted to that key, and what moved is whether anybody has
+#      established whose it is.
+#   2. Bravo Creek's detail, with its key proven and the radio's own database having lost it.
+#      The Identity card ends with Key - the fingerprint, and under it the word for what that
+#      fingerprint is worth, in the one ink on this screen that is a judgement rather than a
+#      reading. The two rows that change it sit last under Actions, after everything that acts
+#      on the node's traffic: "Put back on radio" appears only for a node the radio has
+#      forgotten, which is that row's whole job.
+#   3. The sheet, at each of its stages. Every one of them keeps a paragraph, and that is not
+#      decoration: what makes this ceremony proof of anything is that the number and the code
+#      travel by voice, and the paragraph is the only thing on the panel that says so.
+
+scene demo
+scale 4
+delay 200
+clock 2025-06-14 14:05
+
+# ---- the padlock, before and after ----------------------------------------------------------
+
+tab messages
+key down 3
+key a
+hold 1600
+
+verified FXTR
+hold 2000
+
+key b
+hold 500
+
+# ---- the rows behind the mark ---------------------------------------------------------------
+
+verified BRVO
+offradio BRVO
+tab nodes
+key down 4
+key a
+hold 1200
+
+# Down through the action rows to the two that are about the key. They are last because one of
+# them opens a ceremony involving two people and a telephone, and that is not something to land
+# on by overshooting a cursor.
+key down 10
+hold 1800
+
+# And into Identity, where the fingerprint and the word for it sit at the end of the card.
+key down 5
+hold 2000
+
+key b
+hold 500
+
+# ---- the ceremony ----------------------------------------------------------------------------
+
+# Asked, and the two radios are working it out. "Later" gets out of the way without ending
+# anything; the sheet comes back when the radio next asks for something.
+verify waiting BRVO
+hold 2200
+
+# The end that did *not* start it is shown four digits to read out loud. The digits are the
+# headline, drawn at the panel's largest, because they are the whole of what this screen is for.
+verify show BRVO
+hold 2400
+
+# The end that did start it types what it heard. A keyboard rather than a sheet - it is the one
+# stage that collects something - and the same prompt shape the BLE pairing PIN uses, for the
+# same reason: the radio asked, in the middle of whatever the user was doing. Four digits and no
+# more; the counter says so and the fifth keypress does nothing.
+verify enter BRVO
+hold 1600
+key right 3
+key a
+key right
+key a
+key right
+key a
+key right
+key a
+# A fifth keypress on a field the radio only ever generates four digits for: the counter stays
+# at 4/4 and nothing is appended, because a number refused where it is typed beats one the radio
+# will not match.
+key right
+key a
+hold 1800
+
+# Both ends now show the same short code. Both answers are answers here, and the fill says which
+# one A would press.
+verify compare BRVO
+hold 2400
+key right
+hold 1800
+
+# And on the palette with one accent and no held-back version of it, where the two answers
+# cannot be told apart by hue - which is why the fill moves instead of being shared.
+theme contrast
+hold 2000
+theme light
+hold 2000

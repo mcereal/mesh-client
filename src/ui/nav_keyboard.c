@@ -64,11 +64,15 @@ const char *mesh_ui_kb_action_label(const struct mesh_ui_nav *nav, enum mesh_ui_
     case MESH_UI_KB_ACTION_SEND:
         /* "Send" only when something goes to a person. A settings field is finished, and so is
            a waypoint's name - the place is shared by the app afterwards, not by this key - and
-           so is an address, which is a link brought up rather than anything put on the air. */
-        return mesh_str((nav != NULL && (nav->keyboard_field != MESH_UI_FIELD_NONE ||
-                                         nav->keyboard_waypoint || nav->keyboard_network))
-                            ? MESH_STR_KEY_DONE
-                            : MESH_STR_KEY_SEND);
+           so is an address, which is a link brought up rather than anything put on the air. A
+           security number is the sharpest case of the same rule: it goes to the radio in the
+           user's hand, and a keycap saying "Send" over four digits the whole ceremony depends
+           on staying off the mesh would be teaching exactly the wrong thing. */
+        return mesh_str(
+            (nav != NULL && (nav->keyboard_field != MESH_UI_FIELD_NONE || nav->keyboard_waypoint ||
+                             nav->keyboard_network || nav->keyboard_verify))
+                ? MESH_STR_KEY_DONE
+                : MESH_STR_KEY_SEND);
     case MESH_UI_KB_ACTION_CANCEL:
         return mesh_str(MESH_STR_KEY_CANCEL);
     default:
@@ -85,6 +89,11 @@ size_t mesh_ui_nav_draft_cap(const struct mesh_ui_nav *nav) {
     if (nav->keyboard_passkey) {
         /* A seventh digit could only ever be a passkey BlueZ rejects out of range. */
         return MESH_UI_PASSKEY_DIGITS;
+    }
+    if (nav->keyboard_verify) {
+        /* The firmware generates exactly four; a fifth is a mistype, and refusing it where it
+           is typed beats sending a number the radio will not match. */
+        return MESH_UI_VERIFY_DIGITS_MAX;
     }
     if (nav->keyboard_field != MESH_UI_FIELD_NONE) {
         const uint32_t cap =
@@ -137,8 +146,9 @@ void mesh_ui_nav_keyboard_close(struct mesh_ui_nav *nav) {
     nav->kb_row = 0U;
     nav->kb_col = 0U;
     nav->kb_layer = MESH_UI_KB_LOWER;
-    if (nav->keyboard_passkey) {
+    if (nav->keyboard_passkey || nav->keyboard_verify) {
         nav->keyboard_passkey = false;
+        nav->keyboard_verify = false;
         nav->pairing_confirm = false;
         nav->pairing_label[0] = '\0';
         snprintf(nav->draft, sizeof nav->draft, "%s", nav->draft_saved);
@@ -294,6 +304,52 @@ static bool mesh_ui_nav_submit_passkey(struct mesh_ui_nav *nav, struct mesh_ui_a
     return true;
 }
 
+/*
+ * Send on the security-number prompt. Digits only, for the passkey prompt's reason: the
+ * keyboard has letters on it and nothing but the four digits means anything to the radio.
+ *
+ * Short of four is refused rather than sent. Unlike a pairing PIN - where a wrong answer costs
+ * another thirty seconds of BlueZ and a second chance is expensive - a half-typed security
+ * number costs the *ceremony*: the firmware answers a wrong one by failing the verification,
+ * and the two people would have to start again from the beginning.
+ */
+static bool mesh_ui_nav_submit_verify_number(struct mesh_ui_nav *nav,
+                                             struct mesh_ui_action *action) {
+    char digits[MESH_UI_VERIFY_DIGITS_MAX + 1U];
+    size_t len = 0U;
+    for (const char *c = nav->draft; *c != '\0' && len < MESH_UI_VERIFY_DIGITS_MAX; ++c) {
+        if (*c >= '0' && *c <= '9') {
+            digits[len++] = *c;
+        }
+    }
+    digits[len] = '\0';
+    if (len < MESH_UI_VERIFY_DIGITS_MAX) {
+        return false; /* not a number yet; leave the prompt up */
+    }
+    if (action != NULL) {
+        action->type = MESH_UI_ACTION_VERIFY_NUMBER;
+        snprintf(action->text, sizeof action->text, "%s", digits);
+    }
+    nav->draft[0] = '\0';
+    mesh_ui_nav_keyboard_close(nav);
+    return true;
+}
+
+/* Cancel on the security-number prompt, and B with nothing left to delete. It stands the
+   ceremony down at this end, which is the honest reading of "I am not typing that": the other
+   person is holding a number up waiting, and leaving the exchange open would leave them there
+   until the radio's own timeout. */
+static bool mesh_ui_nav_cancel_verify_number(struct mesh_ui_nav *nav,
+                                             struct mesh_ui_action *action) {
+    if (action != NULL) {
+        action->type = MESH_UI_ACTION_VERIFY_ANSWER;
+        action->number = 0U;
+    }
+    nav->draft[0] = '\0';
+    mesh_ui_nav_keyboard_close(nav);
+    return true;
+}
+
 /* Cancel on the PIN prompt, and B with nothing left to delete: the bond is abandoned. */
 static bool mesh_ui_nav_cancel_passkey(struct mesh_ui_nav *nav, struct mesh_ui_action *action) {
     if (action != NULL) {
@@ -307,10 +363,13 @@ static bool mesh_ui_nav_cancel_passkey(struct mesh_ui_nav *nav, struct mesh_ui_a
 bool mesh_ui_nav_keyboard_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                               enum mesh_ui_key key, struct mesh_ui_action *action) {
     const bool for_passkey = nav->keyboard_passkey;
-    const bool for_setting = (!for_passkey && nav->keyboard_field != MESH_UI_FIELD_NONE);
-    const bool for_waypoint = (!for_passkey && !for_setting && nav->keyboard_waypoint);
+    const bool for_verify = (!for_passkey && nav->keyboard_verify);
+    const bool for_setting =
+        (!for_passkey && !for_verify && nav->keyboard_field != MESH_UI_FIELD_NONE);
+    const bool for_waypoint =
+        (!for_passkey && !for_verify && !for_setting && nav->keyboard_waypoint);
     const bool for_network =
-        (!for_passkey && !for_setting && !for_waypoint && nav->keyboard_network);
+        (!for_passkey && !for_verify && !for_setting && !for_waypoint && nav->keyboard_network);
     switch (key) {
     case MESH_UI_KEY_UP:
     case MESH_UI_KEY_DOWN: {
@@ -369,6 +428,9 @@ bool mesh_ui_nav_keyboard_key(struct mesh_ui_nav *nav, const struct mesh_ui_stor
             if (for_passkey) {
                 return mesh_ui_nav_submit_passkey(nav, action);
             }
+            if (for_verify) {
+                return mesh_ui_nav_submit_verify_number(nav, action);
+            }
             if (for_setting) {
                 return mesh_ui_nav_settings_commit_text(nav, store);
             }
@@ -380,6 +442,9 @@ bool mesh_ui_nav_keyboard_key(struct mesh_ui_nav *nav, const struct mesh_ui_stor
         case MESH_UI_KB_ACTION_CANCEL:
             if (for_passkey) {
                 return mesh_ui_nav_cancel_passkey(nav, action);
+            }
+            if (for_verify) {
+                return mesh_ui_nav_cancel_verify_number(nav, action);
             }
             nav->draft[0] = '\0';
             mesh_ui_nav_keyboard_close(nav);
@@ -397,6 +462,9 @@ bool mesh_ui_nav_keyboard_key(struct mesh_ui_nav *nav, const struct mesh_ui_stor
             if (for_passkey) {
                 return mesh_ui_nav_cancel_passkey(nav, action);
             }
+            if (for_verify) {
+                return mesh_ui_nav_cancel_verify_number(nav, action);
+            }
             mesh_ui_nav_keyboard_close(nav);
             return true;
         }
@@ -411,6 +479,9 @@ bool mesh_ui_nav_keyboard_key(struct mesh_ui_nav *nav, const struct mesh_ui_stor
     case MESH_UI_KEY_START:
         if (for_passkey) {
             return mesh_ui_nav_submit_passkey(nav, action);
+        }
+        if (for_verify) {
+            return mesh_ui_nav_submit_verify_number(nav, action);
         }
         if (for_setting) {
             return mesh_ui_nav_settings_commit_text(nav, store);
