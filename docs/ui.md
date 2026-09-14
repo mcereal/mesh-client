@@ -809,6 +809,20 @@ mask instead of its value — fixed so it does not leak the length — while the
 on the real text. That is the KEY rows' rule exactly: redacted where it is read over somebody's
 shoulder, revealed in the one place you went to change it.
 
+The general rule under that one: **`item->value` is what the row draws and `item->text` is what
+the keyboard opens on**, and they are allowed to differ. The second caller for that is
+`field_unit()` beside it — LoRa's `Override frequency` is megahertz and the `Frequency trim`
+directly below it is hertz, so the value column reads "906.8750 MHz" while the text stays
+"906.8750" for the keyboard and the parser. Both are predicates rather than columns in
+`k_fields`: what they change is how the row is drawn, not what the field is.
+
+A typed number that is really a decimal — a coordinate, a frequency, a trim — goes through
+`mesh_ui_settings_decimal_text()` / `_parse()` with the number of places its field holds
+(`MESH_UI_COORD_DIGITS`, `MESH_UI_FREQUENCY_DIGITS`, `MESH_UI_HERTZ_DIGITS`). Digit by digit
+rather than through a `double`, because the wire wants an exact number of places; a fraction
+finer than the field holds is refused rather than dropped, so a frequency-slot row cannot read
+"12.5" as 12 and say nothing about it.
+
 ## The framebuffer backend
 
 ### The three layers
@@ -1363,6 +1377,10 @@ the switch is the only one of the three that also makes sense on its own.
 `make ui-capture ARGS="devtools/ui_capture/scenes/position-flags.scene -o flags.gif"` films the
 checkbox column with the switches four rows above it, which is the comparison that says what the
 two shapes mean.
+
+`devtools/ui_capture/scenes/lora-advanced.scene` is the other half of the same argument one
+section over: three groups under three headings, where the rows are typed rather than stepped
+and the last group's press puts a sheet in front of itself.
 
 The **checkbox's** caller is the Settings tab's flag rows (kind `MESH_UI_SETTING_FLAG`): the ten
 bits of `PositionConfig.position_flags`, which are a set of booleans held in one word. That is

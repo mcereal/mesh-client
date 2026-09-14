@@ -755,6 +755,20 @@ int mesh_session_set_fixed_position(struct mesh_session *session, int32_t latitu
 int mesh_session_clear_fixed_position(struct mesh_session *session);
 
 /*
+ * Licensed-operator mode: `set_ham_mode`, which the firmware reads as one instruction over
+ * three things - the owner's names, the primary channel's key and LoRa's frequency and power.
+ *
+ * An action rather than a write, so nothing is read back and the caller follows it with a
+ * refresh. The short name goes out as the radio's own; a `frequency` of 0 is a mode with no
+ * band, which the firmware will take and which nothing here can second-guess for it.
+ *
+ * Returns the number of admin requests queued, -EINVAL without a call sign, -ENOTCONN before
+ * the handshake has my_info, -EBUSY when one is already queued, -ENOSPC when the queue is full.
+ */
+int mesh_session_set_ham_mode(struct mesh_session *session, const char *call_sign, float frequency,
+                              int32_t tx_power);
+
+/*
  * Adds or removes a node from the radio's ignore list. Same shape and same caveat as
  * favorite: there is no get_ignored, so the cached flag is flipped here rather than waiting
  * for the node's next NodeInfo - which for a node you are ignoring precisely because it is

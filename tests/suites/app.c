@@ -1130,7 +1130,7 @@ MESH_TEST_CASE(app_lora_security_write_build, unit) {
     struct mesh_ui_settings_item item;
     MESH_TEST_FAIL_IF(
         mesh_ui_settings_item_count(&settings, NULL, MESH_UI_SETTINGS_LORA,
-                                    MESH_UI_SETTINGS_NO_CHANNEL) != 11U ||
+                                    MESH_UI_SETTINGS_NO_CHANNEL) != 26U ||
             !mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_LORA,
                                    MESH_UI_SETTINGS_NO_CHANNEL, 0U, &item) ||
             item.field != MESH_UI_FIELD_LORA_REGION || strcmp(item.value, "US") != 0 ||
@@ -2960,6 +2960,76 @@ cleanup:
  * user pressed reads back correctly and the nine they did not are quietly cleared. So both
  * directions are checked, on a word that starts with some bits set and some clear.
  */
+/*
+ * LoRa's advanced rows on the way out: three numbers typed as text, two toggles, and the
+ * repeated ignore list compacted the way a cleared admin key is.
+ *
+ * The compaction is the half worth a test. A repeated field with a hole in the middle is a
+ * list the firmware reads as shorter than it is, so emptying the *first* of three slots has to
+ * leave the other two in place rather than truncating the field at the gap.
+ */
+MESH_TEST_CASE(app_lora_advanced_write_build, unit) {
+    struct mesh_radio_settings radio;
+    mesh_radio_settings_reset(&radio);
+    radio.has_lora = true;
+    radio.lora.region = meshtastic_Config_LoRaConfig_RegionCode_US;
+    radio.lora.hop_limit = 3U;
+    radio.lora.ignore_incoming_count = 3U;
+    radio.lora.ignore_incoming[0] = 0x11111111U;
+    radio.lora.ignore_incoming[1] = 0x22222222U;
+    radio.lora.ignore_incoming[2] = 0x33333333U;
+
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    action.type = MESH_UI_ACTION_SAVE_SETTINGS;
+    action.section = MESH_UI_SETTINGS_LORA;
+    action.edit_count = 5U;
+    action.edits[0].field = MESH_UI_FIELD_LORA_BOOST_GAIN;
+    action.edits[0].number = 1U;
+    action.edits[1].field = MESH_UI_FIELD_LORA_CHANNEL_NUM;
+    snprintf(action.edits[1].text, sizeof action.edits[1].text, "%s", "42");
+    action.edits[2].field = MESH_UI_FIELD_LORA_OVERRIDE_FREQ;
+    snprintf(action.edits[2].text, sizeof action.edits[2].text, "%s", "906.875");
+    action.edits[3].field = MESH_UI_FIELD_LORA_FREQUENCY_TRIM;
+    snprintf(action.edits[3].text, sizeof action.edits[3].text, "%s", "-12.5");
+    /* The first slot emptied: the two behind it move up rather than being cut off. */
+    action.edits[4].field = MESH_UI_FIELD_LORA_IGNORE_NODE_0;
+    action.edits[4].text[0] = '\0';
+
+    struct mesh_admin_request write;
+    const meshtastic_Config_LoRaConfig *lora = &write.payload.config.payload_variant.lora;
+    MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+                          !lora->sx126x_rx_boosted_gain || lora->channel_num != 42U ||
+                          lora->override_frequency != 906.875f ||
+                          lora->frequency_offset != -12.5f || lora->ignore_incoming_count != 2U ||
+                          lora->ignore_incoming[0] != 0x22222222U ||
+                          lora->ignore_incoming[1] != 0x33333333U || lora->ignore_incoming[2] != 0U,
+                      "the advanced rows should write, and an emptied ignore slot should close up");
+
+    /* A typed value the radio would not take is refused here rather than sent: the toast the
+       caller draws for -EINVAL is the only thing that would say a frequency was nonsense. */
+    memset(&action.edits[0], 0, sizeof action.edits[0]);
+    action.edit_count = 1U;
+    action.edits[0].field = MESH_UI_FIELD_LORA_OVERRIDE_FREQ;
+    snprintf(action.edits[0].text, sizeof action.edits[0].text, "%s", "906.8 MHz");
+    MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != -EINVAL,
+                      "a frequency that is not a number should be refused");
+    action.edits[0].field = MESH_UI_FIELD_LORA_CHANNEL_NUM;
+    snprintf(action.edits[0].text, sizeof action.edits[0].text, "%s", "12.5");
+    MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != -EINVAL,
+                      "half a frequency slot is not a frequency slot");
+
+    /*
+     * And a ham row never reaches the section's write at all: it is filed under its own
+     * consumer, so Y carrying one would be a press writing something it was not asked to.
+     */
+    action.edits[0].field = MESH_UI_FIELD_LORA_HAM_CALL_SIGN;
+    snprintf(action.edits[0].text, sizeof action.edits[0].text, "%s", "KD2ABC");
+    MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != 0,
+                      "a ham row in the edit list belongs to another press and is skipped");
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(radio_settings_write_sets_one_position_flag, unit) {
     struct mesh_radio_settings radio;
     mesh_radio_settings_reset(&radio);
@@ -2999,7 +3069,8 @@ MESH_TEST_CASE(radio_settings_write_preserves_unshown_fields, unit) {
     action.type = MESH_UI_ACTION_SAVE_SETTINGS;
     struct mesh_admin_request write;
 
-    /* LoRa: the HAM and advanced group, none of which has a row. */
+    /* LoRa: the advanced group, which now has rows and is edited by none of them here - and
+       pa_fan_disabled, which has no row at all. */
     radio.has_lora = true;
     radio.lora.hop_limit = 3U;
     radio.lora.override_frequency = 906.875f;

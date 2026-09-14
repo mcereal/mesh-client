@@ -1384,3 +1384,125 @@ cleanup:
         record_success(test_name);
     }
 }
+
+/*
+ * Ham mode from the nav's side: the call sign is typed, A on the row asks first, and the
+ * answer carries the three rows the verb reads.
+ *
+ * The sheet is the difference from the fixed-position pair above and the reason this is its own
+ * case: setting a location is undone by setting another one, and turning the primary channel's
+ * encryption off is not undone by pressing the row again.
+ *
+ * The other half is the consumer split, which is what lets a ham row and a LoRa row sit in one
+ * section: Y must leave the call sign pending and the ham press must leave the hop limit.
+ */
+MESH_TEST_CASE(ui_nav_ham_mode, unit) {
+    const char *failure = NULL;
+
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_lora = true;
+    settings.region = 1U;
+    settings.hop_limit = 3U;
+    mesh_ui_store_set_settings(&store, &settings);
+
+    struct mesh_ui_settings_item item;
+    const uint32_t count = mesh_ui_settings_item_count(
+        &store.settings, &store.handshake, MESH_UI_SETTINGS_LORA, MESH_UI_SETTINGS_NO_CHANNEL);
+    uint32_t call_sign_row = count;
+    uint32_t ham_row = count;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
+                                   MESH_UI_SETTINGS_LORA, MESH_UI_SETTINGS_NO_CHANNEL, i, &item)) {
+            break;
+        }
+        if (item.field == MESH_UI_FIELD_LORA_HAM_CALL_SIGN) {
+            call_sign_row = i;
+        }
+        if (item.kind == MESH_UI_SETTING_ACTION &&
+            item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_SET_HAM_MODE) {
+            ham_row = i;
+        }
+    }
+    if (call_sign_row >= count || ham_row >= count) {
+        failure = "the LoRa section is missing its ham rows";
+        goto cleanup;
+    }
+
+    struct mesh_ui_action action;
+    (void)mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS);
+    mesh_test_settings_open(&store, MESH_UI_SETTINGS_LORA);
+    if (!mesh_test_settings_cursor_to(&store, call_sign_row)) {
+        failure = "the cursor should reach the call sign row";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (!store.nav.keyboard_open ||
+        store.nav.keyboard_field != (uint8_t)MESH_UI_FIELD_LORA_HAM_CALL_SIGN) {
+        failure = "A on the call sign row should open the keyboard on it";
+        goto cleanup;
+    }
+    snprintf(store.nav.draft, sizeof store.nav.draft, "%s", "KD2ABC");
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
+    if (store.nav.settings_edit_count != 1U ||
+        store.nav.settings_edits[0].field != MESH_UI_FIELD_LORA_HAM_CALL_SIGN) {
+        failure = "the typed call sign should be recorded as a pending edit";
+        goto cleanup;
+    }
+
+    if (!mesh_test_settings_cursor_to(&store, ham_row)) {
+        failure = "the cursor should reach the ham mode row";
+        goto cleanup;
+    }
+    memset(&action, 0, sizeof action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (!store.nav.confirm_open || action.type == MESH_UI_ACTION_RADIO_ACTION) {
+        failure = "A on the ham row should open the sheet rather than act";
+        goto cleanup;
+    }
+    /* Cancel is where the cursor starts, so the answer has to be moved to on purpose. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    memset(&action, 0, sizeof action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (action.type != MESH_UI_ACTION_RADIO_ACTION ||
+        action.number != (uint32_t)MESH_UI_SETTINGS_ACTION_SET_HAM_MODE ||
+        action.section != MESH_UI_SETTINGS_LORA || action.edit_count != 1U ||
+        strcmp(action.edits[0].text, "KD2ABC") != 0) {
+        failure = "the answer should carry the ham rows the verb reads";
+        goto cleanup;
+    }
+
+    /* And the two presses leave each other's work alone. */
+    if (!mesh_test_settings_cursor_to(&store, 6U)) {
+        failure = "the cursor should reach the hop limit row";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    if (store.nav.settings_edit_count != 2U) {
+        failure = "the hop limit should record an edit beside the call sign";
+        goto cleanup;
+    }
+    mesh_ui_store_settings_edits_consumed(&store, MESH_UI_SETTING_CONSUMER_SECTION);
+    if (store.nav.settings_edit_count != 1U ||
+        store.nav.settings_edits[0].field != MESH_UI_FIELD_LORA_HAM_CALL_SIGN) {
+        failure = "a LoRa save should leave the call sign pending";
+        goto cleanup;
+    }
+    mesh_ui_store_settings_edits_consumed(&store, MESH_UI_SETTING_CONSUMER_HAM_MODE);
+    if (store.nav.settings_edit_count != 0U) {
+        failure = "the ham press should consume the call sign";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+        return;
+    }
+    record_success(test_name);
+}

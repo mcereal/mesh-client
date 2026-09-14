@@ -1152,6 +1152,16 @@ MESH_STR_ENTRY(SETTINGS_NOTE_LORA_PRESET,                 "A named trade of rang
 MESH_STR_ENTRY(SETTINGS_NOTE_LORA_TX_ENABLED,             "Whether this radio may transmit at all. Off leaves it listening: it hears the mesh and repeats nothing, which is the setting for a band you are not licensed on.")
 MESH_STR_ENTRY(SETTINGS_NOTE_LORA_IGNORE_MQTT,            "Drops packets that reached this radio from an internet gateway rather than over the air. It is how a local mesh keeps a busy broker off its own band.")
 MESH_STR_ENTRY(SETTINGS_NOTE_LORA_OK_TO_MQTT,             "Lets gateways forward this radio's traffic to the internet. It is a request rather than a guarantee - it asks other people's gateways to respect it, and they may not.")
+MESH_STR_ENTRY(SETTINGS_NOTE_LORA_BOOST_GAIN,             "Turns on the receiver's extra gain stage on radios that have one. It hears weaker signals for a little more current, and does nothing on a radio without the chip.")
+MESH_STR_ENTRY(SETTINGS_NOTE_LORA_OVERRIDE_DUTY,          "Ignores the airtime limit your region sets in law. It is for a bench and for bands with no such limit; leaving it on where the limit applies is your responsibility.")
+MESH_STR_ENTRY(SETTINGS_NOTE_LORA_CHANNEL_NUM,            "Which numbered slot of the region's band this radio sits on. At 0 the radio works it out from the primary channel's name, which is what puts two radios sharing a channel on one frequency.")
+MESH_STR_ENTRY(SETTINGS_NOTE_LORA_OVERRIDE_FREQ,          "Transmits on this exact frequency in MHz instead of a slot, and 0 goes back to the slot above. Off your band plan this is illegal without a licence.")
+MESH_STR_ENTRY(SETTINGS_NOTE_LORA_FREQUENCY_TRIM,         "Corrects this radio's own crystal error, in hertz. It is a calibration rather than another frequency, and 0 is right unless something measured says otherwise.")
+MESH_STR_ENTRY(SETTINGS_NOTE_LORA_IGNORE_NODES,           "Up to three nodes whose packets this radio drops as though they were out of range. Not the Nodes tab's Ignore, which hides a node the radio still relays for.")
+MESH_STR_ENTRY(SETTINGS_NOTE_LORA_HAM_CALL_SIGN,          "Your licensed call sign, which becomes this node's name on the mesh. Ham mode is only legal for the operator it names, and the row below it is what sends it.")
+MESH_STR_ENTRY(SETTINGS_NOTE_LORA_HAM_FREQUENCY,          "The amateur-band frequency in MHz this radio moves to. Your licence and your country's band plan decide what belongs here; nothing in this client can check it.")
+MESH_STR_ENTRY(SETTINGS_NOTE_LORA_HAM_TX_POWER,           "How hard the radio transmits once in ham mode, in dBm. Amateur allowances are usually higher than the unlicensed ones, and the radio's own maximum still applies.")
+MESH_STR_ENTRY(SETTINGS_NOTE_LORA_HAM_ACTION,             "Hands the radio the three rows above as one licensed-operator switch. Leaving ham mode is two rows rather than a press: User > Licensed operator off, and Override frequency back to 0.")
 
 /* Security. The admin keys are phase 2's, above. */
 MESH_STR_ENTRY(SETTINGS_NOTE_SECURITY_PRIVATE_KEY,        "This radio's identity: what direct messages to it are encrypted against. Replacing it makes this a different node to everyone who has met it, and each has to learn it again.")
@@ -1465,6 +1475,22 @@ MESH_STR_ENTRY(SETTINGS_FIELD_LORA_TX_ENABLED,            "Transmit")
 MESH_STR_ENTRY(SETTINGS_FIELD_LORA_TX_POWER,              "TX power")
 MESH_STR_ENTRY(SETTINGS_FIELD_LORA_IGNORE_MQTT,           "Ignore MQTT")
 MESH_STR_ENTRY(SETTINGS_FIELD_LORA_OK_TO_MQTT,            "OK to MQTT")
+MESH_STR_ENTRY(SETTINGS_FIELD_LORA_BOOST_GAIN,            "Boosted RX gain")
+MESH_STR_ENTRY(SETTINGS_FIELD_LORA_OVERRIDE_DUTY,         "Override duty cycle")
+/* A "frequency slot" is the numbered channel inside the region's band; the radio works it out
+   from the primary channel's name when the row reads 0. */
+MESH_STR_ENTRY(SETTINGS_FIELD_LORA_CHANNEL_NUM,           "Frequency slot")
+MESH_STR_ENTRY(SETTINGS_FIELD_LORA_OVERRIDE_FREQ,         "Override frequency")
+/* "Trim" is a correction to the radio's own crystal error, in hertz - not another frequency. */
+MESH_STR_ENTRY(SETTINGS_FIELD_LORA_FREQUENCY_TRIM,        "Frequency trim")
+MESH_STR_ENTRY(SETTINGS_FIELD_LORA_IGNORE_NODE_0,         "Ignored sender 1")
+MESH_STR_ENTRY(SETTINGS_FIELD_LORA_IGNORE_NODE_1,         "Ignored sender 2")
+MESH_STR_ENTRY(SETTINGS_FIELD_LORA_IGNORE_NODE_2,         "Ignored sender 3")
+/* Amateur radio. A call sign is an assigned identifier and is never translated; "ham" names
+   the operators rather than the band, and most languages borrow the word. */
+MESH_STR_ENTRY(SETTINGS_FIELD_LORA_HAM_CALL_SIGN,         "Call sign")
+MESH_STR_ENTRY(SETTINGS_FIELD_LORA_HAM_FREQUENCY,         "Ham frequency")
+MESH_STR_ENTRY(SETTINGS_FIELD_LORA_HAM_TX_POWER,          "Ham TX power")
 MESH_STR_ENTRY(SETTINGS_FIELD_SECURITY_PRIVATE_KEY,       "Private key")
 MESH_STR_ENTRY(SETTINGS_FIELD_SECURITY_ADMIN_KEY_0,       "Admin key 1")
 MESH_STR_ENTRY(SETTINGS_FIELD_SECURITY_ADMIN_KEY_1,       "Admin key 2")
@@ -1654,6 +1680,10 @@ MESH_STR_ENTRY(ENUM_TAK_ROLE_K9,          "K9")
 MESH_STR_ENTRY(VALUE_HOURS,               "%uh")
 MESH_STR_ENTRY(VALUE_MINUTES,             "%um")
 MESH_STR_ENTRY(VALUE_SECONDS,             "%us")
+/* A typed frequency with its unit after it. Two rows of LoRa sit next to each other in
+   megahertz and hertz, and the bare numbers say nothing about which is which. */
+MESH_STR_ENTRY(VALUE_MEGAHERTZ,           "%s MHz")
+MESH_STR_ENTRY(VALUE_HERTZ,               "%s Hz")
 MESH_STR_ENTRY(VALUE_MILLISECONDS,        "%ums")
 /* A NUMBER row whose 0 means nothing in particular - a plain zero rather than "off". */
 MESH_STR_ENTRY(VALUE_ZERO,                "0")
@@ -1867,6 +1897,7 @@ MESH_STR_ENTRY(SETTINGS_PROXY_VIA_CLIENT, "Proxy via client")
 MESH_STR_ENTRY(SETTINGS_FIXED_POSITION,   "Fixed position")
 MESH_STR_ENTRY(SETTINGS_SET_FIXED_POS,    "Set fixed position")
 MESH_STR_ENTRY(SETTINGS_CLEAR_FIXED_POS,  "Clear fixed position")
+MESH_STR_ENTRY(SETTINGS_SET_HAM_MODE,     "Switch to ham mode")
 MESH_STR_ENTRY(SETTINGS_CHANNELS_ROW,     "Channels")
 MESH_STR_ENTRY(SETTINGS_ROLE_ROW,         "Role")
 MESH_STR_ENTRY(SETTINGS_PUBLIC_KEY_ROW,   "Public key")
@@ -1895,6 +1926,10 @@ MESH_STR_ENTRY(NETWORK_UDP_BROADCAST,     "UDP broadcast")
 /* The heading over the four static rows, which are only drawn when the mode is Static - under
    DHCP they are whatever was last typed into a phone and say nothing about this radio. */
 MESH_STR_ENTRY(HEAD_NETWORK_STATIC,       "Static address")
+/* The three groups LoRa gained with its advanced rows. "Ham mode" is amateur radio. */
+MESH_STR_ENTRY(HEAD_LORA_ADVANCED,        "Advanced")
+MESH_STR_ENTRY(HEAD_LORA_IGNORED,         "Ignored senders")
+MESH_STR_ENTRY(HEAD_LORA_HAM,             "Ham mode")
 MESH_STR_ENTRY(ENUM_ADDRESS_DHCP,         "DHCP")
 MESH_STR_ENTRY(ENUM_ADDRESS_STATIC,       "Static")
 /* What the radio defaults to when ntp_server is empty, named rather than left blank because a
@@ -1980,6 +2015,7 @@ MESH_STR_ENTRY(CONFIRM_TITLE_FACTORY_DEV, "Factory reset everything?")
 MESH_STR_ENTRY(CONFIRM_TITLE_BACKUP,      "Back up the configuration?")
 MESH_STR_ENTRY(CONFIRM_TITLE_RESTORE,     "Restore the configuration?")
 MESH_STR_ENTRY(CONFIRM_TITLE_RM_BACKUP,   "Delete the backup?")
+MESH_STR_ENTRY(CONFIRM_TITLE_HAM_MODE,    "Switch to ham mode?")
 MESH_STR_ENTRY(CONFIRM_TITLE_FW_USB,      "Update the radio over USB?")
 MESH_STR_ENTRY(CONFIRM_TITLE_FW_BLE,      "Update the radio over Bluetooth?")
 MESH_STR_ENTRY(CONFIRM_TITLE_SAVE_CHANNEL,"Save channel %u?")
@@ -1997,6 +2033,7 @@ MESH_STR_ENTRY(CONFIRM_ACCEPT_FACTORY_DEV,"Factory reset device")
 MESH_STR_ENTRY(CONFIRM_ACCEPT_BACKUP,     "Back up")
 MESH_STR_ENTRY(CONFIRM_ACCEPT_RESTORE,    "Restore")
 MESH_STR_ENTRY(CONFIRM_ACCEPT_RM_BACKUP,  "Delete backup")
+MESH_STR_ENTRY(CONFIRM_ACCEPT_HAM_MODE,   "Switch to ham mode")
 MESH_STR_ENTRY(CONFIRM_ACCEPT_FW_USB,     "Update over USB")
 MESH_STR_ENTRY(CONFIRM_ACCEPT_FW_BLE,     "Update over Bluetooth")
 MESH_STR_ENTRY(CONFIRM_ACCEPT_SAVE,       "Save to radio")
@@ -2023,6 +2060,7 @@ MESH_STR_ENTRY(CONFIRM_TEXT_CHANNELS,     "The radio will reboot. A new key or n
 MESH_STR_ENTRY(CONFIRM_TEXT_LORA,         "The radio will reboot. A region or preset the other nodes do not share takes this radio off the mesh, and a wrong region may be illegal to transmit on. Transmit off makes it receive-only.")
 MESH_STR_ENTRY(CONFIRM_TEXT_SECURITY,     "A new private key changes this node's identity: peers must learn it again and old direct messages stay unreadable. Managed mode locks out every client whose key is not an admin key, this one included.")
 MESH_STR_ENTRY(CONFIRM_TEXT_POWER,        "The radio will reboot. Power saving puts the radio to sleep between packets, and a short light-sleep or wake time can leave too little Bluetooth on for this client to reconnect on its own.")
+MESH_STR_ENTRY(CONFIRM_TEXT_HAM_MODE,     "Renames this node to your call sign, moves it to the frequency above and turns the primary channel's encryption off. Licensed operators only.")
 /*
  * The two firmware sheets, and they are two sheets rather than one with a noun swapped,
  * because what is actually true differs. Over USB the worst case is a board sitting in its
@@ -2347,6 +2385,11 @@ MESH_STR_ENTRY(TOAST_NEED_COORDS,         "Set a latitude and longitude first")
 MESH_STR_ENTRY(TOAST_WORKING_ELLIPSIS,    "%s...")
 MESH_STR_ENTRY(TOAST_CLEARING_FIXED_POS,  "Clearing fixed position")
 MESH_STR_ENTRY(TOAST_PINNING_POSITION,    "Pinning position")
+/* Ham mode, which is a press rather than a section save: nothing is read back, so the toast
+   says what was asked for. %s is the call sign. */
+MESH_STR_ENTRY(TOAST_HAM_BAD_FREQUENCY,   "Ham frequency must be a number in MHz")
+MESH_STR_ENTRY(TOAST_HAM_NEED_CALL_SIGN,  "Enter your call sign first")
+MESH_STR_ENTRY(TOAST_HAM_SWITCHING,       "Switching to ham mode as %s...")
 MESH_STR_ENTRY(TOAST_NOT_CONNECTED_KEPT,  "Not connected to a node; edits kept")
 MESH_STR_ENTRY(TOAST_NOT_ON_EARTH,        "That is not a place on Earth")
 MESH_STR_ENTRY(TOAST_FAILED_KEPT,         "Failed (%d); edits kept")

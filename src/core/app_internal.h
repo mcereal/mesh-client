@@ -60,6 +60,22 @@ void mesh_app_save_settings(struct mesh_app *app, const struct mesh_ui_action *a
 void mesh_app_save_fixed_position(struct mesh_app *app, const struct mesh_ui_action *action,
                                   uint64_t now);
 
+/* The ham-mode press, which is a set_ham_mode rather than a config section: it reads the call
+   sign, frequency and power rows the way the fixed-position row reads the coordinates. */
+void mesh_app_save_ham_mode(struct mesh_app *app, const struct mesh_ui_action *action,
+                            uint64_t now);
+
+/*
+ * A protobuf float <-> the fixed-point integer the UI holds and types.
+ *
+ * The two halves of one decision and so declared together: a frequency crosses this fence
+ * twice, out through app_publish.c and back through app_settings.c, and a rounding done
+ * differently at the two ends is a row that reads back a hair off whatever was typed into it.
+ * `digits` is one of the MESH_UI_*_DIGITS constants in mesh/ui/settings.h.
+ */
+int64_t mesh_app_scale_float(float value, uint32_t digits);
+float mesh_app_unscale_float(int64_t scaled, uint32_t digits);
+
 /* Announces the outcome of an in-flight save once - the ack, the rejection, or the radio
    dropping the link mid-write. Called from the publish path, which is where the radio's write
    counters become visible. */

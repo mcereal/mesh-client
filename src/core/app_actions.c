@@ -368,6 +368,12 @@ void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *action) 
             mesh_app_save_fixed_position(app, action, now);
             return;
         }
+        /* Ham mode is the same shape one step further along: a row that reads the three above
+           it, announced like a save, and the only one of them behind the confirm sheet. */
+        if ((enum mesh_ui_settings_action)action->number == MESH_UI_SETTINGS_ACTION_SET_HAM_MODE) {
+            mesh_app_save_ham_mode(app, action, now);
+            return;
+        }
         /*
          * Asking a Store & Forward router for what we missed. Not an AdminMessage at all - it
          * is a packet to another node on the mesh - so it leaves before the admin queue below,

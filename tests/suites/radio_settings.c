@@ -1248,3 +1248,81 @@ MESH_TEST_CASE(radio_settings_ota_request_golden, unit) {
                       "and the request follows carrying its hash, uncounted as a save");
     record_success(test_name);
 }
+
+/*
+ * set_ham_mode: queued behind a passkey like every action, carrying its payload, and counted
+ * as an action rather than as a save.
+ *
+ * The last of those is the one worth pinning. It changes three sections at once - the owner's
+ * names, the primary channel's key and LoRaConfig's frequency - so there is no section a
+ * read-back could ask for, and a client that counted it as a write would wait for an answer
+ * that describes none of what moved.
+ */
+MESH_TEST_CASE(radio_settings_ham_mode, unit) {
+    struct mesh_radio_settings settings;
+    mesh_radio_settings_reset(&settings);
+
+    meshtastic_HamParameters ham = meshtastic_HamParameters_init_zero;
+    snprintf(ham.call_sign, sizeof ham.call_sign, "%s", "KD2ABC");
+    ham.frequency = 906.875f;
+    ham.tx_power = 27;
+
+    MESH_TEST_FAIL_IF(mesh_admin_request_is_write(MESH_ADMIN_SET_HAM_MODE) ||
+                          !mesh_admin_request_is_action(MESH_ADMIN_SET_HAM_MODE),
+                      "ham mode is an action, not a save with a section behind it");
+
+    meshtastic_HamParameters nameless = ham;
+    nameless.call_sign[0] = '\0';
+    MESH_TEST_FAIL_IF(mesh_radio_settings_queue_ham_mode(&settings, &nameless) != -EINVAL ||
+                          mesh_radio_settings_queue_ham_mode(&settings, NULL) != -EINVAL,
+                      "a call sign is the whole of what makes this legal and is not optional");
+
+    MESH_TEST_FAIL_IF(mesh_radio_settings_queue_ham_mode(&settings, &ham) != 2 ||
+                          mesh_radio_settings_queue_ham_mode(&settings, &ham) != -EBUSY,
+                      "one ham request behind a passkey refresh, and a second is refused");
+    MESH_TEST_FAIL_IF(mesh_radio_settings_queue_action(&settings, MESH_ADMIN_SET_HAM_MODE, 0U) !=
+                          -EINVAL,
+                      "queue_action has nowhere to put the call sign");
+
+    struct mesh_admin_request next;
+    MESH_TEST_FAIL_IF(!mesh_radio_settings_next_request(&settings, 1000U, &next) ||
+                          next.kind != MESH_ADMIN_GET_OWNER,
+                      "the passkey refresh goes first");
+    mesh_radio_settings_mark_sent(&settings, 77U, 1000U);
+    MESH_TEST_FAIL_IF(!mesh_radio_settings_next_request(
+                          &settings, 1000U + MESH_RADIO_SETTINGS_REPLY_TIMEOUT_MS + 1U, &next) ||
+                          next.kind != MESH_ADMIN_SET_HAM_MODE ||
+                          strcmp(next.payload.ham.call_sign, "KD2ABC") != 0 ||
+                          next.payload.ham.frequency != 906.875f || settings.pending_is_write,
+                      "and the verb follows carrying its parameters, uncounted as a save");
+
+    /* And on the wire it is a set_ham_mode, refused outright without the call sign rather than
+       sent for the firmware to read as "rename this node to nothing". */
+    uint8_t buffer[512];
+    size_t written = 0U;
+    next.my_node = 0x12345678U;
+    next.packet_id = 78U;
+    MESH_TEST_FAIL_IF(
+        mesh_radio_settings_encode_request(&settings, &next, buffer, sizeof buffer, &written) != 0,
+        "the set_ham_mode should encode");
+    meshtastic_ToRadio to_radio = meshtastic_ToRadio_init_default;
+    pb_istream_t in = pb_istream_from_buffer(buffer, written);
+    meshtastic_AdminMessage admin = meshtastic_AdminMessage_init_default;
+    pb_istream_t admin_in;
+    MESH_TEST_FAIL_IF(!pb_decode(&in, meshtastic_ToRadio_fields, &to_radio) ||
+                          to_radio.packet.decoded.portnum != meshtastic_PortNum_ADMIN_APP,
+                      "it should be an ADMIN_APP packet");
+    admin_in = pb_istream_from_buffer(to_radio.packet.decoded.payload.bytes,
+                                      to_radio.packet.decoded.payload.size);
+    MESH_TEST_FAIL_IF(!pb_decode(&admin_in, meshtastic_AdminMessage_fields, &admin) ||
+                          admin.which_payload_variant != meshtastic_AdminMessage_set_ham_mode_tag ||
+                          strcmp(admin.set_ham_mode.call_sign, "KD2ABC") != 0 ||
+                          admin.set_ham_mode.tx_power != 27,
+                      "the AdminMessage should be a set_ham_mode carrying what was typed");
+
+    next.payload.ham.call_sign[0] = '\0';
+    MESH_TEST_FAIL_IF(mesh_radio_settings_encode_request(&settings, &next, buffer, sizeof buffer,
+                                                         &written) != -EINVAL,
+                      "a ham request with no call sign would rename the node to nothing");
+    record_success(test_name);
+}

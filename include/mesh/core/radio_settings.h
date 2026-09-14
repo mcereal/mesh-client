@@ -75,6 +75,18 @@ enum mesh_admin_request_kind {
        get_config POSITION, which is why `type` carries the ConfigType. */
     MESH_ADMIN_SET_FIXED_POSITION,    /* payload.position */
     MESH_ADMIN_REMOVE_FIXED_POSITION, /* no payload */
+    /*
+     * Licensed-operator mode: a call sign, a frequency and a power, in one verb.
+     *
+     * An *action* rather than a write, which is the same call the backup trio got and for the
+     * same reason: what it changes is three things this client keeps in three different places
+     * - the owner's names, the primary channel's key and LoRaConfig's frequency and power - so
+     * there is no one section to read back, and the caller follows it with a refresh.
+     *
+     * There is no verb for leaving. The firmware offers none, and the way out is the two rows
+     * that made it: the owner's `is_licensed` off and `override_frequency` back to 0.
+     */
+    MESH_ADMIN_SET_HAM_MODE, /* payload.ham */
     /* NodeDB entries, addressed by node number in `type`, alongside the favorite and ignore
        pair above. */
     MESH_ADMIN_REMOVE_NODE,  /* drop this node from the radio's NodeDB */
@@ -158,6 +170,7 @@ struct mesh_admin_request {
         uint8_t ota_hash[MESH_ADMIN_OTA_HASH_LEN];        /* MESH_ADMIN_OTA_REQUEST */
         meshtastic_SharedContact contact;                 /* MESH_ADMIN_ADD_CONTACT */
         meshtastic_KeyVerificationAdmin key_verification; /* MESH_ADMIN_KEY_VERIFICATION */
+        meshtastic_HamParameters ham;                     /* MESH_ADMIN_SET_HAM_MODE */
     } payload;
 };
 
@@ -459,7 +472,9 @@ size_t mesh_radio_settings_cancel_key_verification(struct mesh_radio_settings *s
 /* Queues one radio action, the same shape again: a get_owner for a fresh passkey (the firmware
    rejects these without one exactly as it rejects a set_*), then the action itself. `seconds`
    is the delay for MESH_ADMIN_REBOOT and MESH_ADMIN_SHUTDOWN and is ignored by the resets.
-   Returns the number of requests queued, -EINVAL for a kind that is not an action, -ENOSPC
+   Returns the number of requests queued, -EINVAL for a kind that is not an action or is one of
+   the two that carry a payload (an ota_request and a set_ham_mode, each of which has its own
+   queue call that insists on what it carries), -ENOSPC
    when the queue cannot take both. A second press before the first has gone out is the same
    request and is not queued twice. */
 int mesh_radio_settings_queue_action(struct mesh_radio_settings *settings,
@@ -469,6 +484,13 @@ int mesh_radio_settings_queue_action(struct mesh_radio_settings *settings,
    get_owner for the passkey like every action. Returns the number of requests queued, -EINVAL
    for a missing or all-zero hash, -EBUSY when one is already queued (a second press must not
    quietly swap the hash the loader will hold the radio to), -ENOSPC when the queue is full. */
+/* Queues a set_ham_mode behind a get_owner for the passkey, like every action. Returns the
+   number of requests queued, -EINVAL without a call sign (which is the whole of what makes the
+   mode legal), -EBUSY when one is already queued, -ENOSPC when the queue is full. Nothing is
+   read back: the caller follows it with a refresh, because what it moved is three sections. */
+int mesh_radio_settings_queue_ham_mode(struct mesh_radio_settings *settings,
+                                       const meshtastic_HamParameters *ham);
+
 int mesh_radio_settings_queue_ota(struct mesh_radio_settings *settings,
                                   const uint8_t hash[MESH_ADMIN_OTA_HASH_LEN]);
 

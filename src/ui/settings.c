@@ -1288,6 +1288,67 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                                        MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_LORA, 0U, NULL,
                                        NO_PRESETS, MESH_STR_NONE, NULL, 0U,
                                        MESH_STR_SETTINGS_NOTE_LORA_OK_TO_MQTT},
+    [MESH_UI_FIELD_LORA_BOOST_GAIN] = {MESH_STR_SETTINGS_FIELD_LORA_BOOST_GAIN,
+                                       MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_LORA, 0U, NULL,
+                                       NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                       MESH_STR_SETTINGS_NOTE_LORA_BOOST_GAIN},
+    [MESH_UI_FIELD_LORA_OVERRIDE_DUTY] = {MESH_STR_SETTINGS_FIELD_LORA_OVERRIDE_DUTY,
+                                          MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_LORA, 0U, NULL,
+                                          NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                          MESH_STR_SETTINGS_NOTE_LORA_OVERRIDE_DUTY},
+    /* The three typed numbers. TEXT rather than NUMBER because none of them has presets worth
+       stepping: every slot of a region's band is as likely as every other, and a frequency has
+       more values than a d-pad has patience. */
+    [MESH_UI_FIELD_LORA_CHANNEL_NUM] = {MESH_STR_SETTINGS_FIELD_LORA_CHANNEL_NUM,
+                                        MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_LORA,
+                                        MESH_UI_TEXT_LIMIT_LORA_CHANNEL_NUM, NULL, NO_PRESETS,
+                                        MESH_STR_NONE, NULL, 0U,
+                                        MESH_STR_SETTINGS_NOTE_LORA_CHANNEL_NUM},
+    [MESH_UI_FIELD_LORA_OVERRIDE_FREQ] = {MESH_STR_SETTINGS_FIELD_LORA_OVERRIDE_FREQ,
+                                          MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_LORA,
+                                          MESH_UI_TEXT_LIMIT_LORA_OVERRIDE_FREQ, NULL, NO_PRESETS,
+                                          MESH_STR_NONE, NULL, 0U,
+                                          MESH_STR_SETTINGS_NOTE_LORA_OVERRIDE_FREQ},
+    [MESH_UI_FIELD_LORA_FREQUENCY_TRIM] = {MESH_STR_SETTINGS_FIELD_LORA_FREQUENCY_TRIM,
+                                           MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_LORA,
+                                           MESH_UI_TEXT_LIMIT_LORA_FREQUENCY_TRIM, NULL, NO_PRESETS,
+                                           MESH_STR_NONE, NULL, 0U,
+                                           MESH_STR_SETTINGS_NOTE_LORA_FREQUENCY_TRIM},
+    /* Three slots of one repeated field, and the note is on the first of them alone: what
+       makes them worth explaining is that they are not the Nodes tab's Ignore, which is one
+       sentence about the group rather than three about the rows - and a paragraph repeated
+       under three labels is three help entries saying the same thing, which is the collision
+       help_note_labels_are_unique_in_a_section refuses. */
+    [MESH_UI_FIELD_LORA_IGNORE_NODE_0] = {MESH_STR_SETTINGS_FIELD_LORA_IGNORE_NODE_0,
+                                          MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_LORA,
+                                          MESH_UI_TEXT_LIMIT_LORA_IGNORE_NODE_0, NULL, NO_PRESETS,
+                                          MESH_STR_NONE, NULL, 0U,
+                                          MESH_STR_SETTINGS_NOTE_LORA_IGNORE_NODES},
+    [MESH_UI_FIELD_LORA_IGNORE_NODE_1] = {MESH_STR_SETTINGS_FIELD_LORA_IGNORE_NODE_1,
+                                          MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_LORA,
+                                          MESH_UI_TEXT_LIMIT_LORA_IGNORE_NODE_1, NULL, NO_PRESETS,
+                                          MESH_STR_NONE, NULL, 0U, MESH_STR_NONE},
+    [MESH_UI_FIELD_LORA_IGNORE_NODE_2] = {MESH_STR_SETTINGS_FIELD_LORA_IGNORE_NODE_2,
+                                          MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_LORA,
+                                          MESH_UI_TEXT_LIMIT_LORA_IGNORE_NODE_2, NULL, NO_PRESETS,
+                                          MESH_STR_NONE, NULL, 0U, MESH_STR_NONE},
+    /* Ham mode's three. The power row shares the LoRa row's presets, because it is the same
+       quantity written by a different verb. */
+    [MESH_UI_FIELD_LORA_HAM_CALL_SIGN] = {MESH_STR_SETTINGS_FIELD_LORA_HAM_CALL_SIGN,
+                                          MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_LORA,
+                                          MESH_UI_TEXT_LIMIT_LORA_HAM_CALL_SIGN, NULL, NO_PRESETS,
+                                          MESH_STR_NONE, NULL, 0U,
+                                          MESH_STR_SETTINGS_NOTE_LORA_HAM_CALL_SIGN},
+    [MESH_UI_FIELD_LORA_HAM_FREQUENCY] = {MESH_STR_SETTINGS_FIELD_LORA_HAM_FREQUENCY,
+                                          MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_LORA,
+                                          MESH_UI_TEXT_LIMIT_LORA_HAM_FREQUENCY, NULL, NO_PRESETS,
+                                          MESH_STR_NONE, NULL, 0U,
+                                          MESH_STR_SETTINGS_NOTE_LORA_HAM_FREQUENCY},
+    [MESH_UI_FIELD_LORA_HAM_TX_POWER] = {MESH_STR_SETTINGS_FIELD_LORA_HAM_TX_POWER,
+                                         MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_LORA, 0U, NULL,
+                                         SCALE_PRESETS_AFTER_ZERO(k_tx_power_presets),
+                                         MESH_STR_NONE, format_tx_power, 0U,
+                                         MESH_STR_SETTINGS_NOTE_LORA_HAM_TX_POWER},
     [MESH_UI_FIELD_SECURITY_PRIVATE_KEY] = {MESH_STR_SETTINGS_FIELD_SECURITY_PRIVATE_KEY,
                                             MESH_UI_SETTING_KEY, MESH_UI_SETTINGS_SECURITY,
                                             MESH_UI_TEXT_LIMIT_SECURITY_PRIVATE_KEY, NULL,
@@ -1883,6 +1944,13 @@ enum mesh_ui_setting_consumer mesh_ui_settings_field_consumer(enum mesh_ui_setti
     case MESH_UI_FIELD_POSITION_LONGITUDE:
     case MESH_UI_FIELD_POSITION_ALTITUDE:
         return MESH_UI_SETTING_CONSUMER_FIXED_POSITION;
+    /* The ham rows are LoRaConfig's neighbours and none of its fields: what they write is the
+       owner's names, the primary channel's key and LoRa's frequency and power, all through one
+       verb of their own. Y beside them must therefore leave them where they are. */
+    case MESH_UI_FIELD_LORA_HAM_CALL_SIGN:
+    case MESH_UI_FIELD_LORA_HAM_FREQUENCY:
+    case MESH_UI_FIELD_LORA_HAM_TX_POWER:
+        return MESH_UI_SETTING_CONSUMER_HAM_MODE;
     default:
         return MESH_UI_SETTING_CONSUMER_SECTION;
     }
@@ -1896,6 +1964,7 @@ bool mesh_ui_settings_action_needs_confirm(enum mesh_ui_settings_action action) 
            action == MESH_UI_SETTINGS_ACTION_BACKUP_CONFIG ||
            action == MESH_UI_SETTINGS_ACTION_RESTORE_CONFIG ||
            action == MESH_UI_SETTINGS_ACTION_REMOVE_BACKUP ||
+           action == MESH_UI_SETTINGS_ACTION_SET_HAM_MODE ||
            mesh_ui_settings_action_is_install_firmware(action) ||
            mesh_ui_settings_action_is_forget(action);
 }
@@ -1918,6 +1987,7 @@ bool mesh_ui_settings_action_is_radio(enum mesh_ui_settings_action action) {
            action == MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE ||
            action == MESH_UI_SETTINGS_ACTION_SET_FIXED_POSITION ||
            action == MESH_UI_SETTINGS_ACTION_CLEAR_FIXED_POSITION ||
+           action == MESH_UI_SETTINGS_ACTION_SET_HAM_MODE ||
            action == MESH_UI_SETTINGS_ACTION_BACKUP_CONFIG ||
            action == MESH_UI_SETTINGS_ACTION_RESTORE_CONFIG ||
            action == MESH_UI_SETTINGS_ACTION_REMOVE_BACKUP ||
@@ -1972,6 +2042,9 @@ void mesh_ui_settings_confirm_title(enum mesh_ui_settings_section section, uint8
     case MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE:
         snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TITLE_FW_BLE));
         return;
+    case MESH_UI_SETTINGS_ACTION_SET_HAM_MODE:
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TITLE_HAM_MODE));
+        return;
     default:
         break;
     }
@@ -2009,6 +2082,8 @@ const char *mesh_ui_settings_confirm_accept(enum mesh_ui_settings_action action)
         return mesh_str(MESH_STR_CONFIRM_ACCEPT_FW_USB);
     case MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE:
         return mesh_str(MESH_STR_CONFIRM_ACCEPT_FW_BLE);
+    case MESH_UI_SETTINGS_ACTION_SET_HAM_MODE:
+        return mesh_str(MESH_STR_CONFIRM_ACCEPT_HAM_MODE);
     default:
         return mesh_str(MESH_STR_CONFIRM_ACCEPT_SAVE);
     }
@@ -2066,6 +2141,11 @@ void mesh_ui_settings_confirm_text(enum mesh_ui_settings_section section,
         return;
     case MESH_UI_SETTINGS_ACTION_REMOVE_BACKUP:
         snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TEXT_RM_BACKUP));
+        return;
+    /* The one sheet here that is neither a reset nor an install: what it costs is the mesh the
+       radio is on, because amateur rules require the encryption it turns off. */
+    case MESH_UI_SETTINGS_ACTION_SET_HAM_MODE:
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TEXT_HAM_MODE));
         return;
     default:
         break;

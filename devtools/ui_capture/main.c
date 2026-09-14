@@ -1796,6 +1796,17 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         settings.spread_factor = 11U;
         settings.coding_rate = 5U;
         snprintf(settings.tzdef, sizeof settings.tzdef, "%s", "PST8PDT,M3.2.0,M11.1.0");
+        /*
+         * LoRa's advanced group, and the values that give each of its three shapes something to
+         * show: a slot the radio worked out for itself, a frequency typed over it, a trim that
+         * is not zero, and one of the three ignore slots used so the empty ones read as empty
+         * beside it. The node is not licensed, which is why the call sign row starts blank.
+         */
+        settings.sx126x_rx_boosted_gain = true;
+        settings.channel_num = 20U;
+        settings.override_frequency_scaled = 9068750; /* 906.8750 MHz */
+        settings.frequency_offset_scaled = -125;      /* -12.5 Hz */
+        settings.ignore_incoming[0] = 0x433D1B2CU;
 
         /*
          * Position, Power and Security: three sections that said "not loaded" on a radio that had

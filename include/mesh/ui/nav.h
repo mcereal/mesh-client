@@ -135,7 +135,7 @@ union mesh_ui_setting_text_widest {
 #define MESH_UI_SETTING_TEXT_MAX (sizeof(union mesh_ui_setting_text_widest))
 
 /*
- * Which press writes an edit. The Position section is the one with two: Y writes
+ * Which press writes an edit. Position and LoRa are the two sections with more than one: Y writes
  * PositionConfig with a set_config, and "Set fixed position" writes the coordinate rows with
  * set_fixed_position, because the firmware only takes them that way. Every other field belongs
  * to its section's own save. An edit has to say which press owns it so that neither one clears
@@ -145,6 +145,9 @@ union mesh_ui_setting_text_widest {
 enum mesh_ui_setting_consumer {
     MESH_UI_SETTING_CONSUMER_SECTION = 0,
     MESH_UI_SETTING_CONSUMER_FIXED_POSITION,
+    /* LoRa's second press: "Switch to ham mode" reads the call sign, frequency and power rows
+       and sends set_ham_mode, while Y beside them still writes LoRaConfig. */
+    MESH_UI_SETTING_CONSUMER_HAM_MODE,
 };
 
 /* One edited setting. `field` is an enum mesh_ui_setting_field (settings.h); NONE marks an

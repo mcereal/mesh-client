@@ -943,6 +943,31 @@ static void mesh_app_flatten_firmware(struct mesh_app *app, struct mesh_ui_setti
     }
 }
 
+/*
+ * A protobuf float as the fixed-point integer the UI holds it in, and back.
+ *
+ * Half a unit is added before the truncation so a frequency that arrives as 906.8749998 - which
+ * is what a float holding 906.875 actually is - reads back as the number somebody typed rather
+ * than as the one below it. The reverse divides, which is exact for the magnitudes these two
+ * fields carry.
+ */
+int64_t mesh_app_scale_float(float value, uint32_t digits) {
+    double scale = 1.0;
+    for (uint32_t i = 0; i < digits; ++i) {
+        scale *= 10.0;
+    }
+    const double scaled = (double)value * scale;
+    return (int64_t)(scaled < 0.0 ? scaled - 0.5 : scaled + 0.5);
+}
+
+float mesh_app_unscale_float(int64_t scaled, uint32_t digits) {
+    double scale = 1.0;
+    for (uint32_t i = 0; i < digits; ++i) {
+        scale *= 10.0;
+    }
+    return (float)((double)scaled / scale);
+}
+
 static void mesh_app_flatten_settings(const struct mesh_radio_settings *src,
                                       struct mesh_ui_settings *dst) {
     memset(dst, 0, sizeof *dst);
@@ -999,6 +1024,19 @@ static void mesh_app_flatten_settings(const struct mesh_radio_settings *src,
         dst->tx_power = (int8_t)src->lora.tx_power;
         dst->ignore_mqtt = src->lora.ignore_mqtt;
         dst->config_ok_to_mqtt = src->lora.config_ok_to_mqtt;
+        dst->sx126x_rx_boosted_gain = src->lora.sx126x_rx_boosted_gain;
+        dst->override_duty_cycle = src->lora.override_duty_cycle;
+        dst->channel_num = (uint16_t)src->lora.channel_num;
+        /* The two floats become the scaled integers their rows are typed in, rounded once here
+           rather than once on the way out and again on the way back. */
+        dst->override_frequency_scaled =
+            mesh_app_scale_float(src->lora.override_frequency, MESH_UI_FREQUENCY_DIGITS);
+        dst->frequency_offset_scaled =
+            mesh_app_scale_float(src->lora.frequency_offset, MESH_UI_HERTZ_DIGITS);
+        for (size_t i = 0; i < 3U; ++i) {
+            dst->ignore_incoming[i] =
+                i < src->lora.ignore_incoming_count ? src->lora.ignore_incoming[i] : 0U;
+        }
     }
     if (src->has_bluetooth) {
         dst->has_bluetooth = true;

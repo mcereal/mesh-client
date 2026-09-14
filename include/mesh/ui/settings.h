@@ -314,6 +314,52 @@ enum mesh_ui_setting_field {
     MESH_UI_FIELD_LORA_TX_POWER, /* number: dBm, 0 = the radio's maximum */
     MESH_UI_FIELD_LORA_IGNORE_MQTT,
     MESH_UI_FIELD_LORA_OK_TO_MQTT,
+    /*
+     * The advanced group: the five rows that change what the radio does with the band rather
+     * than which band it is on.
+     *
+     * Held back from the rest of LoRa until the ham rows below them existed, because four of
+     * them are the same feature as `set_ham_mode` - a client that offers an out-of-band
+     * frequency without offering the mode that licenses it is offering half of something.
+     *
+     * Three are TEXT rather than NUMBER for the reason a coordinate is: a frequency slot has
+     * a hundred equally likely values and a frequency has more than that, so a preset list is
+     * either wrong or a hundred presses long. They are decimals, parsed by
+     * mesh_ui_settings_decimal_parse() at the places their field wants.
+     */
+    MESH_UI_FIELD_LORA_BOOST_GAIN,
+    MESH_UI_FIELD_LORA_OVERRIDE_DUTY,
+    MESH_UI_FIELD_LORA_CHANNEL_NUM,    /* text: a slot number, 0 = worked out from the region */
+    MESH_UI_FIELD_LORA_OVERRIDE_FREQ,  /* text: MHz, 0 = use the slot above */
+    MESH_UI_FIELD_LORA_FREQUENCY_TRIM, /* text: Hz, a crystal's error either way */
+    /*
+     * LoRaConfig.ignore_incoming: up to three node numbers whose packets this radio drops as
+     * though they were out of range.
+     *
+     * Three rows compacted on save, which is the shape the three admin keys already have. It
+     * reads like the Nodes tab's Ignore row and is a different mechanism: that one is a NodeDB
+     * flag set with `set_ignored_node`, this one is the LoRa layer refusing the packet, and a
+     * row that did not say which would be two settings wearing one name.
+     */
+    MESH_UI_FIELD_LORA_IGNORE_NODE_0,
+    MESH_UI_FIELD_LORA_IGNORE_NODE_1,
+    MESH_UI_FIELD_LORA_IGNORE_NODE_2,
+    /*
+     * Ham mode: a call sign, a frequency and a power, read by the row under them rather than
+     * by Y.
+     *
+     * The fixed-position shape exactly (MESH_UI_SETTING_CONSUMER_HAM_MODE), because it is the
+     * same situation: `set_ham_mode` is its own admin verb, it writes three things this tab
+     * keeps in three different sections - the owner's names, the primary channel's key and
+     * LoRa's own frequency and power - and there is no set_config that would do it.
+     *
+     * There is no row for a short name. The firmware wants one and the radio already has one,
+     * so the write carries the owner's own rather than asking a second time for something the
+     * User section has always been where you change.
+     */
+    MESH_UI_FIELD_LORA_HAM_CALL_SIGN,   /* text: 7 bytes, what the firmware takes for a long name */
+    MESH_UI_FIELD_LORA_HAM_FREQUENCY,   /* text: MHz, and the whole point of the mode */
+    MESH_UI_FIELD_LORA_HAM_TX_POWER,    /* number: dBm, the same presets the LoRa row above uses */
     MESH_UI_FIELD_SECURITY_PRIVATE_KEY, /* KEY: keep / new random / typed (restore a backup) */
     MESH_UI_FIELD_SECURITY_ADMIN_KEY_0, /* KEY: keep / none / typed */
     MESH_UI_FIELD_SECURITY_ADMIN_KEY_1,
@@ -452,6 +498,20 @@ enum mesh_ui_settings_action {
        which is why a radio action carries the section's pending edits. */
     MESH_UI_SETTINGS_ACTION_SET_FIXED_POSITION,
     MESH_UI_SETTINGS_ACTION_CLEAR_FIXED_POSITION,
+    /*
+     * LoRa section: hand the radio a call sign and put it on an amateur band.
+     *
+     * A row that reads the three rows above it, exactly as "Set fixed position" does, because
+     * `set_ham_mode` is one verb over three things this tab keeps apart - the owner's names,
+     * the primary channel's key and LoRa's frequency and power. Behind the confirm overlay,
+     * which the fixed-position pair are not: this one turns the primary channel's encryption
+     * off, which is what makes the mode legal and is not undone by pressing the row again.
+     *
+     * There is no verb for leaving. The firmware has none, and the way back is the two rows
+     * that made it - User's `Licensed operator` off and `Override frequency` back to 0 - so
+     * the note says that rather than this offering a press that would have to invent it.
+     */
+    MESH_UI_SETTINGS_ACTION_SET_HAM_MODE,
     /*
      * The radio's whole configuration, copied to its own flash and brought back. Radio actions
      * like the resets above - nothing is read back, and what they move is not a section this
@@ -763,11 +823,42 @@ bool mesh_ui_settings_key_len_ok(enum mesh_ui_setting_field field, size_t len);
 /* Keys as text. key_text() is base64, what the Meshtastic apps show and accept, so a key
    read off the Brick can be typed into a phone and vice versa. parse() takes base64 or hex
    (an even number of hex digits); an empty string is an empty key. */
-/* Coordinates as decimal degrees, to and from Meshtastic's fixed-point 1e-7 form. parse()
-   takes a plain decimal ("44.6488", "-63.57520") and rejects anything outside +/- `limit`
-   degrees or with trailing rubbish; an empty string is not a coordinate. */
+/*
+ * A decimal a person types, held as an integer scaled by a fixed number of places.
+ *
+ * The one row model behind every TEXT field that is really a number with a fraction: a
+ * coordinate at seven places, a frequency in megahertz at four, an offset in hertz at one. It
+ * is digits rather than a double because the wire wants an exact number of decimal places and
+ * a double rounds the last of them somewhere nobody can see it happen - which is the same
+ * reason a key is parsed byte by byte two declarations down.
+ *
+ * text() may show fewer places than are held (a coordinate is shown to five), rounding rather
+ * than cutting. parse() rejects a whole part past `limit_whole`, anything with trailing
+ * rubbish, and a fraction finer than the field can hold - there is no half-understood reading
+ * of "44.6N", and a slot row taking "12.5" as 12 is the same mistake made quietly.
+ */
+void mesh_ui_settings_decimal_text(int64_t scaled, uint32_t held_digits, uint32_t shown_digits,
+                                   char *out, size_t out_len);
+bool mesh_ui_settings_decimal_parse(const char *text, uint32_t digits, int64_t limit_whole,
+                                    int64_t *out_scaled);
+
+/* The decimal places each kind of row is held to. Named here rather than written at every
+   call, because the format and the parse have to agree and they are in different files. */
+#define MESH_UI_COORD_DIGITS 7U     /* Meshtastic's fixed-point 1e-7 degrees */
+#define MESH_UI_FREQUENCY_DIGITS 4U /* megahertz to 100 Hz, which is finer than any band plan */
+#define MESH_UI_HERTZ_DIGITS 1U     /* a crystal offset, in hertz */
+
+/* Coordinates as decimal degrees, to and from Meshtastic's fixed-point 1e-7 form - the decimal
+   pair above at MESH_UI_COORD_DIGITS, shown to five places. An empty string is not a
+   coordinate. */
 void mesh_ui_settings_coord_text(int32_t value_i, char *out, size_t out_len);
 bool mesh_ui_settings_coord_parse(const char *text, int32_t limit_degrees, int32_t *out_i);
+
+/* A node number as "!433d1b2c", which is what the apps show and the logs print. parse() also
+   takes the bare eight hex digits and a plain decimal, and reads an empty string as 0 - the
+   row is empty, not wrong, and a caller reads 0 as an unused slot rather than as an address. */
+void mesh_ui_settings_node_id_text(uint32_t node_id, char *out, size_t out_len);
+bool mesh_ui_settings_node_id_parse(const char *text, uint32_t *out_id);
 
 void mesh_ui_settings_key_text(const uint8_t *key, size_t len, char *out, size_t out_len);
 void mesh_ui_settings_key_hex(const uint8_t *key, size_t len, char *out, size_t out_len);
