@@ -79,6 +79,9 @@ struct fb_damage_rect {
 };
 
 struct mesh_ui_backend_fb_state {
+    /* The body rows the node detail's list was last laid out in - what the nav pages its cards
+       by. See `page_rows` on struct mesh_ui_store. */
+    uint32_t page_rows;
     struct fb_glyph_cache *glyph_cache;
     struct fb_thread_cache *thread_cache;
     struct fb_render_cache *render_cache;

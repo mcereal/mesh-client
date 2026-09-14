@@ -1534,15 +1534,28 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
      * where the Nodes tab is standing, not what the reader is looking at, and a shoulder walks
      * off the tab with the detail still open behind it.
      */
+    /*
+     * And Up and Down, which walk the detail's *stops* rather than its rows: every row A acts on,
+     * and a card of facts as one stop - see mesh_ui_node_detail_step(). Taken here rather than
+     * in mesh_ui_nav_move_cursor() because the answer needs the history the action bar reads,
+     * and because refusing the move has to spend the press the same way Left and Right do.
+     */
     if (nav->node_detail_open && nav->screen == MESH_UI_SCREEN_NODES &&
-        (key == MESH_UI_KEY_LEFT || key == MESH_UI_KEY_RIGHT)) {
+        (key == MESH_UI_KEY_LEFT || key == MESH_UI_KEY_RIGHT || key == MESH_UI_KEY_UP ||
+         key == MESH_UI_KEY_DOWN)) {
         const struct mesh_ui_node_summary *node =
             mesh_ui_node_detail_find(&store->handshake, nav->node_detail_node);
         if (node != NULL) {
-            const uint32_t next = mesh_ui_node_detail_group_step(
-                node, mesh_ui_nav_node_is_self(store, node), &store->traceroute, &store->handshake,
-                nav->cursor[MESH_UI_SCREEN_NODES], key == MESH_UI_KEY_RIGHT ? +1 : -1);
-            if (next == nav->cursor[MESH_UI_SCREEN_NODES]) {
+            const bool is_self = mesh_ui_nav_node_is_self(store, node);
+            const uint32_t row = nav->cursor[MESH_UI_SCREEN_NODES];
+            const int delta = key == MESH_UI_KEY_RIGHT || key == MESH_UI_KEY_DOWN ? +1 : -1;
+            const uint32_t next =
+                key == MESH_UI_KEY_LEFT || key == MESH_UI_KEY_RIGHT
+                    ? mesh_ui_node_detail_group_step(node, is_self, &store->traceroute,
+                                                     &store->handshake, &store->history, row, delta)
+                    : mesh_ui_node_detail_step(node, is_self, &store->traceroute, &store->handshake,
+                                               &store->history, store->page_rows, row, delta);
+            if (next == row) {
                 /* No group that way. The press is still spent rather than falling through to
                    the tabs: Left at the top of the first card meaning "leave the node" would be
                    the one screen in the client where the d-pad changes tab from inside a

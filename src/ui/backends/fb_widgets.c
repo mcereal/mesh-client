@@ -830,6 +830,22 @@ struct fb_list fb_list_begin_cards(const struct fb_layout *layout, uint32_t coun
     return list;
 }
 
+struct fb_list fb_list_begin_focus(const struct fb_layout *layout, uint32_t count, uint32_t cursor,
+                                   const uint8_t *heights, const uint8_t *cards, uint32_t first,
+                                   uint32_t last, bool card) {
+    struct fb_list list = fb_list_open(
+        layout, mesh_ui_list_begin_span(count, cursor, first, last, layout->rows, heights));
+    list.cards = cards;
+    list.focus_card = card && cards != NULL && count > 0U;
+    return list;
+}
+
+/* Whether item `index` draws the cursor's highlight. Never on a list whose card is focused
+   instead - see fb_list_begin_focus(). */
+static bool fb_list_is_cursor(const struct fb_list *list, uint32_t index) {
+    return !list->focus_card && mesh_ui_list_is_cursor(&list->model, index);
+}
+
 /* Which card item `index` is on, or FB_LIST_NO_CARD. Past the end counts as no card, which is
    what lets the run walk below terminate without knowing the list's length. */
 static uint8_t fb_list_card_of(const struct fb_list *list, uint32_t index) {
@@ -1016,12 +1032,23 @@ static void fb_list_cards(const struct mesh_ui_backend_fb_state *state, struct f
          * hairline *across* the cut, which is the card claiming to end again - in a straight
          * line this time.
          */
+        /*
+         * The card the cursor stands on, when it stands on a card: fb_draw_card()'s focus ring,
+         * in the accent and twice the hairline, grown inward so nothing else on the list moves.
+         * The rows of a focused card draw no highlight, so there is nothing for it to paint over.
+         */
+        const bool focused =
+            list->focus_card && list->model.cursor >= i && list->model.cursor < run;
+        const int ring = focused ? 2 * edge : edge;
         fb_fill_round_rect_ends(state, x, box_top, width, box_h, radius + edge,
-                                fb_color(state, MESH_UI_COLOR_OUTLINE), !cut_top, !cut_bottom);
-        const int inner_top = cut_top ? box_top : box_top + edge;
-        const int inner_bottom = cut_bottom ? box_top + box_h : box_top + box_h - edge;
-        fb_fill_round_rect_ends(state, x + edge, inner_top, width - 2 * edge,
-                                inner_bottom - inner_top, radius,
+                                focused ? fb_tone_color(state, MESH_UI_TONE_PRIMARY)
+                                        : fb_color(state, MESH_UI_COLOR_OUTLINE),
+                                !cut_top, !cut_bottom);
+        const int inner_top = cut_top ? box_top : box_top + ring;
+        const int inner_bottom = cut_bottom ? box_top + box_h : box_top + box_h - ring;
+        const int inner_radius = radius + edge - ring > 0 ? radius + edge - ring : 0;
+        fb_fill_round_rect_ends(state, x + ring, inner_top, width - 2 * ring,
+                                inner_bottom - inner_top, inner_radius,
                                 fb_color(state, MESH_UI_COLOR_SURFACE), !cut_top, !cut_bottom);
 
         top += height;
@@ -1129,7 +1156,7 @@ void fb_list_row(const struct mesh_ui_backend_fb_state *state, struct fb_list *l
     /* Drawn out rather than through fb_draw_row(), which lays its fill on the panel's own
        ground: a row in a list may be standing on a card, and the ink its glyph edges blend into
        has to be the colour actually under it. */
-    const bool selected = mesh_ui_list_is_cursor(&list->model, index);
+    const bool selected = fb_list_is_cursor(list, index);
     const struct mesh_ui_rgb ground = fb_draw_row_fill_on(
         state, list->y, fb_list_row_height(list, index), selected, fb_list_ground(list, index));
     fb_draw_text(state, fb_row_box(state).text_x, list->y, text, state->scale,
@@ -1173,7 +1200,7 @@ void fb_list_chips(const struct mesh_ui_backend_fb_state *state, struct fb_list 
     }
     fb_list_chrome(state, list);
     const uint32_t rows = fb_list_row_height(list, index);
-    const bool selected = mesh_ui_list_is_cursor(&list->model, index);
+    const bool selected = fb_list_is_cursor(list, index);
     (void)fb_draw_row_fill_on(state, list->y, rows, selected, fb_list_ground(list, index));
 
     /*
@@ -1212,7 +1239,7 @@ void fb_list_subheader_icon(const struct mesh_ui_backend_fb_state *state, struct
     fb_list_chrome(state, list);
     const int scale = mesh_ui_theme_type_scale(state->theme, MESH_UI_TYPE_LABEL, state->scale);
     const uint32_t rows = fb_list_row_height(list, index);
-    const bool selected = mesh_ui_list_is_cursor(&list->model, index);
+    const bool selected = fb_list_is_cursor(list, index);
 
     /* The fill is the whole step whatever size the words are, and it is the same rectangle a
        plain row lays down - a highlight that shrank to the label would be a cursor that changes
@@ -1330,7 +1357,7 @@ void fb_list_note(const struct mesh_ui_backend_fb_state *state, struct fb_list *
                   uint32_t index, const char *heading, const char *body) {
     fb_list_chrome(state, list);
     const uint32_t rows = fb_list_row_height(list, index);
-    const bool selected = mesh_ui_list_is_cursor(&list->model, index);
+    const bool selected = fb_list_is_cursor(list, index);
     /* One fill for the whole note, the height the *model* gave it - not the height its words
        want. The two agree when the screen measured with fb_list_note_steps(), and when they do
        not it is the model that is right, because it is what every row below was placed against. */
@@ -2016,7 +2043,7 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
                   const struct fb_list_item *item) {
     fb_list_chrome(state, list);
     const int scale = state->scale;
-    const bool selected = mesh_ui_list_is_cursor(&list->model, index);
+    const bool selected = fb_list_is_cursor(list, index);
     const uint32_t rows = fb_list_row_height(list, index);
     const struct fb_item_geom g = fb_item_measure(state, list, item, rows);
 

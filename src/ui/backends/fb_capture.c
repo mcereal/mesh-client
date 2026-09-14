@@ -149,6 +149,10 @@ bool mesh_ui_capture_animating(const struct mesh_ui_capture *capture) {
     return capture != NULL && fb_state_animating(&capture->state);
 }
 
+uint32_t mesh_ui_capture_page_rows(const struct mesh_ui_capture *capture) {
+    return capture != NULL ? capture->state.page_rows : 0U;
+}
+
 void mesh_ui_capture_render(struct mesh_ui_capture *capture,
                             const struct mesh_ui_snapshot *snapshot) {
     if (capture == NULL || snapshot == NULL) {

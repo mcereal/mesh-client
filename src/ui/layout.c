@@ -339,6 +339,44 @@ struct mesh_ui_list mesh_ui_list_begin_heights(uint32_t count, uint32_t cursor, 
     return list;
 }
 
+struct mesh_ui_list mesh_ui_list_begin_span(uint32_t count, uint32_t cursor, uint32_t span_first,
+                                            uint32_t span_last, uint32_t capacity,
+                                            const uint8_t *heights) {
+    struct mesh_ui_list list = mesh_ui_list_begin_heights(count, cursor, capacity, heights);
+    if (count == 0U || capacity == 0U || list.total <= capacity) {
+        return list;
+    }
+    /* A span that does not hold the cursor is not a span of it: the cursor's own window wins,
+       because the one guarantee a list makes is that the row being pointed at is on screen. */
+    if (span_last >= count) {
+        span_last = count - 1U;
+    }
+    if (span_first > span_last || list.cursor < span_first || list.cursor > span_last) {
+        return list;
+    }
+    uint32_t first;
+    const uint32_t ahead = list_lookahead(&list, span_last, capacity);
+    if (list_sum(&list, span_first, ahead + 1U) <= capacity) {
+        /* The span and the look-ahead under it, filled upward - the ordinary window, anchored on
+           the span's last item rather than on the cursor. */
+        first = list_fits_backward(&list, ahead, capacity);
+    } else if (list_sum(&list, span_first, span_last + 1U) <= capacity) {
+        first = list_fits_backward(&list, span_last, capacity);
+    } else if (list_sum(&list, span_first, list.cursor + 1U) <= capacity) {
+        /* Taller than the window: its top, for as long as that still shows the cursor. Clamped
+           to the window that ends on the last item, so a span near the end fills the panel. */
+        const uint32_t last_first = list_fits_backward(&list, count - 1U, capacity);
+        first = span_first < last_first ? span_first : last_first;
+    } else {
+        return list;
+    }
+    list.first = first;
+    list.first_step = list_sum(&list, 0U, list.first);
+    list.visible = list_fits_forward(&list, list.first, capacity, &list.used);
+    list.next = list.first;
+    return list;
+}
+
 /*
  * Asked of the model rather than derived a second time.
  *

@@ -1366,6 +1366,15 @@ struct mesh_ui_store {
      * 0, which is a real point on a monotonic clock rather than a missing one.
      */
     uint64_t now_ms;
+    /*
+     * How many body rows the backend's last paged list had room for, or 0 when it has not said.
+     *
+     * The one fact about the panel the nav needs: a card of facts on the node detail is one stop
+     * when it fits and a page at a time when it does not, and only the backend knows which. Told
+     * before every press by the controller, from the frame the reader is looking at, so the nav
+     * and the renderer page a card by the same number. 0 pages nothing.
+     */
+    uint32_t page_rows;
     int event_fd;
     mesh_ui_update_flags pending_flags;
 };
@@ -1501,6 +1510,9 @@ void mesh_ui_store_tick(struct mesh_ui_store *store, uint64_t now_ms);
    The setters above deliberately stay quiet when state is unchanged, so without this a
    client that starts with no devices and no handshake would never paint a first frame. */
 void mesh_ui_store_request_refresh(struct mesh_ui_store *store);
+
+/* See `page_rows` on struct mesh_ui_store. Changes nothing on screen, so publishes nothing. */
+void mesh_ui_store_set_page_rows(struct mesh_ui_store *store, uint32_t rows);
 
 /*
  * Marks the conversation the nav has open as read up to its newest message. Called from

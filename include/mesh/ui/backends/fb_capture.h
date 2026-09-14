@@ -81,6 +81,10 @@ uint64_t mesh_ui_capture_now(const struct mesh_ui_capture *capture);
 bool mesh_ui_capture_animating(const struct mesh_ui_capture *capture);
 
 /* Draws one whole frame over whatever the page held before. */
+/* The rows the last frame's paged list had, which a caller driving the store hands to
+   mesh_ui_store_set_page_rows() before a press - the controller's job on the device. */
+uint32_t mesh_ui_capture_page_rows(const struct mesh_ui_capture *capture);
+
 void mesh_ui_capture_render(struct mesh_ui_capture *capture,
                             const struct mesh_ui_snapshot *snapshot);
 

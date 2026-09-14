@@ -268,12 +268,18 @@ static bool mesh_ui_backend_fb_animating(void *state_ptr, void *userdata) {
     return fb_state_animating((const struct mesh_ui_backend_fb_state *)state_ptr);
 }
 
+static uint32_t mesh_ui_backend_fb_page_rows(void *state_ptr, void *userdata) {
+    (void)userdata;
+    return state_ptr != NULL ? ((const struct mesh_ui_backend_fb_state *)state_ptr)->page_rows : 0U;
+}
+
 static const struct mesh_ui_backend k_fb_backend = {
     .name = "fb",
     .init = mesh_ui_backend_fb_init,
     .shutdown = mesh_ui_backend_fb_shutdown,
     .present = mesh_ui_backend_fb_present,
     .animating = mesh_ui_backend_fb_animating,
+    .page_rows = mesh_ui_backend_fb_page_rows,
 };
 
 bool mesh_ui_backend_fb_is_available(void) { return access("/dev/fb0", R_OK | W_OK) == 0; }
