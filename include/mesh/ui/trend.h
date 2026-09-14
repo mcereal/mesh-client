@@ -29,6 +29,7 @@
  */
 
 #include "mesh/i18n/strings.h"
+#include "mesh/ui/history.h"
 #include "mesh/ui/layout.h"
 
 #include <stdbool.h>
@@ -141,6 +142,72 @@ struct mesh_ui_trend {
 
 bool mesh_ui_trend_frame(const struct mesh_ui_series *const *series, uint32_t count,
                          struct mesh_ui_scale domain, uint8_t span, struct mesh_ui_trend *out);
+
+/* ---- columns --------------------------------------------------------------------------------
+ *
+ * The radio's airtime drawn as columns rather than as a line through every reading.
+ *
+ * A line was the wrong mark for this reading, and a Heltec V4 on a quiet mesh showed why. The
+ * firmware's `channel_utilization` covers about the last minute, so reading by reading it is
+ * 0%, 2.1%, 0%, 5.2%: a stroke through that is a saw blade, and the one thing a reader wants
+ * from it - is the air getting busier - is exactly what the teeth hide. Averaged into bins it is
+ * a bar chart of how busy each stretch of the window was, which is the question.
+ *
+ * The bin is what makes it work on any radio anywhere, and it is picked from two things rather
+ * than fixed:
+ *
+ *   - **No narrower than the readings are apart.** A bin shorter than the cadence is empty more
+ *     often than not, and a row of gaps reads as a radio that kept dropping out. The cadence is
+ *     the median spacing of the readings in the window - median, so an outage in the middle does
+ *     not stretch it - which is a minute on a radio sending DeviceMetrics and a quarter of an
+ *     hour on one that only sends LocalStats.
+ *   - **No more bins than `max_bins`**, which is the renderer's to say because it is a question
+ *     of how wide a column can be and still be seen.
+ *
+ * Both are then rounded up a 1-2-5 ladder of durations (a minute, two, five, ten, a quarter
+ * hour...) so a column is a length of time the reader could name.
+ *
+ * Bins are anchored on the newest reading and centred on their stamps, so a report that arrives
+ * a few hundred milliseconds late lands in the same bin as one on time rather than on the other
+ * side of an edge.
+ */
+
+/* Bins one chart may carry. The renderer asks for one per cell of its smallest text across the
+   plot, which on the Brick is about eighty; this bounds the arrays below. */
+#define MESH_UI_TREND_BINS_MAX 120U
+
+struct mesh_ui_trend_bins {
+    uint32_t count;                         /* oldest first */
+    int32_t values[MESH_UI_TREND_BINS_MAX]; /* the mean of the readings in the bin */
+    bool present[MESH_UI_TREND_BINS_MAX];   /* a reading landed in it */
+    /* Present, and a line drawn through the bins continues into it from the last present bin
+       before it: at most one empty bin back, and not across a break the source marked. One empty
+       bin is bridged because a single skipped report is ordinary; two is a silence. */
+    bool joins[MESH_UI_TREND_BINS_MAX];
+};
+
+struct mesh_ui_trend_airtime {
+    struct mesh_ui_trend frame; /* the window, and the ceiling picked from the bins */
+    uint32_t bin_ms;
+    struct mesh_ui_trend_bins utilization;
+    struct mesh_ui_trend_bins tx;
+};
+
+/*
+ * The shortest rung of the duration ladder at least `cadence_ms` (less an eighth, for the slop of
+ * a firmware tick) and long enough that `window_ms` fits in `max_bins`. The longest rung when
+ * nothing fits.
+ */
+uint32_t mesh_ui_trend_bin_ms(uint32_t window_ms, uint32_t cadence_ms, uint32_t max_bins);
+
+/*
+ * The airtime history cut to `span` and binned, with the ceiling contracted to the tallest bin -
+ * the bins are what is drawn, so they are what the axis has to fit.
+ *
+ * False when mesh_ui_history_has_airtime() would be: no window to lay bins across.
+ */
+bool mesh_ui_trend_airtime(const struct mesh_ui_history *history, uint8_t span, uint32_t max_bins,
+                           struct mesh_ui_trend_airtime *out);
 
 #ifdef __cplusplus
 }

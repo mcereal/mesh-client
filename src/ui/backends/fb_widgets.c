@@ -4761,6 +4761,78 @@ static void fb_chart_legend(const struct mesh_ui_backend_fb_state *state,
     }
 }
 
+/*
+ * One binned line: columns up from the axis, or a stroke through the bins' centres.
+ *
+ * A present bin whose mean is zero still gets a column one rule tall, because "the radio said
+ * nothing was on the air" and "the radio said nothing" are different readings and an empty slot
+ * is the second. The gap between columns is one rule, and only where a column is wide enough to
+ * spare it; below that the columns touch rather than vanish.
+ *
+ * A stroke is drawn twice: first wider in the ground colour, then in its own. The series colours
+ * are only promised apart by 1.4:1, which a column next to a column meets and a two-pixel line
+ * crossing a column does not - the halo is what keeps the line legible where it passes through
+ * one.
+ *
+ * True when it put a mark on the panel.
+ */
+static bool fb_chart_bins(const struct mesh_ui_backend_fb_state *state, const struct fb_rect *plot,
+                          int travel, int stroke, int rule, struct mesh_ui_scale scale,
+                          const struct fb_chart_line *line, struct mesh_ui_rgb colour,
+                          struct mesh_ui_rgb ground) {
+    const struct mesh_ui_trend_bins *bins = line->bins;
+    const uint32_t count =
+        bins->count < MESH_UI_TREND_BINS_MAX ? bins->count : MESH_UI_TREND_BINS_MAX;
+    if (count == 0U) {
+        return false;
+    }
+    /* The plot less the axis rule on its left, so the first column does not sit on the axis. */
+    const int left = plot->x + rule;
+    const int width = plot->w - rule;
+    const int base = plot->y + travel + stroke; /* the top of the axis rule */
+    const int halo = stroke / 2 > rule ? stroke / 2 : rule;
+    bool drawn = false;
+    for (int pass = line->columns ? 1 : 0; pass < 2; ++pass) {
+        const int pen = pass == 0 ? stroke + halo * 2 : stroke;
+        const int offset = pass == 0 ? halo : 0;
+        const struct mesh_ui_rgb ink = pass == 0 ? ground : colour;
+        int previous_x = 0;
+        int previous_y = 0;
+        for (uint32_t i = 0U; i < count; ++i) {
+            if (!bins->present[i]) {
+                continue;
+            }
+            const int x0 = left + (int)(((int64_t)i * width) / (int64_t)count);
+            const int x1 = left + (int)(((int64_t)(i + 1U) * width) / (int64_t)count);
+            const int32_t permille = mesh_ui_scale_permille(scale, bins->values[i]);
+            if (line->columns) {
+                const int gap = (x1 - x0) >= rule * 4 ? rule : 0;
+                int h = (int)(((int64_t)permille * (travel + stroke)) / MESH_UI_ANIM_ONE);
+                h = h < rule ? rule : h;
+                if (x1 - x0 - gap > 0) {
+                    fb_fill_rect(state, x0, base - h, x1 - x0 - gap, h, ink);
+                    drawn = true;
+                }
+                continue;
+            }
+            const int x = (x0 + x1) / 2 - offset;
+            const int y =
+                plot->y + travel - (int)(((int64_t)permille * travel) / MESH_UI_ANIM_ONE) - offset;
+            if (bins->joins[i]) {
+                fb_spark_segment(state, previous_x, previous_y, x, y, pen, ink);
+            } else {
+                /* A bin nothing joins is still a reading: a stroke's worth of dot says so, where
+                   the polyline's rule would draw nothing. */
+                fb_fill_rect(state, x - pen / 2 + offset, y, pen, pen, ink);
+            }
+            drawn = true;
+            previous_x = x;
+            previous_y = y;
+        }
+    }
+    return drawn;
+}
+
 void fb_draw_chart(const struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
                    const struct fb_chart *chart) {
     if (chart == NULL || chart->rect.w <= 0 || chart->rect.h <= 0) {
@@ -4878,26 +4950,43 @@ void fb_draw_chart(const struct mesh_ui_backend_fb_state *state, const struct fb
      * By position rather than by anything about the data, which is the palette's whole contract:
      * slice 0 is the same colour on every frame and every theme, so the legend under the plot
      * goes on meaning what it said the last time this screen was opened.
+     *
+     * Two passes: columns first, then strokes, so a line is never hidden behind a column that
+     * happens to come later in the list.
      */
     bool drawn = false;
-    for (uint32_t i = 0U; i < chart->count && i < FB_CHART_LINES; ++i) {
-        const struct mesh_ui_polyline *points = chart->lines[i].points;
-        if (points == NULL || points->count < 2U) {
-            continue; /* one reading is a level; the sparkline's rule, unchanged */
-        }
-        const struct mesh_ui_rgb colour = mesh_ui_theme_series(state->theme, i);
-        int previous_x = 0;
-        int previous_y = 0;
-        for (uint32_t j = 0U; j < points->count && j < MESH_UI_SERIES_MAX; ++j) {
-            const struct mesh_ui_point *point = &points->items[j];
-            const int x = plot.x + (int)(((int64_t)point->x * span) / MESH_UI_ANIM_ONE);
-            const int y = plot.y + travel - (int)(((int64_t)point->y * travel) / MESH_UI_ANIM_ONE);
-            if (!point->gap && j > 0U) {
-                fb_spark_segment(state, previous_x, previous_y, x, y, stroke, colour);
-                drawn = true;
+    for (int pass = 0; pass < 2; ++pass) {
+        for (uint32_t i = 0U; i < chart->count && i < FB_CHART_LINES; ++i) {
+            const struct fb_chart_line *line = &chart->lines[i];
+            const bool columns = line->bins != NULL && line->columns;
+            if ((pass == 0) != columns) {
+                continue;
             }
-            previous_x = x;
-            previous_y = y;
+            const struct mesh_ui_rgb colour = mesh_ui_theme_series(state->theme, i);
+            if (line->bins != NULL) {
+                drawn = fb_chart_bins(state, &plot, travel, stroke, rule, chart->scale, line,
+                                      colour, ground) ||
+                        drawn;
+                continue;
+            }
+            const struct mesh_ui_polyline *points = line->points;
+            if (points == NULL || points->count < 2U) {
+                continue; /* one reading is a level; the sparkline's rule, unchanged */
+            }
+            int previous_x = 0;
+            int previous_y = 0;
+            for (uint32_t j = 0U; j < points->count && j < MESH_UI_SERIES_MAX; ++j) {
+                const struct mesh_ui_point *point = &points->items[j];
+                const int x = plot.x + (int)(((int64_t)point->x * span) / MESH_UI_ANIM_ONE);
+                const int y =
+                    plot.y + travel - (int)(((int64_t)point->y * travel) / MESH_UI_ANIM_ONE);
+                if (!point->gap && j > 0U) {
+                    fb_spark_segment(state, previous_x, previous_y, x, y, stroke, colour);
+                    drawn = true;
+                }
+                previous_x = x;
+                previous_y = y;
+            }
         }
     }
 

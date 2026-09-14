@@ -23,9 +23,8 @@
  *     *watched*, so a resumed one must not put a line over a period nothing observed - but that
  *     is an argument for drawing the seam as a seam, not for throwing the readings away, and
  *     mesh_ui_history_resume() is what lifts the pen over it. The radio's pair earns the cache
- *     because of its cadence: LocalStats arrives every fifteen minutes and two readings make a
- *     line, so starting empty left the Status tab's chart unoffered for the first half hour of
- *     every session. A node's readings keep the old rule for now and have the same problem on a
+ *     because six hours of it is what the chart is for, and starting empty threw that away on
+ *     every relaunch. A node's readings keep the old rule for now and have the same problem on a
  *     half-hour cadence.
  *   - **Nothing here knows what a node is.** The store walks the roster and hands over
  *     readings; this holds series and decides which ones are worth a slot. That is what lets
@@ -61,29 +60,37 @@ extern "C" {
  * The cadence is stated first and the gap is a multiple of it, because the gap is not a duration
  * anybody picked: it is "a few reports missed", and writing it as a bare number is how it comes
  * to be *one* report - which is a series that breaks at every sample and so never has a line in
- * it at all. The radio's was exactly that. LocalStats reaches the attached client on the
- * firmware's `sendStatsToPhoneIntervalMs`, which is fifteen minutes, and the gap was fifteen
- * minutes - and the two are never equal in practice, because that throttle is tested on a
- * once-a-minute thread tick and only on the turns the module is not sending telemetry to the
- * mesh instead. Consecutive reports therefore land a little *over* fifteen minutes apart, every
- * sample starts a segment of its own, and mesh_ui_history_has_airtime() answered false for the
- * life of every session: the Mesh card was offered no verb, its chart could not be opened, and
- * the Status cursor walked from the Link card past it to the Radio one. On hardware only - a
- * capture scene stamps its readings on the harness clock, a few hundred milliseconds apart, so
- * every still and every film of this screen showed a button the device never drew.
+ * it at all.
  *
- * Three reports rather than two, because a report is skipped as well as delayed: the module
- * sends its stats only on the turns it is not broadcasting telemetry to the mesh and only while
- * the phone's queue is empty, so a spacing of two cadences is ordinary and a gap of two would
- * break on it. A node's device metrics ride that same broadcast instead, which is half an hour
- * at the firmware's default and longer on anything running on a battery it cares about - four
- * of those, on the same reasoning, and the value it already had.
+ * The radio's cadence is a minute, and that is the DeviceMetrics the firmware hands its attached
+ * client for our own node rather than LocalStats. Both carry `channel_utilization` and
+ * `air_util_tx`, but DeviceTelemetryModule sends the first to the phone on every one-minute tick
+ * it is not broadcasting to the mesh - and cc's the phone on the broadcast when it is - while
+ * LocalStats rides the fifteen-minute `sendStatsToPhoneIntervalMs` and is skipped whenever the
+ * phone's queue is busy. Sampled off LocalStats alone, three hours on a Heltec V4 left six
+ * readings about 45 minutes apart: a chart of dots with no line between any of them. LocalStats
+ * is still taken when DeviceMetrics is not arriving; see mesh_ui_history_note_airtime().
+ *
+ * Three reports rather than two, because a report is skipped as well as delayed. A node's device
+ * metrics ride the mesh broadcast instead, which is half an hour at the firmware's default and
+ * longer on anything running on a battery it cares about - four of those, on the same reasoning.
  */
-#define MESH_UI_HISTORY_RADIO_REPORT_MS (15U * 60U * 1000U)
+#define MESH_UI_HISTORY_RADIO_REPORT_MS (60U * 1000U)
 #define MESH_UI_HISTORY_NODE_REPORT_MS (30U * 60U * 1000U)
 
 #define MESH_UI_HISTORY_RADIO_GAP_MS (3U * MESH_UI_HISTORY_RADIO_REPORT_MS)
 #define MESH_UI_HISTORY_NODE_GAP_MS (4U * MESH_UI_HISTORY_NODE_REPORT_MS)
+
+/*
+ * Readings of the radio's airtime kept: six hours at the one-minute cadence, which is the widest
+ * fixed span the chart offers (MESH_UI_TREND_SPAN_6H).
+ *
+ * Its own ring rather than a `struct mesh_ui_series`, whose two dozen is sized for a sparkline
+ * the width of a list row. The chart bins these into columns (mesh_ui_trend_airtime()), so the
+ * count here is a memory budget rather than a count of marks: about 4 KB, carried in every
+ * snapshot.
+ */
+#define MESH_UI_HISTORY_AIRTIME_MAX 360U
 
 /*
  * Which reading a series is of.
@@ -128,12 +135,39 @@ struct mesh_ui_history_node {
     struct mesh_ui_series humidity;
 };
 
+/*
+ * One report of the radio's airtime: how much of the channel was busy and how much of that was
+ * us, both in permille of the air - the unit mesh_ui_percent_permille() puts the wire's floats on
+ * and the unit the Status card's meter reads. Permille fits sixteen bits, and at 360 of these the
+ * difference from two int32 is the difference between 4 KB and 6 KB per snapshot.
+ *
+ * The two are one record rather than two series because they arrive in one packet. They are not
+ * the same kind of number, though: the firmware's `channel_utilization` covers roughly the last
+ * minute and `air_util_tx` is a rolling hour, so the first is bursty and the second is smooth.
+ */
+struct mesh_ui_airtime_sample {
+    uint32_t time; /* the history's own timeline, as a series sample's is */
+    int16_t utilization;
+    int16_t tx;
+    /* Does not continue the reading before it - a restart seam, see mesh_ui_history_resume(). */
+    bool gap;
+};
+
+struct mesh_ui_airtime {
+    struct mesh_ui_airtime_sample items[MESH_UI_HISTORY_AIRTIME_MAX];
+    uint32_t first; /* ring head: where the oldest sample sits */
+    uint32_t count;
+    bool pending_break;
+};
+
 struct mesh_ui_history {
-    /* The radio we are attached to, from its own LocalStats report. Both in permille of the
-       air, which is the unit mesh_ui_percent_permille() puts the wire's floats on and the unit
-       the Status card's meter already reads. */
-    struct mesh_ui_series channel_utilization;
-    struct mesh_ui_series air_util_tx;
+    /* The radio we are attached to. */
+    struct mesh_ui_airtime airtime;
+    /* The history clock at the last DeviceMetrics airtime, so a LocalStats arriving beside that
+       stream is not a second sample of the same minute. Meaningful only while
+       `has_metrics_airtime`. */
+    uint32_t metrics_airtime_at;
+    bool has_metrics_airtime;
     struct mesh_ui_history_node nodes[MESH_UI_HISTORY_NODES];
     /*
      * What the caller's clock has to be shifted by to land on this history's own timeline, and
@@ -161,13 +195,27 @@ void mesh_ui_history_reset(struct mesh_ui_history *history);
 
 /*
  * The radio's own report of how much of the air is in use and how much of that is ours, at
- * `now_ms` on the client's clock.
+ * `now_ms` on the client's clock, from its LocalStats.
  *
- * One call for the pair rather than one per series, because they arrive in one LocalStats and
- * two series stamped a publish apart would draw two readings of one moment as two moments.
+ * Not taken while DeviceMetrics for our own node are arriving
+ * (mesh_ui_history_note_metrics_airtime()): the two carry the same figures, and the minute stream
+ * is the one the chart is shaped for. LocalStats is the fallback for a radio that does not send
+ * it.
  */
 void mesh_ui_history_note_airtime(struct mesh_ui_history *history, uint32_t now_ms,
                                   int32_t utilization_permille, int32_t tx_permille);
+
+/* The same pair, from our own node's DeviceMetrics - the once-a-minute source. */
+void mesh_ui_history_note_metrics_airtime(struct mesh_ui_history *history, uint32_t now_ms,
+                                          int32_t utilization_permille, int32_t tx_permille);
+
+/* How many airtime readings are held, the `index`th oldest (NULL past the end), and the newest
+   (NULL when there are none). */
+uint32_t mesh_ui_history_airtime_count(const struct mesh_ui_history *history);
+const struct mesh_ui_airtime_sample *
+mesh_ui_history_airtime_at(const struct mesh_ui_history *history, uint32_t index);
+const struct mesh_ui_airtime_sample *
+mesh_ui_history_airtime_newest(const struct mesh_ui_history *history);
 
 /*
  * A node's battery level, in whole percent as the radio reports it (101 is "plugged in", which
@@ -199,13 +247,12 @@ void mesh_ui_history_note_environment(struct mesh_ui_history *history, uint32_t 
                                       int32_t humidity_permille);
 
 /*
- * Whether the radio's airtime has been reported often enough to draw a line between.
+ * Whether the radio's airtime has been reported enough to chart: two readings on different ticks
+ * of the clock, which is a window with a width to lay columns across.
  *
- * A drawable *segment* rather than two readings, which is not the same test and is the way this
- * was first written wrong: every sample that follows a silence the series calls a break starts a
- * line rather than continuing one, so two reports either side of a link that was down for a
- * quarter of an hour are two samples the ring holds and no stroke at all. Counted, the verb
- * offers a chart with axes, a legend and nothing between them.
+ * Two readings rather than a drawable line segment, which is what this asked when the chart was
+ * lines. A column is a mark on its own, so two reports either side of a silence are two columns
+ * with the silence visibly between them - a picture, where two line ends were not.
  *
  * It is a question of the history rather than of a series because three places ask it - the verb
  * table that offers the chart, the action bar that names the press, and the clamp that closes

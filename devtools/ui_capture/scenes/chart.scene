@@ -9,38 +9,27 @@
 # than a feeling. The horizontal says how long, which is the difference between a mesh that got
 # busy this afternoon and one that got busy in the last ten minutes. The thresholds the card's
 # bar cuts notches at are rules across the plot, so the trend can be *seen* crossing them. And
-# there are two lines, which is the thing a row could never have: our own transmit share inside
-# the channel's total, named by a legend a row has no space for - and the legend says where each
+# there are two readings, which is the thing a row could never have: the channel's total as
+# columns - a minute of it is bursty, so each column is a stretch of the window averaged - and our
+# own transmit share as a line over them, named by a legend a row has no space for - and the legend says where each
 # of them has got to, which is the one number the shape and the two ends cannot state.
 
 scene demo
 delay 240
 config
 
-# An hour of mesh in a few seconds. Each `airtime` line is one LocalStats report, which is what
-# the radio sends its attached client every few minutes; `stats` goes first so the counter rows
-# have the radio's real traffic under them rather than a row of zeroes.
+# Three hours of mesh behind us. The radio hands its client our own DeviceMetrics once a minute,
+# and `airtime history` is those minutes already taken - the harness clock runs for seconds, so
+# this is the only way a capture shows the chart a device draws after an afternoon. One live
+# report after it, so the card's figures are the newest column's.
 tab status
 stats
+airtime history 190
 hold 400
-airtime 6 2
-hold 400
-airtime 9 3
-hold 400
-airtime 14 4
-hold 400
-airtime 13 4
-hold 400
-airtime 21 6
-hold 400
-airtime 28 9
-hold 400
-airtime 34 11
-hold 400
-airtime 47 15
+airtime 4 1
 hold 900
 
-# The verb only appears once there are two readings to draw a line between, and it appears on
+# The verb only appears once there are two readings to lay a column across, and it appears on
 # the Mesh card, one step down - which is where the *card* is. It used to be appended after the
 # Radio card's refresh whatever the column looked like, because the cursor was an index into the
 # verbs and a verb arriving anywhere but the end changed what the next A press did. The cursor

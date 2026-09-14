@@ -3510,6 +3510,9 @@ struct fb_chart_screen {
     /* Ruled across the plot, or NULL for a reading with no thresholds. */
     const struct mesh_ui_band *band;
     uint8_t axis; /* enum fb_chart_axis */
+    /* The radio's airtime, binned (mesh_ui_trend_airtime()) - which replaces `series` and
+       `domain`: line 0 is the channel as columns, line 1 our share as a line over them. */
+    const struct mesh_ui_history *airtime;
 };
 
 /*
@@ -3530,15 +3533,30 @@ static void fb_render_chart(struct mesh_ui_backend_fb_state *state,
     fb_draw_app_bar(state, layout, &screen->bar);
 
     const uint8_t span_choice = snapshot->nav.trend_span;
+    const int margin = fb_margin(state);
+    const int body_w = (int)state->var.xres - margin * 2;
     struct mesh_ui_trend frame;
     memset(&frame, 0, sizeof frame);
-    const bool framed =
-        mesh_ui_trend_frame(screen->series, screen->count, screen->domain, span_choice, &frame);
+    struct mesh_ui_trend_airtime binned;
+    memset(&binned, 0, sizeof binned);
+    bool framed = false;
+    if (screen->airtime != NULL) {
+        /* One bin per cell of the chart's own text across the body: as fine as the panel can
+           show a column, and measured in cells rather than pixels. */
+        const int adv = fb_char_adv(state, layout->small);
+        const uint32_t max_bins = adv > 0 ? (uint32_t)(body_w / adv) : MESH_UI_TREND_BINS_MAX;
+        framed = mesh_ui_trend_airtime(screen->airtime, span_choice, max_bins, &binned);
+        frame = binned.frame;
+    } else {
+        framed =
+            mesh_ui_trend_frame(screen->series, screen->count, screen->domain, span_choice, &frame);
+    }
     const struct mesh_ui_scale scale = framed ? frame.scale : screen->domain;
 
     struct mesh_ui_polyline points[FB_CHART_LINES];
     memset(points, 0, sizeof points);
-    for (uint32_t i = 0U; framed && i < screen->count && i < FB_CHART_LINES; ++i) {
+    for (uint32_t i = 0U;
+         framed && screen->airtime == NULL && i < screen->count && i < FB_CHART_LINES; ++i) {
         mesh_ui_series_project_within(screen->series[i], scale, frame.from, frame.to, &points[i]);
     }
 
@@ -3574,11 +3592,10 @@ static void fb_render_chart(struct mesh_ui_backend_fb_state *state,
     spans.active = (size_t)span_choice < spans.count ? (size_t)span_choice : spans.count - 1U;
     spans.value = spans.labels[spans.active];
 
-    const int margin = fb_margin(state);
     struct fb_chart chart = {
         .rect = {.x = margin,
                  .y = layout->body_y,
-                 .w = (int)state->var.xres - margin * 2,
+                 .w = body_w,
                  .h = layout->footer_y - fb_gutter(state) - layout->body_y},
         .count = screen->count,
         .top = top,
@@ -3606,8 +3623,20 @@ static void fb_render_chart(struct mesh_ui_backend_fb_state *state,
     char readings[FB_CHART_LINES][24];
     memset(readings, 0, sizeof readings);
     for (uint32_t i = 0U; i < screen->count && i < FB_CHART_LINES; ++i) {
-        chart.lines[i].points = &points[i];
         chart.lines[i].label = screen->labels[i];
+        if (screen->airtime != NULL) {
+            const struct mesh_ui_airtime_sample *newest =
+                mesh_ui_history_airtime_newest(screen->airtime);
+            if (framed && newest != NULL) {
+                chart.lines[i].bins = i == 0U ? &binned.utilization : &binned.tx;
+                chart.lines[i].columns = i == 0U;
+                fb_chart_reading(screen->axis, i == 0U ? newest->utilization : newest->tx,
+                                 readings[i], sizeof readings[i]);
+                chart.lines[i].value = readings[i];
+            }
+            continue;
+        }
+        chart.lines[i].points = &points[i];
         const struct mesh_ui_sample *newest = mesh_ui_series_newest(screen->series[i]);
         if (newest != NULL && points[i].count > 0U) {
             fb_chart_reading(screen->axis, newest->value, readings[i], sizeof readings[i]);
@@ -3620,14 +3649,10 @@ static void fb_render_chart(struct mesh_ui_backend_fb_state *state,
 /*
  * The airtime trend, over the Status cards that offered it.
  *
- * The two series arrive in one LocalStats report and are drawn on one window - see
- * mesh_ui_series_window(). Projecting each on its own span is the way this screen would be wrong
- * quietly: our own transmit share is inside the channel's total, so two lines stretched to
- * different widths would show ours crossing above it.
- *
- * A zeroed domain: both readings are already permille, which is what the Status card's own meter
- * fills against. The same domain for both lines and for the band, which is the whole reason our
- * share can be read against the total by looking at them.
+ * Binned rather than drawn reading by reading - see mesh_ui_trend_airtime() for why. The channel
+ * is columns and our own share a line over them, on one domain and one set of bins: our share is
+ * inside the channel's total, so a column and the line above it are two readings of one stretch
+ * of air and can be compared by looking.
  */
 static void fb_render_trend(struct mesh_ui_backend_fb_state *state,
                             const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
@@ -3635,7 +3660,6 @@ static void fb_render_trend(struct mesh_ui_backend_fb_state *state,
         /* No trail. The navigation bar above is already saying Status, and an overline says only
            what nothing else on the frame says. */
         .bar = {.title = mesh_str(MESH_STR_TREND_TITLE)},
-        .series = {&snapshot->history.channel_utilization, &snapshot->history.air_util_tx},
         .labels = {MESH_STR_TREND_SERIES_CHANNEL, MESH_STR_TREND_SERIES_TX},
         .count = 2U,
         .domain = {0, 0},
@@ -3645,6 +3669,7 @@ static void fb_render_trend(struct mesh_ui_backend_fb_state *state,
            the top, and the chart says so by drawing neither. */
         .band = &fb_air_band,
         .axis = FB_CHART_AXIS_PERMILLE,
+        .airtime = &snapshot->history,
     };
     fb_render_chart(state, snapshot, layout, &screen);
 }

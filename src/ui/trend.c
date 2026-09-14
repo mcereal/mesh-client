@@ -8,6 +8,7 @@
 #include "mesh/ui/anim.h"
 
 #include <stddef.h>
+#include <string.h>
 
 /* ---- how far back --------------------------------------------------------------------------- */
 
@@ -196,5 +197,158 @@ bool mesh_ui_trend_frame(const struct mesh_ui_series *const *series, uint32_t co
         out->to = to;
         out->scale = scale;
     }
+    return true;
+}
+
+/* ---- columns -------------------------------------------------------------------------------- */
+
+/* The durations a bin may be, shortest first. Down to a second only because the capture harness
+   and the tests stamp readings that close together; a radio never reports that fast. */
+static const uint32_t k_bin_ladder[] = {
+    1000U,   2000U,   5000U,    10000U,   15000U,   30000U,    60000U,    120000U,   300000U,
+    600000U, 900000U, 1800000U, 3600000U, 7200000U, 10800000U, 21600000U, 43200000U, 86400000U,
+};
+
+uint32_t mesh_ui_trend_bin_ms(uint32_t window_ms, uint32_t cadence_ms, uint32_t max_bins) {
+    const uint32_t bins = max_bins < 2U ? 2U : max_bins;
+    /* `bins - 1` rather than `bins`: centred bins take half of one at each end, so a window of
+       exactly (bins - 1) bin widths is the most that fits. */
+    const uint32_t by_width = (window_ms + (bins - 2U)) / (bins - 1U);
+    const uint32_t by_cadence = cadence_ms - cadence_ms / 8U;
+    const uint32_t floor = by_width > by_cadence ? by_width : by_cadence;
+    const size_t rungs = sizeof k_bin_ladder / sizeof k_bin_ladder[0];
+    for (size_t i = 0U; i < rungs; ++i) {
+        if (k_bin_ladder[i] >= floor) {
+            return k_bin_ladder[i];
+        }
+    }
+    return k_bin_ladder[rungs - 1U];
+}
+
+/* The median spacing of the readings inside [from, to], or 0 with fewer than two. An insertion
+   sort over at most the ring's worth of intervals, which is a few hundred and runs once a frame
+   the chart is open. */
+static uint32_t airtime_cadence(const struct mesh_ui_history *history, uint32_t from, uint32_t to) {
+    uint32_t intervals[MESH_UI_HISTORY_AIRTIME_MAX];
+    uint32_t count = 0U;
+    uint32_t previous = 0U;
+    bool have_previous = false;
+    const uint32_t total = mesh_ui_history_airtime_count(history);
+    for (uint32_t i = 0U; i < total; ++i) {
+        const struct mesh_ui_airtime_sample *sample = mesh_ui_history_airtime_at(history, i);
+        if (sample->time < from || sample->time > to) {
+            continue;
+        }
+        if (have_previous && sample->time > previous && !sample->gap) {
+            const uint32_t interval = sample->time - previous;
+            uint32_t j = count++;
+            while (j > 0U && intervals[j - 1U] > interval) {
+                intervals[j] = intervals[j - 1U];
+                --j;
+            }
+            intervals[j] = interval;
+        }
+        previous = sample->time;
+        have_previous = true;
+    }
+    return count > 0U ? intervals[count / 2U] : 0U;
+}
+
+static void bins_finish(struct mesh_ui_trend_bins *bins, const int64_t *sums,
+                        const uint32_t *counts, const bool *breaks) {
+    uint32_t last_present = 0U;
+    bool any = false;
+    for (uint32_t i = 0U; i < bins->count; ++i) {
+        bins->present[i] = counts[i] > 0U;
+        if (!bins->present[i]) {
+            continue;
+        }
+        const int64_t n = (int64_t)counts[i];
+        bins->values[i] = (int32_t)((sums[i] + n / 2) / n);
+        bins->joins[i] = any && (i - last_present) <= 2U && !breaks[i];
+        last_present = i;
+        any = true;
+    }
+}
+
+bool mesh_ui_trend_airtime(const struct mesh_ui_history *history, uint8_t span, uint32_t max_bins,
+                           struct mesh_ui_trend_airtime *out) {
+    if (out == NULL) {
+        return false;
+    }
+    memset(out, 0, sizeof *out);
+    if (!mesh_ui_history_has_airtime(history)) {
+        return false;
+    }
+
+    uint32_t to = mesh_ui_history_airtime_newest(history)->time;
+    uint32_t from = mesh_ui_history_airtime_at(history, 0U)->time;
+    /* The span's cut, as mesh_ui_trend_frame() makes it: anchored on the newest reading and only
+       ever narrowing. */
+    const uint32_t ms = mesh_ui_trend_span_ms(span);
+    if (ms > 0U && (to - from) > ms) {
+        from = to - ms;
+    }
+
+    uint32_t cap = max_bins > MESH_UI_TREND_BINS_MAX ? MESH_UI_TREND_BINS_MAX : max_bins;
+    cap = cap < 2U ? 2U : cap;
+    const uint32_t bin = mesh_ui_trend_bin_ms(to - from, airtime_cadence(history, from, to), cap);
+    /* At most `cap` by the ladder's own arithmetic, except off the top of the ladder - where the
+       oldest bins are what give. */
+    uint32_t count = (to - from + bin / 2U) / bin + 1U;
+    count = count > cap ? cap : count;
+
+    int64_t util_sums[MESH_UI_TREND_BINS_MAX];
+    int64_t tx_sums[MESH_UI_TREND_BINS_MAX];
+    uint32_t counts[MESH_UI_TREND_BINS_MAX];
+    bool breaks[MESH_UI_TREND_BINS_MAX];
+    memset(util_sums, 0, sizeof util_sums);
+    memset(tx_sums, 0, sizeof tx_sums);
+    memset(counts, 0, sizeof counts);
+    memset(breaks, 0, sizeof breaks);
+
+    const uint32_t total = mesh_ui_history_airtime_count(history);
+    for (uint32_t i = 0U; i < total; ++i) {
+        const struct mesh_ui_airtime_sample *sample = mesh_ui_history_airtime_at(history, i);
+        if (sample->time > to) {
+            continue;
+        }
+        /* Bins back from the newest, rounded to the nearest: bin 0 is centred on `to`. */
+        const uint32_t back = (to - sample->time + bin / 2U) / bin;
+        if (sample->time < from || back >= count) {
+            continue;
+        }
+        const uint32_t slot = count - 1U - back;
+        /* A marked break on the first reading into a bin is a break before the bin. */
+        if (counts[slot] == 0U && sample->gap) {
+            breaks[slot] = true;
+        }
+        util_sums[slot] += sample->utilization;
+        tx_sums[slot] += sample->tx;
+        ++counts[slot];
+    }
+
+    out->bin_ms = bin;
+    out->utilization.count = count;
+    out->tx.count = count;
+    bins_finish(&out->utilization, util_sums, counts, breaks);
+    bins_finish(&out->tx, tx_sums, counts, breaks);
+
+    int32_t high = 0;
+    for (uint32_t i = 0U; i < count; ++i) {
+        if (!out->utilization.present[i]) {
+            continue;
+        }
+        if (out->utilization.values[i] > high) {
+            high = out->utilization.values[i];
+        }
+        if (out->tx.values[i] > high) {
+            high = out->tx.values[i];
+        }
+    }
+    out->frame.from = from;
+    out->frame.to = to;
+    /* The airtime domain is the identity one: readings already permille. */
+    out->frame.scale = mesh_ui_trend_domain((struct mesh_ui_scale){0, 0}, high);
     return true;
 }

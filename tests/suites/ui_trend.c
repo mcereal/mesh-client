@@ -430,3 +430,138 @@ MESH_TEST_CASE(trend_action_bar_names_the_span_press, unit) {
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
+
+/* ---- columns -------------------------------------------------------------------------------- */
+
+/*
+ * A bin is no narrower than the readings are apart and no more of them than fit, rounded up the
+ * ladder.
+ *
+ * Each of these is a radio somebody has. A minute's DeviceMetrics over an hour is sixty one-minute
+ * columns; the same stream over six hours has to double up to fit; a radio that only sends
+ * LocalStats every quarter of an hour gets quarter-hour columns rather than fourteen empty slots
+ * for every full one.
+ */
+MESH_TEST_CASE(trend_bin_follows_the_cadence_and_the_room, unit) {
+    const uint32_t minute = 60U * 1000U;
+    MESH_TEST_FAIL_IF(mesh_ui_trend_bin_ms(60U * minute, minute, 80U) != minute,
+                      "an hour of minutes should be one-minute columns");
+    MESH_TEST_FAIL_IF(mesh_ui_trend_bin_ms(15U * minute, minute + 400U, 80U) != minute,
+                      "a report a little late is still a one-minute cadence");
+    MESH_TEST_FAIL_IF(mesh_ui_trend_bin_ms(6U * 60U * minute, minute, 80U) != 5U * minute,
+                      "six hours should widen to fit the room");
+    MESH_TEST_FAIL_IF(mesh_ui_trend_bin_ms(6U * 60U * minute, 16U * minute, 80U) != 15U * minute,
+                      "a LocalStats-only radio should get columns as wide as its reports");
+    MESH_TEST_FAIL_IF(mesh_ui_trend_bin_ms(0U, 0U, 80U) != 1000U,
+                      "nothing to measure is the narrowest rung");
+    record_success(test_name);
+}
+
+static void note_minutes(struct mesh_ui_history *history, uint32_t start, uint32_t count,
+                         const int32_t *utilization, int32_t tx) {
+    for (uint32_t i = 0U; i < count; ++i) {
+        mesh_ui_history_note_metrics_airtime(history, start + i * 60000U + (i % 3U) * 150U,
+                                             utilization[i], tx);
+    }
+}
+
+/*
+ * A bursty minute-by-minute reading becomes one column a minute, each in its own bin even though
+ * the reports jitter, and the axis fits the tallest column.
+ */
+MESH_TEST_CASE(trend_airtime_bins_each_report_into_its_own_column, unit) {
+    struct mesh_ui_history *history = calloc(1U, sizeof *history);
+    MESH_TEST_FAIL_IF(history == NULL, "allocation failed");
+    mesh_ui_history_reset(history);
+    int32_t values[30];
+    for (uint32_t i = 0U; i < 30U; ++i) {
+        values[i] = (i % 4U) == 0U ? 21 : 0; /* 2.1% one minute in four, like a quiet mesh */
+    }
+    note_minutes(history, 1000U, 30U, values, 8);
+
+    struct mesh_ui_trend_airtime binned;
+    const bool framed =
+        mesh_ui_trend_airtime(history, (uint8_t)MESH_UI_TREND_SPAN_ALL, 80U, &binned);
+    bool every_minute_present = true;
+    bool every_value_kept = true;
+    for (uint32_t i = 0U; framed && i < binned.utilization.count; ++i) {
+        every_minute_present = every_minute_present && binned.utilization.present[i] &&
+                               binned.tx.present[i] && (i == 0U || binned.tx.joins[i]);
+        every_value_kept = every_value_kept && binned.utilization.values[i] == values[i];
+    }
+    free(history);
+
+    MESH_TEST_FAIL_IF(!framed, "thirty readings should frame a chart");
+    MESH_TEST_FAIL_IF(binned.bin_ms != 60000U, "a minute's reports should be minute columns");
+    MESH_TEST_FAIL_IF(binned.utilization.count != 30U, "one column per report");
+    MESH_TEST_FAIL_IF(!every_minute_present, "jitter should not leave a column empty");
+    MESH_TEST_FAIL_IF(!every_value_kept, "a column of one reading is that reading");
+    MESH_TEST_FAIL_IF(binned.frame.scale.max != 50 || binned.frame.scale.min != 0,
+                      "the ceiling should contract to the rung above the tallest column");
+    record_success(test_name);
+}
+
+/*
+ * Wider bins average, and a line over them bridges one skipped report but not a silence.
+ */
+MESH_TEST_CASE(trend_airtime_averages_and_lifts_the_pen_at_a_silence, unit) {
+    struct mesh_ui_history *history = calloc(1U, sizeof *history);
+    MESH_TEST_FAIL_IF(history == NULL, "allocation failed");
+    mesh_ui_history_reset(history);
+
+    /* Two readings into one bin: a narrow room forces two-minute columns over this window. */
+    int32_t pair[] = {10, 30, 10, 30, 10, 30, 10, 30, 10, 30, 10, 30};
+    note_minutes(history, 60000U, 12U, pair, 4);
+    struct mesh_ui_trend_airtime binned;
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !mesh_ui_trend_airtime(history, (uint8_t)MESH_UI_TREND_SPAN_ALL, 8U, &binned),
+        free(history), "the readings should frame a chart");
+    bool averaged = binned.bin_ms == 2U * 60000U;
+    for (uint32_t i = 1U; averaged && i + 1U < binned.utilization.count; ++i) {
+        averaged = binned.utilization.present[i] && binned.utilization.values[i] == 20;
+    }
+
+    /* A skipped report is bridged; ten silent minutes are not. */
+    mesh_ui_history_reset(history);
+    const uint32_t minute = 60000U;
+    const uint32_t stamps[] = {1U, 2U, 3U, 5U, 6U, 16U, 17U};
+    for (uint32_t i = 0U; i < sizeof stamps / sizeof stamps[0]; ++i) {
+        mesh_ui_history_note_metrics_airtime(history, stamps[i] * minute, 10, 5);
+    }
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !mesh_ui_trend_airtime(history, (uint8_t)MESH_UI_TREND_SPAN_ALL, 80U, &binned),
+        free(history), "the readings should frame a chart");
+    free(history);
+    const struct mesh_ui_trend_bins *tx = &binned.tx;
+
+    MESH_TEST_FAIL_IF(!averaged, "a bin of two readings should be their mean");
+    MESH_TEST_FAIL_IF(tx->count != 17U, "seventeen minutes of window is seventeen columns");
+    MESH_TEST_FAIL_IF(tx->present[3], "the skipped minute is an empty column");
+    MESH_TEST_FAIL_IF(!tx->joins[4], "a line should bridge one skipped report");
+    MESH_TEST_FAIL_IF(!tx->present[15] || tx->joins[15], "a line should lift over a silence");
+    MESH_TEST_FAIL_IF(!tx->joins[16], "and continue once readings are punctual again");
+    record_success(test_name);
+}
+
+/* The span cuts the bins as it cuts a line: the last quarter hour of three hours is a quarter
+   hour of columns, and the ceiling fits what is left rather than the busy spell before it. */
+MESH_TEST_CASE(trend_airtime_span_cuts_the_bins, unit) {
+    struct mesh_ui_history *history = calloc(1U, sizeof *history);
+    MESH_TEST_FAIL_IF(history == NULL, "allocation failed");
+    mesh_ui_history_reset(history);
+    for (uint32_t i = 0U; i < 180U; ++i) {
+        mesh_ui_history_note_metrics_airtime(history, 1000U + i * 60000U, i < 120U ? 400 : 12, 3);
+    }
+    struct mesh_ui_trend_airtime binned;
+    const bool framed =
+        mesh_ui_trend_airtime(history, (uint8_t)MESH_UI_TREND_SPAN_15M, 80U, &binned);
+    free(history);
+    MESH_TEST_FAIL_IF(!framed, "the readings should frame a chart");
+    MESH_TEST_FAIL_IF(binned.frame.to - binned.frame.from != 15U * 60000U,
+                      "the window should be the span");
+    MESH_TEST_FAIL_IF(binned.utilization.count != 16U || binned.bin_ms != 60000U,
+                      "a quarter hour of minutes is sixteen centred columns");
+    MESH_TEST_FAIL_IF(binned.frame.scale.max != 20,
+                      "the ceiling should fit the quarter hour, not the busy spell before it");
+    record_success(test_name);
+}

@@ -29,6 +29,9 @@
  *   syncing                a config replay still running, partway through the roster
  *   stats                  the radio's own LocalStats report - packet counters, online nodes and
  *                          the airtime pair, which the Status tab's Mesh card reads
+ *   airtime BUSY [TX]      one LocalStats airtime report, in percent
+ *   airtime history MINUTES   that many minutes of once-a-minute airtime already behind us, so
+ *                          the Status chart has an afternoon to draw
  *   key NAME [COUNT]       up down left right a b x y l1 r1 start select
  *   hold MS                add MS to the delay of the frame just emitted
  *   frame                  emit the current screen again
@@ -2075,6 +2078,45 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         if (busy == NULL) {
             fprintf(stderr, "uicap: line %u: 'airtime' needs a busy percentage\n", line_number);
             exit(1);
+        }
+        /*
+         * `airtime history MINUTES`: that many minutes of the radio's once-a-minute DeviceMetrics,
+         * already behind us - the only way a capture can show the chart a device shows after an
+         * afternoon, since the harness clock runs for seconds. A fixed generator rather than
+         * anything random, so a checked-in still does not change between runs: a quiet channel
+         * that is mostly nothing, bursts of a few minutes every so often, a busier second half,
+         * and our own share as the smooth rolling hour the firmware reports it as.
+         */
+        if (strcmp(busy, "history") == 0) {
+            const char *minutes_word = uicap_word(&rest);
+            if (minutes_word == NULL) {
+                fprintf(stderr, "uicap: line %u: 'airtime history' needs a minute count\n",
+                        line_number);
+                exit(1);
+            }
+            const unsigned minutes = uicap_number(minutes_word, "airtime history");
+            uicap_start(cap);
+            uint32_t seed = 0x2545F491U;
+            for (unsigned i = 0U; i < minutes; ++i) {
+                seed = seed * 1103515245U + 12345U;
+                const unsigned roll = (seed >> 16) % 100U;
+                const bool busier = i * 2U >= minutes;
+                const unsigned phase = i % 23U;
+                int32_t utilization = 0;
+                if (phase < (busier ? 5U : 3U)) {
+                    utilization = (int32_t)(18U + (roll % 40U) + (busier ? 12U : 0U));
+                } else if (roll < (busier ? 45U : 25U)) {
+                    utilization = (int32_t)(4U + roll % 14U);
+                }
+                const unsigned wave = i % 120U;
+                const int32_t tx = (int32_t)(3U + (wave < 60U ? wave : 120U - wave) / 12U);
+                mesh_ui_history_restore_airtime(&cap->store.history, i * 60U * 1000U, utilization,
+                                                tx, false);
+            }
+            mesh_ui_history_resume(&cap->store.history, MESH_UI_HISTORY_RADIO_REPORT_MS);
+            mesh_ui_store_request_refresh(&cap->store);
+            uicap_emit(cap);
+            return;
         }
         const char *tx = uicap_word(&rest);
         uicap_start(cap);

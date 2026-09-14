@@ -26,6 +26,7 @@
 #include "mesh/ui/icon.h"
 #include "mesh/ui/layout.h"
 #include "mesh/ui/theme.h"
+#include "mesh/ui/trend.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -963,6 +964,18 @@ struct fb_chart_line {
      * Borrowed for the call. Nothing here keeps it.
      */
     const struct mesh_ui_polyline *points;
+    /*
+     * Or the readings binned across the plot (mesh_ui_trend_airtime()), in the chart's `scale`
+     * units, which takes the place of `points` when set. Bins divide the plot into equal slots,
+     * oldest on the left.
+     *
+     * `columns` draws each present bin as a filled column up from the axis - the series colour is
+     * a fill's colour, so this is the mark it was validated for - and otherwise a line through the
+     * bins' centres, lifted wherever a bin does not join. Columns are drawn before every line, so
+     * a line always reads on top of them.
+     */
+    const struct mesh_ui_trend_bins *bins;
+    bool columns;
     /* What the legend calls it. MESH_STR_NONE draws the line and names it nowhere, which is
        honest only when there is exactly one line - with two it is the picture asking the reader
        to guess. */

@@ -845,9 +845,9 @@ measurement, a convention no assertion reaches - which is why those are allowed 
   airtime pair is persisted and a node's trends are not.** The argument against persisting - a
   trend is what we *watched* - is answered by the break rather than by throwing the readings away:
   `mesh_ui_history_resume()` lifts the pen over the seam, so the gap is drawn as a gap. What forced
-  it is arithmetic: LocalStats reaches the client every fifteen minutes and two readings make a
-  line, so a history starting empty at every launch left the Mesh card's chart unoffered for the
-  first half hour of *every session*. The saved sample is an **age, not a stamp**: a time here is
+  it was arithmetic: a history starting empty at every launch left the Mesh card's chart
+  unoffered for the first half hour of *every session*, and six hours of readings is what the
+  chart is for. The saved sample is an **age, not a stamp**: a time here is
   `CLOCK_MONOTONIC`, which counts from boot, so restoring the numbers themselves would hand
   `mesh_ui_series_push()` a reading from before the oldest one it holds - which it reads as the
   clock going backwards and answers by emptying the series.
