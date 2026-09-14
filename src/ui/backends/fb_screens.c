@@ -33,6 +33,7 @@
 #include "mesh/ui/settings.h"
 #include "mesh/ui/status.h"
 #include "mesh/ui/trend.h"
+#include "mesh/ui/trust.h"
 #include "mesh/ui/waypoints.h"
 #include "mesh/utils/text.h"
 #include "mesh/utils/time.h"
@@ -625,8 +626,30 @@ static void fb_thread_row_build(const struct mesh_ui_snapshot *snapshot, const u
      * did *not* go out PKI-encrypted was readable by all of them, and nothing else on the
      * screen distinguishes the two.
      */
+    /*
+     * And *which* padlock, which is the half the mark could not say until key trust existed: a
+     * key the radio happened to hold and a key somebody proved is theirs are two different
+     * claims, and the bubble used to make the stronger-looking one for both. The shield is the
+     * verified case and the padlock the ordinary one - two shapes rather than two colours, for
+     * the reason mesh/ui/trust.h gives.
+     *
+     * Read off the peer's roster record rather than off the message, because verification is a
+     * fact about the key and not about the packet: a message sent last week to a node verified
+     * this morning was encrypted to that same key, and drawing it as unverified would be the
+     * transcript remembering a doubt that has since been settled.
+     */
     if (message->pki_encrypted && !message->broadcast) {
-        row->bubble.meta.lock = MESH_UI_ICON_ENCRYPTED;
+        const struct mesh_ui_node_summary *const peer_node =
+            snapshot->handshake_valid
+                ? mesh_ui_node_detail_find(&snapshot->handshake, message->peer)
+                : NULL;
+        const enum mesh_ui_key_trust peer_trust = mesh_ui_key_trust_of(peer_node);
+        /* A node the roster has lost reads as NONE, which has no mark at all - and the message
+           in front of the user certainly was encrypted. The padlock is the honest floor there:
+           it says what the packet did, and claims nothing about whose key it used. */
+        row->bubble.meta.lock = peer_trust == MESH_UI_KEY_TRUST_VERIFIED
+                                    ? mesh_ui_key_trust_icon(MESH_UI_KEY_TRUST_VERIFIED)
+                                    : MESH_UI_ICON_ENCRYPTED;
     }
 
     /* What became of one of ours, as src/ui/delivery.c answers - the mark for the corner, and
@@ -1111,7 +1134,14 @@ static void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
                 .label_cols = label_cols,
                 .label_quiet = true,
                 .value = item->value,
-                .tone = MESH_UI_TONE_NORMAL,
+                /*
+                 * The row's own ink rather than a flat normal, which every row here still gets:
+                 * MESH_UI_TONE_NORMAL is 0, so a builder that says nothing says exactly what
+                 * this used to hard-code. What it buys is the one fact on this screen that is a
+                 * *judgement* rather than a reading - a key somebody proved is theirs, which is
+                 * worth a colour for the reason no temperature is.
+                 */
+                .tone = (enum mesh_ui_tone)item->tone,
             };
             fb_list_item(state, &list, i, &row);
         }
@@ -1787,7 +1817,9 @@ static void fb_render_keyboard(const struct mesh_ui_backend_fb_state *state,
                                const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
     const bool for_passkey = nav->keyboard_passkey;
-    const bool for_setting = (!for_passkey && nav->keyboard_field != MESH_UI_FIELD_NONE);
+    const bool for_verify = (!for_passkey && nav->keyboard_verify);
+    const bool for_setting =
+        (!for_passkey && !for_verify && nav->keyboard_field != MESH_UI_FIELD_NONE);
     /* Asked rather than worked out again. The nav caps what the append will actually take, and
        this counter is the only thing on the frame that says a cap exists - so a copy of the
        rule here is a promise the typing does not keep. It was one: a place's name and a network
@@ -1801,6 +1833,15 @@ static void fb_render_keyboard(const struct mesh_ui_backend_fb_state *state,
                         nav->pairing_confirm ? MESH_STR_PAIRING_CONFIRM : MESH_STR_PAIRING_SHOWN_ON,
                         nav->pairing_label[0] != '\0' ? nav->pairing_label
                                                       : mesh_str(MESH_STR_PAIRING_NODE_FALLBACK));
+    } else if (for_verify) {
+        /* The pairing prompt's problem exactly: the digits are on somebody else's screen and
+           reach this one by voice, so the heading has to say whose. The name comes out of the
+           snapshot rather than off the nav - it is the name the far radio used, which is the
+           one the other person is looking at while they read the number out. */
+        mesh_str_format(title, sizeof title, MESH_STR_VERIFY_NUMBER_PROMPT,
+                        snapshot->verification.remote_name[0] != '\0'
+                            ? snapshot->verification.remote_name
+                            : mesh_str(MESH_STR_COMMON_UNKNOWN));
     } else if (for_setting) {
         snprintf(title, sizeof title, "%s",
                  mesh_ui_settings_field_label((enum mesh_ui_setting_field)nav->keyboard_field));
@@ -1818,7 +1859,7 @@ static void fb_render_keyboard(const struct mesh_ui_backend_fb_state *state,
     /* The same badge the compose sheet carries, for the same reason: this keyboard was raised
        over a bubble, and the destination in the title is not what says so. A setting's keyboard
        and the pairing prompt never carry one - `reply_to` belongs to the thread. */
-    const bool replying = (!for_passkey && !for_setting && !nav->keyboard_network &&
+    const bool replying = (!for_passkey && !for_verify && !for_setting && !nav->keyboard_network &&
                            !nav->keyboard_waypoint && nav->reply_to != 0U);
     fb_draw_app_bar(state, layout,
                     &(const struct fb_app_bar){
@@ -2870,6 +2911,47 @@ static void fb_render_confirm(struct mesh_ui_backend_fb_state *state,
     fb_draw_dialog(state, layout, &dialog);
 }
 
+/*
+ * The key-verification sheet: the radio's half of the ceremony, put to the user.
+ *
+ * The same dialog the settings confirm uses, and for the same reason - a question is a panel
+ * with two answers on it rather than another list to walk - but everything it says comes out of
+ * src/ui/trust.c rather than from here, including which two answers this stage has. That is the
+ * house rule doing real work: the difference between "they match" and "stop" is the difference
+ * between a verification and a refusal, and a renderer choosing it would be a renderer with an
+ * opinion about cryptography.
+ *
+ * Never destructive, which is worth saying because a settings confirm sometimes is. The
+ * dangerous half of this dialog is not the button that acts - it is answering "they match"
+ * without having compared anything, and no colour on a button prevents that. What does is the
+ * paragraph under the headline, which is why the panel keeps one at every stage.
+ */
+static void fb_render_verify(struct mesh_ui_backend_fb_state *state,
+                             const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
+    struct mesh_ui_verify_sheet sheet;
+    char headline[96];
+    char text[256];
+    if (!mesh_ui_verify_sheet_of(&snapshot->verification, &sheet, headline, sizeof headline, text,
+                                 sizeof text)) {
+        /* The exchange ended between the press and this frame - a link that dropped, or the
+           other end standing down. Saying so beats an empty panel, and the app closes the sheet
+           on the next publish. */
+        fb_draw_empty(state, layout, MESH_UI_ICON_SECURITY, mesh_str(MESH_STR_TRUST_UNVERIFIED));
+        return;
+    }
+
+    const struct fb_dialog dialog = {
+        .icon = sheet.icon,
+        .headline = headline,
+        .text = text,
+        .accept = mesh_str(sheet.accept),
+        .cancel = mesh_str(sheet.cancel),
+        .cursor = snapshot->nav.verify_cursor,
+        .destructive = false,
+    };
+    fb_draw_dialog(state, layout, &dialog);
+}
+
 /* Settings: the section list, or one section's label/value rows. Editable rows show a
    pending edit in place of the radio's value, marked with a dot until Y saves it. */
 /* Takes the state mutably, unlike its neighbours: the switches on the toggle rows step an
@@ -3716,6 +3798,11 @@ void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
      */
     if (snapshot->nav.help_open) {
         fb_render_help(state, snapshot, &layout);
+    } else if (snapshot->nav.verify_open) {
+        /* Ahead of the settings confirm, the same way the key handler takes it first: a
+           verification is waiting on two people and a radio that gives up after five minutes,
+           while a confirm will wait. */
+        fb_render_verify(state, snapshot, &layout);
     } else if (snapshot->nav.confirm_open) {
         fb_render_confirm(state, snapshot, &layout);
     } else if (snapshot->nav.picker_open) {

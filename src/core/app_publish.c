@@ -297,6 +297,7 @@ static void mesh_app_restore_node(const struct mesh_ui_node_summary *src,
                               ? (uint8_t)sizeof dst->public_key
                               : src->public_key_len;
     memcpy(dst->public_key, src->public_key, dst->public_key_len);
+    dst->key_verified = src->key_verified;
     dst->is_favorite = src->is_favorite;
     dst->is_ignored = src->is_ignored;
     dst->is_muted = src->is_muted;
@@ -1352,6 +1353,80 @@ static void mesh_app_report_radio_notices(struct mesh_app *app) {
 }
 
 /*
+ * The key-verification ceremony: expired, published, and put in front of the user.
+ *
+ * Three jobs, and they are one function because they are one question asked at three levels.
+ * Nothing on the wire ends an exchange, so the expiry has to be driven from somewhere that
+ * runs; the sheet has to be opened by the app because what raises it is a ClientNotification
+ * rather than a press; and what the sheet *says* has to be published, because the nav holds
+ * only whether it is on screen.
+ *
+ * The rule for when the sheet comes back is the whole of the behaviour worth reading twice.
+ * It opens when the stage changes to one that asks something, and not otherwise - so "Later"
+ * on the waiting sheet gets out of the way and stays out of the way, while the question that
+ * arrives two minutes later does interrupt. A sheet that reopened on every publish would be
+ * unclosable; one that never reopened would lose the ceremony.
+ */
+static void mesh_app_report_key_verification(struct mesh_app *app) {
+    /* The expiry first, so the rest of this reads an exchange that is still worth showing. */
+    struct mesh_key_verification expired;
+    if (mesh_session_verify_key_tick(&app->session, &expired)) {
+        if (app->config.run_mode == MESH_APP_RUN_FOREGROUND) {
+            char toast[MESH_UI_NAV_TOAST_MAX];
+            mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_VERIFY_TIMEOUT,
+                            expired.remote_name[0] != '\0' ? expired.remote_name
+                                                           : mesh_str(MESH_STR_COMMON_UNKNOWN));
+            mesh_ui_store_set_toast(&app->ui_store, mesh_time_monotonic_ms(), toast);
+        }
+    }
+
+    const struct mesh_key_verification *const live = mesh_session_verification(&app->session);
+
+    /* Flattened onto the UI's own record, which is where the seam is: the sheet needs the
+       stage, the digits and the characters, and none of the clocks the core keeps for the
+       expiry above. See struct mesh_ui_verification. */
+    struct mesh_ui_verification published;
+    memset(&published, 0, sizeof published);
+    published.stage = live->stage;
+    published.we_initiated = live->we_initiated;
+    published.remote_node = live->remote_node;
+    published.security_number = live->security_number;
+    (void)mesh_str_copy(published.remote_name, sizeof published.remote_name, live->remote_name);
+    (void)mesh_str_copy(published.characters, sizeof published.characters, live->characters);
+    mesh_ui_store_set_verification(&app->ui_store, &published);
+
+    const bool moved = live->seq != app->ui_verify_seq_seen;
+    const bool new_question = live->stage != app->ui_verify_stage_shown;
+    app->ui_verify_seq_seen = live->seq;
+    app->ui_verify_stage_shown = live->stage;
+    if (!moved && !new_question) {
+        return;
+    }
+
+    /*
+     * The two overlays are mutually exclusive and the stage decides which: the security number
+     * is collected on the keyboard (it is the one stage that takes something *in*), and every
+     * other question is the sheet. Closing the one that does not belong to this stage is what
+     * stops a prompt outliving the question it was asked for - a link that drops mid-ceremony
+     * resets the exchange to IDLE, and this is where that reaches the screen.
+     */
+    if (live->stage == (uint8_t)MESH_KEY_VERIFICATION_ENTER_NUMBER) {
+        mesh_ui_store_close_verify_sheet(&app->ui_store);
+        mesh_ui_store_open_verify_number(&app->ui_store);
+        return;
+    }
+    mesh_ui_store_close_verify_number(&app->ui_store);
+    if (new_question && mesh_key_verification_active(live) &&
+        app->config.run_mode == MESH_APP_RUN_FOREGROUND) {
+        mesh_ui_store_open_verify_sheet(&app->ui_store);
+        return;
+    }
+    if (!mesh_key_verification_active(live)) {
+        mesh_ui_store_close_verify_sheet(&app->ui_store);
+    }
+}
+
+/*
  * Announces the newest unseen critical alert, once.
  *
  * The Messages tab may not be the one on screen, and an ALERT_APP message is by definition the
@@ -1582,6 +1657,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
     mesh_app_report_alerts(app);
     mesh_app_report_direct_messages(app);
     mesh_app_report_off_radio_nodes(app);
+    mesh_app_report_key_verification(app);
 
     struct mesh_transport *ble = mesh_ble_transport();
     if (ble == NULL) {
@@ -1936,6 +2012,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
                                       ? (uint8_t)sizeof(dst->public_key)
                                       : src->public_key_len;
             memcpy(dst->public_key, src->public_key, dst->public_key_len);
+            dst->key_verified = src->key_verified;
             dst->is_favorite = src->is_favorite;
             dst->is_ignored = src->is_ignored;
             dst->is_muted = src->is_muted;

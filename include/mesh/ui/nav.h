@@ -486,6 +486,19 @@ struct mesh_ui_nav {
     bool keyboard_passkey;
     bool pairing_confirm;
     char pairing_label[MESH_UI_NAV_TARGET_NAME_MAX];
+    /*
+     * The keyboard collecting a key-verification security number: a fifth flavour beside the
+     * pairing PIN, and there for the same reason that one is a flavour rather than a screen.
+     * It is opened by the *radio* asking a question in the middle of whatever the user was
+     * doing, so it takes over the keyboard and parks what was there, and the digits it collects
+     * answer a nonce rather than a field.
+     *
+     * It carries no label of its own, unlike the pairing prompt. The name to put on it is in
+     * the snapshot already - `verification.remote_name`, which is the name the far radio used
+     * and the one the other person is looking at - and a copy here would be a second opinion
+     * about who is being verified.
+     */
+    bool keyboard_verify;
     /* The keyboard the prompt displaced, restored when it closes. The prompt can land on top
        of an open keyboard, and the text being typed is parked in `draft_saved` like any other.
        `keyboard_displaced` is what says one was open at all: `keyboard_field_displaced` cannot,
@@ -509,6 +522,20 @@ struct mesh_ui_nav {
      */
     bool help_open;
     uint32_t help_cursor;
+    /*
+     * The key-verification sheet: the radio's half of the ceremony, put to the user.
+     *
+     * An overlay like the confirm dialog, and opened like the pairing prompt - by the app,
+     * because the thing that raises it is a ClientNotification rather than a press. `verify_cursor`
+     * is the dialog's own 0-is-accept, 1-is-cancel, the same one `confirm_cursor` carries.
+     *
+     * What it *says* is not here: the stage, the digits and the characters are in the snapshot
+     * (struct mesh_ui_verification), because they are what the radio is doing rather than where
+     * the user is. This flag is only whether the question is on screen - which matters on its
+     * own, because "Later" closes the sheet without ending the exchange.
+     */
+    bool verify_open;
+    uint8_t verify_cursor;
     /* Devices tab: Y is armed by one press and forgets the node on the second, because a
        bond dropped by accident costs the user a re-pair with the PIN. */
     bool devices_forget_armed;
@@ -617,6 +644,19 @@ enum mesh_ui_action_type {
     /* Answers the BlueZ pairing agent: `text` holds the digits typed into the prompt. */
     MESH_UI_ACTION_SUBMIT_PASSKEY,
     MESH_UI_ACTION_CANCEL_PAIRING,
+    /*
+     * Key trust (mesh/core/key_verification.h). Four verbs, and the split between them is the
+     * one the ceremony itself makes: the first two are presses on a node, and the last two
+     * answer a question the *radio* asked.
+     */
+    MESH_UI_ACTION_ADD_CONTACT, /* dest = the node to hand to the radio, key and all */
+    MESH_UI_ACTION_VERIFY_KEY,  /* dest = the node to start a ceremony against */
+    /* `text` holds the four digits the other person read out. No `dest`: the digits answer the
+       nonce the radio is holding open, and naming a node here would be the nav having an
+       opinion about which exchange is in front of the user. */
+    MESH_UI_ACTION_VERIFY_NUMBER,
+    /* The comparison, answered: `number` is 1 for "they match" and 0 for "they do not". */
+    MESH_UI_ACTION_VERIFY_ANSWER,
 };
 
 struct mesh_ui_action {
@@ -657,6 +697,19 @@ void mesh_ui_nav_init(struct mesh_ui_nav *nav);
 bool mesh_ui_nav_open_passkey(struct mesh_ui_nav *nav, const char *label, uint32_t passkey,
                               bool confirm);
 bool mesh_ui_nav_close_passkey(struct mesh_ui_nav *nav);
+
+/* How many digits a security number has, restated here for the draft cap the way
+   MESH_UI_PASSKEY_DIGITS is. Pinned against the core's in the nodes suite. */
+#define MESH_UI_VERIFY_DIGITS_MAX 4U
+
+/* Opens and closes the key-verification sheet, and the keyboard that collects the security
+   number. Driven by the app from the ceremony's state rather than by a key press, the way the
+   pairing prompt is: what raises them is the radio asking something. Each returns true when
+   the frame needs repainting. */
+bool mesh_ui_nav_open_verify(struct mesh_ui_nav *nav);
+bool mesh_ui_nav_close_verify(struct mesh_ui_nav *nav);
+bool mesh_ui_nav_open_verify_number(struct mesh_ui_nav *nav);
+bool mesh_ui_nav_close_verify_number(struct mesh_ui_nav *nav);
 
 /* Applies one button press. Returns true when the visible state changed. When the press
    asks the app to do something, *out_action is filled in (may be NULL to discard). The store

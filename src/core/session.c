@@ -77,6 +77,10 @@ static void mesh_session_reset_link_state(struct mesh_session *session) {
        saw it at 2 on the last radio must not read the next one's first reboot as a third. */
     memset(&session->notification, 0, sizeof session->notification);
     memset(&session->queue, 0, sizeof session->queue);
+    /* A verification is a nonce this radio opened and a sequence of AdminMessages to it. The
+       link ending ends the exchange, and a sheet left standing across a reconnect would be
+       asking the user to answer a question nothing is listening for any more. */
+    mesh_key_verification_reset(&session->verification);
     session->reboot_notices = 0U;
     session->node_cache_warned = false;
     mesh_radio_settings_reset_session(&session->settings);
@@ -677,6 +681,10 @@ static void mesh_session_store_node_summary(struct mesh_session *session,
     summary->is_favorite = info->is_favorite;
     summary->is_ignored = info->is_ignored;
     summary->is_muted = info->is_muted;
+    /* The radio is the authority on this one, exactly as it is on the three above: the bit
+       lives in its NodeDB, it survives the clean-ups there, and a ceremony run from a phone
+       against the same radio is the case where our optimistic copy is the stale one. */
+    summary->key_verified = info->is_key_manually_verified;
     summary->channel = (uint8_t)info->channel;
     /* Stamped whether or not this NodeInfo told us anything new: what it proves is that the
        radio's database still carries the node, which is what the stamp is read for. */
@@ -1094,6 +1102,33 @@ static void mesh_session_handle_log_record(const meshtastic_LogRecord *record) {
  * The message is untrusted radio text, so it is sanitised on the way in like a node name is,
  * and the slot it lands in is smaller than the 400 bytes the wire allows.
  */
+/*
+ * The roster entry whose long name is exactly `name`, or 0.
+ *
+ * Only the key-verification ceremony needs this, and only because its notifications name the
+ * far end by name and nothing else. An exact match rather than a fuzzy one, and 0 when two
+ * nodes share the name: a verification addressed to the wrong node is the failure the whole
+ * ceremony exists to prevent, so an ambiguous name is answered with "I do not know" and the
+ * step is refused rather than guessed at.
+ */
+static uint32_t mesh_session_node_by_name(const struct mesh_session *session, const char *name) {
+    if (name == NULL || name[0] == '\0') {
+        return 0U;
+    }
+    uint32_t found = 0U;
+    for (size_t i = 0; i < session->handshake.node_count && i < MESH_SESSION_MAX_NODES; ++i) {
+        const struct mesh_node_summary *const node = &session->handshake.nodes[i];
+        if (!node->has_user || strcmp(node->long_name, name) != 0) {
+            continue;
+        }
+        if (found != 0U) {
+            return 0U; /* two nodes wearing one name; neither is an answer */
+        }
+        found = node->node_id;
+    }
+    return found;
+}
+
 static void mesh_session_handle_client_notification(struct mesh_session *session,
                                                     const meshtastic_ClientNotification *note) {
     struct mesh_client_notification *out = &session->notification;
@@ -1107,6 +1142,51 @@ static void mesh_session_handle_client_notification(struct mesh_session *session
     out->level = (uint8_t)note->level;
     mesh_text_sanitise((const uint8_t *)note->message, strnlen(note->message, sizeof note->message),
                        out->text, sizeof out->text);
+
+    /*
+     * Three of the notification's payload variants are not an explanation at all - they are the
+     * radio's half of the key-verification ceremony, and the only route it has for asking its
+     * own user something (mesh/core/key_verification.h). The text beside them stays exactly as
+     * it is: the firmware writes a readable sentence into `message` for each, so a client that
+     * only folded the variant in still shows the words on the Status row.
+     *
+     * The other two variants - a duplicated public key and a low-entropy one - carry no fields
+     * and are already fully said by that text, which is why they are not arms here.
+     */
+    const uint32_t now = out->received;
+    switch (note->which_payload_variant) {
+    case meshtastic_ClientNotification_key_verification_number_request_tag:
+        (void)mesh_key_verification_on_number_request(
+            &session->verification, note->payload_variant.key_verification_number_request.nonce,
+            note->payload_variant.key_verification_number_request.remote_longname, now);
+        break;
+    case meshtastic_ClientNotification_key_verification_number_inform_tag:
+        (void)mesh_key_verification_on_number_inform(
+            &session->verification, note->payload_variant.key_verification_number_inform.nonce,
+            note->payload_variant.key_verification_number_inform.remote_longname,
+            note->payload_variant.key_verification_number_inform.security_number, now);
+        break;
+    case meshtastic_ClientNotification_key_verification_final_tag:
+        (void)mesh_key_verification_on_final(
+            &session->verification, note->payload_variant.key_verification_final.nonce,
+            note->payload_variant.key_verification_final.remote_longname,
+            note->payload_variant.key_verification_final.verification_characters, now);
+        break;
+    default:
+        break;
+    }
+    /*
+     * The far end by node number, which no notification carries - they name it by long name
+     * only. A ceremony we started already knows it; one somebody else started reaches us with a
+     * name and nothing to address a reply to, so it is resolved against the roster here, where
+     * the roster is. A name that matches nothing leaves it 0 and the step is refused rather
+     * than sent to whichever node happened to be nearest.
+     */
+    if (mesh_key_verification_active(&session->verification) &&
+        session->verification.remote_node == 0U) {
+        session->verification.remote_node =
+            mesh_session_node_by_name(session, session->verification.remote_name);
+    }
 
     /* Logged at the radio's own level as well as kept for the UI: the screen shows the newest
        one and the log is where the sequence of them can be read back afterwards. */
@@ -1878,6 +1958,227 @@ int mesh_session_remove_node(struct mesh_session *session, uint32_t node_id) {
     session->handshake.node_count = last;
     mesh_log_info("session", "Removed node 0x%08x from the NodeDB (%d requests)", node_id, queued);
     return queued;
+}
+
+/*
+ * Our roster record as a SharedContact.
+ *
+ * Every field the radio is about to store for this node comes from what we already hold, which
+ * is the whole point of the verb: this is not a contact somebody typed in, it is the one the
+ * radio had before its database filled up and evicted it. `should_ignore` is left false rather
+ * than carried across - `is_ignored` is a NodeDB flag of the radio's own and has its own verb
+ * to set it, and a contact handed back with it folded in would re-ignore a node the user had
+ * since un-ignored through the row that exists for that.
+ */
+static bool mesh_session_contact_from_node(const struct mesh_node_summary *node,
+                                           meshtastic_SharedContact *out) {
+    if (node->public_key_len == 0U) {
+        return false;
+    }
+    *out = (meshtastic_SharedContact)meshtastic_SharedContact_init_zero;
+    out->node_num = node->node_id;
+    out->has_user = true;
+    (void)mesh_str_copy(out->user.id, sizeof out->user.id, node->user_id);
+    (void)mesh_str_copy(out->user.long_name, sizeof out->user.long_name, node->long_name);
+    (void)mesh_str_copy(out->user.short_name, sizeof out->user.short_name, node->short_name);
+    out->user.hw_model = (meshtastic_HardwareModel)node->hw_model;
+    out->user.role = (meshtastic_Config_DeviceConfig_Role)node->role;
+    out->user.is_licensed = node->is_licensed;
+    out->user.has_is_unmessagable = node->is_unmessagable;
+    out->user.is_unmessagable = node->is_unmessagable;
+    out->user.public_key.size = node->public_key_len;
+    memcpy(out->user.public_key.bytes, node->public_key, node->public_key_len);
+    /* The reason this is not just "put the node back": a key somebody proved out of band stays
+       proven across the round trip, rather than arriving at the radio as a stranger's. */
+    out->manually_verified = node->key_verified;
+    return true;
+}
+
+int mesh_session_add_contact(struct mesh_session *session, uint32_t node_id) {
+    if (session == NULL || node_id == 0U) {
+        return -EINVAL;
+    }
+    if (session->send == NULL || !session->handshake.has_my_info) {
+        return -ENOTCONN;
+    }
+    /* Our own record is already in the radio's database by definition - it is the radio. */
+    if (node_id == session->handshake.my_info.my_node_num) {
+        return -EINVAL;
+    }
+    const struct mesh_node_summary *const summary = mesh_session_find_node(session, node_id);
+    if (summary == NULL) {
+        return -ENOENT;
+    }
+    meshtastic_SharedContact contact;
+    if (!mesh_session_contact_from_node(summary, &contact)) {
+        /* No key means nothing worth writing: an entry with none is what the radio would build
+           for itself the moment the node transmitted. */
+        return -EINVAL;
+    }
+    const int queued = mesh_radio_settings_queue_contact(&session->settings, &contact);
+    if (queued < 0) {
+        return queued;
+    }
+    /*
+     * `in_nodedb` is deliberately *not* set here, unlike the favorite and ignore flags.
+     *
+     * Those are the radio recording a preference, which it does or does not do; this is the
+     * radio being asked to find a slot in a database that is already full, and the firmware
+     * answers a Routing ack for the AdminMessage rather than for the insertion. What settles it
+     * is the node's next NodeInfo, and claiming the row early would be this client telling the
+     * user a direct message will now encrypt when it may still not.
+     */
+    mesh_log_info("session", "Adding node 0x%08x to the NodeDB with its key (%d requests)", node_id,
+                  queued);
+    return queued;
+}
+
+/*
+ * What the three ceremony verbs share: the node has to be real, reachable, not us, and have a
+ * key - there is nothing to verify about a node we hold no key for, and the ceremony would run
+ * to the end and prove it.
+ */
+static int mesh_session_verify_target(struct mesh_session *session, uint32_t node_id,
+                                      struct mesh_node_summary **out) {
+    if (session == NULL || node_id == 0U) {
+        return -EINVAL;
+    }
+    if (session->send == NULL || !session->handshake.has_my_info) {
+        return -ENOTCONN;
+    }
+    if (node_id == session->handshake.my_info.my_node_num) {
+        return -EINVAL;
+    }
+    struct mesh_node_summary *const summary = mesh_session_find_node(session, node_id);
+    if (summary == NULL) {
+        return -ENOENT;
+    }
+    if (summary->public_key_len == 0U) {
+        return -EINVAL;
+    }
+    if (out != NULL) {
+        *out = summary;
+    }
+    return 0;
+}
+
+int mesh_session_verify_key_begin(struct mesh_session *session, uint32_t node_id) {
+    const int ready = mesh_session_verify_target(session, node_id, NULL);
+    if (ready < 0) {
+        return ready;
+    }
+    /* The nonce is the radio's and does not exist until it answers, so the opening step is the
+       one that carries none. */
+    const int queued = mesh_radio_settings_queue_key_verification(
+        &session->settings,
+        (uint32_t)meshtastic_KeyVerificationAdmin_MessageType_INITIATE_VERIFICATION, node_id, 0U,
+        false, 0U);
+    if (queued < 0) {
+        return queued;
+    }
+    char name[sizeof session->handshake.nodes[0].long_name];
+    const struct mesh_node_summary *const summary = mesh_session_find_node(session, node_id);
+    (void)mesh_str_copy(name, sizeof name, summary != NULL ? summary->long_name : "");
+    (void)mesh_key_verification_begin(&session->verification, node_id, name,
+                                      mesh_session_wall_clock());
+    mesh_log_info("session", "Starting key verification with 0x%08x (%d requests)", node_id,
+                  queued);
+    return queued;
+}
+
+int mesh_session_verify_key_number(struct mesh_session *session, uint32_t number) {
+    if (session == NULL) {
+        return -EINVAL;
+    }
+    /* Answers the exchange in front of the user, not a node named by the caller: the digits
+       mean nothing except against the nonce the radio asked for them under. */
+    if (session->verification.stage != (uint8_t)MESH_KEY_VERIFICATION_ENTER_NUMBER) {
+        return -EINVAL;
+    }
+    const int ready = mesh_session_verify_target(session, session->verification.remote_node, NULL);
+    if (ready < 0) {
+        return ready;
+    }
+    return mesh_radio_settings_queue_key_verification(
+        &session->settings,
+        (uint32_t)meshtastic_KeyVerificationAdmin_MessageType_PROVIDE_SECURITY_NUMBER,
+        session->verification.remote_node, session->verification.nonce, true, number);
+}
+
+int mesh_session_verify_key_settle(struct mesh_session *session, bool verified) {
+    if (session == NULL || !mesh_key_verification_active(&session->verification)) {
+        return -EINVAL;
+    }
+    struct mesh_key_verification done;
+    (void)mesh_key_verification_settle(&session->verification, &done);
+    /*
+     * The exchange is over here whatever the radio makes of the step, and the step is sent
+     * afterwards rather than before. A no that could not be queued - no link, a full queue -
+     * must still take the sheet away: the user has said the characters do not match, and
+     * leaving the question up until a send succeeds would be asking them again.
+     */
+    if (done.remote_node == 0U || done.nonce == 0U) {
+        return -EINVAL;
+    }
+    struct mesh_node_summary *summary = NULL;
+    const int ready = mesh_session_verify_target(session, done.remote_node, &summary);
+    if (ready < 0) {
+        return ready;
+    }
+    const int queued = mesh_radio_settings_queue_key_verification(
+        &session->settings,
+        verified ? (uint32_t)meshtastic_KeyVerificationAdmin_MessageType_DO_VERIFY
+                 : (uint32_t)meshtastic_KeyVerificationAdmin_MessageType_DO_NOT_VERIFY,
+        done.remote_node, done.nonce, false, 0U);
+    if (queued < 0) {
+        return queued;
+    }
+    /*
+     * The cached bit follows the press, the way the favorite and ignore flags do. The radio's
+     * own answer is this node's next NodeInfo, which on a quiet mesh is hours away, and a row
+     * still reading "not verified" after the ceremony the user has just finished would be the
+     * client disagreeing with itself about something it just did.
+     *
+     * Only a yes moves it. A no is the user saying the characters did not match, which says
+     * nothing about a bit that was already false and must not clear one set by an earlier,
+     * successful ceremony against a key that has not changed since.
+     */
+    if (verified && summary != NULL) {
+        summary->key_verified = true;
+    }
+    mesh_log_info("session", "Key verification with 0x%08x answered %s (%d requests)",
+                  done.remote_node, verified ? "yes" : "no", queued);
+    return queued;
+}
+
+bool mesh_session_verify_key_tick(struct mesh_session *session, struct mesh_key_verification *out) {
+    if (session == NULL) {
+        return false;
+    }
+    struct mesh_key_verification expired;
+    if (!mesh_key_verification_tick(&session->verification, mesh_session_wall_clock(), &expired)) {
+        return false;
+    }
+    /*
+     * Tell the radio too, and do not care whether it hears. Our end has given up; the firmware
+     * keeps a half-finished exchange of its own, and a DO_NOT_VERIFY is how it is told to drop
+     * it - but a client that is offline is the most likely reason nothing arrived in the first
+     * place, so a step that cannot be queued is not a reason to keep the sheet up.
+     */
+    if (expired.remote_node != 0U && expired.nonce != 0U && session->send != NULL) {
+        (void)mesh_radio_settings_queue_key_verification(
+            &session->settings, (uint32_t)meshtastic_KeyVerificationAdmin_MessageType_DO_NOT_VERIFY,
+            expired.remote_node, expired.nonce, false, 0U);
+    }
+    if (out != NULL) {
+        *out = expired;
+    }
+    return true;
+}
+
+const struct mesh_key_verification *mesh_session_verification(const struct mesh_session *session) {
+    static const struct mesh_key_verification k_idle = {0};
+    return session != NULL ? &session->verification : &k_idle;
 }
 
 /* Our own record is the one every screen resolves a name through, and `my_info` is gone while

@@ -198,10 +198,13 @@ void mesh_ui_route_under_help(const struct mesh_ui_nav *nav, struct mesh_ui_rout
     if (nav->keyboard_open) {
         out->depth++;
         out->level = MESH_UI_ROUTE_KEYBOARD;
-        /* Which text is being typed. A pairing PIN is its own prompt rather than a field, which
-           is why it cannot be told from a message by the field alone - both are NONE. */
+        /* Which text is being typed. The two prompts the *radio* raises - a pairing PIN and a
+           key-verification security number - are prompts rather than fields, so neither can be
+           told from a message by the field alone: all three are NONE. Each gets a number here,
+           because a prompt arriving over an open keyboard is a move and two places that compare
+           equal do not slide. */
         out->slot = nav->keyboard_field;
-        out->subject = nav->keyboard_passkey ? 1U : 0U;
+        out->subject = nav->keyboard_passkey ? 1U : (nav->keyboard_verify ? 2U : 0U);
     }
     if (nav->picker_open) {
         out->depth++;
@@ -213,6 +216,25 @@ void mesh_ui_route_under_help(const struct mesh_ui_nav *nav, struct mesh_ui_rout
         out->depth++;
         out->level = MESH_UI_ROUTE_CONFIRM;
         out->slot = nav->confirm_action;
+        out->subject = 0U;
+    }
+    /*
+     * The verification sheet, last so it is the place when it and a confirm are both up - the
+     * same order nav.c hands it the keys in and fb_screens.c draws it in.
+     *
+     * Its own level rather than a second flavour of CONFIRM, even though both are a panel with
+     * two answers on it: a confirm is raised by the press underneath it and slides in over that
+     * press, while this one arrives because a radio asked something, from any screen, at any
+     * time. They are the same shape and not the same place.
+     *
+     * `slot` is deliberately not the cursor. A route carries where the user *is*, never where
+     * their thumb is - see the header - and a slot that moved with the cursor would restart the
+     * slide every time they stepped between the two answers.
+     */
+    if (nav->verify_open) {
+        out->depth++;
+        out->level = MESH_UI_ROUTE_VERIFY;
+        out->slot = 0U;
         out->subject = 0U;
     }
 }
@@ -311,6 +333,7 @@ static const char *const k_level_names[MESH_UI_ROUTE_COUNT] = {
     [MESH_UI_ROUTE_COMPOSE] = "compose",   [MESH_UI_ROUTE_PICKER] = "picker",
     [MESH_UI_ROUTE_KEYBOARD] = "keyboard", [MESH_UI_ROUTE_CONFIRM] = "confirm",
     [MESH_UI_ROUTE_REACTION] = "reaction", [MESH_UI_ROUTE_HELP] = "help",
+    [MESH_UI_ROUTE_VERIFY] = "verify",
 };
 
 const char *mesh_ui_screen_id(enum mesh_ui_screen screen) {

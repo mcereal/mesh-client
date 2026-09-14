@@ -109,12 +109,13 @@ source file that defines it.
 | Session | `src/core/session.c` - handshake, node roster, channels, message log, packet ids |
 | Admin protocol | `src/core/radio_settings.c` - `AdminMessage` get/set queue, passkeys, NodeDB verbs |
 | Messaging | `src/core/message.c`, `store_forward.c`, `waypoint.c` |
+| Key trust | `src/core/key_verification.c` - the out-of-band ceremony behind the padlock; `add_contact` lives in `radio_settings.c` |
 | App glue | `src/core/app*.c` - lifecycle/link, `_actions`, `_publish`, `_settings` |
 | Self-update | `src/core/updater.c`, `version.c`, `fetch.c` |
 | Radio firmware | `src/core/firmware*.c`, `uf2.c`, `esp_image.c`, `src/transport/*/{usb_msc,ble_ota,ble_hci}.c` - the *other* binary; see [`docs/radio-firmware-roadmap.md`](docs/radio-firmware-roadmap.md) |
 | UI | `src/ui/` - store/controller, `nav*.c`, `settings*.c`, `layout.c`, `backends/{fb*,cli,stub}.c`; **`fb` is the device UI** |
 | UI components | `src/ui/layout.c`, `src/ui/backends/fb_widgets.c` - cell-measured line builder, scroll window, cards, lists, meters, charts |
-| Tables the UI reads | `actions.c` (button verbs), `status.c` (card verbs), `help.c`, `devices.c`, `nodes.c`, `delivery.c`, `chrome.c`, `trend.c`, `duration.c` |
+| Tables the UI reads | `actions.c` (button verbs), `status.c` (card verbs), `help.c`, `devices.c`, `nodes.c`, `delivery.c`, `trust.c`, `chrome.c`, `trend.c`, `duration.c` |
 | Themes & fonts | `src/ui/theme.c`, `font*.c`, `icon*.c` - palette by role, shape scale, metrics |
 | Strings | `src/i18n/strings.c`, `include/mesh/i18n/catalog.def` |
 | Geography & map | `src/geo/` (the only directory that includes `<math.h>`), `src/map/`, `src/ui/{map,nav_map}.c`, `backends/fb_map.c` |

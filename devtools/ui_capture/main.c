@@ -49,6 +49,10 @@
  *   notice info|warn|error TEXT   what the radio last said about itself (Status tab)
  *   queue FREE MAXLEN [refused]   the radio's outgoing packet queue (Status tab)
  *   reboots N              times the radio has restarted under us (Status tab)
+ *   verified NAME          mark that node's public key as proven out of band - the shield on a
+ *                          direct message and the "verified in person" row on its detail
+ *   verify STAGE NAME      raise the key-verification sheet at a stage:
+ *                          waiting|show|enter|compare, or off to take it away
  *   offradio NAME|all      mark that node (or every node but ours) as one the radio's NodeDB
  *                          no longer carries - what a NodeDB reset leaves behind
  *   pin NAME               pin that node, which is what X on the Nodes tab does on a device -
@@ -247,6 +251,18 @@ static void uicap_scene_demo(struct uicap *cap) {
         node->via_mqtt = seeds[i].via_mqtt;
         node->has_user = true;
         node->in_nodedb = true;
+        /*
+         * A public key on every node, because a node on a real mesh running anything recent has
+         * one: the roster is where the padlock in a transcript and the Key row on a detail both
+         * read their answer, and a demo where nobody had a key would draw "no key held" on every
+         * screen that mentions one. The bytes are derived from the node id so two nodes never
+         * share a fingerprint - what the row shows is the fingerprint, and two identical ones
+         * would be a picture of a bug.
+         */
+        node->public_key_len = (uint8_t)sizeof node->public_key;
+        for (size_t b = 0U; b < sizeof node->public_key; ++b) {
+            node->public_key[b] = (uint8_t)((seeds[i].node_id >> ((b % 4U) * 8U)) + b * 7U);
+        }
     }
 
     /*
@@ -1316,6 +1332,107 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
             fprintf(stderr, "uicap: line %u: no conversation in the scene called '%s'\n",
                     line_number, name);
             exit(1);
+        }
+        uicap_emit(cap);
+        return;
+    }
+
+    /*
+     * A node whose key somebody has proved, and the sheet that proves one.
+     *
+     * Two verbs rather than presses, for the reason `offradio` is one: neither can be reached
+     * from this harness. The verified bit is set by the *radio* after a ceremony this side only
+     * asks for, and the ceremony's stages are raised by ClientNotifications - the radio asking
+     * its own user something - so a scene that pressed "Verify this key" would film a toast and
+     * then nothing at all.
+     */
+    if (strcmp(command, "verified") == 0) {
+        char *name = uicap_word(&rest);
+        if (name == NULL) {
+            fprintf(stderr, "uicap: line %u: 'verified' needs a short name\n", line_number);
+            exit(1);
+        }
+        uicap_start(cap);
+        struct mesh_ui_handshake_state handshake = cap->store.handshake;
+        bool matched = false;
+        for (uint32_t i = 0; i < handshake.node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
+            struct mesh_ui_node_summary *node = &handshake.nodes[i];
+            if (strcmp(node->short_name, name) == 0) {
+                node->key_verified = true;
+                matched = true;
+            }
+        }
+        if (!matched) {
+            fprintf(stderr, "uicap: line %u: no node in the scene called '%s'\n", line_number,
+                    name);
+            exit(1);
+        }
+        mesh_ui_store_set_handshake(&cap->store, &handshake);
+        uicap_emit(cap);
+        return;
+    }
+
+    if (strcmp(command, "verify") == 0) {
+        char *stage = uicap_word(&rest);
+        char *name = uicap_word(&rest);
+        if (stage == NULL || name == NULL) {
+            fprintf(stderr,
+                    "uicap: line %u: 'verify' needs a stage "
+                    "(waiting|show|enter|compare|off) and a short name\n",
+                    line_number);
+            exit(1);
+        }
+        uicap_start(cap);
+        struct mesh_ui_verification verification;
+        memset(&verification, 0, sizeof verification);
+        if (strcmp(stage, "off") != 0) {
+            const struct mesh_ui_handshake_state *handshake = &cap->store.handshake;
+            for (uint32_t i = 0; i < handshake->node_count && i < MESH_UI_MAX_HANDSHAKE_NODES;
+                 ++i) {
+                if (strcmp(handshake->nodes[i].short_name, name) == 0) {
+                    verification.remote_node = handshake->nodes[i].node_id;
+                    snprintf(verification.remote_name, sizeof verification.remote_name, "%s",
+                             handshake->nodes[i].long_name);
+                    break;
+                }
+            }
+            if (verification.remote_node == 0U) {
+                fprintf(stderr, "uicap: line %u: no node in the scene called '%s'\n", line_number,
+                        name);
+                exit(1);
+            }
+        }
+        /* The digits and the code are the radio's, so they are invented here exactly as a
+           message body is - what is on show is the panel, not the cryptography. */
+        if (strcmp(stage, "waiting") == 0) {
+            verification.stage = (uint8_t)MESH_UI_VERIFY_WAITING;
+            verification.we_initiated = true;
+        } else if (strcmp(stage, "show") == 0) {
+            verification.stage = (uint8_t)MESH_UI_VERIFY_SHOW_NUMBER;
+            verification.security_number = 4817U;
+        } else if (strcmp(stage, "enter") == 0) {
+            verification.stage = (uint8_t)MESH_UI_VERIFY_ENTER_NUMBER;
+            verification.we_initiated = true;
+        } else if (strcmp(stage, "compare") == 0) {
+            verification.stage = (uint8_t)MESH_UI_VERIFY_COMPARE;
+            snprintf(verification.characters, sizeof verification.characters, "%s", "K7Q2");
+        } else if (strcmp(stage, "off") != 0) {
+            fprintf(stderr, "uicap: line %u: unknown verification stage '%s'\n", line_number,
+                    stage);
+            exit(1);
+        }
+        mesh_ui_store_set_verification(&cap->store, &verification);
+        /* Which overlay a stage raises is the app's decision (mesh_app_report_key_verification),
+           and this is the harness standing in for it - the same half `mute` stands in for. */
+        if (verification.stage == (uint8_t)MESH_UI_VERIFY_ENTER_NUMBER) {
+            mesh_ui_store_close_verify_sheet(&cap->store);
+            mesh_ui_store_open_verify_number(&cap->store);
+        } else if (verification.stage != (uint8_t)MESH_UI_VERIFY_IDLE) {
+            mesh_ui_store_close_verify_number(&cap->store);
+            mesh_ui_store_open_verify_sheet(&cap->store);
+        } else {
+            mesh_ui_store_close_verify_number(&cap->store);
+            mesh_ui_store_close_verify_sheet(&cap->store);
         }
         uicap_emit(cap);
         return;

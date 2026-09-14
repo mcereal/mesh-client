@@ -80,6 +80,21 @@ enum mesh_admin_request_kind {
     MESH_ADMIN_REMOVE_NODE,  /* drop this node from the radio's NodeDB */
     MESH_ADMIN_TOGGLE_MUTED, /* flip this node's muted flag; the verb is a toggle, not a set */
     /*
+     * The two verbs that are about a node's *key* rather than about a flag beside it.
+     *
+     * `add_contact` puts a whole contact - node number, User record, public key included - into
+     * the radio's NodeDB, which is the one way an entry gets there without the node having
+     * transmitted. `key_verification` carries one step of the out-of-band ceremony that marks
+     * a key as proven; see mesh/core/key_verification.h for what the steps are and which of
+     * them this client sends.
+     *
+     * Neither is read back. There is no get_contact and no get_verification: what comes home is
+     * the node's next NodeInfo, carrying `is_key_manually_verified` and whatever User the radio
+     * now holds, so the caller keeps its own copy in step exactly as the favorite pair does.
+     */
+    MESH_ADMIN_ADD_CONTACT,      /* payload.contact */
+    MESH_ADMIN_KEY_VERIFICATION, /* payload.key_verification */
+    /*
      * Four things the radio keeps that are not a Config, a ModuleConfig or a Channel, and so
      * have a verb each rather than a section type. They arrive and leave the same way
      * everything else does - a get answered by a response, a set acked by a Routing packet -
@@ -140,7 +155,9 @@ struct mesh_admin_request {
         /* The canned message list as one string, exactly as the wire carries it. Sized from
            the admin field rather than from a number here, so a protobuf bump moves both. */
         char text[sizeof(((meshtastic_AdminMessage *)0)->set_canned_message_module_messages)];
-        uint8_t ota_hash[MESH_ADMIN_OTA_HASH_LEN]; /* MESH_ADMIN_OTA_REQUEST */
+        uint8_t ota_hash[MESH_ADMIN_OTA_HASH_LEN];        /* MESH_ADMIN_OTA_REQUEST */
+        meshtastic_SharedContact contact;                 /* MESH_ADMIN_ADD_CONTACT */
+        meshtastic_KeyVerificationAdmin key_verification; /* MESH_ADMIN_KEY_VERIFICATION */
     } payload;
 };
 
@@ -390,6 +407,42 @@ int mesh_radio_settings_queue_ignored(struct mesh_radio_settings *settings, uint
    flag, so a press that races an incoming NodeInfo can land on the value it started from. */
 int mesh_radio_settings_queue_remove_node(struct mesh_radio_settings *settings, uint32_t node_id);
 int mesh_radio_settings_queue_toggle_muted(struct mesh_radio_settings *settings, uint32_t node_id);
+
+/*
+ * Puts a whole contact into the radio's NodeDB: the node number, the User record and - the
+ * point of the verb - the public key, so a direct message to that node can be encrypted
+ * without having waited to hear from it.
+ *
+ * The same shape as the node verbs above, a passkey refresh then the verb, and nothing to read
+ * back. `manually_verified` sets the firmware's IS_KEY_MANUALLY_VERIFIED bit, so a contact that
+ * was proven out of band stays proven across the round trip rather than arriving as a stranger.
+ *
+ * Refuses a contact with no public key (-EINVAL). An entry with no key is what the radio would
+ * have had anyway the first time the node transmitted, and writing one would take a NodeDB slot
+ * to say nothing.
+ */
+int mesh_radio_settings_queue_contact(struct mesh_radio_settings *settings,
+                                      const meshtastic_SharedContact *contact);
+
+/*
+ * One step of the key-verification ceremony (mesh/core/key_verification.h).
+ *
+ * `number` is only read for PROVIDE_SECURITY_NUMBER, where it is the four digits the remote
+ * node showed its own user and that user read out; every other step leaves the optional field
+ * off the wire. The nonce ties the step to the exchange the radio has open and is 0 only on the
+ * INITIATE that starts one.
+ *
+ * A passkey refresh then the verb, like the rest, and nothing to read back: what says the key
+ * is now trusted is the node's next NodeInfo.
+ *
+ * Unlike every other verb here the steps are *not* folded together by node: they are a sequence,
+ * and an INITIATE and the DO_VERIFY that answers it are addressed to the same node. Only a step
+ * against itself - the same message type for the same node, still waiting to go out - is
+ * refused, with -EBUSY, because that is a double press and nothing else.
+ */
+int mesh_radio_settings_queue_key_verification(struct mesh_radio_settings *settings,
+                                               uint32_t message_type, uint32_t node_id,
+                                               uint64_t nonce, bool has_number, uint32_t number);
 
 /* Queues one radio action, the same shape again: a get_owner for a fresh passkey (the firmware
    rejects these without one exactly as it rejects a set_*), then the action itself. `seconds`

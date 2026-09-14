@@ -130,6 +130,44 @@ void mesh_ui_store_close_passkey_prompt(struct mesh_ui_store *store) {
     }
 }
 
+/* The verification sheet and its keyboard, on exactly the same terms as the prompt above: the
+   app opens them from the ceremony's stage, because what raises them is a ClientNotification. */
+void mesh_ui_store_open_verify_sheet(struct mesh_ui_store *store) {
+    if (store == NULL) {
+        return;
+    }
+    if (mesh_ui_nav_open_verify(&store->nav)) {
+        mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_NAV);
+    }
+}
+
+void mesh_ui_store_close_verify_sheet(struct mesh_ui_store *store) {
+    if (store == NULL) {
+        return;
+    }
+    if (mesh_ui_nav_close_verify(&store->nav)) {
+        mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_NAV);
+    }
+}
+
+void mesh_ui_store_open_verify_number(struct mesh_ui_store *store) {
+    if (store == NULL) {
+        return;
+    }
+    if (mesh_ui_nav_open_verify_number(&store->nav)) {
+        mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_NAV);
+    }
+}
+
+void mesh_ui_store_close_verify_number(struct mesh_ui_store *store) {
+    if (store == NULL) {
+        return;
+    }
+    if (mesh_ui_nav_close_verify_number(&store->nav)) {
+        mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_NAV);
+    }
+}
+
 void mesh_ui_store_settings_edits_clear(struct mesh_ui_store *store) {
     if (store == NULL) {
         return;
@@ -421,6 +459,24 @@ void mesh_ui_store_set_traceroute(struct mesh_ui_store *store,
     }
     store->traceroute = next;
     mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_TRACEROUTE);
+}
+
+void mesh_ui_store_set_verification(struct mesh_ui_store *store,
+                                    const struct mesh_ui_verification *verification) {
+    if (store == NULL) {
+        return;
+    }
+
+    struct mesh_ui_verification next;
+    memset(&next, 0, sizeof next);
+    if (verification != NULL) {
+        next = *verification;
+    }
+    if (memcmp(&store->verification, &next, sizeof next) == 0) {
+        return;
+    }
+    store->verification = next;
+    mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_VERIFY);
 }
 
 void mesh_ui_store_set_messages(struct mesh_ui_store *store,
@@ -932,6 +988,7 @@ bool mesh_ui_store_consume_updates(struct mesh_ui_store *store, struct mesh_ui_s
     snapshot->read_state = store->read_state;
     snapshot->settings = store->settings;
     snapshot->traceroute = store->traceroute;
+    snapshot->verification = store->verification;
     snapshot->history = store->history;
 
     memcpy(snapshot->transport_status, store->transport_status, sizeof snapshot->transport_status);
@@ -1012,8 +1069,13 @@ static int mesh_ui_store_save_handshake(FILE *file,
         /* What the roster knows that the radio did not tell us this run: whether the name is
            real and whether the radio still carried the node. Both are why a restored roster is
            worth more than a re-sync. */
-        fprintf(file, "node_state[%u]=%u,%u\n", i, node->has_user ? 1U : 0U,
-                node->in_nodedb ? 1U : 0U);
+        /* The verified bit is appended last so a cache written by an older build still loads,
+           the way node_pos[] takes seven fields or eight. It is worth keeping across a restart
+           for the same reason the roster is: the node the radio has evicted is exactly the one
+           whose proven key we would otherwise have to establish again, and it is the key an
+           add-contact would hand back to the radio. */
+        fprintf(file, "node_state[%u]=%u,%u,%u\n", i, node->has_user ? 1U : 0U,
+                node->in_nodedb ? 1U : 0U, node->key_verified ? 1U : 0U);
         if (node->public_key_len > 0U) {
             char pubkey[2U * sizeof node->public_key + 1U];
             mesh_ui_settings_key_hex(node->public_key, node->public_key_len, pubkey, sizeof pubkey);
@@ -1444,10 +1506,14 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
             unsigned int index = 0U;
             unsigned int has_user = 0U;
             unsigned int in_nodedb = 0U;
+            unsigned int verified = 0U;
+            /* Two fields or three: a cache from before the verified bit existed leaves it 0,
+               which is what an unverified key reads as anyway. */
             if (sscanf(key, "node_state[%u]", &index) == 1 && index < MESH_UI_MAX_HANDSHAKE_NODES &&
-                sscanf(value, "%u,%u", &has_user, &in_nodedb) == 2) {
+                sscanf(value, "%u,%u,%u", &has_user, &in_nodedb, &verified) >= 2) {
                 handshake.nodes[index].has_user = (has_user != 0U);
                 handshake.nodes[index].in_nodedb = (in_nodedb != 0U);
+                handshake.nodes[index].key_verified = (verified != 0U);
             }
         } else if (strncmp(key, "node_key[", 9) == 0) {
             unsigned int index = 0U;

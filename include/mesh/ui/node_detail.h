@@ -32,14 +32,14 @@ extern "C" {
 #define MESH_UI_NODE_VALUE_MAX 48U
 /*
  * Every row every node can produce, all at once. rows_next() drops silently past this, so it
- * has to be an upper bound rather than a guess: the arithmetic is 33 action rows (the group's
- * own heading and ten actions, plus a traced route of up to ten stops in each direction with
- * its two headings and its stamp), 11 identity, 7 signal, and then one group per kind of
+ * has to be an upper bound rather than a guess: the arithmetic is 35 action rows (the group's
+ * own heading and twelve actions, plus a traced route of up to ten stops in each direction with
+ * its two headings and its stamp), 12 identity, 7 signal, and then one group per kind of
  * reading - 7 device metrics, 7 position, 9 environment, 5 power, 7 air quality, 5 health, 6
- * host - which comes to 97 for a node that reports everything at the end of a ten-hop trace -
+ * host - which comes to 100 for a node that reports everything at the end of a ten-hop trace -
  * plus the two neighbour groups: 12 for the list the node reported (heading, ten out-edges -
  * upstream's own cap - and the stamp) and 12 for the nodes that report hearing it (heading, ten
- * rows and the line saying how many were left out), making 121.
+ * rows and the line saying how many were left out), making 124.
  *
  * Rounded up for headroom, and pinned by node_detail_row_budget in the ui_settings suite so a
  * new group cannot quietly push the last one off the screen.
@@ -102,6 +102,20 @@ enum mesh_ui_node_action {
     /* Open the map looking at this node. Its own action rather than a second way into the
        Nodes list's map row, because the press names a node and the map opens aimed at it. */
     MESH_UI_NODE_ACTION_SHOW_ON_MAP,
+    /*
+     * The two rows about this node's key (mesh/ui/trust.h).
+     *
+     * VERIFY starts the out-of-band ceremony that turns the padlock on a direct message from
+     * "encrypted to a key" into "encrypted to *their* key". ADD_CONTACT hands the node - key
+     * included - back to the radio's NodeDB, which is the only thing that makes a direct
+     * message to a node the radio has evicted encryptable at all.
+     *
+     * Neither is offered for a node we hold no key for. There is nothing to verify and nothing
+     * to hand over, and a row that could only ever fail is a row that teaches the user to
+     * distrust the rows around it.
+     */
+    MESH_UI_NODE_ACTION_VERIFY_KEY,
+    MESH_UI_NODE_ACTION_ADD_CONTACT,
 };
 
 struct mesh_ui_node_item {

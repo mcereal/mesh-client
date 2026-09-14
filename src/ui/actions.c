@@ -551,6 +551,20 @@ void mesh_ui_actions_for(const struct mesh_ui_snapshot *snapshot, struct mesh_ui
         bar_add(out, MESH_UI_BUTTON_UP_DOWN, MESH_STR_ACTION_SCROLL);
         return;
     }
+    /*
+     * The verification sheet, ahead of the confirm for the reason nav.c takes it first.
+     *
+     * "answer" rather than "confirm", and it is not a synonym here. A confirm asks the user to
+     * agree to something this client is about to do; this asks them what they can *see* on
+     * somebody else's screen, and a keycap reading "confirm" over that question would be the
+     * bar suggesting there is a right answer to press.
+     */
+    if (nav->verify_open) {
+        bar_add(out, MESH_UI_BUTTON_A, MESH_STR_ACTION_ANSWER);
+        bar_add(out, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
+        bar_add(out, MESH_UI_BUTTON_UP_DOWN, MESH_STR_ACTION_CHOOSE);
+        return;
+    }
     if (nav->confirm_open) {
         bar_add(out, MESH_UI_BUTTON_A, MESH_STR_ACTION_CONFIRM);
         bar_add(out, MESH_UI_BUTTON_B, MESH_STR_ACTION_CANCEL);
@@ -565,6 +579,14 @@ void mesh_ui_actions_for(const struct mesh_ui_snapshot *snapshot, struct mesh_ui
         return;
     }
     if (nav->keyboard_open) {
+        if (nav->keyboard_verify) {
+            /* Four digits and nothing else: no Send, because the number does not go anywhere
+               near the mesh, and "done" is the same word the grid's own key carries. */
+            bar_add(out, MESH_UI_BUTTON_A, MESH_STR_ACTION_TYPE);
+            bar_add(out, MESH_UI_BUTTON_START, MESH_STR_ACTION_DONE);
+            bar_add(out, MESH_UI_BUTTON_B, MESH_STR_ACTION_CANCEL);
+            return;
+        }
         if (nav->keyboard_passkey) {
             /* The numeric-comparison case answers a question the radio asked; the other one is
                a passkey being typed, and it has the digits and a cancel. */
@@ -586,7 +608,7 @@ void mesh_ui_actions_for(const struct mesh_ui_snapshot *snapshot, struct mesh_ui
            network address would have joined it. */
         bar_add(out, MESH_UI_BUTTON_START,
                 (nav->keyboard_field != MESH_UI_FIELD_NONE || nav->keyboard_waypoint ||
-                 nav->keyboard_network)
+                 nav->keyboard_network || nav->keyboard_verify)
                     ? MESH_STR_ACTION_DONE
                     : MESH_STR_ACTION_SEND);
         bar_add(out, MESH_UI_BUTTON_B, MESH_STR_ACTION_DELETE);

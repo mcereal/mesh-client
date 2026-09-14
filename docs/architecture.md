@@ -269,6 +269,19 @@ indication of what it was about, which is three wrong answers from one dropped f
 is worth saying: on a channel still using the default key every node on the mesh holds that key,
 so a DM that did *not* go out PKI-encrypted was readable by all of them.
 
+What it does **not** say is whose key that was. A public key arrives in a `NodeInfo` from
+whoever transmitted it, so "the radio held a key for that name" and "the radio held *their*
+key" are two different claims and the padlock used to make the stronger-looking one for both.
+`NodeInfo.is_key_manually_verified` is the difference, and `src/core/key_verification.c` is how
+it gets set: an out-of-band ceremony in which the two radios show their users a four-digit
+number and then a short code, and the users read both to each other by voice. The mark on the
+bubble is a padlock for a key that merely arrived and a shield for one somebody proved, which is
+`src/ui/trust.c`'s answer rather than the transcript's - three screens draw trust and they have
+to agree. `AdminMessage.add_contact` is the other half of the same story: the radio's NodeDB
+evicts and this roster does not, so a node we remember can be a stranger to the radio, and
+handing its record back - public key and verified bit included - is what makes a direct message
+to it encryptable again. `docs/settings-roadmap.md` has the ceremony's steps and the reasoning.
+
 For **our own** sends the echo is the only source of it. `mesh_session_send_text` records the
 message before the radio has done anything with it, and the radio decides per packet from
 whether it holds the recipient's public key; it tells us by echoing the packet back. The dedup

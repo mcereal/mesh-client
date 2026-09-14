@@ -1071,6 +1071,19 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
             mesh_ui_nav_open_waypoint_keyboard(nav, node->node_id);
             return true;
         }
+        if (items[cursor].action == MESH_UI_NODE_ACTION_ADD_CONTACT ||
+            items[cursor].action == MESH_UI_NODE_ACTION_VERIFY_KEY) {
+            if (action != NULL) {
+                action->type = items[cursor].action == MESH_UI_NODE_ACTION_ADD_CONTACT
+                                   ? MESH_UI_ACTION_ADD_CONTACT
+                                   : MESH_UI_ACTION_VERIFY_KEY;
+                action->dest = node->node_id;
+            }
+            /* Neither redraws anything here. An add-contact is settled by the node's next
+               NodeInfo, and a verification by the sheet the app opens when the radio asks
+               something - which is a frame this press cannot predict. */
+            return false;
+        }
         if (items[cursor].action == MESH_UI_NODE_ACTION_REMOVE) {
             if (!nav->node_remove_armed) {
                 nav->node_remove_armed = true; /* the row now says "A again to remove" */
@@ -1365,6 +1378,14 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
      */
     if (key == MESH_UI_KEY_SELECT && mesh_ui_nav_open_help(nav, store)) {
         return true;
+    }
+    /* Ahead of the confirm overlay, because this one is the more urgent of the two questions:
+       a settings confirm is waiting on the user and will wait, while a verification is waiting
+       on two people and a radio that gives up after five minutes. They cannot both be up in
+       practice - the app closes the sheet whenever the exchange ends - and this says which wins
+       if they ever are. */
+    if (nav->verify_open) {
+        return mesh_ui_nav_verify_key(nav, store, key, out_action) || changed;
     }
     if (nav->confirm_open) {
         return mesh_ui_nav_confirm_key(nav, key, out_action) || changed;
@@ -1792,6 +1813,118 @@ bool mesh_ui_nav_close_passkey(struct mesh_ui_nav *nav) {
     nav->draft[0] = '\0';
     mesh_ui_nav_keyboard_close(nav);
     return true;
+}
+
+/*
+ * The key-verification sheet, and the keyboard that collects the security number.
+ *
+ * Both are opened by the app rather than by a press, for the pairing prompt's reason exactly:
+ * what raises them is the radio asking something in the middle of whatever the user was doing.
+ * The sheet takes no argument at all - everything it says is in the snapshot, because it is a
+ * description of what the radio is doing rather than of where the user is.
+ */
+bool mesh_ui_nav_open_verify(struct mesh_ui_nav *nav) {
+    if (nav == NULL || nav->verify_open) {
+        return false;
+    }
+    nav->verify_open = true;
+    /* On the answer that does not act, which on the comparison is "they match" and on the two
+       waiting stages is the one that gets out of the way. Neither costs anything to land on,
+       which is what makes 0 the right default here and Cancel the right one on a destructive
+       settings confirm. */
+    nav->verify_cursor = 0U;
+    return true;
+}
+
+bool mesh_ui_nav_close_verify(struct mesh_ui_nav *nav) {
+    if (nav == NULL || !nav->verify_open) {
+        return false;
+    }
+    nav->verify_open = false;
+    nav->verify_cursor = 0U;
+    return true;
+}
+
+bool mesh_ui_nav_open_verify_number(struct mesh_ui_nav *nav) {
+    if (nav == NULL || nav->keyboard_verify) {
+        return false;
+    }
+    /* The sheet and the keyboard are never both up: the number is one stage of the ceremony and
+       the sheet draws the others. */
+    nav->verify_open = false;
+    /* Whatever the keyboard was doing is parked and comes back on close, exactly as the pairing
+       prompt parks it - see mesh_ui_nav_open_passkey() for why that is a flag rather than a
+       field, and mesh_ui_nav_keyboard_close() for the restore. */
+    snprintf(nav->draft_saved, sizeof nav->draft_saved, "%s", nav->draft);
+    nav->keyboard_displaced = nav->keyboard_open;
+    nav->keyboard_field_displaced = nav->keyboard_open ? nav->keyboard_field : MESH_UI_FIELD_NONE;
+    nav->keyboard_field = MESH_UI_FIELD_NONE;
+    nav->keyboard_verify = true;
+    nav->draft[0] = '\0';
+    nav->keyboard_open = true;
+    nav->kb_row = 0U; /* the digit row */
+    nav->kb_col = 0U;
+    nav->kb_layer = MESH_UI_KB_LOWER;
+    return true;
+}
+
+bool mesh_ui_nav_close_verify_number(struct mesh_ui_nav *nav) {
+    if (nav == NULL || !nav->keyboard_verify) {
+        return false;
+    }
+    nav->draft[0] = '\0';
+    mesh_ui_nav_keyboard_close(nav);
+    return true;
+}
+
+/*
+ * One key while the sheet is up.
+ *
+ * Which answer each button gives depends on the stage, and the stage is in the store rather
+ * than on the nav - so this reads it there, the way every other handler here reads a list
+ * length there. The alternative would be a copy of the stage on the nav, which is a second
+ * opinion about what the radio is doing and would be wrong for exactly as long as it took the
+ * next notification to land.
+ *
+ * B is not an answer. It closes the sheet and says nothing to the radio, on every stage
+ * including the comparison: backing out is how every other overlay in the client behaves, and a
+ * B that quietly told the far end "these do not match" would turn a mis-press into a refusal
+ * the user never made. The exchange stays open and the core expires it (see
+ * mesh/core/key_verification.h), or the user answers it when the sheet comes back.
+ */
+bool mesh_ui_nav_verify_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                            enum mesh_ui_key key, struct mesh_ui_action *action) {
+    const uint8_t stage = store != NULL ? store->verification.stage : 0U;
+    switch (key) {
+    case MESH_UI_KEY_UP:
+    case MESH_UI_KEY_DOWN:
+    case MESH_UI_KEY_LEFT:
+    case MESH_UI_KEY_RIGHT:
+        nav->verify_cursor = nav->verify_cursor == 0U ? 1U : 0U;
+        return true;
+    case MESH_UI_KEY_A:
+    case MESH_UI_KEY_START: {
+        const bool comparing = stage == (uint8_t)MESH_UI_VERIFY_COMPARE;
+        const bool accepted = nav->verify_cursor == 0U;
+        /*
+         * Three of the four presses send something and one does not. On the comparison both
+         * answers do - yes and no are both answers - while on the two waiting stages the first
+         * button only gets out of the way: the exchange is still running and the sheet comes
+         * back when the radio next asks for something.
+         */
+        if (action != NULL && (comparing || !accepted)) {
+            action->type = MESH_UI_ACTION_VERIFY_ANSWER;
+            action->number = (comparing && accepted) ? 1U : 0U;
+        }
+        (void)mesh_ui_nav_close_verify(nav);
+        return true;
+    }
+    case MESH_UI_KEY_B:
+        (void)mesh_ui_nav_close_verify(nav);
+        return true;
+    default:
+        return false;
+    }
 }
 
 /* How long a transient notice stands. One number, read by the setter and by the stamp below. */

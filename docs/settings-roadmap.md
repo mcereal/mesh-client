@@ -700,13 +700,84 @@ upstream in favour of `reboot_ota_mode`), `set_ringtone_message` (the get is shi
 interlude for why the set is not), `delete_file_request`, `set_scale`,
 `get_node_remote_hardware_pins_request`, `sensor_config` and `lockdown_auth`.
 
-Four that are features rather than leftovers, and are worth their own work when their turn
+Two that are features rather than leftovers, and are worth their own work when their turn
 comes: `set_ham_mode` (a call sign, a frequency and a transmit power for a licensed operator,
-which also turns encryption off and so wants the confirm sheet), `add_contact` (a
-`SharedContact` - adding a node *with its public key* rather than waiting to hear from it),
-`key_verification` (proving out of band that the key we hold for a node is theirs), and
-`begin_edit_settings` / `commit_edit_settings` (which only matter once something offers to save
-more than one section at a time).
+which also turns encryption off and so wants the confirm sheet), and `begin_edit_settings` /
+`commit_edit_settings` (which only matter once something offers to save more than one section at
+a time). `add_contact` and `key_verification` were on this list too and have been done; see
+**Key trust** below.
+
+### Key trust - the two verbs that were one feature
+
+Not a phase and not a settings section: the two admin verbs this list used to hold apart -
+`add_contact` and `key_verification` - turned out to be one story, and the story was already
+half told on screen.
+
+The transcript has drawn a padlock on a PKI-encrypted direct message since direct messages
+existed, and the padlock only ever meant *the radio had a key for that node and used it*. Where
+the key came from was the question it could not answer: a key arrives in a NodeInfo from
+whoever transmitted it, and a node claiming to be somebody else arrives the same way as the real
+one. So the client was making a claim it had no way to establish - and had no way for a user to
+establish either.
+
+The two verbs are the two halves of establishing it:
+
+- **`key_verification`** is a ceremony rather than a request, and that is the whole of its
+  design. The client sends `INITIATE_VERIFICATION`; the far radio shows *its* user a four-digit
+  security number; that user reads it out **by voice**; this user types it back with
+  `PROVIDE_SECURITY_NUMBER`; both radios then show the same short code and each client answers
+  `DO_VERIFY` or `DO_NOT_VERIFY`. A yes sets the firmware's `IS_KEY_MANUALLY_VERIFIED` bit,
+  which comes home as `NodeInfo.is_key_manually_verified` and is what the padlock then reads.
+  Every step that proves anything happens somewhere the mesh cannot reach, which is why the
+  sheet keeps a paragraph at every stage: it is the only thing on the panel saying so.
+- **`add_contact`** is the answer to a line the Nodes tab has been drawing for months. The
+  radio's NodeDB holds eighty entries and evicts; the roster here holds 256 and outlives the
+  connection, so a node can be ours to show and a stranger to the radio - which is what the
+  "off radio" row says, and why a direct message to it has no key to travel with. We still hold
+  that key. `add_contact` hands it back, `manually_verified` included, so a node that was proven
+  out of band does not arrive at the radio as a stranger.
+
+Five things fell out of building it, and they are what is worth remembering:
+
+- **The ceremony is a state machine with no radio in it.** `src/core/key_verification.c` holds
+  one exchange and does not encode, send or know what a link is; the session folds the three
+  `ClientNotification` payload variants into it and queues the admin steps. That split is not
+  tidiness - the failure mode of a verification feature is a user confidently told a key is
+  proven when nothing proved it, which looks exactly like working software, and testing the
+  whole ceremony without hardware is the only way to hold the rules that prevent it.
+- **The client has to be able to answer a ceremony it did not start.** The three notifications
+  are the radio's only way of asking its own user something, and two of them reach the end that
+  did *not* press anything. A build that handled only the initiator would halve a feature that
+  takes two people either way.
+- **A notification names the far end by long name and nothing else.** There is no node number on
+  the wire, so the session resolves it against the roster - exactly, and answering "I do not
+  know" when two nodes share a name, because a verification addressed to the wrong node is the
+  failure the ceremony exists to prevent.
+- **Nothing on the wire ends an exchange.** A radio whose far end never answered says nothing
+  further, so a sheet left alone would stand for ever asking for a number nobody is generating.
+  Five minutes, measured from the last thing that happened rather than from the press - and a
+  client with no credible clock expires nothing, because closing the sheet on a guess takes the
+  question away mid-answer.
+- **Three trust states, and the middle one is not a warning.** No key, a key, a proven key.
+  Almost every key on a working mesh is unverified, and a client that drew a caution mark on all
+  of them would have taught its user to ignore the mark by the end of the first day. It is
+  *verified* that is marked out of the ordinary, with a shield beside the ordinary padlock -
+  two shapes rather than two colours, since at 28 px on a bubble's trailing run two hues of one
+  glyph are not a difference.
+
+The one thing deliberately left undone: the verified state borrows `MESH_UI_ICON_SECURITY`, the
+Settings tab's Security section, rather than having a glyph of its own. `include/mesh/ui/icons.def`
+says a second job gets a second id, and it would - except that the sprite table is generated from
+a Material Symbols build that has moved upstream since it was last rasterised, so adding a row
+would rewrite all 54 sprites in the same commit as this feature. The id to add when the set is
+next regenerated is `VERIFIED`, and `src/ui/trust.c` is the only place that would change.
+
+- Exit criteria: on the Brick, a node the radio has evicted reads "not on the radio", and
+  pressing **Put back on the radio** makes a direct message to it go out with a padlock; a
+  verification started from the Brick against a phone shows the phone's four digits on the
+  Brick's sheet, the same code on both screens, and leaves the node reading "verified in person"
+  on both; a verification started from the *phone* raises the sheet on the Brick without anybody
+  touching it; and a sheet left unanswered disappears after five minutes.
 
 ### Done outside the phases
 

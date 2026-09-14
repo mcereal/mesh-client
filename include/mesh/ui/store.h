@@ -97,6 +97,11 @@ enum mesh_ui_update_flag {
     MESH_UI_UPDATE_SETTINGS = 1U << 5,
     MESH_UI_UPDATE_TRACEROUTE = 1U << 6,
     MESH_UI_UPDATE_WAYPOINTS = 1U << 7,
+    /* The key-verification ceremony moved. Its own flag rather than NAV's, because the sheet
+       that draws it is opened by the *radio* asking a question rather than by a press, and a
+       frame that repainted only when the nav moved would leave the question unasked until the
+       user happened to touch something. */
+    MESH_UI_UPDATE_VERIFY = 1U << 8,
 };
 typedef uint32_t mesh_ui_update_flags;
 
@@ -310,6 +315,11 @@ struct mesh_ui_node_summary {
     bool is_unmessagable;
     uint8_t public_key[32];
     uint8_t public_key_len;
+    /* Whether that key has been proven to be this node's, out of band - the radio's
+       `is_key_manually_verified`. The two fields together are what mesh_ui_key_trust_of()
+       reads, and between them they are the whole of what the padlock on a direct message is
+       entitled to say. */
+    bool key_verified;
     bool is_favorite;
     bool is_ignored;
     bool is_muted;
@@ -475,6 +485,50 @@ struct mesh_ui_traceroute {
     struct mesh_ui_traceroute_hop forward[MESH_UI_TRACEROUTE_MAX_HOPS];
     uint8_t back_count;
     struct mesh_ui_traceroute_hop back[MESH_UI_TRACEROUTE_MAX_HOPS];
+};
+
+/*
+ * The key-verification ceremony's three limits and its stages, restated on this side of the
+ * seam exactly as the waypoint limits above are - and for the weaker of the two reasons that
+ * file gives: mesh/core/key_verification.h pulls in nothing at all, so including it would cost
+ * nothing today. What it would cost is the rule that this header names no core module, which is
+ * what lets every backend and every screen test compile against a snapshot rather than against
+ * the client. Pinned against the core's in the nodes suite.
+ */
+#define MESH_UI_VERIFY_NAME_MAX 41U
+#define MESH_UI_VERIFY_CHARS_MAX 11U
+#define MESH_UI_VERIFY_DIGITS 4U
+
+/* enum mesh_key_verification_stage, value for value. */
+enum mesh_ui_verify_stage {
+    MESH_UI_VERIFY_IDLE = 0,
+    MESH_UI_VERIFY_WAITING,      /* the two radios are talking; nothing to answer yet */
+    MESH_UI_VERIFY_SHOW_NUMBER,  /* read these four digits out to the other person */
+    MESH_UI_VERIFY_ENTER_NUMBER, /* type the four digits they are reading out */
+    MESH_UI_VERIFY_COMPARE,      /* compare the characters and answer */
+};
+
+/*
+ * The ceremony in progress, as the sheet that draws it needs it.
+ *
+ * Flattened rather than shared with the core's struct for the reason every record here is:
+ * what the UI needs is which question to ask and what to put in it. The clocks the core keeps
+ * for its own expiry are not here, because a sheet that counted down would be a second opinion
+ * about a deadline the core already owns.
+ *
+ * `remote_name` is the name the *radio* used, not one this client resolved. That is the point
+ * of it: both ends of a verification are looking at their own screen, and a name we substituted
+ * from the roster would be this client agreeing with itself while the two users compare.
+ *
+ * Not persisted. An exchange belongs to one link and one nonce; see mesh/core/session.h.
+ */
+struct mesh_ui_verification {
+    uint8_t stage; /* enum mesh_ui_verify_stage */
+    bool we_initiated;
+    uint32_t remote_node;
+    uint32_t security_number; /* SHOW_NUMBER only; 0 otherwise */
+    char remote_name[MESH_UI_VERIFY_NAME_MAX];
+    char characters[MESH_UI_VERIFY_CHARS_MAX]; /* COMPARE only */
 };
 
 /* A router's name is drawn in a settings row's value column, which is short. */
@@ -1202,6 +1256,9 @@ struct mesh_ui_snapshot {
     struct mesh_ui_settings settings;
     /* The last traceroute, running or finished. Not persisted. */
     struct mesh_ui_traceroute traceroute;
+    /* The key-verification ceremony in progress, or a record with `stage` IDLE. Not
+       persisted: it belongs to one link and one nonce. */
+    struct mesh_ui_verification verification;
     /*
      * What the client has watched happen, as opposed to everything above, which is what is true
      * now. The one part of a snapshot that is not a copy of what the radio last said - see
@@ -1224,6 +1281,7 @@ struct mesh_ui_store {
     struct mesh_ui_nav nav;
     struct mesh_ui_settings settings;
     struct mesh_ui_traceroute traceroute;
+    struct mesh_ui_verification verification;
     struct mesh_ui_history history;
     /*
      * The clock the last mesh_ui_store_tick() carried, which is what stamps a history sample.
@@ -1276,6 +1334,10 @@ void mesh_ui_store_set_settings(struct mesh_ui_store *store,
 /* Replaces the traceroute view; quiet when nothing changed. */
 void mesh_ui_store_set_traceroute(struct mesh_ui_store *store,
                                   const struct mesh_ui_traceroute *traceroute);
+/* Replaces the key-verification view; quiet when nothing changed. NULL is the idle record,
+   which is how the app says an exchange ended. */
+void mesh_ui_store_set_verification(struct mesh_ui_store *store,
+                                    const struct mesh_ui_verification *verification);
 
 /* Combines persisted history with this session's live messages into the newest
    MESH_UI_MAX_MESSAGES, cached entries first. A cached entry whose packet id also appears in
@@ -1334,6 +1396,14 @@ void mesh_ui_store_post_toast(struct mesh_ui_store *store, uint64_t now_ms, cons
 void mesh_ui_store_open_passkey_prompt(struct mesh_ui_store *store, const char *label,
                                        uint32_t passkey, bool confirm);
 void mesh_ui_store_close_passkey_prompt(struct mesh_ui_store *store);
+
+/* The key-verification sheet and the keyboard that collects the security number, opened and
+   closed by the app from the ceremony's stage - not by a press, for the pairing prompt's
+   reason: the thing that raises them is the radio asking. */
+void mesh_ui_store_open_verify_sheet(struct mesh_ui_store *store);
+void mesh_ui_store_close_verify_sheet(struct mesh_ui_store *store);
+void mesh_ui_store_open_verify_number(struct mesh_ui_store *store);
+void mesh_ui_store_close_verify_number(struct mesh_ui_store *store);
 /* Drops the pending Settings edits: the app calls this once a save has been queued. */
 void mesh_ui_store_settings_edits_clear(struct mesh_ui_store *store);
 

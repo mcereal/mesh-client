@@ -621,6 +621,39 @@ int mesh_radio_settings_encode_request(const struct mesh_radio_settings *setting
         admin.which_payload_variant = meshtastic_AdminMessage_toggle_muted_node_tag;
         admin.toggle_muted_node = request->type;
         break;
+    /* The key is the whole reason this verb exists: an entry with none is what the radio would
+       build for itself the first time the node transmitted, so a contact without one is a
+       NodeDB slot spent saying nothing. `type` carries the node number for the queue's benefit
+       and has to agree with the contact it is filed under. */
+    case MESH_ADMIN_ADD_CONTACT:
+        if (request->payload.contact.node_num == 0U ||
+            request->payload.contact.node_num != request->type ||
+            !request->payload.contact.has_user ||
+            request->payload.contact.user.public_key.size == 0U) {
+            return -EINVAL;
+        }
+        admin.which_payload_variant = meshtastic_AdminMessage_add_contact_tag;
+        admin.add_contact = request->payload.contact;
+        break;
+    /*
+     * One step of the ceremony. Every step after the first names the nonce the radio opened the
+     * exchange with: a step carrying the wrong one - or none - is answering an exchange that is
+     * not the one in front of the user, which is the failure the nonce is there to prevent, so
+     * it is refused here rather than sent for the firmware to ignore.
+     */
+    case MESH_ADMIN_KEY_VERIFICATION:
+        if (request->payload.key_verification.remote_nodenum == 0U ||
+            request->payload.key_verification.remote_nodenum != request->type) {
+            return -EINVAL;
+        }
+        if (request->payload.key_verification.message_type !=
+                meshtastic_KeyVerificationAdmin_MessageType_INITIATE_VERIFICATION &&
+            request->payload.key_verification.nonce == 0U) {
+            return -EINVAL;
+        }
+        admin.which_payload_variant = meshtastic_AdminMessage_key_verification_tag;
+        admin.key_verification = request->payload.key_verification;
+        break;
     case MESH_ADMIN_GET_CONNECTION_STATUS:
         admin.which_payload_variant =
             meshtastic_AdminMessage_get_device_connection_status_request_tag;
@@ -839,6 +872,111 @@ int mesh_radio_settings_queue_remove_node(struct mesh_radio_settings *settings, 
 
 int mesh_radio_settings_queue_toggle_muted(struct mesh_radio_settings *settings, uint32_t node_id) {
     return mesh_radio_settings_queue_node_op(settings, MESH_ADMIN_TOGGLE_MUTED, node_id);
+}
+
+/*
+ * The NodeDB shape once more, and the ota_request trick for getting a payload into the slot
+ * enqueue() is about to take: the node id rides in `type` so two contacts are two requests, and
+ * the contact itself is copied in after the slot has been zeroed.
+ *
+ * Deduplicated rather than refused, unlike an ota_request. Two presses on one node's row are
+ * one contact either way - the second carries the same key off the same roster record - so
+ * folding them costs nothing, while an ota_request's two presses can name two different images.
+ */
+int mesh_radio_settings_queue_contact(struct mesh_radio_settings *settings,
+                                      const meshtastic_SharedContact *contact) {
+    if (settings == NULL || contact == NULL || contact->node_num == 0U) {
+        return -EINVAL;
+    }
+    if (!contact->has_user || contact->user.public_key.size == 0U) {
+        return -EINVAL;
+    }
+    const size_t needed =
+        (mesh_radio_settings_queued(settings, MESH_ADMIN_GET_OWNER, 0U) ? 0U : 1U) +
+        (mesh_radio_settings_queued(settings, MESH_ADMIN_ADD_CONTACT, contact->node_num) ? 0U : 1U);
+    if (settings->queue_len + needed > MESH_RADIO_SETTINGS_FETCH_MAX) {
+        return -ENOSPC;
+    }
+    size_t added = mesh_radio_settings_enqueue(settings, MESH_ADMIN_GET_OWNER, 0U);
+    struct mesh_admin_request *const slot =
+        &settings
+             ->queue[(settings->queue_head + settings->queue_len) % MESH_RADIO_SETTINGS_FETCH_MAX];
+    if (mesh_radio_settings_enqueue(settings, MESH_ADMIN_ADD_CONTACT, contact->node_num) == 1U) {
+        slot->payload.contact = *contact;
+        added += 1U;
+    }
+    return (int)added;
+}
+
+/*
+ * A ceremony step, and the one queue entry in this file that does *not* go through
+ * mesh_radio_settings_enqueue().
+ *
+ * That helper folds a request into one already queued for the same kind and type, which is
+ * right for every other verb here - two presses of "pin this node" are one thing to say - and
+ * wrong for this one. The four steps are a *sequence*: an INITIATE and the DO_VERIFY that
+ * eventually answers it are both addressed to the same node, so folding on the node id would
+ * silently drop whichever arrived second, and the ceremony would stall with nobody able to see
+ * why. So the slot is filled directly, the way a section write's is.
+ *
+ * What is deduplicated is a step against *itself* - the same message type for the same node,
+ * still waiting to go out - which is a double press and nothing else. That is refused with
+ * -EBUSY rather than folded, so the caller can say so instead of reporting a success that sent
+ * nothing.
+ */
+static bool mesh_radio_settings_step_queued(const struct mesh_radio_settings *settings,
+                                            uint32_t message_type, uint32_t node_id) {
+    for (size_t i = 0; i < settings->queue_len; ++i) {
+        const struct mesh_admin_request *const entry =
+            &settings->queue[(settings->queue_head + i) % MESH_RADIO_SETTINGS_FETCH_MAX];
+        if (entry->kind == MESH_ADMIN_KEY_VERIFICATION && entry->type == node_id &&
+            (uint32_t)entry->payload.key_verification.message_type == message_type) {
+            return true;
+        }
+    }
+    return false;
+}
+
+int mesh_radio_settings_queue_key_verification(struct mesh_radio_settings *settings,
+                                               uint32_t message_type, uint32_t node_id,
+                                               uint64_t nonce, bool has_number, uint32_t number) {
+    if (settings == NULL || node_id == 0U) {
+        return -EINVAL;
+    }
+    if (message_type > (uint32_t)meshtastic_KeyVerificationAdmin_MessageType_DO_NOT_VERIFY) {
+        return -EINVAL;
+    }
+    if (message_type !=
+            (uint32_t)meshtastic_KeyVerificationAdmin_MessageType_INITIATE_VERIFICATION &&
+        nonce == 0U) {
+        return -EINVAL;
+    }
+    if (mesh_radio_settings_step_queued(settings, message_type, node_id)) {
+        return -EBUSY;
+    }
+    const size_t needed =
+        (mesh_radio_settings_queued(settings, MESH_ADMIN_GET_OWNER, 0U) ? 0U : 1U) + 1U;
+    if (settings->queue_len + needed > MESH_RADIO_SETTINGS_FETCH_MAX) {
+        return -ENOSPC;
+    }
+    size_t added = mesh_radio_settings_enqueue(settings, MESH_ADMIN_GET_OWNER, 0U);
+    struct mesh_admin_request *const slot =
+        &settings
+             ->queue[(settings->queue_head + settings->queue_len) % MESH_RADIO_SETTINGS_FETCH_MAX];
+    memset(slot, 0, sizeof *slot);
+    slot->kind = MESH_ADMIN_KEY_VERIFICATION;
+    slot->type = node_id;
+    slot->payload.key_verification.message_type =
+        (meshtastic_KeyVerificationAdmin_MessageType)message_type;
+    slot->payload.key_verification.remote_nodenum = node_id;
+    slot->payload.key_verification.nonce = nonce;
+    /* Only the step that carries digits carries the field: the firmware reads it for
+       PROVIDE_SECURITY_NUMBER and a 0 sent on any other step would be a number claimed. */
+    slot->payload.key_verification.has_security_number = has_number;
+    slot->payload.key_verification.security_number = has_number ? number : 0U;
+    settings->queue_len += 1U;
+    added += 1U;
+    return (int)added;
 }
 
 int mesh_radio_settings_queue_action(struct mesh_radio_settings *settings,
