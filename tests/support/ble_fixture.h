@@ -71,6 +71,7 @@ struct mesh_test_ble_rig {
     char fromnum_path[128];
 
     bool started;
+    bool loop_ready;
 };
 
 /*
@@ -89,7 +90,15 @@ void mesh_test_ble_rig_init(struct mesh_test_ble_rig *rig, const char *address, 
 bool mesh_test_ble_rig_add_device(struct mesh_test_ble_rig *rig, const char *address,
                                   const char *name, int16_t rssi);
 
-/* Enables the mock, defaults an app config, brings up a loop and starts the transport. */
+/*
+ * Enables the mock and starts the transport, bringing up the loop and the app config on the first
+ * call only.
+ *
+ * A case that stops the transport and starts it again is restarting BLE on the application's
+ * existing loop, which is the thing it is there to cover - and mesh_event_loop_init() would
+ * memset a live loop and replace its epoll and eventfd descriptors without closing them, leaking
+ * both. So the loop outlives a restart and only mesh_test_ble_rig_close() takes it down.
+ */
 int mesh_test_ble_rig_start(struct mesh_test_ble_rig *rig);
 
 /*

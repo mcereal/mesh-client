@@ -84,8 +84,14 @@ void mesh_test_ble_rig_reload(struct mesh_test_ble_rig *rig) {
 
 int mesh_test_ble_rig_start(struct mesh_test_ble_rig *rig) {
     mesh_test_ble_rig_reload(rig);
-    rig->config = mesh_app_config_default();
-    mesh_event_loop_init(&rig->loop);
+    if (!rig->loop_ready) {
+        rig->config = mesh_app_config_default();
+        const int result = mesh_event_loop_init(&rig->loop);
+        if (result != 0) {
+            return result;
+        }
+        rig->loop_ready = true;
+    }
     rig->started = true;
     return rig->ble->ops->start(rig->ble, &rig->config, &rig->loop);
 }
@@ -112,8 +118,11 @@ bool mesh_test_ble_rig_script(struct mesh_test_ble_rig *rig, size_t slot,
 void mesh_test_ble_rig_close(struct mesh_test_ble_rig *rig) {
     if (rig->started) {
         rig->ble->ops->stop(rig->ble);
-        mesh_event_loop_shutdown(&rig->loop);
         rig->started = false;
+    }
+    if (rig->loop_ready) {
+        mesh_event_loop_shutdown(&rig->loop);
+        rig->loop_ready = false;
     }
     mesh_bluez_client_mock_disable();
 }
