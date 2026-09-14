@@ -91,11 +91,8 @@ MESH_TEST_CASE(ui_nav_settings, unit) {
 
 cleanup:
     mesh_ui_store_shutdown(&store);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-    } else {
-        record_success(test_name);
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }
 
 /*
@@ -190,11 +187,8 @@ MESH_TEST_CASE(ui_nav_modules, unit) {
 
 cleanup:
     mesh_ui_store_shutdown(&store);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-    } else {
-        record_success(test_name);
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }
 
 /* Editing through the nav: Left/Right and A change rows, the keyboard edits text and gives
@@ -203,10 +197,7 @@ MESH_TEST_CASE(ui_nav_settings_edit, unit) {
     const char *failure = NULL;
 
     struct mesh_ui_store store;
-    if (mesh_ui_store_init(&store) != 0) {
-        record_failure(test_name, "store init failed");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
     mesh_test_nav_populate(&store);
     struct mesh_ui_settings settings;
     memset(&settings, 0, sizeof settings);
@@ -374,11 +365,8 @@ MESH_TEST_CASE(ui_nav_settings_edit, unit) {
 
 cleanup:
     mesh_ui_store_shutdown(&store);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-    } else {
-        record_success(test_name);
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }
 
 /* Channel editing through the nav: opening a slot, walking the key choices, typing a key,
@@ -387,10 +375,7 @@ MESH_TEST_CASE(ui_nav_channel_edit, unit) {
     const char *failure = NULL;
 
     struct mesh_ui_store store;
-    if (mesh_ui_store_init(&store) != 0) {
-        record_failure(test_name, "store init failed");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
     mesh_test_nav_populate(&store);
     struct mesh_ui_settings settings;
     memset(&settings, 0, sizeof settings);
@@ -584,11 +569,8 @@ MESH_TEST_CASE(ui_nav_channel_edit, unit) {
 
 cleanup:
     mesh_ui_store_shutdown(&store);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-    } else {
-        record_success(test_name);
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }
 
 /*
@@ -601,10 +583,7 @@ MESH_TEST_CASE(ui_nav_radio_actions, unit) {
     const char *failure = NULL;
 
     struct mesh_ui_store store;
-    if (mesh_ui_store_init(&store) != 0) {
-        record_failure(test_name, "store init failed");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
     mesh_test_nav_populate(&store);
     struct mesh_ui_settings settings;
     memset(&settings, 0, sizeof settings);
@@ -736,10 +715,7 @@ MESH_TEST_CASE(ui_nav_radio_actions, unit) {
 
 cleanup:
     mesh_ui_store_shutdown(&store);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-        return;
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
 
@@ -753,10 +729,7 @@ MESH_TEST_CASE(ui_nav_forget_nodes, unit) {
     const char *failure = NULL;
 
     struct mesh_ui_store store;
-    if (mesh_ui_store_init(&store) != 0) {
-        record_failure(test_name, "store init failed");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
     mesh_test_nav_populate(&store);
     struct mesh_ui_settings settings;
     memset(&settings, 0, sizeof settings);
@@ -914,10 +887,7 @@ MESH_TEST_CASE(ui_nav_forget_nodes, unit) {
 
 cleanup:
     mesh_ui_store_shutdown(&store);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-        return;
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
 
@@ -1037,10 +1007,7 @@ MESH_TEST_CASE(ui_nav_position_flags_edit_one_bit_each, unit) {
 
 cleanup:
     mesh_ui_store_shutdown(&store);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-        return;
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
 
@@ -1198,10 +1165,7 @@ MESH_TEST_CASE(ui_nav_fixed_position, unit) {
 
 cleanup:
     mesh_ui_store_shutdown(&store);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-        return;
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
 
@@ -1220,10 +1184,7 @@ MESH_TEST_CASE(ui_nav_canned_separator, unit) {
     const char *failure = NULL;
 
     struct mesh_ui_store store;
-    if (mesh_ui_store_init(&store) != 0) {
-        record_failure(test_name, "store init failed");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
     mesh_test_nav_populate(&store);
     struct mesh_ui_settings settings;
     memset(&settings, 0, sizeof settings);
@@ -1263,11 +1224,8 @@ MESH_TEST_CASE(ui_nav_canned_separator, unit) {
 
 cleanup:
     mesh_ui_store_shutdown(&store);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-    } else {
-        record_success(test_name);
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }
 
 /*
@@ -1290,10 +1248,7 @@ MESH_TEST_CASE(ui_settings_actions_need_a_live_link, unit) {
     const char *failure = NULL;
 
     struct mesh_ui_store store;
-    if (mesh_ui_store_init(&store) != 0) {
-        record_failure(test_name, "store init failed");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
     mesh_test_nav_populate(&store);
     struct mesh_ui_settings settings;
     memset(&settings, 0, sizeof settings);
@@ -1378,11 +1333,8 @@ MESH_TEST_CASE(ui_settings_actions_need_a_live_link, unit) {
 
 cleanup:
     mesh_ui_store_shutdown(&store);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-    } else {
-        record_success(test_name);
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }
 
 /*
@@ -1500,10 +1452,7 @@ MESH_TEST_CASE(ui_nav_ham_mode, unit) {
 
 cleanup:
     mesh_ui_store_shutdown(&store);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-        return;
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
 
@@ -1589,9 +1538,6 @@ MESH_TEST_CASE(ui_nav_lora_preset_steps_inside_the_region, unit) {
 
 cleanup:
     mesh_ui_store_shutdown(&store);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-    } else {
-        record_success(test_name);
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }

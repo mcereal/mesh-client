@@ -11,6 +11,7 @@ set(MESHCLIENT_TEST_FRAMEWORK
 )
 
 set(MESHCLIENT_TEST_SUPPORT
+    support/ble_fixture.c
     support/ble_ota_fixture.c
     support/data_fixture.c
     support/fs_fixture.c

@@ -3,6 +3,7 @@
 /* Bringing a BLE link up and watching it fall over: discovery, connect, drops. */
 
 #include "framework/mesh_test.h"
+#include "support/ble_fixture.h"
 
 #include "mesh/core/config.h"
 #include "mesh/core/event_loop.h"
@@ -13,7 +14,6 @@
 #include "mesh/transport/transport.h"
 
 #include <pb_decode.h>
-#include <pb_encode.h>
 
 #include "meshtastic/mesh.pb.h"
 
@@ -84,199 +84,93 @@ MESH_TEST_CASE(ble_transport_status_transitions, unit) {
 }
 
 MESH_TEST_CASE(ble_transport_discovery_mock, unit) {
-    struct mesh_transport *ble = mesh_ble_transport();
+    const char *failure = NULL;
 
-    struct mesh_bluez_device_info mock_devices[] = {
-        {.address = "AA:BB:CC:DD:EE:01", .name = "NodeOne", .rssi = -45, .paired = true},
-        {.address = "AA:BB:CC:DD:EE:02", .name = "NodeTwo", .rssi = -60, .paired = true},
-    };
+    struct mesh_test_ble_rig rig;
+    mesh_test_ble_rig_init(&rig, "AA:BB:CC:DD:EE:01", "NodeOne", -45);
+    mesh_test_ble_rig_add_device(&rig, "AA:BB:CC:DD:EE:02", "NodeTwo", -60);
+    struct mesh_transport *const ble = rig.ble;
 
-    struct mesh_bluez_mock_config mock_config = {
-        .init_result = 0,
-        .check_ready_result = 0,
-        .find_adapter_result = 0,
-        .adapter_path = "/org/bluez/hci0",
-        .start_discovery_result = 0,
-        .stop_discovery_result = 0,
-        .devices = mock_devices,
-        .device_count = sizeof(mock_devices) / sizeof(mock_devices[0]),
-        .list_result = 0,
-    };
-
-    mesh_bluez_client_mock_enable(&mock_config);
-
-    struct mesh_app_config config = mesh_app_config_default();
-    struct mesh_event_loop loop;
-    mesh_event_loop_init(&loop);
-
-    int result = ble->ops->start(ble, &config, &loop);
+    const int result = mesh_test_ble_rig_start(&rig);
     if (result != 0) {
-        mesh_bluez_client_mock_disable();
-        record_failure(test_name, "ble start should succeed with mock");
-        return;
+        failure = "ble start should succeed with mock";
+        goto cleanup;
     }
 
     struct mesh_bluez_device_info discovered[4];
     size_t count =
         mesh_ble_transport_get_devices(ble, discovered, sizeof(discovered) / sizeof(discovered[0]));
-    if (count != mock_config.device_count) {
-        ble->ops->stop(ble);
-        mesh_event_loop_shutdown(&loop);
-        mesh_bluez_client_mock_disable();
-        record_failure(test_name, "unexpected discovered device count");
-        return;
+    if (count != rig.device_count) {
+        failure = "unexpected discovered device count";
+        goto cleanup;
     }
 
     if (strcmp(discovered[0].name, "NodeOne") != 0 ||
         strcmp(discovered[1].address, "AA:BB:CC:DD:EE:02") != 0) {
-        ble->ops->stop(ble);
-        mesh_event_loop_shutdown(&loop);
-        mesh_bluez_client_mock_disable();
-        record_failure(test_name, "device details mismatch");
-        return;
+        failure = "device details mismatch";
+        goto cleanup;
     }
 
-    mock_devices[0].rssi = -35;
-    mock_config.device_count = 1;
-    mock_config.devices = mock_devices;
-    mesh_bluez_client_mock_enable(&mock_config);
-    size_t refreshed = mesh_ble_transport_refresh_devices(ble);
+    /* One of the two drops out of earshot between listings. */
+    rig.devices[0].rssi = -35;
+    rig.mock.device_count = 1U;
+    mesh_test_ble_rig_reload(&rig);
+    const size_t refreshed = mesh_ble_transport_refresh_devices(ble);
     if (refreshed != 1U) {
-        ble->ops->stop(ble);
-        mesh_event_loop_shutdown(&loop);
-        mesh_bluez_client_mock_disable();
-        record_failure(test_name, "refresh should update device list");
-        return;
+        failure = "refresh should update device list";
+        goto cleanup;
     }
 
-    ble->ops->stop(ble);
-    mesh_event_loop_shutdown(&loop);
-    mesh_bluez_client_mock_disable();
+cleanup:
+    mesh_test_ble_rig_close(&rig);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
 
 MESH_TEST_CASE(ble_transport_connect_mock, unit) {
-    struct mesh_transport *ble = mesh_ble_transport();
+    const char *failure = NULL;
 
-    struct mesh_bluez_device_info mock_devices[] = {
-        {.address = "AA:BB:CC:DD:EE:03", .name = "NodeThree", .rssi = -40, .paired = true},
-    };
+    struct mesh_test_ble_rig rig;
+    mesh_test_ble_rig_init(&rig, "AA:BB:CC:DD:EE:03", "NodeThree", -40);
+    struct mesh_transport *const ble = rig.ble;
 
-    uint8_t write_capture[64];
-    memset(write_capture, 0, sizeof(write_capture));
-    size_t write_len = 0;
-    char write_path[128];
-    memset(write_path, 0, sizeof(write_path));
-    size_t write_call_count = 0U;
-    size_t write_lengths[8];
-    memset(write_lengths, 0, sizeof(write_lengths));
-
-    /*
-     * Scripted FromRadio reads; the transport drains until it sees an empty read. Five payloads
-     * exceed the per-turn read budget, so this also exercises the eventfd continuation.
-     */
-    uint8_t read_buffers[5][256];
-    const uint8_t *read_payloads[5] = {read_buffers[0], read_buffers[1], read_buffers[2],
-                                       read_buffers[3], read_buffers[4]};
-    size_t read_payload_lengths[5] = {0U, 0U, 0U, 0U, 0U};
-    size_t read_index = 0U;
-
-    struct mesh_bluez_mock_config mock_config = {
-        .init_result = 0,
-        .check_ready_result = 0,
-        .find_adapter_result = 0,
-        .adapter_path = "/org/bluez/hci0",
-        .start_discovery_result = 0,
-        .stop_discovery_result = 0,
-        .connect_result = 0,
-        .disconnect_result = 0,
-        .subscribe_result = 0,
-        .write_result = 0,
-        .toradio_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_03/service000a/char000b",
-        .fromradio_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_03/service000a/char000d",
-        .fromnum_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_03/service000a/char000f",
-        .read_payloads = read_payloads,
-        .read_payload_lengths = read_payload_lengths,
-        .read_payload_count = 5U, /* lengths stay 0 (empty FIFO) until scripted below */
-        .read_index = &read_index,
-        .devices = mock_devices,
-        .device_count = sizeof(mock_devices) / sizeof(mock_devices[0]),
-        .list_result = 0,
-        .write_capture_buffer = write_capture,
-        .write_capture_capacity = sizeof(write_capture),
-        .write_capture_length = &write_len,
-        .write_capture_path = write_path,
-        .write_capture_path_capacity = sizeof(write_path),
-        .write_call_count = &write_call_count,
-        .write_lengths = write_lengths,
-        .write_lengths_capacity = sizeof(write_lengths) / sizeof(write_lengths[0]),
-    };
-
-    mesh_bluez_client_mock_enable(&mock_config);
-
-    struct mesh_app_config config = mesh_app_config_default();
-    struct mesh_event_loop loop;
-    mesh_event_loop_init(&loop);
-
-    if (ble->ops->start(ble, &config, &loop) != 0) {
-        mesh_bluez_client_mock_disable();
-        mesh_event_loop_shutdown(&loop);
-        record_failure(test_name, "ble start failed");
-        return;
+    if (mesh_test_ble_rig_start(&rig) != 0) {
+        failure = "ble start failed";
+        goto cleanup;
     }
 
-    mesh_ble_transport_refresh_devices(ble);
-
-    if (mesh_ble_transport_connect(ble, mock_devices[0].address) != 0) {
-        ble->ops->stop(ble);
-        mesh_event_loop_shutdown(&loop);
-        mesh_bluez_client_mock_disable();
-        record_failure(test_name, "connect should succeed");
-        return;
+    if (mesh_test_ble_rig_connect(&rig) != 0) {
+        failure = "connect should succeed";
+        goto cleanup;
     }
 
-    if (write_len == 0U) {
-        ble->ops->stop(ble);
-        mesh_event_loop_shutdown(&loop);
-        mesh_bluez_client_mock_disable();
-        record_failure(test_name, "expected want_config write");
-        return;
+    if (rig.write_len == 0U) {
+        failure = "expected want_config write";
+        goto cleanup;
     }
 
-    if (strcmp(write_path, mock_config.toradio_char_path) != 0) {
-        ble->ops->stop(ble);
-        mesh_event_loop_shutdown(&loop);
-        mesh_bluez_client_mock_disable();
-        record_failure(test_name, "want_config write path mismatch");
-        return;
+    if (strcmp(rig.write_path, rig.toradio_path) != 0) {
+        failure = "want_config write path mismatch";
+        goto cleanup;
     }
 
     /* BLE ToRadio writes carry the bare protobuf: no varint length prefix. */
     meshtastic_ToRadio to_radio = meshtastic_ToRadio_init_default;
-    pb_istream_t to_radio_stream = pb_istream_from_buffer(write_capture, write_len);
+    pb_istream_t to_radio_stream = pb_istream_from_buffer(rig.write_capture, rig.write_len);
     if (!pb_decode(&to_radio_stream, meshtastic_ToRadio_fields, &to_radio)) {
-        ble->ops->stop(ble);
-        mesh_event_loop_shutdown(&loop);
-        mesh_bluez_client_mock_disable();
-        record_failure(test_name, "failed to decode want_config payload");
-        return;
+        failure = "failed to decode want_config payload";
+        goto cleanup;
     }
 
     if (to_radio.which_payload_variant != meshtastic_ToRadio_want_config_id_tag) {
-        ble->ops->stop(ble);
-        mesh_event_loop_shutdown(&loop);
-        mesh_bluez_client_mock_disable();
-        record_failure(test_name, "unexpected ToRadio payload");
-        return;
+        failure = "unexpected ToRadio payload";
+        goto cleanup;
     }
 
     struct mesh_handshake_status handshake = mesh_ble_transport_handshake_status(ble);
     if (!handshake.request_in_flight || handshake.request_id != to_radio.want_config_id) {
-        ble->ops->stop(ble);
-        mesh_event_loop_shutdown(&loop);
-        mesh_bluez_client_mock_disable();
-        record_failure(test_name, "handshake state not initialised");
-        return;
+        failure = "handshake state not initialised";
+        goto cleanup;
     }
 
     /* Script the node's FromRadio FIFO: my_info, node_info, config_complete, then empty. */
@@ -285,15 +179,10 @@ MESH_TEST_CASE(ble_transport_connect_mock, unit) {
     from_radio.my_info.my_node_num = 0x01020304U;
     from_radio.my_info.nodedb_count = 2U;
 
-    pb_ostream_t encode_stream = pb_ostream_from_buffer(read_buffers[0], sizeof(read_buffers[0]));
-    if (!pb_encode(&encode_stream, meshtastic_FromRadio_fields, &from_radio)) {
-        ble->ops->stop(ble);
-        mesh_event_loop_shutdown(&loop);
-        mesh_bluez_client_mock_disable();
-        record_failure(test_name, "failed to encode my_info");
-        return;
+    if (!mesh_test_ble_rig_script(&rig, 0U, &from_radio)) {
+        failure = "failed to encode my_info";
+        goto cleanup;
     }
-    read_payload_lengths[0] = encode_stream.bytes_written;
     const uint32_t expected_node_num = from_radio.my_info.my_node_num;
 
     from_radio = (meshtastic_FromRadio)meshtastic_FromRadio_init_default;
@@ -310,15 +199,10 @@ MESH_TEST_CASE(ble_transport_connect_mock, unit) {
     from_radio.node_info.has_hops_away = true;
     from_radio.node_info.hops_away = 2U;
 
-    encode_stream = pb_ostream_from_buffer(read_buffers[1], sizeof(read_buffers[1]));
-    if (!pb_encode(&encode_stream, meshtastic_FromRadio_fields, &from_radio)) {
-        ble->ops->stop(ble);
-        mesh_event_loop_shutdown(&loop);
-        mesh_bluez_client_mock_disable();
-        record_failure(test_name, "failed to encode node_info");
-        return;
+    if (!mesh_test_ble_rig_script(&rig, 1U, &from_radio)) {
+        failure = "failed to encode node_info";
+        goto cleanup;
     }
-    read_payload_lengths[1] = encode_stream.bytes_written;
     const uint32_t expected_peer_num = from_radio.node_info.num;
 
     /* Two more peers so the FIFO is longer than one turn's read budget. */
@@ -329,143 +213,98 @@ MESH_TEST_CASE(ble_transport_connect_mock, unit) {
         from_radio.node_info.has_user = true;
         snprintf(from_radio.node_info.user.short_name, sizeof(from_radio.node_info.user.short_name),
                  "P%zu", extra);
-        encode_stream =
-            pb_ostream_from_buffer(read_buffers[2 + extra], sizeof(read_buffers[2 + extra]));
-        if (!pb_encode(&encode_stream, meshtastic_FromRadio_fields, &from_radio)) {
-            ble->ops->stop(ble);
-            mesh_event_loop_shutdown(&loop);
-            mesh_bluez_client_mock_disable();
-            record_failure(test_name, "failed to encode extra node_info");
-            return;
+        if (!mesh_test_ble_rig_script(&rig, 2U + extra, &from_radio)) {
+            failure = "failed to encode extra node_info";
+            goto cleanup;
         }
-        read_payload_lengths[2 + extra] = encode_stream.bytes_written;
     }
 
     from_radio = (meshtastic_FromRadio)meshtastic_FromRadio_init_default;
     from_radio.which_payload_variant = meshtastic_FromRadio_config_complete_id_tag;
     from_radio.config_complete_id = to_radio.want_config_id;
 
-    encode_stream = pb_ostream_from_buffer(read_buffers[4], sizeof(read_buffers[4]));
-    if (!pb_encode(&encode_stream, meshtastic_FromRadio_fields, &from_radio)) {
-        ble->ops->stop(ble);
-        mesh_event_loop_shutdown(&loop);
-        mesh_bluez_client_mock_disable();
-        record_failure(test_name, "failed to encode config_complete");
-        return;
+    if (!mesh_test_ble_rig_script(&rig, 4U, &from_radio)) {
+        failure = "failed to encode config_complete";
+        goto cleanup;
     }
-    read_payload_lengths[4] = encode_stream.bytes_written;
 
     /* Rewind the scripted FIFO and poke FromNum. */
-    read_index = 0U;
+    rig.read_index = 0U;
     const uint8_t from_num[4] = {5U, 0U, 0U, 0U};
-    mesh_bluez_client_mock_emit_notification(mock_config.fromnum_char_path, from_num,
-                                             sizeof(from_num));
+    mesh_bluez_client_mock_emit_notification(rig.fromnum_path, from_num, sizeof(from_num));
 
     /* The first turn reads its budget and must stop short of the end; the loop wake finishes it. */
-    if (read_index >= 6U) {
-        ble->ops->stop(ble);
-        mesh_event_loop_shutdown(&loop);
-        mesh_bluez_client_mock_disable();
-        record_failure(test_name, "drain did not yield to the event loop between read batches");
-        return;
+    if (rig.read_index >= 6U) {
+        failure = "drain did not yield to the event loop between read batches";
+        goto cleanup;
     }
-    for (int spin = 0; spin < 20 && read_index < 6U; ++spin) {
-        mesh_event_loop_run(&loop, 10);
+    for (int spin = 0; spin < 20 && rig.read_index < 6U; ++spin) {
+        mesh_event_loop_run(&rig.loop, 10);
         ble->ops->tick(ble);
     }
 
     handshake = mesh_ble_transport_handshake_status(ble);
     if (!handshake.has_my_info || handshake.my_info.my_node_num != expected_node_num) {
-        ble->ops->stop(ble);
-        mesh_event_loop_shutdown(&loop);
-        mesh_bluez_client_mock_disable();
-        record_failure(test_name, "my_info not cached");
-        return;
+        failure = "my_info not cached";
+        goto cleanup;
     }
 
     if (handshake.node_count != 3U || handshake.nodes[0].node_id != expected_peer_num) {
-        ble->ops->stop(ble);
-        mesh_event_loop_shutdown(&loop);
-        mesh_bluez_client_mock_disable();
-        record_failure(test_name, "node info cache incorrect");
-        return;
+        failure = "node info cache incorrect";
+        goto cleanup;
     }
 
     if (handshake.request_in_flight || !handshake.config_complete ||
         handshake.config_complete_id != to_radio.want_config_id) {
-        ble->ops->stop(ble);
-        mesh_event_loop_shutdown(&loop);
-        mesh_bluez_client_mock_disable();
-        record_failure(test_name, "config handshake did not complete");
-        return;
+        failure = "config handshake did not complete";
+        goto cleanup;
     }
 
     /* Five payloads plus the terminating empty read. */
-    if (read_index != 6U) {
-        ble->ops->stop(ble);
-        mesh_event_loop_shutdown(&loop);
-        mesh_bluez_client_mock_disable();
-        record_failure(test_name, "FromRadio drain did not read until empty");
-        return;
+    if (rig.read_index != 6U) {
+        failure = "FromRadio drain did not read until empty";
+        goto cleanup;
     }
 
     struct mesh_ble_transport_stats stats = mesh_ble_transport_stats(ble);
     if (stats.frames_received != 5U) {
-        ble->ops->stop(ble);
-        mesh_event_loop_shutdown(&loop);
-        mesh_bluez_client_mock_disable();
-        record_failure(test_name, "unexpected frame count after handshake");
-        return;
+        failure = "unexpected frame count after handshake";
+        goto cleanup;
     }
 
     /* Outbound packets go out as exactly one write each, unchunked. */
-    size_t handshake_write_calls = write_call_count;
+    size_t handshake_write_calls = rig.write_call_count;
     uint8_t outbound_packet[300];
     for (size_t i = 0; i < sizeof(outbound_packet); ++i) {
         outbound_packet[i] = (uint8_t)i;
     }
 
     if (mesh_ble_transport_send_packet(ble, outbound_packet, sizeof(outbound_packet)) != 0) {
-        ble->ops->stop(ble);
-        mesh_event_loop_shutdown(&loop);
-        mesh_bluez_client_mock_disable();
-        record_failure(test_name, "failed to queue outbound packet");
-        return;
+        failure = "failed to queue outbound packet";
+        goto cleanup;
     }
 
-    if (write_call_count - handshake_write_calls != 1U ||
-        write_lengths[handshake_write_calls] != sizeof(outbound_packet)) {
-        ble->ops->stop(ble);
-        mesh_event_loop_shutdown(&loop);
-        mesh_bluez_client_mock_disable();
-        record_failure(test_name, "outbound packet was not written as a single ToRadio write");
-        return;
+    if (rig.write_call_count - handshake_write_calls != 1U ||
+        rig.write_lengths[handshake_write_calls] != sizeof(outbound_packet)) {
+        failure = "outbound packet was not written as a single ToRadio write";
+        goto cleanup;
     }
 
     uint8_t oversized[MESH_BLE_MAX_PACKET_SIZE + 1U];
     memset(oversized, 0xAB, sizeof(oversized));
     if (mesh_ble_transport_send_packet(ble, oversized, sizeof(oversized)) != -EMSGSIZE) {
-        ble->ops->stop(ble);
-        mesh_event_loop_shutdown(&loop);
-        mesh_bluez_client_mock_disable();
-        record_failure(test_name, "oversized packet should be rejected");
-        return;
+        failure = "oversized packet should be rejected";
+        goto cleanup;
     }
 
-    if (mesh_ble_transport_connect(ble, mock_devices[0].address) != -EALREADY) {
-        ble->ops->stop(ble);
-        mesh_event_loop_shutdown(&loop);
-        mesh_bluez_client_mock_disable();
-        record_failure(test_name, "duplicate connect should return -EALREADY");
-        return;
+    if (mesh_ble_transport_connect(ble, rig.devices[0].address) != -EALREADY) {
+        failure = "duplicate connect should return -EALREADY";
+        goto cleanup;
     }
 
     if (mesh_ble_transport_disconnect(ble) != 0) {
-        ble->ops->stop(ble);
-        mesh_event_loop_shutdown(&loop);
-        mesh_bluez_client_mock_disable();
-        record_failure(test_name, "disconnect should succeed");
-        return;
+        failure = "disconnect should succeed";
+        goto cleanup;
     }
 
     /* The connection's own state goes. What describes the radio does not: the roster, because
@@ -475,24 +314,18 @@ MESH_TEST_CASE(ble_transport_connect_mock, unit) {
     handshake = mesh_ble_transport_handshake_status(ble);
     if (handshake.request_in_flight || handshake.node_count == 0U || !handshake.has_my_info ||
         handshake.config_complete) {
-        ble->ops->stop(ble);
-        mesh_event_loop_shutdown(&loop);
-        mesh_bluez_client_mock_disable();
-        record_failure(test_name, "handshake state not cleared on disconnect");
-        return;
+        failure = "handshake state not cleared on disconnect";
+        goto cleanup;
     }
 
     if (mesh_ble_transport_disconnect(ble) != -ENOTCONN) {
-        ble->ops->stop(ble);
-        mesh_event_loop_shutdown(&loop);
-        mesh_bluez_client_mock_disable();
-        record_failure(test_name, "second disconnect should return -ENOTCONN");
-        return;
+        failure = "second disconnect should return -ENOTCONN";
+        goto cleanup;
     }
 
-    ble->ops->stop(ble);
-    mesh_event_loop_shutdown(&loop);
-    mesh_bluez_client_mock_disable();
+cleanup:
+    mesh_test_ble_rig_close(&rig);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
 
@@ -501,46 +334,16 @@ MESH_TEST_CASE(ble_transport_connect_mock, unit) {
 MESH_TEST_CASE(ble_transport_connect_deferred_services, unit) {
     const char *failure = NULL;
 
-    struct mesh_transport *ble = mesh_ble_transport();
+    struct mesh_test_ble_rig rig;
+    mesh_test_ble_rig_init(&rig, "AA:BB:CC:DD:EE:05", "NodeFive", -50);
+    rig.mock.services_resolved_after_polls = 2U;
+    struct mesh_transport *const ble = rig.ble;
 
-    struct mesh_bluez_device_info mock_devices[] = {
-        {.address = "AA:BB:CC:DD:EE:05", .name = "NodeFive", .rssi = -50, .paired = true},
-    };
-
-    uint8_t write_capture[64];
-    memset(write_capture, 0, sizeof(write_capture));
-    size_t write_len = 0U;
-    char write_path[128];
-    memset(write_path, 0, sizeof(write_path));
-
-    struct mesh_bluez_mock_config mock_config = {
-        .adapter_path = "/org/bluez/hci0",
-        .services_resolved_after_polls = 2U,
-        .toradio_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_05/service000a/char000b",
-        .fromradio_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_05/service000a/char000d",
-        .fromnum_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_05/service000a/char000f",
-        .devices = mock_devices,
-        .device_count = 1U,
-        .write_capture_buffer = write_capture,
-        .write_capture_capacity = sizeof(write_capture),
-        .write_capture_length = &write_len,
-        .write_capture_path = write_path,
-        .write_capture_path_capacity = sizeof(write_path),
-    };
-
-    mesh_bluez_client_mock_enable(&mock_config);
-
-    struct mesh_app_config config = mesh_app_config_default();
-    struct mesh_event_loop loop;
-    mesh_event_loop_init(&loop);
-
-    if (ble->ops->start(ble, &config, &loop) != 0) {
+    if (mesh_test_ble_rig_start(&rig) != 0) {
         failure = "ble start failed";
         goto cleanup;
     }
-    mesh_ble_transport_refresh_devices(ble);
-
-    if (mesh_ble_transport_connect(ble, mock_devices[0].address) != 0) {
+    if (mesh_test_ble_rig_connect(&rig) != 0) {
         failure = "connect should be accepted";
         goto cleanup;
     }
@@ -552,11 +355,11 @@ MESH_TEST_CASE(ble_transport_connect_deferred_services, unit) {
         failure = "must not report connected before service discovery";
         goto cleanup;
     }
-    if (write_len != 0U) {
+    if (rig.write_len != 0U) {
         failure = "want_config must wait for the characteristics";
         goto cleanup;
     }
-    if (mesh_ble_transport_connect(ble, mock_devices[0].address) != -EINPROGRESS) {
+    if (mesh_ble_transport_connect(ble, rig.devices[0].address) != -EINPROGRESS) {
         failure = "repeat connect should report in progress";
         goto cleanup;
     }
@@ -568,7 +371,7 @@ MESH_TEST_CASE(ble_transport_connect_deferred_services, unit) {
     /* Second poll: still unresolved. Third poll: resolved, connect completes. */
     test_sleep_ms(300U);
     ble->ops->tick(ble);
-    if (!mesh_ble_transport_is_connecting(ble) || write_len != 0U) {
+    if (!mesh_ble_transport_is_connecting(ble) || rig.write_len != 0U) {
         failure = "connect completed before the mock resolved services";
         goto cleanup;
     }
@@ -580,23 +383,18 @@ MESH_TEST_CASE(ble_transport_connect_deferred_services, unit) {
         goto cleanup;
     }
     const char *connected = mesh_ble_transport_connected_address(ble);
-    if (connected == NULL || strcmp(connected, mock_devices[0].address) != 0) {
+    if (connected == NULL || strcmp(connected, rig.devices[0].address) != 0) {
         failure = "connected address mismatch after deferred connect";
         goto cleanup;
     }
-    if (write_len == 0U || strcmp(write_path, mock_config.toradio_char_path) != 0) {
+    if (rig.write_len == 0U || strcmp(rig.write_path, rig.toradio_path) != 0) {
         failure = "want_config write missing after deferred connect";
         goto cleanup;
     }
 
 cleanup:
-    ble->ops->stop(ble);
-    mesh_event_loop_shutdown(&loop);
-    mesh_bluez_client_mock_disable();
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-        return;
-    }
+    mesh_test_ble_rig_close(&rig);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
 
@@ -608,47 +406,17 @@ cleanup:
 MESH_TEST_CASE(ble_transport_services_resolved_timeout_retries, unit) {
     const char *failure = NULL;
 
-    struct mesh_transport *ble = mesh_ble_transport();
+    struct mesh_test_ble_rig rig;
+    mesh_test_ble_rig_init(&rig, "AA:BB:CC:DD:EE:0A", "NodeTen", -50);
+    /* Two polls time out, then the database is there on the first real answer. */
+    rig.mock.services_resolved_timeout_polls = 2U;
+    struct mesh_transport *const ble = rig.ble;
 
-    struct mesh_bluez_device_info mock_devices[] = {
-        {.address = "AA:BB:CC:DD:EE:0A", .name = "NodeTen", .rssi = -50, .paired = true},
-    };
-
-    uint8_t write_capture[64];
-    memset(write_capture, 0, sizeof(write_capture));
-    size_t write_len = 0U;
-    char write_path[128];
-    memset(write_path, 0, sizeof(write_path));
-
-    struct mesh_bluez_mock_config mock_config = {
-        .adapter_path = "/org/bluez/hci0",
-        /* Two polls time out, then the database is there on the first real answer. */
-        .services_resolved_timeout_polls = 2U,
-        .toradio_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_0A/service000a/char000b",
-        .fromradio_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_0A/service000a/char000d",
-        .fromnum_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_0A/service000a/char000f",
-        .devices = mock_devices,
-        .device_count = 1U,
-        .write_capture_buffer = write_capture,
-        .write_capture_capacity = sizeof(write_capture),
-        .write_capture_length = &write_len,
-        .write_capture_path = write_path,
-        .write_capture_path_capacity = sizeof(write_path),
-    };
-
-    mesh_bluez_client_mock_enable(&mock_config);
-
-    struct mesh_app_config config = mesh_app_config_default();
-    struct mesh_event_loop loop;
-    mesh_event_loop_init(&loop);
-
-    if (ble->ops->start(ble, &config, &loop) != 0) {
+    if (mesh_test_ble_rig_start(&rig) != 0) {
         failure = "ble start failed";
         goto cleanup;
     }
-    mesh_ble_transport_refresh_devices(ble);
-
-    if (mesh_ble_transport_connect(ble, mock_devices[0].address) != 0) {
+    if (mesh_test_ble_rig_connect(&rig) != 0) {
         failure = "connect should be accepted";
         goto cleanup;
     }
@@ -674,11 +442,11 @@ MESH_TEST_CASE(ble_transport_services_resolved_timeout_retries, unit) {
         goto cleanup;
     }
     const char *connected = mesh_ble_transport_connected_address(ble);
-    if (connected == NULL || strcmp(connected, mock_devices[0].address) != 0) {
+    if (connected == NULL || strcmp(connected, rig.devices[0].address) != 0) {
         failure = "connected address mismatch after retried service discovery";
         goto cleanup;
     }
-    if (write_len == 0U || strcmp(write_path, mock_config.toradio_char_path) != 0) {
+    if (rig.write_len == 0U || strcmp(rig.write_path, rig.toradio_path) != 0) {
         failure = "want_config write missing after retried service discovery";
         goto cleanup;
     }
@@ -690,13 +458,8 @@ MESH_TEST_CASE(ble_transport_services_resolved_timeout_retries, unit) {
     }
 
 cleanup:
-    ble->ops->stop(ble);
-    mesh_event_loop_shutdown(&loop);
-    mesh_bluez_client_mock_disable();
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-        return;
-    }
+    mesh_test_ble_rig_close(&rig);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
 
@@ -705,37 +468,20 @@ cleanup:
 MESH_TEST_CASE(ble_transport_connect_async_reply, unit) {
     const char *failure = NULL;
 
-    struct mesh_transport *ble = mesh_ble_transport();
-    struct mesh_bluez_device_info mock_devices[] = {
-        {.address = "AA:BB:CC:DD:EE:08", .name = "NodeEight", .rssi = -50, .paired = true},
-    };
-    uint8_t write_capture[64];
-    size_t write_len = 0U;
-    struct mesh_bluez_mock_config mock_config = {
-        .adapter_path = "/org/bluez/hci0",
-        .connect_pending_polls = 2U,
-        .devices = mock_devices,
-        .device_count = 1U,
-        .write_capture_buffer = write_capture,
-        .write_capture_capacity = sizeof(write_capture),
-        .write_capture_length = &write_len,
-    };
-    mesh_bluez_client_mock_enable(&mock_config);
+    struct mesh_test_ble_rig rig;
+    mesh_test_ble_rig_init(&rig, "AA:BB:CC:DD:EE:08", "NodeEight", -50);
+    rig.mock.connect_pending_polls = 2U;
+    struct mesh_transport *const ble = rig.ble;
 
-    struct mesh_app_config config = mesh_app_config_default();
-    struct mesh_event_loop loop;
-    mesh_event_loop_init(&loop);
-    if (ble->ops->start(ble, &config, &loop) != 0) {
+    if (mesh_test_ble_rig_start(&rig) != 0) {
         failure = "ble start failed";
         goto cleanup;
     }
-    mesh_ble_transport_refresh_devices(ble);
-
-    if (mesh_ble_transport_connect(ble, mock_devices[0].address) != 0) {
+    if (mesh_test_ble_rig_connect(&rig) != 0) {
         failure = "connect should be accepted";
         goto cleanup;
     }
-    if (!mesh_ble_transport_is_connecting(ble) || write_len != 0U) {
+    if (!mesh_ble_transport_is_connecting(ble) || rig.write_len != 0U) {
         failure = "must stay connecting until the Connect reply";
         goto cleanup;
     }
@@ -745,12 +491,12 @@ MESH_TEST_CASE(ble_transport_connect_async_reply, unit) {
     }
 
     ble->ops->tick(ble); /* poll 2: still pending */
-    if (!mesh_ble_transport_is_connecting(ble) || write_len != 0U) {
+    if (!mesh_ble_transport_is_connecting(ble) || rig.write_len != 0U) {
         failure = "reply arrived too early";
         goto cleanup;
     }
     ble->ops->tick(ble); /* poll 3: reply, services already resolved, handshake sent */
-    if (mesh_ble_transport_connected_address(ble) == NULL || write_len == 0U) {
+    if (mesh_ble_transport_connected_address(ble) == NULL || rig.write_len == 0U) {
         failure = "connect should complete once the reply lands";
         goto cleanup;
     }
@@ -765,15 +511,13 @@ MESH_TEST_CASE(ble_transport_connect_async_reply, unit) {
         goto cleanup;
     }
     ble->ops->stop(ble);
-    mock_config.connect_result = -EIO;
-    mock_config.connect_pending_polls = 1U;
-    mesh_bluez_client_mock_enable(&mock_config);
-    if (ble->ops->start(ble, &config, &loop) != 0) {
+    rig.mock.connect_result = -EIO;
+    rig.mock.connect_pending_polls = 1U;
+    if (mesh_test_ble_rig_start(&rig) != 0) {
         failure = "ble restart failed";
         goto cleanup;
     }
-    mesh_ble_transport_refresh_devices(ble);
-    if (mesh_ble_transport_connect(ble, mock_devices[0].address) != 0) {
+    if (mesh_test_ble_rig_connect(&rig) != 0) {
         failure = "second connect should be accepted";
         goto cleanup;
     }
@@ -786,13 +530,8 @@ MESH_TEST_CASE(ble_transport_connect_async_reply, unit) {
     }
 
 cleanup:
-    ble->ops->stop(ble);
-    mesh_event_loop_shutdown(&loop);
-    mesh_bluez_client_mock_disable();
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-        return;
-    }
+    mesh_test_ble_rig_close(&rig);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
 
@@ -801,32 +540,17 @@ cleanup:
 MESH_TEST_CASE(ble_transport_link_drop, unit) {
     const char *failure = NULL;
 
-    struct mesh_transport *ble = mesh_ble_transport();
-    struct mesh_bluez_device_info mock_devices[] = {
-        {.address = "AA:BB:CC:DD:EE:0A", .name = "NodeTen", .rssi = -50, .paired = true},
-    };
-    uint8_t write_capture[64];
-    size_t write_len = 0U;
-    struct mesh_bluez_mock_config mock_config = {
-        .adapter_path = "/org/bluez/hci0",
-        .connected_drops_after_polls = 2U, /* tick() already probes once on connect */
-        .devices = mock_devices,
-        .device_count = 1U,
-        .write_capture_buffer = write_capture,
-        .write_capture_capacity = sizeof(write_capture),
-        .write_capture_length = &write_len,
-    };
-    mesh_bluez_client_mock_enable(&mock_config);
+    struct mesh_test_ble_rig rig;
+    mesh_test_ble_rig_init(&rig, "AA:BB:CC:DD:EE:0A", "NodeTen", -50);
+    /* tick() already probes once on connect */
+    rig.mock.connected_drops_after_polls = 2U;
+    struct mesh_transport *const ble = rig.ble;
 
-    struct mesh_app_config config = mesh_app_config_default();
-    struct mesh_event_loop loop;
-    mesh_event_loop_init(&loop);
-    if (ble->ops->start(ble, &config, &loop) != 0) {
+    if (mesh_test_ble_rig_start(&rig) != 0) {
         failure = "ble start failed";
         goto cleanup;
     }
-    mesh_ble_transport_refresh_devices(ble);
-    if (mesh_ble_transport_connect(ble, mock_devices[0].address) != 0) {
+    if (mesh_test_ble_rig_connect(&rig) != 0) {
         failure = "connect should be accepted";
         goto cleanup;
     }
@@ -870,14 +594,9 @@ MESH_TEST_CASE(ble_transport_link_drop, unit) {
     }
 
 cleanup:
-    ble->ops->stop(ble);
-    mesh_event_loop_shutdown(&loop);
-    mesh_bluez_client_mock_disable();
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-    } else {
-        record_success(test_name);
-    }
+    mesh_test_ble_rig_close(&rig);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }
 
 /* A failing GATT write is a dead link: send_text reports the error, marks the message FAILED
@@ -885,33 +604,18 @@ cleanup:
 MESH_TEST_CASE(ble_transport_write_failure, unit) {
     const char *failure = NULL;
 
-    struct mesh_transport *ble = mesh_ble_transport();
-    struct mesh_bluez_device_info mock_devices[] = {
-        {.address = "AA:BB:CC:DD:EE:0B", .name = "NodeEleven", .rssi = -50, .paired = true},
-    };
-    uint8_t write_capture[64];
-    size_t write_len = 0U;
-    struct mesh_bluez_mock_config mock_config = {
-        .adapter_path = "/org/bluez/hci0",
-        .write_fail_after_calls = 1U, /* the handshake write succeeds, the message does not */
-        .write_result_late = -EIO,
-        .devices = mock_devices,
-        .device_count = 1U,
-        .write_capture_buffer = write_capture,
-        .write_capture_capacity = sizeof(write_capture),
-        .write_capture_length = &write_len,
-    };
-    mesh_bluez_client_mock_enable(&mock_config);
+    struct mesh_test_ble_rig rig;
+    mesh_test_ble_rig_init(&rig, "AA:BB:CC:DD:EE:0B", "NodeEleven", -50);
+    /* the handshake write succeeds, the message does not */
+    rig.mock.write_fail_after_calls = 1U;
+    rig.mock.write_result_late = -EIO;
+    struct mesh_transport *const ble = rig.ble;
 
-    struct mesh_app_config config = mesh_app_config_default();
-    struct mesh_event_loop loop;
-    mesh_event_loop_init(&loop);
-    if (ble->ops->start(ble, &config, &loop) != 0) {
+    if (mesh_test_ble_rig_start(&rig) != 0) {
         failure = "ble start failed";
         goto cleanup;
     }
-    mesh_ble_transport_refresh_devices(ble);
-    if (mesh_ble_transport_connect(ble, mock_devices[0].address) != 0) {
+    if (mesh_test_ble_rig_connect(&rig) != 0) {
         failure = "connect should be accepted";
         goto cleanup;
     }
@@ -945,38 +649,23 @@ MESH_TEST_CASE(ble_transport_write_failure, unit) {
     }
 
 cleanup:
-    ble->ops->stop(ble);
-    mesh_event_loop_shutdown(&loop);
-    mesh_bluez_client_mock_disable();
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-    } else {
-        record_success(test_name);
-    }
+    mesh_test_ble_rig_close(&rig);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }
 
 /* bluetoothd is not always on the bus when MeshClient launches - the first launch after the
    Brick wakes from sleep routinely beats it there - so the transport has to pick BlueZ up when
    it arrives instead of sitting in waiting-for-bluez until the app is restarted. */
 MESH_TEST_CASE(ble_transport_recovers_when_bluez_arrives, unit) {
-    struct mesh_transport *ble = mesh_ble_transport();
     const char *failure = NULL;
 
-    struct mesh_bluez_device_info mock_devices[] = {
-        {.address = "AA:BB:CC:DD:EE:01", .name = "NodeOne", .rssi = -45, .paired = true},
-    };
-    struct mesh_bluez_mock_config mock_config = {
-        .check_ready_result = -ENODEV,
-        .adapter_path = "/org/bluez/hci0",
-        .devices = mock_devices,
-        .device_count = 1U,
-    };
-    mesh_bluez_client_mock_enable(&mock_config);
+    struct mesh_test_ble_rig rig;
+    mesh_test_ble_rig_init(&rig, "AA:BB:CC:DD:EE:01", "NodeOne", -45);
+    rig.mock.check_ready_result = -ENODEV;
+    struct mesh_transport *const ble = rig.ble;
 
-    struct mesh_app_config config = mesh_app_config_default();
-    struct mesh_event_loop loop;
-    mesh_event_loop_init(&loop);
-    if (ble->ops->start(ble, &config, &loop) != 0) {
+    if (mesh_test_ble_rig_start(&rig) != 0) {
         failure = "ble start failed";
         goto cleanup;
     }
@@ -984,14 +673,14 @@ MESH_TEST_CASE(ble_transport_recovers_when_bluez_arrives, unit) {
         failure = "no bluetoothd should park the transport at waiting-for-bluez";
         goto cleanup;
     }
-    if (mesh_ble_transport_connect(ble, mock_devices[0].address) != -EAGAIN) {
+    if (mesh_ble_transport_connect(ble, rig.devices[0].address) != -EAGAIN) {
         failure = "connecting without bluetoothd should be refused";
         goto cleanup;
     }
 
     /* bluetoothd arrives; the next loop turn is what has to notice. */
-    mock_config.check_ready_result = 0;
-    mesh_bluez_client_mock_enable(&mock_config);
+    rig.mock.check_ready_result = 0;
+    mesh_test_ble_rig_reload(&rig);
     ble->ops->tick(ble);
 
     if (strcmp(ble->ops->status(ble), "running") != 0) {
@@ -1005,38 +694,22 @@ MESH_TEST_CASE(ble_transport_recovers_when_bluez_arrives, unit) {
     }
 
 cleanup:
-    ble->ops->stop(ble);
-    mesh_event_loop_shutdown(&loop);
-    mesh_bluez_client_mock_disable();
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-    } else {
-        record_success(test_name);
-    }
+    mesh_test_ble_rig_close(&rig);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }
 
 /* And the reverse: bluetoothd leaving under a ready transport - Bluetooth toggled off, a resume
    that restarted it - must put the transport back to waiting rather than leave it pointing at
    an adapter that no longer exists. */
 MESH_TEST_CASE(ble_transport_demotes_when_bluez_leaves, unit) {
-    struct mesh_transport *ble = mesh_ble_transport();
     const char *failure = NULL;
 
-    struct mesh_bluez_device_info mock_devices[] = {
-        {.address = "AA:BB:CC:DD:EE:01", .name = "NodeOne", .rssi = -45, .paired = true},
-    };
-    struct mesh_bluez_mock_config mock_config = {
-        .check_ready_result = 0,
-        .adapter_path = "/org/bluez/hci0",
-        .devices = mock_devices,
-        .device_count = 1U,
-    };
-    mesh_bluez_client_mock_enable(&mock_config);
+    struct mesh_test_ble_rig rig;
+    mesh_test_ble_rig_init(&rig, "AA:BB:CC:DD:EE:01", "NodeOne", -45);
+    struct mesh_transport *const ble = rig.ble;
 
-    struct mesh_app_config config = mesh_app_config_default();
-    struct mesh_event_loop loop;
-    mesh_event_loop_init(&loop);
-    if (ble->ops->start(ble, &config, &loop) != 0) {
+    if (mesh_test_ble_rig_start(&rig) != 0) {
         failure = "ble start failed";
         goto cleanup;
     }
@@ -1045,8 +718,8 @@ MESH_TEST_CASE(ble_transport_demotes_when_bluez_leaves, unit) {
         goto cleanup;
     }
 
-    mock_config.check_ready_result = -ENODEV;
-    mesh_bluez_client_mock_enable(&mock_config);
+    rig.mock.check_ready_result = -ENODEV;
+    mesh_test_ble_rig_reload(&rig);
     ble->ops->tick(ble);
 
     if (strcmp(ble->ops->status(ble), "waiting-for-bluez") != 0) {
@@ -1058,20 +731,15 @@ MESH_TEST_CASE(ble_transport_demotes_when_bluez_leaves, unit) {
         failure = "devices found through the old BlueZ should be dropped";
         goto cleanup;
     }
-    if (mesh_ble_transport_connect(ble, mock_devices[0].address) != -EAGAIN) {
+    if (mesh_ble_transport_connect(ble, rig.devices[0].address) != -EAGAIN) {
         failure = "connecting after the demote should be refused";
         goto cleanup;
     }
 
 cleanup:
-    ble->ops->stop(ble);
-    mesh_event_loop_shutdown(&loop);
-    mesh_bluez_client_mock_disable();
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-    } else {
-        record_success(test_name);
-    }
+    mesh_test_ble_rig_close(&rig);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }
 
 /* Everything cached about BlueZ dies with it. A bond in flight and the pairing agent are the two
@@ -1079,32 +747,22 @@ cleanup:
    a stale agent registration makes register_agent() a no-op against a daemon that never saw it,
    so PIN-mode nodes would stay unpairable until the app was restarted. */
 MESH_TEST_CASE(ble_transport_pairing_survives_a_bluez_outage, unit) {
-    struct mesh_transport *ble = mesh_ble_transport();
     const char *failure = NULL;
     unsigned agent_registrations = 0U;
 
-    struct mesh_bluez_device_info mock_devices[] = {
-        {.address = "AA:BB:CC:DD:EE:01", .name = "NodeOne", .rssi = -45, .paired = false},
-    };
-    struct mesh_bluez_mock_config mock_config = {
-        .check_ready_result = 0,
-        .adapter_path = "/org/bluez/hci0",
-        .devices = mock_devices,
-        .device_count = 1U,
-        /* The bond never completes on its own, so it is still in flight when BlueZ goes. */
-        .pair_pending_polls = 64U,
-        .register_agent_calls = &agent_registrations,
-    };
-    mesh_bluez_client_mock_enable(&mock_config);
+    struct mesh_test_ble_rig rig;
+    mesh_test_ble_rig_init(&rig, "AA:BB:CC:DD:EE:01", "NodeOne", -45);
+    rig.devices[0].paired = false;
+    /* The bond never completes on its own, so it is still in flight when BlueZ goes. */
+    rig.mock.pair_pending_polls = 64U;
+    rig.mock.register_agent_calls = &agent_registrations;
+    struct mesh_transport *const ble = rig.ble;
 
-    struct mesh_app_config config = mesh_app_config_default();
-    struct mesh_event_loop loop;
-    mesh_event_loop_init(&loop);
-    if (ble->ops->start(ble, &config, &loop) != 0) {
+    if (mesh_test_ble_rig_start(&rig) != 0) {
         failure = "ble start failed";
         goto cleanup;
     }
-    if (mesh_ble_transport_connect_and_pair(ble, mock_devices[0].address) != 0) {
+    if (mesh_ble_transport_connect_and_pair(ble, rig.devices[0].address) != 0) {
         failure = "pairing should start";
         goto cleanup;
     }
@@ -1114,16 +772,16 @@ MESH_TEST_CASE(ble_transport_pairing_survives_a_bluez_outage, unit) {
     }
 
     /* bluetoothd goes away mid-bond, then comes back. */
-    mock_config.check_ready_result = -ENODEV;
-    mesh_bluez_client_mock_enable(&mock_config);
+    rig.mock.check_ready_result = -ENODEV;
+    mesh_test_ble_rig_reload(&rig);
     ble->ops->tick(ble);
     if (strcmp(ble->ops->status(ble), "waiting-for-bluez") != 0) {
         failure = "losing bluetoothd mid-bond should demote the transport";
         goto cleanup;
     }
 
-    mock_config.check_ready_result = 0;
-    mesh_bluez_client_mock_enable(&mock_config);
+    rig.mock.check_ready_result = 0;
+    mesh_test_ble_rig_reload(&rig);
     ble->ops->tick(ble);
     if (strcmp(ble->ops->status(ble), "running") != 0) {
         failure = "the transport should come back up";
@@ -1133,20 +791,15 @@ MESH_TEST_CASE(ble_transport_pairing_survives_a_bluez_outage, unit) {
         failure = "the pairing agent should be registered again with the new bluetoothd";
         goto cleanup;
     }
-    if (mesh_ble_transport_connect_and_pair(ble, mock_devices[0].address) != 0) {
+    if (mesh_ble_transport_connect_and_pair(ble, rig.devices[0].address) != 0) {
         failure = "pairing should start again rather than report the old bond still in flight";
         goto cleanup;
     }
 
 cleanup:
-    ble->ops->stop(ble);
-    mesh_event_loop_shutdown(&loop);
-    mesh_bluez_client_mock_disable();
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-    } else {
-        record_success(test_name);
-    }
+    mesh_test_ble_rig_close(&rig);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }
 
 /* Scanning and a link may not share the radio. A node allows a 1000 ms supervision timeout, and
@@ -1163,31 +816,17 @@ MESH_TEST_CASE(ble_transport_scan_yields_to_the_link, unit) {
     const char *failure = NULL;
 
     setenv("MESHCLIENT_SCAN_RESUME_GRACE_MS", "60", 1);
-    struct mesh_transport *ble = mesh_ble_transport();
-    struct mesh_bluez_device_info mock_devices[] = {
-        {.address = "AA:BB:CC:DD:EE:0A", .name = "NodeTen", .rssi = -50, .paired = true},
-    };
     unsigned starts = 0U;
     unsigned stops = 0U;
-    uint8_t write_capture[64];
-    size_t write_len = 0U;
-    struct mesh_bluez_mock_config mock_config = {
-        .adapter_path = "/org/bluez/hci0",
-        .start_discovery_calls = &starts,
-        .stop_discovery_calls = &stops,
-        .connected_drops_after_polls = 2U, /* tick() already probes once on connect */
-        .devices = mock_devices,
-        .device_count = 1U,
-        .write_capture_buffer = write_capture,
-        .write_capture_capacity = sizeof(write_capture),
-        .write_capture_length = &write_len,
-    };
-    mesh_bluez_client_mock_enable(&mock_config);
+    struct mesh_test_ble_rig rig;
+    mesh_test_ble_rig_init(&rig, "AA:BB:CC:DD:EE:0A", "NodeTen", -50);
+    rig.mock.start_discovery_calls = &starts;
+    rig.mock.stop_discovery_calls = &stops;
+    /* tick() already probes once on connect */
+    rig.mock.connected_drops_after_polls = 2U;
+    struct mesh_transport *const ble = rig.ble;
 
-    struct mesh_app_config config = mesh_app_config_default();
-    struct mesh_event_loop loop;
-    mesh_event_loop_init(&loop);
-    if (ble->ops->start(ble, &config, &loop) != 0) {
+    if (mesh_test_ble_rig_start(&rig) != 0) {
         failure = "ble start failed";
         goto cleanup;
     }
@@ -1199,7 +838,7 @@ MESH_TEST_CASE(ble_transport_scan_yields_to_the_link, unit) {
 
     /* Down before Device1.Connect goes out, not a tick later: establishing the link needs the
        radio as much as holding it does. */
-    if (mesh_ble_transport_connect(ble, mock_devices[0].address) != 0) {
+    if (mesh_ble_transport_connect(ble, rig.devices[0].address) != 0) {
         failure = "connect should be accepted";
         goto cleanup;
     }
@@ -1253,15 +892,10 @@ MESH_TEST_CASE(ble_transport_scan_yields_to_the_link, unit) {
     }
 
 cleanup:
-    ble->ops->stop(ble);
-    mesh_event_loop_shutdown(&loop);
-    mesh_bluez_client_mock_disable();
+    mesh_test_ble_rig_close(&rig);
     unsetenv("MESHCLIENT_SCAN_RESUME_GRACE_MS");
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-    } else {
-        record_success(test_name);
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }
 
 /* Enumeration is a blocking GetManagedObjects, and tick() used to make one every second whether
@@ -1274,23 +908,13 @@ cleanup:
 MESH_TEST_CASE(ble_transport_enumeration_yields_to_the_link, unit) {
     const char *failure = NULL;
 
-    struct mesh_transport *ble = mesh_ble_transport();
-    struct mesh_bluez_device_info mock_devices[] = {
-        {.address = "AA:BB:CC:DD:EE:0A", .name = "NodeTen", .rssi = -50, .paired = true},
-    };
     unsigned list_calls = 0U;
-    struct mesh_bluez_mock_config mock_config = {
-        .adapter_path = "/org/bluez/hci0",
-        .devices = mock_devices,
-        .device_count = 1U,
-        .list_calls = &list_calls,
-    };
-    mesh_bluez_client_mock_enable(&mock_config);
+    struct mesh_test_ble_rig rig;
+    mesh_test_ble_rig_init(&rig, "AA:BB:CC:DD:EE:0A", "NodeTen", -50);
+    rig.mock.list_calls = &list_calls;
+    struct mesh_transport *const ble = rig.ble;
 
-    struct mesh_app_config config = mesh_app_config_default();
-    struct mesh_event_loop loop;
-    mesh_event_loop_init(&loop);
-    if (ble->ops->start(ble, &config, &loop) != 0) {
+    if (mesh_test_ble_rig_start(&rig) != 0) {
         failure = "ble start failed";
         goto cleanup;
     }
@@ -1302,7 +926,7 @@ MESH_TEST_CASE(ble_transport_enumeration_yields_to_the_link, unit) {
         goto cleanup;
     }
 
-    if (mesh_ble_transport_connect(ble, mock_devices[0].address) != 0) {
+    if (mesh_ble_transport_connect(ble, rig.devices[0].address) != 0) {
         failure = "connect should be accepted";
         goto cleanup;
     }
@@ -1328,12 +952,7 @@ MESH_TEST_CASE(ble_transport_enumeration_yields_to_the_link, unit) {
     }
 
 cleanup:
-    ble->ops->stop(ble);
-    mesh_event_loop_shutdown(&loop);
-    mesh_bluez_client_mock_disable();
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-    } else {
-        record_success(test_name);
-    }
+    mesh_test_ble_rig_close(&rig);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }

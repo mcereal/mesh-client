@@ -1869,10 +1869,7 @@ MESH_TEST_CASE(fb_glyph_cache_matches_uncached_colors_and_scales, unit) {
     }
     state.glyph_cache = cache;
     fb_glyph_cache_free(&state);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-        return;
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
 
@@ -2029,11 +2026,8 @@ MESH_TEST_CASE(ui_capture_bubble_contains_its_own_ink, unit) {
         mesh_ui_capture_close(capture);
     }
     free(snapshot);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-    } else {
-        record_success(test_name);
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }
 
 MESH_TEST_CASE(fb_transcript_cache_matches_reference_after_mutations, unit) {
@@ -2253,11 +2247,8 @@ cleanup:
         free(state[i].fb_ptr);
     }
     free(snapshot);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-    } else {
-        record_success(test_name);
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }
 
 /*
@@ -2704,11 +2695,8 @@ MESH_TEST_CASE(ui_capture_map_keeps_its_ink_off_the_chrome, unit) {
     }
     free(reference);
     free(snapshot);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-    } else {
-        record_success(test_name);
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }
 
 /*
@@ -2898,11 +2886,8 @@ MESH_TEST_CASE(ui_capture_map_draws_a_basemap_one_tile_at_a_time, unit) {
     mesh_test_map_pack_remove(&pack);
     free(bare);
     free(snapshot);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-    } else {
-        record_success(test_name);
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }
 
 /*
@@ -2981,11 +2966,8 @@ MESH_TEST_CASE(ui_capture_map_stops_asking_once_it_is_left, unit) {
     }
     mesh_test_map_pack_remove(&pack);
     free(snapshot);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-    } else {
-        record_success(test_name);
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }
 
 /*
@@ -3084,11 +3066,8 @@ MESH_TEST_CASE(ui_capture_map_forgets_the_pack_it_swapped_out, unit) {
     mesh_test_map_pack_remove(&first);
     mesh_test_map_pack_remove(&second);
     free(snapshot);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-    } else {
-        record_success(test_name);
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }
 
 /*
@@ -3186,11 +3165,8 @@ MESH_TEST_CASE(ui_capture_chart_keeps_its_ink_off_the_chrome, unit) {
     }
     free(reference);
     free(snapshot);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-    } else {
-        record_success(test_name);
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }
 
 /*

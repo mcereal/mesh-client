@@ -287,11 +287,8 @@ MESH_TEST_CASE(ui_input_key_mapping, unit) {
 
 cleanup:
     mesh_event_loop_shutdown(&loop);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-    } else {
-        record_success(test_name);
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }
 
 /* Holding the d-pad has to scroll. The Brick reports the d-pad as ABS_HAT0X/Y, and an absolute
@@ -406,11 +403,8 @@ cleanup:
     unsetenv("MESHCLIENT_KEY_REPEAT_DELAY_MS");
     unsetenv("MESHCLIENT_KEY_REPEAT_MS");
     mesh_ui_input_reload_key_repeat();
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-    } else {
-        record_success(test_name);
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }
 
 MESH_TEST_CASE(ui_controller_key_dispatch, unit) {
@@ -484,11 +478,8 @@ cleanup:
     mesh_ui_controller_shutdown(&controller);
     mesh_ui_store_shutdown(&store);
     mesh_event_loop_shutdown(&loop);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-    } else {
-        record_success(test_name);
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }
 
 /* The app turns a save into a full-section write from the radio's own copy. */
@@ -758,10 +749,7 @@ MESH_TEST_CASE(input_device_filter_follows_the_quit_keys, unit) {
 restore:
     unsetenv("MESHCLIENT_QUIT_KEYS");
     mesh_ui_input_reload_quit_keys();
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-        return;
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
 
@@ -839,9 +827,6 @@ MESH_TEST_CASE(ui_controller_animation_reuses_snapshot_and_consumes_changes, uni
     mesh_ui_controller_shutdown(&controller);
     mesh_ui_store_shutdown(&store);
     mesh_event_loop_shutdown(&loop);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-        return;
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }

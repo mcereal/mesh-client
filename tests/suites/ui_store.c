@@ -124,10 +124,7 @@ MESH_TEST_CASE(ui_store_basic, unit) {
 
 MESH_TEST_CASE(ui_store_persistence, unit) {
     struct mesh_ui_store store;
-    if (mesh_ui_store_init(&store) != 0) {
-        record_failure(test_name, "store init failed");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
 
     struct mesh_ui_handshake_state handshake;
     memset(&handshake, 0, sizeof(handshake));
@@ -483,10 +480,7 @@ MESH_TEST_CASE(ui_store_position_cache_boundary, unit) {
 
 MESH_TEST_CASE(ui_store_refresh_request, unit) {
     struct mesh_ui_store store;
-    if (mesh_ui_store_init(&store) != 0) {
-        record_failure(test_name, "store init failed");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
 
     struct mesh_ui_snapshot snapshot;
 
@@ -545,10 +539,7 @@ MESH_TEST_CASE(ui_store_refresh_request, unit) {
 
 MESH_TEST_CASE(ui_store_messages, unit) {
     struct mesh_ui_store store;
-    if (mesh_ui_store_init(&store) != 0) {
-        record_failure(test_name, "store init failed");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
 
     struct mesh_ui_message_list list;
     memset(&list, 0, sizeof(list));
@@ -774,11 +765,8 @@ MESH_TEST_CASE(ui_canned_load, unit) {
 cleanup:
     unlink(path);
     mesh_ui_canned_reset();
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-    } else {
-        record_success(test_name);
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }
 
 /*
@@ -967,10 +955,7 @@ cleanup:
  */
 MESH_TEST_CASE(ui_store_cache_keys_round_trip, unit) {
     struct mesh_ui_store store;
-    if (mesh_ui_store_init(&store) != 0) {
-        record_failure(test_name, "store init failed");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
 
     struct mesh_ui_handshake_state handshake;
     memset(&handshake, 0, sizeof handshake);

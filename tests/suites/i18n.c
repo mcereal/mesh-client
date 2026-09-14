@@ -423,9 +423,6 @@ MESH_TEST_CASE(i18n_spanish_preference_and_environment, unit) {
         free(saved[i]);
     }
     (void)mesh_i18n_set_locale(before);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-        return;
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
