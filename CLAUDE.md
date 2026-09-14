@@ -194,11 +194,22 @@ adding it there.** Headers are included as `meshtastic/<name>.pb.h`. The generat
 ## Releasing
 
 semantic-release on `main`/`beta`/`rc`, driven by Conventional Commits. **A merge to `main`
-releases nothing**: a stable release is `workflow_dispatch`, with a Sunday cron as the safety net,
-so a day's pull requests batch into one release. `beta` and `rc` release on push, as prereleases.
-`main` is deliberately missing from the release workflow's `push` trigger - adding it back is how
-every merged pull request became a release. Both fields the Pak Store reads out of `pak.json`
-(`version`, `changelog`) are generated during the release; hand edits are overwritten. See
+releases nothing**: a release is `workflow_dispatch` with a **Release channel** input, and a
+Sunday cron as the safety net, so a day's pull requests batch into one release. `main` is
+deliberately missing from the release workflow's `push` trigger - adding it back is how every
+merged pull request became a release.
+
+```bash
+make ship                                 # a release off main: tag, assets, CHANGELOG, pak.json
+make ship-beta                            # a prerelease of the same commit; commits nothing
+```
+
+Both dispatch on `main`; `beta` and `rc` are plumbing the workflow points at `main`, not branches
+to work on (they keep their push trigger for a prerelease-per-merge flow). A prerelease publishes
+a tag and the assets and **writes no file back** - `release.config.mjs` drops the changelog and
+git plugins for it, which is what keeps the channel branch a pure fast-forward of `main`. Both
+fields the Pak Store reads out of `pak.json` (`version`, `changelog`) are generated during a
+stable release; hand edits are overwritten. See
 [`docs/semantic-release.md`](docs/semantic-release.md).
 
 ## Docs map

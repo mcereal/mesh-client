@@ -97,11 +97,27 @@ Semantic release is configured for these branches:
 - **beta**: Pre-release versions (e.g., `v1.0.0-beta.1`, `v1.0.0-beta.2`)
 - **rc**: Release candidate versions (e.g., `v1.0.0-rc.1`, `v1.0.0-rc.2`)
 
+`beta` and `rc` are *plumbing*, not places to work: the release workflow points one at whatever
+`main` holds when you ask for a prerelease. Nothing is developed on them - see
+[Cadence](#cadence-a-release-is-pressed-not-merged).
+
 ## Cadence: a release is pressed, not merged
 
 `main` is **not** a push trigger. Merging a pull request publishes nothing. A release is a
 `workflow_dispatch` - **Actions → Semantic Release → Run workflow**, on `main` - with a Sunday
 18:00 UTC cron behind it as the safety net.
+
+The dispatch takes one input, **Release channel**, and it is the whole of the difference between
+the two kinds of release:
+
+| Channel | Publishes | Who is offered it |
+|---|---|---|
+| `stable` | tag, assets, `CHANGELOG.md`, the version bump, and the `pak.json` the store reads | everyone: the Pak Store, and the Stable and Automatic update channels |
+| `beta` / `rc` | tag and assets only - **nothing is committed** | only a client set to Prerelease; the store never sees one |
+
+From a terminal, `make ship` and `make ship-beta` (and `ship-rc`) press the same button through
+the `gh` CLI. All three dispatch on `main` regardless of the branch you are standing on, because
+a release is every commit since the last tag rather than anything about your working tree.
 
 That is a correction rather than a preference. Bound to the merge, every pull request was a
 release: sixteen shipped on 2026-09-12, and four days took the client from v2.47 to v2.69. Three
@@ -126,29 +142,60 @@ changelog rather than anyone's screen.
 The one thing it gives up is a fix sitting merged and unreleased. The cron bounds that at a week,
 and a fix worth shipping today is a dispatch rather than a wait.
 
-### `beta` and `rc` still release on push
+### A prerelease is dispatched on `main` too
 
-Their push triggers are untouched, and they are the built-in answer if a per-merge channel is
-ever wanted by people who want it: merge to `beta` for a prerelease per merge, promote to `main`
-when it is a release. Nothing on that path reaches a user who has not asked for it - `pak.json`
-and `CHANGELOG.md` are skipped for prereleases, so the store cannot see one, and `releases/latest`
+Picking `beta` releases the commit `main` is on, and the branch is moved to say so: the run
+pushes `main`'s commit to `refs/heads/beta` before semantic-release looks at it, then tells
+semantic-release which of the configured branches this run is. That second half is the one seam
+worth knowing about, because it is not visible from the Actions page: semantic-release takes the
+branch from exactly one place - `env-ci` reads `GITHUB_REF` and nothing else - so the release
+step overrides `GITHUB_REF` to `refs/heads/beta`. Without it a prerelease dispatched on `main`
+would be read as a *stable* release of `main` and would publish one.
+
+Three details make that safe rather than clever:
+
+- **The sync is a plain push, never a force.** A prerelease commits nothing (see
+  [Prereleases](#prereleases-on-beta-and-rc)), so `beta` never has a commit `main` lacks and the
+  push is always a fast-forward. If it is ever *rejected*, somebody has been committing on `beta`
+  directly - which is a thing to go and look at, because forcing past it would orphan the commit
+  the last `-beta.N` tag points at, and semantic-release would then cut `beta.1` again on top of
+  a tag that already exists.
+- **It pushes with `GITHUB_TOKEN`.** A push made with the per-run token does not trigger
+  workflows, so moving `beta` cannot also set off the push trigger below and release the same
+  commit twice.
+- **A dispatch from anywhere but `main` is refused**, in the workflow's first step. GitHub's
+  "Use workflow from" selector is a *second* answer to the same question, and the two halves of
+  a release read different ones: `release.config.mjs` takes the channel from `RELEASE_CHANNEL`,
+  semantic-release takes the branch from `GITHUB_REF`. Run from `beta` with the channel left at
+  `stable` and you get one of each - a prerelease that *commits* a version bump and a
+  `CHANGELOG` onto the channel branch, which is exactly the divergence above. The input is the
+  only thing that picks a channel, so the mismatch is a failed run with a message rather than a
+  release nobody asked for. (`make ship*` passes `--ref main` for the same reason. Working on
+  `beta` itself is what the push trigger is for.)
+
+`beta` and `rc` keep their push triggers, which remain the built-in answer if a per-merge channel
+is ever wanted: merge to `beta` for a prerelease per merge, promote to `main` when it is a
+release.
+A run that arrives that way skips the sync step, because there `beta` is ahead of `main` on
+purpose. Nothing on either path reaches a user who has not asked for it - `pak.json` and
+`CHANGELOG.md` are skipped for prereleases, so the store cannot see one, and `releases/latest`
 hides them from a client that has not been set to the Prerelease channel in Settings → About.
 
-### One run at a time, per branch
+### One run at a time, per channel
 
-The workflow's `concurrency` group is `semantic-release-${{ github.ref }}` and it **does not
-cancel in progress**. Both halves are load-bearing, and the second is subtler than it reads:
+The workflow's `concurrency` group is keyed on the **channel** and it **does not cancel in
+progress**. Both halves are load-bearing, and the second is subtler than it reads:
 `cancel-in-progress: false` protects a run that has *started*, while a run still **pending** in
 the group is cancelled by default the moment a newer one queues behind the same busy run. Under
-one literal group that is a push to `beta` discarding the Sunday cron's queued `main` run - an
-unrelated prerelease cancelling the safety net, which is the one failure a safety net may not
-have.
+one literal group that is a prerelease discarding the Sunday cron's queued stable run - an
+unrelated release cancelling the safety net, which is the one failure a safety net may not have.
 
-Keyed on the ref, the pair worth serialising still is: a dispatch and the cron are both `main`,
-and they can now land together. What that prevents is two version bumps pushed at one branch tip,
-and a cancelled run leaving a tag published with nothing behind it. A pending duplicate lost
-*within* one branch costs nothing, because the run ahead of it has already released everything
-the second would have found.
+The channel rather than `github.ref`, because the ref is now `main` for all three: a dispatch and
+the cron are both stable, and they can land together the moment somebody presses the button on a
+Sunday evening. What serialising them prevents is two version bumps pushed at one branch tip, and
+a cancelled run leaving a tag published with nothing behind it. A pending duplicate lost *within*
+one channel costs nothing, because the run ahead of it has already released everything the second
+would have found.
 
 ## Workflow
 
@@ -161,8 +208,10 @@ the second would have found.
 3. Merge to `main`. **The merge releases nothing** - see
    [Cadence](#cadence-a-release-is-pressed-not-merged).
 4. Release when you decide there is one: **Actions → Semantic Release → Run workflow**, on
-   `main`. Everything merged since the last tag goes into it, and the Sunday cron does it for
-   you if you forget. (A push to `beta` or `rc` still releases on its own.)
+   `main`, with **Release channel** set to `stable` - or `make ship`. Everything merged since the
+   last tag goes into it, and the Sunday cron does it for you if you forget. For a prerelease of
+   the same commit, pick `beta` instead, or `make ship-beta`. (A push to `beta` or `rc` still
+   releases on its own.)
 5. The semantic-release workflow will:
    - Analyze your commits since the last release
    - Determine the next version number
@@ -281,6 +330,24 @@ CMake's `project(VERSION)` accepts only numeric components — it errors outrigh
   first configure and never again, which silently pinned every incremental local build to the
   version its `build/` directory was created at.
 
+**A prerelease commits nothing.** `release.config.mjs` is JavaScript rather than the
+`.releaserc.json` it replaced for exactly this: on `beta` and `rc` it drops
+`@semantic-release/changelog` and `@semantic-release/git`, so the run publishes a tag and four
+assets and writes no file back to the branch. semantic-release's core pushes only tags
+(`git push --tags`), so there is nothing else to leave behind.
+
+Nothing is lost by that, because none of the three files means anything on a prerelease:
+`CMakeLists.txt` is rewritten in the build whether or not the result is committed, `pak.json` is
+deliberately left on its last stable version (below), and `CHANGELOG.md` describes releases
+people are offered rather than every candidate for one.
+
+What it buys is a channel branch that stays a **pure fast-forward of `main`**, which is what
+makes a prerelease a button rather than a merge. Let a prerelease commit a version bump instead
+and `beta` diverges on the one line a release rewrites: the next sync is a merge with a conflict
+on `project(meshclient VERSION ...)`, and a force-push "fixing" that orphans the commit the last
+`-beta.N` tag points at - after which semantic-release cannot see that tag and cuts `beta.1` on
+top of a tag that already exists.
+
 A prerelease client also asks GitHub a different question. `releases/latest` skips prereleases
 by design, so the Prerelease channel polls `releases?per_page=1` instead and is offered the
 newest release of any kind; the Stable channel uses `releases/latest` and is never offered a
@@ -326,7 +393,9 @@ When semantic-release runs, it automatically:
 2. **pak.json**: Updates `version` to the release tag, which the NextUI Pak Store requires to
    match, and adds this version's `changelog` entry. Both are skipped for prereleases, so the
    file only ever carries the last stable `vX.Y.Z`. See [Store changelog](#store-changelog).
-3. **CHANGELOG.md**: Generates release notes from commit messages
+3. **CHANGELOG.md**: Generates release notes from commit messages. Skipped for prereleases
+   along with the version commit itself - see
+   [Prereleases](#prereleases-on-beta-and-rc).
 4. **Git tags**: Creates a new tag (e.g., `v1.2.3`)
 5. **GitHub Releases**: Creates a release with:
    - `MeshClient.pak.zip` - The packaged TrimUI pak, for a fresh install. It holds the pak's
@@ -418,6 +487,12 @@ npm install
 npx semantic-release --dry-run --no-ci
 ```
 
+A dry run loads `release.config.mjs` the same way a release does, so `RELEASE_CHANNEL=beta` in
+front of it shows which plugins a prerelease would run. It reads the branch you are standing on,
+not that variable, so the *version* it reports is the one for that branch - `beta` has to exist
+on the remote before a dry run can compute a `-beta.N` for it, and the release workflow is what
+creates it.
+
 Dry runs need **Node 24.10+**. If your host is older:
 
 ```bash
@@ -444,7 +519,7 @@ This will create version `1.0.0` (since it's a new feature).
 First: on `main`, **nothing is released by a push**, and that is the expected behaviour rather
 than a fault. Run the workflow from Actions, or wait for the Sunday cron. Then check that:
 - Your commit messages follow the conventional format
-- You dispatched on `main`, or pushed to `beta` or `rc`
+- You dispatched on `main` (any channel), or pushed to `beta` or `rc`
 - The commits include release-worthy types (`feat`, `fix`, `perf`, `revert`, or a breaking
   change). `refactor`, `docs`, `chore`, `test`, `build` and `ci` release nothing on their own,
   so a batch holding only those is correctly no release
@@ -475,6 +550,27 @@ Nothing is half-released when this happens: `@semantic-release/git` runs in *pre
 the tag is pushed and before `@semantic-release/github` publishes, so a failure here leaves no
 tag, no release and no version bump on `main`. Fix the token and re-run the failed workflow run -
 semantic-release recomputes the next version from the tags and picks up where it left off.
+
+### A prerelease fails on "Point the channel branch at this commit"
+
+```
+ ! [rejected]        HEAD -> beta (non-fast-forward)
+```
+
+`beta` has a commit `main` does not, so it is no longer the mirror the sync step assumes. Under
+this configuration a prerelease commits nothing, so that commit came from a person or from an
+older release - go and look at it rather than forcing past it, because a force-push would orphan
+the commit the last `-beta.N` tag points at and the next prerelease would try to publish
+`beta.1` over an existing tag.
+
+Two ways out, once you know what the commit is. If it is work, merge it into `main` and the sync
+becomes a fast-forward again. If it is a leftover version bump from an older release, delete the
+branch (`git push origin --delete beta`) and let the next `make ship-beta` recreate it from
+`main` - but only once a *stable* release has gone out since the last prerelease, so the next
+one starts from a higher version. Deleting the branch does not delete its tags, and those tags
+are now on commits no branch reaches: semantic-release cannot see them, so a recreated `beta`
+counts from `beta.1` again and would collide with the tag of the same name if the numeric part
+had not moved on.
 
 ### Permission errors
 
