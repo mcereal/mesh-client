@@ -61,12 +61,14 @@ void mesh_test_nav_populate(struct mesh_ui_store *store) {
     mesh_ui_store_set_messages(store, &messages);
 }
 
-/* Presses Down until the cursor is on `row`, then A. The cursor is left wherever the press
-   put it, which for a list row is the top of what it opened. */
-static bool settings_step_to(struct mesh_ui_store *store, uint32_t row) {
+bool mesh_test_settings_cursor_to(struct mesh_ui_store *store, uint32_t row) {
     struct mesh_ui_action action;
     while (store->nav.cursor[MESH_UI_SCREEN_SETTINGS] > row) {
+        const uint32_t before = store->nav.cursor[MESH_UI_SCREEN_SETTINGS];
         mesh_ui_store_handle_key(store, MESH_UI_KEY_UP, &action);
+        if (store->nav.cursor[MESH_UI_SCREEN_SETTINGS] == before) {
+            return false; /* nothing above it the cursor may stand on */
+        }
     }
     while (store->nav.cursor[MESH_UI_SCREEN_SETTINGS] < row) {
         const uint32_t before = store->nav.cursor[MESH_UI_SCREEN_SETTINGS];
@@ -75,6 +77,16 @@ static bool settings_step_to(struct mesh_ui_store *store, uint32_t row) {
             return false; /* the list is shorter than the row asked for */
         }
     }
+    return store->nav.cursor[MESH_UI_SCREEN_SETTINGS] == row;
+}
+
+/* Walks to `row` and presses A. The cursor is left wherever the press put it, which for a list
+   row is the top of what it opened. */
+static bool settings_step_to(struct mesh_ui_store *store, uint32_t row) {
+    if (!mesh_test_settings_cursor_to(store, row)) {
+        return false;
+    }
+    struct mesh_ui_action action;
     mesh_ui_store_handle_key(store, MESH_UI_KEY_A, &action);
     return true;
 }

@@ -96,10 +96,17 @@ enum mesh_ui_screen {
 #define MESH_UI_CANNED_TEXT_MAX 64U
 /* Upstream Data.payload caps at 233 bytes; the draft and action text hold that plus a NUL. */
 #define MESH_UI_DRAFT_MAX 234U
-/* Pending Settings edits held until Save. A section with fifteen editable fields has to be
-   able to carry fifteen edits: below that, mesh_ui_nav_edit_set() returns false and the press
-   silently does nothing. */
-#define MESH_UI_SETTINGS_EDITS_MAX 16U
+/*
+ * Pending Settings edits held until Save. A section with nineteen editable rows has to be able
+ * to carry nineteen edits: below that, mesh_ui_nav_edit_set() returns false and the press
+ * silently does nothing, which is a mistake nothing on the frame reports.
+ *
+ * Position is the section that sets it - six settings, three coordinate rows and the ten bits
+ * of what a position packet carries - and the number is not read off that section by hand:
+ * settings_sections_fit_the_edit_list walks every section, counts what it offers, and fails
+ * naming the one that outgrew this. Raise it there or not at all.
+ */
+#define MESH_UI_SETTINGS_EDITS_MAX 24U
 
 /*
  * The longest TEXT or KEY value a field will take, plus its NUL.

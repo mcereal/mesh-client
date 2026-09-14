@@ -788,6 +788,10 @@ struct mesh_ui_settings {
     uint32_t gps_update_interval;
     uint32_t smart_minimum_distance; /* metres */
     uint32_t smart_minimum_interval_secs;
+    /* PositionConfig.position_flags: what a position packet carries, as a bitwise OR. Kept
+       whole rather than as ten bools because that is what goes back on the wire - the ten rows
+       that read it each name their own bit (MESH_UI_SETTING_FLAG). */
+    uint32_t position_flags;
 
     bool has_power;
     bool is_power_saving;

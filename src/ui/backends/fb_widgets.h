@@ -437,19 +437,19 @@ void fb_draw_switch(struct mesh_ui_backend_fb_state *state, const struct fb_swit
  */
 
 /*
- * A note before the enum, because §5 of the component roadmap is about exactly this: a slot that
- * is implemented, documented and unused reads exactly like a slot that is in use.
+ * A note before the enum, because the checkbox spent four steps here with no caller and §5 of
+ * the component roadmap is about exactly that: a slot that is implemented, documented and
+ * unused reads exactly like a slot that is in use.
  *
- * FB_SELECTION_CHECKBOX and FB_TRAILING_CHECKBOX have **no caller**. The checkbox is here
- * because it is the radio's drawing with a different corner radius, and it is unwired because
- * nothing in this client is multi-select: a list that can arm more than one row is a nav change
- * with a component on the end of it, and the component is the half that was already free. When
- * one arrives - "forget these nodes" is the likely first - the kind is waiting and this note
- * goes. Until then, do not read the checkbox as a thing the UI does.
+ * It has one now, and it is not the multi-select list this note used to predict. The Settings
+ * tab's FLAG rows - the ten bits of a position packet's `position_flags` - are a set of
+ * booleans held in one word, which is the checkbox's own sentence arriving from a direction
+ * nobody was watching: the rows are not a list that can arm more than one entry, they are one
+ * value that has more than one bit. A screen names MESH_UI_SETTING_FLAG and gets a square.
  */
 enum fb_selection_shape {
     /* A square: any number of these may be on, and this one's state says nothing about its
-       neighbours. No caller yet - see above. */
+       neighbours. */
     FB_SELECTION_CHECKBOX = 0,
     /* A circle: exactly one of the column is on. */
     FB_SELECTION_RADIO,
@@ -1512,8 +1512,8 @@ enum fb_trailing_kind {
      */
     FB_TRAILING_SPARK,
     /* The two selection controls - see struct fb_selection. A checkbox for a boolean that is
-       one of a set, a radio for one alternative among a column of them. CHECKBOX has no caller
-       yet and the comment above enum fb_selection_shape says why. */
+       one of a set - the settings tab's flag rows, which are the bits of one word - and a
+       radio for one alternative among a column of them. */
     FB_TRAILING_CHECKBOX,
     FB_TRAILING_RADIO,
     /*

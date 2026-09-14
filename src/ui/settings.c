@@ -955,6 +955,52 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                                              NULL, SCALE_PRESETS_AFTER_ZERO(k_gps_interval_presets),
                                              MESH_STR_ZERO_DEFAULT, NULL, 0U,
                                              MESH_STR_SETTINGS_NOTE_POSITION_GPS_INTERVAL},
+    /*
+     * PositionConfig.position_flags, ten rows over one word. `limit` is the row's own bit,
+     * written as a literal because the UI layer is the nanopb-free side of the fence - the
+     * trade src/ui/settings.c already makes for the excluded-modules mask - and every one of
+     * them is pinned against meshtastic_Config_PositionConfig_PositionFlags by a test.
+     */
+    [MESH_UI_FIELD_POSITION_FLAG_ALTITUDE] = {MESH_STR_SETTINGS_FIELD_POSITION_FLAG_ALTITUDE,
+                                              MESH_UI_SETTING_FLAG, MESH_UI_SETTINGS_POSITION,
+                                              0x0001U, NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                              MESH_STR_SETTINGS_NOTE_POSITION_FLAG_ALTITUDE},
+    [MESH_UI_FIELD_POSITION_FLAG_ALTITUDE_MSL] =
+        {MESH_STR_SETTINGS_FIELD_POSITION_FLAG_ALTITUDE_MSL, MESH_UI_SETTING_FLAG,
+         MESH_UI_SETTINGS_POSITION, 0x0002U, NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+         MESH_STR_SETTINGS_NOTE_POSITION_FLAG_ALTITUDE_MSL},
+    [MESH_UI_FIELD_POSITION_FLAG_GEOIDAL] = {MESH_STR_SETTINGS_FIELD_POSITION_FLAG_GEOIDAL,
+                                             MESH_UI_SETTING_FLAG, MESH_UI_SETTINGS_POSITION,
+                                             0x0004U, NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                             MESH_STR_SETTINGS_NOTE_POSITION_FLAG_GEOIDAL},
+    [MESH_UI_FIELD_POSITION_FLAG_DOP] = {MESH_STR_SETTINGS_FIELD_POSITION_FLAG_DOP,
+                                         MESH_UI_SETTING_FLAG, MESH_UI_SETTINGS_POSITION, 0x0008U,
+                                         NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                         MESH_STR_SETTINGS_NOTE_POSITION_FLAG_DOP},
+    [MESH_UI_FIELD_POSITION_FLAG_HVDOP] = {MESH_STR_SETTINGS_FIELD_POSITION_FLAG_HVDOP,
+                                           MESH_UI_SETTING_FLAG, MESH_UI_SETTINGS_POSITION, 0x0010U,
+                                           NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                           MESH_STR_SETTINGS_NOTE_POSITION_FLAG_HVDOP},
+    [MESH_UI_FIELD_POSITION_FLAG_SATINVIEW] = {MESH_STR_SETTINGS_FIELD_POSITION_FLAG_SATINVIEW,
+                                               MESH_UI_SETTING_FLAG, MESH_UI_SETTINGS_POSITION,
+                                               0x0020U, NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                               MESH_STR_SETTINGS_NOTE_POSITION_FLAG_SATINVIEW},
+    [MESH_UI_FIELD_POSITION_FLAG_SEQ_NO] = {MESH_STR_SETTINGS_FIELD_POSITION_FLAG_SEQ_NO,
+                                            MESH_UI_SETTING_FLAG, MESH_UI_SETTINGS_POSITION,
+                                            0x0040U, NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                            MESH_STR_SETTINGS_NOTE_POSITION_FLAG_SEQ_NO},
+    [MESH_UI_FIELD_POSITION_FLAG_TIMESTAMP] = {MESH_STR_SETTINGS_FIELD_POSITION_FLAG_TIMESTAMP,
+                                               MESH_UI_SETTING_FLAG, MESH_UI_SETTINGS_POSITION,
+                                               0x0080U, NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                               MESH_STR_SETTINGS_NOTE_POSITION_FLAG_TIMESTAMP},
+    [MESH_UI_FIELD_POSITION_FLAG_HEADING] = {MESH_STR_SETTINGS_FIELD_POSITION_FLAG_HEADING,
+                                             MESH_UI_SETTING_FLAG, MESH_UI_SETTINGS_POSITION,
+                                             0x0100U, NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                             MESH_STR_SETTINGS_NOTE_POSITION_FLAG_HEADING},
+    [MESH_UI_FIELD_POSITION_FLAG_SPEED] = {MESH_STR_SETTINGS_FIELD_POSITION_FLAG_SPEED,
+                                           MESH_UI_SETTING_FLAG, MESH_UI_SETTINGS_POSITION, 0x0200U,
+                                           NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                           MESH_STR_SETTINGS_NOTE_POSITION_FLAG_SPEED},
     [MESH_UI_FIELD_POSITION_LATITUDE] = {MESH_STR_SETTINGS_FIELD_POSITION_LATITUDE,
                                          MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_POSITION,
                                          MESH_UI_TEXT_LIMIT_POSITION_LATITUDE, NULL, NO_PRESETS,
@@ -1636,6 +1682,41 @@ bool mesh_ui_settings_section_has_fields(enum mesh_ui_settings_section section) 
 
 enum mesh_str_id mesh_ui_settings_field_note(enum mesh_ui_setting_field field) {
     return field_spec(field)->note;
+}
+
+/*
+ * The groups of FLAG rows, as a table of runs.
+ *
+ * One row per group rather than a first/count written out at each caller, for the reason the
+ * section lists are accessors: the run is a fact about the field enum, and a fact stated in the
+ * row builder and again in the write builder is one that will eventually be stated differently
+ * in the two. A bit upstream adds is a field in the enum, a row in k_fields and a `count` here.
+ */
+static const struct {
+    enum mesh_ui_setting_field first;
+    uint32_t count;
+} k_field_groups[MESH_UI_FIELD_GROUP_COUNT] = {
+    [MESH_UI_FIELD_GROUP_POSITION_FLAGS] = {MESH_UI_FIELD_POSITION_FLAG_ALTITUDE, 10U},
+};
+
+uint32_t mesh_ui_settings_group_count(enum mesh_ui_setting_field_group group) {
+    if ((unsigned)group >= MESH_UI_FIELD_GROUP_COUNT) {
+        return 0U;
+    }
+    return k_field_groups[group].count;
+}
+
+enum mesh_ui_setting_field mesh_ui_settings_group_field(enum mesh_ui_setting_field_group group,
+                                                        uint32_t index) {
+    if (index >= mesh_ui_settings_group_count(group)) {
+        return MESH_UI_FIELD_NONE;
+    }
+    return (enum mesh_ui_setting_field)(k_field_groups[group].first + index);
+}
+
+uint32_t mesh_ui_settings_field_bit(enum mesh_ui_setting_field field) {
+    const struct field_spec *spec = field_spec(field);
+    return spec->kind == MESH_UI_SETTING_FLAG ? spec->limit : 0U;
 }
 
 uint32_t mesh_ui_settings_enum_count(enum mesh_ui_setting_field field) {

@@ -1,0 +1,36 @@
+# The checkbox, and the first thing in this client that is multi-select.
+#
+# Settings > Position, under "Sent with a position": ten bits of one protobuf field, drawn as
+# ten rows. A square rather than a switch is the whole point of the scene - the rows above the
+# heading are settings that act on their own and wear the switch, and the rows below it are
+# members of one value, which is the sentence the control set has been drawing since it was
+# built and had nobody to draw it for.
+
+scene demo
+scale 4
+delay 300
+
+config
+tab settings
+
+# Down to Position and open it. The section's own rows first, so the two controls are on screen
+# together before the heading separates them.
+key down 6
+key a
+hold 900
+
+# Into the group. Some of the set is ticked and some is not, which is what a checkbox column
+# says at a glance and a column of "on"/"off" words does not.
+key down 6
+hold 1200
+
+# Left and Right flip one, exactly as they flip a toggle - the mark grows rather than jumping,
+# and the marker gutter picks up the dot that says this row is changed and not yet saved.
+key right
+hold 800
+key down 1
+hold 500
+key right
+hold 800
+key left
+hold 1200

@@ -130,6 +130,26 @@ bool mesh_ui_settings_section_is_module(enum mesh_ui_settings_section section);
 enum mesh_ui_setting_kind {
     MESH_UI_SETTING_INFO = 0, /* read-only fact */
     MESH_UI_SETTING_TOGGLE,
+    /*
+     * A boolean that is one *bit* of a larger field, rather than a field of its own.
+     *
+     * Edited exactly as a toggle is - Left, Right and A flip it, and it carries 0 or 1 in
+     * `number` like any other - so the nav, the edit list and the save need no new case. What
+     * is different is the two ends: the row builder reads its bit out of the word its group
+     * names, and the write builder sets or clears that bit in the same word rather than
+     * assigning the whole of it.
+     *
+     * A kind of its own and not a flag on the spec, because the *drawing* differs and the
+     * drawing is what a kind is for. A switch is a boolean that acts: flick it and the thing
+     * it names is on. A flag is a boolean that is part of a set - one of the ten things a
+     * position packet may carry - and the set is only readable as a set. That is the checkbox,
+     * and fb_widgets.h has said since the control was built that a square is "any of these"
+     * where a circle is "one of these".
+     *
+     * The CLI backend draws the same "on"/"off" it draws for a toggle, because the difference
+     * is a picture rather than a fact.
+     */
+    MESH_UI_SETTING_FLAG,
     MESH_UI_SETTING_ENUM,
     MESH_UI_SETTING_TEXT,
     MESH_UI_SETTING_NUMBER,
@@ -197,6 +217,32 @@ enum mesh_ui_setting_field {
     MESH_UI_FIELD_POSITION_SMART_DISTANCE, /* number: metres */
     MESH_UI_FIELD_POSITION_SMART_INTERVAL,
     MESH_UI_FIELD_POSITION_GPS_INTERVAL,
+    /*
+     * PositionConfig.position_flags: what a position packet carries, as ten bits of one
+     * uint32 rather than ten fields.
+     *
+     * Ten rows of kind MESH_UI_SETTING_FLAG, each naming its own bit, because the wire being
+     * one word is not a reason for the screen to be one row: "send the fix time" is a setting
+     * a person has an opinion about and `0x0281` is not. The field table carries the mask
+     * (see struct field_spec), so a bit upstream adds later is a row here rather than a
+     * mechanism.
+     *
+     * All ten are listed whatever the others say, the rule the LoRa trio and the
+     * smart-broadcast thresholds already follow: a row count that moves under the cursor
+     * mid-edit moves the cursor. Two of them do nothing on their own - MSL refines the
+     * altitude and the split refines the precision - and say so in their notes rather than by
+     * disappearing.
+     */
+    MESH_UI_FIELD_POSITION_FLAG_ALTITUDE,
+    MESH_UI_FIELD_POSITION_FLAG_ALTITUDE_MSL,
+    MESH_UI_FIELD_POSITION_FLAG_GEOIDAL,
+    MESH_UI_FIELD_POSITION_FLAG_DOP,
+    MESH_UI_FIELD_POSITION_FLAG_HVDOP,
+    MESH_UI_FIELD_POSITION_FLAG_SATINVIEW,
+    MESH_UI_FIELD_POSITION_FLAG_SEQ_NO,
+    MESH_UI_FIELD_POSITION_FLAG_TIMESTAMP,
+    MESH_UI_FIELD_POSITION_FLAG_HEADING,
+    MESH_UI_FIELD_POSITION_FLAG_SPEED,
     /* Decimal degrees as text, e.g. "44.64880" and "-63.57520", and metres above sea level.
        Text rather than a number stepper because a coordinate has no useful presets and an
        altitude can be negative. They are not saved with the section: they are what the
@@ -614,6 +660,33 @@ enum mesh_ui_settings_section mesh_ui_settings_field_section(enum mesh_ui_settin
  * name does not tell you what happens if you get it wrong. See docs/help.md.
  */
 enum mesh_str_id mesh_ui_settings_field_note(enum mesh_ui_setting_field field);
+/*
+ * FLAG fields: which bit of its group's word this row is, and 0 for every other kind.
+ *
+ * The one thing a caller outside this module needs in order to read or write a flag - the row
+ * builder ANDs with it, the write builder sets or clears it - and it is answered here rather
+ * than written out at either end, because a mask stated twice is a mask that will one day
+ * disagree with itself.
+ */
+uint32_t mesh_ui_settings_field_bit(enum mesh_ui_setting_field field);
+
+/*
+ * The run of FLAG fields a group is made of: the first row and how many follow it.
+ *
+ * Groups are contiguous in the field enum, the same way the canned slots and the three admin
+ * keys are, so a caller walks `first`..`first + count` and asks each one for its bit. A test
+ * holds the run to exactly the fields the group's word has bits for, which is what keeps a
+ * field added in the middle of one from being silently left out of its own group.
+ */
+enum mesh_ui_setting_field_group {
+    /* PositionConfig.position_flags: what a position packet carries. */
+    MESH_UI_FIELD_GROUP_POSITION_FLAGS = 0,
+    MESH_UI_FIELD_GROUP_COUNT,
+};
+uint32_t mesh_ui_settings_group_count(enum mesh_ui_setting_field_group group);
+enum mesh_ui_setting_field mesh_ui_settings_group_field(enum mesh_ui_setting_field_group group,
+                                                        uint32_t index);
+
 /* ENUM fields: how many values and their names. */
 uint32_t mesh_ui_settings_enum_count(enum mesh_ui_setting_field field);
 const char *mesh_ui_settings_enum_name(enum mesh_ui_setting_field field, uint32_t value);

@@ -1065,6 +1065,7 @@ static void mesh_app_flatten_settings(const struct mesh_radio_settings *src,
         dst->gps_update_interval = src->position.gps_update_interval;
         dst->smart_minimum_distance = src->position.broadcast_smart_minimum_distance;
         dst->smart_minimum_interval_secs = src->position.broadcast_smart_minimum_interval_secs;
+        dst->position_flags = src->position.position_flags;
     }
     if (src->has_power) {
         dst->has_power = true;

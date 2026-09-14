@@ -134,7 +134,11 @@ bool mesh_ui_nav_settings_edit_key(struct mesh_ui_nav *nav, const struct mesh_ui
     const enum mesh_ui_setting_field field = item.field;
     const int delta = (key == MESH_UI_KEY_LEFT) ? -1 : +1;
     switch (item.kind) {
+    /* A flag is edited exactly as a toggle is - it carries 0 or 1 like one, and which bit of
+       which word that ends up in is the write builder's business, not this one's. The kinds
+       differ in how the row is *drawn*, which is the backend's. */
     case MESH_UI_SETTING_TOGGLE:
+    case MESH_UI_SETTING_FLAG:
         return mesh_ui_nav_edit_set(nav, store, field, item.number != 0U ? 0U : 1U, NULL);
     case MESH_UI_SETTING_ENUM: {
         const uint32_t count = mesh_ui_settings_enum_count(field);

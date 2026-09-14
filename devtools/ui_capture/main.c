@@ -74,6 +74,9 @@
 #include "mesh/ui/backends/fb_capture.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/route.h"
+/* For the flag rows' masks: the fixture sets position_flags and the field table is what says
+   which bit each row is, so the scene is filmed against the same answer the screen draws. */
+#include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
 #include "mesh/ui/theme.h"
 #include "mesh/utils/text.h"
@@ -1809,6 +1812,14 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         settings.smart_minimum_distance = 100U;
         settings.smart_minimum_interval_secs = 30U;
         settings.gps_update_interval = 120U;
+        /* Altitude, the fix's precision and its timestamp: the default a radio ships with,
+           which is also the mix that gives the flag rows something to show - some of the set
+           ticked and some not. */
+        settings.position_flags =
+            mesh_ui_settings_field_bit(MESH_UI_FIELD_POSITION_FLAG_ALTITUDE) |
+            mesh_ui_settings_field_bit(MESH_UI_FIELD_POSITION_FLAG_ALTITUDE_MSL) |
+            mesh_ui_settings_field_bit(MESH_UI_FIELD_POSITION_FLAG_DOP) |
+            mesh_ui_settings_field_bit(MESH_UI_FIELD_POSITION_FLAG_TIMESTAMP);
         settings.fixed_position = true;
         settings.has_own_position = true;
         settings.own_latitude_i = 476205000; /* fixed-point 1e-7 degrees, as the wire carries */

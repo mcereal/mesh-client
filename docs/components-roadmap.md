@@ -321,7 +321,9 @@ and the catalog loses two format strings rather than gaining any. Needs one icon
 
 ### Tier 2 — gaps that unlock screens we do not have yet
 
-**2.5 No selection controls besides the switch.** No checkbox, no radio. The picker signals
+**2.5 No selection controls besides the switch.** *(Landed - see §10 for the radio, and §21 for
+the checkbox's caller, which was not the multi-select list this entry expected but a settings
+field whose value is a set of bits.)* No checkbox, no radio. The picker signals
 "this is the current target" by giving one avatar a stated accent fill, which works for one
 choice and does not generalise. Anything multi-select — *forget these nodes*, *which channels to
 show* — has nothing to draw. In this component set both are `FB_TRAILING_CHECKBOX` /
@@ -654,7 +656,7 @@ Each step is independently shippable and each is visible.
 | 7 | Top app bar (§2.15) | **done** | Retires the breadcrumb format strings, and is where 8 and 11 land |
 | 8 | Card variants and card actions (§2.4) | **done** | Where the type scale pays off most |
 | 9 | Variable-height list rows (§1.4) | **done** | Structural. §1.1's unfinished half and three components below wait on it |
-| 10 | Checkbox / radio, segmented button (§2.5, §2.6) | **done** (the checkbox is held, see §10) | Additive slots on components that already exist |
+| 10 | Checkbox / radio, segmented button (§2.5, §2.6) | **done** (the checkbox was held, and §21 is the caller it got) | Additive slots on components that already exist |
 | 11 | Banner and screen progress (§2.9, §2.10) | **done** (the banner's table is two entries, see §11) | New surfaces; the bar from 7 is where progress hangs |
 | 12 | Slider (§2.7) | **done** (and it found what a scale is not, see §12) | Genuinely new interaction |
 | 13 | Screen transitions (§2.16) | **done** (and the direction is derived rather than recorded, see §13) | Wants a direction on the nav first; the only step whose work is mostly outside the backend |
@@ -1030,7 +1032,8 @@ that is exactly right: both are one new function in `fb_widgets.c` and a kind on
 slot. What it did not have is that a slot is only half of a component - the other half is a
 caller - and that one of the three controls it names still has no second half.
 
-- **The checkbox is built and is not wired, on purpose.** `FB_SELECTION_CHECKBOX` exists because
+- **The checkbox is built and is not wired, on purpose.** *(It has a caller now, and it is not
+  the one this paragraph predicts - see §21.)* `FB_SELECTION_CHECKBOX` exists because
   it is the same drawing as the radio with a different corner radius, and `FB_TRAILING_CHECKBOX`
   is not a kind any screen names. §5's finding is the reason: *a slot that is implemented,
   documented and unused reads exactly like a slot that is in use*, and the way to avoid adding
@@ -1965,3 +1968,40 @@ entry.
   change, which is the set working as §2 hoped. The only new table row anywhere is one icon
   (`lan`), because the top-level list declares the leading slot for every row and a section
   without one would draw a hole.
+
+## 21. What the checkbox's caller turned out to be
+
+Not a step on §3's list either, and not a new component: the **caller** §10 said the checkbox
+was waiting for. It is worth an entry because §10 predicted what that caller would be and got it
+wrong in an instructive direction.
+
+§10's words were: *"There is nothing multi-select in this client - §2.5's own examples, forget
+these nodes and which channels to show, are both a nav change with a component on the end of it
+... The day a list can arm more than one row is the day the kind goes in."* The day came without
+the list. `PositionConfig.position_flags` is ten booleans packed into one `uint32`, and the
+Settings tab now draws them as ten rows (`MESH_UI_SETTING_FLAG`, `docs/settings-roadmap.md`
+phase 14 item 5). Nothing about that is a multi-select list: the rows are not entries a cursor
+arms, they are **one value with more than one bit**. The sentence the square draws - *any of
+these, and this one says nothing about its neighbours* - was true of it all along.
+
+Four things worth keeping:
+
+- **A slot's caller need not be the screen its author imagined.** §10 wrote the component from
+  the drawing outwards ("the radio's drawing with a different corner radius") and then guessed
+  at a caller from the *interaction* it expected. The caller arrived from the **data**: a field
+  whose values are a set. The note that said the kind was unwired is what made the match
+  findable - which is the argument §5 made for writing such a note at all, now with a second
+  worked example behind it.
+- **The pairing is what carries the meaning, and the pair is now on one screen.** Position
+  draws switches above the heading and checkboxes below it, four rows apart: *Smart broadcast*
+  acts when you flick it, *Altitude* is one of the ten things a packet carries. A reader who has
+  never been told the difference between the two shapes is told it by the column.
+- **It cost the renderer nine lines and no measurement.** `fb_trailing_cols()` already sized the
+  slot, `fb_draw_trailing()` already wrote the shape in from the kind, and the geometry is the
+  switch's height squared. The whole of the backend change is a branch in the settings screen
+  that names `FB_TRAILING_CHECKBOX` where the row's kind is `FLAG`. A component built with its
+  measurement and its animation already wired is a component whose first caller is a branch.
+- **And the words stayed.** The CLI backend prints "on" and "off" for a flag exactly as it does
+  for a toggle, because `item.value` still holds them - the same bargain the switch, the meter,
+  the slider and the segmented button all make. A kind describes the content; how a backend says
+  it is that backend's to choose.
