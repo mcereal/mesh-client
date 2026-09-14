@@ -855,8 +855,12 @@ void mesh_ui_settings_coord_text(int32_t value_i, char *out, size_t out_len);
 bool mesh_ui_settings_coord_parse(const char *text, int32_t limit_degrees, int32_t *out_i);
 
 /* A node number as "!433d1b2c", which is what the apps show and the logs print. parse() also
-   takes the bare eight hex digits and a plain decimal, and reads an empty string as 0 - the
-   row is empty, not wrong, and a caller reads 0 as an unused slot rather than as an address. */
+   takes "0x..." and a bare hex string, and reads an empty string as 0 - the row is empty, not
+   wrong, and a caller reads 0 as an unused slot rather than as an address.
+
+   Unmarked and all digits is **decimal**: "12345678" is a legal node number read either way,
+   and the hex reading always has "!" or "0x" available to ask for it, so the ambiguous
+   spelling goes to the one a reader can predict. */
 void mesh_ui_settings_node_id_text(uint32_t node_id, char *out, size_t out_len);
 bool mesh_ui_settings_node_id_parse(const char *text, uint32_t *out_id);
 

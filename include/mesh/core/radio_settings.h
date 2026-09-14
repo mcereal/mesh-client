@@ -484,10 +484,13 @@ int mesh_radio_settings_queue_action(struct mesh_radio_settings *settings,
    get_owner for the passkey like every action. Returns the number of requests queued, -EINVAL
    for a missing or all-zero hash, -EBUSY when one is already queued (a second press must not
    quietly swap the hash the loader will hold the radio to), -ENOSPC when the queue is full. */
-/* Queues a set_ham_mode behind a get_owner for the passkey, like every action. Returns the
-   number of requests queued, -EINVAL without a call sign (which is the whole of what makes the
-   mode legal), -EBUSY when one is already queued, -ENOSPC when the queue is full. Nothing is
-   read back: the caller follows it with a refresh, because what it moved is three sections. */
+/* Queues a set_ham_mode behind a get_owner for the passkey, like every action, and one more
+   get_owner *after* it - the owner is the half of what this verb changes that a caller's
+   refresh cannot ask for, because its own get_owner would be folded into the passkey one in
+   front of the write. The rest of what moved (LoRa, the primary channel) the caller picks up
+   with a refresh behind this. Returns the number of requests queued, -EINVAL without a call
+   sign (which is the whole of what makes the mode legal), -EBUSY when one is already queued,
+   -ENOSPC when the queue is full. */
 int mesh_radio_settings_queue_ham_mode(struct mesh_radio_settings *settings,
                                        const meshtastic_HamParameters *ham);
 

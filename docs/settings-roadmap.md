@@ -931,6 +931,16 @@ Five things fell out of it, and they are what is worth remembering:
   one section a read-back could ask for - so it is followed by a refresh.
   There is no row for a short name: the firmware wants one, the owner record already has one,
   and the User section is where a name is changed.
+- **The owner read has to be queued *after* the verb, and enqueue() would not do it.** Every
+  path into the admin queue puts a `get_owner` in front for the passkey, and the queue
+  deduplicates by (kind, type) - so a read-back asked for afterwards is folded into the one
+  already sitting ahead of the write, and the only owner reply describes the node as it was
+  *before* the switch. Which is exactly the half this verb changes: the long name becomes the
+  call sign and the licensed flag goes on. `mesh_radio_settings_append()` is that one case -
+  a read-back is not a repeat of an earlier read, it is an observation of something that has
+  since happened. `queue_write()` deliberately keeps the old behaviour, because a test pins
+  that `set_owner`'s passkey refresh *is* its read-back.
+
 - **There is no verb for leaving, and none is invented.** The firmware offers none. The way out
   is the two rows that made it - User's `Licensed operator` off and `Override frequency` back to
   0 - and the note on the action row says so rather than this client offering a press it would

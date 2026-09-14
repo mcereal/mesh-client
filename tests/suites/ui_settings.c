@@ -3084,6 +3084,18 @@ MESH_TEST_CASE(ui_settings_node_ids, unit) {
                       "a 0x prefix should parse");
     MESH_TEST_FAIL_IF(!mesh_ui_settings_node_id_parse("123456", &id) || id != 123456U,
                       "a plain decimal should parse");
+    /*
+     * Eight digits and no letters is the ambiguous case, and it reads as decimal.
+     *
+     * Both readings are a legal node number, so the rule has to be one a person can predict:
+     * a letter means hex, all digits mean decimal, and the hex reading always has "!" or "0x"
+     * available to ask for it. Guessing hex on the *width* made eight digits mean something
+     * seven and nine did not, and a wrong guess here ignores a node nobody named.
+     */
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_node_id_parse("12345678", &id) || id != 12345678U,
+                      "eight bare digits are decimal, because nothing in them says hex");
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_node_id_parse("!12345678", &id) || id != 0x12345678U,
+                      "and the marker is how the same digits are asked for as hex");
     MESH_TEST_FAIL_IF(!mesh_ui_settings_node_id_parse("  ", &id) || id != 0U,
                       "an empty row is an empty slot rather than a bad value");
     MESH_TEST_FAIL_IF(mesh_ui_settings_node_id_parse("!", &id) ||

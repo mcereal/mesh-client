@@ -213,13 +213,21 @@ bool mesh_ui_settings_node_id_parse(const char *text, uint32_t *out_id) {
         hex = true;
         p += 2;
     } else {
-        /* No marker: eight hex digits is how the logs write one, and that reading wins over
-           decimal because "43310000" as a decimal is not a node number anybody has. */
+        /*
+         * No marker, so the spelling has to decide, and the only rule that can be stated in one
+         * line is: a letter means hex, all digits mean decimal.
+         *
+         * "12345678" is a legal node number read either way, and guessing hex on a width - as
+         * this first did - makes eight digits mean something seven and nine do not, which is
+         * not a rule anybody could predict and quietly ignores a node nobody named. The hex
+         * reading always has a spelling available: "!12345678" is how this client, the apps and
+         * the logs all write one, so nothing is lost by asking for the marker.
+         */
         bool all_digits = true;
         for (const char *q = p; q < end; ++q) {
             all_digits = all_digits && *q >= '0' && *q <= '9';
         }
-        hex = !all_digits || (end - p) == 8;
+        hex = !all_digits;
     }
     if (p == end) {
         return false; /* a bare "!" names nothing */

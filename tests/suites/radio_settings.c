@@ -1277,9 +1277,9 @@ MESH_TEST_CASE(radio_settings_ham_mode, unit) {
                           mesh_radio_settings_queue_ham_mode(&settings, NULL) != -EINVAL,
                       "a call sign is the whole of what makes this legal and is not optional");
 
-    MESH_TEST_FAIL_IF(mesh_radio_settings_queue_ham_mode(&settings, &ham) != 2 ||
+    MESH_TEST_FAIL_IF(mesh_radio_settings_queue_ham_mode(&settings, &ham) != 3 ||
                           mesh_radio_settings_queue_ham_mode(&settings, &ham) != -EBUSY,
-                      "one ham request behind a passkey refresh, and a second is refused");
+                      "a passkey refresh, the verb and an owner read-back; a second is refused");
     MESH_TEST_FAIL_IF(mesh_radio_settings_queue_action(&settings, MESH_ADMIN_SET_HAM_MODE, 0U) !=
                           -EINVAL,
                       "queue_action has nowhere to put the call sign");
@@ -1295,6 +1295,21 @@ MESH_TEST_CASE(radio_settings_ham_mode, unit) {
                           strcmp(next.payload.ham.call_sign, "KD2ABC") != 0 ||
                           next.payload.ham.frequency != 906.875f || settings.pending_is_write,
                       "and the verb follows carrying its parameters, uncounted as a save");
+    const struct mesh_admin_request ham_request = next;
+
+    /*
+     * The owner read *after* the verb, which is the whole reason this queues three rather than
+     * two. What set_ham_mode changes about the owner - the long name becomes the call sign,
+     * the licensed flag goes on - is only observable by a get_owner that runs behind it, and
+     * the ordinary enqueue() would have folded this one into the passkey refresh in front of
+     * the write and answered with the node as it was before the switch.
+     */
+    mesh_radio_settings_mark_sent(&settings, 79U, 2000U);
+    MESH_TEST_FAIL_IF(!mesh_radio_settings_next_request(
+                          &settings, 2000U + MESH_RADIO_SETTINGS_REPLY_TIMEOUT_MS + 1U, &next) ||
+                          next.kind != MESH_ADMIN_GET_OWNER,
+                      "the owner has to be re-read after the switch, not before it");
+    next = ham_request;
 
     /* And on the wire it is a set_ham_mode, refused outright without the call sign rather than
        sent for the firmware to read as "rename this node to nothing". */

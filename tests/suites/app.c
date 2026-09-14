@@ -3174,3 +3174,47 @@ MESH_TEST_CASE(radio_settings_write_preserves_unshown_fields, unit) {
 
     record_success(test_name);
 }
+
+/*
+ * A protobuf float is four bytes of whatever arrived, and casting one to an integer is only
+ * defined for a finite value inside the target's range.
+ *
+ * NaN, either infinity and an absurd magnitude all reach mesh_app_scale_float() from a
+ * malformed or corrupted LoRa config, where nothing upstream of it has looked at the bits.
+ * Under UBSan the cast is a crash rather than a wrong number, which is what makes this worth a
+ * case rather than a comment: the failure it prevents is a client that falls over while
+ * drawing a settings row.
+ *
+ * Refused reads as 0, and nothing is lost by that. A row nobody edited is never written back
+ * from this side - a save starts from the radio's own record - so the garbage stays on the
+ * radio rather than being laundered into a number this client invented.
+ */
+MESH_TEST_CASE(app_scale_float_refuses_what_it_cannot_cast, unit) {
+    /* The ordinary case still works, and round-trips: this is a guard, not a clamp on values
+       anybody has. */
+    const int64_t scaled = mesh_app_scale_float(906.875f, MESH_UI_FREQUENCY_DIGITS);
+    MESH_TEST_FAIL_IF(scaled != 9068750, "a real frequency should scale exactly");
+    MESH_TEST_FAIL_IF(mesh_app_unscale_float(scaled, MESH_UI_FREQUENCY_DIGITS) != 906.875f,
+                      "and come back as the float it started as");
+    MESH_TEST_FAIL_IF(mesh_app_scale_float(-12.5f, MESH_UI_HERTZ_DIGITS) != -125,
+                      "a negative trim should scale");
+
+    /* Built rather than written as literals, so no constant folding decides the answer at
+       compile time and the cast is the one the radio's bytes would reach. */
+    volatile float zero = 0.0f;
+    volatile float huge = 3.0e38f;
+    const float nan = zero / zero;
+    const float positive_infinity = huge * huge;
+    const float negative_infinity = -positive_infinity;
+
+    MESH_TEST_FAIL_IF(mesh_app_scale_float(nan, MESH_UI_FREQUENCY_DIGITS) != 0,
+                      "a NaN frequency is not a number and must not be cast to one");
+    MESH_TEST_FAIL_IF(mesh_app_scale_float(positive_infinity, MESH_UI_FREQUENCY_DIGITS) != 0 ||
+                          mesh_app_scale_float(negative_infinity, MESH_UI_FREQUENCY_DIGITS) != 0,
+                      "neither infinity may be cast");
+    /* Finite, and still past what an int64 holds once the scale is applied. */
+    MESH_TEST_FAIL_IF(mesh_app_scale_float(1.0e30f, MESH_UI_FREQUENCY_DIGITS) != 0 ||
+                          mesh_app_scale_float(-1.0e30f, MESH_UI_HERTZ_DIGITS) != 0,
+                      "a magnitude past the cast's range is refused rather than wrapped");
+    record_success(test_name);
+}

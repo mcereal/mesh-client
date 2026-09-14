@@ -760,6 +760,32 @@ static bool mesh_radio_settings_queued(const struct mesh_radio_settings *setting
     return false;
 }
 
+/*
+ * Appends without the deduplication enqueue() does.
+ *
+ * For the one case where a read queued *earlier* is not a substitute: a read-back exists to
+ * observe what a write or an action changed, so folding it into a request already sitting
+ * ahead of that action answers with the value the action replaced.
+ *
+ * Only queue_ham_mode() uses it. queue_write() deliberately does not - the test on set_owner
+ * pins that its passkey refresh and its read-back are one request - and changing that is a
+ * decision about a shipped mechanism rather than a line in this one.
+ */
+static size_t mesh_radio_settings_append(struct mesh_radio_settings *settings,
+                                         enum mesh_admin_request_kind kind, uint32_t type) {
+    if (settings->queue_len >= MESH_RADIO_SETTINGS_FETCH_MAX) {
+        return 0U;
+    }
+    struct mesh_admin_request *slot =
+        &settings
+             ->queue[(settings->queue_head + settings->queue_len) % MESH_RADIO_SETTINGS_FETCH_MAX];
+    memset(slot, 0, sizeof *slot);
+    slot->kind = kind;
+    slot->type = type;
+    settings->queue_len += 1U;
+    return 1U;
+}
+
 static size_t mesh_radio_settings_enqueue(struct mesh_radio_settings *settings,
                                           enum mesh_admin_request_kind kind, uint32_t type) {
     if (settings->queue_len >= MESH_RADIO_SETTINGS_FETCH_MAX ||
@@ -1115,8 +1141,10 @@ int mesh_radio_settings_queue_ham_mode(struct mesh_radio_settings *settings,
     if (mesh_radio_settings_queued(settings, MESH_ADMIN_SET_HAM_MODE, 0U)) {
         return -EBUSY;
     }
+    /* The passkey refresh, the verb, and an owner read *after* it - three, or two when a
+       passkey refresh is already on its way. */
     const size_t needed =
-        (mesh_radio_settings_queued(settings, MESH_ADMIN_GET_OWNER, 0U) ? 0U : 1U) + 1U;
+        (mesh_radio_settings_queued(settings, MESH_ADMIN_GET_OWNER, 0U) ? 0U : 1U) + 2U;
     if (settings->queue_len + needed > MESH_RADIO_SETTINGS_FETCH_MAX) {
         return -ENOSPC;
     }
@@ -1128,6 +1156,17 @@ int mesh_radio_settings_queue_ham_mode(struct mesh_radio_settings *settings,
         slot->payload.ham = *ham;
         added += 1U;
     }
+    /*
+     * The owner read this action is actually for, appended rather than enqueued.
+     *
+     * What set_ham_mode changes about the owner - the long name becomes the call sign and the
+     * licensed flag goes on - is the half of it a caller's refresh cannot ask for: every path
+     * into this queue puts a get_owner in front for the passkey, and enqueue() would fold the
+     * read-back into that one, so the only owner reply would describe the node as it was
+     * before the switch. The rest of what moved (LoRa, the primary channel) the caller's
+     * refresh picks up behind this, because those reads are not already queued.
+     */
+    added += mesh_radio_settings_append(settings, MESH_ADMIN_GET_OWNER, 0U);
     return (int)added;
 }
 
