@@ -7,8 +7,10 @@
 #include "support/ui_fixture.h"
 
 #include "mesh/core/message.h"
+#include "mesh/ui/history.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/store.h"
+#include "mesh/ui/store_keys.h"
 
 #include <errno.h>
 #include <stdbool.h>
@@ -942,5 +944,402 @@ MESH_TEST_CASE(ui_store_forget_conversation, unit) {
 cleanup:
     mesh_ui_store_shutdown(&store);
     MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * Every cache key is written, and every cache key is read.
+ *
+ * The cache format used to be spelled twice - once as a printf literal in the writer, once as a
+ * strcmp against the same text in the loader, beside a hand-counted prefix length - and nothing
+ * held the two to each other. Two keys had already drifted into being written every save and
+ * read by nobody before anyone noticed; they are still written, deliberately, and the loader
+ * carries a case saying why.
+ *
+ * include/mesh/ui/store_keys.def is now the one table both halves read, and -Wswitch catches a
+ * key the loader forgot. What the compiler cannot see is whether the writer ever emits one, or
+ * whether a value survives the trip - so this walks the table and holds every key to both.
+ *
+ * The store below is populated deliberately wide rather than realistically: every optional
+ * group valid, every name carrying a character the escape has to deal with. A key that no
+ * fixture reaches is a key this test cannot speak for, which is why the first half fails on a
+ * key missing from the file rather than skipping it.
+ */
+MESH_TEST_CASE(ui_store_cache_keys_round_trip, unit) {
+    struct mesh_ui_store store;
+    if (mesh_ui_store_init(&store) != 0) {
+        record_failure(test_name, "store init failed");
+        return;
+    }
+
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.request_in_flight = true;
+    handshake.request_id = 11U;
+    handshake.config_complete = true;
+    handshake.config_complete_id = 77U;
+    handshake.has_config = true;
+    handshake.has_my_info = true;
+    handshake.my_info.node_num = 4242U;
+    handshake.my_info.nodedb_entries = 3U;
+    handshake.my_info.reboot_count = 1U;
+    handshake.roster_owner = 0x1234U;
+    handshake.cached = true;
+    /* Both characters the escape exists for: an '=' would otherwise open a second field and a
+       newline a second line, and channel names come off the air. */
+    snprintf(handshake.primary_channel, sizeof handshake.primary_channel, "Long=Range\nWide");
+    snprintf(handshake.my_short_name, sizeof handshake.my_short_name, "NODE");
+
+    handshake.channel_count = 2U;
+    handshake.channels[0].index = 0U;
+    handshake.channels[0].role = 1U;
+    snprintf(handshake.channels[0].name, sizeof handshake.channels[0].name, "primary");
+    handshake.channels[1].index = 1U;
+    handshake.channels[1].role = 2U;
+    snprintf(handshake.channels[1].name, sizeof handshake.channels[1].name, "secondary");
+
+    handshake.node_count = 1U;
+    struct mesh_ui_node_summary *node = &handshake.nodes[0];
+    node->node_id = 4242U;
+    node->last_heard = 123U;
+    node->snr = 9.5f;
+    node->has_hops_away = true;
+    node->hops_away = 2U;
+    node->via_mqtt = true;
+    snprintf(node->long_name, sizeof node->long_name, "Primary");
+    snprintf(node->short_name, sizeof node->short_name, "PRIM");
+    snprintf(node->user_id, sizeof node->user_id, "!000010a2");
+    node->hw_model = 9U;
+    node->role = 2U;
+    node->is_licensed = true;
+    node->is_unmessagable = true;
+    node->is_favorite = true;
+    node->is_ignored = true;
+    node->channel = 3U;
+    node->has_user = true;
+    node->in_nodedb = true;
+    node->key_verified = true;
+    node->public_key_len = 32U;
+    memset(node->public_key, 0x5A, sizeof node->public_key);
+    node->has_rssi = true;
+    node->rx_rssi = -97;
+    node->position.valid = true;
+    node->position.latitude_i = 447654321;
+    node->position.longitude_i = -680012345;
+    node->position.has_altitude = true;
+    node->position.altitude = 312;
+    node->position.time = 1749000000U;
+    node->position.received = 1750000000U;
+    node->position.sats_in_view = 9U;
+    node->position.precision_bits = 16U;
+    node->metrics.valid = true;
+    node->metrics.time = 1749000001U;
+    node->metrics.has_battery = true;
+    node->metrics.battery_level = 76U;
+    node->metrics.has_voltage = true;
+    node->metrics.voltage = 3.9f;
+    node->metrics.has_channel_utilization = true;
+    node->metrics.channel_utilization = 12.5f;
+    node->metrics.has_air_util_tx = true;
+    node->metrics.air_util_tx = 3.25f;
+    node->metrics.has_uptime = true;
+    node->metrics.uptime_seconds = 90061U;
+    node->environment.valid = true;
+    node->environment.time = 1749000002U;
+    node->environment.has_temperature = true;
+    node->environment.temperature = 21.5f;
+    node->environment.has_humidity = true;
+    node->environment.relative_humidity = 44.0f;
+    node->environment.has_pressure = true;
+    node->environment.barometric_pressure = 1013.25f;
+    node->environment.has_iaq = true;
+    node->environment.iaq = 55U;
+    node->environment.has_lux = true;
+    node->environment.lux = 120.0f;
+    node->environment.has_voltage = true;
+    node->environment.voltage = 3.75f;
+    node->environment.has_current = true;
+    node->environment.current = 0.5f;
+    node->neighbors.valid = true;
+    node->neighbors.time = 1750000123U;
+    node->neighbors.broadcast_interval_secs = 14400U;
+    node->neighbors.count = 2U;
+    node->neighbors.entries[0].node_id = 0xA002U;
+    node->neighbors.entries[0].snr = 8.25f;
+    node->neighbors.entries[1].node_id = 0xA003U;
+    node->neighbors.entries[1].snr = -3.5f;
+    node->power.valid = true;
+    node->power.time = 1749000003U;
+    node->power.channel[0].has_voltage = true;
+    node->power.channel[0].voltage = 4.125f;
+    node->power.channel[1].has_current = true;
+    node->power.channel[1].current = 250.0f;
+    node->air_quality.valid = true;
+    node->air_quality.time = 1749000004U;
+    node->air_quality.has_pm25 = true;
+    node->air_quality.pm25_standard = 12U;
+    node->air_quality.has_voc_index = true;
+    node->air_quality.voc_index = 7.5f;
+    node->health.valid = true;
+    node->health.time = 1749000005U;
+    node->health.has_spo2 = true;
+    node->health.spo2 = 98U;
+    node->health.has_temperature = true;
+    node->health.temperature = 36.75f;
+    node->host.valid = true;
+    node->host.time = 1749000006U;
+    node->host.has_diskfree = true;
+    node->host.diskfree_mib = 4096U;
+    node->host.has_load = true;
+    node->host.load1 = 12U;
+    node->host.load5 = 9U;
+    node->host.load15 = 4U;
+    mesh_ui_store_set_handshake(&store, &handshake);
+
+    struct mesh_ui_message_list messages;
+    memset(&messages, 0, sizeof messages);
+    messages.count = 1U;
+    messages.dropped = 3U;
+    messages.entries[0].packet_id = 99U;
+    messages.entries[0].peer = 4242U;
+    messages.entries[0].rx_time = 555U;
+    messages.entries[0].channel = 1U;
+    messages.entries[0].direction = 1U;
+    messages.entries[0].ack = 2U;
+    messages.entries[0].broadcast = true;
+    messages.entries[0].kind = 1U;
+    messages.entries[0].pki_encrypted = true;
+    messages.entries[0].reply_id = 42U;
+    messages.entries[0].is_reaction = true;
+    snprintf(messages.entries[0].peer_name, sizeof messages.entries[0].peer_name, "Primary");
+    snprintf(messages.entries[0].text, sizeof messages.entries[0].text, "back\\slash=and\nbreak");
+    mesh_ui_store_set_messages(&store, &messages);
+
+    store.read_state.count = 1U;
+    store.read_state.marks[0].kind = 1U;
+    store.read_state.marks[0].channel = 2U;
+    store.read_state.marks[0].node = 4242U;
+    store.read_state.marks[0].packet_id = 99U;
+    store.read_state.marks[0].muted = true;
+
+    mesh_ui_history_restore_airtime(&store.history, 0U, 10, 5, false);
+    mesh_ui_history_restore_airtime(&store.history, 1000U, 20, 7, true);
+
+    char first_path[] = "/tmp/mesh_ui_keys_aXXXXXX";
+    char second_path[] = "/tmp/mesh_ui_keys_bXXXXXX";
+    int first_fd = mkstemp(first_path);
+    int second_fd = mkstemp(second_path);
+    if (first_fd < 0 || second_fd < 0) {
+        if (first_fd >= 0) {
+            close(first_fd);
+            unlink(first_path);
+        }
+        if (second_fd >= 0) {
+            close(second_fd);
+            unlink(second_path);
+        }
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "mkstemp failed");
+        return;
+    }
+    close(first_fd);
+    close(second_fd);
+
+    const char *failure = NULL;
+    char detail[192];
+    char saved[16384];
+    size_t saved_len = 0U;
+
+    if (mesh_ui_store_save(&store, first_path) != 0) {
+        failure = "save failed";
+        goto cleanup;
+    }
+
+    FILE *file = fopen(first_path, "r");
+    if (file == NULL) {
+        failure = "saved cache would not open";
+        goto cleanup;
+    }
+    saved_len = fread(saved, 1U, sizeof saved - 1U, file);
+    fclose(file);
+    saved[saved_len] = '\0';
+
+    /*
+     * Half one: the writer reaches every key in the table.
+     *
+     * A key is looked for at the start of a line, as `name=` or `name[`, so `node` does not
+     * find itself inside `node_long` - which is the same reason the loader matches the bracket
+     * rather than the bare name.
+     */
+    for (int id = MESH_UI_STORE_KEY_NONE + 1; id < MESH_UI_STORE_KEY_COUNT; ++id) {
+        const enum mesh_ui_store_key key = (enum mesh_ui_store_key)id;
+        const char *name = mesh_ui_store_key_name(key);
+        if (name == NULL) {
+            snprintf(detail, sizeof detail, "key %d has no name in the table", id);
+            failure = detail;
+            goto cleanup;
+        }
+        char needle[96];
+        snprintf(needle, sizeof needle, "\n%s%c", name,
+                 mesh_ui_store_key_kind(key) == MESH_UI_STORE_KEY_KIND_PLAIN ? '=' : '[');
+        /* The first line has no newline before it, so look there too. */
+        const bool found =
+            strstr(saved, needle) != NULL || strncmp(saved, needle + 1, strlen(needle) - 1U) == 0;
+        if (!found) {
+            snprintf(detail, sizeof detail,
+                     "no line for cache key '%s' - the writer never emits it", name);
+            failure = detail;
+            goto cleanup;
+        }
+    }
+
+    /*
+     * Half two: the loader reads back everything the writer wrote.
+     *
+     * Saving the reloaded store and comparing the bytes is what makes this cheap to keep true:
+     * a key that goes out and does not come back cannot survive the second save, whatever it
+     * held, and nobody has to remember to assert on the field by hand.
+     */
+    struct mesh_ui_store reloaded;
+    if (mesh_ui_store_init(&reloaded) != 0) {
+        failure = "reload init failed";
+        goto cleanup;
+    }
+    if (mesh_ui_store_load(&reloaded, first_path) != 0) {
+        mesh_ui_store_shutdown(&reloaded);
+        failure = "load failed";
+        goto cleanup;
+    }
+    const int resaved = mesh_ui_store_save(&reloaded, second_path);
+    mesh_ui_store_shutdown(&reloaded);
+    if (resaved != 0) {
+        failure = "re-save failed";
+        goto cleanup;
+    }
+
+    FILE *again = fopen(second_path, "r");
+    if (again == NULL) {
+        failure = "re-saved cache would not open";
+        goto cleanup;
+    }
+    char round_tripped[16384];
+    const size_t round_len = fread(round_tripped, 1U, sizeof round_tripped - 1U, again);
+    fclose(again);
+    round_tripped[round_len] = '\0';
+
+    if (round_len != saved_len || memcmp(saved, round_tripped, saved_len) != 0) {
+        size_t at = 0U;
+        while (at < saved_len && at < round_len && saved[at] == round_tripped[at]) {
+            ++at;
+        }
+        /* The excerpt is the 60 bytes leading up to the divergence, which names the key that
+           came out last and so the one that did not come back. Newlines go out as '|' so the
+           whole thing is one line of test output. */
+        const size_t line_start = (at > 60U) ? at - 60U : 0U;
+        char excerpt[61];
+        size_t excerpt_len = at - line_start;
+        if (excerpt_len > sizeof excerpt - 1U) {
+            excerpt_len = sizeof excerpt - 1U;
+        }
+        for (size_t i = 0U; i < excerpt_len; ++i) {
+            const char byte = saved[line_start + i];
+            excerpt[i] = (byte == '\n') ? '|' : byte;
+        }
+        excerpt[excerpt_len] = '\0';
+        snprintf(detail, sizeof detail,
+                 "cache did not survive a reload; first difference at byte %zu, after '%s'", at,
+                 excerpt);
+        failure = detail;
+        goto cleanup;
+    }
+
+cleanup:
+    unlink(first_path);
+    unlink(second_path);
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * What the key lookup accepts, and what it refuses.
+ *
+ * The cache is a text file on a card the user can edit, so a key is an ingress like the air is.
+ * The lookup it replaced was a prefix strncmp against a hand-counted length followed by an
+ * sscanf that ignored whatever trailed the bracket, which let `node[0]junk` through as row 0 and
+ * left `node[99999999999]` to sscanf's undefined behaviour on overflow. This holds the
+ * replacement to being exact in both directions.
+ */
+MESH_TEST_CASE(ui_store_cache_key_lookup, unit) {
+    uint32_t index = 0U;
+    uint32_t sub = 0U;
+
+    MESH_TEST_FAIL_IF(mesh_ui_store_key_lookup("handshake_valid", &index, &sub) !=
+                          MESH_UI_STORE_KEY_HANDSHAKE_VALID,
+                      "a plain key did not resolve");
+    MESH_TEST_FAIL_IF(mesh_ui_store_key_lookup("node_long[7]", &index, &sub) !=
+                          MESH_UI_STORE_KEY_NODE_LONG,
+                      "a row key did not resolve");
+    MESH_TEST_FAIL_IF(index != 7U, "a row key did not yield its index");
+    MESH_TEST_FAIL_IF(mesh_ui_store_key_lookup("node_nbr[3.2]", &index, &sub) !=
+                          MESH_UI_STORE_KEY_NODE_NBR,
+                      "a slot key did not resolve");
+    MESH_TEST_FAIL_IF(index != 3U || sub != 2U, "a slot key did not yield both numbers");
+
+    /* `airtime` is a count and `airtime[0]` is a sample: one name, two keys, told apart by the
+       bracket. Nothing else in the table shares a name, and this is what holds that. */
+    MESH_TEST_FAIL_IF(mesh_ui_store_key_lookup("airtime", &index, &sub) !=
+                          MESH_UI_STORE_KEY_AIRTIME_COUNT,
+                      "the bare airtime key resolved to the row");
+    MESH_TEST_FAIL_IF(mesh_ui_store_key_lookup("airtime[4]", &index, &sub) !=
+                          MESH_UI_STORE_KEY_AIRTIME,
+                      "the indexed airtime key resolved to the count");
+
+    /* A row key is not a plain key wearing brackets, and vice versa. */
+    MESH_TEST_FAIL_IF(mesh_ui_store_key_lookup("node_long", &index, &sub) != MESH_UI_STORE_KEY_NONE,
+                      "a row key resolved without its brackets");
+    MESH_TEST_FAIL_IF(mesh_ui_store_key_lookup("handshake_valid[0]", &index, &sub) !=
+                          MESH_UI_STORE_KEY_NONE,
+                      "a plain key resolved with brackets");
+    /* The prefix confusion the hand-counted lengths were one miscount away from: `node` must
+       not answer for `node_long`, nor `node_nbr` for `node_nbrs`. */
+    MESH_TEST_FAIL_IF(mesh_ui_store_key_lookup("node_nbrs[1]", &index, &sub) !=
+                          MESH_UI_STORE_KEY_NODE_NBRS,
+                      "node_nbrs resolved as node_nbr");
+
+    static const char *const malformed[] = {
+        "",                       /* nothing at all                          */
+        "[0]",                    /* brackets with no name                   */
+        "node[",                  /* an opened bracket                       */
+        "node[]",                 /* no number                               */
+        "node[1",                 /* never closed                            */
+        "node[1]x",               /* trailing rubbish after the close        */
+        "node[1.2]",              /* a slot on a key that takes a row        */
+        "node_nbr[1]",            /* a row on a key that takes a slot        */
+        "node_nbr[1.2.3]",        /* one number too many                     */
+        "node[-1]",               /* a sign, which the format never writes   */
+        "node[99999999999999999]" /* wider than the index can hold           */
+    };
+    for (size_t i = 0U; i < sizeof malformed / sizeof malformed[0]; ++i) {
+        index = 0xFFFFFFFFU;
+        sub = 0xFFFFFFFFU;
+        if (mesh_ui_store_key_lookup(malformed[i], &index, &sub) != MESH_UI_STORE_KEY_NONE) {
+            char detail[128];
+            snprintf(detail, sizeof detail, "malformed key '%s' resolved to something",
+                     malformed[i]);
+            MESH_TEST_FAIL_IF(true, detail);
+        }
+        /* And it leaves nothing behind for the caller to index an array with. */
+        MESH_TEST_FAIL_IF(index != 0U || sub != 0U,
+                          "a refused key still wrote an index back to the caller");
+    }
+
+    MESH_TEST_FAIL_IF(mesh_ui_store_key_lookup(NULL, &index, &sub) != MESH_UI_STORE_KEY_NONE,
+                      "a NULL key did not refuse");
+    /* Both outputs are optional; a caller that wants neither must not crash. */
+    MESH_TEST_FAIL_IF(mesh_ui_store_key_lookup("msg_text[2]", NULL, NULL) !=
+                          MESH_UI_STORE_KEY_MSG_TEXT,
+                      "a row key needed its output pointers");
+
     record_success(test_name);
 }

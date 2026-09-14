@@ -112,6 +112,7 @@ add_library(meshclient_core
     src/ui/duration.c
     src/ui/anim.c
     src/ui/store.c
+    src/ui/store_keys.c
     src/ui/history.c
     src/ui/controller.c
     src/ui/input.c
