@@ -368,7 +368,6 @@ measurement, a convention no assertion reaches - which is why those are allowed 
   address somebody wrote down stays written down with the WiFi off. Without
   `autoconnect_tcp_retry_at_ms` that arm runs first on every turn, fails five seconds later on
   its own connect deadline, and Bluetooth is never reached at all.
-  `tcp_transport_idles_without_a_host`, `app_autoconnect`.
 - **The Devices tab's last row is not a device, and it is present exactly when the list holds no
   network row of its own.** A network cannot be scanned, so discovery publishes nothing until a
   link is already up - which left the whole TCP transport reachable only by editing `launch.sh`.
@@ -821,7 +820,6 @@ measurement, a convention no assertion reaches - which is why those are allowed 
   1.4:1 and that was measured on the width of a bar - the palette is a fill's contract, never an
   ink's - so a hairline in one of those colours is a line the reader has to hunt for. The room a
   chart has is spent making the mark wide enough to be the fill the palette was validated for.
-  `ui_theme_validate_holds_the_series_palette`.
 - **The crash handler builds no strings, and walks the stack through a pipe.** Both look
   roundabout and both are load-bearing. A signal handler may not call `printf` or `malloc` - a
   fault inside the allocator leaves its lock held and a handler that takes it deadlocks instead of
@@ -1098,7 +1096,7 @@ measurement, a convention no assertion reaches - which is why those are allowed 
   sum to something, and the picture drawn from them is confident. The partition is checked at the
   call site as well as reasoned about, and a remainder that comes out negative skips the row rather
   than clamping to zero, which would draw a bar claiming every packet the radio heard was
-  malformed. `ui_status_card_shares_are_slices_of_the_list`, `ui_layout_proportion_split`.
+  malformed.
 - **Both counter rows take their tone from a share, never from a count.** These are lifetime
   totals since the radio booted, so a colour read off an absolute lights once and then stays lit
   for the rest of the connection - twelve malformed packets in six thousand is what the row this
