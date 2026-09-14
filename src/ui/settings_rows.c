@@ -189,14 +189,23 @@ static enum mesh_str_id field_unit(enum mesh_ui_setting_field field) {
     }
 }
 
-/* An editable row: the field's spec supplies label and kind; a pending edit replaces the
-   radio's value and marks the row dirty. `text` is only read for TEXT fields. */
-static void item_field(struct item_list *list, enum mesh_ui_setting_field field, uint32_t number,
-                       const char *text) {
+/*
+ * An editable row: the field's spec supplies label and kind; a pending edit replaces the
+ * radio's value and marks the row dirty. `text` is only read for TEXT fields.
+ *
+ * Answers the row it added, or NULL when the section is full, so a caller with something to say
+ * about a row that the field table cannot say for it - which set of values this one will take
+ * today, and whether the value it is showing disagrees with another row's - says it here rather
+ * than through a second entry point. Every other caller ignores the answer, which is the whole
+ * of what it costs them.
+ */
+static struct mesh_ui_settings_item *item_field(struct item_list *list,
+                                                enum mesh_ui_setting_field field, uint32_t number,
+                                                const char *text) {
     const struct field_spec *spec = field_spec(field);
     struct mesh_ui_settings_item *item = item_add(list, spec->label, spec->kind);
     if (item == NULL) {
-        return;
+        return NULL;
     }
     item->field = field;
     const struct mesh_ui_setting_edit *edit =
@@ -249,6 +258,7 @@ static void item_field(struct item_list *list, enum mesh_ui_setting_field field,
     default:
         break;
     }
+    return item;
 }
 
 /*
@@ -281,6 +291,9 @@ static void item_key_field(struct item_list *list, enum mesh_ui_setting_field fi
         return;
     }
     item->field = field;
+    /* A KEY row's set is the field table's and never moves; it is on the row for the same
+       reason an enum's is, which is that Left and Right read the row rather than the table. */
+    item->choices = spec->choices;
     mesh_ui_settings_key_text(key, len, item->text, sizeof item->text);
     const struct mesh_ui_setting_edit *edit =
         mesh_ui_settings_find_edit(list->edits, list->edit_count, field);
@@ -906,9 +919,48 @@ static void build_display(const struct mesh_ui_settings *s, struct item_list *li
 }
 
 static void build_lora(const struct mesh_ui_settings *s, struct item_list *list) {
-    item_field(list, MESH_UI_FIELD_LORA_REGION, s->region, NULL);
+    /*
+     * The region and the preset are one pair, and this is the only place in the tab where one
+     * row's value decides what another row will take.
+     *
+     * The firmware sends its own table of which modem presets are legal in each region
+     * (FromRadio.region_presets) precisely so a client can stop offering an illegal pair. So
+     * the preset row carries that region's set, Left and Right step inside it, and a preset
+     * that is not in it - which is what a radio configured on another continent arrives holding
+     * - is still shown, marked as the disagreement it is. A row that hid the setting the node
+     * is actually on would be worse than one that shows it and says so.
+     *
+     * A radio whose firmware predates the message says nothing, mesh_ui_settings_region_preset()
+     * answers NULL, and both rows behave exactly as they did before the table existed.
+     */
+    struct mesh_ui_settings_item *region_row =
+        item_field(list, MESH_UI_FIELD_LORA_REGION, s->region, NULL);
+    /* The row's value rather than the radio's, which is the whole reason the region is built
+       before the preset: a region edited a moment ago is the one the preset has to be legal in,
+       not the one the radio is still sitting on. */
+    const uint32_t region = region_row != NULL ? region_row->number : s->region;
+    const struct mesh_ui_region_preset *legal = mesh_ui_settings_region_preset(s, region);
     item_field(list, MESH_UI_FIELD_LORA_USE_PRESET, s->use_preset ? 1U : 0U, NULL);
-    item_field(list, MESH_UI_FIELD_LORA_PRESET, s->modem_preset, NULL);
+    struct mesh_ui_settings_item *preset_row =
+        item_field(list, MESH_UI_FIELD_LORA_PRESET, s->modem_preset, NULL);
+    if (preset_row != NULL && legal != NULL) {
+        preset_row->choices = legal->presets;
+        preset_row->conflict = !mesh_ui_settings_choice_allowed(
+            legal->presets, mesh_ui_settings_enum_count(MESH_UI_FIELD_LORA_PRESET),
+            preset_row->number);
+    }
+    /*
+     * A licensed band on a node that does not claim a licence. The firmware marks the amateur
+     * regions itself, and the pair it disagrees with is one section over: `Licensed operator`
+     * in User, which is what the ham rows at the bottom of this section set.
+     *
+     * A warning rather than a refusal, and only when the owner record says the operator is not
+     * licensed: an operator who is gets no mark, because for them this is simply the band they
+     * are on.
+     */
+    if (region_row != NULL && legal != NULL && legal->licensed_only && !s->is_licensed) {
+        region_row->conflict = true;
+    }
     /* The manual trio only applies with the preset off; they stay listed so the row count
        does not move under the cursor as the toggle is edited. */
     item_field(list, MESH_UI_FIELD_LORA_BANDWIDTH, s->bandwidth, NULL);

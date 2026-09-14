@@ -275,6 +275,18 @@ struct mesh_radio_settings {
        the whole Channel back. Never persisted. */
     bool has_channel[MESH_RADIO_SETTINGS_MAX_CHANNELS];
     meshtastic_Channel channels[MESH_RADIO_SETTINGS_MAX_CHANNELS];
+    /*
+     * Which modem presets each LoRa region will take, as the firmware sent it once during the
+     * want_config handshake. The one thing the radio tells us that is not a setting at all: it
+     * describes the *firmware's* table, so nothing here is ever written back.
+     *
+     * Kept whole, in the wire's own grouped form, for the reason `ui_config` is: unpacking it
+     * is the publish boundary's job, and this side has no business holding two shapes of the
+     * same fact. A radio whose firmware predates the message sends none, `has_region_presets`
+     * stays false, and nothing is constrained - which is what the proto asks a client to do.
+     */
+    bool has_region_presets;
+    meshtastic_LoRaRegionPresetMap region_presets;
 
     /* Admin session. */
     bool has_session_passkey;
@@ -367,6 +379,10 @@ void mesh_radio_settings_apply_channel(struct mesh_radio_settings *settings,
    is why it has an apply of its own rather than only an admin reply arm. */
 void mesh_radio_settings_apply_ui_config(struct mesh_radio_settings *settings,
                                          const meshtastic_DeviceUIConfig *config);
+/* FromRadio.region_presets, which arrives unasked and only there: there is no admin verb that
+   asks for it, so this is the one way the table is ever held. */
+void mesh_radio_settings_apply_region_presets(struct mesh_radio_settings *settings,
+                                              const meshtastic_LoRaRegionPresetMap *map);
 
 /* Folds an ADMIN_APP packet in: captures the session passkey, stores whatever get_*_response
    it carries, and releases the fetch queue when it answers the pending request. A ROUTING_APP

@@ -239,6 +239,13 @@ unsigned mesh_app_node_rank(const struct mesh_node_summary *node, uint32_t my_no
                             const struct mesh_message_log *log,
                             const struct mesh_ui_preferences *prefs);
 
+/* Resolves FromRadio.region_presets from the grouped form the packet carries - each distinct
+   preset list once, every region pointing at one by index - into the table the LoRa rows index
+   by region. Anything the map does not describe is left at zero, which every reader takes as
+   "constrain nothing". Exposed for tests. */
+void mesh_app_flatten_region_presets(const meshtastic_LoRaRegionPresetMap *src,
+                                     struct mesh_ui_region_presets *dst);
+
 /* Turns the session's traceroute into the two ready-to-draw paths the UI carries: the ends
    stitched on (us going out, the target coming back), every hop resolved to a name, and each
    stop paired with the SNR of the link that reached it. Exposed for tests. */

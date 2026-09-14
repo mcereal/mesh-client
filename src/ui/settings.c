@@ -1929,6 +1929,49 @@ bool mesh_ui_settings_key_len_ok(enum mesh_ui_setting_field field, size_t len) {
     }
 }
 
+bool mesh_ui_settings_choice_allowed(uint32_t choices, uint32_t count, uint32_t value) {
+    if (value >= count) {
+        return false;
+    }
+    /* No mask is every value, not no value - see the header. And a value at or past the width
+       of the word has no bit to test, so it is outside any set that has one. */
+    if (choices == 0U) {
+        return true;
+    }
+    return value < 32U && (choices & (1U << value)) != 0U;
+}
+
+uint32_t mesh_ui_settings_choice_step(uint32_t choices, uint32_t count, uint32_t current,
+                                      int delta) {
+    if (count == 0U) {
+        return current;
+    }
+    /* Start from somewhere inside the range even when `current` is not: a radio may be holding
+       a value this build's enum does not have, and a press on that row has to land on one that
+       exists rather than walk off the end of the word. */
+    uint32_t value = current < count ? current : 0U;
+    const uint32_t forward = delta < 0 ? count - 1U : 1U;
+    for (uint32_t step = 0; step < count; ++step) {
+        value = (value + forward) % count;
+        if (mesh_ui_settings_choice_allowed(choices, count, value)) {
+            return value;
+        }
+    }
+    /* A full lap with nothing legal on it. One value in the set, or none. */
+    return current;
+}
+
+const struct mesh_ui_region_preset *
+mesh_ui_settings_region_preset(const struct mesh_ui_settings *settings, uint32_t region) {
+    if (settings == NULL || !settings->region_presets.loaded || region >= MESH_UI_REGION_COUNT) {
+        return NULL;
+    }
+    const struct mesh_ui_region_preset *entry = &settings->region_presets.region[region];
+    /* An empty set is a region the firmware's map did not describe, which is the same silence
+       as no map at all. Answering with it would be answering "no preset is legal here". */
+    return entry->presets != 0U ? entry : NULL;
+}
+
 bool mesh_ui_settings_section_needs_confirm(enum mesh_ui_settings_section section) {
     return section == MESH_UI_SETTINGS_BLUETOOTH || section == MESH_UI_SETTINGS_CHANNELS ||
            section == MESH_UI_SETTINGS_LORA || section == MESH_UI_SETTINGS_SECURITY ||

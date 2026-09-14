@@ -969,17 +969,75 @@ not offering it, and it is the one gap on this list that is not in the Settings 
 a decoder and a screen rather than a row, so each is its own work; they are recorded here
 because this is where the asymmetry became visible.
 
-#### 8. `FromRadio.region_presets`, and the rest of the unread wire
+#### 8. `FromRadio.region_presets`, and the rest of the unread wire (this branch)
 
 `region_presets` (tag 19) is the firmware sending, once during the `want_config` handshake,
 which modem presets are legal in each region - explicitly so that a client can stop offering
-an illegal region-and-preset pair. The LoRa section currently offers all thirty-eight regions
-against every preset with no constraint, which is a row that can be set to something the radio
-will not honour. Also unread: `lockdown_status` (18), `fileInfo` (15), `xmodemPacket` (12) and
+an illegal region-and-preset pair. The LoRa section offered all thirty-eight regions against
+every preset with no constraint, which is a row that can be *set* to something the radio will
+not honour.
+
+It is the first row in the tab whose legal values are decided by **another row**, and that is
+the whole of what it cost. Everything else in `k_fields` answers for itself: a hop limit's
+presets are a hop limit's presets whatever the rest of the section says. A modem preset's are
+the firmware's table for whichever region the row above it is showing - which, mid-edit, is the
+pending one rather than the radio's.
+
+Four things fell out of it, and they are what is worth remembering:
+
+- **The set of values belongs on the row, not on the field.** `struct mesh_ui_settings_item`
+  gains `choices`, a bitmask over the kind's values with 0 meaning "every one of them", and it
+  is filled where the row is built - after the region's pending edit has been applied, which is
+  the only place that knows. That it is on the *item* is what let the KEY rows stop being a
+  special case: their set is fixed by the field table and an enum's may move, but Left and Right
+  do not care which, so `mesh_ui_settings_choice_step()` is now the one loop both walk. It
+  replaced two copies of one modulo walk written out separately, of which only the KEY copy
+  knew what a set was - which is exactly why the enums could offer a value the rest of their
+  section did not allow. Teaching them to skip one is a deletion here rather than an addition.
+- **A value outside the set is shown, not hidden.** This is the rule the two retired device
+  roles already set: a row that cannot display the setting the node is *on* is worse than a row
+  displaying something that should not be picked. A radio configured on another continent
+  arrives holding exactly such a preset. So the row draws it, marks it, and one press of Right
+  gets off it - the walk starts from wherever the cursor is rather than from inside the set.
+- **`item.conflict` is the marker, and it had two callers on the day it was written.** The
+  modem preset a region will not take is one; a region the firmware marks `licensed_only`, on a
+  node whose owner record claims no licence, is the other - the same pairing the ham rows at the
+  bottom of the section exist to set. Both are the firmware's own table saying so rather than
+  this client's judgement, which is why neither blocks a save: the pair can be arrived at
+  honestly, and a screen that refused would leave no way to correct the half the user did not
+  come to change. It takes the marker gutter and the row's tone ahead of the pencil and the dot,
+  because neither "this row can be edited" nor "this is waiting to be written" is worth saying
+  about a value the radio will not honour.
+- **The grouping is the packet's shape and stops at the publish boundary.** The wire sends each
+  distinct preset list once and points every region at one by index, so the whole map fits in a
+  single `FromRadio`. `mesh_app_flatten_region_presets()` resolves that into a table indexed by
+  region, because a screen that walked an index table to find out what a row may be set to would
+  be holding the packet's shape rather than the setting's. Three silences all mean "constrain
+  nothing" and a test pins each: no map at all (a firmware that predates the message), a region
+  the map left out, and a region code past the end of our table. A caller reading any of them as
+  "no preset is legal" would leave the row unsteppable on exactly the radios that tell us least.
+  `LoRaPresetGroup.default_preset` is the one field of the map deliberately dropped: the proto
+  suggests a client select it when the current preset is not legal in a new region, and nothing
+  here does, because *which* legal value to pick on somebody's behalf is a second decision and it
+  wants its own argument rather than a member nothing reads until somebody makes it.
+
+`has_region_presets` is deliberately **not** in `mesh_radio_settings_loaded()`, and the
+distinction is worth writing down because phase 10 got the mirror image of it wrong: every flag
+in that predicate is a section the tab *draws*, and this is a table that constrains one row of
+one of them. A radio that had sent nothing else would otherwise read as loaded with every screen
+in the tab still empty.
+
+Still unread after this: `lockdown_status` (18), `fileInfo` (15), `xmodemPacket` (12) and
 `mqttClientProxyMessage` (14, for the reason phase 6 gives).
 
 On `NodeInfo`, `is_key_manually_verified` and `has_xeddsa_signed` are unread, both tied to the
 `key_verification` verb that "Later, maybe never" already lists.
+
+- Exit criteria: on the Brick, stepping the LoRa preset row on a firmware that sends the map
+  offers only the presets that region allows and skips the rest in both directions; a radio
+  brought in already set to a preset its region does not allow shows that preset with a warning
+  rather than hiding it, and one press moves it to a legal one; and a radio whose firmware
+  predates the message steps through all seventeen exactly as it did before.
 
 #### What the audit did not change
 

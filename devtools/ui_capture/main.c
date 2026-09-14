@@ -1799,6 +1799,30 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         settings.bandwidth = 250U;
         settings.spread_factor = 11U;
         settings.coding_rate = 5U;
+        /*
+         * And the firmware's own table of which presets each region will take, which a real
+         * radio streams in the handshake. Without it the preset row is unconstrained and the
+         * pair of rows draws exactly as it did before the table existed - which is a true
+         * picture of an old firmware and the wrong one to show by default.
+         *
+         * Two entries is enough for the shape: the region the demo is on, with the ordinary
+         * list, and one amateur band with a single preset and the licence flag set. Stepping
+         * from the first to the second is what puts a warning on both rows.
+         */
+        settings.region_presets.loaded = true;
+        settings.region_presets.region[1U] = (struct mesh_ui_region_preset){
+            /* The standard list: LONG_FAST, the medium and short pairs, LONG_MODERATE and the
+               three turbos - with the two upstream deprecated (LONG_SLOW and VERY_LONG_SLOW)
+               left out, which is both what a current firmware reports and what makes the row
+               visibly skip something. */
+            .presets = (1U << 0) | (1U << 3) | (1U << 4) | (1U << 5) | (1U << 6) | (1U << 7) |
+                       (1U << 8) | (1U << 9) | (1U << 16),
+        };
+        /* ITU1_2M, an amateur band: one preset, and a licence to be on it at all. */
+        settings.region_presets.region[27U] = (struct mesh_ui_region_preset){
+            .presets = 1U << 7, /* LONG_MODERATE alone */
+            .licensed_only = true,
+        };
         snprintf(settings.tzdef, sizeof settings.tzdef, "%s", "PST8PDT,M3.2.0,M11.1.0");
         /*
          * LoRa's advanced group, and the values that give each of its three shapes something to

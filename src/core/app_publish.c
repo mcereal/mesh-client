@@ -993,6 +993,53 @@ float mesh_app_unscale_float(int64_t scaled, uint32_t digits) {
     return (float)((double)scaled / scale);
 }
 
+/*
+ * FromRadio.region_presets, from the wire's grouped form into the table the rows index.
+ *
+ * The grouping exists so the whole map fits in one packet: most of the thirty-eight regions
+ * share the one standard preset list, so the firmware sends each distinct list once and points
+ * every region at one by index. Resolving that here is the publish boundary doing its job -
+ * the UI layer reads a *region*, and a screen that had to walk an index table to find out what
+ * a row may be set to would be holding the packet's shape rather than the setting's.
+ *
+ * Anything the firmware did not describe is left at zero, which is the unconstrained reading:
+ * a region absent from `region_groups`, a region code past the end of our table, and an index
+ * pointing outside `groups` all mean the same thing to a row, which is "nothing is known".
+ *
+ * `LoRaPresetGroup.default_preset` is deliberately dropped. The proto suggests a client select
+ * it when the current preset is not legal in a new region, and nothing here does: the row shows
+ * what the radio is on, marks the disagreement, and one press reaches a legal value. *Which*
+ * legal value to pick on the user's behalf is a second decision, and it wants its own argument
+ * rather than a member nothing reads until somebody makes it.
+ */
+void mesh_app_flatten_region_presets(const meshtastic_LoRaRegionPresetMap *src,
+                                     struct mesh_ui_region_presets *dst) {
+    if (src == NULL || dst == NULL) {
+        return;
+    }
+    dst->loaded = true;
+    for (pb_size_t i = 0; i < src->region_groups_count; ++i) {
+        const meshtastic_LoRaRegionPresets *entry = &src->region_groups[i];
+        if ((uint32_t)entry->region >= MESH_UI_REGION_COUNT ||
+            entry->group_index >= src->groups_count) {
+            continue;
+        }
+        const meshtastic_LoRaPresetGroup *group = &src->groups[entry->group_index];
+        struct mesh_ui_region_preset *out = &dst->region[(uint32_t)entry->region];
+        for (pb_size_t p = 0; p < group->presets_count; ++p) {
+            const uint32_t preset = (uint32_t)group->presets[p];
+            /* A preset upstream adds past the width of the word is dropped rather than folded
+               back onto bit 0, which a shift by 32 or more would do (and is undefined besides).
+               Dropping one costs that preset its place in the row's set; wrapping would put
+               another preset's bit there, which is worse than not knowing. */
+            if (preset < 32U) {
+                out->presets |= 1U << preset;
+            }
+        }
+        out->licensed_only = group->licensed_only;
+    }
+}
+
 static void mesh_app_flatten_settings(const struct mesh_radio_settings *src,
                                       struct mesh_ui_settings *dst) {
     memset(dst, 0, sizeof *dst);
@@ -1062,6 +1109,11 @@ static void mesh_app_flatten_settings(const struct mesh_radio_settings *src,
             dst->ignore_incoming[i] =
                 i < src->lora.ignore_incoming_count ? src->lora.ignore_incoming[i] : 0U;
         }
+    }
+    /* Outside `has_lora` on purpose: the table describes the firmware rather than the radio's
+       configuration, and it is worth having on a radio that has sent no LoRaConfig yet. */
+    if (src->has_region_presets) {
+        mesh_app_flatten_region_presets(&src->region_presets, &dst->region_presets);
     }
     if (src->has_bluetooth) {
         dst->has_bluetooth = true;

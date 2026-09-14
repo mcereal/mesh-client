@@ -1344,6 +1344,15 @@ void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t 
         mesh_log_debug("session", "Received device UI config (version %u)",
                        (unsigned)message.deviceuiConfig.version);
         break;
+    case meshtastic_FromRadio_region_presets_tag:
+        /* Which modem presets each region will take. Sent once, unasked, and there is no admin
+           verb that asks for it - so this arm is the only way the table is ever held, and a
+           firmware that predates the message simply leaves the LoRa rows unconstrained. */
+        mesh_radio_settings_apply_region_presets(&session->settings, &message.region_presets);
+        mesh_log_debug("session", "Region presets: %u groups over %u regions",
+                       (unsigned)message.region_presets.groups_count,
+                       (unsigned)message.region_presets.region_groups_count);
+        break;
     case meshtastic_FromRadio_metadata_tag:
         mesh_radio_settings_apply_metadata(&session->settings, &message.metadata);
         mesh_log_info("session", "Device metadata: firmware %s, hw_model %u",

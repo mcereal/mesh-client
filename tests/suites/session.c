@@ -1726,3 +1726,123 @@ MESH_TEST_CASE(session_forgets_the_radio_on_a_swap, unit) {
                       "the new radio's own MyNodeInfo should have survived the forget");
     record_success(test_name);
 }
+
+/*
+ * FromRadio.region_presets: off the wire, into the session, and out flattened.
+ *
+ * The one thing the radio streams that is not a setting - it describes the firmware's own table
+ * of which modem presets each region will take - and the one it sends in a *grouped* form,
+ * because the whole map has to fit in a single packet. Most regions share one preset list, so
+ * each distinct list goes out once and every region points at one by index.
+ *
+ * Resolving that indirection is the publish boundary's job, and the three ways it can be handed
+ * nonsense are the half worth pinning: a region code past the end of our table, an index
+ * pointing outside the groups the packet carried, and a preset number too large for the word a
+ * row's set is held in. None of the three may fold onto a neighbour, because a region quietly
+ * given another region's presets is a row confidently offering exactly what this table exists
+ * to prevent.
+ */
+MESH_TEST_CASE(session_region_presets, unit) {
+    struct mesh_session session;
+    mesh_session_init(&session);
+    struct mesh_test_trace_capture capture;
+    memset(&capture, 0, sizeof capture);
+    mesh_session_attach(&session, mesh_test_trace_capture_fn, &capture);
+
+    meshtastic_FromRadio message = meshtastic_FromRadio_init_zero;
+    message.which_payload_variant = meshtastic_FromRadio_region_presets_tag;
+    meshtastic_LoRaRegionPresetMap *map = &message.region_presets;
+    map->groups_count = 3U;
+    /* Group 0: the ordinary list, shared by two regions. */
+    map->groups[0].presets_count = 2U;
+    map->groups[0].presets[0] = meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST;
+    map->groups[0].presets[1] = meshtastic_Config_LoRaConfig_ModemPreset_SHORT_TURBO;
+    map->groups[0].default_preset = meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST;
+    /* Group 1: an amateur band, one preset, licensed only. */
+    map->groups[1].presets_count = 1U;
+    map->groups[1].presets[0] = meshtastic_Config_LoRaConfig_ModemPreset_LONG_SLOW;
+    map->groups[1].default_preset = meshtastic_Config_LoRaConfig_ModemPreset_LONG_SLOW;
+    map->groups[1].licensed_only = true;
+    /* Group 2: a preset number past the width of the word a set is held in, beside one that
+       fits. Upstream has sixteen today and the word holds thirty-two, so this is the shape of a
+       firmware from further ahead than this build. */
+    map->groups[2].presets_count = 2U;
+    map->groups[2].presets[0] = meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST;
+    map->groups[2].presets[1] = (meshtastic_Config_LoRaConfig_ModemPreset)40;
+
+    map->region_groups_count = 6U;
+    map->region_groups[0].region = meshtastic_Config_LoRaConfig_RegionCode_US;
+    map->region_groups[0].group_index = 0U;
+    map->region_groups[1].region = meshtastic_Config_LoRaConfig_RegionCode_EU_868;
+    map->region_groups[1].group_index = 0U;
+    map->region_groups[2].region = meshtastic_Config_LoRaConfig_RegionCode_ITU1_2M;
+    map->region_groups[2].group_index = 1U;
+    /* Nonsense the firmware should never send, and which must not land on a neighbour. */
+    map->region_groups[3].region = meshtastic_Config_LoRaConfig_RegionCode_ANZ;
+    map->region_groups[3].group_index = 7U; /* past groups_count */
+    map->region_groups[4].region = (meshtastic_Config_LoRaConfig_RegionCode)200;
+    map->region_groups[4].group_index = 0U;
+    map->region_groups[5].region = meshtastic_Config_LoRaConfig_RegionCode_JP;
+    map->region_groups[5].group_index = 2U;
+
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &message),
+                      "the session should take a region preset map");
+    MESH_TEST_FAIL_IF(!session.settings.has_region_presets,
+                      "the region preset map should reach the radio record");
+    /* Not a section the tab draws, so it must not make an otherwise empty radio read as loaded:
+       every screen would be blank behind a list that said everything had arrived. */
+    MESH_TEST_FAIL_IF(mesh_radio_settings_loaded(&session.settings),
+                      "the preset map is not a section and must not count as one");
+
+    struct mesh_ui_settings ui;
+    memset(&ui, 0, sizeof ui);
+    mesh_app_flatten_region_presets(&session.settings.region_presets, &ui.region_presets);
+
+    const uint32_t ordinary = (1U << meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST) |
+                              (1U << meshtastic_Config_LoRaConfig_ModemPreset_SHORT_TURBO);
+    const struct mesh_ui_region_preset *us =
+        mesh_ui_settings_region_preset(&ui, meshtastic_Config_LoRaConfig_RegionCode_US);
+    const struct mesh_ui_region_preset *eu =
+        mesh_ui_settings_region_preset(&ui, meshtastic_Config_LoRaConfig_RegionCode_EU_868);
+    MESH_TEST_FAIL_IF(us == NULL || us->presets != ordinary || us->licensed_only,
+                      "the shared group should reach the first region that points at it");
+    MESH_TEST_FAIL_IF(eu == NULL || eu->presets != ordinary,
+                      "two regions sharing a group should both get it");
+
+    const struct mesh_ui_region_preset *ham =
+        mesh_ui_settings_region_preset(&ui, meshtastic_Config_LoRaConfig_RegionCode_ITU1_2M);
+    MESH_TEST_FAIL_IF(
+        ham == NULL || ham->presets != (1U << meshtastic_Config_LoRaConfig_ModemPreset_LONG_SLOW) ||
+            !ham->licensed_only,
+        "the amateur group should reach its own region, licence flag included");
+
+    /* A preset this build's word has no bit for is dropped rather than folded back onto bit 0,
+       which is what a shift of 32 or more would do. The one beside it still lands. */
+    const struct mesh_ui_region_preset *ahead =
+        mesh_ui_settings_region_preset(&ui, meshtastic_Config_LoRaConfig_RegionCode_JP);
+    MESH_TEST_FAIL_IF(ahead == NULL ||
+                          ahead->presets !=
+                              (1U << meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST),
+                      "a preset too wide for the set should be dropped, not wrapped");
+
+    MESH_TEST_FAIL_IF(
+        mesh_ui_settings_region_preset(&ui, meshtastic_Config_LoRaConfig_RegionCode_ANZ) != NULL,
+        "a group index past the end of the packet should describe nothing");
+    MESH_TEST_FAIL_IF(
+        mesh_ui_settings_region_preset(&ui, meshtastic_Config_LoRaConfig_RegionCode_CN) != NULL,
+        "a region the map left out should describe nothing");
+    /* The out-of-range region code went nowhere at all rather than onto region 200 % 38. */
+    for (uint32_t region = 0; region < MESH_UI_REGION_COUNT; ++region) {
+        if (region == (uint32_t)meshtastic_Config_LoRaConfig_RegionCode_US ||
+            region == (uint32_t)meshtastic_Config_LoRaConfig_RegionCode_EU_868 ||
+            region == (uint32_t)meshtastic_Config_LoRaConfig_RegionCode_ITU1_2M ||
+            region == (uint32_t)meshtastic_Config_LoRaConfig_RegionCode_JP) {
+            continue;
+        }
+        MESH_TEST_FAIL_IF(mesh_ui_settings_region_preset(&ui, region) != NULL,
+                          "a region the map did not name came out described anyway");
+    }
+
+    mesh_session_detach(&session);
+    record_success(test_name);
+}

@@ -1506,3 +1506,84 @@ cleanup:
     }
     record_success(test_name);
 }
+
+/*
+ * Right on the preset row lands only where the region allows.
+ *
+ * The press is where the roadmap's complaint actually lives: the section used to offer all
+ * thirty-eight regions against all seventeen presets with no constraint, which is a row that
+ * can be *set* to something the radio will not honour. The row showing such a value is a
+ * different matter and stays possible - a radio configured elsewhere arrives holding one, and
+ * this asserts the cursor can still get off it.
+ */
+MESH_TEST_CASE(ui_nav_lora_preset_steps_inside_the_region, unit) {
+    const char *failure = NULL;
+
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_lora = true;
+    settings.use_preset = true;
+    settings.region = 1U; /* US */
+    /* MEDIUM_SLOW, which the region below does not allow: the radio came from somewhere else. */
+    settings.modem_preset = 3U;
+    settings.region_presets.loaded = true;
+    settings.region_presets.region[1U] = (struct mesh_ui_region_preset){
+        /* LONG_FAST and SHORT_TURBO: 0 and 8, with nothing legal in between. */
+        .presets = (1U << 0) | (1U << 8),
+    };
+    mesh_ui_store_set_settings(&store, &settings);
+
+    struct mesh_ui_action action;
+    (void)mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS);
+    if (!mesh_test_settings_open(&store, MESH_UI_SETTINGS_LORA) ||
+        !mesh_test_settings_cursor_to(&store, 2U)) {
+        failure = "the LoRa preset row should be reachable";
+        goto cleanup;
+    }
+    struct mesh_ui_settings_item item;
+    if (!mesh_ui_nav_settings_current(&store.nav, &store, true, &item) ||
+        item.field != MESH_UI_FIELD_LORA_PRESET) {
+        failure = "the cursor should be on the preset row";
+        goto cleanup;
+    }
+    /* Sitting on a preset the region does not allow: the row says so and Right gets off it. */
+    if (!item.conflict) {
+        failure = "a preset the region does not allow should be marked";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    if (store.nav.settings_edit_count != 1U ||
+        store.nav.settings_edits[0].field != MESH_UI_FIELD_LORA_PRESET ||
+        store.nav.settings_edits[0].number != 8U) {
+        failure = "Right should skip the presets the region does not allow";
+        goto cleanup;
+    }
+    /* And Right again wraps inside the set rather than walking on through it. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    if (store.nav.settings_edits[0].number != 0U) {
+        failure = "Right off the end of the set should wrap to its first value";
+        goto cleanup;
+    }
+    if (!mesh_ui_nav_settings_current(&store.nav, &store, true, &item) || item.conflict) {
+        failure = "a preset the region allows should not be marked";
+        goto cleanup;
+    }
+    /* Left goes back the way it came, through the same set. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action);
+    if (store.nav.settings_edits[0].number != 8U) {
+        failure = "Left should walk the set backwards";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
+}

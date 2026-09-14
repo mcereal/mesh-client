@@ -51,7 +51,12 @@ bool mesh_radio_settings_loaded(const struct mesh_radio_settings *settings) {
     /* The contract is "anything has arrived". The Config sections are still listed by hand -
        there are eight of them and they do not grow - but the modules come from the table, so a
        new one counts here the moment its row exists. Forgetting this list is what made a radio
-       read as absent while we held its config. */
+       read as absent while we held its config.
+
+       `has_region_presets` is deliberately not on it, and the distinction is what the predicate
+       is about: every flag here is a section the tab *draws*, and the preset map is a table that
+       constrains one row of one of them. A radio that had sent nothing else would otherwise read
+       as loaded with every screen in the tab still empty. */
     if (settings->has_device || settings->has_position || settings->has_power ||
         settings->has_network || settings->has_display || settings->has_lora ||
         settings->has_bluetooth || settings->has_security || settings->has_owner ||
@@ -270,6 +275,15 @@ void mesh_radio_settings_apply_ui_config(struct mesh_radio_settings *settings,
     }
     settings->has_ui_config = true;
     settings->ui_config = *config;
+}
+
+void mesh_radio_settings_apply_region_presets(struct mesh_radio_settings *settings,
+                                              const meshtastic_LoRaRegionPresetMap *map) {
+    if (settings == NULL || map == NULL) {
+        return;
+    }
+    settings->has_region_presets = true;
+    settings->region_presets = *map;
 }
 
 /* ---- admin replies ------------------------------------------------------------------------ */

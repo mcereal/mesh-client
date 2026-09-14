@@ -3140,12 +3140,21 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
              * change, and the dot on one already changed and not yet written. An action row
              * offers something else - it opens - and says so with the chevron every row that
              * opens something ends in, on the trailing edge rather than in the gutter.
+             *
+             * The triangle takes the gutter and the tone ahead of both, and that ordering is the
+             * point rather than an accident of the chain: it is the one mark here that is about
+             * the *value* - the radio will not honour this - where the other two are about what
+             * the row offers and what is waiting to be written. Neither of those is worth saying
+             * over it, and a gutter holds one mark.
              */
-            const enum mesh_ui_icon marker = item.dirty ? MESH_UI_ICON_UNSAVED
+            const enum mesh_ui_icon marker = item.conflict ? MESH_UI_ICON_WARNING
+                                             : item.dirty  ? MESH_UI_ICON_UNSAVED
                                              : item.field != MESH_UI_FIELD_NONE ? MESH_UI_ICON_EDIT
                                                                                 : MESH_UI_ICON_NONE;
             const bool opens = (item.kind == MESH_UI_SETTING_ACTION);
-            const enum mesh_ui_tone tone = item.dirty ? MESH_UI_TONE_STRONG : MESH_UI_TONE_NORMAL;
+            const enum mesh_ui_tone tone = item.conflict ? MESH_UI_TONE_WARNING
+                                           : item.dirty  ? MESH_UI_TONE_STRONG
+                                                         : MESH_UI_TONE_NORMAL;
             /* Empty on every list but Modules, and reserved on all of that one's rows - which
                is what the kind means, and why it is set from the list's answer rather than
                from whether this particular row filled it. */
@@ -3299,7 +3308,12 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
              */
             const uint32_t choices =
                 item.kind == MESH_UI_SETTING_ENUM ? mesh_ui_settings_enum_count(item.field) : 0U;
-            if (choices >= 2U && choices <= FB_SEGMENTED_MAX) {
+            /* A segment nobody may pick is a segment that must not be drawn: the control says
+               "one of these", so a constrained row falls back to the stepped word rather than
+               offering a set it would then refuse. No row does this today - the two constrained
+               ones are a region and a preset, both far wider than a segmented button - and the
+               test is here so the first one that does cannot draw a lie. */
+            if (item.choices == 0U && choices >= 2U && choices <= FB_SEGMENTED_MAX) {
                 struct fb_segmented segmented = {
                     .count = choices,
                     .active = item.number,

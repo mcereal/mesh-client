@@ -1018,7 +1018,7 @@ MESH_STR_ENTRY(SETTINGS_NOTE_NETWORK,                     "The radio's own WiFi 
  * locale may leave them untranslated. Ordered by section, LoRa first because it is the section
  * the questions actually get asked about.
  */
-MESH_STR_ENTRY(SETTINGS_NOTE_LORA_REGION,                 "Which band this radio transmits on, set by law where you are. A radio on the wrong region cannot talk to its neighbours and may not be legal to transmit at all.")
+MESH_STR_ENTRY(SETTINGS_NOTE_LORA_REGION,                 "Which band this radio transmits on, set by law where you are. A radio on the wrong region cannot reach its neighbours, and the amateur bands need an operator licence.")
 MESH_STR_ENTRY(SETTINGS_NOTE_LORA_SPREAD,                 "How far each symbol is spread over the air. Higher reaches further and carries less: every step up roughly doubles the time a message takes to send.")
 MESH_STR_ENTRY(SETTINGS_NOTE_LORA_CODING,                 "How much error correction rides along with each message. Higher recovers more damaged packets and makes every packet longer.")
 MESH_STR_ENTRY(SETTINGS_NOTE_LORA_HOPS,                   "How many times a message may be relayed before the mesh drops it. Every extra hop costs the whole mesh airtime, so raise it only to reach a node that is genuinely that far.")
@@ -1148,7 +1148,7 @@ MESH_STR_ENTRY(SETTINGS_NOTE_BT_PIN,                      "The six digits to use
 
 /* LoRa. The six modem rows are phase 1's, above. */
 MESH_STR_ENTRY(SETTINGS_NOTE_LORA_USE_PRESET,             "Takes the modem settings from a named preset instead of the three rows that set them by hand. Both ends of a link have to end up with the same settings either way.")
-MESH_STR_ENTRY(SETTINGS_NOTE_LORA_PRESET,                 "A named trade of range against speed, from long and slow to short and fast. Every radio you want to talk to has to be on the same one.")
+MESH_STR_ENTRY(SETTINGS_NOTE_LORA_PRESET,                 "A named trade of range against speed, from long and slow to short and fast. Every radio you want to talk to needs the same one, and a region allows only some of them.")
 MESH_STR_ENTRY(SETTINGS_NOTE_LORA_TX_ENABLED,             "Whether this radio may transmit at all. Off leaves it listening: it hears the mesh and repeats nothing, which is the setting for a band you are not licensed on.")
 MESH_STR_ENTRY(SETTINGS_NOTE_LORA_IGNORE_MQTT,            "Drops packets that reached this radio from an internet gateway rather than over the air. It is how a local mesh keeps a busy broker off its own band.")
 MESH_STR_ENTRY(SETTINGS_NOTE_LORA_OK_TO_MQTT,             "Lets gateways forward this radio's traffic to the internet. It is a request rather than a guarantee - it asks other people's gateways to respect it, and they may not.")

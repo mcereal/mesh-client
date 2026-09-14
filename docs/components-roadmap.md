@@ -2035,3 +2035,43 @@ Two things worth keeping:
   *section's worth* turns up, that is the moment the column in `k_fields` earns its place on
   every row of the table - and not before, because a member there costs a hundred and seventy
   rows a comma each.
+
+## 23. What constraining one row by another turned out to be
+
+The settings tab's first row whose legal values are decided by a different row
+(`docs/settings-roadmap.md` phase 14 item 8: the firmware sends a table of which modem presets
+each LoRa region will take, so the section can stop offering a pair the radio will not honour).
+Two things came out of it for the component set, and the second is the one §19 asked for.
+
+**A set of values is a property of the row.** `struct mesh_ui_settings_item` gains `choices`, a
+bitmask over the kind's values with 0 meaning "all of them". That is where it had to go rather
+than into `k_fields`: the field table describes what a field *is*, and which presets are legal
+right now depends on what the region row above it is showing - which, mid-edit, is a pending
+value that only exists while the list is being built. The same member serves the KEY rows, whose
+set is fixed and comes off the table, and that is the payoff: `mesh_ui_settings_choice_step()`
+is one walk over a set, and Left and Right no longer care which kind they are on. It replaced
+two copies of one modulo loop of which only the KEY copy knew what a set was, so teaching the
+enums to skip a value is a deletion rather than an addition.
+
+**The row that is showing something wrong is a state the list already had a vocabulary for.**
+`item.conflict` is drawn with `MESH_UI_ICON_WARNING` in the marker gutter and
+`MESH_UI_TONE_WARNING` as the row's tone: no new component, no new slot, no new colour - a tone
+and an icon, which is what §4's first rule says a component takes. It sits *ahead* of the pencil
+and the dot in the same chain, because "this row can be edited" and "this is waiting to be
+written" are both worth less than "the radio will not honour this", and a gutter holds one mark.
+
+Two things worth keeping:
+
+- **A constrained row must not draw a control that offers the whole set.** The segmented button
+  reads "one of these", so a row carrying a `choices` mask falls back to the stepped word rather
+  than drawing segments it would then refuse. No row does this today - the two constrained ones
+  are a region and a preset, both far wider than `FB_SEGMENTED_MAX` - and the guard is in the
+  screen anyway, because the first row that *is* narrow enough would otherwise draw a lie and
+  nothing would have said so. It is the same shape as the note in `fb_widgets.h` that §21 was
+  finally able to delete: a component stating a rule it does not yet have a caller for.
+- **Hiding the illegal value was the tempting answer and the wrong one.** A row that only
+  offered legal values could not display the setting a node is actually on - and a radio
+  configured on another continent arrives holding exactly such a preset. That is the rule the
+  two retired device roles set in phase 5, arriving a second time from the other direction: the
+  screen's first job is to say what is true, and its second is to make the right thing easy to
+  reach. Marking the value and letting one press step off it does both; hiding it does neither.

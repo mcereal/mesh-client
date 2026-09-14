@@ -1,0 +1,53 @@
+# The region and the preset, which are one pair of rows rather than two settings.
+#
+# Settings > LoRa, top of the section. The firmware sends its own table of which modem presets
+# each region will take (docs/settings-roadmap.md phase 14 item 8), so this is the first row in
+# the tab whose legal values are decided by the row above it.
+#
+# Three things the scene is for, in the order they happen:
+#
+#   1. Right on the preset steps *inside* the region's set and skips what is not in it. The two
+#      presets upstream deprecated are missing from a current firmware's list, so the row walks
+#      straight past them - which is the whole of what "stop offering an illegal pair" means.
+#   2. Stepping the region to an amateur band leaves the preset showing something that band will
+#      not take. It is still drawn, with the warning triangle in the marker gutter, because a
+#      row that hid the setting a node is actually on would be worse than one that shows it.
+#   3. The region row is marked too, and for a different reason: the band is for licensed
+#      operators and this node's owner record does not claim a licence.
+
+scene demo
+scale 4
+delay 300
+
+config
+tab settings
+
+# Down to LoRa and open it. The region is the first row, the preset the third.
+key down 8
+key a
+hold 1200
+
+# The preset row, on a legal value: no mark, and the pencil in the gutter like any other row.
+key down 2
+hold 1200
+
+# Right twice. Both land inside the region's set rather than on the next number, which is what
+# there is to see - the presets between them are simply not offered.
+key right
+hold 1000
+key right
+hold 1400
+
+# Back up to the region and walk it along to the amateur band. The preset under it does not move
+# and does not need to: what changes is whether the band will take it.
+key up 2
+hold 800
+key right 26
+hold 1800
+
+# And down onto the preset again, now showing a value its region will not honour. One press of
+# Right is all it takes to reach the one that is legal here.
+key down 2
+hold 1600
+key right
+hold 1800

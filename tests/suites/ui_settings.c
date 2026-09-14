@@ -3244,3 +3244,171 @@ MESH_TEST_CASE(ui_settings_ham_mode_is_its_own_press, unit) {
         "as an ordinary save");
     record_success(test_name);
 }
+
+/*
+ * The choice walk both kinds with a *set* of values share.
+ *
+ * It replaced two copies of one modulo loop, of which only the KEY copy knew what a set was -
+ * which is why the enums could offer a value the rest of their section did not allow. The rules
+ * that matter are the edges, and every one of them is a way the merged walk could be wrong: an
+ * empty mask is every value rather than none, a value past `count` is never in the set whatever
+ * the mask says, a row sitting on a value outside the set can still get off it, and a lap with
+ * nothing legal on it answers where it started rather than somewhere arbitrary.
+ */
+MESH_TEST_CASE(ui_settings_choice_step, unit) {
+    /* No mask is no constraint: the plain wrap-around the enums had before sets existed. */
+    MESH_TEST_FAIL_IF(mesh_ui_settings_choice_step(0U, 4U, 3U, +1) != 0U,
+                      "an unconstrained row should wrap past the last value");
+    MESH_TEST_FAIL_IF(mesh_ui_settings_choice_step(0U, 4U, 0U, -1) != 3U,
+                      "an unconstrained row should wrap past the first value");
+
+    /* Values 0, 3 and 5 legal out of eight. Both directions skip the rest. */
+    const uint32_t mask = (1U << 0) | (1U << 3) | (1U << 5);
+    MESH_TEST_FAIL_IF(mesh_ui_settings_choice_step(mask, 8U, 0U, +1) != 3U,
+                      "Right should land on the next legal value, not the next value");
+    MESH_TEST_FAIL_IF(mesh_ui_settings_choice_step(mask, 8U, 3U, +1) != 5U,
+                      "Right should keep skipping what the set leaves out");
+    MESH_TEST_FAIL_IF(mesh_ui_settings_choice_step(mask, 8U, 5U, +1) != 0U,
+                      "Right off the end of the set should wrap to its first value");
+    MESH_TEST_FAIL_IF(mesh_ui_settings_choice_step(mask, 8U, 0U, -1) != 5U,
+                      "Left off the start of the set should wrap to its last value");
+
+    /* A value the set leaves out is still steppable: the radio may be holding one, and the row
+       has to be able to get off it. */
+    MESH_TEST_FAIL_IF(mesh_ui_settings_choice_step(mask, 8U, 4U, +1) != 5U,
+                      "a row sitting on an illegal value should step to a legal one");
+
+    /* One legal value, and none: the press does nothing rather than pretending to. */
+    MESH_TEST_FAIL_IF(mesh_ui_settings_choice_step(1U << 2, 8U, 2U, +1) != 2U,
+                      "a set of one should leave the row where it is");
+    MESH_TEST_FAIL_IF(mesh_ui_settings_choice_step(1U << 9, 8U, 1U, +1) != 1U,
+                      "a set with nothing inside the range should leave the row where it is");
+
+    /* And the predicate the row's warning is drawn from. */
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_choice_allowed(0U, 4U, 3U),
+                      "every value in range is allowed when nothing constrains the row");
+    MESH_TEST_FAIL_IF(mesh_ui_settings_choice_allowed(0U, 4U, 4U),
+                      "a value past the end of the enum is not allowed by an empty mask either");
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_choice_allowed(mask, 8U, 3U) ||
+                          mesh_ui_settings_choice_allowed(mask, 8U, 4U),
+                      "the predicate should read the set it is given");
+    record_success(test_name);
+}
+
+/*
+ * FromRadio.region_presets, from the packet's grouped form to the row's set.
+ *
+ * Three silences mean the same thing and all three are here, because a caller that read any of
+ * them as "no preset is legal" would leave the row unsteppable on exactly the radios that tell
+ * us least: a firmware that sends no map at all, a region the map leaves out, and a region code
+ * past the end of the table.
+ */
+MESH_TEST_CASE(ui_settings_region_presets, unit) {
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+
+    MESH_TEST_FAIL_IF(mesh_ui_settings_region_preset(
+                          &settings, meshtastic_Config_LoRaConfig_RegionCode_US) != NULL,
+                      "a radio that sent no map should constrain nothing");
+
+    settings.region_presets.loaded = true;
+    struct mesh_ui_region_preset *us =
+        &settings.region_presets.region[meshtastic_Config_LoRaConfig_RegionCode_US];
+    us->presets = (1U << meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST) |
+                  (1U << meshtastic_Config_LoRaConfig_ModemPreset_SHORT_TURBO);
+
+    const struct mesh_ui_region_preset *found =
+        mesh_ui_settings_region_preset(&settings, meshtastic_Config_LoRaConfig_RegionCode_US);
+    MESH_TEST_FAIL_IF(found == NULL || found->presets != us->presets,
+                      "a region the map describes should answer with its own set");
+    MESH_TEST_FAIL_IF(mesh_ui_settings_region_preset(
+                          &settings, meshtastic_Config_LoRaConfig_RegionCode_EU_868) != NULL,
+                      "a region the map left out should constrain nothing");
+    MESH_TEST_FAIL_IF(mesh_ui_settings_region_preset(&settings, MESH_UI_REGION_COUNT) != NULL,
+                      "a region code past the end of the table should constrain nothing");
+
+    /* The table is as wide as the protobuf's own enum, and the set is a word the presets fit
+       in. Both are literals on this side of the fence, so this is where they are checked. */
+    MESH_TEST_FAIL_IF(MESH_UI_REGION_COUNT !=
+                          (uint32_t)_meshtastic_Config_LoRaConfig_RegionCode_MAX + 1U,
+                      "the region table is not as wide as the protobuf's region codes");
+    MESH_TEST_FAIL_IF((uint32_t)_meshtastic_Config_LoRaConfig_ModemPreset_MAX >= 32U,
+                      "a modem preset no longer fits in the set the row carries");
+    record_success(test_name);
+}
+
+/*
+ * The LoRa pair: the preset row carries the region's set, and says so when it cannot honour it.
+ *
+ * The region read is the *pending* one, which is the whole reason the rows are built in this
+ * order. A user steps the region and the preset under it has to answer for where they have just
+ * arrived, not for where the radio still is.
+ */
+MESH_TEST_CASE(ui_settings_lora_preset_follows_the_region, unit) {
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_lora = true;
+    settings.has_owner = true;
+    settings.region = meshtastic_Config_LoRaConfig_RegionCode_US;
+    settings.modem_preset = meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST;
+    settings.region_presets.loaded = true;
+    const uint32_t us_set = (1U << meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST) |
+                            (1U << meshtastic_Config_LoRaConfig_ModemPreset_SHORT_TURBO);
+    settings.region_presets.region[meshtastic_Config_LoRaConfig_RegionCode_US] =
+        (struct mesh_ui_region_preset){.presets = us_set};
+    /* An amateur band, with a different set and nothing in common with the one above it. */
+    const uint32_t ham_set = 1U << meshtastic_Config_LoRaConfig_ModemPreset_LONG_SLOW;
+    settings.region_presets.region[meshtastic_Config_LoRaConfig_RegionCode_ITU1_2M] =
+        (struct mesh_ui_region_preset){.presets = ham_set, .licensed_only = true};
+
+    struct mesh_ui_settings_item region;
+    struct mesh_ui_settings_item preset;
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_LORA,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, 0U, &region) ||
+                          region.field != MESH_UI_FIELD_LORA_REGION,
+                      "the region is still the LoRa section's first row");
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_LORA,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, 2U, &preset) ||
+                          preset.field != MESH_UI_FIELD_LORA_PRESET,
+                      "the preset is still the LoRa section's third row");
+    MESH_TEST_FAIL_IF(preset.choices != us_set,
+                      "the preset row should carry the set its region allows");
+    MESH_TEST_FAIL_IF(preset.conflict || region.conflict,
+                      "a legal pair on an unlicensed band should mark nothing");
+
+    /* Now the pending region moves to the amateur band. The preset the radio is on is not legal
+       there, and the node claims no licence - so both rows have something to say. */
+    struct mesh_ui_setting_edit edits[1];
+    memset(edits, 0, sizeof edits);
+    edits[0].field = MESH_UI_FIELD_LORA_REGION;
+    edits[0].number = meshtastic_Config_LoRaConfig_RegionCode_ITU1_2M;
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, edits, 1U, MESH_UI_SETTINGS_LORA,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, 2U, &preset),
+                      "the preset row should still be there after a region edit");
+    MESH_TEST_FAIL_IF(preset.choices != ham_set,
+                      "the preset row should follow the pending region, not the radio's");
+    MESH_TEST_FAIL_IF(!preset.conflict,
+                      "a preset the new region will not take should be marked, not hidden");
+    MESH_TEST_FAIL_IF(preset.number != (uint32_t)meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST,
+                      "the row should still show the preset the radio is actually on");
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, edits, 1U, MESH_UI_SETTINGS_LORA,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, 0U, &region) ||
+                          !region.conflict,
+                      "an amateur band on a node claiming no licence should be marked");
+
+    /* And an operator who does hold one gets no mark: for them it is simply the band. */
+    settings.is_licensed = true;
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, edits, 1U, MESH_UI_SETTINGS_LORA,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, 0U, &region) ||
+                          region.conflict,
+                      "a licensed operator should not be warned about their own band");
+
+    /* A radio whose firmware predates the map constrains nothing, and nothing is marked. */
+    settings.region_presets.loaded = false;
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, edits, 1U, MESH_UI_SETTINGS_LORA,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, 2U, &preset) ||
+                          preset.choices != 0U || preset.conflict,
+                      "a firmware that sends no map should leave the preset row as it was");
+    record_success(test_name);
+}
