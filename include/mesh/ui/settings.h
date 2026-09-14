@@ -80,6 +80,23 @@ enum mesh_ui_settings_section {
      * (which this client does not ship) is the module's *wiring*, not its words.
      */
     MESH_UI_SETTINGS_CANNED,
+    /*
+     * NetworkConfig, read-only: which interface the radio is meant to be using, at what
+     * address, against which NTP server.
+     *
+     * Fetched and stored on every refresh since phase 1 and read by nothing until now, which is
+     * a round trip per refresh spent on bytes that were dropped. Not editable, for the reason
+     * the roadmap's "Later, maybe never" gives - WiFi credentials typed on a handheld that has
+     * no WiFi of its own is a poor fit - and that is an argument against *setting* it rather
+     * than against showing it: "why is this radio not reaching the broker" is a question About
+     * radio can only half answer, because DeviceConnectionStatus is the interface's state and
+     * this is its configuration. The two disagreeing is itself worth being able to see.
+     *
+     * Declared last for the reason every section since phase 9 has been: the enum's order is
+     * what the persisted cursor and the tests are written against, and the list's order is
+     * mesh_ui_settings_root_at()'s business.
+     */
+    MESH_UI_SETTINGS_NETWORK,
     MESH_UI_SETTINGS_SECTION_COUNT,
 };
 
@@ -233,6 +250,10 @@ enum mesh_ui_setting_field {
     MESH_UI_FIELD_CHANNEL_UPLINK,
     MESH_UI_FIELD_CHANNEL_DOWNLINK,
     MESH_UI_FIELD_CHANNEL_POSITION,
+    /* ChannelSettings.module_settings.is_muted, the other field in the submessage the row above
+       writes. Last in the channel's rows because it is the one that changes nothing about what
+       the channel *is* - the four before it decide who can read it and where it is bridged. */
+    MESH_UI_FIELD_CHANNEL_MUTED,
     MESH_UI_FIELD_BT_ENABLED,
     MESH_UI_FIELD_BT_MODE,
     MESH_UI_FIELD_BT_PIN, /* text: six digits */
@@ -693,6 +714,56 @@ mesh_ui_settings_find_edit(const struct mesh_ui_setting_edit *edits, size_t edit
 bool mesh_ui_settings_section_loaded(const struct mesh_ui_settings *settings,
                                      const struct mesh_ui_handshake_state *handshake,
                                      enum mesh_ui_settings_section section);
+
+/*
+ * Why a section has no rows - and, the part that matters to whoever is looking at it, whether
+ * pressing X could change that.
+ *
+ * Three lists drew the same "not loaded" from three different tests before this existed: the
+ * top level, the Modules list, and the empty-section screen. Two of them were also wrong for
+ * the same radio, because a firmware built without a module never sends it and never will, and
+ * a row that says "not loaded" is an invitation to keep refreshing. One predicate, asked in
+ * three places, with the words chosen from the answer rather than from the caller.
+ */
+enum mesh_ui_settings_availability {
+    MESH_UI_SETTINGS_SECTION_READY = 0, /* the radio sent it; there are rows */
+    MESH_UI_SETTINGS_SECTION_WAITING,   /* not sent yet - a refresh may bring it */
+    MESH_UI_SETTINGS_SECTION_EXCLUDED,  /* this firmware was built without it */
+};
+
+enum mesh_ui_settings_availability
+mesh_ui_settings_section_availability(const struct mesh_ui_settings *settings,
+                                      const struct mesh_ui_handshake_state *handshake,
+                                      enum mesh_ui_settings_section section);
+
+/* The word a list row puts in its value column, and MESH_STR_NONE for a section that is ready
+   (which draws as an empty column rather than as a word for "fine"). */
+enum mesh_str_id mesh_ui_settings_availability_label(enum mesh_ui_settings_availability state);
+
+/* Which bit of DeviceMetadata.excluded_modules stands for this section, and 0 for a section
+   the mask has nothing to say about. Exported for the test that pins the table against the
+   protobuf; nothing else should be comparing bits. */
+uint32_t mesh_ui_settings_section_excluded_bit(enum mesh_ui_settings_section section);
+
+/* The line an empty section screen draws instead of its rows. A ready section answers with the
+   waiting line rather than with nothing: the only way to reach this while ready is a channel
+   slot that went away under an open screen, and "not sent by the radio yet" is what that is. */
+enum mesh_str_id mesh_ui_settings_availability_reason(enum mesh_ui_settings_availability state);
+
+/*
+ * Whether anything in this section can be stepped in place, and whether anything in it is a
+ * verb - which is the pair the action bar's two universal keycaps promise.
+ *
+ * The first is a fact about the field table and is answered from it; the second depends on the
+ * radio's own data (About radio grows its install press only when there is one), so it is
+ * answered from the rows as built. Both exist so the bar can stop naming sections: a read-only
+ * section that offered "Left/Right edit" was advertising a press that worked on none of its
+ * rows, which is the keycap-that-does-nothing this client refuses everywhere else.
+ */
+bool mesh_ui_settings_section_has_fields(enum mesh_ui_settings_section section);
+bool mesh_ui_settings_section_has_verbs(const struct mesh_ui_settings *settings,
+                                        const struct mesh_ui_handshake_state *handshake,
+                                        enum mesh_ui_settings_section section, uint8_t channel);
 
 /* Items in a section for the current data. Zero when the section has not loaded. `channel`
    is the open slot in the Channels section, MESH_UI_SETTINGS_NO_CHANNEL otherwise. */

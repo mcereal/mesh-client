@@ -480,6 +480,12 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
         channel->has_module_settings = true;
         channel->module_settings.position_precision = edit->number;
         break;
+    case MESH_UI_FIELD_CHANNEL_MUTED:
+        /* The same submessage the row above writes, and it has to be marked present for either:
+           a Channel whose module_settings is absent carries neither field. */
+        channel->has_module_settings = true;
+        channel->module_settings.is_muted = on;
+        break;
     case MESH_UI_FIELD_BT_ENABLED:
         bluetooth->enabled = on;
         break;

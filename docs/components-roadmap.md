@@ -1925,3 +1925,43 @@ lines, which is what a component set is supposed to feel like when it is working
   model, used for something that is not a meter row. A chip is one line advance tall with nothing
   under it to say, so a two-step strip would spend a whole node row on air - on the one list
   where a row costs the most.
+
+## 20. What the read-only Network section changed
+
+Also not a step on §3's list, and not a component: a section added to the Settings tab
+(`docs/settings-roadmap.md`, phase 14 item 3) that is read-only from top to bottom, which no
+section reached through the tab's own list had ever been except the two named About. It drew
+correctly on the first build. The bar under it did not, and what that turned out to be is the
+entry.
+
+- **The action bar named sections, and sections outgrew it.** `actions_settings()` had an arm
+  per section for the two that are read-only: About MeshClient dropped the Left/Right keycap,
+  About radio dropped it and added A when a firmware check had something to run, and everything
+  else fell through to an arm that names `←→ edit`. Radio actions fell through it too - a
+  screen whose every row says **press A** in its own value column, under a bar naming the two
+  buttons that do nothing on any of them and not naming the one that does. Network would have
+  been the third such screen and the second spelling of the same fix.
+
+- **Both halves are askable, and one of them is not static.** Whether anything on a section
+  steps in place is a fact about the field table (`mesh_ui_settings_section_has_fields()`,
+  walked rather than tabulated, so a section whose last editable row is retired stops claiming
+  one). Whether anything on it is a verb is a fact about the rows *as built*
+  (`mesh_ui_settings_section_has_verbs()`), because About radio's install press appears only
+  once a check has found a release - which is exactly the condition the hand-written arm was
+  already testing, spelled as `fw_supported`. Asking the rows makes the keycap and the row it
+  names the same answer by construction, which is what `bar_add_help()` does with
+  `mesh_ui_help_offered()` two functions above it.
+
+- **The rule it restates:** §4's third rule says a component names an icon rather than a marker
+  character; the bar's version, from step 5, is that a screen names a **(button, verb) pair**.
+  What neither said is where the pair comes from. It comes from *the screen's own model* -
+  never from the screen's name. An arm keyed on a section id is a keycap that is right until
+  somebody adds a section, and this file now has two examples of that going wrong: the hint
+  branch step 5 deleted, and this one.
+
+- **The row model needed nothing.** Eleven rows of `INFO` and `TOGGLE`, a `HEADING` over the
+  four static addresses, values formatted by the same `format_ipv4()` the About radio
+  connection rows use - a whole screen with no new component, no new kind and no renderer
+  change, which is the set working as §2 hoped. The only new table row anywhere is one icon
+  (`lan`), because the top-level list declares the leading slot for every row and a section
+  without one would draw a hole.

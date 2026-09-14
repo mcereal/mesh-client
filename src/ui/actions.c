@@ -429,21 +429,53 @@ static void actions_settings(const struct mesh_ui_nav *nav, const struct mesh_ui
         return;
     }
     /*
-     * About radio: a page of readings, with one verb on it.
+     * A section with nothing to step: About radio, Radio actions, Network.
      *
-     * Nothing in this section is editable - which is the whole of what its name promises - so
-     * the edit keys come off, where every other read-only screen already leaves them off and
-     * this one did not: the bar was advertising a press that worked on none of its rows.
+     * Left and Right are the gesture a settings section is *for*, and a section with no row in
+     * the field table has no row they work on - so the keycap comes off, which is the rule this
+     * file applies everywhere else. It was written as an arm per section before there were
+     * three of them, and the two that had one disagreed: About radio dropped the edit keys and
+     * Radio actions, whose every row says "press A" in its own value column, kept them and
+     * never named A.
      *
-     * A goes on for the opposite reason to the one that keeps it off a settings section below.
-     * There the bar names Left and Right because they are the gesture that works on *every*
-     * row, and A would be a sometimes-extra beside them; here there is no universal gesture at
-     * all, so the only press the screen has is the only press the bar can name. It is gated on
-     * the same condition the row is, because a device with no curl and no wget draws no verb
-     * here and a keycap for it would name a button that is not on the frame.
+     * Both halves are now asked rather than listed. Whether anything steps is a fact about the
+     * field table; whether anything is a verb is a fact about the rows as built, which is what
+     * makes it the same answer as the row itself - About radio's install press appears only
+     * once a check has found something, and a device with no curl draws no verb here at all.
+     * That was already the condition this arm tested by hand, spelled as `fw_supported`.
+     *
+     * A is named here and left off an editable section below for the same reason in both
+     * places: the bar names the gesture that works on every row, and on a section of values
+     * that is Left and Right, with A a sometimes-extra beside them.
      */
-    if (nav->settings_section == MESH_UI_SETTINGS_RADIO) {
-        if (snapshot != NULL && snapshot->settings.fw_supported) {
+    const enum mesh_ui_settings_section section =
+        (enum mesh_ui_settings_section)nav->settings_section;
+    /*
+     * A section this firmware was built without: no rows, and no press that can make any.
+     *
+     * The screen behind it says so in a sentence, and the bar has to agree - X is the answer to
+     * a section that has *not arrived yet*, and offering it here invites the one refresh that
+     * cannot work. The same goes for the edit keys on a section that has fields in the table: a
+     * build with no Bluetooth has a Bluetooth field table and no Bluetooth to point it at.
+     *
+     * Only for EXCLUDED, deliberately. A section still waiting keeps its bar, because X is
+     * exactly the press for it and the rows it names are a reply away - a bar that changed
+     * shape as a fetch landed would be chrome moving under a reader for no decision they made.
+     */
+    if (snapshot != NULL &&
+        mesh_ui_settings_section_availability(
+            &snapshot->settings, snapshot->handshake_valid ? &snapshot->handshake : NULL,
+            section) == MESH_UI_SETTINGS_SECTION_EXCLUDED) {
+        bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
+        bar_add_help(snapshot, bar);
+        bar_add_tabs(bar);
+        return;
+    }
+    if (!mesh_ui_settings_section_has_fields(section)) {
+        if (snapshot != NULL &&
+            mesh_ui_settings_section_has_verbs(
+                &snapshot->settings, snapshot->handshake_valid ? &snapshot->handshake : NULL,
+                section, nav->settings_channel)) {
             bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_RUN);
         }
         bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);

@@ -3076,8 +3076,12 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                                      items, MESH_UI_SETTINGS_ITEMS_MAX)
             : mesh_ui_settings_root_count();
     if (count == 0U) {
+        /* Which of the two empty sections this is: one a refresh may fill in, and one it never
+           will. Asked of the same predicate the section list asks, so the row and the screen
+           behind it cannot disagree about why it is blank. */
         fb_draw_empty(state, layout, MESH_UI_ICON_SETTINGS,
-                      mesh_str(MESH_STR_SETTINGS_EMPTY_SECTION));
+                      mesh_str(mesh_ui_settings_availability_reason(
+                          mesh_ui_settings_section_availability(settings, handshake, section))));
         return;
     }
 
@@ -3289,7 +3293,9 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
             fb_list_item(state, &list, i, &row);
         } else {
             const enum mesh_ui_settings_section section_row = mesh_ui_settings_root_at(i);
-            const bool loaded = mesh_ui_settings_section_loaded(settings, handshake, section_row);
+            const enum mesh_ui_settings_availability available =
+                mesh_ui_settings_section_availability(settings, handshake, section_row);
+            const bool loaded = available == MESH_UI_SETTINGS_SECTION_READY;
             const struct fb_list_item row = {
                 /* What the section is, in the slot the eye reaches first. The one list on this
                    screen that was a column of words with nothing to aim at. */
@@ -3297,7 +3303,7 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                             .icon = mesh_ui_settings_section_icon(section_row)},
                 .label = mesh_ui_settings_section_name(section_row),
                 .label_cols = label_cols,
-                .value = loaded ? "" : mesh_str(MESH_STR_SETTINGS_NOT_LOADED),
+                .value = loaded ? "" : mesh_str(mesh_ui_settings_availability_label(available)),
                 .tone = loaded ? MESH_UI_TONE_NORMAL : MESH_UI_TONE_DIM,
                 /* Every row here opens a section, which is what the section list *is*. */
                 .trailing = {.kind = FB_TRAILING_ICON, .icon = MESH_UI_ICON_CHEVRON},

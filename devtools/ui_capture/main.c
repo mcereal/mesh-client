@@ -1737,6 +1737,26 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         settings.pairing_mode = 0U; /* a random PIN, which is the firmware's default */
 
         /*
+         * The network the radio was told to join, which is what the read-only Network section
+         * draws. A static address rather than DHCP, so the four rows that only appear under
+         * Static are on screen: a section whose shape depends on one row above it is worth
+         * filming in the shape that has the rows.
+         */
+        settings.has_network = true;
+        settings.wifi_enabled = true;
+        /* The same network and address the connection rows on About radio report, because this
+           radio is on the network it was configured for - the two screens disagreeing is the
+           case the section exists for, not the case a demo should quietly show. */
+        snprintf(settings.wifi_ssid, sizeof settings.wifi_ssid, "%s", "shed");
+        settings.address_mode = 1U;          /* STATIC */
+        settings.ipv4_ip = 0x2801A8C0U;      /* 192.168.1.40 */
+        settings.ipv4_gateway = 0x0101A8C0U; /* 192.168.1.1 */
+        settings.ipv4_subnet = 0x00FFFFFFU;  /* 255.255.255.0 */
+        settings.ipv4_dns = 0x0101A8C0U;
+        snprintf(settings.ntp_server, sizeof settings.ntp_server, "%s", "meshtastic.pool.ntp.org");
+        settings.enabled_protocols = 1U; /* UDP_BROADCAST */
+
+        /*
          * DeviceMetadata, which is a reply of its own rather than a config block - and the whole
          * of Settings > About radio above the node number. Portduino because this radio is the
          * Linux host the demo's own node reports host telemetry for; a board that cannot cut its

@@ -1006,6 +1006,26 @@ static void mesh_app_flatten_settings(const struct mesh_radio_settings *src,
         dst->pairing_mode = (uint8_t)src->bluetooth.mode;
         dst->fixed_pin = src->bluetooth.fixed_pin;
     }
+    if (src->has_network) {
+        dst->has_network = true;
+        dst->wifi_enabled = src->network.wifi_enabled;
+        snprintf(dst->wifi_ssid, sizeof dst->wifi_ssid, "%s", src->network.wifi_ssid);
+        dst->eth_enabled = src->network.eth_enabled;
+        dst->ipv6_enabled = src->network.ipv6_enabled;
+        dst->address_mode = (uint8_t)src->network.address_mode;
+        if (src->network.has_ipv4_config) {
+            dst->ipv4_ip = src->network.ipv4_config.ip;
+            dst->ipv4_gateway = src->network.ipv4_config.gateway;
+            dst->ipv4_subnet = src->network.ipv4_config.subnet;
+            dst->ipv4_dns = src->network.ipv4_config.dns;
+        }
+        snprintf(dst->ntp_server, sizeof dst->ntp_server, "%s", src->network.ntp_server);
+        snprintf(dst->rsyslog_server, sizeof dst->rsyslog_server, "%s",
+                 src->network.rsyslog_server);
+        dst->enabled_protocols = src->network.enabled_protocols;
+        /* wifi_psk is read off the wire into the radio record and stops there: it has no row,
+           so it has no reason to be on this side of the fence. */
+    }
     if (src->has_security) {
         dst->has_security = true;
         size_t key_len = src->security.public_key.size;
@@ -1196,6 +1216,8 @@ static void mesh_app_flatten_settings(const struct mesh_radio_settings *src,
             detail->position_precision = channel->settings.has_module_settings
                                              ? channel->settings.module_settings.position_precision
                                              : 0U;
+            detail->is_muted =
+                channel->settings.has_module_settings && channel->settings.module_settings.is_muted;
         }
     }
     if (src->has_ui_config) {
@@ -1263,6 +1285,8 @@ static void mesh_app_flatten_settings(const struct mesh_radio_settings *src,
         dst->has_ethernet = src->metadata.hasEthernet;
         dst->has_pkc = src->metadata.hasPKC;
         dst->can_shutdown = src->metadata.canShutdown;
+        dst->excluded_modules = src->metadata.excluded_modules;
+        dst->has_xeddsa = src->metadata.has_xeddsa;
     }
 }
 
