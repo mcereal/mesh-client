@@ -1,4 +1,11 @@
-/* Spanish (es). Keep format arguments in catalog order; see docs/i18n.md. */
+/*
+ * Spanish (es). Keep format arguments in catalog order; see docs/i18n.md.
+ *
+ * A SETTINGS_FIELD_* or HEAD_* entry is copied into a row's label column, which is
+ * MESH_UI_SETTINGS_LABEL_MAX bytes wide - so a translation longer than that is drawn cut, and
+ * nothing on the panel says it was. Four of these were, until the test that walks every such
+ * id in every registered language went in beside them.
+ */
 #include "mesh/i18n/strings.h"
 
 const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
@@ -585,10 +592,10 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_SETTINGS_FIELD_MQTT_ROOT] = "Tema raíz",
     [MESH_STR_SETTINGS_FIELD_MQTT_ENCRYPTION] = "Cifrado",
     [MESH_STR_SETTINGS_FIELD_MQTT_TLS] = "TLS",
-    [MESH_STR_SETTINGS_FIELD_MQTT_MAP_REPORTING] = "Informar al mapa público",
+    [MESH_STR_SETTINGS_FIELD_MQTT_MAP_REPORTING] = "Enviar al mapa público",
     [MESH_STR_SETTINGS_FIELD_MQTT_MAP_INTERVAL] = "Intervalo del mapa",
     [MESH_STR_SETTINGS_FIELD_MQTT_MAP_PRECISION] = "Precisión del mapa",
-    [MESH_STR_SETTINGS_FIELD_MQTT_MAP_LOCATION] = "Mi ubicación en el mapa",
+    [MESH_STR_SETTINGS_FIELD_MQTT_MAP_LOCATION] = "Ubicación en el mapa",
     [MESH_STR_SETTINGS_FIELD_SF_ENABLED] = "Almacenar y reenviar",
     [MESH_STR_SETTINGS_FIELD_SF_HEARTBEAT] = "Pulso de actividad",
     [MESH_STR_SETTINGS_FIELD_SF_SERVER] = "Actuar como servidor",
@@ -681,10 +688,10 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_SETTINGS_FIELD_EXTNOTIF_PIN_BUZZER] = "Pin",
     [MESH_STR_SETTINGS_FIELD_EXTNOTIF_ALERT_MSG_BUZZER] = "Al recibir mensaje",
     [MESH_STR_SETTINGS_FIELD_EXTNOTIF_ALERT_BELL_BUZZER] = "Al recibir campana",
-    [MESH_STR_SETTINGS_FIELD_TRAFFIC_POSITION_INTERVAL] = "Intervalo mín. posición",
+    [MESH_STR_SETTINGS_FIELD_TRAFFIC_POSITION_INTERVAL] = "Intervalo posición",
     [MESH_STR_SETTINGS_FIELD_TRAFFIC_NODEINFO_HOPS] = "Saltos máx. NodeInfo",
     [MESH_STR_SETTINGS_FIELD_TRAFFIC_RATE_WINDOW] = "Ventana de tasa",
-    [MESH_STR_SETTINGS_FIELD_TRAFFIC_RATE_PACKETS] = "Máx. paquetes por ventana",
+    [MESH_STR_SETTINGS_FIELD_TRAFFIC_RATE_PACKETS] = "Máx. paquetes/ventana",
     [MESH_STR_SETTINGS_FIELD_TRAFFIC_UNKNOWN_THRESHOLD] = "Límite de desconocidos",
     [MESH_STR_SETTINGS_FIELD_SECURITY_SIGNATURE_POLICY] = "Firma de paquetes",
     [MESH_STR_SETTINGS_FIELD_UI_THEME] = "Tema",
@@ -903,7 +910,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_CHANNELS_KEY_AES128] = "AES-128",
     [MESH_STR_CHANNELS_KEY_AES256] = "AES-256",
     [MESH_STR_CHANNELS_KEY_ODD] = "clave inusual",
-    [MESH_STR_HEAD_POSITION_CARRIES] = "Enviado con la posición",
+    [MESH_STR_HEAD_POSITION_CARRIES] = "Enviado con posición",
     [MESH_STR_HEAD_MAP_REPORT] = "Informe al mapa",
     [MESH_STR_HEAD_SERVER] = "Servidor",
     [MESH_STR_HEAD_MISSED] = "Mensajes perdidos",

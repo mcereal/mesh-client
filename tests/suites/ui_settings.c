@@ -317,6 +317,46 @@ static void settings_mark_all_present(struct mesh_ui_settings *settings) {
 }
 
 /*
+ * Every label a settings row can carry, in every language, against the buffer it is copied into.
+ *
+ * `item_add_named()` copies with snprintf, so a label wider than MESH_UI_SETTINGS_LABEL_MAX is
+ * cut and nothing anywhere says so - the same silent shortening the edit buffer's own test was
+ * written for, one layer up and in a place only a translator can reach. English fits by
+ * construction because the row was drawn beside it; a translation is written against a catalog
+ * file with no screen in front of it, and "Enviado con la posición" is one byte over.
+ *
+ * Keyed on the id's *name*, the way the Spanish completeness check is: an id becomes a row's
+ * label by being called SETTINGS_FIELD_* or HEAD_*, so that is what is measured. A label that
+ * exceeds the buffer names itself, because "a label is too long" over eleven hundred ids is a
+ * bisect rather than a failure message.
+ */
+MESH_TEST_CASE(ui_settings_labels_fit_the_row_in_every_language, unit) {
+    for (size_t l = 0; l < mesh_i18n_locale_count(); ++l) {
+        const struct mesh_i18n_locale *locale = mesh_i18n_locale_at(l);
+        if (locale == NULL) {
+            continue;
+        }
+        for (int id = 0; id < (int)MESH_STR_COUNT; ++id) {
+            const char *name = mesh_str_id_name((enum mesh_str_id)id);
+            if (name == NULL ||
+                (strncmp(name, "SETTINGS_FIELD_", 15) != 0 && strncmp(name, "HEAD_", 5) != 0)) {
+                continue;
+            }
+            const char *text = mesh_str_in(locale, (enum mesh_str_id)id);
+            if (text == NULL || strlen(text) < MESH_UI_SETTINGS_LABEL_MAX) {
+                continue;
+            }
+            char reason[200];
+            snprintf(reason, sizeof reason, "%s in %s is %u bytes against a row label of %u", name,
+                     locale->id, (unsigned)strlen(text), (unsigned)MESH_UI_SETTINGS_LABEL_MAX - 1U);
+            record_failure(test_name, reason);
+            return;
+        }
+    }
+    record_success(test_name);
+}
+
+/*
  * The flag row model: ten rows over one word, and the masks pinned against the protobuf.
  *
  * Written against meshtastic_Config_PositionConfig_PositionFlags rather than against the
