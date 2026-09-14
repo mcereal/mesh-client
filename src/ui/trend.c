@@ -292,7 +292,20 @@ bool mesh_ui_trend_airtime(const struct mesh_ui_history *history, uint8_t span, 
 
     uint32_t cap = max_bins > MESH_UI_TREND_BINS_MAX ? MESH_UI_TREND_BINS_MAX : max_bins;
     cap = cap < 2U ? 2U : cap;
-    const uint32_t bin = mesh_ui_trend_bin_ms(to - from, airtime_cadence(history, from, to), cap);
+    const uint32_t cadence = airtime_cadence(history, from, to);
+    const uint32_t bin = mesh_ui_trend_bin_ms(to - from, cadence, cap);
+    /*
+     * How long a silence has to be before the line lifts over it: three of the readings' own
+     * spacing, and never less than the radio's gap.
+     *
+     * Measured between readings rather than between bins, because a bin wide enough for six hours
+     * is wide enough to swallow an outage - two readings either side of ten silent minutes land in
+     * adjacent five-minute bins, and bins_finish() alone would join them. Relative to the cadence
+     * rather than MESH_UI_HISTORY_RADIO_GAP_MS alone, because a radio that only sends LocalStats
+     * reports every fifteen minutes, and a three-minute rule would break it at every reading.
+     */
+    const uint32_t silence =
+        cadence > MESH_UI_HISTORY_RADIO_GAP_MS / 3U ? cadence * 3U : MESH_UI_HISTORY_RADIO_GAP_MS;
     /* At most `cap` by the ladder's own arithmetic, except off the top of the ladder - where the
        oldest bins are what give. */
     uint32_t count = (to - from + bin / 2U) / bin + 1U;
@@ -308,6 +321,8 @@ bool mesh_ui_trend_airtime(const struct mesh_ui_history *history, uint8_t span, 
     memset(breaks, 0, sizeof breaks);
 
     const uint32_t total = mesh_ui_history_airtime_count(history);
+    uint32_t previous = 0U;
+    bool have_previous = false;
     for (uint32_t i = 0U; i < total; ++i) {
         const struct mesh_ui_airtime_sample *sample = mesh_ui_history_airtime_at(history, i);
         if (sample->time > to) {
@@ -319,8 +334,12 @@ bool mesh_ui_trend_airtime(const struct mesh_ui_history *history, uint8_t span, 
             continue;
         }
         const uint32_t slot = count - 1U - back;
-        /* A marked break on the first reading into a bin is a break before the bin. */
-        if (counts[slot] == 0U && sample->gap) {
+        const bool silent = have_previous && sample->time - previous > silence;
+        previous = sample->time;
+        have_previous = true;
+        /* A break on the first reading into a bin - marked by the source, or a silence before
+           it - is a break before the bin. One inside a bin has nowhere to be drawn. */
+        if (counts[slot] == 0U && (sample->gap || silent)) {
             breaks[slot] = true;
         }
         util_sums[slot] += sample->utilization;

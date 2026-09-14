@@ -565,3 +565,53 @@ MESH_TEST_CASE(trend_airtime_span_cuts_the_bins, unit) {
                       "the ceiling should fit the quarter hour, not the busy spell before it");
     record_success(test_name);
 }
+
+/*
+ * A silence the bins are too wide to show still lifts the line.
+ *
+ * From review: five-minute bins put the readings either side of a four-minute outage in adjacent
+ * bins, and joining by adjacency drew straight across it. The rule is relative to the readings'
+ * own spacing, so a radio that reports every quarter hour is still one line.
+ */
+MESH_TEST_CASE(trend_airtime_lifts_the_pen_over_a_silence_inside_wide_bins, unit) {
+    struct mesh_ui_history *history = calloc(1U, sizeof *history);
+    MESH_TEST_FAIL_IF(history == NULL, "allocation failed");
+    const uint32_t minute = 60000U;
+
+    /* Once a minute for an hour, silent from minute 30 to 34. */
+    mesh_ui_history_reset(history);
+    for (uint32_t m = 0U; m <= 60U; ++m) {
+        if (m <= 30U || m >= 34U) {
+            mesh_ui_history_note_metrics_airtime(history, minute + m * minute, 10, 5);
+        }
+    }
+    struct mesh_ui_trend_airtime binned;
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !mesh_ui_trend_airtime(history, (uint8_t)MESH_UI_TREND_SPAN_ALL, 13U, &binned),
+        free(history), "the readings should frame a chart");
+    const struct mesh_ui_trend_bins wide = binned.tx;
+    const uint32_t wide_bin = binned.bin_ms;
+
+    /* A quarter-hour radio: every reading well past the three-minute gap, and one line. */
+    mesh_ui_history_reset(history);
+    for (uint32_t r = 0U; r < 8U; ++r) {
+        mesh_ui_history_note_airtime(history, minute + r * 16U * minute, 10, 5);
+    }
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !mesh_ui_trend_airtime(history, (uint8_t)MESH_UI_TREND_SPAN_ALL, 80U, &binned),
+        free(history), "the readings should frame a chart");
+    free(history);
+    bool quarter_hour_joined = true;
+    for (uint32_t i = 1U; i < binned.tx.count; ++i) {
+        quarter_hour_joined = quarter_hour_joined && (!binned.tx.present[i] || binned.tx.joins[i]);
+    }
+
+    /* Bins centred back from minute 60: the one centred on 35 is the first after the silence. */
+    MESH_TEST_FAIL_IF(wide_bin != 5U * minute, "an hour in thirteen bins is five-minute columns");
+    MESH_TEST_FAIL_IF(!wide.present[6] || !wide.present[7],
+                      "both sides of the silence have columns");
+    MESH_TEST_FAIL_IF(wide.joins[7], "the line should lift over a silence inside wide bins");
+    MESH_TEST_FAIL_IF(!wide.joins[8], "and join again once reports are punctual");
+    MESH_TEST_FAIL_IF(!quarter_hour_joined, "a quarter-hour radio should still be one line");
+    record_success(test_name);
+}
