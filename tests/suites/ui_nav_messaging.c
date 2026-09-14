@@ -425,11 +425,8 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
 
 cleanup:
     mesh_ui_store_shutdown(&store);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-    } else {
-        record_success(test_name);
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }
 
 /*
@@ -443,10 +440,7 @@ MESH_TEST_CASE(ui_nav_conversation_isolation, unit) {
     mesh_ui_canned_reset();
 
     struct mesh_ui_store store;
-    if (mesh_ui_store_init(&store) != 0) {
-        record_failure(test_name, "store init failed");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
     mesh_test_nav_populate(&store);
 
     struct mesh_ui_action action;
@@ -496,11 +490,8 @@ MESH_TEST_CASE(ui_nav_conversation_isolation, unit) {
 
 cleanup:
     mesh_ui_store_shutdown(&store);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-    } else {
-        record_success(test_name);
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }
 
 /*
@@ -513,10 +504,7 @@ MESH_TEST_CASE(ui_nav_unread, unit) {
     mesh_ui_canned_reset();
 
     struct mesh_ui_store store;
-    if (mesh_ui_store_init(&store) != 0) {
-        record_failure(test_name, "store init failed");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
     mesh_test_nav_populate(&store);
 
     struct mesh_ui_snapshot snapshot;
@@ -639,11 +627,8 @@ MESH_TEST_CASE(ui_nav_unread, unit) {
 cleanup:
     unlink(cache_path);
     mesh_ui_store_shutdown(&store);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-    } else {
-        record_success(test_name);
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }
 
 /*
@@ -689,10 +674,7 @@ MESH_TEST_CASE(ui_nav_channels_and_keyboard, unit) {
     mesh_ui_canned_reset();
 
     struct mesh_ui_store store;
-    if (mesh_ui_store_init(&store) != 0) {
-        record_failure(test_name, "store init failed");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
     mesh_test_nav_populate(&store);
 
     /* Add a channel table (primary "LongFast", secondary "Team", slot 2 disabled) and a
@@ -876,11 +858,8 @@ MESH_TEST_CASE(ui_nav_channels_and_keyboard, unit) {
 
 cleanup:
     mesh_ui_store_shutdown(&store);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-    } else {
-        record_success(test_name);
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }
 
 /*
@@ -898,10 +877,7 @@ MESH_TEST_CASE(ui_nav_reply_and_react_name_their_target, unit) {
     mesh_ui_canned_reset();
 
     struct mesh_ui_store store;
-    if (mesh_ui_store_init(&store) != 0) {
-        record_failure(test_name, "store init failed");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
     mesh_test_nav_populate(&store);
 
     struct mesh_ui_action action;
@@ -974,11 +950,8 @@ MESH_TEST_CASE(ui_nav_reply_and_react_name_their_target, unit) {
 
 cleanup:
     mesh_ui_store_shutdown(&store);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-    } else {
-        record_success(test_name);
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }
 
 /*
@@ -992,10 +965,7 @@ MESH_TEST_CASE(ui_nav_reactions_are_not_messages, unit) {
     mesh_ui_canned_reset();
 
     struct mesh_ui_store store;
-    if (mesh_ui_store_init(&store) != 0) {
-        record_failure(test_name, "store init failed");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
     mesh_test_nav_populate(&store);
 
     struct mesh_ui_conversation conversation;
@@ -1064,10 +1034,7 @@ MESH_TEST_CASE(ui_nav_reactions_are_not_messages, unit) {
 
 cleanup:
     mesh_ui_store_shutdown(&store);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-        return;
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
 

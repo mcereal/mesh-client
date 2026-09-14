@@ -879,10 +879,7 @@ MESH_TEST_CASE(ui_nav_node_detail_follows_the_node, unit) {
 
 MESH_TEST_CASE(ui_nav_devices_disconnect_forget, unit) {
     struct mesh_ui_store store;
-    if (mesh_ui_store_init(&store) != 0) {
-        record_failure(test_name, "store init failed");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
 
     const struct mesh_ui_device devices[] = {
         {.identifier = "AA:BB:CC:DD:EE:01",
@@ -948,10 +945,7 @@ MESH_TEST_CASE(ui_nav_devices_disconnect_forget, unit) {
 /* The PIN prompt: raised by the app mid-connect, answered (or cancelled) from the keyboard. */
 MESH_TEST_CASE(ui_nav_passkey_prompt, unit) {
     struct mesh_ui_store store;
-    if (mesh_ui_store_init(&store) != 0) {
-        record_failure(test_name, "store init failed");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
 
     /* Something half-written in the compose draft must survive a prompt landing on top of it. */
     snprintf(store.nav.draft, sizeof store.nav.draft, "%s", "half a message");
@@ -1102,10 +1096,7 @@ MESH_TEST_CASE(ui_nav_node_mute_remove, unit) {
     const char *failure = NULL;
 
     struct mesh_ui_store store;
-    if (mesh_ui_store_init(&store) != 0) {
-        record_failure(test_name, "store init failed");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
     mesh_test_nav_populate(&store);
 
     struct mesh_ui_action action;
@@ -1185,10 +1176,7 @@ MESH_TEST_CASE(ui_nav_node_mute_remove, unit) {
 
 cleanup:
     mesh_ui_store_shutdown(&store);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-        return;
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
 

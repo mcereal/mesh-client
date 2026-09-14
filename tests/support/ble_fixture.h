@@ -59,13 +59,12 @@ struct mesh_test_ble_rig {
     size_t write_call_count;
     size_t write_lengths[16];
 
-    /* Scripted FromRadio reads. Slots past `scripted` stay zero-length, which the mock answers
-       as an empty FIFO - the same thing it does past `read_payload_count`. */
+    /* Scripted FromRadio reads. An unscripted slot stays zero-length, which the mock answers as
+       an empty FIFO - the same thing it does for a read past read_payload_count. */
     uint8_t read_buffers[MESH_TEST_BLE_MAX_READS][MESH_TEST_BLE_READ_CAP];
     const uint8_t *read_payloads[MESH_TEST_BLE_MAX_READS];
     size_t read_payload_lengths[MESH_TEST_BLE_MAX_READS];
     size_t read_index;
-    size_t scripted;
 
     char toradio_path[128];
     char fromradio_path[128];
@@ -104,11 +103,15 @@ void mesh_test_ble_rig_reload(struct mesh_test_ble_rig *rig);
 int mesh_test_ble_rig_connect(struct mesh_test_ble_rig *rig);
 
 /*
- * Encodes `message` into the next read slot, so the transport's next read drains it. False when
- * the script is full or the message does not fit a slot - both of which are the test asking for
- * more than the rig holds, not a radio behaving oddly.
+ * Encodes `message` into read slot `slot`, so the drain that reaches it hands the transport that
+ * FromRadio. The slot is explicit rather than appended because the cases that script a long
+ * conversation fill it out of order, leaving the gaps they want answered as empty reads.
+ *
+ * False when the slot is past the script or the message does not fit one - both the test asking
+ * for more than the rig holds, not a radio behaving oddly.
  */
-bool mesh_test_ble_rig_script(struct mesh_test_ble_rig *rig, const meshtastic_FromRadio *message);
+bool mesh_test_ble_rig_script(struct mesh_test_ble_rig *rig, size_t slot,
+                              const meshtastic_FromRadio *message);
 
 /* Stops the transport, shuts the loop down and disables the mock. Safe before a start. */
 void mesh_test_ble_rig_close(struct mesh_test_ble_rig *rig);

@@ -14,7 +14,6 @@
 #include "mesh/transport/transport.h"
 
 #include <pb_decode.h>
-#include <pb_encode.h>
 
 #include "meshtastic/mesh.pb.h"
 
@@ -124,10 +123,7 @@ MESH_TEST_CASE(ble_transport_discovery_mock, unit) {
 
 cleanup:
     mesh_test_ble_rig_close(&rig);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-        return;
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
 
@@ -143,9 +139,7 @@ MESH_TEST_CASE(ble_transport_connect_mock, unit) {
         goto cleanup;
     }
 
-    mesh_ble_transport_refresh_devices(ble);
-
-    if (mesh_ble_transport_connect(ble, rig.devices[0].address) != 0) {
+    if (mesh_test_ble_rig_connect(&rig) != 0) {
         failure = "connect should succeed";
         goto cleanup;
     }
@@ -185,13 +179,10 @@ MESH_TEST_CASE(ble_transport_connect_mock, unit) {
     from_radio.my_info.my_node_num = 0x01020304U;
     from_radio.my_info.nodedb_count = 2U;
 
-    pb_ostream_t encode_stream =
-        pb_ostream_from_buffer(rig.read_buffers[0], sizeof(rig.read_buffers[0]));
-    if (!pb_encode(&encode_stream, meshtastic_FromRadio_fields, &from_radio)) {
+    if (!mesh_test_ble_rig_script(&rig, 0U, &from_radio)) {
         failure = "failed to encode my_info";
         goto cleanup;
     }
-    rig.read_payload_lengths[0] = encode_stream.bytes_written;
     const uint32_t expected_node_num = from_radio.my_info.my_node_num;
 
     from_radio = (meshtastic_FromRadio)meshtastic_FromRadio_init_default;
@@ -208,12 +199,10 @@ MESH_TEST_CASE(ble_transport_connect_mock, unit) {
     from_radio.node_info.has_hops_away = true;
     from_radio.node_info.hops_away = 2U;
 
-    encode_stream = pb_ostream_from_buffer(rig.read_buffers[1], sizeof(rig.read_buffers[1]));
-    if (!pb_encode(&encode_stream, meshtastic_FromRadio_fields, &from_radio)) {
+    if (!mesh_test_ble_rig_script(&rig, 1U, &from_radio)) {
         failure = "failed to encode node_info";
         goto cleanup;
     }
-    rig.read_payload_lengths[1] = encode_stream.bytes_written;
     const uint32_t expected_peer_num = from_radio.node_info.num;
 
     /* Two more peers so the FIFO is longer than one turn's read budget. */
@@ -224,25 +213,20 @@ MESH_TEST_CASE(ble_transport_connect_mock, unit) {
         from_radio.node_info.has_user = true;
         snprintf(from_radio.node_info.user.short_name, sizeof(from_radio.node_info.user.short_name),
                  "P%zu", extra);
-        encode_stream = pb_ostream_from_buffer(rig.read_buffers[2 + extra],
-                                               sizeof(rig.read_buffers[2 + extra]));
-        if (!pb_encode(&encode_stream, meshtastic_FromRadio_fields, &from_radio)) {
+        if (!mesh_test_ble_rig_script(&rig, 2U + extra, &from_radio)) {
             failure = "failed to encode extra node_info";
             goto cleanup;
         }
-        rig.read_payload_lengths[2 + extra] = encode_stream.bytes_written;
     }
 
     from_radio = (meshtastic_FromRadio)meshtastic_FromRadio_init_default;
     from_radio.which_payload_variant = meshtastic_FromRadio_config_complete_id_tag;
     from_radio.config_complete_id = to_radio.want_config_id;
 
-    encode_stream = pb_ostream_from_buffer(rig.read_buffers[4], sizeof(rig.read_buffers[4]));
-    if (!pb_encode(&encode_stream, meshtastic_FromRadio_fields, &from_radio)) {
+    if (!mesh_test_ble_rig_script(&rig, 4U, &from_radio)) {
         failure = "failed to encode config_complete";
         goto cleanup;
     }
-    rig.read_payload_lengths[4] = encode_stream.bytes_written;
 
     /* Rewind the scripted FIFO and poke FromNum. */
     rig.read_index = 0U;
@@ -341,10 +325,7 @@ MESH_TEST_CASE(ble_transport_connect_mock, unit) {
 
 cleanup:
     mesh_test_ble_rig_close(&rig);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-        return;
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
 
@@ -362,9 +343,7 @@ MESH_TEST_CASE(ble_transport_connect_deferred_services, unit) {
         failure = "ble start failed";
         goto cleanup;
     }
-    mesh_ble_transport_refresh_devices(ble);
-
-    if (mesh_ble_transport_connect(ble, rig.devices[0].address) != 0) {
+    if (mesh_test_ble_rig_connect(&rig) != 0) {
         failure = "connect should be accepted";
         goto cleanup;
     }
@@ -415,10 +394,7 @@ MESH_TEST_CASE(ble_transport_connect_deferred_services, unit) {
 
 cleanup:
     mesh_test_ble_rig_close(&rig);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-        return;
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
 
@@ -440,9 +416,7 @@ MESH_TEST_CASE(ble_transport_services_resolved_timeout_retries, unit) {
         failure = "ble start failed";
         goto cleanup;
     }
-    mesh_ble_transport_refresh_devices(ble);
-
-    if (mesh_ble_transport_connect(ble, rig.devices[0].address) != 0) {
+    if (mesh_test_ble_rig_connect(&rig) != 0) {
         failure = "connect should be accepted";
         goto cleanup;
     }
@@ -485,10 +459,7 @@ MESH_TEST_CASE(ble_transport_services_resolved_timeout_retries, unit) {
 
 cleanup:
     mesh_test_ble_rig_close(&rig);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-        return;
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
 
@@ -506,9 +477,7 @@ MESH_TEST_CASE(ble_transport_connect_async_reply, unit) {
         failure = "ble start failed";
         goto cleanup;
     }
-    mesh_ble_transport_refresh_devices(ble);
-
-    if (mesh_ble_transport_connect(ble, rig.devices[0].address) != 0) {
+    if (mesh_test_ble_rig_connect(&rig) != 0) {
         failure = "connect should be accepted";
         goto cleanup;
     }
@@ -548,8 +517,7 @@ MESH_TEST_CASE(ble_transport_connect_async_reply, unit) {
         failure = "ble restart failed";
         goto cleanup;
     }
-    mesh_ble_transport_refresh_devices(ble);
-    if (mesh_ble_transport_connect(ble, rig.devices[0].address) != 0) {
+    if (mesh_test_ble_rig_connect(&rig) != 0) {
         failure = "second connect should be accepted";
         goto cleanup;
     }
@@ -563,10 +531,7 @@ MESH_TEST_CASE(ble_transport_connect_async_reply, unit) {
 
 cleanup:
     mesh_test_ble_rig_close(&rig);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-        return;
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
 
@@ -585,8 +550,7 @@ MESH_TEST_CASE(ble_transport_link_drop, unit) {
         failure = "ble start failed";
         goto cleanup;
     }
-    mesh_ble_transport_refresh_devices(ble);
-    if (mesh_ble_transport_connect(ble, rig.devices[0].address) != 0) {
+    if (mesh_test_ble_rig_connect(&rig) != 0) {
         failure = "connect should be accepted";
         goto cleanup;
     }
@@ -631,11 +595,8 @@ MESH_TEST_CASE(ble_transport_link_drop, unit) {
 
 cleanup:
     mesh_test_ble_rig_close(&rig);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-    } else {
-        record_success(test_name);
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }
 
 /* A failing GATT write is a dead link: send_text reports the error, marks the message FAILED
@@ -654,8 +615,7 @@ MESH_TEST_CASE(ble_transport_write_failure, unit) {
         failure = "ble start failed";
         goto cleanup;
     }
-    mesh_ble_transport_refresh_devices(ble);
-    if (mesh_ble_transport_connect(ble, rig.devices[0].address) != 0) {
+    if (mesh_test_ble_rig_connect(&rig) != 0) {
         failure = "connect should be accepted";
         goto cleanup;
     }
@@ -690,11 +650,8 @@ MESH_TEST_CASE(ble_transport_write_failure, unit) {
 
 cleanup:
     mesh_test_ble_rig_close(&rig);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-    } else {
-        record_success(test_name);
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }
 
 /* bluetoothd is not always on the bus when MeshClient launches - the first launch after the
@@ -738,11 +695,8 @@ MESH_TEST_CASE(ble_transport_recovers_when_bluez_arrives, unit) {
 
 cleanup:
     mesh_test_ble_rig_close(&rig);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-    } else {
-        record_success(test_name);
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }
 
 /* And the reverse: bluetoothd leaving under a ready transport - Bluetooth toggled off, a resume
@@ -784,11 +738,8 @@ MESH_TEST_CASE(ble_transport_demotes_when_bluez_leaves, unit) {
 
 cleanup:
     mesh_test_ble_rig_close(&rig);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-    } else {
-        record_success(test_name);
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }
 
 /* Everything cached about BlueZ dies with it. A bond in flight and the pairing agent are the two
@@ -847,11 +798,8 @@ MESH_TEST_CASE(ble_transport_pairing_survives_a_bluez_outage, unit) {
 
 cleanup:
     mesh_test_ble_rig_close(&rig);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-    } else {
-        record_success(test_name);
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }
 
 /* Scanning and a link may not share the radio. A node allows a 1000 ms supervision timeout, and
@@ -946,11 +894,8 @@ MESH_TEST_CASE(ble_transport_scan_yields_to_the_link, unit) {
 cleanup:
     mesh_test_ble_rig_close(&rig);
     unsetenv("MESHCLIENT_SCAN_RESUME_GRACE_MS");
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-    } else {
-        record_success(test_name);
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }
 
 /* Enumeration is a blocking GetManagedObjects, and tick() used to make one every second whether
@@ -1008,9 +953,6 @@ MESH_TEST_CASE(ble_transport_enumeration_yields_to_the_link, unit) {
 
 cleanup:
     mesh_test_ble_rig_close(&rig);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-    } else {
-        record_success(test_name);
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }

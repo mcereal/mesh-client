@@ -46,6 +46,30 @@
 #include <time.h>
 #include <unistd.h>
 
+/*
+ * Points $HOME at a fresh directory and puts the environment in the state an app case needs: the
+ * stub UI backend, and no MESHCLIENT_AUTOCONNECT inherited from the developer's shell. Eleven
+ * cases set up that same trio by hand, which is eleven places for one of them to be forgotten -
+ * and a case that runs against the real $HOME writes the developer's own preferences file.
+ *
+ * `home` is the caller's buffer rather than static storage because mkdtemp() rewrites its
+ * template in place and every case wants the directory name afterwards. False when the directory
+ * could not be made; the caller reports that alongside whatever it has already set up to release.
+ */
+#define APP_TEST_HOME_CAP 64
+static bool app_test_home(char *home, size_t cap, const char *tag) {
+    if (snprintf(home, cap, "/tmp/mesh_app_%sXXXXXX", tag) >= (int)cap) {
+        return false;
+    }
+    if (mkdtemp(home) == NULL) {
+        return false;
+    }
+    setenv("HOME", home, 1);
+    setenv("MESHCLIENT_UI_BACKEND", "stub", 1);
+    unsetenv("MESHCLIENT_AUTOCONNECT");
+    return true;
+}
+
 /* The clock mesh_app_publish_ui_state stamps its toasts with. */
 static uint64_t test_now_ms(void) {
     struct timespec ts;
@@ -78,15 +102,12 @@ MESH_TEST_CASE(app_autoconnect_policy, unit) {
     mesh_bluez_client_mock_enable(&mock_config);
 
     /* Keep the app's preference files out of the real $HOME. */
-    char home_dir[] = "/tmp/mesh_app_autoconnectXXXXXX";
-    if (mkdtemp(home_dir) == NULL) {
+    char home_dir[APP_TEST_HOME_CAP];
+    if (!app_test_home(home_dir, sizeof home_dir, "autoconnect")) {
         mesh_bluez_client_mock_disable();
         record_failure(test_name, "mkdtemp failed");
         return;
     }
-    setenv("HOME", home_dir, 1);
-    setenv("MESHCLIENT_UI_BACKEND", "stub", 1);
-    unsetenv("MESHCLIENT_AUTOCONNECT");
 
     struct mesh_app_config config = mesh_app_config_default();
     config.run_mode = MESH_APP_RUN_FOREGROUND;
@@ -170,10 +191,7 @@ cleanup:
         rmdir(path);
         rmdir(home_dir);
     }
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-        return;
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
 
@@ -207,15 +225,12 @@ MESH_TEST_CASE(app_autoconnect_ignores_a_node_out_of_range, unit) {
     };
     mesh_bluez_client_mock_enable(&mock_config);
 
-    char home_dir[] = "/tmp/mesh_app_out_of_rangeXXXXXX";
-    if (mkdtemp(home_dir) == NULL) {
+    char home_dir[APP_TEST_HOME_CAP];
+    if (!app_test_home(home_dir, sizeof home_dir, "out_of_range")) {
         mesh_bluez_client_mock_disable();
         record_failure(test_name, "mkdtemp failed");
         return;
     }
-    setenv("HOME", home_dir, 1);
-    setenv("MESHCLIENT_UI_BACKEND", "stub", 1);
-    unsetenv("MESHCLIENT_AUTOCONNECT");
 
     struct mesh_app_config config = mesh_app_config_default();
     config.run_mode = MESH_APP_RUN_FOREGROUND;
@@ -296,10 +311,7 @@ cleanup:
         rmdir(path);
         rmdir(home_dir);
     }
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-        return;
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
 
@@ -322,15 +334,12 @@ MESH_TEST_CASE(app_autoconnect_prefers_a_radio_of_ours, unit) {
     };
     mesh_bluez_client_mock_enable(&mock_config);
 
-    char home_dir[] = "/tmp/mesh_app_own_radioXXXXXX";
-    if (mkdtemp(home_dir) == NULL) {
+    char home_dir[APP_TEST_HOME_CAP];
+    if (!app_test_home(home_dir, sizeof home_dir, "own_radio")) {
         mesh_bluez_client_mock_disable();
         record_failure(test_name, "mkdtemp failed");
         return;
     }
-    setenv("HOME", home_dir, 1);
-    setenv("MESHCLIENT_UI_BACKEND", "stub", 1);
-    unsetenv("MESHCLIENT_AUTOCONNECT");
 
     struct mesh_app_config config = mesh_app_config_default();
     config.run_mode = MESH_APP_RUN_FOREGROUND;
@@ -401,10 +410,7 @@ cleanup:
         rmdir(path);
         rmdir(home_dir);
     }
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-        return;
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
 
@@ -432,15 +438,12 @@ MESH_TEST_CASE(app_autoconnect_grace_survives_a_reconnect, unit) {
     };
     mesh_bluez_client_mock_enable(&mock_config);
 
-    char home_dir[] = "/tmp/mesh_app_graceXXXXXX";
-    if (mkdtemp(home_dir) == NULL) {
+    char home_dir[APP_TEST_HOME_CAP];
+    if (!app_test_home(home_dir, sizeof home_dir, "grace")) {
         mesh_bluez_client_mock_disable();
         record_failure(test_name, "mkdtemp failed");
         return;
     }
-    setenv("HOME", home_dir, 1);
-    setenv("MESHCLIENT_UI_BACKEND", "stub", 1);
-    unsetenv("MESHCLIENT_AUTOCONNECT");
 
     struct mesh_app_config config = mesh_app_config_default();
     config.run_mode = MESH_APP_RUN_FOREGROUND;
@@ -519,10 +522,7 @@ cleanup:
         rmdir(path);
         rmdir(home_dir);
     }
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-        return;
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
 
@@ -1267,14 +1267,11 @@ MESH_TEST_CASE(app_link_routing, unit) {
     serial_mock.open_fd = pair[0];
     mesh_serial_usb_mock_enable(&serial_mock);
 
-    char home_dir[] = "/tmp/mesh_app_link_routingXXXXXX";
-    if (mkdtemp(home_dir) == NULL) {
+    char home_dir[APP_TEST_HOME_CAP];
+    if (!app_test_home(home_dir, sizeof home_dir, "link_routing")) {
         failure = "mkdtemp failed";
         goto cleanup;
     }
-    setenv("HOME", home_dir, 1);
-    setenv("MESHCLIENT_UI_BACKEND", "stub", 1);
-    unsetenv("MESHCLIENT_AUTOCONNECT");
 
     struct mesh_app_config config = mesh_app_config_default();
     config.run_mode = MESH_APP_RUN_FOREGROUND;
@@ -1386,11 +1383,8 @@ cleanup:
     if (pair[1] >= 0) {
         close(pair[1]);
     }
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-    } else {
-        record_success(test_name);
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }
 
 /*
@@ -1431,14 +1425,11 @@ MESH_TEST_CASE(app_assetless_release_says_why_it_cannot_install, unit) {
     serial_mock.open_fd = pair[0];
     mesh_serial_usb_mock_enable(&serial_mock);
 
-    char home_dir[] = "/tmp/mesh_app_assetlessXXXXXX";
-    if (mkdtemp(home_dir) == NULL) {
+    char home_dir[APP_TEST_HOME_CAP];
+    if (!app_test_home(home_dir, sizeof home_dir, "assetless")) {
         failure = "mkdtemp failed";
         goto cleanup;
     }
-    setenv("HOME", home_dir, 1);
-    setenv("MESHCLIENT_UI_BACKEND", "stub", 1);
-    unsetenv("MESHCLIENT_AUTOCONNECT");
 
     struct mesh_app_config config = mesh_app_config_default();
     config.run_mode = MESH_APP_RUN_FOREGROUND;
@@ -1513,11 +1504,8 @@ cleanup:
     if (pair[1] >= 0) {
         close(pair[1]);
     }
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-    } else {
-        record_success(test_name);
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }
 
 /*
@@ -1544,14 +1532,11 @@ MESH_TEST_CASE(app_connect_failure_toast, unit) {
     };
     mesh_bluez_client_mock_enable(&mock_config);
 
-    char home_dir[] = "/tmp/mesh_app_connect_failXXXXXX";
-    if (mkdtemp(home_dir) == NULL) {
+    char home_dir[APP_TEST_HOME_CAP];
+    if (!app_test_home(home_dir, sizeof home_dir, "connect_fail")) {
         failure = "mkdtemp failed";
         goto cleanup;
     }
-    setenv("HOME", home_dir, 1);
-    setenv("MESHCLIENT_UI_BACKEND", "stub", 1);
-    unsetenv("MESHCLIENT_AUTOCONNECT");
 
     struct mesh_app_config config = mesh_app_config_default();
     config.run_mode = MESH_APP_RUN_FOREGROUND;
@@ -1660,11 +1645,8 @@ cleanup:
     }
     mesh_bluez_client_mock_disable();
     unsetenv("MESHCLIENT_UI_BACKEND");
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-    } else {
-        record_success(test_name);
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }
 
 /*
@@ -1745,15 +1727,12 @@ MESH_TEST_CASE(app_theme_switcher, unit) {
     struct mesh_app app;
     memset(&app, 0, sizeof app);
 
-    char home_dir[] = "/tmp/mesh_app_themeXXXXXX";
-    if (mkdtemp(home_dir) == NULL) {
+    char home_dir[APP_TEST_HOME_CAP];
+    if (!app_test_home(home_dir, sizeof home_dir, "theme")) {
         record_failure(test_name, "mkdtemp failed");
         return;
     }
-    setenv("HOME", home_dir, 1);
-    setenv("MESHCLIENT_UI_BACKEND", "stub", 1);
     unsetenv("MESHCLIENT_THEME");
-    unsetenv("MESHCLIENT_AUTOCONNECT");
 
     struct mesh_app_config config = mesh_app_config_default();
     config.run_mode = MESH_APP_RUN_FOREGROUND;
@@ -1920,10 +1899,7 @@ cleanup:
         mesh_app_shutdown(&app);
     }
     unsetenv("MESHCLIENT_UI_BACKEND");
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-        return;
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
 
@@ -1937,14 +1913,11 @@ MESH_TEST_CASE(app_theme_environment_pin, unit) {
     struct mesh_app app;
     memset(&app, 0, sizeof app);
 
-    char home_dir[] = "/tmp/mesh_app_theme_envXXXXXX";
-    if (mkdtemp(home_dir) == NULL) {
+    char home_dir[APP_TEST_HOME_CAP];
+    if (!app_test_home(home_dir, sizeof home_dir, "theme_env")) {
         record_failure(test_name, "mkdtemp failed");
         return;
     }
-    setenv("HOME", home_dir, 1);
-    setenv("MESHCLIENT_UI_BACKEND", "stub", 1);
-    unsetenv("MESHCLIENT_AUTOCONNECT");
 
     /* A saved choice that the environment is about to overrule. */
     struct mesh_ui_preferences saved;
@@ -2004,10 +1977,7 @@ cleanup:
     }
     unsetenv("MESHCLIENT_THEME");
     unsetenv("MESHCLIENT_UI_BACKEND");
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-        return;
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
 
@@ -2025,14 +1995,11 @@ MESH_TEST_CASE(app_delete_conversation, unit) {
     struct mesh_app app;
     memset(&app, 0, sizeof app);
 
-    char home_dir[] = "/tmp/mesh_app_deleteXXXXXX";
-    if (mkdtemp(home_dir) == NULL) {
+    char home_dir[APP_TEST_HOME_CAP];
+    if (!app_test_home(home_dir, sizeof home_dir, "delete")) {
         record_failure(test_name, "mkdtemp failed");
         return;
     }
-    setenv("HOME", home_dir, 1);
-    setenv("MESHCLIENT_UI_BACKEND", "stub", 1);
-    unsetenv("MESHCLIENT_AUTOCONNECT");
 
     struct mesh_app_config config = mesh_app_config_default();
     config.run_mode = MESH_APP_RUN_FOREGROUND;
@@ -2134,10 +2101,7 @@ cleanup:
         mesh_app_shutdown(&app);
     }
     unsetenv("MESHCLIENT_UI_BACKEND");
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-        return;
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
 
@@ -2206,10 +2170,7 @@ cleanup:
     mesh_ui_store_shutdown(&app->ui_store);
     free(app);
     mesh_bluez_client_mock_disable();
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-        return;
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
 
@@ -2272,10 +2233,7 @@ cleanup:
     mesh_ui_store_shutdown(&app->ui_store);
     free(app);
     mesh_bluez_client_mock_disable();
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-        return;
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
 
@@ -2342,10 +2300,7 @@ MESH_TEST_CASE(app_init_from_dirty_storage, unit) {
     snprintf(prefs_dir, sizeof prefs_dir, "%s/.meshclient", temp_dir);
     rmdir(prefs_dir);
     rmdir(temp_dir);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-        return;
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
 
@@ -2858,14 +2813,11 @@ MESH_TEST_CASE(app_publishes_network_and_build_facts, unit) {
     struct mesh_app app;
     memset(&app, 0, sizeof app);
 
-    char home_dir[] = "/tmp/mesh_app_networkXXXXXX";
-    if (mkdtemp(home_dir) == NULL) {
+    char home_dir[APP_TEST_HOME_CAP];
+    if (!app_test_home(home_dir, sizeof home_dir, "network")) {
         record_failure(test_name, "mkdtemp failed");
         return;
     }
-    setenv("HOME", home_dir, 1);
-    setenv("MESHCLIENT_UI_BACKEND", "stub", 1);
-    unsetenv("MESHCLIENT_AUTOCONNECT");
 
     struct mesh_app_config config = mesh_app_config_default();
     config.run_mode = MESH_APP_RUN_FOREGROUND;

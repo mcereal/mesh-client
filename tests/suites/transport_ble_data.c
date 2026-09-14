@@ -121,9 +121,7 @@ MESH_TEST_CASE(ble_transport_messaging_mock, unit) {
         goto cleanup;
     }
 
-    mesh_ble_transport_refresh_devices(ble);
-
-    if (mesh_ble_transport_connect(ble, rig.devices[0].address) != 0) {
+    if (mesh_test_ble_rig_connect(&rig) != 0) {
         failure = "connect should succeed";
         goto cleanup;
     }
@@ -133,13 +131,10 @@ MESH_TEST_CASE(ble_transport_messaging_mock, unit) {
     from_radio.which_payload_variant = meshtastic_FromRadio_my_info_tag;
     from_radio.my_info.my_node_num = my_node;
 
-    pb_ostream_t encode_stream =
-        pb_ostream_from_buffer(rig.read_buffers[0], sizeof(rig.read_buffers[0]));
-    if (!pb_encode(&encode_stream, meshtastic_FromRadio_fields, &from_radio)) {
+    if (!mesh_test_ble_rig_script(&rig, 0, &from_radio)) {
         failure = "failed to encode my_info";
         goto cleanup;
     }
-    rig.read_payload_lengths[0] = encode_stream.bytes_written;
 
     const char *inbound_text = "roger that";
     from_radio = (meshtastic_FromRadio)meshtastic_FromRadio_init_default;
@@ -148,12 +143,10 @@ MESH_TEST_CASE(ble_transport_messaging_mock, unit) {
                                                       meshtastic_PortNum_TEXT_MESSAGE_APP,
                                                       inbound_text, strlen(inbound_text));
 
-    encode_stream = pb_ostream_from_buffer(rig.read_buffers[1], sizeof(rig.read_buffers[1]));
-    if (!pb_encode(&encode_stream, meshtastic_FromRadio_fields, &from_radio)) {
+    if (!mesh_test_ble_rig_script(&rig, 1, &from_radio)) {
         failure = "failed to encode inbound text packet";
         goto cleanup;
     }
-    rig.read_payload_lengths[1] = encode_stream.bytes_written;
     rig.read_payload_lengths[2] = 0U; /* empty read terminates the drain */
 
     rig.read_index = 0U;
@@ -247,12 +240,10 @@ MESH_TEST_CASE(ble_transport_messaging_mock, unit) {
                                       routing_payload, routing_stream.bytes_written);
     from_radio.packet.decoded.request_id = sent_id;
 
-    encode_stream = pb_ostream_from_buffer(rig.read_buffers[0], sizeof(rig.read_buffers[0]));
-    if (!pb_encode(&encode_stream, meshtastic_FromRadio_fields, &from_radio)) {
+    if (!mesh_test_ble_rig_script(&rig, 0, &from_radio)) {
         failure = "failed to encode the routing FromRadio";
         goto cleanup;
     }
-    rig.read_payload_lengths[0] = encode_stream.bytes_written;
     rig.read_payload_lengths[1] = 0U;
     rig.read_payload_lengths[2] = 0U;
 
@@ -309,10 +300,7 @@ MESH_TEST_CASE(ble_transport_messaging_mock, unit) {
 cleanup:
     mesh_test_ble_rig_close(&rig);
 
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-        return;
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
 
@@ -331,27 +319,20 @@ MESH_TEST_CASE(ble_transport_channel_decode, unit) {
     from_radio.channel.has_settings = true;
     snprintf(from_radio.channel.settings.name, sizeof from_radio.channel.settings.name, "%s",
              "Team");
-    pb_ostream_t stream = pb_ostream_from_buffer(rig.read_buffers[0], sizeof rig.read_buffers[0]);
-    MESH_TEST_FAIL_IF(!pb_encode(&stream, meshtastic_FromRadio_fields, &from_radio),
-                      "encode channel 1 failed");
-    rig.read_payload_lengths[0] = stream.bytes_written;
+    MESH_TEST_FAIL_IF(!mesh_test_ble_rig_script(&rig, 0U, &from_radio), "encode channel 1 failed");
 
     from_radio = (meshtastic_FromRadio)meshtastic_FromRadio_init_default;
     from_radio.which_payload_variant = meshtastic_FromRadio_channel_tag;
     from_radio.channel.index = 0;
     from_radio.channel.role = meshtastic_Channel_Role_PRIMARY;
     from_radio.channel.has_settings = true; /* unnamed: the default primary */
-    stream = pb_ostream_from_buffer(rig.read_buffers[1], sizeof rig.read_buffers[1]);
-    MESH_TEST_FAIL_IF(!pb_encode(&stream, meshtastic_FromRadio_fields, &from_radio),
-                      "encode channel 0 failed");
-    rig.read_payload_lengths[1] = stream.bytes_written;
+    MESH_TEST_FAIL_IF(!mesh_test_ble_rig_script(&rig, 1U, &from_radio), "encode channel 0 failed");
 
     if (mesh_test_ble_rig_start(&rig) != 0) {
         failure = "ble start failed";
         goto cleanup;
     }
-    mesh_ble_transport_refresh_devices(ble);
-    if (mesh_ble_transport_connect(ble, rig.devices[0].address) != 0) {
+    if (mesh_test_ble_rig_connect(&rig) != 0) {
         failure = "connect should be accepted";
         goto cleanup;
     }
@@ -378,11 +359,8 @@ MESH_TEST_CASE(ble_transport_channel_decode, unit) {
 
 cleanup:
     mesh_test_ble_rig_close(&rig);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-    } else {
-        record_success(test_name);
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }
 
 /* A packet from a node refreshes its last_heard/SNR; one from a node the sync never delivered
@@ -402,12 +380,7 @@ MESH_TEST_CASE(ble_transport_packet_touches_node, unit) {
              "%s", "6dda");
     from_radio.node_info.last_heard = 1000U;
     from_radio.node_info.snr = 1.0f;
-    pb_ostream_t stream = pb_ostream_from_buffer(rig.read_buffers[0], sizeof rig.read_buffers[0]);
-    if (!pb_encode(&stream, meshtastic_FromRadio_fields, &from_radio)) {
-        record_failure(test_name, "encode node_info failed");
-        return;
-    }
-    rig.read_payload_lengths[0] = stream.bytes_written;
+    MESH_TEST_FAIL_IF(!mesh_test_ble_rig_script(&rig, 0U, &from_radio), "encode node_info failed");
 
     /* A text from that node, timestamped well after the sync. */
     from_radio = (meshtastic_FromRadio)meshtastic_FromRadio_init_default;
@@ -424,10 +397,7 @@ MESH_TEST_CASE(ble_transport_packet_touches_node, unit) {
     from_radio.packet.decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
     from_radio.packet.decoded.payload.size = 2U;
     memcpy(from_radio.packet.decoded.payload.bytes, "hi", 2U);
-    stream = pb_ostream_from_buffer(rig.read_buffers[1], sizeof rig.read_buffers[1]);
-    MESH_TEST_FAIL_IF(!pb_encode(&stream, meshtastic_FromRadio_fields, &from_radio),
-                      "encode packet failed");
-    rig.read_payload_lengths[1] = stream.bytes_written;
+    MESH_TEST_FAIL_IF(!mesh_test_ble_rig_script(&rig, 1U, &from_radio), "encode packet failed");
 
     /* A position packet from a node we never got NodeInfo for. */
     from_radio = (meshtastic_FromRadio)meshtastic_FromRadio_init_default;
@@ -439,17 +409,13 @@ MESH_TEST_CASE(ble_transport_packet_touches_node, unit) {
     from_radio.packet.rx_time = 6000U;
     from_radio.packet.which_payload_variant = meshtastic_MeshPacket_decoded_tag;
     from_radio.packet.decoded.portnum = meshtastic_PortNum_POSITION_APP;
-    stream = pb_ostream_from_buffer(rig.read_buffers[2], sizeof rig.read_buffers[2]);
-    MESH_TEST_FAIL_IF(!pb_encode(&stream, meshtastic_FromRadio_fields, &from_radio),
-                      "encode position failed");
-    rig.read_payload_lengths[2] = stream.bytes_written;
+    MESH_TEST_FAIL_IF(!mesh_test_ble_rig_script(&rig, 2U, &from_radio), "encode position failed");
 
     if (mesh_test_ble_rig_start(&rig) != 0) {
         failure = "ble start failed";
         goto cleanup;
     }
-    mesh_ble_transport_refresh_devices(ble);
-    if (mesh_ble_transport_connect(ble, rig.devices[0].address) != 0) {
+    if (mesh_test_ble_rig_connect(&rig) != 0) {
         failure = "connect should be accepted";
         goto cleanup;
     }
@@ -484,11 +450,8 @@ MESH_TEST_CASE(ble_transport_packet_touches_node, unit) {
 
 cleanup:
     mesh_test_ble_rig_close(&rig);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-    } else {
-        record_success(test_name);
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }
 
 /* The whole path on the mock bus: handshake fragments land in the settings, the completed
@@ -505,23 +468,20 @@ MESH_TEST_CASE(ble_transport_admin_probe, unit) {
     meshtastic_FromRadio from_radio = meshtastic_FromRadio_init_default;
     from_radio.which_payload_variant = meshtastic_FromRadio_my_info_tag;
     from_radio.my_info.my_node_num = my_node;
-    mesh_test_encode_from_radio(&from_radio, rig.read_buffers[0], sizeof rig.read_buffers[0],
-                                &rig.read_payload_lengths[0]);
+    mesh_test_ble_rig_script(&rig, 0U, &from_radio);
 
     from_radio = (meshtastic_FromRadio)meshtastic_FromRadio_init_default;
     from_radio.which_payload_variant = meshtastic_FromRadio_config_tag;
     from_radio.config.which_payload_variant = meshtastic_Config_lora_tag;
     from_radio.config.payload_variant.lora.region = meshtastic_Config_LoRaConfig_RegionCode_EU_868;
     from_radio.config.payload_variant.lora.hop_limit = 5U;
-    mesh_test_encode_from_radio(&from_radio, rig.read_buffers[1], sizeof rig.read_buffers[1],
-                                &rig.read_payload_lengths[1]);
+    mesh_test_ble_rig_script(&rig, 1U, &from_radio);
 
     from_radio = (meshtastic_FromRadio)meshtastic_FromRadio_init_default;
     from_radio.which_payload_variant = meshtastic_FromRadio_moduleConfig_tag;
     from_radio.moduleConfig.which_payload_variant = meshtastic_ModuleConfig_store_forward_tag;
     from_radio.moduleConfig.payload_variant.store_forward.enabled = true;
-    mesh_test_encode_from_radio(&from_radio, rig.read_buffers[2], sizeof rig.read_buffers[2],
-                                &rig.read_payload_lengths[2]);
+    mesh_test_ble_rig_script(&rig, 2U, &from_radio);
 
     from_radio = (meshtastic_FromRadio)meshtastic_FromRadio_init_default;
     from_radio.which_payload_variant = meshtastic_FromRadio_node_info_tag;
@@ -531,16 +491,14 @@ MESH_TEST_CASE(ble_transport_admin_probe, unit) {
              "%s", "0ad8");
     snprintf(from_radio.node_info.user.long_name, sizeof from_radio.node_info.user.long_name, "%s",
              "Meshtastic 0ad8");
-    mesh_test_encode_from_radio(&from_radio, rig.read_buffers[3], sizeof rig.read_buffers[3],
-                                &rig.read_payload_lengths[3]);
+    mesh_test_ble_rig_script(&rig, 3U, &from_radio);
     /* rig.read_buffers[4] stays empty: ends the first drain. */
 
     if (mesh_test_ble_rig_start(&rig) != 0) {
         failure = "ble start failed";
         goto cleanup;
     }
-    mesh_ble_transport_refresh_devices(ble);
-    if (mesh_ble_transport_connect(ble, rig.devices[0].address) != 0) {
+    if (mesh_test_ble_rig_connect(&rig) != 0) {
         failure = "connect should be accepted";
         goto cleanup;
     }
@@ -576,8 +534,7 @@ MESH_TEST_CASE(ble_transport_admin_probe, unit) {
     from_radio.which_payload_variant = meshtastic_FromRadio_config_complete_id_tag;
     from_radio.config_complete_id = status.request_id;
     rig.read_index = 5U;
-    mesh_test_encode_from_radio(&from_radio, rig.read_buffers[5], sizeof rig.read_buffers[5],
-                                &rig.read_payload_lengths[5]);
+    mesh_test_ble_rig_script(&rig, 5U, &from_radio);
     const size_t writes_before = rig.write_call_count;
     mesh_bluez_client_mock_emit_notification(rig.fromnum_path, from_num, sizeof from_num);
     for (int spin = 0; spin < 20 && rig.write_call_count == writes_before; ++spin) {
@@ -627,8 +584,7 @@ MESH_TEST_CASE(ble_transport_admin_probe, unit) {
         goto cleanup;
     }
     rig.read_index = 7U;
-    mesh_test_encode_from_radio(&from_radio, rig.read_buffers[7], sizeof rig.read_buffers[7],
-                                &rig.read_payload_lengths[7]);
+    mesh_test_ble_rig_script(&rig, 7U, &from_radio);
     const size_t writes_before_reply = rig.write_call_count;
     mesh_bluez_client_mock_emit_notification(rig.fromnum_path, from_num, sizeof from_num);
     for (int spin = 0; spin < 20 && rig.write_call_count == writes_before_reply; ++spin) {
@@ -683,11 +639,8 @@ MESH_TEST_CASE(ble_transport_admin_probe, unit) {
 
 cleanup:
     mesh_test_ble_rig_close(&rig);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-    } else {
-        record_success(test_name);
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }
 
 /* End to end on the mock bus: a Store & Forward save goes out as passkey refresh, set with
@@ -704,23 +657,20 @@ MESH_TEST_CASE(ble_transport_settings_write, unit) {
     meshtastic_FromRadio from_radio = meshtastic_FromRadio_init_default;
     from_radio.which_payload_variant = meshtastic_FromRadio_my_info_tag;
     from_radio.my_info.my_node_num = my_node;
-    mesh_test_encode_from_radio(&from_radio, rig.read_buffers[0], sizeof rig.read_buffers[0],
-                                &rig.read_payload_lengths[0]);
+    mesh_test_ble_rig_script(&rig, 0U, &from_radio);
     from_radio = (meshtastic_FromRadio)meshtastic_FromRadio_init_default;
     from_radio.which_payload_variant = meshtastic_FromRadio_moduleConfig_tag;
     from_radio.moduleConfig.which_payload_variant = meshtastic_ModuleConfig_store_forward_tag;
     from_radio.moduleConfig.payload_variant.store_forward.enabled = false;
     from_radio.moduleConfig.payload_variant.store_forward.records = 500U;
-    mesh_test_encode_from_radio(&from_radio, rig.read_buffers[1], sizeof rig.read_buffers[1],
-                                &rig.read_payload_lengths[1]);
+    mesh_test_ble_rig_script(&rig, 1U, &from_radio);
     /* rig.read_buffers[2] empty: ends the first drain. */
 
     if (mesh_test_ble_rig_start(&rig) != 0) {
         failure = "ble start failed";
         goto cleanup;
     }
-    mesh_ble_transport_refresh_devices(ble);
-    if (mesh_ble_transport_connect(ble, rig.devices[0].address) != 0) {
+    if (mesh_test_ble_rig_connect(&rig) != 0) {
         failure = "connect should be accepted";
         goto cleanup;
     }
@@ -854,11 +804,8 @@ MESH_TEST_CASE(ble_transport_settings_write, unit) {
 
 cleanup:
     mesh_test_ble_rig_close(&rig);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-    } else {
-        record_success(test_name);
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }
 
 static void test_read_ready(void *userdata) { ++*(unsigned *)userdata; }
@@ -930,9 +877,6 @@ MESH_TEST_CASE(bluez_async_read_pending_cancel_timeout_and_bounds, unit) {
 cleanup:
     mesh_bluez_client_shutdown(&client);
     mesh_bluez_client_mock_disable();
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-        return;
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }

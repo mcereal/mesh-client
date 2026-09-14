@@ -734,10 +734,7 @@ cleanup:
     rmdir(shared_dir);
     rmdir(bin_dir);
     rmdir(dir);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-        return;
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
 
@@ -830,10 +827,7 @@ cleanup:
     }
     unlink(curl_path);
     rmdir(dir);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-        return;
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
 

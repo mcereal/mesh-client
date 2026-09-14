@@ -158,9 +158,6 @@ MESH_TEST_CASE(ble_transport_pair_cancel, unit) {
     }
 
     mesh_test_ble_rig_close(&rig);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-        return;
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }

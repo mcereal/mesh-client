@@ -1982,10 +1982,7 @@ MESH_TEST_CASE(ui_settings_about, unit) {
 
 cleanup:
     mesh_ui_store_shutdown(&store);
-    if (failure != NULL) {
-        record_failure(test_name, failure);
-        return;
-    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
 

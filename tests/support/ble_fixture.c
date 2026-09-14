@@ -95,17 +95,17 @@ int mesh_test_ble_rig_connect(struct mesh_test_ble_rig *rig) {
     return mesh_ble_transport_connect(rig->ble, rig->devices[0].address);
 }
 
-bool mesh_test_ble_rig_script(struct mesh_test_ble_rig *rig, const meshtastic_FromRadio *message) {
-    if (rig->scripted >= MESH_TEST_BLE_MAX_READS) {
+bool mesh_test_ble_rig_script(struct mesh_test_ble_rig *rig, size_t slot,
+                              const meshtastic_FromRadio *message) {
+    if (slot >= MESH_TEST_BLE_MAX_READS) {
         return false;
     }
     size_t len = 0U;
-    if (!mesh_test_encode_from_radio(message, rig->read_buffers[rig->scripted],
-                                     MESH_TEST_BLE_READ_CAP, &len)) {
+    if (!mesh_test_encode_from_radio(message, rig->read_buffers[slot], MESH_TEST_BLE_READ_CAP,
+                                     &len)) {
         return false;
     }
-    rig->read_payload_lengths[rig->scripted] = len;
-    rig->scripted += 1U;
+    rig->read_payload_lengths[slot] = len;
     return true;
 }
 
