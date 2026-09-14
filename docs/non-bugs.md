@@ -38,14 +38,16 @@ purpose, and a test that would still pass with the rule undone is not the one to
 with **no** test cited is one that nothing but the paragraph holds - a hardware fact, a build
 flag, a measurement, a convention no assertion reaches - which is why those run longer.
 
-That split is what the file is sorted by within each section: the tested rules first, stated in a
-line or two, and the ones only prose holds after them.
+That split is what the file is sorted by **within every section**: the tested rules first, stated
+in a line or two, then a blank line, then the ones only prose holds. The two premises below the
+contents are the exception, and they are outside the sections for exactly that reason.
 
 ## Contents
 
 | Section | What it covers |
 |---|---|
-| [The loop and the wire](#the-loop-and-the-wire) | threads, framing, each transport's own rules |
+| [Two premises](#two-premises) | the ground several sections below stand on |
+| [The loop and the wire](#the-loop-and-the-wire) | each transport's own rules |
 | [Devices, session, roster](#devices-the-session-and-the-roster) | rows, and what survives a drop |
 | [Input](#input) | what the buttons report and who repeats them |
 | [The Nodes tab](#the-nodes-tab) | filters, lead rows, the map behind it |
@@ -61,13 +63,19 @@ line or two, and the ones only prose holds after them.
 | [Crash reports](#crash-reports) | why the handler is written the way it is |
 | [Tables, strings, the build](#tables-strings-and-the-build) | `.def` files, packaging, releasing |
 
-## The loop and the wire
+## Two premises
+
+These two are not entries so much as the ground the sections stand on - several rules below are
+only a consequence of one of them, and neither is a thing a test could pin.
 
 - **No threads.** Everything is the one epoll loop, and every rule below that begins "because that
   would block" is this one.
 - **BLE is not Nordic UART** and carries no length framing: one bare protobuf per GATT
   write/read. Framing is a *stream* concern - serial and TCP, which are one wire format - and it
   is `src/proto/stream_framing.c`.
+
+## The loop and the wire
+
 - **The TCP link refuses a hostname.** `getaddrinfo()` blocks, POSIX has no non-blocking resolver,
   and `getaddrinfo_a` starts threads, so a name is seconds of frozen UI. Lifting it means the
   forked-child shape `fetch.c` already uses. `tcp_transport_refuses_a_name`,
@@ -523,12 +531,12 @@ line or two, and the ones only prose holds after them.
   states all four and the contract is luminance - 1.4:1 against the grounds *and against each
   other*, which is why the colour-blind theme spends four of Okabe-Ito's eight rather than any
   four. `ui_theme_series_palette`, `ui_theme_validate_holds_the_series_palette`.
+
 - **The Status card's counters are split by direction, and only the received side gets a bar.**
   `num_packets_rx` is everything received, so new/dupe/bad are a *partition* of it and a divided
   bar is true. `num_tx_relay` is a **subset** of `num_packets_tx`, so the Sent row's three numbers
   add up to a whole that does not exist - and overlapping parts still sum to something, which is
   `fb_draw_proportion()`'s one way of being wrong quietly. A negative remainder skips the row.
-
 - **Both chart screens are one renderer, and a third caller adds a description rather than a
   function.** `fb_render_chart()` takes a `struct fb_chart_screen` - the series, their labels, the
   domain, the band, and what unit the axis is *worded* in - and does everything else. The airtime
