@@ -160,6 +160,21 @@ bool mesh_key_verification_on_final(struct mesh_key_verification *state, uint64_
                                     const char *name, const char *characters, uint32_t now);
 
 /*
+ * Restamps the deadline without moving the stage: the exchange has not changed what it is
+ * asking, but something happened, so the five minutes start again.
+ *
+ * The one caller is the security number being submitted. That queues a step and leaves the
+ * stage where it is - the radio is still the one with the next move - so without this the
+ * deadline would go on running from the moment the radio *asked* for the number. A user who
+ * answered at four minutes fifty-nine would have their own answer expired out from under them
+ * a second later, and a DO_NOT_VERIFY queued behind it.
+ *
+ * Returns false for an idle exchange or a clock of 0, on the same terms as the tick below: a
+ * client that cannot measure five minutes has no deadline to restamp.
+ */
+bool mesh_key_verification_touch(struct mesh_key_verification *state, uint32_t now);
+
+/*
  * The user answered, or backed out. Both end the exchange: there is nothing further to show
  * once the radio has been told, and what comes home afterwards is the node's own NodeInfo with
  * the verified bit in it.

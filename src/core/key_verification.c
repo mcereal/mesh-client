@@ -101,14 +101,25 @@ static void adopt(struct mesh_key_verification *state, uint64_t nonce, const cha
                           state->remote_node);
         }
         /*
-         * A fresh exchange, and the node number is the one thing an arrival never carries: the
-         * notification names the far end by its long name only. So an adoption that replaces
-         * the slot keeps whatever node the slot named - which is right for the initiator, whose
-         * WAITING exchange is about the node they pressed - and leaves 0 for a responder, who
-         * is being told about a node they have not named. The session resolves that 0 against
-         * the roster before the step goes out.
+         * The node number is the one thing an arrival never carries: a notification names the
+         * far end by its long name only. So whether the slot's node survives this is the whole
+         * of what has to be got right here, and there are exactly two cases behind the one
+         * condition above.
+         *
+         * A slot whose nonce is **0** is our own initiation, still waiting for the radio to
+         * answer - the one moment an exchange exists here and not on the wire. The nonce
+         * arriving is that same exchange acquiring one, so the node the user pressed on is
+         * still the node, and losing it would leave the ceremony with nothing to address.
+         *
+         * A slot with a nonce is a *different* exchange being replaced, and its node must go
+         * with it. Keeping it was a bug: the sheet would show the new peer's name while every
+         * step went to the old peer's node, and a yes would mark the old node's key verified
+         * from a code that belonged to somebody else - which is the exact failure this whole
+         * feature exists to prevent. Clearing it hands the question back to the session, which
+         * resolves the name against the roster (and refuses when it cannot).
          */
-        const uint32_t node = state->remote_node;
+        const bool same_exchange_gaining_a_nonce = state->nonce == 0U;
+        const uint32_t node = same_exchange_gaining_a_nonce ? state->remote_node : 0U;
         const uint32_t started = state->started;
         mesh_key_verification_reset(state);
         state->remote_node = node;
@@ -160,6 +171,14 @@ bool mesh_key_verification_on_final(struct mesh_key_verification *state, uint64_
        characters would be two things to compare where there is one. */
     state->security_number = 0U;
     return stage_set(state, MESH_KEY_VERIFICATION_COMPARE, now);
+}
+
+bool mesh_key_verification_touch(struct mesh_key_verification *state, uint32_t now) {
+    if (state == NULL || !mesh_key_verification_active(state) || now == 0U) {
+        return false;
+    }
+    state->changed = now;
+    return true;
 }
 
 bool mesh_key_verification_settle(struct mesh_key_verification *state,

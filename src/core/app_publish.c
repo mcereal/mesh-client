@@ -1398,7 +1398,6 @@ static void mesh_app_report_key_verification(struct mesh_app *app) {
     const bool moved = live->seq != app->ui_verify_seq_seen;
     const bool new_question = live->stage != app->ui_verify_stage_shown;
     app->ui_verify_seq_seen = live->seq;
-    app->ui_verify_stage_shown = live->stage;
     if (!moved && !new_question) {
         return;
     }
@@ -1409,18 +1408,32 @@ static void mesh_app_report_key_verification(struct mesh_app *app) {
      * other question is the sheet. Closing the one that does not belong to this stage is what
      * stops a prompt outliving the question it was asked for - a link that drops mid-ceremony
      * resets the exchange to IDLE, and this is where that reaches the screen.
+     *
+     * `ui_verify_stage_shown` moves only once the overlay is actually up, which is the whole of
+     * how a deferred prompt gets a second chance. Both overlays stand aside for a BlueZ pairing
+     * prompt - it is blocking a bond on a thirty-second clock - and recording the stage anyway
+     * would mean the question was never asked again: `new_question` would be false on every
+     * publish afterwards, and the ceremony would run out its five minutes behind a screen that
+     * had already gone.
      */
     if (live->stage == (uint8_t)MESH_KEY_VERIFICATION_ENTER_NUMBER) {
         mesh_ui_store_close_verify_sheet(&app->ui_store);
-        mesh_ui_store_open_verify_number(&app->ui_store);
+        if (mesh_ui_store_open_verify_number(&app->ui_store)) {
+            app->ui_verify_stage_shown = live->stage;
+        }
         return;
     }
     mesh_ui_store_close_verify_number(&app->ui_store);
     if (new_question && mesh_key_verification_active(live) &&
         app->config.run_mode == MESH_APP_RUN_FOREGROUND) {
-        mesh_ui_store_open_verify_sheet(&app->ui_store);
+        if (mesh_ui_store_open_verify_sheet(&app->ui_store)) {
+            app->ui_verify_stage_shown = live->stage;
+        }
         return;
     }
+    /* Nothing to show: an exchange that ended, or a run mode with no screen to show it on.
+       Either way the stage is settled, so record it and take the sheet away. */
+    app->ui_verify_stage_shown = live->stage;
     if (!mesh_key_verification_active(live)) {
         mesh_ui_store_close_verify_sheet(&app->ui_store);
     }

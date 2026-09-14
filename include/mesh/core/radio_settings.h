@@ -444,6 +444,18 @@ int mesh_radio_settings_queue_key_verification(struct mesh_radio_settings *setti
                                                uint32_t message_type, uint32_t node_id,
                                                uint64_t nonce, bool has_number, uint32_t number);
 
+/*
+ * Drops every ceremony step for `node_id` still waiting to go out, and returns how many.
+ *
+ * For the user standing a ceremony down before the radio has answered: the INITIATE may still
+ * be queued, and sending it would start on the wire the thing they just stopped. A step already
+ * handed to the transport is beyond reach - the queue pops on dequeue - and that is not a
+ * problem worth solving here, because the radio will then open an exchange the user can stand
+ * down properly, with a nonce to do it with.
+ */
+size_t mesh_radio_settings_cancel_key_verification(struct mesh_radio_settings *settings,
+                                                   uint32_t node_id);
+
 /* Queues one radio action, the same shape again: a get_owner for a fresh passkey (the firmware
    rejects these without one exactly as it rejects a set_*), then the action itself. `seconds`
    is the delay for MESH_ADMIN_REBOOT and MESH_ADMIN_SHUTDOWN and is ignored by the resets.

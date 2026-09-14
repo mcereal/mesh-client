@@ -95,9 +95,8 @@ MESH_TEST_CASE(key_trust_marks_are_distinct_and_drawable, unit) {
     for (int trust = MESH_UI_KEY_TRUST_NONE; trust <= MESH_UI_KEY_TRUST_VERIFIED; ++trust) {
         char detail[96];
         snprintf(detail, sizeof detail, "trust %d has no word", trust);
-        MESH_TEST_FAIL_IF(mesh_str(mesh_ui_key_trust_label((enum mesh_ui_key_trust)trust))[0] ==
-                              '\0',
-                          detail);
+        MESH_TEST_FAIL_IF(
+            mesh_str(mesh_ui_key_trust_label((enum mesh_ui_key_trust)trust))[0] == '\0', detail);
     }
     /* An unverified key is the ordinary case on a working mesh. Colouring it would teach the
        user to ignore the colour by the end of the first day, which is the judgement in
@@ -126,14 +125,13 @@ MESH_TEST_CASE(key_trust_limits_agree_across_the_seam, unit) {
 
     /* Value for value, because the stage crosses the seam as a byte: a renumbering on one side
        would put the wrong question in front of the user rather than failing to compile. */
-    MESH_TEST_FAIL_IF((int)MESH_UI_VERIFY_IDLE != (int)MESH_KEY_VERIFICATION_IDLE ||
-                          (int)MESH_UI_VERIFY_WAITING != (int)MESH_KEY_VERIFICATION_WAITING ||
-                          (int)MESH_UI_VERIFY_SHOW_NUMBER !=
-                              (int)MESH_KEY_VERIFICATION_SHOW_NUMBER ||
-                          (int)MESH_UI_VERIFY_ENTER_NUMBER !=
-                              (int)MESH_KEY_VERIFICATION_ENTER_NUMBER ||
-                          (int)MESH_UI_VERIFY_COMPARE != (int)MESH_KEY_VERIFICATION_COMPARE,
-                      "the stage enums disagree across the seam");
+    MESH_TEST_FAIL_IF(
+        (int)MESH_UI_VERIFY_IDLE != (int)MESH_KEY_VERIFICATION_IDLE ||
+            (int)MESH_UI_VERIFY_WAITING != (int)MESH_KEY_VERIFICATION_WAITING ||
+            (int)MESH_UI_VERIFY_SHOW_NUMBER != (int)MESH_KEY_VERIFICATION_SHOW_NUMBER ||
+            (int)MESH_UI_VERIFY_ENTER_NUMBER != (int)MESH_KEY_VERIFICATION_ENTER_NUMBER ||
+            (int)MESH_UI_VERIFY_COMPARE != (int)MESH_KEY_VERIFICATION_COMPARE,
+        "the stage enums disagree across the seam");
     record_success(test_name);
 }
 
@@ -158,9 +156,9 @@ MESH_TEST_CASE(key_verification_initiator_walks_the_ceremony, unit) {
     MESH_TEST_FAIL_IF(mesh_key_verification_asks(&state),
                       "the waiting stage should not be asking the user anything");
 
-    MESH_TEST_FAIL_IF(!mesh_key_verification_on_number_request(&state, 0xABCDEFU, "Pine Ridge",
-                                                               VERIFY_NOW + 2U),
-                      "the request for a number did not move the stage");
+    MESH_TEST_FAIL_IF(
+        !mesh_key_verification_on_number_request(&state, 0xABCDEFU, "Pine Ridge", VERIFY_NOW + 2U),
+        "the request for a number did not move the stage");
     MESH_TEST_FAIL_IF(state.stage != (uint8_t)MESH_KEY_VERIFICATION_ENTER_NUMBER,
                       "the initiator should be asked to type the number");
     MESH_TEST_FAIL_IF(state.nonce != 0xABCDEFU, "the radio's nonce was not adopted");
@@ -168,9 +166,9 @@ MESH_TEST_CASE(key_verification_initiator_walks_the_ceremony, unit) {
                       "the node the user pressed on was lost when the nonce arrived");
     MESH_TEST_FAIL_IF(!mesh_key_verification_asks(&state), "the number stage asks nothing");
 
-    MESH_TEST_FAIL_IF(!mesh_key_verification_on_final(&state, 0xABCDEFU, "Pine Ridge", "A7K2",
-                                                      VERIFY_NOW + 9U),
-                      "the final did not move the stage");
+    MESH_TEST_FAIL_IF(
+        !mesh_key_verification_on_final(&state, 0xABCDEFU, "Pine Ridge", "A7K2", VERIFY_NOW + 9U),
+        "the final did not move the stage");
     MESH_TEST_FAIL_IF(state.stage != (uint8_t)MESH_KEY_VERIFICATION_COMPARE,
                       "both ends compare characters at the end");
     MESH_TEST_FAIL_IF(strcmp(state.characters, "A7K2") != 0, "the characters did not survive");
@@ -199,9 +197,9 @@ MESH_TEST_CASE(key_verification_responder_starts_cold, unit) {
     struct mesh_key_verification state;
     mesh_key_verification_reset(&state);
 
-    MESH_TEST_FAIL_IF(!mesh_key_verification_on_number_inform(&state, 0x55U, "Fox Creek", 1234U,
-                                                              VERIFY_NOW),
-                      "an unannounced inform did not open an exchange");
+    MESH_TEST_FAIL_IF(
+        !mesh_key_verification_on_number_inform(&state, 0x55U, "Fox Creek", 1234U, VERIFY_NOW),
+        "an unannounced inform did not open an exchange");
     MESH_TEST_FAIL_IF(state.stage != (uint8_t)MESH_KEY_VERIFICATION_SHOW_NUMBER,
                       "the responder should be shown the number to read out");
     MESH_TEST_FAIL_IF(state.we_initiated, "the end that was told the number did not start it");
@@ -309,8 +307,8 @@ static struct mesh_admin_request key_trust_contact_request(void) {
     request.payload.contact.node_num = 0x2001U;
     request.payload.contact.has_user = true;
     snprintf(request.payload.contact.user.id, sizeof request.payload.contact.user.id, "!00002001");
-    snprintf(request.payload.contact.user.long_name,
-             sizeof request.payload.contact.user.long_name, "Pine Ridge");
+    snprintf(request.payload.contact.user.long_name, sizeof request.payload.contact.user.long_name,
+             "Pine Ridge");
     request.payload.contact.user.public_key.size = 32U;
     request.payload.contact.user.public_key.bytes[0] = 0xA1U;
     request.payload.contact.manually_verified = true;
@@ -377,8 +375,7 @@ MESH_TEST_CASE(key_trust_verification_steps_encode, unit) {
        exactly what the nonce is there to prevent - so it is refused here rather than sent. */
     request.payload.key_verification.message_type =
         meshtastic_KeyVerificationAdmin_MessageType_DO_VERIFY;
-    MESH_TEST_FAIL_IF(key_trust_encodes(&request, &admin),
-                      "a DO_VERIFY with no nonce was encoded");
+    MESH_TEST_FAIL_IF(key_trust_encodes(&request, &admin), "a DO_VERIFY with no nonce was encoded");
 
     request.payload.key_verification.nonce = 0xABCDEFU;
     MESH_TEST_FAIL_IF(!key_trust_encodes(&request, &admin), "a DO_VERIFY with a nonce was refused");
@@ -543,8 +540,7 @@ MESH_TEST_CASE(key_trust_session_settle_only_a_yes_marks_the_key, unit) {
                       "a second ceremony would not start");
     (void)mesh_key_verification_on_final(&session.verification, 0x78U, "Pine Ridge", "A7K2",
                                          VERIFY_NOW);
-    MESH_TEST_FAIL_IF(mesh_session_verify_key_settle(&session, true) < 0,
-                      "a yes was not accepted");
+    MESH_TEST_FAIL_IF(mesh_session_verify_key_settle(&session, true) < 0, "a yes was not accepted");
     node = mesh_test_session_find_node(&session, 0x2001U);
     MESH_TEST_FAIL_IF(node == NULL || !node->key_verified,
                       "a completed verification did not mark the key");
@@ -650,8 +646,8 @@ MESH_TEST_CASE(key_trust_sheet_answers_every_stage, unit) {
         char text[256];
         char detail[96];
         snprintf(detail, sizeof detail, "stage %u has no sheet", (unsigned)sheets[i]);
-        MESH_TEST_FAIL_IF(!mesh_ui_verify_sheet_of(&verification, &sheet, headline,
-                                                   sizeof headline, text, sizeof text),
+        MESH_TEST_FAIL_IF(!mesh_ui_verify_sheet_of(&verification, &sheet, headline, sizeof headline,
+                                                   text, sizeof text),
                           detail);
         snprintf(detail, sizeof detail, "stage %u has no headline", (unsigned)sheets[i]);
         MESH_TEST_FAIL_IF(headline[0] == '\0', detail);
@@ -663,8 +659,7 @@ MESH_TEST_CASE(key_trust_sheet_answers_every_stage, unit) {
         snprintf(detail, sizeof detail, "stage %u has an unlabelled answer", (unsigned)sheets[i]);
         MESH_TEST_FAIL_IF(mesh_str(sheet.accept)[0] == '\0' || mesh_str(sheet.cancel)[0] == '\0',
                           detail);
-        MESH_TEST_FAIL_IF(sheet.accept == sheet.cancel,
-                          "a stage offers the same answer twice");
+        MESH_TEST_FAIL_IF(sheet.accept == sheet.cancel, "a stage offers the same answer twice");
     }
 
     /* The comparison puts the characters themselves in the headline, because they are the thing
@@ -677,9 +672,9 @@ MESH_TEST_CASE(key_trust_sheet_answers_every_stage, unit) {
     struct mesh_ui_verify_sheet sheet;
     char headline[96];
     char text[256];
-    MESH_TEST_FAIL_IF(!mesh_ui_verify_sheet_of(&comparing, &sheet, headline, sizeof headline, text,
-                                               sizeof text),
-                      "the comparison has no sheet");
+    MESH_TEST_FAIL_IF(
+        !mesh_ui_verify_sheet_of(&comparing, &sheet, headline, sizeof headline, text, sizeof text),
+        "the comparison has no sheet");
     MESH_TEST_FAIL_IF(strcmp(headline, "A7K2") != 0,
                       "the comparison sheet does not show the code being compared");
 
@@ -687,13 +682,13 @@ MESH_TEST_CASE(key_trust_sheet_answers_every_stage, unit) {
        answer opened a keyboard would be a press in front of a press. */
     struct mesh_ui_verification idle;
     memset(&idle, 0, sizeof idle);
-    MESH_TEST_FAIL_IF(mesh_ui_verify_sheet_of(&idle, &sheet, headline, sizeof headline, text,
-                                              sizeof text),
-                      "an idle record produced a sheet");
+    MESH_TEST_FAIL_IF(
+        mesh_ui_verify_sheet_of(&idle, &sheet, headline, sizeof headline, text, sizeof text),
+        "an idle record produced a sheet");
     idle.stage = (uint8_t)MESH_UI_VERIFY_ENTER_NUMBER;
-    MESH_TEST_FAIL_IF(mesh_ui_verify_sheet_of(&idle, &sheet, headline, sizeof headline, text,
-                                              sizeof text),
-                      "the number stage produced a sheet as well as a keyboard");
+    MESH_TEST_FAIL_IF(
+        mesh_ui_verify_sheet_of(&idle, &sheet, headline, sizeof headline, text, sizeof text),
+        "the number stage produced a sheet as well as a keyboard");
     record_success(test_name);
 }
 
@@ -739,7 +734,7 @@ MESH_TEST_CASE(key_trust_node_detail_offers_the_key_rows, unit) {
         node->in_nodedb = cases[i].in_nodedb;
 
         const uint32_t count = mesh_ui_node_detail_build(node, false, 0U, NULL, false, &handshake,
-                                                        NULL, items, MESH_UI_NODE_ITEMS_MAX);
+                                                         NULL, items, MESH_UI_NODE_ITEMS_MAX);
 
         bool saw_verify = false;
         bool saw_add = false;
@@ -841,8 +836,9 @@ MESH_TEST_CASE(key_trust_sheet_presses_answer_the_right_way, unit) {
         key_trust_open_sheet(&store, &nav, waiting[i]);
         memset(&action, 0, sizeof action);
         (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_A, &action);
-        snprintf(detail, sizeof detail, "stage %u: getting out of the way told the radio "
-                                        "something",
+        snprintf(detail, sizeof detail,
+                 "stage %u: getting out of the way told the radio "
+                 "something",
                  (unsigned)waiting[i]);
         MESH_TEST_FAIL_IF(action.type != MESH_UI_ACTION_NONE, detail);
         snprintf(detail, sizeof detail, "stage %u: the sheet stayed up", (unsigned)waiting[i]);
@@ -932,13 +928,13 @@ MESH_TEST_CASE(key_trust_number_keyboard_takes_four_digits, unit) {
  */
 MESH_TEST_CASE(key_trust_node_action_labels_fit_their_row, unit) {
     static const enum mesh_str_id kLabels[] = {
-        MESH_STR_NODE_ACT_MESSAGE,          MESH_STR_NODE_ACT_PIN,
-        MESH_STR_NODE_ACT_REQUEST_INFO,     MESH_STR_NODE_ACT_REQUEST_POSITION,
-        MESH_STR_NODE_ACT_REQUEST_TELEM,    MESH_STR_NODE_ACT_MUTE,
-        MESH_STR_NODE_ACT_IGNORE,           MESH_STR_NODE_ACT_REMOVE,
-        MESH_STR_NODE_ACT_WAYPOINT,         MESH_STR_NODE_ACT_SHOW_ON_MAP,
-        MESH_STR_NODE_ACT_VERIFY_KEY,       MESH_STR_NODE_ACT_VERIFY_AGAIN,
-        MESH_STR_NODE_ACT_ADD_CONTACT,      MESH_STR_NODE_KEY_TRUST,
+        MESH_STR_NODE_ACT_MESSAGE,       MESH_STR_NODE_ACT_PIN,
+        MESH_STR_NODE_ACT_REQUEST_INFO,  MESH_STR_NODE_ACT_REQUEST_POSITION,
+        MESH_STR_NODE_ACT_REQUEST_TELEM, MESH_STR_NODE_ACT_MUTE,
+        MESH_STR_NODE_ACT_IGNORE,        MESH_STR_NODE_ACT_REMOVE,
+        MESH_STR_NODE_ACT_WAYPOINT,      MESH_STR_NODE_ACT_SHOW_ON_MAP,
+        MESH_STR_NODE_ACT_VERIFY_KEY,    MESH_STR_NODE_ACT_VERIFY_AGAIN,
+        MESH_STR_NODE_ACT_ADD_CONTACT,   MESH_STR_NODE_KEY_TRUST,
     };
     for (size_t locale = 0; locale < mesh_i18n_locale_count(); ++locale) {
         const struct mesh_i18n_locale *const which = mesh_i18n_locale_at(locale);
@@ -957,5 +953,159 @@ MESH_TEST_CASE(key_trust_node_action_labels_fit_their_row, unit) {
             return;
         }
     }
+    record_success(test_name);
+}
+
+/* ---- four things a review caught ------------------------------------------------------------
+ *
+ * Each of these is a case that failed before the fix beside it. They are grouped because they
+ * are one class of mistake: the ceremony has two clocks, two peers and two overlays in play at
+ * once, and every one of these was a place where the code kept the wrong half of a pair.
+ */
+
+/*
+ * An exchange replaced by one for a *different* peer must not keep the old peer's node number.
+ *
+ * This is the worst bug the feature could have had, and it looked entirely reasonable: the slot
+ * kept its node so that our own WAITING exchange would not lose the node the user pressed on
+ * when the radio's nonce arrived. But a replacement carries a new name and no node number, so
+ * the sheet showed the new peer while every step - and the optimistic verified bit behind a
+ * yes - went to the old one. A key marked proven from a code that belonged to somebody else is
+ * exactly what this whole feature exists to prevent.
+ *
+ * The two cases are told apart by the slot's nonce: 0 is our own initiation acquiring one,
+ * anything else is a different exchange.
+ */
+MESH_TEST_CASE(key_verification_replacement_does_not_inherit_the_peer, unit) {
+    struct mesh_key_verification state;
+
+    /* Our own initiation gaining its nonce: the node survives, or the ceremony has nothing to
+       address. */
+    mesh_key_verification_reset(&state);
+    (void)mesh_key_verification_begin(&state, 0x2001U, "Pine Ridge", VERIFY_NOW);
+    (void)mesh_key_verification_on_number_request(&state, 0xAAU, "Pine Ridge", VERIFY_NOW + 1U);
+    MESH_TEST_FAIL_IF(state.remote_node != 0x2001U,
+                      "the node the user pressed on was lost when the radio's nonce arrived");
+
+    /* A different exchange replacing a resolved one: the node must go with it, so the session
+       resolves the new name rather than addressing the old node. */
+    mesh_key_verification_reset(&state);
+    (void)mesh_key_verification_on_number_inform(&state, 0x11U, "Fox Creek", 1111U, VERIFY_NOW);
+    state.remote_node = 0x2002U; /* as the session's name resolution would have left it */
+    (void)mesh_key_verification_on_final(&state, 0x22U, "Elk Pass", "ZZ99", VERIFY_NOW + 1U);
+    MESH_TEST_FAIL_IF(strcmp(state.remote_name, "Elk Pass") != 0,
+                      "the replacement did not take the slot");
+    MESH_TEST_FAIL_IF(state.remote_node != 0U,
+                      "a replaced exchange kept the previous peer's node, so its steps - and a "
+                      "yes - would be addressed to the wrong node");
+    record_success(test_name);
+}
+
+/*
+ * Stop on the waiting sheet is a success, and it drops the INITIATE that has not gone out.
+ *
+ * The exchange deliberately has no nonce at that point - the radio has not answered - so the
+ * nonce check every other step goes through would have called a press that did exactly what it
+ * said a failure, and toasted one. Worse, the queued INITIATE stayed queued: the radio would
+ * then open on the wire the ceremony the user had just stopped.
+ */
+MESH_TEST_CASE(key_verification_stop_before_the_radio_answers, unit) {
+    struct mesh_session session;
+    unsigned sends = 0U;
+    key_trust_seed(&session, &sends, false);
+
+    MESH_TEST_FAIL_IF(mesh_session_verify_key_begin(&session, 0x2001U) <= 0,
+                      "the ceremony would not start");
+    MESH_TEST_FAIL_IF(session.verification.nonce != 0U,
+                      "a fresh initiation should have no nonce until the radio answers");
+
+    const int stopped = mesh_session_verify_key_settle(&session, false);
+    MESH_TEST_FAIL_IF(stopped < 0, "Stop before the radio answered was reported as a failure");
+    MESH_TEST_FAIL_IF(mesh_key_verification_active(mesh_session_verification(&session)),
+                      "Stop left the exchange open");
+
+    /* And nothing addressed to that node is left waiting to go out. */
+    struct mesh_admin_request request;
+    while (mesh_radio_settings_next_request(&session.settings, 1000U, &request)) {
+        MESH_TEST_FAIL_IF(request.kind == MESH_ADMIN_KEY_VERIFICATION,
+                          "a stopped ceremony still had a step queued to send");
+        session.settings.pending_request_id = 0U;
+    }
+    record_success(test_name);
+}
+
+/*
+ * Answering the security number restarts the deadline.
+ *
+ * The step queues without moving the stage - the radio has the next move - so the five minutes
+ * would otherwise have gone on running from the moment the radio asked. An answer given at four
+ * minutes fifty-nine would have been expired a second later, with a DO_NOT_VERIFY queued behind
+ * the response that was about to succeed: a timely answer cancelling its own ceremony.
+ */
+MESH_TEST_CASE(key_verification_answering_the_number_restarts_the_clock, unit) {
+    struct mesh_key_verification state;
+    mesh_key_verification_reset(&state);
+    (void)mesh_key_verification_on_number_request(&state, 0x33U, "Pine Ridge", VERIFY_NOW);
+
+    const uint32_t nearly = VERIFY_NOW + MESH_KEY_VERIFICATION_TIMEOUT_SECONDS - 1U;
+    MESH_TEST_FAIL_IF(!mesh_key_verification_touch(&state, nearly), "the deadline did not move");
+    MESH_TEST_FAIL_IF(state.stage != (uint8_t)MESH_KEY_VERIFICATION_ENTER_NUMBER,
+                      "restamping the deadline moved the stage");
+    MESH_TEST_FAIL_IF(mesh_key_verification_tick(
+                          &state, VERIFY_NOW + MESH_KEY_VERIFICATION_TIMEOUT_SECONDS, NULL),
+                      "an exchange answered a second ago was expired on the radio's own clock");
+
+    /* A clock of 0 restamps nothing, on the same terms as the tick: a client that cannot measure
+       five minutes has no deadline to move. */
+    MESH_TEST_FAIL_IF(mesh_key_verification_touch(&state, 0U),
+                      "a client with no clock restamped a deadline anyway");
+    record_success(test_name);
+}
+
+/*
+ * A pairing prompt and a verification prompt are never both up.
+ *
+ * They are the only two overlays the *radio* raises rather than a press, and they collided:
+ * both flavours are the same keyboard, so raising the verification one over an open pairing PIN
+ * left both flags true. The dispatch and the renderer both prefer the passkey and closing it
+ * cleared the pair, so the verification prompt was never drawn, never answerable and never
+ * reopened. The sheet was the same bug one level up - it takes keys ahead of the keyboard, so it
+ * would have made the PIN untypeable while the bond timed out underneath it.
+ *
+ * Pairing wins, because it is blocking a bond on a thirty-second clock against this one's five
+ * minutes - and the store says whether the overlay is up so the app can try again rather than
+ * recording a question it never asked.
+ */
+MESH_TEST_CASE(key_verification_defers_to_a_pairing_prompt, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+
+    mesh_ui_store_open_passkey_prompt(&store, "Pine Ridge", 0U, false);
+    MESH_TEST_FAIL_IF(!store.nav.keyboard_passkey, "the pairing prompt did not open");
+
+    struct mesh_ui_verification verification;
+    memset(&verification, 0, sizeof verification);
+    verification.stage = (uint8_t)MESH_UI_VERIFY_ENTER_NUMBER;
+    verification.remote_node = 0x2001U;
+    mesh_ui_store_set_verification(&store, &verification);
+
+    MESH_TEST_FAIL_IF(mesh_ui_store_open_verify_number(&store),
+                      "the number prompt claimed the keyboard a pairing PIN was holding");
+    MESH_TEST_FAIL_IF(store.nav.keyboard_verify,
+                      "both keyboard flavours ended up set, which draws neither");
+    MESH_TEST_FAIL_IF(!store.nav.keyboard_passkey, "the pairing prompt was displaced");
+
+    MESH_TEST_FAIL_IF(mesh_ui_store_open_verify_sheet(&store),
+                      "the sheet opened over a pairing prompt it would have made untypeable");
+    MESH_TEST_FAIL_IF(store.nav.verify_open, "the sheet is up over the pairing prompt");
+
+    /* Once the bond is answered the prompt comes up on the next try - which is what the app's
+       "record the stage only when it is shown" rule buys. */
+    mesh_ui_store_close_passkey_prompt(&store);
+    MESH_TEST_FAIL_IF(!mesh_ui_store_open_verify_number(&store),
+                      "the number prompt did not open once pairing was out of the way");
+    MESH_TEST_FAIL_IF(!store.nav.keyboard_verify, "the keyboard is not in verification mode");
+
+    mesh_ui_store_shutdown(&store);
     record_success(test_name);
 }

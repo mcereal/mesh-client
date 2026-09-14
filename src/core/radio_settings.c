@@ -937,6 +937,54 @@ static bool mesh_radio_settings_step_queued(const struct mesh_radio_settings *se
     return false;
 }
 
+/*
+ * Drops every ceremony step for `node_id` that has not gone out yet.
+ *
+ * The one caller is the user standing a ceremony down before the radio has answered: the
+ * INITIATE may still be sitting in the queue, and sending it would start on the wire exactly
+ * what the user just stopped. A request the queue no longer holds has already been handed to
+ * the transport (mesh_radio_settings_next_request pops), so there is nothing here to catch it
+ * and nothing this can do about it - which is fine, because the radio will then open an
+ * exchange the user can stand down properly, with a nonce to do it with.
+ *
+ * Compacts the ring in place rather than marking entries dead: the queue is walked by three
+ * other functions that all assume every slot between head and head+len is a real request, and a
+ * tombstone would be a fourth rule for each of them to remember.
+ */
+size_t mesh_radio_settings_cancel_key_verification(struct mesh_radio_settings *settings,
+                                                   uint32_t node_id) {
+    if (settings == NULL || node_id == 0U) {
+        return 0U;
+    }
+    size_t kept = 0U;
+    size_t dropped = 0U;
+    for (size_t i = 0; i < settings->queue_len; ++i) {
+        const size_t from = (settings->queue_head + i) % MESH_RADIO_SETTINGS_FETCH_MAX;
+        const struct mesh_admin_request *const entry = &settings->queue[from];
+        if (entry->kind == MESH_ADMIN_KEY_VERIFICATION && entry->type == node_id) {
+            dropped += 1U;
+            continue;
+        }
+        const size_t to = (settings->queue_head + kept) % MESH_RADIO_SETTINGS_FETCH_MAX;
+        if (to != from) {
+            settings->queue[to] = settings->queue[from];
+        }
+        kept += 1U;
+    }
+    if (dropped > 0U) {
+        /* Zero the tail so a stale payload cannot be read back through a slot the next enqueue
+           has not filled yet - enqueue() memsets its own, but the direct writers do not. */
+        for (size_t i = kept; i < settings->queue_len; ++i) {
+            const size_t slot = (settings->queue_head + i) % MESH_RADIO_SETTINGS_FETCH_MAX;
+            memset(&settings->queue[slot], 0, sizeof settings->queue[slot]);
+        }
+        settings->queue_len = kept;
+        mesh_log_info("admin", "Dropped %zu unsent verification step(s) for 0x%08x", dropped,
+                      node_id);
+    }
+    return dropped;
+}
+
 int mesh_radio_settings_queue_key_verification(struct mesh_radio_settings *settings,
                                                uint32_t message_type, uint32_t node_id,
                                                uint64_t nonce, bool has_number, uint32_t number) {

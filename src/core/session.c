@@ -2099,10 +2099,22 @@ int mesh_session_verify_key_number(struct mesh_session *session, uint32_t number
     if (ready < 0) {
         return ready;
     }
-    return mesh_radio_settings_queue_key_verification(
+    const int queued = mesh_radio_settings_queue_key_verification(
         &session->settings,
         (uint32_t)meshtastic_KeyVerificationAdmin_MessageType_PROVIDE_SECURITY_NUMBER,
         session->verification.remote_node, session->verification.nonce, true, number);
+    if (queued < 0) {
+        return queued;
+    }
+    /*
+     * The deadline starts again here, and it has to: this step queues without moving the stage -
+     * the radio is still the one with the next move - so the five minutes would otherwise go on
+     * running from the moment the radio *asked* for the number. A user who answered at four
+     * minutes fifty-nine would have had their own answer expired a second later, with a
+     * DO_NOT_VERIFY queued behind the response that was about to succeed.
+     */
+    (void)mesh_key_verification_touch(&session->verification, mesh_session_wall_clock());
+    return queued;
 }
 
 int mesh_session_verify_key_settle(struct mesh_session *session, bool verified) {
@@ -2117,8 +2129,28 @@ int mesh_session_verify_key_settle(struct mesh_session *session, bool verified) 
      * must still take the sheet away: the user has said the characters do not match, and
      * leaving the question up until a send succeeds would be asking them again.
      */
-    if (done.remote_node == 0U || done.nonce == 0U) {
+    if (done.remote_node == 0U) {
         return -EINVAL;
+    }
+    /*
+     * A stand-down with no nonce is the user pressing Stop on the waiting sheet, before the
+     * radio has answered the INITIATE - so there is no exchange on the wire to refuse, and
+     * nothing to send. It is a success, not the -EINVAL the nonce check below would give it:
+     * reporting a failure for a press that did exactly what it said is how a user learns to
+     * distrust the sheet.
+     *
+     * What it does need is for the INITIATE not to go out behind their back. If it is still
+     * queued it is dropped here; if it has already been handed to the transport it cannot be,
+     * and the radio will open an exchange the user can stand down properly - with a nonce to do
+     * it with - rather than one that starts silently.
+     */
+    if (done.nonce == 0U) {
+        const size_t dropped =
+            mesh_radio_settings_cancel_key_verification(&session->settings, done.remote_node);
+        mesh_log_info("session",
+                      "Key verification with 0x%08x stopped before it began (%zu unsent)",
+                      done.remote_node, dropped);
+        return 0;
     }
     struct mesh_node_summary *summary = NULL;
     const int ready = mesh_session_verify_target(session, done.remote_node, &summary);

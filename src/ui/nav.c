@@ -1827,6 +1827,16 @@ bool mesh_ui_nav_open_verify(struct mesh_ui_nav *nav) {
     if (nav == NULL || nav->verify_open) {
         return false;
     }
+    /*
+     * The BlueZ pairing prompt outranks this, and the ordering is not arbitrary: that prompt is
+     * *blocking a bond* on a thirty-second timeout, while a verification has five minutes and a
+     * caller that retries. Raising a sheet over it would be worse than a wait - this overlay
+     * takes keys ahead of the keyboard (see mesh_ui_nav_handle_key), so the PIN could not be
+     * typed at all, and the bond would fail while its prompt sat unreachable underneath.
+     */
+    if (nav->keyboard_passkey) {
+        return false;
+    }
     nav->verify_open = true;
     /* On the answer that does not act, which on the comparison is "they match" and on the two
        waiting stages is the one that gets out of the way. Neither costs anything to land on,
@@ -1847,6 +1857,17 @@ bool mesh_ui_nav_close_verify(struct mesh_ui_nav *nav) {
 
 bool mesh_ui_nav_open_verify_number(struct mesh_ui_nav *nav) {
     if (nav == NULL || nav->keyboard_verify) {
+        return false;
+    }
+    /*
+     * Defers to the pairing prompt for the reason above, and here the cost of not deferring was
+     * sharper still: both flavours are the same keyboard, so setting this one while that one
+     * stood left *both* flags true. The dispatch and the renderer both prefer the passkey, and
+     * closing it cleared the pair - so the verification prompt was never drawn, never answerable
+     * and never reopened, and the ceremony ran out its five minutes behind a screen that had
+     * already gone.
+     */
+    if (nav->keyboard_passkey) {
         return false;
     }
     /* The sheet and the keyboard are never both up: the number is one stage of the ceremony and

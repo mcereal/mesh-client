@@ -1397,12 +1397,19 @@ void mesh_ui_store_open_passkey_prompt(struct mesh_ui_store *store, const char *
                                        uint32_t passkey, bool confirm);
 void mesh_ui_store_close_passkey_prompt(struct mesh_ui_store *store);
 
-/* The key-verification sheet and the keyboard that collects the security number, opened and
-   closed by the app from the ceremony's stage - not by a press, for the pairing prompt's
-   reason: the thing that raises them is the radio asking. */
-void mesh_ui_store_open_verify_sheet(struct mesh_ui_store *store);
+/*
+ * The key-verification sheet and the keyboard that collects the security number, opened and
+ * closed by the app from the ceremony's stage - not by a press, for the pairing prompt's
+ * reason: the thing that raises them is the radio asking.
+ *
+ * The two `open` calls return whether the overlay is *now up*, which is not the same as whether
+ * this call put it there: already-open counts. Both defer to a BlueZ pairing prompt, which is
+ * blocking a bond on a much shorter clock - so a false here means "not yet", and the caller
+ * must not record the stage as shown or it will never try again.
+ */
+bool mesh_ui_store_open_verify_sheet(struct mesh_ui_store *store);
 void mesh_ui_store_close_verify_sheet(struct mesh_ui_store *store);
-void mesh_ui_store_open_verify_number(struct mesh_ui_store *store);
+bool mesh_ui_store_open_verify_number(struct mesh_ui_store *store);
 void mesh_ui_store_close_verify_number(struct mesh_ui_store *store);
 /* Drops the pending Settings edits: the app calls this once a save has been queued. */
 void mesh_ui_store_settings_edits_clear(struct mesh_ui_store *store);

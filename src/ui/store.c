@@ -132,13 +132,16 @@ void mesh_ui_store_close_passkey_prompt(struct mesh_ui_store *store) {
 
 /* The verification sheet and its keyboard, on exactly the same terms as the prompt above: the
    app opens them from the ceremony's stage, because what raises them is a ClientNotification. */
-void mesh_ui_store_open_verify_sheet(struct mesh_ui_store *store) {
+bool mesh_ui_store_open_verify_sheet(struct mesh_ui_store *store) {
     if (store == NULL) {
-        return;
+        return false;
     }
     if (mesh_ui_nav_open_verify(&store->nav)) {
         mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_NAV);
     }
+    /* Whether it is up, not whether this call raised it: a sheet already standing is the answer
+       the caller wants, and a pairing prompt refusing it is not. */
+    return store->nav.verify_open;
 }
 
 void mesh_ui_store_close_verify_sheet(struct mesh_ui_store *store) {
@@ -150,13 +153,14 @@ void mesh_ui_store_close_verify_sheet(struct mesh_ui_store *store) {
     }
 }
 
-void mesh_ui_store_open_verify_number(struct mesh_ui_store *store) {
+bool mesh_ui_store_open_verify_number(struct mesh_ui_store *store) {
     if (store == NULL) {
-        return;
+        return false;
     }
     if (mesh_ui_nav_open_verify_number(&store->nav)) {
         mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_NAV);
     }
+    return store->nav.keyboard_verify;
 }
 
 void mesh_ui_store_close_verify_number(struct mesh_ui_store *store) {
