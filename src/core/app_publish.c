@@ -978,6 +978,12 @@ static void mesh_app_flatten_settings(const struct mesh_radio_settings *src,
         dst->use_12h_clock = src->display.use_12h_clock;
         dst->units = (uint8_t)src->display.units;
         dst->flip_screen = src->display.flip_screen;
+        dst->oled = (uint8_t)src->display.oled;
+        dst->displaymode = (uint8_t)src->display.displaymode;
+        dst->heading_bold = src->display.heading_bold;
+        dst->wake_on_tap_or_motion = src->display.wake_on_tap_or_motion;
+        dst->use_long_node_name = src->display.use_long_node_name;
+        dst->enable_message_bubbles = src->display.enable_message_bubbles;
     }
     if (src->has_lora) {
         dst->has_lora = true;

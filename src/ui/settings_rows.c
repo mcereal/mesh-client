@@ -843,6 +843,14 @@ static void build_display(const struct mesh_ui_settings *s, struct item_list *li
     item_field(list, MESH_UI_FIELD_DISPLAY_12H, s->use_12h_clock ? 1U : 0U, NULL);
     item_field(list, MESH_UI_FIELD_DISPLAY_UNITS, s->units, NULL);
     item_field(list, MESH_UI_FIELD_DISPLAY_FLIP, s->flip_screen ? 1U : 0U, NULL);
+    item_field(list, MESH_UI_FIELD_DISPLAY_OLED, s->oled, NULL);
+    item_field(list, MESH_UI_FIELD_DISPLAY_MODE, s->displaymode, NULL);
+    item_field(list, MESH_UI_FIELD_DISPLAY_HEADING_BOLD, s->heading_bold ? 1U : 0U, NULL);
+    item_field(list, MESH_UI_FIELD_DISPLAY_WAKE_ON_MOTION, s->wake_on_tap_or_motion ? 1U : 0U,
+               NULL);
+    item_field(list, MESH_UI_FIELD_DISPLAY_LONG_NAMES, s->use_long_node_name ? 1U : 0U, NULL);
+    item_field(list, MESH_UI_FIELD_DISPLAY_MESSAGE_BUBBLES, s->enable_message_bubbles ? 1U : 0U,
+               NULL);
 }
 
 static void build_lora(const struct mesh_ui_settings *s, struct item_list *list) {

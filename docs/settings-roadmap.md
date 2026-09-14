@@ -676,6 +676,168 @@ feature, and it is not what `CannedMessageConfig` holds.
 Deliberately undecided until phases 10 and 11 have been on a device. The decision to record
 here is that they are last, and that shipping nothing is an acceptable outcome for all four.
 
+### Phase 14 - the fields the audit found
+
+Not a feature: a sweep of every `Config`, `ModuleConfig`, `Channel` and `DeviceUIConfig` field
+in the vendored protobufs against what this client reads, writes and offers, and the order to
+close what it turned up. Phases 1-13 were written forwards, from "what should the Settings tab
+have"; this one was written backwards, from the wire.
+
+**What it cleared first, because it is the thing that would have been a bug.** Every `set_*`
+is built from the radio's own stored record - `mesh_app_build_settings_write` starts each
+section with `radio->device`, `radio->lora`, `radio->ui_config` and so on and applies the
+pending edits on top - so a field this client has no row for is echoed back untouched rather
+than zeroed. That matters because the firmware *replaces* a section wholesale on `set_config`;
+had the write started from a fresh struct, every save would have wiped every field below.
+It does not, and `radio_settings_write_preserves_unshown_fields` now says so in a test rather
+than only in the code. So everything below is a gap in what is *offered*, never in what
+survives a save.
+
+**Read but not writable is two fields, and both are deliberate**: `PositionConfig.fixed_position`
+(a flag the firmware sets itself as part of `set_fixed_position` - phase 8) and
+`MQTTConfig.proxy_to_client_enabled` (phase 6). There is no accidental read-only row anywhere
+in the tab. The gaps are all of the other kind.
+
+**Forty-four fields are not surfaced at all**, and they sort into four piles that want
+different answers:
+
+| Pile | Count | Answer |
+|---|---|---|
+| Deprecated upstream | 7 | Skip, and say so here so the next audit does not re-find them |
+| Whole sections not kept | 15 | Their own items below |
+| Board wiring - GPIO, ADC, FEM | 10 | Skip by the phase 13 argument: pins on a radio attached to a handheld that has none of them |
+| Plain rows in sections that already ship | 12 | The work of this phase |
+
+The seven deprecated are `DeviceConfig.serial_enabled` and `is_managed` (superseded by the
+`SecurityConfig` pair this client already writes), `PositionConfig.gps_enabled` and
+`gps_attempt_time` (superseded by `gps_mode`), `DisplayConfig.gps_format` and
+`compass_north_top` (superseded by the `DeviceUIConfig` and `compass_orientation` rows), and
+`MQTTConfig.json_enabled`, which phase 6 already skipped for its own reason.
+
+The order below is cheapest-first, and the order is the point: the first three items are rows
+in tables that already exist, and nothing before item 5 needs a mechanism this client does not
+have.
+
+#### 1. Display's six fields (this branch)
+
+`displaymode`, `oled`, `heading_bold`, `wake_on_tap_or_motion`, `use_long_node_name` and
+`enable_message_bubbles`. Two enums and four toggles in a section that has been editable since
+phase 2, using row kinds the field table already has - the cheapest real win on the list, and
+the largest single cluster of unsurfaced fields in a shipped section.
+
+One thing follows from it that is not a row. The firmware reboots on a `set_config` DISPLAY
+only when `screen_on_secs`, `flip_screen`, `oled` or `displaymode` change ("The one mechanism",
+above); before this item the section could offer two of those four, and now it offers all
+four. Display still does not get the confirm overlay - a reboot is what the link poller and
+auto-connect already handle, and the overlay is for a write that can cut this client off or
+take the radio off the mesh - but the two new enum rows carry a note saying the screen will
+restart, which the two shipped ones have always carried.
+
+`oled` is an override for a panel the firmware failed to autodetect, and `displaymode` is the
+layout it draws; both are the answer to "why does this radio's screen look wrong", which is
+exactly the MQTT-proxy argument for a row that exists. Neither has any effect on what the
+Brick draws: this is the *radio's* screen, and the section it sits in has said so since the
+Radio UI section arrived beside it.
+
+#### 2. `DeviceMetadata.excluded_modules`
+
+One `uint32` bitmask, read-only, and it makes an existing screen honest. The Modules list
+shows a module the radio never sent as `not loaded`, which conflates two different things: a
+module the firmware build left out, and one that is present and simply has not been asked for
+yet. `excluded_modules` is the firmware saying which `ModuleConfigType`s it was built without.
+Also unread beside it: `hasRemoteHardware` (which gates one of the five unbound modules) and
+`has_xeddsa`.
+
+#### 3. `NetworkConfig`, read-only
+
+The one section that is *fetched, stored, and then read by nothing*. `queue_all()` asks for
+`NETWORK_CONFIG` on every refresh, `mesh_radio_settings_apply_config` stores it, `has_network`
+counts toward `mesh_radio_settings_loaded()` - and no row anywhere reads a single one of its
+ten fields. That is a round trip per refresh spent on bytes that are dropped.
+
+"Later, maybe never" files Network under "WiFi credentials on a device with no WiFi of its own
+is a poor fit", and that stays true of *editing* it. It is not an argument against showing it:
+whether the radio is on WiFi or Ethernet, at what address, and against which NTP server is the
+answer to a class of "why is this radio not reaching the broker" question the tab cannot
+currently answer at all. About radio answers part of it today from `DeviceConnectionStatus`,
+which is the interface's *state*; this is its *configuration*, and the two disagreeing is
+itself worth being able to see. `wifi_psk` is not shown, for the reason no other password is.
+
+#### 4. `ChannelSettings.module_settings.is_muted`
+
+One toggle, in a submessage this client already reads the other half of - `position_precision`
+comes from the same `ModuleSettings` and has had a row since phase 3. Muting a busy channel is
+a thing people want and there is nowhere to do it.
+
+#### 5. The bitfield row model, and the two fields waiting on it
+
+`PositionConfig.position_flags` selects what a position packet carries (altitude, DOP, sats,
+timestamp and the rest) as a bitwise OR; `MeshBeaconConfig.flags` packs three booleans the
+same way. Phase 12 listed the second as the reason it needs new UI rather than new rows, and
+the audit found the first - so there are now two callers for "several toggle rows over one
+`uint32`", which is what makes it worth building as a capability instead of special-casing
+either field. The field table has no way to say "bit 2 of this field" yet; that is the whole
+of the work, and phase 12's beacon rows fall out of it.
+
+#### 6. LoRa's advanced group, with `set_ham_mode`
+
+`sx126x_rx_boosted_gain`, `override_duty_cycle`, `override_frequency`, `frequency_offset`,
+`channel_num` and `ignore_incoming`. These are held back from item 1 not because they are
+harder rows - `sx126x_rx_boosted_gain` is one toggle with a real sensitivity benefit - but
+because four of them are the same feature as the `set_ham_mode` verb that is not implemented
+either, and a client that offers an out-of-band frequency without offering the HAM mode that
+legalises it is offering half of something. "Later, maybe never" already lists `set_ham_mode`
+as wanting the confirm sheet; this is the rest of what it wants around it.
+
+`ignore_incoming` is the odd one and worth saying out loud, because it reads like a duplicate
+and is not: it is a LoRa-level "drop everything from these three node numbers, as if they were
+out of range", where the `set_ignored_node` verb the Nodes tab already sends is a NodeDB flag.
+Two different mechanisms, and the row has to say which it is.
+
+#### 7. What is configured here and cannot be seen here
+
+Not fields at all, and the sharpest thing the audit found: three modules have a full,
+editable section in this tab whose **output this client never decodes**.
+
+| Module | Section since | Port not handled |
+|---|---|---|
+| Paxcounter | phase 10 | `PAXCOUNTER_APP` (34); `paxcount.proto` is not even in `MESH_PROTO_NAMES` |
+| Range test | phase 10 | `RANGE_TEST_APP` (66) |
+| Status message | phase 10 | `NODE_STATUS_APP` (36) - so a status can be set and no one's can be read |
+
+Turning a module on from the Brick and having nowhere to watch it work is a worse answer than
+not offering it, and it is the one gap on this list that is not in the Settings tab. Each is
+a decoder and a screen rather than a row, so each is its own work; they are recorded here
+because this is where the asymmetry became visible.
+
+#### 8. `FromRadio.region_presets`, and the rest of the unread wire
+
+`region_presets` (tag 19) is the firmware sending, once during the `want_config` handshake,
+which modem presets are legal in each region - explicitly so that a client can stop offering
+an illegal region-and-preset pair. The LoRa section currently offers all thirty-eight regions
+against every preset with no constraint, which is a row that can be set to something the radio
+will not honour. Also unread: `lockdown_status` (18), `fileInfo` (15), `xmodemPacket` (12) and
+`mqttClientProxyMessage` (14, for the reason phase 6 gives).
+
+On `NodeInfo`, `is_key_manually_verified` and `has_xeddsa_signed` are unread, both tied to the
+`key_verification` verb that "Later, maybe never" already lists.
+
+#### What the audit did not change
+
+The five `ModuleConfig` variants with no binding in the module table - `serial`,
+`canned_message`, `audio`, `remote_hardware` and `mesh_beacon` - are phases 12 and 13, and the
+audit found nothing that moves them. `DeviceUIConfig`'s `node_filter`, `node_highlight`,
+`map_data` and `screen_rgb_color` have no rows and are preserved whole by the write, which is
+the interlude's own design working; `screen_rgb_color` is a single row if anyone wants it.
+
+One documentation gap, fixed here rather than in code: `send_input_event` (AdminMessage tag 27)
+was the only unimplemented admin verb with no recorded reason. It is the rotary-encoder input
+broker that belongs to `CannedMessageConfig`, so it sits with phase 13 and is now listed below
+with the rest.
+
+- Exit criteria for this branch: on the Brick, the Display section shows all twelve fields and
+  a display mode set from it reads back after the reboot and shows in the phone app.
+
 ### Later, maybe never
 
 Firmware install for an ESP32-C3/C6 or an STM32WL, and nRF52 firmware install *without a
@@ -698,7 +860,9 @@ into a UF2 bootloader, whose mass-storage endpoint takes the image a block at a 
 filesystem), `exit_simulator`, `reboot_ota_seconds` (deprecated
 upstream in favour of `reboot_ota_mode`), `set_ringtone_message` (the get is shipped; see the
 interlude for why the set is not), `delete_file_request`, `set_scale`,
-`get_node_remote_hardware_pins_request`, `sensor_config` and `lockdown_auth`.
+`get_node_remote_hardware_pins_request`, `send_input_event` (the rotary-encoder input broker
+that belongs to `CannedMessageConfig`, so it goes wherever phase 13 goes), `sensor_config` and
+`lockdown_auth`.
 
 Four that are features rather than leftovers, and are worth their own work when their turn
 comes: `set_ham_mode` (a call sign, a frequency and a transmit power for a licensed operator,

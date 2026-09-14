@@ -2830,3 +2830,127 @@ cleanup:
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
+
+/*
+ * A save must carry back the fields this client has no row for.
+ *
+ * The firmware *replaces* a section on set_config - it assigns rather than merging - so the
+ * only correct base for a write is the radio's own record with the pending edits applied on
+ * top. mesh_app_build_settings_write does that, and this pins it: the audit in
+ * docs/settings-roadmap.md turns on the claim, and a write builder that ever started from a
+ * fresh struct would silently flatten a radio's frequency override, its position flags and its
+ * deep-sleep timer the first time somebody changed a hop limit.
+ *
+ * Every field asserted here is one the tab deliberately does not offer, which is exactly why
+ * nothing else in the suite would notice it going missing.
+ */
+MESH_TEST_CASE(radio_settings_write_preserves_unshown_fields, unit) {
+    struct mesh_radio_settings radio;
+    mesh_radio_settings_reset(&radio);
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    action.type = MESH_UI_ACTION_SAVE_SETTINGS;
+    struct mesh_admin_request write;
+
+    /* LoRa: the HAM and advanced group, none of which has a row. */
+    radio.has_lora = true;
+    radio.lora.hop_limit = 3U;
+    radio.lora.override_frequency = 906.875f;
+    radio.lora.frequency_offset = 1.5f;
+    radio.lora.channel_num = 42U;
+    radio.lora.override_duty_cycle = true;
+    radio.lora.sx126x_rx_boosted_gain = true;
+    radio.lora.pa_fan_disabled = true;
+    radio.lora.ignore_incoming_count = 2U;
+    radio.lora.ignore_incoming[0] = 0xDEADBEEFU;
+    radio.lora.ignore_incoming[1] = 0x0000BEEFU;
+    action.section = MESH_UI_SETTINGS_LORA;
+    action.edit_count = 1U;
+    action.edits[0].field = MESH_UI_FIELD_LORA_HOPS;
+    action.edits[0].number = 5U;
+    const meshtastic_Config_LoRaConfig *lora = &write.payload.config.payload_variant.lora;
+    MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+                          lora->hop_limit != 5U || lora->override_frequency != 906.875f ||
+                          lora->frequency_offset != 1.5f || lora->channel_num != 42U ||
+                          !lora->override_duty_cycle || !lora->sx126x_rx_boosted_gain ||
+                          !lora->pa_fan_disabled || lora->ignore_incoming_count != 2U ||
+                          lora->ignore_incoming[0] != 0xDEADBEEFU ||
+                          lora->ignore_incoming[1] != 0x0000BEEFU,
+                      "a LoRa save must keep the frequency, duty cycle and ignore list");
+
+    /* Position: position_flags is a bitfield with no row model yet (roadmap phase 14 item 5). */
+    radio.has_position = true;
+    radio.position.position_flags = 0x0000030FU;
+    radio.position.rx_gpio = 17U;
+    radio.position.gps_en_gpio = 21U;
+    action.section = MESH_UI_SETTINGS_POSITION;
+    action.edit_count = 1U;
+    memset(action.edits, 0, sizeof action.edits);
+    action.edits[0].field = MESH_UI_FIELD_POSITION_BROADCAST_SECS;
+    action.edits[0].number = 900U;
+    const meshtastic_Config_PositionConfig *pos = &write.payload.config.payload_variant.position;
+    MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+                          pos->position_broadcast_secs != 900U ||
+                          pos->position_flags != 0x0000030FU || pos->rx_gpio != 17U ||
+                          pos->gps_en_gpio != 21U,
+                      "a Position save must keep the position flags and the GPS pins");
+
+    /* Power: sds_secs and the battery calibration pair. */
+    radio.has_power = true;
+    radio.power.sds_secs = 604800U;
+    radio.power.adc_multiplier_override = 2.11f;
+    radio.power.device_battery_ina_address = 0x40U;
+    action.section = MESH_UI_SETTINGS_POWER;
+    action.edit_count = 1U;
+    memset(action.edits, 0, sizeof action.edits);
+    action.edits[0].field = MESH_UI_FIELD_POWER_MIN_WAKE;
+    action.edits[0].number = 60U;
+    const meshtastic_Config_PowerConfig *power = &write.payload.config.payload_variant.power;
+    MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+                          power->min_wake_secs != 60U || power->sds_secs != 604800U ||
+                          power->adc_multiplier_override != 2.11f ||
+                          power->device_battery_ina_address != 0x40U,
+                      "a Power save must keep the deep sleep timer and the battery calibration");
+
+    /* Display: the two fields that stay unshown now the other six have rows. */
+    radio.has_display = true;
+    radio.display.displaymode = meshtastic_Config_DisplayConfig_DisplayMode_TWOCOLOR;
+    radio.display.wake_on_tap_or_motion = true;
+    radio.display.compass_north_top = true; /* deprecated upstream, and still the radio's */
+    action.section = MESH_UI_SETTINGS_DISPLAY;
+    action.edit_count = 1U;
+    memset(action.edits, 0, sizeof action.edits);
+    action.edits[0].field = MESH_UI_FIELD_DISPLAY_HEADING_BOLD;
+    action.edits[0].number = 1U;
+    const meshtastic_Config_DisplayConfig *disp = &write.payload.config.payload_variant.display;
+    MESH_TEST_FAIL_IF(
+        mesh_app_build_settings_write(&radio, &action, &write) != 0 || !disp->heading_bold ||
+            disp->displaymode != meshtastic_Config_DisplayConfig_DisplayMode_TWOCOLOR ||
+            !disp->wake_on_tap_or_motion || !disp->compass_north_top,
+        "a Display save must keep what it does not offer");
+
+    /* The radio's own screen: the interlude's reason for keeping DeviceUIConfig whole. A write
+       assembled from the rows alone would erase a touchscreen's calibration. */
+    radio.has_ui_config = true;
+    radio.ui_config.screen_brightness = 80U;
+    radio.ui_config.screen_rgb_color = 0x00FF7700U;
+    radio.ui_config.calibration_data.size = 4U;
+    radio.ui_config.calibration_data.bytes[0] = 0xA5U;
+    radio.ui_config.has_node_filter = true;
+    radio.ui_config.node_filter.hops_away = 3;
+    action.section = MESH_UI_SETTINGS_RADIO_UI;
+    action.edit_count = 1U;
+    memset(action.edits, 0, sizeof action.edits);
+    action.edits[0].field = MESH_UI_FIELD_UI_BRIGHTNESS;
+    action.edits[0].number = 128U;
+    MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+                          write.payload.ui_config.screen_brightness != 128U ||
+                          write.payload.ui_config.screen_rgb_color != 0x00FF7700U ||
+                          write.payload.ui_config.calibration_data.size != 4U ||
+                          write.payload.ui_config.calibration_data.bytes[0] != 0xA5U ||
+                          !write.payload.ui_config.has_node_filter ||
+                          write.payload.ui_config.node_filter.hops_away != 3,
+                      "a Radio UI save must keep the calibration, colour and node filter");
+
+    record_success(test_name);
+}

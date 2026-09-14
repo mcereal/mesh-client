@@ -642,6 +642,15 @@ struct mesh_ui_settings {
     bool use_12h_clock;
     uint8_t units; /* 0 metric, 1 imperial */
     bool flip_screen;
+    /* The radio's own screen, not this one: `oled` overrides a panel its firmware failed to
+       autodetect and `displaymode` is the layout it draws. Both restart the radio when they
+       change, which is why their rows carry the note the other two reboot rows carry. */
+    uint8_t oled;
+    uint8_t displaymode;
+    bool heading_bold;
+    bool wake_on_tap_or_motion;
+    bool use_long_node_name;
+    bool enable_message_bubbles;
 
     bool has_lora;
     bool use_preset;

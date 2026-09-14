@@ -161,6 +161,19 @@ enum mesh_ui_setting_field {
     MESH_UI_FIELD_DISPLAY_12H,
     MESH_UI_FIELD_DISPLAY_UNITS,
     MESH_UI_FIELD_DISPLAY_FLIP,
+    /*
+     * The six that say what the radio's screen *is* and how it draws, rather than how long it
+     * stays lit. `oled` overrides an autodetect that failed and `displaymode` picks the
+     * layout, and those two are among the four DisplayConfig fields the firmware reboots for -
+     * the other two being screen_on_secs and flip_screen, which have carried that note since
+     * phase 2. The four toggles below them do not reboot anything.
+     */
+    MESH_UI_FIELD_DISPLAY_OLED,
+    MESH_UI_FIELD_DISPLAY_MODE,
+    MESH_UI_FIELD_DISPLAY_HEADING_BOLD,
+    MESH_UI_FIELD_DISPLAY_WAKE_ON_MOTION,
+    MESH_UI_FIELD_DISPLAY_LONG_NAMES,
+    MESH_UI_FIELD_DISPLAY_MESSAGE_BUBBLES,
     MESH_UI_FIELD_POSITION_GPS_MODE,
     MESH_UI_FIELD_POSITION_BROADCAST_SECS,
     MESH_UI_FIELD_POSITION_SMART,
