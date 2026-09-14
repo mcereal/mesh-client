@@ -243,14 +243,22 @@ void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *action) 
          * A host gets a preference of its own instead of a slot in the list above, and it is
          * kept whether or not the radio answered: a connect that timed out is a radio that is
          * off or a Brick on the wrong WiFi, and the address is still the one the user wrote
-         * down. What it is *not* kept for is -EINVAL, which is the transport saying this is not
-         * an address at all - mesh_app_link_connect() declines to remember that one too, so the
-         * file and the link cannot end up naming different hosts.
+         * down. What it is not kept for is a target the transport refused outright - a typo, a
+         * name, the link disabled by configuration - because the link never adopted one of
+         * those and the file would then name a host nothing is reaching for.
+         *
+         * So the test is that *this* press's address is the one the transport ended up pointed
+         * at, rather than that the transport is pointed at anything: with --tcp-host naming a
+         * host and nothing saved yet, "the link has a target" is true before the press, and a
+         * refused press would have written the flag's host into the file - persisting a choice
+         * the user did not make out of a press that failed.
          */
-        if (action->kind == (uint8_t)MESH_UI_DEVICE_TCP && result != -EINVAL &&
-            strcmp(app->ui_preferences.network_host, action->identifier) != 0) {
+        const char *adopted = mesh_tcp_transport_configured_target(mesh_tcp_transport());
+        if (action->kind == (uint8_t)MESH_UI_DEVICE_TCP && adopted != NULL &&
+            strcmp(adopted, action->identifier) == 0 &&
+            strcmp(app->ui_preferences.network_host, adopted) != 0) {
             mesh_str_copy(app->ui_preferences.network_host, sizeof app->ui_preferences.network_host,
-                          action->identifier);
+                          adopted);
             app->ui_preferences_dirty = true;
         }
         if (result == 0 || result == -EALREADY || result == -EINPROGRESS) {

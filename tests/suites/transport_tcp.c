@@ -865,6 +865,89 @@ cleanup:
     }
 }
 
+/*
+ * A target the transport refused is remembered by nobody.
+ *
+ * The link adopts a target only once it has parsed it *and* got a socket, so several refusals
+ * leave `configured` behind: a typo or a name, the transport turned off by configuration, a
+ * connect already running, no descriptors left. Remembering the press through any of those
+ * gives the preferences file a host the link is not reaching for - invisible while the client
+ * runs, because the Devices row and auto-connect both read the transport, and then loaded on
+ * the next launch as the host to retry.
+ *
+ * Disabled is the case under test because it is the one an enumeration of error codes misses:
+ * -EINVAL is the refusal anybody thinks of, and -ENODEV, -EBUSY and -EMFILE are the three that
+ * were remembered. What makes it right is not a longer list - it is that mesh_app_link_connect()
+ * asks the transport which host it ended up pointed at.
+ */
+MESH_TEST_CASE(tcp_refused_target_is_remembered_by_nobody, unit) {
+    struct mesh_app app;
+    memset(&app, 0, sizeof app);
+    const char *failure = NULL;
+    bool app_ready = false;
+    char home_dir[] = "/tmp/mesh_tcp_refusedXXXXXX";
+    bool home_made = false;
+
+    if (mkdtemp(home_dir) == NULL) {
+        record_failure(test_name, "mkdtemp failed");
+        return;
+    }
+    home_made = true;
+    setenv("HOME", home_dir, 1);
+    setenv("MESHCLIENT_UI_BACKEND", "stub", 1);
+    unsetenv("MESHCLIENT_AUTOCONNECT");
+
+    struct mesh_app_config config = mesh_app_config_default();
+    config.run_mode = MESH_APP_RUN_FOREGROUND;
+    config.enable_ble = false;
+    config.enable_serial = false;
+    config.enable_tcp = false;
+
+    if (mesh_app_init(&app, &config) != 0) {
+        failure = "app init failed";
+        goto cleanup;
+    }
+    app_ready = true;
+    if (mesh_transport_registry_start_all(&app.transport_registry, &app.config, &app.loop) < 0) {
+        failure = "transport start failed";
+        goto cleanup;
+    }
+
+    /* A perfectly good address, so nothing about the *text* is what stops it being kept. */
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    action.type = MESH_UI_ACTION_CONNECT;
+    action.kind = (uint8_t)MESH_UI_DEVICE_TCP;
+    snprintf(action.identifier, sizeof action.identifier, "127.0.0.1:4403");
+    app.ui_controller.on_action(app.ui_controller.action_userdata, &action);
+
+    if (mesh_tcp_transport_configured_target(mesh_tcp_transport()) != NULL) {
+        failure = "a disabled transport should not have adopted the target";
+        goto cleanup;
+    }
+    if (app.config.preferred_tcp_host[0] != '\0') {
+        failure = "a target the transport refused must not become the app's preference";
+        goto cleanup;
+    }
+    if (app.ui_preferences.network_host[0] != '\0') {
+        failure = "a target the transport refused must not reach the preferences file";
+        goto cleanup;
+    }
+
+    record_success(test_name);
+
+cleanup:
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    }
+    if (app_ready) {
+        mesh_app_shutdown(&app);
+    }
+    if (home_made) {
+        rmdir(home_dir);
+    }
+}
+
 MESH_TEST_CASE(tcp_link_is_published_as_a_network_device, unit) {
     struct tcp_test_radio radio;
     tcp_test_radio_init(&radio);

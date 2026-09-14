@@ -314,11 +314,19 @@ and *not* in the `known_devices` list beside it. That list is what auto-connect 
 with, and a host is in no scan: filed there, an address would occupy one of the eight slots a
 real radio needs and match nothing that could ever be advertised. It is written when the connect
 is *asked for* rather than when it succeeds, because the two are different facts — the radio may
-be off and the WiFi elsewhere, and it is still the address the user wrote down. The one refusal
-that is not kept is `-EINVAL`, which is the transport saying this is not an address at all: it
-rejects a malformed target *before* writing its own `configured`, so remembering the typo would
-leave the file and the link naming different hosts and hand the typo back to auto-connect on the
-next launch to be refused every thirty seconds.
+be off and the WiFi elsewhere, and it is still the address the user wrote down.
+
+**What is saved is the address the transport *adopted*, asked rather than inferred from the
+return code.** The link takes a target only once it has parsed it *and* got a socket, so several
+refusals leave `configured` behind: a typo or a name (`-EINVAL`), the transport turned off by
+configuration (`-ENODEV`), a connect already running (`-EBUSY`), no descriptors (`-EMFILE`).
+Saving the press through any of those gives the file a host the link is not reaching for —
+invisible while the client runs, because the Devices row and auto-connect both read the
+transport, and then loaded on the next launch as the host to retry. Enumerating the codes was the
+first cut and it missed three of them; the transport is the authority on which host it is pointed
+at, so `mesh_app_link_connect()` asks it. A connect that fails *after* adoption keeps the
+address, which is the case worth keeping.
+`tcp_refused_target_is_remembered_by_nobody` is what catches it.
 
 `--tcp-host` and `MESHCLIENT_TCP_HOST` still work and still win: the saved address seeds
 `preferred_tcp_host` only when neither named one, so a flag passed on this launch means this

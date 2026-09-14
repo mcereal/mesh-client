@@ -377,9 +377,12 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   comes up. The saved address is its own preference (`network_host`) rather than a
   `known_devices` entry - that list is what auto-connect ranks a *scan* with, and a host is in
   no scan - and it is written when the connect is **asked for** rather than when it succeeds,
-  because a radio that was off is still the address the user wrote down. The exception is
-  `-EINVAL`: the transport refuses a malformed target before writing its own `configured`, so
-  remembering a typo would leave the file and the link naming different hosts.
+  because a radio that was off is still the address the user wrote down. **What is saved is what
+  the transport *adopted*, asked rather than inferred from the return code**: a link takes a
+  target only once it has parsed it and got a socket, so `-EINVAL`, `-ENODEV`, `-EBUSY` and
+  `-EMFILE` all leave `configured` behind, and saving the press through any of them gives the
+  file a host the link is not reaching for. Enumerating the codes was the first cut and missed
+  three of them.
 - **A network link's Devices row is synthesised rather than discovered, and its `in_range` is
   false while it is connected.** `mesh_app_publish_ui_state()` has always built a row for
   "connected, but in nobody's list"; for BLE and USB that is a connect which beat its own

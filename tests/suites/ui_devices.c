@@ -54,9 +54,10 @@ MESH_TEST_CASE(devices_network_row_is_there_with_nothing_discovered, unit) {
     MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
 
     struct mesh_ui_devices_row row;
-    const bool ok = (mesh_ui_devices_row_count(store.devices, store.device_count) == 1U) &&
-                    mesh_ui_devices_row(store.devices, store.device_count, store.network_host, 0U, &row) &&
-                    row.type == (uint8_t)MESH_UI_DEVICES_ROW_NETWORK && row.host[0] == '\0';
+    const bool ok =
+        (mesh_ui_devices_row_count(store.devices, store.device_count) == 1U) &&
+        mesh_ui_devices_row(store.devices, store.device_count, store.network_host, 0U, &row) &&
+        row.type == (uint8_t)MESH_UI_DEVICES_ROW_NETWORK && row.host[0] == '\0';
     mesh_ui_store_shutdown(&store);
     MESH_TEST_FAIL_IF(!ok, "an empty Devices tab should still offer the network row");
     record_success(test_name);
@@ -75,11 +76,12 @@ MESH_TEST_CASE(devices_network_row_is_the_last_row, unit) {
         ok = mesh_ui_devices_row(store.devices, store.device_count, store.network_host, i, &row) &&
              row.type == (uint8_t)MESH_UI_DEVICES_ROW_DEVICE && row.device == &store.devices[i];
     }
-    ok = ok && mesh_ui_devices_row(store.devices, store.device_count, store.network_host, 2U, &row) &&
-         row.type == (uint8_t)MESH_UI_DEVICES_ROW_NETWORK &&
-         strcmp(row.host, "192.168.1.50") == 0;
+    ok = ok &&
+         mesh_ui_devices_row(store.devices, store.device_count, store.network_host, 2U, &row) &&
+         row.type == (uint8_t)MESH_UI_DEVICES_ROW_NETWORK && strcmp(row.host, "192.168.1.50") == 0;
     /* Past the end is past the end, with no fourth row invented. */
-    ok = ok && !mesh_ui_devices_row(store.devices, store.device_count, store.network_host, 3U, &row);
+    ok =
+        ok && !mesh_ui_devices_row(store.devices, store.device_count, store.network_host, 3U, &row);
     mesh_ui_store_shutdown(&store);
     MESH_TEST_FAIL_IF(!ok, "the network row should be the last row, once");
     record_success(test_name);
@@ -106,9 +108,10 @@ MESH_TEST_CASE(devices_network_row_stands_down_for_a_live_link, unit) {
     mesh_ui_store_set_network_host(&store, "192.168.1.50");
 
     struct mesh_ui_devices_row row;
-    const bool ok = (mesh_ui_devices_row_count(store.devices, store.device_count) == 2U) &&
-                    mesh_ui_devices_row(store.devices, store.device_count, store.network_host, 1U, &row) &&
-                    row.type == (uint8_t)MESH_UI_DEVICES_ROW_DEVICE;
+    const bool ok =
+        (mesh_ui_devices_row_count(store.devices, store.device_count) == 2U) &&
+        mesh_ui_devices_row(store.devices, store.device_count, store.network_host, 1U, &row) &&
+        row.type == (uint8_t)MESH_UI_DEVICES_ROW_DEVICE;
     mesh_ui_store_shutdown(&store);
     MESH_TEST_FAIL_IF(!ok, "a published network row should replace the synthetic one");
     record_success(test_name);

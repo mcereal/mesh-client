@@ -69,8 +69,7 @@ uint32_t mesh_ui_devices_row_count(const struct mesh_ui_device *devices, size_t 
 
 /* Describes row `index`. False past the end. `network_host` may be NULL for none. */
 bool mesh_ui_devices_row(const struct mesh_ui_device *devices, size_t count,
-                         const char *network_host, uint32_t index,
-                         struct mesh_ui_devices_row *out);
+                         const char *network_host, uint32_t index, struct mesh_ui_devices_row *out);
 
 #ifdef __cplusplus
 }

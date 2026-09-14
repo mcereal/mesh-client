@@ -169,17 +169,26 @@ int mesh_app_link_connect(struct mesh_app *app, const char *identifier, uint8_t 
         }
         const int result = mesh_tcp_transport_connect(transport, identifier);
         /*
-         * Only an address the transport would take becomes the one to go back to, and the two
-         * refusals are not the same fact. -EINVAL is "that is not an address" - a typo, or a
-         * name this client cannot resolve - and the transport rejects it before writing its own
-         * `configured`, so remembering it here would leave the two disagreeing and hand the
-         * typo back to auto-connect on the next launch to be refused every thirty seconds.
-         * Anything else is a real address that did not answer, which is exactly the case worth
-         * keeping: the radio is off, or the Brick is on the wrong WiFi.
+         * What the transport *adopted*, not what it was handed, and asked rather than inferred
+         * from the return code.
+         *
+         * The link takes a target only once it has parsed it and got a socket, so several
+         * refusals leave `configured` behind: a typo or a name (-EINVAL), the transport turned
+         * off by configuration (-ENODEV), a link already coming up (-EBUSY), no descriptors
+         * (-EMFILE). Copying the identifier through any of those leaves this preference naming
+         * a host the link is not reaching for - invisible now, because the Devices row and
+         * auto-connect both read the transport, and then loaded on the next launch as the host
+         * to retry. Enumerating the codes was the first cut of this and it missed three of
+         * them; the transport is the authority on which host it is pointed at, so it is asked.
+         *
+         * A connect that fails *after* adoption keeps the address, which is the case worth
+         * keeping: the radio is off, or the Brick is on the wrong WiFi, and it is still the
+         * address somebody wrote down.
          */
-        if (result != -EINVAL) {
+        const char *adopted = mesh_tcp_transport_configured_target(transport);
+        if (adopted != NULL) {
             snprintf(app->config.preferred_tcp_host, sizeof app->config.preferred_tcp_host, "%s",
-                     identifier);
+                     adopted);
         }
         return result;
     }
