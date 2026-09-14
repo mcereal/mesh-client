@@ -667,6 +667,10 @@ enum mesh_ui_action_type {
     MESH_UI_ACTION_VERIFY_NUMBER,
     /* The comparison, answered: `number` is 1 for "they match" and 0 for "they do not". */
     MESH_UI_ACTION_VERIFY_ANSWER,
+    /* Not a verb: how many there are. It is what pins the dispatch table in
+       src/core/app_actions.c to this list - a verb added above and not given a row there is a
+       press that reaches the app and does nothing, with nothing to see at the seam. */
+    MESH_UI_ACTION_COUNT,
 };
 
 struct mesh_ui_action {
