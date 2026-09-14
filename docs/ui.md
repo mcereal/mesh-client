@@ -635,13 +635,49 @@ message to that node will do.
 Every key in that file — these and the message, read-mark and airtime lines beside them — is one
 row of [`include/mesh/ui/store_keys.def`](../include/mesh/ui/store_keys.def), and both halves of
 the format read it: `mesh_ui_store_save()` spells its keys through the table's writers and
-`mesh_ui_store_load()` switches on `mesh_ui_store_key_lookup()`. Adding a key is a row there, a
+`mesh_ui_store_load()` switches on `mesh_ui_store_key_lookup()`. Both live in
+[`src/ui/store_file.c`](../src/ui/store_file.c), which is the whole format and nothing else —
+`store.c` is the state machine, and the two only ever met at `mesh_ui_store_mark_dirty()`
+(`src/ui/store_internal.h`). Adding a key is a row in the `.def`, a
 writer call and a case in that switch — and the switch has no `default`, so leaving the case out
 is a `-Wswitch` rather than a line that goes out every save and comes back as nothing. The
 `ui_store_cache_keys_round_trip` test then holds every row to being written *and* read, by saving
 a fully populated store, reloading it, saving again and comparing the bytes. Two keys are
 deliberately write-only — `read_marks` and `airtime` are counts the loader re-derives from the
 rows that actually load — and the loader carries a case for each saying so.
+
+**A line's value is a field list, not a format string.** The key is spelled once because
+`store_keys.def` spells it; the value is now read the same way, through
+[`store_fields.h`](../include/mesh/ui/store_fields.h) — an array of destinations, one per
+comma-separated field, whose *type* picks the conversion:
+
+```c
+struct mesh_ui_node_metrics metrics = {0};
+const struct mesh_ui_store_field fields[] = {
+    MESH_UI_STORE_FIELD(&metrics.time),
+    MESH_UI_STORE_FIELD(&metrics.has_battery),   /* a bool, so "not zero"   */
+    MESH_UI_STORE_FIELD(&metrics.battery_level), /* a uint8_t, so 0..255    */
+    ...
+};
+if (!cache_fields(value, fields, MESH_ARRAY_LEN(fields))) {
+    return;
+}
+```
+
+A loader case used to carry a block of `unsigned int` scratch variables, an `sscanf` whose
+format had to agree with them, a literal field count that had to agree with both, and a run of
+`(bool)(x != 0U)` casts copying the scratch back out. Three of those four could drift apart
+without the compiler noticing — and one of them, the count, is what every compatibility rule in
+the `.def` turns on. It now comes off the array, and the seven-or-eight cases compare
+`mesh_ui_store_fields_read()`'s return against the length the key had before it grew.
+
+It is also stricter than the `sscanf` it replaced, for the reason `mesh_ui_store_key_lookup()`
+is stricter than the one *it* replaced: the cache is a text file on a card the user can edit, so
+it is an ingress like the air is. A number too wide for its destination, a negative in an
+unsigned field and a token with rubbish after it are all refused, which is what retired the
+loader's read-wide-then-bound dance for a coordinate — `%d` past `INT32_MAX` is undefined and
+glibc's answer is `0`, a fix in the Gulf of Guinea. Nothing this client writes can be refused:
+every writer hands the value a number already inside its destination's range.
 
 ### Status — cards
 

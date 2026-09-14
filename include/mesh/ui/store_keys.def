@@ -21,14 +21,17 @@
  *     new id beside the old one instead, and keep reading both until the old one cannot be in
  *     the field any more.
  *   - Widen by adding a key, never by adding a field to an existing one. The reader matches
- *     most lines on an exact field count, so a build that predates a widened line drops the
- *     whole record rather than the one value it does not know. A field appended *last* and read
- *     with `>=` is the exception, and the reader says so where it does it.
+ *     most lines on an exact field count - the length of the field list it reads them into, in
+ *     include/mesh/ui/store_fields.h - so a build that predates a widened line drops the whole
+ *     record rather than the one value it does not know. A field appended *last*, and read by
+ *     comparing against the length the key had before, is the exception; the reader says so
+ *     where it does it.
  *   - One key per group that can arrive on its own. node_pos, node_metrics and node_env are
  *     three keys rather than one wide node[] line for exactly that reason.
- *   - Every key here is written by mesh_ui_store_save() and read by mesh_ui_store_load(), and
- *     the ui_store_cache_keys_round_trip test holds both halves to it. The two exceptions are
- *     marked below and the loader carries a case for each saying why.
+ *   - Every key here is written by mesh_ui_store_save() and read by mesh_ui_store_load() - both
+ *     in src/ui/store_file.c - and the ui_store_cache_keys_round_trip test holds both halves to
+ *     it. The two exceptions are marked below and the loader carries a case for each saying
+ *     why.
  *
  * The order is the order mesh_ui_store_save() writes them, so this table reads like the file.
  */

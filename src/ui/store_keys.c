@@ -162,6 +162,26 @@ static void write_escaped(FILE *file, const char *value) {
     }
 }
 
+void mesh_ui_store_unescape_value(char *value) {
+    if (value == NULL) {
+        return;
+    }
+
+    char *write_ptr = value;
+    for (char *read_ptr = value; *read_ptr != '\0'; ++read_ptr) {
+        if (*read_ptr == '\\') {
+            if (read_ptr[1] == 'x' && read_ptr[2] != '\0' && read_ptr[3] != '\0') {
+                char hex[3] = {read_ptr[2], read_ptr[3], '\0'};
+                *write_ptr++ = (char)strtol(hex, NULL, 16);
+                read_ptr += 3;
+            }
+        } else {
+            *write_ptr++ = *read_ptr;
+        }
+    }
+    *write_ptr = '\0';
+}
+
 /* Every writer funnels through here, so a key that is not in the table writes nothing at all
    rather than a line the loader would skip. */
 static bool write_key(FILE *file, enum mesh_ui_store_key key) {

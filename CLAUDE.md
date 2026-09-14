@@ -109,6 +109,9 @@ the subject you need - `store.h` is the umbrella and pulls all six in. See
 [`docs/ui.md`](docs/ui.md#shape) for what each one owns and what the split does and does
 not buy.
 
+The cache `store.h` also declares is not in `store.c`: `src/ui/store_file.c` is both halves of
+the file on the card, over `store_keys.c` (the key) and `store_fields.c` (the value).
+
 | Area | Where |
 |---|---|
 | Event loop | `src/core/event_loop.c` - epoll, 32 fd sources, **no threads** |
@@ -120,7 +123,7 @@ not buy.
 | App glue | `src/core/app*.c` - lifecycle/link, `_actions`, `_publish`, `_settings` |
 | Self-update | `src/core/updater.c`, `version.c`, `fetch.c` |
 | Radio firmware | `src/core/firmware*.c`, `uf2.c`, `esp_image.c`, `src/transport/*/{usb_msc,ble_ota,ble_hci}.c` - the *other* binary; see [`docs/radio-firmware-roadmap.md`](docs/radio-firmware-roadmap.md) |
-| UI | `src/ui/` - store/controller (records in `include/mesh/ui/store_*.h`), `nav*.c`, `settings*.c`, `layout.c`, `backends/{fb*,cli,stub}.c`; **`fb` is the device UI** |
+| UI | `src/ui/` - store/controller (records in `include/mesh/ui/store_*.h`), `store_file.c` the cache on the card, `nav*.c`, `settings*.c`, `layout.c`, `backends/{fb*,cli,stub}.c`; **`fb` is the device UI** |
 | UI components | `src/ui/layout.c`, `src/ui/backends/fb_widgets.c` - cell-measured line builder, scroll window, cards, lists, meters, charts |
 | Tables the UI reads | `actions.c` (button verbs), `status.c` (card verbs), `help.c`, `devices.c`, `nodes.c`, `delivery.c`, `trust.c`, `chrome.c`, `trend.c`, `duration.c` |
 | Themes & fonts | `src/ui/theme.c`, `font*.c`, `icon*.c` - palette by role, shape scale, metrics |
@@ -130,10 +133,10 @@ not buy.
 | Shared utils | `src/utils/` - `text`, `time`, `env`, `json`, `log`, `sha256`, `array` |
 | Dev tools | `devtools/`, `scripts/` - UI capture, map packs, codegen |
 
-Four subsystems are split across several files sharing one `*_internal.h` (`src/core/app_internal.h`,
-`src/ui/nav_internal.h`, `src/ui/settings_internal.h`, `src/ui/backends/fb_internal.h`). Those are
-**not** public API: they declare only what would still be `static` if the group were one file, and
-nothing outside the group should include one.
+Five subsystems are split across several files sharing one `*_internal.h` (`src/core/app_internal.h`,
+`src/ui/nav_internal.h`, `src/ui/settings_internal.h`, `src/ui/store_internal.h`,
+`src/ui/backends/fb_internal.h`). Those are **not** public API: they declare only what would still
+be `static` if the group were one file, and nothing outside the group should include one.
 
 ## House rules
 
