@@ -92,7 +92,9 @@ mid-edit moves the cursor.
 
 New primitives this needed beyond what existed: confirm overlay, number presets, hex key
 entry through the keyboard, and per-field pending values in the nav (all in place as of
-phase 3); heading rows and a generic sub-list level (phase 9).
+phase 3); heading rows and a generic sub-list level (phase 9); a row that is one bit of a word,
+and the run of repeated rows a record group is (the audit's item 5 and phase 12, which turned
+out to be the same accessor pair read twice).
 
 ## Phases
 
@@ -567,33 +569,92 @@ Five things fell out of doing it, and they are the whole of what is worth rememb
   Brick appears in the phone app's quick replies with the app's other messages intact; and a
   backup taken before a factory reset brings the configuration back.
 
-### Phase 12 - Mesh beacon
+### Phase 12 - Mesh beacon (this branch)
 
-The module phase 11 handed back, and the only one of the seventeen that needs new UI rather than
-new rows. Four things, in the order they would have to be built:
+The module phase 11 handed back, and the last of the seventeen with rows. It was held back
+because it needed row models this client did not have; two of the three arrived before it and
+for other callers - the FLAG kind, built in item 5 of the audit against
+`PositionConfig.position_flags`, and the measured edit buffer, in the interlude below - so what
+was left when its turn came was one repeated submessage and the question of what to do with it.
 
-- **`flags` is a bitfield** (`FLAG_LISTEN_ENABLED`, `FLAG_BROADCAST_ENABLED`, `FLAG_LEGACY_SPLIT`).
-  Three toggle rows over one `uint32`, and this half is **done** ahead of the rest of the phase
-  for the same reason the edit buffer was: item 5 below built the flag row model against
-  `PositionConfig.position_flags`, so the beacon's three rows are three entries in `k_fields`
-  and one more group in the table - a list of rows rather than a mechanism.
-- **`broadcast_message` is 100 bytes**, against a `MESH_UI_SETTING_TEXT_MAX` of 80 - and this
-  one is **done**, ahead of the rest of the phase: the buffer is now measured from the field
-  table (the interlude below), so the beacon's message row costs a line in
-  `settings_text.def` rather than a third hand-raised constant.
-- **`broadcast_offer_channel`** embeds a `ChannelSettings` - a name and a PSK, with the key rows
-  the Channels section already has, but inside another section.
-- **`broadcast_targets` is a repeated submessage**, up to four `{preset, region, channel_index}`
-  records. That is a list of records inside a section: the Channels shape, one level deeper.
+The section is twenty-seven rows in four groups: the three flags, `Broadcast` (interval and
+message), `Channel offered` (the `ChannelSettings` the beacon carries, so a name and a key
+exactly as the Channels section draws them, plus the region and preset it is on), and four
+numbered `Target` groups of preset, region and channel.
 
-A beacon also has a **mesh-wide cost** that none of the phase 10 or 11 modules has:
-`broadcast_interval_secs` with a low value on a shared channel is Range test's antisocial-
-transmitter problem, worse because the beacon carries a channel offer that other nodes act on.
-Its presets start at the firmware's own floor (3600) and do not go below it, and the section is
-a candidate for the confirm overlay - the first module that would need one.
+Five things fell out of it, and they are what is worth remembering:
 
-Worth doing on its own, after the hardware modules are decided rather than before: it is the one
-place where the settings UI grows a new capability instead of another list of rows.
+- **The targets are inline groups, not a list one level down.** The plan called them "the
+  Channels shape, one level deeper", and that was the wrong measure twice. Four records of three
+  rows is sixteen rows, which the section has room for; and a list would have cost a *third* nav
+  level - `settings_parent` is one deep and the beacon already sits under Modules - to reach a
+  screen with four rows on it. What they are instead is External notification's three output
+  groups with one more copy, which is a shape this tab has drawn since phase 11.
+- **A group stopped meaning a run of bits.** `MESH_UI_FIELD_GROUP_*` was built for "several
+  toggle rows over one `uint32`", and the four targets are the same sentence with a different
+  noun: a contiguous run of fields repeating one shape. So they are one group of twelve, and
+  both ends cut it into records by dividing by `MESH_UI_BEACON_TARGET_FIELDS` - the row builder
+  in `item_record_group()`, which emits a numbered heading every third row, and the write builder
+  in a block ahead of its field switch, beside the one the flag rows already put there. Neither
+  names twelve fields, `k_fields` holds one macro expanded four times, and a fifth target
+  upstream adds is a `count` in the group table.
+- **Absent is a value, so it is stored one past itself.** `broadcast_offer_preset` and a target's
+  `preset` and `channel_index` are `optional` on the wire, which a row model built on "step by
+  modulo, name by value" has nowhere to put. Shifting them - 0 is absent, n is value n-1 - keeps
+  every row an ordinary contiguous enum or preset list, and the shift is then visible only where
+  a value crosses a boundary: the flatten, the write, and the three row-facing helpers that name
+  or print it. The alternative was the index/value split the `language` row is still waiting for,
+  paid for one module.
+- **The three rows of a record say absent the same way, and the offer says the other thing.**
+  `RegionCode`'s own name for 0 is "Unset", which beside two rows reading "as configured" looks
+  like a record holding a mistake - so the beacon's region rows have their own naming function.
+  That they are two functions rather than one is the finding: an offer that names no preset is
+  *not offering one*, while a target that names none goes out on whatever the radio is running,
+  and those are different sentences that happen to share a zero.
+- **A `ChannelSettings` is not only ever a channel.** The beacon embeds one as the channel it
+  offers, so the thirty lines that turn a KEY row's six answers into a psk became
+  `apply_channel_key()` over the submessage rather than over the channel - extracted when the
+  second caller arrived, which is what keeps the random sizes and the parse bound from being
+  written down twice. `mesh_ui_settings_key_len_ok()` gained the offered key beside the channel's
+  for the same reason: a key one would refuse is a channel nobody can join.
+
+Two more were found by review rather than by writing it, and both are the same mistake -
+a rule stated on one screen and enforced nowhere:
+
+- **An offer with no name is not an offer.** The name row's note says that emptying it offers no
+  channel, and the row's own write arm could not keep the promise: it set
+  `has_broadcast_offer_channel` and the key arm set it again, so a cleared name left the radio
+  broadcasting a nameless invitation with a live key behind it. Presence is now decided after
+  every edit has landed, from the assembled record - which is also what makes it independent of
+  the order the user made the edits in, the way the target compaction beside it is.
+- **A preset is legal or not in the region beside it, wherever that pair appears.** Item 8 of
+  the audit taught the LoRa pair to read the firmware's own map; the beacon has two more of the
+  same pair - the channel it offers, which a stranger would set their radio to, and each target,
+  which this radio really does switch to for the length of one transmission. So
+  `constrain_preset_row()` is that rule once, over an *effective* region the caller works out
+  (a target with no region runs on the radio's, which is what the firmware does with UNSET; an
+  offer with no region advertises none and constrains nothing) and a `shift` for the beacon's
+  values sitting one past the presets they name.
+
+Two smaller things. The twelve target rows carry **no help note**, which is Telemetry's five
+`Enabled` rows being right rather than an omission - a help topic is a flat list of labels, so
+four rows called `Region` would be four paragraphs a reader cannot tell apart, and what a target
+is belongs to the section's own overview. And the section is **not** behind the confirm overlay,
+by the rule phase 6 states: a beacon reboots the radio, which auto-connect handles, and it can
+neither cut this client off nor take the radio off the mesh. Its one mesh-wide cost is answered
+by the interval's presets starting at the firmware's own floor of an hour and not going below it,
+which is Range test's antisocial-transmitter rule with the offer making it sharper.
+
+`broadcast_message` is the field that widened the edit buffer from 80 to 101, which is the
+interlude below working as it was written to: a line in a list rather than a third hand-raised
+constant. The section lands at twenty-seven rows against a `MESH_UI_SETTINGS_ITEMS_MAX` of 32 and
+twenty-one editable against a `MESH_UI_SETTINGS_EDITS_MAX` of 24, both of which the tests that
+walk every section hold.
+
+- Exit criteria: on the Brick, a beacon message and an offered channel typed from the Brick read
+  back after the reboot and show in the phone app; a target given a preset and a channel survives
+  the save while the three empty ones below it are not sent; and emptying the first target moves
+  the second up rather than leaving a gap the firmware reads as a duplicate of the default.
 
 ### Interlude - the edit buffer is measured, not declared
 
@@ -653,8 +714,10 @@ Four things worth keeping from doing it:
   slot carrying bytes nothing can put in them. It names the field, because the failure that
   matters is "which one".
 
-- Exit criteria: none on the device. The buffer's width is unchanged at 80 today, so nothing a
-  reader can see changes; what changes is that the next field to outgrow it is a line in a list.
+- Exit criteria: none on the device. The buffer's width was unchanged at 80 on the day this
+  landed, so nothing a reader could see changed; what changed is that the next field to outgrow
+  it is a line in a list - which phase 12's 100-byte `broadcast_message` then was, widening it to
+  101 without a constant being raised by hand.
 
 ### Phase 13 - the four hardware modules, or not at all
 
@@ -1041,9 +1104,9 @@ On `NodeInfo`, `is_key_manually_verified` and `has_xeddsa_signed` are unread, bo
 
 #### What the audit did not change
 
-The five `ModuleConfig` variants with no binding in the module table - `serial`,
-`canned_message`, `audio`, `remote_hardware` and `mesh_beacon` - are phases 12 and 13, and the
-audit found nothing that moves them. `DeviceUIConfig`'s `node_filter`, `node_highlight`,
+The four `ModuleConfig` variants with no binding in the module table - `serial`,
+`canned_message`, `audio` and `remote_hardware` - are phase 13, and the audit found nothing that
+moves them. `mesh_beacon` was on that list when the audit was written and is phase 12, done. `DeviceUIConfig`'s `node_filter`, `node_highlight`,
 `map_data` and `screen_rgb_color` have no rows and are preserved whole by the write, which is
 the interlude's own design working; `screen_rgb_color` is a single row if anyone wants it.
 
@@ -1074,6 +1137,8 @@ The four hardware modules in phase 13 may land here instead; that is what phase 
 deciding. `ModuleConfig.statusmessage` and `ModuleConfig.mesh_beacon` are recent enough
 upstream that an older radio will not report them - the Modules list shows a module the radio
 never sent as `not loaded`, the same way the section list already does, rather than hiding it.
+Neither has a bit in `DeviceMetadata.excluded_modules`, so `not loaded` is all either can say:
+the mask predates both.
 
 The admin verbs still left out: `enter_dfu_mode_request` and `ota_request` (firmware install -
 `ota_request` is proposed in [`radio-firmware-roadmap.md`](radio-firmware-roadmap.md),

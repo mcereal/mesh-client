@@ -68,6 +68,7 @@ static const enum mesh_str_id k_section_labels[MESH_UI_SETTINGS_SECTION_COUNT] =
     [MESH_UI_SETTINGS_RADIO_UI] = MESH_STR_SETTINGS_SECTION_RADIO_UI,
     [MESH_UI_SETTINGS_CANNED] = MESH_STR_SETTINGS_SECTION_CANNED,
     [MESH_UI_SETTINGS_NETWORK] = MESH_STR_SETTINGS_SECTION_NETWORK,
+    [MESH_UI_SETTINGS_BEACON] = MESH_STR_SETTINGS_SECTION_BEACON,
 };
 
 enum mesh_str_id mesh_ui_settings_section_label(enum mesh_ui_settings_section section) {
@@ -123,6 +124,10 @@ static const enum mesh_ui_icon k_section_icons[MESH_UI_SETTINGS_SECTION_COUNT] =
     [MESH_UI_SETTINGS_RADIO_UI] = MESH_UI_ICON_DISPLAY,
     [MESH_UI_SETTINGS_CANNED] = MESH_UI_ICON_REPLY,
     [MESH_UI_SETTINGS_NETWORK] = MESH_UI_ICON_NETWORK,
+    /* A third section answering with an icon another part of the UI owns, by the rule the two
+       above state: a beacon is a broadcast, which is the one thing that glyph says anywhere in
+       this client. */
+    [MESH_UI_SETTINGS_BEACON] = MESH_UI_ICON_BROADCAST,
 };
 
 enum mesh_ui_icon mesh_ui_settings_section_icon(enum mesh_ui_settings_section section) {
@@ -170,6 +175,7 @@ static const enum mesh_str_id k_section_notes[MESH_UI_SETTINGS_SECTION_COUNT] = 
     [MESH_UI_SETTINGS_RADIO_UI] = MESH_STR_SETTINGS_NOTE_RADIO_UI,
     [MESH_UI_SETTINGS_CANNED] = MESH_STR_SETTINGS_NOTE_CANNED,
     [MESH_UI_SETTINGS_NETWORK] = MESH_STR_SETTINGS_NOTE_NETWORK,
+    [MESH_UI_SETTINGS_BEACON] = MESH_STR_SETTINGS_NOTE_BEACON,
 };
 
 enum mesh_str_id mesh_ui_settings_section_note(enum mesh_ui_settings_section section) {
@@ -223,6 +229,7 @@ static const enum mesh_ui_settings_section k_modules[] = {
     MESH_UI_SETTINGS_DETECTION,
     MESH_UI_SETTINGS_EXT_NOTIFICATION,
     MESH_UI_SETTINGS_TRAFFIC,
+    MESH_UI_SETTINGS_BEACON,
     /* Last, and the one row here that is not a ModuleConfig: the canned message list is its
        own pair of admin verbs. It is in this list because the question the list answers - what
        is this radio running - is one it answers, and nowhere else would be shorter to find. */
@@ -383,6 +390,8 @@ bool mesh_ui_settings_section_loaded(const struct mesh_ui_settings *settings,
         return settings->has_external_notification;
     case MESH_UI_SETTINGS_TRAFFIC:
         return settings->has_traffic_management;
+    case MESH_UI_SETTINGS_BEACON:
+        return settings->has_mesh_beacon;
     case MESH_UI_SETTINGS_RADIO_UI:
         return settings->has_ui_config;
     case MESH_UI_SETTINGS_CANNED:
@@ -633,6 +642,46 @@ static const char *region_enum_name(uint32_t region) { return mesh_radio_region_
 static const char *preset_enum_name(uint32_t preset) {
     return mesh_radio_modem_preset_name(preset);
 }
+/*
+ * Mesh beacon's two preset rows, and the one thing the module's encoding costs.
+ *
+ * `broadcast_offer_preset` and a target's `preset` are `optional` on the wire, so absent is a
+ * value the row has to be able to show and to step onto. Both are stored one past themselves -
+ * 0 is "there is no preset here" and n is ModemPreset n-1 - which keeps the row an ordinary
+ * contiguous enum that Left and Right walk by modulo. The two differ only in what absent
+ * *means*, and that is the difference the two names below are: an offer that names no preset is
+ * not offering one, while a target that names none goes out on whatever the radio is running.
+ */
+static const char *beacon_offer_preset_name(uint32_t value) {
+    return value == 0U ? mesh_str(MESH_STR_ENUM_BEACON_NOT_OFFERED)
+                       : mesh_radio_modem_preset_name(value - 1U);
+}
+static const char *beacon_target_preset_name(uint32_t value) {
+    return value == 0U ? mesh_str(MESH_STR_ENUM_BEACON_AS_RUNNING)
+                       : mesh_radio_modem_preset_name(value - 1U);
+}
+/*
+ * The region rows say absent in the same words their neighbours do, which is why they do not
+ * simply take `region_enum_name`. RegionCode's own name for 0 is "Unset", and a target reading
+ * "as configured", "Unset", "as configured" down three rows that all mean the same thing is a
+ * record that looks like it is holding two answers and a mistake.
+ */
+static const char *beacon_offer_region_name(uint32_t value) {
+    return value == 0U ? mesh_str(MESH_STR_ENUM_BEACON_NOT_OFFERED) : mesh_radio_region_name(value);
+}
+static const char *beacon_target_region_name(uint32_t value) {
+    return value == 0U ? mesh_str(MESH_STR_ENUM_BEACON_AS_RUNNING) : mesh_radio_region_name(value);
+}
+/*
+ * A target's channel is the same "0 is absent" shift over a channel index, and it is a NUMBER
+ * rather than an ENUM because an index is a number: there is nothing to name. Which is also why
+ * it can carry the shift without a second naming function - the field's zero_label says what 0
+ * is and the formatter prints n-1, so nothing outside these three lines sees the offset.
+ */
+static void format_beacon_channel(uint32_t value, char *out, size_t out_len) {
+    mesh_str_format(out, out_len, MESH_STR_VALUE_PLAIN, (unsigned)(value > 0U ? value - 1U : 0U));
+}
+
 static const char *signature_policy_name(uint32_t policy) {
     switch (policy) {
     case 0U:
@@ -779,6 +828,21 @@ static const uint32_t k_detect_state_presets[] = {0U, 60U, 300U, 900U, 1800U, 36
 
 /* Traffic management. Every row is off at 0 by the module's own convention, so each list
    starts there; hops and packet counts are counts rather than seconds. */
+/*
+ * The beacon's own two lists.
+ *
+ * The interval starts at the firmware's floor of an hour and does not go below it, which is
+ * Range test's antisocial-transmitter rule with a harder edge: a beacon carries a channel offer
+ * that other nodes act on, so a fast one is not merely noisy. There is no 0 on the list because
+ * 0 is not "off" here - the broadcast flag is - and a row whose zero means nothing should not
+ * offer one.
+ *
+ * The channel list is every slot plus the absent one at 0, so it names rather than measures.
+ */
+static const uint32_t k_beacon_interval_presets[] = {3600U,  7200U,  10800U, 21600U,
+                                                     43200U, 86400U, 172800U};
+static const uint32_t k_beacon_channel_presets[] = {0U, 1U, 2U, 3U, 4U, 5U, 6U, 7U, 8U};
+
 static const uint32_t k_traffic_interval_presets[] = {0U, 30U, 60U, 120U, 300U, 600U, 1800U};
 static const uint32_t k_traffic_hops_presets[] = {0U, 1U, 2U, 3U, 4U, 5U, 6U, 7U};
 static const uint32_t k_traffic_packets_presets[] = {0U, 5U, 10U, 20U, 50U, 100U, 200U};
@@ -879,6 +943,58 @@ _Static_assert(MESH_UI_TEXT_LIMIT_CANNED_0 + 1U == MESH_UI_CANNED_SLOT_MAX,
 _Static_assert(MESH_UI_TEXT_LIMIT_CHANNEL_KEY == 2U * MESH_UI_PSK_MAX &&
                    MESH_UI_TEXT_LIMIT_SECURITY_PRIVATE_KEY == 2U * MESH_UI_PSK_MAX,
                "a key is typed as two hex characters per byte");
+
+/*
+ * Seventeen ModemPresets plus the value that stands for none of them, which is what lets an
+ * `optional` wire field be an ordinary contiguous enum row. The LoRa section's own preset row
+ * is the same table without that extra value, because a running preset is never absent.
+ */
+#define BEACON_PRESET_VALUES 18U
+
+/*
+ * One broadcast target's three rows, written once and expanded four times.
+ *
+ * The four targets differ in nothing but which record they are: the same labels and the same
+ * values. Writing them out would be twelve rows of which nine are copies, and a copy is where
+ * the fourth one quietly ends up pointing at the third one's field. The token paste is what
+ * makes the run contiguous in the order MESH_UI_FIELD_GROUP_BEACON_TARGETS walks.
+ *
+ * None of the twelve carries a help note, and that is Telemetry's five `Enabled` rows being
+ * right rather than an omission: a help topic is a flat list of labels, so four rows called
+ * `Region` would be four paragraphs a reader cannot tell apart. What a target is belongs to the
+ * section and is said once in its overview.
+ */
+#define BEACON_TARGET_ROWS(n)                                                                      \
+    [MESH_UI_FIELD_BEACON_TARGET_##n##_PRESET] = {MESH_STR_SETTINGS_FIELD_BEACON_TARGET_PRESET,    \
+                                                  MESH_UI_SETTING_ENUM,                            \
+                                                  MESH_UI_SETTINGS_BEACON,                         \
+                                                  BEACON_PRESET_VALUES,                            \
+                                                  beacon_target_preset_name,                       \
+                                                  NO_PRESETS,                                      \
+                                                  MESH_STR_NONE,                                   \
+                                                  NULL,                                            \
+                                                  0U,                                              \
+                                                  MESH_STR_NONE},                                  \
+    [MESH_UI_FIELD_BEACON_TARGET_##n##_REGION] = {MESH_STR_SETTINGS_FIELD_BEACON_TARGET_REGION,    \
+                                                  MESH_UI_SETTING_ENUM,                            \
+                                                  MESH_UI_SETTINGS_BEACON,                         \
+                                                  38U,                                             \
+                                                  beacon_target_region_name,                       \
+                                                  NO_PRESETS,                                      \
+                                                  MESH_STR_NONE,                                   \
+                                                  NULL,                                            \
+                                                  0U,                                              \
+                                                  MESH_STR_NONE},                                  \
+    [MESH_UI_FIELD_BEACON_TARGET_##n##_CHANNEL] = {MESH_STR_SETTINGS_FIELD_BEACON_TARGET_CHANNEL,  \
+                                                   MESH_UI_SETTING_NUMBER,                         \
+                                                   MESH_UI_SETTINGS_BEACON,                        \
+                                                   0U,                                             \
+                                                   NULL,                                           \
+                                                   NAMED_PRESETS(k_beacon_channel_presets),        \
+                                                   MESH_STR_ENUM_BEACON_AS_RUNNING,                \
+                                                   format_beacon_channel,                          \
+                                                   0U,                                             \
+                                                   MESH_STR_NONE}
 
 static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
     [MESH_UI_FIELD_NONE] = {MESH_STR_COMMON_UNKNOWN_SHORT, MESH_UI_SETTING_INFO,
@@ -1638,7 +1754,54 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
     [MESH_UI_FIELD_CANNED_5] = {MESH_STR_SETTINGS_FIELD_CANNED_5, MESH_UI_SETTING_TEXT,
                                 MESH_UI_SETTINGS_CANNED, MESH_UI_TEXT_LIMIT_CANNED_5, NULL,
                                 NO_PRESETS, MESH_STR_NONE, NULL, 0U, MESH_STR_NONE},
+    [MESH_UI_FIELD_BEACON_LISTEN] = {MESH_STR_SETTINGS_FIELD_BEACON_LISTEN, MESH_UI_SETTING_FLAG,
+                                     MESH_UI_SETTINGS_BEACON, 0x0001U, NULL, NO_PRESETS,
+                                     MESH_STR_NONE, NULL, 0U, MESH_STR_SETTINGS_NOTE_BEACON_LISTEN},
+    [MESH_UI_FIELD_BEACON_BROADCAST] = {MESH_STR_SETTINGS_FIELD_BEACON_BROADCAST,
+                                        MESH_UI_SETTING_FLAG, MESH_UI_SETTINGS_BEACON, 0x0002U,
+                                        NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                        MESH_STR_SETTINGS_NOTE_BEACON_BROADCAST},
+    [MESH_UI_FIELD_BEACON_LEGACY_SPLIT] = {MESH_STR_SETTINGS_FIELD_BEACON_LEGACY_SPLIT,
+                                           MESH_UI_SETTING_FLAG, MESH_UI_SETTINGS_BEACON, 0x0004U,
+                                           NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                           MESH_STR_SETTINGS_NOTE_BEACON_LEGACY_SPLIT},
+    [MESH_UI_FIELD_BEACON_INTERVAL] = {MESH_STR_SETTINGS_FIELD_BEACON_INTERVAL,
+                                       MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_BEACON, 0U, NULL,
+                                       SCALE_PRESETS(k_beacon_interval_presets),
+                                       MESH_STR_ZERO_DEFAULT, NULL, 0U,
+                                       MESH_STR_SETTINGS_NOTE_BEACON_INTERVAL},
+    [MESH_UI_FIELD_BEACON_MESSAGE] = {MESH_STR_SETTINGS_FIELD_BEACON_MESSAGE, MESH_UI_SETTING_TEXT,
+                                      MESH_UI_SETTINGS_BEACON, MESH_UI_TEXT_LIMIT_BEACON_MESSAGE,
+                                      NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                      MESH_STR_SETTINGS_NOTE_BEACON_MESSAGE},
+    [MESH_UI_FIELD_BEACON_OFFER_NAME] = {MESH_STR_SETTINGS_FIELD_BEACON_OFFER_NAME,
+                                         MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_BEACON,
+                                         MESH_UI_TEXT_LIMIT_BEACON_OFFER_NAME, NULL, NO_PRESETS,
+                                         MESH_STR_NONE, NULL, 0U,
+                                         MESH_STR_SETTINGS_NOTE_BEACON_OFFER_NAME},
+    /* The offered key takes the channel row's choices whole: it is a ChannelSettings.psk, and
+       every way there is of filling one in is a way of filling this one in. */
+    [MESH_UI_FIELD_BEACON_OFFER_KEY] = {MESH_STR_SETTINGS_FIELD_BEACON_OFFER_KEY,
+                                        MESH_UI_SETTING_KEY, MESH_UI_SETTINGS_BEACON,
+                                        MESH_UI_TEXT_LIMIT_BEACON_OFFER_KEY, NULL, NO_PRESETS,
+                                        MESH_STR_NONE, NULL, CHANNEL_KEY_CHOICES,
+                                        MESH_STR_SETTINGS_NOTE_BEACON_OFFER_KEY},
+    [MESH_UI_FIELD_BEACON_OFFER_REGION] = {MESH_STR_SETTINGS_FIELD_BEACON_OFFER_REGION,
+                                           MESH_UI_SETTING_ENUM, MESH_UI_SETTINGS_BEACON, 38U,
+                                           beacon_offer_region_name, NO_PRESETS, MESH_STR_NONE,
+                                           NULL, 0U, MESH_STR_SETTINGS_NOTE_BEACON_OFFER_REGION},
+    [MESH_UI_FIELD_BEACON_OFFER_PRESET] = {MESH_STR_SETTINGS_FIELD_BEACON_OFFER_PRESET,
+                                           MESH_UI_SETTING_ENUM, MESH_UI_SETTINGS_BEACON,
+                                           BEACON_PRESET_VALUES, beacon_offer_preset_name,
+                                           NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                           MESH_STR_SETTINGS_NOTE_BEACON_OFFER_PRESET},
+    BEACON_TARGET_ROWS(0),
+    BEACON_TARGET_ROWS(1),
+    BEACON_TARGET_ROWS(2),
+    BEACON_TARGET_ROWS(3),
 };
+
+#undef BEACON_TARGET_ROWS
 
 /*
  * The canned list is one string with '|' between entries. An empty list is no entries rather
@@ -1758,6 +1921,11 @@ static const struct {
     uint32_t count;
 } k_field_groups[MESH_UI_FIELD_GROUP_COUNT] = {
     [MESH_UI_FIELD_GROUP_POSITION_FLAGS] = {MESH_UI_FIELD_POSITION_FLAG_ALTITUDE, 10U},
+    [MESH_UI_FIELD_GROUP_BEACON_FLAGS] = {MESH_UI_FIELD_BEACON_LISTEN, 3U},
+    /* Twelve fields rather than four, because the group is the run and the record length is
+       MESH_UI_BEACON_TARGET_FIELDS: both callers walk one and divide by the other. */
+    [MESH_UI_FIELD_GROUP_BEACON_TARGETS] = {MESH_UI_FIELD_BEACON_TARGET_0_PRESET,
+                                            MESH_UI_BEACON_TARGETS *MESH_UI_BEACON_TARGET_FIELDS},
 };
 
 uint32_t mesh_ui_settings_group_count(enum mesh_ui_setting_field_group group) {
@@ -1917,6 +2085,9 @@ uint32_t mesh_ui_settings_key_choices(enum mesh_ui_setting_field field) {
 bool mesh_ui_settings_key_len_ok(enum mesh_ui_setting_field field, size_t len) {
     switch (field) {
     case MESH_UI_FIELD_CHANNEL_KEY:
+    /* The same key in the same submessage, so the same four lengths: the beacon's offer is a
+       ChannelSettings and a key it would not accept is a channel nobody can join. */
+    case MESH_UI_FIELD_BEACON_OFFER_KEY:
         return len == 0U || len == 1U || len == 16U || len == 32U;
     case MESH_UI_FIELD_SECURITY_PRIVATE_KEY:
         return len == 32U;

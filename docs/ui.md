@@ -1407,12 +1407,16 @@ two shapes mean.
 
 `devtools/ui_capture/scenes/lora-advanced.scene` is the other half of the same argument one
 section over: three groups under three headings, where the rows are typed rather than stepped
-and the last group's press puts a sheet in front of itself.
+and the last group's press puts a sheet in front of itself. And
+`devtools/ui_capture/scenes/mesh-beacon.scene` is the checkbox column with the other thing a
+field group turned out to be under it - four numbered copies of one three-row record, three of
+them empty.
 
 The **checkbox's** caller is the Settings tab's flag rows (kind `MESH_UI_SETTING_FLAG`): the ten
-bits of `PositionConfig.position_flags`, which are a set of booleans held in one word. That is
-the square's own sentence - *any of these* - arriving as one value with several bits rather than
-as the multi-select list the component was written expecting. A row of that kind is edited
+bits of `PositionConfig.position_flags`, and the three of `MeshBeaconConfig.flags` beside them -
+a set of booleans held in one word. That is the square's own sentence - *any of these* - arriving
+as one value with several bits rather than as the multi-select list the component was written
+expecting. A row of that kind is edited
 exactly as a toggle is; what differs is the control, which is the backend's choice to make.
 
 The radio's first caller is the "send to" picker, and it is a correction as much as an addition. That

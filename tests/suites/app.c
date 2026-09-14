@@ -3061,6 +3061,186 @@ MESH_TEST_CASE(radio_settings_write_sets_one_position_flag, unit) {
     record_success(test_name);
 }
 
+/*
+ * The beacon's targets: four records of three rows, written by arithmetic rather than by twelve
+ * arms, and compacted the way every other repeated field this client writes is.
+ *
+ * The three things worth holding are in one save, because they only go wrong together: an edit
+ * to a record the radio never sent has to grow the list; a record whose three rows all say
+ * "whatever the radio is running" is not a destination and must not go out as one; and the gap
+ * that leaves has to close rather than be sent as an entry the firmware would read as a
+ * duplicate of the default.
+ */
+MESH_TEST_CASE(radio_settings_write_compacts_the_beacon_targets, unit) {
+    struct mesh_radio_settings radio;
+    mesh_radio_settings_reset(&radio);
+    radio.has_mesh_beacon = true;
+    /* The radio holds two targets; the first is about to be emptied and the third invented. */
+    radio.mesh_beacon.broadcast_targets_count = 2U;
+    radio.mesh_beacon.broadcast_targets[0].region = meshtastic_Config_LoRaConfig_RegionCode_US;
+    radio.mesh_beacon.broadcast_targets[1].has_preset = true;
+    radio.mesh_beacon.broadcast_targets[1].preset =
+        meshtastic_Config_LoRaConfig_ModemPreset_LONG_SLOW;
+    /* A field with no row of its own, which the write must carry across untouched. */
+    radio.mesh_beacon.broadcast_offer_region = meshtastic_Config_LoRaConfig_RegionCode_EU_868;
+
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    action.type = MESH_UI_ACTION_SAVE_SETTINGS;
+    action.section = MESH_UI_SETTINGS_BEACON;
+    action.edit_count = 3U;
+    /* Target 1's region back to "as configured", which empties it. */
+    action.edits[0].field = MESH_UI_FIELD_BEACON_TARGET_0_REGION;
+    action.edits[0].number = 0U;
+    /* Target 3, which the radio never sent: the list has to grow to reach it. */
+    action.edits[1].field = MESH_UI_FIELD_BEACON_TARGET_2_CHANNEL;
+    action.edits[1].number = 4U; /* stored one past itself: channel 3 */
+    action.edits[2].field = MESH_UI_FIELD_BEACON_TARGET_2_REGION;
+    action.edits[2].number = (uint32_t)meshtastic_Config_LoRaConfig_RegionCode_ANZ;
+
+    struct mesh_admin_request write;
+    const meshtastic_ModuleConfig_MeshBeaconConfig *beacon =
+        &write.payload.module_config.payload_variant.mesh_beacon;
+    MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != 0,
+                      "a beacon save should build");
+    MESH_TEST_FAIL_IF(write.kind != MESH_ADMIN_SET_MODULE_CONFIG ||
+                          write.type != meshtastic_AdminMessage_ModuleConfigType_MESHBEACON_CONFIG,
+                      "the beacon must go out as its own module type");
+    MESH_TEST_FAIL_IF(beacon->broadcast_targets_count != 2U,
+                      "an emptied target should be dropped and the invented one kept");
+    MESH_TEST_FAIL_IF(!beacon->broadcast_targets[0].has_preset ||
+                          beacon->broadcast_targets[0].preset !=
+                              meshtastic_Config_LoRaConfig_ModemPreset_LONG_SLOW,
+                      "the surviving target should move up rather than leave a gap");
+    MESH_TEST_FAIL_IF(!beacon->broadcast_targets[1].has_channel_index ||
+                          beacon->broadcast_targets[1].channel_index != 3U ||
+                          beacon->broadcast_targets[1].region !=
+                              meshtastic_Config_LoRaConfig_RegionCode_ANZ,
+                      "the target the rows invented should carry both of its edits");
+    MESH_TEST_FAIL_IF(beacon->broadcast_offer_region !=
+                          meshtastic_Config_LoRaConfig_RegionCode_EU_868,
+                      "a beacon save must keep the fields no row touched");
+    record_success(test_name);
+}
+
+/*
+ * The beacon's other two ends: a flag row is one bit of `flags`, and either row of the offered
+ * channel brings the submessage holding it.
+ *
+ * The offered channel is the one place a ChannelSettings is written that is not a channel, so
+ * this is also what says the extracted key path reaches it: "no encryption" on a beacon key
+ * clears the same psk a channel row would.
+ */
+MESH_TEST_CASE(radio_settings_write_sets_a_beacon_flag_and_its_offer, unit) {
+    struct mesh_radio_settings radio;
+    mesh_radio_settings_reset(&radio);
+    radio.has_mesh_beacon = true;
+    radio.mesh_beacon.flags = meshtastic_ModuleConfig_MeshBeaconConfig_Flags_FLAG_LISTEN_ENABLED |
+                              meshtastic_ModuleConfig_MeshBeaconConfig_Flags_FLAG_LEGACY_SPLIT;
+
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    action.type = MESH_UI_ACTION_SAVE_SETTINGS;
+    action.section = MESH_UI_SETTINGS_BEACON;
+    action.edit_count = 4U;
+    action.edits[0].field = MESH_UI_FIELD_BEACON_BROADCAST;
+    action.edits[0].number = 1U;
+    action.edits[1].field = MESH_UI_FIELD_BEACON_LEGACY_SPLIT;
+    action.edits[1].number = 0U;
+    action.edits[2].field = MESH_UI_FIELD_BEACON_OFFER_NAME;
+    snprintf(action.edits[2].text, sizeof action.edits[2].text, "Welcome");
+    action.edits[3].field = MESH_UI_FIELD_BEACON_OFFER_PRESET;
+    action.edits[3].number = 3U; /* one past itself: ModemPreset 2 */
+
+    struct mesh_admin_request write;
+    const meshtastic_ModuleConfig_MeshBeaconConfig *beacon =
+        &write.payload.module_config.payload_variant.mesh_beacon;
+    MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != 0,
+                      "a beacon save should build");
+    MESH_TEST_FAIL_IF(
+        beacon->flags !=
+            (uint32_t)(meshtastic_ModuleConfig_MeshBeaconConfig_Flags_FLAG_LISTEN_ENABLED |
+                       meshtastic_ModuleConfig_MeshBeaconConfig_Flags_FLAG_BROADCAST_ENABLED),
+        "a beacon flag edit should set or clear its own bit and no other");
+    MESH_TEST_FAIL_IF(!beacon->has_broadcast_offer_channel ||
+                          strcmp(beacon->broadcast_offer_channel.name, "Welcome") != 0,
+                      "the offered name should bring the submessage that holds it");
+    MESH_TEST_FAIL_IF(!beacon->has_broadcast_offer_preset ||
+                          beacon->broadcast_offer_preset !=
+                              (meshtastic_Config_LoRaConfig_ModemPreset)2,
+                      "an offered preset is stored one past itself and written back as itself");
+
+    /* And the key path, which the beacon shares with the Channels section. The name goes with
+       it because the name is what keeps the submessage - see
+       radio_settings_write_drops_a_nameless_beacon_offer. */
+    memset(&action.edits, 0, sizeof action.edits);
+    action.edit_count = 2U;
+    action.edits[0].field = MESH_UI_FIELD_BEACON_OFFER_NAME;
+    snprintf(action.edits[0].text, sizeof action.edits[0].text, "Welcome");
+    action.edits[1].field = MESH_UI_FIELD_BEACON_OFFER_KEY;
+    action.edits[1].number = (uint32_t)MESH_UI_PSK_RANDOM_128;
+    MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+                          !beacon->has_broadcast_offer_channel ||
+                          beacon->broadcast_offer_channel.psk.size != 16U,
+                      "a random AES-128 offered key should be sixteen bytes");
+    record_success(test_name);
+}
+
+/*
+ * Emptying the offered channel's name takes the whole invitation with it, in either order.
+ *
+ * The row's note promises that an empty name offers no channel, and a promise the screen makes
+ * is kept against the record the save assembles rather than against one edit: a save carries
+ * several edits in whatever order they were made, so a name cleared before the key was touched
+ * has to mean the same as one cleared after it. Left to the row's own arm it would not - the
+ * key arm would put `has_broadcast_offer_channel` back and the radio would go on broadcasting a
+ * nameless invitation with a live key behind it.
+ */
+MESH_TEST_CASE(radio_settings_write_drops_a_nameless_beacon_offer, unit) {
+    struct mesh_radio_settings radio;
+    mesh_radio_settings_reset(&radio);
+    radio.has_mesh_beacon = true;
+    radio.mesh_beacon.has_broadcast_offer_channel = true;
+    snprintf(radio.mesh_beacon.broadcast_offer_channel.name,
+             sizeof radio.mesh_beacon.broadcast_offer_channel.name, "Welcome");
+    radio.mesh_beacon.broadcast_offer_channel.psk.size = 16U;
+    radio.mesh_beacon.broadcast_offer_channel.psk.bytes[0] = 0x42U;
+
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    action.type = MESH_UI_ACTION_SAVE_SETTINGS;
+    action.section = MESH_UI_SETTINGS_BEACON;
+    /* The name cleared, and a key edit *after* it - the order that would put the submessage
+       back if presence were decided a row at a time. */
+    action.edit_count = 2U;
+    action.edits[0].field = MESH_UI_FIELD_BEACON_OFFER_NAME;
+    action.edits[0].text[0] = '\0';
+    action.edits[1].field = MESH_UI_FIELD_BEACON_OFFER_KEY;
+    action.edits[1].number = (uint32_t)MESH_UI_PSK_RANDOM_256;
+
+    struct mesh_admin_request write;
+    const meshtastic_ModuleConfig_MeshBeaconConfig *beacon =
+        &write.payload.module_config.payload_variant.mesh_beacon;
+    MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != 0,
+                      "a beacon save should build");
+    MESH_TEST_FAIL_IF(beacon->has_broadcast_offer_channel,
+                      "an emptied offer name should take the whole submessage with it");
+    MESH_TEST_FAIL_IF(beacon->broadcast_offer_channel.psk.size != 0U,
+                      "a dropped offer must not travel as a bare key");
+
+    /* And a name that is still there keeps it, which is what says the rule is the name rather
+       than a save. */
+    memset(&action.edits, 0, sizeof action.edits);
+    action.edit_count = 1U;
+    action.edits[0].field = MESH_UI_FIELD_BEACON_INTERVAL;
+    action.edits[0].number = 7200U;
+    MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+                          !beacon->has_broadcast_offer_channel ||
+                          strcmp(beacon->broadcast_offer_channel.name, "Welcome") != 0,
+                      "a save touching neither offer row should leave the invitation alone");
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(radio_settings_write_preserves_unshown_fields, unit) {
     struct mesh_radio_settings radio;
     mesh_radio_settings_reset(&radio);

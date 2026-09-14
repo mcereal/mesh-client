@@ -1974,6 +1974,28 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
 
         settings.has_traffic_management = true;
 
+        /*
+         * Mesh beacon, set up the way the section is meant to be read: listening and
+         * broadcasting, an invitation with a name and a key on it, and one of the four targets
+         * naming a preset while the other three stand empty. The empty ones are the point of
+         * filming it - they are how a target is added, and what they say when they hold nothing
+         * is the decision the section's three absent values were written for.
+         */
+        settings.has_mesh_beacon = true;
+        settings.beacon_flags = 0x0003U; /* listen | broadcast */
+        settings.beacon_interval_secs = 10800U;
+        snprintf(settings.beacon_message, sizeof settings.beacon_message, "%s",
+                 "Shed mesh - say hello");
+        snprintf(settings.beacon_offer_name, sizeof settings.beacon_offer_name, "%s", "Welcome");
+        settings.beacon_offer_psk_len = 16U;
+        for (size_t i = 0; i < settings.beacon_offer_psk_len; ++i) {
+            settings.beacon_offer_psk[i] = (uint8_t)(0x11U * (i + 1U));
+        }
+        settings.beacon_offer_region = 1U; /* US, the region the demo radio is on */
+        settings.beacon_offer_preset = 2U; /* one past itself: ModemPreset 1 */
+        settings.beacon_targets[0].preset = 4U;
+        settings.beacon_targets[0].channel = 1U; /* one past itself: channel 0 */
+
         /* The four the radio keeps outside Config and ModuleConfig. The demo radio is a
            WiFi-capable board on a bench, which is the case that makes About radio's interface
            rows worth filming at all - a Brick's usual radio reports Bluetooth and nothing

@@ -13,6 +13,7 @@
 
 #include "mesh/i18n/strings.h"
 
+#include "mesh/utils/array.h"
 #include "mesh/utils/log.h"
 #include "mesh/utils/text.h"
 #include "mesh/utils/time.h"
@@ -52,6 +53,52 @@ static int mesh_app_random_key(uint8_t *out, size_t len) {
     return 0;
 }
 
+/*
+ * A KEY edit onto a ChannelSettings' psk: keep, the default-key shorthand, a new random key of
+ * either size, none, or the bytes that were typed.
+ *
+ * Takes the submessage rather than the channel, because a ChannelSettings is not only ever a
+ * channel: the mesh beacon embeds one as the channel it offers, and a key is filled in there
+ * by exactly the same six answers. Extracted when the second caller arrived rather than copied,
+ * which is what keeps the random sizes and the parse bound from being stated twice.
+ */
+static int apply_channel_key(meshtastic_ChannelSettings *settings,
+                             const struct mesh_ui_setting_edit *edit) {
+    switch ((enum mesh_ui_psk_choice)edit->number) {
+    case MESH_UI_PSK_KEEP:
+        return 0;
+    case MESH_UI_PSK_DEFAULT:
+        settings->psk.size = 1U;
+        settings->psk.bytes[0] = 1U;
+        return 0;
+    case MESH_UI_PSK_RANDOM_128:
+    case MESH_UI_PSK_RANDOM_256: {
+        const size_t len = edit->number == MESH_UI_PSK_RANDOM_128 ? 16U : 32U;
+        const int result = mesh_app_random_key(settings->psk.bytes, len);
+        if (result < 0) {
+            mesh_log_error("ui", "No random bytes for a channel key: %d", result);
+            return -EIO;
+        }
+        settings->psk.size = (pb_size_t)len;
+        return 0;
+    }
+    case MESH_UI_PSK_NONE:
+        settings->psk.size = 0U;
+        return 0;
+    case MESH_UI_PSK_TYPED: {
+        size_t len = 0U;
+        if (!mesh_ui_settings_key_parse(edit->text, settings->psk.bytes, sizeof settings->psk.bytes,
+                                        &len)) {
+            return -EINVAL;
+        }
+        settings->psk.size = (pb_size_t)len;
+        return 0;
+    }
+    default:
+        return -EINVAL;
+    }
+}
+
 /* Applies one pending edit to the protobuf section a write carries. The reverse of
    mesh_app_flatten_settings(): this is the only place the UI's field ids meet nanopb.
    Returns -EINVAL for a value the radio would not take (a PIN that is not six digits, hex
@@ -84,6 +131,8 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
         &write->payload.module_config.payload_variant.external_notification;
     meshtastic_ModuleConfig_TrafficManagementConfig *traffic =
         &write->payload.module_config.payload_variant.traffic_management;
+    meshtastic_ModuleConfig_MeshBeaconConfig *beacon =
+        &write->payload.module_config.payload_variant.mesh_beacon;
     meshtastic_Config_PositionConfig *position = &write->payload.config.payload_variant.position;
     meshtastic_Config_PowerConfig *power = &write->payload.config.payload_variant.power;
     meshtastic_ChannelSettings *channel = &write->payload.channel.settings;
@@ -108,11 +157,65 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
         case MESH_UI_SETTINGS_POSITION:
             word = &position->position_flags;
             break;
+        case MESH_UI_SETTINGS_BEACON:
+            word = &beacon->flags;
+            break;
         default:
             return -ENOTSUP; /* a flag field whose group nothing here knows how to write */
         }
         *word = on ? (*word | bit) : (*word & ~bit);
         return 0;
+    }
+
+    /*
+     * A broadcast target's rows are twelve fields over four copies of one shape, so they are
+     * answered by arithmetic rather than by twelve case labels - which is the same argument the
+     * flag block above makes: the twelve are not twelve writes, they are one write with a
+     * different index. The group says where the run starts and how long it is, and
+     * MESH_UI_BEACON_TARGET_FIELDS cuts it into records; a fifth target upstream adds is then a
+     * count in the group table rather than three more labels here.
+     */
+    {
+        const enum mesh_ui_setting_field first =
+            mesh_ui_settings_group_field(MESH_UI_FIELD_GROUP_BEACON_TARGETS, 0U);
+        const uint32_t run = mesh_ui_settings_group_count(MESH_UI_FIELD_GROUP_BEACON_TARGETS);
+        const uint32_t field = (uint32_t)edit->field;
+        if (first != MESH_UI_FIELD_NONE && field >= (uint32_t)first &&
+            field < (uint32_t)first + run) {
+            const uint32_t offset = field - (uint32_t)first;
+            const uint32_t record = offset / MESH_UI_BEACON_TARGET_FIELDS;
+            if (record >= MESH_ARRAY_LEN(beacon->broadcast_targets)) {
+                return -ENOTSUP;
+            }
+            /* Editing the third row of a radio that only sent one target grows the list, with
+               the records in between left as the zeroes they already are - and dropped again by
+               the compaction, since a record that says nothing is not a destination. */
+            for (pb_size_t i = beacon->broadcast_targets_count; i <= (pb_size_t)record; ++i) {
+                memset(&beacon->broadcast_targets[i], 0, sizeof beacon->broadcast_targets[i]);
+            }
+            if ((pb_size_t)(record + 1U) > beacon->broadcast_targets_count) {
+                beacon->broadcast_targets_count = (pb_size_t)(record + 1U);
+            }
+            meshtastic_ModuleConfig_MeshBeaconConfig_BroadcastTarget *target =
+                &beacon->broadcast_targets[record];
+            switch (offset % MESH_UI_BEACON_TARGET_FIELDS) {
+            case 0U:
+                /* Stored one past itself so the row can show "absent": see the store's note. */
+                target->has_preset = edit->number != 0U;
+                target->preset = (meshtastic_Config_LoRaConfig_ModemPreset)(edit->number != 0U
+                                                                                ? edit->number - 1U
+                                                                                : 0U);
+                break;
+            case 1U:
+                target->region = (meshtastic_Config_LoRaConfig_RegionCode)edit->number;
+                break;
+            default:
+                target->has_channel_index = edit->number != 0U;
+                target->channel_index = edit->number != 0U ? edit->number - 1U : 0U;
+                break;
+            }
+            return 0;
+        }
     }
 
     switch ((enum mesh_ui_setting_field)edit->field) {
@@ -462,6 +565,32 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
     case MESH_UI_FIELD_TRAFFIC_UNKNOWN_THRESHOLD:
         traffic->unknown_packet_threshold = edit->number;
         break;
+    case MESH_UI_FIELD_BEACON_INTERVAL:
+        beacon->broadcast_interval_secs = edit->number;
+        break;
+    case MESH_UI_FIELD_BEACON_MESSAGE:
+        mesh_str_copy(beacon->broadcast_message, sizeof beacon->broadcast_message, edit->text);
+        break;
+    /* Either row of the offered channel brings the submessage with it - a ChannelSettings that
+       is absent carries neither the name nor the key, the same pairing the two module_settings
+       rows of a channel have. Whether it *stays* is decided after every edit has landed, by the
+       name: see the block at the end of mesh_app_build_settings_write(). */
+    case MESH_UI_FIELD_BEACON_OFFER_NAME:
+        beacon->has_broadcast_offer_channel = true;
+        mesh_str_copy(beacon->broadcast_offer_channel.name,
+                      sizeof beacon->broadcast_offer_channel.name, edit->text);
+        break;
+    case MESH_UI_FIELD_BEACON_OFFER_KEY:
+        beacon->has_broadcast_offer_channel = true;
+        return apply_channel_key(&beacon->broadcast_offer_channel, edit);
+    case MESH_UI_FIELD_BEACON_OFFER_REGION:
+        beacon->broadcast_offer_region = (meshtastic_Config_LoRaConfig_RegionCode)edit->number;
+        break;
+    case MESH_UI_FIELD_BEACON_OFFER_PRESET:
+        beacon->has_broadcast_offer_preset = edit->number != 0U;
+        beacon->broadcast_offer_preset =
+            (meshtastic_Config_LoRaConfig_ModemPreset)(edit->number != 0U ? edit->number - 1U : 0U);
+        break;
     case MESH_UI_FIELD_CHANNEL_NAME:
         mesh_str_copy(channel->name, sizeof channel->name, edit->text);
         break;
@@ -470,40 +599,7 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
             on ? meshtastic_Channel_Role_SECONDARY : meshtastic_Channel_Role_DISABLED;
         break;
     case MESH_UI_FIELD_CHANNEL_KEY:
-        switch ((enum mesh_ui_psk_choice)edit->number) {
-        case MESH_UI_PSK_KEEP:
-            break;
-        case MESH_UI_PSK_DEFAULT:
-            channel->psk.size = 1U;
-            channel->psk.bytes[0] = 1U;
-            break;
-        case MESH_UI_PSK_RANDOM_128:
-        case MESH_UI_PSK_RANDOM_256: {
-            const size_t len = edit->number == MESH_UI_PSK_RANDOM_128 ? 16U : 32U;
-            const int result = mesh_app_random_key(channel->psk.bytes, len);
-            if (result < 0) {
-                mesh_log_error("ui", "No random bytes for a channel key: %d", result);
-                return -EIO;
-            }
-            channel->psk.size = (pb_size_t)len;
-            break;
-        }
-        case MESH_UI_PSK_NONE:
-            channel->psk.size = 0U;
-            break;
-        case MESH_UI_PSK_TYPED: {
-            size_t len = 0U;
-            if (!mesh_ui_settings_key_parse(edit->text, channel->psk.bytes,
-                                            sizeof channel->psk.bytes, &len)) {
-                return -EINVAL;
-            }
-            channel->psk.size = (pb_size_t)len;
-            break;
-        }
-        default:
-            return -EINVAL;
-        }
-        break;
+        return apply_channel_key(channel, edit);
     case MESH_UI_FIELD_CHANNEL_UPLINK:
         channel->uplink_enabled = on;
         break;
@@ -871,6 +967,9 @@ static bool module_admin_type(enum mesh_ui_settings_section section, uint32_t *o
     case MESH_UI_SETTINGS_TRAFFIC:
         *out_type = meshtastic_AdminMessage_ModuleConfigType_TRAFFICMANAGEMENT_CONFIG;
         return true;
+    case MESH_UI_SETTINGS_BEACON:
+        *out_type = meshtastic_AdminMessage_ModuleConfigType_MESHBEACON_CONFIG;
+        return true;
     default:
         return false;
     }
@@ -1059,6 +1158,53 @@ int mesh_app_build_settings_write(const struct mesh_radio_settings *radio,
             memset(&security->admin_key[i], 0, sizeof security->admin_key[i]);
         }
         security->admin_key_count = kept;
+    }
+    if (out->kind == MESH_ADMIN_SET_MODULE_CONFIG &&
+        out->payload.module_config.which_payload_variant ==
+            meshtastic_ModuleConfig_mesh_beacon_tag) {
+        /*
+         * broadcast_targets is repeated, and a record whose three rows all read "whatever the
+         * radio is running" names no destination at all - it is the empty slot the section lists
+         * so a target can be added to it. So it is dropped rather than sent, the same compaction
+         * a cleared admin key or ignore slot gets, and for the same reason: the rows are fixed
+         * and the entries are not.
+         */
+        meshtastic_ModuleConfig_MeshBeaconConfig *beacon =
+            &out->payload.module_config.payload_variant.mesh_beacon;
+        pb_size_t kept = 0U;
+        for (pb_size_t i = 0;
+             i < beacon->broadcast_targets_count && i < MESH_ARRAY_LEN(beacon->broadcast_targets);
+             ++i) {
+            const meshtastic_ModuleConfig_MeshBeaconConfig_BroadcastTarget *target =
+                &beacon->broadcast_targets[i];
+            if (!target->has_preset && !target->has_channel_index &&
+                target->region == meshtastic_Config_LoRaConfig_RegionCode_UNSET) {
+                continue;
+            }
+            if (kept != i) {
+                beacon->broadcast_targets[kept] = beacon->broadcast_targets[i];
+            }
+            kept++;
+        }
+        for (pb_size_t i = kept; i < MESH_ARRAY_LEN(beacon->broadcast_targets); ++i) {
+            memset(&beacon->broadcast_targets[i], 0, sizeof beacon->broadcast_targets[i]);
+        }
+        beacon->broadcast_targets_count = kept;
+        /*
+         * And the offer, by the same rule one level up: an invitation with no name on it is not
+         * an invitation, so the submessage goes rather than travelling as a bare key.
+         *
+         * Decided here rather than in the row's own arm because a save carries several edits in
+         * whatever order the user made them, and a name emptied before the key was touched has
+         * to mean the same as one emptied after it. The row's note promises this - "leave it
+         * empty to offer no channel" - and the promise is the screen's, so it is kept against
+         * the assembled record rather than against one edit.
+         */
+        if (beacon->has_broadcast_offer_channel &&
+            beacon->broadcast_offer_channel.name[0] == '\0') {
+            beacon->has_broadcast_offer_channel = false;
+            memset(&beacon->broadcast_offer_channel, 0, sizeof beacon->broadcast_offer_channel);
+        }
     }
     return 0;
 }

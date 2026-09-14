@@ -347,6 +347,30 @@ struct mesh_ui_channel {
 /* One channel slot with everything set_channel needs, keys included. Lives in the settings
    (never persisted) rather than the cached handshake. */
 #define MESH_UI_PSK_MAX 32U
+
+/*
+ * Mesh beacon's two sizes, from the protobuf: `broadcast_message` is 101 bytes on the wire and
+ * `broadcast_targets` holds four entries. The message is the field the edit buffer is now
+ * measured to (mesh/ui/settings_text.def), and four targets is the wire's cap rather than a
+ * screenful - the section lists all four, empty ones included.
+ */
+#define MESH_UI_BEACON_MESSAGE_MAX 101U
+#define MESH_UI_BEACON_TARGETS 4U
+
+/*
+ * One broadcast destination: which radio settings a copy of the beacon goes out on.
+ *
+ * All three read 0 as "whatever the radio is running", which is what the wire says of the
+ * region and what `optional` means for the other two. A target whose three rows are all 0 is
+ * not a destination at all and is dropped from the write, which is the same compaction a
+ * cleared admin key or ignore slot gets.
+ */
+struct mesh_ui_beacon_target {
+    uint32_t preset;  /* 0 = running config, else ModemPreset n-1 */
+    uint32_t region;  /* RegionCode; 0 is the wire's own UNSET */
+    uint32_t channel; /* 0 = the preset's default channel, else channel index n-1 */
+};
+
 struct mesh_ui_channel_detail {
     bool present;
     uint8_t index;
@@ -970,6 +994,32 @@ struct mesh_ui_settings {
     uint32_t traffic_rate_limit_window_secs;
     uint32_t traffic_rate_limit_max_packets;
     uint32_t traffic_unknown_packet_threshold;
+
+    /*
+     * Mesh beacon: the one module whose record is not a flat list of scalars.
+     *
+     * Absent is a value on five of its rows, and one encoding is the whole of what that costs.
+     * A RegionCode's own UNSET is 0 and already means "whatever the radio is running", so the
+     * preset and channel rows beside it - `optional` on the wire rather than zero-as-unset -
+     * are stored one past themselves: 0 is absent and n is value n-1. The alternative is a
+     * second `has_*` per row, which the row model has no way to draw and the user no way to
+     * press.
+     */
+    bool has_mesh_beacon;
+    uint32_t beacon_flags; /* the FLAG rows are bits of this one word */
+    uint32_t beacon_interval_secs;
+    char beacon_message[MESH_UI_BEACON_MESSAGE_MAX];
+    /* The offered channel, which is a whole ChannelSettings on the wire: a name and a key, the
+       two halves a node needs to join it. The rest of that submessage is the radio's and is
+       carried across a save untouched. */
+    char beacon_offer_name[MESH_UI_CHANNEL_NAME_MAX];
+    uint8_t beacon_offer_psk[MESH_UI_PSK_MAX];
+    uint8_t beacon_offer_psk_len;
+    uint32_t beacon_offer_region; /* RegionCode; 0 is the wire's own UNSET */
+    uint32_t beacon_offer_preset; /* 0 = running config, else ModemPreset n-1 */
+    /* Every slot is listed whether or not the radio sent one, the way a channel slot is: an
+       empty target is how a target is added, and emptying one is how it is removed. */
+    struct mesh_ui_beacon_target beacon_targets[MESH_UI_BEACON_TARGETS];
 
     bool has_channels; /* any slot present */
     struct mesh_ui_channel_detail channels[MESH_UI_MAX_CHANNELS];

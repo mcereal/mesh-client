@@ -94,3 +94,12 @@ MESH_UI_TEXT_FIELD(LORA_IGNORE_NODE_2, 10)
 /* meshtastic_HamParameters.call_sign is char[8], so seven typed and the NUL. */
 MESH_UI_TEXT_FIELD(LORA_HAM_CALL_SIGN, 7)
 MESH_UI_TEXT_FIELD(LORA_HAM_FREQUENCY, 12)
+/*
+ * Mesh beacon. `broadcast_message` is 101 bytes on the wire, so 100 typed - the field this file
+ * was written for, and now the one the edit buffer is the width of. The offered channel is a
+ * ChannelSettings embedded in the module, so its name and key are the same two limits the
+ * Channels section's rows have.
+ */
+MESH_UI_TEXT_FIELD(BEACON_MESSAGE, 100)
+MESH_UI_TEXT_FIELD(BEACON_OFFER_NAME, 11)
+MESH_UI_TEXT_FIELD(BEACON_OFFER_KEY, 64)
