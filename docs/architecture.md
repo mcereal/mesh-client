@@ -634,34 +634,11 @@ submodules; `make proto` regenerates after a submodule bump.
 
 ## Invariants
 
-Things that look like bugs, are not, and have each cost a debugging round already:
-
-- **No threads.** Everything is the one epoll loop.
-- **BLE is not Nordic UART** and has no length framing: one bare protobuf per GATT write/read.
-  Serial does have framing, and it is `src/proto/stream_framing.c`.
-- **The Brick's face buttons do not report by position.** A is `BTN_EAST` (305), B is `BTN_SOUTH`
-  (304), the button printed **Y (on the left) is `BTN_NORTH` (307)**, so X on the top is
-  `BTN_WEST` (308). All four verified from the device log; `input_brick_face_buttons` pins them.
-  Do not "fix" any of it back. The pad impersonates an Xbox 360 controller, so **L2/R2 arrive as
-  the analog triggers `ABS_Z`/`ABS_RZ`** rather than as buttons, and **F1/F2 as the stick clicks**
-  `BTN_THUMBL`/`BTN_THUMBR`. `make deploy-input-map` re-measures the lot; the table is in
-  [`device.md`](device.md#the-buttons-and-what-they-report).
-- **A radio reboot after a settings write is expected**, not a dropped link to chase.
-- **The crash handler builds no strings and walks the stack through a pipe.** Both look
-  roundabout and both are the only safe way to do it; see `src/utils/crash.c` above before
-  simplifying either. So is re-raising the signal at the end: a handler that returned or exited
-  tidily would report a clean exit for a process that faulted.
-- **A replayed message has a packet id that is not its own.** The router wraps it in a packet of
-  its own, so the id belongs to the delivery; `mesh_message_log_holds_replay()` matching on the
-  content rather than on the id is the point, not an oversight.
-- **Text is measured in cells, not bytes.** A `strlen` in fb layout code is a bug; so is `%-Ns`.
-  See [`ui.md`](ui.md).
-- **Only the release build is a release.** Do not stamp a local build to test the updater; lift
-  the guard instead. See [`semantic-release.md`](semantic-release.md).
-- **`project(meshclient VERSION x.y.z ...)` in `CMakeLists.txt` is rewritten by the release
-  workflow.** Do not change that line's shape and do not bump it by hand.
-- **`launch.sh` and the `Tools/` helpers do not ship through self-update.** Changing either means
-  the user reinstalls the pak, so treat those two as a compatibility boundary.
+Things that look like bugs, are not, and have each cost a debugging round already: the list lives
+in [`non-bugs.md`](non-bugs.md), with the test that fails if each rule is undone. It used to be
+copied here and in `CLAUDE.md`, and the two copies drifted - this one still said framing was
+serial's alone, which stopped being true when the TCP transport arrived and the two turned out to
+share a wire format. One copy, linked from both.
 
 ## History
 
