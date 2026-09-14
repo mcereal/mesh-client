@@ -13,7 +13,9 @@
 
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/icon.h"
-#include "mesh/ui/store.h"
+#include "mesh/ui/nav.h"
+#include "mesh/ui/store_handshake.h"
+#include "mesh/ui/store_settings.h"
 
 #include <stdbool.h>
 #include <stdint.h>

@@ -17,7 +17,8 @@
 #include "mesh/ui/history.h"
 #include "mesh/ui/icon.h"
 #include "mesh/ui/layout.h"
-#include "mesh/ui/store.h"
+#include "mesh/ui/store_handshake.h"
+#include "mesh/ui/store_node.h"
 #include "mesh/ui/theme.h"
 
 #include <stdbool.h>

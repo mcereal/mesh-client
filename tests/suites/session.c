@@ -9,7 +9,8 @@
 #include "mesh/core/app.h"
 #include "mesh/core/message.h"
 #include "mesh/core/session.h"
-#include "mesh/ui/store.h"
+#include "mesh/ui/store_node.h"
+#include "mesh/ui/store_settings.h"
 #include "mesh/utils/text.h"
 
 #include <pb_decode.h>

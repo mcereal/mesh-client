@@ -21,7 +21,7 @@
  * up: it stops being the button that configures a host and becomes the device that is one.
  */
 
-#include "mesh/ui/store.h"
+#include "mesh/ui/store_device.h"
 
 #include <stdbool.h>
 #include <stddef.h>

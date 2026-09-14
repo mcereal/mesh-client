@@ -102,6 +102,13 @@ evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 `include/mesh/` mirrors `src/` one-for-one, so a header sits in the directory named after the
 source file that defines it.
 
+The one group that is several headers to one source is the UI store: `src/ui/store.c` defines
+what `store.h` and its six subject headers (`store_device.h`, `store_node.h`,
+`store_channel.h`, `store_handshake.h`, `store_message.h`, `store_settings.h`) declare. Include
+the subject you need - `store.h` is the umbrella and pulls all six in. See
+[`docs/ui.md`](docs/ui.md#shape) for what each one owns and what the split does and does
+not buy.
+
 | Area | Where |
 |---|---|
 | Event loop | `src/core/event_loop.c` - epoll, 32 fd sources, **no threads** |
@@ -113,7 +120,7 @@ source file that defines it.
 | App glue | `src/core/app*.c` - lifecycle/link, `_actions`, `_publish`, `_settings` |
 | Self-update | `src/core/updater.c`, `version.c`, `fetch.c` |
 | Radio firmware | `src/core/firmware*.c`, `uf2.c`, `esp_image.c`, `src/transport/*/{usb_msc,ble_ota,ble_hci}.c` - the *other* binary; see [`docs/radio-firmware-roadmap.md`](docs/radio-firmware-roadmap.md) |
-| UI | `src/ui/` - store/controller, `nav*.c`, `settings*.c`, `layout.c`, `backends/{fb*,cli,stub}.c`; **`fb` is the device UI** |
+| UI | `src/ui/` - store/controller (records in `include/mesh/ui/store_*.h`), `nav*.c`, `settings*.c`, `layout.c`, `backends/{fb*,cli,stub}.c`; **`fb` is the device UI** |
 | UI components | `src/ui/layout.c`, `src/ui/backends/fb_widgets.c` - cell-measured line builder, scroll window, cards, lists, meters, charts |
 | Tables the UI reads | `actions.c` (button verbs), `status.c` (card verbs), `help.c`, `devices.c`, `nodes.c`, `delivery.c`, `trust.c`, `chrome.c`, `trend.c`, `duration.c` |
 | Themes & fonts | `src/ui/theme.c`, `font*.c`, `icon*.c` - palette by role, shape scale, metrics |

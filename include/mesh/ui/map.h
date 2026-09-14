@@ -21,7 +21,8 @@
 
 #include "mesh/geo/mercator.h"
 #include "mesh/map/viewport.h"
-#include "mesh/ui/store.h"
+#include "mesh/ui/store_handshake.h"
+#include "mesh/ui/store_message.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -30,6 +31,8 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+struct mesh_ui_store;
 
 /*
  * How many markers the map will carry.

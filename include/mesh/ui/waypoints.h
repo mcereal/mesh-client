@@ -16,7 +16,7 @@
  */
 
 #include "mesh/geo/vector.h"
-#include "mesh/ui/store.h"
+#include "mesh/ui/store_message.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -25,6 +25,10 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+struct mesh_ui_handshake_state;
+struct mesh_ui_settings;
+struct mesh_ui_store;
 
 #define MESH_UI_WAYPOINT_LABEL_MAX 16U
 /* Long enough to hold a whole description, which is the longest thing a value column here can

@@ -7,7 +7,7 @@
 #include "mesh/core/app.h"
 #include "mesh/core/updater.h"
 #include "mesh/ui/preferences.h"
-#include "mesh/ui/store.h"
+#include "mesh/ui/store_device.h"
 #include "mesh/ui/theme.h"
 
 #include <stdbool.h>

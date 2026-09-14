@@ -4,7 +4,6 @@
 /* Pre-populated UI store state, so nav tests start from a realistic screen. */
 
 #include "mesh/ui/settings.h"
-#include "mesh/ui/store.h"
 
 #include <stdbool.h>
 

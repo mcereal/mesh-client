@@ -3,7 +3,7 @@
 
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/icon.h"
-#include "mesh/ui/store.h"
+#include "mesh/ui/store_node.h"
 #include "mesh/ui/theme.h"
 
 #ifdef __cplusplus

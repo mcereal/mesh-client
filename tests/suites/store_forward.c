@@ -16,7 +16,8 @@
 #include "mesh/core/session.h"
 #include "mesh/core/store_forward.h"
 #include "mesh/ui/settings.h"
-#include "mesh/ui/store.h"
+#include "mesh/ui/store_handshake.h"
+#include "mesh/ui/store_settings.h"
 #include "mesh/utils/text.h"
 #include "mesh/utils/time.h"
 

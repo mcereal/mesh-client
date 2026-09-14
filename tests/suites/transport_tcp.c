@@ -13,7 +13,8 @@
 #include "mesh/proto/stream_framing.h"
 #include "mesh/transport/tcp.h"
 #include "mesh/transport/transport.h"
-#include "mesh/ui/store.h"
+#include "mesh/ui/store_device.h"
+#include "mesh/ui/store_message.h"
 
 #include <pb_decode.h>
 

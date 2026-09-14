@@ -13,7 +13,7 @@
 
 #include "mesh/core/event_loop.h"
 #include "mesh/core/firmware.h"
-#include "mesh/ui/store.h"
+#include "mesh/ui/store_settings.h"
 
 #include <errno.h>
 #include <stdbool.h>
