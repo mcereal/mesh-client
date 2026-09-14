@@ -2005,3 +2005,33 @@ Four things worth keeping:
   for a toggle, because `item.value` still holds them - the same bargain the switch, the meter,
   the slider and the segmented button all make. A kind describes the content; how a backend says
   it is that backend's to choose.
+
+## 22. What a unit in the value column turned out to be
+
+Smaller than an entry usually gets, and here because of *where* it went rather than what it is.
+
+LoRa's advanced group (`docs/settings-roadmap.md` phase 14 item 6) put two typed numbers next
+to each other: `Override frequency` in megahertz and `Frequency trim` in hertz. Both are TEXT
+rows, so both drew what the user typed - "906.8750" above "-12.5" - and nothing on the screen
+said which was which. A value column that needs a footnote is a value column that is wrong.
+
+The obvious answer was a `unit` column in `k_fields`, beside `label` and `kind`. It is not what
+was done, and the reason is §4's first rule read from the other end: **a unit is a property of
+the drawing, not of the field.** The field is a frequency in megahertz whether or not anybody
+is looking at it; what changes is that this row's neighbour makes the reader ask. So it is
+`field_unit()` in `settings_rows.c`, a predicate sitting beside `field_is_secret()`, which is
+the same shape for the same reason - a credential row draws a mask and is not a different kind
+of field.
+
+Two things worth keeping:
+
+- **The value and the text are two things, and this is the first row where they differ for a
+  reason other than secrecy.** `item->value` reads "906.8750 MHz"; `item->text` - what the
+  keyboard opens on and what the parser is handed - stays "906.8750". A row that offered its
+  unit back to be edited would be a row you have to delete four characters from before you can
+  type a number, which is the mask row's lesson arriving in a place nobody was hiding anything.
+- **A predicate is the right size until it has three callers.** There are three fields in it
+  today and the switch names them. If a fourth kind of unit turns up it is still a switch; if a
+  *section's worth* turns up, that is the moment the column in `k_fields` earns its place on
+  every row of the table - and not before, because a member there costs a hundred and seventy
+  rows a comma each.

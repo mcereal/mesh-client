@@ -370,22 +370,32 @@ MESH_TEST_CASE(help_opens_where_the_cursor_was, unit) {
     MESH_TEST_FAIL_IF(rows == 0U, "LoRa has no rows");
 
     bool saw_a_field_note = false;
-    uint32_t expected = 0U; /* the entry the row before this one resolves to */
+    uint32_t entry = 1U;    /* the paragraph the next explained row will be */
+    uint32_t expected = 0U; /* the entry this row resolves to; 0 is the section's overview */
     for (uint32_t row = 0; row < rows; ++row) {
         const enum mesh_str_id note = items[row].field != MESH_UI_FIELD_NONE
                                           ? mesh_ui_settings_field_note(items[row].field)
                                           : MESH_STR_NONE;
-        if (note != MESH_STR_NONE) {
-            expected++;
+        /* A heading is where "the paragraphs above this row" stops, which is the rule
+           help_stops_at_a_subheading holds for Telemetry - LoRa grew headings of its own with
+           the advanced group, so the rule applies one section further along. */
+        if (items[row].kind == MESH_UI_SETTING_HEADING) {
+            expected = 0U;
+        } else if (note != MESH_STR_NONE) {
+            expected = entry;
+            entry++;
             saw_a_field_note = true;
         }
 
-        /* Put the cursor on `row` from a known position, then ask. */
-        while (store.nav.cursor[MESH_UI_SCREEN_SETTINGS] > 0U) {
-            press(&store, MESH_UI_KEY_UP);
+        if (items[row].kind == MESH_UI_SETTING_HEADING) {
+            continue; /* a row the cursor steps over cannot be asked from */
         }
-        for (uint32_t i = 0; i < row; ++i) {
-            press(&store, MESH_UI_KEY_DOWN);
+        /* Put the cursor on `row`, by finding it rather than by counting presses: a heading is
+           a row the cursor steps over, so the two stopped being the same number the day this
+           section grew one. */
+        if (!mesh_test_settings_cursor_to(&store, row)) {
+            record_failure(test_name, "the cursor could not reach a row");
+            return;
         }
         press(&store, MESH_UI_KEY_SELECT);
         MESH_TEST_FAIL_IF(!store.nav.help_open, "SELECT did not open help");

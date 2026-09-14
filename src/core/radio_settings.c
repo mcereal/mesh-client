@@ -290,11 +290,15 @@ bool mesh_admin_request_is_action(enum mesh_admin_request_kind kind) {
        nothing is read back, and what they move is the radio's whole stored configuration
        rather than a section this client has rows for. A restore does change what the radio
        holds, so the caller follows it with a refresh - that is a read, not a read-back. */
+    /* Ham mode is here rather than among the writes for the backup trio's reason, sharpened:
+       one verb moves the owner's names, the primary channel's key and LoRa's own frequency,
+       so there is no single section a read-back could ask for. The caller refreshes. */
     return kind == MESH_ADMIN_REBOOT || kind == MESH_ADMIN_SHUTDOWN ||
            kind == MESH_ADMIN_RESET_NODEDB || kind == MESH_ADMIN_FACTORY_RESET_CONFIG ||
            kind == MESH_ADMIN_FACTORY_RESET_DEVICE || kind == MESH_ADMIN_ENTER_DFU_MODE ||
            kind == MESH_ADMIN_BACKUP_PREFERENCES || kind == MESH_ADMIN_RESTORE_PREFERENCES ||
-           kind == MESH_ADMIN_REMOVE_BACKUP_PREFERENCES || kind == MESH_ADMIN_OTA_REQUEST;
+           kind == MESH_ADMIN_REMOVE_BACKUP_PREFERENCES || kind == MESH_ADMIN_OTA_REQUEST ||
+           kind == MESH_ADMIN_SET_HAM_MODE;
 }
 
 static void mesh_radio_settings_record_write_result(struct mesh_radio_settings *settings,
@@ -607,6 +611,16 @@ int mesh_radio_settings_encode_request(const struct mesh_radio_settings *setting
         admin.which_payload_variant = meshtastic_AdminMessage_remove_fixed_position_tag;
         admin.remove_fixed_position = true;
         break;
+    /* A call sign is the whole of what makes this legal, so a ham-mode verb without one is
+       refused here rather than sent for the firmware to take literally: an empty call sign
+       would rename the node to nothing and still turn the primary channel's key off. */
+    case MESH_ADMIN_SET_HAM_MODE:
+        if (request->payload.ham.call_sign[0] == '\0') {
+            return -EINVAL;
+        }
+        admin.which_payload_variant = meshtastic_AdminMessage_set_ham_mode_tag;
+        admin.set_ham_mode = request->payload.ham;
+        break;
     case MESH_ADMIN_REMOVE_NODE:
         if (request->type == 0U) {
             return -EINVAL;
@@ -744,6 +758,32 @@ static bool mesh_radio_settings_queued(const struct mesh_radio_settings *setting
         }
     }
     return false;
+}
+
+/*
+ * Appends without the deduplication enqueue() does.
+ *
+ * For the one case where a read queued *earlier* is not a substitute: a read-back exists to
+ * observe what a write or an action changed, so folding it into a request already sitting
+ * ahead of that action answers with the value the action replaced.
+ *
+ * Only queue_ham_mode() uses it. queue_write() deliberately does not - the test on set_owner
+ * pins that its passkey refresh and its read-back are one request - and changing that is a
+ * decision about a shipped mechanism rather than a line in this one.
+ */
+static size_t mesh_radio_settings_append(struct mesh_radio_settings *settings,
+                                         enum mesh_admin_request_kind kind, uint32_t type) {
+    if (settings->queue_len >= MESH_RADIO_SETTINGS_FETCH_MAX) {
+        return 0U;
+    }
+    struct mesh_admin_request *slot =
+        &settings
+             ->queue[(settings->queue_head + settings->queue_len) % MESH_RADIO_SETTINGS_FETCH_MAX];
+    memset(slot, 0, sizeof *slot);
+    slot->kind = kind;
+    slot->type = type;
+    settings->queue_len += 1U;
+    return 1U;
 }
 
 static size_t mesh_radio_settings_enqueue(struct mesh_radio_settings *settings,
@@ -1029,8 +1069,10 @@ int mesh_radio_settings_queue_key_verification(struct mesh_radio_settings *setti
 
 int mesh_radio_settings_queue_action(struct mesh_radio_settings *settings,
                                      enum mesh_admin_request_kind kind, uint32_t seconds) {
-    /* An ota_request is an action with a payload, and this call has nowhere to put one. */
-    if (settings == NULL || !mesh_admin_request_is_action(kind) || kind == MESH_ADMIN_OTA_REQUEST) {
+    /* An ota_request and a set_ham_mode are actions with a payload, and this call has nowhere
+       to put one: each has a queue call of its own that insists on what it carries. */
+    if (settings == NULL || !mesh_admin_request_is_action(kind) || kind == MESH_ADMIN_OTA_REQUEST ||
+        kind == MESH_ADMIN_SET_HAM_MODE) {
         return -EINVAL;
     }
     /* Only the reboot and the shutdown have a delay; the resets carry nothing, and pinning
@@ -1085,6 +1127,46 @@ int mesh_radio_settings_queue_ota(struct mesh_radio_settings *settings,
         memcpy(slot->payload.ota_hash, hash, MESH_ADMIN_OTA_HASH_LEN);
         added += 1U;
     }
+    return (int)added;
+}
+
+int mesh_radio_settings_queue_ham_mode(struct mesh_radio_settings *settings,
+                                       const meshtastic_HamParameters *ham) {
+    if (settings == NULL || ham == NULL || ham->call_sign[0] == '\0') {
+        return -EINVAL;
+    }
+    /* Refused rather than folded while one is in flight, the reason queue_ota() gives: the
+       payload is the point, and two presses naming two call signs must not become one request
+       naming whichever was pressed first. */
+    if (mesh_radio_settings_queued(settings, MESH_ADMIN_SET_HAM_MODE, 0U)) {
+        return -EBUSY;
+    }
+    /* The passkey refresh, the verb, and an owner read *after* it - three, or two when a
+       passkey refresh is already on its way. */
+    const size_t needed =
+        (mesh_radio_settings_queued(settings, MESH_ADMIN_GET_OWNER, 0U) ? 0U : 1U) + 2U;
+    if (settings->queue_len + needed > MESH_RADIO_SETTINGS_FETCH_MAX) {
+        return -ENOSPC;
+    }
+    size_t added = mesh_radio_settings_enqueue(settings, MESH_ADMIN_GET_OWNER, 0U);
+    struct mesh_admin_request *const slot =
+        &settings
+             ->queue[(settings->queue_head + settings->queue_len) % MESH_RADIO_SETTINGS_FETCH_MAX];
+    if (mesh_radio_settings_enqueue(settings, MESH_ADMIN_SET_HAM_MODE, 0U) == 1U) {
+        slot->payload.ham = *ham;
+        added += 1U;
+    }
+    /*
+     * The owner read this action is actually for, appended rather than enqueued.
+     *
+     * What set_ham_mode changes about the owner - the long name becomes the call sign and the
+     * licensed flag goes on - is the half of it a caller's refresh cannot ask for: every path
+     * into this queue puts a get_owner in front for the passkey, and enqueue() would fold the
+     * read-back into that one, so the only owner reply would describe the node as it was
+     * before the switch. The rest of what moved (LoRa, the primary channel) the caller's
+     * refresh picks up behind this, because those reads are not already queued.
+     */
+    added += mesh_radio_settings_append(settings, MESH_ADMIN_GET_OWNER, 0U);
     return (int)added;
 }
 

@@ -2358,6 +2358,8 @@ static const char *mesh_session_action_name(enum mesh_admin_request_kind kind) {
         return "DFU mode";
     case MESH_ADMIN_OTA_REQUEST:
         return "BLE OTA";
+    case MESH_ADMIN_SET_HAM_MODE:
+        return "ham mode";
     default:
         return "?";
     }
@@ -2386,8 +2388,44 @@ int mesh_session_request_ble_ota(struct mesh_session *session,
     return queued;
 }
 
+/*
+ * Licensed-operator mode, from a call sign, a frequency and a power the user typed.
+ *
+ * The short name is the radio's own rather than a row: the firmware wants one, the owner
+ * record already has one, and asking a second time for something the User section has always
+ * owned would be two places to change one name. An empty long name leaves the firmware to
+ * build one from the call sign, which is what it does.
+ */
+int mesh_session_set_ham_mode(struct mesh_session *session, const char *call_sign, float frequency,
+                              int32_t tx_power) {
+    if (session == NULL || call_sign == NULL || call_sign[0] == '\0') {
+        return -EINVAL;
+    }
+    if (session->send == NULL || !session->handshake.has_my_info) {
+        return -ENOTCONN;
+    }
+    meshtastic_HamParameters ham = meshtastic_HamParameters_init_zero;
+    mesh_str_copy(ham.call_sign, sizeof ham.call_sign, call_sign);
+    ham.frequency = frequency;
+    ham.tx_power = tx_power;
+    if (session->settings.has_owner) {
+        mesh_str_copy(ham.short_name, sizeof ham.short_name, session->settings.owner.short_name);
+    }
+    const int queued = mesh_radio_settings_queue_ham_mode(&session->settings, &ham);
+    if (queued < 0) {
+        return queued;
+    }
+    /* Loud for the reason the resets are: it renames the node, moves its frequency and takes
+       the primary channel's encryption off, and none of that is undone by pressing again. */
+    mesh_log_warn("session", "Requested %s for %s on %.4f MHz (%d requests)",
+                  mesh_session_action_name(MESH_ADMIN_SET_HAM_MODE), ham.call_sign,
+                  (double)frequency, queued);
+    return queued;
+}
+
 int mesh_session_radio_action(struct mesh_session *session, enum mesh_admin_request_kind kind) {
-    if (session == NULL || !mesh_admin_request_is_action(kind) || kind == MESH_ADMIN_OTA_REQUEST) {
+    if (session == NULL || !mesh_admin_request_is_action(kind) || kind == MESH_ADMIN_OTA_REQUEST ||
+        kind == MESH_ADMIN_SET_HAM_MODE) {
         return -EINVAL;
     }
     if (session->send == NULL || !session->handshake.has_my_info) {

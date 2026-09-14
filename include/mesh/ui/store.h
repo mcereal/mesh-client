@@ -722,6 +722,19 @@ struct mesh_ui_settings {
     int8_t tx_power;
     bool ignore_mqtt;
     bool config_ok_to_mqtt;
+    /*
+     * The advanced group. The two frequencies are floats on the wire and are kept as the
+     * scaled integers the rows are typed in - MHz to four places, Hz to one - because the UI
+     * layer draws and parses decimals and has no business rounding one twice.
+     */
+    bool sx126x_rx_boosted_gain;
+    bool override_duty_cycle;
+    uint16_t channel_num;
+    int64_t override_frequency_scaled; /* MESH_UI_FREQUENCY_DIGITS places, 0 = use the slot */
+    int64_t frequency_offset_scaled;   /* MESH_UI_HERTZ_DIGITS places */
+    /* LoRaConfig.ignore_incoming, kept full width with 0 for an unused slot: three rows, and
+       the write closes the gaps a cleared one leaves the way the admin keys do. */
+    uint32_t ignore_incoming[3];
 
     bool has_bluetooth;
     bool bluetooth_enabled;

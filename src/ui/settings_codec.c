@@ -3,10 +3,10 @@
 /*
  * Values on the wire <-> text a person types.
  *
- * Coordinates (the radio's 1e-7 degree integers) and channel keys (raw bytes, offered as both
- * hex and the base64 the Meshtastic apps show). Both directions are here so the parse and the
- * format stay in step: a key rendered one way and parsed another is a channel that silently
- * stops decrypting.
+ * Decimals (a coordinate's 1e-7 degrees, a frequency's megahertz), node numbers, and channel
+ * keys (raw bytes, offered as both hex and the base64 the Meshtastic apps show). Both
+ * directions are here so the parse and the format stay in step: a key rendered one way and
+ * parsed another is a channel that silently stops decrypting.
  *
  * A leaf - nothing outside the public header in include/mesh/ui/settings.h.
  */
@@ -20,24 +20,57 @@
 #include <stdlib.h>
 #include <string.h>
 
-void mesh_ui_settings_coord_text(int32_t value_i, char *out, size_t out_len) {
+/*
+ * Ten to the power of `digits`, for digits a field table can plausibly ask for.
+ *
+ * A table rather than a loop because both directions want it as a constant and there are nine
+ * of them: past 1e9 an int64 scaled value stops being able to hold a whole number anybody
+ * would type.
+ */
+static int64_t decimal_scale(uint32_t digits) {
+    static const int64_t k_powers[] = {1,      10,      100,      1000,      10000,
+                                       100000, 1000000, 10000000, 100000000, 1000000000};
+    return digits < (sizeof k_powers / sizeof k_powers[0]) ? k_powers[digits] : k_powers[9];
+}
+
+void mesh_ui_settings_decimal_text(int64_t scaled, uint32_t held_digits, uint32_t shown_digits,
+                                   char *out, size_t out_len) {
     if (out == NULL || out_len == 0U) {
         return;
     }
-    /* Five decimals is about a metre, which is finer than anything a LoRa node reports and
-       short enough to type back in on a ten-column keyboard. The sign is carried by the whole
-       degrees, so the fraction is always taken from the magnitude. */
-    const int32_t whole = value_i / 10000000;
-    int32_t fraction = value_i % 10000000;
-    if (fraction < 0) {
-        fraction = -fraction;
+    if (shown_digits > held_digits) {
+        shown_digits = held_digits;
     }
-    const char *const sign = (value_i < 0 && whole == 0) ? "-" : "";
-    snprintf(out, out_len, "%s%d.%05d", sign, (int)whole, (int)(fraction / 100));
+    /* Rounded off rather than truncated at the shown width: a coordinate held to seven places
+       and shown to five is a metre either way, and the digit that decides which is the first
+       one dropped. */
+    const int64_t drop = decimal_scale(held_digits - shown_digits);
+    const bool negative = scaled < 0;
+    int64_t magnitude = negative ? -scaled : scaled;
+    magnitude = (magnitude + drop / 2) / drop;
+    const int64_t unit = decimal_scale(shown_digits);
+    const int64_t whole = magnitude / unit;
+    const int64_t fraction = magnitude % unit;
+    const char *const sign = negative ? "-" : "";
+    if (shown_digits == 0U) {
+        snprintf(out, out_len, "%s%lld", sign, (long long)whole);
+    } else {
+        snprintf(out, out_len, "%s%lld.%0*lld", sign, (long long)whole, (int)shown_digits,
+                 (long long)fraction);
+    }
 }
 
-bool mesh_ui_settings_coord_parse(const char *text, int32_t limit_degrees, int32_t *out_i) {
-    if (text == NULL || out_i == NULL || limit_degrees <= 0) {
+/*
+ * A decimal a person typed, as an integer scaled by `digits` places.
+ *
+ * Parsed digit by digit rather than through strtod, which is the whole reason it exists: a
+ * coordinate wants exactly seven decimal places and a frequency four, and a double rounds the
+ * last of them somewhere the user cannot see. Everything this rejects it rejects outright -
+ * there is no half-understood reading of "44.6N" worth guessing at.
+ */
+bool mesh_ui_settings_decimal_parse(const char *text, uint32_t digits, int64_t limit_whole,
+                                    int64_t *out_scaled) {
+    if (text == NULL || out_scaled == NULL || limit_whole <= 0 || digits > 9U) {
         return false;
     }
     const char *p = text;
@@ -53,26 +86,30 @@ bool mesh_ui_settings_coord_parse(const char *text, int32_t limit_degrees, int32
         return false; /* empty, or something that is not a number at all */
     }
 
-    /* Parsed as integers rather than through strtod: the wire wants exactly seven decimal
-       places, and a double would round the last one somewhere the user cannot see. */
     int64_t whole = 0;
     bool any_digit = false;
     while (*p >= '0' && *p <= '9') {
         whole = whole * 10 + (*p - '0');
         any_digit = true;
-        if (whole > 1000) {
-            return false; /* far past any coordinate; stop before this can overflow */
+        if (whole > limit_whole) {
+            return false; /* past the field's range; stop before this can overflow */
         }
         ++p;
     }
     int64_t fraction = 0;
-    int digits = 0;
+    uint32_t seen = 0U;
     if (*p == '.') {
         ++p;
         while (*p >= '0' && *p <= '9') {
-            if (digits < 7) {
+            if (seen < digits) {
                 fraction = fraction * 10 + (*p - '0');
-                ++digits;
+                ++seen;
+            } else if (*p != '0') {
+                /* Finer than the field can hold, and a digit that means something. Refused
+                   rather than dropped: a slot row taking "12.5" as 12, or a frequency taking a
+                   tenth of a hertz it cannot carry, is the silent kind of wrong this whole file
+                   is written to avoid. Trailing zeros are not that and are allowed through. */
+                return false;
             }
             any_digit = true;
             ++p;
@@ -87,17 +124,127 @@ bool mesh_ui_settings_coord_parse(const char *text, int32_t limit_degrees, int32
         ++p;
     }
     if (*p != '\0') {
-        return false; /* trailing rubbish: "44.6N" is not a coordinate we will guess at */
+        return false; /* trailing rubbish: "44.6N" is not a number we will guess at */
     }
-    for (; digits < 7; ++digits) {
+    for (; seen < digits; ++seen) {
         fraction *= 10;
     }
 
-    int64_t value = whole * 10000000 + fraction;
-    if (value > (int64_t)limit_degrees * 10000000) {
+    const int64_t value = whole * decimal_scale(digits) + fraction;
+    if (value > limit_whole * decimal_scale(digits)) {
         return false;
     }
-    *out_i = (int32_t)(negative ? -value : value);
+    *out_scaled = negative ? -value : value;
+    return true;
+}
+
+/*
+ * Coordinates: the same decimal, at the seven places the wire wants.
+ *
+ * Five are shown. That is about a metre, which is finer than anything a LoRa node reports and
+ * short enough to type back in on a ten-column keyboard.
+ */
+void mesh_ui_settings_coord_text(int32_t value_i, char *out, size_t out_len) {
+    mesh_ui_settings_decimal_text(value_i, MESH_UI_COORD_DIGITS, 5U, out, out_len);
+}
+
+bool mesh_ui_settings_coord_parse(const char *text, int32_t limit_degrees, int32_t *out_i) {
+    int64_t scaled = 0;
+    if (out_i == NULL || !mesh_ui_settings_decimal_parse(text, MESH_UI_COORD_DIGITS,
+                                                         (int64_t)limit_degrees, &scaled)) {
+        return false;
+    }
+    *out_i = (int32_t)scaled;
+    return true;
+}
+
+static int hex_nibble(char c) {
+    if (c >= '0' && c <= '9') {
+        return c - '0';
+    }
+    c = (char)tolower((unsigned char)c);
+    if (c >= 'a' && c <= 'f') {
+        return c - 'a' + 10;
+    }
+    return -1;
+}
+
+/*
+ * A node number, as the "!433d1b2c" the apps and the logs both write.
+ *
+ * The bare eight hex digits are taken too, and so is a plain decimal - somebody reading a
+ * number off another screen should not have to know which of the three they are looking at.
+ * Zero is not a node number: it is what an empty row parses to, and the caller reads it as
+ * "this slot is unused" rather than as an address.
+ */
+void mesh_ui_settings_node_id_text(uint32_t node_id, char *out, size_t out_len) {
+    if (out == NULL || out_len == 0U) {
+        return;
+    }
+    if (node_id == 0U) {
+        out[0] = '\0';
+        return;
+    }
+    snprintf(out, out_len, "!%08x", (unsigned)node_id);
+}
+
+bool mesh_ui_settings_node_id_parse(const char *text, uint32_t *out_id) {
+    if (text == NULL || out_id == NULL) {
+        return false;
+    }
+    const char *p = text;
+    while (*p == ' ') {
+        ++p;
+    }
+    const char *end = p + strlen(p);
+    while (end > p && end[-1] == ' ') {
+        --end;
+    }
+    if (p == end) {
+        *out_id = 0U; /* an empty row is an empty slot, not a bad one */
+        return true;
+    }
+
+    bool hex = false;
+    if (*p == '!') {
+        hex = true;
+        ++p;
+    } else if (end - p > 2 && p[0] == '0' && (p[1] == 'x' || p[1] == 'X')) {
+        hex = true;
+        p += 2;
+    } else {
+        /*
+         * No marker, so the spelling has to decide, and the only rule that can be stated in one
+         * line is: a letter means hex, all digits mean decimal.
+         *
+         * "12345678" is a legal node number read either way, and guessing hex on a width - as
+         * this first did - makes eight digits mean something seven and nine do not, which is
+         * not a rule anybody could predict and quietly ignores a node nobody named. The hex
+         * reading always has a spelling available: "!12345678" is how this client, the apps and
+         * the logs all write one, so nothing is lost by asking for the marker.
+         */
+        bool all_digits = true;
+        for (const char *q = p; q < end; ++q) {
+            all_digits = all_digits && *q >= '0' && *q <= '9';
+        }
+        hex = !all_digits;
+    }
+    if (p == end) {
+        return false; /* a bare "!" names nothing */
+    }
+
+    uint64_t value = 0U;
+    for (; p < end; ++p) {
+        const int digit = hex ? hex_nibble(*p) : (*p >= '0' && *p <= '9' ? *p - '0' : -1);
+        if (digit < 0) {
+            return false;
+        }
+        value = value * (hex ? 16U : 10U) + (uint64_t)digit;
+        if (value > 0xFFFFFFFFU) {
+            return false;
+        }
+    }
+    *out_id = (uint32_t)value;
     return true;
 }
 
@@ -114,17 +261,6 @@ void mesh_ui_settings_key_hex(const uint8_t *key, size_t len, char *out, size_t 
         snprintf(out + pos, out_len - pos, "%02x", key[i]);
         pos += 2U;
     }
-}
-
-static int hex_nibble(char c) {
-    if (c >= '0' && c <= '9') {
-        return c - '0';
-    }
-    c = (char)tolower((unsigned char)c);
-    if (c >= 'a' && c <= 'f') {
-        return c - 'a' + 10;
-    }
-    return -1;
 }
 
 static const char k_base64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";

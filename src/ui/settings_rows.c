@@ -164,6 +164,31 @@ static bool field_is_secret(enum mesh_ui_setting_field field) {
     return field == MESH_UI_FIELD_MQTT_PASSWORD;
 }
 
+/*
+ * The unit a typed number is in, for the value column only.
+ *
+ * A predicate beside field_is_secret() rather than a column in k_fields, and for the same
+ * reason: it changes how the row is *drawn* and nothing about what the field is. The keyboard
+ * still opens on `item->text`, which stays the bare number the parser wants - a row that
+ * offered "906.8750 MHz" back to be edited would be a row you have to delete four characters
+ * from before you can type.
+ *
+ * Only where two neighbouring rows would otherwise be indistinguishable. LoRa's override
+ * frequency is megahertz and the trim below it is hertz, and "906.8750" over "-12.5" says
+ * nothing about which is which; a latitude has no such neighbour and stays bare.
+ */
+static enum mesh_str_id field_unit(enum mesh_ui_setting_field field) {
+    switch (field) {
+    case MESH_UI_FIELD_LORA_OVERRIDE_FREQ:
+    case MESH_UI_FIELD_LORA_HAM_FREQUENCY:
+        return MESH_STR_VALUE_MEGAHERTZ;
+    case MESH_UI_FIELD_LORA_FREQUENCY_TRIM:
+        return MESH_STR_VALUE_HERTZ;
+    default:
+        return MESH_STR_NONE;
+    }
+}
+
 /* An editable row: the field's spec supplies label and kind; a pending edit replaces the
    radio's value and marks the row dirty. `text` is only read for TEXT fields. */
 static void item_field(struct item_list *list, enum mesh_ui_setting_field field, uint32_t number,
@@ -215,6 +240,8 @@ static void item_field(struct item_list *list, enum mesh_ui_setting_field field,
         } else if (field_is_secret(field)) {
             snprintf(item->value, sizeof item->value, "%s",
                      mesh_str(MESH_STR_SETTINGS_TEXT_SECRET));
+        } else if (field_unit(field) != MESH_STR_NONE) {
+            mesh_str_format(item->value, sizeof item->value, field_unit(field), item->text);
         } else {
             mesh_str_copy(item->value, sizeof item->value, item->text);
         }
@@ -892,6 +919,54 @@ static void build_lora(const struct mesh_ui_settings *s, struct item_list *list)
     item_field(list, MESH_UI_FIELD_LORA_TX_POWER, (uint32_t)(uint8_t)s->tx_power, NULL);
     item_field(list, MESH_UI_FIELD_LORA_IGNORE_MQTT, s->ignore_mqtt ? 1U : 0U, NULL);
     item_field(list, MESH_UI_FIELD_LORA_OK_TO_MQTT, s->config_ok_to_mqtt ? 1U : 0U, NULL);
+
+    /*
+     * The advanced group: what the radio does with the band rather than which band it is on.
+     * Three of the five are numbers typed as text, pre-filled with what the radio reported, so
+     * a row nobody edits keeps what it had - the rule the coordinate rows follow.
+     */
+    char typed[MESH_UI_SETTINGS_VALUE_MAX];
+    item_heading(list, MESH_STR_HEAD_LORA_ADVANCED);
+    item_field(list, MESH_UI_FIELD_LORA_BOOST_GAIN, s->sx126x_rx_boosted_gain ? 1U : 0U, NULL);
+    item_field(list, MESH_UI_FIELD_LORA_OVERRIDE_DUTY, s->override_duty_cycle ? 1U : 0U, NULL);
+    snprintf(typed, sizeof typed, "%u", (unsigned)s->channel_num);
+    item_field(list, MESH_UI_FIELD_LORA_CHANNEL_NUM, 0U, typed);
+    mesh_ui_settings_decimal_text(s->override_frequency_scaled, MESH_UI_FREQUENCY_DIGITS,
+                                  MESH_UI_FREQUENCY_DIGITS, typed, sizeof typed);
+    item_field(list, MESH_UI_FIELD_LORA_OVERRIDE_FREQ, 0U, typed);
+    mesh_ui_settings_decimal_text(s->frequency_offset_scaled, MESH_UI_HERTZ_DIGITS,
+                                  MESH_UI_HERTZ_DIGITS, typed, sizeof typed);
+    item_field(list, MESH_UI_FIELD_LORA_FREQUENCY_TRIM, 0U, typed);
+
+    /*
+     * ignore_incoming's three slots. Listed empty, the way a channel slot is: an empty row is
+     * where the next one goes, and a list that only showed the full slots would have nowhere
+     * to put a fourth press.
+     */
+    item_heading(list, MESH_STR_HEAD_LORA_IGNORED);
+    for (uint32_t i = 0; i < 3U; ++i) {
+        mesh_ui_settings_node_id_text(s->ignore_incoming[i], typed, sizeof typed);
+        item_field(list, (enum mesh_ui_setting_field)(MESH_UI_FIELD_LORA_IGNORE_NODE_0 + i), 0U,
+                   typed);
+    }
+
+    /*
+     * Ham mode. Three rows and the press that reads them, which is the fixed-position shape:
+     * `set_ham_mode` is one verb over the owner's names, the primary channel's key and this
+     * section's own frequency and power, so Y cannot be what sends it.
+     *
+     * The call sign is pre-filled from the long name only when the radio already says it is
+     * licensed - on an unlicensed node the long name is a nickname, and offering it as a call
+     * sign would be this client putting words in an operator's mouth.
+     */
+    item_heading(list, MESH_STR_HEAD_LORA_HAM);
+    item_field(list, MESH_UI_FIELD_LORA_HAM_CALL_SIGN, 0U, s->is_licensed ? s->long_name : "");
+    mesh_ui_settings_decimal_text(s->override_frequency_scaled, MESH_UI_FREQUENCY_DIGITS,
+                                  MESH_UI_FREQUENCY_DIGITS, typed, sizeof typed);
+    item_field(list, MESH_UI_FIELD_LORA_HAM_FREQUENCY, 0U, typed);
+    item_field(list, MESH_UI_FIELD_LORA_HAM_TX_POWER, (uint32_t)(uint8_t)s->tx_power, NULL);
+    item_action(list, MESH_STR_SETTINGS_SET_HAM_MODE, mesh_str(MESH_STR_COMMON_PRESS_A),
+                MESH_UI_SETTINGS_ACTION_SET_HAM_MODE);
 }
 
 static void build_bluetooth(const struct mesh_ui_settings *s, struct item_list *list) {

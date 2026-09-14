@@ -24,6 +24,17 @@
 #include <string.h>
 #include <sys/random.h>
 
+/*
+ * What the two LoRa frequency rows will take.
+ *
+ * A ceiling rather than a band plan: the widest region this client offers is LORA_24, which is
+ * the 2.4 GHz band, so anything past 3 GHz is a typo rather than a radio. The trim is a
+ * crystal correction, and a megahertz either way is already far past any crystal that works.
+ * Neither is a legality check - no number here can be one, which is what the rows' notes say.
+ */
+#define MESH_LORA_FREQUENCY_MAX_MHZ 3000
+#define MESH_LORA_TRIM_MAX_HZ 1000000
+
 /* A fresh channel key. getrandom() blocks until the kernel pool is seeded, which on the Brick
    it long since is; anything else is an error we surface rather than a weak key. */
 static int mesh_app_random_key(uint8_t *out, size_t len) {
@@ -548,6 +559,71 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
     case MESH_UI_FIELD_LORA_OK_TO_MQTT:
         lora->config_ok_to_mqtt = on;
         break;
+    case MESH_UI_FIELD_LORA_BOOST_GAIN:
+        lora->sx126x_rx_boosted_gain = on;
+        break;
+    case MESH_UI_FIELD_LORA_OVERRIDE_DUTY:
+        lora->override_duty_cycle = on;
+        break;
+    case MESH_UI_FIELD_LORA_CHANNEL_NUM: {
+        /* A slot is a whole number and the wire holds it in sixteen bits; a decimal parse at
+           no places is what refuses "12.5" rather than reading it as 12. */
+        int64_t slot = 0;
+        if (!mesh_ui_settings_decimal_parse(edit->text, 0U, UINT16_MAX, &slot) || slot < 0) {
+            return -EINVAL;
+        }
+        lora->channel_num = (uint16_t)slot;
+        break;
+    }
+    case MESH_UI_FIELD_LORA_OVERRIDE_FREQ: {
+        int64_t megahertz = 0;
+        if (!mesh_ui_settings_decimal_parse(edit->text, MESH_UI_FREQUENCY_DIGITS,
+                                            MESH_LORA_FREQUENCY_MAX_MHZ, &megahertz) ||
+            megahertz < 0) {
+            return -EINVAL;
+        }
+        lora->override_frequency = mesh_app_unscale_float(megahertz, MESH_UI_FREQUENCY_DIGITS);
+        break;
+    }
+    case MESH_UI_FIELD_LORA_FREQUENCY_TRIM: {
+        /* Signed, unlike every other number in this switch: a crystal is as likely to be fast
+           as slow, and the row is the correction rather than the frequency. */
+        int64_t hertz = 0;
+        if (!mesh_ui_settings_decimal_parse(edit->text, MESH_UI_HERTZ_DIGITS, MESH_LORA_TRIM_MAX_HZ,
+                                            &hertz)) {
+            return -EINVAL;
+        }
+        lora->frequency_offset = mesh_app_unscale_float(hertz, MESH_UI_HERTZ_DIGITS);
+        break;
+    }
+    /*
+     * The three ignore slots. Each writes its own index and the whole field is compacted after
+     * the loop, the way a cleared admin key is: a repeated field with a hole in the middle is
+     * a list the firmware reads as shorter than it is.
+     */
+    case MESH_UI_FIELD_LORA_IGNORE_NODE_0:
+    case MESH_UI_FIELD_LORA_IGNORE_NODE_1:
+    case MESH_UI_FIELD_LORA_IGNORE_NODE_2: {
+        const pb_size_t slot =
+            (pb_size_t)((enum mesh_ui_setting_field)edit->field - MESH_UI_FIELD_LORA_IGNORE_NODE_0);
+        uint32_t node = 0U;
+        if (!mesh_ui_settings_node_id_parse(edit->text, &node)) {
+            return -EINVAL;
+        }
+        if (lora->ignore_incoming_count < slot + 1U) {
+            /* A slot written past the end of what the radio sent: the ones before it stay 0
+               and are closed up by the compaction below. */
+            lora->ignore_incoming_count = slot + 1U;
+        }
+        lora->ignore_incoming[slot] = node;
+        break;
+    }
+    /* Ham mode's rows never reach here: mesh_ui_settings_field_consumer() files them under
+       MESH_UI_SETTING_CONSUMER_HAM_MODE, and mesh_app_save_ham_mode() is what reads them. */
+    case MESH_UI_FIELD_LORA_HAM_CALL_SIGN:
+    case MESH_UI_FIELD_LORA_HAM_FREQUENCY:
+    case MESH_UI_FIELD_LORA_HAM_TX_POWER:
+        return -ENOTSUP;
     case MESH_UI_FIELD_SECURITY_PRIVATE_KEY:
         switch ((enum mesh_ui_psk_choice)edit->number) {
         case MESH_UI_PSK_KEEP:
@@ -948,6 +1024,24 @@ int mesh_app_build_settings_write(const struct mesh_radio_settings *radio,
         }
     }
     if (out->kind == MESH_ADMIN_SET_CONFIG &&
+        out->payload.config.which_payload_variant == meshtastic_Config_lora_tag) {
+        /* ignore_incoming is repeated, so an emptied slot is closed up rather than left as a
+           0 the firmware would read as a node number. The same compaction the admin keys get
+           below, and for the same reason. */
+        meshtastic_Config_LoRaConfig *lora = &out->payload.config.payload_variant.lora;
+        pb_size_t kept = 0U;
+        for (pb_size_t i = 0; i < lora->ignore_incoming_count && i < 3U; ++i) {
+            if (lora->ignore_incoming[i] == 0U) {
+                continue;
+            }
+            lora->ignore_incoming[kept++] = lora->ignore_incoming[i];
+        }
+        for (pb_size_t i = kept; i < 3U; ++i) {
+            lora->ignore_incoming[i] = 0U;
+        }
+        lora->ignore_incoming_count = kept;
+    }
+    if (out->kind == MESH_ADMIN_SET_CONFIG &&
         out->payload.config.which_payload_variant == meshtastic_Config_security_tag) {
         /* admin_key is a repeated field: close the gaps a cleared slot leaves. */
         meshtastic_Config_SecurityConfig *security = &out->payload.config.payload_variant.security;
@@ -1056,6 +1150,76 @@ void mesh_app_save_fixed_position(struct mesh_app *app, const struct mesh_ui_act
     } else {
         mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_FAILED_KEPT, result);
         mesh_log_warn("ui", "Fixed position write failed: %d", result);
+    }
+    mesh_ui_store_set_toast(&app->ui_store, now, toast);
+}
+
+/*
+ * "Switch to ham mode". The fixed-position shape one section over: a row that reads the three
+ * rows above it, because `set_ham_mode` is one verb over three things this tab keeps apart.
+ *
+ * An action rather than a write, so nothing is read back and this asks for a refresh instead -
+ * the same answer a restore gets, and for the same reason: what moved is the owner record, the
+ * primary channel and LoRaConfig at once, and a screen left drawing what it had would show a
+ * node that is no longer the one in front of it.
+ *
+ * An untouched row keeps what the radio reported, so a licensed node already on its band is
+ * re-sent the values it has rather than zeros.
+ */
+void mesh_app_save_ham_mode(struct mesh_app *app, const struct mesh_ui_action *action,
+                            uint64_t now) {
+    char toast[MESH_UI_NAV_TOAST_MAX];
+    const struct mesh_ui_settings *ui = &app->ui_store.settings;
+    char call_sign[MESH_UI_SETTING_TEXT_MAX];
+    mesh_str_copy(call_sign, sizeof call_sign, ui->is_licensed ? ui->long_name : "");
+    int64_t frequency = ui->override_frequency_scaled;
+    int32_t tx_power = ui->tx_power;
+    bool bad = false;
+
+    for (uint8_t i = 0; i < action->edit_count && i < MESH_UI_SETTINGS_EDITS_MAX; ++i) {
+        const struct mesh_ui_setting_edit *edit = &action->edits[i];
+        switch ((enum mesh_ui_setting_field)edit->field) {
+        case MESH_UI_FIELD_LORA_HAM_CALL_SIGN:
+            mesh_str_copy(call_sign, sizeof call_sign, edit->text);
+            break;
+        case MESH_UI_FIELD_LORA_HAM_FREQUENCY:
+            bad = bad || !mesh_ui_settings_decimal_parse(edit->text, MESH_UI_FREQUENCY_DIGITS,
+                                                         MESH_LORA_FREQUENCY_MAX_MHZ, &frequency);
+            break;
+        case MESH_UI_FIELD_LORA_HAM_TX_POWER:
+            tx_power = (int32_t)(int8_t)(uint8_t)edit->number;
+            break;
+        default:
+            /* Everything else in this section is saved with Y, not with this row. */
+            break;
+        }
+    }
+    if (bad || frequency < 0) {
+        mesh_ui_store_set_toast(&app->ui_store, now, mesh_str(MESH_STR_TOAST_HAM_BAD_FREQUENCY));
+        return;
+    }
+    /* Refused here rather than sent: without a call sign the firmware would rename the node to
+       nothing and still take the primary channel's key off, which is the failure this mode's
+       whole warning is about. */
+    if (call_sign[0] == '\0') {
+        mesh_ui_store_set_toast(&app->ui_store, now, mesh_str(MESH_STR_TOAST_HAM_NEED_CALL_SIGN));
+        return;
+    }
+
+    const int result = mesh_session_set_ham_mode(
+        &app->session, call_sign, mesh_app_unscale_float(frequency, MESH_UI_FREQUENCY_DIGITS),
+        tx_power);
+    if (result > 0) {
+        mesh_ui_store_settings_edits_consumed(&app->ui_store, MESH_UI_SETTING_CONSUMER_HAM_MODE);
+        (void)mesh_session_refresh_settings(&app->session);
+        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_HAM_SWITCHING, call_sign);
+    } else if (result == -ENOTCONN) {
+        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_NOT_CONNECTED_KEPT));
+    } else if (result == -EBUSY) {
+        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_ALREADY_REQUESTED));
+    } else {
+        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_FAILED_KEPT, result);
+        mesh_log_warn("ui", "Ham mode write failed: %d", result);
     }
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
 }

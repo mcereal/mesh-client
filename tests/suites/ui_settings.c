@@ -974,6 +974,9 @@ MESH_TEST_CASE(ui_settings_confirm_fits, unit) {
         MESH_UI_SETTINGS_ACTION_FORGET_ALL_NODES,
         MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG,
         MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE,
+        /* Not a Radio actions row, and in the list anyway: the sheet is one component and its
+           four lines are the constraint every caller of it has, wherever the row lives. */
+        MESH_UI_SETTINGS_ACTION_SET_HAM_MODE,
     };
     for (size_t i = 0; i < sizeof actions / sizeof actions[0]; ++i) {
         char text[256];
@@ -2999,5 +3002,245 @@ MESH_TEST_CASE(node_detail_groups_are_unbroken_runs, unit) {
         MESH_TEST_FAIL_IF(items[i].kind != (uint8_t)MESH_UI_NODE_ROW_ACTION,
                           "a non-action row sits inside the run of action rows");
     }
+    record_success(test_name);
+}
+
+/*
+ * The decimal pair the coordinate rows and the frequency rows now share.
+ *
+ * Worth its own case rather than leaning on ui_settings_coords: what the generalisation made
+ * possible is a *different* number of places, and the bug it would hide is a scale that is
+ * right at seven and wrong at four. Both directions, because a row that formats one way and
+ * parses another is a value that drifts every time nobody edits it.
+ */
+MESH_TEST_CASE(ui_settings_decimals, unit) {
+    char text[32];
+    int64_t value = 0;
+
+    /* A frequency: four places held and four shown. */
+    mesh_ui_settings_decimal_text(9068750, MESH_UI_FREQUENCY_DIGITS, MESH_UI_FREQUENCY_DIGITS, text,
+                                  sizeof text);
+    MESH_TEST_FAIL_IF(strcmp(text, "906.8750") != 0, "a frequency formats wrong");
+    MESH_TEST_FAIL_IF(
+        !mesh_ui_settings_decimal_parse("906.875", MESH_UI_FREQUENCY_DIGITS, 3000, &value) ||
+            value != 9068750,
+        "a frequency typed with fewer places should still parse");
+    MESH_TEST_FAIL_IF(
+        !mesh_ui_settings_decimal_parse(text, MESH_UI_FREQUENCY_DIGITS, 3000, &value) ||
+            value != 9068750,
+        "a formatted frequency should parse back to itself");
+
+    /* No places at all, which is what the frequency-slot row parses with: a whole number, and
+       "12.5" refused rather than quietly read as 12. */
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_decimal_parse("42", 0U, 65535, &value) || value != 42,
+                      "a whole number should parse at no decimal places");
+    mesh_ui_settings_decimal_text(42, 0U, 0U, text, sizeof text);
+    MESH_TEST_FAIL_IF(strcmp(text, "42") != 0, "a whole number should format with no point");
+
+    /* Signed, which the frequency trim is and no coordinate row below zero degrees exercises
+       at one place. */
+    MESH_TEST_FAIL_IF(
+        !mesh_ui_settings_decimal_parse("-12.5", MESH_UI_HERTZ_DIGITS, 1000000, &value) ||
+            value != -125,
+        "a negative trim should parse");
+    mesh_ui_settings_decimal_text(-125, MESH_UI_HERTZ_DIGITS, MESH_UI_HERTZ_DIGITS, text,
+                                  sizeof text);
+    MESH_TEST_FAIL_IF(strcmp(text, "-12.5") != 0, "a negative trim formats wrong");
+
+    /* Shown narrower than held, which is the coordinate rows' case: rounded rather than cut,
+       so the digit that decides is the first one dropped. */
+    mesh_ui_settings_decimal_text(445999999, MESH_UI_COORD_DIGITS, 5U, text, sizeof text);
+    MESH_TEST_FAIL_IF(strcmp(text, "44.60000") != 0, "a narrowed decimal should round, not cut");
+
+    /* And the refusals, which are what keep a typo off the air. */
+    MESH_TEST_FAIL_IF(
+        mesh_ui_settings_decimal_parse("906.8 MHz", MESH_UI_FREQUENCY_DIGITS, 3000, &value) ||
+            mesh_ui_settings_decimal_parse("", MESH_UI_FREQUENCY_DIGITS, 3000, &value) ||
+            mesh_ui_settings_decimal_parse("4000", MESH_UI_FREQUENCY_DIGITS, 3000, &value),
+        "rubbish, an empty row and an out-of-range frequency should all be refused");
+    record_success(test_name);
+}
+
+/*
+ * Node numbers, in the three spellings somebody might have one in front of them in.
+ *
+ * The empty case is the one that matters most: an untouched ignore slot is not a bad value, it
+ * is an empty slot, and a parse that refused it would make the row unclearable.
+ */
+MESH_TEST_CASE(ui_settings_node_ids, unit) {
+    char text[16];
+    uint32_t id = 0U;
+
+    mesh_ui_settings_node_id_text(0x433D1B2CU, text, sizeof text);
+    MESH_TEST_FAIL_IF(strcmp(text, "!433d1b2c") != 0, "a node id formats wrong");
+    mesh_ui_settings_node_id_text(0U, text, sizeof text);
+    MESH_TEST_FAIL_IF(text[0] != '\0', "an unused slot should draw as an empty row");
+
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_node_id_parse("!433d1b2c", &id) || id != 0x433D1B2CU,
+                      "the spelling the apps use should parse");
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_node_id_parse("433D1B2C", &id) || id != 0x433D1B2CU,
+                      "eight bare hex digits should parse, upper case included");
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_node_id_parse("0x433d1b2c", &id) || id != 0x433D1B2CU,
+                      "a 0x prefix should parse");
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_node_id_parse("123456", &id) || id != 123456U,
+                      "a plain decimal should parse");
+    /*
+     * Eight digits and no letters is the ambiguous case, and it reads as decimal.
+     *
+     * Both readings are a legal node number, so the rule has to be one a person can predict:
+     * a letter means hex, all digits mean decimal, and the hex reading always has "!" or "0x"
+     * available to ask for it. Guessing hex on the *width* made eight digits mean something
+     * seven and nine did not, and a wrong guess here ignores a node nobody named.
+     */
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_node_id_parse("12345678", &id) || id != 12345678U,
+                      "eight bare digits are decimal, because nothing in them says hex");
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_node_id_parse("!12345678", &id) || id != 0x12345678U,
+                      "and the marker is how the same digits are asked for as hex");
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_node_id_parse("  ", &id) || id != 0U,
+                      "an empty row is an empty slot rather than a bad value");
+    MESH_TEST_FAIL_IF(mesh_ui_settings_node_id_parse("!", &id) ||
+                          mesh_ui_settings_node_id_parse("nope", &id) ||
+                          mesh_ui_settings_node_id_parse("99999999999", &id),
+                      "a bare marker, a word and a number too wide should all be refused");
+    record_success(test_name);
+}
+
+/*
+ * LoRa's advanced rows, its ignore slots and its ham group, as the section actually draws them.
+ *
+ * The row count is asserted because the three headings are the thing that can silently go
+ * missing - a group title is the only row here with nothing behind it to notice its absence -
+ * and because the edit-list check one file over is only meaningful against a known shape.
+ */
+MESH_TEST_CASE(ui_settings_lora_advanced, unit) {
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_lora = true;
+    settings.has_owner = true;
+    settings.region = meshtastic_Config_LoRaConfig_RegionCode_US;
+    settings.sx126x_rx_boosted_gain = true;
+    settings.channel_num = 42U;
+    settings.override_frequency_scaled = 9068750; /* 906.8750 MHz */
+    settings.frequency_offset_scaled = -125;      /* -12.5 Hz */
+    settings.ignore_incoming[0] = 0x433D1B2CU;
+    settings.tx_power = 27;
+    snprintf(settings.long_name, sizeof settings.long_name, "%s", "KD2ABC");
+
+    struct mesh_ui_settings_item item;
+    const uint32_t rows = mesh_ui_settings_item_count(&settings, NULL, MESH_UI_SETTINGS_LORA,
+                                                      MESH_UI_SETTINGS_NO_CHANNEL);
+    MESH_TEST_FAIL_IF(rows != 26U, "LoRa should draw eleven rows, three headings and twelve more");
+
+    struct {
+        uint32_t row;
+        enum mesh_ui_setting_kind kind;
+        enum mesh_ui_setting_field field;
+        const char *value;
+    } const expect[] = {
+        {11U, MESH_UI_SETTING_HEADING, MESH_UI_FIELD_NONE, NULL},
+        {12U, MESH_UI_SETTING_TOGGLE, MESH_UI_FIELD_LORA_BOOST_GAIN, "on"},
+        {14U, MESH_UI_SETTING_TEXT, MESH_UI_FIELD_LORA_CHANNEL_NUM, "42"},
+        {15U, MESH_UI_SETTING_TEXT, MESH_UI_FIELD_LORA_OVERRIDE_FREQ, "906.8750 MHz"},
+        {16U, MESH_UI_SETTING_TEXT, MESH_UI_FIELD_LORA_FREQUENCY_TRIM, "-12.5 Hz"},
+        {17U, MESH_UI_SETTING_HEADING, MESH_UI_FIELD_NONE, NULL},
+        {18U, MESH_UI_SETTING_TEXT, MESH_UI_FIELD_LORA_IGNORE_NODE_0, "!433d1b2c"},
+        {21U, MESH_UI_SETTING_HEADING, MESH_UI_FIELD_NONE, NULL},
+        {22U, MESH_UI_SETTING_TEXT, MESH_UI_FIELD_LORA_HAM_CALL_SIGN, NULL},
+        {23U, MESH_UI_SETTING_TEXT, MESH_UI_FIELD_LORA_HAM_FREQUENCY, "906.8750 MHz"},
+        {24U, MESH_UI_SETTING_NUMBER, MESH_UI_FIELD_LORA_HAM_TX_POWER, "27 dBm"},
+        {25U, MESH_UI_SETTING_ACTION, MESH_UI_FIELD_NONE, NULL},
+    };
+    for (size_t i = 0; i < sizeof expect / sizeof expect[0]; ++i) {
+        if (!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_LORA,
+                                   MESH_UI_SETTINGS_NO_CHANNEL, expect[i].row, &item) ||
+            item.kind != expect[i].kind || item.field != expect[i].field ||
+            (expect[i].value != NULL && strcmp(item.value, expect[i].value) != 0)) {
+            char reason[160];
+            snprintf(reason, sizeof reason, "LoRa row %u is not what it should be (%s)",
+                     (unsigned)expect[i].row, item.value);
+            record_failure(test_name, reason);
+            return;
+        }
+    }
+
+    /*
+     * The unit goes in the value column and never into the text the keyboard opens on: a row
+     * that offered "906.8750 MHz" back to be edited is a row you have to delete four characters
+     * from before you can type a number.
+     */
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_LORA,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, 15U, &item) ||
+                          strcmp(item.text, "906.8750") != 0,
+                      "the keyboard should open on the bare number, not on the unit");
+
+    /* An empty ignore slot draws as an empty row rather than as node 0. */
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_LORA,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, 19U, &item) ||
+                          item.field != MESH_UI_FIELD_LORA_IGNORE_NODE_1 || item.text[0] != '\0',
+                      "an unused ignore slot should be an empty row");
+
+    /*
+     * The call sign is not offered from the long name until the radio says it is licensed: on
+     * an unlicensed node the long name is a nickname, and pre-filling it would be this client
+     * putting words in an operator's mouth.
+     */
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_LORA,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, 22U, &item) ||
+                          item.text[0] != '\0',
+                      "an unlicensed node's long name is not a call sign");
+    settings.is_licensed = true;
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_LORA,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, 22U, &item) ||
+                          strcmp(item.text, "KD2ABC") != 0,
+                      "a licensed node's call sign should be offered back");
+    record_success(test_name);
+}
+
+/*
+ * Which press owns which row, and what the sheet in front of the ham row says.
+ *
+ * The consumer split is the whole reason the ham rows can live in LoRa at all: Y writes
+ * LoRaConfig and must leave them, the row below them writes them and must leave everything
+ * else. Getting it backwards is silent - the press works and the other half of the screen
+ * quietly loses its pending edits.
+ */
+MESH_TEST_CASE(ui_settings_ham_mode_is_its_own_press, unit) {
+    const enum mesh_ui_setting_field ham[] = {MESH_UI_FIELD_LORA_HAM_CALL_SIGN,
+                                              MESH_UI_FIELD_LORA_HAM_FREQUENCY,
+                                              MESH_UI_FIELD_LORA_HAM_TX_POWER};
+    for (size_t i = 0; i < sizeof ham / sizeof ham[0]; ++i) {
+        MESH_TEST_FAIL_IF(mesh_ui_settings_field_consumer(ham[i]) !=
+                              MESH_UI_SETTING_CONSUMER_HAM_MODE,
+                          "a ham row belongs to its own press, not to Y");
+    }
+    const enum mesh_ui_setting_field section[] = {
+        MESH_UI_FIELD_LORA_BOOST_GAIN, MESH_UI_FIELD_LORA_OVERRIDE_DUTY,
+        MESH_UI_FIELD_LORA_CHANNEL_NUM, MESH_UI_FIELD_LORA_OVERRIDE_FREQ,
+        MESH_UI_FIELD_LORA_IGNORE_NODE_0};
+    for (size_t i = 0; i < sizeof section / sizeof section[0]; ++i) {
+        MESH_TEST_FAIL_IF(mesh_ui_settings_field_consumer(section[i]) !=
+                              MESH_UI_SETTING_CONSUMER_SECTION,
+                          "an advanced row is part of the section's own save");
+    }
+
+    /* The sheet. Unlike the fixed-position pair this one asks first, because what it turns off
+       is the primary channel's encryption and pressing the row again does not turn it back on. */
+    MESH_TEST_FAIL_IF(
+        !mesh_ui_settings_action_needs_confirm(MESH_UI_SETTINGS_ACTION_SET_HAM_MODE) ||
+            !mesh_ui_settings_action_is_radio(MESH_UI_SETTINGS_ACTION_SET_HAM_MODE),
+        "ham mode talks to the radio, and asks before it does");
+    char title[128];
+    char body[256];
+    mesh_ui_settings_confirm_title(MESH_UI_SETTINGS_LORA, MESH_UI_SETTINGS_NO_CHANNEL,
+                                   MESH_UI_SETTINGS_ACTION_SET_HAM_MODE, title, sizeof title);
+    mesh_ui_settings_confirm_text(MESH_UI_SETTINGS_LORA, MESH_UI_SETTINGS_ACTION_SET_HAM_MODE, body,
+                                  sizeof body);
+    MESH_TEST_FAIL_IF(
+        strstr(title, "ham") == NULL || strstr(body, "encryption") == NULL ||
+            strcmp(mesh_ui_settings_confirm_accept(MESH_UI_SETTINGS_ACTION_SET_HAM_MODE),
+                   mesh_ui_settings_confirm_accept(MESH_UI_SETTINGS_ACTION_NONE)) == 0,
+        "the ham sheet should name the mode, say what it turns off, and not read "
+        "as an ordinary save");
     record_success(test_name);
 }

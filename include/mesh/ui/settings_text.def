@@ -78,3 +78,19 @@ MESH_UI_TEXT_FIELD(CANNED_2, 31)
 MESH_UI_TEXT_FIELD(CANNED_3, 31)
 MESH_UI_TEXT_FIELD(CANNED_4, 31)
 MESH_UI_TEXT_FIELD(CANNED_5, 31)
+/*
+ * LoRa's advanced rows. Numbers typed as text, because none of them has a preset list worth
+ * stepping: a frequency slot has a hundred equally likely values and a frequency more than
+ * that. Sized for the widest thing each will take rather than for the field on the wire -
+ * "-1234.5678" is ten characters, a slot is three, and a node number written "!433d1b2c" is
+ * nine.
+ */
+MESH_UI_TEXT_FIELD(LORA_CHANNEL_NUM, 3)
+MESH_UI_TEXT_FIELD(LORA_OVERRIDE_FREQ, 12)
+MESH_UI_TEXT_FIELD(LORA_FREQUENCY_TRIM, 12)
+MESH_UI_TEXT_FIELD(LORA_IGNORE_NODE_0, 10)
+MESH_UI_TEXT_FIELD(LORA_IGNORE_NODE_1, 10)
+MESH_UI_TEXT_FIELD(LORA_IGNORE_NODE_2, 10)
+/* meshtastic_HamParameters.call_sign is char[8], so seven typed and the NUL. */
+MESH_UI_TEXT_FIELD(LORA_HAM_CALL_SIGN, 7)
+MESH_UI_TEXT_FIELD(LORA_HAM_FREQUENCY, 12)

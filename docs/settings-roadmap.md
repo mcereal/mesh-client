@@ -880,20 +880,78 @@ than by appearing and disappearing.
   the reboot with the other eight bits exactly as the radio had them, and the phone app agrees
   about all ten.
 
-#### 6. LoRa's advanced group, with `set_ham_mode`
+#### 6. LoRa's advanced group, with `set_ham_mode` (this branch)
 
 `sx126x_rx_boosted_gain`, `override_duty_cycle`, `override_frequency`, `frequency_offset`,
-`channel_num` and `ignore_incoming`. These are held back from item 1 not because they are
+`channel_num` and `ignore_incoming`. These were held back from item 1 not because they are
 harder rows - `sx126x_rx_boosted_gain` is one toggle with a real sensitivity benefit - but
-because four of them are the same feature as the `set_ham_mode` verb that is not implemented
+because four of them are the same feature as the `set_ham_mode` verb that was not implemented
 either, and a client that offers an out-of-band frequency without offering the HAM mode that
-legalises it is offering half of something. "Later, maybe never" already lists `set_ham_mode`
-as wanting the confirm sheet; this is the rest of what it wants around it.
+legalises it is offering half of something. "Later, maybe never" listed `set_ham_mode` as
+wanting the confirm sheet; this is the rest of what it wanted around it.
 
 `ignore_incoming` is the odd one and worth saying out loud, because it reads like a duplicate
 and is not: it is a LoRa-level "drop everything from these three node numbers, as if they were
 out of range", where the `set_ignored_node` verb the Nodes tab already sends is a NodeDB flag.
-Two different mechanisms, and the row has to say which it is.
+Two different mechanisms, and the row says which it is.
+
+The section is thirteen rows longer: an **Advanced** group of five, an **Ignored senders** group
+of three, and a **Ham mode** group of three with the press that reads them. Twenty-six rows
+against a `MESH_UI_SETTINGS_ITEMS_MAX` of 32 and twenty-two editable against a
+`MESH_UI_SETTINGS_EDITS_MAX` of 24, both of which the tests that walk every section now hold.
+
+Five things fell out of it, and they are what is worth remembering:
+
+- **A typed decimal is a row model, and it already had two callers before this one.**
+  `mesh_ui_settings_coord_parse()` was a fixed-point decimal parser with seven places written
+  into it, and `override_frequency` wanted four while `frequency_offset` wanted one. So it is
+  now `mesh_ui_settings_decimal_parse()` / `_text()` over a scale, with the coordinate pair as
+  two-line wrappers and `MESH_UI_COORD_DIGITS`, `MESH_UI_FREQUENCY_DIGITS` and
+  `MESH_UI_HERTZ_DIGITS` naming what each row holds. Doing it that way found a bug the
+  coordinate version had been carrying: a fraction finer than the field can hold was *dropped*,
+  so a frequency-slot row would have read "12.5" as 12 and said nothing. It is refused now, and
+  the format rounds where it used to cut.
+- **TEXT rather than NUMBER for three of them, and the reason is the rule the coordinates set.**
+  A preset list is worth stepping when the values are a scale somebody has an opinion about; a
+  frequency slot has a hundred equally likely values and a frequency has more than that. The
+  alternative was a 105-entry preset table reached by ninety presses.
+- **The value column grew a unit and the edit buffer did not.** `Override frequency` in
+  megahertz sits directly above `Frequency trim` in hertz, and "906.8750" over "-12.5" says
+  nothing about which is which. `field_unit()` is a predicate beside `field_is_secret()` - it
+  changes how the row is *drawn* and nothing about what the field is - so `item->value` reads
+  "906.8750 MHz" and `item->text`, which is what the keyboard opens on and what the parser gets,
+  stays the bare number. A row that offered the unit back to be edited is a row you have to
+  delete four characters from before you can type.
+- **Ham mode is the fixed-position shape, one section over.** `set_ham_mode` is one verb over
+  three things this tab keeps apart - the owner's names, the primary channel's key and
+  LoRaConfig's own frequency and power - so Y cannot be what sends it, exactly as Y cannot send
+  a coordinate. `MESH_UI_SETTING_CONSUMER_HAM_MODE` is the whole of what that costs: the three
+  rows sit in the LoRa section, the section's save steps over them, and the row below them
+  reads them. It is an **action** rather than a write for the backup trio's reason - there is no
+  one section a read-back could ask for - so it is followed by a refresh.
+  There is no row for a short name: the firmware wants one, the owner record already has one,
+  and the User section is where a name is changed.
+- **The owner read has to be queued *after* the verb, and enqueue() would not do it.** Every
+  path into the admin queue puts a `get_owner` in front for the passkey, and the queue
+  deduplicates by (kind, type) - so a read-back asked for afterwards is folded into the one
+  already sitting ahead of the write, and the only owner reply describes the node as it was
+  *before* the switch. Which is exactly the half this verb changes: the long name becomes the
+  call sign and the licensed flag goes on. `mesh_radio_settings_append()` is that one case -
+  a read-back is not a repeat of an earlier read, it is an observation of something that has
+  since happened. `queue_write()` deliberately keeps the old behaviour, because a test pins
+  that `set_owner`'s passkey refresh *is* its read-back.
+
+- **There is no verb for leaving, and none is invented.** The firmware offers none. The way out
+  is the two rows that made it - User's `Licensed operator` off and `Override frequency` back to
+  0 - and the note on the action row says so rather than this client offering a press it would
+  have to fake. It is the one row in the section behind the confirm sheet, because what it turns
+  off is the primary channel's encryption and pressing the row again does not turn it back on.
+
+- Exit criteria: on the Brick, an override frequency typed into the advanced group reads back
+  after the reboot and shows in the phone app; a node number typed into the first ignore slot
+  and then cleared leaves the other two slots where they were; and a call sign and frequency
+  answered through the ham sheet rename the node, move it to that frequency and leave the
+  primary channel unencrypted, with the phone app agreeing about all three.
 
 #### 7. What is configured here and cannot be seen here
 
@@ -970,11 +1028,10 @@ interlude for why the set is not), `delete_file_request`, `set_scale`,
 that belongs to `CannedMessageConfig`, so it goes wherever phase 13 goes), `sensor_config` and
 `lockdown_auth`.
 
-Two that are features rather than leftovers, and are worth their own work when their turn
-comes: `set_ham_mode` (a call sign, a frequency and a transmit power for a licensed operator,
-which also turns encryption off and so wants the confirm sheet), and `begin_edit_settings` /
-`commit_edit_settings` (which only matter once something offers to save more than one section at
-a time). `add_contact` and `key_verification` were on this list too and have been done; see
+One that is a feature rather than a leftover, and is worth its own work when its turn comes:
+`begin_edit_settings` / `commit_edit_settings` (which only matter once something offers to save
+more than one section at a time). `set_ham_mode` was on this list too and has been done; it is
+item 6 of the audit above, with the confirm sheet this entry predicted it would want. `add_contact` and `key_verification` were on this list too and have been done; see
 **Key trust** below.
 
 ### Key trust - the two verbs that were one feature

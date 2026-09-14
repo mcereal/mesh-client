@@ -1,0 +1,54 @@
+# LoRa's advanced rows, its ignore slots and the ham-mode press.
+#
+# Settings > LoRa, below the eleven rows the section has had since phase 4. Three groups under
+# three headings, and the scene is about what each of them is *for*: the advanced rows change
+# what the radio does with the band rather than which band it is on, the ignore slots are three
+# spellings of one repeated field, and the ham row is the only press in the section that asks
+# before it acts.
+#
+# Three of the new rows are numbers typed as text rather than stepped, which is what the scene
+# shows by opening the keyboard on one: a frequency slot has a hundred equally likely values and
+# a frequency has more than that, so a preset list would be either wrong or a hundred presses
+# long.
+
+scene demo
+scale 4
+delay 300
+
+config
+tab settings
+
+# Down to LoRa and open it, so the section's own rows are on screen before the groups start.
+key down 8
+key a
+hold 900
+
+# Into the advanced group. The heading is a row the cursor steps over, and the two toggles
+# under it wear the switch every other boolean in the client wears.
+key down 11
+hold 1200
+
+# The frequency slot and the frequency typed over it, which is the pair that has to be read
+# together: the second only matters while it is not zero.
+key down 2
+hold 900
+key a
+hold 1200
+
+# Back out of the keyboard rather than typing: what the scene is showing is that the row has a
+# keyboard behind it at all.
+key b
+hold 600
+
+# The ignore slots. One is used and two are empty, which is the Channels shape - an empty row is
+# where the next one goes.
+key down 4
+hold 1400
+
+# And the ham row, which is the one press here that puts a sheet in front of itself.
+key down 4
+hold 900
+key a
+hold 1800
+key b
+hold 600
