@@ -335,15 +335,16 @@ enum mesh_ui_node_press mesh_ui_node_detail_press_at(const struct mesh_ui_node_s
  * the only thing forward means - so it does not need one.
  *
  * Answers `row` itself when there is no group that way, which leaves refusing the move to the
- * caller, exactly as mesh_ui_nav_skip_headings() does one file over. The landing is a group's
- * first *stop* (see mesh_ui_node_detail_step()) - its first press, or its top for a card of
+ * caller, exactly as mesh_ui_nav_skip_headings() does one file over. `rows` is the window, as for
+ * mesh_ui_node_detail_step(), because a tall group's first stop can be a page. The landing is a
+ * group's first *stop* (see mesh_ui_node_detail_step()) - its first press, or its top for a card of
  * facts - and never a heading.
  */
 uint32_t mesh_ui_node_detail_group_step(const struct mesh_ui_node_summary *node, bool is_self,
                                         const struct mesh_ui_traceroute *trace,
                                         const struct mesh_ui_handshake_state *roster,
-                                        const struct mesh_ui_history *history, uint32_t row,
-                                        int delta);
+                                        const struct mesh_ui_history *history, uint32_t rows,
+                                        uint32_t row, int delta);
 
 /*
  * The row Up or Down lands on from `row`: the next *stop* that way, or `row` when there is none.
@@ -358,8 +359,10 @@ uint32_t mesh_ui_node_detail_group_step(const struct mesh_ui_node_summary *node,
  *     into pages that fit, one stop each, so no row of it can end up below the panel with no
  *     press that scrolls to it. `rows` of 0 is a caller with no window, and pages nothing.
  *
- * The fact rows of a group that does hold a press are not stops; the window keeps that group in
- * view around the cursor instead (mesh_ui_node_detail_span()).
+ * The fact rows of a group that does hold a press are not stops while the group fits the window:
+ * the window keeps it in view around the cursor instead (mesh_ui_node_detail_span()). Once it is
+ * taller, each run of facts between its presses is paged the way a card of facts is, or the facts
+ * after a reading near its top would be below the panel with nothing to press to reach them.
  *
  * `history` decides which readings are presses and `rows` where a card is cut, so both have to
  * be what the renderer is drawing with - see `page_rows` on struct mesh_ui_store. NULL history is

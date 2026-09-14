@@ -1552,7 +1552,8 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
             const uint32_t next =
                 key == MESH_UI_KEY_LEFT || key == MESH_UI_KEY_RIGHT
                     ? mesh_ui_node_detail_group_step(node, is_self, &store->traceroute,
-                                                     &store->handshake, &store->history, row, delta)
+                                                     &store->handshake, &store->history,
+                                                     store->page_rows, row, delta)
                     : mesh_ui_node_detail_step(node, is_self, &store->traceroute, &store->handshake,
                                                &store->history, store->page_rows, row, delta);
             if (next == row) {

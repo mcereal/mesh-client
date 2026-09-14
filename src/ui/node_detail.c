@@ -1279,16 +1279,16 @@ static struct node_group group_of(const struct mesh_ui_node_item *items, uint32_
 }
 
 /*
- * The page of a fact card `row` is on: its first row, and its last in `*last`.
+ * The page of facts `row` is on, in the run [top, end): its first row, and its last in `*last`.
  *
- * A card that fits the window with its heading is one page. One that does not is cut into as few
- * pages as fit, evened out rather than filled greedily - so a card a row too tall becomes two
+ * A run that fits the window with a heading is one page. One that does not is cut into as few
+ * pages as fit, evened out rather than filled greedily - so a run a row too tall becomes two
  * halves, not a full page and a page holding one row. `rows` of 0 is no window: one page.
  */
-static uint32_t page_of(const struct mesh_ui_node_item *items, const struct node_group *group,
+static uint32_t page_of(const struct mesh_ui_node_item *items, uint32_t top, uint32_t end,
                         uint32_t rows, uint32_t row, uint32_t *last) {
     uint32_t total = 0U;
-    for (uint32_t r = group->top; r < group->end; ++r) {
+    for (uint32_t r = top; r < end; ++r) {
         total += mesh_ui_node_item_steps(&items[r]);
     }
     /* The heading is a step the first page spends, and a reading takes two - so a window under
@@ -1296,9 +1296,9 @@ static uint32_t page_of(const struct mesh_ui_node_item *items, const struct node
     const uint32_t budget = rows > 2U ? rows - 1U : 0U;
     const uint32_t pages = budget > 0U && total > budget ? (total + budget - 1U) / budget : 1U;
     const uint32_t target = pages > 1U ? (total + pages - 1U) / pages : total;
-    uint32_t start = group->top;
+    uint32_t start = top;
     uint32_t steps = 0U;
-    for (uint32_t r = group->top; r < group->end; ++r) {
+    for (uint32_t r = top; r < end; ++r) {
         const uint32_t h = mesh_ui_node_item_steps(&items[r]);
         if (steps > 0U && steps + h > target) {
             if (row < r) {
@@ -1310,8 +1310,48 @@ static uint32_t page_of(const struct mesh_ui_node_item *items, const struct node
         }
         steps += h;
     }
-    *last = group->end > group->top ? group->end - 1U : group->top;
+    *last = end > top ? end - 1U : top;
     return start;
+}
+
+/* Whether the whole group, heading included, fits the window - or there is no window to fit. */
+static bool group_fits(const struct mesh_ui_node_item *items, const struct node_group *group,
+                       uint32_t rows) {
+    if (rows == 0U) {
+        return true;
+    }
+    uint32_t steps = group->has_heading ? 1U : 0U;
+    for (uint32_t r = group->top; r < group->end; ++r) {
+        steps += mesh_ui_node_item_steps(&items[r]);
+    }
+    return steps <= rows;
+}
+
+/*
+ * The rows of facts `row` is paged within: the whole group for a card of facts, and for a group
+ * holding a press, the unbroken run of facts around `row` - which is paged only when the group
+ * is taller than the window, because a group that fits is in view from any of its presses.
+ * False for a fact row of a group that fits, which is no page at all.
+ */
+static bool fact_run(const struct mesh_ui_node_item *items, const struct node_group *group,
+                     uint32_t rows, uint32_t row, uint32_t *top, uint32_t *end) {
+    if (!group->presses) {
+        *top = group->top;
+        *end = group->end;
+        return true;
+    }
+    if (group_fits(items, group, rows)) {
+        return false;
+    }
+    *top = row;
+    while (*top > group->top && !item_is_press(&items[*top - 1U])) {
+        *top -= 1U;
+    }
+    *end = row + 1U;
+    while (*end < group->end && !item_is_press(&items[*end])) {
+        *end += 1U;
+    }
+    return true;
 }
 
 static bool row_is_stop(const struct mesh_ui_node_item *items, uint32_t count, uint32_t rows,
@@ -1323,19 +1363,20 @@ static bool row_is_stop(const struct mesh_ui_node_item *items, uint32_t count, u
         return true;
     }
     const struct node_group group = group_of(items, count, row);
-    if (group.presses) {
+    uint32_t top;
+    uint32_t end;
+    if (!fact_run(items, &group, rows, row, &top, &end)) {
         return false;
     }
     uint32_t last;
-    return page_of(items, &group, rows, row, &last) == row;
+    return page_of(items, top, end, rows, row, &last) == row;
 }
 
 /* A group's first stop, or `count` for a group with no rows. */
 static uint32_t group_first_stop(const struct mesh_ui_node_item *items, uint32_t count,
-                                 const struct node_group *group) {
-    /* A group's first stop is its first press or its top, whatever the pages - so no window. */
+                                 uint32_t rows, const struct node_group *group) {
     for (uint32_t r = group->top; r < group->end; ++r) {
-        if (row_is_stop(items, count, 0U, r)) {
+        if (row_is_stop(items, count, rows, r)) {
             return r;
         }
     }
@@ -1375,8 +1416,8 @@ uint32_t mesh_ui_node_detail_step(const struct mesh_ui_node_summary *node, bool 
 uint32_t mesh_ui_node_detail_group_step(const struct mesh_ui_node_summary *node, bool is_self,
                                         const struct mesh_ui_traceroute *trace,
                                         const struct mesh_ui_handshake_state *roster,
-                                        const struct mesh_ui_history *history, uint32_t row,
-                                        int delta) {
+                                        const struct mesh_ui_history *history, uint32_t rows,
+                                        uint32_t row, int delta) {
     if (node == NULL || delta == 0) {
         return row;
     }
@@ -1391,7 +1432,7 @@ uint32_t mesh_ui_node_detail_group_step(const struct mesh_ui_node_summary *node,
         /* The next group with somewhere to stand; a heading with no rows under it is skipped. */
         while (group.end < count) {
             group = group_of(items, count, group.end);
-            const uint32_t stop = group_first_stop(items, count, &group);
+            const uint32_t stop = group_first_stop(items, count, rows, &group);
             if (stop < count) {
                 return stop;
             }
@@ -1400,13 +1441,13 @@ uint32_t mesh_ui_node_detail_group_step(const struct mesh_ui_node_summary *node,
     }
     /* Not yet at the top of this group, so that is where Left goes - the halfway house the
        header describes, and the reason Right needs none. */
-    const uint32_t own = group_first_stop(items, count, &group);
+    const uint32_t own = group_first_stop(items, count, rows, &group);
     if (own < row) {
         return own;
     }
     while (group.has_heading && group.heading > 0U) {
         group = group_of(items, count, group.heading - 1U);
-        const uint32_t stop = group_first_stop(items, count, &group);
+        const uint32_t stop = group_first_stop(items, count, rows, &group);
         if (stop < count) {
             return stop;
         }
@@ -1425,16 +1466,18 @@ bool mesh_ui_node_detail_span(const struct mesh_ui_node_item *items, uint32_t co
         *out = (struct mesh_ui_node_span){.first = row, .last = row, .card = false};
         return true;
     }
-    if (group.presses) {
-        /* A row of a group holding a press: the whole group in view around it. A fact row here
-           is only ever under the cursor when the group changed beneath it, and it is the card
-           that is focused then, not a row A would do nothing on. */
-        *out = (struct mesh_ui_node_span){
-            .first = first, .last = group.end - 1U, .card = !item_is_press(&items[row])};
+    const bool press = item_is_press(&items[row]);
+    uint32_t top;
+    uint32_t end;
+    if (press || !fact_run(items, &group, rows, row, &top, &end)) {
+        /* A press, or a fact of a group that fits: the whole group in view around it. A fact row
+           of such a group is only under the cursor when the group changed beneath it, and it is
+           the card that is focused then, not a row A would do nothing on. */
+        *out = (struct mesh_ui_node_span){.first = first, .last = group.end - 1U, .card = !press};
         return true;
     }
     uint32_t last;
-    const uint32_t page = page_of(items, &group, rows, row, &last);
+    const uint32_t page = page_of(items, top, end, rows, row, &last);
     *out = (struct mesh_ui_node_span){
         .first = page == group.top ? first : page, .last = last, .card = true};
     return true;

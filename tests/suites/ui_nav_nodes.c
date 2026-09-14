@@ -477,6 +477,16 @@ MESH_TEST_CASE(ui_nav_node_detail_walks_its_stops, unit) {
     node->environment.temperature = 21.0f;
     node->environment.has_pressure = true;
     node->environment.barometric_pressure = 1013.0f;
+    /* And enough facts after it that the card outgrows a small window, where the facts under
+       the reading need stops of their own. */
+    node->environment.has_iaq = true;
+    node->environment.iaq = 42U;
+    node->environment.has_lux = true;
+    node->environment.lux = 300.0f;
+    node->environment.has_voltage = true;
+    node->environment.voltage = 5.0f;
+    node->environment.has_current = true;
+    node->environment.current = 120.0f;
     node->metrics.valid = true;
     node->metrics.has_voltage = true;
     node->metrics.voltage = 4.1f;
@@ -492,6 +502,10 @@ MESH_TEST_CASE(ui_nav_node_detail_walks_its_stops, unit) {
         mesh_ui_node_detail_build(held, false, 0U, &store.traceroute, false, &store.handshake,
                                   &store.history, items, MESH_UI_NODE_ITEMS_MAX);
     MESH_TEST_FAIL_IF(count == 0U, "the node should produce rows");
+    uint8_t heights[MESH_UI_NODE_ITEMS_MAX];
+    for (uint32_t i = 0U; i < count; ++i) {
+        heights[i] = mesh_ui_node_item_steps(&items[i]);
+    }
 
     /* A window the identity does not fit - scale 6 on the Brick is eight rows - and one every
        card fits, where a page would be a press that changes nothing on the panel. */
@@ -551,7 +565,11 @@ MESH_TEST_CASE(ui_nav_node_detail_walks_its_stops, unit) {
                 MESH_TEST_FAIL_IF(steps > rows, "a page should fit the window, heading and all");
                 paged = paged || items[span.first].kind != MESH_UI_NODE_ROW_HEADING;
             }
-            for (uint32_t r = span.first; r <= span.last; ++r) {
+            /* What the window really shows from this stop, measured the way the renderer opens
+               it - a span taller than the window is not all on screen. */
+            const struct mesh_ui_list window =
+                mesh_ui_list_begin_span(count, at, span.first, span.last, rows, heights);
+            for (uint32_t r = window.first; r < window.first + window.visible; ++r) {
                 covered[r] = true;
             }
             if (!mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_DOWN, &action)) {
@@ -565,7 +583,7 @@ MESH_TEST_CASE(ui_nav_node_detail_walks_its_stops, unit) {
                           "the identity should take pages only when the window cannot hold it");
         MESH_TEST_FAIL_IF(!mixed, "the environment card should hold a press among its facts");
         for (uint32_t r = 0U; r < count; ++r) {
-            MESH_TEST_FAIL_IF(!covered[r], "every row should be in view from some stop");
+            MESH_TEST_FAIL_IF(!covered[r], "every row should be on screen from some stop");
             MESH_TEST_FAIL_IF(mesh_ui_node_detail_press_at(held, false, &store.traceroute,
                                                            &store.handshake, &store.history,
                                                            r) != MESH_UI_NODE_PRESS_NONE &&
