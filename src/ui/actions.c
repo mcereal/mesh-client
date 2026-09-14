@@ -450,6 +450,27 @@ static void actions_settings(const struct mesh_ui_nav *nav, const struct mesh_ui
      */
     const enum mesh_ui_settings_section section =
         (enum mesh_ui_settings_section)nav->settings_section;
+    /*
+     * A section this firmware was built without: no rows, and no press that can make any.
+     *
+     * The screen behind it says so in a sentence, and the bar has to agree - X is the answer to
+     * a section that has *not arrived yet*, and offering it here invites the one refresh that
+     * cannot work. The same goes for the edit keys on a section that has fields in the table: a
+     * build with no Bluetooth has a Bluetooth field table and no Bluetooth to point it at.
+     *
+     * Only for EXCLUDED, deliberately. A section still waiting keeps its bar, because X is
+     * exactly the press for it and the rows it names are a reply away - a bar that changed
+     * shape as a fetch landed would be chrome moving under a reader for no decision they made.
+     */
+    if (snapshot != NULL &&
+        mesh_ui_settings_section_availability(
+            &snapshot->settings, snapshot->handshake_valid ? &snapshot->handshake : NULL,
+            section) == MESH_UI_SETTINGS_SECTION_EXCLUDED) {
+        bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
+        bar_add_help(snapshot, bar);
+        bar_add_tabs(bar);
+        return;
+    }
     if (!mesh_ui_settings_section_has_fields(section)) {
         if (snapshot != NULL &&
             mesh_ui_settings_section_has_verbs(

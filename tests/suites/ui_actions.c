@@ -240,6 +240,53 @@ MESH_TEST_CASE(actions_arm_before_they_destroy, unit) {
 }
 
 /*
+ * A settings section with no rows, and the two different reasons it can have none.
+ *
+ * The bar is derived from the section rather than listed per section id, which is what lets it
+ * disagree with the screen in exactly one case: a firmware built without a module has a field
+ * table for it and no data, so the static half of the derivation still offered Left/Right over
+ * a screen reading "This radio's firmware was built without it", and X over a refresh that
+ * could never land. A section merely waiting keeps both, because both are about to mean
+ * something.
+ */
+MESH_TEST_CASE(actions_excluded_section_offers_only_the_way_out, unit) {
+    struct mesh_ui_snapshot snapshot;
+    struct mesh_ui_action_bar bar;
+
+    actions_snapshot(&snapshot);
+    snapshot.nav.screen = MESH_UI_SCREEN_SETTINGS;
+    snapshot.nav.settings_section = MESH_UI_SETTINGS_BLUETOOTH;
+    snapshot.settings.loaded = true;
+
+    /* Waiting: the radio has not sent it, and X is the press that asks again. */
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_X) != MESH_STR_ACTION_REFRESH ||
+                          actions_label_for(&bar, MESH_UI_BUTTON_LEFT_RIGHT) !=
+                              MESH_STR_ACTION_EDIT,
+                      "a section that has not arrived yet keeps the presses that fill it");
+
+    /* Excluded: neither press can produce a row, so neither is named. */
+    snapshot.settings.has_metadata = true;
+    snapshot.settings.excluded_modules =
+        mesh_ui_settings_section_excluded_bit(MESH_UI_SETTINGS_BLUETOOTH);
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_X) != MESH_STR_NONE ||
+                          actions_label_for(&bar, MESH_UI_BUTTON_LEFT_RIGHT) != MESH_STR_NONE ||
+                          actions_label_for(&bar, MESH_UI_BUTTON_A) != MESH_STR_NONE,
+                      "an excluded section should advertise no press that needs rows");
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_B) != MESH_STR_ACTION_BACK,
+                      "the way out is the one press that still works");
+
+    /* And a radio that sends the section anyway has its bar back: the mask is not the last
+       word, the rows are. */
+    snapshot.settings.has_bluetooth = true;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_LEFT_RIGHT) != MESH_STR_ACTION_EDIT,
+                      "a section the radio sent is editable whatever the mask says");
+    record_success(test_name);
+}
+
+/*
  * The back affordance, which the top app bar's leading slot draws.
  *
  * It is read off the bar rather than decided by a screen renderer, so that the arrow at the top
