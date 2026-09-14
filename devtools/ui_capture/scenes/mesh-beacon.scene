@@ -1,0 +1,57 @@
+# Mesh beacon: the last ModuleConfig section, and the two shapes it needed.
+#
+# Filmed because both of them are about what a row *says* rather than what it does. The three
+# flags are one word on the wire, so they are checkboxes: the question is which of these the
+# beacon does, not whether each of three settings is on. And the four targets are one record
+# repeated, so absent has to be a value a row can show - which is why every empty row in the
+# section reads the same way rather than one of them saying "Unset" because that is what the
+# region enum happens to call zero.
+#
+# The empty targets are the point of the last half. They are listed whether or not the radio
+# sent one, exactly as an empty channel slot is, because an empty slot is how a target is added.
+
+scene demo
+scale 4
+delay 200
+config
+
+tab settings
+hold 400
+# Down to Modules, into it, and down to Mesh beacon.
+key down 13
+hold 500
+key a
+hold 700
+key down 12
+hold 500
+key a
+hold 1400
+
+# The three flags, which the fb backend draws as a set rather than as three switches.
+key down 2
+hold 1000
+
+# Broadcast. The interval's presets start at the firmware's own floor of an hour and the slider
+# is drawn over them, so one press right is a step on a scale rather than a number typed.
+key down 1
+hold 900
+key right
+hold 1200
+
+# The invitation the beacon carries: a name and a key, which is a whole ChannelSettings on the
+# wire and so the same two rows the Channels section draws.
+key down 2
+hold 900
+key down 1
+hold 1200
+
+# Target 1, which names a preset and a channel of its own.
+key down 3
+hold 1000
+key down 2
+hold 1000
+
+# And Target 2, which holds nothing. Three rows all reading the same way is what says the slot
+# is empty rather than half filled in.
+key down 1
+hold 1600

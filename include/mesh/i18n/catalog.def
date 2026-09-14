@@ -954,6 +954,7 @@ MESH_STR_ENTRY(SETTINGS_SECTION_TRAFFIC,                  "Traffic management")
 MESH_STR_ENTRY(SETTINGS_SECTION_RADIO_UI,                 "Radio UI")
 MESH_STR_ENTRY(SETTINGS_SECTION_CANNED,                   "Canned messages")
 MESH_STR_ENTRY(SETTINGS_SECTION_NETWORK,                  "Network")
+MESH_STR_ENTRY(SETTINGS_SECTION_BEACON,                   "Mesh beacon")
 
 /* ---- the help screen -------------------------------------------------------------------------- */
 
@@ -1009,6 +1010,16 @@ MESH_STR_ENTRY(SETTINGS_NOTE_TRAFFIC,                     "Limits how much other
 MESH_STR_ENTRY(SETTINGS_NOTE_RADIO_UI,                    "The graphical interface drawn on the radio's own screen. Not the same as Display: that section is the panel itself, this is what gets drawn on it.")
 MESH_STR_ENTRY(SETTINGS_NOTE_CANNED,                      "Short replies stored on the radio for its own buttons. Six slots of 32 characters, because the wire carries the whole list as a single 200-byte string.")
 MESH_STR_ENTRY(SETTINGS_NOTE_NETWORK,                     "The radio's own WiFi or Ethernet, which is how it reaches an MQTT broker or an NTP server. Shown and not editable from here; About radio says what the interface is actually doing.")
+MESH_STR_ENTRY(SETTINGS_NOTE_BEACON_LISTEN,               "Take in beacons other nodes send. Their text arrives in the message list and the channel they offer is kept for this client to act on.")
+MESH_STR_ENTRY(SETTINGS_NOTE_BEACON_BROADCAST,            "Send a beacon on the timer below. Off leaves the rows under it set but silent, which is how a beacon is prepared before it is switched on.")
+MESH_STR_ENTRY(SETTINGS_NOTE_BEACON_LEGACY_SPLIT,         "Send the text as an ordinary message alongside the beacon, so firmware that does not know about beacons still shows it. Two packets rather than one.")
+MESH_STR_ENTRY(SETTINGS_NOTE_BEACON_INTERVAL,             "How long between beacons. An hour is the firmware's own floor and this list starts there: a beacon carries an invitation other nodes act on, so a fast one costs everybody airtime.")
+MESH_STR_ENTRY(SETTINGS_NOTE_BEACON_MESSAGE,              "What the beacon says. Up to 100 characters, and the one row here a stranger reads as words rather than as settings.")
+MESH_STR_ENTRY(SETTINGS_NOTE_BEACON_OFFER_NAME,           "The name of the channel the beacon offers. Leave it empty to offer no channel and send only the message.")
+MESH_STR_ENTRY(SETTINGS_NOTE_BEACON_OFFER_KEY,            "The key that goes with the offered channel. Anyone who receives the beacon can join with it, so this is not the key of a channel you want kept private.")
+MESH_STR_ENTRY(SETTINGS_NOTE_BEACON_OFFER_REGION,         "The region the offered channel is on, for a stranger whose radio is set to another one. Not offered leaves it out of the invitation.")
+MESH_STR_ENTRY(SETTINGS_NOTE_BEACON_OFFER_PRESET,         "The modem preset the offered channel is on. Not offered leaves it out, and a node that joins uses whatever it is already running.")
+MESH_STR_ENTRY(SETTINGS_NOTE_BEACON,                      "Tells strangers this mesh is here: a message on a timer, with a channel they may join. A target is the preset, region and channel one copy goes out on; one reading as configured throughout is unused.")
 
 /*
  * Field notes: the rows where knowing the name does not tell you what happens if you get it
@@ -1562,6 +1573,20 @@ MESH_STR_ENTRY(SETTINGS_FIELD_CANNED_2,                   "Message 3")
 MESH_STR_ENTRY(SETTINGS_FIELD_CANNED_3,                   "Message 4")
 MESH_STR_ENTRY(SETTINGS_FIELD_CANNED_4,                   "Message 5")
 MESH_STR_ENTRY(SETTINGS_FIELD_CANNED_5,                   "Message 6")
+/* Mesh beacon. The three target rows are shared by all four targets - the heading above each
+   group says which one is being edited, so the labels do not repeat the number. */
+MESH_STR_ENTRY(SETTINGS_FIELD_BEACON_LISTEN,              "Listen for beacons")
+MESH_STR_ENTRY(SETTINGS_FIELD_BEACON_BROADCAST,           "Send beacons")
+MESH_STR_ENTRY(SETTINGS_FIELD_BEACON_LEGACY_SPLIT,        "Split for old nodes")
+MESH_STR_ENTRY(SETTINGS_FIELD_BEACON_INTERVAL,            "Send every")
+MESH_STR_ENTRY(SETTINGS_FIELD_BEACON_MESSAGE,             "Message")
+MESH_STR_ENTRY(SETTINGS_FIELD_BEACON_OFFER_NAME,          "Channel name")
+MESH_STR_ENTRY(SETTINGS_FIELD_BEACON_OFFER_KEY,           "Channel key")
+MESH_STR_ENTRY(SETTINGS_FIELD_BEACON_OFFER_REGION,        "Region")
+MESH_STR_ENTRY(SETTINGS_FIELD_BEACON_OFFER_PRESET,        "Preset")
+MESH_STR_ENTRY(SETTINGS_FIELD_BEACON_TARGET_PRESET,       "Preset")
+MESH_STR_ENTRY(SETTINGS_FIELD_BEACON_TARGET_REGION,       "Region")
+MESH_STR_ENTRY(SETTINGS_FIELD_BEACON_TARGET_CHANNEL,      "Channel")
 
 /* ---- settings: what a value is called --------------------------------------------------------- */
 
@@ -1646,6 +1671,11 @@ MESH_STR_ENTRY(ENUM_ROLE_REPEATER,        "Repeater (retired)")
 MESH_STR_ENTRY(ENUM_SIGNATURE_COMPATIBLE, "Compatible")
 MESH_STR_ENTRY(ENUM_SIGNATURE_BALANCED,   "Balanced")
 MESH_STR_ENTRY(ENUM_SIGNATURE_STRICT,     "Strict")
+/* Mesh beacon's two ways of saying a value is absent, which are not the same thing: an offer
+   that names no preset is not offering one, while a target that names none goes out on whatever
+   the radio is already running. */
+MESH_STR_ENTRY(ENUM_BEACON_NOT_OFFERED,   "not offered")
+MESH_STR_ENTRY(ENUM_BEACON_AS_RUNNING,    "as configured")
 /* ATAK team colours and roles, from atak.proto. A translator should use whatever ATAK itself
    calls these in the target language rather than translating the English, so that a team set
    on the Brick matches what the TAK client shows. */
@@ -1882,6 +1912,11 @@ MESH_STR_ENTRY(HEAD_NODES_CACHED,         "Nodes cached here")
 MESH_STR_ENTRY(HEAD_FACTORY_RESET,        "Factory reset")
 MESH_STR_ENTRY(HEAD_BACKUP,               "Configuration backup")
 MESH_STR_ENTRY(HEAD_RINGTONE,             "Ringtone")
+/* Mesh beacon. The target heading is numbered, because four groups of identical rows are only
+   tellable apart by the title above them. */
+MESH_STR_ENTRY(HEAD_BEACON_BROADCAST,     "Broadcast")
+MESH_STR_ENTRY(HEAD_BEACON_OFFER,         "Channel offered")
+MESH_STR_ENTRY(HEAD_BEACON_TARGET,        "Target %u")
 MESH_STR_ENTRY(HEAD_LOCKS,                "Set on the radio")
 MESH_STR_ENTRY(HEAD_CONN_WIFI,            "WiFi")
 MESH_STR_ENTRY(HEAD_CONN_ETHERNET,        "Ethernet")

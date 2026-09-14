@@ -97,6 +97,20 @@ enum mesh_ui_settings_section {
      * mesh_ui_settings_root_at()'s business.
      */
     MESH_UI_SETTINGS_NETWORK,
+    /*
+     * MeshBeaconConfig: the seventeenth ModuleConfig variant and the last one with rows.
+     *
+     * The module the roadmap held back from phase 11 because it needed row models this client
+     * did not have. Two of the three arrived before it and for other callers - the FLAG kind
+     * (PositionConfig.position_flags) and the measured edit buffer - so what is left here is a
+     * section with one repeated submessage in it, and that is the shape the four Target groups
+     * are.
+     *
+     * Declared last for the reason every section since phase 9 has been: the enum's order is
+     * what the persisted cursor and the tests are written against, and the list's order is
+     * mesh_ui_settings_module_at()'s business.
+     */
+    MESH_UI_SETTINGS_BEACON,
     MESH_UI_SETTINGS_SECTION_COUNT,
 };
 
@@ -456,6 +470,41 @@ enum mesh_ui_setting_field {
     MESH_UI_FIELD_CANNED_3,
     MESH_UI_FIELD_CANNED_4,
     MESH_UI_FIELD_CANNED_5,
+    /*
+     * Mesh beacon. The three flags are one word, the way Position's ten are; the offered
+     * channel is a ChannelSettings embedded in the module, so its two rows are a name and a
+     * key exactly as the Channels section's are.
+     */
+    MESH_UI_FIELD_BEACON_LISTEN,
+    MESH_UI_FIELD_BEACON_BROADCAST,
+    MESH_UI_FIELD_BEACON_LEGACY_SPLIT,
+    MESH_UI_FIELD_BEACON_INTERVAL,
+    MESH_UI_FIELD_BEACON_MESSAGE,
+    MESH_UI_FIELD_BEACON_OFFER_NAME,
+    MESH_UI_FIELD_BEACON_OFFER_KEY,
+    MESH_UI_FIELD_BEACON_OFFER_REGION,
+    MESH_UI_FIELD_BEACON_OFFER_PRESET,
+    /*
+     * The four broadcast targets, three rows each and in that order: the run is walked as
+     * MESH_UI_FIELD_GROUP_BEACON_TARGETS, so the row builder emits four copies of one shape and
+     * the write builder divides by three rather than either of them naming twelve fields.
+     *
+     * Contiguous is load-bearing here in a way it is not for the canned slots: the arithmetic
+     * both ends do is (field - first) / 3 and % 3, and a field inserted in the middle would
+     * move every target after it silently. The test that walks the group holds that.
+     */
+    MESH_UI_FIELD_BEACON_TARGET_0_PRESET,
+    MESH_UI_FIELD_BEACON_TARGET_0_REGION,
+    MESH_UI_FIELD_BEACON_TARGET_0_CHANNEL,
+    MESH_UI_FIELD_BEACON_TARGET_1_PRESET,
+    MESH_UI_FIELD_BEACON_TARGET_1_REGION,
+    MESH_UI_FIELD_BEACON_TARGET_1_CHANNEL,
+    MESH_UI_FIELD_BEACON_TARGET_2_PRESET,
+    MESH_UI_FIELD_BEACON_TARGET_2_REGION,
+    MESH_UI_FIELD_BEACON_TARGET_2_CHANNEL,
+    MESH_UI_FIELD_BEACON_TARGET_3_PRESET,
+    MESH_UI_FIELD_BEACON_TARGET_3_REGION,
+    MESH_UI_FIELD_BEACON_TARGET_3_CHANNEL,
     MESH_UI_FIELD_COUNT,
 };
 
@@ -773,8 +822,22 @@ uint32_t mesh_ui_settings_field_bit(enum mesh_ui_setting_field field);
 enum mesh_ui_setting_field_group {
     /* PositionConfig.position_flags: what a position packet carries. */
     MESH_UI_FIELD_GROUP_POSITION_FLAGS = 0,
+    /* MeshBeaconConfig.flags: listen, broadcast, and the legacy split. */
+    MESH_UI_FIELD_GROUP_BEACON_FLAGS,
+    /*
+     * MeshBeaconConfig.broadcast_targets, which is not a run of flags at all.
+     *
+     * A group is "a contiguous run of fields that repeat one shape", and a set of bits in one
+     * word was only the first thing that answered to it. The four targets are twelve fields in
+     * four copies of preset/region/channel, and walking them through the same two accessors is
+     * what keeps the row builder and the write builder from each writing the run out.
+     */
+    MESH_UI_FIELD_GROUP_BEACON_TARGETS,
     MESH_UI_FIELD_GROUP_COUNT,
 };
+
+/* How many rows one MESH_UI_FIELD_GROUP_BEACON_TARGETS record is: preset, region, channel. */
+#define MESH_UI_BEACON_TARGET_FIELDS 3U
 uint32_t mesh_ui_settings_group_count(enum mesh_ui_setting_field_group group);
 enum mesh_ui_setting_field mesh_ui_settings_group_field(enum mesh_ui_setting_field_group group,
                                                         uint32_t index);

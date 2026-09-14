@@ -2075,3 +2075,42 @@ Two things worth keeping:
   two retired device roles set in phase 5, arriving a second time from the other direction: the
   screen's first job is to say what is true, and its second is to make the right thing easy to
   reach. Marking the value and letting one press step off it does both; hiding it does neither.
+
+## 24. What a repeated record of rows turned out to be
+
+Not a component at all, which is the finding. `docs/settings-roadmap.md` phase 12 needed four
+copies of one three-row record inside a section - the mesh beacon's broadcast targets - and the
+plan called that "the Channels shape, one level deeper": a list that opens a screen per entry.
+It is neither a list nor a new screen. It is the **flag group with the word taken out**.
+
+`MESH_UI_FIELD_GROUP_*` arrived in §21's phase as "several toggle rows over one `uint32`", and
+the two accessors it is made of - where the run starts, and how long it is - say nothing about
+bits. A group is *a contiguous run of fields repeating one shape*, and a set of booleans held in
+one value was only the first thing that answered to that. So the targets are one group of
+twelve, `item_record_group()` walks it in threes with a numbered heading at the top of each run,
+and the write builder cuts the same run the same way in a block ahead of its field switch.
+
+Three things worth keeping:
+
+- **The second caller is what tells you what the first one was.** Written for bits, the group
+  would have grown a mask column and a bit accessor into its own table; it did not, because the
+  bit is on the *field's* row (`limit`) and the group holds only the run. That was a small
+  decision at the time and it is why the second caller cost a record length and a heading rather
+  than a second mechanism. The general rule is §4's own: a table that describes a *shape* keeps
+  answering; one that describes a *use* stops at its first caller.
+- **A new nav level is a cost the row count has to earn.** Four records of three rows is sixteen
+  rows in a section that had room for them; a list one level deeper would have needed a second
+  `settings_parent` - the beacon already sits under Modules - to reach a screen with four rows
+  on it. The Channels shape is right when the entries are many and each is rich, and repeated
+  groups under headings are right when they are few and each is thin. Three groups of that kind
+  had already shipped in External notification, which is what makes this a fourth rather than a
+  precedent.
+- **Repetition is what makes a heading load-bearing.** Twelve rows carrying three labels are
+  only tellable apart by the title above each run, which is why the heading is numbered and why
+  none of the twelve carries a help note: a help topic is a flat list of labels, so four rows
+  called `Region` would be four paragraphs a reader cannot tell apart. The heading rule from §9
+  holds either way - every record is listed whether or not the radio sent one, so no edit moves
+  the row count under the cursor.
+
+`make ui-capture ARGS="devtools/ui_capture/scenes/mesh-beacon.scene -o beacon.gif"` films it:
+the checkbox column §21 is about, then four numbered groups of which three are empty.

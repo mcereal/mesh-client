@@ -250,6 +250,8 @@ struct mesh_radio_settings {
     meshtastic_ModuleConfig_ExternalNotificationConfig external_notification;
     bool has_traffic_management;
     meshtastic_ModuleConfig_TrafficManagementConfig traffic_management;
+    bool has_mesh_beacon;
+    meshtastic_ModuleConfig_MeshBeaconConfig mesh_beacon;
     bool has_owner;
     meshtastic_User owner;
     bool has_metadata;

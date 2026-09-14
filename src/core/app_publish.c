@@ -1309,6 +1309,35 @@ static void mesh_app_flatten_settings(const struct mesh_radio_settings *src,
         dst->traffic_rate_limit_max_packets = tm->rate_limit_max_packets;
         dst->traffic_unknown_packet_threshold = tm->unknown_packet_threshold;
     }
+    if (src->has_mesh_beacon) {
+        const meshtastic_ModuleConfig_MeshBeaconConfig *beacon = &src->mesh_beacon;
+        dst->has_mesh_beacon = true;
+        dst->beacon_flags = beacon->flags;
+        dst->beacon_interval_secs = beacon->broadcast_interval_secs;
+        snprintf(dst->beacon_message, sizeof dst->beacon_message, "%s", beacon->broadcast_message);
+        if (beacon->has_broadcast_offer_channel) {
+            const meshtastic_ChannelSettings *offer = &beacon->broadcast_offer_channel;
+            snprintf(dst->beacon_offer_name, sizeof dst->beacon_offer_name, "%s", offer->name);
+            size_t psk_len = offer->psk.size;
+            if (psk_len > sizeof dst->beacon_offer_psk) {
+                psk_len = sizeof dst->beacon_offer_psk;
+            }
+            memcpy(dst->beacon_offer_psk, offer->psk.bytes, psk_len);
+            dst->beacon_offer_psk_len = (uint8_t)psk_len;
+        }
+        dst->beacon_offer_region = (uint32_t)beacon->broadcast_offer_region;
+        /* One past itself, so 0 can mean "not offered" on a row: see the store's note. */
+        dst->beacon_offer_preset =
+            beacon->has_broadcast_offer_preset ? (uint32_t)beacon->broadcast_offer_preset + 1U : 0U;
+        for (size_t i = 0; i < beacon->broadcast_targets_count && i < MESH_UI_BEACON_TARGETS; ++i) {
+            const meshtastic_ModuleConfig_MeshBeaconConfig_BroadcastTarget *target =
+                &beacon->broadcast_targets[i];
+            struct mesh_ui_beacon_target *slot = &dst->beacon_targets[i];
+            slot->preset = target->has_preset ? (uint32_t)target->preset + 1U : 0U;
+            slot->region = (uint32_t)target->region;
+            slot->channel = target->has_channel_index ? target->channel_index + 1U : 0U;
+        }
+    }
     for (size_t i = 0; i < MESH_RADIO_SETTINGS_MAX_CHANNELS && i < MESH_UI_MAX_CHANNELS; ++i) {
         if (!src->has_channel[i]) {
             continue;

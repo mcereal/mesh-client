@@ -207,6 +207,7 @@ MESH_TEST_CASE(radio_module_table, unit) {
         {11U, 12U}, /* DETECTIONSENSOR_CONFIG <-> detection_sensor = 12 */
         {2U, 3U},   /* EXTNOTIF_CONFIG        <-> external_notification = 3 */
         {14U, 15U}, /* TRAFFICMANAGEMENT_CONFIG <-> traffic_management = 15 */
+        {16U, 17U}, /* MESHBEACON_CONFIG      <-> mesh_beacon = 17 */
     };
     MESH_TEST_FAIL_IF(count != sizeof k_expected / sizeof k_expected[0],
                       "a module was added or removed without updating the expected pairs");

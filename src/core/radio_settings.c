@@ -186,6 +186,8 @@ static const struct mesh_module_binding k_modules[] = {
     MODULE_BINDING(meshtastic_AdminMessage_ModuleConfigType_TRAFFICMANAGEMENT_CONFIG,
                    meshtastic_ModuleConfig_traffic_management_tag, has_traffic_management,
                    traffic_management),
+    MODULE_BINDING(meshtastic_AdminMessage_ModuleConfigType_MESHBEACON_CONFIG,
+                   meshtastic_ModuleConfig_mesh_beacon_tag, has_mesh_beacon, mesh_beacon),
 };
 
 size_t mesh_radio_module_count(void) { return sizeof k_modules / sizeof k_modules[0]; }

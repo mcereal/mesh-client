@@ -279,13 +279,48 @@ static void item_flag_group(struct item_list *list, enum mesh_ui_setting_field_g
     }
 }
 
+/*
+ * A group of repeated *records*: the same run of rows, once per entry, each under its own title.
+ *
+ * The flag group above walks one word and this walks four records, and they are the same walk -
+ * a group is a contiguous run of fields repeating one shape, which a set of bits was only the
+ * first thing to be. What a record group has that a flag group does not is a record length, so
+ * the run can be cut, and a numbered heading, so a reader can tell the third copy from the
+ * fourth.
+ *
+ * `values` is the group's run flattened in the field enum's own order, which is what keeps this
+ * free of any opinion about what a record holds: the caller reads its own struct and this
+ * builds rows. Every record is listed whether or not the radio sent one - an empty one is how a
+ * target is added, exactly as an empty slot is how a channel is - so the count never moves,
+ * which is the rule every group in this file follows.
+ */
+static void item_record_group(struct item_list *list, enum mesh_ui_setting_field_group group,
+                              uint32_t fields_per_record, enum mesh_str_id title,
+                              const uint32_t *values, size_t value_count) {
+    const uint32_t count = mesh_ui_settings_group_count(group);
+    if (fields_per_record == 0U || values == NULL || value_count < count) {
+        return;
+    }
+    char label[MESH_UI_SETTINGS_LABEL_MAX];
+    for (uint32_t i = 0; i < count; ++i) {
+        if (i % fields_per_record == 0U) {
+            mesh_str_format(label, sizeof label, title, (unsigned)(i / fields_per_record + 1U));
+            item_add_named(list, label, MESH_UI_SETTING_HEADING);
+        }
+        item_field(list, mesh_ui_settings_group_field(group, i), values[i], NULL);
+    }
+}
+
 /* A KEY row. `key`/`len` is the radio's current key; an edit is a choice, or typed text. The
    text carried is what the keyboard should open on: the typed text if there is one, else the
    current key as base64 (an explicit reveal, never shown in the row). */
 static void item_key_field(struct item_list *list, enum mesh_ui_setting_field field,
                            const uint8_t *key, size_t len) {
     const struct field_spec *spec = field_spec(field);
-    const bool aes = (field == MESH_UI_FIELD_CHANNEL_KEY);
+    /* A channel's PSK, wherever the submessage holding it happens to be embedded: the beacon's
+       offered channel is a ChannelSettings and its key is named in the same words. */
+    const bool aes =
+        (field == MESH_UI_FIELD_CHANNEL_KEY || field == MESH_UI_FIELD_BEACON_OFFER_KEY);
     struct mesh_ui_settings_item *item = item_add(list, spec->label, spec->kind);
     if (item == NULL) {
         return;
@@ -1767,6 +1802,48 @@ static void build_traffic(const struct mesh_ui_settings *s, struct item_list *li
 }
 
 /*
+ * Mesh beacon: what this node tells strangers about the mesh it is on.
+ *
+ * Four groups, and the order is what a beacon *is*, read outwards. The three flags say whether
+ * it listens, broadcasts, or splits the broadcast in two for older firmware. `Broadcast` then
+ * says how often and with what text. `Offered channel` is the invitation the beacon carries -
+ * a name and a key, which is a whole ChannelSettings on the wire and so the same two rows the
+ * Channels section draws. `Target n` is where each copy goes out.
+ *
+ * The four targets are inline groups rather than a list one level down, which is where the
+ * roadmap expected them. Four records of three rows is sixteen rows, which the section has room
+ * for; a list would have cost a third level of nav under a section that is already one down
+ * from Modules, for a screen with at most four rows on it. It is the shape External
+ * notification's three output groups already have, and the repetition is a table entry rather
+ * than four copies - see item_record_group().
+ */
+static void build_beacon(const struct mesh_ui_settings *s, struct item_list *list) {
+    item_flag_group(list, MESH_UI_FIELD_GROUP_BEACON_FLAGS, s->beacon_flags);
+
+    item_heading(list, MESH_STR_HEAD_BEACON_BROADCAST);
+    item_field(list, MESH_UI_FIELD_BEACON_INTERVAL, s->beacon_interval_secs, NULL);
+    item_field(list, MESH_UI_FIELD_BEACON_MESSAGE, 0U, s->beacon_message);
+
+    item_heading(list, MESH_STR_HEAD_BEACON_OFFER);
+    item_field(list, MESH_UI_FIELD_BEACON_OFFER_NAME, 0U, s->beacon_offer_name);
+    item_key_field(list, MESH_UI_FIELD_BEACON_OFFER_KEY, s->beacon_offer_psk,
+                   s->beacon_offer_psk_len);
+    item_field(list, MESH_UI_FIELD_BEACON_OFFER_REGION, s->beacon_offer_region, NULL);
+    item_field(list, MESH_UI_FIELD_BEACON_OFFER_PRESET, s->beacon_offer_preset, NULL);
+
+    /* Flattened in the field enum's order, which is the order the group is walked in: the
+       record builder has no opinion about what a target holds and this is where that is kept. */
+    uint32_t targets[MESH_UI_BEACON_TARGETS * MESH_UI_BEACON_TARGET_FIELDS];
+    for (uint32_t i = 0; i < MESH_UI_BEACON_TARGETS; ++i) {
+        targets[i * MESH_UI_BEACON_TARGET_FIELDS + 0U] = s->beacon_targets[i].preset;
+        targets[i * MESH_UI_BEACON_TARGET_FIELDS + 1U] = s->beacon_targets[i].region;
+        targets[i * MESH_UI_BEACON_TARGET_FIELDS + 2U] = s->beacon_targets[i].channel;
+    }
+    item_record_group(list, MESH_UI_FIELD_GROUP_BEACON_TARGETS, MESH_UI_BEACON_TARGET_FIELDS,
+                      MESH_STR_HEAD_BEACON_TARGET, targets, MESH_ARRAY_LEN(targets));
+}
+
+/*
  * Radio actions: the rows that make the radio do something rather than keep something. None of
  * them is a setting, so there is no Y to press and nothing to read back - A on a row opens the
  * confirm overlay and the answer goes out on its own.
@@ -1948,6 +2025,9 @@ static void build_section(const struct mesh_ui_settings *settings,
         break;
     case MESH_UI_SETTINGS_TRAFFIC:
         build_traffic(settings, list);
+        break;
+    case MESH_UI_SETTINGS_BEACON:
+        build_beacon(settings, list);
         break;
     default:
         break;
