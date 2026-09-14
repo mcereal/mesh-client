@@ -1200,6 +1200,9 @@ struct fb_list {
        list. It is drawn by the first row that draws, not by the screen: see fb_list_chrome() in
        fb_widgets.c. */
     bool chrome_drawn;
+    /* The cursor stands on its card rather than on its row: no row takes the highlight and the
+       card draws the focus ring instead. See fb_list_begin_focus(). */
+    bool focus_card;
 };
 
 /* One row per item, filling the body. */
@@ -1301,6 +1304,18 @@ struct fb_list fb_list_begin_heights(const struct fb_layout *layout, uint32_t co
  */
 struct fb_list fb_list_begin_cards(const struct fb_layout *layout, uint32_t count, uint32_t cursor,
                                    const uint8_t *heights, const uint8_t *cards);
+
+/*
+ * A card list whose window keeps items [first, last] in view around the cursor
+ * (mesh_ui_list_begin_span()), and which, when `card` is set, focuses the cursor's card as a
+ * whole: the card draws fb_draw_card()'s focus ring and no row under it draws the highlight.
+ *
+ * For a list whose cursor can stand on a group of facts rather than on a row - a fact is not a
+ * control, and a row highlight over one promises a press that does nothing.
+ */
+struct fb_list fb_list_begin_focus(const struct fb_layout *layout, uint32_t count, uint32_t cursor,
+                                   const uint8_t *heights, const uint8_t *cards, uint32_t first,
+                                   uint32_t last, bool card);
 
 /*
  * The colour item `index` is standing on: a card's surface, or the panel's background.

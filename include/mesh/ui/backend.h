@@ -23,6 +23,12 @@ struct mesh_ui_backend {
      * Optional. A backend that draws everything in one go leaves it NULL and nothing ticks.
      */
     bool (*animating)(void *state, void *userdata);
+    /*
+     * How many body rows the last frame's paged list had room for - see `page_rows` on struct
+     * mesh_ui_store. Optional: a backend that leaves it NULL pages nothing, which is right for
+     * one that prints every row rather than scrolling a window over them.
+     */
+    uint32_t (*page_rows)(void *state, void *userdata);
 };
 
 #ifdef __cplusplus

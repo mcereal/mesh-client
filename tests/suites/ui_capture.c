@@ -23,6 +23,7 @@
 #include "mesh/ui/history.h"
 #include "mesh/ui/map.h"
 #include "mesh/ui/nav.h"
+#include "mesh/ui/node_detail.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
 #include "mesh/ui/theme.h"
@@ -3371,13 +3372,17 @@ static const char *rail_clears_the_cards(const struct mesh_ui_capture *capture,
                                          size_t stride, bool *saw_rail) {
     for (uint32_t y = 0U; y < height; ++y) {
         const uint8_t *row = pixels + (size_t)y * stride;
-        /* The card's own outer edge: its hairline, or its fill on the ends the window cut. The
-           cursor's own fill is inside both and so can never be the rightmost of the three. */
+        /* The card's own outer edge: its hairline or its focus ring, or its fill on the ends the
+           window cut. The cursor's own fill is inside all of them and so is never the rightmost. */
         int card_right = -1;
+        bool on_card = false;
         for (uint32_t x = 0U; x < width; ++x) {
             const uint8_t *px = row + (size_t)x * 4U;
-            if (pixel_is_role(capture, px, MESH_UI_COLOR_OUTLINE) ||
-                pixel_is_role(capture, px, MESH_UI_COLOR_SURFACE)) {
+            const bool surface = pixel_is_role(capture, px, MESH_UI_COLOR_SURFACE);
+            on_card = on_card || surface;
+            /* The ring only counts past a card's fill: the accent is also the tab strip's. */
+            if (surface || pixel_is_role(capture, px, MESH_UI_COLOR_OUTLINE) ||
+                (on_card && pixel_is_role(capture, px, MESH_UI_COLOR_PRIMARY))) {
                 card_right = (int)x;
             }
         }
@@ -3584,7 +3589,27 @@ MESH_TEST_CASE(ui_capture_node_detail_cards_survive_the_cursor, unit) {
         size_t stride = 0U;
         const uint8_t *pixels = mesh_ui_capture_pixels(capture, &width, &height, &stride);
         mesh_ui_capture_render(capture, &snapshot);
-        const char *broke = cursor_stays_inside_its_card(capture, pixels, width, height, stride);
+        /* Down now stops on a card of facts as a whole, and a card the cursor stands on draws
+           no row fill at all - so the question for that press is whether the ring is there. */
+        const struct mesh_ui_handshake_state *hs = &snapshot.handshake;
+        const struct mesh_ui_node_summary *node =
+            mesh_ui_node_detail_find(hs, snapshot.nav.node_detail_node);
+        struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
+        const uint32_t count = mesh_ui_node_detail_build(
+            node, hs->has_my_info && node != NULL && node->node_id == hs->my_info.node_num, 0U,
+            &snapshot.traceroute, false, hs, &snapshot.history, items, MESH_UI_NODE_ITEMS_MAX);
+        struct mesh_ui_node_span span = {0};
+        const bool on_card =
+            mesh_ui_node_detail_span(items, count, mesh_ui_capture_page_rows(capture),
+                                     snapshot.nav.cursor[MESH_UI_SCREEN_NODES], &span) &&
+            span.card;
+        const char *broke = NULL;
+        if (!on_card) {
+            broke = cursor_stays_inside_its_card(capture, pixels, width, height, stride);
+        } else if (widest_row_run(capture, pixels, width, height, stride, MESH_UI_COLOR_PRIMARY) <
+                   80U) {
+            broke = "a card the cursor stands on draws no focus ring";
+        }
         if (broke == NULL) {
             broke = rail_clears_the_cards(capture, pixels, width, height, stride, &rail_seen);
         }

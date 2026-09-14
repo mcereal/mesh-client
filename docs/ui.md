@@ -541,6 +541,20 @@ would be the one screen in the client where the d-pad changes tab from inside a 
 is `mesh_ui_node_detail_group_step()`, asked of the built rows for the reason every other
 question about this screen is.
 
+**Up and Down walk stops, not rows** (`mesh_ui_node_detail_step()`). Every row A acts on is a
+stop - the verbs, and a reading with a chart behind it - and a card with none of those is *one*
+stop: the cursor stands on the card as a whole, which draws `fb_draw_card()`'s focus ring and no
+row highlight, since a highlighted fact promises a press that does nothing. A fact card taller
+than the window is cut into evened-out pages that fit, a stop each, so no row can sit below the
+panel with no press that reaches it - and a card that fits is never cut, so no press is spent on a
+page that changes nothing on screen. Only the backend knows how tall the window is (eight rows at
+glyph scale 6 on the Brick, sixteen at 4), so the fb backend reports the rows it last laid the
+list out in (`page_rows` on `struct mesh_ui_backend`), the controller hands that to the store
+before each press, and the nav and the renderer cut the card by the same number. The fact rows of a card that does hold a press are not
+stops; the window keeps that card in view around the cursor instead. The window is
+`mesh_ui_list_begin_span()`, told by `mesh_ui_node_detail_span()` which rows to keep on screen -
+still a function of the cursor and the rows, so a frame is still derived from the snapshot.
+
 **A is named only where it does something.** Two rows in three of this screen are facts, and
 `mesh_ui_nav_confirm()` has always returned false on them — but the action bar named "A select"
 over all of them anyway, which is the keycap-that-does-nothing the table exists to prevent,

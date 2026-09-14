@@ -940,6 +940,12 @@ bool mesh_ui_store_mark_open_conversation_read(struct mesh_ui_store *store) {
     return true;
 }
 
+void mesh_ui_store_set_page_rows(struct mesh_ui_store *store, uint32_t rows) {
+    if (store != NULL) {
+        store->page_rows = rows;
+    }
+}
+
 void mesh_ui_store_request_refresh(struct mesh_ui_store *store) {
     mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_DISCOVERY | MESH_UI_UPDATE_HANDSHAKE |
                                         MESH_UI_UPDATE_TRANSPORT | MESH_UI_UPDATE_MESSAGES |

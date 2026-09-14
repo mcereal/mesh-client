@@ -425,8 +425,8 @@ MESH_TEST_CASE(ui_nav_node_detail_walks_its_groups, unit) {
     MESH_TEST_FAIL_IF(nav.screen != MESH_UI_SCREEN_NODES,
                       "and must not fall through to the tab switch");
 
-    /* And Left from inside a group is "the top of this one" before it is "the one before". */
-    (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_RIGHT, &action);
+    /* And Left from inside a group is "the top of this one" before it is "the one before" -
+       asked of the actions, the group whose every row is a stop of its own. */
     const uint32_t top = nav.cursor[MESH_UI_SCREEN_NODES];
     (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_DOWN, &action);
     MESH_TEST_FAIL_IF(nav.cursor[MESH_UI_SCREEN_NODES] == top, "Down should move within a group");
@@ -438,6 +438,171 @@ MESH_TEST_CASE(ui_nav_node_detail_walks_its_groups, unit) {
     (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_R1, &action);
     MESH_TEST_FAIL_IF(nav.screen == MESH_UI_SCREEN_NODES,
                       "the shoulders should still change tab from inside a node");
+
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
+/*
+ * Up and Down walk stops rather than rows.
+ *
+ * Every row A acts on is one, and a card of facts is one - or one per page, when it is taller than
+ * the window the backend last drew it in. What is worth pinning rather than looking at is the
+ * property the stops exist to keep: every row of the detail is inside the span the window keeps in
+ * view for *some* stop, so no fact is left somewhere no press can scroll to. And Up retraces Down,
+ * and both ends spend the press.
+ */
+MESH_TEST_CASE(ui_nav_node_detail_walks_its_stops, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.has_my_info = true;
+    handshake.my_info.node_num = 0x1000U;
+    handshake.node_count = 1U;
+    struct mesh_ui_node_summary *node = &handshake.nodes[0];
+    node->node_id = 0x2000U;
+    /* An identity of eleven rows: two pages in a small window, one in a large one. */
+    snprintf(node->long_name, sizeof node->long_name, "Echo Repeater");
+    snprintf(node->short_name, sizeof node->short_name, "ECHO");
+    snprintf(node->user_id, sizeof node->user_id, "!00002000");
+    node->role = 2U;
+    node->hw_model = 43U;
+    node->public_key_len = 32U;
+    node->is_licensed = true;
+    /* A reading watched twice, so its card holds a press among its facts. */
+    node->environment.valid = true;
+    node->environment.has_temperature = true;
+    node->environment.temperature = 21.0f;
+    node->environment.has_pressure = true;
+    node->environment.barometric_pressure = 1013.0f;
+    /* And enough facts after it that the card outgrows a small window, where the facts under
+       the reading need stops of their own. */
+    node->environment.has_iaq = true;
+    node->environment.iaq = 42U;
+    node->environment.has_lux = true;
+    node->environment.lux = 300.0f;
+    node->environment.has_voltage = true;
+    node->environment.voltage = 5.0f;
+    node->environment.has_current = true;
+    node->environment.current = 120.0f;
+    node->metrics.valid = true;
+    node->metrics.has_voltage = true;
+    node->metrics.voltage = 4.1f;
+    mesh_ui_store_tick(&store, 1000U);
+    mesh_ui_store_set_handshake(&store, &handshake);
+    node->environment.temperature = 22.0f;
+    mesh_ui_store_tick(&store, 2000U);
+    mesh_ui_store_set_handshake(&store, &handshake);
+
+    const struct mesh_ui_node_summary *held = mesh_ui_node_detail_find(&store.handshake, 0x2000U);
+    struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
+    const uint32_t count =
+        mesh_ui_node_detail_build(held, false, 0U, &store.traceroute, false, &store.handshake,
+                                  &store.history, items, MESH_UI_NODE_ITEMS_MAX);
+    MESH_TEST_FAIL_IF(count == 0U, "the node should produce rows");
+    uint8_t heights[MESH_UI_NODE_ITEMS_MAX];
+    for (uint32_t i = 0U; i < count; ++i) {
+        heights[i] = mesh_ui_node_item_steps(&items[i]);
+    }
+
+    /* A window the identity does not fit - scale 6 on the Brick is eight rows - and one every
+       card fits, where a page would be a press that changes nothing on the panel. */
+    static const uint32_t windows[] = {8U, 40U};
+    for (size_t w = 0U; w < sizeof windows / sizeof windows[0]; ++w) {
+        const uint32_t rows = windows[w];
+        store.page_rows = rows;
+        struct mesh_ui_nav nav;
+        mesh_ui_nav_init(&nav);
+        nav.screen = MESH_UI_SCREEN_NODES;
+        nav.node_detail_open = true;
+        nav.node_detail_node = 0x2000U;
+        /* Where opening the detail leaves the cursor: the first row that is not a group title. */
+        for (uint32_t i = 0U; i < count; ++i) {
+            if (items[i].kind != MESH_UI_NODE_ROW_HEADING) {
+                nav.cursor[MESH_UI_SCREEN_NODES] = i;
+                break;
+            }
+        }
+
+        struct mesh_ui_action action;
+        memset(&action, 0, sizeof action);
+        bool covered[MESH_UI_NODE_ITEMS_MAX] = {false};
+        bool pressed[MESH_UI_NODE_ITEMS_MAX] = {false};
+        uint32_t stops[MESH_UI_NODE_ITEMS_MAX];
+        uint32_t visited = 0U;
+        uint32_t card_stops = 0U;
+        bool paged = false;
+        bool mixed = false;
+        for (;;) {
+            const uint32_t at = nav.cursor[MESH_UI_SCREEN_NODES];
+            MESH_TEST_FAIL_IF(items[at].kind == MESH_UI_NODE_ROW_HEADING,
+                              "the cursor may not land on a group title");
+            stops[visited++] = at;
+            const enum mesh_ui_node_press press = mesh_ui_node_detail_press_at(
+                held, false, &store.traceroute, &store.handshake, &store.history, at);
+            struct mesh_ui_node_span span;
+            MESH_TEST_FAIL_IF(!mesh_ui_node_detail_span(items, count, rows, at, &span),
+                              "no span for a stop");
+            MESH_TEST_FAIL_IF(span.first > at || span.last < at, "a stop's span should hold it");
+            MESH_TEST_FAIL_IF(span.card != (press == MESH_UI_NODE_PRESS_NONE),
+                              "a press is a row and a fact stop is its card");
+            if (press != MESH_UI_NODE_PRESS_NONE) {
+                pressed[at] = true;
+                for (uint32_t r = span.first; r <= span.last; ++r) {
+                    mixed = mixed || (items[r].kind != MESH_UI_NODE_ROW_HEADING &&
+                                      mesh_ui_node_detail_press_at(held, false, &store.traceroute,
+                                                                   &store.handshake, &store.history,
+                                                                   r) == MESH_UI_NODE_PRESS_NONE);
+                }
+            } else {
+                card_stops += 1U;
+                uint32_t steps = 0U;
+                for (uint32_t r = span.first; r <= span.last; ++r) {
+                    steps += mesh_ui_node_item_steps(&items[r]);
+                }
+                MESH_TEST_FAIL_IF(steps > rows, "a page should fit the window, heading and all");
+                paged = paged || items[span.first].kind != MESH_UI_NODE_ROW_HEADING;
+            }
+            /* What the window really shows from this stop, measured the way the renderer opens
+               it - a span taller than the window is not all on screen. */
+            const struct mesh_ui_list window =
+                mesh_ui_list_begin_span(count, at, span.first, span.last, rows, heights);
+            for (uint32_t r = window.first; r < window.first + window.visible; ++r) {
+                covered[r] = true;
+            }
+            if (!mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_DOWN, &action)) {
+                break;
+            }
+            MESH_TEST_FAIL_IF(nav.cursor[MESH_UI_SCREEN_NODES] <= at, "Down should move forward");
+        }
+        MESH_TEST_FAIL_IF(visited >= count, "Down should skip the facts, not walk every row");
+        MESH_TEST_FAIL_IF(card_stops == 0U, "a card of facts should be a stop");
+        MESH_TEST_FAIL_IF(paged != (rows < 12U),
+                          "the identity should take pages only when the window cannot hold it");
+        MESH_TEST_FAIL_IF(!mixed, "the environment card should hold a press among its facts");
+        for (uint32_t r = 0U; r < count; ++r) {
+            MESH_TEST_FAIL_IF(!covered[r], "every row should be on screen from some stop");
+            MESH_TEST_FAIL_IF(mesh_ui_node_detail_press_at(held, false, &store.traceroute,
+                                                           &store.handshake, &store.history,
+                                                           r) != MESH_UI_NODE_PRESS_NONE &&
+                                  !pressed[r],
+                              "every row A acts on should be a stop");
+        }
+        MESH_TEST_FAIL_IF(nav.screen != MESH_UI_SCREEN_NODES,
+                          "Down at the end should not change tab");
+
+        /* Up retraces the walk, and spends the press at the top. */
+        for (uint32_t i = visited; i-- > 1U;) {
+            (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_UP, &action);
+            MESH_TEST_FAIL_IF(nav.cursor[MESH_UI_SCREEN_NODES] != stops[i - 1U],
+                              "Up should retrace the stops Down walked");
+        }
+        (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_UP, &action);
+        MESH_TEST_FAIL_IF(nav.cursor[MESH_UI_SCREEN_NODES] != stops[0],
+                          "Up at the top should stay");
+    }
 
     mesh_ui_store_shutdown(&store);
     record_success(test_name);

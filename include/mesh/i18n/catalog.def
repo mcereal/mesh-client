@@ -1287,7 +1287,7 @@ MESH_STR_ENTRY(HELP_NOTE_NODE_TREND,      "A reading over time, drawn against th
    hundred facts in a dozen cards - and its help said what the screen was and then explained two
    of the rows, which leaves the reader to discover the presses by trying them. */
 MESH_STR_ENTRY(HELP_LABEL_NODE_GROUPS,    "Getting around")
-MESH_STR_ENTRY(HELP_NOTE_NODE_GROUPS,     "The rows are grouped into cards. Left and Right jump a card at a time, Up and Down walk the rows inside one, and the shoulders still change tab. A is named only where it does something.")
+MESH_STR_ENTRY(HELP_NOTE_NODE_GROUPS,     "The rows are grouped into cards. Up and Down stop on each row A acts on and on each card of facts; Left and Right jump a card at a time. A is named only where it does something.")
 MESH_STR_ENTRY(HELP_LABEL_NODE_VERBS,     "Mute, ignore, remove")
 MESH_STR_ENTRY(HELP_NOTE_NODE_VERBS,      "Mute stops this node raising notices here and on the radio. Ignore has the radio drop its packets before we ever see them. Remove drops it from the NodeDB; it returns if the node speaks again.")
 /* What the padlock in a conversation means, and the row that changes it. Two paragraphs because

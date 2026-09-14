@@ -185,6 +185,12 @@ void mesh_ui_controller_handle_key(struct mesh_ui_controller *controller, enum m
         return;
     }
 
+    /* The window the press is judged against is the one on the panel now. */
+    if (controller->backend != NULL && controller->backend->page_rows != NULL) {
+        mesh_ui_store_set_page_rows(controller->store,
+                                    controller->backend->page_rows(controller->backend_state,
+                                                                   controller->backend_userdata));
+    }
     struct mesh_ui_action action;
     const bool repaints = mesh_ui_store_handle_key(controller->store, key, &action);
     /*

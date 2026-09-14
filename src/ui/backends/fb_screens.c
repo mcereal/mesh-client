@@ -986,7 +986,7 @@ static void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
      */
     bool leads_with_icon = false;
     for (uint32_t r = 0; r < count; ++r) {
-        heights[r] = items[r].kind == MESH_UI_NODE_ROW_METER ? 2U : 1U;
+        heights[r] = mesh_ui_node_item_steps(&items[r]);
         if (items[r].kind == MESH_UI_NODE_ROW_HEADING) {
             card = (uint8_t)(card == FB_LIST_NO_CARD ? 0U : card + 1U);
             cards[r] = FB_LIST_NO_CARD;
@@ -998,8 +998,20 @@ static void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
     const struct fb_leading blank =
         leads_with_icon ? (struct fb_leading){.kind = FB_LEADING_ICON, .icon = MESH_UI_ICON_NONE}
                         : (struct fb_leading){.kind = FB_LEADING_NONE};
-    struct fb_list list =
-        fb_list_begin_cards(layout, count, nav->cursor[MESH_UI_SCREEN_NODES], heights, cards);
+    /*
+     * What the cursor is standing on, from the rows just built - with the history, because that
+     * is what decides which readings are presses. A row A acts on is highlighted with its group
+     * kept in view; a card of facts is focused as a whole, a page at a time when it is taller
+     * than the panel. See mesh_ui_node_detail_step() for the stops the nav walks.
+     */
+    const uint32_t cursor = nav->cursor[MESH_UI_SCREEN_NODES];
+    /* And the window the nav pages a tall card by on the next press: this one. */
+    state->page_rows = layout->rows;
+    struct mesh_ui_node_span span = {.first = cursor, .last = cursor, .card = false};
+    (void)mesh_ui_node_detail_span(items, count, layout->rows, cursor < count ? cursor : count - 1U,
+                                   &span);
+    struct fb_list list = fb_list_begin_focus(layout, count, cursor, heights, cards, span.first,
+                                              span.last, span.card);
     uint32_t i;
     while (fb_list_next(&list, &i)) {
         const struct mesh_ui_node_item *item = &items[i];

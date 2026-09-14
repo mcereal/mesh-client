@@ -762,6 +762,7 @@ static int uicap_screen_from_name(const char *name) {
 static void uicap_press(struct uicap *cap, enum mesh_ui_key key) {
     struct mesh_ui_action action;
     memset(&action, 0, sizeof action);
+    mesh_ui_store_set_page_rows(&cap->store, mesh_ui_capture_page_rows(cap->capture));
     (void)mesh_ui_store_handle_key(&cap->store, key, &action);
     uicap_emit(cap);
     uicap_settle(cap);

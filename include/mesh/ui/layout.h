@@ -230,6 +230,19 @@ struct mesh_ui_list mesh_ui_list_begin_step(uint32_t count, uint32_t cursor, uin
 struct mesh_ui_list mesh_ui_list_begin_heights(uint32_t count, uint32_t cursor, uint32_t capacity,
                                                const uint8_t *heights);
 
+/*
+ * The same window, keeping items [span_first, span_last] on screen as well as the cursor.
+ *
+ * For a list whose cursor stands on a group rather than a row - the node detail's cards - where
+ * anchoring on the cursor would put the group's first row near the bottom of the panel and the
+ * rest of it below. The window shows the span and its look-ahead when both fit, the span alone
+ * when only that does, and the span's top when it is taller than the panel. The cursor stays
+ * visible in every case; a span that does not contain it is ignored.
+ */
+struct mesh_ui_list mesh_ui_list_begin_span(uint32_t count, uint32_t cursor, uint32_t span_first,
+                                            uint32_t span_last, uint32_t capacity,
+                                            const uint8_t *heights);
+
 /* Steps item `index` occupies. Out of range is 0, which is what an iterator past the end of a
    list wants and what a caller advancing a y cursor should add. */
 uint8_t mesh_ui_list_item_height(const struct mesh_ui_list *list, uint32_t index);

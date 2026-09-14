@@ -250,6 +250,41 @@ MESH_TEST_CASE(layout_list_window_counts_steps, unit) {
 }
 
 /*
+ * A window told to keep a span in view as well as the cursor: the node detail's card under a
+ * cursor standing on its first row. Forty one-step items in a fifteen-step window, which keeps
+ * three steps of look-ahead.
+ */
+MESH_TEST_CASE(ui_list_keeps_a_span_in_view, unit) {
+    const struct mesh_ui_list plain = mesh_ui_list_begin_heights(40U, 20U, 15U, NULL);
+    MESH_TEST_FAIL_IF(plain.first != 9U, "the cursor's own window ends three past it");
+
+    /* The span and its look-ahead fit, so the window ends three past the span instead. */
+    const struct mesh_ui_list card = mesh_ui_list_begin_span(40U, 20U, 20U, 27U, 15U, NULL);
+    MESH_TEST_FAIL_IF(card.first != 16U || card.visible != 15U,
+                      "a span that fits should be shown whole, with its look-ahead");
+    MESH_TEST_FAIL_IF(!mesh_ui_list_is_cursor(&card, 20U), "the cursor is unchanged");
+
+    /* Taller than the window: its top, while that still shows the cursor. */
+    const struct mesh_ui_list tall = mesh_ui_list_begin_span(40U, 12U, 10U, 35U, 15U, NULL);
+    MESH_TEST_FAIL_IF(tall.first != 10U, "a tall span should open at its top");
+    const struct mesh_ui_list deep = mesh_ui_list_begin_span(40U, 30U, 10U, 35U, 15U, NULL);
+    const struct mesh_ui_list deep_plain = mesh_ui_list_begin_heights(40U, 30U, 15U, NULL);
+    MESH_TEST_FAIL_IF(deep.first != deep_plain.first,
+                      "a cursor too far down a tall span keeps its own window");
+
+    /* Near the end the window is the last one, not one that runs out of items. */
+    const struct mesh_ui_list tail = mesh_ui_list_begin_span(40U, 36U, 36U, 39U, 15U, NULL);
+    MESH_TEST_FAIL_IF(tail.first != 25U || tail.visible != 15U, "a span at the end fills upward");
+
+    /* A span that does not hold the cursor is ignored, and a list that fits never scrolls. */
+    const struct mesh_ui_list stray = mesh_ui_list_begin_span(40U, 20U, 30U, 35U, 15U, NULL);
+    MESH_TEST_FAIL_IF(stray.first != plain.first, "a span without the cursor is not its span");
+    const struct mesh_ui_list fits = mesh_ui_list_begin_span(10U, 8U, 8U, 9U, 15U, NULL);
+    MESH_TEST_FAIL_IF(fits.first != 0U, "a list that fits should start at its top");
+    record_success(test_name);
+}
+
+/*
  * The scroll thumb over items of differing heights.
  *
  * The case an item count gets wrong: half the items on screen is not half the list when the
