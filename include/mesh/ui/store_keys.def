@@ -1,0 +1,97 @@
+/*
+ * The handshake cache format: every key the UI store writes to disk, one line each.
+ *
+ * This file is included more than once with the macros defined differently each time - once to
+ * build `enum mesh_ui_store_key`, once to build the name table the writer and the reader both
+ * spell their keys through. That is what keeps the two halves of the format from drifting
+ * apart, and it is the same trick include/mesh/i18n/catalog.def plays for strings. Like that
+ * file it has no include guard, it is not a .h, and `make format` leaves it alone.
+ *
+ *   MESH_STORE_KEY_ENTRY(ID, "name")   - stands alone:      name=value
+ *   MESH_STORE_KEY_ROW(ID, "name")     - one row of a list: name[3]=value
+ *   MESH_STORE_KEY_SLOT(ID, "name")    - a slot in a row:   name[3.1]=value
+ *
+ * The id is what both halves name; the string is what lands on the card, and is never read by
+ * a person - it is a file format, not a word, so it stays out of the string catalog.
+ *
+ * Rules for a good entry:
+ *
+ *   - A key is forever. A cache on a card outlives the build that wrote it, so renaming one
+ *     silently drops whatever it held on every device that already has the old spelling. Add a
+ *     new id beside the old one instead, and keep reading both until the old one cannot be in
+ *     the field any more.
+ *   - Widen by adding a key, never by adding a field to an existing one. The reader matches
+ *     most lines on an exact field count, so a build that predates a widened line drops the
+ *     whole record rather than the one value it does not know. A field appended *last* and read
+ *     with `>=` is the exception, and the reader says so where it does it.
+ *   - One key per group that can arrive on its own. node_pos, node_metrics and node_env are
+ *     three keys rather than one wide node[] line for exactly that reason.
+ *   - Every key here is written by mesh_ui_store_save() and read by mesh_ui_store_load(), and
+ *     the ui_store_cache_keys_round_trip test holds both halves to it. The two exceptions are
+ *     marked below and the loader carries a case for each saying why.
+ *
+ * The order is the order mesh_ui_store_save() writes them, so this table reads like the file.
+ */
+
+/* ---- the handshake ------------------------------------------------------------------------ */
+
+MESH_STORE_KEY_ENTRY(HANDSHAKE_VALID, "handshake_valid")
+MESH_STORE_KEY_ENTRY(HANDSHAKE_REQUEST, "handshake_request")
+MESH_STORE_KEY_ENTRY(HANDSHAKE_CONFIG, "handshake_config")
+MESH_STORE_KEY_ENTRY(HANDSHAKE_MYNODE, "handshake_mynode")
+MESH_STORE_KEY_ENTRY(HANDSHAKE_ROSTER, "handshake_roster")
+MESH_STORE_KEY_ENTRY(HANDSHAKE_CHANNEL, "handshake_channel")
+MESH_STORE_KEY_ENTRY(HANDSHAKE_MY_SHORT, "handshake_my_short")
+MESH_STORE_KEY_ENTRY(HANDSHAKE_CACHED, "handshake_cached")
+MESH_STORE_KEY_ENTRY(HANDSHAKE_CHANNELS, "handshake_channels")
+MESH_STORE_KEY_ENTRY(HANDSHAKE_NODES, "handshake_nodes")
+
+/* ---- the channel list --------------------------------------------------------------------- */
+
+MESH_STORE_KEY_ROW(CHANNEL, "channel")
+MESH_STORE_KEY_ROW(CHANNEL_NAME, "channel_name")
+
+/* ---- the node roster ---------------------------------------------------------------------- */
+
+MESH_STORE_KEY_ROW(NODE, "node")
+MESH_STORE_KEY_ROW(NODE_LONG, "node_long")
+MESH_STORE_KEY_ROW(NODE_SHORT, "node_short")
+MESH_STORE_KEY_ROW(NODE_USER, "node_user")
+MESH_STORE_KEY_ROW(NODE_IDENT, "node_ident")
+MESH_STORE_KEY_ROW(NODE_STATE, "node_state")
+MESH_STORE_KEY_ROW(NODE_KEY, "node_key")
+MESH_STORE_KEY_ROW(NODE_RSSI, "node_rssi")
+MESH_STORE_KEY_ROW(NODE_POS, "node_pos")
+MESH_STORE_KEY_ROW(NODE_METRICS, "node_metrics")
+MESH_STORE_KEY_ROW(NODE_ENV, "node_env")
+MESH_STORE_KEY_ROW(NODE_NBRS, "node_nbrs")
+MESH_STORE_KEY_SLOT(NODE_NBR, "node_nbr")
+MESH_STORE_KEY_ROW(NODE_POWER, "node_power")
+MESH_STORE_KEY_ROW(NODE_AIR, "node_air")
+MESH_STORE_KEY_ROW(NODE_HEALTH, "node_health")
+MESH_STORE_KEY_ROW(NODE_HOST, "node_host")
+
+/* ---- the message log ---------------------------------------------------------------------- */
+
+MESH_STORE_KEY_ENTRY(MESSAGES, "messages")
+MESH_STORE_KEY_ROW(MSG, "msg")
+MESH_STORE_KEY_ROW(MSG_META, "msg_meta")
+MESH_STORE_KEY_ROW(MSG_NAME, "msg_name")
+MESH_STORE_KEY_ROW(MSG_TEXT, "msg_text")
+
+/* ---- what has been read, and what is muted -------------------------------------------------- */
+
+/* Written, and deliberately not read: the loader re-derives the count from the marks that
+   actually load, so a truncated or hand-edited file cannot leave the list claiming rows that
+   are not there. It stays on disk because a person reading the cache wants the header. */
+MESH_STORE_KEY_ENTRY(READ_MARKS, "read_marks")
+MESH_STORE_KEY_ROW(READ, "read")
+
+/* ---- the airtime trend ---------------------------------------------------------------------- */
+
+/* Written and not read, for the same reason read_marks is not: the sample count is whatever
+   airtime[] actually yields. Note that this shares a name with the row key below - a bare
+   `airtime` and an `airtime[0]` are two different lines, and the lookup tells them apart by the
+   bracket rather than by the name. */
+MESH_STORE_KEY_ENTRY(AIRTIME_COUNT, "airtime")
+MESH_STORE_KEY_ROW(AIRTIME, "airtime")

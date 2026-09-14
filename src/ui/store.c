@@ -8,6 +8,7 @@
 
 #include "mesh/core/message.h"
 #include "mesh/ui/settings.h"
+#include "mesh/ui/store_keys.h"
 
 #include <errno.h>
 #include <stdbool.h>
@@ -1028,67 +1029,49 @@ bool mesh_ui_store_consume_updates(struct mesh_ui_store *store, struct mesh_ui_s
     return true;
 }
 
-static void mesh_ui_store_escape_and_write(FILE *file, const char *key, const char *value) {
-    fprintf(file, "%s=", key);
-    if (value != NULL) {
-        for (const unsigned char *ptr = (const unsigned char *)value; *ptr != '\0'; ++ptr) {
-            if (*ptr < 0x20U || *ptr == '\\' || *ptr == '=') {
-                fprintf(file, "\\x%02x", *ptr);
-            } else {
-                fputc(*ptr, file);
-            }
-        }
-    }
-    fputc('\n', file);
-}
-
 static int mesh_ui_store_save_handshake(FILE *file,
                                         const struct mesh_ui_handshake_state *handshake) {
     if (file == NULL || handshake == NULL) {
         return 0;
     }
 
-    fprintf(file, "handshake_request=%u,%u\n", handshake->request_in_flight ? 1U : 0U,
-            handshake->request_id);
-    fprintf(file, "handshake_config=%u,%u,%u\n", handshake->config_complete ? 1U : 0U,
-            handshake->config_complete_id, handshake->has_config ? 1U : 0U);
-    fprintf(file, "handshake_mynode=%u,%u,%u,%u\n", handshake->has_my_info ? 1U : 0U,
-            handshake->my_info.node_num, handshake->my_info.nodedb_entries,
-            handshake->my_info.reboot_count);
-    fprintf(file, "handshake_roster=%u\n", handshake->roster_owner);
-    mesh_ui_store_escape_and_write(file, "handshake_channel", handshake->primary_channel);
-    mesh_ui_store_escape_and_write(file, "handshake_my_short", handshake->my_short_name);
-    fprintf(file, "handshake_cached=%u\n", handshake->cached ? 1U : 0U);
-    fprintf(file, "handshake_channels=%u\n", handshake->channel_count);
+    mesh_ui_store_write(file, MESH_UI_STORE_KEY_HANDSHAKE_REQUEST, "%u,%u",
+                        handshake->request_in_flight ? 1U : 0U, handshake->request_id);
+    mesh_ui_store_write(file, MESH_UI_STORE_KEY_HANDSHAKE_CONFIG, "%u,%u,%u",
+                        handshake->config_complete ? 1U : 0U, handshake->config_complete_id,
+                        handshake->has_config ? 1U : 0U);
+    mesh_ui_store_write(file, MESH_UI_STORE_KEY_HANDSHAKE_MYNODE, "%u,%u,%u,%u",
+                        handshake->has_my_info ? 1U : 0U, handshake->my_info.node_num,
+                        handshake->my_info.nodedb_entries, handshake->my_info.reboot_count);
+    mesh_ui_store_write(file, MESH_UI_STORE_KEY_HANDSHAKE_ROSTER, "%u", handshake->roster_owner);
+    mesh_ui_store_write_text(file, MESH_UI_STORE_KEY_HANDSHAKE_CHANNEL, handshake->primary_channel);
+    mesh_ui_store_write_text(file, MESH_UI_STORE_KEY_HANDSHAKE_MY_SHORT, handshake->my_short_name);
+    mesh_ui_store_write(file, MESH_UI_STORE_KEY_HANDSHAKE_CACHED, "%u",
+                        handshake->cached ? 1U : 0U);
+    mesh_ui_store_write(file, MESH_UI_STORE_KEY_HANDSHAKE_CHANNELS, "%u", handshake->channel_count);
     for (uint32_t i = 0; i < handshake->channel_count && i < MESH_UI_MAX_CHANNELS; ++i) {
         const struct mesh_ui_channel *channel = &handshake->channels[i];
-        fprintf(file, "channel[%u]=%u,%u\n", i, (unsigned)channel->index, (unsigned)channel->role);
-        char key[32];
-        snprintf(key, sizeof key, "channel_name[%u]", i);
-        mesh_ui_store_escape_and_write(file, key, channel->name);
+        mesh_ui_store_write_row(file, MESH_UI_STORE_KEY_CHANNEL, i, "%u,%u",
+                                (unsigned)channel->index, (unsigned)channel->role);
+        mesh_ui_store_write_row_text(file, MESH_UI_STORE_KEY_CHANNEL_NAME, i, channel->name);
     }
-    fprintf(file, "handshake_nodes=%u\n", handshake->node_count);
+    mesh_ui_store_write(file, MESH_UI_STORE_KEY_HANDSHAKE_NODES, "%u", handshake->node_count);
     for (uint32_t i = 0; i < handshake->node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
         const struct mesh_ui_node_summary *node = &handshake->nodes[i];
-        fprintf(file, "node[%u]=%u,%u,%u,%f,%u,%u\n", i, node->node_id, node->last_heard,
-                node->has_hops_away ? 1U : 0U, (double)node->snr, node->via_mqtt ? 1U : 0U,
-                node->hops_away);
-        char key_long[32];
-        char key_short[32];
-        snprintf(key_long, sizeof key_long, "node_long[%u]", i);
-        snprintf(key_short, sizeof key_short, "node_short[%u]", i);
-        mesh_ui_store_escape_and_write(file, key_long, node->long_name);
-        mesh_ui_store_escape_and_write(file, key_short, node->short_name);
+        mesh_ui_store_write_row(file, MESH_UI_STORE_KEY_NODE, i, "%u,%u,%u,%f,%u,%u", node->node_id,
+                                node->last_heard, node->has_hops_away ? 1U : 0U, (double)node->snr,
+                                node->via_mqtt ? 1U : 0U, node->hops_away);
+        mesh_ui_store_write_row_text(file, MESH_UI_STORE_KEY_NODE_LONG, i, node->long_name);
+        mesh_ui_store_write_row_text(file, MESH_UI_STORE_KEY_NODE_SHORT, i, node->short_name);
 
         /* The detail the Nodes tab drills into. Written as separate keys rather than widened
            onto node[] so an older build reading a newer cache skips what it does not know and
            a newer build reading an older one simply finds nothing to fill in. */
-        char key[40];
-        snprintf(key, sizeof key, "node_user[%u]", i);
-        mesh_ui_store_escape_and_write(file, key, node->user_id);
-        fprintf(file, "node_ident[%u]=%u,%u,%u,%u,%u,%u,%u\n", i, node->hw_model, node->role,
-                node->is_licensed ? 1U : 0U, node->is_unmessagable ? 1U : 0U,
-                node->is_favorite ? 1U : 0U, node->is_ignored ? 1U : 0U, (unsigned)node->channel);
+        mesh_ui_store_write_row_text(file, MESH_UI_STORE_KEY_NODE_USER, i, node->user_id);
+        mesh_ui_store_write_row(file, MESH_UI_STORE_KEY_NODE_IDENT, i, "%u,%u,%u,%u,%u,%u,%u",
+                                node->hw_model, node->role, node->is_licensed ? 1U : 0U,
+                                node->is_unmessagable ? 1U : 0U, node->is_favorite ? 1U : 0U,
+                                node->is_ignored ? 1U : 0U, (unsigned)node->channel);
         /* What the roster knows that the radio did not tell us this run: whether the name is
            real and whether the radio still carried the node. Both are why a restored roster is
            worth more than a re-sync. */
@@ -1097,49 +1080,52 @@ static int mesh_ui_store_save_handshake(FILE *file,
            for the same reason the roster is: the node the radio has evicted is exactly the one
            whose proven key we would otherwise have to establish again, and it is the key an
            add-contact would hand back to the radio. */
-        fprintf(file, "node_state[%u]=%u,%u,%u\n", i, node->has_user ? 1U : 0U,
-                node->in_nodedb ? 1U : 0U, node->key_verified ? 1U : 0U);
+        mesh_ui_store_write_row(file, MESH_UI_STORE_KEY_NODE_STATE, i, "%u,%u,%u",
+                                node->has_user ? 1U : 0U, node->in_nodedb ? 1U : 0U,
+                                node->key_verified ? 1U : 0U);
         if (node->public_key_len > 0U) {
             char pubkey[2U * sizeof node->public_key + 1U];
             mesh_ui_settings_key_hex(node->public_key, node->public_key_len, pubkey, sizeof pubkey);
-            snprintf(key, sizeof key, "node_key[%u]", i);
-            mesh_ui_store_escape_and_write(file, key, pubkey);
+            mesh_ui_store_write_row_text(file, MESH_UI_STORE_KEY_NODE_KEY, i, pubkey);
         }
         /* Its own key rather than a widened node[] line: the loader matches node[] on an exact
            field count, so a build that predates this one would drop the whole node rather than
            the one value it does not know. */
         if (node->has_rssi) {
-            fprintf(file, "node_rssi[%u]=%d\n", i, (int)node->rx_rssi);
+            mesh_ui_store_write_row(file, MESH_UI_STORE_KEY_NODE_RSSI, i, "%d", (int)node->rx_rssi);
         }
         if (node->position.valid) {
             /* `received` is appended last so a cache written by an older build still loads:
                the reader takes seven fields or eight, and a line with seven leaves it 0. */
-            fprintf(file, "node_pos[%u]=%d,%d,%u,%d,%u,%u,%u,%u\n", i, node->position.latitude_i,
-                    node->position.longitude_i, node->position.has_altitude ? 1U : 0U,
-                    node->position.altitude, node->position.time,
-                    (unsigned)node->position.sats_in_view, (unsigned)node->position.precision_bits,
-                    node->position.received);
+            mesh_ui_store_write_row(file, MESH_UI_STORE_KEY_NODE_POS, i, "%d,%d,%u,%d,%u,%u,%u,%u",
+                                    node->position.latitude_i, node->position.longitude_i,
+                                    node->position.has_altitude ? 1U : 0U, node->position.altitude,
+                                    node->position.time, (unsigned)node->position.sats_in_view,
+                                    (unsigned)node->position.precision_bits,
+                                    node->position.received);
         }
         if (node->metrics.valid) {
-            fprintf(file, "node_metrics[%u]=%u,%u,%u,%u,%f,%u,%f,%u,%f,%u,%u\n", i,
-                    node->metrics.time, node->metrics.has_battery ? 1U : 0U,
-                    (unsigned)node->metrics.battery_level, node->metrics.has_voltage ? 1U : 0U,
-                    (double)node->metrics.voltage, node->metrics.has_channel_utilization ? 1U : 0U,
-                    (double)node->metrics.channel_utilization,
-                    node->metrics.has_air_util_tx ? 1U : 0U, (double)node->metrics.air_util_tx,
-                    node->metrics.has_uptime ? 1U : 0U, node->metrics.uptime_seconds);
+            mesh_ui_store_write_row(
+                file, MESH_UI_STORE_KEY_NODE_METRICS, i, "%u,%u,%u,%u,%f,%u,%f,%u,%f,%u,%u",
+                node->metrics.time, node->metrics.has_battery ? 1U : 0U,
+                (unsigned)node->metrics.battery_level, node->metrics.has_voltage ? 1U : 0U,
+                (double)node->metrics.voltage, node->metrics.has_channel_utilization ? 1U : 0U,
+                (double)node->metrics.channel_utilization, node->metrics.has_air_util_tx ? 1U : 0U,
+                (double)node->metrics.air_util_tx, node->metrics.has_uptime ? 1U : 0U,
+                node->metrics.uptime_seconds);
         }
         if (node->environment.valid) {
-            fprintf(file, "node_env[%u]=%u,%u,%f,%u,%f,%u,%f,%u,%u,%u,%f,%u,%f,%u,%f\n", i,
-                    node->environment.time, node->environment.has_temperature ? 1U : 0U,
-                    (double)node->environment.temperature, node->environment.has_humidity ? 1U : 0U,
-                    (double)node->environment.relative_humidity,
-                    node->environment.has_pressure ? 1U : 0U,
-                    (double)node->environment.barometric_pressure,
-                    node->environment.has_iaq ? 1U : 0U, (unsigned)node->environment.iaq,
-                    node->environment.has_lux ? 1U : 0U, (double)node->environment.lux,
-                    node->environment.has_voltage ? 1U : 0U, (double)node->environment.voltage,
-                    node->environment.has_current ? 1U : 0U, (double)node->environment.current);
+            mesh_ui_store_write_row(
+                file, MESH_UI_STORE_KEY_NODE_ENV, i, "%u,%u,%f,%u,%f,%u,%f,%u,%u,%u,%f,%u,%f,%u,%f",
+                node->environment.time, node->environment.has_temperature ? 1U : 0U,
+                (double)node->environment.temperature, node->environment.has_humidity ? 1U : 0U,
+                (double)node->environment.relative_humidity,
+                node->environment.has_pressure ? 1U : 0U,
+                (double)node->environment.barometric_pressure, node->environment.has_iaq ? 1U : 0U,
+                (unsigned)node->environment.iaq, node->environment.has_lux ? 1U : 0U,
+                (double)node->environment.lux, node->environment.has_voltage ? 1U : 0U,
+                (double)node->environment.voltage, node->environment.has_current ? 1U : 0U,
+                (double)node->environment.current);
         }
         /* The four groups beyond device metrics and environment. Each gets its own key for the
            reason the three above do: a cache written by a build that had them is read by one
@@ -1148,52 +1134,57 @@ static int mesh_ui_store_save_handshake(FILE *file,
            with a fixed-field sscanf, and a variable-length list in one would have to be
            re-parsed by hand for a count that upstream can change. */
         if (node->neighbors.valid) {
-            fprintf(file, "node_nbrs[%u]=%u,%u,%u\n", i, node->neighbors.time,
-                    node->neighbors.broadcast_interval_secs, (unsigned)node->neighbors.count);
+            mesh_ui_store_write_row(file, MESH_UI_STORE_KEY_NODE_NBRS, i, "%u,%u,%u",
+                                    node->neighbors.time, node->neighbors.broadcast_interval_secs,
+                                    (unsigned)node->neighbors.count);
             for (uint8_t n = 0; n < node->neighbors.count && n < MESH_UI_MAX_NEIGHBORS; ++n) {
-                fprintf(file, "node_nbr[%u.%u]=%u,%f\n", i, (unsigned)n,
-                        node->neighbors.entries[n].node_id, (double)node->neighbors.entries[n].snr);
+                mesh_ui_store_write_slot(file, MESH_UI_STORE_KEY_NODE_NBR, i, (uint32_t)n, "%u,%f",
+                                         node->neighbors.entries[n].node_id,
+                                         (double)node->neighbors.entries[n].snr);
             }
         }
         if (node->power.valid) {
-            fprintf(file, "node_power[%u]=%u,%u,%f,%u,%f,%u,%f,%u,%f,%u,%f,%u,%f\n", i,
-                    node->power.time, node->power.channel[0].has_voltage ? 1U : 0U,
-                    (double)node->power.channel[0].voltage,
-                    node->power.channel[0].has_current ? 1U : 0U,
-                    (double)node->power.channel[0].current,
-                    node->power.channel[1].has_voltage ? 1U : 0U,
-                    (double)node->power.channel[1].voltage,
-                    node->power.channel[1].has_current ? 1U : 0U,
-                    (double)node->power.channel[1].current,
-                    node->power.channel[2].has_voltage ? 1U : 0U,
-                    (double)node->power.channel[2].voltage,
-                    node->power.channel[2].has_current ? 1U : 0U,
-                    (double)node->power.channel[2].current);
+            mesh_ui_store_write_row(file, MESH_UI_STORE_KEY_NODE_POWER, i,
+                                    "%u,%u,%f,%u,%f,%u,%f,%u,%f,%u,%f,%u,%f", node->power.time,
+                                    node->power.channel[0].has_voltage ? 1U : 0U,
+                                    (double)node->power.channel[0].voltage,
+                                    node->power.channel[0].has_current ? 1U : 0U,
+                                    (double)node->power.channel[0].current,
+                                    node->power.channel[1].has_voltage ? 1U : 0U,
+                                    (double)node->power.channel[1].voltage,
+                                    node->power.channel[1].has_current ? 1U : 0U,
+                                    (double)node->power.channel[1].current,
+                                    node->power.channel[2].has_voltage ? 1U : 0U,
+                                    (double)node->power.channel[2].voltage,
+                                    node->power.channel[2].has_current ? 1U : 0U,
+                                    (double)node->power.channel[2].current);
         }
         if (node->air_quality.valid) {
-            fprintf(file, "node_air[%u]=%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%f,%u,%f\n", i,
-                    node->air_quality.time, node->air_quality.has_pm10 ? 1U : 0U,
-                    (unsigned)node->air_quality.pm10_standard, node->air_quality.has_pm25 ? 1U : 0U,
-                    (unsigned)node->air_quality.pm25_standard,
-                    node->air_quality.has_pm100 ? 1U : 0U,
-                    (unsigned)node->air_quality.pm100_standard, node->air_quality.has_co2 ? 1U : 0U,
-                    (unsigned)node->air_quality.co2, node->air_quality.has_voc_index ? 1U : 0U,
-                    (double)node->air_quality.voc_index, node->air_quality.has_nox_index ? 1U : 0U,
-                    (double)node->air_quality.nox_index);
+            mesh_ui_store_write_row(
+                file, MESH_UI_STORE_KEY_NODE_AIR, i, "%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%f,%u,%f",
+                node->air_quality.time, node->air_quality.has_pm10 ? 1U : 0U,
+                (unsigned)node->air_quality.pm10_standard, node->air_quality.has_pm25 ? 1U : 0U,
+                (unsigned)node->air_quality.pm25_standard, node->air_quality.has_pm100 ? 1U : 0U,
+                (unsigned)node->air_quality.pm100_standard, node->air_quality.has_co2 ? 1U : 0U,
+                (unsigned)node->air_quality.co2, node->air_quality.has_voc_index ? 1U : 0U,
+                (double)node->air_quality.voc_index, node->air_quality.has_nox_index ? 1U : 0U,
+                (double)node->air_quality.nox_index);
         }
         if (node->health.valid) {
-            fprintf(file, "node_health[%u]=%u,%u,%u,%u,%u,%u,%f\n", i, node->health.time,
-                    node->health.has_heart_bpm ? 1U : 0U, (unsigned)node->health.heart_bpm,
-                    node->health.has_spo2 ? 1U : 0U, (unsigned)node->health.spo2,
-                    node->health.has_temperature ? 1U : 0U, (double)node->health.temperature);
+            mesh_ui_store_write_row(
+                file, MESH_UI_STORE_KEY_NODE_HEALTH, i, "%u,%u,%u,%u,%u,%u,%f", node->health.time,
+                node->health.has_heart_bpm ? 1U : 0U, (unsigned)node->health.heart_bpm,
+                node->health.has_spo2 ? 1U : 0U, (unsigned)node->health.spo2,
+                node->health.has_temperature ? 1U : 0U, (double)node->health.temperature);
         }
         if (node->host.valid) {
-            fprintf(file, "node_host[%u]=%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u\n", i, node->host.time,
-                    node->host.has_uptime ? 1U : 0U, node->host.uptime_seconds,
-                    node->host.has_freemem ? 1U : 0U, node->host.freemem_kib,
-                    node->host.has_diskfree ? 1U : 0U, node->host.diskfree_mib,
-                    node->host.has_load ? 1U : 0U, node->host.load1, node->host.load5,
-                    node->host.load15);
+            mesh_ui_store_write_row(file, MESH_UI_STORE_KEY_NODE_HOST, i,
+                                    "%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u", node->host.time,
+                                    node->host.has_uptime ? 1U : 0U, node->host.uptime_seconds,
+                                    node->host.has_freemem ? 1U : 0U, node->host.freemem_kib,
+                                    node->host.has_diskfree ? 1U : 0U, node->host.diskfree_mib,
+                                    node->host.has_load ? 1U : 0U, node->host.load1,
+                                    node->host.load5, node->host.load15);
         }
     }
 
@@ -1225,12 +1216,14 @@ static void mesh_ui_store_save_messages(FILE *file, const struct mesh_ui_message
         return;
     }
 
-    fprintf(file, "messages=%u,%u\n", messages->count, messages->dropped);
+    mesh_ui_store_write(file, MESH_UI_STORE_KEY_MESSAGES, "%u,%u", messages->count,
+                        messages->dropped);
     for (uint32_t i = 0; i < messages->count && i < MESH_UI_MAX_MESSAGES; ++i) {
         const struct mesh_ui_message *message = &messages->entries[i];
-        fprintf(file, "msg[%u]=%u,%u,%u,%u,%u,%u,%u\n", i, message->packet_id, message->peer,
-                message->rx_time, (unsigned)message->channel, (unsigned)message->direction,
-                (unsigned)message->ack, message->broadcast ? 1U : 0U);
+        mesh_ui_store_write_row(file, MESH_UI_STORE_KEY_MSG, i, "%u,%u,%u,%u,%u,%u,%u",
+                                message->packet_id, message->peer, message->rx_time,
+                                (unsigned)message->channel, (unsigned)message->direction,
+                                (unsigned)message->ack, message->broadcast ? 1U : 0U);
 
         /* What the message *is*, as opposed to where it came from. On its own key rather than
            widened onto msg[] for the reason the node detail's groups are: the loader matches
@@ -1240,18 +1233,12 @@ static void mesh_ui_store_save_messages(FILE *file, const struct mesh_ui_message
            Losing this line is not cosmetic. A reaction reloaded without `is_reaction` is a
            bubble containing a bare emoji that also bumps the unread count - which is precisely
            the behaviour reading Data.emoji was meant to end, returning at every restart. */
-        char key_meta[32];
-        snprintf(key_meta, sizeof key_meta, "msg_meta[%u]", i);
-        fprintf(file, "%s=%u,%u,%u,%u\n", key_meta, (unsigned)message->kind,
-                message->pki_encrypted ? 1U : 0U, message->reply_id,
-                message->is_reaction ? 1U : 0U);
+        mesh_ui_store_write_row(file, MESH_UI_STORE_KEY_MSG_META, i, "%u,%u,%u,%u",
+                                (unsigned)message->kind, message->pki_encrypted ? 1U : 0U,
+                                message->reply_id, message->is_reaction ? 1U : 0U);
 
-        char key_name[32];
-        char key_text[32];
-        snprintf(key_name, sizeof key_name, "msg_name[%u]", i);
-        snprintf(key_text, sizeof key_text, "msg_text[%u]", i);
-        mesh_ui_store_escape_and_write(file, key_name, message->peer_name);
-        mesh_ui_store_escape_and_write(file, key_text, message->text);
+        mesh_ui_store_write_row_text(file, MESH_UI_STORE_KEY_MSG_NAME, i, message->peer_name);
+        mesh_ui_store_write_row_text(file, MESH_UI_STORE_KEY_MSG_TEXT, i, message->text);
     }
 }
 
@@ -1265,11 +1252,12 @@ static void mesh_ui_store_save_read_state(FILE *file, const struct mesh_ui_read_
     if (file == NULL || state == NULL) {
         return;
     }
-    fprintf(file, "read_marks=%u\n", state->count);
+    mesh_ui_store_write(file, MESH_UI_STORE_KEY_READ_MARKS, "%u", state->count);
     for (uint32_t i = 0; i < state->count && i < MESH_UI_READ_MARKS_MAX; ++i) {
         const struct mesh_ui_read_mark *mark = &state->marks[i];
-        fprintf(file, "read[%u]=%u,%u,%u,%u,%u\n", i, (unsigned)mark->kind, (unsigned)mark->channel,
-                mark->node, mark->packet_id, mark->muted ? 1U : 0U);
+        mesh_ui_store_write_row(file, MESH_UI_STORE_KEY_READ, i, "%u,%u,%u,%u,%u",
+                                (unsigned)mark->kind, (unsigned)mark->channel, mark->node,
+                                mark->packet_id, mark->muted ? 1U : 0U);
     }
 }
 
@@ -1290,11 +1278,12 @@ static void mesh_ui_store_save_history(FILE *file, const struct mesh_ui_history 
         return;
     }
     const uint32_t count = mesh_ui_history_airtime_count(history);
-    fprintf(file, "airtime=%u\n", count);
+    mesh_ui_store_write(file, MESH_UI_STORE_KEY_AIRTIME_COUNT, "%u", count);
     for (uint32_t i = 0U; i < count; ++i) {
         const struct mesh_ui_airtime_sample *sample = mesh_ui_history_airtime_at(history, i);
-        fprintf(file, "airtime[%u]=%u,%d,%d,%u\n", i, newest->time - sample->time,
-                (int)sample->utilization, (int)sample->tx, sample->gap ? 1U : 0U);
+        mesh_ui_store_write_row(file, MESH_UI_STORE_KEY_AIRTIME, i, "%u,%d,%d,%u",
+                                newest->time - sample->time, (int)sample->utilization,
+                                (int)sample->tx, sample->gap ? 1U : 0U);
     }
 }
 
@@ -1308,7 +1297,8 @@ int mesh_ui_store_save(const struct mesh_ui_store *store, const char *path) {
         return -errno;
     }
 
-    fprintf(file, "handshake_valid=%u\n", store->handshake_valid ? 1U : 0U);
+    mesh_ui_store_write(file, MESH_UI_STORE_KEY_HANDSHAKE_VALID, "%u",
+                        store->handshake_valid ? 1U : 0U);
     if (store->handshake_valid) {
         mesh_ui_store_save_handshake(file, &store->handshake);
     }
@@ -1377,16 +1367,31 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
         char *value = equals + 1;
         mesh_ui_store_unescape_value(value);
 
-        if (strcmp(key, "handshake_valid") == 0) {
+        /*
+         * One key, looked up in the table both halves of the format share.
+         *
+         * The switch has no `default`, deliberately: a key added to store_keys.def and
+         * never read is then a -Wswitch on this function rather than a line that goes out
+         * every save and comes back as nothing. The two that are genuinely write-only say
+         * so at the bottom.
+         */
+        uint32_t index = 0U;
+        uint32_t sub = 0U;
+        switch (mesh_ui_store_key_lookup(key, &index, &sub)) {
+        case MESH_UI_STORE_KEY_HANDSHAKE_VALID: {
             handshake_valid = (strtoul(value, NULL, 10) != 0U);
-        } else if (strcmp(key, "handshake_request") == 0) {
+            break;
+        }
+        case MESH_UI_STORE_KEY_HANDSHAKE_REQUEST: {
             unsigned int inflight = 0U;
             unsigned int request_id = 0U;
             if (sscanf(value, "%u,%u", &inflight, &request_id) == 2) {
                 handshake.request_in_flight = (inflight != 0U);
                 handshake.request_id = request_id;
             }
-        } else if (strcmp(key, "handshake_config") == 0) {
+            break;
+        }
+        case MESH_UI_STORE_KEY_HANDSHAKE_CONFIG: {
             unsigned int complete = 0U;
             unsigned int config_id = 0U;
             unsigned int has_config = 0U;
@@ -1395,7 +1400,9 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
                 handshake.config_complete_id = config_id;
                 handshake.has_config = (has_config != 0U);
             }
-        } else if (strcmp(key, "handshake_mynode") == 0) {
+            break;
+        }
+        case MESH_UI_STORE_KEY_HANDSHAKE_MYNODE: {
             unsigned int has_my_info = 0U;
             unsigned int node_num = 0U;
             unsigned int nodedb = 0U;
@@ -1407,27 +1414,40 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
                 handshake.my_info.nodedb_entries = nodedb;
                 handshake.my_info.reboot_count = reboot_count;
             }
-        } else if (strcmp(key, "handshake_channel") == 0) {
+            break;
+        }
+        case MESH_UI_STORE_KEY_HANDSHAKE_CHANNEL: {
             snprintf(handshake.primary_channel, sizeof(handshake.primary_channel), "%s", value);
-        } else if (strcmp(key, "handshake_my_short") == 0) {
+            break;
+        }
+        case MESH_UI_STORE_KEY_HANDSHAKE_MY_SHORT: {
             snprintf(handshake.my_short_name, sizeof(handshake.my_short_name), "%s", value);
-        } else if (strcmp(key, "handshake_nodes") == 0) {
+            break;
+        }
+        case MESH_UI_STORE_KEY_HANDSHAKE_NODES: {
             nodes_expected = (uint32_t)strtoul(value, NULL, 10);
             nodes_expected_set = true;
-        } else if (strcmp(key, "handshake_roster") == 0) {
+            break;
+        }
+        case MESH_UI_STORE_KEY_HANDSHAKE_ROSTER: {
             handshake.roster_owner = (uint32_t)strtoul(value, NULL, 10);
-        } else if (strcmp(key, "handshake_cached") == 0) {
+            break;
+        }
+        case MESH_UI_STORE_KEY_HANDSHAKE_CACHED: {
             handshake.cached = (strtoul(value, NULL, 10) != 0U);
-        } else if (strcmp(key, "handshake_channels") == 0) {
+            break;
+        }
+        case MESH_UI_STORE_KEY_HANDSHAKE_CHANNELS: {
             uint32_t count = (uint32_t)strtoul(value, NULL, 10);
             handshake.channel_count = count > MESH_UI_MAX_CHANNELS ? MESH_UI_MAX_CHANNELS : count;
-        } else if (strncmp(key, "airtime[", 8) == 0) {
-            unsigned int index = 0U;
+            break;
+        }
+        case MESH_UI_STORE_KEY_AIRTIME: {
             unsigned int age = 0U;
             int utilization = 0;
             int tx = 0;
             unsigned int gap = 0U;
-            if (sscanf(key, "airtime[%u]", &index) == 1 && index < MESH_UI_HISTORY_AIRTIME_MAX &&
+            if (index < MESH_UI_HISTORY_AIRTIME_MAX &&
                 sscanf(value, "%u,%d,%d,%u", &age, &utilization, &tx, &gap) == 4) {
                 airtime[index].age_ms = age;
                 airtime[index].utilization = utilization;
@@ -1437,66 +1457,70 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
                     airtime_loaded = index + 1U;
                 }
             }
-        } else if (strncmp(key, "channel[", 8) == 0) {
-            unsigned int index = 0U;
+            break;
+        }
+        case MESH_UI_STORE_KEY_CHANNEL: {
             unsigned int slot = 0U;
             unsigned int role = 0U;
-            if (sscanf(key, "channel[%u]", &index) == 1 && index < MESH_UI_MAX_CHANNELS &&
-                sscanf(value, "%u,%u", &slot, &role) == 2) {
+            if (index < MESH_UI_MAX_CHANNELS && sscanf(value, "%u,%u", &slot, &role) == 2) {
                 handshake.channels[index].index = (uint8_t)slot;
                 handshake.channels[index].role = (uint8_t)role;
             }
-        } else if (strncmp(key, "channel_name[", 13) == 0) {
-            unsigned int index = 0U;
-            if (sscanf(key, "channel_name[%u]", &index) == 1 && index < MESH_UI_MAX_CHANNELS) {
+            break;
+        }
+        case MESH_UI_STORE_KEY_CHANNEL_NAME: {
+            if (index < MESH_UI_MAX_CHANNELS) {
                 snprintf(handshake.channels[index].name, sizeof(handshake.channels[index].name),
                          "%s", value);
             }
-        } else if (strncmp(key, "node[", 5) == 0) {
-            unsigned int index = 0U;
-            if (sscanf(key, "node[%u]", &index) == 1) {
-                uint32_t node_id = 0U;
-                uint32_t last_heard = 0U;
-                unsigned int has_hops = 0U;
-                double snr = 0.0;
-                unsigned int via_mqtt = 0U;
-                unsigned int hops = 0U;
-                if (sscanf(value, "%u,%u,%u,%lf,%u,%u", &node_id, &last_heard, &has_hops, &snr,
-                           &via_mqtt, &hops) == 6) {
-                    if (index < MESH_UI_MAX_HANDSHAKE_NODES) {
-                        struct mesh_ui_node_summary *node = &handshake.nodes[index];
-                        node->node_id = node_id;
-                        node->last_heard = last_heard;
-                        node->has_hops_away = (has_hops != 0U);
-                        node->snr = (float)snr;
-                        node->via_mqtt = (via_mqtt != 0U);
-                        node->hops_away = (uint8_t)hops;
-                        if ((uint32_t)(index + 1U) > nodes_loaded) {
-                            nodes_loaded = index + 1U;
-                        }
+            break;
+        }
+        case MESH_UI_STORE_KEY_NODE: {
+            uint32_t node_id = 0U;
+            uint32_t last_heard = 0U;
+            unsigned int has_hops = 0U;
+            double snr = 0.0;
+            unsigned int via_mqtt = 0U;
+            unsigned int hops = 0U;
+            if (sscanf(value, "%u,%u,%u,%lf,%u,%u", &node_id, &last_heard, &has_hops, &snr,
+                       &via_mqtt, &hops) == 6) {
+                if (index < MESH_UI_MAX_HANDSHAKE_NODES) {
+                    struct mesh_ui_node_summary *node = &handshake.nodes[index];
+                    node->node_id = node_id;
+                    node->last_heard = last_heard;
+                    node->has_hops_away = (has_hops != 0U);
+                    node->snr = (float)snr;
+                    node->via_mqtt = (via_mqtt != 0U);
+                    node->hops_away = (uint8_t)hops;
+                    if ((uint32_t)(index + 1U) > nodes_loaded) {
+                        nodes_loaded = index + 1U;
                     }
                 }
             }
-        } else if (strncmp(key, "node_long[", 10) == 0) {
-            unsigned int index = 0U;
-            if (sscanf(key, "node_long[%u]", &index) == 1 && index < MESH_UI_MAX_HANDSHAKE_NODES) {
+            break;
+        }
+        case MESH_UI_STORE_KEY_NODE_LONG: {
+            if (index < MESH_UI_MAX_HANDSHAKE_NODES) {
                 snprintf(handshake.nodes[index].long_name, sizeof(handshake.nodes[index].long_name),
                          "%s", value);
             }
-        } else if (strncmp(key, "node_short[", 11) == 0) {
-            unsigned int index = 0U;
-            if (sscanf(key, "node_short[%u]", &index) == 1 && index < MESH_UI_MAX_HANDSHAKE_NODES) {
+            break;
+        }
+        case MESH_UI_STORE_KEY_NODE_SHORT: {
+            if (index < MESH_UI_MAX_HANDSHAKE_NODES) {
                 snprintf(handshake.nodes[index].short_name,
                          sizeof(handshake.nodes[index].short_name), "%s", value);
             }
-        } else if (strncmp(key, "node_user[", 10) == 0) {
-            unsigned int index = 0U;
-            if (sscanf(key, "node_user[%u]", &index) == 1 && index < MESH_UI_MAX_HANDSHAKE_NODES) {
+            break;
+        }
+        case MESH_UI_STORE_KEY_NODE_USER: {
+            if (index < MESH_UI_MAX_HANDSHAKE_NODES) {
                 snprintf(handshake.nodes[index].user_id, sizeof(handshake.nodes[index].user_id),
                          "%s", value);
             }
-        } else if (strncmp(key, "node_ident[", 11) == 0) {
-            unsigned int index = 0U;
+            break;
+        }
+        case MESH_UI_STORE_KEY_NODE_IDENT: {
             unsigned int hw = 0U;
             unsigned int role = 0U;
             unsigned int licensed = 0U;
@@ -1504,7 +1528,7 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
             unsigned int favorite = 0U;
             unsigned int ignored = 0U;
             unsigned int channel = 0U;
-            if (sscanf(key, "node_ident[%u]", &index) == 1 && index < MESH_UI_MAX_HANDSHAKE_NODES &&
+            if (index < MESH_UI_MAX_HANDSHAKE_NODES &&
                 sscanf(value, "%u,%u,%u,%u,%u,%u,%u", &hw, &role, &licensed, &unmessagable,
                        &favorite, &ignored, &channel) == 7) {
                 struct mesh_ui_node_summary *node = &handshake.nodes[index];
@@ -1516,22 +1540,24 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
                 node->is_ignored = (ignored != 0U);
                 node->channel = (uint8_t)channel;
             }
-        } else if (strncmp(key, "node_state[", 11) == 0) {
-            unsigned int index = 0U;
+            break;
+        }
+        case MESH_UI_STORE_KEY_NODE_STATE: {
             unsigned int has_user = 0U;
             unsigned int in_nodedb = 0U;
             unsigned int verified = 0U;
             /* Two fields or three: a cache from before the verified bit existed leaves it 0,
                which is what an unverified key reads as anyway. */
-            if (sscanf(key, "node_state[%u]", &index) == 1 && index < MESH_UI_MAX_HANDSHAKE_NODES &&
+            if (index < MESH_UI_MAX_HANDSHAKE_NODES &&
                 sscanf(value, "%u,%u,%u", &has_user, &in_nodedb, &verified) >= 2) {
                 handshake.nodes[index].has_user = (has_user != 0U);
                 handshake.nodes[index].in_nodedb = (in_nodedb != 0U);
                 handshake.nodes[index].key_verified = (verified != 0U);
             }
-        } else if (strncmp(key, "node_key[", 9) == 0) {
-            unsigned int index = 0U;
-            if (sscanf(key, "node_key[%u]", &index) == 1 && index < MESH_UI_MAX_HANDSHAKE_NODES) {
+            break;
+        }
+        case MESH_UI_STORE_KEY_NODE_KEY: {
+            if (index < MESH_UI_MAX_HANDSHAKE_NODES) {
                 struct mesh_ui_node_summary *node = &handshake.nodes[index];
                 size_t len = 0U;
                 if (mesh_ui_settings_key_parse(value, node->public_key, sizeof node->public_key,
@@ -1539,12 +1565,13 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
                     node->public_key_len = (uint8_t)len;
                 }
             }
-        } else if (strncmp(key, "node_nbrs[", 10) == 0) {
-            unsigned int index = 0U;
+            break;
+        }
+        case MESH_UI_STORE_KEY_NODE_NBRS: {
             unsigned int stamp = 0U;
             unsigned int interval = 0U;
             unsigned int count = 0U;
-            if (sscanf(key, "node_nbrs[%u]", &index) == 1 && index < MESH_UI_MAX_HANDSHAKE_NODES &&
+            if (index < MESH_UI_MAX_HANDSHAKE_NODES &&
                 sscanf(value, "%u,%u,%u", &stamp, &interval, &count) == 3) {
                 struct mesh_ui_node_neighbors *nbrs = &handshake.nodes[index].neighbors;
                 nbrs->valid = true;
@@ -1554,13 +1581,12 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
                    or hand-edited file cannot leave the list claiming rows that are not there. */
                 nbrs->count = 0U;
             }
-        } else if (strncmp(key, "node_nbr[", 9) == 0) {
-            unsigned int index = 0U;
-            unsigned int slot = 0U;
+            break;
+        }
+        case MESH_UI_STORE_KEY_NODE_NBR: {
             unsigned int node_id = 0U;
             double snr = 0.0;
-            if (sscanf(key, "node_nbr[%u.%u]", &index, &slot) == 2 &&
-                index < MESH_UI_MAX_HANDSHAKE_NODES && slot < MESH_UI_MAX_NEIGHBORS &&
+            if (index < MESH_UI_MAX_HANDSHAKE_NODES && sub < MESH_UI_MAX_NEIGHBORS &&
                 sscanf(value, "%u,%lf", &node_id, &snr) == 2 && node_id != 0U) {
                 struct mesh_ui_node_neighbors *nbrs = &handshake.nodes[index].neighbors;
                 /* Only ever appended, and only for a list the node_nbrs line already opened:
@@ -1571,21 +1597,22 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
                     nbrs->count++;
                 }
             }
-        } else if (strncmp(key, "node_rssi[", 10) == 0) {
-            unsigned int index = 0U;
+            break;
+        }
+        case MESH_UI_STORE_KEY_NODE_RSSI: {
             int rssi = 0;
             unsigned int stamp = 0U;
             /* The stamp joined this line after the reading did, so `>= 1` rather than `== 2`:
                a cache written without it still loads, and an unstamped reading reads as
                current - which is exactly what it was before the stamp existed. */
-            if (sscanf(key, "node_rssi[%u]", &index) == 1 && index < MESH_UI_MAX_HANDSHAKE_NODES &&
-                sscanf(value, "%d,%u", &rssi, &stamp) >= 1) {
+            if (index < MESH_UI_MAX_HANDSHAKE_NODES && sscanf(value, "%d,%u", &rssi, &stamp) >= 1) {
                 handshake.nodes[index].has_rssi = true;
                 handshake.nodes[index].rx_rssi = (int16_t)rssi;
                 handshake.nodes[index].rssi_time = stamp;
             }
-        } else if (strncmp(key, "node_pos[", 9) == 0) {
-            unsigned int index = 0U;
+            break;
+        }
+        case MESH_UI_STORE_KEY_NODE_POS: {
             /*
              * The coordinates are read wide, and that is not a style choice. `%d` on text that
              * overflows an `int` is undefined, and glibc's answer for "4294967296" is 0 - so
@@ -1604,7 +1631,7 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
             unsigned int received = 0U;
             /* Seven fields or eight: a cache written before `received` existed still loads,
                and its fixes simply have no arrival time to fall back on. */
-            if (sscanf(key, "node_pos[%u]", &index) == 1 && index < MESH_UI_MAX_HANDSHAKE_NODES &&
+            if (index < MESH_UI_MAX_HANDSHAKE_NODES &&
                 sscanf(value, "%lld,%lld,%u,%d,%u,%u,%u,%u", &latitude, &longitude, &has_altitude,
                        &altitude, &stamp, &sats, &precision, &received) >= 7 &&
                 latitude >= INT32_MIN && latitude <= INT32_MAX && longitude >= INT32_MIN &&
@@ -1624,8 +1651,9 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
                 position->sats_in_view = (uint8_t)sats;
                 position->precision_bits = (uint8_t)precision;
             }
-        } else if (strncmp(key, "node_metrics[", 13) == 0) {
-            unsigned int index = 0U;
+            break;
+        }
+        case MESH_UI_STORE_KEY_NODE_METRICS: {
             unsigned int stamp = 0U;
             unsigned int has_battery = 0U;
             unsigned int battery = 0U;
@@ -1637,8 +1665,7 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
             double air_util = 0.0;
             unsigned int has_uptime = 0U;
             unsigned int uptime = 0U;
-            if (sscanf(key, "node_metrics[%u]", &index) == 1 &&
-                index < MESH_UI_MAX_HANDSHAKE_NODES &&
+            if (index < MESH_UI_MAX_HANDSHAKE_NODES &&
                 sscanf(value, "%u,%u,%u,%u,%lf,%u,%lf,%u,%lf,%u,%u", &stamp, &has_battery, &battery,
                        &has_voltage, &voltage, &has_channel, &channel_util, &has_air, &air_util,
                        &has_uptime, &uptime) == 11) {
@@ -1656,8 +1683,9 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
                 metrics->has_uptime = (has_uptime != 0U);
                 metrics->uptime_seconds = uptime;
             }
-        } else if (strncmp(key, "node_env[", 9) == 0) {
-            unsigned int index = 0U;
+            break;
+        }
+        case MESH_UI_STORE_KEY_NODE_ENV: {
             unsigned int stamp = 0U;
             unsigned int has_temperature = 0U;
             double temperature = 0.0;
@@ -1673,7 +1701,7 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
             double voltage = 0.0;
             unsigned int has_current = 0U;
             double current = 0.0;
-            if (sscanf(key, "node_env[%u]", &index) == 1 && index < MESH_UI_MAX_HANDSHAKE_NODES &&
+            if (index < MESH_UI_MAX_HANDSHAKE_NODES &&
                 sscanf(value, "%u,%u,%lf,%u,%lf,%u,%lf,%u,%u,%u,%lf,%u,%lf,%u,%lf", &stamp,
                        &has_temperature, &temperature, &has_humidity, &humidity, &has_pressure,
                        &pressure, &has_iaq, &iaq, &has_lux, &lux, &has_voltage, &voltage,
@@ -1696,14 +1724,15 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
                 env->has_current = (has_current != 0U);
                 env->current = (float)current;
             }
-        } else if (strncmp(key, "node_power[", 11) == 0) {
-            unsigned int index = 0U;
+            break;
+        }
+        case MESH_UI_STORE_KEY_NODE_POWER: {
             unsigned int stamp = 0U;
             unsigned int has_v[3] = {0U, 0U, 0U};
             double v[3] = {0.0, 0.0, 0.0};
             unsigned int has_i[3] = {0U, 0U, 0U};
             double amps[3] = {0.0, 0.0, 0.0};
-            if (sscanf(key, "node_power[%u]", &index) == 1 && index < MESH_UI_MAX_HANDSHAKE_NODES &&
+            if (index < MESH_UI_MAX_HANDSHAKE_NODES &&
                 sscanf(value, "%u,%u,%lf,%u,%lf,%u,%lf,%u,%lf,%u,%lf,%u,%lf", &stamp, &has_v[0],
                        &v[0], &has_i[0], &amps[0], &has_v[1], &v[1], &has_i[1], &amps[1], &has_v[2],
                        &v[2], &has_i[2], &amps[2]) == 13) {
@@ -1717,8 +1746,9 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
                     power->channel[ch].current = (float)amps[ch];
                 }
             }
-        } else if (strncmp(key, "node_air[", 9) == 0) {
-            unsigned int index = 0U;
+            break;
+        }
+        case MESH_UI_STORE_KEY_NODE_AIR: {
             unsigned int stamp = 0U;
             unsigned int has_pm10 = 0U;
             unsigned int pm10 = 0U;
@@ -1732,7 +1762,7 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
             double voc = 0.0;
             unsigned int has_nox = 0U;
             double nox = 0.0;
-            if (sscanf(key, "node_air[%u]", &index) == 1 && index < MESH_UI_MAX_HANDSHAKE_NODES &&
+            if (index < MESH_UI_MAX_HANDSHAKE_NODES &&
                 sscanf(value, "%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%lf,%u,%lf", &stamp, &has_pm10, &pm10,
                        &has_pm25, &pm25, &has_pm100, &pm100, &has_co2, &co2, &has_voc, &voc,
                        &has_nox, &nox) == 13) {
@@ -1752,8 +1782,9 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
                 air->has_nox_index = (has_nox != 0U);
                 air->nox_index = (float)nox;
             }
-        } else if (strncmp(key, "node_health[", 12) == 0) {
-            unsigned int index = 0U;
+            break;
+        }
+        case MESH_UI_STORE_KEY_NODE_HEALTH: {
             unsigned int stamp = 0U;
             unsigned int has_bpm = 0U;
             unsigned int bpm = 0U;
@@ -1761,8 +1792,7 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
             unsigned int spo2 = 0U;
             unsigned int has_temperature = 0U;
             double temperature = 0.0;
-            if (sscanf(key, "node_health[%u]", &index) == 1 &&
-                index < MESH_UI_MAX_HANDSHAKE_NODES &&
+            if (index < MESH_UI_MAX_HANDSHAKE_NODES &&
                 sscanf(value, "%u,%u,%u,%u,%u,%u,%lf", &stamp, &has_bpm, &bpm, &has_spo2, &spo2,
                        &has_temperature, &temperature) == 7) {
                 struct mesh_ui_node_health *health = &handshake.nodes[index].health;
@@ -1775,8 +1805,9 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
                 health->has_temperature = (has_temperature != 0U);
                 health->temperature = (float)temperature;
             }
-        } else if (strncmp(key, "node_host[", 10) == 0) {
-            unsigned int index = 0U;
+            break;
+        }
+        case MESH_UI_STORE_KEY_NODE_HOST: {
             unsigned int stamp = 0U;
             unsigned int has_uptime = 0U;
             unsigned int uptime = 0U;
@@ -1788,7 +1819,7 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
             unsigned int load1 = 0U;
             unsigned int load5 = 0U;
             unsigned int load15 = 0U;
-            if (sscanf(key, "node_host[%u]", &index) == 1 && index < MESH_UI_MAX_HANDSHAKE_NODES &&
+            if (index < MESH_UI_MAX_HANDSHAKE_NODES &&
                 sscanf(value, "%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u", &stamp, &has_uptime, &uptime,
                        &has_freemem, &freemem, &has_diskfree, &diskfree, &has_load, &load1, &load5,
                        &load15) == 11) {
@@ -1806,7 +1837,9 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
                 host->load5 = load5;
                 host->load15 = load15;
             }
-        } else if (strcmp(key, "messages") == 0) {
+            break;
+        }
+        case MESH_UI_STORE_KEY_MESSAGES: {
             unsigned int count = 0U;
             unsigned int dropped = 0U;
             if (sscanf(value, "%u,%u", &count, &dropped) == 2) {
@@ -1814,9 +1847,10 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
                 messages_expected_set = true;
                 messages.dropped = dropped;
             }
-        } else if (strncmp(key, "msg[", 4) == 0) {
-            unsigned int index = 0U;
-            if (sscanf(key, "msg[%u]", &index) == 1 && index < MESH_UI_MAX_MESSAGES) {
+            break;
+        }
+        case MESH_UI_STORE_KEY_MSG: {
+            if (index < MESH_UI_MAX_MESSAGES) {
                 unsigned int packet_id = 0U;
                 unsigned int peer = 0U;
                 unsigned int rx_time = 0U;
@@ -1839,13 +1873,14 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
                     }
                 }
             }
-        } else if (strncmp(key, "msg_meta[", 9) == 0) {
-            unsigned int index = 0U;
+            break;
+        }
+        case MESH_UI_STORE_KEY_MSG_META: {
             unsigned int kind = 0U;
             unsigned int pki = 0U;
             unsigned int reply_id = 0U;
             unsigned int is_reaction = 0U;
-            if (sscanf(key, "msg_meta[%u]", &index) == 1 && index < MESH_UI_MAX_MESSAGES &&
+            if (index < MESH_UI_MAX_MESSAGES &&
                 sscanf(value, "%u,%u,%u,%u", &kind, &pki, &reply_id, &is_reaction) == 4) {
                 struct mesh_ui_message *message = &messages.entries[index];
                 message->kind = (uint8_t)kind;
@@ -1853,21 +1888,24 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
                 message->reply_id = reply_id;
                 message->is_reaction = (is_reaction != 0U);
             }
-        } else if (strncmp(key, "msg_name[", 9) == 0) {
-            unsigned int index = 0U;
-            if (sscanf(key, "msg_name[%u]", &index) == 1 && index < MESH_UI_MAX_MESSAGES) {
+            break;
+        }
+        case MESH_UI_STORE_KEY_MSG_NAME: {
+            if (index < MESH_UI_MAX_MESSAGES) {
                 snprintf(messages.entries[index].peer_name,
                          sizeof(messages.entries[index].peer_name), "%s", value);
             }
-        } else if (strncmp(key, "msg_text[", 9) == 0) {
-            unsigned int index = 0U;
-            if (sscanf(key, "msg_text[%u]", &index) == 1 && index < MESH_UI_MAX_MESSAGES) {
+            break;
+        }
+        case MESH_UI_STORE_KEY_MSG_TEXT: {
+            if (index < MESH_UI_MAX_MESSAGES) {
                 snprintf(messages.entries[index].text, sizeof(messages.entries[index].text), "%s",
                          value);
             }
-        } else if (strncmp(key, "read[", 5) == 0) {
-            unsigned int index = 0U;
-            if (sscanf(key, "read[%u]", &index) == 1 && index < MESH_UI_READ_MARKS_MAX) {
+            break;
+        }
+        case MESH_UI_STORE_KEY_READ: {
+            if (index < MESH_UI_READ_MARKS_MAX) {
                 unsigned int kind = 0U;
                 unsigned int channel = 0U;
                 unsigned int node = 0U;
@@ -1892,6 +1930,19 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
                     }
                 }
             }
+            break;
+        }
+
+        /* Written every save and read by nobody, on purpose: both are counts, and the
+           loader re-derives each from the rows that actually load so a truncated or
+           hand-edited file cannot leave a list claiming rows that are not there. */
+        case MESH_UI_STORE_KEY_READ_MARKS:
+        case MESH_UI_STORE_KEY_AIRTIME_COUNT:
+        /* A line this build has no key for: a cache from a newer client, or one edited by
+           hand. Skipped, which is what makes the format forward-compatible. */
+        case MESH_UI_STORE_KEY_NONE:
+        case MESH_UI_STORE_KEY_COUNT:
+            break;
         }
     }
 

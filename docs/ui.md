@@ -620,6 +620,17 @@ name is either the node's own or derived from its number, and the node is either
 still has or one only we remember. The detail says so in two rows, because both change what a
 message to that node will do.
 
+Every key in that file — these and the message, read-mark and airtime lines beside them — is one
+row of [`include/mesh/ui/store_keys.def`](../include/mesh/ui/store_keys.def), and both halves of
+the format read it: `mesh_ui_store_save()` spells its keys through the table's writers and
+`mesh_ui_store_load()` switches on `mesh_ui_store_key_lookup()`. Adding a key is a row there, a
+writer call and a case in that switch — and the switch has no `default`, so leaving the case out
+is a `-Wswitch` rather than a line that goes out every save and comes back as nothing. The
+`ui_store_cache_keys_round_trip` test then holds every row to being written *and* read, by saving
+a fully populated store, reloading it, saving again and comparing the bytes. Two keys are
+deliberately write-only — `read_marks` and `airtime` are counts the loader re-derives from the
+rows that actually load — and the loader carries a case for each saying so.
+
 ### Status — cards
 
 The Status tab used to be eighteen label/value lines in one column on the bare ground, with a

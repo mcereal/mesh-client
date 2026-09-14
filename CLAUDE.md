@@ -145,8 +145,9 @@ These are authoring rules - breaking one compiles and looks fine.
 - **fb layout is measured in cells, not bytes.** A `strlen` or `%-Ns` there is a bug.
 - **A setting explains itself through `src/ui/help.c`**, keyed per section (and per route for
   screens that are not lists of fields), never as a sentence on a screen.
-- **Adding a string, icon or theme is adding a table row** - `catalog.def`, `icons.def`,
-  `theme.c`. Neither `.def` is a header and `make format` does not touch them.
+- **Adding a string, icon, theme or cache key is adding a table row** - `catalog.def`,
+  `icons.def`, `theme.c`, `store_keys.def`. A `.def` is not a header and `make format` does not
+  touch them.
 
 ## Before you change something
 
