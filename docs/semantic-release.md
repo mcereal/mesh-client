@@ -152,7 +152,7 @@ branch from exactly one place - `env-ci` reads `GITHUB_REF` and nothing else - s
 step overrides `GITHUB_REF` to `refs/heads/beta`. Without it a prerelease dispatched on `main`
 would be read as a *stable* release of `main` and would publish one.
 
-Two details make that safe rather than clever:
+Three details make that safe rather than clever:
 
 - **The sync is a plain push, never a force.** A prerelease commits nothing (see
   [Prereleases](#prereleases-on-beta-and-rc)), so `beta` never has a commit `main` lacks and the
@@ -163,6 +163,15 @@ Two details make that safe rather than clever:
 - **It pushes with `GITHUB_TOKEN`.** A push made with the per-run token does not trigger
   workflows, so moving `beta` cannot also set off the push trigger below and release the same
   commit twice.
+- **A dispatch from anywhere but `main` is refused**, in the workflow's first step. GitHub's
+  "Use workflow from" selector is a *second* answer to the same question, and the two halves of
+  a release read different ones: `release.config.mjs` takes the channel from `RELEASE_CHANNEL`,
+  semantic-release takes the branch from `GITHUB_REF`. Run from `beta` with the channel left at
+  `stable` and you get one of each - a prerelease that *commits* a version bump and a
+  `CHANGELOG` onto the channel branch, which is exactly the divergence above. The input is the
+  only thing that picks a channel, so the mismatch is a failed run with a message rather than a
+  release nobody asked for. (`make ship*` passes `--ref main` for the same reason. Working on
+  `beta` itself is what the push trigger is for.)
 
 `beta` and `rc` keep their push triggers, which remain the built-in answer if a per-merge channel
 is ever wanted: merge to `beta` for a prerelease per merge, promote to `main` when it is a

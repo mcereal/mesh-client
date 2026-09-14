@@ -75,6 +75,23 @@ jobs:
     env:
       RELEASE_CHANNEL: ${{ github.event_name == 'push' && github.ref_name || github.event.inputs.channel || 'stable' }}
     steps:
+      # "Use workflow from" is a second selector, and it is not the channel. A run launched from
+      # `beta` with the channel left at `stable` would take one answer from each: the write-back
+      # plugins, which release.config.mjs enables from RELEASE_CHANNEL, and the prerelease
+      # branch, which semantic-release reads out of GITHUB_REF. That publishes a prerelease that
+      # *commits* a version bump and a CHANGELOG onto the channel branch - the one divergence
+      # this whole design exists to avoid, and it would then reject every later sync push.
+      #
+      # So the input is the only thing that picks a channel, and a dispatch from anywhere but
+      # `main` is refused rather than interpreted. Working on `beta` itself is what the push
+      # trigger is for.
+      - name: Releases are dispatched on main
+        if: github.event_name == 'workflow_dispatch' && github.ref_name != 'main'
+        run: |
+          echo "::error::Dispatched from ${GITHUB_REF_NAME}, but a release runs on main."
+          echo "Pick the kind of release with the Release channel input, not with 'Use workflow from'." >&2
+          exit 1
+
       # The release pushes to a protected branch, so it needs an identity the ruleset's bypass
       # list names - and that identity must not be sitting in .git/config while the steps below
       # run pip, build a downloaded tarball and execute npm lifecycle scripts. Any one of those
