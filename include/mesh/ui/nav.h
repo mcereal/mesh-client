@@ -49,16 +49,31 @@ enum mesh_ui_screen {
 };
 
 /*
- * The Nodes list's first row, which is not a node.
+ * The two rows on the front of the Nodes list that are not nodes.
  *
- * It opens the map. A row rather than a keycap because the Nodes tab has already spent A, X and
- * Y on things a node row does, and because a way into a screen that only a button nobody
- * mentions can reach is a screen nobody finds - the argument the conversation list's "New
- * message" row and the Waypoints tab's "New waypoint here" row both make. It is the *first* row
- * rather than the last for the one reason those two are last: this list can be a hundred and
- * twenty-eight rows long, and a button at the bottom of that is a button that is not there.
+ * The map row opens the map. A row rather than a keycap because the Nodes tab has already spent
+ * A, X and Y on things a node row does, and because a way into a screen that only a button
+ * nobody mentions can reach is a screen nobody finds - the argument the conversation list's
+ * "New message" row and the Waypoints tab's "New waypoint here" row both make. Both of these
+ * are at the *front* of the list for the one reason those two are at the back of theirs: this
+ * list can be a hundred and twenty-eight rows long, and a control at the bottom of that is a
+ * control that is not there.
+ *
+ * The filter row is the chip strip that says which of the roster is below it
+ * (include/mesh/ui/nodes.h), and it is above the map row rather than below it because a control
+ * belongs above the thing it changes. It costs a row on every Nodes list, which is the honest
+ * price of a control the reader can see rather than a keycap they have to be told about - and
+ * the same trade the map row made first.
+ *
+ * A on either is answered by mesh_ui_nav_confirm(); mesh_ui_nav_node_at_row() is the one place
+ * that knows how many rows to subtract, so the four presses this list offers cannot disagree
+ * about which node row 7 is about.
  */
-#define MESH_UI_NODES_MAP_ROW 0U
+#define MESH_UI_NODES_FILTER_ROW 0U
+#define MESH_UI_NODES_MAP_ROW 1U
+/* Rows before the first node. Written once so a third one cannot be added to only some of the
+   arithmetic - which is exactly how the map row's own arrival went wrong before it was. */
+#define MESH_UI_NODES_LEAD_ROWS 2U
 
 #define MESH_UI_NAV_TARGET_NAME_MAX 40U
 /* nav.settings_section when the Settings tab shows the section list rather than a section. */
@@ -271,6 +286,24 @@ struct mesh_ui_nav {
     bool node_detail_open;
     uint32_t node_detail_node; /* the open node's id: the list is re-ranked under us */
     uint32_t node_list_cursor;
+    /*
+     * Nodes tab: which of the roster the list is showing - `enum mesh_ui_node_filter`, stepped
+     * by A on the list's own first row.
+     *
+     * A filter rather than a search or a sort, and the reasoning is in include/mesh/ui/nodes.h.
+     * What belongs here is why it is on the nav at all: it decides how many rows the screen has,
+     * so mesh_ui_nav_row_count() has to read it, and everything that turns a row into a node has
+     * to read it too or the cursor and the list part company on the first press.
+     *
+     * It survives leaving the tab, like every other level flag here - a reader who narrowed to
+     * Pinned and went to look at a message comes back to the list they left. It does *not*
+     * survive a restart: it is a lens on a roster that has changed while the client was off, and
+     * a client that opened on an empty Nodes tab because of a chip pressed last week would be a
+     * setting silently undoing the screen. That is the opposite call from the theme and from the
+     * chart's span, and it is the same distinction: a span is how the reader likes charts read,
+     * a filter is where they are standing right now.
+     */
+    uint8_t node_filter; /* enum mesh_ui_node_filter */
     /* "Remove from radio" is armed by one press and acts on the second, the same way Y on the
        Devices tab is: it is the one node row that takes its own row away, so a press that
        lands on it by accident should cost nothing. Any other press stands it down. */

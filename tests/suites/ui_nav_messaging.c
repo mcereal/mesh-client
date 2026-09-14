@@ -216,8 +216,11 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
         failure = "RIGHT should reach Nodes";
         goto cleanup;
     }
-    /* The list's first row opens the map, not a node - so a step down to reach one. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    /* The list's first two rows are the filter chips and the map, not nodes - so it takes
+       MESH_UI_NODES_LEAD_ROWS steps down to reach one. */
+    for (uint32_t lead = 0; lead < MESH_UI_NODES_LEAD_ROWS; ++lead) {
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    }
     /* Our own node has a detail too - it is the one battery the user can do something about -
        but no "Message this node" row, so A inside it does nothing. */
     if (!mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action) || !store.nav.node_detail_open) {
@@ -229,15 +232,17 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
-    if (store.nav.node_detail_open || store.nav.cursor[MESH_UI_SCREEN_NODES] != 1U) {
+    if (store.nav.node_detail_open ||
+        store.nav.cursor[MESH_UI_SCREEN_NODES] != MESH_UI_NODES_LEAD_ROWS) {
         failure = "B should back out of the detail onto the node it came from";
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action); /* clamps at the last row */
-    /* Three nodes and the map row above them, so the last row is 3. */
-    if (store.nav.cursor[MESH_UI_SCREEN_NODES] != 3U) {
+    /* Three nodes under the two lead rows, so the last row is one before their sum. */
+    const uint32_t last_node_row = MESH_UI_NODES_LEAD_ROWS + 3U - 1U;
+    if (store.nav.cursor[MESH_UI_SCREEN_NODES] != last_node_row) {
         failure = "DOWN must clamp at the last node";
         goto cleanup;
     }
@@ -245,7 +250,8 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
     /* Row 0 of the detail is the actions group's heading, which is not a row the cursor may
        stand on - so opening a node lands on the message row under it. */
     if (!store.nav.node_detail_open || store.nav.node_detail_node != 0x3000U ||
-        store.nav.node_list_cursor != 3U || store.nav.cursor[MESH_UI_SCREEN_NODES] != 1U) {
+        store.nav.node_list_cursor != last_node_row ||
+        store.nav.cursor[MESH_UI_SCREEN_NODES] != 1U) {
         failure = "A on a node should open that node's detail";
         goto cleanup;
     }
@@ -454,9 +460,10 @@ MESH_TEST_CASE(ui_nav_conversation_isolation, unit) {
 
     /* Walking to Nodes and back changes nothing about what Messages shows. */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action); /* past the map row, to BRVO */
+    /* Past the lead rows and our own node, onto BRVO. */
+    for (uint32_t lead = 0; lead < MESH_UI_NODES_LEAD_ROWS + 2U; ++lead) {
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action);
     if (store.nav.thread_open || store.nav.cursor[MESH_UI_SCREEN_MESSAGES] != 1U) {
         failure = "visiting Nodes must not change what Messages shows";

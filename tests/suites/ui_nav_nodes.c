@@ -8,6 +8,7 @@
 #include "mesh/ui/history.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/node_detail.h"
+#include "mesh/ui/nodes.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
 
@@ -534,15 +535,19 @@ MESH_TEST_CASE(ui_nav_node_favorite, unit) {
     struct mesh_ui_action action;
     store.nav.screen = MESH_UI_SCREEN_NODES;
 
-    /* The list opens on its map row, which is about no node at all - so X there asks for
-       nothing, and a step down is what reaches the first node. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
-    if (action.type != MESH_UI_ACTION_NONE) {
-        mesh_ui_store_shutdown(&store);
-        record_failure(test_name, "X on the map row should do nothing");
-        return;
+    /* The list opens on its filter row, and the map row is under it - two rows that are about
+       no node at all, so X on either asks for nothing and it takes two steps down to reach the
+       first node. Counted from MESH_UI_NODES_LEAD_ROWS rather than written out, so a third lead
+       row arrives here as a compile-time fact rather than as a mystery failure. */
+    for (uint32_t lead = 0; lead < MESH_UI_NODES_LEAD_ROWS; ++lead) {
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+        if (action.type != MESH_UI_ACTION_NONE) {
+            mesh_ui_store_shutdown(&store);
+            record_failure(test_name, "X on a lead row should do nothing");
+            return;
+        }
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
 
     /* Our own node cannot be pinned: it already outranks everything. */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
@@ -645,8 +650,10 @@ MESH_TEST_CASE(ui_nav_node_detail_follows_the_node, unit) {
 
     struct mesh_ui_action action;
     store.nav.screen = MESH_UI_SCREEN_NODES;
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action); /* past the map row */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    /* Past the filter and map rows, then past our own node, onto the second node in the list. */
+    for (uint32_t step = 0; step < MESH_UI_NODES_LEAD_ROWS + 1U; ++step) {
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
     if (!store.nav.node_detail_open || store.nav.node_detail_node != 0x3000U) {
         mesh_ui_store_shutdown(&store);
@@ -938,8 +945,10 @@ MESH_TEST_CASE(ui_nav_node_mute_remove, unit) {
 
     struct mesh_ui_action action;
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action); /* Nodes */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);  /* past the map row */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);  /* a node that is not us */
+    /* Past the lead rows, then past our own node, onto one that is not us. */
+    for (uint32_t step = 0; step < MESH_UI_NODES_LEAD_ROWS + 1U; ++step) {
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
     if (!store.nav.node_detail_open) {
         failure = "A should open the node detail";
@@ -1015,5 +1024,301 @@ cleanup:
         record_failure(test_name, failure);
         return;
     }
+    record_success(test_name);
+}
+
+/*
+ * ---- the filter chips ---------------------------------------------------------------------
+ *
+ * The list's first row is a strip of chips and A steps it, which is three separate claims: the
+ * press changes the filter, the filter changes how many rows the list has, and - the one worth
+ * the test rather than a screenshot - the *row-to-node mapping* moves with it. That last is why
+ * the filter went through mesh_ui_node_filter_at() rather than through an offset: a wrong
+ * answer there is a plausible node rather than an obviously shifted one, so X pins somebody
+ * else's radio and nothing on the frame looks wrong.
+ */
+MESH_TEST_CASE(ui_nav_nodes_filter_steps_and_renumbers_the_rows, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.has_my_info = true;
+    handshake.my_info.node_num = 0x1000U;
+    handshake.node_count = 3U;
+    handshake.nodes[0].node_id = 0x1000U; /* us: neither pinned nor heard */
+    handshake.nodes[1].node_id = 0x2000U; /* heard directly, not pinned */
+    handshake.nodes[1].has_hops_away = true;
+    handshake.nodes[1].hops_away = 0U;
+    handshake.nodes[1].snr = 6.5f;
+    handshake.nodes[2].node_id = 0x3000U; /* pinned, and three hops out */
+    handshake.nodes[2].is_favorite = true;
+    handshake.nodes[2].has_hops_away = true;
+    handshake.nodes[2].hops_away = 3U;
+    handshake.nodes[2].snr = 2.0f;
+    for (uint32_t i = 0; i < handshake.node_count; ++i) {
+        handshake.nodes[i].in_nodedb = true;
+    }
+    mesh_ui_store_set_handshake(&store, &handshake);
+    mesh_ui_store_consume_updates(&store, NULL);
+
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    store.nav.screen = MESH_UI_SCREEN_NODES;
+
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.cursor[MESH_UI_SCREEN_NODES] != MESH_UI_NODES_FILTER_ROW,
+                              mesh_ui_store_shutdown(&store),
+                              "the list opens on the row that filters it");
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_filter != MESH_UI_NODE_FILTER_ALL,
+                              mesh_ui_store_shutdown(&store), "and it opens on All");
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_NODES) !=
+                                  MESH_UI_NODES_LEAD_ROWS + 3U,
+                              mesh_ui_store_shutdown(&store),
+                              "All shows the whole roster under the two lead rows");
+
+    /* A steps the chips and leaves the cursor where it is - this row is the one row the press
+       cannot re-number. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_filter != MESH_UI_NODE_FILTER_DIRECT,
+                              mesh_ui_store_shutdown(&store), "A steps the chips on");
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.cursor[MESH_UI_SCREEN_NODES] != MESH_UI_NODES_FILTER_ROW,
+                              mesh_ui_store_shutdown(&store), "and stays on the row it pressed");
+    MESH_TEST_FAIL_IF_CLEANUP(action.type != MESH_UI_ACTION_NONE, mesh_ui_store_shutdown(&store),
+                              "a filter asks the radio for nothing");
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_NODES) !=
+                                  MESH_UI_NODES_LEAD_ROWS + 1U,
+                              mesh_ui_store_shutdown(&store),
+                              "Direct keeps the one node heard with no relay in the way");
+
+    /*
+     * And the row under the lead rows is that node, not the roster's first.
+     *
+     * Walked with the key and read through the press rather than through a helper of the test's
+     * own: what this is checking is that A on row LEAD opens the node the row drew, which is the
+     * only question the mapping exists to answer.
+     */
+    for (uint32_t lead = 0; lead < MESH_UI_NODES_LEAD_ROWS; ++lead) {
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(!store.nav.node_detail_open || store.nav.node_detail_node != 0x2000U,
+                              mesh_ui_store_shutdown(&store),
+                              "the first row under a Direct filter is the node that was heard");
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+
+    /* On to Pinned, which keeps the other one - so the same row is now a different node. */
+    store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_FILTER_ROW;
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_filter != MESH_UI_NODE_FILTER_PINNED,
+                              mesh_ui_store_shutdown(&store), "and on to Pinned");
+    for (uint32_t lead = 0; lead < MESH_UI_NODES_LEAD_ROWS; ++lead) {
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(!store.nav.node_detail_open || store.nav.node_detail_node != 0x3000U,
+                              mesh_ui_store_shutdown(&store),
+                              "the same row under a Pinned filter is the pinned node");
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+
+    /* Three chips, so a third press is back where it started. */
+    store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_FILTER_ROW;
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_filter != MESH_UI_NODE_FILTER_ALL,
+                              mesh_ui_store_shutdown(&store), "and wraps back to All");
+
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
+/*
+ * A filter that keeps nothing keeps its own two rows, and the map row still opens the map.
+ *
+ * The failure this is against is a list that empties itself: the chip that emptied it is on the
+ * first row, so a screen that answered zero rows would have taken away the control that puts it
+ * back - and the clamp would have parked the cursor at 0 on a list with no rows at all. It is
+ * the Waypoints tab's rule ("the row that makes a place is the last one, and it says why it
+ * cannot be pressed rather than disappearing") applied to the row that filters.
+ */
+MESH_TEST_CASE(ui_nav_nodes_filter_that_keeps_nothing_keeps_its_own_rows, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.has_my_info = true;
+    handshake.my_info.node_num = 0x1000U;
+    handshake.node_count = 2U;
+    handshake.nodes[0].node_id = 0x1000U;
+    handshake.nodes[1].node_id = 0x2000U; /* nothing pinned, nothing heard directly */
+    for (uint32_t i = 0; i < handshake.node_count; ++i) {
+        handshake.nodes[i].in_nodedb = true;
+    }
+    mesh_ui_store_set_handshake(&store, &handshake);
+    mesh_ui_store_consume_updates(&store, NULL);
+
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    store.nav.screen = MESH_UI_SCREEN_NODES;
+    store.nav.node_filter = (uint8_t)MESH_UI_NODE_FILTER_PINNED;
+    mesh_ui_store_consume_updates(&store, NULL);
+
+    MESH_TEST_FAIL_IF_CLEANUP(
+        mesh_ui_node_filter_count(&store.handshake, MESH_UI_NODE_FILTER_PINNED) != 0U,
+        mesh_ui_store_shutdown(&store), "nothing is pinned in this roster");
+    MESH_TEST_FAIL_IF_CLEANUP(
+        mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_NODES) != MESH_UI_NODES_LEAD_ROWS,
+        mesh_ui_store_shutdown(&store), "an empty filter still leaves the filter and map rows");
+
+    /* And both of them still work: the map row opens, and A on the filter row puts the roster
+       back. Walked in that order because the map is the row a stranded reader reaches first. */
+    for (uint32_t lead = 0; lead < MESH_UI_NODES_MAP_ROW; ++lead) {
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    }
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.cursor[MESH_UI_SCREEN_NODES] != MESH_UI_NODES_MAP_ROW,
+                              mesh_ui_store_shutdown(&store),
+                              "the cursor can still reach the map row");
+
+    store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_FILTER_ROW;
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_filter != MESH_UI_NODE_FILTER_ALL,
+                              mesh_ui_store_shutdown(&store),
+                              "and A wraps Pinned back round to All");
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_NODES) !=
+                                  MESH_UI_NODES_LEAD_ROWS + 2U,
+                              mesh_ui_store_shutdown(&store), "which brings the nodes back");
+
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
+/*
+ * "Direct" is mesh_ui_node_signal_heard()'s question and not a looser one.
+ *
+ * The three nodes here are the three ways a looser test gets it wrong, and each of them is a
+ * node the list already refuses to draw a staircase on: an unset `hops_away` is the firmware
+ * declining to say rather than a zero, an SNR of exactly 0.0 is the session layer's own "no
+ * reading", and a node arriving over MQTT was not heard on the air at all. A filter with its
+ * own opinion would put all three in Direct and then draw them with no signal beside them,
+ * which is the column and the chip disagreeing about the same fact.
+ */
+MESH_TEST_CASE(ui_nav_nodes_filter_direct_asks_the_lists_own_question, unit) {
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.node_count = 5U;
+    for (uint32_t i = 0; i < handshake.node_count; ++i) {
+        handshake.nodes[i].in_nodedb = true;
+    }
+    /* Heard: the firmware said zero hops and there is a reading behind it. */
+    handshake.nodes[0].node_id = 0x2000U;
+    handshake.nodes[0].has_hops_away = true;
+    handshake.nodes[0].snr = 4.2f;
+    /* The firmware never said how far away it is. */
+    handshake.nodes[1].node_id = 0x2001U;
+    handshake.nodes[1].snr = 4.2f;
+    /* It said zero hops and there is no reading. */
+    handshake.nodes[2].node_id = 0x2002U;
+    handshake.nodes[2].has_hops_away = true;
+    handshake.nodes[2].snr = 0.0f;
+    /* Zero hops with a reading, and it came in over MQTT. */
+    handshake.nodes[3].node_id = 0x2003U;
+    handshake.nodes[3].has_hops_away = true;
+    handshake.nodes[3].snr = 4.2f;
+    handshake.nodes[3].via_mqtt = true;
+    /*
+     * And the one mesh_ui_node_signal_heard() cannot see, which is the renderer's *first*
+     * branch rather than one of its conditions: a node heard perfectly well and since dropped
+     * from the radio's NodeDB. mesh_session_resolve_nodedb_membership() clears that flag from
+     * the sync epoch alone and leaves `snr` and `hops_away` exactly as they were, so the
+     * reading is still good and the list still draws "off radio" where the staircase would go.
+     */
+    handshake.nodes[4].node_id = 0x2004U;
+    handshake.nodes[4].has_hops_away = true;
+    handshake.nodes[4].snr = 4.2f;
+    handshake.nodes[4].in_nodedb = false;
+
+    MESH_TEST_FAIL_IF(mesh_ui_node_filter_count(&handshake, MESH_UI_NODE_FILTER_DIRECT) != 1U,
+                      "only the node the list would draw a staircase on is Direct");
+    const struct mesh_ui_node_summary *first =
+        mesh_ui_node_filter_at(&handshake, MESH_UI_NODE_FILTER_DIRECT, 0U);
+    MESH_TEST_FAIL_IF(first == NULL || first->node_id != 0x2000U, "and it is that node");
+    MESH_TEST_FAIL_IF(
+        mesh_ui_node_filter_matches(&handshake, &handshake.nodes[4], MESH_UI_NODE_FILTER_DIRECT),
+        "a node the radio has forgotten is off radio on the row, so not Direct");
+    MESH_TEST_FAIL_IF(mesh_ui_node_filter_at(&handshake, MESH_UI_NODE_FILTER_DIRECT, 1U) != NULL,
+                      "past the end of a filter is NULL, not the next node along");
+
+    /* Every filter agrees with the predicate it is built from, walked rather than asserted per
+       node: a count and a walk that disagree is the bug the row mapping would show as a node
+       opening somebody else's detail. */
+    for (int f = 0; f < (int)MESH_UI_NODE_FILTER_COUNT; ++f) {
+        const enum mesh_ui_node_filter filter = (enum mesh_ui_node_filter)f;
+        uint32_t walked = 0U;
+        while (mesh_ui_node_filter_at(&handshake, filter, walked) != NULL) {
+            ++walked;
+        }
+        MESH_TEST_FAIL_IF(walked != mesh_ui_node_filter_count(&handshake, filter),
+                          "a filter's count and its walk must be the same list");
+    }
+
+    /*
+     * And a value the enum has never held reads as All rather than as an empty screen.
+     *
+     * nav.node_filter is a uint8_t and the nav is memcpy'd around, so this is reachable without
+     * anyone writing a bug: what a reader can act on is a chip strip that has come back on All,
+     * and what they cannot act on is a node list that is empty for no stated reason.
+     */
+    const enum mesh_ui_node_filter bogus = (enum mesh_ui_node_filter)200;
+    MESH_TEST_FAIL_IF(mesh_ui_node_filter_count(&handshake, bogus) != handshake.node_count,
+                      "an out-of-range filter keeps everything");
+    MESH_TEST_FAIL_IF(
+        !mesh_ui_node_filter_matches(&handshake, &handshake.nodes[4], MESH_UI_NODE_FILTER_ALL),
+        "and All keeps the off-radio node, which is the list as it has always been");
+    MESH_TEST_FAIL_IF(mesh_ui_node_filter_step(bogus, +1) != MESH_UI_NODE_FILTER_DIRECT,
+                      "and steps on from All rather than from nowhere");
+    MESH_TEST_FAIL_IF(mesh_ui_node_filter_step(MESH_UI_NODE_FILTER_ALL, -1) !=
+                          (enum mesh_ui_node_filter)(MESH_UI_NODE_FILTER_COUNT - 1),
+                      "a backwards step wraps rather than going negative");
+
+    record_success(test_name);
+}
+
+/*
+ * "Pinned" is what the list draws a star on, and it never draws one on us.
+ *
+ * A radio can carry a stale `is_favorite` on its own NodeDB entry - which the Nodes list already
+ * knows, because it suppresses the star on our own row for exactly that reason, and because
+ * both X and the detail's pin row refuse to toggle it. A filter reading `is_favorite` alone put
+ * our own node under Pinned with no star beside it and no press that could clear it: a row the
+ * reader did not put there and cannot take away.
+ */
+MESH_TEST_CASE(ui_nav_nodes_filter_pinned_never_keeps_our_own_node, unit) {
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.has_my_info = true;
+    handshake.my_info.node_num = 0x1000U;
+    handshake.node_count = 2U;
+    handshake.nodes[0].node_id = 0x1000U; /* us, flagged by the radio's own NodeDB entry */
+    handshake.nodes[0].is_favorite = true;
+    handshake.nodes[0].in_nodedb = true;
+    handshake.nodes[1].node_id = 0x3000U; /* a node the reader actually pinned */
+    handshake.nodes[1].is_favorite = true;
+    handshake.nodes[1].in_nodedb = true;
+
+    MESH_TEST_FAIL_IF(mesh_ui_node_filter_count(&handshake, MESH_UI_NODE_FILTER_PINNED) != 1U,
+                      "our own node is not a pin however the radio has it flagged");
+    const struct mesh_ui_node_summary *only =
+        mesh_ui_node_filter_at(&handshake, MESH_UI_NODE_FILTER_PINNED, 0U);
+    MESH_TEST_FAIL_IF(only == NULL || only->node_id != 0x3000U,
+                      "and the one that is kept is the one the reader pinned");
+
+    /*
+     * And with no MyInfo yet, nothing is ours - which is the honest answer rather than a
+     * convenient one. A roster published before the handshake completes has no node number to
+     * compare against, and guessing would drop a real pin from the list.
+     */
+    handshake.has_my_info = false;
+    MESH_TEST_FAIL_IF(mesh_ui_node_filter_count(&handshake, MESH_UI_NODE_FILTER_PINNED) != 2U,
+                      "before MyInfo lands no row is ours, so both pins stand");
+
     record_success(test_name);
 }

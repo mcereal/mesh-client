@@ -666,6 +666,13 @@ entries it argues should *not* be done yet, and which each step since has left m
 less true - and the record below of what each step turned out to be once done. A new component
 belongs in §2 with an argument for why the screen needs it, not on the end of §3.
 
+> §19 is the shape a later addition should take: not a component at all, but a **caller** for
+> one that had only ever had one. `fb_draw_chip_strip()` was lifted out of `fb_screens.c` in
+> step 5 explicitly so that a filter row and a segmented button could reach it; the segmented
+> button arrived in step 10 and the filter row was still unwritten four steps after the list
+> closed. Before adding a component, check whether the set already holds one with a caller
+> missing.
+
 Steps 1 to 4 have landed. The motion tokens are `enum mesh_ui_motion` in
 [`theme.h`](../include/mesh/ui/theme.h), answered by `mesh_ui_theme_motion()`; the five
 per-widget duration constants are gone. The scroll rail is drawn by `fb_list_rail()` from the
@@ -1832,3 +1839,89 @@ it were not.
   than off the bottom. The Mesh card is the worked example waiting: it is two subjects wearing
   one heading, the mesh out there (NodeDB, airtime) and our own traffic through it (sent, heard,
   what the ring is holding), and a level under it is where that split stops costing a card.
+
+## 19. What the Nodes filter row changed
+
+Not a step on §3's list - that list is closed - and not a new component in the sense §4 means
+either. `fb_draw_chip_strip()` had been a component since step 5 and had exactly **one caller**,
+the navigation bar, inside the file that defines it. Its own header said what the other two were
+going to be: *"a tab strip, a filter row and a segmented control are one shape"*. The segmented
+control arrived in step 10. The filter row is the third, and what it took was a caller and forty
+lines, which is what a component set is supposed to feel like when it is working.
+
+- **The screen it is on is the one screen in this client that grows without bound.** That is why
+  the filter is worth a row where a sort or a search would not be. The roster deliberately
+  outlives the connection and the radio's NodeDB evicts, so a busy mesh publishes the best 128 of
+  256 and a reader is looking for one of them. Sorting cannot answer that - the list is already
+  ranked, and the rank is what put the node they want at 94 - and a search needs the on-screen
+  keyboard for a name they may not know how to spell. What they do know is which *kind* of node
+  they are after, and there turned out to be only two worth asking for: the ones they chose to
+  keep, and the ones actually in earshot.
+
+- **The set is three and closed, and every candidate for a fourth failed the same test.** A
+  filter has to be a question a reader *arrives with*, not a column the client happens to hold.
+  "Positioned" is the map's roster and the map row is one row away; "off radio" is a state the
+  rows already say in the column where a signal would be; "has telemetry" is a fact about a node
+  that nobody goes looking for a node by. Written down in `include/mesh/ui/nodes.h`, because the
+  argument is what stops the strip growing a chip a year from now.
+
+- **A filter matches what the list *draws*, and getting that half-right was the finding.**
+  `mesh_ui_node_signal_heard()` already existed, because the Nodes list refuses to draw a
+  staircase on three kinds of node: one reached over hops (the SNR is the last relay's), one
+  arriving over MQTT (it describes nothing on the air), and one whose `hops_away` the firmware
+  never set (unknown is not zero). A filter written as `hops_away == 0` would have put all three
+  in Direct and then drawn them with nothing beside their names - the chip and the column
+  disagreeing about one fact, on the same row. So Direct asks that predicate, and the entry as
+  first written stopped there and called it settled.
+
+  It was not settled, and review caught both ends of the same mistake. `signal_heard()` is a
+  condition of the renderer's staircase branch; it is not the *whole* of when a staircase is
+  drawn, because `!in_nodedb` is tested **above** it and draws "off radio" instead - and
+  `mesh_session_resolve_nodedb_membership()` clears that flag from the sync epoch alone, leaving
+  `snr` and `hops_away` exactly as they were. So a node heard perfectly well and since dropped
+  from the radio's database passed the filter and drew as off-radio: the disagreement this entry
+  is about, arriving through the branch it was not watching. Pinned had it one field over -
+  `is_favorite` alone kept our own node, which the list deliberately draws no star on and which
+  neither X nor the detail's pin row will toggle, so the row could not be cleared and was never a
+  user pin.
+
+  The general form, and the sentence the next filter should be written against: **match the
+  renderer's precedence, never one of its conditions.** A predicate that is a *condition* of a
+  branch is not the branch, and the branches above it are exactly the cases it cannot see. It is
+  `status.c`'s rule - one predicate, three readers - with the reminder that the predicate has to
+  be the whole question.
+
+- **The press is A, and refusing Left and Right is the load-bearing part.** A strip of chips
+  looks like it wants the d-pad's horizontal axis. Three screens here do take it - the map, the
+  node detail, both charts - and every one takes it *for the whole level* and pays by leaving
+  the shoulders alone. The Nodes list is a tab's own list, so there is no level to take it for,
+  and taking it for one row would be a d-pad whose meaning changed as the cursor walked. A is
+  what a settings enum row is stepped with, and three chips is two presses to anywhere.
+
+- **The count in the heading is what is drawn, and that was a real bug for one commit.** The
+  title had two numbers in it and `count` was the roster's length; filtered, it read "Nodes 42"
+  over three pinned rows. Splitting it into `held` and `count` is the same rule the title was
+  written under in the first place - *the two numbers are always in the same scope* - and once
+  they are, "Nodes (3 of 42)" needs no sentence about filtering at all, because the heading
+  already means "there is more than this".
+
+- **A filter that keeps nothing keeps its own two rows.** The obvious answer is an empty state,
+  and it is wrong here for the reason the Waypoints tab's last row is never replaced by one: the
+  chip that emptied the list is *on the first row*, so a screen that fell through to a picture
+  would have taken away the control that puts it back. The rows stay, a dim line where the nodes
+  would be says what happened, and the press out is one A.
+
+- **What it cost the tree was two rows of arithmetic in nineteen places, and that is the entry's
+  real warning.** The map row's own arrival had already taught this once - `mesh_ui_nav_node_at_row()`
+  exists because four presses were each subtracting one - and a second lead row broke sixteen
+  tests and six capture scenes, none of them in the renderer. `MESH_UI_NODES_LEAD_ROWS` is what
+  the tests count off now, so a third row arrives as a compile-time fact rather than as sixteen
+  mystery failures. The renderer and the nav still each map a row to a node, but they do it
+  through one function (`mesh_ui_node_filter_at()`), which is the half that could not be caught
+  by reading: a wrong answer there is a *plausible* node rather than an obviously shifted one, so
+  X pins somebody else's radio and nothing on the frame looks wrong.
+
+- **And the strip is one step where the rest of that list is two.** §1.4's variable-height list
+  model, used for something that is not a meter row. A chip is one line advance tall with nothing
+  under it to say, so a two-step strip would spend a whole node row on air - on the one list
+  where a row costs the most.

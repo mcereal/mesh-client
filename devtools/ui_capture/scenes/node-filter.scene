@@ -1,0 +1,55 @@
+# The Nodes list's filter chips: which of the roster is below them, as a control the reader can
+# see rather than a keycap they have to be told about.
+#
+# Four things to watch, and the last is the one that would be a bug nobody could see.
+#
+#   - The strip is a *row of the list*, so the cursor stops on it and the highlight is the same
+#     rectangle every other row gets. It is not the navigation bar three rows above it, which is
+#     a recessed tier because it is chrome around the body; this stands in the body because it
+#     is content about what the rows below it are. It is one step where every other row here is
+#     two, which is the variable-height list model doing what it landed for.
+#   - The chosen chip wears a check and a tonal fill - Material's filter chip, and the two say
+#     the same thing twice so a reader scanning shape and a reader reading words both get it.
+#   - The heading's count is what is *drawn*, not what is held. "Nodes (n of m)" already means
+#     "there is more than this", so a filter needs no sentence of its own; watch the first
+#     number fall as the chips step and the second stay where it is.
+#   - Under Direct, every row has a staircase against its trailing edge and none of them says
+#     "hop" or "mqtt". That is the chip asking mesh_ui_node_signal_heard() rather than a looser
+#     question of its own - if it asked `hops_away == 0` instead, Delta Camp would be in this
+#     list with nothing beside its name.
+
+scene demo
+scale 4
+clock 2026-01-12 19:12
+config
+
+# One node the reader has chosen to keep, so the last chip has something to show.
+pin ECHO
+
+tab nodes
+hold 1600
+
+# All -> Direct. The nodes heard with no relay in the way, which is the question the trailing
+# staircase answers one row at a time and this answers for the whole list.
+key a
+hold 2200
+
+# The rows under it are still rows: the cursor walks off the strip into them and A opens a node
+# exactly as it does with no filter on. This is the half that is a picture of a bug if it is
+# wrong - a filtered row that opened the roster's node rather than the row's would look right.
+key down 3
+hold 1200
+key a
+hold 1800
+key b
+hold 700
+
+# Direct -> Pinned. The star in the marker gutter is the same fact this chip filters on, which
+# is why the chip is called what X is called.
+key up 3
+key a
+hold 2200
+
+# And back round to All, which is where the wrap makes three chips enough without a second key.
+key a
+hold 2000

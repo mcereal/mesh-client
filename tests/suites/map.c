@@ -440,6 +440,23 @@ MESH_TEST_CASE(map_viewport_fits_across_the_antimeridian, unit) {
 #include <stdio.h>
 #include <string.h>
 
+/*
+ * Stand on the Nodes list's map row.
+ *
+ * Written as a walk rather than as an assignment because that is what a reader does, and
+ * because the row's index has moved once already: the filter chips took the front of the list
+ * and every test that pressed A on row 0 opened a filter instead of a map. Counted off
+ * MESH_UI_NODES_MAP_ROW, so the next row to arrive in front of it moves these tests with it.
+ */
+static void map_test_stand_on_the_map_row(struct mesh_ui_store *store) {
+    struct mesh_ui_action action;
+    store->nav.screen = MESH_UI_SCREEN_NODES;
+    store->nav.cursor[MESH_UI_SCREEN_NODES] = 0U;
+    while (store->nav.cursor[MESH_UI_SCREEN_NODES] < MESH_UI_NODES_MAP_ROW) {
+        (void)mesh_ui_store_handle_key(store, MESH_UI_KEY_DOWN, &action);
+    }
+}
+
 /* The fixture's roster with fixes on two of its three nodes, and one shared place. Two rather
    than three so that "a node with no position is known and not drawn" has a case. */
 static void map_test_populate(struct mesh_ui_store *store) {
@@ -606,9 +623,11 @@ MESH_TEST_CASE(map_opens_from_the_node_list, unit) {
     mesh_test_nav_populate(&store); /* a roster with no fixes anywhere in it */
 
     struct mesh_ui_action action;
-    store.nav.screen = MESH_UI_SCREEN_NODES;
+    MESH_TEST_FAIL_IF(store.nav.cursor[MESH_UI_SCREEN_NODES] != MESH_UI_NODES_FILTER_ROW,
+                      "the list opens on its filter row");
+    map_test_stand_on_the_map_row(&store);
     MESH_TEST_FAIL_IF(store.nav.cursor[MESH_UI_SCREEN_NODES] != MESH_UI_NODES_MAP_ROW,
-                      "the list opens on its map row");
+                      "and the map row is the one under it");
     MESH_TEST_FAIL_IF(mesh_ui_map_has_markers(&store), "and nothing has a position");
 
     (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
@@ -655,7 +674,7 @@ MESH_TEST_CASE(map_the_dpad_moves_the_world, unit) {
     map_test_populate(&store);
 
     struct mesh_ui_action action;
-    store.nav.screen = MESH_UI_SCREEN_NODES;
+    map_test_stand_on_the_map_row(&store);
     (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
     MESH_TEST_FAIL_IF(!store.nav.map_open, "the map opened");
 
@@ -888,7 +907,7 @@ MESH_TEST_CASE(map_the_dpad_reaches_what_a_pan_could_not, unit) {
     map_test_populate(&store);
 
     struct mesh_ui_action action;
-    store.nav.screen = MESH_UI_SCREEN_NODES;
+    map_test_stand_on_the_map_row(&store);
     (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
     MESH_TEST_FAIL_IF(!store.nav.map_open, "the map opened");
 
@@ -972,7 +991,7 @@ MESH_TEST_CASE(map_a_direction_pans_when_nothing_is_that_way, unit) {
     map_test_populate(&store);
 
     struct mesh_ui_action action;
-    store.nav.screen = MESH_UI_SCREEN_NODES;
+    map_test_stand_on_the_map_row(&store);
     (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
     MESH_TEST_FAIL_IF(!store.nav.map_open, "the map opened");
 
@@ -1014,6 +1033,7 @@ MESH_TEST_CASE(map_opens_a_marker_and_comes_back_to_the_map, unit) {
 
     struct mesh_ui_action action;
     store.nav.screen = MESH_UI_SCREEN_NODES;
+    map_test_stand_on_the_map_row(&store);
     (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action); /* the map row */
     MESH_TEST_FAIL_IF(!store.nav.map_open, "the map opened");
 
@@ -1071,7 +1091,7 @@ MESH_TEST_CASE(map_closes_when_there_is_nothing_left_to_draw, unit) {
     map_test_populate(&store);
 
     struct mesh_ui_action action;
-    store.nav.screen = MESH_UI_SCREEN_NODES;
+    map_test_stand_on_the_map_row(&store);
     (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
     MESH_TEST_FAIL_IF(!store.nav.map_open, "the map opened");
 
@@ -1115,7 +1135,7 @@ MESH_TEST_CASE(map_keys_belong_to_the_screen_the_map_is_on, unit) {
     map_test_populate(&store);
 
     struct mesh_ui_action action;
-    store.nav.screen = MESH_UI_SCREEN_NODES;
+    map_test_stand_on_the_map_row(&store);
     (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
     MESH_TEST_FAIL_IF(!store.nav.map_open, "the map opened");
 
@@ -1160,7 +1180,7 @@ MESH_TEST_CASE(map_hands_the_keys_over_when_a_place_opens, unit) {
     map_test_populate(&store);
 
     struct mesh_ui_action action;
-    store.nav.screen = MESH_UI_SCREEN_NODES;
+    map_test_stand_on_the_map_row(&store);
     (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
     MESH_TEST_FAIL_IF(!store.nav.map_open, "the map opened");
 
@@ -1384,6 +1404,7 @@ MESH_TEST_CASE(map_press_refuses_a_node_it_cannot_open, unit) {
 
     struct mesh_ui_action action;
     store.nav.screen = MESH_UI_SCREEN_NODES;
+    map_test_stand_on_the_map_row(&store);
     (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action); /* the map row */
     MESH_TEST_FAIL_IF(!store.nav.map_open, "the map opened");
 

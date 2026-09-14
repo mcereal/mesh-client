@@ -162,7 +162,7 @@ evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 | Fetching | `src/core/fetch.c` | one HTTPS GET as a forked curl/wget read through the loop: fetcher probing, the CA bundle the Brick has no system store for, a deadline, a cap and a reap that never blocks. Shared by the two things that reach the network |
 | Radio firmware | `src/core/firmware.c`, `firmware_catalog.c`, `firmware_download.c`, `firmware_fetch.c`, `firmware_install.c`, `firmware_ota.c`, `firmware_update.c`, `uf2.c`, `esp_image.c`, `src/utils/zip.c`, `src/transport/serial/usb_msc.c`, `src/transport/ble/ble_ota.c`, `ble_hci.c` | the *other* binary. `firmware.c` says which board this is (upstream's `deviceHardware`), what the newest release is (its firmware index) and which bus - if any - could carry an install; `firmware_fetch.c` turns that into a zip URL and a member name; `firmware_download.c` range-reads the member out of a 46 MB zip and inflates it through the device's own `gzip`, which is also where the CRC gets checked; `uf2.c` refuses a file that is not for this chip; `firmware_install.c` sends the radio into DFU, waits for its bootloader to enumerate and writes the blocks, and `usb_msc.c` is the drive half of that - finding the block device, taking the platform's mounts off it, and the forked child that copies. The BLE half is the ESP32's: `firmware_ota.c` sends `ota_request` holding the radio to the image's SHA-256, finds the loader at the radio's address plus one, streams and watches the radio come back, retrying a broken transfer from the start; `ble_ota.c` is the loader's text protocol (one chunk per GATT write, one outstanding, `mtu - 3` bytes); `ble_hci.c` asks for a 7.5 ms interval with a raw `LE Connection Update`, because BlueZ has no call for it and the Brick would hold the loader at 30 ms; `esp_image.c` refuses an image for another chip before the radio is asked anything. `firmware_update.c` is the **composition**: the download, the arm and the handover in order, with those three modules' state enums folded onto one ladder a row can name and their errors onto the four a reader acts on - and it is what makes Settings > About radio > Install firmware a press rather than a command line. The two questions it answers for the app are deliberately separate: a download holds the *antenna* (Wi-Fi and Bluetooth are one part) and a handover holds the *radio*, and collapsing them would leave the BLE link down through the one step that is waiting for it to come back. `--fetch-firmware` runs the download and `--install-firmware` runs the whole thing from the CLI. See [`docs/radio-firmware-roadmap.md`](docs/radio-firmware-roadmap.md) |
 | UI | `src/ui/` | store/controller + `nav*.c` + `settings*.c` + `layout.c` + `history.c` + `backends/{fb*,cli,stub}.c`; **`fb` is the device UI**. `backends/fb_map.c` is the one screen renderer that places things at coordinates rather than describing rows, which is why it is its own file |
-| UI components | `src/ui/layout.c`, `src/ui/backends/fb_widgets.c` | cell-measured line builder + scroll window (counted in **steps**, so one row may be taller than its neighbours); cards (filled/elevated/outlined, with verbs on the heading line - and, in a *scrolling* list, as a surface behind a run of rows the list already places, cut square where the window cut it), buttons, chips, badges, list items (leading/marker/supporting/trailing slots, an optional full-width bar on a second step), section subheaders (indented to their list's leading gutter, carrying the card's icon when the list is a column of cards and nothing when it is not, and never a row the cursor stops on), switches, selection controls (checkbox/radio), segmented buttons (which fall back to the chosen word when the row is too narrow), meters (with domains and drawn threshold bands), sliders (a settings number on the scale of the values it could have had, with a value the scale cannot place drawn as a track with no handle), signal staircases, sparklines (a reading over time, on the bar's own domain, from a sample ring the client keeps),
+| UI components | `src/ui/layout.c`, `src/ui/backends/fb_widgets.c` | cell-measured line builder + scroll window (counted in **steps**, so one row may be taller than its neighbours); cards (filled/elevated/outlined, with verbs on the heading line - and, in a *scrolling* list, as a surface behind a run of rows the list already places, cut square where the window cut it), buttons, chips, chip rows (`fb_list_chips()`: a strip of chips *as a row of a list*, one step tall, stepped by A - the Nodes tab's filter), badges, list items (leading/marker/supporting/trailing slots, an optional full-width bar on a second step), section subheaders (indented to their list's leading gutter, carrying the card's icon when the list is a column of cards and nothing when it is not, and never a row the cursor stops on), switches, selection controls (checkbox/radio), segmented buttons (which fall back to the chosen word when the row is too narrow), meters (with domains and drawn threshold bands), sliders (a settings number on the scale of the values it could have had, with a value the scale cannot place drawn as a track with no handle), signal staircases, sparklines (a reading over time, on the bar's own domain, from a sample ring the client keeps),
 proportion bars (a whole and the disjoint parts it is made of, in the theme's categorical
 series palette rather than in tones, with the parts filling the track exactly and a part that
 is there never rounded away to nothing), the chart (`fb_draw_chart()`: the same readings a
@@ -177,6 +177,7 @@ and more than one line on it - the one component here that is a screen rather th
 | The trend screens | `src/ui/backends/fb_screens.c` (`fb_render_chart`, and the two descriptions `fb_render_trend`/`fb_render_node_trend` hand it), `src/ui/status.c`, `src/ui/route.c` | The two charts, drawn by the one component that fills a body and by the one renderer that composes it, carrying no cursor. The airtime one is a level of the Status tab (`nav->trend_open`); a node's is a level of its detail (`nav->node_trend`, which holds the *reading* rather than a flag). Both are `MESH_UI_ROUTE_TREND` - the node's fills `subject` and `slot`, which is what makes one node's temperature and its humidity two places |
 | Chart frames | `src/ui/trend.c`, `include/mesh/ui/trend.h` | How far back a chart looks and how far up it goes: the span the reader picked, the window it cuts, and the rung of the domain ladder the ceiling contracts to. Both chart screens ask it, which is what makes them one picture drawn twice |
 | Durations | `src/ui/duration.c`, `include/mesh/ui/duration.h` | "4m ago" and "3h 20m", once. A UI file with no pixels in it, because what a ladder of unit thresholds answers with is a *string id* |
+| Nodes list filter | `src/ui/nodes.c`, `include/mesh/ui/nodes.h` | which of the roster the Nodes list is showing - All, Direct, Pinned - as a table read by `nav.c` for the row count and the row-to-node mapping, by `actions.c` for the verb A gets named with, and by the renderer for the chips. `status.c`'s shape one tab over, and for its reason |
 | Waypoints UI | `src/ui/waypoints.c`, `src/ui/nav_waypoints.c` | the list's order (nearest first, from our own fix), a place's detail rows, and the distance/compass formatting the same two screens read |
 | Tapbacks | `src/ui/reactions.c`, `include/mesh/ui/reactions.h` | the fixed emoji set X offers over a bubble: the glyph, which goes on the air unchanged, and the catalog id that names it |
 | Delivery marks | `src/ui/delivery.c`, `include/mesh/ui/delivery.h` | which mark an outbound message's ack state gets — the clock, the double tick or the alert circle a bubble's corner draws, and the word a backend with no sprites says for the same state |
@@ -441,6 +442,43 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   unreachable - the same complaint as the lattice, from the other side. Bounding the cross axis
   matters as much as the along one, or a press that said "north" answers with a sideways lurch
   onto something mostly east.
+- **The Nodes list's filter is stepped by A and deliberately not by Left and Right.** A strip of
+  chips looks like it wants the d-pad's horizontal axis, and three screens here do take it - the
+  map, the node detail, both charts - but every one of them takes it *for the whole level* and
+  pays for it by leaving the shoulders alone. The Nodes list is a tab's own list, so there is no
+  level to take it for, and taking it for one row of one list would be a d-pad whose meaning
+  changed as the cursor walked. A on a filter row is exactly how `mesh_ui_nav_settings_edit_key()`
+  steps an enum, and three chips means every one is at most two presses away.
+- **A Nodes filter matches what the list *draws*, not one of the conditions behind it.** "Direct"
+  is `in_nodedb && mesh_ui_node_signal_heard(node)` and "Pinned" is `is_favorite && !is_self`,
+  and both extra halves are corrections rather than belt-and-braces. `signal_heard()` is most of
+  the first: the list refuses a staircase to a node reached over hops (the SNR is the relay's),
+  one over MQTT (it describes nothing on the air) and one whose `hops_away` the firmware never
+  set, because unknown is not zero. What it does not carry is `in_nodedb`, which the renderer
+  tests *first* - `mesh_session_resolve_nodedb_membership()` clears that flag from the sync epoch
+  alone and leaves `snr` and `hops_away` intact, so a node heard perfectly well and since dropped
+  from the radio's database still passes `signal_heard()` and still draws "off radio" where the
+  staircase would go. The star is the same shape one field over: a radio can carry a stale
+  `is_favorite` on its own NodeDB entry, the list suppresses the star on our own row for that
+  reason, and both X and the detail's pin row refuse to toggle it - so `is_favorite` alone put a
+  row under Pinned with no star and no press that could clear it. Match the renderer's
+  precedence, never one of its conditions.
+- **The Nodes list has *two* rows before its first node, and nothing may subtract a literal.**
+  `MESH_UI_NODES_FILTER_ROW` is the chip strip and `MESH_UI_NODES_MAP_ROW` is under it;
+  `MESH_UI_NODES_LEAD_ROWS` is what everything counts off. `mesh_ui_nav_node_at_row()` and the
+  renderer both turn a row into a node through `mesh_ui_node_filter_at()` rather than by
+  indexing the roster, and that is load-bearing rather than tidy: under a filter, an off-by-one
+  is a *plausible* node rather than an obviously shifted one, so X pins somebody else's radio
+  and nothing on the frame looks wrong.
+- **A filter that keeps nothing keeps the two rows above it.** The obvious answer is
+  `fb_draw_empty()` and it is wrong here for the reason the Waypoints tab's last row is never
+  replaced by one: the chip that emptied the list is on the first row, so a screen falling
+  through to a picture would take away the control that puts it back. The rows stay, a dim line
+  where the nodes would be says what happened, and the way out is one A.
+- **The Nodes title counts what is drawn, not what is held.** `held` is the published roster and
+  `count` is whatever the filter kept; the heading's "n of m" already means "there is more than
+  this", so a filter needs no sentence of its own - and conflating the two read "Nodes 42" over
+  three pinned rows, which is the arithmetic-no-screen-should-show rule from the other end.
 - **`map_open` outliving a change of tab is deliberate, and the key handler must still check
   `nav->screen`.** Every tab keeps its own place, so coming back to Nodes shows the view that was
   left — which means the flag says *where the Nodes tab is standing*, not *what the reader is
