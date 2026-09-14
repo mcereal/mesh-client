@@ -317,7 +317,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_TREND_VALUE_CELSIUS] = "%.1f C",
     [MESH_STR_HELP_SUBJECT_TREND] = "Tendencia del aire",
     [MESH_STR_HELP_LABEL_TREND_AXES] = "Qué dicen los ejes",
-    [MESH_STR_HELP_LABEL_TREND_MARKS] = "Las líneas que lo cruzan",
+    [MESH_STR_HELP_LABEL_TREND_MARKS] = "Columnas y líneas",
     [MESH_STR_HELP_LABEL_TREND_SPAN] = "Elegir cuánto tiempo atrás",
 
     /* A node's own chart. The three titles are the reading's name rather than a sentence about

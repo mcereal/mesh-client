@@ -327,10 +327,23 @@ static void mesh_ui_store_note_roster(struct mesh_ui_store *store,
         const struct mesh_ui_node_summary *was =
             swapped ? NULL : mesh_ui_store_find_node(&store->handshake, node->node_id);
 
-        if (node->metrics.valid && node->metrics.has_battery &&
-            !(was != NULL && memcmp(&was->metrics, &node->metrics, sizeof node->metrics) == 0)) {
+        const bool metrics_new =
+            node->metrics.valid &&
+            !(was != NULL && memcmp(&was->metrics, &node->metrics, sizeof node->metrics) == 0);
+        if (metrics_new && node->metrics.has_battery) {
             mesh_ui_history_note_battery(&store->history, (uint32_t)store->now_ms, node->node_id,
                                          node->metrics.battery_level);
+        }
+
+        /* Our own node's DeviceMetrics are the radio's airtime once a minute - see
+           MESH_UI_HISTORY_RADIO_REPORT_MS. The uptime in them moves every report, so a changed
+           struct is a new report even on a mesh too quiet to move either figure. */
+        if (metrics_new && next->has_my_info && node->node_id == next->my_info.node_num &&
+            node->metrics.has_channel_utilization && node->metrics.has_air_util_tx) {
+            mesh_ui_history_note_metrics_airtime(
+                &store->history, (uint32_t)store->now_ms,
+                mesh_ui_percent_permille(node->metrics.channel_utilization),
+                mesh_ui_percent_permille(node->metrics.air_util_tx));
         }
 
         /*
@@ -1267,30 +1280,21 @@ static void mesh_ui_store_save_read_state(FILE *file, const struct mesh_ui_read_
  * nothing to the next run - what survives a restart is how far apart the readings were. Ages
  * are taken from the newest sample, so the newest is 0 and the file reads oldest-first in the
  * order the loader pushes them.
- *
- * One list for the pair: mesh_ui_history_note_airtime() pushes both series under one stamp, so
- * they hold the same clock and the same breaks, and saving them separately would be two records
- * that can disagree about a moment they were written from.
  */
 static void mesh_ui_store_save_history(FILE *file, const struct mesh_ui_history *history) {
     if (file == NULL || history == NULL) {
         return;
     }
-    const struct mesh_ui_series *util = &history->channel_utilization;
-    const struct mesh_ui_series *tx = &history->air_util_tx;
-    const struct mesh_ui_sample *newest = mesh_ui_series_newest(util);
-    if (newest == NULL || util->count != tx->count) {
+    const struct mesh_ui_airtime_sample *newest = mesh_ui_history_airtime_newest(history);
+    if (newest == NULL) {
         return;
     }
-    fprintf(file, "airtime=%u\n", util->count);
-    for (uint32_t i = 0U; i < util->count; ++i) {
-        const struct mesh_ui_sample *sample = mesh_ui_series_at(util, i);
-        const struct mesh_ui_sample *share = mesh_ui_series_at(tx, i);
-        if (sample == NULL || share == NULL) {
-            continue;
-        }
-        fprintf(file, "airtime[%u]=%u,%d,%d,%u\n", i, newest->time - sample->time, sample->value,
-                share->value, mesh_ui_series_starts_segment(util, i) ? 1U : 0U);
+    const uint32_t count = mesh_ui_history_airtime_count(history);
+    fprintf(file, "airtime=%u\n", count);
+    for (uint32_t i = 0U; i < count; ++i) {
+        const struct mesh_ui_airtime_sample *sample = mesh_ui_history_airtime_at(history, i);
+        fprintf(file, "airtime[%u]=%u,%d,%d,%u\n", i, newest->time - sample->time,
+                (int)sample->utilization, (int)sample->tx, sample->gap ? 1U : 0U);
     }
 }
 
@@ -1352,7 +1356,7 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
         int32_t utilization;
         int32_t tx;
         bool gap;
-    } airtime[MESH_UI_SERIES_MAX];
+    } airtime[MESH_UI_HISTORY_AIRTIME_MAX];
     memset(airtime, 0, sizeof airtime);
     uint32_t airtime_loaded = 0U;
 
@@ -1423,7 +1427,7 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
             int utilization = 0;
             int tx = 0;
             unsigned int gap = 0U;
-            if (sscanf(key, "airtime[%u]", &index) == 1 && index < MESH_UI_SERIES_MAX &&
+            if (sscanf(key, "airtime[%u]", &index) == 1 && index < MESH_UI_HISTORY_AIRTIME_MAX &&
                 sscanf(value, "%u,%d,%d,%u", &age, &utilization, &tx, &gap) == 4) {
                 airtime[index].age_ms = age;
                 airtime[index].utilization = utilization;

@@ -296,25 +296,21 @@ MESH_TEST_CASE(history_says_when_there_is_an_airtime_trend, unit) {
                       "two readings a minute apart make a line");
 
     /*
-     * And two readings a break apart are not a line either, which is the case a count cannot
-     * see. A link down for a quarter of an hour and then back is two samples the ring holds and
-     * a silence the series calls a break - so the projection lifts the pen at the second one and
-     * a chart drawn from them has axes, a legend and nothing between them.
-     *
-     * The test is a *drawable segment* rather than a sample count for that reason: what the verb
-     * promises is a picture, and the honest answer when there is none is not to offer it.
+     * Two readings either side of a silence are still a chart. When this was a line they were
+     * two ends with no stroke between them; as columns they are two columns with the silence
+     * visibly between them, which is a picture of what happened.
      */
     mesh_ui_history_reset(&history);
     mesh_ui_history_note_airtime(&history, 1000U, 110, 30);
     mesh_ui_history_note_airtime(&history, 1000U + MESH_UI_HISTORY_RADIO_GAP_MS + 1000U, 140, 40);
-    MESH_TEST_FAIL_IF(mesh_ui_history_has_airtime(&history),
-                      "two readings with a silence between them draw no line");
-
-    /* One more punctual reading after it, and there is a segment again - the break is at the
-       sample that follows the silence, not at every sample after it. */
-    mesh_ui_history_note_airtime(&history, 1000U + MESH_UI_HISTORY_RADIO_GAP_MS + 61000U, 150, 45);
     MESH_TEST_FAIL_IF(!mesh_ui_history_has_airtime(&history),
-                      "a reading that continues the one before it is a line");
+                      "two readings with a silence between them are two columns");
+
+    /* Two readings on one tick of the clock are not: there is no window to lay them across. */
+    mesh_ui_history_reset(&history);
+    mesh_ui_history_note_airtime(&history, 5000U, 110, 30);
+    mesh_ui_history_note_airtime(&history, 5000U, 140, 40);
+    MESH_TEST_FAIL_IF(mesh_ui_history_has_airtime(&history), "one tick is no window");
 
     /* And a radio swap takes it with the roster, which is what closes the chart under a reader
        looking at a mesh that is no longer theirs. */
@@ -403,18 +399,17 @@ MESH_TEST_CASE(history_airtime_survives_a_restart_onto_a_new_clock, unit) {
     MESH_TEST_FAIL_IF(mesh_ui_store_init(&second) != 0, "store init failed");
     MESH_TEST_FAIL_IF(mesh_ui_store_load(&second, path) != 0, "load failed");
 
-    MESH_TEST_FAIL_IF(second.history.channel_utilization.count != 4U,
+    MESH_TEST_FAIL_IF(mesh_ui_history_airtime_count(&second.history) != 4U,
                       "every saved reading should come back");
-    MESH_TEST_FAIL_IF(second.history.air_util_tx.count != 4U,
-                      "the transmit share rides the same record");
     MESH_TEST_FAIL_IF(!mesh_ui_history_has_airtime(&second.history),
                       "a restored trend should be drawable before the radio says anything");
 
     /* The readings themselves, oldest first, in the order they were written. */
     for (uint32_t i = 0U; i < 4U; ++i) {
-        const struct mesh_ui_sample *sample =
-            mesh_ui_series_at(&second.history.channel_utilization, i);
-        MESH_TEST_FAIL_IF(sample == NULL || sample->value != (int32_t)(50U + i * 10U),
+        const struct mesh_ui_airtime_sample *sample =
+            mesh_ui_history_airtime_at(&second.history, i);
+        MESH_TEST_FAIL_IF(sample == NULL || sample->utilization != (int16_t)(50U + i * 10U) ||
+                              sample->tx != (int16_t)(10U + i * 5U),
                           "a restored reading should be the one that was saved");
     }
 
@@ -422,16 +417,17 @@ MESH_TEST_CASE(history_airtime_survives_a_restart_onto_a_new_clock, unit) {
        the first session wrote. */
     const uint32_t new_clock = 30U * 1000U;
     mesh_ui_history_note_airtime(&second.history, new_clock, 90, 30);
-    MESH_TEST_FAIL_IF(second.history.channel_utilization.count != 5U,
+    MESH_TEST_FAIL_IF(mesh_ui_history_airtime_count(&second.history) != 5U,
                       "a reading on a lower clock must not empty the restored series");
-    MESH_TEST_FAIL_IF(!mesh_ui_series_starts_segment(&second.history.channel_utilization, 4U),
+    MESH_TEST_FAIL_IF(!mesh_ui_history_airtime_at(&second.history, 4U)->gap,
                       "the first reading after a restart starts a segment of its own");
 
     /* A second live reading continues it, so the new session draws a line of its own. */
     mesh_ui_history_note_airtime(&second.history, new_clock + 60U * 1000U, 95, 32);
-    MESH_TEST_FAIL_IF(mesh_ui_series_starts_segment(&second.history.channel_utilization, 5U),
+    MESH_TEST_FAIL_IF(mesh_ui_history_airtime_at(&second.history, 5U)->gap,
                       "a punctual reading after the seam continues the live segment");
-    MESH_TEST_FAIL_IF(second.history.channel_utilization.count != 6U, "both live readings kept");
+    MESH_TEST_FAIL_IF(mesh_ui_history_airtime_count(&second.history) != 6U,
+                      "both live readings kept");
 
     remove(path);
     record_success(test_name);
@@ -599,6 +595,97 @@ MESH_TEST_CASE(history_evicts_the_least_recently_heard_node, unit) {
 }
 
 /*
+ * Six hours of one-a-minute readings fit, and the seventh hour pushes the first one out.
+ *
+ * The ring is what the chart's widest fixed span is drawn from, so a ring shorter than
+ * MESH_UI_TREND_SPAN_6H would draw that span as "last 4h" and nothing on the screen would say
+ * why.
+ */
+MESH_TEST_CASE(history_keeps_six_hours_of_airtime, unit) {
+    MESH_TEST_FAIL_IF(MESH_UI_HISTORY_AIRTIME_MAX * MESH_UI_HISTORY_RADIO_REPORT_MS <
+                          6U * 60U * 60U * 1000U,
+                      "the airtime ring should hold six hours at the radio's cadence");
+
+    struct mesh_ui_history *history = calloc(1U, sizeof *history);
+    MESH_TEST_FAIL_IF(history == NULL, "allocation failed");
+    mesh_ui_history_reset(history);
+    for (uint32_t i = 0U; i < MESH_UI_HISTORY_AIRTIME_MAX + 60U; ++i) {
+        mesh_ui_history_note_metrics_airtime(history, 1000U + i * 60000U, (int32_t)(i % 1000U), 5);
+    }
+    const bool full = mesh_ui_history_airtime_count(history) == MESH_UI_HISTORY_AIRTIME_MAX;
+    const bool oldest = mesh_ui_history_airtime_at(history, 0U)->utilization == 60;
+    free(history);
+    MESH_TEST_FAIL_IF(!full, "the ring should cap at its size");
+    MESH_TEST_FAIL_IF(!oldest, "the oldest hour should be what the newest cost");
+    record_success(test_name);
+}
+
+/*
+ * Our own node's DeviceMetrics are the airtime source, and LocalStats is taken only when they
+ * are not arriving.
+ *
+ * The regression this guards is the one a Heltec V4 showed: three hours of LocalStats left six
+ * readings, 45 minutes apart. The firmware hands the attached client our own DeviceMetrics every
+ * minute, carrying the same two figures, and a store that ignores them draws dots.
+ */
+MESH_TEST_CASE(store_records_airtime_from_our_own_device_metrics, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init should succeed");
+
+    struct mesh_ui_handshake_state *handshake = calloc(1U, sizeof *handshake);
+    MESH_TEST_FAIL_IF_CLEANUP(handshake == NULL, mesh_ui_store_shutdown(&store),
+                              "allocation failed");
+    handshake->has_my_info = true;
+    handshake->my_info.node_num = 0x1234U;
+    handshake->node_count = 2U;
+    handshake->nodes[0].node_id = 0x1234U;
+    handshake->nodes[1].node_id = 0x9999U;
+    for (uint32_t i = 0U; i < 2U; ++i) {
+        struct mesh_ui_node_metrics *metrics = &handshake->nodes[i].metrics;
+        metrics->valid = true;
+        metrics->has_channel_utilization = true;
+        metrics->has_air_util_tx = true;
+        metrics->has_uptime = true;
+    }
+
+    for (uint32_t minute = 0U; minute < 5U; ++minute) {
+        handshake->nodes[0].metrics.channel_utilization = (float)minute;
+        handshake->nodes[0].metrics.air_util_tx = 0.5f;
+        handshake->nodes[0].metrics.uptime_seconds = 60U * minute;
+        /* Another node's airtime is its own, not the radio's. */
+        handshake->nodes[1].metrics.channel_utilization = 40.0f;
+        handshake->nodes[1].metrics.uptime_seconds = 60U * minute + 7U;
+        mesh_ui_store_tick(&store, 1000U + minute * 60000U);
+        mesh_ui_store_set_handshake(&store, handshake);
+    }
+    const uint32_t from_metrics = mesh_ui_history_airtime_count(&store.history);
+    const int16_t newest = mesh_ui_history_airtime_newest(&store.history)->utilization;
+
+    /* A LocalStats beside the stream is the same minute a second time. */
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.stats.valid = true;
+    settings.stats.channel_utilization = 4.0f;
+    mesh_ui_store_tick(&store, 1000U + 4U * 60000U + 5000U);
+    mesh_ui_store_set_settings(&store, &settings);
+    const uint32_t beside = mesh_ui_history_airtime_count(&store.history);
+
+    /* And once the stream has been quiet for a gap, LocalStats is what there is. */
+    settings.stats.channel_utilization = 9.0f;
+    mesh_ui_store_tick(&store, 1000U + 4U * 60000U + MESH_UI_HISTORY_RADIO_GAP_MS + 1000U);
+    mesh_ui_store_set_settings(&store, &settings);
+    const uint32_t fallback = mesh_ui_history_airtime_count(&store.history);
+
+    free(handshake);
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(from_metrics != 5U, "each of our own DeviceMetrics should be one sample");
+    MESH_TEST_FAIL_IF(newest != 40, "in permille, and our own node's rather than a neighbour's");
+    MESH_TEST_FAIL_IF(beside != 5U, "LocalStats beside a live stream should add nothing");
+    MESH_TEST_FAIL_IF(fallback != 6U, "LocalStats should be taken once the stream goes quiet");
+    record_success(test_name);
+}
+
+/*
  * The store is where a reading becomes a sample, and the radio's own report is the trigger.
  *
  * Its stamp cannot be: `time` is our clock when it arrived and is 0 on a device with no wall
@@ -623,26 +710,24 @@ MESH_TEST_CASE(store_records_airtime_as_the_radio_reports_it, unit) {
     mesh_ui_store_tick(&store, 2000U);
     mesh_ui_store_set_settings(&store, &settings);
 
-    MESH_TEST_FAIL_IF(store.history.channel_utilization.count != 2U,
+    MESH_TEST_FAIL_IF(mesh_ui_history_airtime_count(&store.history) != 2U,
                       "each report the radio sends should be one sample");
-    MESH_TEST_FAIL_IF(mesh_ui_series_newest(&store.history.channel_utilization)->value != 300,
+    MESH_TEST_FAIL_IF(mesh_ui_history_airtime_newest(&store.history)->utilization != 300 ||
+                          mesh_ui_history_airtime_newest(&store.history)->tx != 10,
                       "the reading should be kept in permille, as the meter reads it");
-    MESH_TEST_FAIL_IF(mesh_ui_series_newest(&store.history.air_util_tx)->time !=
-                          mesh_ui_series_newest(&store.history.channel_utilization)->time,
-                      "one report is one moment, whichever of its figures is being read");
 
     /* A publish that changes something other than the report adds no reading. */
     settings.reboot_notices = 3U;
     mesh_ui_store_tick(&store, 3000U);
     mesh_ui_store_set_settings(&store, &settings);
-    MESH_TEST_FAIL_IF(store.history.channel_utilization.count != 2U,
+    MESH_TEST_FAIL_IF(mesh_ui_history_airtime_count(&store.history) != 2U,
                       "a settings change that is not a report should not be a sample");
 
     struct mesh_ui_snapshot snapshot;
     memset(&snapshot, 0, sizeof snapshot);
     MESH_TEST_FAIL_IF(!mesh_ui_store_consume_updates(&store, &snapshot),
                       "the settings write should have marked the store dirty");
-    MESH_TEST_FAIL_IF(snapshot.history.channel_utilization.count != 2U,
+    MESH_TEST_FAIL_IF(mesh_ui_history_airtime_count(&snapshot.history) != 2U,
                       "the history should travel to the backends in the snapshot");
 
     mesh_ui_store_shutdown(&store);

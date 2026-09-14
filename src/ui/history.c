@@ -34,8 +34,6 @@ void mesh_ui_history_reset(struct mesh_ui_history *history) {
         return;
     }
     memset(history, 0, sizeof *history);
-    mesh_ui_series_reset(&history->channel_utilization, MESH_UI_HISTORY_RADIO_GAP_MS);
-    mesh_ui_series_reset(&history->air_util_tx, MESH_UI_HISTORY_RADIO_GAP_MS);
     for (uint32_t i = 0U; i < MESH_UI_HISTORY_NODES; ++i) {
         mesh_ui_history_clear_node(&history->nodes[i]);
     }
@@ -43,14 +41,82 @@ void mesh_ui_history_reset(struct mesh_ui_history *history) {
 
 void mesh_ui_history_forget(struct mesh_ui_history *history) { mesh_ui_history_reset(history); }
 
+/* Permille off the wire, held to what sixteen bits and the domain both take. */
+static int16_t airtime_permille(int32_t value) {
+    if (value < 0) {
+        return 0;
+    }
+    return (int16_t)(value > 1000 ? 1000 : value);
+}
+
+/* mesh_ui_series_push()'s rules on the airtime ring: a clock going backwards empties it, the
+   oldest is what the newest costs, and a pending break is spent on the sample it lands on. */
+static void airtime_push(struct mesh_ui_airtime *log, uint32_t time, int32_t utilization,
+                         int32_t tx) {
+    if (log->count > 0U) {
+        const uint32_t newest = (log->first + log->count - 1U) % MESH_UI_HISTORY_AIRTIME_MAX;
+        if (time < log->items[newest].time) {
+            memset(log, 0, sizeof *log);
+        }
+    }
+    uint32_t slot;
+    if (log->count < MESH_UI_HISTORY_AIRTIME_MAX) {
+        slot = (log->first + log->count) % MESH_UI_HISTORY_AIRTIME_MAX;
+        ++log->count;
+    } else {
+        slot = log->first;
+        log->first = (log->first + 1U) % MESH_UI_HISTORY_AIRTIME_MAX;
+    }
+    log->items[slot].time = time;
+    log->items[slot].utilization = airtime_permille(utilization);
+    log->items[slot].tx = airtime_permille(tx);
+    log->items[slot].gap = log->pending_break;
+    log->pending_break = false;
+}
+
 void mesh_ui_history_note_airtime(struct mesh_ui_history *history, uint32_t now_ms,
                                   int32_t utilization_permille, int32_t tx_permille) {
     if (history == NULL) {
         return;
     }
     const uint32_t stamp = mesh_ui_history_stamp(history, now_ms);
-    mesh_ui_series_push(&history->channel_utilization, stamp, utilization_permille);
-    mesh_ui_series_push(&history->air_util_tx, stamp, tx_permille);
+    /* A LocalStats beside a live DeviceMetrics stream is the same two figures a second time. The
+       stream counts as live for a gap's worth after its last reading, so a radio that stops
+       sending it falls back to LocalStats rather than to nothing. */
+    if (history->has_metrics_airtime && stamp >= history->metrics_airtime_at &&
+        stamp - history->metrics_airtime_at <= MESH_UI_HISTORY_RADIO_GAP_MS) {
+        return;
+    }
+    airtime_push(&history->airtime, stamp, utilization_permille, tx_permille);
+}
+
+void mesh_ui_history_note_metrics_airtime(struct mesh_ui_history *history, uint32_t now_ms,
+                                          int32_t utilization_permille, int32_t tx_permille) {
+    if (history == NULL) {
+        return;
+    }
+    const uint32_t stamp = mesh_ui_history_stamp(history, now_ms);
+    history->metrics_airtime_at = stamp;
+    history->has_metrics_airtime = true;
+    airtime_push(&history->airtime, stamp, utilization_permille, tx_permille);
+}
+
+uint32_t mesh_ui_history_airtime_count(const struct mesh_ui_history *history) {
+    return history != NULL ? history->airtime.count : 0U;
+}
+
+const struct mesh_ui_airtime_sample *
+mesh_ui_history_airtime_at(const struct mesh_ui_history *history, uint32_t index) {
+    if (history == NULL || index >= history->airtime.count) {
+        return NULL;
+    }
+    return &history->airtime.items[(history->airtime.first + index) % MESH_UI_HISTORY_AIRTIME_MAX];
+}
+
+const struct mesh_ui_airtime_sample *
+mesh_ui_history_airtime_newest(const struct mesh_ui_history *history) {
+    const uint32_t count = mesh_ui_history_airtime_count(history);
+    return count > 0U ? mesh_ui_history_airtime_at(history, count - 1U) : NULL;
 }
 
 void mesh_ui_history_restore_airtime(struct mesh_ui_history *history, uint32_t time_ms,
@@ -59,29 +125,24 @@ void mesh_ui_history_restore_airtime(struct mesh_ui_history *history, uint32_t t
         return;
     }
     /* A break inside the restored window is part of what was watched, so it is put back with
-       the reading that carried it rather than recomputed - the elapsed-time rule would see the
-       silence, but a reading the *source* refused (mesh_ui_series_break()) leaves no trace in
-       the clock and would come back as a line across it. */
+       the reading that carried it rather than recomputed. */
     if (gap) {
-        mesh_ui_series_break(&history->channel_utilization);
-        mesh_ui_series_break(&history->air_util_tx);
+        history->airtime.pending_break = true;
     }
-    mesh_ui_series_push(&history->channel_utilization, time_ms, utilization_permille);
-    mesh_ui_series_push(&history->air_util_tx, time_ms, tx_permille);
+    airtime_push(&history->airtime, time_ms, utilization_permille, tx_permille);
 }
 
 void mesh_ui_history_resume(struct mesh_ui_history *history, uint32_t seam_ms) {
     if (history == NULL) {
         return;
     }
-    const struct mesh_ui_sample *newest = mesh_ui_series_newest(&history->channel_utilization);
+    const struct mesh_ui_airtime_sample *newest = mesh_ui_history_airtime_newest(history);
     if (newest == NULL) {
         return; /* nothing came back, so there is no timeline to fit the clock to */
     }
     history->resume_target_ms = newest->time + seam_ms;
     history->resume_pending = true;
-    mesh_ui_series_break(&history->channel_utilization);
-    mesh_ui_series_break(&history->air_util_tx);
+    history->airtime.pending_break = true;
 }
 
 /* The slot this node already has, or NULL. Separate from the one below because two callers
@@ -165,15 +226,14 @@ void mesh_ui_history_note_battery(struct mesh_ui_history *history, uint32_t now_
 }
 
 bool mesh_ui_history_has_airtime(const struct mesh_ui_history *history) {
-    /* The channel's own series rather than both: the two are pushed together by
-       mesh_ui_history_note_airtime(), so they break in the same places, and asking about one of
-       a pair that arrives in lockstep is asking about the pair.
-
-       A segment rather than a count, because what the verb offers is a *picture*. Two reports
-       either side of a link that was down for a quarter of an hour are two samples the ring
-       holds and no line at all - the second one starts a segment rather than continuing the
-       first - so a count would offer a chart with axes, a legend and nothing between them. */
-    return history != NULL && mesh_ui_series_has_segment(&history->channel_utilization);
+    /* Two readings on two ticks: the oldest and the newest differ, so there is a window. The ring
+       is in push order and a clock going backwards empties it, so the ends are the extremes. */
+    const uint32_t count = mesh_ui_history_airtime_count(history);
+    if (count < 2U) {
+        return false;
+    }
+    return mesh_ui_history_airtime_newest(history)->time >
+           mesh_ui_history_airtime_at(history, 0U)->time;
 }
 
 void mesh_ui_history_note_environment(struct mesh_ui_history *history, uint32_t now_ms,
