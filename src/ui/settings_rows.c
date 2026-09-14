@@ -957,8 +957,16 @@ static void build_lora(const struct mesh_ui_settings *s, struct item_list *list)
      * A warning rather than a refusal, and only when the owner record says the operator is not
      * licensed: an operator who is gets no mark, because for them this is simply the band they
      * are on.
+     *
+     * `has_owner` is what makes that read of the flag honest, and it is load-bearing rather
+     * than defensive. The preset map arrives *early* in the handshake - before the channel
+     * table, and so before our own NodeInfo carries the owner record - so there is a real
+     * window in which the band is known and the licence is not. Through it `is_licensed` is
+     * merely a zeroed member, and a mark drawn from that would be this client telling an
+     * operator it does not yet know anything about that they are unlicensed.
      */
-    if (region_row != NULL && legal != NULL && legal->licensed_only && !s->is_licensed) {
+    if (region_row != NULL && legal != NULL && legal->licensed_only && s->has_owner &&
+        !s->is_licensed) {
         region_row->conflict = true;
     }
     /* The manual trio only applies with the preset off; they stay listed so the row count

@@ -3397,6 +3397,19 @@ MESH_TEST_CASE(ui_settings_lora_preset_follows_the_region, unit) {
                           !region.conflict,
                       "an amateur band on a node claiming no licence should be marked");
 
+    /*
+     * But not before the owner record has arrived, which is a real window rather than a
+     * defensive one: the preset map reaches us before the channel table, and our own NodeInfo -
+     * which carries the owner - later still. Through it `is_licensed` is a zeroed member, and a
+     * mark drawn from that tells an operator we know nothing about that they are unlicensed.
+     */
+    settings.has_owner = false;
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, edits, 1U, MESH_UI_SETTINGS_LORA,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, 0U, &region) ||
+                          region.conflict,
+                      "an unknown licence state is not the same as an unlicensed one");
+    settings.has_owner = true;
+
     /* And an operator who does hold one gets no mark: for them it is simply the band. */
     settings.is_licensed = true;
     MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, edits, 1U, MESH_UI_SETTINGS_LORA,

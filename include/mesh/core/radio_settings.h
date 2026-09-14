@@ -352,12 +352,16 @@ void mesh_radio_settings_reset(struct mesh_radio_settings *settings);
 
 /*
  * Clears only the half of this struct that belongs to the *link*: the admin session passkey,
- * the request queue and whatever was in flight, and the write tallies. What the radio told us
- * about itself is left alone.
+ * the request queue and whatever was in flight, the write tallies, and the region preset map.
+ * What the radio told us about itself is otherwise left alone.
  *
  * A passkey is issued per admin session and is worthless once the link ends, so it can never
  * survive one. The config it protects is a different question, and the answer changed: a
  * reconnect to the same radio keeps it (see mesh_session_forget_radio).
+ *
+ * The preset map is on the link's side of that line despite being something the radio said,
+ * because it is the one such thing whose *absence* carries meaning - see the reasoning in the
+ * function.
  */
 void mesh_radio_settings_reset_session(struct mesh_radio_settings *settings);
 

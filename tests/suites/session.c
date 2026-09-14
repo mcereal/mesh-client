@@ -1843,6 +1843,22 @@ MESH_TEST_CASE(session_region_presets, unit) {
                           "a region the map did not name came out described anyway");
     }
 
+    /*
+     * And the map does not outlive the link that carried it.
+     *
+     * Every other section the radio sends survives a reconnect on purpose, because the handshake
+     * that follows overwrites each one as its fragment lands. This is the one where that does not
+     * hold: a firmware downgraded to a build that predates the message sends nothing, so there
+     * would be nothing to overwrite with and the old table would constrain the LoRa rows for
+     * ever - on a radio whose firmware never had an opinion about them.
+     */
     mesh_session_detach(&session);
+    MESH_TEST_FAIL_IF(session.settings.has_region_presets,
+                      "the preset map should not outlive the link that carried it");
+    memset(&ui, 0, sizeof ui);
+    mesh_app_flatten_region_presets(&session.settings.region_presets, &ui.region_presets);
+    MESH_TEST_FAIL_IF(
+        mesh_ui_settings_region_preset(&ui, meshtastic_Config_LoRaConfig_RegionCode_US) != NULL,
+        "a reconnect to a firmware that sends no map should constrain nothing");
     record_success(test_name);
 }
