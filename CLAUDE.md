@@ -162,15 +162,16 @@ These are authoring rules - breaking one compiles and looks fine.
 ## Before you change something
 
 **[`docs/non-bugs.md`](docs/non-bugs.md) is the list of things that look like bugs and are not.**
-Most entries cite the test that fails if the rule is undone. Read it before changing session,
-settings, map, UI-layout, messaging or updater behaviour.
+It is sectioned by area with a table of contents - read the section you are about to change, not
+the file - and most entries cite the test that fails if the rule is undone.
 
 **Do not add to it as a habit.** 93 of its 137 entries arrived in the same commit as the code they
 describe, which is an author explaining a choice rather than a record of anything going wrong -
-and it is why that file is 900 lines and this one was 1248. An entry needs evidence that somebody
+and it is why that file reached 917 lines and this one 1248. An entry needs evidence that somebody
 *tried to undo the rule*; a `feat` commit should not add one. If you are writing the code now, put
-the reasoning in the test name, a comment at the seam, or the `docs/` page for that area. The bar
-and the reasoning are at the top of that file.
+the reasoning in the test name, a comment at the seam, or the `docs/` page for that area. **An
+entry that cites a test is written short on purpose**: the test holds the line and the prose is
+only the reason. The bar is at the top of that file.
 
 The few that bite soonest:
 
