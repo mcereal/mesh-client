@@ -282,16 +282,47 @@ literal — `192.168.1.50`, `192.168.1.50:4403`, `[fd00::1]:4403` — and a name
 
 This is a deliberate limitation and not a permanent one. The shape that would lift it is the one
 [`src/core/fetch.c`](../src/core/fetch.c) already uses for HTTPS: fork a child, let it block, read
-the answer back through the loop. That is its own piece of work and it belongs with the on-device
-way of *typing* an address, which does not exist yet either.
+the answer back through the loop. That is its own piece of work. What it is no longer waiting on
+is the on-device way of *typing* an address, which is the next section — and the no-DNS rule made
+that half easier rather than harder, since a field that only ever holds digits, dots and colons
+needs no name resolution, no autocomplete and no second opinion about what the user meant.
 
-### What it does not have yet
+### Typing one: the Devices tab's last row
 
-**A way to *find* a node in the Devices tab.** A network cannot be scanned the way a USB bus or
-a Bluetooth adapter can — there is no equivalent of a sysfs walk or an advertisement — so the
-only thing this link could list is the address somebody already wrote down, and on a handheld
-there is nowhere to write one. Until both halves exist, the link is reached from configuration:
-`--tcp-host`, `MESHCLIENT_TCP_HOST`, or `preferred_tcp_host`. See [`cli.md`](cli.md).
+**A network cannot be scanned**, so there is nothing for discovery to find and no row for it to
+publish. What the Devices tab has instead is one row at the end of the list, always present, that
+*is* the network radio: it shows the configured address, or `Set an address` when there is none.
+
+- **A** connects to the address when there is one, and opens the keyboard when there is not — a
+  row whose A did nothing until an address existed would be a row that could never acquire one.
+- **Y** opens the keyboard preloaded with the current address. Editing is the common case, and
+  retyping fifteen characters on a d-pad to correct the last one is not editing.
+- **Clearing the field and pressing Done forgets the host**: the transport stops reaching for it,
+  `preferred_tcp_host` is emptied and so is the preferences file. That is the only way to say
+  "stop trying that address", which is why an empty draft is accepted here where the waypoint
+  keyboard refuses one.
+
+The row is present exactly when the device list holds no network row of its own, which is the
+one seam worth knowing about: the link that is already up publishes a row (below), and the two
+would otherwise be two rows about one address. Both are last, so the row does not move when the
+link comes up — it stops being the button that configures a host and becomes the device that is
+one. [`src/ui/devices.c`](../src/ui/devices.c) is the single authority on that, read by the nav
+for the row count, by `actions.c` for the keycaps and by the renderer for the row itself.
+
+**The address is remembered in its own preference**, `network_host` in `~/.meshclient/ui_prefs`,
+and *not* in the `known_devices` list beside it. That list is what auto-connect ranks a **scan**
+with, and a host is in no scan: filed there, an address would occupy one of the eight slots a
+real radio needs and match nothing that could ever be advertised. It is written when the connect
+is *asked for* rather than when it succeeds, because the two are different facts — the radio may
+be off and the WiFi elsewhere, and it is still the address the user wrote down. The one refusal
+that is not kept is `-EINVAL`, which is the transport saying this is not an address at all: it
+rejects a malformed target *before* writing its own `configured`, so remembering the typo would
+leave the file and the link naming different hosts and hand the typo back to auto-connect on the
+next launch to be refused every thirty seconds.
+
+`--tcp-host` and `MESHCLIENT_TCP_HOST` still work and still win: the saved address seeds
+`preferred_tcp_host` only when neither named one, so a flag passed on this launch means this
+launch. See [`cli.md`](cli.md).
 
 The link that is *already up* does get a row, and it is worth knowing why, because it is not a
 row anybody added. `mesh_app_publish_ui_state()` has always synthesised one for "connected, but

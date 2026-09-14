@@ -464,6 +464,16 @@ struct mesh_ui_nav {
      */
     bool keyboard_waypoint;
     uint32_t waypoint_source_node;
+    /*
+     * When the keyboard is typing the network radio's address, from the Devices tab's last row.
+     *
+     * A fourth flavour rather than a settings field, because it is not one: `k_fields` is what
+     * the radio holds, and this is what *this client* connects with - it is written to the
+     * preferences file next to the theme, and a radio that has never been reached has no
+     * setting to edit. The parking slot and the restore are shared with the other three; what
+     * differs is where the keyboard came from and therefore where B lands.
+     */
+    bool keyboard_network;
     /* When the keyboard edits a setting rather than the Compose draft: the field it is for
        (NONE for Compose) and the Compose draft parked while it is open. */
     uint8_t keyboard_field;
@@ -799,6 +809,17 @@ uint32_t mesh_ui_nav_reaction_row_count(void);
    unused cell); the action row is described by mesh_ui_kb_action_label(). */
 char mesh_ui_kb_char(enum mesh_ui_kb_layer layer, unsigned row, unsigned col);
 const char *mesh_ui_kb_action_label(const struct mesh_ui_nav *nav, enum mesh_ui_kb_action action);
+/*
+ * The most bytes the draft may hold, whichever job the keyboard is doing: the message limit, a
+ * settings field's own cap, a waypoint's name, a passkey's six digits, or a network address.
+ *
+ * Public because a backend draws a counter under the field and was computing the number itself,
+ * so the two disagreed on every flavour but the first two - a place's name is cut at 29 bytes by
+ * the append under a counter promising 233, and that counter is the only thing on the frame
+ * saying a limit exists at all. One function, for the reason the action bar and the press it
+ * names ask one function.
+ */
+size_t mesh_ui_nav_draft_cap(const struct mesh_ui_nav *nav);
 
 void mesh_ui_nav_set_toast(struct mesh_ui_nav *nav, uint64_t now_ms, const char *text);
 /* The same, raised from inside a key press, which has no clock of its own. It is dated by

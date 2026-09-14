@@ -180,6 +180,11 @@ static void uicap_scene_demo(struct uicap *cap) {
         {.identifier = "F4:12:FA:00:0A:44", .name = "Pack Radio", .paired = true},
     };
     mesh_ui_store_set_discovery(&cap->store, devices, 5U);
+    /* And a network address, which is not one of those rows: nothing scanned for it, somebody
+       typed it. It is in the fixture set rather than left empty because the row draws
+       differently either way and the configured half is the one with an address on it - the
+       empty half needs no fixture, since it is what a Brick with nothing written down shows. */
+    mesh_ui_store_set_network_host(&cap->store, "192.168.1.50");
 
     /*
      * Four of these are zero hops away and not over MQTT, which is what makes them *heard* -

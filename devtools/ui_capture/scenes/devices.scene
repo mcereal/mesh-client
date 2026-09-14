@@ -37,8 +37,28 @@ hold 1400
 key b
 hold 900
 
+# The last row is the one that is not a radio: the network address, and the only way on the
+# device to type one. It draws in the same three slots as everything above it, so that when a
+# network link comes up and discovery publishes a real row in its place, nothing on the panel
+# moves. A here connects; Y opens the keyboard on the address.
+key down
+key down
+hold 1400
+key y
+hold 1600
+
+# Out through the keyboard's own cancel rather than with B, which is backspace here and would
+# eat the address one character at a time. Up from the top row wraps onto the action row and
+# Left from its first key wraps onto the last, which is cancel.
+key up
+key left
+key a
+hold 900
+
 # The same list in every theme. The capsule's fill and its ink come from one call, so nothing
 # here is a pair anybody matched by eye.
+key up
+key up
 key up
 key up
 key up

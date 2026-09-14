@@ -42,6 +42,17 @@ struct mesh_ui_preferences {
      */
     struct mesh_ui_known_device known_devices[MESH_UI_MAX_KNOWN_DEVICES];
     uint8_t known_device_count;
+    /*
+     * The network radio's address, as typed on the Devices tab - "192.168.1.50", with an
+     * optional ":port" or a bracketed v6 literal.
+     *
+     * Its own field rather than a `known_devices` entry, and that is the same split
+     * mesh_app_publish_ui_state() makes: that list is what auto-connect ranks a *scan* with,
+     * and a host is in no scan. Filed there, an address would occupy one of the eight slots a
+     * real radio needs and match nothing that could ever be advertised. Here it is what it is
+     * - one address, remembered, because the alternative was editing launch.sh on the card.
+     */
+    char network_host[64];
     char preferred_channel[64];
     /* Node numbers of the radios this client has connected to, most recent first. A favorite
        lives in the connected radio's NodeDB, so pinning a node teaches that radio and nothing

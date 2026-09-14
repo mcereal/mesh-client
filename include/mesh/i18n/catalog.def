@@ -169,6 +169,10 @@ MESH_STR_ENTRY(ACTION_CONNECT,            "connect")
 MESH_STR_ENTRY(ACTION_DISCONNECT,         "disconnect")
 /* Drop a radio from the list of ones we know how to reach. */
 MESH_STR_ENTRY(ACTION_FORGET,             "forget")
+/* Y on the Devices tab's network row - and A on it while no address is set. "address" rather
+   than "edit" because the row may have nothing to edit yet, and rather than "connect" because
+   that is the press beside it. */
+MESH_STR_ENTRY(ACTION_ADDRESS,            "address")
 /* Ask the radio for this section again, rather than showing what it last said. */
 MESH_STR_ENTRY(ACTION_REFRESH,            "refresh")
 /* Open the airtime readings as a chart with its axes named - the Status screen's Mesh card
@@ -507,6 +511,11 @@ MESH_STR_ENTRY(REACTION_IMPORTANT,        "Important")
 
 /* ---- the Devices tab ------------------------------------------------------------------------- */
 
+/* Where the radios would be, while discovery has turned none up. A dim line inside the list
+   rather than an empty-state picture, because the list is never empty: the network row is
+   always its last row, and a screen falling through to a picture would take away the one
+   control that can put a radio on it - the Nodes tab's "a filter that keeps nothing keeps the
+   rows above it" rule, arrived at from the other side. */
 MESH_STR_ENTRY(DEVICES_EMPTY,             "Scanning for Meshtastic nodes...")
 /* A device the adapter has not named. The angle brackets mark it as a stand-in, not a name. */
 MESH_STR_ENTRY(DEVICES_UNNAMED,           "<unknown>")
@@ -534,6 +543,14 @@ MESH_STR_ENTRY(DEVICES_TRAILING_RSSI,     "%ddBm")
 MESH_STR_ENTRY(DEVICES_TRAILING_NETWORK,  "network")
 /* The name given to a radio we are talking to but never saw advertise. */
 MESH_STR_ENTRY(DEVICES_CONNECTED_NAME,    "Connected")
+/* The Devices tab's last row, when nobody has written an address down: what it would reach,
+   and what to do about it. A network cannot be scanned, so this row is the only place a
+   network radio can come from. */
+MESH_STR_ENTRY(DEVICES_NETWORK_ROW,       "Network radio")
+MESH_STR_ENTRY(DEVICES_NETWORK_UNSET,     "Set an address")
+/* Said under the address once one is set and the link is not up. It is not a state the way
+   "not in range" is - nothing has been tried - so it says what the row would do. */
+MESH_STR_ENTRY(DEVICES_NETWORK_READY,     "Connect over the network")
 
 /* ---- the Status tab -------------------------------------------------------------------------- */
 
@@ -1224,6 +1241,8 @@ MESH_STR_ENTRY(HELP_LABEL_DEVICES_FORGET, "Forgetting one")
 MESH_STR_ENTRY(HELP_NOTE_DEVICES,         "The radios this Brick can reach: Bluetooth nodes it can see, and anything plugged into the USB port. A opens a link to the one under the cursor and X closes it.")
 MESH_STR_ENTRY(HELP_NOTE_DEVICES_PAIR,    "A Bluetooth radio wants pairing the first time. The radio shows a six-digit code on its own screen and this client asks for it; the pairing is then kept until one side forgets it.")
 MESH_STR_ENTRY(HELP_NOTE_DEVICES_FORGET,  "Y twice drops a radio's pairing from this Brick. Connecting again needs the code again, which is what to do when a radio was re-flashed and no longer knows this client.")
+MESH_STR_ENTRY(HELP_LABEL_DEVICES_NETWORK, "The network radio")
+MESH_STR_ENTRY(HELP_NOTE_DEVICES_NETWORK, "The last row reaches a node over WiFi. It takes a numeric address like 192.168.1.50, never a name: looking one up would freeze the screen. Add :4403 only for another port. Y edits, clearing forgets.")
 
 /* Status. */
 MESH_STR_ENTRY(HELP_LABEL_STATUS_COUNTS,  "Why two node counts differ")
@@ -2127,6 +2146,10 @@ MESH_STR_ENTRY(TOAST_DISCONNECTED,        "Disconnected")
 MESH_STR_ENTRY(TOAST_NOTHING_CONNECTED,   "Nothing is connected")
 MESH_STR_ENTRY(TOAST_DISCONNECT_FAILED,   "Disconnect failed (%d)")
 MESH_STR_ENTRY(TOAST_BLE_ONLY_PAIRING,    "Only Bluetooth nodes are paired")
+/* The network address was cleared: nothing is configured and auto-connect stops reaching for
+   it. Said of a host rather than of a bond, which is what the Devices tab's other forget is. */
+MESH_STR_ENTRY(TOAST_FORGOT_NETWORK,      "Forgot the network address")
+MESH_STR_ENTRY(TOAST_NO_NETWORK_HOST,     "No network address set")
 MESH_STR_ENTRY(TOAST_FORGOT_DEVICE,       "Forgot %.30s; pair again to use it")
 MESH_STR_ENTRY(TOAST_FORGET_DEVICE_FAILED,"Could not forget it (%d)")
 MESH_STR_ENTRY(TOAST_PAIRING,             "Pairing...")

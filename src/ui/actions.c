@@ -1,5 +1,6 @@
 #include "mesh/ui/actions.h"
 
+#include "mesh/ui/devices.h"
 #include "mesh/ui/help.h"
 #include "mesh/ui/history.h"
 #include "mesh/ui/input.h"
@@ -321,16 +322,38 @@ static void actions_devices(const struct mesh_ui_nav *nav, const struct mesh_ui_
      * X is deliberately not asked here: its handler drops whichever link is up regardless of
      * the cursor, so it is not about the row.
      */
-    const struct mesh_ui_device *row = NULL;
-    const uint32_t cursor = nav->cursor[MESH_UI_SCREEN_DEVICES];
-    if (cursor < snapshot->device_count) {
-        row = &snapshot->devices[cursor];
+    struct mesh_ui_devices_row row;
+    if (!mesh_ui_devices_row(snapshot->devices, snapshot->device_count, snapshot->network_host,
+                             nav->cursor[MESH_UI_SCREEN_DEVICES], &row)) {
+        row = (struct mesh_ui_devices_row){
+            .type = (uint8_t)MESH_UI_DEVICES_ROW_DEVICE, .device = NULL, .host = ""};
     }
-    if (mesh_ui_device_connectable(row)) {
+    if (row.type == (uint8_t)MESH_UI_DEVICES_ROW_NETWORK) {
+        /*
+         * The network row's two presses, and the reason they are not the row above's.
+         *
+         * With an address written down A connects to it and Y opens the keyboard on it; with
+         * none there is only the keyboard, and it is what A does - so Y is left off rather
+         * than named as a second way to the same screen, which is the duplicate keycap this
+         * table exists as much to prevent as the one that does nothing.
+         */
+        if (row.host[0] != '\0') {
+            bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_CONNECT);
+            bar_add(bar, MESH_UI_BUTTON_X, MESH_STR_ACTION_DISCONNECT);
+            bar_add(bar, MESH_UI_BUTTON_Y, MESH_STR_ACTION_ADDRESS);
+        } else {
+            bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_ADDRESS);
+            bar_add(bar, MESH_UI_BUTTON_X, MESH_STR_ACTION_DISCONNECT);
+        }
+        bar_add_help(snapshot, bar);
+        bar_add_tabs(bar);
+        return;
+    }
+    if (mesh_ui_device_connectable(row.device)) {
         bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_CONNECT);
     }
     bar_add(bar, MESH_UI_BUTTON_X, MESH_STR_ACTION_DISCONNECT);
-    if (mesh_ui_device_forgettable(row)) {
+    if (mesh_ui_device_forgettable(row.device)) {
         bar_add(bar, MESH_UI_BUTTON_Y, MESH_STR_ACTION_FORGET);
     }
     bar_add_help(snapshot, bar);
@@ -556,9 +579,16 @@ void mesh_ui_actions_for(const struct mesh_ui_snapshot *snapshot, struct mesh_ui
             return;
         }
         bar_add(out, MESH_UI_BUTTON_A, MESH_STR_ACTION_TYPE);
+        /* "send" only when something goes to a person, which is mesh_ui_kb_action_label()'s
+           rule for the keycap on the grid - and it has to be the same rule, or the bar and the
+           key one row above it name the same press two ways. It was the field alone, so the
+           waypoint keyboard's bar said "send" over a grid whose own key said "done", and a
+           network address would have joined it. */
         bar_add(out, MESH_UI_BUTTON_START,
-                nav->keyboard_field != MESH_UI_FIELD_NONE ? MESH_STR_ACTION_DONE
-                                                          : MESH_STR_ACTION_SEND);
+                (nav->keyboard_field != MESH_UI_FIELD_NONE || nav->keyboard_waypoint ||
+                 nav->keyboard_network)
+                    ? MESH_STR_ACTION_DONE
+                    : MESH_STR_ACTION_SEND);
         bar_add(out, MESH_UI_BUTTON_B, MESH_STR_ACTION_DELETE);
         bar_add(out, MESH_UI_BUTTON_X, MESH_STR_ACTION_SHIFT);
         bar_add(out, MESH_UI_BUTTON_Y, MESH_STR_ACTION_SPACE);

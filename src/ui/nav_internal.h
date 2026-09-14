@@ -54,6 +54,28 @@ void mesh_ui_nav_picker_open(struct mesh_ui_nav *nav, const struct mesh_ui_store
 bool mesh_ui_nav_picker_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                             enum mesh_ui_key key);
 
+/* ---- nav_keyboard.c ----------------------------------------------------------------------- */
+
+/*
+ * Raises the keyboard to type the network radio's address, preloaded with `host` (NULL or ""
+ * starts empty). What the Devices tab's last row does.
+ *
+ * Lower case rather than the waypoint keyboard's upper: every layer's first row is the digits,
+ * and an address is digits, dots and colons - so the cursor lands on '1' and the whole of an
+ * IPv4 literal is typed without changing layer once.
+ */
+void mesh_ui_nav_open_network_keyboard(struct mesh_ui_nav *nav, const char *host);
+/*
+ * Done on that keyboard.
+ *
+ * A draft with something in it asks the app to connect to it - which is also what stores it,
+ * because the address a link was brought up on is the one worth remembering. An *empty* draft
+ * forgets the configured host instead: deleting the address is the only way the user can say
+ * "stop reaching for that", and refusing an empty draft the way the waypoint keyboard does
+ * would leave them with a host they cannot clear.
+ */
+bool mesh_ui_nav_commit_network_host(struct mesh_ui_nav *nav, struct mesh_ui_action *action);
+
 /* ---- nav_waypoints.c --------------------------------------------------------------------- */
 
 /* Opens the place with this id over the list, parking the list's cursor. */

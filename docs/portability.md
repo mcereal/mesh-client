@@ -45,16 +45,18 @@ because they are not equally available:
   merely unlisted by accident — it will never appear, and the kernel having *a* serial driver is
   not enough to conclude the transport is available.
 - **TCP** needs only Wi-Fi and a Meshtastic node with its own network access on. This is the
-  escape hatch for a device with no Bluetooth at all, and it costs one line in `launch.sh`:
+  escape hatch for a device with no Bluetooth at all, and it is reached from the device: the last
+  row of the Devices tab is the network radio, A on it types an address and the address is
+  remembered. A launcher line still works and still wins for one launch:
 
   ```sh
   export MESHCLIENT_TCP_HOST=192.168.1.50
   ```
 
   **It must be a numeric address.** `getaddrinfo()` blocks and this client is one epoll loop with
-  no threads, so a hostname is refused rather than silently freezing the UI; there is also no
-  on-device way to *type* an address yet, which is why this is a launcher edit rather than a
-  screen. See [`docs/transport.md`](transport.md#an-address-not-a-name).
+  no threads, so a hostname is refused rather than silently freezing the UI — which is also what
+  makes the on-device field a small one: it holds digits, dots and colons and nothing else. See
+  [`docs/transport.md`](transport.md#typing-one-the-devices-tabs-last-row).
 
 Two things that look like blockers and are not. **Panel size is not one** — the renderer measures
 everything it draws in cells, so a smaller screen reflows rather than clipping; see

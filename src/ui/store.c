@@ -4,6 +4,7 @@
 
 #include "mesh/geo/coords.h"
 #include "mesh/utils/log.h"
+#include "mesh/utils/text.h"
 
 #include "mesh/core/message.h"
 #include "mesh/ui/settings.h"
@@ -64,6 +65,7 @@ void mesh_ui_store_shutdown(struct mesh_ui_store *store) {
     }
     store->pending_flags = MESH_UI_UPDATE_NONE;
     store->device_count = 0U;
+    store->network_host[0] = '\0';
     store->handshake_valid = false;
     memset(&store->messages, 0, sizeof store->messages);
 }
@@ -217,6 +219,19 @@ void mesh_ui_store_set_discovery(struct mesh_ui_store *store, const struct mesh_
     memcpy(store->devices, next, sizeof(next));
     store->device_count = capped;
 
+    mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_DISCOVERY);
+}
+
+void mesh_ui_store_set_network_host(struct mesh_ui_store *store, const char *host) {
+    if (store == NULL) {
+        return;
+    }
+    char next[MESH_UI_NETWORK_HOST_MAX];
+    mesh_str_copy(next, sizeof next, host != NULL ? host : "");
+    if (strcmp(store->network_host, next) == 0) {
+        return;
+    }
+    mesh_str_copy(store->network_host, sizeof store->network_host, next);
     mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_DISCOVERY);
 }
 
@@ -693,6 +708,7 @@ void mesh_ui_store_view(const struct mesh_ui_snapshot *snapshot, struct mesh_ui_
     memset(view, 0, sizeof *view);
     memcpy(view->devices, snapshot->devices, sizeof view->devices);
     view->device_count = snapshot->device_count;
+    mesh_str_copy(view->network_host, sizeof view->network_host, snapshot->network_host);
     view->handshake = snapshot->handshake;
     view->handshake_valid = snapshot->handshake_valid;
     view->messages = snapshot->messages;
@@ -894,6 +910,7 @@ bool mesh_ui_store_consume_updates(struct mesh_ui_store *store, struct mesh_ui_s
 
     snapshot->update_flags = store->pending_flags;
     snapshot->device_count = store->device_count;
+    mesh_str_copy(snapshot->network_host, sizeof snapshot->network_host, store->network_host);
     if (store->device_count > 0U) {
         memcpy(snapshot->devices, store->devices,
                store->device_count * sizeof(struct mesh_ui_device));

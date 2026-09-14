@@ -51,10 +51,10 @@
  * not a connect that fails, it is a read of one transport's state through another's type. An
  * "everything else" arm means Bluetooth, and a kind that is not Bluetooth falls into it.
  *
- * Nothing reaches the network arm today - a row is connectable only while it is *not* connected
- * (mesh_ui_device_connectable), and the one row a network link has exists only while it is - so
- * this is what that row's press will find already correct rather than a trap laid where the next
- * change steps.
+ * The network arm was unreachable when it was written - a row is connectable only while it is
+ * *not* connected, and the one row a network link had existed only while it was - and it was
+ * stated anyway rather than left as a trap for whatever came next. What came next is the Devices
+ * tab's own network row, whose A raises exactly this kind.
  */
 static struct mesh_transport *mesh_app_transport_for_kind(uint8_t kind) {
     switch ((enum mesh_ui_device_kind)kind) {
@@ -163,13 +163,25 @@ int mesh_app_link_connect(struct mesh_app *app, const char *identifier, uint8_t 
        not a radio to look for over the air, and storing it under the BLE preference would send
        auto-connect hunting for an advertisement no address can ever match. */
     if (kind == (uint8_t)MESH_UI_DEVICE_TCP) {
-        snprintf(app->config.preferred_tcp_host, sizeof app->config.preferred_tcp_host, "%s",
-                 identifier);
         if (mesh_tcp_transport_connected_target(transport) != NULL ||
             mesh_tcp_transport_is_connecting(transport)) {
             mesh_tcp_transport_disconnect(transport);
         }
-        return mesh_tcp_transport_connect(transport, identifier);
+        const int result = mesh_tcp_transport_connect(transport, identifier);
+        /*
+         * Only an address the transport would take becomes the one to go back to, and the two
+         * refusals are not the same fact. -EINVAL is "that is not an address" - a typo, or a
+         * name this client cannot resolve - and the transport rejects it before writing its own
+         * `configured`, so remembering it here would leave the two disagreeing and hand the
+         * typo back to auto-connect on the next launch to be refused every thirty seconds.
+         * Anything else is a real address that did not answer, which is exactly the case worth
+         * keeping: the radio is off, or the Brick is on the wrong WiFi.
+         */
+        if (result != -EINVAL) {
+            snprintf(app->config.preferred_tcp_host, sizeof app->config.preferred_tcp_host, "%s",
+                     identifier);
+        }
+        return result;
     }
 
     snprintf(app->config.preferred_ble_device, sizeof app->config.preferred_ble_device, "%s",
@@ -686,6 +698,20 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
                              sizeof app->config.preferred_ble_device, "%s",
                              app->ui_preferences.preferred_device);
                 }
+            }
+            /*
+             * And the network address the Devices tab typed, on the same terms: the flag and
+             * the environment variable win, because somebody who passed --tcp-host on this
+             * launch means this launch. Before this existed the address could only come from
+             * one of those two, which on a handheld means editing launch.sh on the card.
+             *
+             * Read here rather than by the transport because the transport is configured from
+             * `config` a few hundred lines further down, and one source for a setting is what
+             * stops the two disagreeing about which host auto-connect is reaching for.
+             */
+            if (app->config.preferred_tcp_host[0] == '\0') {
+                snprintf(app->config.preferred_tcp_host, sizeof app->config.preferred_tcp_host,
+                         "%s", app->ui_preferences.network_host);
             }
         }
         /*

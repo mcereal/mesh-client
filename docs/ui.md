@@ -205,7 +205,19 @@ Not offered in all-traffic, for the reason A is not: a reaction goes out on the 
 target belongs to, and that view is several of them at once.
 
 The on-screen keyboard is `keyboard_open` plus `kb_row/kb_col/kb_layer` and `draft`, all in the
-nav; while it is open every key goes to the keyboard handler and tabs do not switch. The
+nav; while it is open every key goes to the keyboard handler and tabs do not switch. It is raised
+for four unrelated jobs — a message, a settings field (`keyboard_field`), a new waypoint's name
+(`keyboard_waypoint`) and the network radio's address (`keyboard_network`) — plus the BlueZ
+passkey prompt, which can land on top of any of them. Two things every flavour shares and a new
+one has to join: the Compose draft goes into the single parking slot `draft_saved`, and
+`mesh_ui_nav_draft_cap()` says how much may be typed. **That cap is asked, never re-derived** —
+the backend draws the counter under the field and used to work the number out itself, so a
+waypoint name cut at 29 bytes and an address cut at 63 both sat under a counter promising 233,
+which is the only thing on the frame that says a limit exists at all. The heading follows the
+same rule: a keyboard that does not name what it is editing falls through to the compose one, and
+naming a place under `To: #LongFast` is a destination for a message nobody is writing.
+
+The
 `picker_open` overlay ("New message") works the same way; its rows come from
 `mesh_ui_nav_picker_row` (channels, then nodes), and picking one opens that conversation.
 

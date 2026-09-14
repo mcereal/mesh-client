@@ -283,6 +283,8 @@ int mesh_ui_preferences_load(struct mesh_ui_preferences *prefs, const char *path
             snprintf(prefs->preferred_device, sizeof prefs->preferred_device, "%s", value);
         } else if (strncmp(line, "preferred_device_kind", key_len) == 0) {
             prefs->preferred_device_kind = (uint8_t)(strcmp(value, "serial") == 0 ? 1 : 0);
+        } else if (strncmp(line, "network_host", key_len) == 0) {
+            snprintf(prefs->network_host, sizeof prefs->network_host, "%s", value);
         } else if (strncmp(line, "preferred_channel", key_len) == 0) {
             snprintf(prefs->preferred_channel, sizeof prefs->preferred_channel, "%s", value);
         } else if (strncmp(line, "update_channel", key_len) == 0) {
@@ -433,6 +435,7 @@ int mesh_ui_preferences_save(const struct mesh_ui_preferences *prefs, const char
     fprintf(file, "preferred_device=%s\n", prefs->preferred_device);
     fprintf(file, "preferred_device_kind=%s\n",
             prefs->preferred_device_kind == 1U ? "serial" : "ble");
+    fprintf(file, "network_host=%s\n", prefs->network_host);
     fprintf(file, "preferred_channel=%s\n", prefs->preferred_channel);
     fprintf(file, "update_channel=%s\n",
             prefs->update_channel == 1U   ? "stable"
