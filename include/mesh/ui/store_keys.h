@@ -84,4 +84,14 @@ void mesh_ui_store_write_text(FILE *file, enum mesh_ui_store_key key, const char
 void mesh_ui_store_write_row_text(FILE *file, enum mesh_ui_store_key key, uint32_t index,
                                   const char *text);
 
+/*
+ * The mirror of that escape, in place.
+ *
+ * A \xNN goes back to the byte it stood for and everything else is copied through; the result
+ * is never longer than the input, so the line buffer the loader read into is the buffer it is
+ * written back to. A trailing backslash that cannot be a whole escape is dropped, which is
+ * what a truncated line leaves behind.
+ */
+void mesh_ui_store_unescape_value(char *value);
+
 #endif /* MESH_UI_STORE_KEYS_H */
