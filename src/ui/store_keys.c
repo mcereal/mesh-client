@@ -8,6 +8,7 @@
 
 #include "mesh/ui/store_keys.h"
 
+#include <errno.h>
 #include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
@@ -54,14 +55,21 @@ enum mesh_ui_store_key_kind mesh_ui_store_key_kind(enum mesh_ui_store_key key) {
  * strtoul rather than sscanf because the caller has to know the terminator to tell `name[3]`
  * from `name[3.1]`, and because a number wider than the roster can hold should read as a key
  * this build does not know rather than as a wrapped index into it.
+ *
+ * Both halves of that last part are needed, and which one catches an absurd index depends on
+ * the target: where `unsigned long` is 64 bits the range check does it, and where it is 32 -
+ * armv7, which docs/portability.md keeps on the table - strtoul has already saturated at
+ * ULONG_MAX and only ERANGE can still tell "4294967295" from a number far past it. Checked the
+ * way mesh_env_parse_int() checks it.
  */
 static bool parse_index(const char *text, uint32_t *out, const char **end) {
     if (text == NULL || *text < '0' || *text > '9') {
         return false;
     }
     char *stop = NULL;
+    errno = 0;
     const unsigned long value = strtoul(text, &stop, 10);
-    if (stop == text || value > UINT32_MAX) {
+    if (stop == text || errno == ERANGE || value > UINT32_MAX) {
         return false;
     }
     *out = (uint32_t)value;

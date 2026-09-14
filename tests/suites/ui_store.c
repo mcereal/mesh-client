@@ -1308,17 +1308,18 @@ MESH_TEST_CASE(ui_store_cache_key_lookup, unit) {
                       "node_nbrs resolved as node_nbr");
 
     static const char *const malformed[] = {
-        "",                       /* nothing at all                          */
-        "[0]",                    /* brackets with no name                   */
-        "node[",                  /* an opened bracket                       */
-        "node[]",                 /* no number                               */
-        "node[1",                 /* never closed                            */
-        "node[1]x",               /* trailing rubbish after the close        */
-        "node[1.2]",              /* a slot on a key that takes a row        */
-        "node_nbr[1]",            /* a row on a key that takes a slot        */
-        "node_nbr[1.2.3]",        /* one number too many                     */
-        "node[-1]",               /* a sign, which the format never writes   */
-        "node[99999999999999999]" /* wider than the index can hold           */
+        "",                            /* nothing at all                          */
+        "[0]",                         /* brackets with no name                   */
+        "node[",                       /* an opened bracket                       */
+        "node[]",                      /* no number                               */
+        "node[1",                      /* never closed                            */
+        "node[1]x",                    /* trailing rubbish after the close        */
+        "node[1.2]",                   /* a slot on a key that takes a row        */
+        "node_nbr[1]",                 /* a row on a key that takes a slot        */
+        "node_nbr[1.2.3]",             /* one number too many                     */
+        "node[-1]",                    /* a sign, which the format never writes   */
+        "node[99999999999999999]",     /* wider than the index can hold      */
+        "node[9999999999999999999999]" /* wider than strtoul itself: ERANGE */
     };
     for (size_t i = 0U; i < sizeof malformed / sizeof malformed[0]; ++i) {
         index = 0xFFFFFFFFU;
