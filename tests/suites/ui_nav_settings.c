@@ -1544,8 +1544,13 @@ MESH_TEST_CASE(ui_nav_lora_preset_steps_inside_the_region, unit) {
         failure = "the LoRa preset row should be reachable";
         goto cleanup;
     }
+    /* Read through mesh_ui_settings_item() rather than the nav's own accessor for that row:
+       the latter lives in src/ui/nav_internal.h, which is the group's private header and not
+       something a test may reach into. */
     struct mesh_ui_settings_item item;
-    if (!mesh_ui_nav_settings_current(&store.nav, &store, true, &item) ||
+    if (!mesh_ui_settings_item(&store.settings, NULL, store.nav.settings_edits,
+                               store.nav.settings_edit_count, MESH_UI_SETTINGS_LORA,
+                               MESH_UI_SETTINGS_NO_CHANNEL, 2U, &item) ||
         item.field != MESH_UI_FIELD_LORA_PRESET) {
         failure = "the cursor should be on the preset row";
         goto cleanup;
@@ -1568,7 +1573,10 @@ MESH_TEST_CASE(ui_nav_lora_preset_steps_inside_the_region, unit) {
         failure = "Right off the end of the set should wrap to its first value";
         goto cleanup;
     }
-    if (!mesh_ui_nav_settings_current(&store.nav, &store, true, &item) || item.conflict) {
+    if (!mesh_ui_settings_item(&store.settings, NULL, store.nav.settings_edits,
+                               store.nav.settings_edit_count, MESH_UI_SETTINGS_LORA,
+                               MESH_UI_SETTINGS_NO_CHANNEL, 2U, &item) ||
+        item.conflict) {
         failure = "a preset the region allows should not be marked";
         goto cleanup;
     }
