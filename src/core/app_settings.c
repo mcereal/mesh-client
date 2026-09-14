@@ -571,9 +571,10 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
     case MESH_UI_FIELD_BEACON_MESSAGE:
         mesh_str_copy(beacon->broadcast_message, sizeof beacon->broadcast_message, edit->text);
         break;
-    /* Either row of the offered channel brings the submessage with it: a ChannelSettings that
-       is absent carries neither the name nor the key, which is the same pairing the two
-       module_settings rows of a channel have. */
+    /* Either row of the offered channel brings the submessage with it - a ChannelSettings that
+       is absent carries neither the name nor the key, the same pairing the two module_settings
+       rows of a channel have. Whether it *stays* is decided after every edit has landed, by the
+       name: see the block at the end of mesh_app_build_settings_write(). */
     case MESH_UI_FIELD_BEACON_OFFER_NAME:
         beacon->has_broadcast_offer_channel = true;
         mesh_str_copy(beacon->broadcast_offer_channel.name,
@@ -1189,6 +1190,21 @@ int mesh_app_build_settings_write(const struct mesh_radio_settings *radio,
             memset(&beacon->broadcast_targets[i], 0, sizeof beacon->broadcast_targets[i]);
         }
         beacon->broadcast_targets_count = kept;
+        /*
+         * And the offer, by the same rule one level up: an invitation with no name on it is not
+         * an invitation, so the submessage goes rather than travelling as a bare key.
+         *
+         * Decided here rather than in the row's own arm because a save carries several edits in
+         * whatever order the user made them, and a name emptied before the key was touched has
+         * to mean the same as one emptied after it. The row's note promises this - "leave it
+         * empty to offer no channel" - and the promise is the screen's, so it is kept against
+         * the assembled record rather than against one edit.
+         */
+        if (beacon->has_broadcast_offer_channel &&
+            beacon->broadcast_offer_channel.name[0] == '\0') {
+            beacon->has_broadcast_offer_channel = false;
+            memset(&beacon->broadcast_offer_channel, 0, sizeof beacon->broadcast_offer_channel);
+        }
     }
     return 0;
 }

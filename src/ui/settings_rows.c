@@ -293,10 +293,16 @@ static void item_flag_group(struct item_list *list, enum mesh_ui_setting_field_g
  * builds rows. Every record is listed whether or not the radio sent one - an empty one is how a
  * target is added, exactly as an empty slot is how a channel is - so the count never moves,
  * which is the rule every group in this file follows.
+ *
+ * `rows` is the same run of pointers back, for the caller with something to say about a row
+ * that this cannot say for it - which one field of a record constrains another. It is the same
+ * bargain item_field() itself makes by answering the row it added: the shape is built here and
+ * the meaning stays with the caller. NULL for a caller that has nothing to add.
  */
 static void item_record_group(struct item_list *list, enum mesh_ui_setting_field_group group,
                               uint32_t fields_per_record, enum mesh_str_id title,
-                              const uint32_t *values, size_t value_count) {
+                              const uint32_t *values, size_t value_count,
+                              struct mesh_ui_settings_item **rows) {
     const uint32_t count = mesh_ui_settings_group_count(group);
     if (fields_per_record == 0U || values == NULL || value_count < count) {
         return;
@@ -307,7 +313,11 @@ static void item_record_group(struct item_list *list, enum mesh_ui_setting_field
             mesh_str_format(label, sizeof label, title, (unsigned)(i / fields_per_record + 1U));
             item_add_named(list, label, MESH_UI_SETTING_HEADING);
         }
-        item_field(list, mesh_ui_settings_group_field(group, i), values[i], NULL);
+        struct mesh_ui_settings_item *row =
+            item_field(list, mesh_ui_settings_group_field(group, i), values[i], NULL);
+        if (rows != NULL) {
+            rows[i] = row;
+        }
     }
 }
 
@@ -953,6 +963,40 @@ static void build_display(const struct mesh_ui_settings *s, struct item_list *li
                NULL);
 }
 
+/*
+ * A preset row constrained by the region it will be transmitted in.
+ *
+ * The firmware sends its own table of which modem presets each region will take
+ * (`FromRadio.region_presets`) precisely so a client can stop offering an illegal pair, and the
+ * LoRa section has read it since phase 14 item 8. The beacon's offered channel and its four
+ * targets are the same pair one section over, so the rule lives here rather than being written
+ * out five more times.
+ *
+ * `region` is the *effective* one and the caller works it out, because what "no region named"
+ * means is the caller's to know: for a target it is the running config's region, which is what
+ * the firmware falls back to; for an offer it is nothing at all, and the caller passes 0 so the
+ * row keeps every value.
+ *
+ * `shift` is how far the row's values sit above the presets they name - 0 for LoRa, 1 for the
+ * beacon's rows, whose 0 means "absent". Absent is always legal, which is the bit the shifted
+ * mask puts back at the bottom.
+ */
+static void constrain_preset_row(const struct mesh_ui_settings *s, uint32_t region,
+                                 struct mesh_ui_settings_item *preset_row, uint32_t shift) {
+    if (preset_row == NULL || region == 0U) {
+        return;
+    }
+    const struct mesh_ui_region_preset *legal = mesh_ui_settings_region_preset(s, region);
+    if (legal == NULL) {
+        return; /* a firmware that predates the message constrains nothing */
+    }
+    const uint32_t choices =
+        shift == 0U ? legal->presets : (legal->presets << shift) | ((1U << shift) - 1U);
+    preset_row->choices = choices;
+    preset_row->conflict = !mesh_ui_settings_choice_allowed(
+        choices, mesh_ui_settings_enum_count(preset_row->field), preset_row->number);
+}
+
 static void build_lora(const struct mesh_ui_settings *s, struct item_list *list) {
     /*
      * The region and the preset are one pair, and this is the only place in the tab where one
@@ -976,14 +1020,8 @@ static void build_lora(const struct mesh_ui_settings *s, struct item_list *list)
     const uint32_t region = region_row != NULL ? region_row->number : s->region;
     const struct mesh_ui_region_preset *legal = mesh_ui_settings_region_preset(s, region);
     item_field(list, MESH_UI_FIELD_LORA_USE_PRESET, s->use_preset ? 1U : 0U, NULL);
-    struct mesh_ui_settings_item *preset_row =
-        item_field(list, MESH_UI_FIELD_LORA_PRESET, s->modem_preset, NULL);
-    if (preset_row != NULL && legal != NULL) {
-        preset_row->choices = legal->presets;
-        preset_row->conflict = !mesh_ui_settings_choice_allowed(
-            legal->presets, mesh_ui_settings_enum_count(MESH_UI_FIELD_LORA_PRESET),
-            preset_row->number);
-    }
+    constrain_preset_row(s, region,
+                         item_field(list, MESH_UI_FIELD_LORA_PRESET, s->modem_preset, NULL), 0U);
     /*
      * A licensed band on a node that does not claim a licence. The firmware marks the amateur
      * regions itself, and the pair it disagrees with is one section over: `Licensed operator`
@@ -1828,19 +1866,53 @@ static void build_beacon(const struct mesh_ui_settings *s, struct item_list *lis
     item_field(list, MESH_UI_FIELD_BEACON_OFFER_NAME, 0U, s->beacon_offer_name);
     item_key_field(list, MESH_UI_FIELD_BEACON_OFFER_KEY, s->beacon_offer_psk,
                    s->beacon_offer_psk_len);
-    item_field(list, MESH_UI_FIELD_BEACON_OFFER_REGION, s->beacon_offer_region, NULL);
-    item_field(list, MESH_UI_FIELD_BEACON_OFFER_PRESET, s->beacon_offer_preset, NULL);
+    struct mesh_ui_settings_item *offer_region =
+        item_field(list, MESH_UI_FIELD_BEACON_OFFER_REGION, s->beacon_offer_region, NULL);
+    /*
+     * The offered pair is the LoRa pair, advertised rather than run: a stranger who acts on it
+     * sets their radio to exactly this region and preset, so a combination the firmware's own
+     * map calls illegal is an invitation nobody can accept. An offer naming no region names no
+     * constraint either - 0 here is "not offered" rather than "whatever is running".
+     */
+    constrain_preset_row(
+        s, offer_region != NULL ? offer_region->number : s->beacon_offer_region,
+        item_field(list, MESH_UI_FIELD_BEACON_OFFER_PRESET, s->beacon_offer_preset, NULL), 1U);
 
-    /* Flattened in the field enum's order, which is the order the group is walked in: the
-       record builder has no opinion about what a target holds and this is where that is kept. */
+    /*
+     * What a target record holds, in the order the group is walked in. Named because the layout
+     * is read twice below - once to flatten the values in and once to find the region a preset
+     * has to be legal in - and a record whose two readings disagreed would constrain the wrong
+     * row while showing the right one.
+     */
+    enum {
+        TARGET_PRESET = 0U,
+        TARGET_REGION,
+        TARGET_CHANNEL,
+    };
     uint32_t targets[MESH_UI_BEACON_TARGETS * MESH_UI_BEACON_TARGET_FIELDS];
+    struct mesh_ui_settings_item *rows[MESH_UI_BEACON_TARGETS * MESH_UI_BEACON_TARGET_FIELDS] = {
+        NULL};
     for (uint32_t i = 0; i < MESH_UI_BEACON_TARGETS; ++i) {
-        targets[i * MESH_UI_BEACON_TARGET_FIELDS + 0U] = s->beacon_targets[i].preset;
-        targets[i * MESH_UI_BEACON_TARGET_FIELDS + 1U] = s->beacon_targets[i].region;
-        targets[i * MESH_UI_BEACON_TARGET_FIELDS + 2U] = s->beacon_targets[i].channel;
+        uint32_t *record = &targets[i * MESH_UI_BEACON_TARGET_FIELDS];
+        record[TARGET_PRESET] = s->beacon_targets[i].preset;
+        record[TARGET_REGION] = s->beacon_targets[i].region;
+        record[TARGET_CHANNEL] = s->beacon_targets[i].channel;
     }
     item_record_group(list, MESH_UI_FIELD_GROUP_BEACON_TARGETS, MESH_UI_BEACON_TARGET_FIELDS,
-                      MESH_STR_HEAD_BEACON_TARGET, targets, MESH_ARRAY_LEN(targets));
+                      MESH_STR_HEAD_BEACON_TARGET, targets, MESH_ARRAY_LEN(targets), rows);
+    /*
+     * And each target's own pair, which the radio really does switch to for the length of one
+     * transmission - so an illegal combination here is this node transmitting where it may not.
+     * A target naming no region falls back to the running config's, which is what the firmware
+     * does with it, so that is the region its preset has to be legal in.
+     */
+    for (uint32_t i = 0; i < MESH_UI_BEACON_TARGETS; ++i) {
+        struct mesh_ui_settings_item *const *record = &rows[i * MESH_UI_BEACON_TARGET_FIELDS];
+        const struct mesh_ui_settings_item *region_row = record[TARGET_REGION];
+        const uint32_t region =
+            region_row != NULL && region_row->number != 0U ? region_row->number : s->region;
+        constrain_preset_row(s, region, record[TARGET_PRESET], 1U);
+    }
 }
 
 /*

@@ -280,6 +280,37 @@ MESH_TEST_CASE(ui_settings_modules, unit) {
  * values too, and a section whose enum fields are all 255 builds rows about nothing. What is
  * wanted here is the shape of the list, which is what `has_*` decides.
  */
+/*
+ * The row carrying a field, found rather than counted.
+ *
+ * `mesh_test_settings_cursor_to()` is this rule for the nav; a test reading a row straight out
+ * of a section needs it for the same reason - a heading added above a row moves its index and
+ * says nothing, so a test that counted would fail somewhere other than where the change was.
+ */
+static bool settings_find_field_edited(const struct mesh_ui_settings *settings,
+                                       const struct mesh_ui_setting_edit *edits, size_t edit_count,
+                                       enum mesh_ui_settings_section section,
+                                       enum mesh_ui_setting_field field,
+                                       struct mesh_ui_settings_item *out) {
+    const uint32_t rows =
+        mesh_ui_settings_item_count(settings, NULL, section, MESH_UI_SETTINGS_NO_CHANNEL);
+    for (uint32_t row = 0; row < rows; ++row) {
+        if (mesh_ui_settings_item(settings, NULL, edits, edit_count, section,
+                                  MESH_UI_SETTINGS_NO_CHANNEL, row, out) &&
+            out->field == field) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool settings_find_field(const struct mesh_ui_settings *settings,
+                                enum mesh_ui_settings_section section,
+                                enum mesh_ui_setting_field field,
+                                struct mesh_ui_settings_item *out) {
+    return settings_find_field_edited(settings, NULL, 0U, section, field, out);
+}
+
 static void settings_mark_all_present(struct mesh_ui_settings *settings) {
     settings->has_owner = true;
     settings->has_device = true;
@@ -621,6 +652,78 @@ MESH_TEST_CASE(ui_settings_beacon_rows, unit) {
     MESH_TEST_FAIL_IF(!saw_broadcast_on, "a beacon flag row does not read its own bit");
     MESH_TEST_FAIL_IF(!saw_named_channel,
                       "a target's channel is stored one past itself and shown as itself");
+    record_success(test_name);
+}
+
+/*
+ * The beacon's preset rows answer to the region beside them, the same way LoRa's does - and the
+ * shift is what makes that not quite the same code.
+ *
+ * Two regions, two sets, and the three readings the rule has here: a target naming a region is
+ * constrained by it, a target naming none falls back to the running config's (which is what the
+ * firmware does with UNSET), and an offer naming none constrains nothing at all - because 0 on
+ * that row means "not offered" rather than "whatever is running". `absent` is legal in every
+ * one of them, which is the bit the shifted mask has to put back at the bottom.
+ */
+MESH_TEST_CASE(ui_settings_beacon_presets_follow_their_region, unit) {
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_mesh_beacon = true;
+    settings.has_lora = true;
+    settings.region = meshtastic_Config_LoRaConfig_RegionCode_US;
+    settings.region_presets.loaded = true;
+    const uint32_t us_set = (1U << meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST) |
+                            (1U << meshtastic_Config_LoRaConfig_ModemPreset_SHORT_TURBO);
+    const uint32_t eu_set = 1U << meshtastic_Config_LoRaConfig_ModemPreset_LONG_SLOW;
+    settings.region_presets.region[meshtastic_Config_LoRaConfig_RegionCode_US] =
+        (struct mesh_ui_region_preset){.presets = us_set};
+    settings.region_presets.region[meshtastic_Config_LoRaConfig_RegionCode_EU_868] =
+        (struct mesh_ui_region_preset){.presets = eu_set};
+
+    /* Target 1 names EU and a preset EU will not take. Target 2 names no region, so the US
+       set the radio is running is what its preset has to be legal in. The offer names no
+       region at all. */
+    settings.beacon_targets[0].region = meshtastic_Config_LoRaConfig_RegionCode_EU_868;
+    settings.beacon_targets[0].preset =
+        (uint32_t)meshtastic_Config_LoRaConfig_ModemPreset_SHORT_TURBO + 1U;
+    settings.beacon_targets[1].preset =
+        (uint32_t)meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST + 1U;
+    settings.beacon_offer_preset =
+        (uint32_t)meshtastic_Config_LoRaConfig_ModemPreset_LONG_SLOW + 1U;
+
+    struct mesh_ui_settings_item offer_preset;
+    struct mesh_ui_settings_item first;
+    struct mesh_ui_settings_item second;
+    MESH_TEST_FAIL_IF(!settings_find_field(&settings, MESH_UI_SETTINGS_BEACON,
+                                           MESH_UI_FIELD_BEACON_OFFER_PRESET, &offer_preset) ||
+                          !settings_find_field(&settings, MESH_UI_SETTINGS_BEACON,
+                                               MESH_UI_FIELD_BEACON_TARGET_0_PRESET, &first) ||
+                          !settings_find_field(&settings, MESH_UI_SETTINGS_BEACON,
+                                               MESH_UI_FIELD_BEACON_TARGET_1_PRESET, &second),
+                      "the beacon's preset rows are missing");
+
+    /* One past itself, so the legal set moves up with the values and absent keeps bit 0. */
+    MESH_TEST_FAIL_IF(first.choices != ((eu_set << 1U) | 1U),
+                      "a target's preset row should carry its own region's set, shifted");
+    MESH_TEST_FAIL_IF(!first.conflict,
+                      "a preset the target's region will not take should be marked, not hidden");
+    MESH_TEST_FAIL_IF(second.choices != ((us_set << 1U) | 1U),
+                      "a target naming no region should follow the one the radio is running");
+    MESH_TEST_FAIL_IF(second.conflict, "a legal pair should mark nothing");
+    MESH_TEST_FAIL_IF(offer_preset.choices != 0U || offer_preset.conflict,
+                      "an offer naming no region constrains nothing: 0 there is not offered");
+
+    /* And the offer, once it does name one. The preset it is on is not legal in US. */
+    struct mesh_ui_setting_edit edits[1];
+    memset(edits, 0, sizeof edits);
+    edits[0].field = MESH_UI_FIELD_BEACON_OFFER_REGION;
+    edits[0].number = meshtastic_Config_LoRaConfig_RegionCode_US;
+    MESH_TEST_FAIL_IF(!settings_find_field_edited(&settings, edits, 1U, MESH_UI_SETTINGS_BEACON,
+                                                  MESH_UI_FIELD_BEACON_OFFER_PRESET, &offer_preset),
+                      "the offered preset row should still be there after a region edit");
+    MESH_TEST_FAIL_IF(offer_preset.choices != ((us_set << 1U) | 1U) || !offer_preset.conflict,
+                      "the offered preset should follow the pending region it is advertised for");
     record_success(test_name);
 }
 

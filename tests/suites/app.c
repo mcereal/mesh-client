@@ -3170,15 +3170,74 @@ MESH_TEST_CASE(radio_settings_write_sets_a_beacon_flag_and_its_offer, unit) {
                               (meshtastic_Config_LoRaConfig_ModemPreset)2,
                       "an offered preset is stored one past itself and written back as itself");
 
-    /* And the key path, which the beacon shares with the Channels section. */
+    /* And the key path, which the beacon shares with the Channels section. The name goes with
+       it because the name is what keeps the submessage - see
+       radio_settings_write_drops_a_nameless_beacon_offer. */
     memset(&action.edits, 0, sizeof action.edits);
-    action.edit_count = 1U;
-    action.edits[0].field = MESH_UI_FIELD_BEACON_OFFER_KEY;
-    action.edits[0].number = (uint32_t)MESH_UI_PSK_RANDOM_128;
+    action.edit_count = 2U;
+    action.edits[0].field = MESH_UI_FIELD_BEACON_OFFER_NAME;
+    snprintf(action.edits[0].text, sizeof action.edits[0].text, "Welcome");
+    action.edits[1].field = MESH_UI_FIELD_BEACON_OFFER_KEY;
+    action.edits[1].number = (uint32_t)MESH_UI_PSK_RANDOM_128;
     MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
                           !beacon->has_broadcast_offer_channel ||
                           beacon->broadcast_offer_channel.psk.size != 16U,
                       "a random AES-128 offered key should be sixteen bytes");
+    record_success(test_name);
+}
+
+/*
+ * Emptying the offered channel's name takes the whole invitation with it, in either order.
+ *
+ * The row's note promises that an empty name offers no channel, and a promise the screen makes
+ * is kept against the record the save assembles rather than against one edit: a save carries
+ * several edits in whatever order they were made, so a name cleared before the key was touched
+ * has to mean the same as one cleared after it. Left to the row's own arm it would not - the
+ * key arm would put `has_broadcast_offer_channel` back and the radio would go on broadcasting a
+ * nameless invitation with a live key behind it.
+ */
+MESH_TEST_CASE(radio_settings_write_drops_a_nameless_beacon_offer, unit) {
+    struct mesh_radio_settings radio;
+    mesh_radio_settings_reset(&radio);
+    radio.has_mesh_beacon = true;
+    radio.mesh_beacon.has_broadcast_offer_channel = true;
+    snprintf(radio.mesh_beacon.broadcast_offer_channel.name,
+             sizeof radio.mesh_beacon.broadcast_offer_channel.name, "Welcome");
+    radio.mesh_beacon.broadcast_offer_channel.psk.size = 16U;
+    radio.mesh_beacon.broadcast_offer_channel.psk.bytes[0] = 0x42U;
+
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    action.type = MESH_UI_ACTION_SAVE_SETTINGS;
+    action.section = MESH_UI_SETTINGS_BEACON;
+    /* The name cleared, and a key edit *after* it - the order that would put the submessage
+       back if presence were decided a row at a time. */
+    action.edit_count = 2U;
+    action.edits[0].field = MESH_UI_FIELD_BEACON_OFFER_NAME;
+    action.edits[0].text[0] = '\0';
+    action.edits[1].field = MESH_UI_FIELD_BEACON_OFFER_KEY;
+    action.edits[1].number = (uint32_t)MESH_UI_PSK_RANDOM_256;
+
+    struct mesh_admin_request write;
+    const meshtastic_ModuleConfig_MeshBeaconConfig *beacon =
+        &write.payload.module_config.payload_variant.mesh_beacon;
+    MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != 0,
+                      "a beacon save should build");
+    MESH_TEST_FAIL_IF(beacon->has_broadcast_offer_channel,
+                      "an emptied offer name should take the whole submessage with it");
+    MESH_TEST_FAIL_IF(beacon->broadcast_offer_channel.psk.size != 0U,
+                      "a dropped offer must not travel as a bare key");
+
+    /* And a name that is still there keeps it, which is what says the rule is the name rather
+       than a save. */
+    memset(&action.edits, 0, sizeof action.edits);
+    action.edit_count = 1U;
+    action.edits[0].field = MESH_UI_FIELD_BEACON_INTERVAL;
+    action.edits[0].number = 7200U;
+    MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+                          !beacon->has_broadcast_offer_channel ||
+                          strcmp(beacon->broadcast_offer_channel.name, "Welcome") != 0,
+                      "a save touching neither offer row should leave the invitation alone");
     record_success(test_name);
 }
 

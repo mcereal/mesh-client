@@ -618,6 +618,24 @@ Five things fell out of it, and they are what is worth remembering:
   written down twice. `mesh_ui_settings_key_len_ok()` gained the offered key beside the channel's
   for the same reason: a key one would refuse is a channel nobody can join.
 
+Two more were found by review rather than by writing it, and both are the same mistake -
+a rule stated on one screen and enforced nowhere:
+
+- **An offer with no name is not an offer.** The name row's note says that emptying it offers no
+  channel, and the row's own write arm could not keep the promise: it set
+  `has_broadcast_offer_channel` and the key arm set it again, so a cleared name left the radio
+  broadcasting a nameless invitation with a live key behind it. Presence is now decided after
+  every edit has landed, from the assembled record - which is also what makes it independent of
+  the order the user made the edits in, the way the target compaction beside it is.
+- **A preset is legal or not in the region beside it, wherever that pair appears.** Item 8 of
+  the audit taught the LoRa pair to read the firmware's own map; the beacon has two more of the
+  same pair - the channel it offers, which a stranger would set their radio to, and each target,
+  which this radio really does switch to for the length of one transmission. So
+  `constrain_preset_row()` is that rule once, over an *effective* region the caller works out
+  (a target with no region runs on the radio's, which is what the firmware does with UNSET; an
+  offer with no region advertises none and constrains nothing) and a `shift` for the beacon's
+  values sitting one past the presets they name.
+
 Two smaller things. The twelve target rows carry **no help note**, which is Telemetry's five
 `Enabled` rows being right rather than an omission - a help topic is a flat list of labels, so
 four rows called `Region` would be four paragraphs a reader cannot tell apart, and what a target
