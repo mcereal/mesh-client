@@ -111,6 +111,9 @@ MESH_ICON_ENTRY(POSITION,    "place")
 MESH_ICON_ENTRY(POWER,       "battery_charging_full")
 MESH_ICON_ENTRY(LORA,        "wifi_tethering")
 MESH_ICON_ENTRY(SECURITY,    "shield")
+/* The radio's WiFi or Ethernet interface, which is neither of the two runes already here for a
+   link: LORA is the mesh and BLUETOOTH is how this client is holding on. */
+MESH_ICON_ENTRY(NETWORK,     "lan")
 MESH_ICON_ENTRY(MODULES,     "extension")
 /* Reboot, shutdown, factory reset: the section is a list of things done to the radio rather
    than settings written to it, and the power rune is what every OS puts on that menu. */

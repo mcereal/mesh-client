@@ -803,6 +803,10 @@ static void build_radio(const struct mesh_ui_settings *s, const struct mesh_ui_h
         item_text(list, MESH_STR_RADIO_CAPABILITIES, MESH_UI_SETTING_INFO,
                   buffer[0] != '\0' ? buffer : mesh_str(MESH_STR_RADIO_CAP_NONE));
         item_toggle(list, MESH_STR_RADIO_CAN_SHUT_DOWN, s->can_shutdown);
+        /* DeviceMetadata.has_xeddsa: the firmware either compiled packet signature verification
+           in or it did not. Off here is why Security's "Packet signing" row can be set to
+           Strict and change nothing. */
+        item_toggle(list, MESH_STR_RADIO_SIGNATURE_CHECKS, s->has_xeddsa);
     }
     if (s->admin_ok) {
         mesh_str_format(buffer, sizeof buffer, MESH_STR_RADIO_ADMIN_OK, (unsigned)s->admin_replies,
@@ -875,6 +879,58 @@ static void build_bluetooth(const struct mesh_ui_settings *s, struct item_list *
     item_field(list, MESH_UI_FIELD_BT_ENABLED, s->bluetooth_enabled ? 1U : 0U, NULL);
     item_field(list, MESH_UI_FIELD_BT_MODE, s->pairing_mode, NULL);
     item_field(list, MESH_UI_FIELD_BT_PIN, 0U, pin);
+}
+
+/*
+ * Which bit of NetworkConfig.enabled_protocols is UDP broadcast.
+ *
+ * A literal for the reason the section table's excluded-module bits are literals - this side of
+ * the fence has no nanopb - and pinned against meshtastic_Config_NetworkConfig_ProtocolFlags by
+ * a test rather than by a reader.
+ */
+#define NETWORK_PROTOCOL_UDP_BROADCAST 0x0001U
+
+/*
+ * What the radio was told to do about WiFi and Ethernet. Read-only, every row of it.
+ *
+ * The section that was fetched on every refresh and read by nothing until now. It answers the
+ * half of "why is this radio not reaching the broker" that About radio cannot: that screen
+ * shows DeviceConnectionStatus, which is what the interface is *doing*, and this is what it was
+ * *told*. The two disagreeing - configured for a network it never joined, or holding a static
+ * address on a subnet that is not there - is the answer often enough to be worth the screen.
+ *
+ * The key is not here and is not masked either: `wifi_psk` is never published out of the radio
+ * record, so there is no row to mask. The four static rows are drawn only under Static, because
+ * under DHCP they are whatever somebody last typed into a phone and say nothing about this
+ * radio - a read-only list may do that, where an editable one may not: nothing here can move a
+ * row count under a cursor mid-edit, because nothing here edits.
+ */
+static void build_network(const struct mesh_ui_settings *s, struct item_list *list) {
+    char buffer[48];
+    item_toggle(list, MESH_STR_NETWORK_WIFI, s->wifi_enabled);
+    item_text(list, MESH_STR_NETWORK_SSID, MESH_UI_SETTING_INFO,
+              s->wifi_ssid[0] != '\0' ? s->wifi_ssid : mesh_str(MESH_STR_COMMON_NONE));
+    item_toggle(list, MESH_STR_NETWORK_ETHERNET, s->eth_enabled);
+    item_toggle(list, MESH_STR_NETWORK_IPV6, s->ipv6_enabled);
+    item_str(list, MESH_STR_NETWORK_ADDRESS, MESH_UI_SETTING_INFO,
+             s->address_mode == 1U ? MESH_STR_ENUM_ADDRESS_STATIC : MESH_STR_ENUM_ADDRESS_DHCP);
+    if (s->address_mode == 1U) {
+        item_heading(list, MESH_STR_HEAD_NETWORK_STATIC);
+        format_ipv4(s->ipv4_ip, buffer, sizeof buffer);
+        item_text(list, MESH_STR_CONN_IP, MESH_UI_SETTING_INFO, buffer);
+        format_ipv4(s->ipv4_gateway, buffer, sizeof buffer);
+        item_text(list, MESH_STR_NETWORK_GATEWAY, MESH_UI_SETTING_INFO, buffer);
+        format_ipv4(s->ipv4_subnet, buffer, sizeof buffer);
+        item_text(list, MESH_STR_NETWORK_SUBNET, MESH_UI_SETTING_INFO, buffer);
+        format_ipv4(s->ipv4_dns, buffer, sizeof buffer);
+        item_text(list, MESH_STR_NETWORK_DNS, MESH_UI_SETTING_INFO, buffer);
+    }
+    item_text(list, MESH_STR_NETWORK_NTP, MESH_UI_SETTING_INFO,
+              s->ntp_server[0] != '\0' ? s->ntp_server : mesh_str(MESH_STR_NETWORK_NTP_DEFAULT));
+    item_text(list, MESH_STR_NETWORK_SYSLOG, MESH_UI_SETTING_INFO,
+              s->rsyslog_server[0] != '\0' ? s->rsyslog_server : mesh_str(MESH_STR_COMMON_NONE));
+    item_toggle(list, MESH_STR_NETWORK_UDP_BROADCAST,
+                (s->enabled_protocols & NETWORK_PROTOCOL_UDP_BROADCAST) != 0U);
 }
 
 static void channel_label(uint8_t index, const char *name, char *out, size_t out_len) {
@@ -969,6 +1025,7 @@ static void build_channel(const struct mesh_ui_settings *s, uint8_t slot, struct
     item_field(list, MESH_UI_FIELD_CHANNEL_UPLINK, channel->uplink_enabled ? 1U : 0U, NULL);
     item_field(list, MESH_UI_FIELD_CHANNEL_DOWNLINK, channel->downlink_enabled ? 1U : 0U, NULL);
     item_field(list, MESH_UI_FIELD_CHANNEL_POSITION, channel->position_precision, NULL);
+    item_field(list, MESH_UI_FIELD_CHANNEL_MUTED, channel->is_muted ? 1U : 0U, NULL);
 }
 
 int mesh_ui_settings_channel_at_row(const struct mesh_ui_settings *settings,
@@ -1120,8 +1177,15 @@ static void build_modules(const struct mesh_ui_settings *s,
            fills the leading slot. Set before the "not loaded" branch below: a module the radio has
            not answered for is still that module. */
         item->icon = mesh_ui_settings_section_icon(section);
-        if (!mesh_ui_settings_section_loaded(s, hs, section)) {
-            mesh_str_copy(item->value, sizeof item->value, mesh_str(MESH_STR_SETTINGS_NOT_LOADED));
+        const enum mesh_ui_settings_availability state =
+            mesh_ui_settings_section_availability(s, hs, section);
+        if (state != MESH_UI_SETTINGS_SECTION_READY) {
+            /* Why there is nothing to show, in the section list's own words: a module the radio
+               has not sent yet, or one its firmware was built without. The second is the reason
+               this is a state rather than a bool - it is the row that should stop somebody
+               pressing X at it. */
+            mesh_str_copy(item->value, sizeof item->value,
+                          mesh_str(mesh_ui_settings_availability_label(state)));
             continue;
         }
         bool enabled = false;
@@ -1659,6 +1723,9 @@ static void build_section(const struct mesh_ui_settings *settings,
     case MESH_UI_SETTINGS_BLUETOOTH:
         build_bluetooth(settings, list);
         break;
+    case MESH_UI_SETTINGS_NETWORK:
+        build_network(settings, list);
+        break;
     case MESH_UI_SETTINGS_CHANNELS:
         if (channel != MESH_UI_SETTINGS_NO_CHANNEL) {
             build_channel(settings, channel, list);
@@ -1720,6 +1787,27 @@ static void build_section(const struct mesh_ui_settings *settings,
     default:
         break;
     }
+}
+
+/*
+ * Whether anything in this section is a press rather than a value.
+ *
+ * Built rather than tabulated, because it is not a property of the section: About radio grows
+ * its install press only once a check has found something, and Radio actions is nothing but
+ * presses. The bar asks so it can name A exactly where A does something - the same reason the
+ * help keycap asks mesh_ui_help_offered() rather than testing the nav itself.
+ */
+bool mesh_ui_settings_section_has_verbs(const struct mesh_ui_settings *settings,
+                                        const struct mesh_ui_handshake_state *handshake,
+                                        enum mesh_ui_settings_section section, uint8_t channel) {
+    struct item_list list;
+    build_section(settings, handshake, NULL, 0U, section, channel, &list);
+    for (uint32_t i = 0; i < list.count; ++i) {
+        if (list.items[i].kind == MESH_UI_SETTING_ACTION) {
+            return true;
+        }
+    }
+    return false;
 }
 
 uint32_t mesh_ui_settings_item_count(const struct mesh_ui_settings *settings,

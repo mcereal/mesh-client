@@ -67,6 +67,7 @@ static const enum mesh_str_id k_section_labels[MESH_UI_SETTINGS_SECTION_COUNT] =
     [MESH_UI_SETTINGS_TRAFFIC] = MESH_STR_SETTINGS_SECTION_TRAFFIC,
     [MESH_UI_SETTINGS_RADIO_UI] = MESH_STR_SETTINGS_SECTION_RADIO_UI,
     [MESH_UI_SETTINGS_CANNED] = MESH_STR_SETTINGS_SECTION_CANNED,
+    [MESH_UI_SETTINGS_NETWORK] = MESH_STR_SETTINGS_SECTION_NETWORK,
 };
 
 enum mesh_str_id mesh_ui_settings_section_label(enum mesh_ui_settings_section section) {
@@ -121,6 +122,7 @@ static const enum mesh_ui_icon k_section_icons[MESH_UI_SETTINGS_SECTION_COUNT] =
        canned message is a quick reply, which is what REPLY says. */
     [MESH_UI_SETTINGS_RADIO_UI] = MESH_UI_ICON_DISPLAY,
     [MESH_UI_SETTINGS_CANNED] = MESH_UI_ICON_REPLY,
+    [MESH_UI_SETTINGS_NETWORK] = MESH_UI_ICON_NETWORK,
 };
 
 enum mesh_ui_icon mesh_ui_settings_section_icon(enum mesh_ui_settings_section section) {
@@ -167,6 +169,7 @@ static const enum mesh_str_id k_section_notes[MESH_UI_SETTINGS_SECTION_COUNT] = 
     [MESH_UI_SETTINGS_TRAFFIC] = MESH_STR_SETTINGS_NOTE_TRAFFIC,
     [MESH_UI_SETTINGS_RADIO_UI] = MESH_STR_SETTINGS_NOTE_RADIO_UI,
     [MESH_UI_SETTINGS_CANNED] = MESH_STR_SETTINGS_NOTE_CANNED,
+    [MESH_UI_SETTINGS_NETWORK] = MESH_STR_SETTINGS_NOTE_NETWORK,
 };
 
 enum mesh_str_id mesh_ui_settings_section_note(enum mesh_ui_settings_section section) {
@@ -186,11 +189,23 @@ bool mesh_ui_settings_section_icons_rows(enum mesh_ui_settings_section section) 
  * that is the point of Modules being one row rather than seventeen.
  */
 static const enum mesh_ui_settings_section k_root[] = {
-    MESH_UI_SETTINGS_ABOUT,     MESH_UI_SETTINGS_RADIO,    MESH_UI_SETTINGS_USER,
-    MESH_UI_SETTINGS_DEVICE,    MESH_UI_SETTINGS_DISPLAY,  MESH_UI_SETTINGS_RADIO_UI,
-    MESH_UI_SETTINGS_POSITION,  MESH_UI_SETTINGS_POWER,    MESH_UI_SETTINGS_LORA,
-    MESH_UI_SETTINGS_BLUETOOTH, MESH_UI_SETTINGS_CHANNELS, MESH_UI_SETTINGS_SECURITY,
-    MESH_UI_SETTINGS_MODULES,   MESH_UI_SETTINGS_ACTIONS,
+    MESH_UI_SETTINGS_ABOUT,
+    MESH_UI_SETTINGS_RADIO,
+    MESH_UI_SETTINGS_USER,
+    MESH_UI_SETTINGS_DEVICE,
+    MESH_UI_SETTINGS_DISPLAY,
+    MESH_UI_SETTINGS_RADIO_UI,
+    MESH_UI_SETTINGS_POSITION,
+    MESH_UI_SETTINGS_POWER,
+    MESH_UI_SETTINGS_LORA,
+    /* Network sits with the other two ways the radio talks to something that is not the mesh,
+       and after Bluetooth because it is the one of the three this client is not using. */
+    MESH_UI_SETTINGS_BLUETOOTH,
+    MESH_UI_SETTINGS_NETWORK,
+    MESH_UI_SETTINGS_CHANNELS,
+    MESH_UI_SETTINGS_SECURITY,
+    MESH_UI_SETTINGS_MODULES,
+    MESH_UI_SETTINGS_ACTIONS,
 };
 
 /* Every ModuleConfig variant this client keeps. Grows by one row per module as the phases
@@ -235,6 +250,72 @@ bool mesh_ui_settings_section_is_module(enum mesh_ui_settings_section section) {
     return false;
 }
 
+/*
+ * Which bit of DeviceMetadata.excluded_modules stands for each section, in the enum's own
+ * order, and 0 for a section the firmware cannot be built without.
+ *
+ * The values are literals rather than meshtastic_ExcludedModules_* because this file is on the
+ * nanopb-free side of the fence, the way MESH_UI_CANNED_MESSAGES_MAX is in store.h - and like
+ * that constant they are pinned against the protobuf by a test, so a renumbering upstream
+ * fails there rather than quietly greying out the wrong row.
+ *
+ * Two of these are not modules at all: upstream reuses the mask to say a build has no
+ * Bluetooth and no networking, which is exactly what the two sections by those names would
+ * otherwise sit there waiting for.
+ */
+static const uint32_t k_section_excluded_bit[MESH_UI_SETTINGS_SECTION_COUNT] = {
+    [MESH_UI_SETTINGS_BLUETOOTH] = 0x2000U,     [MESH_UI_SETTINGS_NETWORK] = 0x4000U,
+    [MESH_UI_SETTINGS_MQTT] = 0x0001U,          [MESH_UI_SETTINGS_EXT_NOTIFICATION] = 0x0004U,
+    [MESH_UI_SETTINGS_STORE_FORWARD] = 0x0008U, [MESH_UI_SETTINGS_RANGE_TEST] = 0x0010U,
+    [MESH_UI_SETTINGS_TELEMETRY] = 0x0020U,     [MESH_UI_SETTINGS_CANNED] = 0x0040U,
+    [MESH_UI_SETTINGS_NEIGHBOR_INFO] = 0x0200U, [MESH_UI_SETTINGS_AMBIENT] = 0x0400U,
+    [MESH_UI_SETTINGS_DETECTION] = 0x0800U,     [MESH_UI_SETTINGS_PAXCOUNTER] = 0x1000U,
+};
+
+uint32_t mesh_ui_settings_section_excluded_bit(enum mesh_ui_settings_section section) {
+    return section < MESH_UI_SETTINGS_SECTION_COUNT ? k_section_excluded_bit[section] : 0U;
+}
+
+enum mesh_ui_settings_availability
+mesh_ui_settings_section_availability(const struct mesh_ui_settings *settings,
+                                      const struct mesh_ui_handshake_state *handshake,
+                                      enum mesh_ui_settings_section section) {
+    if (mesh_ui_settings_section_loaded(settings, handshake, section)) {
+        /* The radio answered for it. A build that says it excluded a section and then sends one
+           is telling us two things, and the one with rows in it wins. */
+        return MESH_UI_SETTINGS_SECTION_READY;
+    }
+    const uint32_t bit = mesh_ui_settings_section_excluded_bit(section);
+    if (settings != NULL && settings->has_metadata && bit != 0U &&
+        (settings->excluded_modules & bit) != 0U) {
+        return MESH_UI_SETTINGS_SECTION_EXCLUDED;
+    }
+    return MESH_UI_SETTINGS_SECTION_WAITING;
+}
+
+enum mesh_str_id mesh_ui_settings_availability_label(enum mesh_ui_settings_availability state) {
+    switch (state) {
+    case MESH_UI_SETTINGS_SECTION_WAITING:
+        return MESH_STR_SETTINGS_NOT_LOADED;
+    case MESH_UI_SETTINGS_SECTION_EXCLUDED:
+        return MESH_STR_SETTINGS_NOT_IN_FIRMWARE;
+    case MESH_UI_SETTINGS_SECTION_READY:
+    default:
+        return MESH_STR_NONE;
+    }
+}
+
+enum mesh_str_id mesh_ui_settings_availability_reason(enum mesh_ui_settings_availability state) {
+    switch (state) {
+    case MESH_UI_SETTINGS_SECTION_EXCLUDED:
+        return MESH_STR_SETTINGS_EMPTY_EXCLUDED;
+    case MESH_UI_SETTINGS_SECTION_WAITING:
+    case MESH_UI_SETTINGS_SECTION_READY:
+    default:
+        return MESH_STR_SETTINGS_EMPTY_SECTION;
+    }
+}
+
 bool mesh_ui_settings_section_loaded(const struct mesh_ui_settings *settings,
                                      const struct mesh_ui_handshake_state *handshake,
                                      enum mesh_ui_settings_section section) {
@@ -258,6 +339,8 @@ bool mesh_ui_settings_section_loaded(const struct mesh_ui_settings *settings,
         return settings->has_lora;
     case MESH_UI_SETTINGS_BLUETOOTH:
         return settings->has_bluetooth;
+    case MESH_UI_SETTINGS_NETWORK:
+        return settings->has_network;
     case MESH_UI_SETTINGS_CHANNELS:
         return settings->has_channels || (handshake != NULL && handshake->channel_count > 0U);
     case MESH_UI_SETTINGS_SECURITY:
@@ -1106,6 +1189,9 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                                         NAMED_PRESETS(k_precision_presets), MESH_STR_ZERO_OFF,
                                         mesh_ui_settings_format_precision, 0U,
                                         MESH_STR_SETTINGS_NOTE_CHANNEL_POSITION},
+    [MESH_UI_FIELD_CHANNEL_MUTED] = {MESH_STR_SETTINGS_FIELD_CHANNEL_MUTED, MESH_UI_SETTING_TOGGLE,
+                                     MESH_UI_SETTINGS_CHANNELS, 0U, NULL, NO_PRESETS, MESH_STR_NONE,
+                                     NULL, 0U, MESH_STR_SETTINGS_NOTE_CHANNEL_MUTED},
     [MESH_UI_FIELD_BT_ENABLED] = {MESH_STR_SETTINGS_FIELD_BT_ENABLED, MESH_UI_SETTING_TOGGLE,
                                   MESH_UI_SETTINGS_BLUETOOTH, 0U, NULL, NO_PRESETS, MESH_STR_NONE,
                                   NULL, 0U, MESH_STR_NONE},
@@ -1530,6 +1616,22 @@ enum mesh_ui_setting_kind mesh_ui_settings_field_kind(enum mesh_ui_setting_field
 
 enum mesh_ui_settings_section mesh_ui_settings_field_section(enum mesh_ui_setting_field field) {
     return field_spec(field)->section;
+}
+
+/*
+ * Whether the field table holds a row for this section at all.
+ *
+ * A walk rather than a column in the section tables, because the answer already exists in
+ * k_fields and a second place to state it is a second place to forget it: a section whose last
+ * editable row was retired would keep whatever the column said.
+ */
+bool mesh_ui_settings_section_has_fields(enum mesh_ui_settings_section section) {
+    for (int i = 1; i < (int)MESH_UI_FIELD_COUNT; ++i) {
+        if (field_spec((enum mesh_ui_setting_field)i)->section == section) {
+            return true;
+        }
+    }
+    return false;
 }
 
 enum mesh_str_id mesh_ui_settings_field_note(enum mesh_ui_setting_field field) {

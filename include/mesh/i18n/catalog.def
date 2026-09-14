@@ -901,6 +901,7 @@ MESH_STR_ENTRY(SETTINGS_SECTION_EXT_NOTIFICATION,         "External notify")
 MESH_STR_ENTRY(SETTINGS_SECTION_TRAFFIC,                  "Traffic management")
 MESH_STR_ENTRY(SETTINGS_SECTION_RADIO_UI,                 "Radio UI")
 MESH_STR_ENTRY(SETTINGS_SECTION_CANNED,                   "Canned messages")
+MESH_STR_ENTRY(SETTINGS_SECTION_NETWORK,                  "Network")
 
 /* ---- the help screen -------------------------------------------------------------------------- */
 
@@ -955,6 +956,7 @@ MESH_STR_ENTRY(SETTINGS_NOTE_EXT_NOTIFICATION,            "Drives a buzzer, a vi
 MESH_STR_ENTRY(SETTINGS_NOTE_TRAFFIC,                     "Limits how much other nodes may push through this one. There is no enabled switch: every row here is off at 0, and any other value turns that limit on.")
 MESH_STR_ENTRY(SETTINGS_NOTE_RADIO_UI,                    "The graphical interface drawn on the radio's own screen. Not the same as Display: that section is the panel itself, this is what gets drawn on it.")
 MESH_STR_ENTRY(SETTINGS_NOTE_CANNED,                      "Short replies stored on the radio for its own buttons. Six slots of 32 characters, because the wire carries the whole list as a single 200-byte string.")
+MESH_STR_ENTRY(SETTINGS_NOTE_NETWORK,                     "The radio's own WiFi or Ethernet, which is how it reaches an MQTT broker or an NTP server. Shown and not editable from here; About radio says what the interface is actually doing.")
 
 /*
  * Field notes: the rows where knowing the name does not tell you what happens if you get it
@@ -992,6 +994,7 @@ MESH_STR_ENTRY(SETTINGS_NOTE_CHANNEL_KEY,                 "The key that protects
 MESH_STR_ENTRY(SETTINGS_NOTE_CHANNEL_UPLINK,              "Sends this channel's traffic on to the MQTT broker, when the radio has one. Everything said here then leaves the local mesh for the internet, so leave it off for a private channel.")
 MESH_STR_ENTRY(SETTINGS_NOTE_CHANNEL_DOWNLINK,            "Puts traffic from the MQTT broker onto this channel and out over the radio. A busy broker can fill the air with messages nobody nearby asked for, at everyone's expense.")
 MESH_STR_ENTRY(SETTINGS_NOTE_CHANNEL_POSITION,            "How precisely positions are shared here. Fewer bits round every location to a coarser square; off shares no coordinates at all, only that the node exists.")
+MESH_STR_ENTRY(SETTINGS_NOTE_CHANNEL_MUTED,               "Quietens a noisy channel without leaving it: the radio keeps receiving and relaying its traffic, and stops alerting about it. The setting is kept on the radio, per channel.")
 
 /* Security. */
 MESH_STR_ENTRY(SETTINGS_NOTE_SECURITY_ADMIN_KEYS,         "Public keys of the nodes allowed to configure this radio over the mesh. A key here is a key to the radio, so leave all three empty unless you are deliberately setting up remote administration.")
@@ -1364,6 +1367,7 @@ MESH_STR_ENTRY(SETTINGS_FIELD_CHANNEL_KEY,                "Key")
 MESH_STR_ENTRY(SETTINGS_FIELD_CHANNEL_UPLINK,             "MQTT uplink")
 MESH_STR_ENTRY(SETTINGS_FIELD_CHANNEL_DOWNLINK,           "MQTT downlink")
 MESH_STR_ENTRY(SETTINGS_FIELD_CHANNEL_POSITION,           "Position precision")
+MESH_STR_ENTRY(SETTINGS_FIELD_CHANNEL_MUTED,              "Muted")
 MESH_STR_ENTRY(SETTINGS_FIELD_BT_ENABLED,                 "Bluetooth")
 MESH_STR_ENTRY(SETTINGS_FIELD_BT_MODE,                    "Pairing")
 MESH_STR_ENTRY(SETTINGS_FIELD_BT_PIN,                     "Fixed PIN")
@@ -1637,8 +1641,13 @@ MESH_STR_ENTRY(SETTINGS_KEY_CLEAR,        "none (clear)")
 /* A section the radio has not sent yet, and a row that needs a link it has not got. */
 MESH_STR_ENTRY(SETTINGS_NOT_LOADED,       "not loaded")
 MESH_STR_ENTRY(SETTINGS_NOT_CONNECTED,    "not connected")
+/* The other reason a section is empty, and the one a refresh will never change: this radio's
+   firmware was built without it (DeviceMetadata.excluded_modules). Said as a separate pair
+   from "not loaded" because the answer to one is to wait and the answer to the other is not. */
+MESH_STR_ENTRY(SETTINGS_NOT_IN_FIRMWARE,  "not in firmware")
 MESH_STR_ENTRY(SETTINGS_EMPTY_DISCONNECT, "Connect to a radio to read its settings")
 MESH_STR_ENTRY(SETTINGS_EMPTY_SECTION,    "Not sent by the radio yet; X to refresh")
+MESH_STR_ENTRY(SETTINGS_EMPTY_EXCLUDED,   "This radio's firmware was built without it")
 /* Titles down the Settings tree. Each is one level's *name* and nothing else: the breadcrumb
    used to be "Settings > %s%s%s", which handed a translator the trail's grammar along with its
    words and glued a badge on with a %s. The app bar stacks the levels itself and draws the
@@ -1694,6 +1703,11 @@ MESH_STR_ENTRY(RADIO_NODE_NUMBER,         "Node number")
 MESH_STR_ENTRY(RADIO_REBOOTS,             "Reboots")
 MESH_STR_ENTRY(RADIO_CAPABILITIES,        "Capabilities")
 MESH_STR_ENTRY(RADIO_CAN_SHUT_DOWN,       "Can shut down")
+/* Whether this build can check the signatures the Security section's "Packet signing" row is
+   about. A row rather than another word in the capabilities line, because a capabilities value
+   of five concatenated words is wider than the column and this one answers a question the
+   other screen asks. */
+MESH_STR_ENTRY(RADIO_SIGNATURE_CHECKS,    "Signature checks")
 /* The capability words, each with its trailing space, concatenated into one value. */
 MESH_STR_ENTRY(RADIO_CAP_BLE,             "BLE ")
 MESH_STR_ENTRY(RADIO_CAP_WIFI,            "WiFi ")
@@ -1777,6 +1791,30 @@ MESH_STR_ENTRY(SETTINGS_UI_LANGUAGE,      "Language")
 MESH_STR_ENTRY(SETTINGS_CANNED_KEPT,      "Also on radio")
 MESH_STR_ENTRY(SETTINGS_CANNED_KEPT_N,    "%u more, kept")
 MESH_STR_ENTRY(SETTINGS_RINGTONE_ROW,     "RTTTL")
+/* The Network section: what the radio was told to do about WiFi and Ethernet, as against what
+   the CONN_ rows below say it is doing. The key is not among them and has no row. */
+MESH_STR_ENTRY(NETWORK_WIFI,              "WiFi")
+/* The SSID. "Network name" rather than the About screen's "Network", because on a section
+   already called Network a row called Network says nothing. */
+MESH_STR_ENTRY(NETWORK_SSID,              "Network name")
+MESH_STR_ENTRY(NETWORK_ETHERNET,          "Ethernet")
+MESH_STR_ENTRY(NETWORK_IPV6,              "IPv6")
+MESH_STR_ENTRY(NETWORK_ADDRESS,           "Address")
+MESH_STR_ENTRY(NETWORK_GATEWAY,           "Gateway")
+MESH_STR_ENTRY(NETWORK_SUBNET,            "Subnet mask")
+MESH_STR_ENTRY(NETWORK_DNS,               "DNS")
+MESH_STR_ENTRY(NETWORK_NTP,               "NTP server")
+MESH_STR_ENTRY(NETWORK_SYSLOG,            "Syslog server")
+MESH_STR_ENTRY(NETWORK_UDP_BROADCAST,     "UDP broadcast")
+/* The heading over the four static rows, which are only drawn when the mode is Static - under
+   DHCP they are whatever was last typed into a phone and say nothing about this radio. */
+MESH_STR_ENTRY(HEAD_NETWORK_STATIC,       "Static address")
+MESH_STR_ENTRY(ENUM_ADDRESS_DHCP,         "DHCP")
+MESH_STR_ENTRY(ENUM_ADDRESS_STATIC,       "Static")
+/* What the radio defaults to when ntp_server is empty, named rather than left blank because a
+   blank row reads as "no time source" and the firmware does have one. */
+MESH_STR_ENTRY(NETWORK_NTP_DEFAULT,       "firmware default")
+
 /* The radio's own network interfaces, on About radio. */
 MESH_STR_ENTRY(CONN_CONNECTED,            "Connected")
 MESH_STR_ENTRY(CONN_NETWORK,              "Network")

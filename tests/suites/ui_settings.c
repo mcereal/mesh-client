@@ -18,6 +18,7 @@
 #include "mesh/ui/store.h"
 
 #include "meshtastic/config.pb.h"
+#include "meshtastic/mesh.pb.h"
 
 #include <stdbool.h>
 #include <stdio.h>
@@ -268,6 +269,170 @@ MESH_TEST_CASE(ui_settings_modules, unit) {
                                              MESH_UI_SETTINGS_NO_CHANNEL, 2U, &item) ||
                           strcmp(item.value, "on") != 0,
                       "telemetry should read as on once any group measures");
+    record_success(test_name);
+}
+
+/*
+ * The two reasons a section is empty, and the one predicate that tells them apart.
+ *
+ * "not loaded" was drawn from three places and meant two things: a section the radio has not
+ * sent yet, and a section its firmware was built without. The first is an invitation to press
+ * X and the second is not, so a radio with MQTT compiled out told you to keep refreshing a
+ * screen that would never fill.
+ *
+ * The bit table is pinned against meshtastic_ExcludedModules here rather than read from it in
+ * the UI layer, which is the nanopb-free side of the fence - the same trade the canned message
+ * and ringtone caps make in store.h. A renumbering upstream fails here.
+ */
+MESH_TEST_CASE(ui_settings_section_availability, unit) {
+    static const struct {
+        enum mesh_ui_settings_section section;
+        uint32_t bit;
+    } k_expected[] = {
+        {MESH_UI_SETTINGS_BLUETOOTH, meshtastic_ExcludedModules_BLUETOOTH_CONFIG},
+        {MESH_UI_SETTINGS_NETWORK, meshtastic_ExcludedModules_NETWORK_CONFIG},
+        {MESH_UI_SETTINGS_MQTT, meshtastic_ExcludedModules_MQTT_CONFIG},
+        {MESH_UI_SETTINGS_EXT_NOTIFICATION, meshtastic_ExcludedModules_EXTNOTIF_CONFIG},
+        {MESH_UI_SETTINGS_STORE_FORWARD, meshtastic_ExcludedModules_STOREFORWARD_CONFIG},
+        {MESH_UI_SETTINGS_RANGE_TEST, meshtastic_ExcludedModules_RANGETEST_CONFIG},
+        {MESH_UI_SETTINGS_TELEMETRY, meshtastic_ExcludedModules_TELEMETRY_CONFIG},
+        {MESH_UI_SETTINGS_CANNED, meshtastic_ExcludedModules_CANNEDMSG_CONFIG},
+        {MESH_UI_SETTINGS_NEIGHBOR_INFO, meshtastic_ExcludedModules_NEIGHBORINFO_CONFIG},
+        {MESH_UI_SETTINGS_AMBIENT, meshtastic_ExcludedModules_AMBIENTLIGHTING_CONFIG},
+        {MESH_UI_SETTINGS_DETECTION, meshtastic_ExcludedModules_DETECTIONSENSOR_CONFIG},
+        {MESH_UI_SETTINGS_PAXCOUNTER, meshtastic_ExcludedModules_PAXCOUNTER_CONFIG},
+    };
+    for (size_t i = 0; i < sizeof k_expected / sizeof k_expected[0]; ++i) {
+        MESH_TEST_FAIL_IF(mesh_ui_settings_section_excluded_bit(k_expected[i].section) !=
+                              k_expected[i].bit,
+                          "a section's excluded-module bit does not match the protobuf");
+    }
+    /* And nothing else claims a bit: a section added to the table without a line here would
+       otherwise be pinned by nobody. */
+    for (int i = 0; i < (int)MESH_UI_SETTINGS_SECTION_COUNT; ++i) {
+        const enum mesh_ui_settings_section section = (enum mesh_ui_settings_section)i;
+        bool listed = false;
+        for (size_t e = 0; e < sizeof k_expected / sizeof k_expected[0]; ++e) {
+            listed = listed || k_expected[e].section == section;
+        }
+        MESH_TEST_FAIL_IF(listed != (mesh_ui_settings_section_excluded_bit(section) != 0U),
+                          "the excluded-module table and this test disagree about a section");
+    }
+
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_metadata = true;
+    settings.excluded_modules = meshtastic_ExcludedModules_MQTT_CONFIG;
+
+    MESH_TEST_FAIL_IF(
+        mesh_ui_settings_section_availability(&settings, NULL, MESH_UI_SETTINGS_MQTT) !=
+                MESH_UI_SETTINGS_SECTION_EXCLUDED ||
+            mesh_ui_settings_section_availability(&settings, NULL, MESH_UI_SETTINGS_TELEMETRY) !=
+                MESH_UI_SETTINGS_SECTION_WAITING,
+        "an excluded module should not read as one that has not arrived yet");
+    MESH_TEST_FAIL_IF(
+        strcmp(mesh_str(mesh_ui_settings_availability_label(MESH_UI_SETTINGS_SECTION_EXCLUDED)),
+               "not in firmware") != 0 ||
+            strcmp(mesh_str(mesh_ui_settings_availability_label(MESH_UI_SETTINGS_SECTION_WAITING)),
+                   "not loaded") != 0 ||
+            mesh_ui_settings_availability_reason(MESH_UI_SETTINGS_SECTION_EXCLUDED) ==
+                mesh_ui_settings_availability_reason(MESH_UI_SETTINGS_SECTION_WAITING),
+        "the two empty sections should not read the same, in a row or on the screen behind it");
+
+    /* A radio that says it excluded a module and then sends one is saying two things, and the
+       one with rows in it wins. */
+    settings.has_mqtt = true;
+    MESH_TEST_FAIL_IF(mesh_ui_settings_section_availability(
+                          &settings, NULL, MESH_UI_SETTINGS_MQTT) != MESH_UI_SETTINGS_SECTION_READY,
+                      "a section the radio sent should be ready whatever the mask says");
+    settings.has_mqtt = false;
+
+    /* Without metadata there is no mask to believe, so every missing section is still waiting. */
+    settings.has_metadata = false;
+    MESH_TEST_FAIL_IF(
+        mesh_ui_settings_section_availability(&settings, NULL, MESH_UI_SETTINGS_MQTT) !=
+            MESH_UI_SETTINGS_SECTION_WAITING,
+        "a mask that was never sent should exclude nothing");
+    settings.has_metadata = true;
+
+    /* The Modules list is the row somebody actually reads it on. */
+    struct mesh_ui_settings_item item;
+    for (uint32_t i = 0; i < mesh_ui_settings_module_count(); ++i) {
+        if (mesh_ui_settings_module_at(i) != MESH_UI_SETTINGS_MQTT) {
+            continue;
+        }
+        MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U,
+                                                 MESH_UI_SETTINGS_MODULES,
+                                                 MESH_UI_SETTINGS_NO_CHANNEL, i, &item) ||
+                              strcmp(item.value, "not in firmware") != 0,
+                          "the Modules row for an excluded module should say so");
+    }
+    record_success(test_name);
+}
+
+/*
+ * The Network section: read-only, and the four static rows only when they mean anything.
+ *
+ * It is also where the UDP broadcast bit is pinned against the protobuf, for the reason the
+ * excluded-module bits are pinned above - the row reads a literal, so something has to hold
+ * that literal to the wire.
+ */
+MESH_TEST_CASE(ui_settings_network_section, unit) {
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_network = true;
+    settings.wifi_enabled = true;
+    snprintf(settings.wifi_ssid, sizeof settings.wifi_ssid, "%s", "Shed");
+    settings.enabled_protocols = meshtastic_Config_NetworkConfig_ProtocolFlags_UDP_BROADCAST;
+
+    const uint32_t dhcp_rows = mesh_ui_settings_item_count(
+        &settings, NULL, MESH_UI_SETTINGS_NETWORK, MESH_UI_SETTINGS_NO_CHANNEL);
+    struct mesh_ui_settings_item item;
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_NETWORK,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, 1U, &item) ||
+                          strcmp(item.value, "Shed") != 0,
+                      "the section should name the network the radio was told to join");
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_NETWORK,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, 4U, &item) ||
+                          strcmp(item.value, "DHCP") != 0,
+                      "address mode 0 is DHCP");
+    /* An empty ntp_server is the firmware's own default rather than no time source at all. */
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_NETWORK,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, dhcp_rows - 3U, &item) ||
+                          strcmp(item.value, "firmware default") != 0,
+                      "an unset NTP server should name the default rather than draw blank");
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_NETWORK,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, dhcp_rows - 1U, &item) ||
+                          item.number != 1U,
+                      "the UDP broadcast row should read the protocol flag");
+
+    /* Nothing here is editable, and that is a property of every row rather than of the screen. */
+    for (uint32_t i = 0; i < dhcp_rows; ++i) {
+        MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U,
+                                                 MESH_UI_SETTINGS_NETWORK,
+                                                 MESH_UI_SETTINGS_NO_CHANNEL, i, &item) ||
+                              item.field != MESH_UI_FIELD_NONE,
+                          "no Network row should carry an editable field");
+    }
+
+    /* Static adds a heading and the four addresses under it, formatted the way the connection
+       rows format the one the radio actually got. */
+    settings.address_mode = (uint8_t)meshtastic_Config_NetworkConfig_AddressMode_STATIC;
+    settings.ipv4_ip = 0x0A01A8C0U; /* 192.168.1.10, as the wire carries it */
+    const uint32_t static_rows = mesh_ui_settings_item_count(
+        &settings, NULL, MESH_UI_SETTINGS_NETWORK, MESH_UI_SETTINGS_NO_CHANNEL);
+    MESH_TEST_FAIL_IF(static_rows != dhcp_rows + 5U,
+                      "Static should add a heading and four addresses");
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_NETWORK,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, 5U, &item) ||
+                          item.kind != MESH_UI_SETTING_HEADING,
+                      "the static addresses should sit under a heading");
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_NETWORK,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, 6U, &item) ||
+                          strcmp(item.value, "192.168.1.10") != 0,
+                      "a static address should be drawn from the fixed32 the radio sent");
     record_success(test_name);
 }
 

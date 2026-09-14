@@ -1011,7 +1011,7 @@ MESH_TEST_CASE(app_channel_write_build, unit) {
     action.type = MESH_UI_ACTION_SAVE_SETTINGS;
     action.section = MESH_UI_SETTINGS_CHANNELS;
     action.channel = 1U;
-    action.edit_count = 4U;
+    action.edit_count = 5U;
     action.edits[0].field = MESH_UI_FIELD_CHANNEL_KEY;
     action.edits[0].number = MESH_UI_PSK_RANDOM_256;
     action.edits[1].field = MESH_UI_FIELD_CHANNEL_NAME;
@@ -1020,6 +1020,10 @@ MESH_TEST_CASE(app_channel_write_build, unit) {
     action.edits[2].number = 0U; /* disabled */
     action.edits[3].field = MESH_UI_FIELD_CHANNEL_POSITION;
     action.edits[3].number = 16U;
+    /* The other half of the same submessage, which has to be marked present for either field to
+       reach the radio - and does not disturb the first when both are edited at once. */
+    action.edits[4].field = MESH_UI_FIELD_CHANNEL_MUTED;
+    action.edits[4].number = 1U;
 
     struct mesh_admin_request write;
     MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
@@ -1030,7 +1034,9 @@ MESH_TEST_CASE(app_channel_write_build, unit) {
                           write.payload.channel.settings.psk.size != 32U ||
                           write.payload.channel.settings.id != 77U ||
                           !write.payload.channel.settings.has_module_settings ||
-                          write.payload.channel.settings.module_settings.position_precision != 16U,
+                          write.payload.channel.settings.module_settings.position_precision !=
+                              16U ||
+                          !write.payload.channel.settings.module_settings.is_muted,
                       "the channel write should carry the edits over the radio's copy");
     bool all_zero = true;
     for (unsigned i = 0; i < 32U; ++i) {
@@ -2827,6 +2833,108 @@ cleanup:
     mesh_ui_store_shutdown(&app->ui_store);
     mesh_bluez_client_mock_disable();
     free(app);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * What the radio says about its network and about its own build, on the way to the two screens
+ * that read them.
+ *
+ * Both are a straight copy through mesh_app_flatten_settings(), and both were bytes that
+ * arrived and stopped there until the sections that read them existed: NETWORK_CONFIG has been
+ * fetched on every refresh since phase 1, and excluded_modules has been in DeviceMetadata since
+ * before this client read metadata at all. A copy nobody asserts is a copy that can be dropped
+ * in a merge without a single test going red, which is how they came to be missing in the first
+ * place.
+ *
+ * wifi_psk is the one field here asserted by its *absence*: the store has no member for it, so
+ * the credential stops at the radio record. That is checked by the compiler rather than by a
+ * line below, and said here because it is a decision rather than an omission.
+ */
+MESH_TEST_CASE(app_publishes_network_and_build_facts, unit) {
+    const char *failure = NULL;
+    bool app_ready = false;
+    struct mesh_app app;
+    memset(&app, 0, sizeof app);
+
+    char home_dir[] = "/tmp/mesh_app_networkXXXXXX";
+    if (mkdtemp(home_dir) == NULL) {
+        record_failure(test_name, "mkdtemp failed");
+        return;
+    }
+    setenv("HOME", home_dir, 1);
+    setenv("MESHCLIENT_UI_BACKEND", "stub", 1);
+    unsetenv("MESHCLIENT_AUTOCONNECT");
+
+    struct mesh_app_config config = mesh_app_config_default();
+    config.run_mode = MESH_APP_RUN_FOREGROUND;
+    config.enable_serial = false;
+    config.enable_ble = false;
+    if (mesh_app_init(&app, &config) != 0) {
+        failure = "app init failed";
+        goto cleanup;
+    }
+    app_ready = true;
+
+    meshtastic_Config network = meshtastic_Config_init_zero;
+    network.which_payload_variant = meshtastic_Config_network_tag;
+    network.payload_variant.network.wifi_enabled = true;
+    snprintf(network.payload_variant.network.wifi_ssid,
+             sizeof network.payload_variant.network.wifi_ssid, "%s", "Shed");
+    snprintf(network.payload_variant.network.wifi_psk,
+             sizeof network.payload_variant.network.wifi_psk, "%s", "hunter2");
+    network.payload_variant.network.address_mode =
+        meshtastic_Config_NetworkConfig_AddressMode_STATIC;
+    network.payload_variant.network.has_ipv4_config = true;
+    network.payload_variant.network.ipv4_config.gateway = 0x0101A8C0U; /* 192.168.1.1 */
+    snprintf(network.payload_variant.network.ntp_server,
+             sizeof network.payload_variant.network.ntp_server, "%s", "ntp.example.invalid");
+    network.payload_variant.network.enabled_protocols =
+        meshtastic_Config_NetworkConfig_ProtocolFlags_UDP_BROADCAST;
+    mesh_radio_settings_apply_config(&app.session.settings, &network);
+
+    app.session.settings.has_metadata = true;
+    app.session.settings.metadata.excluded_modules =
+        meshtastic_ExcludedModules_MQTT_CONFIG | meshtastic_ExcludedModules_NETWORK_CONFIG;
+    app.session.settings.metadata.has_xeddsa = true;
+
+    mesh_app_publish_ui_state(&app);
+
+    const struct mesh_ui_settings *ui = &app.ui_store.settings;
+    if (!ui->has_network || !ui->wifi_enabled || strcmp(ui->wifi_ssid, "Shed") != 0 ||
+        ui->address_mode != (uint8_t)meshtastic_Config_NetworkConfig_AddressMode_STATIC ||
+        ui->ipv4_gateway != 0x0101A8C0U || strcmp(ui->ntp_server, "ntp.example.invalid") != 0 ||
+        ui->enabled_protocols != meshtastic_Config_NetworkConfig_ProtocolFlags_UDP_BROADCAST) {
+        failure = "the network section the radio sent should reach the store whole";
+        goto cleanup;
+    }
+    if (ui->excluded_modules !=
+            (meshtastic_ExcludedModules_MQTT_CONFIG | meshtastic_ExcludedModules_NETWORK_CONFIG) ||
+        !ui->has_xeddsa) {
+        failure = "what the firmware was built without should reach the store too";
+        goto cleanup;
+    }
+    /* And the two lists that read it agree about the same radio: a section whose bit is set is
+       excluded rather than late, whichever list the row is in. */
+    if (mesh_ui_settings_section_availability(ui, &app.ui_store.handshake, MESH_UI_SETTINGS_MQTT) !=
+        MESH_UI_SETTINGS_SECTION_EXCLUDED) {
+        failure = "an excluded module should read as excluded once published";
+        goto cleanup;
+    }
+    /* Network is the exception in that mask: its bit is set, and the radio sent the section
+       anyway, so there are rows and the row that says why there are none must not appear. */
+    if (mesh_ui_settings_section_availability(ui, &app.ui_store.handshake,
+                                              MESH_UI_SETTINGS_NETWORK) !=
+        MESH_UI_SETTINGS_SECTION_READY) {
+        failure = "a section the radio sent is ready whatever its bit says";
+        goto cleanup;
+    }
+
+cleanup:
+    if (app_ready) {
+        mesh_app_shutdown(&app);
+    }
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }

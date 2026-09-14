@@ -430,8 +430,14 @@ MESH_TEST_CASE(ui_nav_channel_edit, unit) {
         failure = "the channel list should show every slot, the empty one openable";
         goto cleanup;
     }
-    /* An empty slot opens with the same rows, role Disabled: that is how a channel is added. */
-    if (mesh_ui_settings_item_count(&store.settings, NULL, MESH_UI_SETTINGS_CHANNELS, 2U) != 6U ||
+    /* An empty slot opens with the same rows, role Disabled: that is how a channel is added.
+       The count is taken from a slot that is in use rather than written down, because what this
+       asserts is that the two are the same list - a row added to a channel is added to both. */
+    const uint32_t channel_rows =
+        mesh_ui_settings_item_count(&store.settings, NULL, MESH_UI_SETTINGS_CHANNELS, 1U);
+    if (channel_rows < 6U ||
+        mesh_ui_settings_item_count(&store.settings, NULL, MESH_UI_SETTINGS_CHANNELS, 2U) !=
+            channel_rows ||
         !mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_CHANNELS, 2U, 1U,
                                &item) ||
         item.field != MESH_UI_FIELD_CHANNEL_ROLE || item.number != 0U) {
@@ -441,7 +447,7 @@ MESH_TEST_CASE(ui_nav_channel_edit, unit) {
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
     if (store.nav.settings_channel != 1U || store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != 0U ||
-        mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS) != 6U ||
+        mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS) != channel_rows ||
         !mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_CHANNELS, 1U, 2U,
                                &item) ||
         item.field != MESH_UI_FIELD_CHANNEL_KEY || item.kind != MESH_UI_SETTING_KEY ||
@@ -450,7 +456,7 @@ MESH_TEST_CASE(ui_nav_channel_edit, unit) {
         !mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_CHANNELS, 1U, 5U,
                                &item) ||
         strcmp(item.value, "~3 km") != 0) {
-        failure = "A should open channel 1 with its six rows";
+        failure = "A should open channel 1 with all of its rows";
         goto cleanup;
     }
     /* The primary slot's role is not offered. */

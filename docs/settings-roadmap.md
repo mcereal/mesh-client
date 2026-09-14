@@ -63,8 +63,8 @@ fragment, and uses the admin path for refreshes and as proof that writes will wo
 Twelve hand-drawn screens is the wrong shape. The Settings tab is one generic form renderer
 over a static description of each section:
 
-- A **section list**: About MeshClient, About radio, User, Device, Display, Position, Power,
-  LoRa, Bluetooth, Channels, Security, Modules, Radio actions. The first two are the pair the
+- A **section list**: About MeshClient, About radio, User, Device, Display, Radio UI, Position,
+  Power, LoRa, Bluetooth, Network, Channels, Security, Modules, Radio actions. The first two are the pair the
   names promise - what this client is, and what the radio is - and both are read-only; every
   row that can be *changed* lives in the section that owns it. A opens a section, B returns.
   Two of those rows open a *list* rather than a section - Channels lists the radio's slots,
@@ -739,7 +739,7 @@ exactly the MQTT-proxy argument for a row that exists. Neither has any effect on
 Brick draws: this is the *radio's* screen, and the section it sits in has said so since the
 Radio UI section arrived beside it.
 
-#### 2. `DeviceMetadata.excluded_modules`
+#### 2. `DeviceMetadata.excluded_modules` (this branch)
 
 One `uint32` bitmask, read-only, and it makes an existing screen honest. The Modules list
 shows a module the radio never sent as `not loaded`, which conflates two different things: a
@@ -748,7 +748,33 @@ yet. `excluded_modules` is the firmware saying which `ModuleConfigType`s it was 
 Also unread beside it: `hasRemoteHardware` (which gates one of the five unbound modules) and
 `has_xeddsa`.
 
-#### 3. `NetworkConfig`, read-only
+What it turned out to be is not a row at all, and that is the part worth recording. Three
+places drew `not loaded` from three separate reads of `mesh_ui_settings_section_loaded()` - the
+top-level list, the Modules list, and the empty-section screen behind either - so the fix in
+one of them would have left the other two inviting a refresh that could never arrive. They now
+ask `mesh_ui_settings_section_availability()`, which answers **ready**, **waiting** or
+**excluded**, and the words come from the answer rather than from the caller: a list row takes
+`mesh_ui_settings_availability_label()`, a screen with no rows takes
+`mesh_ui_settings_availability_reason()`. Adding a third reason later is a case in one switch.
+
+Two of upstream's bits are not modules - `BLUETOOTH_CONFIG` and `NETWORK_CONFIG` - and those
+are precisely the two top-level sections that would otherwise sit at `not loaded` forever on a
+board without the hardware, which is why the predicate is over *sections* rather than over the
+Modules list it was found in. A section the radio sends anyway is **ready** whatever the mask
+says: a build that reports both is telling us two things, and the one with rows in it wins.
+
+The bit table lives in `src/ui/settings.c` as literals, because the UI layer is the nanopb-free
+side of the fence (the trade `MESH_UI_CANNED_MESSAGES_MAX` already makes in `store.h`), and
+`ui_settings_section_availability` pins every one of them against `meshtastic_ExcludedModules`
+and fails if a section grows a bit the test does not name.
+
+`has_xeddsa` lands as one read-only row on About radio, beside `Can shut down`, rather than as
+a sixth word in the capabilities line - five concatenated words are wider than the value
+column. It is the answer to Security's `Packet signing` row appearing to do nothing.
+`hasRemoteHardware` stays unread: the module it gates has no section here (phase 13), so a row
+for it would report a capability nothing in this client can use.
+
+#### 3. `NetworkConfig`, read-only (this branch)
 
 The one section that is *fetched, stored, and then read by nothing*. `queue_all()` asks for
 `NETWORK_CONFIG` on every refresh, `mesh_radio_settings_apply_config` stores it, `has_network`
@@ -763,11 +789,42 @@ currently answer at all. About radio answers part of it today from `DeviceConnec
 which is the interface's *state*; this is its *configuration*, and the two disagreeing is
 itself worth being able to see. `wifi_psk` is not shown, for the reason no other password is.
 
-#### 4. `ChannelSettings.module_settings.is_muted`
+It is a top-level section between Bluetooth and Channels, not an addition to About radio: the
+rule the About pair states is that an About section is read-only, not that everything read-only
+is an About section, and a fifteenth row on the root list is cheaper than a thirty-row screen
+that mixes what the radio *was told* with what it *is doing*. Eleven rows under DHCP - WiFi,
+network name, Ethernet, IPv6, address mode, NTP server, syslog server, UDP broadcast - and the
+four static addresses appear under a heading when the mode is Static, because under DHCP they
+are whatever was last typed into a phone. A read-only list may add and drop rows like that,
+where an editable one may not: the rule that a row count must not move under the cursor is
+about an *edit* moving it, and nothing here edits.
+
+`wifi_psk` is not masked, it is absent: `mesh_app_flatten_settings()` never copies it, so the
+credential stops at the radio record and the UI layer has no member to leak. The section
+therefore also has no save - the write builder's `default` arm already answers `-ENOTSUP`, and
+the toast for that already reads "read-only".
+
+One thing this does not do, and the audit's own framing of item 3 is why: the refresh still
+asks for `NETWORK_CONFIG` every time. The round trip is no longer spent on bytes that are
+dropped, which was the complaint; skipping the fetch for an excluded section is a separate
+change, and one that would have to answer what a firmware that excludes a section actually
+replies with.
+
+#### 4. `ChannelSettings.module_settings.is_muted` (this branch)
 
 One toggle, in a submessage this client already reads the other half of - `position_precision`
 comes from the same `ModuleSettings` and has had a row since phase 3. Muting a busy channel is
 a thing people want and there is nowhere to do it.
+
+It is the last row of a channel, after position precision: the four above it decide who can
+read the channel and where it is bridged, and this one changes nothing about what the channel
+*is*. The one thing it shares with its neighbour is `has_module_settings`, which either row has
+to set - a `Channel` whose `module_settings` is absent carries neither field - so the write
+builder's two arms set it and `app_channel_write_build` edits both at once to prove they do not
+undo each other.
+
+The row is the radio's setting, written to the radio: this client does not yet use it to quiet
+its own notifications, which is a messaging change rather than a settings one.
 
 #### 5. The bitfield row model, and the two fields waiting on it
 
@@ -835,8 +892,13 @@ was the only unimplemented admin verb with no recorded reason. It is the rotary-
 broker that belongs to `CannedMessageConfig`, so it sits with phase 13 and is now listed below
 with the rest.
 
-- Exit criteria for this branch: on the Brick, the Display section shows all twelve fields and
-  a display mode set from it reads back after the reboot and shows in the phone app.
+- Exit criteria for the Display branch: on the Brick, the Display section shows all twelve
+  fields and a display mode set from it reads back after the reboot and shows in the phone app.
+- Exit criteria for this branch: on the Brick, the Network section shows what the radio was
+  configured with and disagrees visibly with About radio when the interface never came up; a
+  channel muted from the Channels section reads back muted after the reboot; and a radio whose
+  firmware excludes a module shows that module as `not in firmware` in the Modules list rather
+  than as a row that invites another refresh.
 
 ### Later, maybe never
 

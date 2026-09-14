@@ -347,6 +347,10 @@ struct mesh_ui_channel_detail {
     bool uplink_enabled;
     bool downlink_enabled;
     uint32_t position_precision;
+    /* The other half of ChannelSettings.module_settings, which this client has been reading the
+       first half of since phase 3. Muting is per channel and lives on the radio, so a busy
+       public channel can be quietened without disabling it and losing the key. */
+    bool is_muted;
 };
 
 /*
@@ -670,6 +674,35 @@ struct mesh_ui_settings {
     uint8_t pairing_mode; /* 0 random pin, 1 fixed pin, 2 no pin */
     uint32_t fixed_pin;
 
+    /*
+     * NetworkConfig, shown and not offered (MESH_UI_SETTINGS_NETWORK).
+     *
+     * `wifi_psk` is deliberately absent rather than masked: the row that would show it does not
+     * exist, so the credential never reaches this side of the fence at all. Everything here is
+     * what the radio was *told* to do - what it is actually doing is `connection`, filled from
+     * DeviceConnectionStatus, and the two are shown on different screens because they answer
+     * different questions.
+     */
+    bool has_network;
+    bool wifi_enabled;
+    char wifi_ssid[33];
+    bool eth_enabled;
+    bool ipv6_enabled;
+    uint8_t address_mode; /* 0 DHCP, 1 static */
+    /* The static four, as the wire carries them: fixed32 in network byte order, formatted by
+       the same helper the connection rows use. Meaningless under DHCP, and the section says so
+       by not drawing them. */
+    uint32_t ipv4_ip;
+    uint32_t ipv4_gateway;
+    uint32_t ipv4_subnet;
+    uint32_t ipv4_dns;
+    char ntp_server[33];
+    char rsyslog_server[33];
+    /* Bitwise OR of meshtastic_Config_NetworkConfig_ProtocolFlags. One bit is defined upstream
+       (UDP_BROADCAST), so the row is that bit and the rest are carried across a save untouched
+       like every other field with no row. */
+    uint32_t enabled_protocols;
+
     bool has_security;
     uint8_t public_key[32];
     uint8_t public_key_len;
@@ -864,6 +897,21 @@ struct mesh_ui_settings {
     bool has_ethernet;
     bool has_pkc;
     bool can_shutdown;
+    /*
+     * Which ModuleConfigTypes this firmware build left out, as the bitwise OR of
+     * meshtastic_ExcludedModules the radio reports.
+     *
+     * The Modules list showed a module the radio never sent as "not loaded", which conflates
+     * two different answers: one that a refresh may still fill in, and one that no refresh ever
+     * will. This is the second of them, and it is a fact about the *build* rather than about
+     * the connection - so it is read once with the rest of the metadata and asked of through
+     * mesh_ui_settings_section_availability() rather than compared against bits at a row.
+     */
+    uint32_t excluded_modules;
+    /* Whether this build can verify XEdDSA packet signatures at all. Read-only upstream and
+       read-only here: it is the answer to a Security section whose signature policy appears to
+       do nothing, so it goes in the capabilities row beside PKC. */
+    bool has_xeddsa;
 
     /*
      * What is known about *newer* firmware for this radio, flattened out of
