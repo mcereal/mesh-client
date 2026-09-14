@@ -2,8 +2,29 @@
 
 The long form of the rule list. `CLAUDE.md` carries the handful an agent trips over in the first
 hour and points here for the rest; this is the file to read before changing session, settings,
-map, UI-layout or updater behaviour, and the file to add to when a debugging round ends in
-"it was deliberate".
+map, UI-layout or updater behaviour.
+
+## Adding to this file is the exception, not the habit
+
+Measured on 2026-09-14: the list went from 0 to 129 entries in nine days, and **93 of the 137
+entries ever added arrived in the same commit as the code they describe** - a `feat` commit
+landing with as many as ten of them at once. Those are not a record of anything that went wrong.
+They are an author explaining a design choice in the house voice, because the section was there
+and the voice was established. `CLAUDE.md` had already been cut once for this, from 579 lines to
+164 on 2026-09-05; it was back to 1248 nine days later.
+
+So the bar is evidence, not reasoning:
+
+- An entry earns its place when someone has **actually tried to undo the rule** - a revert, a
+  re-broken test, a review asking why it is like that. "A future reader might get this wrong" is
+  not evidence; it is the feeling that produced the other 93.
+- **A `feat` commit should not add an entry.** If you are writing the code now, nothing has been
+  got wrong yet. Your reasoning goes in the test name, a comment at the seam, or the `docs/` page
+  for that area.
+- **Prefer a test to a paragraph.** Most of these cite one - a test fails when the rule is undone,
+  and prose does not. If the rule can be pinned by a test, write the test and skip the entry.
+- An entry whose rule no longer holds, or that nothing has threatened in months, should be
+  **deleted**. This file has been close to append-only, which is how it got here.
 
 Each of these has cost a debugging round already. **Do not "fix" them back.**
 
