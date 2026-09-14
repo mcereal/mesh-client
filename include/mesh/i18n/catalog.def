@@ -1086,6 +1086,16 @@ MESH_STR_ENTRY(SETTINGS_NOTE_DEVICE_DOUBLE_TAP,           "Lets a double tap on 
 MESH_STR_ENTRY(SETTINGS_NOTE_POSITION_GPS_MODE,           "Whether the radio's own GPS is powered, switched off, or absent from the board. With it off the radio knows only the fixed position typed in by hand.")
 MESH_STR_ENTRY(SETTINGS_NOTE_POSITION_BROADCAST,          "How often the radio sends its position on a plain timer. Every send is airtime on a band everyone shares, so a node that stays in one place rarely needs a short one.")
 MESH_STR_ENTRY(SETTINGS_NOTE_POSITION_GPS_INTERVAL,       "How often the GPS is woken to take a fix. Waking it more often keeps the position fresh and is one of the largest drains on the battery a radio has.")
+MESH_STR_ENTRY(SETTINGS_NOTE_POSITION_FLAG_ALTITUDE,      "Sends how high the radio is along with where it is. Everything under it refines that height, and none of those rows does anything while this one is off.")
+MESH_STR_ENTRY(SETTINGS_NOTE_POSITION_FLAG_ALTITUDE_MSL,  "Reports height above sea level instead of above the mathematical shape of the earth. The two differ by tens of metres, so a mesh should agree on one.")
+MESH_STR_ENTRY(SETTINGS_NOTE_POSITION_FLAG_GEOIDAL,       "Sends the gap between those two ways of measuring height, so a receiver can convert one into the other rather than guessing which was meant.")
+MESH_STR_ENTRY(SETTINGS_NOTE_POSITION_FLAG_DOP,           "Sends how good the fix was, as dilution of precision: lower is better. Without it a position taken through a roof looks exactly like one taken in a field.")
+MESH_STR_ENTRY(SETTINGS_NOTE_POSITION_FLAG_HVDOP,         "Sends the horizontal and vertical precision as two figures rather than one combined one. It costs a little airtime and does nothing with precision off.")
+MESH_STR_ENTRY(SETTINGS_NOTE_POSITION_FLAG_SATINVIEW,     "Sends how many satellites the radio could see when it took the fix, which is the other half of knowing how much to trust the position.")
+MESH_STR_ENTRY(SETTINGS_NOTE_POSITION_FLAG_SEQ_NO,        "Numbers each position the radio sends, so a receiver can tell a fresh fix from a repeat of one it already has.")
+MESH_STR_ENTRY(SETTINGS_NOTE_POSITION_FLAG_TIMESTAMP,     "Sends when the GPS solved the fix, which is not when the packet was sent. A position that travelled several hops can be minutes older than it looks.")
+MESH_STR_ENTRY(SETTINGS_NOTE_POSITION_FLAG_HEADING,       "Sends which way the radio is travelling. Meant for vehicle speeds: at walking pace it is mostly noise and costs airtime to say.")
+MESH_STR_ENTRY(SETTINGS_NOTE_POSITION_FLAG_SPEED,         "Sends how fast the radio is travelling. Meant for vehicle speeds, for the same reason heading is: walking pace moves it around without saying much.")
 MESH_STR_ENTRY(SETTINGS_NOTE_POSITION_FIXED,              "A position typed in by hand, for a radio with no GPS or one that never sees the sky. The radio reports it as its own, so a stale one puts this node where it is not.")
 
 /* Power. */
@@ -1370,6 +1380,18 @@ MESH_STR_ENTRY(SETTINGS_FIELD_POSITION_SMART,             "Smart broadcast")
 MESH_STR_ENTRY(SETTINGS_FIELD_POSITION_SMART_DISTANCE,    "Smart distance")
 MESH_STR_ENTRY(SETTINGS_FIELD_POSITION_SMART_INTERVAL,    "Smart interval")
 MESH_STR_ENTRY(SETTINGS_FIELD_POSITION_GPS_INTERVAL,      "GPS interval")
+/* PositionConfig.position_flags, one row per bit. Labels are what the field is rather than
+   what the protobuf calls it: SATINVIEW is "Satellites" and SEQ_NO a "Sequence number". */
+MESH_STR_ENTRY(SETTINGS_FIELD_POSITION_FLAG_ALTITUDE,     "Altitude")
+MESH_STR_ENTRY(SETTINGS_FIELD_POSITION_FLAG_ALTITUDE_MSL, "Altitude is MSL")
+MESH_STR_ENTRY(SETTINGS_FIELD_POSITION_FLAG_GEOIDAL,      "Geoid separation")
+MESH_STR_ENTRY(SETTINGS_FIELD_POSITION_FLAG_DOP,          "Precision (DOP)")
+MESH_STR_ENTRY(SETTINGS_FIELD_POSITION_FLAG_HVDOP,        "Split precision")
+MESH_STR_ENTRY(SETTINGS_FIELD_POSITION_FLAG_SATINVIEW,    "Satellites")
+MESH_STR_ENTRY(SETTINGS_FIELD_POSITION_FLAG_SEQ_NO,       "Sequence number")
+MESH_STR_ENTRY(SETTINGS_FIELD_POSITION_FLAG_TIMESTAMP,    "Fix time")
+MESH_STR_ENTRY(SETTINGS_FIELD_POSITION_FLAG_HEADING,      "Heading")
+MESH_STR_ENTRY(SETTINGS_FIELD_POSITION_FLAG_SPEED,        "Speed")
 MESH_STR_ENTRY(SETTINGS_FIELD_POSITION_LATITUDE,          "Latitude")
 MESH_STR_ENTRY(SETTINGS_FIELD_POSITION_LONGITUDE,         "Longitude")
 MESH_STR_ENTRY(SETTINGS_FIELD_POSITION_ALTITUDE,          "Altitude (m)")
@@ -1800,6 +1822,9 @@ MESH_STR_ENTRY(CHANNELS_KEY_AES256,       "AES-256")
 MESH_STR_ENTRY(CHANNELS_KEY_ODD,          "odd key")
 
 /* Section headings inside a module's own screen. */
+/* Position: the ten bits of position_flags, which are a set rather than ten settings - so the
+   heading names what the set is about and the rows under it are checkboxes. */
+MESH_STR_ENTRY(HEAD_POSITION_CARRIES,     "Sent with a position")
 MESH_STR_ENTRY(HEAD_MAP_REPORT,           "Map report")
 MESH_STR_ENTRY(HEAD_SERVER,               "Server")
 /* Store & Forward, the half of the module that is about *this* client rather than about

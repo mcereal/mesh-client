@@ -183,7 +183,10 @@ static void item_field(struct item_list *list, enum mesh_ui_setting_field field,
     }
     item->number = number;
     switch (spec->kind) {
+    /* A flag says "on" and "off" in the value column exactly as a toggle does. The two differ
+       in the control drawn beside the words, which is the backend's choice to make. */
     case MESH_UI_SETTING_TOGGLE:
+    case MESH_UI_SETTING_FLAG:
         snprintf(item->value, sizeof item->value, "%s",
                  mesh_str(number != 0U ? MESH_STR_COMMON_ON : MESH_STR_COMMON_OFF));
         break;
@@ -218,6 +221,24 @@ static void item_field(struct item_list *list, enum mesh_ui_setting_field field,
         break;
     default:
         break;
+    }
+}
+
+/*
+ * A group of FLAG rows: one word of the radio's, drawn as the set of bits it is.
+ *
+ * The masks are not written here. Each row asks the field table for its own bit, so the run
+ * below is "every flag of this group, in the order the enum declares them" and adding a bit is
+ * a row in that table rather than a line here. Every one of them is listed whatever the others
+ * say - the rule the LoRa trio follows, so an edit cannot move the row count under the cursor.
+ */
+static void item_flag_group(struct item_list *list, enum mesh_ui_setting_field_group group,
+                            uint32_t word) {
+    const uint32_t count = mesh_ui_settings_group_count(group);
+    for (uint32_t i = 0; i < count; ++i) {
+        const enum mesh_ui_setting_field field = mesh_ui_settings_group_field(group, i);
+        const uint32_t bit = mesh_ui_settings_field_bit(field);
+        item_field(list, field, (word & bit) != 0U ? 1U : 0U, NULL);
     }
 }
 
@@ -1065,6 +1086,15 @@ static void build_position(const struct mesh_ui_settings *s, struct item_list *l
     item_field(list, MESH_UI_FIELD_POSITION_SMART_DISTANCE, s->smart_minimum_distance, NULL);
     item_field(list, MESH_UI_FIELD_POSITION_SMART_INTERVAL, s->smart_minimum_interval_secs, NULL);
     item_field(list, MESH_UI_FIELD_POSITION_GPS_INTERVAL, s->gps_update_interval, NULL);
+
+    /*
+     * What a position packet carries, which is ten bits of one word on the wire and ten rows
+     * here: the settings are "send the fix time" and "send how good the fix was", and nobody
+     * has an opinion about 0x0281. Under a heading because they are a set rather than ten
+     * separate switches, which is also why the fb backend draws them as checkboxes.
+     */
+    item_heading(list, MESH_STR_HEAD_POSITION_CARRIES);
+    item_flag_group(list, MESH_UI_FIELD_GROUP_POSITION_FLAGS, s->position_flags);
 
     /*
      * Fixed position. The flag is shown rather than offered: the firmware sets it itself as

@@ -927,6 +927,123 @@ cleanup:
  * the confirm overlay either, and they carry the section's pending edits because "Set fixed
  * position" is a row that reads the three rows above it.
  */
+/*
+ * Two flags flipped in one section: two edits, two rows dirty, and the rest of the word left
+ * alone.
+ *
+ * The thing being held is that the ten rows are *independent* presses over one value. The
+ * shape that would fail this is the obvious alternative - one pending edit for the whole word -
+ * which flips the right bit and marks all ten rows changed, so the panel says the user edited
+ * nine settings they never touched.
+ */
+MESH_TEST_CASE(ui_nav_position_flags_edit_one_bit_each, unit) {
+    const char *failure = NULL;
+
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_position = true;
+    /* Asked of the field table rather than written as a literal: which bit this row is, is
+       pinned against the protobuf over in ui_settings.c, and once is enough. */
+    settings.position_flags = mesh_ui_settings_field_bit(MESH_UI_FIELD_POSITION_FLAG_ALTITUDE);
+    mesh_ui_store_set_settings(&store, &settings);
+
+    struct mesh_ui_action action;
+    (void)mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS);
+    if (!mesh_test_settings_open(&store, MESH_UI_SETTINGS_POSITION)) {
+        failure = "the Position section should open";
+        goto cleanup;
+    }
+
+    /* Find the rows rather than counting to them: a heading is stepped over, and the order of
+       the section above them is not this test's business. */
+    const uint32_t rows = mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS);
+    uint32_t altitude_row = rows;
+    uint32_t speed_row = rows;
+    for (uint32_t row = 0; row < rows; ++row) {
+        struct mesh_ui_settings_item item;
+        if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
+                                   MESH_UI_SETTINGS_POSITION, MESH_UI_SETTINGS_NO_CHANNEL, row,
+                                   &item)) {
+            continue;
+        }
+        if (item.field == MESH_UI_FIELD_POSITION_FLAG_ALTITUDE) {
+            altitude_row = row;
+        }
+        if (item.field == MESH_UI_FIELD_POSITION_FLAG_SPEED) {
+            speed_row = row;
+        }
+    }
+    if (altitude_row >= rows || speed_row >= rows) {
+        failure = "the Position section is missing its flag rows";
+        goto cleanup;
+    }
+
+    /* Right on the altitude row turns the one bit that was on off; Right on speed turns
+       another on. Two presses, two edits. */
+    if (!mesh_test_settings_cursor_to(&store, altitude_row)) {
+        failure = "the cursor should reach the altitude flag";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    if (!mesh_test_settings_cursor_to(&store, speed_row)) {
+        failure = "the cursor should reach the speed flag";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+
+    if (store.nav.settings_edit_count != 2U) {
+        failure = "two flags flipped should be two pending edits";
+        goto cleanup;
+    }
+    bool altitude_off = false;
+    bool speed_on = false;
+    for (uint8_t i = 0; i < store.nav.settings_edit_count; ++i) {
+        const struct mesh_ui_setting_edit *edit = &store.nav.settings_edits[i];
+        altitude_off = altitude_off ||
+                       (edit->field == MESH_UI_FIELD_POSITION_FLAG_ALTITUDE && edit->number == 0U);
+        speed_on =
+            speed_on || (edit->field == MESH_UI_FIELD_POSITION_FLAG_SPEED && edit->number == 1U);
+    }
+    if (!altitude_off || !speed_on) {
+        failure = "each flag should be edited as its own field";
+        goto cleanup;
+    }
+
+    /* Exactly the two pressed rows are dirty, and every other flag still reads the radio's. */
+    const uint32_t count = mesh_ui_settings_group_count(MESH_UI_FIELD_GROUP_POSITION_FLAGS);
+    for (uint32_t i = 0; i < count; ++i) {
+        const enum mesh_ui_setting_field field =
+            mesh_ui_settings_group_field(MESH_UI_FIELD_GROUP_POSITION_FLAGS, i);
+        struct mesh_ui_settings_item item;
+        if (!mesh_ui_settings_item(&store.settings, &store.handshake, store.nav.settings_edits,
+                                   store.nav.settings_edit_count, MESH_UI_SETTINGS_POSITION,
+                                   MESH_UI_SETTINGS_NO_CHANNEL,
+                                   altitude_row + (field - MESH_UI_FIELD_POSITION_FLAG_ALTITUDE),
+                                   &item)) {
+            failure = "a flag row went missing under the edits";
+            goto cleanup;
+        }
+        const bool pressed = field == MESH_UI_FIELD_POSITION_FLAG_ALTITUDE ||
+                             field == MESH_UI_FIELD_POSITION_FLAG_SPEED;
+        if (item.dirty != pressed) {
+            failure = "only the flag rows that were pressed should be marked changed";
+            goto cleanup;
+        }
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+        return;
+    }
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(ui_nav_fixed_position, unit) {
     const char *failure = NULL;
 
@@ -1006,9 +1123,12 @@ MESH_TEST_CASE(ui_nav_fixed_position, unit) {
         failure = "the Position section should open";
         goto cleanup;
     }
-    /* Type a latitude, then press the action row: the edit rides along with it. */
-    for (uint32_t i = 0; i < latitude_row; ++i) {
-        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    /* Type a latitude, then press the action row: the edit rides along with it. Walked to by
+       row rather than by a count of presses - the section has a heading in it now, and the
+       cursor steps over one. */
+    if (!mesh_test_settings_cursor_to(&store, latitude_row)) {
+        failure = "the cursor should reach the latitude row";
+        goto cleanup;
     }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
     if (!store.nav.keyboard_open ||
@@ -1023,8 +1143,9 @@ MESH_TEST_CASE(ui_nav_fixed_position, unit) {
         failure = "the typed latitude should be recorded as a pending edit";
         goto cleanup;
     }
-    for (uint32_t i = latitude_row; i < set_row; ++i) {
-        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    if (!mesh_test_settings_cursor_to(&store, set_row)) {
+        failure = "the cursor should reach the set-fixed-position row";
+        goto cleanup;
     }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
     if (store.nav.confirm_open) {

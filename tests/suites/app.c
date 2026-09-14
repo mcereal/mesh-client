@@ -2952,6 +2952,45 @@ cleanup:
  * Every field asserted here is one the tab deliberately does not offer, which is exactly why
  * nothing else in the suite would notice it going missing.
  */
+/*
+ * One flag row pressed sets one bit, and leaves the other nine where the radio had them.
+ *
+ * The failure this exists for is the one a bitfield invites: a write that *assigns* the word
+ * instead of masking into it turns ten settings into one, and it does so silently - the row the
+ * user pressed reads back correctly and the nine they did not are quietly cleared. So both
+ * directions are checked, on a word that starts with some bits set and some clear.
+ */
+MESH_TEST_CASE(radio_settings_write_sets_one_position_flag, unit) {
+    struct mesh_radio_settings radio;
+    mesh_radio_settings_reset(&radio);
+    radio.has_position = true;
+    /* Altitude, DOP and the fix time on. */
+    const uint32_t held = meshtastic_Config_PositionConfig_PositionFlags_ALTITUDE |
+                          meshtastic_Config_PositionConfig_PositionFlags_DOP |
+                          meshtastic_Config_PositionConfig_PositionFlags_TIMESTAMP;
+    radio.position.position_flags = held;
+
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    action.type = MESH_UI_ACTION_SAVE_SETTINGS;
+    action.section = MESH_UI_SETTINGS_POSITION;
+    action.edit_count = 2U;
+    /* One bit on, one bit off, in one save. */
+    action.edits[0].field = MESH_UI_FIELD_POSITION_FLAG_SPEED;
+    action.edits[0].number = 1U;
+    action.edits[1].field = MESH_UI_FIELD_POSITION_FLAG_DOP;
+    action.edits[1].number = 0U;
+
+    struct mesh_admin_request write;
+    const meshtastic_Config_PositionConfig *pos = &write.payload.config.payload_variant.position;
+    const uint32_t expect = (held | meshtastic_Config_PositionConfig_PositionFlags_SPEED) &
+                            ~(uint32_t)meshtastic_Config_PositionConfig_PositionFlags_DOP;
+    MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+                          pos->position_flags != expect,
+                      "a flag edit should set or clear its own bit and no other");
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(radio_settings_write_preserves_unshown_fields, unit) {
     struct mesh_radio_settings radio;
     mesh_radio_settings_reset(&radio);
@@ -2986,7 +3025,9 @@ MESH_TEST_CASE(radio_settings_write_preserves_unshown_fields, unit) {
                           lora->ignore_incoming[1] != 0x0000BEEFU,
                       "a LoRa save must keep the frequency, duty cycle and ignore list");
 
-    /* Position: position_flags is a bitfield with no row model yet (roadmap phase 14 item 5). */
+    /* Position: position_flags now has ten rows over it, and none of them was pressed - so the
+       word has to come back exactly as the radio reported it. The bit arithmetic itself is
+       radio_settings_write_sets_one_position_flag below. */
     radio.has_position = true;
     radio.position.position_flags = 0x0000030FU;
     radio.position.rx_gpio = 17U;

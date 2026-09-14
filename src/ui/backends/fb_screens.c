@@ -3178,6 +3178,35 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                 fb_list_item(state, &list, i, &row);
                 continue;
             }
+            /*
+             * A flag gets a checkbox, and that is the one place this screen says something a
+             * switch could not. The ten rows under "Sent with a position" are not ten settings
+             * that each act on their own: they are the members of one word, and a square is
+             * how the control set says "any of these" where the switch says "this thing is
+             * on". Same edit, same value in the column, different sentence.
+             *
+             * Keyed like the switch, on the field with the channel mixed in, so a control
+             * animating in one frame is the same control in the next; 0x06 keeps it clear of
+             * the switch, the meters and the slider.
+             */
+            if (item.kind == MESH_UI_SETTING_FLAG) {
+                struct fb_selection sel = {
+                    .id = 0x06000000U | ((uint32_t)nav->settings_channel << 16) |
+                          (uint32_t)item.field,
+                    .on = item.number != 0U,
+                    .dim = item.field == MESH_UI_FIELD_NONE,
+                };
+                const struct fb_list_item row = {
+                    .leading = leading,
+                    .label = item.label,
+                    .label_cols = label_cols,
+                    .marker_icon = marker,
+                    .tone = tone,
+                    .trailing = {.kind = FB_TRAILING_CHECKBOX, .sel = &sel},
+                };
+                fb_list_item(state, &list, i, &row);
+                continue;
+            }
             if (item.kind == MESH_UI_SETTING_TOGGLE) {
                 struct fb_switch sw = {
                     .id = item.field != MESH_UI_FIELD_NONE

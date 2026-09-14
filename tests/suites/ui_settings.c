@@ -273,6 +273,257 @@ MESH_TEST_CASE(ui_settings_modules, unit) {
 }
 
 /*
+ * Every section present, so a walk over all of them builds every row rather than the empty
+ * screen behind a section the radio has not sent.
+ *
+ * Written out member by member rather than by memset-ing the struct to 0xFF: the rows read the
+ * values too, and a section whose enum fields are all 255 builds rows about nothing. What is
+ * wanted here is the shape of the list, which is what `has_*` decides.
+ */
+static void settings_mark_all_present(struct mesh_ui_settings *settings) {
+    settings->has_owner = true;
+    settings->has_device = true;
+    settings->has_display = true;
+    settings->has_lora = true;
+    settings->has_bluetooth = true;
+    settings->has_network = true;
+    settings->has_security = true;
+    settings->has_position = true;
+    settings->has_power = true;
+    settings->has_mqtt = true;
+    settings->has_store_forward = true;
+    settings->has_telemetry = true;
+    settings->has_neighbor_info = true;
+    settings->has_range_test = true;
+    settings->has_paxcounter = true;
+    settings->has_tak = true;
+    settings->has_ambient_lighting = true;
+    settings->has_status_message = true;
+    settings->has_detection_sensor = true;
+    settings->has_external_notification = true;
+    settings->has_traffic_management = true;
+    settings->has_ui_config = true;
+    settings->has_canned_messages = true;
+    settings->has_metadata = true;
+    settings->has_channels = true;
+    for (size_t i = 0; i < MESH_UI_MAX_CHANNELS; ++i) {
+        settings->channels[i].present = true;
+        settings->channels[i].index = (uint8_t)i;
+    }
+    /* A fixed position on, so the section offers the Clear row as well - the widest the list
+       gets is the count the edit list has to carry. */
+    settings->fixed_position = true;
+    settings->has_own_position = true;
+}
+
+/*
+ * Every label a settings row can carry, in every language, against the buffer it is copied into.
+ *
+ * `item_add_named()` copies with snprintf, so a label wider than MESH_UI_SETTINGS_LABEL_MAX is
+ * cut and nothing anywhere says so - the same silent shortening the edit buffer's own test was
+ * written for, one layer up and in a place only a translator can reach. English fits by
+ * construction because the row was drawn beside it; a translation is written against a catalog
+ * file with no screen in front of it, and "Enviado con la posición" is one byte over.
+ *
+ * Keyed on the id's *name*, the way the Spanish completeness check is: an id becomes a row's
+ * label by being called SETTINGS_FIELD_* or HEAD_*, so that is what is measured. A label that
+ * exceeds the buffer names itself, because "a label is too long" over eleven hundred ids is a
+ * bisect rather than a failure message.
+ */
+MESH_TEST_CASE(ui_settings_labels_fit_the_row_in_every_language, unit) {
+    for (size_t l = 0; l < mesh_i18n_locale_count(); ++l) {
+        const struct mesh_i18n_locale *locale = mesh_i18n_locale_at(l);
+        if (locale == NULL) {
+            continue;
+        }
+        for (int id = 0; id < (int)MESH_STR_COUNT; ++id) {
+            const char *name = mesh_str_id_name((enum mesh_str_id)id);
+            if (name == NULL ||
+                (strncmp(name, "SETTINGS_FIELD_", 15) != 0 && strncmp(name, "HEAD_", 5) != 0)) {
+                continue;
+            }
+            const char *text = mesh_str_in(locale, (enum mesh_str_id)id);
+            if (text == NULL || strlen(text) < MESH_UI_SETTINGS_LABEL_MAX) {
+                continue;
+            }
+            char reason[200];
+            snprintf(reason, sizeof reason, "%s in %s is %u bytes against a row label of %u", name,
+                     locale->id, (unsigned)strlen(text), (unsigned)MESH_UI_SETTINGS_LABEL_MAX - 1U);
+            record_failure(test_name, reason);
+            return;
+        }
+    }
+    record_success(test_name);
+}
+
+/*
+ * The flag row model: ten rows over one word, and the masks pinned against the protobuf.
+ *
+ * Written against meshtastic_Config_PositionConfig_PositionFlags rather than against the
+ * numbers in k_fields, for the reason the excluded-modules table is: the UI layer is the
+ * nanopb-free side of the fence, so the literals it holds have to be checked somewhere that
+ * can see both. A renumbering upstream fails here rather than on a radio.
+ *
+ * The second half is the one that would be missed: every field of the group has to name a
+ * *different* bit, and together they have to cover the whole word. A copy-pasted row carrying
+ * its neighbour's mask draws two rows that move together, which reads on screen as a control
+ * that does not work rather than as a mistake in a table.
+ */
+MESH_TEST_CASE(ui_settings_position_flags_are_the_wire_bits, unit) {
+    static const struct {
+        enum mesh_ui_setting_field field;
+        uint32_t bit;
+    } k_expected[] = {
+        {MESH_UI_FIELD_POSITION_FLAG_ALTITUDE,
+         meshtastic_Config_PositionConfig_PositionFlags_ALTITUDE},
+        {MESH_UI_FIELD_POSITION_FLAG_ALTITUDE_MSL,
+         meshtastic_Config_PositionConfig_PositionFlags_ALTITUDE_MSL},
+        {MESH_UI_FIELD_POSITION_FLAG_GEOIDAL,
+         meshtastic_Config_PositionConfig_PositionFlags_GEOIDAL_SEPARATION},
+        {MESH_UI_FIELD_POSITION_FLAG_DOP, meshtastic_Config_PositionConfig_PositionFlags_DOP},
+        {MESH_UI_FIELD_POSITION_FLAG_HVDOP, meshtastic_Config_PositionConfig_PositionFlags_HVDOP},
+        {MESH_UI_FIELD_POSITION_FLAG_SATINVIEW,
+         meshtastic_Config_PositionConfig_PositionFlags_SATINVIEW},
+        {MESH_UI_FIELD_POSITION_FLAG_SEQ_NO, meshtastic_Config_PositionConfig_PositionFlags_SEQ_NO},
+        {MESH_UI_FIELD_POSITION_FLAG_TIMESTAMP,
+         meshtastic_Config_PositionConfig_PositionFlags_TIMESTAMP},
+        {MESH_UI_FIELD_POSITION_FLAG_HEADING,
+         meshtastic_Config_PositionConfig_PositionFlags_HEADING},
+        {MESH_UI_FIELD_POSITION_FLAG_SPEED, meshtastic_Config_PositionConfig_PositionFlags_SPEED},
+    };
+    const uint32_t count = mesh_ui_settings_group_count(MESH_UI_FIELD_GROUP_POSITION_FLAGS);
+    MESH_TEST_FAIL_IF(count != (uint32_t)(sizeof k_expected / sizeof k_expected[0]),
+                      "the position flag group and this test disagree about how many bits");
+    uint32_t seen = 0U;
+    for (uint32_t i = 0; i < count; ++i) {
+        const enum mesh_ui_setting_field field =
+            mesh_ui_settings_group_field(MESH_UI_FIELD_GROUP_POSITION_FLAGS, i);
+        MESH_TEST_FAIL_IF(field != k_expected[i].field,
+                          "the position flag group is not in the order the test expects");
+        const uint32_t bit = mesh_ui_settings_field_bit(field);
+        MESH_TEST_FAIL_IF(bit != k_expected[i].bit,
+                          "a position flag row does not carry the protobuf's own bit");
+        MESH_TEST_FAIL_IF(mesh_ui_settings_field_kind(field) != MESH_UI_SETTING_FLAG,
+                          "a row in a flag group is not a flag");
+        MESH_TEST_FAIL_IF((seen & bit) != 0U, "two position flag rows claim the same bit");
+        seen |= bit;
+    }
+    MESH_TEST_FAIL_IF(seen != 0x03FFU, "the position flag rows do not cover the whole word");
+    /* And nothing outside a group is a flag: a field given the kind and left out of the table
+       would be a row the write builder has no mask for. */
+    for (int i = 0; i < (int)MESH_UI_FIELD_COUNT; ++i) {
+        const enum mesh_ui_setting_field field = (enum mesh_ui_setting_field)i;
+        if (mesh_ui_settings_field_kind(field) != MESH_UI_SETTING_FLAG) {
+            MESH_TEST_FAIL_IF(mesh_ui_settings_field_bit(field) != 0U,
+                              "a field that is not a flag answers with a bit");
+            continue;
+        }
+        bool grouped = false;
+        for (int g = 0; g < (int)MESH_UI_FIELD_GROUP_COUNT && !grouped; ++g) {
+            const enum mesh_ui_setting_field_group group = (enum mesh_ui_setting_field_group)g;
+            for (uint32_t n = 0; n < mesh_ui_settings_group_count(group) && !grouped; ++n) {
+                grouped = mesh_ui_settings_group_field(group, n) == field;
+            }
+        }
+        MESH_TEST_FAIL_IF(!grouped, "a flag field belongs to no group");
+        MESH_TEST_FAIL_IF(mesh_ui_settings_field_bit(field) == 0U, "a flag field has no bit");
+    }
+    record_success(test_name);
+}
+
+/*
+ * The ten rows read their own bit out of the word, and say "on" and "off" like any toggle.
+ *
+ * The value column matters as much as the control: the fb backend draws a checkbox and the CLI
+ * backend draws the words, so a flag that only said anything through the square would be a
+ * setting one of the two backends could not report at all.
+ */
+MESH_TEST_CASE(ui_settings_position_flag_rows, unit) {
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_position = true;
+    /* Altitude, precision and the fix time on; everything else off. */
+    settings.position_flags = meshtastic_Config_PositionConfig_PositionFlags_ALTITUDE |
+                              meshtastic_Config_PositionConfig_PositionFlags_DOP |
+                              meshtastic_Config_PositionConfig_PositionFlags_TIMESTAMP;
+
+    const uint32_t rows = mesh_ui_settings_item_count(&settings, NULL, MESH_UI_SETTINGS_POSITION,
+                                                      MESH_UI_SETTINGS_NO_CHANNEL);
+    uint32_t heading_row = rows;
+    for (uint32_t row = 0; row < rows; ++row) {
+        struct mesh_ui_settings_item item;
+        if (mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_POSITION,
+                                  MESH_UI_SETTINGS_NO_CHANNEL, row, &item) &&
+            item.kind == MESH_UI_SETTING_HEADING &&
+            strcmp(item.label, mesh_str(MESH_STR_HEAD_POSITION_CARRIES)) == 0) {
+            heading_row = row;
+            break;
+        }
+    }
+    MESH_TEST_FAIL_IF(heading_row >= rows, "the position flags have no heading over them");
+    const uint32_t count = mesh_ui_settings_group_count(MESH_UI_FIELD_GROUP_POSITION_FLAGS);
+    MESH_TEST_FAIL_IF(heading_row + count >= rows, "the flag rows do not fit under the heading");
+    for (uint32_t i = 0; i < count; ++i) {
+        const enum mesh_ui_setting_field field =
+            mesh_ui_settings_group_field(MESH_UI_FIELD_GROUP_POSITION_FLAGS, i);
+        struct mesh_ui_settings_item item;
+        MESH_TEST_FAIL_IF(
+            !mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_POSITION,
+                                   MESH_UI_SETTINGS_NO_CHANNEL, heading_row + 1U + i, &item),
+            "a flag row is missing from under the heading");
+        MESH_TEST_FAIL_IF(item.field != field, "the flag rows are not in the group's order");
+        const bool on = (settings.position_flags & mesh_ui_settings_field_bit(field)) != 0U;
+        MESH_TEST_FAIL_IF(item.number != (on ? 1U : 0U),
+                          "a flag row does not carry the state of its own bit");
+        MESH_TEST_FAIL_IF(strcmp(item.value, on ? "on" : "off") != 0,
+                          "a flag row should say on or off like any other boolean");
+    }
+    record_success(test_name);
+}
+
+/*
+ * Every section's editable rows against MESH_UI_SETTINGS_EDITS_MAX, not just the widest one.
+ *
+ * Over the cap mesh_ui_nav_edit_set() returns false and the press silently does nothing, which
+ * is how the old cap of 8 hid for a whole phase. The check used to be written out for External
+ * notification alone, which is the section that happened to be the widest on the day it was
+ * written - Position overtook it the moment it grew ten flag rows. So it walks all of them and
+ * names the one that does not fit.
+ */
+MESH_TEST_CASE(ui_settings_sections_fit_the_edit_list, unit) {
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings_mark_all_present(&settings);
+    for (int i = 0; i < (int)MESH_UI_SETTINGS_SECTION_COUNT; ++i) {
+        const enum mesh_ui_settings_section section = (enum mesh_ui_settings_section)i;
+        /* Channels are the one section whose rows repeat per slot, and each slot is saved on
+           its own - so the count that matters is one channel's. */
+        const uint8_t channel =
+            section == MESH_UI_SETTINGS_CHANNELS ? 0U : MESH_UI_SETTINGS_NO_CHANNEL;
+        const uint32_t rows = mesh_ui_settings_item_count(&settings, NULL, section, channel);
+        uint32_t editable = 0U;
+        for (uint32_t row = 0; row < rows; ++row) {
+            struct mesh_ui_settings_item item;
+            if (mesh_ui_settings_item(&settings, NULL, NULL, 0U, section, channel, row, &item) &&
+                item.field != MESH_UI_FIELD_NONE) {
+                editable++;
+            }
+        }
+        if (editable > MESH_UI_SETTINGS_EDITS_MAX) {
+            char reason[160];
+            snprintf(reason, sizeof reason, "%s offers %u rows against an edit list of %u",
+                     mesh_ui_settings_section_name(section), (unsigned)editable,
+                     (unsigned)MESH_UI_SETTINGS_EDITS_MAX);
+            record_failure(test_name, reason);
+            return;
+        }
+    }
+    record_success(test_name);
+}
+
+/*
  * The two reasons a section is empty, and the one predicate that tells them apart.
  *
  * "not loaded" was drawn from three places and meant two things: a section the radio has not

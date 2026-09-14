@@ -32,4 +32,14 @@ bool mesh_test_open_tab(struct mesh_ui_store *store, enum mesh_ui_screen screen)
  */
 bool mesh_test_settings_open(struct mesh_ui_store *store, enum mesh_ui_settings_section section);
 
+/*
+ * Puts the Settings cursor on `row` of whatever list is open, pressing nothing else.
+ *
+ * The counterpart of the rule above, one level in: a heading is a row the cursor steps over,
+ * so a test that presses Down n times to reach row n lands somewhere else the moment the
+ * section grows a group title. Returns false when the row cannot be reached - which is what a
+ * heading at that index means, since the cursor may not stand on one.
+ */
+bool mesh_test_settings_cursor_to(struct mesh_ui_store *store, uint32_t row);
+
 #endif /* MESH_TEST_SUPPORT_UI_FIXTURE_H */

@@ -81,6 +81,29 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
     meshtastic_DeviceUIConfig *ui = &write->payload.ui_config;
     const bool on = edit->number != 0U;
 
+    /*
+     * A flag row is one bit of a word, so it is set or cleared rather than assigned - and that
+     * is the whole of what the kind costs here. Every FLAG field is handled by these four
+     * lines; what is per-field is only *which* word, which is the switch below it.
+     *
+     * Ahead of the field switch rather than as ten case labels inside it, because the ten are
+     * not ten writes: they are one write with a different mask, and a group upstream adds
+     * later is an arm in flag_group_word() rather than another run of labels.
+     */
+    const uint32_t bit = mesh_ui_settings_field_bit((enum mesh_ui_setting_field)edit->field);
+    if (bit != 0U) {
+        uint32_t *word = NULL;
+        switch (mesh_ui_settings_field_section((enum mesh_ui_setting_field)edit->field)) {
+        case MESH_UI_SETTINGS_POSITION:
+            word = &position->position_flags;
+            break;
+        default:
+            return -ENOTSUP; /* a flag field whose group nothing here knows how to write */
+        }
+        *word = on ? (*word | bit) : (*word & ~bit);
+        return 0;
+    }
+
     switch ((enum mesh_ui_setting_field)edit->field) {
     case MESH_UI_FIELD_USER_LONG_NAME:
         mesh_str_copy(owner->long_name, sizeof owner->long_name, edit->text);

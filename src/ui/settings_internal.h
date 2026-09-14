@@ -47,7 +47,18 @@ struct field_spec {
     enum mesh_str_id label;
     enum mesh_ui_setting_kind kind;
     enum mesh_ui_settings_section section;
-    uint32_t limit; /* TEXT: max bytes; ENUM: value count */
+    /*
+     * What values this field will take, which is a different number for each kind that has an
+     * opinion: TEXT the byte cap, ENUM how many values there are, FLAG *which bit* of its
+     * group's word the row is.
+     *
+     * The third reading is the one worth arguing for. A mask is not a limit in English - but it
+     * is the same thing to this table, which is "what this field's values are", and the
+     * alternative is an eleventh member that every one of the rows below would have to state
+     * for the sake of the ten that mean anything by it. See the note on `note` for why a member
+     * is not free here.
+     */
+    uint32_t limit;
     const char *(*enum_name)(uint32_t value);
     const uint32_t *presets; /* NUMBER */
     size_t preset_count;

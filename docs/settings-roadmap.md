@@ -573,8 +573,10 @@ The module phase 11 handed back, and the only one of the seventeen that needs ne
 new rows. Four things, in the order they would have to be built:
 
 - **`flags` is a bitfield** (`FLAG_LISTEN_ENABLED`, `FLAG_BROADCAST_ENABLED`, `FLAG_LEGACY_SPLIT`).
-  Three toggle rows over one `uint32` - the first field in the client whose rows are bits rather
-  than the whole value. The field table has no way to say "bit 2 of this field" yet.
+  Three toggle rows over one `uint32`, and this half is **done** ahead of the rest of the phase
+  for the same reason the edit buffer was: item 5 below built the flag row model against
+  `PositionConfig.position_flags`, so the beacon's three rows are three entries in `k_fields`
+  and one more group in the table - a list of rows rather than a mechanism.
 - **`broadcast_message` is 100 bytes**, against a `MESH_UI_SETTING_TEXT_MAX` of 80 - and this
   one is **done**, ahead of the rest of the phase: the buffer is now measured from the field
   table (the interlude below), so the beacon's message row costs a line in
@@ -826,15 +828,57 @@ undo each other.
 The row is the radio's setting, written to the radio: this client does not yet use it to quiet
 its own notifications, which is a messaging change rather than a settings one.
 
-#### 5. The bitfield row model, and the two fields waiting on it
+#### 5. The bitfield row model, and the two fields waiting on it (this branch)
 
 `PositionConfig.position_flags` selects what a position packet carries (altitude, DOP, sats,
 timestamp and the rest) as a bitwise OR; `MeshBeaconConfig.flags` packs three booleans the
 same way. Phase 12 listed the second as the reason it needs new UI rather than new rows, and
-the audit found the first - so there are now two callers for "several toggle rows over one
-`uint32`", which is what makes it worth building as a capability instead of special-casing
-either field. The field table has no way to say "bit 2 of this field" yet; that is the whole
-of the work, and phase 12's beacon rows fall out of it.
+the audit found the first - so there were two callers for "several toggle rows over one
+`uint32`", which is what made it worth building as a capability instead of special-casing
+either field.
+
+What it turned out to be is **one kind and one accessor**, and the smallness is the finding.
+`MESH_UI_SETTING_FLAG` is a boolean that is one bit of a larger field; the bit is the row's own
+`limit` in `k_fields`, answered by `mesh_ui_settings_field_bit()`, and
+`mesh_ui_settings_group_field()` walks the contiguous run of rows a group is made of. Ten rows
+for `position_flags`, and phase 12's three beacon rows are now a table entry rather than a
+mechanism.
+
+Four things fell out of it that the item did not anticipate:
+
+- **Nothing in the middle changed.** The nav flips a flag on the same line that flips a toggle,
+  the edit list holds it as 0 or 1, `mesh_ui_settings_find_edit` keys it by field like anything
+  else, and Y saves the section. The two ends are the whole of the work: the row builder reads
+  its bit out of the word, and the write builder sets or clears that bit rather than assigning
+  the word - four lines ahead of the field switch in `mesh_app_apply_setting_edit`, with one
+  arm saying *which* word. The alternative shape, one pending edit carrying the whole `uint32`,
+  writes correctly and then marks all ten rows changed when one was pressed, which is a panel
+  telling the user they edited nine settings they never touched.
+- **It is the caller the checkbox had been waiting four steps for.** The component roadmap's
+  §10 shipped `FB_SELECTION_CHECKBOX` unwired and predicted its first caller would be a list
+  that can arm more than one row ("forget these nodes"). It was not: a set of booleans held in
+  one *value* is the same sentence - *any of these* - arriving from the other direction. The
+  note in `fb_widgets.h` saying the kind has no caller is gone, which is the point of having
+  written it.
+- **The edit cap was one row short and nothing would have said so.** Position now offers
+  nineteen editable rows against a `MESH_UI_SETTINGS_EDITS_MAX` of 16, and over the cap
+  `mesh_ui_nav_edit_set()` returns false and the press silently does nothing. It is 24, and the
+  check that used to be written out for External notification - the widest section on the day
+  it was written - now walks every section and names the one that does not fit.
+- **A test may not count Down presses inside a section either.** `mesh_test_settings_open()`
+  has said since phase 9 that a section is reached by finding its row rather than by counting;
+  a heading is a row the cursor steps *over*, so the same is true one level in, and the
+  fixed-position test broke the moment Position grew a group title.
+  `mesh_test_settings_cursor_to()` is that rule as a helper.
+
+`PositionConfig.position_flags`'s ten rows sit under a **Sent with a position** heading, all ten
+listed whatever the others say - the rule the LoRa trio follows. Two of them refine another
+(MSL refines the altitude, the split refines the precision) and say so in their notes rather
+than by appearing and disappearing.
+
+- Exit criteria: on the Brick, ticking `Fix time` and unticking `Precision` reads back after
+  the reboot with the other eight bits exactly as the radio had them, and the phone app agrees
+  about all ten.
 
 #### 6. LoRa's advanced group, with `set_ham_mode`
 

@@ -713,6 +713,18 @@ arrived" is most of what the screen is for. It is also the only thing on this ta
 overline: `nav.settings_parent` is what the [top app bar](#fb_draw_app_bar--the-top-app-bar)
 puts above a module's title, and the two-level Channels list is the same shape.
 
+**Flags** (kind `MESH_UI_SETTING_FLAG`) are the rows that are one *bit* of a field rather than a
+field. `PositionConfig.position_flags` is ten booleans in one `uint32`, and the settings are
+"send the fix time" and "send how good the fix was" - nobody has an opinion about `0x0281`. A
+flag's own bit is `limit` on its `k_fields` row, read back through
+`mesh_ui_settings_field_bit()`; `mesh_ui_settings_group_field()` walks the run of them a group is
+made of, so the row builder holds no masks and the write builder sets or clears one bit instead
+of assigning the word. Everything between the two ends is a toggle's: the nav flips it, the edit
+list holds it as 0 or 1, and Y saves the section. Only the *drawing* differs, and it is a
+[checkbox](#struct-fb_selection--the-checkbox-and-the-radio) rather than a switch for the reason
+that control exists — a switch is a boolean that acts, a checkbox is a boolean that is part of a
+set.
+
 **Headings** (kind `MESH_UI_SETTING_HEADING`) group the rows in a section long enough to need it;
 Telemetry is five groups of a toggle, an interval and sometimes a screen flag. They are dimmed,
 carry no value, and A on one does nothing — the same row `node_detail.c` draws. A heading is
@@ -1348,7 +1360,17 @@ it says as much about the rows it is not on as about the row it is on; one radio
 switch that has forgotten how to say off. That is why both live in a list's trailing slot and
 the switch is the only one of the three that also makes sense on its own.
 
-The "send to" picker is the first caller, and it is a correction as much as an addition. That
+`make ui-capture ARGS="devtools/ui_capture/scenes/position-flags.scene -o flags.gif"` films the
+checkbox column with the switches four rows above it, which is the comparison that says what the
+two shapes mean.
+
+The **checkbox's** caller is the Settings tab's flag rows (kind `MESH_UI_SETTING_FLAG`): the ten
+bits of `PositionConfig.position_flags`, which are a set of booleans held in one word. That is
+the square's own sentence - *any of these* - arriving as one value with several bits rather than
+as the multi-select list the component was written expecting. A row of that kind is edited
+exactly as a toggle is; what differs is the control, which is the backend's choice to make.
+
+The radio's first caller is the "send to" picker, and it is a correction as much as an addition. That
 list marked the current target by giving its avatar a *stated accent fill* — which works for one
 choice, does not generalise, and costs the row the very thing the disc is there for: a node is
 the same two letters and the same colour everywhere in this client, and marking the target
