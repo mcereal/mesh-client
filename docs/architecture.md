@@ -454,6 +454,12 @@ them: `app.c` owns the loop, the two links and the process lifecycle; `app_actio
 `mesh_ui_action` dispatch; `app_publish.c` copies session state into the UI store;
 `app_settings.c` turns the UI's pending edits into admin writes.
 
+The dispatch is a table - `k_app_actions` in `app_actions.c`, one row per verb naming a
+`static on_<action>()` - the way `src/ui/actions.c`, `status.c` and `help.c` are tables. A new
+`mesh_ui_action_type` is a handler and a row, and a `_Static_assert` against
+`MESH_UI_ACTION_COUNT` fails the build if the row is forgotten, because a verb the table does
+not answer for is a press that arrives and silently does nothing.
+
 
 `mesh_app_publish_ui_state()` copies discovery/handshake state into the UI store every loop
 iteration and persists the handshake cache and preferences under `$HOME`
