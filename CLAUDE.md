@@ -177,6 +177,7 @@ and more than one line on it - the one component here that is a screen rather th
 | The trend screens | `src/ui/backends/fb_screens.c` (`fb_render_chart`, and the two descriptions `fb_render_trend`/`fb_render_node_trend` hand it), `src/ui/status.c`, `src/ui/route.c` | The two charts, drawn by the one component that fills a body and by the one renderer that composes it, carrying no cursor. The airtime one is a level of the Status tab (`nav->trend_open`); a node's is a level of its detail (`nav->node_trend`, which holds the *reading* rather than a flag). Both are `MESH_UI_ROUTE_TREND` - the node's fills `subject` and `slot`, which is what makes one node's temperature and its humidity two places |
 | Chart frames | `src/ui/trend.c`, `include/mesh/ui/trend.h` | How far back a chart looks and how far up it goes: the span the reader picked, the window it cuts, and the rung of the domain ladder the ceiling contracts to. Both chart screens ask it, which is what makes them one picture drawn twice |
 | Durations | `src/ui/duration.c`, `include/mesh/ui/duration.h` | "4m ago" and "3h 20m", once. A UI file with no pixels in it, because what a ladder of unit thresholds answers with is a *string id* |
+| Devices list rows | `src/ui/devices.c`, `include/mesh/ui/devices.h` | what the Devices tab is made of - every radio discovery found, then the row that is not one: the **network radio**, which is where a TCP address is typed and the only place it can come from, since a network cannot be scanned. Read by `nav.c` for the row count and the presses, by `actions.c` for the keycaps and by the renderer for the row. `nodes.c`'s shape one tab over |
 | Nodes list filter | `src/ui/nodes.c`, `include/mesh/ui/nodes.h` | which of the roster the Nodes list is showing - All, Direct, Pinned - as a table read by `nav.c` for the row count and the row-to-node mapping, by `actions.c` for the verb A gets named with, and by the renderer for the chips. `status.c`'s shape one tab over, and for its reason |
 | Waypoints UI | `src/ui/waypoints.c`, `src/ui/nav_waypoints.c` | the list's order (nearest first, from our own fix), a place's detail rows, and the distance/compass formatting the same two screens read |
 | Tapbacks | `src/ui/reactions.c`, `include/mesh/ui/reactions.h` | the fixed emoji set X offers over a bubble: the glyph, which goes on the air unchanged, and the catalog id that names it |
@@ -344,8 +345,10 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   is however many seconds of frozen UI; there is no non-blocking resolver in POSIX, and
   `getaddrinfo_a` starts threads. A target is therefore a numeric literal and `meshtastic.local`
   gets a refusal a user can read. Lifting it means the forked-child shape `fetch.c` already uses
-  for HTTPS, and that belongs with the on-device way of *typing* an address, which does not exist
-  either. See [`docs/transport.md`](docs/transport.md#an-address-not-a-name).
+  for HTTPS. It does *not* mean waiting for an on-device way to type an address: that is the
+  Devices tab's last row (`src/ui/devices.c`), and the no-DNS rule is what made it small - a
+  field holding digits, dots and colons needs no resolver and no autocomplete. See
+  [`docs/transport.md`](docs/transport.md#an-address-not-a-name).
 - **The connecting socket is deliberately not the stream link's, and `struct mesh_stream_link`
   must not grow a connecting state.** A link is an *established* stream: it watches for
   readability and reads. A non-blocking connect is the opposite - it reports by becoming
@@ -363,6 +366,23 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   address somebody wrote down stays written down with the WiFi off. Without
   `autoconnect_tcp_retry_at_ms` that arm runs first on every turn, fails five seconds later on
   its own connect deadline, and Bluetooth is never reached at all.
+- **The Devices tab's last row is not a device, and it is present exactly when the list holds no
+  network row of its own.** A network cannot be scanned, so discovery has nothing to publish
+  until a link is already up - which is what left the whole TCP transport reachable only by
+  editing `launch.sh`. The row shows the configured address or `Set an address`; A connects or
+  opens the keyboard, Y edits it, and **an emptied field forgets the host**, because clearing it
+  is the only way to say "stop reaching for that" and the address is what auto-connect retries
+  every thirty seconds. It stands down when discovery publishes a real network row (below), or
+  the same host would be two rows: both are last, so nothing on the panel moves when the link
+  comes up. The saved address is its own preference (`network_host`) rather than a
+  `known_devices` entry - that list is what auto-connect ranks a *scan* with, and a host is in
+  no scan - and it is written when the connect is **asked for** rather than when it succeeds,
+  because a radio that was off is still the address the user wrote down. **What is saved is what
+  the transport *adopted*, asked rather than inferred from the return code**: a link takes a
+  target only once it has parsed it and got a socket, so `-EINVAL`, `-ENODEV`, `-EBUSY` and
+  `-EMFILE` all leave `configured` behind, and saving the press through any of them gives the
+  file a host the link is not reaching for. Enumerating the codes was the first cut and missed
+  three of them.
 - **A network link's Devices row is synthesised rather than discovered, and its `in_range` is
   false while it is connected.** `mesh_app_publish_ui_state()` has always built a row for
   "connected, but in nobody's list"; for BLE and USB that is a connect which beat its own

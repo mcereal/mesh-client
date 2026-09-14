@@ -54,6 +54,12 @@ meshclient --tcp-host '[fd00::1]:4403' --send-text "hello"
 
 `--serial` outranks `--tcp-host` when both are given: it is the more explicit of the two.
 
+On the device the address is typed rather than passed: the last row of the Devices tab is the
+network radio, and what it is set to is saved as `network_host` in `~/.meshclient/ui_prefs`. That
+saved address seeds `--tcp-host`'s slot only when neither the flag nor `MESHCLIENT_TCP_HOST` named
+one, so a flag passed on this launch means this launch. See
+[`transport.md`](transport.md#typing-one-the-devices-tabs-last-row).
+
 `--disable-ble` / `--disable-serial` / `--disable-tcp` turn a transport off entirely.
 
 ## Fetching radio firmware
@@ -207,7 +213,8 @@ there.
 1. **USB first.** If any port is discovered, it takes the preferred one
    (`MESHCLIENT_PREFERRED_SERIAL_DEVICE`), else the port used most recently, else the first
    found — with no grace period. Only if that connect fails outright does it fall through.
-2. **Then a configured network host**, if `MESHCLIENT_TCP_HOST` / `--tcp-host` named one. It
+2. **Then a configured network host**, if `MESHCLIENT_TCP_HOST` / `--tcp-host` or the Devices
+   tab's network row named one. It
    needs no pairing and has no range to lose, and unlike anything on a scan it is a place
    somebody deliberately wrote down. It is also the one candidate that can be absent without
    being *gone* — an address stays written down with the WiFi off — so this arm gets at most one

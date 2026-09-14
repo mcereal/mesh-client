@@ -51,10 +51,10 @@
  * not a connect that fails, it is a read of one transport's state through another's type. An
  * "everything else" arm means Bluetooth, and a kind that is not Bluetooth falls into it.
  *
- * Nothing reaches the network arm today - a row is connectable only while it is *not* connected
- * (mesh_ui_device_connectable), and the one row a network link has exists only while it is - so
- * this is what that row's press will find already correct rather than a trap laid where the next
- * change steps.
+ * The network arm was unreachable when it was written - a row is connectable only while it is
+ * *not* connected, and the one row a network link had existed only while it was - and it was
+ * stated anyway rather than left as a trap for whatever came next. What came next is the Devices
+ * tab's own network row, whose A raises exactly this kind.
  */
 static struct mesh_transport *mesh_app_transport_for_kind(uint8_t kind) {
     switch ((enum mesh_ui_device_kind)kind) {
@@ -163,13 +163,34 @@ int mesh_app_link_connect(struct mesh_app *app, const char *identifier, uint8_t 
        not a radio to look for over the air, and storing it under the BLE preference would send
        auto-connect hunting for an advertisement no address can ever match. */
     if (kind == (uint8_t)MESH_UI_DEVICE_TCP) {
-        snprintf(app->config.preferred_tcp_host, sizeof app->config.preferred_tcp_host, "%s",
-                 identifier);
         if (mesh_tcp_transport_connected_target(transport) != NULL ||
             mesh_tcp_transport_is_connecting(transport)) {
             mesh_tcp_transport_disconnect(transport);
         }
-        return mesh_tcp_transport_connect(transport, identifier);
+        const int result = mesh_tcp_transport_connect(transport, identifier);
+        /*
+         * What the transport *adopted*, not what it was handed, and asked rather than inferred
+         * from the return code.
+         *
+         * The link takes a target only once it has parsed it and got a socket, so several
+         * refusals leave `configured` behind: a typo or a name (-EINVAL), the transport turned
+         * off by configuration (-ENODEV), a link already coming up (-EBUSY), no descriptors
+         * (-EMFILE). Copying the identifier through any of those leaves this preference naming
+         * a host the link is not reaching for - invisible now, because the Devices row and
+         * auto-connect both read the transport, and then loaded on the next launch as the host
+         * to retry. Enumerating the codes was the first cut of this and it missed three of
+         * them; the transport is the authority on which host it is pointed at, so it is asked.
+         *
+         * A connect that fails *after* adoption keeps the address, which is the case worth
+         * keeping: the radio is off, or the Brick is on the wrong WiFi, and it is still the
+         * address somebody wrote down.
+         */
+        const char *adopted = mesh_tcp_transport_configured_target(transport);
+        if (adopted != NULL) {
+            snprintf(app->config.preferred_tcp_host, sizeof app->config.preferred_tcp_host, "%s",
+                     adopted);
+        }
+        return result;
     }
 
     snprintf(app->config.preferred_ble_device, sizeof app->config.preferred_ble_device, "%s",
@@ -686,6 +707,20 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
                              sizeof app->config.preferred_ble_device, "%s",
                              app->ui_preferences.preferred_device);
                 }
+            }
+            /*
+             * And the network address the Devices tab typed, on the same terms: the flag and
+             * the environment variable win, because somebody who passed --tcp-host on this
+             * launch means this launch. Before this existed the address could only come from
+             * one of those two, which on a handheld means editing launch.sh on the card.
+             *
+             * Read here rather than by the transport because the transport is configured from
+             * `config` a few hundred lines further down, and one source for a setting is what
+             * stops the two disagreeing about which host auto-connect is reaching for.
+             */
+            if (app->config.preferred_tcp_host[0] == '\0') {
+                snprintf(app->config.preferred_tcp_host, sizeof app->config.preferred_tcp_host,
+                         "%s", app->ui_preferences.network_host);
             }
         }
         /*

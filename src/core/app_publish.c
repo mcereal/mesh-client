@@ -1742,6 +1742,18 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
     }
 
     mesh_ui_store_set_discovery(&app->ui_store, ui_devices, device_count);
+    /*
+     * And the network address, which is not one of those rows and must not become one.
+     *
+     * `devices` is what discovery found; a host somebody wrote down was found by nobody, and it
+     * exists whether or not anything answers at it - a cable is plugged in or it is not and a
+     * node is advertising or it is not, but an address stays written down with the WiFi off.
+     * The Devices tab's last row is where it is shown, and that row is also the only way to
+     * type one. Taken from the transport rather than from `config` because a connect writes
+     * the transport's copy, so this is the address auto-connect will actually reach for.
+     */
+    mesh_ui_store_set_network_host(&app->ui_store,
+                                   mesh_tcp_transport_configured_target(mesh_tcp_transport()));
 
     /*
      * The BlueZ pairing agent's question, if it has one. It arrives in the middle of a connect

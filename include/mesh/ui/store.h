@@ -78,6 +78,14 @@ extern "C" {
 #define MESH_UI_MAX_CHANNELS 8U
 #define MESH_UI_CHANNEL_NAME_MAX 12U
 #define MESH_UI_MESSAGE_TEXT_MAX 234U
+/*
+ * A network target as the user writes it: "192.168.1.50", "192.168.1.50:4403", or a bracketed
+ * v6 literal. MESH_TCP_TARGET_MAX said twice across the seam, exactly as
+ * MESH_WAYPOINT_NAME_MAX is: this header names no transport module, and pulling one in to
+ * reach one number is how a seam stops being one. network_host_limits_agree_across_the_seam
+ * is what holds the two honest.
+ */
+#define MESH_UI_NETWORK_HOST_MAX 64U
 
 enum mesh_ui_update_flag {
     MESH_UI_UPDATE_NONE = 0U,
@@ -1176,6 +1184,16 @@ struct mesh_ui_snapshot {
     /* Transport state ("waiting-for-bluez", "scanning", "running", ...). Rendered by the
        backends so an empty device list is diagnosable on a device with no console. */
     char transport_status[MESH_UI_TRANSPORT_STATUS_MAX];
+    /*
+     * The network address somebody wrote down, whether or not the link is up, and empty when
+     * there is none.
+     *
+     * A network cannot be scanned, so this is the Devices tab's whole answer to "what could I
+     * reach over the network" - and the row that carries it is also the only way to type one.
+     * It is deliberately not one of the rows above: `devices` is what discovery found, and a
+     * host that has never connected was found by nobody.
+     */
+    char network_host[MESH_UI_NETWORK_HOST_MAX];
     /* Cursor, current tab, compose target: what the user is doing, as opposed to what the
        radio is doing. Clamped to the lists above before every snapshot. */
     struct mesh_ui_nav nav;
@@ -1202,6 +1220,7 @@ struct mesh_ui_store {
     struct mesh_ui_waypoint_list waypoints;
     struct mesh_ui_read_state read_state;
     char transport_status[MESH_UI_TRANSPORT_STATUS_MAX];
+    char network_host[MESH_UI_NETWORK_HOST_MAX];
     struct mesh_ui_nav nav;
     struct mesh_ui_settings settings;
     struct mesh_ui_traceroute traceroute;
@@ -1229,6 +1248,14 @@ void mesh_ui_store_set_discovery(struct mesh_ui_store *store, const struct mesh_
 void mesh_ui_store_set_handshake(struct mesh_ui_store *store,
                                  const struct mesh_ui_handshake_state *handshake);
 void mesh_ui_store_set_transport_status(struct mesh_ui_store *store, const char *status);
+/*
+ * The network address the client is configured to reach, or NULL/"" for none.
+ *
+ * A network has no scan behind it, so this is published alongside discovery rather than as one
+ * of its rows: nothing found this host, somebody typed it. It carries MESH_UI_UPDATE_DISCOVERY
+ * because the Devices tab is the one screen it changes.
+ */
+void mesh_ui_store_set_network_host(struct mesh_ui_store *store, const char *host);
 void mesh_ui_store_set_messages(struct mesh_ui_store *store,
                                 const struct mesh_ui_message_list *messages);
 /*

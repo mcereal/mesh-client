@@ -12,6 +12,7 @@
 #include "nav_internal.h"
 
 #include "mesh/core/message.h"
+#include "mesh/ui/devices.h"
 #include "mesh/ui/help.h"
 #include "mesh/ui/history.h"
 #include "mesh/ui/map.h"
@@ -390,7 +391,7 @@ uint32_t mesh_ui_nav_row_count(const struct mesh_ui_nav *nav, const struct mesh_
     case MESH_UI_SCREEN_WAYPOINTS:
         return mesh_ui_nav_waypoint_row_count(nav, store);
     case MESH_UI_SCREEN_DEVICES:
-        return (uint32_t)store->device_count;
+        return mesh_ui_devices_row_count(store->devices, store->device_count);
     case MESH_UI_SCREEN_SETTINGS:
         if (nav->settings_section == MESH_UI_SETTINGS_NO_SECTION) {
             return mesh_ui_settings_root_count();
@@ -1088,17 +1089,34 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
     case MESH_UI_SCREEN_WAYPOINTS:
         return mesh_ui_nav_waypoint_confirm(nav, store, cursor, action);
     case MESH_UI_SCREEN_DEVICES: {
-        if (cursor >= rows) {
+        struct mesh_ui_devices_row row;
+        if (cursor >= rows || !mesh_ui_devices_row(store->devices, store->device_count,
+                                                   store->network_host, cursor, &row)) {
             return false;
         }
-        const struct mesh_ui_device *device = &store->devices[cursor];
-        if (!mesh_ui_device_connectable(device)) {
+        if (row.type == (uint8_t)MESH_UI_DEVICES_ROW_NETWORK) {
+            /* With an address written down A is the ordinary connect every other row offers;
+               with none there is nothing to connect to, so the press is the one that gets
+               there - a row whose A did nothing until an address existed would be a row with
+               no way of ever acquiring one. */
+            if (row.host[0] == '\0') {
+                mesh_ui_nav_open_network_keyboard(nav, row.host);
+                return true;
+            }
+            if (action != NULL) {
+                action->type = MESH_UI_ACTION_CONNECT;
+                action->kind = (uint8_t)MESH_UI_DEVICE_TCP;
+                snprintf(action->identifier, sizeof action->identifier, "%s", row.host);
+            }
+            return false;
+        }
+        if (!mesh_ui_device_connectable(row.device)) {
             return false;
         }
         if (action != NULL) {
             action->type = MESH_UI_ACTION_CONNECT;
-            action->kind = device->kind;
-            snprintf(action->identifier, sizeof action->identifier, "%s", device->identifier);
+            action->kind = row.device->kind;
+            snprintf(action->identifier, sizeof action->identifier, "%s", row.device->identifier);
         }
         return false;
     }
@@ -1666,8 +1684,20 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
             /* Forgetting a bond costs a re-pair with the node's PIN, so the first press only
                arms it and the backends say so. A press on any other row re-arms from there. */
             const uint32_t cursor = nav->cursor[MESH_UI_SCREEN_DEVICES];
-            if (cursor >= store->device_count ||
-                !mesh_ui_device_forgettable(&store->devices[cursor])) {
+            struct mesh_ui_devices_row row;
+            if (!mesh_ui_devices_row(store->devices, store->device_count, store->network_host,
+                                     cursor, &row)) {
+                return changed;
+            }
+            if (row.type == (uint8_t)MESH_UI_DEVICES_ROW_NETWORK) {
+                /* Y on the network row edits the address rather than forgetting a bond, and
+                   there is no bond here to confuse it with. Clearing the field and pressing
+                   Done is what forgetting a host is, so the arming Y needs everywhere else on
+                   this screen is already spent one press further in. */
+                mesh_ui_nav_open_network_keyboard(nav, row.host);
+                return true;
+            }
+            if (!mesh_ui_device_forgettable(row.device)) {
                 return changed; /* a USB port has no bond to forget */
             }
             if (!nav->devices_forget_armed || nav->devices_forget_row != cursor) {
@@ -1678,9 +1708,9 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
             nav->devices_forget_armed = false;
             if (out_action != NULL) {
                 out_action->type = MESH_UI_ACTION_FORGET;
-                out_action->kind = store->devices[cursor].kind;
+                out_action->kind = row.device->kind;
                 snprintf(out_action->identifier, sizeof out_action->identifier, "%s",
-                         store->devices[cursor].identifier);
+                         row.device->identifier);
             }
             return true;
         }

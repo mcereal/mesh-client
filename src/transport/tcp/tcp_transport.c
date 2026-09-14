@@ -668,6 +668,23 @@ const char *mesh_tcp_transport_configured_target(struct mesh_transport *transpor
     return state->configured[0] != '\0' ? state->configured : NULL;
 }
 
+int mesh_tcp_transport_forget(struct mesh_transport *transport) {
+    if (transport == NULL || transport->state == NULL) {
+        return -ENODEV;
+    }
+    struct mesh_tcp_transport_state *state = (struct mesh_tcp_transport_state *)transport->state;
+    /* The link first: a socket left up to a host nothing is configured for is a link the user
+       has just said they do not want and no screen can now name. */
+    mesh_tcp_reset_link(state, "address cleared");
+    mesh_tcp_drop_pending(state);
+    state->configured[0] = '\0';
+    if (state->state == MESH_TCP_STATE_READY) {
+        state->state = MESH_TCP_STATE_IDLE;
+    }
+    mesh_log_info("tcp", "Network address cleared");
+    return 0;
+}
+
 bool mesh_tcp_transport_is_connecting(struct mesh_transport *transport) {
     if (transport == NULL || transport->state == NULL) {
         return false;

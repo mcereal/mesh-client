@@ -18,6 +18,7 @@
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/chrome.h"
 #include "mesh/ui/delivery.h"
+#include "mesh/ui/devices.h"
 #include "mesh/ui/duration.h"
 #include "mesh/ui/emoji.h"
 #include "mesh/ui/help.h"
@@ -1787,12 +1788,11 @@ static void fb_render_keyboard(const struct mesh_ui_backend_fb_state *state,
     const struct mesh_ui_nav *nav = &snapshot->nav;
     const bool for_passkey = nav->keyboard_passkey;
     const bool for_setting = (!for_passkey && nav->keyboard_field != MESH_UI_FIELD_NONE);
-    const size_t draft_cap =
-        for_passkey
-            ? 6U
-            : (for_setting
-                   ? mesh_ui_settings_text_max((enum mesh_ui_setting_field)nav->keyboard_field)
-                   : MESH_UI_DRAFT_MAX - 1U);
+    /* Asked rather than worked out again. The nav caps what the append will actually take, and
+       this counter is the only thing on the frame that says a cap exists - so a copy of the
+       rule here is a promise the typing does not keep. It was one: a place's name and a network
+       address are cut at 29 and 63 bytes under a counter that said 233. */
+    const size_t draft_cap = mesh_ui_nav_draft_cap(nav);
     char title[96];
     if (for_passkey) {
         /* The one prompt the user cannot act on without being told what to look at: the digits
@@ -1804,13 +1804,22 @@ static void fb_render_keyboard(const struct mesh_ui_backend_fb_state *state,
     } else if (for_setting) {
         snprintf(title, sizeof title, "%s",
                  mesh_ui_settings_field_label((enum mesh_ui_setting_field)nav->keyboard_field));
+    } else if (nav->keyboard_network) {
+        /* Each of the other two jobs names what it is editing, and these two fell through to
+           the compose heading - so naming an address stood under "To: #LongFast", which is the
+           destination of a message nobody is writing. A heading says what this keyboard is for
+           or it is worse than none. */
+        snprintf(title, sizeof title, "%s", mesh_str(MESH_STR_DEVICES_NETWORK_ROW));
+    } else if (nav->keyboard_waypoint) {
+        snprintf(title, sizeof title, "%s", mesh_str(MESH_STR_WAYPOINTS_NEW));
     } else {
         mesh_str_format(title, sizeof title, MESH_STR_COMPOSE_TO, nav->target_name);
     }
     /* The same badge the compose sheet carries, for the same reason: this keyboard was raised
        over a bubble, and the destination in the title is not what says so. A setting's keyboard
        and the pairing prompt never carry one - `reply_to` belongs to the thread. */
-    const bool replying = (!for_passkey && !for_setting && nav->reply_to != 0U);
+    const bool replying = (!for_passkey && !for_setting && !nav->keyboard_network &&
+                           !nav->keyboard_waypoint && nav->reply_to != 0U);
     fb_draw_app_bar(state, layout,
                     &(const struct fb_app_bar){
                         .title = title,
@@ -1875,14 +1884,15 @@ static void fb_render_keyboard(const struct mesh_ui_backend_fb_state *state,
          * keeps its label, because what it says - "ABC", "abc", "#!" - is the layer it switches
          * to, and no symbol carries that.
          */
-        const enum mesh_ui_icon icon =
-            action == MESH_UI_KB_ACTION_SPACE    ? MESH_UI_ICON_SPACE
-            : action == MESH_UI_KB_ACTION_DELETE ? MESH_UI_ICON_BACKSPACE
-            : action == MESH_UI_KB_ACTION_CANCEL ? MESH_UI_ICON_CLOSE
-            : action == MESH_UI_KB_ACTION_SEND
-                ? (nav->keyboard_field != MESH_UI_FIELD_NONE ? MESH_UI_ICON_CHECK
-                                                             : MESH_UI_ICON_SEND)
-                : MESH_UI_ICON_NONE;
+        const enum mesh_ui_icon icon = action == MESH_UI_KB_ACTION_SPACE    ? MESH_UI_ICON_SPACE
+                                       : action == MESH_UI_KB_ACTION_DELETE ? MESH_UI_ICON_BACKSPACE
+                                       : action == MESH_UI_KB_ACTION_CANCEL ? MESH_UI_ICON_CLOSE
+                                       : action == MESH_UI_KB_ACTION_SEND
+                                           ? ((nav->keyboard_field != MESH_UI_FIELD_NONE ||
+                                               nav->keyboard_waypoint || nav->keyboard_network)
+                                                  ? MESH_UI_ICON_CHECK
+                                                  : MESH_UI_ICON_SEND)
+                                           : MESH_UI_ICON_NONE;
         const struct fb_button button = {
             .rect = {.x = margin + (int)col * action_w,
                      .y = y,
@@ -1900,20 +1910,54 @@ static void fb_render_keyboard(const struct mesh_ui_backend_fb_state *state,
     }
 }
 
+/*
+ * The Devices tab's last row: the network address, and the way to type one.
+ *
+ * It draws in the same three slots every other row of this list uses - a disc saying which bus,
+ * the name, and a supporting line - so that the moment a network link comes up and discovery
+ * publishes a real row in its place, nothing on the panel moves. What it does not carry is a
+ * capsule: the badge slot reports what a link is *doing*, and this row is a button until an
+ * address exists.
+ */
+static void fb_devices_network_row(struct mesh_ui_backend_fb_state *state, struct fb_list *list,
+                                   uint32_t index, const struct mesh_ui_devices_row *entry) {
+    const bool configured = (entry->host[0] != '\0');
+    const struct fb_list_item row = {
+        .leading = {.kind = FB_LEADING_AVATAR,
+                    .icon = MESH_UI_ICON_LINK,
+                    .tint = index,
+                    .role = MESH_UI_COLOR_COUNT},
+        /* The address itself is the name once there is one, exactly as it is on the row
+           discovery publishes for a live network link: a host has no advertisement coming, so
+           what it is reachable at is what it is called. */
+        .text = configured ? entry->host : mesh_str(MESH_STR_DEVICES_NETWORK_ROW),
+        /* Dim while there is nothing to connect to, for the reason the Nodes tab's map row is
+           dim with no markers on it: it is a button among things, and one that does not yet
+           lead anywhere. */
+        .tone = configured ? MESH_UI_TONE_NORMAL : MESH_UI_TONE_DIM,
+        .trailing = {.kind = FB_TRAILING_TEXT,
+                     .text = configured ? mesh_str(MESH_STR_DEVICES_TRAILING_NETWORK) : ""},
+        .supporting =
+            mesh_str(configured ? MESH_STR_DEVICES_NETWORK_READY : MESH_STR_DEVICES_NETWORK_UNSET),
+        .supporting_tone = MESH_UI_TONE_DIM,
+        .supporting_quiet = true,
+        .divider = true,
+    };
+    fb_list_item(state, list, index, &row);
+}
+
 /* Takes the state mutably, like every fb_list_item() caller: the item is the component that
    can carry an animated slot, so the whole entry point takes the table it would step. */
 static void fb_render_devices(struct mesh_ui_backend_fb_state *state,
                               const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
+    /* The heading counts the radios, not the rows: the network row is a control, and a Devices
+       tab reading "Devices 1" with nothing found would be the arithmetic-no-screen-should-show
+       rule the Nodes title states. */
     char title[96];
     fb_title_count(title, sizeof title, mesh_str(MESH_STR_TAB_DEVICES),
                    (uint32_t)snapshot->device_count, 0U);
     fb_draw_app_bar(state, layout, &(const struct fb_app_bar){.title = title});
-
-    if (snapshot->device_count == 0U) {
-        fb_draw_empty(state, layout, MESH_UI_ICON_DEVICES, mesh_str(MESH_STR_DEVICES_EMPTY));
-        return;
-    }
 
     /*
      * Two body rows an item: the radio's name with how it is attached against the right edge,
@@ -1921,13 +1965,36 @@ static void fb_render_devices(struct mesh_ui_backend_fb_state *state,
      * the rows are affordable here in a way they would not be on the node list, and the state
      * is the thing this screen exists to answer. It used to be one line with the state
      * concatenated onto the end of the name, where a long name pushed it off the panel.
+     *
+     * There is no empty state, and that is the Waypoints tab's rule: the last row is always the
+     * network one, so a screen falling through to a picture would take away the only control
+     * that can put a radio on this list at all. What stands where the radios would be instead
+     * is one row past what the nav counts - the Nodes tab's "no nodes match this filter" line,
+     * drawn the same way, and unreachable for the same reason: mesh_ui_devices_row_count() does
+     * not know about it and the nav clamps to that. It goes *after* the network row rather than
+     * before it so every real row keeps the index the nav gave it, or the highlight and the
+     * press would be one row apart on exactly the screen with nothing else on it.
      */
-    struct fb_list list = fb_list_begin_rows(layout, (uint32_t)snapshot->device_count,
+    const uint32_t rows = mesh_ui_devices_row_count(snapshot->devices, snapshot->device_count);
+    const bool nothing_found = (snapshot->device_count == 0U);
+    struct fb_list list = fb_list_begin_rows(layout, rows + (nothing_found ? 1U : 0U),
                                              nav->cursor[MESH_UI_SCREEN_DEVICES], 2U);
     char attach[16];
     uint32_t i;
     while (fb_list_next(&list, &i)) {
-        const struct mesh_ui_device *device = &snapshot->devices[i];
+        struct mesh_ui_devices_row entry;
+        if (!mesh_ui_devices_row(snapshot->devices, snapshot->device_count, snapshot->network_host,
+                                 i, &entry)) {
+            /* The row that is not a row: what the client is still doing, where the radios
+               would be. Dim because there is nothing here to press. */
+            fb_list_row(state, &list, i, mesh_str(MESH_STR_DEVICES_EMPTY), MESH_UI_TONE_DIM);
+            continue;
+        }
+        if (entry.type == (uint8_t)MESH_UI_DEVICES_ROW_NETWORK) {
+            fb_devices_network_row(state, &list, i, &entry);
+            continue;
+        }
+        const struct mesh_ui_device *device = entry.device;
         const char *name = device->name[0] != '\0' ? device->name : device->identifier;
         if (name[0] == '\0') {
             name = mesh_str(MESH_STR_DEVICES_UNNAMED);

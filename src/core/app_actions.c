@@ -239,6 +239,28 @@ void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *action) 
 
         /* A user pick beats whatever auto-connect is doing or has done, on either link. */
         const int result = mesh_app_link_connect(app, action->identifier, action->kind);
+        /*
+         * A host gets a preference of its own instead of a slot in the list above, and it is
+         * kept whether or not the radio answered: a connect that timed out is a radio that is
+         * off or a Brick on the wrong WiFi, and the address is still the one the user wrote
+         * down. What it is not kept for is a target the transport refused outright - a typo, a
+         * name, the link disabled by configuration - because the link never adopted one of
+         * those and the file would then name a host nothing is reaching for.
+         *
+         * So the test is that *this* press's address is the one the transport ended up pointed
+         * at, rather than that the transport is pointed at anything: with --tcp-host naming a
+         * host and nothing saved yet, "the link has a target" is true before the press, and a
+         * refused press would have written the flag's host into the file - persisting a choice
+         * the user did not make out of a press that failed.
+         */
+        const char *adopted = mesh_tcp_transport_configured_target(mesh_tcp_transport());
+        if (action->kind == (uint8_t)MESH_UI_DEVICE_TCP && adopted != NULL &&
+            strcmp(adopted, action->identifier) == 0 &&
+            strcmp(app->ui_preferences.network_host, adopted) != 0) {
+            mesh_str_copy(app->ui_preferences.network_host, sizeof app->ui_preferences.network_host,
+                          adopted);
+            app->ui_preferences_dirty = true;
+        }
         if (result == 0 || result == -EALREADY || result == -EINPROGRESS) {
             mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_CONNECTING, action->identifier);
             /* BLE resolves services from tick(), so a 0 here is not yet a connection. Arm the
@@ -890,6 +912,31 @@ void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *action) 
         return;
     }
     case MESH_UI_ACTION_FORGET: {
+        if (action->kind == (uint8_t)MESH_UI_DEVICE_TCP) {
+            /*
+             * Clearing the network address, which the Devices tab raises by finishing its
+             * keyboard with an empty field. Three places hold it and all three have to let go
+             * or auto-connect goes on reaching for a host with no row on any screen: the
+             * transport, which is what auto-connect asks; `config`, which seeds the transport
+             * on the next start; and the preferences file, which seeds `config`.
+             */
+            if (app->config.preferred_tcp_host[0] == '\0' &&
+                app->ui_preferences.network_host[0] == '\0') {
+                mesh_ui_store_set_toast(&app->ui_store, now,
+                                        mesh_str(MESH_STR_TOAST_NO_NETWORK_HOST));
+                return;
+            }
+            (void)mesh_tcp_transport_forget(mesh_tcp_transport());
+            app->config.preferred_tcp_host[0] = '\0';
+            app->ui_preferences.network_host[0] = '\0';
+            app->ui_preferences_dirty = true;
+            /* A host we have just thrown away is not one to reconnect to on the next tick. */
+            app->autoconnect_tcp_retry_at_ms = 0U;
+            mesh_log_info("ui", "Forgot the network address");
+            mesh_ui_store_set_toast(&app->ui_store, now, mesh_str(MESH_STR_TOAST_FORGOT_NETWORK));
+            mesh_app_publish_ui_state(app);
+            return;
+        }
         if (ble == NULL || action->kind != (uint8_t)MESH_UI_DEVICE_BLE) {
             mesh_ui_store_set_toast(&app->ui_store, now, mesh_str(MESH_STR_TOAST_BLE_ONLY_PAIRING));
             return;

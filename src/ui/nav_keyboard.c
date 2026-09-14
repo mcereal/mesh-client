@@ -3,11 +3,11 @@
 /*
  * The on-screen keyboard and the draft it edits.
  *
- * One grid of characters driven by the d-pad, in three layers. It is opened for three unrelated
- * jobs - typing a message, typing a settings field and naming a new waypoint - plus the BlueZ
- * passkey prompt, which can arrive on top of any of them; mesh_ui_nav_keyboard_close() is where
- * "give the user back what they were doing" lives, and is the reason that function is longer
- * than it looks like it should be.
+ * One grid of characters driven by the d-pad, in three layers. It is opened for four unrelated
+ * jobs - typing a message, typing a settings field, naming a new waypoint and typing the network
+ * radio's address - plus the BlueZ passkey prompt, which can arrive on top of any of them;
+ * mesh_ui_nav_keyboard_close() is where "give the user back what they were doing" lives, and is
+ * the reason that function is longer than it looks like it should be.
  */
 
 #include "nav_internal.h"
@@ -63,11 +63,12 @@ const char *mesh_ui_kb_action_label(const struct mesh_ui_nav *nav, enum mesh_ui_
         return mesh_str(MESH_STR_KEY_DELETE);
     case MESH_UI_KB_ACTION_SEND:
         /* "Send" only when something goes to a person. A settings field is finished, and so is
-           a waypoint's name - the place is shared by the app afterwards, not by this key. */
-        return mesh_str(
-            (nav != NULL && (nav->keyboard_field != MESH_UI_FIELD_NONE || nav->keyboard_waypoint))
-                ? MESH_STR_KEY_DONE
-                : MESH_STR_KEY_SEND);
+           a waypoint's name - the place is shared by the app afterwards, not by this key - and
+           so is an address, which is a link brought up rather than anything put on the air. */
+        return mesh_str((nav != NULL && (nav->keyboard_field != MESH_UI_FIELD_NONE ||
+                                         nav->keyboard_waypoint || nav->keyboard_network))
+                            ? MESH_STR_KEY_DONE
+                            : MESH_STR_KEY_SEND);
     case MESH_UI_KB_ACTION_CANCEL:
         return mesh_str(MESH_STR_KEY_CANCEL);
     default:
@@ -77,9 +78,10 @@ const char *mesh_ui_kb_action_label(const struct mesh_ui_nav *nav, enum mesh_ui_
 
 /* ---- keyboard ----------------------------------------------------------------------------- */
 
-/* The most bytes the draft may hold: the message limit, or the field's cap when the keyboard
-   is editing a setting. */
-static size_t mesh_ui_nav_draft_cap(const struct mesh_ui_nav *nav) {
+size_t mesh_ui_nav_draft_cap(const struct mesh_ui_nav *nav) {
+    if (nav == NULL) {
+        return MESH_UI_DRAFT_MAX - 1U;
+    }
     if (nav->keyboard_passkey) {
         /* A seventh digit could only ever be a passkey BlueZ rejects out of range. */
         return MESH_UI_PASSKEY_DIGITS;
@@ -94,6 +96,12 @@ static size_t mesh_ui_nav_draft_cap(const struct mesh_ui_nav *nav) {
            see mesh/core/waypoint.h. A thirtieth character is one nanopb's own encoder drops, so
            it is refused where it is typed instead. */
         return MESH_UI_WAYPOINT_NAME_MAX - 1U;
+    }
+    if (nav->keyboard_network) {
+        /* The transport's own limit on a target, which is a full bracketed v6 literal with a
+           port on it. A longer one is refused by mesh_tcp_target_split() after the typing, so
+           it is refused during the typing instead. */
+        return MESH_UI_NETWORK_HOST_MAX - 1U;
     }
     return MESH_UI_DRAFT_MAX - 1U;
 }
@@ -152,6 +160,11 @@ void mesh_ui_nav_keyboard_close(struct mesh_ui_nav *nav) {
                 nav->screen = MESH_UI_SCREEN_SETTINGS;
             } else if (nav->keyboard_waypoint) {
                 nav->screen = MESH_UI_SCREEN_WAYPOINTS;
+            } else if (nav->keyboard_network) {
+                /* Survives the prompt untouched, exactly as `keyboard_waypoint` does - and it
+                   is the one flavour a passkey prompt can plausibly land on, since both are
+                   raised from the Devices tab. */
+                nav->screen = MESH_UI_SCREEN_DEVICES;
             } else {
                 nav->screen = MESH_UI_SCREEN_MESSAGES;
             }
@@ -165,6 +178,13 @@ void mesh_ui_nav_keyboard_close(struct mesh_ui_nav *nav) {
         nav->screen = MESH_UI_SCREEN_SETTINGS;
         return;
     }
+    if (nav->keyboard_network) {
+        nav->keyboard_network = false;
+        snprintf(nav->draft, sizeof nav->draft, "%s", nav->draft_saved);
+        nav->draft_saved[0] = '\0';
+        nav->screen = MESH_UI_SCREEN_DEVICES;
+        return;
+    }
     if (nav->keyboard_waypoint) {
         nav->keyboard_waypoint = false;
         nav->waypoint_source_node = 0U;
@@ -175,6 +195,56 @@ void mesh_ui_nav_keyboard_close(struct mesh_ui_nav *nav) {
            landing back there would leave the user looking for what they just made. */
         nav->screen = MESH_UI_SCREEN_WAYPOINTS;
     }
+}
+
+void mesh_ui_nav_open_network_keyboard(struct mesh_ui_nav *nav, const char *host) {
+    if (nav == NULL) {
+        return;
+    }
+    /* The Compose draft goes into the one parking slot, exactly as the other two flavours park
+       it: there is only ever one keyboard open, and the text in front of the user is the one
+       worth keeping. */
+    snprintf(nav->draft_saved, sizeof nav->draft_saved, "%s", nav->draft);
+    /* Preloaded rather than blank, because editing is the common case: an address is changed
+       far more often than it is first written, and retyping fifteen characters on a d-pad to
+       correct the last one is not editing. */
+    snprintf(nav->draft, sizeof nav->draft, "%s", host != NULL ? host : "");
+    nav->keyboard_network = true;
+    nav->keyboard_waypoint = false;
+    nav->keyboard_field = MESH_UI_FIELD_NONE;
+    nav->keyboard_open = true;
+    nav->compose_open = false;
+    nav->kb_row = 0U;
+    nav->kb_col = 0U;
+    nav->kb_layer = MESH_UI_KB_LOWER;
+    nav->screen = MESH_UI_SCREEN_DEVICES;
+}
+
+bool mesh_ui_nav_commit_network_host(struct mesh_ui_nav *nav, struct mesh_ui_action *action) {
+    if (nav == NULL) {
+        return false;
+    }
+    if (action != NULL) {
+        /*
+         * Connect, or forget. Whether the text is an address this client can reach is not this
+         * layer's question - the nav has no resolver and no socket - so it goes to the app,
+         * which asks the transport and puts the refusal in a toast. That is the same division
+         * the rest of the tab follows: a row raises MESH_UI_ACTION_CONNECT and the reason a
+         * connect could not happen comes back as words.
+         */
+        action->type = nav->draft[0] != '\0' ? MESH_UI_ACTION_CONNECT : MESH_UI_ACTION_FORGET;
+        action->kind = (uint8_t)MESH_UI_DEVICE_TCP;
+        /* mesh_str_copy rather than snprintf: the draft is the message buffer and the
+           identifier is a target, so the compiler is right that one does not fit in the other
+           - it is mesh_ui_nav_draft_cap() that keeps the two in step, and a bounded copy is
+           what says so at the call rather than in a comment. */
+        mesh_str_copy(action->identifier, sizeof action->identifier, nav->draft);
+    }
+    nav->draft[0] = '\0';
+    mesh_ui_nav_keyboard_close(nav);
+    /* Land on the list the address is about to appear on. */
+    nav->screen = MESH_UI_SCREEN_DEVICES;
+    return true;
 }
 
 /* Sends the draft as-is; empty drafts are ignored. */
@@ -239,6 +309,8 @@ bool mesh_ui_nav_keyboard_key(struct mesh_ui_nav *nav, const struct mesh_ui_stor
     const bool for_passkey = nav->keyboard_passkey;
     const bool for_setting = (!for_passkey && nav->keyboard_field != MESH_UI_FIELD_NONE);
     const bool for_waypoint = (!for_passkey && !for_setting && nav->keyboard_waypoint);
+    const bool for_network =
+        (!for_passkey && !for_setting && !for_waypoint && nav->keyboard_network);
     switch (key) {
     case MESH_UI_KEY_UP:
     case MESH_UI_KEY_DOWN: {
@@ -300,6 +372,9 @@ bool mesh_ui_nav_keyboard_key(struct mesh_ui_nav *nav, const struct mesh_ui_stor
             if (for_setting) {
                 return mesh_ui_nav_settings_commit_text(nav, store);
             }
+            if (for_network) {
+                return mesh_ui_nav_commit_network_host(nav, action);
+            }
             return for_waypoint ? mesh_ui_nav_commit_waypoint(nav, action)
                                 : mesh_ui_nav_send_draft(nav, action);
         case MESH_UI_KB_ACTION_CANCEL:
@@ -339,6 +414,9 @@ bool mesh_ui_nav_keyboard_key(struct mesh_ui_nav *nav, const struct mesh_ui_stor
         }
         if (for_setting) {
             return mesh_ui_nav_settings_commit_text(nav, store);
+        }
+        if (for_network) {
+            return mesh_ui_nav_commit_network_host(nav, action);
         }
         return for_waypoint ? mesh_ui_nav_commit_waypoint(nav, action)
                             : mesh_ui_nav_send_draft(nav, action);

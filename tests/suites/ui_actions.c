@@ -414,17 +414,29 @@ MESH_TEST_CASE(actions_devices_ask_the_row_under_the_cursor, unit) {
     struct mesh_ui_snapshot snapshot;
     struct mesh_ui_action_bar bar;
 
-    /* An empty list offers neither: there is no row to act on. X stays, because dropping the
-       live link is not about the cursor. */
+    /*
+     * A list with nothing discovered still has the network row, so the cursor is standing on
+     * it: A is the way to type an address and Y is left off, because with no address to edit
+     * it would be a second keycap for the one thing this row does. X stays, because dropping
+     * the live link is not about the cursor.
+     */
     actions_snapshot(&snapshot);
     snapshot.nav.screen = MESH_UI_SCREEN_DEVICES;
     mesh_ui_actions_for(&snapshot, &bar);
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_A) != MESH_STR_NONE,
-                      "an empty device list has nothing for A to connect to");
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_A) != MESH_STR_ACTION_ADDRESS,
+                      "an empty device list still offers the network address");
     MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_Y) != MESH_STR_NONE,
-                      "an empty device list has nothing for Y to forget");
+                      "with no address set, Y would be a second way to the same keyboard");
     MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_X) != MESH_STR_ACTION_DISCONNECT,
                       "X drops whichever link is up and does not depend on the row");
+
+    /* Once an address is written down the row's A is the ordinary connect, and Y edits it. */
+    snprintf(snapshot.network_host, sizeof snapshot.network_host, "192.168.1.50");
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_A) != MESH_STR_ACTION_CONNECT,
+                      "a configured network row is something A can open a link to");
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_Y) != MESH_STR_ACTION_ADDRESS,
+                      "Y on a configured network row edits the address");
 
     /* A USB node in its bootloader: no session to open, and no bond to forget either. */
     actions_snapshot(&snapshot);

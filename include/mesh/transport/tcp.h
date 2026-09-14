@@ -68,6 +68,18 @@ bool mesh_tcp_transport_is_connecting(struct mesh_transport *transport);
  */
 const char *mesh_tcp_transport_configured_target(struct mesh_transport *transport);
 
+/*
+ * Forgets the configured host: the link comes down if it is up or coming up, and auto-connect
+ * stops reaching for it. Returns 0, or -ENODEV when there is no transport.
+ *
+ * Its own call rather than mesh_tcp_transport_connect(transport, "") because those are two
+ * different statements: a connect with nothing to connect to is a mistake worth reporting, and
+ * this is a user clearing a field. It is the only thing that writes `configured` other than a
+ * connect - which is what keeps the pair from drifting into "connected to a host nobody is
+ * configured for".
+ */
+int mesh_tcp_transport_forget(struct mesh_transport *transport);
+
 struct mesh_tcp_transport_stats {
     size_t frames_received;
     size_t bytes_received;

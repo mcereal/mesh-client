@@ -119,6 +119,9 @@ static const struct mesh_ui_help_entry k_help_devices[] = {
     {MESH_STR_NONE, MESH_STR_HELP_NOTE_DEVICES},
     {MESH_STR_HELP_LABEL_DEVICES_PAIR, MESH_STR_HELP_NOTE_DEVICES_PAIR},
     {MESH_STR_HELP_LABEL_DEVICES_FORGET, MESH_STR_HELP_NOTE_DEVICES_FORGET},
+    /* The last row of the list, and the one thing on this screen a reader cannot work out by
+       pressing: why the address has to be numbers, and where the port went. */
+    {MESH_STR_HELP_LABEL_DEVICES_NETWORK, MESH_STR_HELP_NOTE_DEVICES_NETWORK},
 };
 
 /*
