@@ -166,6 +166,24 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
     case MESH_UI_FIELD_DISPLAY_FLIP:
         display->flip_screen = on;
         break;
+    case MESH_UI_FIELD_DISPLAY_OLED:
+        display->oled = (meshtastic_Config_DisplayConfig_OledType)edit->number;
+        break;
+    case MESH_UI_FIELD_DISPLAY_MODE:
+        display->displaymode = (meshtastic_Config_DisplayConfig_DisplayMode)edit->number;
+        break;
+    case MESH_UI_FIELD_DISPLAY_HEADING_BOLD:
+        display->heading_bold = on;
+        break;
+    case MESH_UI_FIELD_DISPLAY_WAKE_ON_MOTION:
+        display->wake_on_tap_or_motion = on;
+        break;
+    case MESH_UI_FIELD_DISPLAY_LONG_NAMES:
+        display->use_long_node_name = on;
+        break;
+    case MESH_UI_FIELD_DISPLAY_MESSAGE_BUBBLES:
+        display->enable_message_bubbles = on;
+        break;
     case MESH_UI_FIELD_MQTT_ENABLED:
         mqtt->enabled = on;
         break;

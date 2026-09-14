@@ -1045,6 +1045,12 @@ MESH_STR_ENTRY(SETTINGS_NOTE_DISPLAY_SCREEN_ON,           "How long the radio's 
 MESH_STR_ENTRY(SETTINGS_NOTE_DISPLAY_CAROUSEL,            "How often the radio's screen moves itself on to the next page. Off leaves it on whichever page it was left showing.")
 MESH_STR_ENTRY(SETTINGS_NOTE_DISPLAY_COMPASS,             "Which way round the compass is drawn on the radio's screen, for a board mounted at an angle. It turns the drawing and not the heading behind it.")
 MESH_STR_ENTRY(SETTINGS_NOTE_DISPLAY_FLIP,                "Draws the radio's screen upside down, for a board mounted the other way up. The buttons do not move with it, so they end up on the wrong side.")
+MESH_STR_ENTRY(SETTINGS_NOTE_DISPLAY_OLED,                "Which panel the radio has, when its own autodetect got it wrong. Auto is right on almost every board; a wrong choice here leaves the screen blank or scrambled. Changing it restarts the radio.")
+MESH_STR_ENTRY(SETTINGS_NOTE_DISPLAY_MODE,                "How the radio arranges what it draws. Default suits a plain screen, the two-colour layouts a panel with a tinted top band, Colour a full-colour one. Changing it restarts the radio.")
+MESH_STR_ENTRY(SETTINGS_NOTE_DISPLAY_HEADING_BOLD,        "Draws the top line of the radio's screen in a heavier face. On a small panel it is the difference between a heading and another line of text.")
+MESH_STR_ENTRY(SETTINGS_NOTE_DISPLAY_WAKE_ON_MOTION,      "Lights the radio's screen when it is picked up or tapped, on a board that has the accelerometer for it. A board without one ignores this.")
+MESH_STR_ENTRY(SETTINGS_NOTE_DISPLAY_LONG_NAMES,          "Shows nodes on the radio's screen by their full name rather than their four-character short name. Fuller, and fewer of them fit.")
+MESH_STR_ENTRY(SETTINGS_NOTE_DISPLAY_MESSAGE_BUBBLES,     "Draws messages on the radio's screen as bubbles rather than as plain lines.")
 
 /* MQTT. */
 MESH_STR_ENTRY(SETTINGS_NOTE_MQTT_ENABLED,                "Connects the radio to a broker. Nothing crosses until a channel is set to uplink or downlink, so this alone changes what the radio talks to and not what it shares.")
@@ -1314,6 +1320,12 @@ MESH_STR_ENTRY(SETTINGS_FIELD_DISPLAY_COMPASS,            "Compass")
 MESH_STR_ENTRY(SETTINGS_FIELD_DISPLAY_12H,                "12-hour clock")
 MESH_STR_ENTRY(SETTINGS_FIELD_DISPLAY_UNITS,              "Units")
 MESH_STR_ENTRY(SETTINGS_FIELD_DISPLAY_FLIP,               "Flip screen")
+MESH_STR_ENTRY(SETTINGS_FIELD_DISPLAY_OLED,               "Panel type")
+MESH_STR_ENTRY(SETTINGS_FIELD_DISPLAY_MODE,               "Layout")
+MESH_STR_ENTRY(SETTINGS_FIELD_DISPLAY_HEADING_BOLD,       "Bold heading")
+MESH_STR_ENTRY(SETTINGS_FIELD_DISPLAY_WAKE_ON_MOTION,     "Wake on motion")
+MESH_STR_ENTRY(SETTINGS_FIELD_DISPLAY_LONG_NAMES,         "Long node names")
+MESH_STR_ENTRY(SETTINGS_FIELD_DISPLAY_MESSAGE_BUBBLES,    "Message bubbles")
 MESH_STR_ENTRY(SETTINGS_FIELD_MQTT_ENABLED,               "MQTT")
 MESH_STR_ENTRY(SETTINGS_FIELD_MQTT_ADDRESS,               "Server")
 MESH_STR_ENTRY(SETTINGS_FIELD_MQTT_USERNAME,              "Username")
@@ -1453,6 +1465,21 @@ MESH_STR_ENTRY(ENUM_COMPASS_270_FLIP,     "270 flip")
 /* Which measurement system the radio's own screen uses. */
 MESH_STR_ENTRY(ENUM_UNITS_METRIC,         "Metric")
 MESH_STR_ENTRY(ENUM_UNITS_IMPERIAL,       "Imperial")
+/* DisplayConfig.OledType: the panel the radio drives, when its autodetect needs overriding.
+   Named by the controller part number, which is what is printed on the module and what every
+   board's documentation calls it - there is no friendlier name for an SH1107. */
+MESH_STR_ENTRY(ENUM_OLED_AUTO,            "Auto")
+MESH_STR_ENTRY(ENUM_OLED_SSD1306,         "SSD1306")
+MESH_STR_ENTRY(ENUM_OLED_SH1106,          "SH1106")
+MESH_STR_ENTRY(ENUM_OLED_SH1107,          "SH1107")
+MESH_STR_ENTRY(ENUM_OLED_SH1107_128,      "SH1107 128x128")
+MESH_STR_ENTRY(ENUM_OLED_SH1107_ROT,      "SH1107 rotated")
+/* DisplayConfig.DisplayMode: how the radio lays its screen out. Named for the panel each one
+   suits rather than for the constant - "Two-colour" says what TWOCOLOR is for. */
+MESH_STR_ENTRY(ENUM_DISPLAYMODE_DEFAULT,  "Default")
+MESH_STR_ENTRY(ENUM_DISPLAYMODE_TWOCOLOR, "Two-colour")
+MESH_STR_ENTRY(ENUM_DISPLAYMODE_INVERTED, "Two-colour inverted")
+MESH_STR_ENTRY(ENUM_DISPLAYMODE_COLOR,    "Colour")
 /* DetectionSensorConfig.TriggerType: what the monitored pin has to do to count as a trigger.
    Named for the pin's behaviour rather than for the protobuf constant. */
 MESH_STR_ENTRY(ENUM_TRIGGER_LOW,          "Low")

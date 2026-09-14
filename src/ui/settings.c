@@ -326,6 +326,28 @@ static const char *units_name(uint32_t units) {
     return mesh_str(units == 1U ? MESH_STR_ENUM_UNITS_IMPERIAL : MESH_STR_ENUM_UNITS_METRIC);
 }
 
+/* DisplayConfig.OledType, 0..5 and contiguous. The panel a board carries, for the case where
+   the radio's own autodetect got it wrong; every value after Auto is a controller part
+   number, because that is what the board's documentation calls it. */
+static const char *oled_name(uint32_t oled) {
+    static const enum mesh_str_id k_names[] = {
+        MESH_STR_ENUM_OLED_AUTO,   MESH_STR_ENUM_OLED_SSD1306,    MESH_STR_ENUM_OLED_SH1106,
+        MESH_STR_ENUM_OLED_SH1107, MESH_STR_ENUM_OLED_SH1107_128, MESH_STR_ENUM_OLED_SH1107_ROT,
+    };
+    return mesh_str(oled < MESH_ARRAY_LEN(k_names) ? k_names[oled] : MESH_STR_COMMON_UNKNOWN_SHORT);
+}
+
+/* DisplayConfig.DisplayMode, 0..3 and contiguous. */
+static const char *displaymode_name(uint32_t mode) {
+    static const enum mesh_str_id k_names[] = {
+        MESH_STR_ENUM_DISPLAYMODE_DEFAULT,
+        MESH_STR_ENUM_DISPLAYMODE_TWOCOLOR,
+        MESH_STR_ENUM_DISPLAYMODE_INVERTED,
+        MESH_STR_ENUM_DISPLAYMODE_COLOR,
+    };
+    return mesh_str(mode < MESH_ARRAY_LEN(k_names) ? k_names[mode] : MESH_STR_COMMON_UNKNOWN_SHORT);
+}
+
 /* DetectionSensorConfig.TriggerType, 0..5 and contiguous. Named for what the pin does rather
    than for the constant: "Low" says more than "LOGIC_LOW" next to the word Trigger. */
 static const char *trigger_name(uint32_t trigger) {
@@ -907,6 +929,28 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
     [MESH_UI_FIELD_DISPLAY_FLIP] = {MESH_STR_SETTINGS_FIELD_DISPLAY_FLIP, MESH_UI_SETTING_TOGGLE,
                                     MESH_UI_SETTINGS_DISPLAY, 0U, NULL, NO_PRESETS, MESH_STR_NONE,
                                     NULL, 0U, MESH_STR_SETTINGS_NOTE_DISPLAY_FLIP},
+    [MESH_UI_FIELD_DISPLAY_OLED] = {MESH_STR_SETTINGS_FIELD_DISPLAY_OLED, MESH_UI_SETTING_ENUM,
+                                    MESH_UI_SETTINGS_DISPLAY, 6U, oled_name, NO_PRESETS,
+                                    MESH_STR_NONE, NULL, 0U, MESH_STR_SETTINGS_NOTE_DISPLAY_OLED},
+    [MESH_UI_FIELD_DISPLAY_MODE] = {MESH_STR_SETTINGS_FIELD_DISPLAY_MODE, MESH_UI_SETTING_ENUM,
+                                    MESH_UI_SETTINGS_DISPLAY, 4U, displaymode_name, NO_PRESETS,
+                                    MESH_STR_NONE, NULL, 0U, MESH_STR_SETTINGS_NOTE_DISPLAY_MODE},
+    [MESH_UI_FIELD_DISPLAY_HEADING_BOLD] = {MESH_STR_SETTINGS_FIELD_DISPLAY_HEADING_BOLD,
+                                            MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_DISPLAY, 0U,
+                                            NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                            MESH_STR_SETTINGS_NOTE_DISPLAY_HEADING_BOLD},
+    [MESH_UI_FIELD_DISPLAY_WAKE_ON_MOTION] = {MESH_STR_SETTINGS_FIELD_DISPLAY_WAKE_ON_MOTION,
+                                              MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_DISPLAY, 0U,
+                                              NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                              MESH_STR_SETTINGS_NOTE_DISPLAY_WAKE_ON_MOTION},
+    [MESH_UI_FIELD_DISPLAY_LONG_NAMES] = {MESH_STR_SETTINGS_FIELD_DISPLAY_LONG_NAMES,
+                                          MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_DISPLAY, 0U,
+                                          NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                          MESH_STR_SETTINGS_NOTE_DISPLAY_LONG_NAMES},
+    [MESH_UI_FIELD_DISPLAY_MESSAGE_BUBBLES] = {MESH_STR_SETTINGS_FIELD_DISPLAY_MESSAGE_BUBBLES,
+                                               MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_DISPLAY, 0U,
+                                               NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                               MESH_STR_SETTINGS_NOTE_DISPLAY_MESSAGE_BUBBLES},
     [MESH_UI_FIELD_MQTT_ENABLED] = {MESH_STR_SETTINGS_FIELD_MQTT_ENABLED, MESH_UI_SETTING_TOGGLE,
                                     MESH_UI_SETTINGS_MQTT, 0U, NULL, NO_PRESETS, MESH_STR_NONE,
                                     NULL, 0U, MESH_STR_SETTINGS_NOTE_MQTT_ENABLED},

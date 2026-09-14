@@ -228,6 +228,11 @@ MESH_TEST_CASE(ui_nav_settings_edit, unit) {
         failure = "Display should open";
         goto cleanup;
     }
+    /* Taken before the first edit rather than written out as a number: what this asserts is
+       that an edit does not move the row count, and a literal here would instead assert how
+       many rows Display happens to have - which fails every time the section gains one. */
+    const size_t rows_before_editing =
+        mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS);
 
     /* Right on Screen on steps to the next preset; Left twice goes back past it. */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
@@ -271,7 +276,7 @@ MESH_TEST_CASE(ui_nav_settings_edit, unit) {
         failure = "toggle and enum edits are wrong";
         goto cleanup;
     }
-    if (mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS) != 6U) {
+    if (mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS) != rows_before_editing) {
         failure = "edits must not change the row count";
         goto cleanup;
     }
