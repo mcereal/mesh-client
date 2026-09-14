@@ -322,32 +322,33 @@ before changing session, settings, updater or node-cache behaviour. Transports a
 
 Each of these has cost a debugging round already. **Do not "fix" them back.**
 
+A bare `name` at the end of an entry is a **test filter**, not a file: run it with
+`./build/debug/tests/meshclient_core_tests --filter <name>`, and a partial name names a group, so
+`devices_network_row` runs all six of them. Where an entry cites one, the test is what holds the
+line and the prose is only the *reason* - so compressing an entry means finding its test first,
+and a test that would still pass with the rule undone is not the one to cite. An entry with **no**
+test cited is one that nothing but the paragraph holds - a hardware fact, a build flag, a
+measurement, a convention no assertion reaches - which is why those are allowed to stay long.
 - **No threads.** Everything is the one epoll loop.
 - **BLE is not Nordic UART** and carries no length framing: one bare protobuf per GATT
   write/read. Framing is a *stream* concern - serial and TCP, which are one wire format - and it
   is `src/proto/stream_framing.c`.
-- **The Brick's face buttons do not report by position.** A is `BTN_EAST` (305), B is `BTN_SOUTH`
-  (304), the button printed **Y (left) is `BTN_NORTH` (307)**, so X (top) is `BTN_WEST` (308).
-  Pinned in `input_brick_face_buttons`. This is the `brick` row of `src/ui/input_profile.c` and
-  **not a default the rest of the client may assume**: the `xbox` row is the ordinary Linux
-  convention, where A is `BTN_SOUTH` - the same code the Brick calls B. The two disagree about
-  exactly the buttons that confirm and go back, which is why the codes and the keycaps live in
-  one row: correcting one without the other is invisible, because the binding still works and
-  the action bar goes on promising the first. The pad impersonates an Xbox 360 controller, and the rest
-  of the case follows from that: **L2/R2 are the analog triggers `ABS_Z`/`ABS_RZ`**, not buttons
-  (there is no `BTN_TL2`/`BTN_TR2` in the bitmap at all), and **F1/F2 are the stick clicks**
-  `BTN_THUMBL`/`BTN_THUMBR` - a 360 pad has two sticks and the Brick has none, so those were the
-  free codes. The pad also *declares* a `KEY_F1`, a `KEY_F2` and two volume keys it never sends,
-  which is why the map is measured with `make deploy-input-map` rather than read off the
-  capability bitmaps. The whole table is in [`docs/device.md`](docs/device.md#the-buttons-and-what-they-report).
+- **The Brick's face buttons do not report by position.** A is `BTN_EAST` (305), B is
+  `BTN_SOUTH` (304), the button printed **Y (left)** is `BTN_NORTH` (307), X (top) is `BTN_WEST`
+  (308). That is the `brick` row of `src/ui/input_profile.c`, **not a default the rest of the
+  client may assume**: the `xbox` row is the ordinary convention, where A is the code the Brick
+  calls B. The two disagree about exactly the buttons that confirm and go back, which is why one
+  row holds the codes *and* the keycaps - correcting one without the other is invisible, because
+  the binding still works and the action bar goes on promising the first.
+  `input_brick_face_buttons`, `input_profile`. The measured table is in
+  [`docs/device.md`](docs/device.md#the-buttons-and-what-they-report).
 - **The TCP link refuses a hostname, and that is the design rather than a missing feature.**
   `getaddrinfo()` blocks and this client is one epoll loop with no threads in it, so a DNS lookup
-  is however many seconds of frozen UI; there is no non-blocking resolver in POSIX, and
-  `getaddrinfo_a` starts threads. A target is therefore a numeric literal and `meshtastic.local`
-  gets a refusal a user can read. Lifting it means the forked-child shape `fetch.c` already uses
-  for HTTPS. It does *not* mean waiting for an on-device way to type an address: that is the
-  Devices tab's last row (`src/ui/devices.c`), and the no-DNS rule is what made it small - a
-  field holding digits, dots and colons needs no resolver and no autocomplete. See
+  is however many seconds of frozen UI; POSIX has no non-blocking resolver and `getaddrinfo_a`
+  starts threads. A target is therefore a numeric literal and `meshtastic.local` gets a refusal a
+  user can read. Lifting it means the forked-child shape `fetch.c` already uses; it does *not*
+  mean waiting for an on-device way to type an address, which is the Devices tab's last row.
+  `tcp_transport_refuses_a_name`, `tcp_target_split_shapes`. See
   [`docs/transport.md`](docs/transport.md#an-address-not-a-name).
 - **The connecting socket is deliberately not the stream link's, and `struct mesh_stream_link`
   must not grow a connecting state.** A link is an *established* stream: it watches for
@@ -359,50 +360,40 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   report a fatal error and stop; the transport that owns the link decides what it means. "port
   closed" and "the radio closed the connection" are the same `-ENOTCONN` and two different
   sentences, and only the transport knows which one it is - the same rule that keeps a renderer
-  naming a string id rather than a sentence.
+  naming a string id rather than a sentence. `serial_transport_link_drop`,
+  `tcp_transport_link_drop`.
 - **The network arm of auto-connect has a retry stamp of its own, and sharing the general one
   would break it.** A configured host is the one candidate that can be absent without being
   *gone*: a cable is plugged in or it is not and a node is advertising or it is not, but an
   address somebody wrote down stays written down with the WiFi off. Without
   `autoconnect_tcp_retry_at_ms` that arm runs first on every turn, fails five seconds later on
   its own connect deadline, and Bluetooth is never reached at all.
+  `tcp_transport_idles_without_a_host`, `app_autoconnect`.
 - **The Devices tab's last row is not a device, and it is present exactly when the list holds no
-  network row of its own.** A network cannot be scanned, so discovery has nothing to publish
-  until a link is already up - which is what left the whole TCP transport reachable only by
-  editing `launch.sh`. The row shows the configured address or `Set an address`; A connects or
-  opens the keyboard, Y edits it, and **an emptied field forgets the host**, because clearing it
-  is the only way to say "stop reaching for that" and the address is what auto-connect retries
-  every thirty seconds. It stands down when discovery publishes a real network row (below), or
-  the same host would be two rows: both are last, so nothing on the panel moves when the link
-  comes up. The saved address is its own preference (`network_host`) rather than a
-  `known_devices` entry - that list is what auto-connect ranks a *scan* with, and a host is in
-  no scan - and it is written when the connect is **asked for** rather than when it succeeds,
-  because a radio that was off is still the address the user wrote down. **What is saved is what
-  the transport *adopted*, asked rather than inferred from the return code**: a link takes a
-  target only once it has parsed it and got a socket, so `-EINVAL`, `-ENODEV`, `-EBUSY` and
-  `-EMFILE` all leave `configured` behind, and saving the press through any of them gives the
-  file a host the link is not reaching for. Enumerating the codes was the first cut and missed
-  three of them.
+  network row of its own.** A network cannot be scanned, so discovery publishes nothing until a
+  link is already up - which left the whole TCP transport reachable only by editing `launch.sh`.
+  **An emptied field forgets the host**, because clearing it is the only way to say "stop reaching
+  for that". It stands down for a real network row, or the same host would be two rows. The
+  address is its own preference (`network_host`) rather than a `known_devices` entry - that list
+  ranks a *scan*, and a host is in no scan - and it is written when the connect is **asked for**
+  rather than when it succeeds, because a radio that was off is still the address the user wrote
+  down. What is saved is what the transport *adopted*, asked rather than inferred from the return
+  code. `devices_network_row`, `tcp_refused_target_is_remembered_by_nobody`.
 - **A network link's Devices row is synthesised rather than discovered, and its `in_range` is
-  false while it is connected.** `mesh_app_publish_ui_state()` has always built a row for
-  "connected, but in nobody's list"; for BLE and USB that is a connect which beat its own
-  discovery and the real row replaces it a moment later, and for TCP there is no discovery to
-  catch up, so it is the only row that link will ever have. It must state
-  `MESH_UI_DEVICE_TCP`: the slot is `memset` to zero, `MESH_UI_DEVICE_BLE` is `0`, and a
-  renderer asks that one field three separate questions - which disc, whether the trailing edge
-  is an RSSI, and whether `Y` may forget it. Unstated, the link drew a Bluetooth disc, reported
-  `0dBm` - the absent-reading-as-a-number this client refuses everywhere else, and the
-  *strongest* signal on the screen - and offered to forget a bond that was never made. `name` is
-  left empty for the same reason: `MESH_STR_DEVICES_CONNECTED_NAME` is a placeholder held until
-  an advertisement arrives, and a host has none coming, so it would have stood permanently where
-  the address goes. And `in_range` is false because the Status card counts that field and means
-  *earshot* by it - a host answers from anywhere, which is evidence of no distance at all, so the
-  renderer's TCP arm sits ahead of the in-range one rather than letting it say "not in range".
+  false while it is connected.** `mesh_app_publish_ui_state()` builds a row for "connected, but in
+  nobody's list"; for BLE and USB the real row replaces it a moment later, and for TCP there is no
+  discovery to catch up. It must state `MESH_UI_DEVICE_TCP`, because the slot is `memset` to zero,
+  `MESH_UI_DEVICE_BLE` is `0`, and a renderer asks that one field three questions - which disc,
+  whether the trailing edge is an RSSI, and whether `Y` may forget it. `name` stays empty because
+  its placeholder is held until an advertisement arrives and a host has none coming. And
+  `in_range` is false because the Status card means *earshot* by that field - a host answers from
+  anywhere, which is evidence of no distance at all.
+  `tcp_link_is_published_as_a_network_device`.
 - **The heartbeat is the TCP link's and not the session's tick.** `ToRadio.heartbeat` is what
   stops a radio dropping a client that has had nothing to say, and a quiet mesh is the ordinary
   case - but a BLE link needs none of it, since the GATT connection is its own liveness. So it is
   something a transport asks for on its own schedule (`mesh_session_send_heartbeat()`) rather
-  than something `mesh_session_tick()` does to every link.
+  than something `mesh_session_tick()` does to every link. `tcp_heartbeat_golden_frame`.
 - **The power button is deliberately not a quit key.** It was one until the Brick was measured:
   the PMIC (`axp2202-pek`, its own input device) really does emit `KEY_POWER`, so a tap of the
   button - this hardware's sleep gesture - tore the client down instead of suspending it. Sleep
@@ -412,165 +403,143 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   holds 80 entries and evicts, so mirroring it loses nodes for good. The roster is dropped only
   on a radio swap, and `in_nodedb` marks what the radio no longer carries. **A NodeDB reset does
   not clear it either** - that is why the Status screen can say 2 nodes while the Nodes tab says
-  81. Clearing it is a separate, local press (Settings > Radio actions > Forget off-radio /
-  Forget all cached, `mesh_session_forget_nodes`), which keeps our own node and every pin.
+  81. Clearing it is a separate, local press (Settings > Radio actions,
+  `mesh_session_forget_nodes`), which keeps our own node and every pin. `session_roster`,
+  `session_forget`, `session_keeps_the_radio_across_a_drop`.
 - **A node with no `User` is named after its node number**, exactly as the phone apps do
   (`mesh_session_default_identity`). An empty `User` in a NodeInfo must not blank a name we have.
+  `session_node_default_identity`.
 - **A radio reboot after a settings write is expected.** The link drops and auto-connect
   reconnects.
 - **The BLE device list is not a list of nodes in range, and `rssi` is not a range test.** The
-  enumeration behind it is `GetManagedObjects`, a walk of every device object BlueZ *holds* -
-  and a bond outlives the radio being in the room, so a node switched off in another building
-  sits in that list all day with its address, its name and `Paired` intact. What it does not
-  have is an `RSSI` property: bluetoothd drops that from a device it has not heard in the
-  current discovery session. Hence `mesh_bluez_device_info.in_range`, and hence the filter every
-  selection path applies before it looks at anything else. Reading the absence as a number is
-  worse than useless: 0 is a *high* RSSI, so an out-of-range bond beat every node that actually
-  answered - which is what sent the client after the radio left at home while the one in the
-  user's pocket advertised into an empty list. A row in the Devices tab says "not in range"
-  for the same reason rather than "0dBm".
+  enumeration behind it is `GetManagedObjects`, a walk of every device object BlueZ *holds* - and
+  a bond outlives the radio being in the room, so a node switched off in another building sits in
+  that list all day with its address, its name and `Paired` intact. What it lacks is an `RSSI`
+  property: bluetoothd drops that from a device it has not heard in the current discovery session.
+  Hence `mesh_bluez_device_info.in_range`, and hence the filter every selection path applies
+  first. Reading the absence as a number is worse than useless: 0 is a *high* RSSI, so an
+  out-of-range bond beat every node that actually answered.
+  `app_autoconnect_ignores_a_node_out_of_range`.
 - **Key repeat is generated in `input.c`, not by the kernel.** Autorepeat is an EV_KEY/EV_REP
   feature and the d-pad is an absolute axis (`ABS_HAT0X/Y`), which never repeats however long it
   is held. The timerfd in `mesh_ui_input` is what makes holding down scroll a long node list, and
   it deliberately drops the kernel's own `value == 2` for a direction: a direction repeats
-  because of our timer or not at all.
+  because of our timer or not at all. `ui_input_key_repeat`.
 - **fb layout is measured in cells, not bytes.** A `strlen` or `%-Ns` there is a bug.
+  `layout_wrap_measures_in_cells`, `ui_text_cells`.
 - **The map's d-pad does not move a cursor, and its shoulders do move tabs.** It is the one
   screen where Left and Right are not the tab keys: `nav_map.c` takes the four directions ahead
   of the routing in `nav.c` that turns them into a change of tab, because Left on a map means
   "look west". The shoulders are deliberately *not* taken, which is what pays for it - the two
   pairs are the same press on every other screen, and splitting them here is what lets the map
-  have the d-pad without the tab strip above the body going dead. The action bar still says
-  "L/R tabs" here and still means it.
+  have the d-pad without the tab strip above the body going dead. `map_the_dpad`,
+  `map_keys_belong_to_the_screen_the_map_is_on`.
 - **A direction on the map is one step, and landing on a marker changes where that step ends
-  rather than how long it is.** It looks like snapping bolted onto a pan and it is the other way
-  round: a pan of a fixed number of pixels leaves the crosshair on a lattice (a fifth of the
-  body across, a fifth down) and the crosshair captures a disc of
-  `MESH_UI_MAP_SELECT_RADIUS_PX`, so a sixth of the plane was selectable and five markers in six
-  could not be aimed at *at all* at a given zoom - which on the device reads as the crosshair
-  skipping over nodes, and as zooming sometimes fixing it, because a zoom re-phases the lattice.
-  `mesh_ui_map_step()` takes the nearest marker in the 45-degree quadrant around the press (the
-  four tile the plane, so nothing is in a direction no press names) and the view centres on its
-  own coordinates, which is what makes the landing exact. The fallback pan is not a leftover: it
-  is what crosses open grid, and what walks a marker beyond the step's reach into it. The
-  selection is still *derived* from the centre - the nav grew no selection field, and must not.
-  **The reach is one pan step, per axis, and is the same number the fallback pans by**
-  (`MESH_UI_MAP_PAN_STEP_X/Y`, declared once in `map.h` so the two cannot drift apart). A reach
-  of the whole declared panel is what this replaced, and it was the first correction overshot:
-  on a mesh with a few dozen positioned nodes every tap had a marker somewhere in its quadrant
-  to answer with, so the view cycled through the roster and the ground *between* two nodes was
-  unreachable - the same complaint as the lattice, from the other side. Bounding the cross axis
-  matters as much as the along one, or a press that said "north" answers with a sideways lurch
-  onto something mostly east.
+  rather than how long it is.** It looks like snapping bolted onto a pan and is the other way
+  round: a pan of a fixed number of pixels leaves the crosshair on a lattice, so a sixth of the
+  plane was selectable and five markers in six could not be aimed at *at all* at a given zoom.
+  `mesh_ui_map_step()` takes the nearest marker in the 45-degree quadrant around the press - the
+  four tile the plane, so nothing is in a direction no press names - and the view centres on its
+  coordinates. The fallback pan is what crosses open grid. The selection is still *derived* from
+  the centre: the nav grew no selection field, and must not. **The reach is one pan step, per
+  axis, and is the same number the fallback pans by** (`MESH_UI_MAP_PAN_STEP_X/Y`): a reach of the
+  whole panel is what this replaced, and it left the ground *between* two nodes unreachable.
+  `map_a_direction`, `map_the_dpad`, `map_the_crosshair_selects_by_panning`.
 - **The Nodes list's filter is stepped by A and deliberately not by Left and Right.** A strip of
   chips looks like it wants the d-pad's horizontal axis, and three screens here do take it - the
   map, the node detail, both charts - but every one of them takes it *for the whole level* and
   pays for it by leaving the shoulders alone. The Nodes list is a tab's own list, so there is no
   level to take it for, and taking it for one row of one list would be a d-pad whose meaning
-  changed as the cursor walked. A on a filter row is exactly how `mesh_ui_nav_settings_edit_key()`
-  steps an enum, and three chips means every one is at most two presses away.
+  changed as the cursor walked. Three chips means every one is at most two presses away.
+  `ui_nav_nodes_filter_steps_and_renumbers_the_rows`.
 - **A Nodes filter matches what the list *draws*, not one of the conditions behind it.** "Direct"
-  is `in_nodedb && mesh_ui_node_signal_heard(node)` and "Pinned" is `is_favorite && !is_self`,
-  and both extra halves are corrections rather than belt-and-braces. `signal_heard()` is most of
-  the first: the list refuses a staircase to a node reached over hops (the SNR is the relay's),
-  one over MQTT (it describes nothing on the air) and one whose `hops_away` the firmware never
-  set, because unknown is not zero. What it does not carry is `in_nodedb`, which the renderer
-  tests *first* - `mesh_session_resolve_nodedb_membership()` clears that flag from the sync epoch
-  alone and leaves `snr` and `hops_away` intact, so a node heard perfectly well and since dropped
-  from the radio's database still passes `signal_heard()` and still draws "off radio" where the
-  staircase would go. The star is the same shape one field over: a radio can carry a stale
-  `is_favorite` on its own NodeDB entry, the list suppresses the star on our own row for that
-  reason, and both X and the detail's pin row refuse to toggle it - so `is_favorite` alone put a
-  row under Pinned with no star and no press that could clear it. Match the renderer's
-  precedence, never one of its conditions.
+  is `in_nodedb && mesh_ui_node_signal_heard(node)` and "Pinned" is `is_favorite && !is_self`, and
+  both extra halves are corrections. The renderer tests `in_nodedb` *first*, because
+  `mesh_session_resolve_nodedb_membership()` clears that flag from the sync epoch alone and leaves
+  `snr` and `hops_away` intact - so a node heard perfectly well and since dropped from the radio's
+  database still passes `signal_heard()` and still draws "off radio". The star is the same shape
+  one field over: a radio can carry a stale `is_favorite`, and both X and the detail's pin row
+  refuse to toggle it on our own row, so `is_favorite` alone put a row under Pinned with no star
+  and no press that could clear it. `ui_nav_nodes_filter`, `node_detail_signal_heard`.
 - **The Nodes list has *two* rows before its first node, and nothing may subtract a literal.**
   `MESH_UI_NODES_FILTER_ROW` is the chip strip and `MESH_UI_NODES_MAP_ROW` is under it;
   `MESH_UI_NODES_LEAD_ROWS` is what everything counts off. `mesh_ui_nav_node_at_row()` and the
-  renderer both turn a row into a node through `mesh_ui_node_filter_at()` rather than by
-  indexing the roster, and that is load-bearing rather than tidy: under a filter, an off-by-one
-  is a *plausible* node rather than an obviously shifted one, so X pins somebody else's radio
-  and nothing on the frame looks wrong.
+  renderer both turn a row into a node through `mesh_ui_node_filter_at()` rather than by indexing
+  the roster, and that is load-bearing rather than tidy: under a filter, an off-by-one is a
+  *plausible* node rather than an obviously shifted one, so X pins somebody else's radio and
+  nothing on the frame looks wrong. `ui_nav_nodes_filter_steps_and_renumbers_the_rows`.
 - **A filter that keeps nothing keeps the two rows above it.** The obvious answer is
   `fb_draw_empty()` and it is wrong here for the reason the Waypoints tab's last row is never
-  replaced by one: the chip that emptied the list is on the first row, so a screen falling
-  through to a picture would take away the control that puts it back. The rows stay, a dim line
-  where the nodes would be says what happened, and the way out is one A.
+  replaced by one: the chip that emptied the list is on the first row, so a screen falling through
+  to a picture would take away the control that puts it back.
+  `ui_nav_nodes_filter_that_keeps_nothing_keeps_its_own_rows`.
 - **The Nodes title counts what is drawn, not what is held.** `held` is the published roster and
   `count` is whatever the filter kept; the heading's "n of m" already means "there is more than
   this", so a filter needs no sentence of its own - and conflating the two read "Nodes 42" over
   three pinned rows, which is the arithmetic-no-screen-should-show rule from the other end.
 - **`map_open` outliving a change of tab is deliberate, and the key handler must still check
-  `nav->screen`.** Every tab keeps its own place, so coming back to Nodes shows the view that was
-  left — which means the flag says *where the Nodes tab is standing*, not *what the reader is
-  looking at*. Two presses make the difference: a shoulder walks off the tab with the map still
-  open behind it, and A on a waypoint marker jumps to the Waypoints tab outright. Read as "a map
-  is open somewhere", the arrows pan a map nobody can see and the first B on that place closes it
-  instead of the place. `mesh_ui_nav_map_key()` gates on the screen for that reason.
+  `nav->screen`.** Every tab keeps its own place, so the flag says *where the Nodes tab is
+  standing*, not *what the reader is looking at*. Two presses make the difference: a shoulder
+  walks off the tab with the map still open behind it, and A on a waypoint marker jumps to the
+  Waypoints tab outright. Read as "a map is open somewhere", the arrows pan a map nobody can see
+  and the first B on that place closes it instead of the place.
+  `map_keys_belong_to_the_screen_the_map_is_on`, `map_hands_the_keys_over_when_a_place_opens`.
 - **The map clips its artwork to its own body, and `visible` is not enough on its own.** A
   placement can only honestly speak for a marker's *centre*, but a marker is not a point once it
-  is drawn: a rounded-position footprint is the widest thing the map places, so a marker centred
-  a pixel inside the top edge paints most of itself over the app bar. The clip goes on the fb
-  state, where `fb_fill_packed()` already honours one — every fill, glyph and icon span goes
-  through that one function — and it *intersects* the partial-redraw path's clip rather than
-  replacing it.
+  is drawn: a rounded-position footprint is the widest thing the map places, so a marker centred a
+  pixel inside the top edge paints most of itself over the app bar. The clip goes on the fb state,
+  where `fb_fill_packed()` already honours one, and it *intersects* the partial-redraw path's clip
+  rather than replacing it. `ui_capture_map_keeps_its_ink_off_the_chrome`.
 - **The map draws a different roster from the Nodes list, and it is not a subset.** The list
-  publishes the best 128 of the session's 256 (`handshake.nodes`), because a rank says how
-  likely you are to talk to a node; a marker is on the panel or it is not, so the map gets
-  `handshake.map_nodes` - every *positioned* node the session holds, as a 36-byte
-  `struct mesh_ui_map_node` rather than the 532-byte summary, which is why the snapshot grew by
-  9 KB instead of 68. Two consequences. A handshake nobody published (a cache load before the
-  first publish, a fixture, the capture harness) has `map_node_count == 0` and
-  `mesh_ui_map_build()` falls back to the rows - a default, not a second opinion, because
-  publish scans a superset of the rows it copies. And **map-only nodes now exist**: a node
-  ranked 200th has a marker and no row, so `mesh_ui_node_detail_find()` cannot answer for it and
-  A on that marker deliberately does nothing (`marker->openable`, from the published `has_row`),
-  exactly as A on empty grid does. Without that guard the detail opens, cannot be filled, and is
-  clamped shut on the next press. Resolving it properly is the app/store seam
-  [`docs/maps-roadmap.md`](docs/maps-roadmap.md#the-roster-decision-taken) describes.
+  publishes the best 128 of the session's 256 (`handshake.nodes`), because a rank says how likely
+  you are to talk to a node; a marker is on the panel or it is not, so the map gets
+  `handshake.map_nodes` - every *positioned* node, as a 36-byte struct rather than the 532-byte
+  summary, which is why the snapshot grew by 9 KB instead of 68. Two consequences. A handshake
+  nobody published has `map_node_count == 0` and falls back to the rows - a default, not a second
+  opinion, because publish scans a superset of the rows it copies. And **map-only nodes exist**: a
+  node ranked 200th has a marker and no row, so A on it deliberately does nothing
+  (`marker->openable`), or the detail opens, cannot be filled, and is clamped shut on the next
+  press. `map_roster_agrees_across_the_seam`, `map_draws_nodes_the_list_never_published`,
+  `map_falls_back_to_the_published_rows`, `map_press_refuses_a_node_it_cannot_open`.
 - **The tile pack is a format of the client's own, and that is a measurement rather than a
-  preference.** Reading MBTiles or PMTiles directly is the obvious thing and it lost on this
-  hardware: on the Brick's FAT32 card with 32 KiB clusters mounted `sync`, a single file with a
-  sorted index reached a cold tile in 0.80 ms where MBTiles took 4.6 ms and a `z/x/y` tree took
+  preference.** On the Brick's FAT32 card with 32 KiB clusters mounted `sync`, a single file with
+  a sorted index reached a cold tile in 0.80 ms where MBTiles took 4.6 ms and a `z/x/y` tree took
   4.6 ms with a 40 ms tail - and SQLite would have cost 718 KB on a 2.88 MB binary. So the
-  conversion is a host step (`devtools/map_pack`) and the device reads one file. The pack's
-  **zoom range and coverage are derived from its index, never read out of its header**, which is
-  the app bar's back arrow one layer down: a header field saying what a file contains is a field
-  that can be wrong, and the way it goes wrong is a builder that names a city and packs a suburb.
-  Everything else a read would have to trust is checked **once, at open** - extents inside the
-  file, tiles inside the world, and the index's own sort order, because a `bsearch` over an
-  unsorted index does not fail, it misses. See [`docs/maps-roadmap.md`](docs/maps-roadmap.md).
+  conversion is a host step (`devtools/map_pack`) and the device reads one file. The pack's **zoom
+  range and coverage are derived from its index, never read out of its header**: a header field
+  saying what a file contains is a field that can be wrong, and the way it goes wrong is a builder
+  that names a city and packs a suburb. Everything a read would otherwise trust is checked **once,
+  at open**, the index's sort order included - a `bsearch` over an unsorted index does not fail,
+  it misses. `map_pack`. See [`docs/maps-roadmap.md`](docs/maps-roadmap.md).
 - **The basemap is drawn *over* the graticule rather than instead of it, and a tile still coming
-  looks exactly like a tile that is not there.** A tile is opaque, so drawing the grid first
-  means it survives in precisely the places there is no tile - a pack's edge, its holes, and the
-  second before one arrives - and nothing has to decide whether to draw a grid. Telling MISS from
-  ABSENT *in ink* was tried in the design and is worse than either: a placeholder square covers
-  the markers for the two thirds of a second a view takes to fill, which is the whole of the time
-  anybody is looking at it. The two states differ in what the client **does** - one asks for
-  another frame, the other stops asking - which is where the distinction pays for itself.
+  looks exactly like a tile that is not there.** A tile is opaque, so drawing the grid first means
+  it survives in precisely the places there is no tile - a pack's edge, its holes, and the second
+  before one arrives - and nothing has to decide whether to draw a grid. Telling MISS from ABSENT
+  *in ink* is worse than either: a placeholder square covers the markers for the two thirds of a
+  second a view takes to fill, which is the whole of the time anybody is looking at it. The two
+  states differ in what the client **does** - one asks for another frame, the other stops asking.
+  `ui_capture_map_draws_a_basemap_one_tile_at_a_time`.
 - **One tile is read per frame, and a tile the pack does not hold costs no read at all.** A cold
   tile is 2-5 ms on the Brick's card and a view stands on twenty of them, so a frame that filled
   the panel would be a tenth of a second with the BLE link unread. `mesh_map_source_has()` answers
-  out of the index in RAM, so an absence is learned for the price of a `bsearch` and the frame's
-  one read always goes to a tile that will arrive. What asks for the next frame is
-  `fb_basemap_pending()` through `fb_state_animating()`: a frame is otherwise a function of the
-  snapshot, and no press and no packet says a tile is on its way.
+  out of the index in RAM, so an absence costs a `bsearch` and the frame's one read always goes to
+  a tile that will arrive. What asks for the next frame is `fb_basemap_pending()`: a frame is
+  otherwise a function of the snapshot, and no press and no packet says a tile is on its way.
+  `ui_capture_map_draws_a_basemap_one_tile_at_a_time`, `ui_capture_map_stops_asking_once_it_is_left`.
 - **A marker's name is drawn five times.** A glyph carries coverage, not a mask, so text is
   blended against a colour the caller says it has just filled - which is a guess the moment a name
   stands on a street. The four extra runs are the halo in the ground colour, and they are drawn
   only where a tile is; the scale bar and the pack's attribution take a chip instead, because they
   are chrome pinned to a corner rather than things on the map.
 - **The tile cache remembers which tiles are *not* in the pack, and that table is not an
-  optimisation.** The fill loop gets one read per turn of the event loop, because a cold tile is
-  2-5 ms on the Brick's card. Every pack is a rectangle of the world with holes in it, so
-  without a record of what has already been asked for and refused, one hole on screen spends
-  that single read every turn forever and a view with any sea in it never finishes filling the
-  tiles *around* it. The holes live in a table of their own because a hole costs twelve bytes
-  and a tile costs 256 KiB, and sharing the slots would let a sparse view evict the picture to
-  remember the sea. What makes the pair safe is that **a key is in at most one of the two
-  tables** - otherwise the cache answers `READY` or `ABSENT` for one tile depending on which it
-  looks at first. It is also why a lookup answers with a *state* rather than a pointer that may
-  be NULL: `MISS` is a tile still on its way and `ABSENT` is the final picture, and they are
-  drawn differently.
+  optimisation.** The fill loop gets one read per turn of the event loop, so without a record of
+  what has been asked for and refused, one hole on screen spends that single read every turn
+  forever and a view with any sea in it never finishes filling the tiles *around* it. The holes
+  live in a table of their own because a hole costs twelve bytes and a tile costs 256 KiB, and
+  sharing the slots would let a sparse view evict the picture to remember the sea. What makes the
+  pair safe is that **a key is in at most one of the two tables** - otherwise the cache answers
+  `READY` or `ABSENT` for one tile depending on which it looks at first. It is also why a lookup
+  answers with a *state* rather than a pointer that may be NULL. `map_tile_cache`.
 - **A cached tile is in the decoder's pixel format, not the panel's, and `src/map/` may not
   learn which the panel is.** `struct fb_state` reads `bytes_per_pixel` off the kernel and it is
   not always 4, so a cache holding panel-format pixels would be the map layer including the
@@ -581,18 +550,17 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   not about a file: two packs of the same city both hold a tile at (14, 8192, 5461) and they are
   different pictures. Carried across a swap, the map draws the old pack's streets under the new
   pack's attribution, and every pixel of it is a real tile in the right place - so there is
-  nothing on the frame that looks wrong.
+  nothing on the frame that looks wrong. `map_tile_cache_clear_drops_tiles_and_holes`,
+  `ui_capture_map_forgets_the_pack_it_swapped_out`.
 - **The tile decoder's memory is static, constant, and sized for a colour type no pack
   contains.** A decode on an event loop must not pause to find memory or fail for want of it, so
-  `src/map/tile_image.c` holds two fixed blocks - 48 KiB for Wuffs' decoder and 256 KiB of
-  scratch - and allocates nothing per tile. Both numbers are **asked for and checked rather than
-  known**: Wuffs' decoder struct is opaque in C and upstream says its size is not stable across
-  versions, and the scratch is `width * bytes_per_pixel * height + width`, which scales with the
-  *file's colour type* rather than with the tile size. That second one is why the buffer is
-  sized for 8-bit RGBA (262,400 bytes) when a pack builder quantises to palette (65,792): a
-  style with transparency is an ordinary thing to publish, and a buffer sized from the palette
-  case refuses every 24-bit tile with the constant looking perfectly reasonable. Sixteen bits a
-  channel needs twice again and is refused with `-ENOTSUP` on purpose.
+  `src/map/tile_image.c` holds two fixed blocks - 48 KiB for Wuffs' decoder and 256 KiB of scratch
+  - and allocates nothing per tile. Both are **asked for and checked rather than known**: Wuffs'
+  decoder struct is opaque in C and its size is not stable across versions, and the scratch scales
+  with the *file's colour type* rather than the tile size. That is why the buffer is sized for
+  8-bit RGBA (262,400 bytes) when a builder quantises to palette (65,792): a style with
+  transparency is ordinary to publish, and a palette-sized buffer refuses every 24-bit tile with
+  the constant looking perfectly reasonable. `tile_image`.
 - **The pak is built without `--gc-sections`, so a third-party module ships whole.**
   `scripts/cross-build.sh` uses plain `-Os` with no `-ffunction-sections`, which means nothing
   is dropped *within* an object file and any code compiled into one is code that ships. It is
@@ -602,220 +570,191 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   measurement's build flags before believing it about this binary. See
   [`docs/maps-roadmap.md`](docs/maps-roadmap.md).
 - **The map has no selection field on the nav, and must not grow one.** What A opens is the
-  marker nearest the middle of the view, derived every frame by `mesh_ui_map_selected()`. That is
-  the app bar's back arrow and the transition route again: a second opinion about the nav is a
-  second opinion that can be wrong, and here it would let the ring a backend draws and the node a
-  press opens name two different nodes. It works because the distance is measured **in pixels
-  from the middle of the view**, through `mesh_map_viewport_offset()` — which is the same
-  arithmetic a placement does with the panel left off the end, so `mesh_map_viewport_place()` is
-  written in terms of it. Two properties come out of that and both are load-bearing. It needs no
-  box: the store owns the nav and a backend is handed a `const` snapshot, so the two genuinely
-  cannot ask each other how wide the body is, and anything box-dependent there is the bug. And it
-  is measured *in the projection* rather than across the ground, which is the only reading that
-  gets the poles right — a fix beyond the display limit is drawn at the limit, so a marker at 88
-  degrees north and a view framed on it are the same point on the picture and three degrees apart
-  on Earth. A geodesic distance there refuses a marker sitting under the crosshair.
+  marker nearest the middle of the view, derived every frame by `mesh_ui_map_selected()`: a second
+  opinion about the nav is one that can be wrong, and here it would let the ring a backend draws
+  and the node a press opens name two different nodes. It works because the distance is measured
+  **in pixels from the middle of the view**, through `mesh_map_viewport_offset()`. Two properties
+  follow and both are load-bearing. It needs no box: the store owns the nav and a backend is
+  handed a `const` snapshot, so anything box-dependent there is the bug. And it is measured *in
+  the projection* rather than across the ground, which is the only reading that gets the poles
+  right - a fix beyond the display limit is drawn at the limit, so a geodesic distance refuses a
+  marker sitting under the crosshair. `map_selection_names_a_thing_not_a_row`,
+  `map_selects_a_marker_the_projection_had_to_clamp`.
 - **The map's fit is computed against a declared box, not a measured one.** For the same reason:
   the nav cannot learn a backend's body size. `MESH_UI_MAP_FIT_WIDTH` is deliberately *smaller*
   than any body this client draws into, because a fit computed for a small box and drawn into a
   larger one leaves extra air, where the opposite clips a marker off the edge.
+  `map_viewport_fit`.
 - **A reply is aimed by the press that opened the sheet, not by the cursor when it sends.** A on
   a bubble records that packet id in `nav.reply_to`, and whatever is written or picked over the
   thread carries it; the transcript keeps moving underneath, so reading the cursor at send time
-  would re-aim the reply at whatever a message arriving mid-compose had slid under it. Y clears
-  it on purpose - the action bar calls Y *write*, and a new message to a conversation is not an
-  answer to the last thing said in it.
+  would re-aim the reply at whatever a message arriving mid-compose had slid under it. Y clears it
+  on purpose - the action bar calls Y *write*, and a new message to a conversation is not an
+  answer to the last thing said in it. `ui_nav_reply_and_react_name_their_target`.
 - **START on the conversation list is not A, and it is the second screen to spend it.** START
   stands in for A everywhere else; here it mutes the row under the cursor. It is spent for the
-  map's reason - there is no other key left. A opens, Y writes, X deletes, SELECT explains and
-  the shoulders walk the tabs, which is every button but B, and B means "back" on every screen
-  in the client. The action bar names the press, and it names it for the row rather than for the
-  key: "unmute" on a muted conversation, and nothing at all on the two rows that are not
-  conversations, because a keycap that does nothing is what that table exists to prevent.
-- **A mute rides `struct mesh_ui_read_mark`, and the eviction there prefers an unmuted slot.**
-  A mute and a read mark share a key and a lifetime - both are what the client remembers about
-  one conversation - so a table of its own would be a second array keyed on the same three
-  fields with a second eviction rule to keep in step. What is not shared is how much losing one
-  costs: a read mark is bookkeeping the client rebuilds by being read again, and a mute is a
-  choice, so a mute that vanished because thirty-two other conversations were opened would be a
-  setting silently undoing itself. The saved line grew a fifth field rather than a new one, and
-  the loader takes four or five - and it keeps a mark carrying *either* half, because a
-  conversation muted before it was ever read has no packet id to be saved under.
+  map's reason - there is no other key left. A opens, Y writes, X deletes, SELECT explains and the
+  shoulders walk the tabs, which is every button but B, and B means "back" on every screen in the
+  client. The action bar names the press for the *row* rather than for the key: "unmute" on a
+  muted conversation, and nothing at all on the two rows that are not conversations, because a
+  keycap that does nothing is what that table exists to prevent. `ui_nav_mute_conversation`,
+  `actions_compose_names_the_row_under_the_cursor`.
+- **A mute rides `struct mesh_ui_read_mark`, and the eviction there prefers an unmuted slot.** A
+  mute and a read mark share a key and a lifetime, so a table of its own would be a second array
+  keyed on the same three fields with a second eviction rule to keep in step. What is not shared
+  is how much losing one costs: a read mark is bookkeeping the client rebuilds by being read
+  again, and a mute is a choice, so a mute that vanished because thirty-two other conversations
+  were opened would be a setting silently undoing itself. The loader takes four fields or five,
+  and keeps a mark carrying *either* half, because a conversation muted before it was ever read
+  has no packet id to be saved under. `ui_nav_mute_survives_the_cache`.
 - **"Muted" has two inputs and one predicate.** `mesh_ui_store_conversation_muted()` reads this
   client's own flag *and* upstream's per-node `is_muted`, whose whole definition is that the node
   "will not trigger a notification" - a radio told to stop announcing a node and a Brick that
-  announced it anyway are two answers to one question. Only the local half is what START
-  toggles, and only a direct conversation has the other: the NodeDB has nothing to say about a
-  channel. One predicate rather than a field, so the tab badge, the snackbar and the row's own
-  bell cannot disagree.
+  announced it anyway are two answers to one question. Only the local half is what START toggles,
+  and only a direct conversation has the other: the NodeDB has nothing to say about a channel. One
+  predicate rather than a field, so the tab badge, the snackbar and the row's own bell cannot
+  disagree. `ui_nav_mute_conversation`, `app_unmute_reports_the_radios_mute`.
 - **A muted conversation still counts its own unread, and is missing only from the total.** The
   row goes on saying how much has piled up, one family quieter: muting is asking not to be
   interrupted, not asking to be kept in the dark. What a mute takes away is
   `mesh_ui_nav_unread_total()`, which is what the Messages tab's badge and the all-traffic row
   read - and that is also what keeps the badge worth looking at, since one busy channel outruns
   everything else on a mesh and a permanently badged tab says as much as an unbadged one.
+  `ui_nav_unread`, `ui_capture_nav_bar_badges_unread_messages`.
 - **Only the Messages tab carries a badge, and that is a rule rather than a start.** A badge has
   to be **clearable by going there**, exactly as a banner has to be able to resolve. Unread
-  messages are, because opening the conversation marks them read; a count of nodes or of
-  waypoints would be a number that never went down however often it was looked at.
+  messages are, because opening the conversation marks them read; a count of nodes or of waypoints
+  would be a number that never went down however often it was looked at.
+  `ui_capture_nav_bar_badges_unread_messages`.
 - **The transcript's unread line is captured by the press that opened the thread, not derived
-  from the read mark.** `mesh_ui_store_mark_open_conversation_read()` runs from
-  `consume_updates`, so by the time a frame is built the mark already says "all of it" and a
-  line drawn against it would sit under the newest bubble every time. `nav.thread_unread_from`
-  is the one copy of where the reader *was*, it is the reply target's pattern, and it
-  deliberately does not move while they are in there - a message arriving into an open thread
-  lands below the line rather than moving it. It is part of the thread row cache's key for the
-  same reason: leaving a conversation and coming straight back is the same log, the same indices
-  and the same target with the line somewhere else.
+  from the read mark.** `mesh_ui_store_mark_open_conversation_read()` runs from `consume_updates`,
+  so by the time a frame is built the mark already says "all of it" and a line drawn against it
+  would sit under the newest bubble every time. `nav.thread_unread_from` is the one copy of where
+  the reader *was*, and it deliberately does not move while they are in there - a message arriving
+  into an open thread lands below the line rather than moving it. It is part of the thread row
+  cache's key for the same reason. `ui_nav_unread_divider_marks_where_the_reader_was`.
 - **The unread line takes the separator slot from a date when both want it.** A bubble has one
   row above it. The date is recoverable from the clock in the bubble's own trailing run, and
   "this is where you stopped" is sayable in one place only.
 - **A read mark never lands on a reaction.** The unread count walks the log ignoring reactions
   and looks for the marked packet to know where "read" stops, so a mark on a tapback is a packet
   that walk can never meet: `mark_seen` stays false and every message in view goes on being
-  counted. A conversation whose newest entry was a tapback stayed badged however often it was
-  opened. It is also what lets the transcript find its own line, which looks for the bubble whose
+  counted. It is also what lets the transcript find its own line, which looks for the bubble whose
   predecessor is the marked one - and a reaction never gets a bubble.
+  `ui_nav_read_mark_skips_a_reaction`, `ui_store_read_revision_moves_only_when_the_mark_does`.
 - **Unmuting is reported from what it achieved, not from what it set.** Both halves can be on at
   once - muted here, then muted on the radio from the Nodes tab or by another client - and the
   local half really does clear, while the row goes on drawing itself muted because the radio is
   still muting that node. So the toast is chosen by asking
   `mesh_ui_store_conversation_muted()` again *after* the write. "Unmuted" on a row that is still
   muted is the one thing worse than a press that does nothing, which is a press that lies.
+  `app_unmute_reports_the_radios_mute`.
 - **A notification cursor that has gone missing re-places itself in silence.** When the packet
   `ui_message_announced_id` names is no longer in the log, where we had got to is unknowable, so
   the reporter takes its place again from the newest and announces none of it - exactly as a
-  launch does. The reachable way in is a *delete*, not the ring: the log holds 64 and the
-  reporter runs on every publish, so an eviction would need 64 messages between two turns of the
-  loop. Read as "everything since is new", deleting a conversation announced whatever inbound
-  message happened to be last - somebody else's, already announced, arriving a second after the
-  user pressed delete.
+  launch does. The reachable way in is a *delete*, not the ring: read as "everything since is
+  new", deleting a conversation announced whatever inbound message happened to be last - somebody
+  else's, already announced, arriving a second after the user pressed delete.
+  `app_direct_message_notice`, `app_delete_conversation`.
 - **An unmute that empties a mark takes the mark with it.** A conversation muted before it was
-  ever opened has `packet_id` 0, so clearing the mute leaves a record holding no read position
-  and no mute - and one whose stamp has just been refreshed, which under the eviction above is
-  the *last* unmuted mark to go. A genuine read position would be thrown away ahead of it, which
-  on the device reads as a conversation you had read coming back unread.
+  ever opened has `packet_id` 0, so clearing the mute leaves a record holding no read position and
+  no mute - and one whose stamp has just been refreshed, which under the eviction above is the
+  *last* unmuted mark to go. A genuine read position would be thrown away ahead of it, which on
+  the device reads as a conversation you had read coming back unread.
+  `ui_nav_unmuting_drops_a_mark_with_nothing_in_it`.
 - **A press replaces the snackbar and an arrival queues behind it, and that is two functions on
   purpose.** `mesh_ui_nav_set_toast()` supersedes what is showing because it is the client
   answering the button just pressed, and what it replaces is usually the earlier half of the same
-  story - "Connecting to NodeSeven" giving way to "NodeSeven needs pairing" is one sentence
-  finishing, and four seconds of the optimistic half before the true one is worse than losing it.
-  `mesh_ui_nav_post_toast()` is for news the user did not ask for: it has nothing to supersede,
-  and overwriting the answer to a press with it is how a button comes to look as though it did
-  nothing. A full queue drops its *oldest waiting* entry - a backlog is only worth keeping while
-  it is still news - and a repeat of what is already up is dropped, because two identical notices
-  in a row are one notice standing for eight seconds.
-- **A direct message announces itself and a broadcast never does.** It is the alert/detection
-  line one step further out: a channel is a room full of people talking, and a notice per line
-  would make the client unusable on any real mesh. Every unseen direct message is announced
-  rather than only the newest, which is where this parts company with the alerts - three alerts
-  arriving together are one situation and the last describes it, while three messages from three
-  people are three things somebody said to you. That is what the queue is for. A launch announces
-  none of it: the log is seeded from the cache before the first publish, so the first pass adopts
-  what it finds silently - and the priming is taken *before* the empty-log guard, or a client
-  that starts with no cache spends it on the first message that genuinely arrived.
+  story. `mesh_ui_nav_post_toast()` is for news the user did not ask for: it has nothing to
+  supersede, and overwriting the answer to a press with it is how a button comes to look as though
+  it did nothing. A full queue drops its *oldest waiting* entry - a backlog is only worth keeping
+  while it is still news - and a repeat of what is already up is dropped.
+  `ui_nav_toasts_queue_rather_than_overwrite`.
+- **A direct message announces itself and a broadcast never does.** A channel is a room full of
+  people talking, and a notice per line would make the client unusable on any real mesh. Every
+  unseen direct message is announced rather than only the newest, which is where this parts
+  company with the alerts - three alerts arriving together are one situation and the last describes
+  it, while three messages from three people are three things somebody said to you. A launch
+  announces none of it: the log is seeded from the cache before the first publish, and the priming
+  is taken *before* the empty-log guard, or a client starting with no cache spends it on the first
+  message that genuinely arrived. `app_direct_message_notice`.
 - **A reaction deliberately goes out without want_ack.** It has no bubble - the transcript
   filters it out and draws it as a chip on the message it names - so a delivery mark it earned
   would be one nothing on the frame could ever draw, bought with a retransmit round on a shared
   band. And a reaction with no `reply_id` is `-EINVAL` rather than an ordinary message: the whole
-  of what a tapback is, is what it is about.
+  of what a tapback is, is what it is about. `ui_nav_reactions_are_not_messages`,
+  `message_encode_reply_and_reaction`.
 - **A bubble's trailing run is typed slots, not a string, and it is dropped rather than
-  truncated.** The reactions, the padlock, the clock and the delivery mark were once
-  concatenated by the screen; the bubble measured that string, clamped its *box* to three
-  quarters of the body, and right-aligned the *string* inside the box it had clamped - so a
-  failure reason or a fourth reaction chip came out of the left edge, painting a line of the
-  message on bare background outside its own bubble. `fb_bubble_run()` now measures the parts
-  once for the measure and the draw and drops them off the *front* until they fit, so a reaction
-  chip is what is lost and the mark saying the message failed is what survives. Concatenating
-  them back into one string reintroduces the bug, and `ui_capture_bubble_contains_its_own_ink`
-  is what catches it.
+  truncated.** Concatenated by the screen, the run was right-aligned *as a string* inside a box
+  the bubble had already clamped - so a failure reason or a fourth reaction chip came out of the
+  left edge, painting a line of the message on bare background outside its own bubble.
+  `fb_bubble_run()` measures the parts once for the measure and the draw and drops them off the
+  *front* until they fit, so a reaction chip is what is lost and the mark saying the message
+  failed is what survives. `ui_capture_bubble_contains_its_own_ink`.
 - **A card in a scrolling list is wider than the rows standing in it, and its ends are square
-  wherever the window cut it.** Both look like off-by-ones and neither is. A card has to contain
-  the widest thing in it, and in a list that is the *cursor's highlight*: drawn to the same
-  rectangle - both are measured from the row gutter - the highlight lands exactly on the hairline
-  and paints it out for the length of one row, so the card loses its sides on precisely the row
-  being read and nowhere else. The edge is therefore spent outward, past the box
-  `fb_row_box()` states, and the highlight fills the card's interior, which is where Material
-  puts a state layer inside a container - which is also what makes the card, rather than the
-  row, the widest thing a list draws and so what the scroll rail clears. The square end is the same rule about honesty
-  one level up: a rounded corner halfway down a scroll is a card claiming to *end* where the panel
-  merely stopped, and a reader cannot tell that from a card that really did. The cut end keeps its
-  inset along with its corners, or the hairline runs across the cut and says it again in a
-  straight line. `fb_fill_round_rect_ends()` draws it, and
-  `ui_capture_node_detail_cards_survive_the_cursor` is what catches the first of the two - it is
-  invisible in a still of a resting screen and invisible in a count of how much card fill is on
-  the panel. It also takes the *highlight's* corner radius rather than `fb_draw_card()`'s, which
-  is the width rule on the other axis: a card still curving where the highlight has reached full
-  width lets the cursor's ends stand outside it on the first and last row of every group.
+  wherever the window cut it.** Both look like off-by-ones and neither is. The cursor's highlight
+  is measured from the same row gutter, so a card whose edge sat inside it would lose its sides on
+  precisely the row being read: the edge is spent outward, past the box `fb_row_box()` states, and
+  the highlight fills the card's interior - which is where Material puts a state layer, and what
+  makes the card rather than the row the widest thing a list draws. The square end is honesty one
+  level up: a rounded corner halfway down a scroll is a card claiming to *end* where the panel
+  merely stopped. The cut keeps its inset along with its corners, and takes the *highlight's*
+  radius rather than `fb_draw_card()`'s, or the cursor's ends stand outside the card on the first
+  and last row of every group. `ui_capture_node_detail_cards_survive_the_cursor` - invisible in a
+  still of a resting screen, and in a count of how much card fill is on the panel.
 - **A list's rows, its cards and its scroll rail are one rectangle asked for once, and the rail
-  has a gutter of its own that nothing else may enter.** `fb_row_box()` states where a list's
-  rows stand - the fill the cursor highlights, and the span its words are drawn in - and
-  `fb_rail_gutter()` is the strip kept clear beside it. Both are corrections of the same
-  arithmetic. The rectangle was derived three times (the highlight in `fb_draw_row_fill_on()`,
-  the list item's own copy, and the card surfaces under a grouped list) with a fourth opinion in
-  `fb_list_rail()` about the room left over, and the four agreed right up until the cards began
-  spending their hairline outward: the card's edge then ended on one pixel and the rail's track
-  began on the next, so on the node detail - the one screen that is a column of cards - the rail
-  read as part of the card rather than as a control beside it. The gutter is reserved on **every
-  list and whether or not the rail draws**, which is the other half: taken only when a list
-  outgrows its window, it would be a layout that reflows the moment a node reports one more
-  reading. It costs no text column at the device's scale, because the strip is narrower than a
-  cell. `ui_capture_node_detail_cards_survive_the_cursor` measures the gap.
+  has a gutter of its own that nothing else may enter.** `fb_row_box()` states where a list's rows
+  stand and `fb_rail_gutter()` is the strip kept clear beside it. The rectangle was derived three
+  times with a fourth opinion about the room left over, and the four agreed right up until the
+  cards began spending their hairline outward - the card's edge then ended on one pixel and the
+  rail's track began on the next, so the rail read as part of the card rather than as a control
+  beside it. The gutter is reserved on **every list and whether or not the rail draws**: taken
+  only when a list outgrows its window, it would be a layout that reflows the moment a node
+  reports one more reading. `ui_capture_node_detail_cards_survive_the_cursor` measures the gap.
 - **A group's heading stands between two cards rather than inside either, and a card in a list is
   padded at the bottom only.** Both are where the column's air comes from, and there is very
-  little of it: a card here is painted round row boxes that were laid out for a flat list, so the
-  only room to pad it with is whatever a heading's step is not using - a line advance less a
-  label's, nine pixels at the device's scale. Split three ways between a card's bottom, the break
-  and the next card's top, none of the three was big enough to see: two cards read as one box with
-  a rule across it, and the last row of each sat on its own edge. So the heading takes
-  `FB_LIST_NO_CARD` and stands in the break - centred in that step, because a label sat on the
-  bottom of it names the card that ended rather than the one it opens - and the two edges spend
-  the rest. The bottom takes the inset because a row's box carries its line's leading at the *top*
-  while its descenders run to the bottom edge, so padding both ends alike leaves a card
-  top-heavy by exactly that leading; the top takes the hairline instead, spent outward for the
-  reason the sides spend it. The grouping still costs no rows, which is what keeps the nav and
-  every count in the `ui_nav_nodes` suite out of it.
+  little of it: a card here is painted round row boxes laid out for a flat list, so the only room
+  to pad it with is whatever a heading's step is not using - nine pixels at the device's scale,
+  which split three ways is invisible. So the heading takes `FB_LIST_NO_CARD` and stands in the
+  break, centred in that step because a label sat on the bottom of it names the card that ended
+  rather than the one it opens. The bottom takes the inset because a row's box carries its line's
+  leading at the *top* while its descenders run to the bottom edge, so padding both ends alike
+  leaves a card top-heavy by exactly that leading. The grouping costs no rows, which is what keeps
+  the nav and every count in the `ui_nav_nodes` suite out of it. `node_detail_groups_are_unbroken_runs`.
 - **A card's rows are drawn against the card, and a control on one takes the row's *resting*
   ground rather than its current one.** The first is a glyph carrying coverage rather than a mask:
-  text told the wrong ground keeps its shape and gains a halo, so `fb_draw_row_fill_on()` takes
-  the ground and `fb_list_ground()` answers. The second is the opposite-looking rule and it is not
-  an inconsistency. A switch's ring and a meter's track bed are laid *to escape* the cursor fill -
-  both controls are contracted against what the row rests on, and on two of the four themes that
-  fill is the resting track's own colour - so handing them the current ground makes the control
-  vanish on the row being pointed at, which is the bug they were added to prevent. Words blend
-  against the fill; a patch under a control replaces it. `fb_draw_trailing()` derives the first
-  from the second so the two cannot be passed the wrong way round.
-- **A group heading is a row of the list and is not a row the cursor may stand on.** The node
-  detail and an open settings section both draw `fb_list_subheader()`, and the cursor used to
-  land on one: a full-width highlight under a dimmed word, with A doing nothing and the action
-  bar still promising "select" - the keycap-that-does-nothing `actions.c` exists to prevent, and
-  the first thing a reader met once the node detail's verbs got a heading of their own.
-  `mesh_ui_nav_skip_headings()` steps over them, and `mesh_ui_nav_cursor_to_first_row()` is what
-  the four places that open a level write instead of 0. Both **ask the built rows** rather than
-  reasoning about where a heading falls, because which rows exist depends on what the node has
-  reported and what the radio has sent - the same reason every other question about these two
-  screens is answered by building. Two consequences worth knowing before "fixing" a count: a
-  press is no longer the same number as a row (a walk to row *n* costs *n* presses minus the
-  headings passed), which is why the capture scenes' `key down` counts are checked against a
-  render, and UP off the first real row stays put rather than parking on the title above it.
+  text told the wrong ground keeps its shape and gains a halo. The second looks like an
+  inconsistency and is not. A switch's ring and a meter's track bed are laid *to escape* the
+  cursor fill, and on two of the four themes that fill is the resting track's own colour - so
+  handing them the current ground makes the control vanish on the row being pointed at, which is
+  the bug they were added to prevent. Words blend against the fill; a patch under a control
+  replaces it. `fb_draw_trailing()` derives the first from the second so the two cannot be passed
+  the wrong way round.
+- **A group heading is a row of the list and is not a row the cursor may stand on.** The cursor
+  used to land on one: a full-width highlight under a dimmed word, with A doing nothing and the
+  action bar still promising "select". `mesh_ui_nav_skip_headings()` steps over them, and
+  `mesh_ui_nav_cursor_to_first_row()` is what the four places that open a level write instead of
+  0. Both **ask the built rows** rather than reasoning about where a heading falls, because which
+  rows exist depends on what the node has reported. Two consequences before "fixing" a count: a
+  press is no longer the same number as a row, which is why the capture scenes' `key down` counts
+  are checked against a render, and UP off the first real row stays put rather than parking on the
+  title. `ui_nav_node_detail_walks_its_groups`, `node_detail_groups_are_unbroken_runs`.
 - **The Status cursor is a verb, not a position, and `cursor[MESH_UI_SCREEN_STATUS]` is unused.**
-  Status is the one screen with no rows: its cards offer verbs and Up/Down walk those, so what
-  the nav holds is `status_verb` (`enum mesh_ui_status_verb`) and the row cursor stays at 0.
-  Reading that array entry is reading a position nothing maintains. It was an index once, and
-  the index is what forced two rules that are now gone: the verb list had to be append-only, and
-  every verb had to restate the conditions of the verbs before it. `mesh_ui_status_verb_resolve()`
-  answers where a cursor whose verb has gone stands, and the verb it is holding is deliberately
-  *kept* while the screen offers none - a link that drops and comes back lands the reader on
-  their own button rather than at the top.
+  Status is the one screen with no rows: its cards offer verbs and Up/Down walk those, so the nav
+  holds `status_verb` and the row cursor stays at 0. Reading that array entry is reading a
+  position nothing maintains. It was an index once, and the index forced two rules that are now
+  gone: the verb list had to be append-only, and every verb had to restate the conditions of the
+  verbs before it. The verb a cursor holds is deliberately *kept* while the screen offers none, so
+  a link that drops and comes back lands the reader on their own button. `ui_status_cursor`,
+  `ui_status_a_new_verb_does_not_move_the_cursor`.
 - **A chart carries one vertical, so a node's temperature and its humidity are two screens.**
-  `struct fb_chart` has a single `scale` and a single pair of axis labels, and every line in it is
-  projected against that one domain - which is exactly why the airtime chart can draw two lines:
-  channel utilisation and transmit share are both permille of the same air. Degrees Celsius and
-  relative humidity are not, so a single plot of the pair would have labelled an axis only one of
-  them was measured against, which is the auto-scaling lie one step worse - an axis with numbers
-  on it gets believed. So the press on a node's row names a *reading*, `nav->node_trend` holds it,
-  and the route carries it in `slot`. Drawing them together is the fix that looks obvious and is
-  the bug.
+  `struct fb_chart` has a single `scale` and a single pair of axis labels - which is why the
+  airtime chart can draw two lines: channel utilisation and transmit share are both permille of
+  the same air. Degrees Celsius and relative humidity are not, so a single plot of the pair would
+  label an axis only one of them was measured against, which is the auto-scaling lie one step
+  worse: an axis with numbers on it gets believed. So the press names a *reading*,
+  `nav->node_trend` holds it, and the route carries it in `slot`.
+  `ui_route_a_node_chart_names_its_reading`, `history_keeps_temperature_and_humidity_apart`.
 - **Both chart screens are one renderer, and a third caller adds a description rather than a
   function.** `fb_render_chart()` takes a `struct fb_chart_screen` - the series, their labels, the
   domain, the band, and what unit the axis is *worded* in - and does everything else: the span,
@@ -824,31 +763,34 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   one picture can quietly stop being one. `actions_trend()` is shared for the same reason.
 - **A chart's span picker only narrows, and it is anchored at the newest reading rather than at
   the clock.** A span wider than the readings leaves the window at the readings' own ends, so the
-  caption under the axis names what was drawn rather than what was asked for. Anchored at "now",
-  a link that dropped twenty minutes ago would answer every span but All with an empty plot -
-  which says nothing about a radio that was reporting perfectly well until it went away. The
-  window is also cut **before** the ceiling is picked (`mesh_ui_trend_frame()` does both, in that
-  order, which is why it is one function): the other way round, narrowing to the last quarter
-  hour leaves the axis held open by a busy spell that is no longer on the panel.
+  caption names what was drawn rather than what was asked for. Anchored at "now", a link that
+  dropped twenty minutes ago would answer every span but All with an empty plot. The window is cut
+  **before** the ceiling is picked (`mesh_ui_trend_frame()` does both, in that order, which is why
+  it is one function): the other way round, narrowing to the last quarter hour leaves the axis held
+  open by a busy spell that is no longer on the panel.
+  `trend_span_narrows_the_window_and_never_pads_it`,
+  `trend_ceiling_follows_the_window_rather_than_the_ring`.
 - **A narrowed window drops the readings outside it rather than clamping them.**
   `mesh_ui_series_project_over()` holds an outside sample at the edge it fell off, which is right
   for a window taken from the series themselves - nothing is ever outside one. Over a window the
   *reader* narrowed it draws every older reading at one x: a vertical stroke up the side of the
   plot, in the data's own colour, that is not a reading of anything.
   `mesh_ui_series_project_within()` is the one a chart asks for.
+  `trend_projection_drops_readings_outside_the_window`.
 - **`nav->trend_span` is one field for both charts, and that is a claim about what it is.** Every
-  other level flag on the nav says where a tab is standing, one per tab, so each tab keeps its
-  own place. A span is not a place - it is how the reader likes their charts read, which is the
-  theme's kind of setting - so narrowing the airtime chart and opening a node's temperature finds
-  the same span picked. `mesh_ui_nav_init()` sets it to `MESH_UI_TREND_SPAN_ALL` rather than
-  leaving the zero, which is the narrowest: All is what the screen did before there was a picker.
+  other level flag on the nav says where a tab is standing, one per tab, so each tab keeps its own
+  place. A span is not a place - it is how the reader likes their charts read, which is the theme's
+  kind of setting - so narrowing the airtime chart and opening a node's temperature finds the same
+  span picked. `mesh_ui_nav_init()` sets it to `MESH_UI_TREND_SPAN_ALL` rather than leaving the
+  zero, which is the narrowest: All is what the screen did before there was a picker.
+  `trend_span_is_one_choice_across_both_charts`.
 - **A node chart takes its whole statement off the row it was opened from, and must not switch on
-  the reading itself.** `fb_render_node_trend()` rebuilds the detail's rows and finds the one
-  whose `trend_reading` matches the nav, then reads the series, the domain, the band and the words
-  out of it. Those four have to agree, and they agree by being one row: a renderer that looked up
-  the series by reading and the scale by a switch of its own would be the node detail's opinion
-  about what a temperature is measured between and the chart's, and the first thing it would get
-  wrong is the day one of them changed. Same rule as `status.c`'s verb table, one tab over.
+  the reading itself.** `fb_render_node_trend()` rebuilds the detail's rows and finds the one whose
+  `trend_reading` matches the nav, then reads the series, the domain, the band and the words out of
+  it. Those four have to agree, and they agree by being one row: a renderer that looked up the
+  series by reading and the scale by a switch of its own would be the node detail's opinion about
+  what a temperature is measured between and the chart's, and the first thing it would get wrong is
+  the day one of them changed. `ui_nav_node_trend_keeps_the_row_it_was_opened_from`.
 - **The temperature and humidity bands are about the node, not about the weather.** Nothing in
   this client knows whether 35 degrees of air is pleasant, and a band coloured for *that* would be
   an opinion it has no business having. `MESH_UI_TEMPERATURE_WARM` and `MESH_UI_HUMIDITY_DAMP` are
@@ -861,43 +803,45 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   battery's struct, a sensor reading would be sampled once per battery report and dropped whenever
   the battery held still - a temperature series on the wrong clock. And an EnvironmentMetrics
   carrying neither reading takes no slot, or a barometer would evict the node somebody is watching.
+  `store_records_node_environment_on_its_own_schedule`, `history_keeps_temperature_and_humidity_apart`.
 - **The chart swallows the d-pad and A, and does not take the shoulders.** It is the map's split
-  in reverse. The map takes the four directions because Left there means "look west"; the chart
-  takes Up and Down because there is nothing on it to move - and what a press would otherwise
-  fall through to is the Status cards, where Down moves a cursor nobody can see and A runs
-  whichever verb it lands on. **Left and Right it takes because there *is* something to move**:
-  the span picker over the plot is the only control on the screen, and until it existed those two
-  presses fell through to the tabs. The shoulders stay the tab switch they are everywhere, which
-  is what pays for the d-pad here exactly as it does on the map, and `trend_open` outliving a
-  change of tab is why the key handler checks `nav->screen` as well.
+  in reverse. Up and Down it takes because there is nothing on the plot to move, and what a press
+  would otherwise fall through to is the Status cards, where Down moves a cursor nobody can see
+  and A runs whichever verb it lands on. **Left and Right it takes because there *is* something to
+  move**: the span picker is the only control on the screen. The shoulders stay the tab switch
+  they are everywhere, which is what pays for the d-pad here exactly as it does on the map, and
+  `trend_open` outliving a change of tab is why the handler checks `nav->screen` as well.
+  `trend_left_and_right_walk_the_span_not_the_tabs`, `ui_status_trend_opens_swallows_and_closes`.
 - **Two lines on one chart are projected over a window neither of them owns.**
   `mesh_ui_series_project()` stretches a series across its own span, which is right for a line
-  drawn alone and wrong beside a second one: a series that stopped reporting is drawn as though
-  it were still arriving. `mesh_ui_series_window()` is the union of the clocks and
-  `mesh_ui_series_project_over()` places every line on it.
+  drawn alone and wrong beside a second one: a series that stopped reporting is drawn as though it
+  were still arriving. `mesh_ui_series_window()` is the union of the clocks and
+  `mesh_ui_series_project_over()` places every line on it. `series_share_one_window_across_a_chart`.
 - **A chart's line is drawn thicker than a sparkline's on purpose.** A series colour promises
   1.4:1 and that was measured on the width of a bar - the palette is a fill's contract, never an
   ink's - so a hairline in one of those colours is a line the reader has to hunt for. The room a
   chart has is spent making the mark wide enough to be the fill the palette was validated for.
+  `ui_theme_validate_holds_the_series_palette`.
 - **The crash handler builds no strings, and walks the stack through a pipe.** Both look
   roundabout and both are load-bearing. A signal handler may not call `printf` or `malloc` - a
-  fault inside the allocator leaves its lock held and a handler that takes it deadlocks instead
-  of reporting - so the report's path, the load base and every heading are built at *install*
-  time and the handler only formats integers into `write()`. And the frame walk probes each
-  address by writing it to a pipe made at install: an unreadable page comes back as `EFAULT`
-  rather than as a second SIGSEGV inside the handler for the first one. The ordering is a safety
-  property too: headings, notes and the log tail go down before the registers are touched, so a
-  handler that dies part way has already saved the useful half. **Re-raising at the end is not
-  tidiness either** - a handler that returned or `_exit`ed would report a clean exit for a
-  process that faulted, and the launcher would believe it.
+  fault inside the allocator leaves its lock held and a handler that takes it deadlocks instead of
+  reporting - so the report's path, the load base and every heading are built at *install* time
+  and the handler only formats integers into `write()`. The frame walk probes each address by
+  writing it to a pipe made at install: an unreadable page comes back as `EFAULT` rather than as a
+  second SIGSEGV inside the handler for the first one. The ordering is a safety property too:
+  headings, notes and the log tail go down before the registers are touched, so a handler that
+  dies part way has already saved the useful half. **Re-raising at the end is not tidiness
+  either** - a handler that returned or `_exit`ed would report a clean exit for a process that
+  faulted, and the launcher would believe it. `crash_handler_writes_a_report_from_a_real_fault`,
+  `crash_report_carries_its_notes`.
 - **The crash report does not promise to be free of private data, and must not start.** Its
-  header claimed to carry no message text, no names and no coordinates; the log tail it carries
-  is the *ordinary* log, which says `Sent "%s" to %s`, names channels and waypoints, and prints a
+  header claimed to carry no message text, no names and no coordinates; the log tail it carries is
+  the *ordinary* log, which says `Sent "%s" to %s`, names channels and waypoints, and prints a
   hand-entered position as the two numbers typed. A user attaching the file *because it said it
   was safe* would publish exactly what it promised was absent. The header names those categories
   instead - a reader can act on "it may quote a message you sent" and cannot act on an assurance
   that is false. Redacting the ring means the logger knowing which of its arguments are private,
-  which is a bigger feature than the report.
+  which is a bigger feature than the report. `crash_report_carries_its_notes`.
 - **The handler runs on an alternate signal stack, and SA_ONSTACK is not belt-and-braces.** When
   the fault *is* the stack running out, the kernel has nowhere to build the signal frame and
   cannot deliver the signal at all - so the crash with the most interesting backtrace in it is
@@ -911,11 +855,13 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   Asked on demand, the flag flips the moment *this* run writes its own report - so the client
   starts telling the user it has crashed while they are still using it, and the banner appears
   underneath a fault that has not finished happening.
+  `crash_report_waiting_is_read_once_at_install`.
 - **`mesh_ui_screen_id()` is not `mesh_ui_screen_name()`.** The first is the untranslated
   identifier ("nodes", "settings") that a capture scene names a tab with and a crash report names
   a place with; the second is the tab's label out of the catalog, in whatever language is in
   force. Using the name for either would mean a scene that only runs under one locale, and a bug
   report arriving in a language the maintainer may not read.
+  `ui_route_describes_a_place_without_a_locale`.
 - **The framebuffer needs all three steps** — draw page 0, `FBIOPAN_DISPLAY`, mirror into page 1
   — or the screen is black.
 - **`deploy-start` kills NextUI's launcher with `SIGKILL`, and `TERM` there powers the Brick
@@ -942,28 +888,29 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   locale skeleton.
 - **A card's verbs are on its heading line, not in a row under its content.** Every phone puts
   card actions at the bottom, and that is how it was first written. It cost a row of content per
-  card carrying a verb, and the screen it cost them on is the one that can outgrow its panel -
-  the Status tab lost the TX queue and the reboot count off the end of the Radio card. A heading
-  is three or four cells of a line that is otherwise empty; the verbs go in the rest of it, at
-  the chrome scale, and cost nothing.
+  card carrying a verb, and the screen it cost them on is the one that can outgrow its panel - the
+  Status tab lost the TX queue and the reboot count off the end of the Radio card. A heading is
+  three or four cells of a line that is otherwise empty; the verbs go in the rest of it, at the
+  chrome scale, and cost nothing.
 - **The screen progress bar deliberately costs no body row, and the banner deliberately costs
   rows.** They are the moving half and the settled half of one idea: a request already sent must
   not reflow the list it went out from, so the bar hangs in the gap the navigation bar already
-  leaves and takes a `const` layout; a banner is content about the client, so it consumes rows
-  and hands back what is left, exactly as the app bar does. Which states raise either is
+  leaves and takes a `const` layout; a banner is content about the client, so it consumes rows and
+  hands back what is left, exactly as the app bar does. Which states raise either is
   `src/ui/chrome.c`, never a renderer.
+  `ui_capture_progress_costs_no_row_and_the_banner_costs_rows`.
 - **A banner says only what nothing else on the frame says, and must be able to resolve.** That
-  is why there is no "radio disconnected" banner - the status line under the keycaps already
-  says it on every frame - why the update banner stands down inside Settings > About, and why an
-  update a build cannot install raises nothing. There is no dismissal, on purpose: dismissal is
-  a nav change, and refusing it is what keeps the table to states that go away on their own.
+  is why there is no "radio disconnected" banner - the status line under the keycaps already says
+  it on every frame - why the update banner stands down inside Settings > About, and why an update
+  a build cannot install raises nothing. There is no dismissal, on purpose: dismissal is a nav
+  change, and refusing it is what keeps the table to states that go away on their own.
+  `ui_chrome_banner`.
 - **The Status verb list is written in the order the cards draw, and that is the whole of its
   ordering rule.** Link, then Mesh, then Radio - so Down walks down the screen. It was ordered by
   when each verb was added, because the cursor was an index and a verb arriving anywhere but the
-  end changed what A did; the trend therefore sat after the Radio card's refresh while its card
-  is the middle one. A verb added to `k_status_verbs[]` goes where its card is, and states its
-  own condition and nothing else's - which is why the trend needs neither the link nor the
-  handshake, only a line to draw.
+  end changed what A did; the trend therefore sat after the Radio card's refresh while its card is
+  the middle one. A verb added to `k_status_verbs[]` goes where its card is, and states its own
+  condition and nothing else's. `ui_status_verbs_stay_in_card_order`.
 - **A card's focus ring is painted inward and is not part of its layout.** The card's edge is in
   the content inset and in the box height, so a ring that widened it would make a card grow when
   the cursor arrived and shift every card below it.
@@ -974,71 +921,65 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   default", and on LoRa's transmit power "as much as this radio has". Neither is a quantity, so
   `SCALE_PRESETS_AFTER_ZERO()` stands it outside the track and the row draws its stops with no
   handle anywhere - drawn the other way, `max` reported itself at the empty end of its own bar.
-  The same goes for a list that merely *starts* above zero (map reporting, neighbour info): the
-  test is anything under the first stop, not the field's word for it. And the stops are cut into
-  the track **after** both halves are filled, exactly as a meter's band boundaries are - painted
-  before the fill they are gaps the fill closes, and a full track shows none of them.
-  Which lists are a scale at all is stated per field (`SCALE_PRESETS` / `NAMED_PRESETS`) and is
-  not derivable: `{0, 1, ... 7}` is a hop limit under one field and a GPIO pin under the next.
-- **The settings edit buffer's width is a `sizeof`, not a number, and raising it by hand is
-  what that replaced.** `MESH_UI_SETTING_TEXT_MAX` is the size of a union of every TEXT and KEY
-  field's bytes plus its NUL (`include/mesh/ui/settings_text.def`, read once in `nav.h` for the
-  width and once in `settings_internal.h` for the per-field limits a `k_fields` row names), so
-  the buffer *is* the widest field and a wider field widens it by being listed. It was a
-  constant raised twice, once per module that outgrew it, and the failure when it was too small
-  was silent: `mesh_ui_nav_settings_commit_text()` cuts what does not fit, so a radio that would
-  have taken the whole string was sent part of one with nothing on the frame saying so. A field
-  written with a bare limit the def does not know about fails
-  `settings_text_fields_fit_the_edit_buffer` rather than being truncated at the keyboard.
+  The same goes for a list that merely *starts* above zero: the test is anything under the first
+  stop, not the field's word for it. The stops are cut into the track **after** both halves are
+  filled, exactly as a meter's band boundaries are. Which lists are a scale at all is stated per
+  field and is not derivable: `{0, 1, ... 7}` is a hop limit under one field and a GPIO pin under
+  the next. `ui_settings_number`, `ui_capture_slider`.
+- **The settings edit buffer's width is a `sizeof`, not a number, and raising it by hand is what
+  that replaced.** `MESH_UI_SETTING_TEXT_MAX` is the size of a union of every TEXT and KEY field's
+  bytes plus its NUL (`include/mesh/ui/settings_text.def`), so the buffer *is* the widest field
+  and a wider field widens it by being listed. It was a constant raised twice, once per module
+  that outgrew it, and the failure when it was too small was silent:
+  `mesh_ui_nav_settings_commit_text()` cuts what does not fit, so a radio that would have taken
+  the whole string was sent part of one with nothing on the frame saying so.
+  `settings_text_fields_fit_the_edit_buffer`.
 - **Three settings rows are shown and cannot be pressed, and that is the point.** The radio's
   screen and settings locks (`store_ui_config` can turn them on and no verb turns them off, and
   the PIN behind them is not on the wire), the **ringtone** (RTTTL is 231 bytes against a
   `MESH_UI_SETTING_TEXT_MAX` of 80, and a d-pad keyboard is not a way to enter one), and the
-  radio's **language** - which is the only enum in the client whose wire values are not
-  `0..n-1`: they run 0..19 and then jump to 30 and 31, while every enum row steps by
-  `(value + 1) % count`, is named by value, and is drawn by a segmented button that names by
-  *index*. Offering it is an index/value split across three files, not a row. All three follow
-  the rule the MQTT proxy row set: a setting that cannot be pressed is still the answer to why
-  the radio is behaving as it is.
+  radio's **language** - the only enum in the client whose wire values are not `0..n-1`: they run
+  0..19 and then jump to 30 and 31, while every enum row steps by `(value + 1) % count`, is named
+  by value, and is drawn by a segmented button that names by *index*. Offering it is an
+  index/value split across three files, not a row. All three follow the rule the MQTT proxy row
+  set: a setting that cannot be pressed is still the answer to why the radio is behaving as it is.
+  `ui_settings_radio_ui_and_canned`.
 - **`DeviceUIConfig` is kept whole and written back whole.** It carries a touchscreen
   `calibration_data` blob and a map home point the client has no rows for, so a
   `store_ui_config` built from the rows alone would erase a screen's calibration - invisibly,
   until somebody touched their radio.
-- **The canned message slots are six of 32 characters because the wire is one 200-byte
-  string.** The count and the length are one decision, not two: six plus five separators is
-  197 and seven would not fit. Empty slots are listed (the Channels rule), and a radio holding
-  more than six keeps them - the save copies the tail across and closes the gaps an emptied
-  slot leaves, the way a cleared admin key is compacted.
+- **The canned message slots are six of 32 characters because the wire is one 200-byte string.**
+  The count and the length are one decision, not two: six plus five separators is 197 and seven
+  would not fit. Empty slots are listed (the Channels rule), and a radio holding more than six
+  keeps them - the save copies the tail across and closes the gaps an emptied slot leaves, the way
+  a cleared admin key is compacted. `ui_nav_canned_separator`, `ui_canned_load`.
 - **A column of cards reserves room for its last card, and the reservation yields rather than
-  erasing the card making it.** Cards are drawn top down and each takes what it wants, so the
-  last one pays for everything above it - and `fb_draw_card()` pays by refusing the card
-  outright rather than by clipping it. That is worse than losing rows, because a card carries
-  *verbs*: `mesh_ui_status_actions()` offers `refresh` from the link state alone and has no idea
-  what was drawn, so the cursor walked onto a button that was not on the frame. It is the rule
-  below reached from the layout side instead of the row-count side, and it was already happening
-  on `main` - the airtime block cost four rows, two of them a trend line arriving on the second
-  LocalStats report a few minutes after connecting. `fb_draw_card_reserving()` is the fix; the
-  Status screen is the one caller, which is why its Radio card is built into a local of its own
-  and drawn after the Mesh card that reserved for it. A reservation that cannot be afforded is
-  dropped, because two cards missing is not an improvement on one. **How much to reserve is a
-  reading rather than a constant**: `fb_card_min_height()` promises the card exists and
-  `fb_card_height()` promises it can say everything, and the Status screen picks between them on
-  `radio_tone` - the same reading that picks that card's variant. A card whose every row appears
-  only when something is broken is the wrong card to hand a minimum, and under one the radio's
-  own account of why nothing worked was clipped while the Mesh card kept its message ring.
+  erasing the card making it.** Cards are drawn top down and each takes what it wants, so the last
+  one pays for everything above it - and `fb_draw_card()` pays by refusing the card outright
+  rather than by clipping it. That is worse than losing rows, because a card carries *verbs*:
+  `mesh_ui_status_actions()` offers `refresh` from the link state alone and has no idea what was
+  drawn, so the cursor walked onto a button that was not on the frame.
+  `fb_draw_card_reserving()` is the fix; the Status screen is the one caller. A reservation that
+  cannot be afforded is dropped, because two cards missing is not an improvement on one. **How
+  much to reserve is a reading rather than a constant**: `fb_card_min_height()` promises the card
+  exists and `fb_card_height()` promises it can say everything, and the Status screen picks
+  between them on `radio_tone`. A card whose every row appears only when something is broken is
+  the wrong card to hand a minimum, and under one the radio's own account of why nothing worked
+  was clipped while the Mesh card kept its message ring.
+  `ui_capture_status_keeps_the_last_card_when_the_one_above_overflows`.
 - **A card that can end up with no rows must not be given a verb.** A card with no rows is not
   drawn, and a verb on an undrawn card leaves the action bar naming a press whose button is not
   on the frame. That is why the Radio card says "no report yet" rather than disappearing when
   the radio has told us nothing about itself.
 - **A replayed message has no date, and that is what makes the de-duplication work.**
-  `mesh.proto` says of `rx_time` that the field "is _never_ sent on the radio link itself (to
-  save space)", so the stamp on a Store & Forward replay is *our own* radio marking when the
-  replay landed, not when the message was said - and the `StoreAndForward` `text` variant
-  carries no timestamp to use instead. Copying it would date the whole window at the minute it
-  was fetched, and would defeat `mesh_message_log_holds_replay()`, whose stamp comparison only
-  falls through to the text when one side is 0. The SNR, the hop count and the padlock are left
-  off for the same reason the roster is not touched: they measure the router's link, not the
-  sender's.
+  `mesh.proto` says of `rx_time` that the field "is _never_ sent on the radio link itself (to save
+  space)", so the stamp on a Store & Forward replay is *our own* radio marking when the replay
+  landed, not when the message was said - and the `StoreAndForward` `text` variant carries no
+  timestamp to use instead. Copying it would date the whole window at the minute it was fetched,
+  and would defeat `mesh_message_log_holds_replay()`, whose stamp comparison only falls through to
+  the text when one side is 0. The SNR, the hop count and the padlock are left off for the same
+  reason the roster is not touched: they measure the router's link, not the sender's.
+  `store_forward_replay`.
 - **A replayed message has a packet id, and it is not its own.** A Store & Forward router wraps
   the message in a packet of its own, so the id on the copy identifies the *delivery*; the
   original we may already be holding has a different one. That is why
@@ -1046,23 +987,28 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   stamp when both copies carry one - rather than on the id, and why the replayed entry's own
   `packet_id` is left at 0 rather than filled with a number that would look like a correlation
   handle. Without it, one press puts a second copy of the last four hours under the first.
+  `store_forward_replay_skips_what_we_already_had`.
 - **A replay counts twice, and the two numbers are different facts.** A router hands back its
   whole configured window, which for a client that was off for ten minutes is mostly traffic it
-  heard live - so `received` is the router's work and `stored` is the user's gain, and a row
-  saying "30 messages" about a replay that added none of them would be describing the wrong one.
+  heard live - so `received` is the router's work and `stored` is the user's gain, and a row saying
+  "30 messages" about a replay that added none of them would be describing the wrong one.
+  `store_forward_rows_say_what_the_request_did`.
 - **The history request looks for a router before it asks one, and never broadcasts itself.** A
-  router announces itself every fifteen minutes by default, so a client that could only ask one
-  it had already heard from would be useless in the minutes after a boot: with none known the
-  press broadcasts a `CLIENT_PING` and the real request follows the pong. A broadcast
-  `CLIENT_HISTORY` would have every router on the mesh replay its window at once, and
-  `mesh_store_forward_encode()` refuses one.
-- **The history cursor belongs to one router, and hearing another drops it.** The `.proto`
-  calls it an index into *the server's* packet history, so sending router A's `last_request` to
-  router B asks B to skip to a position in a table it does not have - B would silently return
-  fewer messages, which is this feature failing in the one direction no screen could show. The
-  rank and the statistics go with it. While a request is running, an announcement or a refusal
-  from any other node is ignored; a replayed *message* cannot be checked that way, because its
-  envelope names the sender rather than the router that relayed it.
+  router announces itself every fifteen minutes by default, so a client that could only ask one it
+  had already heard from would be useless in the minutes after a boot: with none known the press
+  broadcasts a `CLIENT_PING` and the real request follows the pong. A broadcast `CLIENT_HISTORY`
+  would have every router on the mesh replay its window at once.
+  `store_forward_finds_a_router_then_asks_it`,
+  `store_forward_refuses_to_broadcast_a_history_request`.
+- **The history cursor belongs to one router, and hearing another drops it.** The `.proto` calls
+  it an index into *the server's* packet history, so sending router A's `last_request` to router B
+  asks B to skip to a position in a table it does not have - B would silently return fewer
+  messages, which is this feature failing in the one direction no screen could show. The rank and
+  the statistics go with it. While a request is running, an announcement or a refusal from any
+  other node is ignored; a replayed *message* cannot be checked that way, because its envelope
+  names the sender rather than the router that relayed it.
+  `store_forward_a_second_router_is_a_clean_slate`,
+  `store_forward_only_the_router_we_asked_may_answer`.
 - **The follow-up request goes out from the tick, not from the ingest that armed it.** The pong
   arrives on the link's read path, and writing back down the link on the same turn is what the
   admin queue's queue-here-drain-there split exists to avoid.
@@ -1072,31 +1018,30 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   what looks like another copy of the thing it is deleting is the protocol, not a bug - and it
   only sends one when `locked_to` says this client may, because asking the whole mesh to forget
   somebody else's place is not ours to do. The local entry goes either way.
+  `waypoint_expiry_and_withdrawal`, `waypoint_send_keeps_whose_place_it_is`.
 - **A waypoint's expiry is only honoured once we know what time it is, and a tombstone always
-  is.** The Brick has no RTC battery, so with no network it boots into the epoch and
-  `time(NULL)` is a small positive number - which means "has this expired?" is usually
-  unanswerable, and answering it from that clock would report every deadline as decades away.
-  But "was this expiry a moment in 1970?" needs no clock at all, and that is exactly what a
-  withdrawal is. Hence the two halves of `mesh_waypoint_state()`, and hence
-  **`mesh_time_wall_credible_s()`**: `mesh_time_wall_s()` answers whatever the machine says,
-  which is what an *age* wants because every caller that draws one already refuses a negative or
-  enormous one, and a *deadline* has no such safety. Expiry is read against the credible clock
-  in all three places that read it - ingest (a place that arrived expired is dropped),
-  `mesh_session_tick()` (nothing re-announces an expiry, so the clock is the only thing that can
-  retire one) and the detail's countdown.
+  is.** The Brick has no RTC battery, so with no network it boots into the epoch and `time(NULL)`
+  is a small positive number - which means "has this expired?" is usually unanswerable, and
+  answering it from that clock would report every deadline as decades away. But "was this expiry a
+  moment in 1970?" needs no clock at all, and that is exactly what a withdrawal is. Hence the two
+  halves of `mesh_waypoint_state()`, and hence **`mesh_time_wall_credible_s()`**:
+  `mesh_time_wall_s()` answers whatever the machine says, which is what an *age* wants because
+  every caller that draws one already refuses a negative or enormous one, and a *deadline* has no
+  such safety. `waypoint_dated_expiry_is_honoured`, `time_wall_clock_credibility`.
 - **The waypoint book is a table keyed by id, not a ring.** Upstream *edits* a waypoint by
-  re-broadcasting it with the same id, so the second copy lands on the first. The message log
-  next door does the opposite on purpose - two packets are two things that happened - and a
-  waypoint arriving twice is one place that moved.
-- **A place this client made is kept even when the send fails, and `-ENOTCONN` still stores
-  it.** Naming a place is not a message that failed to go out: it is something the user made, it
-  is theirs with or without a radio, and the next share re-broadcasts the same id. That is why
+  re-broadcasting it with the same id, so the second copy lands on the first. The message log next
+  door does the opposite on purpose - two packets are two things that happened - and a waypoint
+  arriving twice is one place that moved. `waypoint_same_id_is_an_edit`.
+- **A place this client made is kept even when the send fails, and `-ENOTCONN` still stores it.**
+  Naming a place is not a message that failed to go out: it is something the user made, it is
+  theirs with or without a radio, and the next share re-broadcasts the same id. That is why
   `mesh_session_send_waypoint()` does not check the link before storing.
+  `waypoint_book_keeps_our_own_places`.
 - **A radio swap takes the waypoints with the roster, and a reconnect does not.** This is the
-  roster's rule rather than the message log's, and the channel index is why: a message's channel
-  is a label on something that already happened, while a waypoint's is an index into the channel
-  table the swap has just discarded - so a place carried across would have "Share it again"
-  broadcast on whatever slot that number names on the *new* radio.
+  roster's rule rather than the message log's, and the channel index is why: a message's channel is
+  a label on something that already happened, while a waypoint's is an index into the channel table
+  the swap has just discarded - so a place carried across would have "Share it again" broadcast on
+  whatever slot that number names on the *new* radio. `waypoint_book_follows_the_radio`.
 - **Waypoints are deliberately not persisted with the roster.** The roster is what we *know* and
   is worth keeping because a node the radio evicted is gone for good; a waypoint lives on the
   mesh and its sharer can withdraw it. A cache would put back places the mesh had already agreed
@@ -1113,54 +1058,53 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   into every backend and every test that draws a screen. `MESH_UI_MESSAGE_TEXT_MAX` already does
   the same, and `waypoint_limits_agree_across_the_seam` is what holds the two honest.
 - **A fix carries two clocks and the row says which one it is answering with.** `Position` has
-  `timestamp` (when the GPS solved) and `time` (the sender's own clock, which upstream leaves
-  off the mesh to save space, so it is usually 0); neither is when the packet reached us, which
-  is why `mesh_node_position` also keeps `received`. The node detail draws **Fix** against the
-  node's own dating and **Fix heard** against ours, and the label change is the point - falling
-  back silently would put our arrival time under a heading that reads as the node's. `last_heard`
-  is not a candidate for either: it advances on any packet, so a chatty node that has not moved
-  in a day would report a one-minute-old fix.
-- **A `precision_bits` of 0 on a received fix means "the node did not say", not "off".** The
-  same `mesh_ui_settings_format_precision()` renders 0 as *off* for the channel's own
+  `timestamp` (when the GPS solved) and `time` (the sender's own clock, which upstream leaves off
+  the mesh to save space, so it is usually 0); neither is when the packet reached us, which is why
+  `mesh_node_position` also keeps `received`. The node detail draws **Fix** against the node's own
+  dating and **Fix heard** against ours, and the label change is the point - falling back silently
+  would put our arrival time under a heading that reads as the node's. `last_heard` is not a
+  candidate for either: it advances on any packet, so a chatty node that has not moved in a day
+  would report a one-minute-old fix. `session_position_clocks_and_range`,
+  `ui_node_detail_position_honesty`.
+- **A `precision_bits` of 0 on a received fix means "the node did not say", not "off".** The same
+  `mesh_ui_settings_format_precision()` renders 0 as *off* for the channel's own
   `position_precision`, where it is a setting with an off state; on a fix off the air it is an
-  absent field, so the node detail guards on `> 0` and draws no row rather than asking. And the
-  row reads a distance rather than a bit count because a bit count is not a fact a reader can
-  act on - the one table answers for both screens so a rounded location cannot be described two
-  ways.
+  absent field, so the node detail guards on `> 0` and draws no row rather than asking. And the row
+  reads a distance rather than a bit count because a bit count is not a fact a reader can act on -
+  the one table answers for both screens so a rounded location cannot be described two ways.
+  `ui_node_detail_position_honesty`, `ui_settings_coords`.
 - **`(0, 0)` is a valid coordinate.** It is where a node with a half-initialised GPS most often
-  claims to be, and it is also a real point in the Gulf of Guinea. `mesh_geo_coords_valid()` is
-  a *range* check and nothing more; rejecting Null Island there would be a guess about the
-  sender's firmware in a range check's clothes. A packet with no coordinates at all is the
-  separate question, and its answer is to keep the last fix rather than to erase it.
+  claims to be, and it is also a real point in the Gulf of Guinea. `mesh_geo_coords_valid()` is a
+  *range* check and nothing more; rejecting Null Island there would be a guess about the sender's
+  firmware in a range check's clothes. A packet with no coordinates at all is the separate
+  question, and its answer is to keep the last fix rather than to erase it. `geo_coords_range`,
+  `waypoint_refuses_a_coordinate_off_earth`.
 - **A font's cell height is not its cap height.** Anything sized to stand beside the text - an
-  icon in a row slot - uses `mesh_ui_font_cap()`. They are equal for `5x7`, whose capitals fill
-  its cell, and they are not for a face with real ascenders and descenders; using the cell there
-  makes every icon a seventh too big and overflows the confirm dialog's panel.
+  icon in a row slot - uses `mesh_ui_font_cap()`. They are equal for `5x7`, whose capitals fill its
+  cell, and they are not for a face with real ascenders and descenders; using the cell there makes
+  every icon a seventh too big and overflows the confirm dialog's panel. `ui_theme_fonts_cap_height`.
 - **Neither `include/mesh/i18n/catalog.def` nor `include/mesh/ui/icons.def` is a header, and
   `make format` does not touch either.** Each is included several times with the macros defined
   differently each time, which is what keeps the enum, the table and - for the catalog - the
-  translation template from drifting apart. Their `.def` extension is why clang-format leaves
-  the tables alone.
+  translation template from drifting apart. Their `.def` extension is why clang-format leaves the
+  tables alone. `i18n_catalog_is_complete`, `icon_table_covers_every_id`.
 - **The Status card's counters are split by direction, and only the received side gets a bar.**
   Sent is tx, relayed and dropped; Heard is new, dupe and bad with a divided bar under it. They
   look like the same kind of row and they are not. `num_packets_rx` is documented as everything
-  received, good and bad, with the duplicates among it - so those three are a *partition* of it
-  and a divided bar is a true picture. `num_tx_relay` is a **subset** of `num_packets_tx` rather
-  than a sibling of it, so the Sent row's three numbers add up to a whole that does not exist,
-  and a bar there would be `fb_draw_proportion()`'s one way of being wrong quietly: overlapping
-  parts still sum to something, and the picture drawn from them is confident. The partition is
-  checked at the call site as well as reasoned about - two counters off the air have no promise
-  of agreeing with a third, and a remainder that comes out negative skips the row rather than
-  clamping to zero, which would draw a bar claiming every packet the radio heard was malformed.
-  The received *total* is deliberately not a fourth number on the Heard row: it is the sum of the
-  three and the length of the bar, and the row that used to state it also restated two of the
-  three parts under a heading that read as a fault.
+  received, good and bad, with the duplicates among it - so those three are a *partition* of it and
+  a divided bar is a true picture. `num_tx_relay` is a **subset** of `num_packets_tx` rather than a
+  sibling of it, so the Sent row's three numbers add up to a whole that does not exist, and a bar
+  there would be `fb_draw_proportion()`'s one way of being wrong quietly: overlapping parts still
+  sum to something, and the picture drawn from them is confident. The partition is checked at the
+  call site as well as reasoned about, and a remainder that comes out negative skips the row rather
+  than clamping to zero, which would draw a bar claiming every packet the radio heard was
+  malformed. `ui_status_card_shares_are_slices_of_the_list`, `ui_layout_proportion_split`.
 - **Both counter rows take their tone from a share, never from a count.** These are lifetime
   totals since the radio booted, so a colour read off an absolute lights once and then stays lit
   for the rest of the connection - twelve malformed packets in six thousand is what the row this
   replaced spent its warning on. A ratio recovers as the radio runs well. The live half is
-  elsewhere on purpose: the Radio card's TX queue row goes to the error family the moment the
-  radio is refusing sends *now*, which is the alarm, where these are the tally.
+  elsewhere on purpose: the Radio card's TX queue row goes to the error family the moment the radio
+  is refusing sends *now*, which is the alarm, where these are the tally.
 - **Two rows of the Link card stand down while a radio is attached, and it is not a missing
   else.** `fb_link_summary()` builds the line under the keycaps out of `transport_status` and
   `fb_device_label()` of the connected device, on every frame of every screen - so with a link up
@@ -1171,98 +1115,99 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   saying it is a question about the state, not about the row.
 - **A series colour is not a tone, and the avatar tints are not a series palette.** Both are
   tables of colours in `theme.c` and they answer different questions. A tone means good, bad or
-  caution; a series colour means *which part*, and nothing else. An avatar tint is picked by a
-  hash so it only owes variety, and a theme may state fewer of them; a series colour is picked by
+  caution; a series colour means *which part*, and nothing else. An avatar tint is picked by a hash
+  so it only owes variety, and a theme may state fewer of them; a series colour is picked by
   position, so slice 0 is the same colour on every frame and every theme states all four. The
   contract is luminance rather than hue - 1.4:1 against the grounds *and against each other* -
   which is why the colour-blind theme spends four of Okabe-Ito's eight rather than any four: its
   sky blue and its orange are 1.02:1 apart in lightness, so as adjacent slices they are one slice.
+  `ui_theme_series_palette`, `ui_theme_validate_holds_the_series_palette`.
 - **A trend's axes are not its data, and the one exception is stated on the axis.** A sparkline's
   x is *time* and its y is the reading's own `struct mesh_ui_scale` - the same one the bar beside
   it fills against - never the range the samples happen to span. What a *chart* may do, and a
   sparkline may not, is contract that domain's **ceiling** to a rung of a fixed ladder
-  (`mesh_ui_trend_domain()`: a hundredth, a fiftieth, a twentieth, a tenth, a quarter, a half,
-  all of it) so that a mesh at 1.1% busy is a shape rather than a flat line along the bottom of
-  an empty rectangle. Three things make that not auto-scaling: the **floor never moves**, so a
-  fall of two percent is two percent of something; the rungs are fractions of the *domain* rather
-  than of the data, so two visits inside one rung are comparable; and the ceiling is the axis's
-  own top label, so a contracted plot says so. A sparkline is excluded because it shares its
-  domain with the bar beside it and has nowhere to write down that it has moved. A threshold
-  above the contracted ceiling is not drawn at all - and that test is made against the *reading*,
-  because `mesh_ui_scale_permille()` clamps and a test made against the projection can never
-  fire. Every spreadsheet does the opposite, and on the two readings this draws
-  it is wrong both times: a battery that fell two percent overnight becomes a cliff, and a quiet
-  mesh becomes a mesh in trouble. A silence longer than the series' own `gap_ms` breaks the line
-  rather than sloping across it, for the same reason - and so does a reading that was *refused*
-  rather than missing, which the clock cannot see: a node on external power reports punctually
-  and reports something that is not a level, so `mesh_ui_series_break()` is how the source says
-  the next reading starts a segment. And **the radio's airtime pair is persisted and a node's
-  trends are not**, which is a change from the rule this file used to state. The argument against
-  persisting - a trend is what we *watched*, and the hours the client was not running are not a
-  silence it can draw - is answered by the break rather than by throwing the readings away:
-  `mesh_ui_history_resume()` lifts the pen over the seam, so the gap is drawn as a gap. What
-  forced it is arithmetic: LocalStats reaches the client every fifteen minutes and two readings
-  make a line, so a history starting empty at every launch left the Mesh card's chart unoffered
-  for the first half hour of *every session* - on a handheld picked up for a few minutes, a card
-  that never worked. A node's trends keep the old rule for now, and have the same problem on a
-  half-hour cadence. The saved sample is an **age, not a stamp**: a time here is
+  (`mesh_ui_trend_domain()`) so that a mesh at 1.1% busy is a shape rather than a flat line along
+  the bottom of an empty rectangle. Three things make that not auto-scaling: the **floor never
+  moves**, so a fall of two percent is two percent of something; the rungs are fractions of the
+  *domain* rather than of the data, so two visits inside one rung are comparable; and the ceiling
+  is the axis's own top label, so a contracted plot says so. A sparkline is excluded because it
+  shares its domain with the bar beside it and has nowhere to write down that it has moved. A
+  threshold above the contracted ceiling is not drawn at all - and that test is made against the
+  *reading*, because `mesh_ui_scale_permille()` clamps and a test made against the projection can
+  never fire. A silence longer than the series' own `gap_ms` breaks the line rather than sloping
+  across it, and so does a reading that was *refused* rather than missing, which the clock cannot
+  see: a node on external power reports punctually and reports something that is not a level, so
+  `mesh_ui_series_break()` is how the source says the next reading starts a segment. **The radio's
+  airtime pair is persisted and a node's trends are not.** The argument against persisting - a
+  trend is what we *watched* - is answered by the break rather than by throwing the readings away:
+  `mesh_ui_history_resume()` lifts the pen over the seam, so the gap is drawn as a gap. What forced
+  it is arithmetic: LocalStats reaches the client every fifteen minutes and two readings make a
+  line, so a history starting empty at every launch left the Mesh card's chart unoffered for the
+  first half hour of *every session*. The saved sample is an **age, not a stamp**: a time here is
   `CLOCK_MONOTONIC`, which counts from boot, so restoring the numbers themselves would hand
   `mesh_ui_series_push()` a reading from before the oldest one it holds - which it reads as the
-  clock going backwards and answers by emptying the series, undoing the whole restore with
-  nothing on the frame saying so.
+  clock going backwards and answers by emptying the series.
+  `trend_contracts_the_ceiling_to_a_quiet_mesh`, `trend_rungs_are_fixed_rather_than_fitted`,
+  `series_breaks`, `history_airtime_survives_a_restart_onto_a_new_clock`,
+  `series_drops_history_when_the_clock_goes_back`.
 - **A history sample is stamped with the client's clock, and a new reading is detected by the
-  report having changed.** The radio's own `time` fields are our clock when the packet landed,
-  and a Brick has no wall clock - so on the device they are 0 on every report, and a series keyed
-  on either question would hold exactly one sample forever.
+  report having changed.** The radio's own `time` fields are our clock when the packet landed, and
+  a Brick has no wall clock - so on the device they are 0 on every report, and a series keyed on
+  either question would hold exactly one sample forever.
+  `store_records_airtime_as_the_radio_reports_it`, `history_draws_a_line_at_the_radios_own_cadence`.
 - **The radio's firmware rows say short values, never sentences.** A settings row has no
-  supporting line to wrap onto and the value column is about two dozen cells, so
-  `"%s available (radio has %s)"` came out as `2.7.26.54e0d8d available (` - a row that reads as
-  a bug. What carries the difference is the row's *name*: once the answer is a version worth
-  having the label reads "Newer firmware" and the value is the bare version, which is the move
-  About's own `Install %s` row made first. The long form of a failure goes to the log, where a
-  sentence has room.
+  supporting line to wrap onto and the value column is about two dozen cells, so `"%s available
+  (radio has %s)"` came out as `2.7.26.54e0d8d available (` - a row that reads as a bug. What
+  carries the difference is the row's *name*: once the answer is a version worth having the label
+  reads "Newer firmware" and the value is the bare version. The long form of a failure goes to the
+  log, where a sentence has room. `ui_settings_radio_firmware_install_row`,
+  `ui_settings_up_to_date_radio_says_nothing_about_installing`.
 - **`devtools/` is not `Tools/`.** `Tools/` holds the device-facing pak assets, and macOS
   filesystems are case-insensitive by default, so a `tools/` directory would collide with it.
 - **A screen transition is derived from the nav, not declared by it.** Nothing records that a
   press went in or out. `mesh_ui_route_of()` reads the nav and says which *place* it is showing,
   the backend remembers the last one, and the difference between two is the direction - so a new
-  way to open a level animates correctly without being told to. A field on `struct mesh_ui_nav`
-  is the thing this deliberately is not: eleven call sites open a level and a forgotten one
-  animates backwards, which fails no build and is invisible in a screenshot. The cursor, the
-  draft and every armed press are excluded on purpose - a route that moved with the cursor would
-  restart the slide on every press of Down.
+  way to open a level animates correctly without being told to. A field on `struct mesh_ui_nav` is
+  the thing this deliberately is not: eleven call sites open a level and a forgotten one animates
+  backwards, which fails no build and is invisible in a screenshot. The cursor, the draft and every
+  armed press are excluded on purpose - a route that moved with the cursor would restart the slide
+  on every press of Down. `ui_route_in_and_out_are_opposite`,
+  `ui_route_ignores_the_cursor_and_the_draft`.
 - **Only the arriving screen is drawn, and it travels a quarter of the panel, not all of it.**
   There is no alpha here and nothing can read back what is on the panel, so the outgoing screen
   cannot be carried along. A full-panel travel therefore leaves the body *empty* on the frame the
   press lands - one blank frame, every time. A quarter is also Material's shared-axis
   displacement, and it keeps the arriving screen legible for the whole move.
+  `ui_capture_slides_a_screen_in_and_settles`.
 - **The navigation bar, the action bar, the progress bar and the banner do not slide with the
   body.** The transform wraps the screen renderer only. A frame-wide offset would be the client
-  saying the whole application had been replaced when one level of one tab did; the two client
-  bars are drawn before the transform because the client did not go anywhere.
+  saying the whole application had been replaced when one level of one tab did; the two client bars
+  are drawn before the transform because the client did not go anywhere.
+  `ui_geometry_every_screen_keeps_its_chrome`, `fb_animation_clip_matches_full_composition`.
 - **Half of a press is the panel, and the map's drawing is free because of it.** Measured
   2026-09-13 (`docs/maps-roadmap.md` §"What the press turned out to cost"): a press reaches the
-  panel in 25-27 ms with a basemap and twenty tiles under it, and the same on a list of nodes
-  with neither. `FBIOPAN_DISPLAY` waits for the next vblank, so `flip` is 14.8 ms at the median and
-  never above 17 ms at p99 on a 60 Hz panel - and the map's 15.8 ms of drawing against the
-  list's 2.65 is spent in time the client would have spent waiting anyway. Two things follow and both are ways
-  to be wrong about this code: a tile is **1.5 ms of a 22 ms frame** (0.8 read, 0.75 decode), so
-  the fill loop is not what a reader waits for; and **partial redraw would buy no latency at
-  all**, only CPU. It is a battery argument, and the roadmap's open item says so. The tail is
-  not the map's either - the control run's own worst press varied from 33 ms to 529 ms across
-  five identical runs with the median unmoved, so a single run's maximum is not a statistic
-  here.
+  panel in 25-27 ms with a basemap and twenty tiles under it, and the same on a list of nodes with
+  neither. `FBIOPAN_DISPLAY` waits for the next vblank, so `flip` is 14.8 ms at the median and
+  never above 17 ms at p99 on a 60 Hz panel - and the map's 15.8 ms of drawing against the list's
+  2.65 is spent in time the client would have spent waiting anyway. Two things follow and both are
+  ways to be wrong about this code: a tile is **1.5 ms of a 22 ms frame** (0.8 read, 0.75 decode),
+  so the fill loop is not what a reader waits for; and **partial redraw would buy no latency at
+  all**, only CPU. The tail is not the map's either - the control run's own worst press varied from
+  33 ms to 529 ms across five identical runs with the median unmoved, so a single run's maximum is
+  not a statistic here. `latency_splits_a_frame_into_the_draw_and_the_flip`,
+  `latency_counts_a_frame_with_no_tile_in_it`.
 - **A key repeat is deliberately not counted by the latency probe, and neither is a press that
-  changed nothing.** Repeat is generated by `input.c`'s own timerfd - the d-pad is an absolute
-  axis and the kernel never repeats it - so a held direction reaches the store with no evdev
-  event behind it and no kernel stamp to measure from; counted from the moment the probe sees
-  it, every press of a held pan would report a queueing delay of zero, which is the fill loop's
-  worst case reported as its best. The kernel's own autorepeat on a face button *does* carry a
-  stamp and is refused one level up, in `input.c`, because a held button is one press. And a
-  press that publishes no snapshot draws no frame, so `mesh_ui_controller_handle_key()` confirms
-  it with `mesh_ui_store_handle_key()`'s own return value before the probe will time it - left
-  pending, it would be answered by whatever drew next, which on a map filling tiles is a frame
-  every 33 ms and a histogram of the frame rate rather than of any press.
+  changed nothing.** Repeat is generated by `input.c`'s own timerfd - the d-pad is an absolute axis
+  and the kernel never repeats it - so a held direction reaches the store with no evdev event
+  behind it and no kernel stamp to measure from; counted from the moment the probe sees it, every
+  press of a held pan would report a queueing delay of zero, which is the fill loop's worst case
+  reported as its best. The kernel's own autorepeat on a face button *does* carry a stamp and is
+  refused one level up, in `input.c`, because a held button is one press. And a press that
+  publishes no snapshot draws no frame, so `mesh_ui_controller_handle_key()` confirms it with
+  `mesh_ui_store_handle_key()`'s own return value before the probe will time it - left pending, it
+  would be answered by whatever drew next, which on a map filling tiles is a histogram of the frame
+  rate rather than of any press. `latency_does_not_count_a_repeat_as_a_press`,
+  `latency_does_not_charge_an_inert_press_to_the_next_frame`.
 - **The capture harness cannot act on a `mesh_ui_action`.** START in the keyboard raises
   `SEND_TEXT` and the store stops there; sending is `mesh_app`'s job and there is no app behind
   the harness. A scene stands in for the echo with `message out ...`.
