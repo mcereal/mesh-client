@@ -11,6 +11,7 @@ DOCKER := ./scripts/docker.sh
 
 .PHONY: help setup debug release relwithdebinfo build test package proto clean distclean run format fuzz \
         ui-capture screenshots demo-pack \
+        ship ship-beta ship-rc \
         docker-image docker-cross-image docker-shell docker-debug docker-test docker-run docker-pak \
         docker-clean docker-ui-capture docker-screenshots docker-fuzz \
         deploy deploy-start deploy-stop deploy-run deploy-logs deploy-check deploy-shot deploy-clip deploy-input-map \
@@ -32,6 +33,11 @@ help:
 	@echo "  make fuzz           - Build and run the libFuzzer harnesses (ARGS=\"--time 600\" to hunt)"
 	@echo "  make clean          - Remove build artifacts"
 	@echo "  make distclean      - Remove build and dist outputs"
+	@echo ""
+	@echo "Release targets (dispatch the release workflow on main; needs the gh CLI):"
+	@echo "  make ship           - Publish a release: tag, assets, CHANGELOG, and the pak.json the store reads"
+	@echo "  make ship-beta      - Publish a prerelease of the same commit (Prerelease update channel only)"
+	@echo "  make ship-rc        - The same, on the rc channel"
 	@echo ""
 	@echo "Container targets (macOS or any host with Docker; sources bind-mounted, builds in build/linux):"
 	@echo "  make docker-test    - Debug build + unit tests in the dev container"
@@ -146,6 +152,38 @@ clean:
 
 distclean: clean
 	rm -rf dist
+
+# ---- Release ----------------------------------------------------------------
+
+# A release is pressed, not merged, and these are the button - the same one as Actions >
+# Semantic Release > Run workflow, from a terminal. They dispatch on `main` regardless of the
+# branch you are standing on, because the workflow releases every commit since the last tag
+# rather than anything about your working tree.
+#
+#   make ship        a release: a tag, the assets, the CHANGELOG and version commit, and the
+#                    pak.json the Pak Store reads. This is the one users are offered.
+#   make ship-beta   a prerelease of the same commit: a tag and the assets, nothing committed
+#                    and nothing the store can see. Only a client set to the Prerelease update
+#                    channel is offered it. `ship-rc` is the same on the other channel name.
+#
+# Needs the gh CLI logged in; see docs/semantic-release.md for what each one publishes.
+RELEASE_WORKFLOW := semantic-release.yml
+
+define dispatch_release
+	@command -v gh >/dev/null 2>&1 || { echo "gh not found; install it or use Actions > Semantic Release > Run workflow." >&2; exit 1; }
+	gh workflow run $(RELEASE_WORKFLOW) --ref main -f channel=$(1)
+	@sleep 5
+	@gh run list --workflow=$(RELEASE_WORKFLOW) --limit 1
+endef
+
+ship:
+	$(call dispatch_release,stable)
+
+ship-beta:
+	$(call dispatch_release,beta)
+
+ship-rc:
+	$(call dispatch_release,rc)
 
 # ---- Docker -----------------------------------------------------------------
 

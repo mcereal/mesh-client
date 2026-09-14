@@ -36,7 +36,7 @@ MAX_ITEMS = 6
 MAX_CHARS = 300
 
 # The types worth telling a user about. These are exactly the ones semantic-release counts as a
-# release (see .releaserc.json); refactor bumps a patch but describes internals, so it is left
+# release (see release.config.mjs); refactor bumps a patch but describes internals, so it is left
 # out along with docs, chore, test, build and ci.
 USER_FACING_TYPES = ("feat", "fix", "perf", "revert")
 

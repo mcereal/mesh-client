@@ -1,24 +1,40 @@
 name: Semantic Release
 
-# `main` is deliberately not a push trigger, and that is the whole of this file's cadence rule:
-# a merge and a release are two decisions, and binding them made every pull request a release.
-# Sixteen of them shipped on 2026-09-12, which is a Pak Store nagging its users sixteen times,
-# a changelog window (five entries, in pak.json) covering eight hours, and a version number that
-# had stopped describing anything. So a release is now something pressed - Actions > Semantic
-# Release > Run workflow, on `main` - and semantic-release does the batching for free: it reads
-# every commit since the last tag, takes the highest bump among them, and writes one set of
-# notes covering the lot.
+# Two decisions, two buttons. A merge releases nothing; a release is pressed - Actions >
+# Semantic Release > Run workflow - and the `channel` input picks what kind:
+#
+#   stable  a release, off `main`, the one the Pak Store and the Stable update channel see
+#   beta    a prerelease, off whatever `main` holds right now
+#   rc      the same, on the other prerelease name
+#
+# Binding a release to the merge instead made every pull request one. Sixteen shipped on
+# 2026-09-12, which is a Pak Store nagging its users sixteen times, a changelog window (five
+# entries, in pak.json) covering eight hours, and a version number that had stopped describing
+# anything. semantic-release does the batching for free: it reads every commit since the last
+# tag, takes the highest bump among them, and writes one set of notes covering the lot.
 #
 # The cron is the safety net rather than the schedule: a fix that is merged and unreleased is
 # the one thing this trade gives up, so a week is the longest it can sit unnoticed. A genuine
 # bug fix does not wait for it - that is what the dispatch is for. Scheduled runs fire on the
-# default branch only, which is `main`, which is the one this is for.
+# default branch only, which is `main`, which is the one this is for, and they are always
+# stable: `github.event.inputs` is null for a cron, so RELEASE_CHANNEL below falls through.
 #
-# `beta` and `rc` keep their push trigger. They publish prereleases, which pak.json and
-# CHANGELOG.md are skipped for, so nothing that reaches an ordinary user is on that path - the
-# reason to hold a release back does not apply to them.
+# A prerelease is dispatched on `main` like any other release - the branch is plumbing, not a
+# place to work. The run points `beta` at the commit being released and tells semantic-release
+# to read the config's `beta` entry; see the two steps that do it. The push trigger stays for
+# the other way round - merge work to `beta` directly and it publishes a prerelease per merge -
+# and in that case the sync step is skipped, because there `beta` is ahead of `main` on purpose.
 on:
   workflow_dispatch:
+    inputs:
+      channel:
+        description: 'Release channel'
+        type: choice
+        default: stable
+        options:
+          - stable
+          - beta
+          - rc
   schedule:
     - cron: '0 18 * * 0'
   push:
@@ -26,21 +42,22 @@ on:
       - beta
       - rc
 
-# One release at a time *per branch*, and a run that has started is never cancelled. The ref is
-# in the group rather than out of it because `cancel-in-progress: false` does not mean what it
-# reads as: it protects a run that is in progress, while a run still *pending* in the group is
-# cancelled by default the moment a newer one queues behind the same busy run. Under one literal
-# group that is a push to `beta` quietly discarding the Sunday cron's queued `main` run - an
-# unrelated prerelease cancelling the safety net, which is the one failure a safety net may not
-# have.
+# One release at a time *per channel*, and a run that has started is never cancelled. The
+# channel is in the group rather than out of it because `cancel-in-progress: false` does not
+# mean what it reads as: it protects a run that is in progress, while a run still *pending* in
+# the group is cancelled by default the moment a newer one queues behind the same busy run.
+# Under one literal group that is a prerelease quietly discarding the Sunday cron's queued
+# stable run - an unrelated release cancelling the safety net, which is the one failure a safety
+# net may not have.
 #
-# Keyed on the ref, the pair worth serialising still is: a dispatch and the cron are both `main`,
-# and they can land together the moment somebody presses the button on a Sunday evening - two
-# version bumps pushed at one branch tip, or a cancelled run leaving a tag with no commit behind
-# it. A pending duplicate lost *within* one branch costs nothing, because the run ahead of it has
-# already released everything the second would have found.
+# It is keyed on the channel and not on `github.ref`, which is now `main` for all three: a
+# dispatch and the cron are both stable, and they can land together the moment somebody presses
+# the button on a Sunday evening - two version bumps pushed at one branch tip, or a cancelled
+# run leaving a tag with no commit behind it. A pending duplicate lost *within* one channel
+# costs nothing, because the run ahead of it has already released everything the second would
+# have found.
 concurrency:
-  group: semantic-release-${{ github.ref }}
+  group: semantic-release-${{ github.event_name == 'push' && github.ref_name || github.event.inputs.channel || 'stable' }}
   cancel-in-progress: false
 
 permissions:
@@ -51,6 +68,12 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-24.04
+    # One name for the three triggers: the dispatch input, the branch a push arrived on, and
+    # `stable` for the cron, which has no inputs. Everything below reads this rather than
+    # re-deriving it, including release.config.mjs, which decides from it whether the release
+    # commits anything back.
+    env:
+      RELEASE_CHANNEL: ${{ github.event_name == 'push' && github.ref_name || github.event.inputs.channel || 'stable' }}
     steps:
       # The release pushes to a protected branch, so it needs an identity the ruleset's bypass
       # list names - and that identity must not be sitting in .git/config while the steps below
@@ -66,6 +89,32 @@ jobs:
           fetch-depth: 0
           submodules: recursive
           persist-credentials: false
+
+      # A prerelease dispatched on `main` releases the commit that was checked out; the channel
+      # branch only has to name it. So `beta` is moved to this commit before semantic-release
+      # looks at it, and moved with a plain push rather than a force: under release.config.mjs a
+      # prerelease commits nothing, so this is always a fast-forward, and a *rejection* means
+      # somebody has been working on `beta` directly - which is a thing to look at rather than
+      # to overwrite, since forcing past it would orphan the commit the last prerelease tag
+      # points at.
+      #
+      # It pushes with the per-run token deliberately: a push made with GITHUB_TOKEN does not
+      # trigger workflows, so moving `beta` here cannot also set off this file's own push
+      # trigger and release the same commit twice.
+      #
+      # Skipped for a push, where `beta` is already the branch being released and is ahead of
+      # `main` on purpose.
+      - name: Point the channel branch at this commit
+        if: env.RELEASE_CHANNEL != 'stable' && github.event_name != 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            "HEAD:refs/heads/${RELEASE_CHANNEL}"
+          # And locally, so `git tag --merged <channel>` has a ref to read. Same commit; this
+          # relabels HEAD rather than moving it.
+          git checkout -B "${RELEASE_CHANNEL}"
 
       - name: Setup Node.js
         uses: actions/setup-node@v7
@@ -134,6 +183,14 @@ jobs:
       # version being released rather than the one before it.
       - name: Run semantic-release
         env:
+          # Which of release.config.mjs's branches this run is. semantic-release takes the
+          # branch from one place and one place only - env-ci reads GITHUB_REF and nothing else
+          # (env-ci/services/github.js) - so a prerelease dispatched on `main` has to say so
+          # here, or it would be read as a stable release of `main` and publish one. The step
+          # above has already pointed that branch at this commit, so the two agree; for a
+          # stable release, and for a push that arrived on `beta`, this is the ref the run
+          # already had.
+          GITHUB_REF: ${{ env.RELEASE_CHANNEL == 'stable' && github.ref || format('refs/heads/{0}', env.RELEASE_CHANNEL) }}
           # The API identity: the release, its assets, and the comments the GitHub plugin
           # posts. The ruleset guards the branch and not the releases, so this stays the scoped
           # per-run token - and the release goes on being published by github-actions[bot], as

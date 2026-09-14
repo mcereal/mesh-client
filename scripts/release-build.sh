@@ -95,7 +95,7 @@ cmake --build build/release
 VERSION_HITS=$(strings build/release/meshclient | grep -cF -- "${VERSION}" || true)
 if [[ "${VERSION_HITS}" -eq 0 ]]; then
     echo "build/release/meshclient does not contain the string ${VERSION}." >&2
-    echo "The version rewrite must happen before this script; see .releaserc.json." >&2
+    echo "The version rewrite must happen before this script; see release.config.mjs." >&2
     exit 1
 fi
 
