@@ -38,11 +38,23 @@ evdev -> mesh_ui_input -> mesh_ui_controller_handle_key -> mesh_ui_store_handle_
   `nav_canned.c`, `nav_keyboard.c`, `nav_conversations.c` and `nav_settings.c` are the subjects
   it dispatches into, over the seams in `nav_internal.h`.
 
-The UI-side structs in `store.h` (`mesh_ui_node_summary`, `mesh_ui_settings`,
-`mesh_ui_client_info`) are nanopb-free twins of the core records, filled field by field in
-`app.c` (`mesh_app_copy_node_detail`, `mesh_app_flatten_settings`,
-`mesh_app_flatten_client_info`). Nothing else keeps the two declarations in step, so adding a
-field means touching both.
+The UI-side structs (`mesh_ui_node_summary`, `mesh_ui_settings`, `mesh_ui_client_info`) are
+nanopb-free twins of the core records, filled field by field in `app.c`
+(`mesh_app_copy_node_detail`, `mesh_app_flatten_settings`, `mesh_app_flatten_client_info`).
+Nothing else keeps the two declarations in step, so adding a field means touching both.
+
+They are declared by subject rather than all in `store.h`: `store_device.h` a discovered radio,
+`store_node.h` a node and what can be asked of it, `store_channel.h` a channel slot,
+`store_handshake.h` the roster the radio handed us, `store_message.h` the transcript and the
+waypoint book, `store_settings.h` everything the Settings tab reads. `store.h` is the store
+itself — the snapshot, the update flags, the API — and includes all six.
+
+**Naming the narrow header decouples a reader, not a writer.** `mesh_ui_snapshot` embeds every
+record by value, so anything holding a snapshot needs all of them and rebuilds when any one
+changes; that is a fact about the snapshot, not about the headers. What the split buys is the
+other kind of reader — `trust.h` wants a node, `devices.h` wants a row, and neither should be
+rebuilt by a settings field — plus a 1,700-line file no longer being where six unrelated
+subjects are edited. Include the subject you need; the umbrella is for the store itself.
 
 ## Input
 

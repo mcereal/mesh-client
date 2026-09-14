@@ -1,10 +1,13 @@
 #pragma once
 
-#include "mesh/ui/store.h"
+#include <stdbool.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+struct mesh_ui_snapshot;
 
 struct mesh_ui_backend {
     const char *name;

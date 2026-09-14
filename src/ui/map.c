@@ -14,6 +14,7 @@
 
 #include "mesh/geo/coords.h"
 #include "mesh/i18n/strings.h"
+#include "mesh/ui/store.h"
 #include "mesh/utils/text.h"
 
 #include <string.h>

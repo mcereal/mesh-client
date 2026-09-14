@@ -13,7 +13,6 @@
  * a frame from here and a frame from `deploy-device.sh shot` go through the same encoder.
  */
 
-#include "mesh/ui/store.h"
 #include "mesh/ui/theme.h"
 
 #include <stdbool.h>
@@ -25,6 +24,7 @@
 #define MESH_UI_CAPTURE_HEIGHT 768U
 
 struct mesh_ui_capture;
+struct mesh_ui_snapshot;
 
 /*
  * Allocates an off-screen page. The theme is the one MESHCLIENT_THEME names, as on the device;

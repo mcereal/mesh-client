@@ -26,7 +26,8 @@
 
 #include "mesh/ui/route.h"
 #include "mesh/ui/settings.h"
-#include "mesh/ui/store.h"
+#include "mesh/ui/store_handshake.h"
+#include "mesh/ui/store_settings.h"
 
 #include <string.h>
 

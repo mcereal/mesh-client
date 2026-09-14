@@ -1,7 +1,8 @@
 #include "mesh/ui/nodes.h"
 
 #include "mesh/ui/node_detail.h"
-#include "mesh/ui/store.h"
+#include "mesh/ui/store_handshake.h"
+#include "mesh/ui/store_node.h"
 
 /*
  * The table.

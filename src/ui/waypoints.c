@@ -11,6 +11,8 @@
 
 #include "mesh/ui/waypoints.h"
 
+#include "mesh/ui/store.h"
+
 #include "mesh/geo/coords.h"
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/duration.h"

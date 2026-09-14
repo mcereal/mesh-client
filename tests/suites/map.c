@@ -436,6 +436,7 @@ MESH_TEST_CASE(map_viewport_fits_across_the_antimeridian, unit) {
 
 #include "mesh/ui/map.h"
 #include "mesh/ui/nav.h"
+#include "mesh/ui/store.h"
 
 #include <stdio.h>
 #include <string.h>

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "mesh/ui/backend.h"
+#include "mesh/ui/store.h"
 
 #ifdef __cplusplus
 extern "C" {
