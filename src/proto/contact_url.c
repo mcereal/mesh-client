@@ -10,7 +10,9 @@
 
 #include <pb_decode.h>
 #include <pb_encode.h>
+#include <stdio.h>
 #include <string.h>
+#include <strings.h>
 
 /*
  * The bar both directions hold a contact to: a node number and a public key.
@@ -27,7 +29,31 @@
  * cleanly and failing three layers down as a queue error with nothing to say.
  */
 static bool contact_is_usable(const meshtastic_SharedContact *contact) {
-    return contact->node_num != 0U && contact->has_user && contact->user.public_key.size > 0U;
+    if (contact->node_num == 0U || !contact->has_user || contact->user.public_key.size == 0U) {
+        return false;
+    }
+    /*
+     * And the two halves have to name the *same node*.
+     *
+     * A `SharedContact` says who it is twice - `node_num`, which is what a radio files the entry
+     * under, and `user.id`, which is what a screen shows - and nothing on the wire makes them
+     * agree. A link whose id says one node while its number says another is a contact that reads
+     * as one person and is written as another: approve adding `!aaaaaaaa` and a stranger's key
+     * lands in `!bbbbbbbb`'s slot. Refusing here is what makes the two interchangeable for every
+     * caller, so no screen has to know which of them the write will use.
+     *
+     * Compared against the canonical spelling rather than parsed, because that spelling is
+     * upstream's own: the firmware fills the field with `snprintf("!%08x", node_num)` and every
+     * client copies it from there. Case-insensitively, so a client that wrote its hex in capitals
+     * is read rather than refused. An empty id claims nothing and is allowed - the node number
+     * is the field that matters, and a link is welcome to leave the other out.
+     */
+    if (contact->user.id[0] == '\0') {
+        return true;
+    }
+    char canonical[sizeof contact->user.id];
+    (void)snprintf(canonical, sizeof canonical, "!%08x", (unsigned)contact->node_num);
+    return strcasecmp(contact->user.id, canonical) == 0;
 }
 
 size_t mesh_contact_url_encode(const meshtastic_SharedContact *contact, char *out, size_t out_len) {

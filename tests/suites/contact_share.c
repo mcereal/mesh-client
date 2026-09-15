@@ -21,11 +21,13 @@
 #include "framework/mesh_test.h"
 
 #include "mesh/core/contact_share.h"
+#include "mesh/core/session.h"
 #include "mesh/proto/contact_url.h"
 #include "mesh/ui/contact_share.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
 #include "mesh/utils/qr.h"
+#include "support/session_fixture.h"
 #include "support/ui_fixture.h"
 
 #include <stdint.h>
@@ -85,8 +87,8 @@ MESH_TEST_CASE(contact_url_round_trips, unit) {
     fill_contact(&wide, 0xFFFFFFFFU, "");
     memset(wide.user.long_name, 'W', sizeof wide.user.long_name - 1U);
     memset(wide.user.short_name, 'S', sizeof wide.user.short_name - 1U);
-    memset(wide.user.id, 'I', sizeof wide.user.id - 1U);
-    wide.user.id[0] = '!';
+    /* The id stays canonical - the decoder now refuses one that disagrees with the node number,
+       so the widest *legal* contact is this rather than sixteen characters of filler. */
     wide.should_ignore = true;
     wide.manually_verified = true;
     MESH_TEST_FAIL_IF(mesh_contact_url_encode(&wide, url, sizeof url) == 0U,
@@ -149,6 +151,77 @@ MESH_TEST_CASE(contact_url_decode_is_strict_about_the_payload, unit) {
     nameless.node_num = 0U;
     MESH_TEST_FAIL_IF(mesh_contact_url_encode(&nameless, url, sizeof url) != 0U,
                       "a contact with no node number produced a link");
+    record_success(test_name);
+}
+
+/*
+ * A contact that names two different nodes is not a contact.
+ *
+ * `SharedContact` says who it is twice, and nothing on the wire makes the two agree: `node_num`
+ * is what the radio files the entry under, `user.id` is what a screen would show. A link where
+ * they differ reads as one node and is written as another - approve `!aaaaaaaa` and a
+ * stranger's key lands in `!bbbbbbbb`'s NodeDB slot - so the decoder refuses it and every
+ * caller above may treat the two as interchangeable.
+ */
+MESH_TEST_CASE(contact_url_refuses_a_contradictory_id, unit) {
+    meshtastic_SharedContact contact;
+    fill_contact(&contact, 0xAAAAAAAAU, "Impostor");
+    char url[MESH_CONTACT_URL_MAX];
+    MESH_TEST_FAIL_IF(mesh_contact_url_encode(&contact, url, sizeof url) == 0U,
+                      "a contact whose halves agree did not encode");
+
+    /* The id naming a different node than the number: refused at both ends. */
+    meshtastic_SharedContact lying = contact;
+    snprintf(lying.user.id, sizeof lying.user.id, "!bbbbbbbb");
+    MESH_TEST_FAIL_IF(mesh_contact_url_encode(&lying, url, sizeof url) != 0U,
+                      "a contact naming two nodes produced a link");
+    /*
+     * And on the way in, which is the half that matters: this is the payload an attacker writes
+     * with their own encoder, so it is built by hand rather than round-tripped through ours.
+     *
+     * The control beside it is the same bytes with the id corrected, and it is here to prove
+     * what the refusal is *for*. Without it a typo in the literal would fail to decode for
+     * being malformed and the case would pass having tested nothing.
+     */
+    static const char k_lying[] = "https://meshtastic.org/v/#"
+                                  "CKrVqtUKEj0KCSFiYmJiYmJiYhIISW1wb3N0b3IaBEltcG9CIBAREhMUFRYXGBka"
+                                  "GxwdHh8gISIjJCUmJygpKissLS4v";
+    static const char k_control[] = "https://meshtastic.org/v/#"
+                                    "CKrVqtUKEj0KCSFhYWFhYWFhYRIISW1wb3N0b3IaBEltcG9CIBAREhMUFRYXGB"
+                                    "kaGxwdHh8gISIjJCUmJygpKissLS4v";
+    meshtastic_SharedContact back;
+    MESH_TEST_FAIL_IF(mesh_contact_url_decode(k_lying, &back),
+                      "a contact naming two nodes decoded");
+    MESH_TEST_FAIL_IF(!mesh_contact_url_decode(k_control, &back),
+                      "the control payload did not decode, so the case above proved nothing");
+    MESH_TEST_FAIL_IF(back.node_num != 0xAAAAAAAAU || strcmp(back.user.id, "!aaaaaaaa") != 0 ||
+                          back.user.public_key.size != 32U,
+                      "the control payload is not the contact the lying one claims to be");
+
+    /* An empty id claims nothing, so it is allowed - the node number is the field that counts. */
+    meshtastic_SharedContact silent = contact;
+    silent.user.id[0] = '\0';
+    MESH_TEST_FAIL_IF(mesh_contact_url_encode(&silent, url, sizeof url) == 0U,
+                      "a contact that leaves its id out was refused");
+    MESH_TEST_FAIL_IF(!mesh_contact_url_decode(url, &back) || back.node_num != 0xAAAAAAAAU,
+                      "a contact with no id did not decode");
+
+    /* And upstream's spelling in capitals is read rather than refused. */
+    meshtastic_SharedContact shouty = contact;
+    snprintf(shouty.user.id, sizeof shouty.user.id, "!AAAAAAAA");
+    MESH_TEST_FAIL_IF(mesh_contact_url_encode(&shouty, url, sizeof url) == 0U,
+                      "an id in capitals was refused");
+
+    /* The screens name the node the write will land on, which is now the only reading there
+       is. */
+    MESH_TEST_FAIL_IF(mesh_contact_url_encode(&contact, url, sizeof url) == 0U,
+                      "the contact did not encode");
+    char headline[96];
+    char body[256];
+    MESH_TEST_FAIL_IF(
+        !mesh_ui_contact_import_sheet(url, headline, sizeof headline, body, sizeof body) ||
+            strstr(body, "!aaaaaaaa") == NULL,
+        "the sheet did not name the node the write is filed under");
     record_success(test_name);
 }
 
@@ -295,6 +368,126 @@ MESH_TEST_CASE(contact_import_drops_the_senders_claims, unit) {
     MESH_TEST_FAIL_IF(mesh_contact_share_queue_import(&fresh, &keyless) >= 0,
                       "a contact with no key was queued");
     MESH_TEST_FAIL_IF(mesh_contact_share_queue_import(&fresh, NULL) >= 0, "NULL was queued");
+    record_success(test_name);
+}
+
+/*
+ * An imported contact has to reach *this client's* roster, not only the radio's NodeDB.
+ *
+ * The case the feature is named for. `add_contact` puts the node in the radio's database, but
+ * the Nodes tab, the conversation list and every message destination here are built from
+ * `handshake.nodes` - so without the seeding half, a contact for a node that has never
+ * transmitted would be written to the radio and then be invisible in this client until the node
+ * transmitted anyway, which is precisely the wait the link exists to skip.
+ */
+static int contact_sink(void *ctx, const uint8_t *packet, size_t len, uint32_t packet_id) {
+    (void)packet;
+    (void)len;
+    (void)packet_id;
+    if (ctx != NULL) {
+        *(unsigned *)ctx += 1U;
+    }
+    return 0;
+}
+
+/* The roster row for a node, through the public accessor: mesh_session_find_node() is static to
+   src/core/session.c, and the handshake status is how everything outside it reads the list -
+   including the two screens this case is really about. */
+static const struct mesh_node_summary *roster_row(const struct mesh_session *session,
+                                                  uint32_t node_id) {
+    const struct mesh_handshake_status *status = mesh_session_handshake(session);
+    if (status == NULL) {
+        return NULL;
+    }
+    for (size_t i = 0; i < status->node_count && i < MESH_SESSION_MAX_NODES; ++i) {
+        if (status->nodes[i].node_id == node_id) {
+            return &status->nodes[i];
+        }
+    }
+    return NULL;
+}
+
+MESH_TEST_CASE(contact_import_reaches_this_clients_roster, unit) {
+    struct mesh_session session;
+    unsigned sends = 0U;
+    mesh_session_init(&session);
+    mesh_session_attach(&session, contact_sink, &sends);
+
+    meshtastic_FromRadio my_info = meshtastic_FromRadio_init_default;
+    my_info.which_payload_variant = meshtastic_FromRadio_my_info_tag;
+    my_info.my_info.my_node_num = 0x1000U;
+    (void)mesh_test_session_feed_from_radio(&session, &my_info);
+
+    const char *failure = NULL;
+    meshtastic_SharedContact theirs;
+    fill_contact(&theirs, 0x0BADF00DU, "Stranger");
+
+    if (roster_row(&session, 0x0BADF00DU) != NULL) {
+        failure = "a node nobody has heard of was already in the roster";
+        goto cleanup;
+    }
+    if (mesh_session_import_contact(&session, &theirs) <= 0) {
+        failure = "the import queued nothing";
+        goto cleanup;
+    }
+
+    const struct mesh_node_summary *added = roster_row(&session, 0x0BADF00DU);
+    if (added == NULL) {
+        failure = "the imported contact never reached this client's roster";
+        goto cleanup;
+    }
+    if (strcmp(added->long_name, "Stranger") != 0 || added->public_key_len != 32U ||
+        memcmp(added->public_key, k_key, sizeof k_key) != 0) {
+        failure = "the roster record did not carry the link's name and key";
+        goto cleanup;
+    }
+    if (strcmp(added->user_id, "!0badf00d") != 0) {
+        failure = "the roster record is not filed under the node the write names";
+        goto cleanup;
+    }
+    /* The two the radio is the authority on, and neither is ours to claim. A link is not a
+       ceremony, and the ack for an AdminMessage is not the ack for an insertion - what settles
+       `in_nodedb` is the node's next NodeInfo. */
+    if (added->key_verified) {
+        failure = "a link put a verified mark on a key nobody checked";
+        goto cleanup;
+    }
+    if (added->in_nodedb) {
+        failure = "the roster claimed the radio had stored the contact before it said so";
+        goto cleanup;
+    }
+    if (added->last_heard != 0U) {
+        failure = "a node that has never transmitted was given a last-heard time";
+        goto cleanup;
+    }
+
+    /*
+     * And a second import may not overwrite a node we have actually heard. The roster record is
+     * first-hand; a link is a third party's account of the same node.
+     */
+    meshtastic_FromRadio heard = meshtastic_FromRadio_init_default;
+    heard.which_payload_variant = meshtastic_FromRadio_node_info_tag;
+    heard.node_info.num = 0x2002U;
+    heard.node_info.has_user = true;
+    snprintf(heard.node_info.user.id, sizeof heard.node_info.user.id, "!00002002");
+    snprintf(heard.node_info.user.long_name, sizeof heard.node_info.user.long_name, "Real Name");
+    heard.node_info.user.public_key.size = 32U;
+    heard.node_info.user.public_key.bytes[0] = 0xA1U;
+    (void)mesh_test_session_feed_from_radio(&session, &heard);
+
+    meshtastic_SharedContact rename;
+    fill_contact(&rename, 0x2002U, "Not Their Name");
+    (void)mesh_session_import_contact(&session, &rename);
+    const struct mesh_node_summary *known = roster_row(&session, 0x2002U);
+    if (known == NULL || strcmp(known->long_name, "Real Name") != 0 ||
+        known->public_key[0] != 0xA1U) {
+        failure = "a link overwrote the record of a node this radio had heard for itself";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_session_detach(&session);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
 

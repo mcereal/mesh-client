@@ -23,14 +23,16 @@
 _Static_assert(MESH_UI_CONTACT_URL_MAX >= MESH_CONTACT_URL_MAX,
                "the store's contact_url is too small for the longest contact link");
 
-/* The node number as text, from what the link said rather than from a second reading of it:
-   `user.id` is the sender's own spelling of their node number and is what every other client
-   shows. Formatted from `node_num` only when the link carried no id at all. */
+/*
+ * The node number as text, always spelled from `node_num` and never copied out of `user.id`.
+ *
+ * The two are the same node - mesh_contact_url_decode() refuses a link where they are not - and
+ * this is still the field to read, because `node_num` is the one the radio files the entry
+ * under. A sheet has one job here: name the node this press will write to. Showing the other
+ * field would mean a screen and a write agreeing only as long as the decoder's check holds,
+ * which is a coupling nothing gains from.
+ */
 static void contact_id(const meshtastic_SharedContact *contact, char *out, size_t out_len) {
-    if (contact->has_user && contact->user.id[0] != '\0') {
-        mesh_str_copy(out, out_len, contact->user.id);
-        return;
-    }
     mesh_str_format(out, out_len, MESH_STR_NODE_VAL_USER_ID_HEX, contact->node_num);
 }
 
