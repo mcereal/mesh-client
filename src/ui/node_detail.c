@@ -1,5 +1,6 @@
 #include "mesh/ui/node_detail.h"
 
+#include "mesh/geo/coords.h"
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/duration.h"
 #include "mesh/utils/text.h"
@@ -1758,4 +1759,29 @@ mesh_ui_node_detail_at(const struct mesh_ui_handshake_state *handshake, uint32_t
         return NULL;
     }
     return &handshake->nodes[row];
+}
+
+bool mesh_ui_node_our_fix(const struct mesh_ui_handshake_state *handshake, int32_t *out_latitude_i,
+                          int32_t *out_longitude_i) {
+    if (handshake == NULL || !handshake->has_my_info || handshake->my_info.node_num == 0U) {
+        return false;
+    }
+    const struct mesh_ui_node_summary *self =
+        mesh_ui_node_detail_find(handshake, handshake->my_info.node_num);
+    if (self == NULL || !self->position.valid) {
+        return false;
+    }
+    /* Range-checked again on the way out rather than trusted because it is ours: the roster is
+       restored from a cache written by an older build, and a coordinate is checked where it is
+       used as one. */
+    if (!mesh_geo_coords_valid(self->position.latitude_i, self->position.longitude_i)) {
+        return false;
+    }
+    if (out_latitude_i != NULL) {
+        *out_latitude_i = self->position.latitude_i;
+    }
+    if (out_longitude_i != NULL) {
+        *out_longitude_i = self->position.longitude_i;
+    }
+    return true;
 }

@@ -170,6 +170,7 @@ MESH_STR_ENTRY(ACTION_PIN,                "pin")
    "next", because what the press changes is which nodes are below it and not where the cursor
    is - and rather than "choose", because nothing is being picked from a list of answers. */
 MESH_STR_ENTRY(ACTION_FILTER,             "filter")
+MESH_STR_ENTRY(ACTION_SORT,               "sort")
 /* Broadcast a place to the channel again - the Waypoints tab's verb, and not the same word as
    "send": a waypoint already exists and goes out unchanged, where a message is written once. */
 MESH_STR_ENTRY(ACTION_SHARE,              "share")
@@ -406,6 +407,23 @@ MESH_STR_ENTRY(NODES_FILTER_PINNED,       "Pinned")
    tab's before it: a screen that empties explains nothing to the reader wondering what they
    just pressed. */
 MESH_STR_ENTRY(NODES_FILTER_NONE,         "No nodes match this filter")
+/* The order the list is in, on the row under the chips - see include/mesh/ui/nodes.h for why an
+   order is a second axis rather than a fourth filter, and the renderer for why five of these are
+   a label and a word rather than a second strip. "Default" is the order the list has always been
+   in - ourselves, then pins, then the people you talk to - and it is deliberately not named
+   after any one of those, because it is all of them. */
+MESH_STR_ENTRY(NODES_SORT_ROW,            "Sort")
+MESH_STR_ENTRY(NODES_SORT_DEFAULT,        "Default")
+MESH_STR_ENTRY(NODES_SORT_HEARD,          "Recent")
+MESH_STR_ENTRY(NODES_SORT_NAME,           "Name")
+MESH_STR_ENTRY(NODES_SORT_DISTANCE,       "Distance")
+MESH_STR_ENTRY(NODES_SORT_HOPS,           "Hops")
+/* The chosen order when it has nothing to measure with, which is the distance sort on a radio
+   with no fix of its own. The order's own word, then why the rows did not move - said in the
+   column that already answers "what is this set to", because that is where the reader just
+   pressed and it costs the list no row. "Fix" is the word the node detail uses for the same
+   thing. */
+MESH_STR_ENTRY(NODES_SORT_NO_FIX,         "%s (no fix)")
 
 /* ---- the map ----------------------------------------------------------------------------------
  *
@@ -1321,10 +1339,12 @@ MESH_STR_ENTRY(HELP_NOTE_REACTION_SEND,   "One small packet, sent without asking
 
 /* Nodes. */
 MESH_STR_ENTRY(HELP_LABEL_NODES_FILTER,   "The filter row")
+MESH_STR_ENTRY(HELP_LABEL_NODES_SORT,     "The sort row")
 MESH_STR_ENTRY(HELP_LABEL_NODES_PIN,      "Pinned nodes")
 MESH_STR_ENTRY(HELP_LABEL_NODES_CACHED,   "Nodes the radio has forgotten")
 MESH_STR_ENTRY(HELP_NOTE_NODES,           "Everyone this client has heard of, the most recently heard first. A node that has never said what it is called is listed by its node number, exactly as the phone apps list it.")
 MESH_STR_ENTRY(HELP_NOTE_NODES_FILTER,    "The chips on the first row decide what is under them: all of the roster, the nodes heard with no relay in the way, or the ones you pinned. A steps them on, and the heading counts what is shown.")
+MESH_STR_ENTRY(HELP_NOTE_NODES_SORT,      "The second row is the order: the client's own ranking, most recently heard, by name, nearest, or fewest hops. A steps it on. Distance needs a fix from your own radio, and says so when it has none.")
 MESH_STR_ENTRY(HELP_NOTE_NODES_PIN,       "X pins a node to the top of the list and keeps it there. Pins are this client's own and are kept across a restart; they change nothing on the radio.")
 MESH_STR_ENTRY(HELP_NOTE_NODES_CACHED,    "The radio holds about eighty nodes and drops the oldest, so this list is deliberately longer than its NodeDB and marks what the radio no longer carries. Settings > Radio actions clears them.")
 

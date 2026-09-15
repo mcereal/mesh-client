@@ -1181,12 +1181,27 @@ cleanup:
 }
 
 /*
+ * The node a filtered row is about, through the one mapping the screen and the nav both use.
+ *
+ * The default sort, because what these cases are about is the filter: mesh_ui_node_view_build()
+ * leaves the published order exactly as it found it under that member, so this is the walk
+ * mesh_ui_node_filter_at() used to be - against the pair that replaced it.
+ */
+static const struct mesh_ui_node_summary *
+nodes_filter_at(const struct mesh_ui_handshake_state *handshake, enum mesh_ui_node_filter filter,
+                uint32_t index) {
+    struct mesh_ui_node_view view;
+    mesh_ui_node_view_build(handshake, filter, MESH_UI_NODE_SORT_DEFAULT, &view);
+    return mesh_ui_node_view_at(handshake, &view, index);
+}
+
+/*
  * ---- the filter chips ---------------------------------------------------------------------
  *
  * The list's first row is a strip of chips and A steps it, which is three separate claims: the
  * press changes the filter, the filter changes how many rows the list has, and - the one worth
  * the test rather than a screenshot - the *row-to-node mapping* moves with it. That last is why
- * the filter went through mesh_ui_node_filter_at() rather than through an offset: a wrong
+ * the filter goes through mesh_ui_node_view_at() rather than through an offset: a wrong
  * answer there is a plausible node rather than an obviously shifted one, so X pins somebody
  * else's radio and nothing on the frame looks wrong.
  */
@@ -1392,12 +1407,12 @@ MESH_TEST_CASE(ui_nav_nodes_filter_direct_asks_the_lists_own_question, unit) {
     MESH_TEST_FAIL_IF(mesh_ui_node_filter_count(&handshake, MESH_UI_NODE_FILTER_DIRECT) != 1U,
                       "only the node the list would draw a staircase on is Direct");
     const struct mesh_ui_node_summary *first =
-        mesh_ui_node_filter_at(&handshake, MESH_UI_NODE_FILTER_DIRECT, 0U);
+        nodes_filter_at(&handshake, MESH_UI_NODE_FILTER_DIRECT, 0U);
     MESH_TEST_FAIL_IF(first == NULL || first->node_id != 0x2000U, "and it is that node");
     MESH_TEST_FAIL_IF(
         mesh_ui_node_filter_matches(&handshake, &handshake.nodes[4], MESH_UI_NODE_FILTER_DIRECT),
         "a node the radio has forgotten is off radio on the row, so not Direct");
-    MESH_TEST_FAIL_IF(mesh_ui_node_filter_at(&handshake, MESH_UI_NODE_FILTER_DIRECT, 1U) != NULL,
+    MESH_TEST_FAIL_IF(nodes_filter_at(&handshake, MESH_UI_NODE_FILTER_DIRECT, 1U) != NULL,
                       "past the end of a filter is NULL, not the next node along");
 
     /* Every filter agrees with the predicate it is built from, walked rather than asserted per
@@ -1406,7 +1421,7 @@ MESH_TEST_CASE(ui_nav_nodes_filter_direct_asks_the_lists_own_question, unit) {
     for (int f = 0; f < (int)MESH_UI_NODE_FILTER_COUNT; ++f) {
         const enum mesh_ui_node_filter filter = (enum mesh_ui_node_filter)f;
         uint32_t walked = 0U;
-        while (mesh_ui_node_filter_at(&handshake, filter, walked) != NULL) {
+        while (nodes_filter_at(&handshake, filter, walked) != NULL) {
             ++walked;
         }
         MESH_TEST_FAIL_IF(walked != mesh_ui_node_filter_count(&handshake, filter),
@@ -1460,7 +1475,7 @@ MESH_TEST_CASE(ui_nav_nodes_filter_pinned_never_keeps_our_own_node, unit) {
     MESH_TEST_FAIL_IF(mesh_ui_node_filter_count(&handshake, MESH_UI_NODE_FILTER_PINNED) != 1U,
                       "our own node is not a pin however the radio has it flagged");
     const struct mesh_ui_node_summary *only =
-        mesh_ui_node_filter_at(&handshake, MESH_UI_NODE_FILTER_PINNED, 0U);
+        nodes_filter_at(&handshake, MESH_UI_NODE_FILTER_PINNED, 0U);
     MESH_TEST_FAIL_IF(only == NULL || only->node_id != 0x3000U,
                       "and the one that is kept is the one the reader pinned");
 
@@ -1472,6 +1487,270 @@ MESH_TEST_CASE(ui_nav_nodes_filter_pinned_never_keeps_our_own_node, unit) {
     handshake.has_my_info = false;
     MESH_TEST_FAIL_IF(mesh_ui_node_filter_count(&handshake, MESH_UI_NODE_FILTER_PINNED) != 2U,
                       "before MyInfo lands no row is ours, so both pins stand");
+
+    record_success(test_name);
+}
+
+/*
+ * ---- the sort chips -------------------------------------------------------------------------
+ *
+ * The row under the filter is an *order*, and the three claims are the filter's three one axis
+ * over: the press changes the sort, the sort changes which node row 3 is about, and the number
+ * of rows does not move. That last is what separates the two strips and the reason the nav's row
+ * count still asks the filter alone - a sort that quietly dropped a row would be a cursor that
+ * walks off the end of a list the screen says is longer.
+ */
+MESH_TEST_CASE(ui_nav_nodes_sort_steps_and_renumbers_the_rows, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+
+    /*
+     * Three nodes in a published order that no single field agrees with, which is the whole
+     * point: the app ranked the pinned node first and the rest by last heard, so "Recent" and
+     * "Name" each have to produce a different list or they are not doing anything.
+     */
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.has_my_info = true;
+    handshake.my_info.node_num = 0x1000U;
+    handshake.node_count = 3U;
+    handshake.nodes[0].node_id = 0x3000U; /* pinned, heard longest ago, named last */
+    handshake.nodes[0].is_favorite = true;
+    handshake.nodes[0].last_heard = 100U;
+    snprintf(handshake.nodes[0].short_name, sizeof handshake.nodes[0].short_name, "%s", "ZULU");
+    handshake.nodes[1].node_id = 0x2001U; /* heard most recently, named second */
+    handshake.nodes[1].last_heard = 300U;
+    snprintf(handshake.nodes[1].short_name, sizeof handshake.nodes[1].short_name, "%s", "mike");
+    handshake.nodes[2].node_id = 0x2002U; /* in between, and first alphabetically */
+    handshake.nodes[2].last_heard = 200U;
+    snprintf(handshake.nodes[2].short_name, sizeof handshake.nodes[2].short_name, "%s", "Alfa");
+    for (uint32_t i = 0; i < handshake.node_count; ++i) {
+        handshake.nodes[i].in_nodedb = true;
+    }
+    mesh_ui_store_set_handshake(&store, &handshake);
+    mesh_ui_store_consume_updates(&store, NULL);
+
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    store.nav.screen = MESH_UI_SCREEN_NODES;
+    const uint32_t rows = mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_NODES);
+
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_sort != MESH_UI_NODE_SORT_DEFAULT,
+                              mesh_ui_store_shutdown(&store),
+                              "the list opens on the order the app published");
+
+    /* Down onto the sort row, and A steps it. The cursor stays: everything the press moves is
+       below the row it was pressed on. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.cursor[MESH_UI_SCREEN_NODES] != MESH_UI_NODES_SORT_ROW,
+                              mesh_ui_store_shutdown(&store), "the sort row is under the filter's");
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_sort != MESH_UI_NODE_SORT_HEARD,
+                              mesh_ui_store_shutdown(&store), "A steps the chips on");
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.cursor[MESH_UI_SCREEN_NODES] != MESH_UI_NODES_SORT_ROW,
+                              mesh_ui_store_shutdown(&store), "and stays on the row it pressed");
+    MESH_TEST_FAIL_IF_CLEANUP(action.type != MESH_UI_ACTION_NONE, mesh_ui_store_shutdown(&store),
+                              "an order asks the radio for nothing");
+    MESH_TEST_FAIL_IF_CLEANUP(
+        mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_NODES) != rows,
+        mesh_ui_store_shutdown(&store), "and the list is exactly as long as it was");
+
+    /*
+     * The first row under the lead rows is now the node heard most recently rather than the
+     * pinned one - read through the press, because what this is checking is that A on that row
+     * opens the node the row drew.
+     */
+    for (uint32_t lead = 0; lead < MESH_UI_NODES_LEAD_ROWS - 1U; ++lead) {
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(!store.nav.node_detail_open || store.nav.node_detail_node != 0x2001U,
+                              mesh_ui_store_shutdown(&store),
+                              "Recent puts the node that spoke last over the node that is pinned");
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+
+    /* On to Name, where the same row is a different node again - and case is folded, so a
+       lower-case name does not sort below every capital one. */
+    store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_SORT_ROW;
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_sort != MESH_UI_NODE_SORT_NAME,
+                              mesh_ui_store_shutdown(&store), "and on to Name");
+    for (uint32_t lead = 0; lead < MESH_UI_NODES_LEAD_ROWS - 1U; ++lead) {
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(!store.nav.node_detail_open || store.nav.node_detail_node != 0x2002U,
+                              mesh_ui_store_shutdown(&store),
+                              "A to Z is the reader's alphabet, not the byte order of the case");
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+
+    /* Five chips, so the fifth press is back where it started. */
+    store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_SORT_ROW;
+    for (uint32_t press = 0; press < (uint32_t)MESH_UI_NODE_SORT_COUNT - 2U; ++press) {
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    }
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_sort != MESH_UI_NODE_SORT_DEFAULT,
+                              mesh_ui_store_shutdown(&store), "and wraps back to the app's order");
+
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
+/*
+ * Distance: nearest first, and an honest answer when there is nothing to measure from.
+ *
+ * Two halves. The first is the ordering, including where a node with no fix goes - below
+ * everything measurable, in the order it was published, rather than at distance zero which is
+ * where a struct memset to nothing would put it. The second is the sort saying it cannot work:
+ * with no position of our own the list is the published order under a chip reading "Distance",
+ * and the screen needs to be told so it can say so rather than looking broken.
+ */
+MESH_TEST_CASE(ui_nav_nodes_sort_by_distance_and_the_fix_it_needs, unit) {
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.has_my_info = true;
+    handshake.my_info.node_num = 0x1000U;
+    handshake.node_count = 4U;
+    for (uint32_t i = 0; i < handshake.node_count; ++i) {
+        handshake.nodes[i].in_nodedb = true;
+    }
+    /* Us, at the origin of everything below. */
+    handshake.nodes[0].node_id = 0x1000U;
+    handshake.nodes[0].position.valid = true;
+    handshake.nodes[0].position.latitude_i = 515000000; /* 51.5 N, 0.0 E */
+    handshake.nodes[0].position.longitude_i = 0;
+    /* Roughly 11 km north. */
+    handshake.nodes[1].node_id = 0x2001U;
+    handshake.nodes[1].position.valid = true;
+    handshake.nodes[1].position.latitude_i = 516000000;
+    handshake.nodes[1].position.longitude_i = 0;
+    /* Nothing to place, and published between the two that can be placed. */
+    handshake.nodes[2].node_id = 0x2002U;
+    /* Roughly 1.1 km north: nearer than 0x2001 and published after it. */
+    handshake.nodes[3].node_id = 0x2003U;
+    handshake.nodes[3].position.valid = true;
+    handshake.nodes[3].position.latitude_i = 515100000;
+    handshake.nodes[3].position.longitude_i = 0;
+
+    struct mesh_ui_node_view view;
+    mesh_ui_node_view_build(&handshake, MESH_UI_NODE_FILTER_ALL, MESH_UI_NODE_SORT_DISTANCE, &view);
+    MESH_TEST_FAIL_IF(view.count != 4U, "a sort reorders the roster, it does not shorten it");
+    const uint32_t expected[4] = {0x1000U, 0x2003U, 0x2001U, 0x2002U};
+    for (uint32_t i = 0; i < 4U; ++i) {
+        const struct mesh_ui_node_summary *node = mesh_ui_node_view_at(&handshake, &view, i);
+        MESH_TEST_FAIL_IF(node == NULL || node->node_id != expected[i],
+                          "nearest first, and the node with no fix last rather than at zero");
+    }
+    MESH_TEST_FAIL_IF(!mesh_ui_node_sort_available(&handshake, MESH_UI_NODE_SORT_DISTANCE),
+                      "with a fix of our own the sort has something to say");
+
+    /*
+     * Take our own fix away and nothing can be measured. Every other sort is still available:
+     * they read the node in front of them, and a roster where nobody has a name is a sort with
+     * nothing to reorder rather than a sort that cannot run.
+     */
+    handshake.nodes[0].position.valid = false;
+    MESH_TEST_FAIL_IF(mesh_ui_node_sort_available(&handshake, MESH_UI_NODE_SORT_DISTANCE),
+                      "without one it says so rather than drawing an order it did not make");
+    for (int o = 0; o < (int)MESH_UI_NODE_SORT_COUNT; ++o) {
+        if (o == (int)MESH_UI_NODE_SORT_DISTANCE) {
+            continue;
+        }
+        MESH_TEST_FAIL_IF(!mesh_ui_node_sort_available(&handshake, (enum mesh_ui_node_sort)o),
+                          "and it is the only one of them that needs anything of ours");
+    }
+    mesh_ui_node_view_build(&handshake, MESH_UI_NODE_FILTER_ALL, MESH_UI_NODE_SORT_DISTANCE, &view);
+    for (uint32_t i = 0; i < view.count; ++i) {
+        const struct mesh_ui_node_summary *node = mesh_ui_node_view_at(&handshake, &view, i);
+        MESH_TEST_FAIL_IF(node == NULL || node->node_id != handshake.nodes[i].node_id,
+                          "and the list it draws is the one it was published in");
+    }
+
+    record_success(test_name);
+}
+
+/*
+ * A sort permutes; it never selects.
+ *
+ * The claim mesh_ui_nav_row_count() rests on, and the one that cannot be seen on a screenshot:
+ * it asks the filter how many rows the list has and never asks the sort, so a sort that dropped
+ * or duplicated a node would be a cursor walking off the end of a list, or two rows opening one
+ * node. Every filter against every sort, because the pairing is where a fresh member of either
+ * enum would go wrong.
+ *
+ * Also the out-of-range arm, which is reachable without anybody writing a bug: nav.node_sort is
+ * a byte on a struct that is memcpy'd around, and what a reader can act on is a strip that has
+ * come back to its first chip.
+ */
+MESH_TEST_CASE(ui_nav_nodes_sort_permutes_but_never_selects, unit) {
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.has_my_info = true;
+    handshake.my_info.node_num = 0x1000U;
+    handshake.node_count = 6U;
+    for (uint32_t i = 0; i < handshake.node_count; ++i) {
+        handshake.nodes[i].node_id = 0x1000U + i;
+        handshake.nodes[i].in_nodedb = true;
+        handshake.nodes[i].last_heard = (uint32_t)(600U - i * 50U);
+        snprintf(handshake.nodes[i].short_name, sizeof handshake.nodes[i].short_name, "N%02u",
+                 (unsigned)(handshake.node_count - i));
+    }
+    /* A spread of the things each sort reads, and gaps in all of them: what is under test is the
+       arithmetic, so every "cannot say" arm has to be walked as well as every comparison. */
+    handshake.nodes[1].is_favorite = true;
+    handshake.nodes[1].has_hops_away = true;
+    handshake.nodes[1].hops_away = 2U;
+    handshake.nodes[2].snr = 5.0f;
+    handshake.nodes[2].has_hops_away = true;
+    handshake.nodes[2].hops_away = 0U;
+    handshake.nodes[3].last_heard = 0U;
+    handshake.nodes[3].short_name[0] = '\0';
+    handshake.nodes[4].is_favorite = true;
+    handshake.nodes[4].position.valid = true;
+    handshake.nodes[4].position.latitude_i = 515000000;
+    handshake.nodes[4].position.longitude_i = 1000000;
+    handshake.nodes[0].position.valid = true; /* ours, so Distance has a fix to work from */
+    handshake.nodes[0].position.latitude_i = 515000000;
+    handshake.nodes[0].position.longitude_i = 0;
+
+    for (int f = 0; f < (int)MESH_UI_NODE_FILTER_COUNT; ++f) {
+        const enum mesh_ui_node_filter filter = (enum mesh_ui_node_filter)f;
+        const uint32_t kept = mesh_ui_node_filter_count(&handshake, filter);
+        for (int o = 0; o <= (int)MESH_UI_NODE_SORT_COUNT; ++o) {
+            /* One past the end is the out-of-range value, taken through the same checks. */
+            const enum mesh_ui_node_sort sort = (enum mesh_ui_node_sort)o;
+            struct mesh_ui_node_view view;
+            mesh_ui_node_view_build(&handshake, filter, sort, &view);
+            MESH_TEST_FAIL_IF(view.count != kept,
+                              "the list is as long under every sort as the filter says it is");
+            MESH_TEST_FAIL_IF(mesh_ui_node_view_at(&handshake, &view, view.count) != NULL,
+                              "past the end is NULL, not the next node along");
+
+            uint32_t seen = 0U;
+            for (uint32_t i = 0; i < view.count; ++i) {
+                const struct mesh_ui_node_summary *node =
+                    mesh_ui_node_view_at(&handshake, &view, i);
+                MESH_TEST_FAIL_IF(node == NULL, "every row of a built view is a node");
+                MESH_TEST_FAIL_IF(
+                    !mesh_ui_node_filter_matches(&handshake, node, filter),
+                    "and every one of them is a node the chip above it said it would keep");
+                const uint32_t bit = 1U << (node->node_id - 0x1000U);
+                MESH_TEST_FAIL_IF((seen & bit) != 0U, "no node is on two rows at once");
+                seen |= bit;
+            }
+        }
+    }
+
+    MESH_TEST_FAIL_IF(mesh_ui_node_sort_step((enum mesh_ui_node_sort)200, +1) !=
+                          MESH_UI_NODE_SORT_HEARD,
+                      "an out-of-range sort steps on from the app's order rather than from "
+                      "nowhere");
+    MESH_TEST_FAIL_IF(mesh_ui_node_sort_step(MESH_UI_NODE_SORT_DEFAULT, -1) !=
+                          (enum mesh_ui_node_sort)(MESH_UI_NODE_SORT_COUNT - 1),
+                      "and a backwards step wraps rather than going negative");
+    MESH_TEST_FAIL_IF(mesh_ui_node_sort_label((enum mesh_ui_node_sort)200) !=
+                          mesh_ui_node_sort_label(MESH_UI_NODE_SORT_DEFAULT),
+                      "and it is named for the chip it has come back to");
 
     record_success(test_name);
 }

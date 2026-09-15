@@ -14,8 +14,12 @@
 scene demo
 tab nodes
 
-# Echo Repeater: a solar node with a two-channel current monitor.
-key down 7
+# The Nodes list has three rows before its first node - the filter chips, the sort row and
+# the Map (MESH_UI_NODES_LEAD_ROWS) - so a node's row is its index in the demo roster plus
+# three.
+#
+# Echo Repeater: a solar node with a two-channel current monitor, seeds[5] and row 8.
+key down 8
 key a
 key down 21
 hold 1200

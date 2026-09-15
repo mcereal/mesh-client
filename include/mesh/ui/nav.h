@@ -70,10 +70,12 @@ enum mesh_ui_screen {
  * about which node row 7 is about.
  */
 #define MESH_UI_NODES_FILTER_ROW 0U
-#define MESH_UI_NODES_MAP_ROW 1U
+#define MESH_UI_NODES_SORT_ROW 1U
+#define MESH_UI_NODES_MAP_ROW 2U
 /* Rows before the first node. Written once so a third one cannot be added to only some of the
-   arithmetic - which is exactly how the map row's own arrival went wrong before it was. */
-#define MESH_UI_NODES_LEAD_ROWS 2U
+   arithmetic - which is exactly how the map row's own arrival went wrong before it was, and
+   what made the sort row's arrival a constant and two row ids rather than an audit. */
+#define MESH_UI_NODES_LEAD_ROWS 3U
 
 #define MESH_UI_NAV_TARGET_NAME_MAX 40U
 /* nav.settings_section when the Settings tab shows the section list rather than a section. */
@@ -334,6 +336,24 @@ struct mesh_ui_nav {
      * a filter is where they are standing right now.
      */
     uint8_t node_filter; /* enum mesh_ui_node_filter */
+    /*
+     * Nodes tab: what order the rows the filter kept are in - `enum mesh_ui_node_sort`, stepped
+     * by A on the row under the filter's.
+     *
+     * Beside the filter rather than folded into it because they are different axes: "which of
+     * them" and "in what order", and a reader looking for the nearest pinned node wants both at
+     * once. include/mesh/ui/nodes.h has why a sort exists at all when that header argues a
+     * filter cannot be replaced by one.
+     *
+     * The same lifetime as the filter, and for the filter's reason rather than by copying it: a
+     * sort is where the reader is standing, not how they like lists read. It survives leaving
+     * the tab, so coming back from a message lands on the list they left; it does not survive a
+     * restart, because a client that opened on a distance sort made against a fix it no longer
+     * has would be a setting quietly reordering a screen nobody asked it to. Unlike the filter
+     * it can never *empty* the list, which is why this is the weaker of the two arguments - and
+     * why the two still land in the same place.
+     */
+    uint8_t node_sort; /* enum mesh_ui_node_sort */
     /* "Remove from radio" is armed by one press and acts on the second, the same way Y on the
        Devices tab is: it is the one node row that takes its own row away, so a press that
        lands on it by accident should cost nothing. Any other press stands it down. */

@@ -12,6 +12,7 @@
 
 #include "nav_internal.h"
 
+#include "mesh/ui/node_detail.h"
 #include "mesh/ui/waypoints.h"
 
 #include <stdio.h>
@@ -104,8 +105,8 @@ static bool mesh_ui_nav_waypoint_list_confirm(struct mesh_ui_nav *nav,
     if (row.type == MESH_UI_WAYPOINT_ROW_NEW) {
         int32_t latitude_i = 0;
         int32_t longitude_i = 0;
-        if (!mesh_ui_waypoint_our_fix(store->handshake_valid ? &store->handshake : NULL,
-                                      &latitude_i, &longitude_i)) {
+        if (!mesh_ui_node_our_fix(store->handshake_valid ? &store->handshake : NULL, &latitude_i,
+                                  &longitude_i)) {
             /*
              * Refused, and said out loud. Opening a keyboard for a place with nowhere to put
              * it would waste the typing, but a press that does nothing at all is the client
