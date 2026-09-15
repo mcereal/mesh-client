@@ -19,16 +19,15 @@
  * RAM plus one pread.
  *
  * It is shaped like PMTiles and it is not PMTiles, which is worth saying plainly. What the two
- * share is the only property that mattered on the Brick: a tile is at a known offset in a
- * single file, so reading one costs a seek and a read rather than a directory walk or a B-tree
- * descent. The device measurement in docs/maps-roadmap.md compared exactly that against a
- * z/x/y tree and against MBTiles, and this shape won every column - 0.80 ms to a tile's bytes
- * from cold against 4.6 ms for either of the others, because the card is FAT32 with 32 KiB
- * clusters mounted `sync`, where a tree of three thousand small files occupies three and a half
- * times its own size and a lookup walks FAT directories. That is a fact about this hardware,
- * and it is why the client carries a format of its own instead of reading one of the two
- * formats the rest of the world publishes. A converter is the host's job and lives in
- * devtools/map_pack.
+ * share is the only property that mattered on the Brick: a tile is at a known offset in a single
+ * file, so reading one costs a seek and a read rather than a directory walk or a B-tree descent.
+ * The device measurement compared exactly that against a z/x/y tree and against MBTiles, and this
+ * shape won every column - 0.80 ms to a tile's bytes from cold against 4.6 ms for either of the
+ * others, because the card is FAT32 with 32 KiB clusters mounted `sync`, where a tree of three
+ * thousand small files occupies three and a half times its own size and a lookup walks FAT
+ * directories. That is a fact about this hardware, and it is why the client carries a format of its
+ * own instead of reading one of the two formats the rest of the world publishes. A converter is the
+ * host's job and lives in devtools/map_pack.
  *
  * On disk, little-endian throughout and read byte by byte so the host's alignment rules do not
  * come into it:
@@ -74,11 +73,11 @@
 /*
  * The most tiles a pack may index.
  *
- * It is a bound on an allocation before it is anything else: `count` comes off the disk, and
- * 24 bytes times an unchecked u32 is a hundred gigabytes. A million tiles is 24 MB of index,
- * which is the number docs/maps-roadmap.md reasons about as the point where a format needs leaf
- * directories - so this is also where the client would have to grow them rather than a limit
- * anything real is near. A metropolitan pack to zoom 16 is tens of thousands.
+ * It is a bound on an allocation before it is anything else: `count` comes off the disk, and 24
+ * bytes times an unchecked u32 is a hundred gigabytes. A million tiles is 24 MB of index, which is
+ * the point at which a format needs leaf directories - so this is also where the client would have
+ * to grow them rather than a limit anything real is near. A metropolitan pack to zoom 16 is tens of
+ * thousands.
  */
 #define PACK_TILES_MAX 1000000U
 
@@ -316,11 +315,10 @@ int mesh_map_source_open_pack(const char *path, struct mesh_map_source *out) {
     const uint32_t count = pack_u32(header + 16);
 
     /*
-     * The dimensions and the format are restricted rather than believed, which
-     * docs/maps-roadmap.md asks for by name. A file that says its tiles are 512 pixels is not a
-     * pack this client can draw, and finding that out at the blit means a screen full of
-     * quarter-tiles; a file that says its tiles are vectors is the failure MBTiles is famous
-     * for, where a raster-only reader opens one happily and draws nothing.
+     * The dimensions and the format are restricted rather than believed. A file that says its tiles
+     * are 512 pixels is not a pack this client can draw, and finding that out at the blit means a
+     * screen full of quarter-tiles; a file that says its tiles are vectors is the failure MBTiles
+     * is famous for, where a raster-only reader opens one happily and draws nothing.
      */
     if (tile_size != MESH_MAP_TILE_SIZE || format != MESH_MAP_TILE_FORMAT_PNG) {
         close(fd);

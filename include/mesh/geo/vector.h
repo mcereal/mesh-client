@@ -5,9 +5,8 @@
 #include <stdint.h>
 
 /*
- * How far away something is and which way it lies - the second piece of the `geo` module
- * docs/maps-roadmap.md proposes, written because a waypoint list needs it rather than
- * speculatively.
+ * How far away something is and which way it lies - the second piece of the `geo` module, written
+ * because a waypoint list needs it rather than speculatively.
  *
  * This is the answer a handheld with no map can still give: a place is a name, a distance and
  * a direction from where you are. The same call serves the map layer when it arrives, which is

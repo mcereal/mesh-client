@@ -1,12 +1,12 @@
 /*
  * tile_bench - what one raster map tile costs on the device: fetch, decode, blit.
  *
- * Step 3 of docs/maps-roadmap.md asks one question before anything else is built: can the Brick
- * read a tile off its storage and decode it fast enough not to stall the event loop? This answers
- * it for three pack layouts (a z/x/y directory tree, an MBTiles file, and a single-file indexed
- * pack shaped like PMTiles) and two PNG decoders (stb_image and Wuffs), with the page cache warm,
- * dropped once, or dropped before every tile. It is not part of the client: build.sh cross-builds
- * it on its own and gen_tiles.py writes what it reads.
+ * One question, asked before anything else was built: can the Brick read a tile off its storage and
+ * decode it fast enough not to stall the event loop? This answers it for three pack layouts (a
+ * z/x/y directory tree, an MBTiles file, and a single-file indexed pack shaped like PMTiles) and
+ * two PNG decoders (stb_image and Wuffs), with the page cache warm, dropped once, or dropped before
+ * every tile. It is not part of the client: build.sh cross-builds it on its own and gen_tiles.py
+ * writes what it reads.
  *
  *   tile_bench -d SET -l xyz|pack|mbtiles -D none|stb|wuffs -m warm|cold-once|cold-each [-n N]
  *   tile_bench -d SET -l LAYOUT -D DECODER -m view [-r R]      a full view, then pans

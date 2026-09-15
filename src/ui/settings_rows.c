@@ -759,11 +759,10 @@ static bool build_radio_firmware_running(const struct mesh_ui_settings *s, struc
 /*
  * What newer firmware exists for the radio, under the version row that prompted the question.
  *
- * Three rows at most, and every one of them is a fact rather than an offer: this client
- * installs nothing yet (docs/radio-firmware-roadmap.md), so the rows say what is out there and
- * why it cannot be had from here. That last part is the one worth keeping - a radio behaving
- * oddly is often a radio on old firmware, and "connect it by USB" is a thing somebody can go
- * and do, where a missing row is not.
+ * Three rows at most, and every one of them is a fact rather than an offer: this client installs
+ * nothing yet, so the rows say what is out there and why it cannot be had from here. That last part
+ * is the one worth keeping - a radio behaving oddly is often a radio on old firmware, and "connect
+ * it by USB" is a thing somebody can go and do, where a missing row is not.
  *
  * **Every value here is a value, never a sentence.** The column is about two dozen cells at the
  * device scale and a settings row has no supporting line to wrap onto, so "%s available (radio

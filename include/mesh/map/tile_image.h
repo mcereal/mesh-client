@@ -13,13 +13,12 @@ extern "C" {
 /*
  * A tile's bytes turned into pixels: the one function that knows what a PNG is.
  *
- * It is a seam rather than a wrapper. Nothing above it names Wuffs, includes its header or
- * knows a PNG from a JPEG - what this promises is a fixed-size block of pixels in a stated
- * order, which is the only thing a cache or a blit has any business relying on. The decoder
- * behind it was chosen by measurement (docs/maps-roadmap.md): twice stb_image's speed on the
- * palette tiles a map pack is built from, 1.24 ms against 2.41 for one tile on the Brick, and
- * memory-safe by construction, which matters more than the speed does for a decoder whose input
- * is a file this client did not write.
+ * It is a seam rather than a wrapper. Nothing above it names Wuffs, includes its header or knows a
+ * PNG from a JPEG - what this promises is a fixed-size block of pixels in a stated order, which is
+ * the only thing a cache or a blit has any business relying on. The decoder behind it was chosen by
+ * measurement: twice stb_image's speed on the palette tiles a map pack is built from, 1.24 ms
+ * against 2.41 for one tile on the Brick, and memory-safe by construction, which matters more than
+ * the speed does for a decoder whose input is a file this client did not write.
  *
  * There is no decode *state* in this API and no handle to open. The client is one epoll loop
  * with no threads in it, so there is exactly one decode in flight ever, and a handle would be a
@@ -42,7 +41,7 @@ extern "C" {
  */
 #define MESH_MAP_TILE_PIXEL_BYTES 4U
 
-/* One decoded tile: 256 KiB. The number docs/maps-roadmap.md budgets a tile cache in. */
+/* One decoded tile: 256 KiB. The number a tile cache is budgeted in. */
 #define MESH_MAP_TILE_IMAGE_BYTES                                                                  \
     ((size_t)MESH_MAP_TILE_SIZE * (size_t)MESH_MAP_TILE_SIZE * (size_t)MESH_MAP_TILE_PIXEL_BYTES)
 
@@ -86,7 +85,7 @@ extern "C" {
 int mesh_map_tile_decode(const uint8_t *encoded, size_t len, uint8_t *pixels, size_t pixels_len);
 
 /*
- * How much memory decoding holds, for the budget docs/maps-roadmap.md keeps.
+ * How much memory decoding holds, against the tile budget.
  *
  * It is a constant rather than a total that grows with use: the decoder's own state and its
  * scratch buffer are allocated once, statically, and every tile after the first reuses them.

@@ -26,7 +26,7 @@ static const struct mesh_firmware_board *board_named(const struct mesh_firmware_
 }
 
 /* One model, one board, and every field the row above it will show. hw_model 69 is the Heltec
-   Mesh Node T114 - the board docs/radio-firmware-roadmap.md's phase 3 is written against. */
+   Mesh Node T114 - the board the USB install path is written against. */
 MESH_TEST_CASE(firmware_catalog_resolves_one_board, unit) {
     size_t len = 0U;
     char *document = mesh_test_data_read("device_hardware.json", &len);

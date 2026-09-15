@@ -1,10 +1,10 @@
 #pragma once
 
 /*
- * The connected radio's configuration, as the radio reports it, plus the AdminMessage
- * plumbing needed to ask for it again and (later) to change it. Transport-agnostic: the BLE
- * transport feeds FromRadio fragments and ADMIN_APP packets in and pulls encoded ToRadio
- * requests out; serial/TCP would do the same. docs/settings-roadmap.md explains the plan.
+ * The connected radio's configuration, as the radio reports it, plus the AdminMessage plumbing
+ * needed to ask for it again and (later) to change it. Transport-agnostic: the BLE transport feeds
+ * FromRadio fragments and ADMIN_APP packets in and pulls encoded ToRadio requests out; serial/TCP
+ * would do the same.
  *
  * Every admin reply carries a session passkey that a set_* must echo back (firmware 2.5+
  * rejects a write without one, and keys live for five minutes). Writes therefore always go out

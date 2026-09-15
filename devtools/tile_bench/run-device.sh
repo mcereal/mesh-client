@@ -8,7 +8,7 @@
 # the binary is pushed every time.
 #
 # CASE is any of: verify tiles rgb udisk view gap (default: all of them). The client must not be
-# running (`make deploy-stop`), unless measuring contention on purpose - see docs/maps-roadmap.md.
+# running (`make deploy-stop`), unless measuring contention on purpose.
 #
 # Over adb because it needs no WiFi and moves bytes with the sync protocol; the Brick's adbd does
 # not return exit codes, so success is read from the RESULT lines, never from `adb shell`.

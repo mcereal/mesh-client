@@ -64,11 +64,10 @@ struct fb_basemap {
     /*
      * Whether the last frame wanted a tile it did not have.
      *
-     * This is what asks for the next frame: a frame is otherwise a function of the snapshot,
-     * and no press and no packet says that a tile is still on its way. One tile is read per
-     * frame (docs/maps-roadmap.md's one decode per turn of the event loop), so a full view
-     * fills over about twenty frames with input serviced between them rather than in one stall
-     * the length of a dropped connection.
+     * This is what asks for the next frame: a frame is otherwise a function of the snapshot, and no
+     * press and no packet says that a tile is still on its way. One tile is read per frame (one
+     * decode per turn of the event loop), so a full view fills over about twenty frames with input
+     * serviced between them rather than in one stall the length of a dropped connection.
      */
     bool pending;
 };

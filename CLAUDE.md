@@ -122,7 +122,7 @@ the file on the card, over `store_keys.c` (the key) and `store_fields.c` (the va
 | Key trust | `src/core/key_verification.c` - the out-of-band ceremony behind the padlock; `add_contact` lives in `radio_settings.c` |
 | App glue | `src/core/app*.c` - lifecycle/link, `_actions`, `_publish`, `_settings` |
 | Self-update | `src/core/updater.c`, `version.c`, `fetch.c` |
-| Radio firmware | `src/core/firmware*.c`, `uf2.c`, `esp_image.c`, `src/transport/*/{usb_msc,ble_ota,ble_hci}.c` - the *other* binary; see [`docs/radio-firmware-roadmap.md`](docs/radio-firmware-roadmap.md) |
+| Radio firmware | `src/core/firmware*.c`, `uf2.c`, `esp_image.c`, `src/transport/*/{usb_msc,ble_ota,ble_hci}.c` - the *other* binary |
 | UI | `src/ui/` - store/controller (records in `include/mesh/ui/store_*.h`), `store_file.c` the cache on the card, `nav*.c`, `settings*.c`, `layout.c`, `backends/{fb*,cli,stub}.c`; **`fb` is the device UI** |
 | UI components | `src/ui/layout.c`, `src/ui/backends/fb_widgets.c` - cell-measured line builder, scroll window, cards, lists, meters, charts |
 | Tables the UI reads | `actions.c` (button verbs), `status.c` (card verbs), `help.c`, `devices.c`, `nodes.c`, `delivery.c`, `trust.c`, `chrome.c`, `trend.c`, `duration.c` |
@@ -165,13 +165,15 @@ These are authoring rules - breaking one compiles and looks fine.
 It is sectioned by area with a table of contents - read the section you are about to change, not
 the file - and most entries cite the test that fails if the rule is undone.
 
-**Do not add to it as a habit.** 93 of its 137 entries arrived in the same commit as the code they
-describe, which is an author explaining a choice rather than a record of anything going wrong -
-and it is why that file reached 917 lines and this one 1248. An entry needs evidence that somebody
-*tried to undo the rule*; a `feat` commit should not add one. If you are writing the code now, put
-the reasoning in the test name, a comment at the seam, or the `docs/` page for that area. **An
-entry that cites a test is written short on purpose**: the test holds the line and the prose is
-only the reason. The bar is at the top of that file.
+**Do not add to it as a habit.** Most of its entries arrived in the same commit as the code they
+describe, which is an author explaining a choice rather than a record of anything going wrong.
+An entry needs evidence that somebody *tried to undo the rule*; a `feat` commit should not add
+one. If you are writing the code now, put the reasoning in the test name, a comment at the seam,
+or the `docs/` page for that area. **An entry that cites a test is written short on purpose**:
+the test holds the line and the prose is only the reason. The bar is at the top of that file.
+
+The same goes for `docs/`. It is a short reference set, not a journal: a page says how a thing
+works and what will bite, not what each step of building it turned out to cost.
 
 The few that bite soonest:
 
@@ -222,7 +224,7 @@ a tag and the assets and **writes no file back** - `release.config.mjs` drops th
 git plugins for it, which is what keeps the channel branch a pure fast-forward of `main`. Both
 fields the Pak Store reads out of `pak.json` (`version`, `changelog`) are generated during a
 stable release; hand edits are overwritten. See
-[`docs/semantic-release.md`](docs/semantic-release.md).
+[`docs/releasing.md`](docs/releasing.md).
 
 ## Docs map
 
@@ -238,10 +240,4 @@ stable release; hand edits are overwritten. See
 | [`docs/device.md`](docs/device.md) | Brick setup, deploy loop, screenshots, troubleshooting |
 | [`docs/testing.md`](docs/testing.md) | test categories and how to run them |
 | [`docs/performance.md`](docs/performance.md) | what a press costs and how it was measured |
-| [`docs/steamdeck.md`](docs/steamdeck.md) | building and running on a Steam Deck |
-| [`docs/portability.md`](docs/portability.md) | other handhelds, and the five questions a device has to answer |
-| [`docs/semantic-release.md`](docs/semantic-release.md) | versioning, packaging, release assets |
-| [`docs/settings-roadmap.md`](docs/settings-roadmap.md) | radio settings phases and admin verbs |
-| [`docs/radio-firmware-roadmap.md`](docs/radio-firmware-roadmap.md) | updating the radio's firmware over USB and BLE |
-| [`docs/maps-roadmap.md`](docs/maps-roadmap.md) | the basemap, the tile pack format, what is still open |
-| [`docs/components-roadmap.md`](docs/components-roadmap.md) | UI component set audit and the order to close its gaps |
+| [`docs/releasing.md`](docs/releasing.md) | versioning, packaging, release assets |

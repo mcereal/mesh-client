@@ -3,7 +3,7 @@
 
 Stdlib only, like scripts/frames.py and devtools/tile_bench/gen_tiles.py, so it runs on a host
 with nothing installed. It never ships in the pak: a pack is made here and sideloaded, which is
-the delivery path docs/maps-roadmap.md keeps for step 4.
+the delivery path a pack takes.
 
     map_pack.py build --mbtiles region.mbtiles -o region.mctp \\
         --name "Vancouver" --attribution "(c) OpenStreetMap contributors"
@@ -11,14 +11,14 @@ the delivery path docs/maps-roadmap.md keeps for step 4.
     map_pack.py info region.mctp
     map_pack.py verify region.mctp
 
-Why a format of its own rather than shipping MBTiles or PMTiles: the Brick measurement in
-docs/maps-roadmap.md. On a FAT32 card with 32 KiB clusters mounted ``sync``, a single file with
+Why a format of its own rather than shipping MBTiles or PMTiles: the Brick measurement.
+On a FAT32 card with 32 KiB clusters mounted ``sync``, a single file with
 a sorted index reached a cold tile in 0.80 ms where MBTiles took 4.6 ms and a z/x/y tree took
 4.6 ms with a 40 ms tail - and SQLite cost 718 KB of binary on top. So the conversion happens
 once, here, on a machine where none of that matters.
 
-The on-disk layout is documented in src/map/source_pack.c, which is the reader this writes for,
-and reproduced in docs/maps-roadmap.md. Little-endian throughout:
+The on-disk layout is documented in src/map/source_pack.c, which is the reader this writes
+for. Little-endian throughout:
 
     0    8   "MCTPACK2"
     8    2   tile size in pixels
@@ -161,9 +161,9 @@ def filter_tiles(tiles, min_zoom, max_zoom, bbox):
 
 # ---- synth: a pack of a place that does not exist -------------------------------------------
 #
-# What it is for is the thing a licence cannot be argued with about. Step 3 of
-# docs/maps-roadmap.md asks what a cold read plus a decode costs on the Brick and what a filled
-# panel looks like, and neither question is about *whose* map it is - so the answer does not have
+# What it is for is the thing a licence cannot be argued with about: what a cold read plus a
+# decode costs on the Brick, and what a filled panel looks like. Neither question is about
+# *whose* map it is - so the answer does not have
 # to wait on choosing a tile source, and a UI capture of the map does not have to ship somebody
 # else's pixels to have tiles under it.
 #

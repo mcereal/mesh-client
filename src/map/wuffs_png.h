@@ -16,13 +16,12 @@
  * FLOATCONV and INTCONV (numbers to and from text, which is what a JSON decoder wants),
  * MAGIC (sniffing a file's type, which a pack has already answered) and UTF8.
  *
- * Naming them individually buys nothing under `--gc-sections`, which drops unreferenced
- * functions anyway - it was worth 128 bytes when measured that way. It is worth 31,264 bytes
- * under plain `-Os`, which is what scripts/cross-build.sh actually uses: with no
- * `-ffunction-sections` there is nothing for a linker to drop *within* an object, so anything
- * compiled into this one ships whether or not it is called. That is a fact about the pak's
- * build rather than about Wuffs, and it is the same fact that makes this decoder cost three
- * times what docs/maps-roadmap.md's measurement predicted - see there.
+ * Naming them individually buys nothing under `--gc-sections`, which drops unreferenced functions
+ * anyway - it was worth 128 bytes when measured that way. It is worth 31,264 bytes under plain
+ * `-Os`, which is what scripts/cross-build.sh actually uses: with no `-ffunction-sections` there is
+ * nothing for a linker to drop *within* an object, so anything compiled into this one ships whether
+ * or not it is called. That is a fact about the pak's build rather than about Wuffs, and it is the
+ * same fact that makes this decoder cost three times what the standalone measurement predicted.
  *
  * wuffs_png.c includes this with WUFFS_IMPLEMENTATION defined and is the one translation unit
  * that holds the code; everything else that includes it sees declarations only. That is the

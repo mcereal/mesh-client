@@ -2894,11 +2894,10 @@ cleanup:
 /*
  * A save must carry back the fields this client has no row for.
  *
- * The firmware *replaces* a section on set_config - it assigns rather than merging - so the
- * only correct base for a write is the radio's own record with the pending edits applied on
- * top. mesh_app_build_settings_write does that, and this pins it: the audit in
- * docs/settings-roadmap.md turns on the claim, and a write builder that ever started from a
- * fresh struct would silently flatten a radio's frequency override, its position flags and its
+ * The firmware *replaces* a section on set_config - it assigns rather than merging - so the only
+ * correct base for a write is the radio's own record with the pending edits applied on top.
+ * mesh_app_build_settings_write does that, and this pins it: a write builder that ever started from
+ * a fresh struct would silently flatten a radio's frequency override, its position flags and its
  * deep-sleep timer the first time somebody changed a hop limit.
  *
  * Every field asserted here is one the tab deliberately does not offer, which is exactly why

@@ -50,10 +50,10 @@ struct mesh_app {
        without the UI ever seeing a child process. */
     struct mesh_updater updater;
     /*
-     * The *radio's* firmware, which is a different binary on a different computer: what board
-     * this is, what it is running, and what upstream has published since. Reads two documents
-     * through its own fetcher and installs nothing - see docs/radio-firmware-roadmap.md, whose
-     * later phases are what turn that into a press.
+     * The *radio's* firmware, which is a different binary on a different computer: what board this
+     * is, what it is running, and what upstream has published since. Reads two documents through
+     * its own fetcher and installs nothing; the install paths in firmware_install.h and
+     * firmware_ota.h are what turn that into a press.
      */
     struct mesh_firmware firmware;
     /*

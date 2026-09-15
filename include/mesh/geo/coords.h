@@ -12,9 +12,9 @@
  * that is 200 degrees of latitude. Nothing upstream promises otherwise, so a coordinate is
  * checked where it enters rather than trusted because of where it came from.
  *
- * This header deliberately knows nothing about protobufs, the UI store or the framebuffer -
- * it is the first piece of the `geo` module docs/maps-roadmap.md proposes, and the map layer
- * that arrives later reuses the same test rather than writing a second one.
+ * This header deliberately knows nothing about protobufs, the UI store or the framebuffer - it is
+ * the first piece of the `geo` module, and the map layer that arrives later reuses the same test
+ * rather than writing a second one.
  */
 
 /* 90 and 180 degrees at 1e-7, the extremes of each axis. Both ends are inclusive: the poles

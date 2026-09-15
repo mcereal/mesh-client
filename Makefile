@@ -166,7 +166,7 @@ distclean: clean
 #                    and nothing the store can see. Only a client set to the Prerelease update
 #                    channel is offered it. `ship-rc` is the same on the other channel name.
 #
-# Needs the gh CLI logged in; see docs/semantic-release.md for what each one publishes.
+# Needs the gh CLI logged in; see docs/releasing.md for what each one publishes.
 RELEASE_WORKFLOW := semantic-release.yml
 
 define dispatch_release

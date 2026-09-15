@@ -80,8 +80,8 @@ was due.
 
 **The two exceptions to "fetched from a real service", and deliberately not to "nothing here is
 hand-authored".** There is no real tile to fetch: OSM's tile policy prohibits bulk downloads and
-this project hosts no tile service, which is the constraint
-[`docs/maps-roadmap.md`](../../docs/maps-roadmap.md) is built around. So these come from
+this project hosts no tile service, which is the constraint the whole map path is built
+around. So these come from
 [`devtools/tile_bench/gen_tiles.py`](../../devtools/tile_bench/gen_tiles.py) — the generator
 that was written for the *device measurement*, months before there was a decoder in the client
 to test, and whose output the Brick decoded to produce the numbers that chose Wuffs. It is an

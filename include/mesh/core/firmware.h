@@ -4,17 +4,16 @@
  * What the *radio's* firmware situation is: which board this is, what it is running, what the
  * newest release is, and whether this client could install it from where it is standing.
  *
- * The client's own self-update is next door in updater.h and this borrows its shape - one
- * child at a time through the event loop, one state per thing a row can name - because they
- * are the same problem twice. What they are not is the same feature: this one changes a
- * different computer, over a bus, and getting it wrong there is somebody's radio rather than a
- * relaunch. docs/radio-firmware-roadmap.md is the whole plan.
+ * The client's own self-update is next door in updater.h and this borrows its shape - one child at
+ * a time through the event loop, one state per thing a row can name - because they are the same
+ * problem twice. What they are not is the same feature: this one changes a different computer, over
+ * a bus, and getting it wrong there is somebody's radio rather than a relaunch.
  *
- * **This is phase 1 of that plan and it installs nothing.** It reads two documents and reports
- * what they say, which is most of the value for anybody who owns a computer and all of the
- * value for anybody wondering why their radio is behaving the way it is. Everything the states
- * below do not mention - the download, the handover, the loader - arrives in later phases and
- * arrives as more states, not as a second module.
+ * **This module installs nothing.** It reads two documents and reports what they say, which is most
+ * of the value for anybody who owns a computer and all of the value for anybody wondering why their
+ * radio is behaving the way it is. Everything the states below do not mention - the download, the
+ * handover, the loader - arrives in later phases and arrives as more states, not as a second
+ * module.
  *
  * Two answers, deliberately kept apart:
  *

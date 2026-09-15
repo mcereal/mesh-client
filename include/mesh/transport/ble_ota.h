@@ -1,8 +1,8 @@
 #pragma once
 
 /*
- * The conversation with the ESP32 OTA loader, once it is connected: phase 4 of
- * docs/radio-firmware-roadmap.md, and the one piece of it that is a protocol.
+ * The conversation with the ESP32 OTA loader, once it is connected - the one piece of the BLE
+ * firmware path that is a protocol.
  *
  * `meshtastic/esp32-unified-ota` runs a text protocol over two characteristics of its own
  * service - everything we say goes to `...0005`, every answer comes back as a notification on

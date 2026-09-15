@@ -394,8 +394,8 @@ MESH_STR_ENTRY(NODES_FILTER_NONE,         "No nodes match this filter")
 /* ---- the map ----------------------------------------------------------------------------------
  *
  * A picture of where the nodes and the shared places are, opened from the first row of the Nodes
- * list. There is no basemap under it yet - see docs/maps-roadmap.md - so what it draws is a
- * graticule, the markers, and a scale bar to read the distances against.
+ * list. There is no basemap under it yet, so what it draws is a graticule, the markers, and a scale
+ * bar to read the distances against.
  */
 
 /* The Nodes list's first row, and what its supporting line says. The count is nodes and places
@@ -2514,8 +2514,8 @@ MESH_STR_ENTRY(UPDATE_DOWNLOAD_EXIT,      "Download failed (%s exit %d)")
 /* ---- the radio's firmware ------------------------------------------------------------------ */
 
 /*
- * The other binary in the room: the Meshtastic firmware on the node, not this client.
- * docs/radio-firmware-roadmap.md is the plan; today the client only reports.
+ * The other binary in the room: the Meshtastic firmware on the node, not this client. Today the
+ * client only reports.
  *
  * **Everything from here to the labels is a value-column value, so every one of them is short.**
  * That is a hard constraint rather than a preference: a settings row has no supporting line to

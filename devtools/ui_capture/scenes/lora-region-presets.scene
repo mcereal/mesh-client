@@ -1,7 +1,7 @@
 # The region and the preset, which are one pair of rows rather than two settings.
 #
 # Settings > LoRa, top of the section. The firmware sends its own table of which modem presets
-# each region will take (docs/settings-roadmap.md phase 14 item 8), so this is the first row in
+# each region will take, so this is the first row in
 # the tab whose legal values are decided by the row above it.
 #
 # Three things the scene is for, in the order they happen:

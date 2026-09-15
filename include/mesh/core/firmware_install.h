@@ -3,11 +3,10 @@
 /*
  * The USB handover: from a staged `.uf2` to a radio running it.
  *
- * This is phase 3 of docs/radio-firmware-roadmap.md and the first thing in this client that
- * changes a radio. It is deliberately the half whose worst outcome is "write the blocks again":
- * an interrupted write leaves the board sitting in its bootloader, which any computer on any OS
- * can talk to, so there is no state on the radio this has to be careful to leave in a good
- * place and no banner promising to come back and finish.
+ * This is the first thing in this client that changes a radio. It is deliberately the half whose
+ * worst outcome is "write the blocks again": an interrupted write leaves the board sitting in its
+ * bootloader, which any computer on any OS can talk to, so there is no state on the radio this has
+ * to be careful to leave in a good place and no banner promising to come back and finish.
  *
  * Four steps, one state each, because each is a different sentence on a screen:
  *

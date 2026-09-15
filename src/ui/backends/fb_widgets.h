@@ -913,10 +913,9 @@ void fb_draw_proportion(const struct mesh_ui_backend_fb_state *state,
  * The fifth quantitative component and the first that is a screen rather than a slot. Everything
  * before it fits in a row and pays for that by having no numbers on it - a sparkline is a shape,
  * and the reader has to already know what it is a shape of. That is the right trade in a list,
- * where the row above says which reading it is and the bar beside it says how far along. It
- * stops being the right trade the moment somebody stops to look, which is the press this exists
- * for, and it was the thing docs/components-roadmap.md said an axis frame would cost: not a
- * component, a *route*.
+ * where the row above says which reading it is and the bar beside it says how far along. It stops
+ * being the right trade the moment somebody stops to look, which is the press this exists for, and
+ * it was the thing an axis frame turned out to cost: not a component, a *route*.
  *
  * What the room buys, in the order it matters:
  *

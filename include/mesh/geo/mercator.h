@@ -5,8 +5,8 @@
 #include <stdint.h>
 
 /*
- * Where a coordinate lands on a flat picture of the world - the third piece of the `geo` module
- * docs/maps-roadmap.md proposes, written now because a map needs it and not before.
+ * Where a coordinate lands on a flat picture of the world - the third piece of the `geo` module,
+ * written now because a map needs it and not before.
  *
  * Web Mercator, because it is what every raster tile set on Earth is cut into: a tile pyramid
  * addressed by (z, x, y) is a statement about *this* projection, so a client that drew its

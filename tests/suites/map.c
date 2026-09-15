@@ -1,11 +1,10 @@
 /*
  * The map viewport: where it is looking, and what that makes of a coordinate.
  *
- * All of it is arithmetic on four numbers, so all of it is testable with no framebuffer, no
- * radio and no store - which is the whole argument for the module boundary
- * docs/maps-roadmap.md drew. A marker landing in the wrong place is the one map bug a
- * screenshot cannot catch, because a screenshot of a map that is looking somewhere else still
- * looks like a map.
+ * All of it is arithmetic on four numbers, so all of it is testable with no framebuffer, no radio
+ * and no store - which is the whole argument for the module boundary. A marker landing in the wrong
+ * place is the one map bug a screenshot cannot catch, because a screenshot of a map that is looking
+ * somewhere else still looks like a map.
  */
 
 #include "framework/mesh_test.h"
@@ -531,11 +530,11 @@ MESH_TEST_CASE(map_markers_are_the_things_with_a_position, unit) {
 /*
  * A selection is a kind and an id, and it survives the roster being re-ranked under it.
  *
- * docs/maps-roadmap.md's fifth pre-work item named this exact case: "a map-only node may be
- * outside the detail roster" and "publication reorders nodes". A marker under a crosshair is
- * another index into another ordering of the same list, and matching on the number alone is not
- * enough either - a waypoint id is a small counter and a node number is arbitrary, so the two
- * spaces collide by ordinary coincidence rather than by bad luck.
+ * The case is a map-only node outside the detail roster, with publication reordering nodes
+ * underneath it. A marker under a crosshair is another index into another ordering of the same
+ * list, and matching on the number alone is not enough either - a waypoint id is a small counter
+ * and a node number is arbitrary, so the two spaces collide by ordinary coincidence rather than by
+ * bad luck.
  */
 MESH_TEST_CASE(map_selection_names_a_thing_not_a_row, unit) {
     struct mesh_ui_store store;
@@ -1311,11 +1310,10 @@ static void map_test_wide_roster(struct mesh_ui_handshake_state *hs, uint32_t co
 /*
  * The map draws nodes the list never published, which is the whole of the change.
  *
- * docs/maps-roadmap.md's fourth pre-work item left this open and its own §"What steps 1 and 2
- * became" called it "the largest single thing between this map and the one this document
- * describes": the session holds MESH_SESSION_MAX_NODES and the ranking publishes 128 rows, and
- * the map was drawing the rows. A node's rank says how likely you are to talk to it, which has
- * nothing to do with whether its marker belongs on the panel.
+ * This was the largest single thing between the first map and this one: the session holds
+ * MESH_SESSION_MAX_NODES and the ranking publishes 128 rows, and the map was drawing the rows. A
+ * node's rank says how likely you are to talk to it, which has nothing to do with whether its
+ * marker belongs on the panel.
  */
 MESH_TEST_CASE(map_draws_nodes_the_list_never_published, unit) {
     struct mesh_ui_store store;
