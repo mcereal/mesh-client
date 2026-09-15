@@ -3759,3 +3759,214 @@ MESH_TEST_CASE(ui_settings_lora_preset_follows_the_region, unit) {
                       "a firmware that sends no map should leave the preset row as it was");
     record_success(test_name);
 }
+
+/*
+ * About radio, while the tab is describing another node's radio.
+ *
+ * This section's whole job is to say what the radio is, so it is the one place that has to name
+ * *which* radio - and the one place that carries the press that comes back. It is also where the
+ * banner stands down (see ui_chrome), which only works if what it stands down for is here.
+ */
+MESH_TEST_CASE(ui_settings_about_radio_names_the_node_being_configured, unit) {
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.admin_ok = true;
+
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.has_my_info = true;
+    handshake.my_info.node_num = 0x1111U;
+    handshake.my_info.reboot_count = 4U;
+
+    /* Locally: the node number is our own and the reboot count sits beside it, as it always
+       has. Nothing about the section changes when there is no remote target. */
+    struct mesh_ui_settings_item item;
+    bool saw_local_number = false;
+    bool saw_reboots = false;
+    uint32_t count = mesh_ui_settings_item_count(&settings, &handshake, MESH_UI_SETTINGS_RADIO,
+                                                 MESH_UI_SETTINGS_NO_CHANNEL);
+    for (uint32_t i = 0; i < count; ++i) {
+        if (!mesh_ui_settings_item(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_RADIO,
+                                   MESH_UI_SETTINGS_NO_CHANNEL, i, &item)) {
+            continue;
+        }
+        saw_local_number = saw_local_number || strcmp(item.value, "!00001111") == 0;
+        saw_reboots = saw_reboots || strcmp(item.label, mesh_str(MESH_STR_RADIO_REBOOTS)) == 0;
+    }
+    MESH_TEST_FAIL_IF(!saw_local_number || !saw_reboots,
+                      "the ordinary section is the one it always was");
+
+    /* Pointed somewhere else, the first rows say so and offer the way back. */
+    settings.admin_dest = 0x7001U;
+    snprintf(settings.admin_dest_name, sizeof settings.admin_dest_name, "Hill repeater");
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, &handshake, NULL, 0U,
+                                             MESH_UI_SETTINGS_RADIO, MESH_UI_SETTINGS_NO_CHANNEL,
+                                             0U, &item) ||
+                          item.kind != MESH_UI_SETTING_HEADING,
+                      "whose radio this is comes first, under a heading of its own");
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, &handshake, NULL, 0U,
+                                             MESH_UI_SETTINGS_RADIO, MESH_UI_SETTINGS_NO_CHANNEL,
+                                             1U, &item) ||
+                          strcmp(item.value, "Hill repeater") != 0,
+                      "and names the node, because every row below it describes that radio");
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, &handshake, NULL, 0U,
+                                             MESH_UI_SETTINGS_RADIO, MESH_UI_SETTINGS_NO_CHANNEL,
+                                             2U, &item) ||
+                          item.kind != MESH_UI_SETTING_ACTION ||
+                          item.number != (uint32_t)MESH_UI_SETTINGS_ACTION_ADMIN_LOCAL,
+                      "with the press that comes back to our own radio under it");
+
+    /*
+     * And the node number becomes the target's. It is the one row in this section that does not
+     * come from the admin path - `my_info` is the handshake's, so it is always our own radio's -
+     * and left alone it would be this section quietly answering "which radio" with the wrong
+     * one, three rows under the heading that just said which.
+     */
+    bool saw_remote_number = false;
+    saw_local_number = false;
+    saw_reboots = false;
+    count = mesh_ui_settings_item_count(&settings, &handshake, MESH_UI_SETTINGS_RADIO,
+                                        MESH_UI_SETTINGS_NO_CHANNEL);
+    for (uint32_t i = 0; i < count; ++i) {
+        if (!mesh_ui_settings_item(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_RADIO,
+                                   MESH_UI_SETTINGS_NO_CHANNEL, i, &item)) {
+            continue;
+        }
+        saw_remote_number = saw_remote_number || strcmp(item.value, "!00007001") == 0;
+        saw_local_number = saw_local_number || strcmp(item.value, "!00001111") == 0;
+        saw_reboots = saw_reboots || strcmp(item.label, mesh_str(MESH_STR_RADIO_REBOOTS)) == 0;
+    }
+    MESH_TEST_FAIL_IF(!saw_remote_number || saw_local_number,
+                      "the node number has to be the one this section is describing");
+    MESH_TEST_FAIL_IF(saw_reboots,
+                      "MyNodeInfo is what a radio tells the client attached to it, and no admin "
+                      "verb asks a node over the mesh how often it has restarted");
+
+    /*
+     * And the section still fits, which is the half of this that a row added to the top can
+     * break silently: the list is built onto the stack every frame and anything past
+     * MESH_UI_SETTINGS_ITEMS_MAX is dropped without a word - so the longest this section can be
+     * is a remote target *and* a radio reporting every interface it has.
+     */
+    settings.has_metadata = true;
+    settings.has_bluetooth_radio = true;
+    settings.has_wifi = true;
+    settings.has_ethernet = true;
+    settings.has_pkc = true;
+    settings.connection.valid = true;
+    settings.connection.has_wifi = true;
+    settings.connection.wifi_connected = true;
+    settings.connection.has_ethernet = true;
+    settings.connection.has_bluetooth = true;
+    settings.connection.bluetooth_pin = 123456U;
+    settings.connection.has_serial = true;
+    MESH_TEST_FAIL_IF(mesh_ui_settings_item_count(&settings, &handshake, MESH_UI_SETTINGS_RADIO,
+                                                  MESH_UI_SETTINGS_NO_CHANNEL) >
+                          MESH_UI_SETTINGS_ITEMS_MAX,
+                      "About radio has to fit the item list with the remote rows on top of it");
+    record_success(test_name);
+}
+
+/*
+ * The node detail's remote-administration row exists only for a node we hold a key for.
+ *
+ * Sharper than the gate on the two key rows beside it: those would merely have nothing to do,
+ * and this one could not address a packet at all - an AdminMessage crossing the mesh is sealed
+ * to the far node's public key, and there is no unencrypted remote admin to fall back to.
+ */
+MESH_TEST_CASE(ui_settings_node_detail_offers_remote_admin_with_a_key, unit) {
+    struct mesh_ui_node_summary node;
+    memset(&node, 0, sizeof node);
+    node.node_id = 0x7001U;
+    snprintf(node.short_name, sizeof node.short_name, "RPTR");
+
+    struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
+    uint32_t count = mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, false, NULL, NULL,
+                                               false, items, MESH_UI_NODE_ITEMS_MAX);
+    for (uint32_t i = 0; i < count; ++i) {
+        MESH_TEST_FAIL_IF(items[i].action == (uint8_t)MESH_UI_NODE_ACTION_ADMIN,
+                          "a node with no key cannot be sent an admin request at all");
+    }
+
+    node.public_key_len = 32U;
+    node.public_key[0] = 0xA0U;
+    count = mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, false, NULL, NULL, false,
+                                      items, MESH_UI_NODE_ITEMS_MAX);
+    uint32_t at = count;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (items[i].action == (uint8_t)MESH_UI_NODE_ACTION_ADMIN) {
+            at = i;
+        }
+    }
+    MESH_TEST_FAIL_IF(at == count, "a node we hold a key for can be configured over the mesh");
+    MESH_TEST_FAIL_IF(items[at].tone != (uint8_t)MESH_UI_TONE_WARNING,
+                      "it is the one row here that changes what every other screen means, so it "
+                      "says so before it is pressed");
+
+    /* Never against our own node: the radio on the end of the link is not administered over the
+       air, and the row would be the way out of remote admin offered as the way in. */
+    count = mesh_ui_node_detail_build(&node, true, 1750000600U, NULL, false, NULL, NULL, false,
+                                      items, MESH_UI_NODE_ITEMS_MAX);
+    for (uint32_t i = 0; i < count; ++i) {
+        MESH_TEST_FAIL_IF(items[i].action == (uint8_t)MESH_UI_NODE_ACTION_ADMIN,
+                          "our own radio is not configured over the mesh");
+    }
+    record_success(test_name);
+}
+
+/*
+ * The confirm sheet names the radio when the press would leave this one.
+ *
+ * The one place the remote-administration banner cannot reach: a modal owns the body, so the
+ * container that has been saying "this is somebody else's radio" on every other frame is gone at
+ * exactly the moment "Factory reset?" is put to the user.
+ */
+MESH_TEST_CASE(ui_settings_confirm_names_the_remote_radio, unit) {
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+
+    char text[256];
+    mesh_ui_settings_confirm_text(MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_ACTION_REBOOT, text,
+                                  sizeof text);
+    const size_t plain = strlen(text);
+    mesh_ui_settings_confirm_add_subject(&settings, MESH_UI_SETTINGS_ACTION_REBOOT, text,
+                                         sizeof text);
+    MESH_TEST_FAIL_IF(strlen(text) != plain,
+                      "with no remote target the sheet is the one it always was");
+
+    settings.admin_dest = 0x7001U;
+    snprintf(settings.admin_dest_name, sizeof settings.admin_dest_name, "Hill repeater");
+    mesh_ui_settings_confirm_add_subject(&settings, MESH_UI_SETTINGS_ACTION_REBOOT, text,
+                                         sizeof text);
+    MESH_TEST_FAIL_IF(strstr(text, "Hill repeater") == NULL,
+                      "a reboot that leaves this radio has to say whose radio it reaches");
+    MESH_TEST_FAIL_IF(strncmp(text, mesh_str(MESH_STR_CONFIRM_TEXT_REBOOT), 16) != 0,
+                      "added to the sheet's own words, not instead of them - what is being "
+                      "asked has not changed, only which radio it lands on");
+
+    /* A section save is the same hazard with a quieter name: Save on LoRa while a target is set
+       writes somebody else's region. */
+    mesh_ui_settings_confirm_text(MESH_UI_SETTINGS_LORA, MESH_UI_SETTINGS_ACTION_NONE, text,
+                                  sizeof text);
+    mesh_ui_settings_confirm_add_subject(&settings, MESH_UI_SETTINGS_ACTION_NONE, text,
+                                         sizeof text);
+    MESH_TEST_FAIL_IF(strstr(text, "Hill repeater") == NULL,
+                      "a save is a write, and a write goes wherever the tab is pointed");
+
+    /*
+     * And the presses that stay home whatever the tab is pointed at. Saying "this goes over the
+     * mesh" of a row that empties this client's own roster would be false, and the sheet would
+     * be the thing that made it false.
+     */
+    mesh_ui_settings_confirm_text(MESH_UI_SETTINGS_ACTIONS,
+                                  MESH_UI_SETTINGS_ACTION_FORGET_ALL_NODES, text, sizeof text);
+    const size_t local = strlen(text);
+    mesh_ui_settings_confirm_add_subject(&settings, MESH_UI_SETTINGS_ACTION_FORGET_ALL_NODES, text,
+                                         sizeof text);
+    MESH_TEST_FAIL_IF(strlen(text) != local, "forgetting our own cached nodes reaches no radio");
+    mesh_ui_settings_confirm_add_subject(&settings, MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB,
+                                         text, sizeof text);
+    MESH_TEST_FAIL_IF(strlen(text) != local, "and firmware goes over a bus, not over the mesh");
+    record_success(test_name);
+}

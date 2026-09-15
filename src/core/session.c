@@ -1869,6 +1869,55 @@ int mesh_session_refresh_settings(struct mesh_session *session) {
     return (int)mesh_radio_settings_queue_all(&session->settings);
 }
 
+int mesh_session_set_admin_dest(struct mesh_session *session, uint32_t node_id) {
+    if (session == NULL) {
+        return -EINVAL;
+    }
+    if (session->send == NULL || !session->handshake.has_my_info) {
+        return -ENOTCONN;
+    }
+
+    if (node_id != 0U && node_id == session->handshake.my_info.my_node_num) {
+        /* Naming our own radio is not remote administration, it is the way back - and it has a
+           spelling of its own, so a caller that arrives here with our node number has confused
+           the two rather than asked for something. */
+        return -EINVAL;
+    }
+
+    if (node_id == 0U) {
+        const int result = mesh_radio_settings_set_admin_dest(&session->settings, 0U, NULL, 0U);
+        if (result < 0) {
+            return result;
+        }
+    } else {
+        const struct mesh_node_summary *const summary = mesh_session_find_node(session, node_id);
+        if (summary == NULL) {
+            return -ENOENT;
+        }
+        /*
+         * The key is read from the roster rather than asked for, which is the same bargain
+         * add_contact makes: what we hold is what the node itself broadcast in its NodeInfo, or
+         * what arrived in a contact link. A node that has never said a key cannot be
+         * administered from here, because there is nothing to seal the request to.
+         */
+        if (summary->public_key_len != MESH_ADMIN_PUBLIC_KEY_LEN) {
+            return -EINVAL;
+        }
+        const int result = mesh_radio_settings_set_admin_dest(
+            &session->settings, node_id, summary->public_key, summary->public_key_len);
+        if (result < 0) {
+            return result;
+        }
+    }
+
+    /* The tab was emptied by the retarget, so the refresh is not a nicety: without it every
+       section would read "not loaded" until something else asked. */
+    const int queued = (int)mesh_radio_settings_queue_all(&session->settings);
+    mesh_log_info("session", "Settings now administer 0x%08x (%d requests queued)",
+                  node_id != 0U ? node_id : session->handshake.my_info.my_node_num, queued);
+    return queued;
+}
+
 int mesh_session_write_settings(struct mesh_session *session,
                                 const struct mesh_admin_request *write) {
     if (session == NULL || write == NULL) {

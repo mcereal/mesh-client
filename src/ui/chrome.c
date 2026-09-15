@@ -91,6 +91,32 @@ bool mesh_ui_chrome_banner(const struct mesh_ui_snapshot *snapshot, struct mesh_
     }
 
     /*
+     * Ahead of everything, because it is the only entry here that is not news at all: the other
+     * four report something that has happened, and this one reports the state the *next press*
+     * will be made in. A reader who misses it saves a setting onto somebody else's radio, which
+     * is a worse outcome than a firmware install waiting an hour.
+     *
+     * Stood down inside About radio, on the rule the updater's two are stood down inside About:
+     * that section names the node in a row of its own and carries the press that comes back, so
+     * a banner over it would be pointing at what the reader is already reading.
+     */
+    if (snapshot->settings.admin_dest != 0U && !mesh_ui_chrome_on_about_radio(&snapshot->nav)) {
+        out->kind = (uint8_t)MESH_UI_BANNER_REMOTE_ADMIN;
+        /* The tab's own mark, because what has moved is which radio that tab is about - not the
+           warning rune, which on this frame would be claiming something is wrong. */
+        out->icon = MESH_UI_ICON_SETTINGS;
+        out->text = MESH_STR_BANNER_REMOTE_ADMIN;
+        out->supporting = MESH_STR_BANNER_REMOTE_ADMIN_HINT;
+        /* The node's name, as a runtime string beside the words rather than inside them - the
+           slot the update banners put a version number in, and for the same reason. */
+        out->detail = snapshot->settings.admin_dest_name;
+        /* Warning for the loader entry's reason: nothing is broken, and something is true that
+           the reader would be sorry not to have known. */
+        out->family = MESH_UI_FAMILY_WARNING;
+        return true;
+    }
+
+    /*
      * Ahead of the updater's two, because it outranks them on both halves of what a banner is
      * for: it is about a radio that is off the mesh right now rather than about a release that
      * will still be there in an hour, and it is the only one of the three that nothing but this

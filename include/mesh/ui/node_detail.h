@@ -33,14 +33,14 @@ extern "C" {
 #define MESH_UI_NODE_VALUE_MAX 48U
 /*
  * Every row every node can produce, all at once. rows_next() drops silently past this, so it
- * has to be an upper bound rather than a guess: the arithmetic is 35 action rows (the group's
- * own heading and twelve actions, plus a traced route of up to ten stops in each direction with
- * its two headings and its stamp), 12 identity, 7 signal, and then one group per kind of
+ * has to be an upper bound rather than a guess: the arithmetic is 36 action rows (the group's
+ * own heading and thirteen actions, plus a traced route of up to ten stops in each direction
+ * with its two headings and its stamp), 12 identity, 7 signal, and then one group per kind of
  * reading - 7 device metrics, 7 position, 9 environment, 5 power, 7 air quality, 5 health, 6
- * host - which comes to 100 for a node that reports everything at the end of a ten-hop trace -
+ * host - which comes to 101 for a node that reports everything at the end of a ten-hop trace -
  * plus the two neighbour groups: 12 for the list the node reported (heading, ten out-edges -
  * upstream's own cap - and the stamp) and 12 for the nodes that report hearing it (heading, ten
- * rows and the line saying how many were left out), making 124.
+ * rows and the line saying how many were left out), making 125.
  *
  * Rounded up for headroom, and pinned by node_detail_row_budget in the ui_settings suite so a
  * new group cannot quietly push the last one off the screen.
@@ -117,6 +117,20 @@ enum mesh_ui_node_action {
      */
     MESH_UI_NODE_ACTION_VERIFY_KEY,
     MESH_UI_NODE_ACTION_ADD_CONTACT,
+    /*
+     * Open the Settings tab against *this* node's radio, over the mesh.
+     *
+     * Last, and gated on the same key the two rows above it are, for a sharper version of their
+     * reason: an AdminMessage to a remote node goes out sealed to that node's public key, so a
+     * node we hold no key for is one this press could not even address - and the row would
+     * teach the reader to distrust the ones around it.
+     *
+     * Holding a key is not the same as being *allowed* to configure that radio, which is a list
+     * kept on the far end and never sent. That cannot be checked from here and deliberately is
+     * not guessed at: the press goes out, and a radio that has not been told to trust us
+     * answers nothing, which the Settings tab reports as a refresh that would not fill in.
+     */
+    MESH_UI_NODE_ACTION_ADMIN,
 };
 
 struct mesh_ui_node_item {

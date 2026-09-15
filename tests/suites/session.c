@@ -1863,3 +1863,85 @@ MESH_TEST_CASE(session_region_presets, unit) {
         "a reconnect to a firmware that sends no map should constrain nothing");
     record_success(test_name);
 }
+
+/*
+ * Remote administration, from the session's side: which node the Settings tab is pointed at,
+ * and what has to be true before it can be.
+ *
+ * The gate here is the one this client can actually answer. What *authorises* an admin request
+ * is our own public key sitting in the far radio's admin list, which only that radio knows - so
+ * what is checked is the half we can see: that we hold a key to seal the request to.
+ */
+MESH_TEST_CASE(session_remote_admin_target, unit) {
+    struct mesh_session session;
+    mesh_session_init(&session);
+    struct mesh_test_trace_capture capture;
+    memset(&capture, 0, sizeof capture);
+    mesh_session_attach(&session, mesh_test_trace_capture_fn, &capture);
+
+    MESH_TEST_FAIL_IF(mesh_session_set_admin_dest(&session, 0x2222U) != -ENOTCONN,
+                      "there is nothing to administer through before the handshake");
+
+    meshtastic_FromRadio my_info = meshtastic_FromRadio_init_default;
+    my_info.which_payload_variant = meshtastic_FromRadio_my_info_tag;
+    my_info.my_info.my_node_num = 0x1111U;
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &my_info), "encode my_info");
+
+    /* A node with no key at all: heard from, named, and unaddressable. */
+    meshtastic_FromRadio bare = meshtastic_FromRadio_init_default;
+    bare.which_payload_variant = meshtastic_FromRadio_node_info_tag;
+    bare.node_info.num = 0x2222U;
+    bare.node_info.has_user = true;
+    snprintf(bare.node_info.user.short_name, sizeof bare.node_info.user.short_name, "BARE");
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &bare), "encode node_info");
+
+    /* And one that has broadcast its public key, which is what makes it a candidate. */
+    meshtastic_FromRadio keyed = meshtastic_FromRadio_init_default;
+    keyed.which_payload_variant = meshtastic_FromRadio_node_info_tag;
+    keyed.node_info.num = 0x3333U;
+    keyed.node_info.has_user = true;
+    snprintf(keyed.node_info.user.short_name, sizeof keyed.node_info.user.short_name, "RPTR");
+    keyed.node_info.user.public_key.size = MESH_ADMIN_PUBLIC_KEY_LEN;
+    for (size_t i = 0; i < MESH_ADMIN_PUBLIC_KEY_LEN; ++i) {
+        keyed.node_info.user.public_key.bytes[i] = (uint8_t)(0xA0U + i);
+    }
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &keyed), "encode node_info");
+
+    MESH_TEST_FAIL_IF(mesh_session_set_admin_dest(&session, 0x9999U) != -ENOENT,
+                      "a node nobody has heard of is not a node to administer");
+    MESH_TEST_FAIL_IF(mesh_session_set_admin_dest(&session, 0x2222U) != -EINVAL,
+                      "a node with no public key cannot be sent an encrypted admin request");
+    MESH_TEST_FAIL_IF(mesh_session_set_admin_dest(&session, 0x1111U) != -EINVAL,
+                      "our own radio is the way back, which has a spelling of its own");
+
+    const int queued = mesh_session_set_admin_dest(&session, 0x3333U);
+    MESH_TEST_FAIL_IF(queued <= 0,
+                      "retargeting empties the tab, so it has to queue the refresh that fills "
+                      "it in again");
+    MESH_TEST_FAIL_IF(mesh_radio_settings_admin_dest(mesh_session_settings(&session)) != 0x3333U,
+                      "the session should be administering the node it was asked to");
+
+    /* And what goes out is that AdminMessage, sealed to that node's key rather than broadcast
+       under the channel's. */
+    capture.calls = 0U;
+    mesh_session_tick(&session, 1000U);
+    MESH_TEST_FAIL_IF(capture.calls == 0U, "the first request should have been sent");
+    meshtastic_ToRadio sent = meshtastic_ToRadio_init_default;
+    pb_istream_t in = pb_istream_from_buffer(capture.packet, capture.len);
+    MESH_TEST_FAIL_IF(!pb_decode(&in, meshtastic_ToRadio_fields, &sent) ||
+                          sent.which_payload_variant != meshtastic_ToRadio_packet_tag,
+                      "decode the ToRadio");
+    MESH_TEST_FAIL_IF(sent.packet.to != 0x3333U ||
+                          sent.packet.decoded.portnum != meshtastic_PortNum_ADMIN_APP,
+                      "an admin request addressed to the node being administered");
+    MESH_TEST_FAIL_IF(!sent.packet.pki_encrypted ||
+                          sent.packet.public_key.size != MESH_ADMIN_PUBLIC_KEY_LEN ||
+                          sent.packet.public_key.bytes[0] != 0xA0U,
+                      "sealed to the key that node broadcast, which is the roster's copy");
+
+    /* Coming back is the same call with no node named. */
+    MESH_TEST_FAIL_IF(mesh_session_set_admin_dest(&session, 0U) <= 0, "the way back");
+    MESH_TEST_FAIL_IF(mesh_radio_settings_admin_dest(mesh_session_settings(&session)) != 0U,
+                      "and the tab describes the radio on the end of the link again");
+    record_success(test_name);
+}

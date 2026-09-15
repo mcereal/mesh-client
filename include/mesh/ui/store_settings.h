@@ -326,6 +326,24 @@ struct mesh_ui_settings {
     bool admin_busy;    /* a refresh is in flight */
     bool write_pending; /* a set_* is queued or awaiting its ack */
     uint32_t admin_replies;
+    /*
+     * Whose radio every field below describes: 0 for the one on the end of the link, or the
+     * node number this client is administering over the mesh.
+     *
+     * The single most consequential fact on this tab, and the only one that is not visible in
+     * any of its rows: with a target set, "Save" writes somebody else's LoRa region and "Reboot"
+     * takes somebody else's repeater down. That is why it is also chrome - see
+     * mesh/ui/chrome.h, which raises a banner naming the node on every screen but the one whose
+     * rows say it.
+     *
+     * The name is carried beside the number rather than looked up by whoever draws it, because
+     * it comes out of the roster and the roster is not part of the settings this struct is a
+     * flattening of - so a backend resolving it would be a screen reaching for a second
+     * subject. Empty for a target the roster cannot name, which is the "!hex" case every other
+     * peer name here falls back to.
+     */
+    uint32_t admin_dest;
+    char admin_dest_name[40];
 
     bool has_owner;
     char long_name[40];

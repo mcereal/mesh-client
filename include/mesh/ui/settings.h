@@ -640,6 +640,20 @@ enum mesh_ui_settings_action {
      */
     MESH_UI_SETTINGS_ACTION_SHARE_CONTACT,
     MESH_UI_SETTINGS_ACTION_IMPORT_CONTACT,
+    /*
+     * About radio: stop configuring somebody else's radio and come back to this one.
+     *
+     * The only row in this tab that is about *which* radio the rest of the tab describes, and
+     * the return half of a press made on the Nodes tab - a node's own card is where remote
+     * administration is entered, because that is where a node is a subject. It lives here
+     * because this section is the one that says what the radio being configured is, so it is
+     * the section somebody who has noticed the banner is already looking at.
+     *
+     * Not a radio action: nothing goes over the air, nothing on any radio changes, and it works
+     * exactly as well when the remote node has stopped answering - which is one of the two
+     * times it is most wanted. Drawn only while there is something to come back from.
+     */
+    MESH_UI_SETTINGS_ACTION_ADMIN_LOCAL,
 };
 
 /* Which press writes this field (mesh/ui/nav.h). */
@@ -935,6 +949,24 @@ void mesh_ui_settings_confirm_title(enum mesh_ui_settings_section section, uint8
                                     enum mesh_ui_settings_action action, char *out, size_t out_len);
 void mesh_ui_settings_confirm_text(enum mesh_ui_settings_section section,
                                    enum mesh_ui_settings_action action, char *out, size_t out_len);
+/*
+ * Adds the sentence naming *which* radio, to a body the call above has already filled in.
+ *
+ * The confirm sheet is the one place the remote-administration banner cannot reach: a modal owns
+ * the body, so the container that has been saying "this is somebody else's radio" on every other
+ * frame is gone at exactly the moment the question is put. This puts it back, on the sheet
+ * itself.
+ *
+ * Added rather than substituted because the question has not changed - "reboot the radio" is
+ * still what is being asked - and because the two tables above are keyed on the verb and have no
+ * node to name. A no-op with no remote target, and a no-op for the presses that stay home
+ * whatever the target is: the two that drop this client's own roster, and the two that install
+ * firmware over a bus rather than over the mesh.
+ */
+void mesh_ui_settings_confirm_add_subject(const struct mesh_ui_settings *settings,
+                                          enum mesh_ui_settings_action action, char *text,
+                                          size_t text_len);
+
 /* The verb on the overlay's first row ("Save to radio", "Reboot now", ...). */
 const char *mesh_ui_settings_confirm_accept(enum mesh_ui_settings_action action);
 

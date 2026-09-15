@@ -1053,6 +1053,10 @@ static void mesh_app_flatten_settings(const struct mesh_radio_settings *src,
     dst->admin_busy = mesh_radio_settings_busy(src) || src->queue_len > 0U;
     dst->write_pending = mesh_radio_settings_write_pending(src);
     dst->admin_replies = src->admin_replies;
+    /* The number only. The name that goes with it comes out of the roster, which this
+       flattening does not see and which moves on its own schedule - so the caller fills it in
+       after, beside the radio's own position. */
+    dst->admin_dest = mesh_radio_settings_admin_dest(src);
 
     if (src->has_owner) {
         dst->has_owner = true;
@@ -2335,6 +2339,13 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
     /* flatten_settings() zeroes the struct, so the client's own facts go in after it. */
     mesh_app_flatten_client_info(app, &ui_settings.client);
     mesh_app_flatten_firmware(app, &ui_settings);
+    /* And the name of the radio being administered, for the same reason: it is a roster fact,
+       so a node that has just introduced itself renames the banner without the settings having
+       moved at all. */
+    if (ui_settings.admin_dest != 0U) {
+        mesh_app_format_peer_name(status, ui_settings.admin_dest, ui_settings.admin_dest_name,
+                                  sizeof ui_settings.admin_dest_name);
+    }
     /* Where the radio says it is, which is not part of PositionConfig: it comes from our own
        node's record, and it is what the Position section's coordinate rows start from. */
     if (status->has_my_info) {

@@ -2360,6 +2360,39 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
     }
 
     /*
+     * The Settings tab pointed at another node's radio.
+     *
+     *   remote <name>|off
+     *
+     * Sets what mesh_app_publish_ui_state() publishes once mesh_session_set_admin_dest() has
+     * taken - the node number and the name off the roster - rather than driving the press that
+     * gets there, because that press is on the Nodes tab and the thing worth looking at is every
+     * *other* screen afterwards. What a capture then shows is the banner following the user
+     * across the tabs, standing down inside About radio, and the sheet naming the node once the
+     * banner has been taken by the modal.
+     */
+    if (strcmp(command, "remote") == 0) {
+        /* The rest of the line rather than a word, because a node's long name has spaces in it
+           and the name is the whole of what the banner and the About radio row are showing. */
+        char *name = rest;
+        while (*name == ' ' || *name == '\t') {
+            name++;
+        }
+        if (*name == '\0') {
+            fprintf(stderr, "uicap: line %u: 'remote' needs a node name or off\n", line_number);
+            exit(1);
+        }
+        struct mesh_ui_settings settings = cap->store.settings;
+        const bool off = strcmp(name, "off") == 0;
+        settings.admin_dest = off ? 0U : 0x7001bd4cU;
+        snprintf(settings.admin_dest_name, sizeof settings.admin_dest_name, "%s", off ? "" : name);
+        mesh_ui_store_set_settings(&cap->store, &settings);
+        uicap_emit(cap);
+        uicap_settle(cap);
+        return;
+    }
+
+    /*
      * Which of upstream's two release lists the firmware rows say they are reading. Its own
      * verb rather than an argument to `firmware`, because the channel is a setting that
      * outlives any one check - the same split the screen itself draws.

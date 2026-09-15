@@ -1,0 +1,59 @@
+# Configuring another node's radio, over the mesh.
+#
+# The Settings tab looks exactly the same whichever radio it is describing - that is what makes
+# the feature work, and it is why the client has to say which one somewhere else. This scene is
+# that saying: the banner on every screen, the two sections that state it in rows, and the
+# confirm sheet, which is the one place a banner cannot reach.
+#
+# `remote <name>` stands in for the press that gets here, which is a row on a node's own card.
+# What is worth looking at is not that press; it is every screen afterwards.
+
+scene demo
+scale 4
+delay 220
+
+config
+tab nodes
+hold 900
+
+# Pointed at a repeater. The banner costs rows and takes them, because this has settled and
+# stays true until somebody comes back - and because a reader who misses it saves a setting onto
+# somebody else's radio.
+remote Hill repeater
+hold 1800
+
+# It follows across the tabs, because it is not about any of them. What it is about is what the
+# next press will do.
+tab messages
+hold 1200
+tab status
+hold 1200
+
+# Into the Settings tab, where every section now describes that radio. The banner is still up:
+# nothing in the section list says which radio it is a list for.
+tab settings
+hold 1400
+
+# About radio, which does. The heading and the node lead the section, the way back sits under
+# them, and the banner stands down - a banner pointing at a screen that states the same thing in
+# more detail is noise on that screen. The node number is the target's, and the reboot count is
+# gone: MyNodeInfo is what a radio tells the client attached to it.
+key down 1
+key a
+hold 2200
+
+# Back out, and it returns.
+key b
+hold 1200
+
+# Radio actions. The same pair leads this section, because this is the list where getting the
+# answer wrong takes somebody else's repeater down rather than merely writing to it.
+key down 13
+key a
+hold 1800
+
+# The reboot, confirmed. A modal owns the body, so the banner is gone at exactly the moment the
+# question is put - and the sheet names the node itself instead.
+key down 1
+key a
+hold 2600

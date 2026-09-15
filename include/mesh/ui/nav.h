@@ -747,6 +747,20 @@ enum mesh_ui_action_type {
      * and only this one can name a node that has never transmitted.
      */
     MESH_UI_ACTION_IMPORT_CONTACT,
+    /*
+     * Points the Settings tab at another node's radio, over the mesh: `dest` is the node, and 0
+     * means come back to the one on the end of the link.
+     *
+     * One verb for both directions rather than a pair, because there is only one thing being
+     * said - which radio the tab describes - and the two presses that say it arrive from
+     * opposite ends of the client: a node's own row on the Nodes tab, and the row in About
+     * radio that names whoever is currently being configured. A second verb would be the same
+     * sentence written twice and a table row to keep in step.
+     *
+     * Not a SETTINGS action despite where half of it is pressed: it changes nothing on any
+     * radio, sends no write, and what it moves is this client's idea of who it is talking to.
+     */
+    MESH_UI_ACTION_SET_ADMIN_TARGET,
     /* Not a verb: how many there are. It is what pins the dispatch table in
        src/core/app_actions.c to this list - a verb added above and not given a row there is a
        press that reaches the app and does nothing, with nothing to see at the seam. */

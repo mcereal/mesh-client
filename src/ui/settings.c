@@ -2342,6 +2342,27 @@ const char *mesh_ui_settings_confirm_accept(enum mesh_ui_settings_action action)
     }
 }
 
+void mesh_ui_settings_confirm_add_subject(const struct mesh_ui_settings *settings,
+                                          enum mesh_ui_settings_action action, char *text,
+                                          size_t text_len) {
+    if (settings == NULL || text == NULL || text_len == 0U || settings->admin_dest == 0U) {
+        return;
+    }
+    /* The presses that stay home whatever the tab is pointed at: the two that empty this
+       client's own roster, and the two that write firmware over a bus to the radio in front of
+       us. Saying "this goes over the mesh" of any of them would be false. */
+    if (mesh_ui_settings_action_is_forget(action) ||
+        mesh_ui_settings_action_is_install_firmware(action)) {
+        return;
+    }
+    const size_t at = strlen(text);
+    if (at >= text_len) {
+        return;
+    }
+    mesh_str_format(text + at, text_len - at, MESH_STR_CONFIRM_TEXT_REMOTE,
+                    settings->admin_dest_name);
+}
+
 void mesh_ui_settings_confirm_text(enum mesh_ui_settings_section section,
                                    enum mesh_ui_settings_action action, char *out, size_t out_len) {
     if (out == NULL || out_len == 0U) {

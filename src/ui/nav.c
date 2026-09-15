@@ -1089,6 +1089,28 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
             mesh_ui_nav_open_waypoint_keyboard(nav, node->node_id);
             return true;
         }
+        if (items[cursor].action == MESH_UI_NODE_ACTION_ADMIN) {
+            /*
+             * The press both asks and goes: the app points the admin queue at this node, and the
+             * detail closes behind us onto the Settings tab, which is the thing that has just
+             * changed meaning.
+             *
+             * Opened *under* the detail for the reason the map row gives - leaving the card up
+             * over its own consequence would make B land back on the row that was pressed. The
+             * tab lands on its section list rather than in a section, because which section
+             * somebody wants of a radio they have just reached is not a guess this row can make.
+             */
+            if (action != NULL) {
+                action->type = MESH_UI_ACTION_SET_ADMIN_TARGET;
+                action->dest = node->node_id;
+            }
+            mesh_ui_nav_close_node_detail(nav);
+            nav->screen = MESH_UI_SCREEN_SETTINGS;
+            nav->settings_parent = MESH_UI_SETTINGS_NO_SECTION;
+            nav->settings_section = MESH_UI_SETTINGS_NO_SECTION;
+            nav->cursor[MESH_UI_SCREEN_SETTINGS] = nav->settings_list_cursor;
+            return true;
+        }
         if (items[cursor].action == MESH_UI_NODE_ACTION_ADD_CONTACT ||
             items[cursor].action == MESH_UI_NODE_ACTION_VERIFY_KEY) {
             if (action != NULL) {
@@ -1224,6 +1246,19 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
                 }
                 if (which == MESH_UI_SETTINGS_ACTION_IMPORT_CONTACT) {
                     mesh_ui_nav_open_contact_url_keyboard(nav);
+                    return true;
+                }
+                /* The way back from remote administration. Not a radio action - nothing goes
+                   over the air - and it carries `dest` 0, which is the verb's spelling of "the
+                   radio on the end of the link". */
+                if (which == MESH_UI_SETTINGS_ACTION_ADMIN_LOCAL) {
+                    if (action != NULL) {
+                        action->type = MESH_UI_ACTION_SET_ADMIN_TARGET;
+                        action->dest = 0U;
+                    }
+                    /* The row it was pressed on is about to stop existing, so the cursor is put
+                       somewhere that will still be a row when the section redraws. */
+                    nav->cursor[MESH_UI_SCREEN_SETTINGS] = 0U;
                     return true;
                 }
                 if (action != NULL) {

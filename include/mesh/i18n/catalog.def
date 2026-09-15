@@ -866,6 +866,14 @@ MESH_STR_ENTRY(NODE_ACT_VERIFY_AGAIN,     "Verify it again")
    node: the whole point is that the radio's does not. Kept under MESH_UI_NODE_LABEL_MAX, which
    is 20 bytes and cuts silently - "Put back on the radio" arrived as "Put back on the rad". */
 MESH_STR_ENTRY(NODE_ACT_ADD_CONTACT,      "Put back on radio")
+/*
+ * Open the Settings tab against *this* node's radio instead of our own, over the mesh.
+ *
+ * Says "configure" rather than "administer" because the reader's question is what the press
+ * does, and what it does is put them in front of that radio's settings. Under
+ * MESH_UI_NODE_LABEL_MAX, which is 20 bytes and cuts silently.
+ */
+MESH_STR_ENTRY(NODE_ACT_ADMIN,            "Configure by radio")
 
 /* ---- the key verification sheet ------------------------------------------------------------
  *
@@ -1319,6 +1327,12 @@ MESH_STR_ENTRY(HELP_LABEL_NODE_KEY,       "Key")
 MESH_STR_ENTRY(HELP_NOTE_NODE_KEY,        "A direct message is encrypted to this node's public key, and the padlock beside it says so. It does not say the key is theirs: a key arrives over the air from whoever sent it.")
 MESH_STR_ENTRY(HELP_LABEL_NODE_VERIFY,    "Verifying a key")
 MESH_STR_ENTRY(HELP_NOTE_NODE_VERIFY,     "Verify this key swaps a number and a short code with the other person out loud, by phone or face to face, and marks the key proven if both match. Never read either over the mesh.")
+/* Remote administration, explained where it is entered. The second sentence is the one that
+   matters: holding a key is what lets the request be *sent*, and being in the far radio's admin
+   list is what makes it answered - and from here the two are indistinguishable until nothing
+   comes back. */
+MESH_STR_ENTRY(HELP_LABEL_NODE_ADMIN,     "Configure by radio")
+MESH_STR_ENTRY(HELP_NOTE_NODE_ADMIN,      "Points the Settings tab at this node's radio instead of your own, over the mesh. It answers only if your key is in that radio's admin list. About radio brings you back.")
 MESH_STR_ENTRY(HELP_LABEL_NODE_SIGNAL,    "SNR, RSSI and hops")
 MESH_STR_ENTRY(HELP_NOTE_NODE_SIGNAL,     "SNR is how far above the noise a packet arrived, RSSI how loud it was. Only this radio can measure either, so a node more than one hop away reports the last relay's link and gets no bar.")
 MESH_STR_ENTRY(HELP_LABEL_NODE_NEIGHBOURS, "Neighbours and Heard by")
@@ -1911,6 +1925,18 @@ MESH_STR_ENTRY(RADIO_ADMIN_SAVING,        ", saving")
 MESH_STR_ENTRY(RADIO_ADMIN_REFRESHING,    ", refreshing")
 MESH_STR_ENTRY(RADIO_ADMIN_WAITING,       "waiting for reply")
 MESH_STR_ENTRY(RADIO_ADMIN_NO_REPLY,      "no reply yet")
+/*
+ * Remote administration: which radio this whole tab is describing, and the way back.
+ *
+ * The heading says how, the row says who, and the third says where back to. "my radio" in the
+ * last is the one on the end of the link - the one in the reader's hand - and the row is only
+ * ever drawn while it is not the one being configured, so the contrast with the node named two
+ * rows up is the whole of what makes it readable. Nothing here names that node: it is the value
+ * on the middle row, and it is a name off the mesh rather than a word.
+ */
+MESH_STR_ENTRY(RADIO_ADMIN_REMOTE_HEAD,   "Over the mesh")
+MESH_STR_ENTRY(RADIO_ADMIN_REMOTE_NODE,   "Configuring")
+MESH_STR_ENTRY(RADIO_ADMIN_REMOTE_RETURN, "Back to my radio")
 
 /* The channel list. A slot with role 0 is a free slot: A sets it up. */
 MESH_STR_ENTRY(CHANNELS_NONE_KNOWN,       "none known yet")
@@ -2182,6 +2208,19 @@ MESH_STR_ENTRY(CONFIRM_ACCEPT_ADD_CONTACT, "Add")
  * lost, and say what is spared: "favorites excepted" is the difference between a press the
  * user regrets and one they do not.
  */
+/*
+ * Added to whichever sheet is up while the Settings tab is configuring another node's radio.
+ *
+ * A sentence of its own rather than a second spelling of every sheet above, because the
+ * question does not change - "reboot the radio" is still what is being asked - and the answer
+ * to "which radio" is a name off the mesh rather than a word. The leading space is deliberate:
+ * it is joined to the end of the sheet's own body.
+ *
+ * The last clause is not decoration. Three of those bodies say the link drops, which is true of
+ * every radio action taken against the radio in your hand and of none taken over the mesh - so
+ * without it this sentence would leave two halves of one paragraph contradicting each other.
+ */
+MESH_STR_ENTRY(CONFIRM_TEXT_REMOTE,       " This goes to %.20s over the mesh, not to the radio in your hand - your own link stays up.")
 MESH_STR_ENTRY(CONFIRM_TEXT_REBOOT,       "The radio restarts in a few seconds. The link drops with it and auto-connect brings it back; anything sent to this node meanwhile is lost.")
 MESH_STR_ENTRY(CONFIRM_TEXT_SHUTDOWN,     "The radio powers off in a few seconds and nothing here can wake it again: that takes its own button. Everything it has stored survives.")
 MESH_STR_ENTRY(CONFIRM_TEXT_RESET_DB,     "The radio forgets every node it heard, favorites excepted. Names come back as each speaks again. The Brick's own list stays; the row below clears it.")
@@ -2374,6 +2413,17 @@ MESH_STR_ENTRY(BANNER_UPDATE_AVAILABLE_HINT, "Install it from the Settings tab")
 MESH_STR_ENTRY(BANNER_CRASH_REPORT,       "MeshClient stopped unexpectedly")
 MESH_STR_ENTRY(BANNER_CRASH_REPORT_HINT,  "A report is saved; see the Settings tab")
 
+/*
+ * The Settings tab is pointed at somebody else's radio, over the mesh.
+ *
+ * The headline is deliberately not "remote administration": what the reader needs to know is
+ * that a save from here lands somewhere other than the radio in their hand, and the node's own
+ * name - which the banner carries beside these words rather than inside them - is what says
+ * where. The hint names the section that can undo it, the way the update hints name the tab.
+ */
+MESH_STR_ENTRY(BANNER_REMOTE_ADMIN,       "Configuring another radio")
+MESH_STR_ENTRY(BANNER_REMOTE_ADMIN_HINT,  "Settings changes go to this node; About radio comes back")
+
 /* ---- toasts ------------------------------------------------------------------------------------ */
 
 /*
@@ -2468,6 +2518,19 @@ MESH_STR_ENTRY(TOAST_ASKED_POSITION,      "Asked %.20s for its position")
 MESH_STR_ENTRY(TOAST_ASKED_TELEMETRY,     "Asked %.20s for its telemetry")
 MESH_STR_ENTRY(TOAST_STILL_SYNCING,       "Still syncing; try again in a moment")
 MESH_STR_ENTRY(TOAST_CANNOT_ASK,          "Cannot ask this node")
+/*
+ * Pointing the Settings tab at another node's radio, and bringing it back.
+ *
+ * The first two say what the tab is now describing rather than that a request went out, because
+ * that is what changed: the round trips behind it are the refresh, and the progress bar already
+ * reports those. The third is the one gate this side can check - a node nobody holds a key for
+ * cannot be sent an encrypted admin request at all - and it says what is missing rather than
+ * that the press failed.
+ */
+MESH_STR_ENTRY(TOAST_ADMIN_REMOTE,        "Configuring %.20s by radio")
+MESH_STR_ENTRY(TOAST_ADMIN_LOCAL,         "Configuring this radio again")
+MESH_STR_ENTRY(TOAST_ADMIN_NO_KEY,        "No key held for %.20s")
+MESH_STR_ENTRY(TOAST_ADMIN_FAILED,        "Cannot configure that node (%d)")
 /* Ignoring a node: the radio drops its packets before we ever see them. */
 MESH_STR_ENTRY(TOAST_IGNORING,            "Dropping packets from %.20s")
 MESH_STR_ENTRY(TOAST_UNIGNORING,          "Hearing %.20s again")

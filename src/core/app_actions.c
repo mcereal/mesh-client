@@ -355,6 +355,39 @@ static void on_refresh_settings(struct mesh_app *app, const struct mesh_ui_actio
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
 }
 
+/*
+ * Point the Settings tab at another node's radio, or bring it back to our own.
+ *
+ * One handler for both directions because the verb is one verb: `dest` says which radio, and 0
+ * is the one on the end of the link. What it says afterwards is the new subject rather than the
+ * refresh it queued - the round trips are the progress bar's business, and on a remote target
+ * there are nearly thirty of them over the air, so a count here would be promising a wait
+ * rather than reporting a change.
+ */
+static void on_set_admin_target(struct mesh_app *app, const struct mesh_ui_action *action) {
+    char toast[MESH_UI_NAV_TOAST_MAX];
+    const uint64_t now = mesh_time_monotonic_ms();
+
+    char name[MESH_UI_NAV_TARGET_NAME_MAX];
+    action_peer_name(app, action->dest, name, sizeof name);
+    const int result = mesh_session_set_admin_dest(&app->session, action->dest);
+    if (result >= 0 && action->dest == 0U) {
+        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_ADMIN_LOCAL));
+    } else if (result >= 0) {
+        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_ADMIN_REMOTE, name);
+    } else if (result == -ENOTCONN) {
+        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_NOT_CONNECTED));
+    } else if (result == -EINVAL || result == -ENOENT) {
+        /* The one thing this side can check: an admin request to a remote node is sealed to
+           that node's key, and a node that has never broadcast one cannot be addressed at all.
+           Said as what is missing rather than as a press that failed. */
+        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_ADMIN_NO_KEY, name);
+    } else {
+        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_ADMIN_FAILED, result);
+    }
+    mesh_ui_store_set_toast(&app->ui_store, now, toast);
+}
+
 static void on_save_settings(struct mesh_app *app, const struct mesh_ui_action *action) {
     const uint64_t now = mesh_time_monotonic_ms();
 
@@ -1671,6 +1704,7 @@ static const struct app_action_entry k_app_actions[] = {
     {MESH_UI_ACTION_INSTALL_RADIO_FIRMWARE, on_install_radio_firmware, false},
     {MESH_UI_ACTION_IMPORT_CHANNELS, on_import_channels, false},
     {MESH_UI_ACTION_IMPORT_CONTACT, on_import_contact, false},
+    {MESH_UI_ACTION_SET_ADMIN_TARGET, on_set_admin_target, false},
 };
 
 /*
