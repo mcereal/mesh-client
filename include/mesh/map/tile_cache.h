@@ -15,11 +15,10 @@ extern "C" {
 /*
  * The decoded tiles the map is standing on, and what it may say about the ones it is not.
  *
- * A cold tile costs 2-5 ms on the Brick's card (docs/maps-roadmap.md), and a view covers twenty
- * of them. Reading the pack every frame is therefore not a slow map, it is a client that stops
- * servicing BLE for a tenth of a second every time the panel repaints - so the tiles that are
- * on screen are held in RAM and the ones that leave it are let go in the order they stopped
- * being looked at.
+ * A cold tile costs 2-5 ms on the Brick's card, and a view covers twenty of them. Reading the pack
+ * every frame is therefore not a slow map, it is a client that stops servicing BLE for a tenth of a
+ * second every time the panel repaints - so the tiles that are on screen are held in RAM and the
+ * ones that leave it are let go in the order they stopped being looked at.
  *
  * It is a *store*, not a loader. Nothing here opens a file, reads a source, or calls the
  * decoder; what it knows is which keys it is holding pixels for, which keys it has been told
@@ -35,14 +34,13 @@ extern "C" {
  * What a cached tile is made of: exactly what mesh_map_tile_decode() produces, which is BGRA at
  * MESH_MAP_TILE_PIXEL_BYTES a pixel.
  *
- * This is the question docs/maps-roadmap.md left open - "what a cache holds and what a panel
- * wants are two questions" - and it is answered in favour of the decoder rather than the panel,
- * for a reason that is about the boundary rather than about bytes. `struct fb_state` reads its
- * `bytes_per_pixel` off the kernel at runtime and it is not always 4; storing panel-format
- * pixels would mean this file learning that number, which means `src/map/` learning what a
- * framebuffer is. It would also make a cached tile the property of one backend: the capture
- * harness renders at four bytes a pixel whatever the device is doing, so the same cache would
- * be holding the wrong format for one of the two.
+ * What a cache holds and what a panel wants are two questions, and this answers in favour of the
+ * decoder rather than the panel, for a reason that is about the boundary rather than about bytes.
+ * `struct fb_state` reads its `bytes_per_pixel` off the kernel at runtime and it is not always 4;
+ * storing panel-format pixels would mean this file learning that number, which means `src/map/`
+ * learning what a framebuffer is. It would also make a cached tile the property of one backend: the
+ * capture harness renders at four bytes a pixel whatever the device is doing, so the same cache
+ * would be holding the wrong format for one of the two.
  *
  * What it costs is real and is worth writing down: on a panel narrower than four bytes the
  * cache holds more bytes than that panel strictly needs, and the blit converts per *drawn*
@@ -62,7 +60,7 @@ extern "C" {
 #define MESH_MAP_TILE_CACHE_SLOTS_MAX 64U
 
 /*
- * What the device asks for: 8 MiB, which is the 32 tiles docs/maps-roadmap.md budgets.
+ * What the device asks for: 8 MiB, which is 32 tiles.
  *
  * A caller states its own budget rather than taking this, because the capture harness and the
  * tests want a cache small enough that eviction happens on purpose rather than after eight

@@ -39,10 +39,10 @@ struct mesh_ui_store;
  *
  * The map's own roster plus the waypoint book, which is everything the client holds that has
  * somewhere to be drawn - so this cannot truncate. It used to be the *published* roster's 128,
- * because that was all a snapshot carried; docs/maps-roadmap.md's fourth pre-work item left
- * open whether the map should see the session's whole roster, and struct mesh_ui_map_node is
- * that decision taken. What the map still owes the reader is how many of what is known has no
- * position at all, which is what `mesh_ui_map_view.known` is for.
+ * because that was all a snapshot carried. Whether the map should see the session's whole roster
+ * was left open, and struct mesh_ui_map_node is that decision taken. What the map still owes the
+ * reader is how many of what is known has no position at all, which is what
+ * `mesh_ui_map_view.known` is for.
  */
 #define MESH_UI_MAP_MARKERS_MAX (MESH_UI_MAX_MAP_NODES + MESH_UI_MAX_WAYPOINTS)
 
@@ -306,9 +306,9 @@ bool mesh_ui_map_step(const struct mesh_ui_map_view *view, const struct mesh_map
  * The markers' projected positions, for framing them.
  *
  * A plain copy out of the marker list, because mesh_map_viewport_fit() takes points and must not
- * take a store - the module boundary docs/maps-roadmap.md drew, kept by giving the caller the
- * one line it needs to cross it rather than by widening the viewport's own idea of the world.
- * Returns how many were written, at most `capacity`.
+ * take a store - the module boundary, kept by giving the caller the one line it needs to cross it
+ * rather than by widening the viewport's own idea of the world. Returns how many were written, at
+ * most `capacity`.
  */
 uint32_t mesh_ui_map_points(const struct mesh_ui_map_view *view, struct mesh_geo_point *out,
                             uint32_t capacity);
@@ -322,10 +322,9 @@ uint32_t mesh_ui_map_visible(const struct mesh_ui_map_view *view,
 /*
  * The marker for a node or a place, by id - never by index.
  *
- * The roster re-ranks as fixes arrive, so an index names a different node one frame later. This
- * is the same rule the node detail follows and the one docs/maps-roadmap.md's fifth pre-work
- * item pinned; a marker under a crosshair is another index into another ordering of the same
- * roster, which is exactly the case that item said a map would quietly break.
+ * The roster re-ranks as fixes arrive, so an index names a different node one frame later. This is
+ * the same rule the node detail follows; a marker under a crosshair is another index into another
+ * ordering of the same roster, which is exactly the case a map quietly breaks on.
  */
 bool mesh_ui_map_find(const struct mesh_ui_map_view *view, uint8_t kind, uint32_t id,
                       uint32_t *out_index);

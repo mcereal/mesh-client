@@ -1,152 +1,69 @@
 # Client performance
 
-The client keeps UI input responsive during a NodeDB sync and avoids repeating work when the
-radio data or rendered pixels have not changed.
+Two things are measured here: a CPU workload on a host, and how long a press takes to reach the
+panel on a real Brick. Neither is a device frame rate or a battery-life measurement.
 
-- **BLE reads:** `mesh_bluez_client_read()` returns `-EAGAIN` while a `ReadValue` request is
-  pending. A reply or the three-second timer wakes the drain through its eventfd. Only one
-  read is outstanding; packets retain FIFO order, failures retain exponential backoff, and
-  disconnect cancels the read. Late replies cannot complete a newer request. `WriteValue`, `ServicesResolved` and `Connected` also use queued requests: a pending write
-  retains the outbound queue head until the reply arrives, with a three-second deadline.
-  Property queries have a one-second deadline and independent request slots. Replies wake the
-  transport through its eventfd; timeout, cancellation and link reset discard their serials.
-  Discovery, subscription, disconnect and agent-management operations still use synchronous calls.
-- **Publication:** exact source comparisons skip unchanged roster ranking, message formatting
-  and merging, and radio-settings conversion. Message changes, renamed nodes, preferences,
-  locale, restored history and roster ownership invalidate the relevant cached view. Dynamic
-  status, notices, timers and client settings are still published. This uses comparisons rather
-  than revision counters so existing in-place mutation paths remain valid.
-- **Persistence:** background roster, message and read-marker changes share a fixed two-second
-  save window. Further changes do not move the deadline, so sustained traffic still reaches
-  disk. Failed writes stay dirty and retry in another window; orderly shutdown flushes the
-  current store. Explicit conversation deletion still persists immediately. An abrupt power
-  loss can lose the pending batch.
-- **Transcript:** a bounded cache retains formatted ordinary/first-visible rows and measured
-  heights. Navigation reuses them, including reaction metadata. Exact message contents,
-  filtered indices, conversation context, theme, scale, columns, locale and local calendar/zone
-  invalidate it. Allocation failure uses the original layout path.
-- **Animation:** the controller retains its latest snapshot. Timer frames consume any pending
-  real update, then reuse that snapshot without requesting a synthetic full-store refresh.
-- **Text:** a four-way cache retains up to 256 scaled glyph coverage maps. Its key is the
-  immutable font descriptor, codepoint and scale; coverage is tinted at draw time, so changing
-  colors does not require regenerating it. Oversized glyphs and allocation failure use the
-  uncached renderer. Storage is approximately 518 KiB per renderer.
-- **Display writes:** the device renders into ordinary RAM, compares against the previous RAM
-  frame, and copies changed row spans to page 0 and its page 1 mirror. The first frame fills
-  both pages. This preserves the launcher workaround without reading display memory. Two
-  1024×768×4 buffers cost 6 MiB; allocation failure keeps the original direct-render path.
-  For unchanged snapshots, subsequent animation frames clip drawing to the union of switch,
-  selection-control, meter and snackbar bounds, and skip comparing unaffected rows. Composition
-  still runs in normal order to restore overlapping content; layout is not a retained widget tree. Any
-  snapshot, theme, scale, geometry, locale or wall-clock-second change requests a full render.
-  Allocation failure and the direct-display fallback use full rendering.
-
-## Measurement
-
-Run the text workload in an optimized Linux build (use Docker on macOS):
+## The host benchmark
 
 ```sh
 ./scripts/docker.sh make release
 ./scripts/docker.sh build/linux/release/devtools/meshclient_perf
 ```
 
-The benchmark draws 18 rows of repeated text at 1024×768, compares the same rasterizer with
-its glyph cache disabled and warm, and checks that the resulting pixels match. One ARM64
-Docker run measured **1.972 ms/frame uncached and 0.776 ms/frame cached (2.54×)**. This is a
-CPU workload measurement, not a device frame-rate or battery-life measurement.
+It draws 18 rows of repeated text at 1024×768, compares the rasterizer with its glyph cache cold
+and warm, and checks the pixels match. One ARM64 Docker run measured **1.972 ms/frame uncached
+and 0.776 ms/frame cached (2.54×)**. Navigating a 64-message transcript was 1.11× over a
+reference with transcript caching and partial drawing disabled; animating a snackbar over it was
+1.81×.
 
-A subsequent ARM64 Docker run measured the additional workloads below (300 frames each,
-1024×768). The reference disables transcript caching and partial drawing but keeps the same
-cached glyph rasterizer. These are CPU timings, not measured device frame rates or battery life.
-
-| Workload | Reference | Optimized | Ratio |
-| --- | ---: | ---: | ---: |
-| Navigate a 64-message transcript | 0.814 ms/frame | 0.732 ms/frame | 1.11× |
-| Animate a snackbar over that transcript | 0.826 ms/frame | 0.458 ms/frame | 1.81× |
-
-Use a separate native build root if the normal release tree contains a cross-compiler cache:
+Use a separate build root if the release tree holds a cross-compiler cache:
 
 ```sh
 ./scripts/docker.sh make release BUILD_ROOT=build/perf-native
-./scripts/docker.sh build/perf-native/release/devtools/meshclient_perf
 ```
 
-All **784 frames across 27 capture scenes** matched the full-render reference byte-for-byte
-with a fixed wall clock. `meshclient_uicap --reference` disables the transcript cache and partial
-redraws for comparisons; pass the same scene and pinned wall clock to both runs. The unit suite
-also compares clipped animation frames through arrival, dismissal, screen and scale changes,
-and compares transcript rendering after edits, reactions, delivery changes and locale changes.
-
-All **638 frames across 24 existing capture scenes** matched the pre-change renderer at
-`b71c09f` byte-for-byte when `time()` was fixed for both builds. Fixing the wall clock matters:
-message times otherwise change even when the renderer is identical. The 34-frame toggle
-scene had a median of 33,704 changed bytes per subsequent frame across both display pages,
-calculated from its pixel differences. A full two-page transfer is 6,291,456 bytes.
-
-![Settings switch animation](assets/performance-toggle.gif)
-
-Regenerate the clip with:
-
-```sh
-make docker-ui-capture ARGS="devtools/ui_capture/scenes/toggle.scene -o docs/assets/performance-toggle.gif"
-```
+The caches are held to byte-for-byte equality with a full render: 784 frames across 27 capture
+scenes matched with a fixed wall clock. `meshclient_uicap --reference` disables the transcript
+cache and partial redraws for that comparison — **pin the wall clock for both runs**, or message
+times change even when the renderer is identical.
 
 ## A press to the panel, on the device
 
-Everything above is measured on a host, against a reference render. What it cannot answer is how
-long a *press* takes to reach the panel on a Brick, with the radio on the link and the map
-reading tiles - which is one epoll loop doing all three, and is the number
-[`docs/maps-roadmap.md`](maps-roadmap.md#what-the-press-turned-out-to-cost) needed before it
-would call the basemap finished.
-
 `--trace-latency` (or `MESHCLIENT_LATENCY_TRACE=1`) switches on the probe in
-[`src/ui/latency.c`](../src/ui/latency.c). It is off otherwise, and costs a predictable branch
-per frame when it is. Six readings, printed as percentiles on exit:
-
-| Reading | From | To |
-|---|---|---|
-| `press` | the kernel's own timestamp on the evdev event | the end of the `present()` that answered it |
-| `frame` | `present()` in | `present()` out |
-| `draw` | `present()` in | the render and the damage compare done |
-| `flip` | there | `FBIOPAN_DISPLAY` and the `msync` after it |
-| `read` | the frame's one tile | off the card |
-| `decode` | that tile's bytes | pixels |
+[`src/ui/latency.c`](../src/ui/latency.c), off otherwise. Six readings, printed as percentiles on
+exit: `press` (the kernel's evdev timestamp to the end of the `present()` that answered it),
+`frame`, `draw`, `flip`, `read` (a tile off the card) and `decode`.
 
 Three things about it are decisions rather than details:
 
-- **It starts at the kernel, not at the read.** A loop busy decoding does not wake for the event
-  at all, and that wait is the whole of what an integrated number adds to a standalone one. The
-  input reader asks evdev for `CLOCK_MONOTONIC` stamps (`EVIOCSCLOCKID`) so the two ends are
-  comparable; a device that refuses is not counted rather than counted wrongly.
-- **A key repeat is not a press.** `src/ui/input.c` generates repeat from its own timerfd, so a
-  held direction reaches the store with no evdev event behind it and nothing to measure from.
-  Counted from "now" it would report zero queueing delay on exactly the presses a held pan is
-  made of.
+- **It starts at the kernel, not at the read.** A loop busy decoding a tile does not wake for the
+  event at all, and that wait is the whole of what an integrated number adds to a standalone one.
+  The reader asks evdev for `CLOCK_MONOTONIC` stamps (`EVIOCSCLOCKID`); a device that refuses is
+  not counted rather than counted wrongly.
+- **A key repeat is not a press.** `src/ui/input.c` generates repeat off its own timerfd, so a
+  held direction has no evdev event behind it. Counted from "now" it would report zero queueing
+  delay on exactly the presses a held pan is made of.
 - **It keeps histograms, not samples.** A fill frame is twenty times as common as a press, so a
-  ring sized for one is a window on the other. The price is resolution - 50 us below 12.8 ms,
-  1 ms above - and the report says so rather than printing a bucket edge as a measurement.
+  ring sized for one is a window on the other. The price is resolution — 50 µs below 12.8 ms,
+  1 ms above — and the report says so rather than printing a bucket edge as a measurement.
 
-Driving it by hand works once. `devtools/input_inject` is what makes a run repeatable: a uinput
-pad the client cannot tell from the plastic one, a script of presses, and a runner that gets the
-ordering right.
+`devtools/input_inject` is what makes a run repeatable: a uinput pad the client cannot tell from
+the plastic one, plus a script of presses.
 
 ```sh
 ./scripts/docker.sh --cross devtools/input_inject/build.sh
 devtools/input_inject/run-device.sh --every 600 --cold --tag map r1 a wait:6 x:3 right:20 down:10
 ```
 
-The measured answer, and what it says about where a frame goes, is in the roadmap rather than
-here, because it is a fact about the map rather than about the probe.
+## What the client does about it
 
-## Validation and remaining device checks
+The shape rather than the list: publication compares sources exactly and skips unchanged roster
+ranking, message formatting and settings conversion; roster, message and read-marker saves share
+a fixed two-second window; the transcript keeps a bounded cache of formatted rows and measured
+heights; glyphs are cached as scaled coverage maps and tinted at draw time, so a colour change
+does not regenerate them; and the device renders into ordinary RAM, compares against the previous
+frame, and copies only changed row spans to page 0 and its page 1 mirror. Every one of those has
+a fallback to the uncached path on allocation failure.
 
-`make docker-test` exercises the store, cached publication, glyph rendering, row-span copies,
-transport retry paths and controller frame timers. When `dbus-run-session` is installed, it
-also launches an isolated fake GATT service to verify real D-Bus marshalling, queued writes,
-input handling while a reply is withheld, malformed replies, timeout and late-reply handling.
-It never contacts real BlueZ. The dev image and CI install `dbus-daemon` for this test.
-
-The cache and async-read tests also run under AddressSanitizer and UndefinedBehaviorSanitizer.
-Hardware validation still needs a large NodeDB sync while navigating, a disconnect/reconnect,
-and checking both framebuffer pages on a Brick. Remaining synchronous BlueZ operations and snapshot/layout work outside the animated regions
-are the next places to measure if device traces show remaining latency.
+Still to check on hardware: a large NodeDB sync while navigating, a disconnect/reconnect, and
+both framebuffer pages on a Brick.

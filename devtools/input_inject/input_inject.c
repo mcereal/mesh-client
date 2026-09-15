@@ -1,10 +1,10 @@
 /*
  * A virtual pad, for measuring the client with its own buttons.
  *
- * docs/maps-roadmap.md's last open entry for step 3 is the integrated latency number: a press
- * to a frame, inside the real client, with a tile being read and decoded and a BLE link being
- * serviced. Taking it by hand works once; taking it the same way twice does not, and a
- * percentile wants a few hundred presses at a known cadence rather than a thumb.
+ * What this is for is the integrated latency number: a press to a frame, inside the real client,
+ * with a tile being read and decoded and a BLE link being serviced. Taking it by hand works once;
+ * taking it the same way twice does not, and a percentile wants a few hundred presses at a known
+ * cadence rather than a thumb.
  *
  * So this creates a uinput device that reports what the Brick's own pad reports - the face
  * buttons through the BTN_ space with that case's positions, the d-pad as ABS_HAT0X/Y - and

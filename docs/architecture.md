@@ -1,665 +1,378 @@
 # Architecture
 
-A C17 Meshtastic client for the TrimUI Brick (NextUI/MinUI, platform key `tg5040`), shipped as a
-`MeshClient.pak`. Single-threaded epoll event loop, pluggable transports, nanopb for the
-Meshtastic protobufs.
+A C17 Meshtastic client for the TrimUI Brick (NextUI/MinUI, `tg5040`), shipped as a
+`MeshClient.pak`. Single-threaded epoll loop, pluggable transports, nanopb for the protobufs.
 
-This document is the "why it is like this" reference. The transports have their own page
-([`transport.md`](transport.md)), as does the UI layer ([`ui.md`](ui.md)); the radio-settings
-admin protocol is in [`settings-roadmap.md`](settings-roadmap.md) and releasing in
-[`semantic-release.md`](semantic-release.md).
-
-## Data flow
-
-Data flows one direction:
+The transports have their own page ([`transport.md`](transport.md)), as does the UI layer
+([`ui.md`](ui.md)). The rules that look like bugs and are not are in
+[`non-bugs.md`](non-bugs.md).
 
 ```
 link (transport) -> mesh_session -> mesh_app -> UI store -> controller -> backend
+evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_ui_action
 ```
 
-Input goes the other way: evdev -> `mesh_ui_input` -> controller -> `nav.c` -> a
-`mesh_ui_action` -> `mesh_app_on_ui_action`.
+Allwinner A133P, 1 GB RAM, WiFi and Bluetooth. Constrained enough that the binary stays small
+and brings no runtime with it — C plus nanopb, no SDL, no interpreter. Pak conventions the code
+depends on: a pak is `/Tools/tg5040/<Name>.pak/` with a `launch.sh`; logs go to
+`/.userdata/$PLATFORM/logs/<pak>.txt`; state lives under `/.userdata/$PLATFORM/<pak>/`, which
+`launch.sh` sets as `$HOME`.
 
-## Target device
+## `src/core/event_loop.c`
 
-TrimUI Brick running NextUI (platform key `tg5040`): Allwinner A133P, 1 GB RAM, WiFi and
-Bluetooth. Constrained enough that the binary stays small and brings no runtime with it — C plus
-nanopb, no SDL, no interpreter.
+An epoll loop over a fixed table of 32 fd sources: D-Bus watches, the timerfd discovery refresh,
+the UI store eventfd, the serial tty, the updater's curl child stdout. **No threads anywhere. Do
+not add them.**
 
-Pak conventions the code depends on:
+## `src/core/session.c` — the Meshtastic conversation
 
-- A pak is a folder `/Tools/tg5040/<Name>.pak/` with a `launch.sh` entrypoint.
-- Logs go to `/.userdata/$PLATFORM/logs/<pak>.txt`.
-- Per-pak state lives under `/.userdata/$PLATFORM/<pak>/`, which `launch.sh` sets as `$HOME`.
+`struct mesh_session` is the conversation, independent of how the bytes travel: the
+`want_config_id` handshake, the node-summary cache, the channel table, the message log, the
+radio settings and admin queue, and packet ids. A link calls `mesh_session_attach(send_fn)`,
+hands every FromRadio to `mesh_session_handle_from_radio`, calls `mesh_session_tick` each turn,
+and detaches when the link drops (handshake and settings reset, messages survive).
 
-## Core
+### The node roster
 
-### `src/core/event_loop.c`
+`struct mesh_node_summary` is the whole node record: identity from `NodeInfo.user`, the NodeDB
+flags, and `position`/`metrics`/`environment` sub-structs. 256 entries; every inbound
+`MeshPacket` also refreshes its sender's `last_heard`/SNR/hops, adding the sender by id if the
+sync never delivered its NodeInfo.
 
-An epoll loop over a fixed table of 32 fd sources. Everything registers here: D-Bus watches, the
-timerfd discovery refresh, the UI store eventfd, the serial tty, the updater's curl child stdout.
+The firmware **replays its NodeDB exactly once per connection**, which shapes the rest:
+`NODEINFO_APP`, `POSITION_APP` and `TELEMETRY_APP` packets are the only reason a node joining
+mid-session ever gets a name, and the only source of environment telemetry at all. A resync
+therefore overwrites only what the NodeInfo actually carries rather than rebuilding the record.
 
-**No threads anywhere. Do not add them.**
+**The roster is the client's, not the radio's.** The radio's NodeDB holds 80 entries on this
+hardware and evicts as soon as it fills, so mirroring it lost nodes that by then existed nowhere
+else.
 
-### `src/transport/transport_registry.c`
-
-`struct mesh_transport_ops {start, stop, status, tick}` plus the optional `set_session` and
-`take_error`. BLE and serial are registered today; HTTP is meant to plug in here. Both links own
-a `struct mesh_session`, so everything past the connect is shared.
-
-### `src/core/session.c` — the Meshtastic conversation
-
-`struct mesh_session` is the conversation, independent of how the bytes travel. It owns the
-`want_config_id` handshake (tracking `MyNodeInfo` and `NodeInfo` summaries, completion marked by
-`config_complete_id`), the node-summary cache, the radio's channel table, the message log,
-the radio settings and admin queue pump, and packet ids.
-
-A link calls `mesh_session_attach(send_fn)` when its connection is usable, hands every FromRadio
-protobuf to `mesh_session_handle_from_radio`, calls `mesh_session_tick` each turn, and
-`mesh_session_detach`es when the link drops (handshake and settings reset, messages survive).
-**The session never sees GATT, ttys or framing; a link never decodes a protobuf.**
-
-#### The node roster
-
-`struct mesh_node_summary` is the whole node record, not just a name: identity from
-`NodeInfo.user` (id, hw model, role, public key, licensed/unmessagable), the NodeDB flags, and
-`position`/`metrics`/`environment` sub-structs. 256 entries, decoded from `FromRadio`; every
-inbound `MeshPacket` also refreshes its sender's `last_heard`/SNR/hops, adding the sender by id
-if the sync never delivered its NodeInfo (`mesh_session_apply_packet_details`).
-
-The firmware **replays its NodeDB exactly once per connection**. That single fact shapes the
-rest:
-
-- `NODEINFO_APP`, `POSITION_APP` and `TELEMETRY_APP` packets are the only reason a node that
-  joins mid-session ever gets a name, and the only source of environment telemetry at all (the
-  NodeDB carries none).
-- A resync therefore overwrites only what the NodeInfo actually carries rather than rebuilding
-  the record — otherwise every resync would empty the detail screen.
-
-**The roster is the client's, not the radio's.** The radio's NodeDB is small — 80 entries on the
-hardware this targets — and evicts as soon as it fills, so mirroring it meant losing nodes that
-by then existed nowhere else: a walk with the radio would fill its database with new neighbours,
-and the walk home would replace them again. So:
-
-- `mesh_session_reset_handshake` clears the connection's state and **keeps the nodes**. They are
-  dropped only when `MyNodeInfo` reports a different radio, whose NodeDB is another view of the
-  mesh.
-- Each `want_config` bumps `session->sync_epoch`; a NodeInfo stamps the node with it *and sets
+- `mesh_session_reset_handshake` **keeps the nodes**. They are dropped only when `MyNodeInfo`
+  reports a different radio.
+- Each `want_config` bumps `sync_epoch`; a NodeInfo stamps the node with it *and sets
   `in_nodedb` on the spot* — the NodeInfo is the proof, so a list drawn mid-sync does not mark
-  every node as forgotten — and `config_complete` settles the other direction for the nodes no
-  NodeInfo mentioned. A node with `in_nodedb == false` is one we remember and the radio does
-  not — still on the mesh, but with no stored key for a DM, which is why the Nodes tab dims the
-  row and puts "off radio" where its signal would go, the Status screen counts them on their own
-  `Cached here` line, and the detail screen spells it out.
-- Full now means evict rather than refuse: the victim is a node the radio has already forgotten
-  before one it still carries, oldest `last_heard` first, never ourselves and never a pinned node.
-- Emptying it is the client's own verb, never a side effect of one sent over the air:
-  `mesh_session_forget_nodes(only_off_nodedb)` drops either the nodes `in_nodedb == false`
-  marks or the whole roster, always keeping our own record and every pinned node, and sends
-  nothing - so it works with no link at all. Settings > Radio actions carries both as rows,
-  under the NodeDB reset that is the usual reason to want them. Each row shows
-  `mesh_session_forgettable_nodes(only_off_nodedb)` — the count *that press removes*, through
-  the same predicate the forget itself uses, so a roster whose orphans are every one of them
-  pinned reports zero and the row draws as a fact rather than a press that would do nothing.
-  That is a different number from the Nodes tab's "off radio" total, which is what is on screen
-  and stale (`mesh_ui_handshake_off_radio`, counted from the published rows so it can never
-  exceed the count beside it — the UI carries 128 nodes and the roster holds 256).
-- `mesh_session_seed_node` restores the roster the last run persisted (`mesh_app_seed_nodes_from_cache`,
-  from the UI handshake cache) before any radio is attached, so a restart is not a reset either.
-  The owning radio travels with it as its own `handshake_roster` line rather than as
-  `my_info.node_num`, which is 0 while disconnected — which is exactly when the cache gets
-  written, and without it the next radio would inherit a roster instead of replacing it.
-  A cache written before `node_state` existed has its `has_user` inferred from the names: one
-  nobody could have derived came from a `User`.
+  every node as forgotten — and `config_complete` settles the other direction. A node with
+  `in_nodedb == false` is one we remember and the radio does not: still on the mesh, but with no
+  stored key for a DM, which is why the Nodes tab dims it and says "off radio".
+- Full means **evict, not refuse**: a node the radio has already forgotten goes before one it
+  still carries, oldest `last_heard` first, never ourselves and never a pinned node.
+- Emptying it is the client's own verb, never a side effect of one sent over the air.
+  `mesh_session_forget_nodes(only_off_nodedb)` sends nothing, so it works with no link. Each
+  row shows `mesh_session_forgettable_nodes()` — the count *that press removes*, through the
+  same predicate the forget uses — which is a different number from the Nodes tab's "off radio"
+  total (the UI carries 128 nodes and the roster holds 256).
+- `mesh_session_seed_node` restores the roster the last run persisted before any radio is
+  attached, so a restart is not a reset either. The owning radio travels with it as its own
+  `handshake_roster` line rather than as `my_info.node_num`, which is 0 while disconnected —
+  exactly when the cache gets written.
 
-**A node with no `User` still has a name.** `mesh_session_default_identity` derives the same
-placeholder the phone apps show — `!b2a7e54c` / `Meshtastic e54c` / `e54c`, all from the node
-number — the moment a slot is created, and `has_user` stays false until a real `User` arrives.
-Without it, every node heard before its NodeInfo drew as `----` with a blank line beside it.
+**A node with no `User` still has a name.** `mesh_session_default_identity` derives the
+placeholder the phone apps show (`!b2a7e54c` / `Meshtastic e54c` / `e54c`) from the node number
+the moment a slot is created; `has_user` stays false until a real `User` arrives.
 
-#### `LocalStats` vs. `DeviceMetrics`
+### Telemetry
 
-`struct mesh_radio_stats` is the one telemetry that is *not* about a node: `LocalStats` is the
-connected radio describing itself and the air around it (packet counters, dupes, relays, online
-node count, heap, noise floor). It lands on the session and is cleared with the handshake.
+`struct mesh_radio_stats` is the one telemetry *not* about a node: `LocalStats` is the connected
+radio describing itself and the air around it.
 
-- The firmware sends it to the attached client alone, never over LoRa, so it is only taken from
-  a packet whose `from` is our own node number.
-- Its fields are plain proto3 scalars, so a zero heap size or a zero noise floor is "not
-  reported", not a reading — which is why those two carry a flag and the counters do not.
-- Battery is not in it at all. That arrives only as our own node's ordinary `DeviceMetrics`,
-  which is why the Status screen reads it from the node roster.
-- The airtime pair is in *both*, and LocalStats wins it: `DeviceMetrics` is what our node last
-  broadcast about itself on the telemetry interval (half an hour by default), so preferring it
-  leaves the row on a stale 0.0% while the radio is busy.
+- The firmware sends it to the attached client alone, so it is only taken from a packet whose
+  `from` is our own node number.
+- Its fields are plain proto3 scalars, so a zero heap or noise floor is "not reported", not a
+  reading — which is why those two carry a flag and the counters do not.
+- Battery is not in it at all; that arrives as our own node's ordinary `DeviceMetrics`.
+- The airtime pair is in **both**, and LocalStats wins: `DeviceMetrics` is what our node last
+  broadcast on the telemetry interval (half an hour), so preferring it leaves the row stale.
 
-#### The other telemetry a node can send
+Beyond `DeviceMetrics` and `EnvironmentMetrics` a node can send `PowerMetrics`,
+`AirQualityMetrics`, `HealthMetrics` and `HostMetrics`. They are **separate groups, not one
+struct**, because a node reports the ones its hardware has: a screen that could not tell "no
+sensor" from "reading of zero" would show a solar repeater as having 0% humidity. They are
+**curated rather than complete** — `AirQualityMetrics` alone has twenty-six fields — and the wire
+message is decoded whole either way. `HostMetrics` is the exception to the `has_*` rule: it has
+no optional fields, so the flags are derived from what a running host cannot plausibly report.
+Each group gets its own key in the node cache, so an older build reading a newer cache skips a
+line instead of dropping the node. `TrafficManagementStats` is decoded and ignored.
 
-Beyond `DeviceMetrics` and `EnvironmentMetrics`, a node can broadcast four more `Telemetry`
-variants, and each is kept as its own group on the node record: `PowerMetrics` (up to three
-monitored supplies), `AirQualityMetrics`, `HealthMetrics` and `HostMetrics` (a node that is a
-computer — meshtasticd on a Pi — with a filesystem and a load average).
+### What the radio says about itself
 
-- They are **separate groups, not one struct**, because a node reports the ones its hardware has
-  and nothing about the others. A screen that could not tell "no sensor" from "reading of zero"
-  would show a solar repeater as having 0% humidity.
-- They are **curated rather than complete**. `AirQualityMetrics` alone has twenty-six fields,
-  most of them per-particle-size bin counts that mean nothing without a chart. The wire message
-  is decoded whole either way, so adding one later is a field here and a row in the node detail.
-- `HostMetrics` is the exception to the `has_*` rule: it has no optional fields at all, so the
-  flags are derived from what a running host cannot plausibly report — no uptime and no free
-  memory mean the sender did not fill them in. A load average of zero *is* a reading, so the
-  trio is flagged together on any of them being non-zero.
-- Each group gets its own key in the node cache, for the reason the position and metrics groups
-  do: an older build reading a newer cache skips a line it does not recognise instead of
-  dropping the node.
+Three `FromRadio` variants are the radio talking to the attached client:
 
-`TrafficManagementStats` is decoded and ignored: it is seven counters about an experimental
-upstream module, and there is nothing on a handheld that would act on them.
-
-#### What the radio says about itself
-
-Three `FromRadio` variants are the radio talking to the attached client rather than carrying
-mesh traffic, and each answers something no packet can.
-
-- **`ClientNotification`** is the firmware explaining a decision to the *user*: a duty-cycle
-  limit reached, a channel key that did not match, a public key seen on two nodes. A LogRecord
-  goes to our log at its own level; this goes on the screen, because nothing else reports these
-  and a send that quietly went nowhere looks identical to a slow one. Only the newest is kept,
-  with a monotonic `seq` so two identical notifications read as two events.
-- **`QueueStatus`** reports the outgoing queue after every `ToRadio`. A refusal (`res` non-zero)
-  is the one failure that produces *no* Routing reply at all — the packet never went on the air,
-  so nothing will ever answer for it and the message would sit `PENDING` until the ring evicted
-  it. `res` is a `Routing_Error`, the scale `mesh_message_log_mark_ack` already speaks, so it
-  lands on the message with the firmware's own reason.
+- **`ClientNotification`** is the firmware explaining a decision to the *user* — a duty-cycle
+  limit, a key that did not match. It goes on the screen, because a send that quietly went
+  nowhere looks identical to a slow one. Only the newest is kept, with a monotonic `seq`.
+- **`QueueStatus`** reports the outgoing queue after every `ToRadio`. A refusal is the one
+  failure that produces *no* Routing reply at all, so the message would sit `PENDING` until the
+  ring evicted it. `res` is a `Routing_Error`, the scale `mesh_message_log_mark_ack` speaks.
 - **`rebooted`** says every fact the config sync gave us describes a process that has died. The
-  session re-runs the handshake rather than serving stale config. The reboot counter is bumped
-  *after* `mesh_session_begin_handshake`, because that reset owns the counter — a detach or a
-  radio swap has to put it back to zero.
+  reboot counter is bumped *after* `mesh_session_begin_handshake`, because that reset owns it.
 
-All three are per-connection state and clear with the handshake, the way `stats` does. The app
-announces each exactly once by watching for the counter to **differ** rather than to grow: both
-restart at 1 on a reconnect, and a greater-than test would swallow the first notification of
-every connection after a talkative one.
+All three are per-connection state. The app announces each exactly once by watching for the
+counter to **differ** rather than to grow: both restart at 1 on a reconnect, and a greater-than
+test would swallow the first notification of every connection after a talkative one.
 
-#### The mesh as a graph
+### The mesh as a graph
 
-`NEIGHBORINFO_APP` is the only thing on the wire that says which nodes hear which. Everything
-else on a node record describes one link: `hops_away` is a count, `snr` is the reading of the
-hop that reached *us*, and a traceroute is one path measured once. A neighbour list is a node's
-own answer to "who do I hear", capped upstream at ten out-edges.
+`NEIGHBORINFO_APP` is the only thing on the wire that says which nodes hear which — everything
+else describes one link.
 
-- **The list belongs to `NeighborInfo.node_id`, not to `packet->from`.** These are forwarded
-  across the mesh and `last_sent_by_id` names the relayer, so filing the list under the sender
-  would draw one node's neighbours on another node's screen — wrong in a way that looks
-  entirely plausible.
-- **An empty report is kept as an empty report.** A node that hears nobody is a real and
-  interesting state — it is what a repeater that has fallen off the mesh looks like — and
-  ignoring it would leave the last non-empty list standing as though it were still true. The
-  node detail says "hears no one" rather than showing a heading with nothing under it.
-- **The reverse edges are counted in full but drawn in part.** Upstream's ten-entry cap is on
-  what one node reports about *its* neighbours; it says nothing about how many nodes may report
-  hearing this one, which on a dense mesh is everyone in range. The rows stop at
-  `MESH_UI_NODE_MAX_LISTENERS` for the row budget's sake and the screen then says how many it
-  left out — stopping the count as well would make the one screen whose question is "how many
-  can hear me" answer it wrongly and silently.
-- **"Heard by" is derived, never stored.** No node reports who hears *it*; that edge exists only
-  as every other node's list read backwards, which is why `mesh_ui_node_detail_build` takes the
-  whole roster rather than one node. It is also the half a person holding the radio actually
-  wants: "is anything hearing me" is not a question a hop count or an SNR reading can answer.
-  It is walked per frame rather than cached because it is derived from data that moves under it
-  — a node that stops hearing us simply drops out of its own next report, and a cached answer
-  would go on claiming it still does.
-- The list **is** persisted, unlike the traceroute: the neighbour module's broadcast interval is
-  floored at four hours by the firmware, so a restart would otherwise wait that long for the
-  picture to come back.
+- **The list belongs to `NeighborInfo.node_id`, not to `packet->from`.** These are forwarded and
+  `last_sent_by_id` names the relayer, so filing under the sender draws one node's neighbours on
+  another node's screen — wrong in a way that looks entirely plausible.
+- **An empty report is kept as an empty report.** A node that hears nobody is what a repeater
+  that has fallen off the mesh looks like.
+- **Reverse edges are counted in full but drawn in part.** Upstream's ten-entry cap is on what
+  one node reports about *its* neighbours, not on how many may report hearing this one. Rows stop
+  at `MESH_UI_NODE_MAX_LISTENERS` and the screen says how many it left out.
+- **"Heard by" is derived, never stored**, which is why `mesh_ui_node_detail_build` takes the
+  whole roster. It is walked per frame rather than cached because a node that stops hearing us
+  drops out of its own next report, and a cached answer would go on claiming it still does.
+- The list **is** persisted, unlike the traceroute: the broadcast interval is floored at four
+  hours by the firmware.
 
-#### Three ports carry text
+### Three ports carry text
 
-`TEXT_MESSAGE_APP` is not the only one. `ALERT_APP` (the firmware's critical alert) and
-`DETECTION_SENSOR_APP` (a sensor announcing itself, "<name> detected") are both described
-upstream as "same as Text Message": plain text addressed to a channel. The ingest accepted only
-the first, so an alert or a detection reached this client and produced nothing whatsoever.
+`ALERT_APP` and `DETECTION_SENSOR_APP` are both "same as Text Message" upstream, so
+`struct mesh_message` carries an `enum mesh_message_kind`.
 
-They belong in the conversation they were sent to, but not as ordinary messages, so
-`struct mesh_message` carries an `enum mesh_message_kind`:
+- The transcript **always** heads an alert or a detection, even in a direct conversation. A run
+  of identical-looking bubbles is precisely what a critical alert must not be.
+- An alert's heading is drawn in the error tone, which is why `{BAD, BUBBLE_IN}` joined the theme
+  contrast contract: the one message a theme must not swallow.
+- An alert **toasts wherever the user is**; a detection does not. Only the newest unseen alert is
+  announced, tracked by packet id rather than by a count, because the log merges a cached history
+  back in at startup and a counter would re-fire the lot at the next launch.
 
-- The transcript **always** heads an alert or a detection, whatever it would otherwise have
-  decided about naming and even in a direct conversation where the title already says who is
-  talking. A run of identical-looking bubbles is precisely what a critical alert must not be.
-- An alert's heading is drawn in the error tone rather than the primary, which is why
-  `{BAD, BUBBLE_IN}` and `{BAD, BUBBLE_IN_SEL}` joined the theme contrast contract: the one
-  message a theme must not swallow is the one it would otherwise swallow.
-- An alert also **toasts wherever the user is**, because the Messages tab may not be the one on
-  screen and an alert is by definition the thing a client should interrupt for. A detection does
-  not: a sensor announcing itself belongs in the conversation, not in front of whatever the user
-  is doing. Only the newest unseen alert is announced — three arriving together are one
-  situation — and it is tracked by packet id rather than by a count, because the log merges a
-  cached history back in at startup and a counter would re-fire the lot at the next launch.
+A **direct message** toasts on the same machinery with three conditions: the conversation is not
+muted, the user is not already looking at it, and it is not the first pass after a launch — the
+log is seeded from the cache before the first publish. A broadcast raises nothing at all: a
+channel is a room full of people talking.
 
-A **direct message** toasts too, on the same machinery and with three conditions of its own,
-because an ordinary message is worth less interruption than a critical alert and has to earn it:
-the conversation is not muted, the user is not already looking at it (the all-traffic view
-counts as looking at it), and it is not the first pass after a launch — the log is seeded from
-the cache before the first publish, so the newest direct message in it may be one the user was
-shown days ago, and the first pass adopts it silently. A broadcast raises nothing at all: a
-channel is a room full of people talking, and a notice per line would make the client unusable
-on any real mesh. That is the same line `ALERT_APP` and `DETECTION_SENSOR_APP` are split along.
+Notices **queue** rather than overwrite — three at most, and a full queue drops its *oldest
+waiting* entry, because a burst whose tail was dropped would withhold what happened last. A
+repeat of what is already showing is dropped: two identical notices in a row are one notice
+standing for eight seconds.
 
-Notices **queue** rather than overwrite. There is one snackbar and it stands for four seconds, so
-two things happening at once used to mean the user saw the second — survivable while almost
-nothing raised a notice, and not once an arriving message could. Three wait at most; a full queue
-drops its *oldest waiting* entry, because a backlog is only worth keeping while it is still news
-and a burst whose tail was dropped would withhold what happened last. A repeat of what is already
-showing is dropped as well: two identical notices in a row are one notice standing for eight
-seconds.
-
-Nothing this client sends is ever an alert or a detection; there is no reason to originate one.
-
-#### Reactions are not messages
+### Reactions are not messages
 
 `Data.emoji` marks a packet whose payload is an emoji reacting to `Data.reply_id`. It is kept in
-the message log — it is traffic that happened — but `mesh_ui_nav_message_matches` filters it out
-of every transcript and `mesh_ui_nav_conversation_summarise` out of every preview and unread
-count, and the transcript draws it on the bubble it names instead, identical emoji counted
-rather than repeated. Read as an ordinary message it was a bubble containing one emoji with no
-indication of what it was about, which is three wrong answers from one dropped field.
+the log — it is traffic that happened — but filtered out of every transcript, preview and unread
+count, and drawn on the bubble it names instead. Read as an ordinary message it was a bubble
+containing one emoji with no indication what it was about: three wrong answers from one dropped
+field.
 
-`MeshPacket.pki_encrypted` rides along the same path and puts a padlock on a direct message. It
-is worth saying: on a channel still using the default key every node on the mesh holds that key,
-so a DM that did *not* go out PKI-encrypted was readable by all of them.
+`MeshPacket.pki_encrypted` puts a padlock on a direct message. What it does **not** say is whose
+key that was: a public key arrives in a `NodeInfo` from whoever transmitted it, so "the radio
+held a key for that name" and "the radio held *their* key" are different claims.
+`NodeInfo.is_key_manually_verified` is the difference, and `src/core/key_verification.c` is the
+out-of-band ceremony that sets it — two radios show a four-digit number and a short code, and the
+users read both to each other by voice. The mark is a padlock for a key that merely arrived and a
+shield for one somebody proved, which is `src/ui/trust.c`'s answer rather than the transcript's,
+since three screens draw trust and they have to agree. `AdminMessage.add_contact` is the other
+half: the radio's NodeDB evicts and this roster does not, so handing a record back — public key
+and verified bit included — is what makes a DM to it encryptable again.
 
-What it does **not** say is whose key that was. A public key arrives in a `NodeInfo` from
-whoever transmitted it, so "the radio held a key for that name" and "the radio held *their*
-key" are two different claims and the padlock used to make the stronger-looking one for both.
-`NodeInfo.is_key_manually_verified` is the difference, and `src/core/key_verification.c` is how
-it gets set: an out-of-band ceremony in which the two radios show their users a four-digit
-number and then a short code, and the users read both to each other by voice. The mark on the
-bubble is a padlock for a key that merely arrived and a shield for one somebody proved, which is
-`src/ui/trust.c`'s answer rather than the transcript's - three screens draw trust and they have
-to agree. `AdminMessage.add_contact` is the other half of the same story: the radio's NodeDB
-evicts and this roster does not, so a node we remember can be a stranger to the radio, and
-handing its record back - public key and verified bit included - is what makes a direct message
-to it encryptable again. `docs/settings-roadmap.md` has the ceremony's steps and the reasoning.
+For **our own** sends the echo is the only source of it, so the dedup branch in
+`mesh_message_ingest` copies the encryption state as well as the timestamps. All four fields —
+kind, padlock, `reply_id`, reaction flag — are written to the node cache on their own `msg_meta[]`
+key; a reaction reloaded without its flag is a bare emoji bubble that also bumps the unread count.
 
-For **our own** sends the echo is the only source of it. `mesh_session_send_text` records the
-message before the radio has done anything with it, and the radio decides per packet from
-whether it holds the recipient's public key; it tells us by echoing the packet back. The dedup
-branch in `mesh_message_ingest` therefore copies the encryption state as well as the timestamps.
+### Traceroute
 
-All four of these fields — the kind, the padlock, `reply_id` and the reaction flag — are written
-to the node cache on their own `msg_meta[]` key. Losing that line is not cosmetic: a reaction
-reloaded without its flag is a bubble containing a bare emoji that also bumps the unread count,
-which is the whole behaviour reading `Data.emoji` was meant to end, returning at every restart.
-
-#### Traceroute
-
-`hops_away` is a count, not a route, and never says which nodes are carrying you.
 `mesh_session_send_traceroute` puts an empty `RouteDiscovery` on `TRACEROUTE_APP` with
-`want_response`; every node that forwards it appends itself, and the target answers with both
-directions and the SNR of every link.
+`want_response`; every forwarding node appends itself and the target answers with both directions
+and the SNR of every link.
 
-- The reply is matched on `Data.request_id` against our packet id, because a trace between two
-  *other* nodes crosses our radio wearing the same portnum. A RouteDiscovery never reaches the
-  message log either way.
-- One trace at a time (`-EBUSY`) — the client's half of the firmware's own rate limit, and the
-  reason a finished result is kept rather than re-run: a screen that traced on every repaint
-  would be refused and would flood the mesh.
-- Nothing reports a trace dropped on the way out or back, so `mesh_session_tick` times it out at
-  60 s, ahead of the link guards.
-- `mesh_app_flatten_traceroute` turns the protobuf's shape (intermediate nodes plus a parallel
-  array of link SNRs) into the two paths the UI draws, every stop carrying the reading of the
-  link that reached it: the ends are stitched on (us going out, the target coming back), each hop
-  resolves to a name, and hop `i` takes `snr[i - 1]`. That array is normally one longer than the
-  route — one reading per *link* rather than per node — but every pairing is bounds checked
-  rather than assumed. `INT8_MIN` is the firmware's "not measured" and draws as "no reading", not
-  a -32 dB link.
+- Matched on `Data.request_id` against our packet id, because a trace between two *other* nodes
+  crosses our radio wearing the same portnum. A RouteDiscovery never reaches the message log.
+- One trace at a time (`-EBUSY`), which is also why a finished result is kept rather than re-run:
+  a screen that traced on every repaint would be refused and would flood the mesh.
+- Nothing reports a trace dropped, so `mesh_session_tick` times it out at 60 s.
+- `mesh_app_flatten_traceroute` turns the protobuf's shape into the two paths the UI draws, hop
+  `i` taking `snr[i - 1]`. That array is normally one longer than the route — one reading per
+  *link* — but every pairing is bounds checked. `INT8_MIN` is "not measured" and draws as "no
+  reading", not a -32 dB link.
 
-#### Asking the radio about a node
+### Asking the radio about a node
 
-- **`mesh_session_request_node_info`** sends our own `User` on `NODEINFO_APP` with
-  `want_response`. This is the only way to name a node that joined after the NodeDB replay. It
-  returns `-EAGAIN` until our own owner record has arrived, and there is deliberately **no
-  placeholder**: a NodeInfo is applied by overwriting the record whole
-  (`mesh_session_apply_user` blanks the names and drops the public key when the incoming `User`
-  lacks them, and the firmware's NodeDB does the same), so a `User` carrying only an id would
-  erase *this* node's identity on every peer that received it.
-- **`mesh_session_set_node_favorite`** / **`mesh_session_set_node_ignored`** queue
-  `set_favorite_node`/`remove_favorite_node` and `set_ignored_node`/`remove_ignored_node`, and
-  flip the cached flag themselves: there is no `get_favorite` or `get_ignored`, and the radio
-  only returns the flag with that node's next NodeInfo. Ignoring the radio we are connected
-  through is refused — it would drop our own traffic.
-- **`mesh_session_sync_clock`** pushes the Brick's own `time(NULL)` at the radio once per
-  connection so a node with no GPS stops sitting at 00:00 and its packets carry a real `rx_time`.
+- **`mesh_session_request_node_info`** sends our own `User` with `want_response` — the only way
+  to name a node that joined after the replay. It returns `-EAGAIN` until our owner record has
+  arrived, and there is deliberately **no placeholder**: a NodeInfo is applied by overwriting the
+  record whole, so a `User` carrying only an id would erase *this* node's identity on every peer.
+- **`set_node_favorite` / `set_node_ignored`** flip the cached flag themselves: there is no
+  `get_favorite`, and the radio only returns the flag with that node's next NodeInfo. Ignoring
+  the radio we are connected through is refused — it would drop our own traffic.
+- **`mesh_session_sync_clock`** pushes the Brick's `time(NULL)` once per connection so a node
+  with no GPS stops sitting at 00:00.
+- **`request_position` / `request_telemetry`** send an *empty* payload with `want_response`,
+  because the alternative is waiting fifteen or thirty minutes for the node's own broadcast.
+  Neither can erase anything (both are merged field by field at the far end) and neither carries
+  `want_ack` — the reply *is* the acknowledgement.
 
-- **`mesh_session_request_position`** / **`mesh_session_request_telemetry`** send an *empty*
-  payload on `POSITION_APP` / `TELEMETRY_APP` with `want_response`, and the answer lands on the
-  node record the ordinary way. They exist because the alternative is waiting for the node's own
-  broadcast - fifteen minutes for a position and half an hour for telemetry at the firmware's
-  defaults - which made the node detail's readings a report on the past rather than an answer.
-  Unlike the NodeInfo request neither needs our owner record and neither can erase anything: a
-  `Position` and a `Telemetry` are merged field by field at the far end, so an empty one asserts
-  nothing. Neither carries `want_ack` either — the reply *is* the acknowledgement, and asking
-  for both would double what the question costs the mesh.
+## `src/core/radio_settings.c` — the admin protocol
 
-An earlier version of this document said a position request "duplicates what the NodeInfo
-exchange already brings back". It does not: a `NODEINFO_APP` reply is a `User` record and
-carries no position at all.
+A transport-agnostic view of the radio's configuration plus the `AdminMessage` plumbing: requests
+addressed to our own node with `want_response`, replies correlated by `Data.request_id`, the
+`session_passkey` every reply carries (firmware 2.5+ rejects a `set_*` without it), and a
+one-at-a-time queue with a 5 s timeout. Admin replies never reach the message log.
 
-### `src/core/radio_settings.c` — the admin protocol
-
-A transport-agnostic view of the connected radio's configuration (`struct mesh_radio_settings`:
-every `Config`/`ModuleConfig` section, owner `User`, `DeviceMetadata`) plus the `AdminMessage`
-plumbing. It encodes `ADMIN_APP` requests addressed to our own node with `want_response`, decodes
-replies (correlated by `Data.request_id`), keeps the `session_passkey` every reply carries
-(firmware 2.5+ rejects a `set_*` without it), and runs a one-at-a-time request queue with a 5 s
-timeout. The session feeds it handshake fragments and admin packets, sends a metadata+owner
-probe once `config_complete_id` arrives, and pumps the queue from `mesh_session_tick()`. Admin
-replies never reach the message log.
-
-Writes (`mesh_radio_settings_queue_write`) always go out as three requests:
+A write always goes out as **three** requests:
 
 1. `get_owner` — for a fresh passkey; the firmware rotates it after 150 s.
 2. the `set_*`, carrying the **whole** section (the firmware replaces, it does not merge).
 3. the matching `get_*`, so the tab shows what the radio actually kept.
 
 A `set_*` is answered by a `ROUTING_APP` packet quoting our id: `error_reason` NONE is the ack,
-`ADMIN_BAD_SESSION_KEY`/`BAD_REQUEST` a rejection. `ingest` claims those and counts them in
-`writes_acked`/`writes_failed`. The full channel table (`has_channel[]`/`channels[]`, keys
-included, never persisted) is kept for `set_channel`, which must carry the whole `Channel`;
-`get_channel_request` is index+1.
+`ADMIN_BAD_SESSION_KEY`/`BAD_REQUEST` a rejection. The full channel table (keys included, never
+persisted) is kept for `set_channel`, which must carry the whole `Channel`; `get_channel_request`
+is index+1.
 
 `MESH_ADMIN_SET_TIME` is the odd one out: no read-back, because there is no `get_time`. It is
-gated on `MESH_RADIO_CLOCK_MIN_EPOCH` and left out of `mesh_admin_request_is_write` on purpose,
-so it never counts as a save or toasts over one. `set_time_only` is UTC; the node shows local
-time only once `DeviceConfig.tzdef` is set, which is the Device section's one editable row.
+gated on `MESH_RADIO_CLOCK_MIN_EPOCH` and left out of `mesh_admin_request_is_write`, so it never
+counts as a save or toasts over one.
 
-Most sections reboot the radio 7 s after a set (owner, module configs, display when
-`screen_on_secs`/`flip_screen` change), so the link drops and auto-connect reconnects. **That is
-expected, not a bug.** Phase status is in [`settings-roadmap.md`](settings-roadmap.md).
+**Most sections reboot the radio 7 s after a set**, so the link drops and auto-connect
+reconnects. That is expected, not a bug.
 
-### `src/core/message.c`
+## `src/core/store_forward.c`
 
-Transport-agnostic messaging: builds `TEXT_MESSAGE_APP` packets into a `ToRadio`, folds inbound
-`MeshPacket`s into a fixed ring (`mesh_message_log`), and correlates `ROUTING_APP` replies with
-the outbound message they ack. Message text is untrusted radio input, so `mesh_message_ingest`
-sanitises control bytes and backends can draw it directly.
+A Store & Forward router keeps the last few hours of text traffic and hands it back on request —
+the half that matters on a handheld, since a Brick spends most of its life switched off. One
+portnum, `STORE_FORWARD_APP`, carrying a `StoreAndForward` whose `rr` says which half of the
+conversation it is.
 
-### `src/core/store_forward.c` — the messages that arrived while the client was off
-
-A Store & Forward router on the mesh keeps the last few hours of text traffic and hands it back
-on request. The client has had rows for the module's *configuration* since phase 8 - whether
-this radio is a server, how many records it keeps - and never spoke to one, which on a handheld
-is the half that matters: a Brick spends most of its life switched off, and everything said
-while it was off is gone unless something asks.
-
-The exchange is one portnum, `STORE_FORWARD_APP`, carrying a `StoreAndForward` whose `rr` says
-which half of the conversation it is. What this client sends is a `CLIENT_HISTORY` addressed to
-one router; what comes back is a `ROUTER_HISTORY` saying how many messages are coming and then
-one `ROUTER_TEXT_DIRECT` or `ROUTER_TEXT_BROADCAST` per message.
-
-Four decisions are worth reading before changing any of it:
-
-- **The client finds a router before it asks one.** A router announces itself with
-  `ROUTER_HEARTBEAT` on its own timer, which defaults to fifteen minutes - so a client that
-  could only ask a router it had already heard from would be useless in exactly the minutes
-  after a boot. With none known, `mesh_session_request_history()` broadcasts a `CLIENT_PING`
-  instead and sends the real request to whichever router answers. That is the only thing this
-  client ever broadcasts on the port: a broadcast `CLIENT_HISTORY` would have every router on
-  the mesh replay its whole window at once, and `mesh_store_forward_encode()` refuses one.
-- **A replayed message is the sender's, not the router's - but it has no date.** The router puts
-  the original `from` and `channel` on the envelope and the text inside the `StoreAndForward`,
-  so a replay lands in the conversation it was said in. What it does *not* carry is when: `rx_time`
-  is documented in `mesh.proto` as a field that "is _never_ sent on the radio link itself (to save
-  space)", so the stamp on a replay packet is *our own* radio marking the moment the replay
-  landed, and the `text` variant has no timestamp of its own. Copying it would date the whole
-  window at the minute it was fetched - and would break the de-duplication below, because a live
-  copy and its replay then carry two different non-zero stamps. The packet id goes the same way
-  (it identifies the router's delivery, not the message), as do the SNR, the hop count and the
-  padlock: all three measure how *this* packet reached us, and this packet came one hop from a
-  node that is not the sender. For the same reason the roster is not touched by a replay -
-  otherwise fetching history would report every sender in the window as freshly reachable over a
-  link that was never measured to them.
-- **A replay is mostly things we already have.** The router replays its whole configured window,
-  which for a client that was off for ten minutes is four hours of traffic it heard live. The
-  copies carry different packet ids, so `mesh_message_log_holds_replay()` matches on what was
-  said - sender, channel, text, and the stamp when both copies have one, which for a replay is
-  never - and the session counts `received` and `stored` separately, because "30 messages" about
-  a replay that added none of them would be describing the router's work rather than the user's
-  inbox. The cost of matching without a stamp is that a sender who said the same short thing
-  twice on one channel gets one bubble back instead of two; that is the trade the no-clock case
-  already makes, and it is the right way round.
+- **The client finds a router before it asks one.** A router announces itself on a fifteen-minute
+  timer, so with none known `mesh_session_request_history()` broadcasts a `CLIENT_PING` and sends
+  the real request to whichever router answers. That is the only thing this client ever
+  broadcasts on the port: a broadcast `CLIENT_HISTORY` would have every router replay its whole
+  window at once, and `mesh_store_forward_encode()` refuses one.
+- **A replayed message is the sender's, not the router's — but it has no date.** `rx_time` is
+  "never sent on the radio link itself", so the stamp on a replay packet is *our own* radio
+  marking when the replay landed. Copying it would date the whole window at the minute it was
+  fetched. The packet id, SNR, hop count and padlock go the same way: all measure how *this*
+  packet reached us, one hop from a node that is not the sender. The roster is not touched either.
+- **A replay is mostly things we already have.** `mesh_message_log_holds_replay()` matches on
+  what was said — sender, channel, text, and the stamp when both copies have one, which for a
+  replay is never — and the session counts `received` and `stored` separately. The cost is that a
+  sender who said the same short thing twice on one channel gets one bubble back.
 - **What we know is only ever true of one router.** The history cursor is an index into *that
-  router's* packet history, so hearing a different router drops it along with that router's rank
-  and statistics - handing A's index to B would ask B to skip to a position in a table it does
-  not have, and B would silently miss messages. While a request is running, an announcement, a
-  count or a refusal from any other node is ignored outright. A replayed *message* is the one
-  thing that cannot be checked that way, because its envelope names the sender rather than the
-  router.
-- **The follow-up request is sent from the tick, not from the ingest.** The pong arrives on the
-  link's read path; writing back down the link on the same turn is the thing the admin queue's
-  queue-here-drain-there split exists to avoid, so the ingest sets a flag and
-  `mesh_session_tick()` sends.
+  router's* packet history, so hearing a different router drops it: handing A's index to B would
+  ask B to skip to a position in a table it does not have.
+- **The follow-up request is sent from the tick, not from the ingest** — writing back down the
+  link on the same turn is what the admin queue's queue-here-drain-there split exists to avoid.
 
 The state machine is ten values rather than a bool because each is a different thing to tell the
-user: "no router answered" and "the router never replied" are the same silence from two
-different places, and only one of them is worth pressing again. Nothing about it is persisted -
-it describes one exchange with one router over one connection, and the messages it fetched are
-in the transcript, which is.
+user: "no router answered" and "the router never replied" are the same silence from two different
+places, and only one is worth pressing again. Nothing about it is persisted.
 
-### `src/core/app*.c`
+## `src/core/app*.c`
 
-Four files around one `struct mesh_app`, with `src/core/app_internal.h` as the seam between
-them: `app.c` owns the loop, the two links and the process lifecycle; `app_actions.c` is the
-`mesh_ui_action` dispatch; `app_publish.c` copies session state into the UI store;
-`app_settings.c` turns the UI's pending edits into admin writes.
+Four files around one `struct mesh_app`, with `app_internal.h` as the seam: `app.c` owns the
+loop, the links and the process lifecycle; `app_actions.c` is the `mesh_ui_action` dispatch;
+`app_publish.c` copies session state into the UI store; `app_settings.c` turns pending edits into
+admin writes.
 
-The dispatch is a table - `k_app_actions` in `app_actions.c`, one row per verb naming a
-`static on_<action>()` - the way `src/ui/actions.c`, `status.c` and `help.c` are tables. A new
-`mesh_ui_action_type` is a handler and a row, and a `_Static_assert` against
-`MESH_UI_ACTION_COUNT` fails the build if the row is forgotten, because a verb the table does
-not answer for is a press that arrives and silently does nothing.
+The dispatch is a table — `k_app_actions`, one row per verb — with a `_Static_assert` against
+`MESH_UI_ACTION_COUNT`, because a verb the table does not answer for is a press that arrives and
+silently does nothing.
 
-
-`mesh_app_publish_ui_state()` copies discovery/handshake state into the UI store every loop
-iteration and persists the handshake cache and preferences under `$HOME`
-(`~/.meshclient/ui_prefs`, `ui_prefs.handshake`).
-
-`mesh_app_autoconnect()` runs every foreground turn, over the nodes that answered the last scan
-and only those: the preferred node if it is in range, else the radio of the user's own that is
-in range and was used most recently (a grace of 5 s), else the strongest advertiser (a grace of
-30 s), with exponential backoff (2 s to 60 s) on failure. `MESHCLIENT_AUTOCONNECT=0` turns it
-off.
-
-The range test is `mesh_bluez_device_info.in_range`, not the RSSI: BlueZ's enumeration lists
-every device it holds a bond for, and one it has not heard has no RSSI property at all - so the
-0 that leaves behind used to outrank every node that answered, and a radio left at home used to
-win the selection outright. The list of the user's own radios is
-`mesh_ui_preferences.known_devices`, an MRU of the last eight the client has connected to over
-either link, whose head *is* `preferred_device`; `mesh_app_note_connected_device()` is the only
-writer of either, so the config and the preferences cannot come to disagree about which radio
-the user was last on.
+`mesh_app_autoconnect()` runs every foreground turn over the nodes that answered the last scan
+and only those. **The range test is `in_range`, not the RSSI**: BlueZ lists every device it holds
+a bond for, and one it has not heard has no RSSI property at all — so the 0 that leaves behind
+used to outrank every node that answered, and a radio left at home used to win outright. The MRU
+of the user's own radios is `known_devices` (eight, over either link), whose head *is*
+`preferred_device`; `mesh_app_note_connected_device()` is the only writer of either.
 
 A BLE connect returns 0 several seconds before it is a connection, so neither the backoff nor the
-UI can key off that return value. `mesh_app_report_link_errors()` therefore runs between `tick()`
-and `mesh_app_autoconnect()` (a retry restarts the link and clears the reason the last attempt
-failed), pops a transport's `take_error()` line, toasts it when the user asked for the connect,
-and counts the attempt against the backoff. Only an established link clears the backoff.
+UI can key off that return value. `mesh_app_report_link_errors()` runs between `tick()` and
+`autoconnect()`, pops a transport's `take_error()` line, toasts it when the user asked for the
+connect, and counts the attempt against the backoff.
 
-The `--status`/`--list-devices` paths in `main.c` do their own connect.
+## `src/core/updater.c` + `version.c` — the client updating itself
 
-The post-stop publish in `mesh_app_run` only touches the transport line, because the shutdown
-save would otherwise persist an empty handshake and unresolved peer names.
-
-### `src/core/updater.c` + `src/core/version.c` — the client updating itself
-
-Everything else here is about the radio; this is about the client.
-
-`mesh_version_string()` returns the `MESHCLIENT_VERSION` compile definition CMake feeds from
-`project(... VERSION ...)`, or `"dev"` for a build without one. `mesh_version_compare()` is
-SemVer precedence including prerelease ordering, so a `dev` build never offers to "update" itself
-to a release — which is what keeps a working tree from replacing its own binary.
+`mesh_version_compare()` is SemVer precedence including prerelease ordering, so a `dev` build
+never offers to "update" itself to a release.
 
 The updater has **no TLS of its own**: it forks the device's `curl` (then `wget`) and reads its
-stdout through the event loop, because the release build is static musl with libdbus as its
-only dependency. One child at a time, states
-strictly sequential, `tick()` enforcing the timeout.
+stdout through the event loop, because the release build is static musl with libdbus as its only
+dependency. One child at a time, states strictly sequential.
 
-**It has to bring its own CA bundle.** The Brick has no system CA store at all — no `/etc/ssl` —
-so a bare `curl` fails every HTTPS request with exit 60, and busybox `wget` there has no HTTPS
-support whatever. The pak ships Mozilla's roots at `certs/certificates.crt` (the same thing Pak
-Store does) and `updater_resolve_ca_bundle()` picks one: `SSL_CERT_FILE` or `CURL_CA_BUNDLE`
-first, then our bundle via `updater_pak_file()`, then the usual distro paths so a desktop build
-keeps using the system's. Because the bundle ships in the pak and not through self-update, a
-device installed before it has to reinstall the pak once; curl's exit 60 is mapped to
-"No CA certificates; reinstall the pak" so the About screen says so.
+**It has to bring its own CA bundle.** The Brick has no system CA store at all, so a bare `curl`
+fails every HTTPS request with exit 60. The pak ships Mozilla's roots at `certs/certificates.crt`
+and `updater_resolve_ca_bundle()` picks one: `SSL_CERT_FILE`/`CURL_CA_BUNDLE`, then ours, then
+the usual distro paths. Exit 60 maps to "No CA certificates; reinstall the pak".
 
-**Byte progress comes from the file, not from the fetcher.** A forked `curl` looks like it
-cannot report progress — its meter goes to *stderr*, redrawn with carriage returns in a format
-that is curl's to change and that `wget` does not share, so reading it would mean a second pipe,
-a second reader on the loop and two scrapers for two fetchers. It never has to be read. The
-download is not going to a pipe: it is going to `staged_path`, a file this process named, and
-the release metadata already said how large that file will be when it is done. So the fraction
-is `stat()` over `asset_size` — one syscall, identical for both fetchers. `mesh_updater_tick()`
-samples it and bumps `revision` only on a change; `mesh_updater_progress()` reports it, and
-returns **false** for a step that has no length at all (a check is one request whose reply has no
-size until it arrives), which the About screen draws as an indeterminate bar rather than as a
-zero. The transport being opaque turns out not to matter, because the destination is ours.
+**Byte progress comes from the file, not from the fetcher.** curl's meter goes to stderr in a
+format `wget` does not share, so it would mean a second pipe and two scrapers. The download is
+going to `staged_path`, a file this process named, and the metadata already said how large it
+will be — so the fraction is `stat()` over `asset_size`, identical for both fetchers.
+`mesh_updater_progress()` returns **false** for a step with no length at all, which the About
+screen draws as an indeterminate bar rather than a zero.
 
-Its resolution is however often the event loop turns: a second when nothing else is happening,
-and every frame while the bar beside it is animating. Neither is smooth, and neither has to be —
-the widget eases between samples, which is where smoothness belongs.
+**`--insecure` is not an alternative and must not be added.** What makes downloading an
+executable safe is not the transport but the digest:
 
-**`--insecure` is not an alternative and must not be added.** The release metadata is what
-carries the digest every download is checked against, so trusting it unauthenticated would defeat
-the verification rather than route around a missing file.
-
-What makes downloading an executable safe is not the transport but the digest:
-
-- The release metadata comes from `api.github.com` — `releases/latest` on the Stable channel,
-  `releases?per_page=1` on Prerelease. `latest` deliberately skips prereleases, so a beta client
-  polling it would never see the next beta; the `per_page=1` cap also keeps the reply a single
-  release object, so the scanner cannot pair one release's tag with another's asset.
+- Metadata comes from `api.github.com` — `releases/latest` on Stable, `releases?per_page=1` on
+  Prerelease. `latest` skips prereleases, so a beta client polling it would never see the next
+  beta; the `per_page=1` cap also keeps the reply a single release object, so the scanner cannot
+  pair one release's tag with another's asset.
 - The asset URL is refused unless it sits under *this* repository's `releases/download/` path.
-- The bytes must hash (`src/utils/sha256.c`, self-contained so the one check that matters does
-  not depend on busybox) to the `digest` that metadata carried. A release with no digest is
-  refused rather than installed unverified.
+- The bytes must hash (`src/utils/sha256.c`, self-contained) to the `digest` that metadata
+  carried. A release with no digest is refused rather than installed unverified.
 - The install is `rename()` within one directory, so it is atomic, and Linux keeps the running
-  image alive off its inode — which is why the last state is READY ("relaunch to run it") rather
-  than a restart the app performs on itself.
+  image alive off its inode — which is why the last state is READY rather than a self-restart.
 
-Which question to ask is `enum mesh_update_channel`, an About-screen setting persisted as
-`update_channel=` in `ui_prefs` rather than inferred from the running build: a stable install had
-no way to opt into beta and a beta install no way back out. DEFAULT keeps the old inference (a
-prerelease build follows prereleases), so a prefs file written before the setting reads as "no
-change". There are two channels and not one per release branch on purpose — telling beta from rc
-would mean parsing an array of releases instead of the single object `per_page=1` guarantees, and
-the SemVer ordering already offers a beta user the stable that supersedes their beta.
-`mesh_updater_set_channel` forgets whatever the last check found, so an asset fetched on one
-channel can never be installed after switching to the other.
+The channel is an About-screen setting persisted as `update_channel=`, not inferred from the
+running build. Two channels and not one per release branch: telling beta from rc would mean
+parsing an array instead of the single object `per_page=1` guarantees.
+`mesh_updater_set_channel` forgets whatever the last check found.
 
-### `src/utils/text.c`
+## `src/utils/`
 
-The UTF-8 helpers everything that touches radio text shares. `mesh_text_sanitise` (folds C0
-controls, replaces malformed bytes with `?`, never splits a sequence at the buffer boundary) is
-what `message.c` runs on message bodies and `session.c` runs on `long_name`/`short_name`;
-`mesh_text_utf8_length`/`_offset`/`_truncate` are what the fb backend measures lines with.
+`text.c` holds the UTF-8 helpers everything that touches radio text shares. `mesh_text_sanitise`
+folds C0 controls, replaces malformed bytes with `?` and never splits a sequence at the buffer
+boundary. **Names are radio input exactly like message text is**, and `User.short_name` is
+`char[5]` — sized for one four-byte emoji and its NUL — so multi-byte names are the norm.
 
-Names are radio input exactly like message text is — whoever owns the node picks the bytes — and
-`User.short_name` is `char[5]`, sized for one four-byte emoji and its NUL, so multi-byte names
-are the norm, not an edge case.
+`crash.c` catches SIGSEGV, SIGBUS, SIGILL, SIGFPE and SIGABRT, writes
+`$HOME/.meshclient/crash.txt` (signal and fault address, uptime, load base, version/route/transport
+notes, the last 32 log lines, the PC and a frame walk), then re-raises so the process still dies
+of the signal it was given.
 
-### `src/utils/crash.c` — what the client leaves behind when it faults
+**Nothing leaves the device.** This is deliberately not a crash-reporting service: the memory of
+this process holds node names, coordinates, the message log and the channel keys. What lands on
+disk is a page of text the user can read in full before attaching it to an issue.
 
-A SIGSEGV used to take the process down mid-sentence. `launch.sh` pipes the client through
-`tee`, so the log on the card simply stopped: nothing in it said the process had died, or where.
-A report from a stranger was therefore "it crashed", and the one fact worth having was the one
-the fault had destroyed.
+**The file does not promise to be free of private data, and must not start.** Its header once
+claimed to carry no message text or names, and three quarters of that was false — the log tail is
+the client's *ordinary* log, which says `Sent "%s" to %s` and prints a hand-entered fixed
+position. A user who attached the file *because the file told them it was safe* would have
+published exactly what it promised was absent. Channel keys really are never logged.
 
-`mesh_crash_install()` catches SIGSEGV, SIGBUS, SIGILL, SIGFPE and SIGABRT and writes
-`$HOME/.meshclient/crash.txt`: the signal and fault address, the uptime, the load base, three
-notes (version, route, transport status), the last 32 log lines, the program counter and a frame
-walk. Then it re-raises, so the process still dies of the signal it was given.
+Four rules rather than implementation details:
 
-**Nothing leaves the device.** This is deliberately not a crash-reporting service. The memory of
-this process holds node names, every positioned node's coordinates, the message log and the
-channel keys, so a minidump of it is the last thing that should go anywhere by itself — and the
-audience for a Meshtastic client is not the audience for silent telemetry. What lands on disk is
-a page of text the user can read in full before deciding whether to attach it to an issue.
-
-**The file does not promise to be free of private data, and must not start.** Its header first
-claimed to carry "no message text, no node names, no coordinates and no channel keys", and three
-quarters of that was false: the log tail it carries is the client's *ordinary* log, which says
-`Sent "%s" to %s` (`app_actions.c`), names channels and waypoints (`session.c`), and prints a
-hand-entered fixed position as the two numbers that were typed. A user who attached the file
-*because the file told them it was safe* would have published exactly what it promised was
-absent. The header now names those categories instead — a reader can act on "it may quote a
-message you sent" and cannot act on an assurance that is wrong. Channel keys really are never
-logged; the one line mentioning a passkey prints `held` or `absent` rather than the value.
-Redacting the ring instead would mean the logger knowing which of its arguments are private,
-which is a real feature and a larger one than this.
-
-Four things about it are rules rather than implementation details:
-
-- **The handler builds no strings.** POSIX names the functions that stay safe in a signal
-  handler and neither `printf` nor `malloc` is among them — a fault inside `malloc` leaves the
-  allocator's lock held, and a handler that takes it deadlocks instead of reporting anything. So
-  the report's path, the load base read out of `/proc/self/maps`, and every fixed heading are
-  built by `mesh_crash_install()` in ordinary context; the handler formats its own integers with
-  `write()` and assembles nothing it did not already have.
+- **The handler builds no strings.** Neither `printf` nor `malloc` is async-signal-safe — a fault
+  inside `malloc` leaves the allocator's lock held. The path, the load base and every fixed
+  heading are built by `mesh_crash_install()` in ordinary context.
 - **The stack walk is probed, not dereferenced.** `mesh_crash_install()` makes a pipe it never
-  sends anything through. Writing an address to a descriptor turns an unreadable page into
+  sends anything through: writing an address to a descriptor turns an unreadable page into
   `EFAULT` — a return value — where `*(uint64_t *)fp` would be a second SIGSEGV inside the
-  handler for the first one. That is what lets the walk be attempted at all rather than being
-  left out as too dangerous, and the frame checks (readable, pointer-aligned, climbing) only stop
-  nonsense being *printed*.
-- **The risky half goes last.** Headings, notes and the log tail are written before the
-  registers are touched, so a handler that dies part way through has already put the useful half
-  on disk. `write()` has handed the data to the kernel by the time it returns.
+  handler for the first.
+- **The risky half goes last.** Headings, notes and the log tail are written before the registers
+  are touched, so a handler that dies part way through has already put the useful half on disk.
 - **The handler runs on an alternate signal stack.** When the fault *is* the stack running out,
-  the kernel has nowhere to build the signal frame: without `sigaltstack()` and `SA_ONSTACK` it
-  cannot deliver the signal at all, so the process dies having never entered the handler — and
-  the crash with the most interesting backtrace in it is the one that leaves no file.
+  the kernel has nowhere to build the signal frame, so without `sigaltstack()` and `SA_ONSTACK`
+  the crash with the most interesting backtrace leaves no file.
   `crash_handler_survives_an_exhausted_stack` is the only case that notices when the flag goes.
-- **Whether a report is waiting is read once, at install.** Answered by a `stat` on demand, the
-  flag would flip the moment *this* run wrote its own report — so About would start telling the
-  user they had crashed while they were still using the client, and the banner would appear
-  underneath a fault that had not finished happening.
 
-The report is fixed at one path, so a second crash replaces the first. The reader has just
-watched the client die; a file describing a fault from last week, kept while the one they are
-holding is thrown away, is the wrong half saved.
-
-What the user sees is `MESH_UI_BANNER_CRASH_REPORT` on every screen until Settings → About
-discards it — which is what makes it resolvable, the condition `chrome.c` holds every banner to.
-The About rows show the path (for copying) and the discard verb (for clearing), and the banner
-stands down inside About the way the update banners do.
-
-An address resolves with `addr2line -fpe meshclient <address - load base>`. On the device that is
-exact, because the release build is one static binary; on a host build the frames that fall in
-libc resolve against libc instead.
+Whether a report is waiting is read once, at install — answered on demand, the flag would flip
+the moment *this* run wrote its own report. One path, so a second crash replaces the first: the
+reader has just watched the client die, and a file from last week is the wrong half to keep. An
+address resolves with `addr2line -fpe meshclient <address - load base>`.
 
 ## Protobufs
 
-`CMakeLists.txt` has a hardcoded `MESH_PROTO_NAMES` list (mesh, portnums, interdevice, config,
-module_config, telemetry, channel, device_ui, xmodem, atak, admin, connection_status). **Adding a
-new upstream `.proto` means adding it there.** Generated headers are included as
-`meshtastic/<name>.pb.h` and land in `build/<type>/generated/nanopb/`.
-
-The generator is `nanopb_generator` from PATH, falling back to
-`third_party/nanopb/generator/nanopb_generator.py` via Python3 (needs
-`pip install protobuf grpcio-tools`). `proto/meshtastic` and `third_party/nanopb` are git
-submodules; `make proto` regenerates after a submodule bump.
-
-## Invariants
-
-Things that look like bugs, are not, and have each cost a debugging round already: the list lives
-in [`non-bugs.md`](non-bugs.md), with the test that fails if each rule is undone. It used to be
-copied here and in `CLAUDE.md`, and the two copies drifted - this one still said framing was
-serial's alone, which stopped being true when the TCP transport arrived and the two turned out to
-share a wire format. One copy, linked from both.
-
-## History
-
-An SDL2 backend was tried in 1.1.11 and replaced by the framebuffer backend in 1.1.12; it is gone
-from the tree, recoverable from commit 62fcb09 if ever wanted.
+`MESH_PROTO_NAMES` in `CMakeLists.txt` is a hardcoded list. **Adding a new upstream `.proto`
+means adding it there.** Headers are included as `meshtastic/<name>.pb.h`. The generator is
+`nanopb_generator` from PATH, falling back to `third_party/nanopb/generator/nanopb_generator.py`
+(needs `pip install protobuf grpcio-tools`). `make proto` regenerates after a submodule bump.

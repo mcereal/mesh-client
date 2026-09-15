@@ -153,11 +153,11 @@ static size_t await_ble_discovery(struct mesh_app *app) {
 /*
  * --map-pack: what a tile pack says about itself, and whether it reads.
  *
- * It exists for the reason --fetch-firmware existed before there was a firmware screen: the
- * pack is read on the device, off a FAT32 card, and "does this file open and can a tile come
- * out of it" is not a question the host suite can answer about the card in somebody's Brick.
- * It also gives the sideload path of docs/maps-roadmap.md's step 4 something to *check with*,
- * which is otherwise a reader copying a file across and finding out at the map.
+ * It exists for the reason --fetch-firmware existed before there was a firmware screen: the pack is
+ * read on the device, off a FAT32 card, and "does this file open and can a tile come out of it" is
+ * not a question the host suite can answer about the card in somebody's Brick. It also gives the
+ * sideload path something to *check with*, which is otherwise a reader copying a file across and
+ * finding out at the map.
  *
  * Nothing is decoded and no transport is started: this opens a file, prints what the header and
  * the index add up to, and reads one tile's bytes to prove the offsets are real.

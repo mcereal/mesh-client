@@ -2,9 +2,9 @@
 
 /*
  * What firmware exists for the radio we are talking to, read out of the two documents upstream
- * publishes. Pure functions over bytes somebody else fetched: nothing here opens a socket,
- * keeps state or knows what a Brick is, which is what makes it the half of
- * docs/radio-firmware-roadmap.md that is testable without a radio.
+ * publishes. Pure functions over bytes somebody else fetched: nothing here opens a socket, keeps
+ * state or knows what a Brick is, which is what makes it the half of the firmware path that is
+ * testable without a radio.
  *
  * Two documents, because the radio does not tell us enough on its own. `DeviceMetadata` carries
  * a `hw_model` and a `firmware_version` and no build target - and the build target is what
@@ -123,9 +123,8 @@ struct mesh_firmware_release {
  * A file the release publishes for one board, as its `.mt.json` lists it.
  *
  * The hash is an **md5** and this client has sha256 and no md5, so it is carried rather than
- * checked - see docs/radio-firmware-roadmap.md's "What each hash actually proves". What the
- * download is actually verified against is the zip member's CRC32, which the central directory
- * carries and which the inflate checks on the way past.
+ * checked. What the download is actually verified against is the zip member's CRC32, which the
+ * central directory carries and which the inflate checks on the way past.
  */
 struct mesh_firmware_image {
     char name[MESH_FIRMWARE_FILE_NAME_MAX];

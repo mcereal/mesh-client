@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Turn a run-device.sh log into the markdown tables docs/maps-roadmap.md quotes.
+"""Turn a run-device.sh log into markdown tables.
 
     devtools/tile_bench/summarize.py build/tile_bench/results/<run>.txt
 """

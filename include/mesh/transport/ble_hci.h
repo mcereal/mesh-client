@@ -4,13 +4,12 @@
  * Asking for a BLE connection interval: the one thing the OTA path needs from Bluetooth that
  * BlueZ has no D-Bus call for.
  *
- * Measured on 2026-09-10 (docs/radio-firmware-roadmap.md, "What phase 0 measured on BLE"): the
- * Brick connects at 30 ms and stays there, and a peripheral's own request is judged against
- * `conn_{min,max}_interval` in debugfs, which on this kernel are 40 and 56 - 50 and 70 ms. The
- * OTA loader asks for 15 ms, so the Brick refuses it and the loader is held at 30 ms, where a
- * stop-and-wait transfer of a 2 MB image takes about seventeen minutes. What was accepted, at
- * once and with no reconnect, was an `LE Connection Update` issued by the central on the open
- * handle - and that is a raw HCI command, which is this file.
+ * Measured on 2026-09-10: the Brick connects at 30 ms and stays there, and a peripheral's own
+ * request is judged against `conn_{min,max}_interval` in debugfs, which on this kernel are 40 and
+ * 56 - 50 and 70 ms. The OTA loader asks for 15 ms, so the Brick refuses it and the loader is held
+ * at 30 ms, where a stop-and-wait transfer of a 2 MB image takes about seventeen minutes. What was
+ * accepted, at once and with no reconnect, was an `LE Connection Update` issued by the central on
+ * the open handle - and that is a raw HCI command, which is this file.
  *
  * Why not the debugfs window instead: it is system-wide and stays where it is put, and it
  * equally lets a peripheral negotiate a link *down*, which is what happened when it was tried.

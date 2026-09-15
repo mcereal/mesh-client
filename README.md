@@ -124,12 +124,11 @@ With the Brick on WiFi and the SSH Server pak installed, skip the SD card: set `
 - [`docs/i18n.md`](docs/i18n.md) — the string catalog, adding a string, adding a language
 - [`docs/cli.md`](docs/cli.md) — flags, environment variables, on-device controls
 - [`docs/device.md`](docs/device.md) — Brick setup and the deploy loop
-- [`docs/steamdeck.md`](docs/steamdeck.md) — building and running on a Steam Deck
-- [`docs/portability.md`](docs/portability.md) — other handhelds: what runs this today, what needs work, what cannot
-- [`docs/settings-roadmap.md`](docs/settings-roadmap.md) — radio settings, phase by phase
-- [`docs/components-roadmap.md`](docs/components-roadmap.md) — the UI component set: what it has, what it is missing
+- [`docs/help.md`](docs/help.md) — the in-client help screen and what a note may say
 - [`docs/testing.md`](docs/testing.md) — test categories and filtering
-- [`docs/semantic-release.md`](docs/semantic-release.md) — commit conventions and releases
+- [`docs/performance.md`](docs/performance.md) — what a press costs and how it was measured
+- [`docs/non-bugs.md`](docs/non-bugs.md) — things that look like bugs and are not
+- [`docs/releasing.md`](docs/releasing.md) — commit conventions and releases
 
 ## Packaging notes
 
@@ -153,7 +152,7 @@ delivered by self-update, so a client installed before it existed needs one pak 
 
 Follow [`AGENTS.md`](AGENTS.md) for code style, testing and pull request expectations. Commits
 follow [Conventional Commits](https://www.conventionalcommits.org/) — see
-[`docs/semantic-release.md`](docs/semantic-release.md).
+[`docs/releasing.md`](docs/releasing.md).
 
 ## License
 

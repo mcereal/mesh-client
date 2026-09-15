@@ -3,10 +3,10 @@
 /*
  * Getting one board's firmware image out of a release zip, without downloading the zip.
  *
- * This is phase 2 of docs/radio-firmware-roadmap.md and it stops one step short of doing
- * anything: it ends with the image on disk, checked, and nothing written to a radio. What it
- * costs is **0.6 MB instead of 58** for the T114's 1.4 MB `.uf2`, and 1.4 instead of 170 for
- * the Heltec V3's - a ratio that gets better as upstream's zips grow rather than worse.
+ * It stops one step short of doing anything: it ends with the image on disk, checked, and nothing
+ * written to a radio. What it costs is **0.6 MB instead of 58** for the T114's 1.4 MB `.uf2`, and
+ * 1.4 instead of 170 for the Heltec V3's - a ratio that gets better as upstream's zips grow rather
+ * than worse.
  *
  * Four steps, each one a range request, in the order a zip has to be read:
  *

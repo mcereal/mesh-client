@@ -14,11 +14,10 @@ extern "C" {
 /*
  * Where a tile's bytes come from, and what the thing they came from has to say about itself.
  *
- * One interface with one implementation, which is the point rather than an admission: a pack on
- * the SD card is the only source there is and the only one step 4 needs, and the seam exists so
- * that the *screen* above it never learns which one it got. docs/maps-roadmap.md keeps an HTTP
- * source under step 5, gated on a provider that needs no secret from the reader; if that day
- * comes it arrives here and nothing above changes.
+ * One interface with one implementation, which is the point rather than an admission: a pack on the
+ * SD card is the only source there is, and the seam exists so that the *screen* above it never
+ * learns which one it got. An HTTP source is still possible, gated on a provider that needs no
+ * secret from the reader; if that day comes it arrives here and nothing above changes.
  *
  * A source hands back *encoded* bytes - a PNG as it sits on disk. Decoding is the next layer
  * up, because a decoder is a dependency and this is a file offset and a read: keeping them

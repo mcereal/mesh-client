@@ -36,8 +36,8 @@ The scene language and the rest of the workflow are documented in
 
 ## `tile_bench` — what a map tile costs on the device
 
-The measurement step 3 of [`docs/maps-roadmap.md`](../docs/maps-roadmap.md) asks for before any
-basemap code is written: fetch, decode and blit of one raster tile on the Brick, for three pack
+The measurement taken before any basemap code was written: fetch, decode and blit of one
+raster tile on the Brick, for three pack
 layouts (a `z/x/y` tree, MBTiles, a single-file indexed pack shaped like PMTiles) and two PNG
 decoders (stb_image, Wuffs), with the page cache warm, dropped once or dropped per tile. Unlike
 the tools above it runs **on the device**, so it is not part of the CMake build: it is
@@ -63,9 +63,8 @@ with the ordinary profile, and cannot tell it from the plastic: every millisecon
 latency probe measures is spent in the same evdev read, the same epoll loop and the same
 `present()` a thumb would have gone through.
 
-It exists because a percentile wants a few hundred presses at a known cadence. Taking
-[`docs/maps-roadmap.md`](../docs/maps-roadmap.md#what-the-press-turned-out-to-cost)'s integrated
-latency number by hand works once; taking it the same way twice does not. Like `tile_bench` it
+It exists because a percentile wants a few hundred presses at a known cadence. Taking the
+integrated latency number by hand works once; taking it the same way twice does not. Like `tile_bench` it
 runs **on the device**, so it is not part of the CMake build.
 
 ```bash
@@ -104,10 +103,9 @@ The conversion happens on the host because of what the Brick measured: on a FAT3
 32 KiB clusters mounted `sync`, a single file with a sorted index reached a cold tile in 0.80 ms
 where MBTiles took 4.6 ms and a `z/x/y` tree took 4.6 ms with a 40 ms tail - and SQLite would
 have cost 718 KB of binary to carry. The TMS row order MBTiles stores its tiles in is turned the
-right way up here too, so the client only ever sees one convention. See
-[`docs/maps-roadmap.md`](../docs/maps-roadmap.md#the-pack-format) for the format and
-[`docs/cli.md`](../docs/cli.md#looking-inside-a-tile-pack) for `--map-pack`, which reads a pack
-back on the device.
+right way up here too, so the client only ever sees one convention. The format is documented
+in `src/map/source_pack.c`; see [`docs/cli.md`](../docs/cli.md#looking-inside-a-tile-pack) for
+`--map-pack`, which reads a pack back on the device.
 
 `build` refuses anything the device could not draw - a tile that is not a 256x256 PNG, a zoom
 above 18, a tile over a megabyte - because a pack that fails at the blit fails where nobody is

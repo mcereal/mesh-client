@@ -519,9 +519,8 @@ static void fb_map_draw_selection(const struct mesh_ui_backend_fb_state *state,
  * directory (Tools/tg5040/MeshClient.pak/launch.sh), which is where the node cache and the
  * preferences already live.
  *
- * One path and one pack. Choosing between several is a screen, and a screen for it belongs with
- * the import step docs/maps-roadmap.md keeps for step 4 - not with the first thing that can draw
- * one.
+ * One path and one pack. Choosing between several is a screen, and a screen for it belongs with the
+ * import step, not with the first thing that can draw one.
  */
 #define FB_BASEMAP_DEFAULT_PATH "%s/.meshclient/map.mctp"
 
@@ -630,8 +629,8 @@ void fb_basemap_open_default(struct mesh_ui_backend_fb_state *state) {
  * The tiles under the markers: what is held, one that is not, and the grid showing through the
  * holes.
  *
- * Three properties of this loop are the whole of docs/maps-roadmap.md's step 3 and none of them
- * is obvious from the shape of it.
+ * Three properties of this loop are the whole of the fill strategy, and none of them is obvious
+ * from the shape of it.
  *
  * **One read per frame.** A cold tile off the Brick's card is 2-5 ms and a view stands on about
  * twenty of them, so filling the panel in one pass is a tenth of a second in which nothing else
@@ -745,8 +744,8 @@ static bool fb_map_draw_basemap(struct mesh_ui_backend_fb_state *state,
                                                             MESH_MAP_TILE_CACHE_TILE_BYTES);
     /* The two halves separately, because they answer different questions: the read is the
        card's and the decode is the CPU's, and which of them a slow frame is made of is what
-       docs/maps-roadmap.md's standalone benchmark measured apart and an integrated number
-       would otherwise run together. */
+       the standalone tile benchmark measured apart and an integrated number would otherwise run
+       together. */
     mesh_ui_latency_tile(decode_at - read_at, mesh_ui_latency_now_us() - decode_at);
     if (decoded == 0) {
         mesh_map_tile_cache_commit(&basemap->cache, next);

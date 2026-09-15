@@ -341,11 +341,11 @@ struct mesh_ui_nav {
     /*
      * Nodes tab: the map, opened over the node list.
      *
-     * A level of the Nodes tab rather than a tab of its own, which is what docs/maps-roadmap.md
-     * asked for and what the shape of the thing wants: a map is a second way of reading the
-     * roster, not a seventh place to be. A node's detail can be opened *over* it - the map is
-     * then one level deeper than the list and the detail is one deeper again - so backing out of
-     * a node opened from the map lands on the map rather than on the list it was never on.
+     * A level of the Nodes tab rather than a tab of its own, which is what the shape of the thing
+     * wants: a map is a second way of reading the roster, not a seventh place to be. A node's
+     * detail can be opened *over* it - the map is then one level deeper than the list and the
+     * detail is one deeper again - so backing out of a node opened from the map lands on the map
+     * rather than on the list it was never on.
      *
      * The viewport is the whole of the map's state and it is here rather than in a backend for
      * the reason every other cursor is: a press moves it, and presses arrive at the nav. Its

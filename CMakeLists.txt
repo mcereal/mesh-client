@@ -248,7 +248,7 @@ endif()
 # libm, for the two files that need it, both in src/geo: vector.c turns two coordinates into a
 # distance and a bearing, and mercator.c turns one into a position on a flat picture of the
 # world. Nothing outside that directory includes <math.h> - the UI is fixed-point throughout -
-# and docs/maps-roadmap.md anticipated this link when it proposed the geo module.
+# and this link was anticipated when the geo module was proposed.
 #
 # The bare name rather than find_library(m), and that is the whole of the reason it is written
 # this way: a bare name reaches the linker as `-lm` and is resolved by the compiler driver

@@ -4,11 +4,10 @@
  * The Settings tab as data: a list of sections, each a list of items with a label, a value
  * already formatted for display, and a kind. Backends draw the list; the nav walks it.
  *
- * An item that can be changed names its `field`. The nav keeps pending edits per field (in
- * `struct mesh_ui_nav`) and this module renders them in place of the radio's value, marked
- * dirty, until the app writes them (docs/settings-roadmap.md, phase 2). Everything about a
- * field the nav needs to edit it blind - its kind, enum names, number presets, text cap - is
- * answered here so the nav never has to know what a field means.
+ * An item that can be changed names its `field`. The nav keeps pending edits per field (in `struct
+ * mesh_ui_nav`) and this module renders them in place of the radio's value, marked dirty, until the
+ * app writes them. Everything about a field the nav needs to edit it blind - its kind, enum names,
+ * number presets, text cap - is answered here so the nav never has to know what a field means.
  */
 
 #include "mesh/i18n/strings.h"
@@ -587,10 +586,10 @@ enum mesh_ui_settings_action {
     /*
      * About radio: ask what firmware exists for this board.
      *
-     * A client action rather than a radio one - it reads two documents over HTTPS and touches
-     * the radio not at all - and no confirm overlay, because nothing it does can be regretted.
-     * The press that *installs* firmware is a different row that does not exist yet
-     * (docs/radio-firmware-roadmap.md), and it will need the sheet this one does not.
+     * A client action rather than a radio one - it reads two documents over HTTPS and touches the
+     * radio not at all - and no confirm overlay, because nothing it does can be regretted. The
+     * press that *installs* firmware is a different row that does not exist yet, and it will need
+     * the sheet this one does not.
      */
     MESH_UI_SETTINGS_ACTION_CHECK_RADIO_FIRMWARE,
     /*

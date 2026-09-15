@@ -56,9 +56,9 @@ bool mesh_esp_chip_for_architecture(const char *architecture, uint16_t *out_chip
     if (architecture == NULL || out_chip == NULL) {
         return false;
     }
-    /* Both spellings on purpose, because both are in circulation: see the three-spellings table
-       in docs/radio-firmware-roadmap.md. Taking only one is the bug that passes every test run
-       against an nRF52 and fails the first time somebody points it at an S3. */
+    /* Both spellings on purpose, because both are in circulation. Taking only one is the bug that
+       passes every test run against an nRF52 and fails the first time somebody points it at an
+       S3. */
     static const struct {
         const char *name;
         uint16_t chip;

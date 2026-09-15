@@ -3,12 +3,11 @@
 /*
  * One press, from "there is newer firmware for this radio" to "the radio is running it".
  *
- * This is the core half of phase 5 of docs/radio-firmware-roadmap.md. Everything it does has
- * already shipped: firmware_fetch.c gets the image, firmware_install.c writes a `.uf2` to a
- * bootloader over USB, firmware_ota.c streams an app image to the ESP32 loader over BLE. What
- * did not exist was anything that ran the three of them in order without a person typing
- * `--install-firmware` - so the whole feature was a command line, and this is the piece that
- * makes it a row.
+ * This is the core half of the one-press update. Everything it does has already shipped:
+ * firmware_fetch.c gets the image, firmware_install.c writes a `.uf2` to a bootloader over USB,
+ * firmware_ota.c streams an app image to the ESP32 loader over BLE. What did not exist was anything
+ * that ran the three of them in order without a person typing `--install-firmware` - so the whole
+ * feature was a command line, and this is the piece that makes it a row.
  *
  * **One state enum across both buses, not two.** The two handovers really are different - one
  * writes blocks to a drive and the other streams chunks to a GATT characteristic - but a row on

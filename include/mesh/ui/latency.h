@@ -12,11 +12,11 @@ extern "C" {
 /*
  * How long a press takes to reach the panel, measured inside the client that is drawing it.
  *
- * docs/maps-roadmap.md asks for one number the standalone tile benchmark could not give: a
- * frame of the *real* client, with a tile read and decoded in it, while the BLE link is being
- * serviced. The benchmark is a second process on an idle launcher, so what it measures is the
- * card and the decoder; what it cannot measure is the thing that actually decides whether a
- * map is usable here, which is the one epoll loop having to do both.
+ * This is the one number the standalone tile benchmark could not give: a frame of the *real*
+ * client, with a tile read and decoded in it, while the BLE link is being serviced. The benchmark
+ * is a second process on an idle launcher, so what it measures is the card and the decoder; what it
+ * cannot measure is the thing that actually decides whether a map is usable here, which is the one
+ * epoll loop having to do both.
  *
  * Four readings, and the first is the one the roadmap asks for:
  *

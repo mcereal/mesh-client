@@ -10,14 +10,13 @@
  * frame at all. Opening a node and backing out of one are the same two frames in the opposite
  * order, so nothing you can read off either frame on its own says which happened.
  *
- * The audit that asked for this (docs/components-roadmap.md, 2.16) expected the answer to be a
- * field on `struct mesh_ui_nav` - "this move was a push" - written by every call site that
- * opens or closes a level, plus a rule about who clears it. It is not, and for the reason the
- * top app bar's back arrow is not a flag either: *a second opinion about the nav is a second
- * opinion that can be wrong*. There are eleven places that open a level and nine that close
- * one, and a new one that forgot to say so would animate the wrong way round - which is not a
- * crash, is not caught by a test that never thought to look, and is exactly the kind of drift
- * a derived answer cannot have.
+ * The audit that asked for this expected the answer to be a field on `struct mesh_ui_nav` - "this
+ * move was a push" - written by every call site that opens or closes a level, plus a rule about who
+ * clears it. It is not, and for the reason the top app bar's back arrow is not a flag either: *a
+ * second opinion about the nav is a second opinion that can be wrong*. There are eleven places that
+ * open a level and nine that close one, and a new one that forgot to say so would animate the wrong
+ * way round - which is not a crash, is not caught by a test that never thought to look, and is
+ * exactly the kind of drift a derived answer cannot have.
  *
  * So a route is *derived*: it reads the nav the way a renderer does and says where that nav
  * is. Then the direction is arithmetic on two of them, and the "was" lives in the one place

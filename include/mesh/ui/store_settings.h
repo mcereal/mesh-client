@@ -282,10 +282,10 @@ struct mesh_ui_region_presets {
 };
 
 /*
- * The connected radio's configuration, flattened from the protobufs the transport decoded so
- * the backends and the settings table never include nanopb. Every `has_*` says whether that
- * section has arrived this connection; `loaded` is any of them. Read-only in phase 1 of
- * docs/settings-roadmap.md; the same fields become the edit targets later.
+ * The connected radio's configuration, flattened from the protobufs the transport decoded so the
+ * backends and the settings table never include nanopb. Every `has_*` says whether that section has
+ * arrived this connection; `loaded` is any of them. These were read-only first; the same fields are
+ * the edit targets now.
  */
 struct mesh_ui_settings {
     /* The client's own facts. Always populated, radio or no radio - the About section is the
@@ -649,10 +649,9 @@ struct mesh_ui_settings {
      * mesh_ui_client_info - as a byte and a line of text, so store.h stays free of a module
      * that forks child processes.
      *
-     * Reported rather than offered: this client installs nothing yet
-     * (docs/radio-firmware-roadmap.md), and `fw_blocker_reason` is the line that says why. A
-     * refusal is a row, not a silence, because a radio behaving oddly is often a radio on old
-     * firmware and "why can I not fix that from here" deserves an answer.
+     * Reported rather than offered: this client installs nothing yet, and `fw_blocker_reason` is
+     * the line that says why. A refusal is a row, not a silence, because a radio behaving oddly is
+     * often a radio on old firmware and "why can I not fix that from here" deserves an answer.
      */
     bool fw_supported; /* a fetcher exists, so the check can do anything at all */
     bool fw_busy;      /* a document is in flight */

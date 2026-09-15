@@ -70,7 +70,7 @@ the release bump, so it is not cosmetic. It no longer decides *when* a release h
 to `main` publishes nothing, and a release is run from Actions when there is one to make. Write
 subjects in imperative mood with an optional scope (`fix(ble): retry mtu negotiation`), keep
 bodies wrapped at 72 characters, and mention relevant
-Meshtastic issue IDs where they apply. See [`docs/semantic-release.md`](docs/semantic-release.md).
+Meshtastic issue IDs where they apply. See [`docs/releasing.md`](docs/releasing.md).
 
 PRs should include a concise summary, validation notes (commands run or hardware tested),
 screenshots for UI-facing work — a GIF from `make ui-capture` when the change is about a

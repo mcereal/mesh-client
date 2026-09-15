@@ -1,8 +1,8 @@
 #pragma once
 
 /*
- * The BLE handover: from a staged ESP32 `.bin` to a radio running it. Phase 4 of
- * docs/radio-firmware-roadmap.md, and the USB install's counterpart in firmware_install.h.
+ * The BLE handover: from a staged ESP32 `.bin` to a radio running it - the USB install's
+ * counterpart in firmware_install.h.
  *
  * It is the half with the hazard. Once the radio has rebooted into its OTA loader, its boot
  * partition points at the loader and stays there - no timer, no fallback, no way back but a

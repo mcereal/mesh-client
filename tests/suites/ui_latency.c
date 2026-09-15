@@ -60,10 +60,9 @@ MESH_TEST_CASE(latency_reset_leaves_nothing_behind, unit) {
 /*
  * The measurement starts at the kernel's stamp, not at the frame.
  *
- * This is the whole of what an integrated number adds to the standalone benchmark in
- * docs/maps-roadmap.md: a loop busy decoding a tile does not wake for the event at all, and the
- * wait it does not wake for is invisible to anything that starts timing once the event has been
- * read.
+ * This is the whole of what an integrated number adds to the standalone tile benchmark: a loop busy
+ * decoding a tile does not wake for the event at all, and the wait it does not wake for is
+ * invisible to anything that starts timing once the event has been read.
  */
 MESH_TEST_CASE(latency_measures_a_press_from_the_kernels_stamp, unit) {
     begin();

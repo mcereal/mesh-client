@@ -21,10 +21,10 @@ extern "C" {
  * map testable without a framebuffer and what stops a renderer accumulating a second opinion
  * about where the map is.
  *
- * `geo` answers in the unit square and knows nothing about zoom; this layer multiplies that by
- * a world size and knows nothing about markers, stores or panels. Nothing here includes a
- * protobuf, the UI store, the framebuffer or a filesystem header - the boundary
- * docs/maps-roadmap.md proposed, now with a caller to hold it honest.
+ * `geo` answers in the unit square and knows nothing about zoom; this layer multiplies that by a
+ * world size and knows nothing about markers, stores or panels. Nothing here includes a protobuf,
+ * the UI store, the framebuffer or a filesystem header, and there is now a caller to hold that
+ * boundary honest.
  *
  * Tile addressing was deliberately absent from this header until there was a tile to fetch,
  * which is the habit `geo` was built with - the bounds test alone until a range needed a

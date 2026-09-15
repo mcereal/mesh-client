@@ -358,7 +358,7 @@ sync"
         # is the slow part and the pak is mostly one static binary (2.86 MB -> 1.17 MB), which on
         # a Brick whose Wi-Fi is having a bad day is the difference between a push that lands and
         # one that dies mid-stream. The device inflates with busybox `gunzip` (the applet the
-        # radio-firmware download already relies on - docs/radio-firmware-roadmap.md); `tar -xzf`
+        # radio-firmware download already relies on); `tar -xzf`
         # is avoided because busybox tar only understands -z when built with FEATURE_TAR_GZIP.
         local remote_script
         remote_script="set -e

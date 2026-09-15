@@ -4,10 +4,9 @@
  * From "there is a newer release for this board" to "the image is on disk and it is the right
  * one", in one operation.
  *
- * This is what closes phase 2 of docs/radio-firmware-roadmap.md. firmware.c answers *whether*
- * there is firmware; firmware_download.c gets *bytes*; this is the piece between them that
- * knows which zip and which member, and it exists because neither of those questions can be
- * answered without reading two more documents:
+ * firmware.c answers *whether* there is firmware; firmware_download.c gets *bytes*; this is the
+ * piece between them that knows which zip and which member, and it exists because neither of those
+ * questions can be answered without reading two more documents:
  *
  *   1. the release's own manifest (`firmware-<version>.json`) says which **platform** built
  *      this target - and the platform is what names the zip. It is not the architecture:

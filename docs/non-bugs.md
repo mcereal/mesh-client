@@ -2,66 +2,42 @@
 
 The long form of the rule list. `CLAUDE.md` carries the handful an agent trips over in the first
 hour and points here for the rest; this is the file to read before changing session, settings,
-map, UI-layout or updater behaviour.
+map, UI-layout or updater behaviour. **Each of these has cost a debugging round already. Do not
+"fix" them back.**
+
+A bare `name` at the end of an entry is a **test filter**: run it with
+`./build/debug/tests/meshclient_core_tests --filter <name>`, and a partial name names a group.
+**Where an entry cites a test, the test holds the line and the prose is only the reason** — so
+those are written short on purpose. An entry with **no** test cited is one that nothing but the
+paragraph holds (a hardware fact, a build flag, a measurement), which is why those run longer.
+Within every section the tested rules come first, then a blank line, then the rest.
 
 ## Adding to this file is the exception, not the habit
 
-Measured on 2026-09-14: the list went from 0 to 129 entries in nine days, and **93 of the 137
-entries ever added arrived in the same commit as the code they describe** - a `feat` commit
-landing with as many as ten of them at once. Those are not a record of anything that went wrong.
-They are an author explaining a design choice in the house voice, because the section was there
-and the voice was established. `CLAUDE.md` had already been cut once for this, from 579 lines to
-164 on 2026-09-05; it was back to 1248 nine days later.
-
-So the bar is evidence, not reasoning:
-
-- An entry earns its place when someone has **actually tried to undo the rule** - a revert, a
-  re-broken test, a review asking why it is like that. "A future reader might get this wrong" is
-  not evidence; it is the feeling that produced the other 93.
-- **A `feat` commit should not add an entry.** If you are writing the code now, nothing has been
-  got wrong yet. Your reasoning goes in the test name, a comment at the seam, or the `docs/` page
-  for that area.
-- **Prefer a test to a paragraph.** Most of these cite one - a test fails when the rule is undone,
-  and prose does not. If the rule can be pinned by a test, write the test and skip the entry.
-- An entry whose rule no longer holds, or that nothing has threatened in months, should be
-  **deleted**. This file has been close to append-only, which is how it got here.
-
-Each of these has cost a debugging round already. **Do not "fix" them back.**
-
-## How to read an entry
-
-A bare `name` at the end of an entry is a **test filter**, not a file: run it with
-`./build/debug/tests/meshclient_core_tests --filter <name>`, and a partial name names a group, so
-`devices_network_row` runs all six of them. Where an entry cites one, **the test is what holds the
-line and the prose is only the reason** - so an entry that cites a test is written short on
-purpose, and a test that would still pass with the rule undone is not the one to cite. An entry
-with **no** test cited is one that nothing but the paragraph holds - a hardware fact, a build
-flag, a measurement, a convention no assertion reaches - which is why those run longer.
-
-That split is what the file is sorted by **within every section**: the tested rules first, stated
-in a line or two, then a blank line, then the ones only prose holds. The two premises below the
-contents are the exception, and they are outside the sections for exactly that reason.
+Most of this file arrived in the same commit as the code it describes — an author explaining a
+design choice, not a record of anything going wrong. The bar is **evidence, not reasoning**:
+somebody has to have actually tried to undo the rule. A `feat` commit should not add an entry; if
+you are writing the code now, nothing has been got wrong yet, and the reasoning belongs in the
+test name or a comment at the seam. Prefer a test to a paragraph. Delete an entry whose rule no
+longer holds.
 
 ## Contents
 
-| Section | What it covers |
-|---|---|
-| [Two premises](#two-premises) | the ground several sections below stand on |
-| [The loop and the wire](#the-loop-and-the-wire) | each transport's own rules |
-| [Devices, session, roster](#devices-the-session-and-the-roster) | rows, and what survives a drop |
-| [Input](#input) | what the buttons report and who repeats them |
-| [The Nodes tab](#the-nodes-tab) | filters, lead rows, the map behind it |
-| [The map](#the-map) | the viewport, the tile pack, the cache |
-| [Messages](#messages) | replies, mutes, unread, notifications |
-| [Store & Forward](#store--forward) | replays, routers, the history cursor |
-| [Waypoints](#waypoints) | the book, expiry, whose place it is |
-| [Position and geography](#position-and-geography) | a fix's two clocks, precision, Null Island |
-| [Lists, cards and chrome](#lists-cards-and-chrome) | measurement, cards in a list, bars, banners |
-| [Charts and history](#charts-and-history) | what an axis may do, the span picker, series |
-| [Settings](#settings) | sliders, the edit buffer, rows that cannot be pressed |
-| [Transitions and latency](#transitions-and-latency) | where a slide comes from, what it costs |
-| [Crash reports](#crash-reports) | why the handler is written the way it is |
-| [Tables, strings, the build](#tables-strings-and-the-build) | `.def` files, packaging, releasing |
+[The loop and the wire](#the-loop-and-the-wire) ·
+[Devices, session, roster](#devices-the-session-and-the-roster) ·
+[Input](#input) ·
+[The Nodes tab](#the-nodes-tab) ·
+[The map](#the-map) ·
+[Messages](#messages) ·
+[Store & Forward](#store--forward) ·
+[Waypoints](#waypoints) ·
+[Position and geography](#position-and-geography) ·
+[Lists, cards and chrome](#lists-cards-and-chrome) ·
+[Charts and history](#charts-and-history) ·
+[Settings](#settings) ·
+[Transitions and latency](#transitions-and-latency) ·
+[Crash reports](#crash-reports) ·
+[Tables, strings and the build](#tables-strings-and-the-build)
 
 ## Two premises
 
@@ -79,7 +55,7 @@ only a consequence of one of them, and neither is a thing a test could pin.
 - **The TCP link refuses a hostname.** `getaddrinfo()` blocks, POSIX has no non-blocking resolver,
   and `getaddrinfo_a` starts threads, so a name is seconds of frozen UI. Lifting it means the
   forked-child shape `fetch.c` already uses. `tcp_transport_refuses_a_name`,
-  `tcp_target_split_shapes`. See [`docs/transport.md`](docs/transport.md#an-address-not-a-name).
+  `tcp_target_split_shapes`. See [`docs/transport.md`](transport.md#an-address-not-a-name).
 - **The stream link never resets itself.** `pump()` and `flush()` report a fatal error and stop;
   only the transport knows whether `-ENOTCONN` is "port closed" or "the radio hung up", which is
   the rule that keeps a renderer naming an id rather than a sentence. `serial_transport_link_drop`,
@@ -141,7 +117,7 @@ only a consequence of one of them, and neither is a thing a test could pin.
   row holds the codes *and* the keycaps - correcting one without the other is invisible, because
   the binding still works and the action bar goes on promising the first.
   `input_brick_face_buttons`, `input_profile`. The measured table is in
-  [`docs/device.md`](docs/device.md#the-buttons-and-what-they-report).
+  [`docs/device.md`](device.md#the-buttons).
 - **Key repeat is generated in `input.c`, not by the kernel.** The d-pad is an absolute axis and
   never repeats however long it is held, so a timerfd is what scrolls a long list - and it drops
   the kernel's own `value == 2` for a direction. `ui_input_key_repeat`.
@@ -209,8 +185,7 @@ only a consequence of one of them, and neither is a thing a test could pin.
   where MBTiles and a `z/x/y` tree both took 4.6 ms, and SQLite would have cost 718 KB of a
   2.88 MB binary. Its **zoom range and coverage are derived from the index, never read out of the
   header**, and everything a read would trust is checked **once, at open**, sort order included -
-  a `bsearch` over an unsorted index does not fail, it misses. `map_pack`. See
-  [`docs/maps-roadmap.md`](docs/maps-roadmap.md).
+  a `bsearch` over an unsorted index does not fail, it misses. `map_pack`.
 - **The basemap is drawn *over* the graticule, and a tile still coming looks exactly like a tile
   that is not there.** Telling MISS from ABSENT *in ink* is worse than either: a placeholder
   covers the markers for the two thirds of a second a view takes to fill. The two states differ in
@@ -613,8 +588,7 @@ only a consequence of one of them, and neither is a thing a test could pin.
   tail is not the map's either - the control run's own worst press varied from 33 to 529 ms across
   five identical runs with the median unmoved.
   `latency_splits_a_frame_into_the_draw_and_the_flip`,
-  `latency_counts_a_frame_with_no_tile_in_it`. See
-  [`docs/maps-roadmap.md`](docs/maps-roadmap.md).
+  `latency_counts_a_frame_with_no_tile_in_it`.
 - **A key repeat is deliberately not counted by the latency probe, and neither is a press that
   changed nothing.** A held direction reaches the store with no evdev event behind it, so timing
   it from when the probe sees it reports the fill loop's worst case as its best; and a press that
@@ -674,7 +648,7 @@ only a consequence of one of them, and neither is a thing a test could pin.
   into an object file is code that ships. It is why `src/map/wuffs_png.h` names Wuffs' BASE
   **sub-modules** rather than BASE, and why the decoder costs 335 KB where the spike's probe -
   which did collect sections - predicted 106 KB. Read a size measurement's build flags before
-  believing it about this binary. See [`docs/maps-roadmap.md`](docs/maps-roadmap.md).
+  believing it about this binary.
 - **Only the release build is a release.** Do not stamp a local build to test the updater; lift
   the guard (`MESHCLIENT_UPDATE_ALLOW_DEV=1`, or Settings → About → Dev updates).
 - **`main` is deliberately missing from the release workflow's `push` trigger.** It reads as a

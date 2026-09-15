@@ -338,10 +338,10 @@ MESH_TEST_CASE(tile_image_reads_a_tile_damaged_after_its_last_pixel, unit) {
 /*
  * Decoding holds a constant amount of memory, and decoding more tiles does not hold more.
  *
- * The promise docs/maps-roadmap.md asked a decoder to prove, and the reason this one was picked
- * over an allocating library: a decode on an event loop cannot pause to find memory and cannot
- * fail for want of it. Ten decodes rather than one because the failure this guards against -
- * state that grows per call - is invisible in a single one.
+ * The promise a decoder had to prove, and the reason this one was picked over an allocating
+ * library: a decode on an event loop cannot pause to find memory and cannot fail for want of it.
+ * Ten decodes rather than one because the failure this guards against - state that grows per call -
+ * is invisible in a single one.
  */
 MESH_TEST_CASE(tile_image_holds_a_bounded_amount_of_memory, unit) {
     const size_t before = mesh_map_tile_decoder_bytes();

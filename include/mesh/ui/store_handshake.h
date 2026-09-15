@@ -34,10 +34,9 @@ extern "C" {
  * list a reader scrolls and wrong for a map - a node's rank says how likely you are to talk to
  * it, and a marker is on the panel or it is not.
  *
- * Widening `nodes` to the session's own size was the obvious answer and is the one
- * docs/maps-roadmap.md's fourth pre-work item warned against: a summary carries seven
- * telemetry tables and is 532 bytes, so doubling it would have added some 68 KB to a snapshot
- * that is copied whole, to reach two coordinates. This carries the two coordinates.
+ * Widening `nodes` to the session's own size was the obvious answer and the wrong one: a summary
+ * carries seven telemetry tables and is 532 bytes, so doubling it would have added some 68 KB to a
+ * snapshot that is copied whole, to reach two coordinates. This carries the two coordinates.
  *
  * Only positioned nodes are here. An unpositioned one contributes nothing a marker needs, and
  * how many the client knows is a different question that `nodes_known` already answers - so
@@ -97,11 +96,11 @@ struct mesh_ui_map_node {
      * from the same ranking, so a map entry has a row exactly when its place in that ranking is
      * inside the cut.
      *
-     * docs/maps-roadmap.md's fifth pre-work item named this case - "a map-only node may be
-     * outside the detail roster: resolve its detail by ID through the app/store seam" - and
-     * closed as "open by construction: there are no map-only nodes until there is a map". There
-     * are now, and until that seam exists this is what keeps A on such a marker a clean no-op
-     * rather than a detail that opens and is clamped shut on the same frame.
+     * The case is a map-only node outside the detail roster, whose detail would have to be resolved
+     * by ID through the app/store seam. It was closed as open by construction - there are no
+     * map-only nodes until there is a map. There are now, and until that seam exists this is what
+     * keeps A on such a marker a clean no-op rather than a detail that opens and is clamped shut on
+     * the same frame.
      */
     bool has_row;
     char label[MESH_UI_MAP_LABEL_MAX];
