@@ -441,8 +441,10 @@ MESH_TEST_CASE(ui_controller_key_dispatch, unit) {
     mesh_event_loop_run(&loop, 0);
     const size_t presents_before = backend.present_calls;
 
-    /* Right lands on Nodes; the repaint arrives through the eventfd on the next turn. */
-    mesh_ui_controller_handle_key(&controller, MESH_UI_KEY_RIGHT);
+    /* The right shoulder lands on Nodes; the repaint arrives through the eventfd on the next
+       turn. The shoulder is the tab switch from every row, where Right is the tab switch only
+       where the row under the cursor has no control on it. */
+    mesh_ui_controller_handle_key(&controller, MESH_UI_KEY_R1);
     mesh_event_loop_run(&loop, 0);
     if (backend.present_calls <= presents_before ||
         backend.last_snapshot.nav.screen != MESH_UI_SCREEN_NODES ||
@@ -454,7 +456,7 @@ MESH_TEST_CASE(ui_controller_key_dispatch, unit) {
     /* Back to Messages, open the primary channel, and send its first canned reply: the action
        reaches the handler once. A opens the conversation, A again the quick replies, A once
        more sends the row the cursor starts on. */
-    mesh_ui_controller_handle_key(&controller, MESH_UI_KEY_LEFT);
+    mesh_ui_controller_handle_key(&controller, MESH_UI_KEY_L1);
     mesh_ui_controller_handle_key(&controller, MESH_UI_KEY_DOWN);
     mesh_ui_controller_handle_key(&controller, MESH_UI_KEY_A);
     mesh_ui_controller_handle_key(&controller, MESH_UI_KEY_A);

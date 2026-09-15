@@ -59,15 +59,16 @@ enum mesh_ui_screen {
  * list can be a hundred and twenty-eight rows long, and a control at the bottom of that is a
  * control that is not there.
  *
- * The filter row is the chip strip that says which of the roster is below it
+ * The filter row is the control that says which of the roster is below it
  * (include/mesh/ui/nodes.h), and it is above the map row rather than below it because a control
  * belongs above the thing it changes. It costs a row on every Nodes list, which is the honest
  * price of a control the reader can see rather than a keycap they have to be told about - and
  * the same trade the map row made first.
  *
- * A on either is answered by mesh_ui_nav_confirm(); mesh_ui_nav_node_at_row() is the one place
- * that knows how many rows to subtract, so the four presses this list offers cannot disagree
- * about which node row 7 is about.
+ * Both are edited with Left and Right, which mesh_ui_nav_handle_key() takes before the tab
+ * switch, and A steps either forward through mesh_ui_nav_confirm(). mesh_ui_nav_node_at_row() is
+ * the one place that knows how many rows to subtract, so the four presses this list offers cannot
+ * disagree about which node row 7 is about.
  */
 #define MESH_UI_NODES_FILTER_ROW 0U
 #define MESH_UI_NODES_SORT_ROW 1U

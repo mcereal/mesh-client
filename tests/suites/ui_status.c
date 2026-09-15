@@ -393,9 +393,9 @@ MESH_TEST_CASE(ui_status_cursor_keeps_its_verb, unit) {
 
     while (store.nav.screen != MESH_UI_SCREEN_STATUS) {
         const enum mesh_ui_screen before = store.nav.screen;
-        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_R1, &action);
         if (store.nav.screen == before) {
-            failure = "Right stopped moving before the Status tab";
+            failure = "the shoulder stopped moving before the Status tab";
             goto cleanup;
         }
     }
@@ -476,9 +476,9 @@ MESH_TEST_CASE(ui_status_a_new_verb_does_not_move_the_cursor, unit) {
 
     while (store.nav.screen != MESH_UI_SCREEN_STATUS) {
         const enum mesh_ui_screen before = store.nav.screen;
-        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_R1, &action);
         if (store.nav.screen == before) {
-            failure = "Right stopped moving before the Status tab";
+            failure = "the shoulder stopped moving before the Status tab";
             goto cleanup;
         }
     }
@@ -551,9 +551,9 @@ MESH_TEST_CASE(ui_status_trend_opens_swallows_and_closes, unit) {
 
     while (store.nav.screen != MESH_UI_SCREEN_STATUS) {
         const enum mesh_ui_screen before = store.nav.screen;
-        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_R1, &action);
         if (store.nav.screen == before) {
-            failure = "Right stopped moving before the Status tab";
+            failure = "the shoulder stopped moving before the Status tab";
             goto cleanup;
         }
     }

@@ -125,7 +125,7 @@ reference; what follows is the map.
 
 | Component | What it is |
 |---|---|
-| `fb_list_*` | the list model above: rows, cards, chips, notes, mixed heights |
+| `fb_list_*` | the list model above: rows, cards, notes, mixed heights |
 | `struct fb_list_item` | one row with slots — marker gutter, leading avatar or tonal disc, label, trailing value, supporting line |
 | `struct fb_bubble` | the transcript's one component: wrapped body, quote line, reactions, the relay chip, the delivery mark |
 | `struct fb_selection` | the checkbox and the radio |
@@ -414,7 +414,7 @@ scene can only reach a screen the device can reach. The one thing the harness ca
 a `mesh_ui_action` — pressing START in the keyboard raises `SEND_TEXT` and the store stops there,
 so `message out ...` is how a scene stands in for the echo.
 
-A scene that walks the **Nodes** list counts rows, not roster entries: the filter chips, the sort
+A scene that walks the **Nodes** list counts rows, not roster entries: the filter row, the sort
 row and the Map are in front of the first node (`MESH_UI_NODES_LEAD_ROWS`), so a node's row is its
 index plus that, and a node detail's row numbers move with what that node reported. Both mistakes
 render a perfectly good picture of the wrong screen, which is the one failure a capture cannot

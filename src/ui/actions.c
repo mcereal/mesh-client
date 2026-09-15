@@ -269,21 +269,31 @@ static void actions_nodes(const struct mesh_ui_nav *nav, const struct mesh_ui_sn
      * different verbs; here there is one verb per key and three rows that happen not to take two
      * of them.
      *
-     * A is the exception, and it is the Waypoints list's exception rather than a new one: A
-     * genuinely does a different thing on the filter row - it steps the chips - and naming
-     * "open" over a press that filters would be the bar describing something else. That is the
-     * line between the two rules. A keycap whose verb changes is named per row; a keycap that
-     * simply has nothing to do on one row keeps the list's word for it.
+     * The two control rows are the exception, and it is the Waypoints list's exception rather
+     * than a new one: the top two rows genuinely offer a different press from the rest of the
+     * list, and naming "open" over a row that filters would be the bar describing something
+     * else. That is the line between the two rules. A keycap whose verb changes is named per
+     * row; a keycap that simply has nothing to do on one row keeps the list's word for it.
      *
-     * The sort row is the same exception a second time and takes its own word rather than
-     * borrowing "filter": the two strips look alike and sit one above the other, so the bar is
-     * the only thing on the frame that says which of them the press is about to move.
+     * What changes on those rows is the *keycap* as well as the word, which is the point of it.
+     * The d-pad is what edits them - the Settings tab's press, and the one the pencil in each
+     * row's gutter is already pointing at - so the bar names the d-pad, exactly as the Settings
+     * bar does. A still steps forward and is deliberately not named: a bar that offered both
+     * would spend a slot on the second way of doing a thing it has already said how to do, on
+     * the one screen here whose bar is already five keycaps long.
+     *
+     * The sort row takes its own word rather than borrowing "filter": the two rows look alike
+     * and sit one above the other, so the bar is the only thing on the frame that says which of
+     * them the press is about to move.
      */
     const uint32_t nodes_cursor = nav->cursor[MESH_UI_SCREEN_NODES];
-    bar_add(bar, MESH_UI_BUTTON_A,
-            nodes_cursor == MESH_UI_NODES_FILTER_ROW ? MESH_STR_ACTION_FILTER
-            : nodes_cursor == MESH_UI_NODES_SORT_ROW ? MESH_STR_ACTION_SORT
-                                                     : MESH_STR_ACTION_OPEN);
+    if (nodes_cursor == MESH_UI_NODES_FILTER_ROW || nodes_cursor == MESH_UI_NODES_SORT_ROW) {
+        bar_add(bar, MESH_UI_BUTTON_LEFT_RIGHT,
+                nodes_cursor == MESH_UI_NODES_FILTER_ROW ? MESH_STR_ACTION_FILTER
+                                                         : MESH_STR_ACTION_SORT);
+    } else {
+        bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_OPEN);
+    }
     bar_add(bar, MESH_UI_BUTTON_X, MESH_STR_ACTION_PIN);
     bar_add(bar, MESH_UI_BUTTON_Y, MESH_STR_ACTION_WRITE);
     bar_add_help(snapshot, bar);

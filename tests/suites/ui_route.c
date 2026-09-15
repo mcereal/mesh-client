@@ -93,8 +93,11 @@ MESH_TEST_CASE(ui_route_settings_goes_three_deep, unit) {
 
     struct mesh_ui_action action;
     memset(&action, 0, sizeof action);
+    /* The shoulder, which is the press that means "the next tab" from any row. Right means it
+       only on a row with no control on it, so this walk would sit on the Nodes tab's filter
+       stepping it for ever. */
     while (store.nav.screen != MESH_UI_SCREEN_SETTINGS) {
-        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_R1, &action);
     }
     if (route_now(&store).depth != 0U) {
         failure = "the section list is the Settings tab's own level";
@@ -136,19 +139,27 @@ MESH_TEST_CASE(ui_route_in_and_out_are_opposite, unit) {
         goto cleanup;
     }
 
-    /* The Nodes tab's own two levels, so that the rule is the shape of the hierarchy rather
-       than anything the Messages tab does. */
-    if (press(&store, MESH_UI_KEY_RIGHT) != MESH_UI_TRANSITION_FORWARD ||
+    /*
+     * The Nodes tab's own two levels, so that the rule is the shape of the hierarchy rather
+     * than anything the Messages tab does.
+     *
+     * The shoulders rather than the d-pad, and that is the claim rather than a convenience: what
+     * this case is about is that a tab hop is a *direction*, and the shoulder is the press that
+     * is a tab hop from every row. The Nodes list lands on its filter row, where Left and Right
+     * belong to the control - so asking them for a transition here would be asking the one row
+     * on the tab that does not offer one.
+     */
+    if (press(&store, MESH_UI_KEY_R1) != MESH_UI_TRANSITION_FORWARD ||
         store.nav.screen != MESH_UI_SCREEN_NODES) {
-        failure = "Right should move rightwards along the tabs";
+        failure = "the right shoulder should move rightwards along the tabs";
         goto cleanup;
     }
-    if (press(&store, MESH_UI_KEY_LEFT) != MESH_UI_TRANSITION_BACK) {
-        failure = "Left should move leftwards along the tabs";
+    if (press(&store, MESH_UI_KEY_L1) != MESH_UI_TRANSITION_BACK) {
+        failure = "the left shoulder should move leftwards along the tabs";
         goto cleanup;
     }
-    (void)press(&store, MESH_UI_KEY_RIGHT);
-    /* Off the filter and map rows, onto a node. */
+    (void)press(&store, MESH_UI_KEY_R1);
+    /* Off the filter, the sort and the map rows, onto a node. */
     for (uint32_t lead = 0; lead < MESH_UI_NODES_LEAD_ROWS; ++lead) {
         (void)press(&store, MESH_UI_KEY_DOWN);
     }
@@ -185,8 +196,8 @@ MESH_TEST_CASE(ui_route_the_tab_strip_decides, unit) {
 
     struct mesh_ui_action action;
     memset(&action, 0, sizeof action);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
-    /* Off the filter and map rows, onto a node. */
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_R1, &action);
+    /* Off the filter, the sort and the map rows, onto a node. */
     for (uint32_t lead = 0; lead < MESH_UI_NODES_LEAD_ROWS; ++lead) {
         (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
     }

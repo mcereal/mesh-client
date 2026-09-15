@@ -96,13 +96,22 @@ bool mesh_test_open_tab(struct mesh_ui_store *store, enum mesh_ui_screen screen)
         return false;
     }
     struct mesh_ui_action action;
-    /* One press per tab is the most it can take on a ring of them, and the guard is what turns
-       "an overlay swallowed the key" into a false rather than a hang. */
+    /*
+     * The shoulder rather than the d-pad, because the shoulder is the press that means "the next
+     * tab" from anywhere. Left and Right mean it on most rows and not on all of them - a
+     * Settings field edits, and so do the Nodes list's filter and sort rows - so a fixture that
+     * walked the ring with Right would hang on the first screen whose cursor happened to be
+     * resting on a control. That is the split the action bar has always described: "L/R tabs"
+     * names the shoulders, and this is a test asking for a tab rather than for a d-pad.
+     *
+     * One press per tab is the most it can take on a ring of them, and the guard is what turns
+     * "an overlay swallowed the key" into a false rather than a hang.
+     */
     for (unsigned guard = 0; guard <= (unsigned)MESH_UI_SCREEN_COUNT; ++guard) {
         if (store->nav.screen == screen) {
             return true;
         }
-        mesh_ui_store_handle_key(store, MESH_UI_KEY_RIGHT, &action);
+        mesh_ui_store_handle_key(store, MESH_UI_KEY_R1, &action);
     }
     return store->nav.screen == screen;
 }

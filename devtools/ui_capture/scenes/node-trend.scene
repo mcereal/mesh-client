@@ -44,7 +44,7 @@ hold 260
 
 # ---- the row, and then the picture ----------------------------------------------------------
 #
-# The Nodes list has three rows before its first node - the filter chips, the sort row and
+# The Nodes list has three rows before its first node - the filter row, the sort row and
 # the Map (MESH_UI_NODES_LEAD_ROWS) - so a node's row is its index in the demo roster plus
 # three. Echo Repeater is seeds[5] and row 8. Temperature is
 # the first row under its Environment heading, and this node has no device-metrics group above

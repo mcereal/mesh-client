@@ -41,7 +41,7 @@ hold 260
 
 # Open it and walk down to the device metrics, where the battery row is.
 #
-# The Nodes list has three rows before its first node - the filter chips, the sort row and
+# The Nodes list has three rows before its first node - the filter row, the sort row and
 # the Map (MESH_UI_NODES_LEAD_ROWS) - so a node's row is its index in the demo roster plus
 # three. Our own radio is seeds[0] and row 3, Alfa Ridge is
 # seeds[1] and row 4. A node on mains has no battery trend to draw, so getting this wrong

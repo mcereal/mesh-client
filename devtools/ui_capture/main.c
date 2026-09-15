@@ -801,15 +801,24 @@ static void uicap_press(struct uicap *cap, enum mesh_ui_key key) {
     uicap_settle(cap);
 }
 
-/* Walks the tabs with the buttons rather than assigning nav.screen, so a scene can only ever
-   reach a screen the device can reach. */
+/*
+ * Walks the tabs with the buttons rather than assigning nav.screen, so a scene can only ever
+ * reach a screen the device can reach.
+ *
+ * The shoulders, because they are the press that means "the next tab" from every row. Left and
+ * Right mean it on most rows and not on all of them - a Settings field edits, and so do the
+ * Nodes list's filter and sort rows - so walking the ring with the d-pad stops dead on the first
+ * tab whose cursor is resting on a control, which is the Nodes tab every time. A scene asking
+ * for a tab is asking for a tab; a scene that wants to prove what the d-pad does on a given row
+ * presses `key left`/`key right` itself, which is what the two node scenes do.
+ */
 static void uicap_tab(struct uicap *cap, int screen) {
     for (int guard = 0; guard < (int)MESH_UI_SCREEN_COUNT; ++guard) {
         const int current = (int)cap->store.nav.screen;
         if (current == screen) {
             return;
         }
-        uicap_press(cap, current < screen ? MESH_UI_KEY_RIGHT : MESH_UI_KEY_LEFT);
+        uicap_press(cap, current < screen ? MESH_UI_KEY_R1 : MESH_UI_KEY_L1);
     }
     die("tab: could not reach that tab (an overlay is open)");
 }

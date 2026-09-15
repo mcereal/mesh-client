@@ -124,10 +124,17 @@ only a consequence of one of them, and neither is a thing a test could pin.
 
 ## The Nodes tab
 
-- **The filter is stepped by A and deliberately not by Left and Right.** The three screens that do
-  take the horizontal axis take it *for the whole level* and pay by leaving the shoulders alone; a
-  tab's own list has no level to take it for, so taking it for one row would be a d-pad whose
-  meaning changed as the cursor walked. `ui_nav_nodes_filter_steps_and_renumbers_the_rows`.
+- **The filter and the sort are stepped by Left and Right, and the shoulders still walk the tabs.**
+  The d-pad does mean two things on this screen - edit on the top two rows, next tab on every row
+  under them - and that is the Settings tab's arrangement rather than a new one: a field row edits,
+  a row with no field walks the tabs, and `MESH_UI_ICON_EDIT` in the gutter is what tells them
+  apart before the press. A still steps forward, for the reason it does on a Settings enum.
+  It was A alone, on a chip strip wearing no marker, and the cost was a screen whose two controls
+  were only discoverable by pressing every button on the case.
+  `ui_nav_nodes_filter_steps_and_renumbers_the_rows`, `ui_nav_nodes_controls_take_the_d_pad`.
+- **A fixture that wants a tab presses the shoulder, not Right.** `mesh_test_open_tab()` walked the
+  ring with `MESH_UI_KEY_RIGHT` and hung on the first screen whose cursor was resting on a control
+  - which, once the Nodes list took the axis, was the Nodes list every time. `ui_fixture.c`.
 - **A filter matches what the list *draws*, not one of the conditions behind it.** Both extra
   halves are corrections: a node dropped from the radio's database still passes `signal_heard()`,
   and a radio can carry a stale `is_favorite` no press here can clear. `ui_nav_nodes_filter`,
