@@ -1260,6 +1260,10 @@ static void on_verify_key(struct mesh_app *app, const struct mesh_ui_action *act
            each other before anything is asked of anybody, and on a mesh that is seconds at
            best. The sheet arrives on its own when there is something to answer. */
         mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_VERIFY_STARTED, name);
+        /* A press is always a new question. A second press on an exchange that is still waiting
+           starts over in the stage the sheet last showed, and the publish opens the sheet only
+           on a stage it has not shown - so a waiting sheet dismissed with B never came back. */
+        app->ui_verify_stage_shown = (uint8_t)MESH_KEY_VERIFICATION_IDLE;
     } else if (result == -ENOTCONN) {
         snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_NOT_CONNECTED));
     } else if (result == -ENOENT) {
