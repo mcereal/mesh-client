@@ -678,6 +678,21 @@ MESH_TEST_CASE(key_trust_sheet_answers_every_stage, unit) {
     MESH_TEST_FAIL_IF(strcmp(headline, "A7K2") != 0,
                       "the comparison sheet does not show the code being compared");
 
+    /* The number is drawn the way the firmware writes it for the other person - two groups of
+       three, leading zeros kept - so both ends are reading the same six digits. */
+    struct mesh_ui_verification showing;
+    memset(&showing, 0, sizeof showing);
+    showing.stage = (uint8_t)MESH_UI_VERIFY_SHOW_NUMBER;
+    snprintf(showing.remote_name, sizeof showing.remote_name, "Pine Ridge");
+    showing.security_number = 727628U;
+    MESH_TEST_FAIL_IF(
+        !mesh_ui_verify_sheet_of(&showing, &sheet, headline, sizeof headline, text, sizeof text),
+        "the number stage has no sheet");
+    MESH_TEST_FAIL_IF(strcmp(headline, "727 628") != 0, "the number is not grouped as read out");
+    showing.security_number = 48172U;
+    (void)mesh_ui_verify_sheet_of(&showing, &sheet, headline, sizeof headline, text, sizeof text);
+    MESH_TEST_FAIL_IF(strcmp(headline, "048 172") != 0, "a leading zero was dropped");
+
     /* Idle draws nothing, and so does the one stage the keyboard owns: a dialog whose only
        answer opened a keyboard would be a press in front of a press. */
     struct mesh_ui_verification idle;
@@ -866,7 +881,7 @@ MESH_TEST_CASE(key_trust_sheet_presses_answer_the_right_way, unit) {
  * security number fails the *verification*, and the two people have to start again from the
  * beginning with a phone call in between.
  */
-MESH_TEST_CASE(key_trust_number_keyboard_takes_four_digits, unit) {
+MESH_TEST_CASE(key_trust_number_keyboard_takes_six_digits, unit) {
     struct mesh_ui_store store;
     MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
 
@@ -886,16 +901,18 @@ MESH_TEST_CASE(key_trust_number_keyboard_takes_four_digits, unit) {
 
     struct mesh_ui_action action;
     memset(&action, 0, sizeof action);
-    snprintf(nav.draft, sizeof nav.draft, "123");
+    /* Four was this prompt's cap until a real radio read out "727 628": the firmware's number
+       runs to 999999, and four digits of it were sent as the whole. */
+    snprintf(nav.draft, sizeof nav.draft, "7276");
     (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_START, &action);
-    MESH_TEST_FAIL_IF(action.type != MESH_UI_ACTION_NONE, "three digits were sent as a number");
+    MESH_TEST_FAIL_IF(action.type != MESH_UI_ACTION_NONE, "four digits were sent as a number");
     MESH_TEST_FAIL_IF(!nav.keyboard_open, "a refused number closed the prompt anyway");
 
     memset(&action, 0, sizeof action);
-    snprintf(nav.draft, sizeof nav.draft, "1234");
+    snprintf(nav.draft, sizeof nav.draft, "727628");
     (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_START, &action);
-    MESH_TEST_FAIL_IF(action.type != MESH_UI_ACTION_VERIFY_NUMBER, "four digits were not sent");
-    MESH_TEST_FAIL_IF(strcmp(action.text, "1234") != 0, "the digits did not survive the press");
+    MESH_TEST_FAIL_IF(action.type != MESH_UI_ACTION_VERIFY_NUMBER, "six digits were not sent");
+    MESH_TEST_FAIL_IF(strcmp(action.text, "727628") != 0, "the digits did not survive the press");
     MESH_TEST_FAIL_IF(nav.keyboard_open, "the prompt stayed up after being answered");
 
     /* Backing out of the prompt stands the ceremony down rather than leaving it open: the other

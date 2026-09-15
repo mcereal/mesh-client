@@ -68,7 +68,7 @@ const char *mesh_ui_kb_action_label(const struct mesh_ui_nav *nav, enum mesh_ui_
            a waypoint's name - the place is shared by the app afterwards, not by this key - and
            so is an address, which is a link brought up rather than anything put on the air. A
            security number is the sharpest case of the same rule: it goes to the radio in the
-           user's hand, and a keycap saying "Send" over four digits the whole ceremony depends
+           user's hand, and a keycap saying "Send" over six digits the whole ceremony depends
            on staying off the mesh would be teaching exactly the wrong thing. */
         return mesh_str(
             (nav != NULL && (nav->keyboard_field != MESH_UI_FIELD_NONE || nav->keyboard_waypoint ||
@@ -94,8 +94,8 @@ size_t mesh_ui_nav_draft_cap(const struct mesh_ui_nav *nav) {
         return MESH_UI_PASSKEY_DIGITS;
     }
     if (nav->keyboard_verify) {
-        /* The firmware generates exactly four; a fifth is a mistype, and refusing it where it
-           is typed beats sending a number the radio will not match. */
+        /* The firmware reads out six, leading zeros included; a seventh is a mistype, and
+           refusing it where it is typed beats sending a number the radio will not match. */
         return MESH_UI_VERIFY_DIGITS_MAX;
     }
     if (nav->keyboard_field != MESH_UI_FIELD_NONE) {
@@ -330,9 +330,9 @@ static bool mesh_ui_nav_submit_passkey(struct mesh_ui_nav *nav, struct mesh_ui_a
 
 /*
  * Send on the security-number prompt. Digits only, for the passkey prompt's reason: the
- * keyboard has letters on it and nothing but the four digits means anything to the radio.
+ * keyboard has letters on it and nothing but the six digits means anything to the radio.
  *
- * Short of four is refused rather than sent. Unlike a pairing PIN - where a wrong answer costs
+ * Short of six is refused rather than sent. Unlike a pairing PIN - where a wrong answer costs
  * another thirty seconds of BlueZ and a second chance is expensive - a half-typed security
  * number costs the *ceremony*: the firmware answers a wrong one by failing the verification,
  * and the two people would have to start again from the beginning.

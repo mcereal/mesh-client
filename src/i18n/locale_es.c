@@ -482,9 +482,9 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_VERIFY_BODY_WAITING] =
         "Las dos radios lo están resolviendo. A quien pregunten primero le mostrarán algo que leer "
         "a la otra persona; esto vuelve cuando te toque a ti.",
-    [MESH_STR_VERIFY_VAL_NUMBER] = "%04u",
+    [MESH_STR_VERIFY_VAL_NUMBER] = "%03u %03u",
     [MESH_STR_VERIFY_BODY_NUMBER] =
-        "Lee estos cuatro dígitos a %s en voz alta, no por la malla. Cuando los haya escrito, las "
+        "Lee estos seis dígitos a %s en voz alta, no por la malla. Cuando los haya escrito, las "
         "dos personas veréis un código corto que comparar.",
     [MESH_STR_VERIFY_BODY_COMPARE] = "%s también está viendo un código. Decíoslo en voz alta. "
                                      "Responde que coinciden solo si coincide cada carácter.",
@@ -493,7 +493,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_VERIFY_ANSWER_STOP] = "Parar",
     [MESH_STR_VERIFY_ANSWER_MATCH] = "Coinciden",
     [MESH_STR_VERIFY_ANSWER_DIFFER] = "No coinciden",
-    [MESH_STR_VERIFY_NUMBER_PROMPT] = "Cuatro dígitos de %s",
+    [MESH_STR_VERIFY_NUMBER_PROMPT] = "Seis dígitos de %s",
     [MESH_STR_NODE_VAL_USER_ID_HEX] = "!%08x",
     [MESH_STR_NODE_VAL_RELAY_HEX] = "!..%02x",
     [MESH_STR_NODE_VAL_NUMBER] = "%u",

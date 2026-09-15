@@ -6,6 +6,7 @@
 #include "framework/mesh_test.h"
 #include "support/proto_fixture.h"
 #include "support/serial_fixture.h"
+#include "support/session_fixture.h"
 #include <poll.h>
 #include <sys/timerfd.h>
 
@@ -3480,5 +3481,95 @@ MESH_TEST_CASE(app_relay_ambiguity_spans_the_whole_roster, unit) {
     MESH_TEST_FAIL_IF(strcmp(name, "!..c3") != 0,
                       "the core resolver reads the whole roster, so it refuses to name NEAR");
 
+    record_success(test_name);
+}
+
+static int app_verify_sink(void *ctx, const uint8_t *packet, size_t len, uint32_t packet_id) {
+    (void)ctx;
+    (void)packet;
+    (void)len;
+    (void)packet_id;
+    return 0;
+}
+
+/*
+ * Every press on "Verify this key" puts the waiting sheet up, including one on an exchange that
+ * is still waiting. B closes that sheet without ending the exchange, so the next press starts
+ * over in the very stage the sheet last showed - and the publish, which opens only on a stage it
+ * has not shown, left the user with a toast and no sheet until the old exchange ran out.
+ */
+MESH_TEST_CASE(app_verify_press_reopens_a_dismissed_waiting_sheet, unit) {
+    const char *failure = NULL;
+    bool app_ready = false;
+    struct mesh_app app;
+    memset(&app, 0, sizeof app);
+
+    struct mesh_bluez_mock_config mock_config = {.adapter_path = "/org/bluez/hci0"};
+    mesh_bluez_client_mock_enable(&mock_config);
+
+    char home_dir[APP_TEST_HOME_CAP];
+    if (!app_test_home(home_dir, sizeof home_dir, "verify")) {
+        failure = "mkdtemp failed";
+        goto cleanup;
+    }
+    struct mesh_app_config config = mesh_app_config_default();
+    config.run_mode = MESH_APP_RUN_FOREGROUND;
+    if (mesh_app_init(&app, &config) != 0) {
+        failure = "app init failed";
+        goto cleanup;
+    }
+    app_ready = true;
+
+    mesh_session_attach(&app.session, app_verify_sink, NULL);
+    meshtastic_FromRadio my_info = meshtastic_FromRadio_init_default;
+    my_info.which_payload_variant = meshtastic_FromRadio_my_info_tag;
+    my_info.my_info.my_node_num = 0x1000U;
+    (void)mesh_test_session_feed_from_radio(&app.session, &my_info);
+    meshtastic_FromRadio info = meshtastic_FromRadio_init_default;
+    info.which_payload_variant = meshtastic_FromRadio_node_info_tag;
+    info.node_info.num = 0x2001U;
+    info.node_info.has_user = true;
+    snprintf(info.node_info.user.long_name, sizeof info.node_info.user.long_name, "Pine Ridge");
+    info.node_info.user.public_key.size = 32U;
+    info.node_info.user.public_key.bytes[0] = 0xA1U;
+    (void)mesh_test_session_feed_from_radio(&app.session, &info);
+
+    struct mesh_ui_action press;
+    memset(&press, 0, sizeof press);
+    press.type = MESH_UI_ACTION_VERIFY_KEY;
+    press.dest = 0x2001U;
+
+    mesh_app_on_ui_action(&app, &press);
+    mesh_app_publish_ui_state(&app);
+    if (!app.ui_store.nav.verify_open) {
+        failure = "the first press did not put the waiting sheet up";
+        goto cleanup;
+    }
+
+    /* B: the sheet goes, the exchange stays. */
+    mesh_ui_store_close_verify_sheet(&app.ui_store);
+    mesh_app_publish_ui_state(&app);
+    if (app.ui_store.nav.verify_open) {
+        failure = "a dismissed waiting sheet came back with nothing new to say";
+        goto cleanup;
+    }
+
+    /* The first INITIATE has gone out, as it has on a radio by now; a step still queued would
+       refuse the press as a double press instead. */
+    app.session.settings.queue_len = 0U;
+    mesh_app_on_ui_action(&app, &press);
+    mesh_app_publish_ui_state(&app);
+    if (!app.ui_store.nav.verify_open) {
+        failure = "a second press on a waiting exchange did not put the sheet back";
+        goto cleanup;
+    }
+
+cleanup:
+    if (app_ready) {
+        mesh_app_shutdown(&app);
+    }
+    mesh_bluez_client_mock_disable();
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }

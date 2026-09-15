@@ -928,9 +928,10 @@ MESH_STR_ENTRY(NODE_ACT_ADMIN,            "Configure by radio")
  */
 MESH_STR_ENTRY(VERIFY_HEAD_WAITING,       "Verifying %s")
 MESH_STR_ENTRY(VERIFY_BODY_WAITING,       "The two radios are working it out. Whichever of you is asked first will be shown something to read to the other; this comes back when it is your turn.")
-/* The headline on this one is the four digits themselves, drawn large. */
-MESH_STR_ENTRY(VERIFY_VAL_NUMBER,         "%04u")
-MESH_STR_ENTRY(VERIFY_BODY_NUMBER,        "Read these four digits to %s out loud - not over the mesh. Once they have typed them in, you will both be shown a short code to compare.")
+/* The headline on this one is the six digits themselves, drawn large, split into two groups of
+   three the way the firmware writes them - the other person is reading the same layout out. */
+MESH_STR_ENTRY(VERIFY_VAL_NUMBER,         "%03u %03u")
+MESH_STR_ENTRY(VERIFY_BODY_NUMBER,        "Read these six digits to %s out loud - not over the mesh. Once they have typed them in, you will both be shown a short code to compare.")
 MESH_STR_ENTRY(VERIFY_BODY_COMPARE,       "%s is looking at a code too. Say yours to each other. Answer that they match only if every character does.")
 /* The sheet's two answers, per stage. "Later" leaves the exchange running and gets out of the
    way; "Stop" ends it. */
@@ -941,7 +942,7 @@ MESH_STR_ENTRY(VERIFY_ANSWER_MATCH,       "They match")
 MESH_STR_ENTRY(VERIFY_ANSWER_DIFFER,      "They do not")
 /* The keyboard prompt that collects the number, on the same terms as the pairing PIN prompt:
    pushed at the user by the radio rather than opened by a press. */
-MESH_STR_ENTRY(VERIFY_NUMBER_PROMPT,      "Four digits from %s")
+MESH_STR_ENTRY(VERIFY_NUMBER_PROMPT,      "Six digits from %s")
 
 /* Value formats. */
 MESH_STR_ENTRY(NODE_VAL_USER_ID_HEX,      "!%08x")

@@ -69,15 +69,16 @@ hold 500
 verify waiting BRVO
 hold 2200
 
-# The end that did *not* start it is shown four digits to read out loud. The digits are the
+# The end that did *not* start it is shown six digits to read out loud, grouped in threes the
+# way the firmware writes them for the other person. The digits are the
 # headline, drawn at the panel's largest, because they are the whole of what this screen is for.
 verify show BRVO
 hold 2400
 
 # The end that did start it types what it heard. A keyboard rather than a sheet - it is the one
 # stage that collects something - and the same prompt shape the BLE pairing PIN uses, for the
-# same reason: the radio asked, in the middle of whatever the user was doing. Four digits and no
-# more; the counter says so and the fifth keypress does nothing.
+# same reason: the radio asked, in the middle of whatever the user was doing. Six digits and no
+# more; the counter says so and the seventh keypress does nothing.
 verify enter BRVO
 hold 1600
 key right 3
@@ -88,8 +89,12 @@ key right
 key a
 key right
 key a
-# A fifth keypress on a field the radio only ever generates four digits for: the counter stays
-# at 4/4 and nothing is appended, because a number refused where it is typed beats one the radio
+key right
+key a
+key right
+key a
+# A seventh keypress on a field the radio only ever reads out six digits for: the counter stays
+# at 6/6 and nothing is appended, because a number refused where it is typed beats one the radio
 # will not match.
 key right
 key a
