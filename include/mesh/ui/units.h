@@ -46,6 +46,11 @@ void mesh_ui_format_distance(double metres, bool imperial, char *out, size_t out
  *
  * Not mesh_ui_format_distance(): an altitude does not become kilometres at a thousand metres, and
  * a node on a mountain reading "3.1 km" would be a height that looks like a range.
+ *
+ * Takes any int32_t, including the ones no height can be. Nothing upstream range-checks a height
+ * the way it does a coordinate, so this is the one formatter here whose argument is not bounded
+ * by the branch that reads it - see the note in units.c on why the conversion is integer
+ * arithmetic and why the feet are wider than the metres.
  */
 void mesh_ui_format_altitude(int32_t metres, bool imperial, char *out, size_t out_len);
 

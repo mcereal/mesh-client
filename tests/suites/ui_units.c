@@ -24,6 +24,7 @@
 #include "mesh/ui/store.h"
 #include "mesh/ui/units.h"
 
+#include <limits.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
@@ -57,6 +58,36 @@ MESH_TEST_CASE(ui_units_word_a_height_in_both_systems, unit) {
     /* Below sea level is a real place, and rounding towards zero would have swallowed it. */
     mesh_ui_format_altitude(-1, true, out, sizeof out);
     MESH_TEST_FAIL_IF(strcmp(out, "-3 ft") != 0, "a height below sea level keeps its sign");
+
+    record_success(test_name);
+}
+
+/*
+ * A height is whatever int32_t arrived in the packet, and the ends of that range are the ones the
+ * conversion has to survive.
+ *
+ * Nothing upstream range-checks a height: the session validates a coordinate, because a latitude
+ * has a range to check against, and copies `altitude` through unchanged. So INT32_MAX metres
+ * reaches this - about 7.05e9 feet, which does not fit in an int. The first version of this
+ * formatter divided into a double and cast to int, which for those values is a conversion out of
+ * range: undefined, which meant a garbage reading in a release build and, because CI runs the
+ * suite under -fno-sanitize-recover, an abort on any frame that drew the row.
+ *
+ * Both ends, and the metric row beside them, which stays a faithful echo of the same number.
+ */
+MESH_TEST_CASE(ui_units_word_a_height_no_node_could_be_at, unit) {
+    char out[32];
+
+    mesh_ui_format_altitude(INT32_MAX, true, out, sizeof out);
+    MESH_TEST_FAIL_IF(strcmp(out, "7045550023 ft") != 0,
+                      "the largest height an int32 can carry should convert whole");
+    mesh_ui_format_altitude(INT32_MIN, true, out, sizeof out);
+    MESH_TEST_FAIL_IF(strcmp(out, "-7045550026 ft") != 0,
+                      "the smallest height an int32 can carry should convert whole");
+
+    mesh_ui_format_altitude(INT32_MAX, false, out, sizeof out);
+    MESH_TEST_FAIL_IF(strcmp(out, "2147483647 m") != 0,
+                      "the metric row echoes the packet's number whatever it is");
 
     record_success(test_name);
 }
@@ -99,7 +130,8 @@ MESH_TEST_CASE(ui_units_precision_ladder_reads_in_both_systems, unit) {
 
         MESH_TEST_FAIL_IF(strstr(metric[row], "m") == NULL,
                           "every metric step is worded in metres or kilometres");
-        MESH_TEST_FAIL_IF(strstr(imperial[row], "ft") == NULL && strstr(imperial[row], "mi") == NULL,
+        MESH_TEST_FAIL_IF(strstr(imperial[row], "ft") == NULL &&
+                              strstr(imperial[row], "mi") == NULL,
                           "every imperial step is worded in feet or miles");
         MESH_TEST_FAIL_IF(strcmp(metric[row], imperial[row]) == 0,
                           "a step must not read the same in both systems");
@@ -315,9 +347,9 @@ MESH_TEST_CASE(ui_units_node_detail_lengths_follow_the_setting, unit) {
     for (int pass = 0; pass < 2; ++pass) {
         const bool imperial = pass == 1;
         struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
-        const uint32_t count = mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, false,
-                                                         NULL, NULL, imperial, items,
-                                                         MESH_UI_NODE_ITEMS_MAX);
+        const uint32_t count =
+            mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, false, NULL, NULL, imperial,
+                                      items, MESH_UI_NODE_ITEMS_MAX);
         MESH_TEST_FAIL_IF(count == 0U, "a node with a fix should have rows");
 
         bool altitude_ok = false;

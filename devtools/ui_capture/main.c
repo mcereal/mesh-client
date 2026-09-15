@@ -2585,8 +2585,7 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
      */
     if (strcmp(command, "units") == 0) {
         char *value = uicap_word(&rest);
-        if (value == NULL ||
-            (strcmp(value, "metric") != 0 && strcmp(value, "imperial") != 0)) {
+        if (value == NULL || (strcmp(value, "metric") != 0 && strcmp(value, "imperial") != 0)) {
             fprintf(stderr, "uicap: line %u: 'units' is metric or imperial\n", line_number);
             exit(1);
         }

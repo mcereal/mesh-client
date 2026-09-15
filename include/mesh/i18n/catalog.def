@@ -370,9 +370,10 @@ MESH_STR_ENTRY(VALUE_DISTANCE_MI,         "%.1f mi")
 
 /* A height, which stays in the small unit however large it gets: a node on a mountain reading
    "3.1 km" would be a height that looks like a range. Signed, because a fix below sea level is a
-   real place. */
+   real place - and wider on the imperial side, because a height is whatever int32_t the sender
+   put in the packet and three metres of that range are more than four feet of it. */
 MESH_STR_ENTRY(VALUE_ALTITUDE_M,          "%d m")
-MESH_STR_ENTRY(VALUE_ALTITUDE_FT,         "%d ft")
+MESH_STR_ENTRY(VALUE_ALTITUDE_FT,         "%lld ft")
 
 /* ---- the Nodes tab -------------------------------------------------------------------------- */
 
