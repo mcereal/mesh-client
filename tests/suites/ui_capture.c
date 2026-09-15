@@ -3762,9 +3762,13 @@ MESH_TEST_CASE(ui_capture_node_detail_verbs_wear_their_colour_in_a_disc, unit) {
     while (store.nav.screen != MESH_UI_SCREEN_NODES) {
         (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
     }
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action); /* past the map row */
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action); /* our own node */
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action); /* somebody else's */
+    /* Past the lead rows - the chip strips and the map row - and then one node further, onto
+       somebody who is not us. Counted from the constant rather than written out, because a
+       fourth lead row would otherwise leave this walking onto our own node and failing with a
+       message about discs. */
+    for (uint32_t step = 0; step < MESH_UI_NODES_LEAD_ROWS + 1U; ++step) {
+        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    }
     (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
     MESH_TEST_FAIL_IF_CLEANUP(!store.nav.node_detail_open, mesh_ui_store_shutdown(&store),
                               "A should open the node detail");
@@ -3927,8 +3931,11 @@ MESH_TEST_CASE(ui_capture_node_detail_states_its_labels_quietly, unit) {
     while (store.nav.screen != MESH_UI_SCREEN_NODES) {
         (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
     }
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action); /* past the map row */
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action); /* a node that is not us */
+    /* Past the lead rows - the chip strips and the map row - onto the first node, counted from
+       the constant for the reason the case above counts it. */
+    for (uint32_t step = 0; step < MESH_UI_NODES_LEAD_ROWS; ++step) {
+        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    }
     (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
     MESH_TEST_FAIL_IF_CLEANUP(!store.nav.node_detail_open, mesh_ui_store_shutdown(&store),
                               "A should open the node detail");

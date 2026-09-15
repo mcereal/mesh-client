@@ -476,6 +476,22 @@ mesh_ui_node_detail_find(const struct mesh_ui_handshake_state *handshake, uint32
 const struct mesh_ui_node_summary *
 mesh_ui_node_detail_at(const struct mesh_ui_handshake_state *handshake, uint32_t row);
 
+/*
+ * Our own radio's last known fix, out of the published roster.
+ *
+ * False when we have no node record for ourselves or it carries no position, which is the
+ * ordinary state of a radio with no GPS and no fixed position set - and the reason the Waypoints
+ * tab's "New waypoint here" row can be present and unpressable rather than absent, and the
+ * reason the Nodes list's distance sort can be chosen and have nothing to say. A row that
+ * vanishes does not tell anybody why.
+ *
+ * Here rather than with the waypoints it was written for: it reads the node roster and nothing
+ * else, and it is now asked by both tabs. One answer, where the thing it is an answer about
+ * lives.
+ */
+bool mesh_ui_node_our_fix(const struct mesh_ui_handshake_state *handshake, int32_t *out_latitude_i,
+                          int32_t *out_longitude_i);
+
 #ifdef __cplusplus
 }
 #endif

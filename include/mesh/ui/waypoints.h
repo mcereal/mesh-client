@@ -97,17 +97,6 @@ bool mesh_ui_waypoint_row(const struct mesh_ui_store *store, uint32_t index,
 const struct mesh_ui_waypoint *mesh_ui_waypoint_find(const struct mesh_ui_waypoint_list *list,
                                                      uint32_t id);
 
-/*
- * Our own radio's last known fix, out of the published roster.
- *
- * False when we have no node record for ourselves or it carries no position, which is the
- * ordinary state of a radio with no GPS and no fixed position set - and the reason the "New
- * waypoint here" row can be present and unpressable rather than absent. A row that vanishes
- * does not tell anybody why.
- */
-bool mesh_ui_waypoint_our_fix(const struct mesh_ui_handshake_state *handshake,
-                              int32_t *out_latitude_i, int32_t *out_longitude_i);
-
 /* "1.2 km NE" for the vector between two points, or false when there is no vector to describe.
    `imperial` follows the radio's own display units, so the client and the radio agree. */
 bool mesh_ui_waypoint_format_range(int32_t from_latitude_i, int32_t from_longitude_i,

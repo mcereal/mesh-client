@@ -193,12 +193,18 @@ static bool mesh_ui_nav_close_node_detail(struct mesh_ui_nav *nav) {
 /*
  * The node a Nodes-list row is about, or NULL when the row is not about a node.
  *
- * One place that knows the list has two rows on the front of it and a filter over the rest, so
- * the four presses the list offers - A, X, Y and the detail's own opening - cannot disagree
- * about which node row 3 is. Every one of them went through mesh_ui_node_detail_at() with the
- * raw cursor before the map row existed, and every one of them would have been off by one after
- * it; the filter is the same mistake waiting a second time, and it is worse, because a wrong
- * answer there is a *plausible* node rather than an obviously shifted one.
+ * One place that knows the list has lead rows on the front of it, and a filter and a sort over
+ * the rest, so the four presses the list offers - A, X, Y and the detail's own opening - cannot
+ * disagree about which node row 4 is. Every one of them went through mesh_ui_node_detail_at()
+ * with the raw cursor before the map row existed, and every one of them would have been off by
+ * one after it; the filter was the same mistake waiting a second time and the sort a third, and
+ * both are worse than the off-by-one, because a wrong answer there is a *plausible* node rather
+ * than an obviously shifted one.
+ *
+ * The view is built here and thrown away, which is a sort of the roster per press. That is the
+ * right side of the trade: a press is not a frame, and the alternative is a view cached on the
+ * nav that would have to be invalidated by every publish, every chip step and every pin - three
+ * writers and one reader, for a hundred and twenty-eight elements.
  */
 static const struct mesh_ui_node_summary *mesh_ui_nav_node_at_row(const struct mesh_ui_nav *nav,
                                                                   const struct mesh_ui_store *store,
@@ -206,8 +212,10 @@ static const struct mesh_ui_node_summary *mesh_ui_nav_node_at_row(const struct m
     if (nav == NULL || store == NULL || cursor < MESH_UI_NODES_LEAD_ROWS) {
         return NULL;
     }
-    return mesh_ui_node_filter_at(&store->handshake, (enum mesh_ui_node_filter)nav->node_filter,
-                                  cursor - MESH_UI_NODES_LEAD_ROWS);
+    struct mesh_ui_node_view view;
+    mesh_ui_node_view_build(&store->handshake, (enum mesh_ui_node_filter)nav->node_filter,
+                            (enum mesh_ui_node_sort)nav->node_sort, &view);
+    return mesh_ui_node_view_at(&store->handshake, &view, cursor - MESH_UI_NODES_LEAD_ROWS);
 }
 
 void mesh_ui_nav_conversation_name(const struct mesh_ui_nav *nav, char *out, size_t out_len) {
@@ -418,15 +426,22 @@ uint32_t mesh_ui_nav_row_count(const struct mesh_ui_nav *nav, const struct mesh_
         }
         if (nav == NULL || !nav->node_detail_open) {
             /*
-             * The filter row, the map row, and then whichever nodes the filter keeps. A roster
-             * with nothing in it draws an empty state instead of a list, so neither of the two
-             * lead rows is offered: the screen the map row would open is the same nothing one
-             * level in, and a filter over an empty roster is a control with nothing to do.
+             * The filter row, the sort row, the map row, and then whichever nodes the filter
+             * keeps. A roster with nothing in it draws an empty state instead of a list, so none
+             * of the lead rows is offered: the screen the map row would open is the same nothing
+             * one level in, and a filter or a sort over an empty roster is a control with
+             * nothing to do.
+             *
+             * The sort is absent from this arithmetic on purpose, and that is a claim worth
+             * stating: it permutes the rows the filter kept and never selects among them, so
+             * mesh_ui_node_filter_count() is this list's length under every sort. A test holds
+             * it against the built view's own count, because a sort that dropped a row would
+             * show up here as a cursor that walks off the end.
              *
              * A filter that keeps *none* of a roster that has something in it is the opposite
-             * case and the list stays: the two lead rows are how the reader gets back out, and
-             * a screen that emptied itself would have taken the chip that emptied it away with
-             * the rows. The renderer says so in words on the row where the nodes would be.
+             * case and the list stays: the lead rows are how the reader gets back out, and a
+             * screen that emptied itself would have taken the chip that emptied it away with the
+             * rows. The renderer says so in words on the row where the nodes would be.
              */
             if (nodes == 0U) {
                 return 0U;
@@ -1034,6 +1049,25 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
                  */
                 nav->node_filter = (uint8_t)mesh_ui_node_filter_step(
                     (enum mesh_ui_node_filter)nav->node_filter, +1);
+                return true;
+            }
+            if (cursor == MESH_UI_NODES_SORT_ROW) {
+                /*
+                 * The row under it, stepped the same way and for the same reasons - the axis is
+                 * different, the control is not.
+                 *
+                 * Five orders here against the filter's three, and a wrap is therefore four
+                 * presses rather than two. That is still cheaper than the alternatives, which
+                 * are a second keycap on a bar that has no free one, or Left and Right - and
+                 * Left and Right are the tab switch on every top-level list in this client,
+                 * which the filter row's note declines to take for the same reason. Five is also
+                 * why the row is a word rather than a strip of chips; the renderer has that.
+                 *
+                 * The cursor stays on this row, which like the filter's is a row the press
+                 * cannot re-number: everything the sort moves is below it.
+                 */
+                nav->node_sort =
+                    (uint8_t)mesh_ui_node_sort_step((enum mesh_ui_node_sort)nav->node_sort, +1);
                 return true;
             }
             if (cursor == MESH_UI_NODES_MAP_ROW) {

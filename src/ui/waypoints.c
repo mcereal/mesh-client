@@ -13,7 +13,6 @@
 
 #include "mesh/ui/store.h"
 
-#include "mesh/geo/coords.h"
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/duration.h"
 #include "mesh/ui/node_detail.h"
@@ -68,31 +67,6 @@ bool mesh_ui_waypoint_format_range(int32_t from_latitude_i, int32_t from_longitu
 }
 
 /* ---- the roster, as this screen needs it ----------------------------------------------------- */
-
-bool mesh_ui_waypoint_our_fix(const struct mesh_ui_handshake_state *handshake,
-                              int32_t *out_latitude_i, int32_t *out_longitude_i) {
-    if (handshake == NULL || !handshake->has_my_info || handshake->my_info.node_num == 0U) {
-        return false;
-    }
-    const struct mesh_ui_node_summary *self =
-        mesh_ui_node_detail_find(handshake, handshake->my_info.node_num);
-    if (self == NULL || !self->position.valid) {
-        return false;
-    }
-    /* Range-checked again on the way out rather than trusted because it is ours: the roster is
-       restored from a cache written by an older build, and a coordinate is checked where it is
-       used as one. */
-    if (!mesh_geo_coords_valid(self->position.latitude_i, self->position.longitude_i)) {
-        return false;
-    }
-    if (out_latitude_i != NULL) {
-        *out_latitude_i = self->position.latitude_i;
-    }
-    if (out_longitude_i != NULL) {
-        *out_longitude_i = self->position.longitude_i;
-    }
-    return true;
-}
 
 /* A node number as a name, on the same fallback ladder the rest of the UI uses: the long name,
    then the short one, then the "!hex" id every phone app falls back to. */
@@ -186,8 +160,8 @@ static uint32_t waypoint_order(const struct mesh_ui_store *store, uint8_t *order
 
     int32_t self_lat = 0;
     int32_t self_lon = 0;
-    const bool have_fix = mesh_ui_waypoint_our_fix(
-        store->handshake_valid ? &store->handshake : NULL, &self_lat, &self_lon);
+    const bool have_fix = mesh_ui_node_our_fix(store->handshake_valid ? &store->handshake : NULL,
+                                               &self_lat, &self_lon);
 
     struct waypoint_key keys[MESH_UI_MAX_WAYPOINTS];
     for (uint32_t i = 0; i < count; ++i) {
@@ -268,8 +242,7 @@ bool mesh_ui_waypoint_row(const struct mesh_ui_store *store, uint32_t index,
          */
         int32_t lat = 0;
         int32_t lon = 0;
-        if (!mesh_ui_waypoint_our_fix(store->handshake_valid ? &store->handshake : NULL, &lat,
-                                      &lon)) {
+        if (!mesh_ui_node_our_fix(store->handshake_valid ? &store->handshake : NULL, &lat, &lon)) {
             mesh_str_copy(out->shared, sizeof out->shared,
                           mesh_str(MESH_STR_WAYPOINTS_NEW_NEEDS_FIX));
         }
@@ -294,7 +267,7 @@ bool mesh_ui_waypoint_row(const struct mesh_ui_store *store, uint32_t index,
 
     int32_t self_lat = 0;
     int32_t self_lon = 0;
-    if (waypoint->has_coords && mesh_ui_waypoint_our_fix(handshake, &self_lat, &self_lon)) {
+    if (waypoint->has_coords && mesh_ui_node_our_fix(handshake, &self_lat, &self_lon)) {
         (void)mesh_ui_waypoint_format_range(self_lat, self_lon, waypoint->latitude_i,
                                             waypoint->longitude_i, store->settings.units == 1U,
                                             out->range, sizeof out->range);
@@ -389,7 +362,7 @@ static void waypoint_rows_place(struct waypoint_rows *rows, const struct mesh_ui
     char range[MESH_UI_WAYPOINT_RANGE_MAX];
     if (!waypoint->has_coords) {
         rows_text(rows, MESH_STR_WAYPOINT_RANGE, mesh_str(MESH_STR_WAYPOINT_RANGE_NO_COORDS));
-    } else if (!mesh_ui_waypoint_our_fix(handshake, &self_lat, &self_lon)) {
+    } else if (!mesh_ui_node_our_fix(handshake, &self_lat, &self_lon)) {
         rows_text(rows, MESH_STR_WAYPOINT_RANGE, mesh_str(MESH_STR_WAYPOINT_RANGE_NO_FIX));
     } else if (mesh_ui_waypoint_format_range(self_lat, self_lon, waypoint->latitude_i,
                                              waypoint->longitude_i, imperial, range,

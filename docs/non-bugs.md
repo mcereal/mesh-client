@@ -132,11 +132,16 @@ only a consequence of one of them, and neither is a thing a test could pin.
   halves are corrections: a node dropped from the radio's database still passes `signal_heard()`,
   and a radio can carry a stale `is_favorite` no press here can clear. `ui_nav_nodes_filter`,
   `node_detail_signal_heard`.
-- **The list has *two* rows before its first node, and nothing may subtract a literal.** A row
-  becomes a node through `mesh_ui_node_filter_at()` rather than by indexing the roster: under a
-  filter an off-by-one is a *plausible* node, so X pins somebody else's radio and nothing on the
-  frame looks wrong. `ui_nav_nodes_filter_steps_and_renumbers_the_rows`.
-- **A filter that keeps nothing keeps the two rows above it.** The chip that emptied the list is
+- **The list has `MESH_UI_NODES_LEAD_ROWS` rows before its first node, and nothing may subtract a
+  literal.** A row becomes a node through `mesh_ui_node_view_at()` rather than by indexing the
+  roster: under a filter or a sort an off-by-one is a *plausible* node, so X pins somebody else's
+  radio and nothing on the frame looks wrong. `ui_nav_nodes_filter_steps_and_renumbers_the_rows`,
+  `ui_nav_nodes_sort_steps_and_renumbers_the_rows`.
+- **A sort permutes the rows the filter kept; it never selects among them.** `mesh_ui_nav_row_count()`
+  asks the filter alone, so a sort that dropped or duplicated a node would be a cursor walking off
+  the end of a list the screen says is longer.
+  `ui_nav_nodes_sort_permutes_but_never_selects`.
+- **A filter that keeps nothing keeps the lead rows above it.** The chip that emptied the list is
   on the first row, so falling through to `fb_draw_empty()` would take away the control that puts
   it back. `ui_nav_nodes_filter_that_keeps_nothing_keeps_its_own_rows`.
 - **`map_open` outlives a change of tab, and the key handler must still check `nav->screen`.** The

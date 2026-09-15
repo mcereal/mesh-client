@@ -1,0 +1,65 @@
+# The Nodes list's sort row: what order the rows the filter kept are in, under the chips that
+# decide which rows those are.
+#
+# Four things to watch, and the fourth is the one that would be a bug nobody could see.
+#
+#   - Two controls, two shapes. Three filters fit across the panel as chips at every glyph scale
+#     and five orders do not, so the order is the shape Settings gives an enum this size: a label
+#     saying which question it is, and the word it is set to. Two chip strips one above the other
+#     would have been two questions with nothing on the frame naming either.
+#   - The action bar names A per row. On the chips it reads "filter", on the row under them
+#     "sort", and on a node "open" - the keycap whose verb changes is named per row.
+#   - The heading's count does not move as the order steps. A filter changes how many rows there
+#     are and a sort does not, which is the difference the two rows exist to keep apart.
+#   - Under Distance the rows reorder. Under Distance with no fix of our own they cannot, and the
+#     value column says so rather than leaving a list that did not move under a word that says it
+#     did - the filter chips' failure one axis over.
+
+scene demo
+scale 4
+clock 2026-01-12 19:12
+config
+
+pin ECHO
+
+tab nodes
+hold 1600
+
+# Onto the sort row. The chips above stay on All, so everything that moves below is the order.
+key down
+hold 1400
+
+# Default -> Recent. The client's own ranking floats the pinned node and the people you talk to;
+# this is the plain question the phone apps open on, and the first row under the lead rows moves.
+key a
+hold 2200
+
+# Recent -> Name. The answer to the search this client is not going to have: a name you would
+# know on sight, at a place you can scroll to, with no keyboard to type it on.
+key a
+hold 2200
+
+# Name -> Distance. The one the chips genuinely cannot answer - "near me" is an ordering of all
+# of them rather than a kind of node - and the reason this row exists at all.
+key a
+hold 2400
+
+# The rows under it are still rows. The cursor walks off both controls into them and A opens the
+# node the row drew, which is the half that would look right while being wrong.
+key down 3
+hold 1200
+key a
+hold 1800
+key b
+hold 700
+
+# Distance -> Hops, the same question in mesh terms, which still works when nobody is sharing a
+# position at all.
+key up 3
+key a
+hold 2200
+
+# And round to the order the list has always been in, which is where a reader who never touches
+# this row stays.
+key a
+hold 2000

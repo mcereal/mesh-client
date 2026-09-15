@@ -414,10 +414,11 @@ scene can only reach a screen the device can reach. The one thing the harness ca
 a `mesh_ui_action` — pressing START in the keyboard raises `SEND_TEXT` and the store stops there,
 so `message out ...` is how a scene stands in for the echo.
 
-A scene that walks the **Nodes** list counts rows, not roster entries: row 0 is the Map, so a
-node's row is its index plus one, and a node detail's row numbers move with what that node
-reported. Both mistakes render a perfectly good picture of the wrong screen, which is the one
-failure a capture cannot report — so check the frames rather than the count.
+A scene that walks the **Nodes** list counts rows, not roster entries: the filter chips, the sort
+row and the Map are in front of the first node (`MESH_UI_NODES_LEAD_ROWS`), so a node's row is its
+index plus that, and a node detail's row numbers move with what that node reported. Both mistakes
+render a perfectly good picture of the wrong screen, which is the one failure a capture cannot
+report — so check the frames rather than the count.
 
 The listing stills in `.github/resources/screenshots` are scenes too, in
 `devtools/ui_capture/scenes/shots/`, each named for the file it writes. Each pins its clock,

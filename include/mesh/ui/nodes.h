@@ -1,6 +1,7 @@
 #pragma once
 
 #include "mesh/i18n/strings.h"
+#include "mesh/ui/store_handshake.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -97,24 +98,165 @@ bool mesh_ui_node_filter_matches(const struct mesh_ui_handshake_state *handshake
 uint32_t mesh_ui_node_filter_count(const struct mesh_ui_handshake_state *handshake,
                                    enum mesh_ui_node_filter filter);
 
-/*
- * The `index`-th node the filter keeps, or NULL past the end.
- *
- * The counterpart of mesh_ui_node_detail_at() and the only way a row becomes a node while a
- * filter is on. It walks rather than indexing because a filter is a predicate over a list that
- * is re-ranked on every publish: there is nothing to precompute that would not be stale by the
- * next frame.
- */
-const struct mesh_ui_node_summary *
-mesh_ui_node_filter_at(const struct mesh_ui_handshake_state *handshake,
-                       enum mesh_ui_node_filter filter, uint32_t index);
-
 /* The next filter along, wrapping. What A on the filter row does - the settings enum row's step,
    and the reason the chips need no second key. */
 enum mesh_ui_node_filter mesh_ui_node_filter_step(enum mesh_ui_node_filter filter, int delta);
 
 /* The chip's word. */
 enum mesh_str_id mesh_ui_node_filter_label(enum mesh_ui_node_filter filter);
+
+/*
+ * ---- the Nodes list's sort --------------------------------------------------------------------
+ *
+ * What order the rows the filter kept are drawn in - a second table beside the first, read by
+ * the same three files and for the same reason. An order the screen draws and an order the
+ * cursor indexes have to be one answer, or the row under the cursor is not the row the press
+ * opens.
+ *
+ * Why a sort as well as a filter, when the note above says sorting cannot answer what the chips
+ * answer. Both halves of that stand, because they are different questions. A filter answers
+ * "which kind of node", and no ordering will ever answer it; a sort answers "which of them is
+ * nearest, or newest, or called what", and no chip will ever answer that - a chip is a
+ * membership test, and every one of these is a comparison between two rows.
+ *
+ * Distance is the one that earns the axis on its own. A busy mesh is a hundred and twenty-eight
+ * names and the reader wants the four that are within walking distance; the client holds every
+ * one of those fixes and draws them on a map two rows down, and a list had no way of asking. The
+ * three chips cannot be taught to: "near me" is not a kind of node, it is an ordering of all of
+ * them, and a fourth chip for it would have to pick a radius the client has no business picking.
+ *
+ * Name is the second, and it is the answer to the search this client is not going to have. The
+ * note above rules a search out because a name you cannot spell cannot be typed on a d-pad -
+ * which is an objection to *typing*, not to looking. A to Z puts a name you would know on sight
+ * at a place you can scroll to, and costs no keyboard and no on-screen row.
+ *
+ * All of it is a lens on the published roster and not on the mesh. mesh_app_node_rank() cuts the
+ * roster to MESH_UI_MAX_HANDSHAKE_NODES before any of this runs, so "nearest" means nearest of
+ * what the client carries rather than nearest on the air. That is the same scope the filter has,
+ * and it is the reason the cut is a *rank* rather than a sort: the rank decides who is worth
+ * ordering, and these decide how to read the ones that were.
+ */
+enum mesh_ui_node_sort {
+    /*
+     * The order the app published, which is mesh_app_node_rank(): ourselves, then the nodes we
+     * pinned, then our other radios, then whoever we have exchanged messages with, then the rest
+     * by last heard.
+     *
+     * First, and the resting value, because it is the list as it has always been - a reader who
+     * never presses this row sees exactly what they saw before it existed. It is also the only
+     * member here that is not a question about one field: it is the client's whole opinion of
+     * what matters, and it is the opinion the 128-node cut was already made with.
+     */
+    MESH_UI_NODE_SORT_DEFAULT = 0,
+    /*
+     * Last heard, newest first - the phone apps' default, and the one thing the ranking above
+     * deliberately will not say. A pin floats a quiet node over one that spoke a second ago,
+     * which is the whole point of a pin and the whole problem with it when the question is who
+     * is awake right now.
+     *
+     * A node with no `last_heard` sorts to the end rather than to the top: 0 there is "the
+     * roster has never heard this one speak", not a timestamp in 1970.
+     */
+    MESH_UI_NODE_SORT_HEARD,
+    /*
+     * By name, A to Z, folding ASCII case.
+     *
+     * The name compared is the one the row *draws first* - the short name, falling back to the
+     * long one - and that is worth stating because the row draws both. A list sorted on a column
+     * it is not showing is a list that looks unsorted, and the short name is the four cells at
+     * the left edge that the eye runs down. A node that has said neither sorts to the end, for
+     * the reason an unheard node does: it has not answered the question, so it cannot be placed
+     * by the answer.
+     *
+     * ASCII case only, which is what strcasecmp folds. Accented and non-Latin names therefore
+     * sort by their bytes rather than by the reader's alphabet - a real limitation, honestly a
+     * small one on a roster of four-character radio names, and the alternative is a collation
+     * table this client has no room for.
+     */
+    MESH_UI_NODE_SORT_NAME,
+    /*
+     * Nearest first, great-circle, from our own fix to theirs.
+     *
+     * Two fixes are needed and either can be missing, so most of this sort is the answer to
+     * "cannot say": a node we cannot measure keeps its published order, below everything we
+     * can. With no fix of our own *nothing* can be measured, and the list is the published order
+     * under a row saying Distance - which is honest and looks broken, so the row says the rest
+     * of it in its own value column: see MESH_STR_NODES_SORT_NO_FIX.
+     */
+    MESH_UI_NODE_SORT_DISTANCE,
+    /*
+     * Fewest hops first: how far away a node is in mesh terms rather than in metres, and the
+     * reading that still works when nobody is sharing a position.
+     *
+     * `has_hops_away` and not `hops_away == 0`, which is the same trap the Direct chip is
+     * written against: an unset field is the firmware declining to say, and a sort that read it
+     * as zero would put every node nothing is known about at the top of a list of near ones.
+     * Those go to the end, in their published order.
+     */
+    MESH_UI_NODE_SORT_HOPS,
+    MESH_UI_NODE_SORT_COUNT,
+};
+
+/*
+ * The list, once: which of the published roster the filter kept, in the order the sort puts it.
+ *
+ * A built view rather than a walk per row, and the reason is the distance sort. Every other
+ * question here is a field comparison, but a great-circle distance is a haversine - two sines, a
+ * square root and an atan2 - and a comparison sort asks its key for every pair it considers. Ask
+ * per comparison and a 128-row list spends thousands of them on a frame that draws eight rows;
+ * ask once per node and it spends 128. That is the shape src/ui/waypoints.c settled on for the
+ * same reason, and it is the only reason this is a struct rather than another index-th-element
+ * function beside mesh_ui_node_filter_at() - which it replaces, because two ways to turn a row
+ * into a node is exactly how the cursor and the list come to disagree.
+ *
+ * `order` holds indices into handshake->nodes, so a view outlives nothing: it is built from a
+ * handshake and used with the same one, in the same frame or the same press.
+ */
+struct mesh_ui_node_view {
+    uint8_t order[MESH_UI_MAX_HANDSHAKE_NODES];
+    uint32_t count;
+};
+
+/*
+ * Fills `out` with the rows this filter and this sort produce. A NULL handshake, and a filter or
+ * sort this enum has never held, are all answered rather than refused - `nav.node_filter` and
+ * `nav.node_sort` are bytes restored from a file, and the failure a reader can act on is a strip
+ * that has come back to its first chip, not a list that is empty for a reason nothing on the
+ * frame can say.
+ */
+void mesh_ui_node_view_build(const struct mesh_ui_handshake_state *handshake,
+                             enum mesh_ui_node_filter filter, enum mesh_ui_node_sort sort,
+                             struct mesh_ui_node_view *out);
+
+/*
+ * The `index`-th row of a built view, or NULL past the end.
+ *
+ * The counterpart of mesh_ui_node_detail_at(), and the only way a row becomes a node while the
+ * list is on screen: mesh_ui_nav_node_at_row() and the renderer both come through here, so the
+ * node a row drew and the node its press opens cannot be two different nodes.
+ */
+const struct mesh_ui_node_summary *
+mesh_ui_node_view_at(const struct mesh_ui_handshake_state *handshake,
+                     const struct mesh_ui_node_view *view, uint32_t index);
+
+/* The next sort along, wrapping. What A on the sort row does, the way A on the filter row steps
+   the chips above it. */
+enum mesh_ui_node_sort mesh_ui_node_sort_step(enum mesh_ui_node_sort sort, int delta);
+
+/* The chip's word. */
+enum mesh_str_id mesh_ui_node_sort_label(enum mesh_ui_node_sort sort);
+
+/*
+ * Whether this sort can say anything about this roster - false only for Distance with no fix of
+ * our own to measure from.
+ *
+ * Its own question rather than something the renderer works out, because the renderer is not
+ * allowed to know what a sort needs: the row draws a word and something else answers whether the
+ * word is telling the truth. It is the same shape as the map row asking
+ * mesh_ui_map_has_markers() before it claims to open anything.
+ */
+bool mesh_ui_node_sort_available(const struct mesh_ui_handshake_state *handshake,
+                                 enum mesh_ui_node_sort sort);
 
 #ifdef __cplusplus
 }

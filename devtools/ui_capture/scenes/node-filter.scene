@@ -37,7 +37,7 @@ hold 2200
 # The rows under it are still rows: the cursor walks off the strip into them and A opens a node
 # exactly as it does with no filter on. This is the half that is a picture of a bug if it is
 # wrong - a filtered row that opened the roster's node rather than the row's would look right.
-key down 3
+key down 4
 hold 1200
 key a
 hold 1800
@@ -46,7 +46,7 @@ hold 700
 
 # Direct -> Pinned. The star in the marker gutter is the same fact this chip filters on, which
 # is why the chip is called what X is called.
-key up 3
+key up 4
 key a
 hold 2200
 

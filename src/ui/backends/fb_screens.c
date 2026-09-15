@@ -1422,9 +1422,17 @@ static void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
      * reached from the other end.
      */
     const enum mesh_ui_node_filter filter = (enum mesh_ui_node_filter)nav->node_filter;
+    const enum mesh_ui_node_sort sort = (enum mesh_ui_node_sort)nav->node_sort;
     const uint32_t held =
         hs->node_count > MESH_UI_MAX_HANDSHAKE_NODES ? MESH_UI_MAX_HANDSHAKE_NODES : hs->node_count;
-    const uint32_t count = mesh_ui_node_filter_count(hs, filter);
+    /*
+     * The list, built once for this frame: the rows the filter kept, in the order the sort puts
+     * them. Every row below is read out of it rather than walked for, so the node a row draws
+     * and the node mesh_ui_nav_node_at_row() opens are the same node by construction.
+     */
+    struct mesh_ui_node_view view_rows;
+    mesh_ui_node_view_build(hs, filter, sort, &view_rows);
+    const uint32_t count = view_rows.count;
     char title[96];
     /* Counted from the rows this screen is about to draw, so the two numbers are always in the
        same scope: the session roster holds twice what the UI carries, and a title reading
@@ -1467,18 +1475,38 @@ static void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
     struct mesh_ui_store view;
     mesh_ui_store_view(snapshot, &view);
     /*
-     * The filter row and the map row on the front of the list, and then the nodes the filter
-     * kept. The count is the same arithmetic mesh_ui_nav_row_count() does, and it is written out
-     * here rather than shared because the nav's answer already carries the empty-roster case
-     * this branch cannot reach.
+     * The filter row, the sort row and the map row on the front of the list, and then the nodes
+     * the filter kept in the order the sort put them. The count is the same arithmetic
+     * mesh_ui_nav_row_count() does, and it is written out here rather than shared because the
+     * nav's answer already carries the empty-roster case this branch cannot reach.
      *
-     * A filter that keeps nothing still draws its two lead rows and then says so on the row
-     * where the first node would be - so the strip that emptied the list is still on the frame,
-     * and the press that puts it back is one A away. The extra row is the *note's*, not a node's:
+     * A filter that keeps nothing still draws its lead rows and then says so on the row where
+     * the first node would be - so the strip that emptied the list is still on the frame, and
+     * the press that puts it back is one A away. The extra row is the *note's*, not a node's:
      * mesh_ui_nav_row_count() does not count it and the cursor cannot reach it, exactly as the
      * empty states elsewhere are not rows.
      */
     const bool nothing_matched = (count == 0U);
+    /*
+     * A sort that cannot measure anything says so in its own value column, and nowhere else.
+     *
+     * A distance sort with no fix of our own leaves the list in the order it was published in,
+     * and a row reading "Distance" over a list that did not move is the control and the rows
+     * disagreeing about one fact - the failure the Direct chip's note is written against,
+     * arriving from the other side. It is said where the reader just pressed, in the column that
+     * already says what the sort is set to, because the two alternatives are both worse: a row
+     * of its own past the lead rows is a row the nav does not count and the cursor cannot reach,
+     * which is only safe when there are no node rows to draw under it, and a supporting line
+     * that appears with the state would change the height of the row the cursor is standing on.
+     */
+    const bool sort_unavailable = !mesh_ui_node_sort_available(hs, sort);
+    char sort_value[40];
+    if (sort_unavailable) {
+        mesh_str_format(sort_value, sizeof sort_value, MESH_STR_NODES_SORT_NO_FIX,
+                        mesh_str(mesh_ui_node_sort_label(sort)));
+    } else {
+        mesh_str_copy(sort_value, sizeof sort_value, mesh_str(mesh_ui_node_sort_label(sort)));
+    }
     const uint32_t rows = count + MESH_UI_NODES_LEAD_ROWS + (nothing_matched ? 1U : 0U);
     /*
      * Every row here is two steps - a name and the line under it - except the strip, which is
@@ -1493,7 +1521,7 @@ static void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
      */
     uint8_t node_heights[MESH_UI_MAX_HANDSHAKE_NODES + MESH_UI_NODES_LEAD_ROWS + 1U];
     for (uint32_t r = 0; r < rows && r < (uint32_t)(sizeof node_heights); ++r) {
-        node_heights[r] = (r == MESH_UI_NODES_FILTER_ROW) ? 1U : 2U;
+        node_heights[r] = (r == MESH_UI_NODES_FILTER_ROW || r == MESH_UI_NODES_SORT_ROW) ? 1U : 2U;
     }
     struct fb_list list =
         fb_list_begin_heights(layout, rows, nav->cursor[MESH_UI_SCREEN_NODES], node_heights);
@@ -1516,6 +1544,26 @@ static void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
             .label = mesh_str(mesh_ui_node_filter_label((enum mesh_ui_node_filter)f)),
         };
     }
+    /*
+     * The sort is a label and the word it is set to, not a second strip of chips - which is the
+     * one place the two rows deliberately do not match, and it is a measurement rather than a
+     * preference.
+     *
+     * Five chips do not fit. fb_chip_strip_fit() answers a strip that is too wide by dropping
+     * every label but the chosen one and then dropping them all, which is right for the
+     * navigation bar because a tab that loses its word still has its icon - and wrong here,
+     * because a filter chip carries no icon but the check on the chosen one. The strip came out
+     * as one word with four invisible pills in front of it at the glyph scales somebody chooses
+     * because they cannot read the small ones, which is a control disappearing at exactly the
+     * setting it is most needed. Three short words fit at every scale, which is why the row
+     * above it is still chips.
+     *
+     * So it is the shape the Settings tab already gives an enum this size, and for the reason
+     * stated there: "a set nobody can take in at a glance is better read one at a time". A
+     * label as well, which the strip could not carry - two chip rows one above the other are two
+     * questions with nothing on the frame naming either.
+     */
+    const size_t sort_label_cols = fb_field_label_cols(state, layout, 6U);
     struct mesh_ui_line line;
     char right[32];
     char age[8];
@@ -1543,6 +1591,18 @@ static void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
                           (size_t)filter);
             continue;
         }
+        if (i == MESH_UI_NODES_SORT_ROW) {
+            const struct fb_list_item sort_row = {
+                .label = mesh_str(MESH_STR_NODES_SORT_ROW),
+                .label_cols = sort_label_cols,
+                /* The order, and what it could not do - never dim, whatever it says. On this
+                   list a dim row is one that cannot be pressed, and this one always can: the
+                   press steps on to a sort that works. */
+                .value = sort_value,
+            };
+            fb_list_item(state, &list, i, &sort_row);
+            continue;
+        }
         if (nothing_matched && i > MESH_UI_NODES_MAP_ROW) {
             /* The row that is not a row: what the filter did, where the nodes would be. Dim
                because it is not something to press - the same tone the map row takes when it
@@ -1564,11 +1624,11 @@ static void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
             fb_list_item(state, &list, i, &map_row);
             continue;
         }
-        /* Through the filter, never by subtracting from the raw roster: the row-to-node
-           mapping is mesh_ui_nav_node_at_row()'s question and this is the same answer, so the
-           node the cursor opens and the node this row drew cannot be two different nodes. */
+        /* Through the view, never by subtracting from the raw roster: the row-to-node mapping
+           is mesh_ui_nav_node_at_row()'s question and this is the same answer, so the node the
+           cursor opens and the node this row drew cannot be two different nodes. */
         const struct mesh_ui_node_summary *node =
-            mesh_ui_node_filter_at(hs, filter, i - MESH_UI_NODES_LEAD_ROWS);
+            mesh_ui_node_view_at(hs, &view_rows, i - MESH_UI_NODES_LEAD_ROWS);
         if (node == NULL) {
             continue;
         }
