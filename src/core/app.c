@@ -760,6 +760,25 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
             mesh_log_warn("app", "Handshake cache path truncated; disabling cache");
             app->ui_handshake_cache_path[0] = '\0';
         }
+
+        /*
+         * The transcript, in a directory beside the cache rather than in it.
+         *
+         * A failure here is logged and otherwise ignored, exactly as the crash reporter's is: a
+         * client that cannot keep history is still a client, and the live view comes from the
+         * transport ring either way.
+         */
+        char archive_dir[sizeof app->ui_preferences_path + 16];
+        const int archive_written =
+            snprintf(archive_dir, sizeof archive_dir, "%s.messages", app->ui_preferences_path);
+        if (archive_written > 0 && archive_written < (int)sizeof archive_dir) {
+            const int archive_result = mesh_ui_archive_init(&app->ui_archive, archive_dir);
+            if (archive_result < 0) {
+                mesh_log_warn("app", "Message archive unavailable: %d", archive_result);
+            }
+        } else {
+            mesh_log_warn("app", "Message archive path truncated; disabling the transcript");
+        }
     }
 
     result = mesh_ui_store_init(&app->ui_store);
@@ -779,6 +798,18 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
     /* Keep the restored conversation aside: every publish merges it back in, so an empty
        transport log at startup never overwrites it. */
     app->ui_messages_cached = app->ui_store.messages;
+    /*
+     * And into the archive, for the conversations that have no file yet.
+     *
+     * This is the upgrade path and it only ever runs once per conversation: a card coming from
+     * a build without an archive has 64 messages in the handshake cache and nothing else, and
+     * without this their transcript would begin at the moment of the upgrade rather than
+     * carrying what the client already knew. A conversation that has a file is untouched.
+     */
+    const int seeded = mesh_ui_archive_seed(&app->ui_archive, &app->ui_messages_cached);
+    if (seeded > 0) {
+        mesh_log_info("app", "Seeded the message archive with %d restored message(s)", seeded);
+    }
     /* Restored read marks are already on disk; only later ones need a save. */
     app->ui_read_state_revision = app->ui_store.read_state.revision;
 

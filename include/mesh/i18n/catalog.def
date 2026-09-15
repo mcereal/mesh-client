@@ -495,7 +495,11 @@ MESH_STR_ENTRY(COMPOSE_DRAFT_EMPTY,       "[ Type a message ]")
    message rather than the conversation. One word - it is a capsule, not a sentence. */
 MESH_STR_ENTRY(COMPOSE_BADGE_REPLY,       "reply")
 /* The tapback picker's heading: %s is the message being reacted to, elided to fit. */
-MESH_STR_ENTRY(REACT_TO,                  "React to: %s")
+/* The bubble sheet's heading. Not "React to", because the sheet also deletes: it names the
+   message the verbs below are about and lets the rows say what each one does. */
+MESH_STR_ENTRY(MESSAGE_ACTIONS,           "Message: %s")
+MESH_STR_ENTRY(MESSAGE_DELETE,            "Delete message")
+MESH_STR_ENTRY(MESSAGE_DELETE_CONFIRM,    "Delete message - press again")
 MESH_STR_ENTRY(PICKER_TITLE,              "Send to")
 MESH_STR_ENTRY(PICKER_EMPTY,              "No channels or nodes known yet.")
 
@@ -1330,17 +1334,21 @@ MESH_STR_ENTRY(HELP_NOTE_MESSAGES_MUTE,   "START stops a conversation interrupti
 MESH_STR_ENTRY(HELP_LABEL_THREAD_MARKS,   "The mark on a message")
 MESH_STR_ENTRY(HELP_LABEL_THREAD_REPLY,   "Replies and tapbacks")
 MESH_STR_ENTRY(HELP_LABEL_THREAD_ALL,     "The all-traffic view")
+MESH_STR_ENTRY(HELP_LABEL_THREAD_HISTORY, "How far back it goes")
 MESH_STR_ENTRY(HELP_LABEL_THREAD_RESEND,  "Sending it again")
 MESH_STR_ENTRY(HELP_NOTE_THREAD,          "What was said here, oldest at the top. Your own messages sit on the right; a padlock means the channel was encrypted, and the hop count is how far the message travelled.")
+MESH_STR_ENTRY(HELP_NOTE_THREAD_HISTORY,  "This conversation is kept on the card and goes back further than the radio does - scroll up for older messages. Each conversation has its own store, so a busy channel never pushes a quiet one out.")
 MESH_STR_ENTRY(HELP_NOTE_THREAD_MARKS,    "A clock means the radio is still waiting to hear that a message arrived, a double tick that a node confirmed it, an alert that it did not. A broadcast asks for no answer and carries no mark.")
-MESH_STR_ENTRY(HELP_NOTE_THREAD_REPLY,    "A answers the message under the cursor and X puts an emoji on it; Y writes to the conversation instead. A reply stays aimed at the message you pressed on, however far the transcript moves underneath.")
+MESH_STR_ENTRY(HELP_NOTE_THREAD_REPLY,    "A answers the message under the cursor and X opens what else can be done with it; Y writes to the conversation. A reply stays aimed at the message you pressed on, however far the transcript moves.")
 MESH_STR_ENTRY(HELP_NOTE_THREAD_ALL,      "The top row of the list is every message the radio heard, whoever it was for. There is nobody to reply to in it, so it offers no reply and no tapback - open the conversation itself for those.")
 MESH_STR_ENTRY(HELP_NOTE_THREAD_RESEND,   "A message marked undelivered can go out again: START sends the same words to the same place as a new message. The one that failed stays where it is, because it is part of what happened here.")
 
-/* Messages: the tapback picker. */
+/* Messages: the bubble sheet. */
 MESH_STR_ENTRY(HELP_LABEL_REACTION_SEND,  "What it costs")
+MESH_STR_ENTRY(HELP_LABEL_REACTION_DELETE, "Deleting a message")
 MESH_STR_ENTRY(HELP_NOTE_REACTION,        "A tapback is an emoji aimed at one message. It draws as a chip on the message it names rather than as a bubble of its own, so it answers without taking a line of the conversation.")
 MESH_STR_ENTRY(HELP_NOTE_REACTION_SEND,   "One small packet, sent without asking to be acknowledged - so it earns no delivery mark and costs the mesh no retry. The set is fixed so that every client can draw what you sent.")
+MESH_STR_ENTRY(HELP_NOTE_REACTION_DELETE, "The last row throws this message away, and it takes two presses. It removes your copy only - the mesh cannot recall a message, so everyone who heard it still has it. Tapbacks on it go with it.")
 
 /* Nodes. */
 MESH_STR_ENTRY(HELP_LABEL_NODES_FILTER,   "The filter row")
@@ -2623,6 +2631,8 @@ MESH_STR_ENTRY(TOAST_VERIFY_BUSY,         "Already verifying that node")
 MESH_STR_ENTRY(TOAST_VERIFY_FAILED,       "Verification failed (%d)")
 MESH_STR_PLURAL_ENTRY(TOAST_DELETED_MESSAGES, "Deleted %u message from %.16s", "Deleted %u messages from %.16s")
 MESH_STR_ENTRY(TOAST_NOTHING_TO_DELETE,   "Nothing to delete in %.20s")
+MESH_STR_ENTRY(TOAST_MESSAGE_DELETED,     "Message deleted")
+MESH_STR_ENTRY(TOAST_MESSAGE_NOT_FOUND,   "That message has already gone")
 MESH_STR_ENTRY(TOAST_TRACING,             "Tracing route to %.20s")
 MESH_STR_ENTRY(TOAST_TRACE_RUNNING,       "A traceroute is already running")
 MESH_STR_ENTRY(TOAST_CANNOT_TRACE,        "Cannot trace a route to this node")

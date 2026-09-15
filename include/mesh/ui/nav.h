@@ -1,6 +1,9 @@
 #pragma once
 
 #include "mesh/map/viewport.h"
+/* For struct mesh_ui_message_view, which the transcript's filter takes by value: the nav has
+   to see its definition, and the record header names nothing here, so this is not a cycle. */
+#include "mesh/ui/store_message.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -11,7 +14,6 @@ extern "C" {
 #endif
 
 struct mesh_ui_store;
-struct mesh_ui_message_list;
 
 /*
  * Logical buttons. Backends and the input layer translate from whatever the hardware reports
@@ -276,11 +278,22 @@ struct mesh_ui_nav {
      * message to the conversation is not an answer to the last thing said in it.
      */
     uint32_t reply_to;
-    /* The tapback picker over the open thread: one emoji per row, sent as a reaction about
-       `reply_to`. Its own overlay rather than a row in the compose sheet because it is not a
-       message - it never opens the keyboard and it never takes the draft. */
+    /*
+     * The sheet over the open thread that holds the verbs about one bubble: the fixed emoji
+     * set, each sent as a reaction about `reply_to`, and the delete on the end.
+     *
+     * Its own overlay rather than a row in the compose sheet because none of it is a message -
+     * it never opens the keyboard and it never takes the draft. It is where the delete lives
+     * because X in a thread already means "the bubble under the cursor", and the thread's four
+     * face buttons are already spoken for; a fifth verb on a fourth key would have been a
+     * keycap that does nothing on most rows.
+     */
     bool reaction_open;
     uint32_t reaction_cursor;
+    /* The delete row has been pressed once. A second press on it carries the delete out, and
+       anything else stands it back down - the conversation list's X does exactly this, and a
+       press that throws messages away should cost the same two presses wherever it is. */
+    bool message_delete_armed;
     /*
      * A retry has been raised and no other press has happened since, so START is spent.
      *
@@ -689,6 +702,21 @@ enum mesh_ui_action_type {
        conversation back on the next publish. */
     MESH_UI_ACTION_DELETE_CONVERSATION,
     /*
+     * Throws away one message: `number` is its packet id, `dest` and `channel` name the
+     * conversation it sits in the way the delete above names one.
+     *
+     * The app owns it for the conversation delete's reason and one more of its own: a message
+     * lives in four places once there is a transcript on the card, and the card's copy is the
+     * one that outlives a restart. Purely local, like everything else here - Meshtastic has no
+     * retraction, so this deletes our record of a message and nothing anybody else holds.
+     *
+     * A packet id rather than a row, because the four places store the log in four different
+     * orders and an index into one of them names nothing in the others. A message with no id
+     * therefore cannot be deleted - and cannot be reacted to either, so the sheet that offers
+     * both never opens on one.
+     */
+    MESH_UI_ACTION_DELETE_MESSAGE,
+    /*
      * Stops one conversation interrupting the user: `number` is the enum
      * mesh_ui_conversation_kind, `dest` the peer for a direct one and `channel` the slot for a
      * channel, exactly as the delete above names one.
@@ -893,11 +921,29 @@ bool mesh_ui_nav_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_store *stor
 uint32_t mesh_ui_nav_row_count(const struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                                enum mesh_ui_screen screen);
 
-/* Indices into `messages` that belong to the conversation the nav is showing, oldest first.
-   Returns how many were written (at most `capacity`). */
+/*
+ * Indices into `messages` that belong to the conversation the nav is showing, oldest first.
+ * Returns how many were written (at most `capacity`).
+ *
+ * A view rather than a list, because the transcript is drawn from whichever of the two the
+ * store says is the right one - the flat 64 the radio still has, or the deeper window the card
+ * filled for the open conversation. Callers get the view from
+ * mesh_ui_store_message_view()/mesh_ui_snapshot_message_view() and index back into
+ * `view.entries` with what this writes, so `capacity` and the caller's array are sized for
+ * MESH_UI_MAX_THREAD_MESSAGES rather than for the flat list.
+ */
 uint32_t mesh_ui_nav_filter_messages(const struct mesh_ui_nav *nav,
-                                     const struct mesh_ui_message_list *messages,
-                                     uint32_t *out_indices, uint32_t capacity);
+                                     struct mesh_ui_message_view messages, uint32_t *out_indices,
+                                     uint32_t capacity);
+
+/*
+ * The bubble under the cursor in the open thread, or NULL when the cursor is not on one.
+ *
+ * The seam every per-bubble verb asks through - the resend below, and the delete that has to
+ * name a packet id - so the press and the keycap that offers it read the same row.
+ */
+const struct mesh_ui_message *mesh_ui_nav_message_at_cursor(const struct mesh_ui_nav *nav,
+                                                            struct mesh_ui_message_view messages);
 
 /*
  * The bubble under the cursor in the open thread when it is one this client sent and the mesh
@@ -912,7 +958,7 @@ uint32_t mesh_ui_nav_filter_messages(const struct mesh_ui_nav *nav,
  * frame for a pointer comparison.
  */
 const struct mesh_ui_message *mesh_ui_nav_resendable(const struct mesh_ui_nav *nav,
-                                                     const struct mesh_ui_message_list *messages);
+                                                     struct mesh_ui_message_view messages);
 
 /* Human name for the open thread: "All traffic", "#LongFast", "BRVO", or "Messages" when the
    conversation list is showing. */
@@ -1038,8 +1084,15 @@ void mesh_ui_nav_target_avatar(const struct mesh_ui_store *store, uint32_t node,
 #define MESH_UI_COMPOSE_FIRST_CANNED 1U
 uint32_t mesh_ui_nav_compose_row_count(void);
 
-/* Tapback picker rows: one per emoji in the fixed set (include/mesh/ui/reactions.h). */
+/*
+ * Rows on the bubble sheet: one per emoji in the fixed set (include/mesh/ui/reactions.h), plus
+ * the delete on the end.
+ */
 uint32_t mesh_ui_nav_reaction_row_count(void);
+
+/* Whether that row is the delete rather than one of the emoji. The renderer asks it to draw an
+   icon instead of a glyph, and the action bar asks it to name A. */
+bool mesh_ui_nav_reaction_row_is_delete(uint32_t index);
 
 /* Keyboard legend for the backends. Character rows return the glyph at that cell (a NUL for an
    unused cell); the action row is described by mesh_ui_kb_action_label(). */

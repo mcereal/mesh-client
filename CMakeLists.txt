@@ -119,6 +119,7 @@ add_library(meshclient_core
     src/ui/delivery.c
     src/ui/duration.c
     src/ui/anim.c
+    src/ui/store_archive.c
     src/ui/store.c
     src/ui/store_fields.c
     src/ui/store_file.c

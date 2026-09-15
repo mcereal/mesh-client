@@ -17,9 +17,29 @@
 extern "C" {
 #endif
 
-/* Newest messages carried to the backends. Matches the transport ring so a per-conversation
-   view has the same history the radio gave us; the Brick shows a screenful at a time. */
+/*
+ * Newest messages carried to the backends, across every conversation at once. Matches the
+ * transport ring, which is what it is a view of: the conversation list and the all-traffic
+ * transcript are derived from this one flat list, so it is sized for "what the radio still
+ * has" rather than for "what the user has ever been told".
+ *
+ * It is deliberately *not* how deep a single conversation goes. A busy channel will fill all
+ * 64 slots inside an hour and evict a direct exchange the reader cares about, which is why the
+ * card keeps a log per conversation (mesh/ui/store_archive.h) and an open thread is drawn from
+ * the window below rather than from here.
+ */
 #define MESH_UI_MAX_MESSAGES 64U
+
+/*
+ * How far back one open conversation reads.
+ *
+ * Four times the flat list, and the number that decides what the transcript's scrollback is
+ * worth: the archive on the card holds more than this, and this is what is paid for in RAM and
+ * in the snapshot copy every publish makes. Raising it costs
+ * MESH_UI_MAX_THREAD_MESSAGES * sizeof(struct mesh_ui_message) twice over - once in the store,
+ * once in the snapshot - so it is a number to change with docs/performance.md open.
+ */
+#define MESH_UI_MAX_THREAD_MESSAGES 256U
 /*
  * The waypoint book's own capacity and upstream's two string limits, restated on this side of
  * the seam - as MESH_UI_MESSAGE_TEXT_MAX already restates the message payload's.
@@ -124,6 +144,66 @@ struct mesh_ui_message_list {
     uint32_t dropped; /* older messages the transport ring has already discarded */
 };
 
+/*
+ * One conversation, read back off the card and as deep as the archive could fill.
+ *
+ * The flat list above is what the *radio* still has; this is what the *client* remembers about
+ * one exchange, and the two are filled from different places - the transport ring and
+ * mesh/ui/store_archive.h respectively. It exists because they answer different questions: the
+ * conversation list wants the newest line of every conversation, and an open thread wants every
+ * line of one, and sizing a single list for the second was a screenful of RAM spent on the
+ * first.
+ *
+ * `kind`, `node` and `channel` name the conversation the entries belong to, spelled the way
+ * mesh_ui_nav_conversation_at() names one, and they are what makes the window safe to leave
+ * filled: a window over the conversation the reader has just left is a window that must not be
+ * drawn, and the nav's target is the only thing that can say so. Nothing here is persisted
+ * separately - the card's copy *is* the archive.
+ */
+struct mesh_ui_thread {
+    struct mesh_ui_message entries[MESH_UI_MAX_THREAD_MESSAGES];
+    uint32_t count;
+    /* Records the archive held and this window had no room for. What the title says is older
+       than the top of the transcript, as mesh_ui_message_list::dropped does for the flat list. */
+    uint32_t dropped;
+    uint8_t kind; /* enum mesh_ui_conversation_kind: CHANNEL or DIRECT */
+    uint8_t channel;
+    uint32_t node;
+    /* False until something has filled it. A zeroed window is not a window over channel 0. */
+    bool valid;
+};
+
+/*
+ * A borrowed run of messages in transcript order, so one filter serves both lists above.
+ *
+ * mesh_ui_nav_filter_messages() used to take a `struct mesh_ui_message_list *` and clamp
+ * against MESH_UI_MAX_MESSAGES, which is exactly the assumption the thread window breaks. A
+ * view rather than a second copy of the filter, because the two lists differ only in how many
+ * entries they carry - and a view rather than a bigger list, because the conversation screen
+ * must go on costing what it costs.
+ *
+ * Borrowed: valid only for as long as the list or window it was taken from, which for every
+ * caller here is the frame being drawn.
+ */
+struct mesh_ui_message_view {
+    const struct mesh_ui_message *entries;
+    uint32_t count;
+    /*
+     * Messages older than `entries[0]` that this view cannot reach, so the transcript's title can
+     * say there is more behind the top of it.
+     *
+     * Carried on the view rather than read off whichever list the caller thinks is in use,
+     * because the two count different things and only the view knows which applies: the flat
+     * list's is what the *transport ring* evicted, and the window's is what the *archive* held
+     * and the window had no room for. Since the archive keeps what the ring evicts, reporting
+     * the ring's number over a window would promise older messages that are in fact on screen.
+     */
+    uint32_t dropped;
+};
+
+struct mesh_ui_message_view mesh_ui_message_list_view(const struct mesh_ui_message_list *list);
+struct mesh_ui_message_view mesh_ui_thread_view(const struct mesh_ui_thread *thread);
+
 /* Enough for every channel slot plus the peers anyone realistically keeps in view; the oldest
    mark is evicted once they are all taken. */
 #define MESH_UI_READ_MARKS_MAX 32U
@@ -203,6 +283,46 @@ void mesh_ui_message_list_merge(const struct mesh_ui_message_list *cached,
  */
 uint32_t mesh_ui_message_list_forget(struct mesh_ui_message_list *list, uint8_t kind, uint32_t node,
                                      uint8_t channel);
+
+/*
+ * Drops the one message carrying `packet_id` from the conversation named by (kind, node,
+ * channel), along with every reaction there that named it as a target. Returns how many entries
+ * went.
+ *
+ * The conversation is part of the key rather than context, and for the reason
+ * mesh_ui_message_list_forget() takes one: a packet id only has to be unique per sender for a
+ * few minutes, so `packet_id` alone can name a message in a conversation the user was not
+ * looking at just as well as the bubble they pressed on.
+ *
+ * The reactions go with it because a reaction is drawn on the bubble it belongs to and has no
+ * bubble of its own (see `is_reaction`): left behind, they would be rows the transcript filters
+ * out of every screen and the cache goes on carrying for good.
+ *
+ * A packet id of 0 removes nothing. It is upstream's "no id", so it names no single message -
+ * and a message restored from a cache written before ids were kept has one, which is why this
+ * cannot fall back to matching on anything else.
+ */
+uint32_t mesh_ui_message_list_forget_message(struct mesh_ui_message_list *list, uint8_t kind,
+                                             uint32_t node, uint8_t channel, uint32_t packet_id);
+
+/*
+ * Folds this session's messages into a window read off the card, in place.
+ *
+ * The window is what the archive had when the conversation was opened; `live` is the flat list
+ * the transport ring keeps refreshing. Only the messages belonging to the window's own
+ * conversation are taken, so the caller hands over the whole list rather than filtering first.
+ *
+ * A message whose packet id the window already holds replaces that entry where it sits: it is
+ * the same message, and what has changed about it since the card was written is its delivery
+ * state, which is exactly what a bubble draws a tick for. Anything else is appended, and once
+ * the window is full the oldest goes and `dropped` counts it.
+ *
+ * This is what makes the deep window live rather than a photograph. Without it, a thread opened
+ * and left open would go on showing what the file held while messages arrived behind it - the
+ * window is drawn *instead* of the flat list, so an unmerged one hides the very traffic the
+ * reader is sitting there waiting for.
+ */
+void mesh_ui_thread_merge(struct mesh_ui_thread *thread, const struct mesh_ui_message_list *live);
 
 #ifdef __cplusplus
 }

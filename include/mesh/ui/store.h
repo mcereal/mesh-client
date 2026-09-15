@@ -71,6 +71,12 @@ struct mesh_ui_snapshot {
     struct mesh_ui_handshake_state handshake;
     bool handshake_valid;
     struct mesh_ui_message_list messages;
+    /*
+     * The open conversation, read as deep as the card could fill it. Drawn instead of
+     * `messages` while it is a window over the conversation the nav has open - see
+     * mesh_ui_store_message_view(), which is the only thing any screen should ask.
+     */
+    struct mesh_ui_thread thread;
     /* The places the mesh has shared. Not persisted: see mesh_ui_store_set_waypoints(). */
     struct mesh_ui_waypoint_list waypoints;
     /* Which conversations have been read, so the list can badge the ones that have not. */
@@ -114,6 +120,7 @@ struct mesh_ui_store {
     struct mesh_ui_handshake_state handshake;
     bool handshake_valid;
     struct mesh_ui_message_list messages;
+    struct mesh_ui_thread thread;
     struct mesh_ui_waypoint_list waypoints;
     struct mesh_ui_read_state read_state;
     char transport_status[MESH_UI_TRANSPORT_STATUS_MAX];
@@ -166,6 +173,34 @@ void mesh_ui_store_set_network_host(struct mesh_ui_store *store, const char *hos
 void mesh_ui_store_set_messages(struct mesh_ui_store *store,
                                 const struct mesh_ui_message_list *messages);
 /*
+ * Replaces the open conversation's window; quiet when nothing changed. NULL empties it, which
+ * is how the app says the reader has left the thread.
+ *
+ * Filled by the app from the archive on the card (mesh/ui/store_archive.h) rather than from
+ * anything the radio said, which is why it is a setter of its own and not part of
+ * mesh_ui_store_set_messages(): the flat list turns over whenever traffic arrives, and this
+ * turns over when the reader opens a different conversation.
+ */
+void mesh_ui_store_set_thread(struct mesh_ui_store *store, const struct mesh_ui_thread *thread);
+
+/*
+ * The messages the screen in front of the reader should draw.
+ *
+ * Every screen asks this rather than reaching for either list, and that is the whole of what
+ * keeps the deep window honest: it answers with the window only when the window is over the
+ * conversation `nav` has open, and with the flat list otherwise. See the definition for the
+ * three cases the flat list is the right answer to.
+ *
+ * The nav is passed rather than taken off the store because they come apart: mesh_ui_store_view()
+ * builds a store with none, and its callers hold the real one. NULL falls back to the store's.
+ */
+struct mesh_ui_message_view mesh_ui_store_message_view(const struct mesh_ui_store *store,
+                                                       const struct mesh_ui_nav *nav);
+
+/* The same answer, asked of the record a backend holds. See mesh_ui_store_view() for why a
+   snapshot cannot simply be turned into a store and asked the question above. */
+struct mesh_ui_message_view mesh_ui_snapshot_message_view(const struct mesh_ui_snapshot *snapshot);
+/*
  * Replaces the shared-places view; quiet when nothing changed.
  *
  * Deliberately not persisted with the roster, and the reason is the one the history file
@@ -199,6 +234,20 @@ void mesh_ui_store_set_verification(struct mesh_ui_store *store,
  */
 uint32_t mesh_ui_store_forget_conversation(struct mesh_ui_store *store, uint8_t kind, uint32_t node,
                                            uint8_t channel);
+
+/*
+ * One message, out of both lists and out of the open window, with its reactions.
+ *
+ * Named by its conversation as well as its packet id, because an id is only unique per sender -
+ * see mesh_ui_message_list_forget_message(), which this is the store's half of.
+ *
+ * The same warning the conversation delete carries applies here and for the same reason: this
+ * is only the UI's copy, and a delete that does not also reach the transport's ring and the
+ * history read back at startup is undone by the next publish. MESH_UI_ACTION_DELETE_MESSAGE is
+ * what reaches all three.
+ */
+uint32_t mesh_ui_store_forget_message(struct mesh_ui_store *store, uint8_t kind, uint32_t node,
+                                      uint8_t channel, uint32_t packet_id);
 
 /* Navigation. A key press moves the cursor or switches tabs and, for A on an actionable row,
    fills *out_action for the caller to carry out (connect, send). Returns true when the frame

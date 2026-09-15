@@ -130,7 +130,7 @@ static void actions_messages(const struct mesh_ui_nav *nav, const struct mesh_ui
      * The nav is asked rather than the ack re-read here, so the press and the word naming it
      * come from one answer; on any row where this is absent, START goes on standing in for A.
      */
-    if (mesh_ui_nav_resendable(nav, &snapshot->messages) != NULL) {
+    if (mesh_ui_nav_resendable(nav, mesh_ui_snapshot_message_view(snapshot)) != NULL) {
         bar_add(bar, MESH_UI_BUTTON_START, MESH_STR_ACTION_RESEND);
     }
     bar_add_help(snapshot, bar);
@@ -706,10 +706,26 @@ void mesh_ui_actions_for(const struct mesh_ui_snapshot *snapshot, struct mesh_ui
         return;
     }
     if (nav->reaction_open) {
-        /* The compose sheet's two presses exactly: every row here sends, and B is the way out -
-           plus the one that says what an emoji on somebody's message actually does, which is the
-           question this overlay raises and cannot answer with a row of glyphs. */
-        bar_add(out, MESH_UI_BUTTON_A, MESH_STR_ACTION_SEND);
+        /*
+         * The compose sheet's two presses, plus the one that says what an emoji on somebody's
+         * message actually does - the question this overlay raises and cannot answer with a row
+         * of glyphs.
+         *
+         * A is named for the row the cursor is on rather than for the key, the way the
+         * conversation list's mute is: every emoji row sends and the last row deletes, and a
+         * bar that said "send" over the delete would be naming the commoner press instead of
+         * the one in front of the reader. The armed state takes over the whole bar, exactly as
+         * an armed conversation delete does, so the only two presses offered are the one that
+         * finishes it and the one that calls it off.
+         */
+        if (nav->message_delete_armed) {
+            bar_add(out, MESH_UI_BUTTON_A, MESH_STR_ACTION_CONFIRM_DELETE);
+            bar_add(out, MESH_UI_BUTTON_B, MESH_STR_ACTION_CANCEL);
+            return;
+        }
+        bar_add(out, MESH_UI_BUTTON_A,
+                mesh_ui_nav_reaction_row_is_delete(nav->reaction_cursor) ? MESH_STR_ACTION_DELETE
+                                                                         : MESH_STR_ACTION_SEND);
         bar_add(out, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
         bar_add_help(snapshot, out);
         return;

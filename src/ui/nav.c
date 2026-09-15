@@ -146,6 +146,7 @@ static bool mesh_ui_nav_close_thread(struct mesh_ui_nav *nav) {
     nav->messages_seen = 0U;
     nav->reply_to = 0U;
     nav->reaction_open = false;
+    nav->message_delete_armed = false;
     nav->resend_spent = false;
     nav->cursor[MESH_UI_SCREEN_MESSAGES] = nav->conversation_list_cursor;
     return true;
@@ -341,16 +342,14 @@ static bool mesh_ui_nav_message_matches(const struct mesh_ui_nav *nav,
 }
 
 uint32_t mesh_ui_nav_filter_messages(const struct mesh_ui_nav *nav,
-                                     const struct mesh_ui_message_list *messages,
-                                     uint32_t *out_indices, uint32_t capacity) {
-    if (nav == NULL || messages == NULL) {
+                                     struct mesh_ui_message_view messages, uint32_t *out_indices,
+                                     uint32_t capacity) {
+    if (nav == NULL || messages.entries == NULL) {
         return 0U;
     }
-    const uint32_t count =
-        messages->count > MESH_UI_MAX_MESSAGES ? MESH_UI_MAX_MESSAGES : messages->count;
     uint32_t written = 0U;
-    for (uint32_t i = 0; i < count; ++i) {
-        if (!mesh_ui_nav_message_matches(nav, &messages->entries[i])) {
+    for (uint32_t i = 0; i < messages.count; ++i) {
+        if (!mesh_ui_nav_message_matches(nav, &messages.entries[i])) {
             continue;
         }
         if (out_indices != NULL && written < capacity) {
@@ -361,9 +360,24 @@ uint32_t mesh_ui_nav_filter_messages(const struct mesh_ui_nav *nav,
     return written;
 }
 
+const struct mesh_ui_message *mesh_ui_nav_message_at_cursor(const struct mesh_ui_nav *nav,
+                                                            struct mesh_ui_message_view messages) {
+    if (nav == NULL || !nav->thread_open || messages.entries == NULL) {
+        return NULL;
+    }
+    uint32_t indices[MESH_UI_MAX_THREAD_MESSAGES];
+    const uint32_t count =
+        mesh_ui_nav_filter_messages(nav, messages, indices, MESH_UI_MAX_THREAD_MESSAGES);
+    const uint32_t cursor = nav->cursor[MESH_UI_SCREEN_MESSAGES];
+    if (cursor >= count) {
+        return NULL;
+    }
+    return &messages.entries[indices[cursor]];
+}
+
 const struct mesh_ui_message *mesh_ui_nav_resendable(const struct mesh_ui_nav *nav,
-                                                     const struct mesh_ui_message_list *messages) {
-    if (nav == NULL || messages == NULL || !nav->thread_open) {
+                                                     struct mesh_ui_message_view messages) {
+    if (nav == NULL || messages.entries == NULL || !nav->thread_open) {
         return NULL;
     }
     /* Already spent on this press - see the field. Answered here rather than at the two call
@@ -380,15 +394,9 @@ const struct mesh_ui_message *mesh_ui_nav_resendable(const struct mesh_ui_nav *n
     if (nav->inbox) {
         return NULL;
     }
-    uint32_t indices[MESH_UI_MAX_MESSAGES];
-    const uint32_t count =
-        mesh_ui_nav_filter_messages(nav, messages, indices, MESH_UI_MAX_MESSAGES);
-    const uint32_t cursor = nav->cursor[MESH_UI_SCREEN_MESSAGES];
-    if (cursor >= count) {
-        return NULL;
-    }
-    const struct mesh_ui_message *message = &messages->entries[indices[cursor]];
-    if (message->direction != MESH_MESSAGE_OUTBOUND || message->ack != MESH_MESSAGE_ACK_FAILED) {
+    const struct mesh_ui_message *message = mesh_ui_nav_message_at_cursor(nav, messages);
+    if (message == NULL || message->direction != MESH_MESSAGE_OUTBOUND ||
+        message->ack != MESH_MESSAGE_ACK_FAILED) {
         return NULL;
     }
     /*
@@ -472,7 +480,7 @@ uint32_t mesh_ui_nav_row_count(const struct mesh_ui_nav *nav, const struct mesh_
         if (nav == NULL || !nav->thread_open) {
             return mesh_ui_nav_conversation_count(store);
         }
-        return mesh_ui_nav_filter_messages(nav, &store->messages, NULL, 0U);
+        return mesh_ui_nav_filter_messages(nav, mesh_ui_store_message_view(store, nav), NULL, 0U);
     case MESH_UI_SCREEN_NODES: {
         if (!store->handshake_valid) {
             return 0U;
@@ -934,7 +942,13 @@ static bool mesh_ui_nav_send_canned(struct mesh_ui_nav *nav, struct mesh_ui_acti
 
 /* ---- the tapback picker -------------------------------------------------------------------- */
 
-uint32_t mesh_ui_nav_reaction_row_count(void) { return (uint32_t)mesh_ui_reaction_count(); }
+/* The emoji, then the delete. The delete is last because it is the only row that destroys
+   something, and a cursor that opens on row 0 should not open on it. */
+uint32_t mesh_ui_nav_reaction_row_count(void) { return (uint32_t)mesh_ui_reaction_count() + 1U; }
+
+bool mesh_ui_nav_reaction_row_is_delete(uint32_t index) {
+    return index == (uint32_t)mesh_ui_reaction_count();
+}
 
 /* X on a bubble: the emoji list, aimed at that message and at nothing else. */
 static bool mesh_ui_nav_open_reactions(struct mesh_ui_nav *nav, uint32_t packet_id) {
@@ -944,6 +958,31 @@ static bool mesh_ui_nav_open_reactions(struct mesh_ui_nav *nav, uint32_t packet_
     nav->reply_to = packet_id;
     nav->reaction_open = true;
     nav->reaction_cursor = 0U;
+    nav->message_delete_armed = false;
+    return true;
+}
+
+/* The delete row: arm on the first press, carry it out on the second. */
+static bool mesh_ui_nav_delete_message(struct mesh_ui_nav *nav, struct mesh_ui_action *action) {
+    if (nav->reply_to == 0U) {
+        return false;
+    }
+    if (!nav->message_delete_armed) {
+        nav->message_delete_armed = true;
+        return true;
+    }
+    if (action != NULL) {
+        action->type = MESH_UI_ACTION_DELETE_MESSAGE;
+        action->number = nav->reply_to;
+        action->dest = nav->target_node;
+        action->channel = nav->target_channel;
+    }
+    /* The sheet closes on the press rather than when the messages have gone, exactly as the
+       compose sheet does: what the delete found is the app's to report in a toast, and a sheet
+       left open over a thread that is about to lose a row is a cursor with nowhere to land. */
+    nav->message_delete_armed = false;
+    nav->reaction_open = false;
+    nav->reply_to = 0U;
     return true;
 }
 
@@ -963,6 +1002,7 @@ static bool mesh_ui_nav_send_reaction(struct mesh_ui_nav *nav, struct mesh_ui_ac
     }
     nav->reaction_open = false;
     nav->reply_to = 0U;
+    nav->message_delete_armed = false;
     return true;
 }
 
@@ -972,26 +1012,45 @@ static bool mesh_ui_nav_reaction_key(struct mesh_ui_nav *nav, enum mesh_ui_key k
     if (nav->reaction_cursor >= rows && rows > 0U) {
         nav->reaction_cursor = rows - 1U;
     }
+    /* Moving off the delete row stands it back down. An armed press has to be two presses on
+       one row, or scrolling past it and pressing A somewhere else would finish a delete the
+       user started somewhere they had already left. */
+    const bool on_delete = mesh_ui_nav_reaction_row_is_delete(nav->reaction_cursor);
+    if (!on_delete && nav->message_delete_armed) {
+        nav->message_delete_armed = false;
+    }
     switch (key) {
     case MESH_UI_KEY_UP:
         if (nav->reaction_cursor == 0U) {
             return false;
         }
         nav->reaction_cursor--;
+        nav->message_delete_armed = false;
         return true;
     case MESH_UI_KEY_DOWN:
         if (nav->reaction_cursor + 1U >= rows) {
             return false;
         }
         nav->reaction_cursor++;
+        nav->message_delete_armed = false;
         return true;
     case MESH_UI_KEY_A:
     case MESH_UI_KEY_START:
+        if (on_delete) {
+            return mesh_ui_nav_delete_message(nav, action);
+        }
         return mesh_ui_nav_send_reaction(nav, action, nav->reaction_cursor);
     case MESH_UI_KEY_B:
         /* B, and only B - the compose sheet is opened by A and closed by B, and an overlay
            that also answered the key that raised it would be the one place in this UI where
-           backing out is two different presses. */
+           backing out is two different presses.
+
+           An armed delete is stood down by the same press, which is also how the conversation
+           list's arming is cancelled: B means "not that" at every level it is offered. */
+        if (nav->message_delete_armed) {
+            nav->message_delete_armed = false;
+            return true;
+        }
         nav->reaction_open = false;
         nav->reply_to = 0U;
         return true;
@@ -1054,13 +1113,11 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
         if (!nav->thread_open) {
             return mesh_ui_nav_open_conversation(nav, store, cursor);
         }
-        uint32_t indices[MESH_UI_MAX_MESSAGES];
-        const uint32_t count =
-            mesh_ui_nav_filter_messages(nav, &store->messages, indices, MESH_UI_MAX_MESSAGES);
-        if (cursor >= count) {
+        const struct mesh_ui_message *message =
+            mesh_ui_nav_message_at_cursor(nav, mesh_ui_store_message_view(store, nav));
+        if (message == NULL) {
             return false;
         }
-        const struct mesh_ui_message *message = &store->messages.entries[indices[cursor]];
         if (nav->inbox) {
             /* All traffic is a view over several conversations: A drills into the one this
                line belongs to rather than guessing a destination. */
@@ -1930,7 +1987,8 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
             if (nav->resend_spent) {
                 return changed;
             }
-            const struct mesh_ui_message *failed = mesh_ui_nav_resendable(nav, &store->messages);
+            const struct mesh_ui_message *failed =
+                mesh_ui_nav_resendable(nav, mesh_ui_store_message_view(store, nav));
             if (failed != NULL) {
                 mesh_ui_nav_fill_resend(out_action, failed);
                 nav->resend_spent = true;
@@ -1971,16 +2029,12 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
             /* Inside a conversation X is the tapback, on the bubble under the cursor. Not in
                all-traffic: a reaction goes out on the conversation the target belongs to, and
                that view is several of them at once. */
-            uint32_t indices[MESH_UI_MAX_MESSAGES];
-            const uint32_t count =
-                mesh_ui_nav_filter_messages(nav, &store->messages, indices, MESH_UI_MAX_MESSAGES);
-            const uint32_t cursor = nav->cursor[nav->screen];
-            if (cursor >= count) {
+            const struct mesh_ui_message *message =
+                mesh_ui_nav_message_at_cursor(nav, mesh_ui_store_message_view(store, nav));
+            if (message == NULL) {
                 return changed;
             }
-            return mesh_ui_nav_open_reactions(nav,
-                                              store->messages.entries[indices[cursor]].packet_id) ||
-                   changed;
+            return mesh_ui_nav_open_reactions(nav, message->packet_id) || changed;
         }
         if (nav->screen == MESH_UI_SCREEN_DEVICES) {
             /* Only one radio is ever connected, so this does not depend on the row: it drops

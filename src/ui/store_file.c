@@ -207,6 +207,52 @@ static int mesh_ui_store_save_handshake(FILE *file,
     return 0;
 }
 
+/*
+ * One message, as the five lines both formats spell it.
+ *
+ * Shared with the archive (mesh/ui/store_archive.h) rather than written out twice, which is the
+ * same reason a key's text lives in store_keys.def: a record that meant one thing in the cache
+ * and another in a conversation's log would be two formats wearing one name. `index` groups the
+ * five lines and nothing else - the cache numbers its rows, the archive counts records within a
+ * run, and neither reading depends on the other.
+ */
+void mesh_ui_store_write_message(FILE *file, uint32_t index,
+                                 const struct mesh_ui_message *message) {
+    if (file == NULL || message == NULL) {
+        return;
+    }
+    mesh_ui_store_write_row(file, MESH_UI_STORE_KEY_MSG, index, "%u,%u,%u,%u,%u,%u,%u",
+                            message->packet_id, message->peer, message->rx_time,
+                            (unsigned)message->channel, (unsigned)message->direction,
+                            (unsigned)message->ack, message->broadcast ? 1U : 0U);
+
+    /* What the message *is*, as opposed to where it came from. On its own key rather than
+       widened onto msg[] for the reason the node detail's groups are: the loader matches
+       msg[] on an exact field count, so a build that predates this would drop the whole
+       message rather than the part it does not know.
+
+       Losing this line is not cosmetic. A reaction reloaded without `is_reaction` is a
+       bubble containing a bare emoji that also bumps the unread count - which is precisely
+       the behaviour reading Data.emoji was meant to end, returning at every restart. */
+    mesh_ui_store_write_row(file, MESH_UI_STORE_KEY_MSG_META, index, "%u,%u,%u,%u",
+                            (unsigned)message->kind, message->pki_encrypted ? 1U : 0U,
+                            message->reply_id, message->is_reaction ? 1U : 0U);
+
+    mesh_ui_store_write_row_text(file, MESH_UI_STORE_KEY_MSG_NAME, index, message->peer_name);
+    /* The relay's name, written only when there is one - it is absent from most messages on
+       most meshes, and an empty line each would be a third of the file.
+
+       The resolved name rather than MeshPacket.relay_node's byte, because that is what the
+       store holds: resolving needs the roster, and the roster the *next* run loads is the
+       one from the cache rather than the one that was in front of us when the packet
+       landed. A name written down is the route the message took; a byte re-resolved later
+       would be this run's guess at it. */
+    if (message->relay_name[0] != '\0') {
+        mesh_ui_store_write_row_text(file, MESH_UI_STORE_KEY_MSG_RELAY, index, message->relay_name);
+    }
+    mesh_ui_store_write_row_text(file, MESH_UI_STORE_KEY_MSG_TEXT, index, message->text);
+}
+
 static void mesh_ui_store_save_messages(FILE *file, const struct mesh_ui_message_list *messages) {
     if (file == NULL || messages == NULL) {
         return;
@@ -215,37 +261,7 @@ static void mesh_ui_store_save_messages(FILE *file, const struct mesh_ui_message
     mesh_ui_store_write(file, MESH_UI_STORE_KEY_MESSAGES, "%u,%u", messages->count,
                         messages->dropped);
     for (uint32_t i = 0; i < messages->count && i < MESH_UI_MAX_MESSAGES; ++i) {
-        const struct mesh_ui_message *message = &messages->entries[i];
-        mesh_ui_store_write_row(file, MESH_UI_STORE_KEY_MSG, i, "%u,%u,%u,%u,%u,%u,%u",
-                                message->packet_id, message->peer, message->rx_time,
-                                (unsigned)message->channel, (unsigned)message->direction,
-                                (unsigned)message->ack, message->broadcast ? 1U : 0U);
-
-        /* What the message *is*, as opposed to where it came from. On its own key rather than
-           widened onto msg[] for the reason the node detail's groups are: the loader matches
-           msg[] on an exact field count, so a build that predates this would drop the whole
-           message rather than the part it does not know.
-
-           Losing this line is not cosmetic. A reaction reloaded without `is_reaction` is a
-           bubble containing a bare emoji that also bumps the unread count - which is precisely
-           the behaviour reading Data.emoji was meant to end, returning at every restart. */
-        mesh_ui_store_write_row(file, MESH_UI_STORE_KEY_MSG_META, i, "%u,%u,%u,%u",
-                                (unsigned)message->kind, message->pki_encrypted ? 1U : 0U,
-                                message->reply_id, message->is_reaction ? 1U : 0U);
-
-        mesh_ui_store_write_row_text(file, MESH_UI_STORE_KEY_MSG_NAME, i, message->peer_name);
-        /* The relay's name, written only when there is one - it is absent from most messages on
-           most meshes, and an empty line each would be a third of the file.
-
-           The resolved name rather than MeshPacket.relay_node's byte, because that is what the
-           store holds: resolving needs the roster, and the roster the *next* run loads is the
-           one from the cache rather than the one that was in front of us when the packet
-           landed. A name written down is the route the message took; a byte re-resolved later
-           would be this run's guess at it. */
-        if (message->relay_name[0] != '\0') {
-            mesh_ui_store_write_row_text(file, MESH_UI_STORE_KEY_MSG_RELAY, i, message->relay_name);
-        }
-        mesh_ui_store_write_row_text(file, MESH_UI_STORE_KEY_MSG_TEXT, i, message->text);
+        mesh_ui_store_write_message(file, i, &messages->entries[i]);
     }
 }
 
@@ -918,6 +934,50 @@ static void load_message_text(struct mesh_ui_message *message, const char *value
     }
 }
 
+bool mesh_ui_store_key_is_message(enum mesh_ui_store_key key) {
+    switch (key) {
+    case MESH_UI_STORE_KEY_MSG:
+    case MESH_UI_STORE_KEY_MSG_META:
+    case MESH_UI_STORE_KEY_MSG_NAME:
+    case MESH_UI_STORE_KEY_MSG_RELAY:
+    case MESH_UI_STORE_KEY_MSG_TEXT:
+        return true;
+    default:
+        return false;
+    }
+}
+
+/*
+ * The mirror of mesh_ui_store_write_message(), one line at a time.
+ *
+ * A line at a time rather than a record at a time because neither caller has a whole record in
+ * hand: both are walking a file, and which lines a record turns out to have is only known when
+ * the next msg[] line arrives. The return says "this was the line that opens a record, and it
+ * read", which is the one thing a caller has to act on - the cache counts rows with it, the
+ * archive closes the previous record with it.
+ */
+bool mesh_ui_store_read_message_line(struct mesh_ui_message *message, enum mesh_ui_store_key key,
+                                     const char *value) {
+    switch (key) {
+    case MESH_UI_STORE_KEY_MSG:
+        return load_message(message, value);
+    case MESH_UI_STORE_KEY_MSG_META:
+        load_message_meta(message, value);
+        return false;
+    case MESH_UI_STORE_KEY_MSG_NAME:
+        load_message_name(message, value);
+        return false;
+    case MESH_UI_STORE_KEY_MSG_RELAY:
+        load_message_relay(message, value);
+        return false;
+    case MESH_UI_STORE_KEY_MSG_TEXT:
+        load_message_text(message, value);
+        return false;
+    default:
+        return false;
+    }
+}
+
 static void load_read_mark(struct mesh_ui_read_state *state, uint32_t index, const char *value) {
     if (index >= MESH_UI_READ_MARKS_MAX) {
         return;
@@ -972,7 +1032,8 @@ static void load_airtime(struct mesh_ui_store_cache *cache, uint32_t index, cons
 static void load_line(struct mesh_ui_store_cache *cache, const char *key, char *value) {
     uint32_t index = 0U;
     uint32_t slot = 0U;
-    switch (mesh_ui_store_key_lookup(key, &index, &slot)) {
+    const enum mesh_ui_store_key id = mesh_ui_store_key_lookup(key, &index, &slot);
+    switch (id) {
     case MESH_UI_STORE_KEY_HANDSHAKE_VALID:
         (void)cache_field(value, MESH_UI_STORE_FIELD(&cache->handshake_valid));
         break;
@@ -1069,23 +1130,18 @@ static void load_line(struct mesh_ui_store_cache *cache, const char *key, char *
     case MESH_UI_STORE_KEY_MESSAGES:
         load_messages_header(cache, value);
         break;
+    /* The five that make up a message, read through the codec the archive also reads: the
+       return is true only for the msg[] line that opens a record, which is the one that decides
+       how many rows this file actually carried. */
     case MESH_UI_STORE_KEY_MSG:
-        if (load_message(cache_message(cache, index), value) &&
+    case MESH_UI_STORE_KEY_MSG_META:
+    case MESH_UI_STORE_KEY_MSG_NAME:
+    case MESH_UI_STORE_KEY_MSG_RELAY:
+    case MESH_UI_STORE_KEY_MSG_TEXT:
+        if (mesh_ui_store_read_message_line(cache_message(cache, index), id, value) &&
             index + 1U > cache->messages_loaded) {
             cache->messages_loaded = index + 1U;
         }
-        break;
-    case MESH_UI_STORE_KEY_MSG_META:
-        load_message_meta(cache_message(cache, index), value);
-        break;
-    case MESH_UI_STORE_KEY_MSG_NAME:
-        load_message_name(cache_message(cache, index), value);
-        break;
-    case MESH_UI_STORE_KEY_MSG_RELAY:
-        load_message_relay(cache_message(cache, index), value);
-        break;
-    case MESH_UI_STORE_KEY_MSG_TEXT:
-        load_message_text(cache_message(cache, index), value);
         break;
 
     case MESH_UI_STORE_KEY_READ:

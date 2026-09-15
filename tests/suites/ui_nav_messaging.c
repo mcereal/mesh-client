@@ -744,8 +744,8 @@ MESH_TEST_CASE(ui_nav_channels_and_keyboard, unit) {
         goto cleanup;
     }
     uint32_t indices[MESH_UI_MAX_MESSAGES];
-    if (mesh_ui_nav_filter_messages(&store.nav, &store.messages, indices, MESH_UI_MAX_MESSAGES) !=
-            1U ||
+    if (mesh_ui_nav_filter_messages(&store.nav, mesh_ui_message_list_view(&store.messages), indices,
+                                    MESH_UI_MAX_MESSAGES) != 1U ||
         store.messages.entries[indices[0]].packet_id != 21U) {
         failure = "channel filter picked the wrong message";
         goto cleanup;
@@ -1008,7 +1008,8 @@ MESH_TEST_CASE(ui_nav_resend_repeats_a_failed_message, unit) {
         failure = "the test needs the cursor on our own failed message";
         goto cleanup;
     }
-    const struct mesh_ui_message *failed = mesh_ui_nav_resendable(&store.nav, &store.messages);
+    const struct mesh_ui_message *failed =
+        mesh_ui_nav_resendable(&store.nav, mesh_ui_message_list_view(&store.messages));
     if (failed == NULL || failed->packet_id != 13U) {
         failure = "the failed bubble under the cursor should be the one offered";
         goto cleanup;
@@ -1050,7 +1051,7 @@ MESH_TEST_CASE(ui_nav_resend_repeats_a_failed_message, unit) {
     memset(&action, 0, sizeof action);
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
     if (store.nav.cursor[MESH_UI_SCREEN_MESSAGES] != 0U ||
-        mesh_ui_nav_resendable(&store.nav, &store.messages) != NULL) {
+        mesh_ui_nav_resendable(&store.nav, mesh_ui_message_list_view(&store.messages)) != NULL) {
         failure = "a message we received is not one this client can send again";
         goto cleanup;
     }
@@ -1074,7 +1075,7 @@ MESH_TEST_CASE(ui_nav_resend_repeats_a_failed_message, unit) {
         goto cleanup;
     }
     store.nav.cursor[MESH_UI_SCREEN_MESSAGES] = 2U;
-    if (mesh_ui_nav_resendable(&store.nav, &store.messages) != NULL) {
+    if (mesh_ui_nav_resendable(&store.nav, mesh_ui_message_list_view(&store.messages)) != NULL) {
         failure = "all traffic should offer no retry";
         goto cleanup;
     }
@@ -1145,7 +1146,7 @@ MESH_TEST_CASE(ui_nav_resend_is_one_press_one_send, unit) {
         failure = "a held START should not send the same message twice";
         goto cleanup;
     }
-    if (mesh_ui_nav_resendable(&store.nav, &store.messages) != NULL) {
+    if (mesh_ui_nav_resendable(&store.nav, mesh_ui_message_list_view(&store.messages)) != NULL) {
         failure = "the bar should stop naming a press that is spent";
         goto cleanup;
     }
@@ -1247,8 +1248,8 @@ MESH_TEST_CASE(ui_nav_reactions_are_not_messages, unit) {
     nav.thread_open = true;
     nav.target_node = 0x3000U;
     uint32_t indices[MESH_UI_MAX_MESSAGES];
-    const uint32_t shown =
-        mesh_ui_nav_filter_messages(&nav, &store.messages, indices, MESH_UI_MAX_MESSAGES);
+    const uint32_t shown = mesh_ui_nav_filter_messages(
+        &nav, mesh_ui_message_list_view(&store.messages), indices, MESH_UI_MAX_MESSAGES);
     if (shown != 1U || store.messages.entries[indices[0]].packet_id != 12U) {
         failure = "the thread should show the message and neither of its reactions";
         goto cleanup;
@@ -1258,8 +1259,8 @@ MESH_TEST_CASE(ui_nav_reactions_are_not_messages, unit) {
     memset(&nav, 0, sizeof nav);
     nav.thread_open = true;
     nav.inbox = true;
-    const uint32_t all =
-        mesh_ui_nav_filter_messages(&nav, &store.messages, indices, MESH_UI_MAX_MESSAGES);
+    const uint32_t all = mesh_ui_nav_filter_messages(
+        &nav, mesh_ui_message_list_view(&store.messages), indices, MESH_UI_MAX_MESSAGES);
     if (all != 2U) {
         failure = "all-traffic should carry the two messages and neither reaction";
         goto cleanup;
@@ -1943,6 +1944,108 @@ MESH_TEST_CASE(ui_nav_unmuting_drops_a_mark_with_nothing_in_it, unit) {
     if (mesh_ui_store_conversation_read_mark(&store, (uint8_t)MESH_UI_CONVERSATION_DIRECT, 0x3000U,
                                              0U) != 12U) {
         failure = "the genuine read mark should have survived";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * The delete on the bubble sheet: the last row, two presses, and an action naming a packet id.
+ *
+ * A packet id rather than the row the cursor was on, because the four places a message lives
+ * store the log in four different orders - the transport's ring, the restored history, the
+ * store and the card - and an index into one of them names nothing in the others.
+ */
+MESH_TEST_CASE(ui_nav_delete_message, unit) {
+    const char *failure = NULL;
+
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    struct mesh_ui_action action;
+
+    /* Down twice to BRVO's conversation and open it. */
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (!store.nav.thread_open || store.nav.inbox) {
+        failure = "expected BRVO's thread to be open";
+        goto cleanup;
+    }
+
+    /* X on the bubble raises the sheet. */
+    memset(&action, 0, sizeof action);
+    if (!mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action) || !store.nav.reaction_open) {
+        failure = "X on a bubble should open the sheet of verbs about it";
+        goto cleanup;
+    }
+    const uint32_t packet_id = store.nav.reply_to;
+    if (packet_id == 0U) {
+        failure = "the sheet should be aimed at a message with an id";
+        goto cleanup;
+    }
+
+    /* The delete is the last row, so the cursor does not open on it. */
+    const uint32_t rows = mesh_ui_nav_reaction_row_count();
+    if (!mesh_ui_nav_reaction_row_is_delete(rows - 1U) ||
+        mesh_ui_nav_reaction_row_is_delete(store.nav.reaction_cursor)) {
+        failure = "the delete should be the last row and not the one under the cursor";
+        goto cleanup;
+    }
+    for (uint32_t i = store.nav.reaction_cursor; i + 1U < rows; ++i) {
+        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    }
+    if (!mesh_ui_nav_reaction_row_is_delete(store.nav.reaction_cursor)) {
+        failure = "the cursor should have reached the delete row";
+        goto cleanup;
+    }
+
+    /* One press arms and sends nothing - in particular, no reaction goes on the air. */
+    memset(&action, 0, sizeof action);
+    if (!mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action) ||
+        !store.nav.message_delete_armed || action.type != MESH_UI_ACTION_NONE) {
+        failure = "the first A should arm the delete and ask for nothing";
+        goto cleanup;
+    }
+
+    /* B stands it down without closing the sheet: B means "not that" at every level. */
+    memset(&action, 0, sizeof action);
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    if (store.nav.message_delete_armed || !store.nav.reaction_open) {
+        failure = "B should cancel the arming before it closes the sheet";
+        goto cleanup;
+    }
+
+    /* Arming and then moving off the row stands it down too, so a press somewhere else cannot
+       finish a delete that was started here. */
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    if (store.nav.message_delete_armed) {
+        failure = "moving off the delete row should stand it down";
+        goto cleanup;
+    }
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+
+    /* Arm, then carry it out. */
+    memset(&action, 0, sizeof action);
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    memset(&action, 0, sizeof action);
+    if (!mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action) ||
+        action.type != MESH_UI_ACTION_DELETE_MESSAGE) {
+        failure = "the second A should ask the app to delete the message";
+        goto cleanup;
+    }
+    if (action.number != packet_id || action.dest != 0x3000U) {
+        failure = "the action should name the packet and the conversation it sits in";
+        goto cleanup;
+    }
+    if (store.nav.reaction_open || store.nav.message_delete_armed) {
+        failure = "the sheet should close and the arming go with it";
         goto cleanup;
     }
 
