@@ -23,7 +23,7 @@
 #include <string.h>
 
 /*
- * Keyboard layers, one row of MESH_UI_KB_COLS cells each.
+ * The three ASCII layers, one row of MESH_UI_KB_COLS cells each.
  *
  * A fixed-width array rather than a row of pointers, and that is the invariant rather than a
  * formatting choice: the grid draws a key per column whatever the string holds, so a row one
@@ -31,34 +31,188 @@
  * does nothing this client refuses everywhere else. Declared this way the compiler rejects a
  * row too long for the grid, and a row too short is NUL-padded rather than read past its own
  * terminator; kb_layers_fill_the_grid is what catches the short one.
+ *
+ * The fourth layer is emoji and is a table of strings rather than of characters, below.
  */
-static const char k_kb_layers[MESH_UI_KB_LAYER_COUNT][MESH_UI_KB_CHAR_ROWS][MESH_UI_KB_COLS + 1U] =
+static const char k_kb_layers[MESH_UI_KB_ASCII_LAYERS][MESH_UI_KB_CHAR_ROWS][MESH_UI_KB_COLS + 1U] =
     {
         {"1234567890", "qwertyuiop", "asdfghjkl'", "zxcvbnm,.?"},
         {"1234567890", "QWERTYUIOP", "ASDFGHJKL\"", "ZXCVBNM!-:"},
-        /* The symbols layer's quotes-and-slashes row ends in '=' because it was nine cells
-           long and the tenth drew empty; '=' is the one piece of URL punctuation the rest of
-           the row does not already carry, and it was otherwise a layer away on the row above. */
-        {"!@#$%^&*()", "-_=+[]{}<>", ";:'\"/\\|`~=", ",.?!@#&%*+"},
+        /*
+         * The symbols layer, arranged by *errand* rather than by code point, because finding
+         * a character is the whole difficulty of a grid this size. The shifted number row first,
+         * where a hand expects it; brackets and arithmetic next; then the sentence punctuation,
+         * where `/` sits beside the comma and the full stop rather than between a backslash and a
+         * pipe - a topic and a URL are the two things anybody types here that need it, and it was
+         * the one character a user went looking for and gave up on.
+         *
+         * `'` and `"` are not on this layer and are not missing: they are the tenth cell of the
+         * lower and upper layers' home row, where a hand already knows to find them, and the two
+         * cells that buys are what `` ` `` and `~` are drawn in. Between the three layers every one
+         * of the thirty-two ASCII punctuation marks is reachable, which is what
+         * kb_reaches_every_printable_character holds.
+         *
+         * The digits repeat on the last row, the only repeat on the layer and the one that saves a
+         * press rather than spending one: an address, a port and an MQTT topic are digits and
+         * punctuation together, and every one of them used to cost a bounce through two layers per
+         * character. The row it replaced was ",.?!@#&%*+" - ten cells restating characters already
+         * one row above them, which is why the layer looked like it ended at the third.
+         */
+        {"!@#$%^&*()", "-_=+[]{}<>", ";:`~,.?/\\|", "1234567890"},
+};
+
+/*
+ * The emoji layer, three pages of forty.
+ *
+ * Meshtastic names are written by people and a good share of a real roster is emoji already -
+ * `User.short_name` is `char[5]`, which is exactly one - so the client could draw them long
+ * before it could type one. These are what it can now type.
+ *
+ * Written as `\U` escapes rather than pasted in, for the reason src/ui/reactions.c states about
+ * its own eight: an editor, a terminal or a patch tool that mangles non-ASCII cannot quietly
+ * change what this client puts on the air. At a hundred and twenty cells the escape also has to
+ * be *readable*, which the raw UTF-8 bytes are not - a code point names itself, and
+ * kb_emoji_cells_are_drawable is what checks that each one is a glyph this build actually has a
+ * sprite for rather than a box.
+ *
+ * Every cell is a single code point with no variation selector and no joiner, which is the same
+ * rule the tapbacks follow: a glyph spelled two ways is two different glyphs to anything
+ * counting them, and the one on the air should be the one the other client recognises.
+ */
+static const char *const k_kb_emoji[MESH_UI_KB_EMOJI_PAGES][MESH_UI_KB_CHAR_ROWS][MESH_UI_KB_COLS] =
+    {
+        /* Faces, hands, and what lives out there. */
+        {
+            /* grinning through smiling */
+            {"\U0001F600", "\U0001F603", "\U0001F604", "\U0001F601", "\U0001F606", "\U0001F605",
+             "\U0001F602", "\U0001F642", "\U0001F609", "\U0001F60A"},
+            /* fond, thinking, tired, upset */
+            {"\U0001F60D", "\U0001F618", "\U0001F61C", "\U0001F914", "\U0001F610", "\U0001F634",
+             "\U0001F60E", "\U0001F62D", "\U0001F622", "\U0001F631"},
+            /* cross, celebrating, unwell, then the hands */
+            {"\U0001F621", "\U0001F633", "\U0001F973", "\U0001F912", "\U0001F91D", "\U0001F44D",
+             "\U0001F44E", "\U0001F44B", "\U0001F44C", "\U0000270C"},
+            /* please, strength, watching, people and what lives out there */
+            {"\U0001F64F", "\U0001F4AA", "\U0001F440", "\U0001F9E0", "\U0001F464", "\U0001F46A",
+             "\U0001F415", "\U0001F43B", "\U0001F98C", "\U0001F40D"},
+        },
+        /* Marks, symbols and status. */
+        {
+            /* affection and occasions */
+            {"\U00002764", "\U0001F494", "\U0001F4AF", "\U00002728", "\U00002B50", "\U0001F525",
+             "\U0001F389", "\U0001F382", "\U0001F381", "\U0000262E"},
+            /* yes, no, careful, asking, and time */
+            {"\U00002705", "\U0000274C", "\U000026A0", "\U00002753", "\U00002757", "\U0000203C",
+             "\U00002795", "\U00002796", "\U000023F0", "\U0000231B"},
+            /* attention, places, and writing */
+            {"\U0001F514", "\U0001F515", "\U0001F4CC", "\U0001F4CD", "\U0001F4CE", "\U0001F4DD",
+             "\U0001F4D6", "\U0001F4AC", "\U0001F4E3", "\U0001F517"},
+            /* locks, eyes, power, and the two arrows */
+            {"\U0001F512", "\U0001F513", "\U0001F511", "\U0001F441", "\U0001F4A4", "\U0000267B",
+             "\U000026A1", "\U00002622", "\U00002B06", "\U00002B07"},
+        },
+        /* Outdoors, weather, travel and kit. */
+        {
+            /* the sky */
+            {"\U00002600", "\U000026C5", "\U00002601", "\U000026C8", "\U00002744", "\U0001F30A",
+             "\U0001F308", "\U0001F319", "\U0001F31E", "\U0001F30D"},
+            /* the ground, and finding your way over it */
+            {"\U000026F0", "\U0001F332", "\U0001F335", "\U0001F3DD", "\U0001F3D5", "\U0001F5FA",
+             "\U0001F9ED", "\U0001F6A9", "\U0001F6F6", "\U0001F3A3"},
+            /* getting there, and who comes when it goes wrong */
+            {"\U0001F697", "\U0001F68C", "\U0001F6B2", "\U0001F6FB", "\U0001F681", "\U0001F691",
+             "\U0001F692", "\U0001F46E", "\U0001F3E0", "\U0001F3E5"},
+            /* the kit, the call for help, and patching it up */
+            {"\U0001F4E1", "\U0001F50B", "\U0001F526", "\U0001F6E0", "\U0001F4FB", "\U0001F198",
+             "\U0001F6A8", "\U0001F50C", "\U0001F4DE", "\U0001FA79"},
+        },
 };
 
 char mesh_ui_kb_char(enum mesh_ui_kb_layer layer, unsigned row, unsigned col) {
-    if (layer >= MESH_UI_KB_LAYER_COUNT || row >= MESH_UI_KB_CHAR_ROWS || col >= MESH_UI_KB_COLS) {
+    if (layer >= MESH_UI_KB_ASCII_LAYERS || row >= MESH_UI_KB_CHAR_ROWS || col >= MESH_UI_KB_COLS) {
         return '\0';
     }
     return k_kb_layers[layer][row][col];
 }
 
+const char *mesh_ui_kb_cell(const struct mesh_ui_nav *nav, unsigned row, unsigned col,
+                            char scratch[MESH_UI_KB_CELL_MAX]) {
+    if (nav == NULL || scratch == NULL || row >= MESH_UI_KB_CHAR_ROWS || col >= MESH_UI_KB_COLS) {
+        return "";
+    }
+    if (nav->kb_layer == MESH_UI_KB_EMOJI) {
+        const unsigned page = nav->kb_emoji_page < MESH_UI_KB_EMOJI_PAGES ? nav->kb_emoji_page : 0U;
+        return k_kb_emoji[page][row][col];
+    }
+    scratch[0] = mesh_ui_kb_char((enum mesh_ui_kb_layer)nav->kb_layer, row, col);
+    scratch[1] = '\0';
+    return scratch;
+}
+
+/*
+ * Where the cursor is in the ring the layer key and the shoulders walk: the three ASCII layers
+ * are panels 0..2 and each page of emoji is a panel after them.
+ */
+static unsigned kb_panel_index(const struct mesh_ui_nav *nav) {
+    if (nav->kb_layer != MESH_UI_KB_EMOJI) {
+        return nav->kb_layer;
+    }
+    const unsigned page = nav->kb_emoji_page < MESH_UI_KB_EMOJI_PAGES ? nav->kb_emoji_page : 0U;
+    return (unsigned)MESH_UI_KB_EMOJI + page;
+}
+
+void mesh_ui_nav_kb_panel_step(struct mesh_ui_nav *nav, int delta) {
+    if (nav == NULL) {
+        return;
+    }
+    const int panels = (int)MESH_UI_KB_PANELS;
+    /* Modulo on a negative left operand keeps the sign in C, so the step is made positive
+       before it wraps rather than after: L1 from the first panel is the last one. */
+    int next = ((int)kb_panel_index(nav) + delta) % panels;
+    if (next < 0) {
+        next += panels;
+    }
+    if (next < (int)MESH_UI_KB_EMOJI) {
+        nav->kb_layer = (uint8_t)next;
+        nav->kb_emoji_page = 0U;
+        return;
+    }
+    nav->kb_layer = (uint8_t)MESH_UI_KB_EMOJI;
+    nav->kb_emoji_page = (uint8_t)(next - (int)MESH_UI_KB_EMOJI);
+}
+
+void mesh_ui_nav_kb_shift(struct mesh_ui_nav *nav) {
+    if (nav == NULL) {
+        return;
+    }
+    nav->kb_emoji_page = 0U;
+    nav->kb_layer =
+        (uint8_t)(nav->kb_layer == MESH_UI_KB_UPPER ? MESH_UI_KB_LOWER : MESH_UI_KB_UPPER);
+}
+
 const char *mesh_ui_kb_action_label(const struct mesh_ui_nav *nav, enum mesh_ui_kb_action action) {
     switch (action) {
     case MESH_UI_KB_ACTION_LAYER:
-        if (nav != NULL && nav->kb_layer == MESH_UI_KB_LOWER) {
+        /* The key names where it *goes*, which is the only thing about a layer key worth
+           drawing - and now that the ring has six panels the emoji pages have to name
+           themselves apart, or three presses in a row land on a key that says the same
+           thing. */
+        if (nav == NULL) {
+            return mesh_str(MESH_STR_KEY_LAYER_LOWER);
+        }
+        switch (nav->kb_layer) {
+        case MESH_UI_KB_LOWER:
             return mesh_str(MESH_STR_KEY_LAYER_UPPER);
-        }
-        if (nav != NULL && nav->kb_layer == MESH_UI_KB_UPPER) {
+        case MESH_UI_KB_UPPER:
             return mesh_str(MESH_STR_KEY_LAYER_SYMBOLS);
+        case MESH_UI_KB_SYMBOLS:
+            return mesh_str(MESH_STR_KEY_LAYER_EMOJI);
+        default:
+            break;
         }
-        return mesh_str(MESH_STR_KEY_LAYER_LOWER);
+        return nav->kb_emoji_page + 1U < MESH_UI_KB_EMOJI_PAGES
+                   ? mesh_str(MESH_STR_KEY_LAYER_EMOJI_MORE)
+                   : mesh_str(MESH_STR_KEY_LAYER_LOWER);
     case MESH_UI_KB_ACTION_SPACE:
         return mesh_str(MESH_STR_KEY_SPACE);
     case MESH_UI_KB_ACTION_DELETE:
@@ -130,6 +284,25 @@ static void mesh_ui_nav_draft_append(struct mesh_ui_nav *nav, char ch) {
     nav->draft[len + 1U] = '\0';
 }
 
+/*
+ * The same, for a keycap that is several bytes: an emoji cell.
+ *
+ * All of it or none of it. The cap is a byte count and an emoji is four of them, so appending
+ * as far as the cap would leave a truncated UTF-8 sequence in a field that is about to go to a
+ * radio - the one outcome worse than the character not fitting.
+ */
+static void mesh_ui_nav_draft_append_text(struct mesh_ui_nav *nav, const char *text) {
+    if (text == NULL || text[0] == '\0') {
+        return;
+    }
+    const size_t len = strlen(nav->draft);
+    const size_t add = strlen(text);
+    if (len + add + 1U > sizeof nav->draft || len + add > mesh_ui_nav_draft_cap(nav)) {
+        return;
+    }
+    memcpy(&nav->draft[len], text, add + 1U);
+}
+
 /* Removes one character. A name preloaded from the radio may hold UTF-8 the keyboard cannot
    type; deleting byte-wise would leave a broken sequence behind. */
 static bool mesh_ui_nav_draft_delete(struct mesh_ui_nav *nav) {
@@ -152,6 +325,7 @@ void mesh_ui_nav_keyboard_close(struct mesh_ui_nav *nav) {
     nav->kb_row = 0U;
     nav->kb_col = 0U;
     nav->kb_layer = MESH_UI_KB_LOWER;
+    nav->kb_emoji_page = 0U;
     if (nav->keyboard_passkey || nav->keyboard_verify) {
         nav->keyboard_passkey = false;
         nav->keyboard_verify = false;
@@ -251,6 +425,7 @@ void mesh_ui_nav_open_network_keyboard(struct mesh_ui_nav *nav, const char *host
     nav->kb_row = 0U;
     nav->kb_col = 0U;
     nav->kb_layer = MESH_UI_KB_LOWER;
+    nav->kb_emoji_page = 0U;
     nav->screen = MESH_UI_SCREEN_DEVICES;
 }
 
@@ -402,6 +577,7 @@ void mesh_ui_nav_open_channel_url_keyboard(struct mesh_ui_nav *nav) {
     nav->kb_row = 0U;
     nav->kb_col = 0U;
     nav->kb_layer = MESH_UI_KB_LOWER;
+    nav->kb_emoji_page = 0U;
     nav->screen = MESH_UI_SCREEN_SETTINGS;
 }
 
@@ -452,6 +628,7 @@ void mesh_ui_nav_open_contact_url_keyboard(struct mesh_ui_nav *nav) {
     nav->kb_row = 0U;
     nav->kb_col = 0U;
     nav->kb_layer = MESH_UI_KB_LOWER;
+    nav->kb_emoji_page = 0U;
     nav->screen = MESH_UI_SCREEN_SETTINGS;
 }
 
@@ -525,11 +702,14 @@ bool mesh_ui_nav_keyboard_key(struct mesh_ui_nav *nav, const struct mesh_ui_stor
     }
     case MESH_UI_KEY_A:
         if (nav->kb_row < MESH_UI_KB_CHAR_ROWS) {
-            const char ch =
-                mesh_ui_kb_char((enum mesh_ui_kb_layer)nav->kb_layer, nav->kb_row, nav->kb_col);
-            if (ch != '\0') {
-                mesh_ui_nav_draft_append(nav, ch);
-                /* One capital, then back to lower case, like a phone keyboard. */
+            char scratch[MESH_UI_KB_CELL_MAX];
+            const char *const cell = mesh_ui_kb_cell(nav, nav->kb_row, nav->kb_col, scratch);
+            if (cell[0] != '\0') {
+                mesh_ui_nav_draft_append_text(nav, cell);
+                /* One capital, then back to lower case, like a phone keyboard. The emoji layer
+                   deliberately does not do the same: a run of them is the normal way to use it,
+                   and a picker that closed itself after one would be a picker nobody uses
+                   twice. */
                 if (nav->kb_layer == MESH_UI_KB_UPPER) {
                     nav->kb_layer = MESH_UI_KB_LOWER;
                 }
@@ -538,7 +718,7 @@ bool mesh_ui_nav_keyboard_key(struct mesh_ui_nav *nav, const struct mesh_ui_stor
         }
         switch ((enum mesh_ui_kb_action)nav->kb_col) {
         case MESH_UI_KB_ACTION_LAYER:
-            nav->kb_layer = (uint8_t)((nav->kb_layer + 1U) % MESH_UI_KB_LAYER_COUNT);
+            mesh_ui_nav_kb_panel_step(nav, 1);
             return true;
         case MESH_UI_KB_ACTION_SPACE:
             mesh_ui_nav_draft_append(nav, ' ');
@@ -580,28 +760,43 @@ bool mesh_ui_nav_keyboard_key(struct mesh_ui_nav *nav, const struct mesh_ui_stor
             return false;
         }
     case MESH_UI_KEY_B:
-    case MESH_UI_KEY_L1:
-        /* Backspace; with nothing left to delete, B closes the keyboard and keeps nothing. */
-        if (mesh_ui_nav_draft_delete(nav)) {
-            return true;
+        /*
+         * Out of the keyboard, and that is all it does: B is back on every other screen in the
+         * client and was a backspace on this one, which is the press people stumble over -
+         * where every pad-driven keyboard they have used puts backspace on X and leaves B for
+         * leaving.
+         *
+         * What was typed survives, because backing out is not the same press as throwing away.
+         * A message keyboard hands its draft to the compose sheet's draft row; every other
+         * flavour is closing over a Compose draft that was parked when it opened, and giving
+         * that back is the same promise. The grid's own cancel key is what discards.
+         */
+        if (for_passkey) {
+            return mesh_ui_nav_cancel_passkey(nav, action);
         }
-        if (key == MESH_UI_KEY_B) {
-            if (for_passkey) {
-                return mesh_ui_nav_cancel_passkey(nav, action);
-            }
-            if (for_verify) {
-                return mesh_ui_nav_cancel_verify_number(nav, action);
-            }
-            mesh_ui_nav_keyboard_close(nav);
-            return true;
+        if (for_verify) {
+            /* Leaving this one *is* standing the ceremony down: somebody at the other end is
+               holding a number up, and a prompt closed quietly would leave them there. */
+            return mesh_ui_nav_cancel_verify_number(nav, action);
         }
-        return false;
-    case MESH_UI_KEY_X:
-        nav->kb_layer = (uint8_t)((nav->kb_layer + 1U) % MESH_UI_KB_LAYER_COUNT);
+        mesh_ui_nav_keyboard_close(nav);
         return true;
+    case MESH_UI_KEY_X:
+        /* Backspace, where a pad-driven keyboard puts it. */
+        return mesh_ui_nav_draft_delete(nav);
     case MESH_UI_KEY_Y:
-    case MESH_UI_KEY_R1:
         mesh_ui_nav_draft_append(nav, ' ');
+        return true;
+    case MESH_UI_KEY_L1:
+    case MESH_UI_KEY_R1:
+        /* The shoulders move between things everywhere else in the client, and a keyboard with
+           six panels is a thing to move between. They replace a backspace and a space that
+           duplicated B and Y, which is two buttons spent on presses the face already had. */
+        mesh_ui_nav_kb_panel_step(nav, key == MESH_UI_KEY_L1 ? -1 : 1);
+        return true;
+    case MESH_UI_KEY_L2:
+    case MESH_UI_KEY_R2:
+        mesh_ui_nav_kb_shift(nav);
         return true;
     case MESH_UI_KEY_START:
         if (for_passkey) {

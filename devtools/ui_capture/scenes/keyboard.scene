@@ -1,0 +1,68 @@
+# The on-screen keyboard: what each button does, and the four panels the layer key walks.
+#
+# The pad is the point here. B backs out of this screen the way it backs out of every other one
+# and X is the backspace, which is where a controller keyboard puts them; the two triggers the
+# case carries are the shift. The layer key at the bottom left steps the same ring the shoulders
+# do - abc, ABC, symbols, then a page of emoji at a time - which is how a `/` and a face are
+# both two presses from the letters rather than a hunt.
+
+scene demo
+scale 4
+delay 140
+
+tab messages
+hold 400
+
+# Into a conversation, then straight to the keyboard with Y.
+key down 4
+key a
+hold 600
+key y
+hold 700
+
+# Type "ok" on the lower layer.
+key down
+key right 8
+key a
+hold 300
+key down
+key left 7
+key a
+hold 700
+
+# X is the backspace: the "k" goes.
+key x
+hold 800
+
+# A trigger shifts for one character, exactly as it would on a phone.
+key r2
+hold 500
+key a
+hold 800
+
+# The shoulders step the panel ring. Once for the symbols layer, where the sentence punctuation
+# row now carries "/" beside the comma and the full stop - an MQTT topic and a URL are the two
+# things typed here that need it.
+key x
+key r1
+key r1
+hold 900
+key down 2
+key right 7
+key a
+hold 900
+
+# Once more for the emoji, which the client could draw on a node's name long before it could
+# type one. Three pages of forty, stepped by the same two buttons.
+key r1
+hold 900
+key a
+hold 600
+key r1
+hold 900
+key r1
+hold 900
+
+# B leaves, and what was typed comes back with it - the compose sheet's draft row is holding it.
+key b
+hold 1400

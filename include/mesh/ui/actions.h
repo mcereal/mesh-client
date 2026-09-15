@@ -61,6 +61,14 @@ enum mesh_ui_button {
     MESH_UI_BUTTON_SELECT,
     /* L1 and R1 together: "the shoulders", which only ever move between things. */
     MESH_UI_BUTTON_SHOULDERS,
+    /*
+     * L2 and R2 together, one entry for the shoulders' reason: the two never do different jobs.
+     *
+     * On the Brick they are not buttons at all - the pad reports them as absolute axes, with no
+     * BTN_ code in its key bitmap - which is why they went unread until the keyboard wanted a
+     * shift key that was not already spent on something else. See mesh_ui_input_map_trigger().
+     */
+    MESH_UI_BUTTON_TRIGGERS,
     MESH_UI_BUTTON_UP_DOWN,
     MESH_UI_BUTTON_LEFT_RIGHT,
     /*
@@ -86,9 +94,16 @@ const char *mesh_ui_button_cap(enum mesh_ui_button button);
 /*
  * The most a screen offers at once.
  *
- * Seven is one above the densest set here (the node detail's six), so reaching the cap means a
- * screen has grown a seventh thing to press rather than that the bar ran out of room - which is
- * a different problem, and the bar's own elision is what answers it.
+ * Seven was one above the densest set here (the node detail's six), so reaching the cap meant a
+ * screen had grown a seventh thing to press rather than that the bar had run out of room - which
+ * is a different problem, and the bar's own elision is what answers it.
+ *
+ * The keyboard is now that seventh, and it is at the cap rather than over it: type, send,
+ * delete, back, space, shift and the panel step are seven presses that all do something on that
+ * screen, and the one before this comment was written spent two of its buttons on presses the
+ * face already had. An eighth would be dropped silently by bar_add(), so a screen that wants one
+ * raises this number and checks that the bar still fits the panel - it is a cap on the *array*,
+ * not on what fits.
  */
 #define MESH_UI_ACTIONS_MAX 7U
 

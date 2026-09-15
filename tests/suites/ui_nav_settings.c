@@ -322,7 +322,7 @@ MESH_TEST_CASE(ui_nav_settings_edit, unit) {
         failure = "the draft must respect the field's byte cap";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action); /* delete -> OLD */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action); /* delete -> OLD */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action); /* '1' -> OLD1 */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
     if (store.nav.keyboard_open || store.nav.screen != MESH_UI_SCREEN_SETTINGS ||
@@ -499,21 +499,21 @@ MESH_TEST_CASE(ui_nav_channel_edit, unit) {
         failure = "A on the key should open the keyboard on the current key as base64";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action); /* 23 chars: not base64 */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action); /* 23 chars: not base64 */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
     if (!store.nav.keyboard_open || store.nav.settings_edit_count != 0U) {
         failure = "a truncated key should be refused and the keyboard stay open";
         goto cleanup;
     }
     /* Delete "w=" too, then type "a==": still 16 bytes, last byte different. 'a' is row 2
-       col 0 of the lower layer; '=' is row 1 col 2 of the symbol layer. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+       col 0 of the lower layer; '=' is row 1 col 2 of the symbol layer, two panels along. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_R1, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_R1, &action);
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);

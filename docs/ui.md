@@ -125,6 +125,13 @@ place — which cost a round of "the save does nothing" debugging, since Y saves
 and X refreshes it. `input_brick_face_buttons` pins all four. **Do not "fix" any of it back.**
 See [`device.md`](device.md#the-buttons).
 
+**L2 and R2 are absolute axes, not buttons.** The pad declares no `BTN_TL2`, so the two triggers
+on the case went unread until the keyboard wanted a shift key. `mesh_ui_input_map_trigger()` reads
+`ABS_Z`/`ABS_RZ` and a latch in `mesh_ui_input_handle_device_event()` turns a squeeze into one
+press — on this hardware a trigger is digital (255 down, 0 up), but the axis is an axis, and a pad
+that reported the way up as a ramp would otherwise be a press per value.
+`input_triggers_are_axes_and_press_on_the_edge`.
+
 **Key repeat is ours, not the kernel's.** Autorepeat is an EV_KEY/EV_REP feature and the d-pad
 arrives as the absolute axes `ABS_HAT0X/Y`, which send one event out of centre and one back
 however long they are held — so a 60-node roster used to cost 60 presses. `input.c` runs its own
@@ -136,6 +143,42 @@ dropped, so a USB keyboard cannot take two rows per step. A hold ends when any o
 pressed and when the device it started on goes away: an unplugged keyboard hangs up its fd
 instead of sending the key up, and a repeat with no release would scroll forever. Repeats reach
 the store one per event-loop turn and the store coalesces its repaints.
+
+### The on-screen keyboard
+
+One grid, opened for seven unrelated jobs (a message, a settings field, a waypoint's name, a
+network address, a channel link, a contact link, and the PIN and security-number prompts that can
+arrive on top of any of them). `src/ui/nav_keyboard.c` owns all of it;
+`mesh_ui_nav_keyboard_close()` is where "give the user back what they were doing" lives.
+
+**The pad is used the way a console keyboard uses it.** A types, **X** is the backspace, **B**
+leaves, **Y** is a space, START sends or finishes. That is not a preference: B goes back on every
+other screen in the client, and a keyboard whose backspace is that button is one people stumble
+over on every draft rather than once. B keeps the draft — the grid's own ✕ key is what discards —
+and on the two prompts a radio raised it stands the ceremony down, because leaving a question
+somebody is waiting on *is* answering it.
+
+**The layers are a ring of panels, not a layer with pages inside it.** `abc`, `ABC`, symbols, then
+one page of forty emoji at a time. `mesh_ui_nav_kb_panel_step()` walks it, and three things drive
+it: the grid's bottom-left key, `L1`/`R1`, and nothing else. `L2`/`R2` are the shift, which is one
+capital and then back — and lands on the lower layer from any panel, so it is never a key that
+does nothing. `kb_panel_ring_is_one_ring`.
+
+Two invariants hold the tables, because neither is visible in a rendered frame:
+
+- **Every cell carries a key** (`kb_layers_fill_the_grid`) — the grid draws a keycap per column
+  whatever the row holds, so a row written short is a blank key the cursor stops on and A does
+  nothing to.
+- **Every printable ASCII character is reachable** (`kb_reaches_every_printable_character`) — a
+  full grid says nothing about a character being *absent*, which is the failure a user actually
+  meets. It happened with `/`: present the whole time, wedged between a backslash and a pipe where
+  nobody thought to look. The symbols layer is now arranged by errand rather than by code point,
+  and the check is the floor under any future rearrangement.
+
+The emoji layer is `k_kb_emoji`, written as `\U` escapes so a patch tool cannot mangle it, and
+every cell is asserted to be a single glyph this build has a sprite for
+(`kb_emoji_cells_are_drawable`). Nothing new is needed to draw them: `fb_draw_text()` already
+walks cells rather than bytes, which is how a node named with one emoji renders.
 
 ## The framebuffer backend
 
@@ -452,7 +495,7 @@ a frame (`key ... 3` emits three). Worked examples are in `devtools/ui_capture/s
 | `scene demo\|empty` | which invented radio to start from. Setup only |
 | `scale N`, `theme NAME`, `delay MS` | glyph multiplier 2–6, palette, per-frame delay |
 | `clock YYYY-MM-DD HH:MM` | pin the wall clock, as local time. Setup only |
-| `tab NAME`, `key NAME [COUNT]` | walk Left/Right to a tab; press a key |
+| `tab NAME`, `key NAME [COUNT]` | walk Left/Right to a tab; press a key (`a`…`y`, `l1`/`r1`, `l2`/`r2`, `start`, `select`, directions) |
 | `hold MS` | lengthen the frame just emitted, and move the clock on |
 | `frame` | emit the current screen again |
 | `config` | a radio that has answered the config handshake |

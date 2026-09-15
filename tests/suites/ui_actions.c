@@ -382,18 +382,28 @@ MESH_TEST_CASE(actions_back_arrow_follows_the_verb_not_the_key, unit) {
     MESH_TEST_FAIL_IF(mesh_ui_action_bar_goes_back(&bar),
                       "B discards pending edits rather than leaving, so no arrow");
 
-    /* The two overlays where B is offered and is not a way back. */
+    /* The overlay where B is offered and is not a way back. */
     actions_snapshot(&snapshot);
     snapshot.nav.picker_open = true;
     mesh_ui_actions_for(&snapshot, &bar);
     MESH_TEST_FAIL_IF(mesh_ui_action_bar_goes_back(&bar),
                       "B cancels the picker, it does not go back");
 
+    /* The keyboard is the other way round now, and this is the assertion that turned over when
+       it changed: B was a backspace there and is a way out, so the arrow follows it. That is
+       the whole point of deriving the arrow from the verb rather than from the key - the bar
+       changed and the chrome came with it, with nothing to remember. */
     actions_snapshot(&snapshot);
     snapshot.nav.keyboard_open = true;
     mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(!mesh_ui_action_bar_goes_back(&bar), "B leaves the keyboard");
+
+    /* Except on the two prompts a radio raised, where leaving is cancelling something that is
+       waiting on an answer - and the bar says "cancel" rather than "back". */
+    snapshot.nav.keyboard_passkey = true;
+    mesh_ui_actions_for(&snapshot, &bar);
     MESH_TEST_FAIL_IF(mesh_ui_action_bar_goes_back(&bar),
-                      "B deletes a character on the keyboard, it does not go back");
+                      "B abandons the bond on the passkey prompt, it does not go back");
 
     record_success(test_name);
 }

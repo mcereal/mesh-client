@@ -291,6 +291,86 @@ cleanup:
     record_success(test_name);
 }
 
+/*
+ * L2 and R2, which are not buttons on this hardware.
+ *
+ * The Brick's pad impersonates an Xbox 360 controller and a 360's triggers are analogue: there
+ * is no BTN_TL2 in its key bitmap at all, so anything that went looking for one found nothing
+ * and the two buttons on the case went unread. They are ABS_Z and ABS_RZ, and this is the
+ * mapping that reads them.
+ *
+ * The edge is the assertion worth making. On this pad a trigger is digital - 255 down, 0 up -
+ * but it is declared as an axis, and a pad that reports the way up as a run of rising values
+ * would be one press of shift per value on the way to a single squeeze. It is also the reason
+ * the hat's own "value 0 is the release" cannot simply be reused: a trigger at rest and a d-pad
+ * at centre report the same 0, and only one of them is a key coming back up.
+ */
+MESH_TEST_CASE(input_triggers_are_axes_and_press_on_the_edge, unit) {
+    const char *failure = NULL;
+    unsetenv("MESHCLIENT_QUIT_KEYS");
+    mesh_ui_input_reload_quit_keys();
+
+    /* The pure mapping first, which is what the profile's codes are asserted by number for. */
+    MESH_TEST_FAIL_IF(mesh_ui_input_map_trigger(ABS_Z, 255) != MESH_UI_KEY_L2, "ABS_Z is L2");
+    MESH_TEST_FAIL_IF(mesh_ui_input_map_trigger(ABS_RZ, 255) != MESH_UI_KEY_R2, "ABS_RZ is R2");
+    MESH_TEST_FAIL_IF(mesh_ui_input_map_trigger(ABS_Z, 0) != MESH_UI_KEY_NONE,
+                      "a trigger at rest is not a press");
+    MESH_TEST_FAIL_IF(mesh_ui_input_map_trigger(ABS_HAT0X, 255) != MESH_UI_KEY_NONE,
+                      "the hat is not a trigger");
+    MESH_TEST_FAIL_IF(mesh_ui_input_map_key(ABS_Z) != MESH_UI_KEY_NONE,
+                      "a trigger must not be read as a key code as well");
+
+    struct test_key_capture capture;
+    memset(&capture, 0, sizeof capture);
+    struct mesh_ui_input input;
+    memset(&input, 0, sizeof input);
+    mesh_ui_input_set_handler(&input, test_capture_key, &capture);
+
+    /* One squeeze reported as a ramp is one press. */
+    mesh_ui_input_handle_event(&input, EV_ABS, ABS_Z, 40);
+    if (capture.count != 0U) {
+        failure = "a trigger below the press threshold is not a press";
+        goto cleanup;
+    }
+    mesh_ui_input_handle_event(&input, EV_ABS, ABS_Z, 200);
+    mesh_ui_input_handle_event(&input, EV_ABS, ABS_Z, 255);
+    if (capture.count != 1U || capture.keys[0] != MESH_UI_KEY_L2) {
+        failure = "a held trigger should emit once, not once per value";
+        goto cleanup;
+    }
+
+    /* Let go and squeeze again: a second press. */
+    mesh_ui_input_handle_event(&input, EV_ABS, ABS_Z, 0);
+    mesh_ui_input_handle_event(&input, EV_ABS, ABS_Z, 255);
+    if (capture.count != 2U || capture.keys[1] != MESH_UI_KEY_L2) {
+        failure = "releasing and squeezing again is a second press";
+        goto cleanup;
+    }
+
+    /* The two latch separately, and neither is a direction, so neither arms the hold repeat. */
+    mesh_ui_input_handle_event(&input, EV_ABS, ABS_RZ, 255);
+    if (capture.count != 3U || capture.keys[2] != MESH_UI_KEY_R2) {
+        failure = "R2 has a latch of its own";
+        goto cleanup;
+    }
+    if (mesh_ui_input_repeat_key(&input) != MESH_UI_KEY_NONE) {
+        failure = "a trigger is not a direction and must not repeat on hold";
+        goto cleanup;
+    }
+
+    /* And the hat still works beside them, which is the regression the shared EV_ABS branch
+       would otherwise be. */
+    mesh_ui_input_handle_event(&input, EV_ABS, ABS_HAT0Y, 1);
+    if (capture.count != 4U || capture.keys[3] != MESH_UI_KEY_DOWN) {
+        failure = "the hat should still report through the same branch";
+        goto cleanup;
+    }
+
+cleanup:
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
 /* Holding the d-pad has to scroll. The Brick reports the d-pad as ABS_HAT0X/Y, and an absolute
  * axis gets no kernel autorepeat however long it is held - one event out of centre, one back -
  * so walking a 60-node roster used to be 60 presses. The repeat is generated in the input layer

@@ -49,6 +49,12 @@ struct mesh_ui_input {
     uint16_t repeat_type;
     uint16_t repeat_code;
     unsigned int repeat_count;
+
+    /* Which triggers are held, one bit each (mesh_ui_input_trigger_bit). L2 and R2 arrive as
+       absolute axes rather than as buttons, so nothing in the event stream marks the edge: a
+       pad reporting the way up as a run of rising values would otherwise be one press per
+       value. A zeroed struct starts with both up, which is what they are. */
+    uint8_t triggers_down;
 };
 
 /* Never fails the caller: a host with no readable /dev/input (the dev container, CI) simply
@@ -91,6 +97,20 @@ void mesh_ui_input_repeat_tick(struct mesh_ui_input *input);
    the code has no meaning for the UI. */
 enum mesh_ui_key mesh_ui_input_map_key(uint16_t code);
 enum mesh_ui_key mesh_ui_input_map_hat(uint16_t code, int32_t value);
+
+/*
+ * The shoulder triggers, which this hardware reports as absolute axes: ABS_Z is L2 and ABS_RZ
+ * is R2, and neither has a BTN_ code to be read as at all. See the note in src/ui/input.c.
+ *
+ * `mesh_ui_input_map_trigger` answers with the key only for a value at or above the press
+ * threshold, so it is a press detector and not a state: the edge - and therefore the latch that
+ * stops a rising axis being several presses - belongs to mesh_ui_input_handle_device_event().
+ * All three are pure and public so the mapping is testable without a pad.
+ */
+#define MESH_UI_INPUT_TRIGGER_PRESS 128
+bool mesh_ui_input_axis_is_trigger(uint16_t code);
+uint8_t mesh_ui_input_trigger_bit(uint16_t code);
+enum mesh_ui_key mesh_ui_input_map_trigger(uint16_t code, int32_t value);
 
 /* True when the evdev key code should quit. Defaults to MENU/POWER/ESC/MODE/SELECT and can be
    replaced with a comma-separated list of decimal codes in MESHCLIENT_QUIT_KEYS. */

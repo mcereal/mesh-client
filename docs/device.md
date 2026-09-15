@@ -146,13 +146,15 @@ reports by position**:
 | **X** (top) | `BTN_WEST` | 308 | `X` |
 | **Y** (left) | `BTN_NORTH` | 307 | `Y` |
 | **L1** / **R1** | `BTN_TL` / `BTN_TR` | 310 / 311 | `L1` / `R1` |
-| **L2** / **R2** | `ABS_Z` / `ABS_RZ` | 2 / 5 | *unmapped* |
+| **L2** / **R2** | `ABS_Z` / `ABS_RZ` | 2 / 5 | `L2` / `R2` (shift, on the keyboard) |
 | **MENU** | `BTN_MODE` | 316 | quits |
 | **SELECT** / **START** | `BTN_SELECT` / `BTN_START` | 314 / 315 | `SELECT` (help) / `START` |
 | **F1** / **F2** | `BTN_THUMBL` / `BTN_THUMBR` | 317 / 318 | *unmapped* |
 
 **L2 and R2 are triggers, not buttons** — there is no `BTN_TL2` in the key bitmap at all. They are
-digital in practice (255 on press, 0 on release). **F1 and F2 are the stick clicks**: a 360 pad
+digital in practice (255 on press, 0 on release), which is what lets the client treat them as
+ordinary logical keys: `mesh_ui_input_map_trigger()` reads the two axes, and a latch turns the
+squeeze into one press rather than one per value an analogue pad would report on the way up. **F1 and F2 are the stick clicks**: a 360 pad
 has two sticks and the Brick has none, so TrimUI spent those codes on the middle buttons.
 
 The other nodes: `event0` (`sunxi-keyboard`) declares volume keys and emits nothing, `event1`
