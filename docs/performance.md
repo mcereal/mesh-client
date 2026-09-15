@@ -55,6 +55,28 @@ the plastic one, plus a script of presses.
 devtools/input_inject/run-device.sh --every 600 --cold --tag map r1 a wait:6 x:3 right:20 down:10
 ```
 
+## What a deep transcript costs
+
+An open conversation is drawn from `struct mesh_ui_thread` — `MESH_UI_MAX_THREAD_MESSAGES` (256)
+× `sizeof(struct mesh_ui_message)` (296 bytes), so about 76 KB — and that record is held three
+times over: in the store, in the snapshot the backend is handed, and on the stack of the publish
+that fills it. The framebuffer's transcript cache holds two formatted variants of each row and
+scales with the same number, which puts it around 250 KB on the heap. Roughly half a megabyte in
+total on a device with 1 GB and no swap.
+
+Two things keep that off the hot path:
+
+- **The window is only refilled when it has to be.** `mesh_app_publish_thread()` returns early
+  unless the reader has moved to a different conversation or a message has changed. An ordinary
+  publish — a node reporting, a position arriving, a tick — does nothing at all.
+- **The transcript cache is keyed on the filtered run**, not on the whole message log. A message
+  arriving on a channel nobody is looking at no longer invalidates the open thread, which it did
+  when the key was `struct mesh_ui_message_list`.
+
+The card is read once per conversation opened, never per frame: `mesh_ui_archive_load_thread()`
+is one forward pass over a capped file, and everything after it folds the live log into what is
+already in RAM.
+
 ## What the client does about it
 
 The shape rather than the list: publication compares sources exactly and skips unchanged roster

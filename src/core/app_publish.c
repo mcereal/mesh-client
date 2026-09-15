@@ -624,6 +624,95 @@ static void mesh_app_publish_waypoints(struct mesh_app *app,
     mesh_ui_store_set_waypoints(&app->ui_store, &list);
 }
 
+/*
+ * The open conversation's deep window: the card's transcript, with this session on top of it.
+ *
+ * Read from the card once, when the reader opens a conversation, and kept current after that by
+ * folding the flat list into what is already in the store. That split is the whole design: the
+ * archive is the expensive half and changes only when the reader moves, and the live half
+ * changes constantly and is already in RAM. Re-reading the file every publish would put a card
+ * read on the client's hot path for a file that has not changed.
+ *
+ * Nothing here runs for the all-traffic view, which is several conversations at once and has no
+ * window by definition - mesh_ui_store_message_view() hands that screen the flat list.
+ */
+static void mesh_app_publish_thread(struct mesh_app *app, bool messages_changed) {
+    const struct mesh_ui_nav *nav = &app->ui_store.nav;
+
+    if (!nav->thread_open || nav->inbox) {
+        /* Left the thread, so the window goes rather than being left to go stale. `valid` is
+           tested first so the ordinary case - no thread open - costs a bool rather than a
+           comparison of the largest record this client has. */
+        if (app->ui_store.thread.valid) {
+            mesh_ui_store_set_thread(&app->ui_store, NULL);
+        }
+        return;
+    }
+
+    const bool is_channel = (nav->target_node == MESH_MESSAGE_BROADCAST_ADDR);
+    const uint8_t kind =
+        is_channel ? (uint8_t)MESH_UI_CONVERSATION_CHANNEL : (uint8_t)MESH_UI_CONVERSATION_DIRECT;
+    const uint32_t node = is_channel ? 0U : nav->target_node;
+    const uint8_t channel = is_channel ? nav->target_channel : 0U;
+
+    /*
+     * Whether the window already in the store is a window over this conversation - asked of the
+     * window rather than of a note the app kept beside it, because that note would be a second
+     * opinion about which conversation is loaded and free to disagree with the record itself.
+     * It also means anything that empties the window (a conversation deleted, say) is
+     * automatically a re-read here rather than something that has to remember to say so.
+     */
+    const struct mesh_ui_thread *held = &app->ui_store.thread;
+    const bool same =
+        held->valid && held->kind == kind && held->node == node && held->channel == channel;
+
+    /*
+     * Nothing to do when the reader has not moved and no message has. This is the ordinary
+     * publish - the loop turns for a node reporting, a position arriving, a tick - and without
+     * the test each of them would copy, merge and compare a window of 256 messages to arrive
+     * back where it started.
+     */
+    if (same && !messages_changed) {
+        return;
+    }
+
+    /* On the stack rather than a field on the app, because it is the largest record this client
+       has and the app would then hold a third copy of it beside the store's and the snapshot's.
+       The client is single-threaded with the main thread's stack under it, which is the same
+       reason store_file.c reads a cache into one. */
+    struct mesh_ui_thread window;
+    if (same) {
+        window = app->ui_store.thread;
+    } else {
+        const int result =
+            mesh_ui_archive_load_thread(&app->ui_archive, kind, node, channel, &window);
+        if (result < 0) {
+            /* The card could not be read. An empty *valid* window rather than none, so the
+               conversation still draws from this session's traffic and the failed read is not
+               retried on every message that arrives. */
+            mesh_log_debug("app", "Could not read the transcript for this conversation: %d",
+                           result);
+            memset(&window, 0, sizeof window);
+            window.kind = kind;
+            window.node = node;
+            window.channel = channel;
+            window.valid = true;
+        }
+        if (!window.valid) {
+            /* There is no archive at all - no directory to write one in. Nothing to merge into,
+               so the store is told it has no window and every screen falls back to the flat
+               list, which is exactly what this client did before there was a card to read. */
+            if (app->ui_store.thread.valid) {
+                mesh_ui_store_set_thread(&app->ui_store, NULL);
+            }
+            return;
+        }
+    }
+
+    mesh_ui_thread_merge(&window, &app->ui_store.messages);
+    mesh_ui_store_set_thread(&app->ui_store, &window);
+}
+
 static void mesh_app_publish_messages(struct mesh_app *app,
                                       const struct mesh_handshake_status *status) {
     const struct mesh_message_log *log = mesh_session_messages(&app->session);
@@ -668,6 +757,16 @@ static void mesh_app_publish_messages(struct mesh_app *app,
         snprintf(target->text, sizeof(target->text), "%s", source->text);
         live.count++;
     }
+
+    /*
+     * The card's copy, written from the *live* half and never from the merged list below.
+     *
+     * The merged list carries the history restored at startup, which the run that heard it
+     * already archived; appending that would grow every conversation's file by the whole of
+     * itself once per launch. mesh/ui/store_archive.h states the rule; this is the one call
+     * site that has to honour it.
+     */
+    (void)mesh_ui_archive_append(&app->ui_archive, &live);
 
     struct mesh_ui_message_list list;
     mesh_ui_message_list_merge(&app->ui_messages_cached, &live, &list);
@@ -2427,6 +2526,14 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
     if (message_view_changed) {
         mesh_app_publish_messages(app, status);
     }
+    /*
+     * Unconditional, unlike the publish above, because the window turns over for two different
+     * reasons and only one of them is traffic: opening a conversation is a press that changes
+     * no message at all, and a window left behind on the conversation before it is a thread
+     * that draws nothing until the next thing anybody says. What makes that affordable is the
+     * test inside, which is the one that knows whether either reason applies.
+     */
+    mesh_app_publish_thread(app, message_view_changed);
     /* The names on a waypoint row come out of the roster, so a NodeInfo arriving changes what
        this publishes even when the book itself has not moved - which is why the handshake is
        part of the test and not just the book. */

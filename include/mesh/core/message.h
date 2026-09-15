@@ -173,6 +173,18 @@ bool mesh_message_in_conversation(const struct mesh_message *message, uint32_t p
  */
 uint32_t mesh_message_log_forget(struct mesh_message_log *log, uint32_t peer, uint8_t channel);
 
+/*
+ * Drops the one entry carrying `packet_id`, and every reaction that named it. Returns how many
+ * went.
+ *
+ * The reactions go with it because a reaction is an annotation on its target and is drawn on
+ * the bubble rather than as one: left behind they are entries every screen filters out and the
+ * ring goes on paying for. `dropped` is untouched, for mesh_message_log_forget()'s reason.
+ *
+ * A packet id of 0 removes nothing - it is upstream's "no id" and names no single message.
+ */
+uint32_t mesh_message_log_forget_message(struct mesh_message_log *log, uint32_t packet_id);
+
 /* Applies a delivery result to the outbound entry with this packet id. Returns true when a
    matching entry was updated. */
 bool mesh_message_log_mark_ack(struct mesh_message_log *log, uint32_t packet_id,

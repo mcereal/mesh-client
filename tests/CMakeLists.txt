@@ -75,6 +75,7 @@ set(MESHCLIENT_TEST_SUITES
     suites/ui_settings.c
     suites/ui_status.c
     suites/ui_store.c
+    suites/ui_store_archive.c
     suites/ui_text.c
     suites/ui_theme.c
     suites/ui_trend.c

@@ -1,0 +1,30 @@
+# X on a bubble: the sheet of verbs about that one message, and the delete on the end of it.
+#
+# The thread's four face buttons were already spoken for - A replies, X reacts, Y writes, B backs
+# out - so the delete lives on the sheet X already raises rather than on a fifth key that would
+# have done nothing on most rows. It is the last row so the cursor never opens on it, it takes
+# two presses like the conversation list's delete, and B stands the arming down without closing
+# the sheet.
+#
+# Nothing is deleted here: the capture harness has no app behind it, so the clip stops where the
+# row raises the question.
+
+scene demo
+tab messages
+
+# Open the direct conversation with Bravo Creek and raise the sheet on the bubble.
+key down 4
+key a
+hold 700
+key x
+hold 900
+
+# Down past the eight emoji to the delete.
+key down 8
+hold 900
+
+# One press arms it and the row itself says so; B stands it back down.
+key a
+hold 1400
+key b
+hold 900

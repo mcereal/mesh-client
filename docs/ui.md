@@ -45,6 +45,57 @@ record by value, so anything holding a snapshot rebuilds when any one changes. W
 buys is the other kind of reader — `trust.h` wants a node, `devices.h` wants a row — and a
 1,700-line file no longer being where six unrelated subjects are edited.
 
+## What the client remembers
+
+There are two files on the card and they answer different questions.
+
+| | `…prefs.handshake` | `…prefs.messages/` |
+|---|---|---|
+| What | the roster, channels, read marks, airtime trend, and the newest 64 messages | one append-only log per conversation |
+| Shape | one file, rewritten whole every save | a file per conversation, appended to |
+| Keys | `include/mesh/ui/store_keys.def` | the same message records, over `store_internal.h` |
+| Read | at launch, all of it | when a conversation is opened, one file |
+| Code | `src/ui/store_file.c` | `src/ui/store_archive.c` |
+
+The cache is what makes a Brick with no radio in range open on a roster. The archive is what
+makes a conversation go back further than the radio does, and the two numbers behind that are
+worth stating plainly:
+
+- **`MESH_UI_MAX_MESSAGES` (64) is the transport ring**, shared by every conversation at once.
+  The conversation list and the all-traffic screen are derived from that one flat list, and it
+  is sized for what the radio is still holding.
+- **`MESH_UI_ARCHIVE_MAX_MESSAGES` (512) is per conversation.** A channel that fills its own log
+  has taken nothing from anybody else's, which is the whole complaint the archive answers: on a
+  busy mesh a single chatty channel used to spend all 64 slots inside an hour and evict the
+  direct exchange the reader actually cared about.
+
+An open thread is drawn from `struct mesh_ui_thread` — `MESH_UI_MAX_THREAD_MESSAGES` (256) read
+off the card when the conversation is opened, with the live log folded in on every publish after
+that. Every screen asks `mesh_ui_store_message_view()` (or `mesh_ui_snapshot_message_view()`)
+rather than reaching for either list: it answers with the window only when the window is over
+the conversation the nav has open, and with the flat list for the conversation list, the
+all-traffic view, and the one frame between a thread opening and the window being filled.
+
+Three rules the archive turns on, each stated at length in `include/mesh/ui/store_archive.h`:
+
+- **The row index groups a record, it does not number one.** A record is five lines sharing an
+  `[i]`, and `i` restarts at zero every run — knowing the file's real record count would mean
+  reading the whole file before the first append. The reader's rule is "a `msg[]` line always
+  begins a record".
+- **Only traffic from the transport ring is appended.** A message restored from the handshake
+  cache was archived by the run that heard it; appending it again would grow every file by the
+  whole of itself once per launch. `mesh_ui_archive_seed()` is the exception and runs once per
+  conversation, for a card upgrading from a build that had no archive.
+- **A file is capped by rewriting it.** Compaction fires on append, off one `stat()`, and the
+  threshold is above what `MESH_UI_ARCHIVE_MAX_MESSAGES` records can possibly occupy — a cap the
+  worst case could exceed would rewrite the transcript on every message, on a card mounted
+  `sync`.
+
+Deleting has to reach every copy or the next publish undoes it: the transport's ring, the
+history the app restored at startup, the store (both lists), and the card. `on_delete_message()`
+and `on_delete_conversation()` in `src/core/app_actions.c` are where that is spelled out, which
+is why both are app actions rather than something the store does on a key press.
+
 ## Input
 
 `src/ui/input.c` reads every `/dev/input/event*` and maps evdev codes to `enum mesh_ui_key`.

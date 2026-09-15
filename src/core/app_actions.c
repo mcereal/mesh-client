@@ -771,6 +771,58 @@ static void on_remove_node(struct mesh_app *app, const struct mesh_ui_action *ac
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
 }
 
+/*
+ * One bubble, out of all four places it lives.
+ *
+ * The conversation delete below explains the first three - the transport's ring, the history
+ * read back at startup, and the store - and the fourth is the card's own transcript, which is
+ * the one that would otherwise put the message back the next time the reader opened the thread
+ * rather than merely on the next publish.
+ *
+ * The count reported is the store's, because that is what the reader was looking at. The other
+ * three can legitimately differ: the ring may have evicted the message already, the restored
+ * history may never have held it, and the archive holds the reactions the store also drops.
+ */
+static void on_delete_message(struct mesh_app *app, const struct mesh_ui_action *action) {
+    char toast[MESH_UI_NAV_TOAST_MAX];
+    const uint64_t now = mesh_time_monotonic_ms();
+    const uint32_t packet_id = action->number;
+
+    if (packet_id == 0U) {
+        return; /* nothing names this message; the sheet does not open on one */
+    }
+
+    const bool is_channel = (action->dest == MESH_MESSAGE_BROADCAST_ADDR);
+    const uint8_t kind =
+        is_channel ? (uint8_t)MESH_UI_CONVERSATION_CHANNEL : (uint8_t)MESH_UI_CONVERSATION_DIRECT;
+    const uint32_t node = is_channel ? 0U : action->dest;
+    const uint8_t channel = is_channel ? action->channel : 0U;
+
+    (void)mesh_session_forget_message(&app->session, packet_id);
+    (void)mesh_ui_message_list_forget_message(&app->ui_messages_cached, packet_id);
+    const int archived =
+        mesh_ui_archive_forget_message(&app->ui_archive, kind, node, channel, packet_id);
+    if (archived < 0) {
+        mesh_log_warn("ui", "Could not remove message %u from the stored transcript: %d", packet_id,
+                      archived);
+    }
+    const uint32_t removed = mesh_ui_store_forget_message(&app->ui_store, packet_id);
+
+    /* Written straight back out, so the message does not come back on the next start. */
+    if (app->ui_handshake_cache_path[0] != '\0') {
+        app->ui_handshake_cache_dirty = true;
+        mesh_app_flush_ui_cache(app);
+    }
+
+    if (removed > 0U || archived > 0) {
+        mesh_str_copy(toast, sizeof toast, mesh_str(MESH_STR_TOAST_MESSAGE_DELETED));
+        mesh_log_info("ui", "Deleted message %u", packet_id);
+    } else {
+        mesh_str_copy(toast, sizeof toast, mesh_str(MESH_STR_TOAST_MESSAGE_NOT_FOUND));
+    }
+    mesh_ui_store_set_toast(&app->ui_store, now, toast);
+}
+
 static void on_delete_conversation(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
     const uint64_t now = mesh_time_monotonic_ms();
@@ -790,6 +842,14 @@ static void on_delete_conversation(struct mesh_app *app, const struct mesh_ui_ac
     (void)mesh_session_forget_conversation(&app->session, peer, action->channel);
     (void)mesh_ui_message_list_forget(&app->ui_messages_cached, (uint8_t)action->number,
                                       action->dest, action->channel);
+    /* And the fourth place, which is the one that outlives the other three: the card's own
+       transcript. A conversation deleted everywhere else and left on the card would come back
+       in full the next time the reader opened it. */
+    const int archived = mesh_ui_archive_forget_conversation(
+        &app->ui_archive, (uint8_t)action->number, action->dest, action->channel);
+    if (archived < 0) {
+        mesh_log_warn("ui", "Could not remove the stored transcript for %s: %d", name, archived);
+    }
     const uint32_t removed = mesh_ui_store_forget_conversation(
         &app->ui_store, (uint8_t)action->number, action->dest, action->channel);
 
@@ -1731,6 +1791,7 @@ static const struct app_action_entry k_app_actions[] = {
     {MESH_UI_ACTION_TOGGLE_MUTE, on_toggle_mute, false},
     {MESH_UI_ACTION_REMOVE_NODE, on_remove_node, false},
     {MESH_UI_ACTION_DELETE_CONVERSATION, on_delete_conversation, false},
+    {MESH_UI_ACTION_DELETE_MESSAGE, on_delete_message, false},
     {MESH_UI_ACTION_MUTE_CONVERSATION, on_mute_conversation, false},
     {MESH_UI_ACTION_TRACEROUTE, on_traceroute, false},
     {MESH_UI_ACTION_SHARE_WAYPOINT, on_share_waypoint, false},

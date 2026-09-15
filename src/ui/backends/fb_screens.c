@@ -311,8 +311,17 @@ struct fb_thread_row {
    movement only chooses between them; it never reformats or remeasures the transcript. */
 struct fb_thread_cache {
     bool valid;
-    struct mesh_ui_message_list messages;
-    uint32_t indices[MESH_UI_MAX_MESSAGES];
+    /*
+     * The messages the cached rows were built from, *after* the conversation filter - `count`
+     * of them, in the order they are drawn.
+     *
+     * The whole flat log used to be the key, which was exact but too wide: a message arriving
+     * on a channel the reader is not looking at changed it, so every bubble in the open thread
+     * was reformatted and remeasured for traffic that could not possibly have altered one. It
+     * is also no longer the right list, because a thread is drawn from the deep window when
+     * there is one - and the filtered run is what both of those have in common.
+     */
+    struct mesh_ui_message entries[MESH_UI_MAX_THREAD_MESSAGES];
     uint32_t count;
     bool inbox;
     uint32_t target_node;
@@ -325,8 +334,8 @@ struct fb_thread_cache {
     int scale;
     size_t cols;
     char calendar[80];
-    struct fb_thread_row rows[2][MESH_UI_MAX_MESSAGES];
-    uint8_t heights[2][MESH_UI_MAX_MESSAGES];
+    struct fb_thread_row rows[2][MESH_UI_MAX_THREAD_MESSAGES];
+    uint8_t heights[2][MESH_UI_MAX_THREAD_MESSAGES];
 };
 
 void fb_thread_cache_free(struct mesh_ui_backend_fb_state *state) {
@@ -412,10 +421,10 @@ static uint32_t fb_thread_elapsed(uint32_t earlier, uint32_t later) {
  */
 #define FB_THREAD_REACTION_KINDS 4U
 
-static void fb_thread_reactions(const struct mesh_ui_snapshot *snapshot, uint32_t packet_id,
-                                char *out, size_t out_len) {
+static void fb_thread_reactions(struct mesh_ui_message_view messages, uint32_t packet_id, char *out,
+                                size_t out_len) {
     out[0] = '\0';
-    if (packet_id == 0U) {
+    if (packet_id == 0U || messages.entries == NULL) {
         return;
     }
 
@@ -425,11 +434,12 @@ static void fb_thread_reactions(const struct mesh_ui_snapshot *snapshot, uint32_
     } seen[FB_THREAD_REACTION_KINDS];
     size_t kinds = 0U;
 
-    const uint32_t total = snapshot->messages.count > MESH_UI_MAX_MESSAGES
-                               ? MESH_UI_MAX_MESSAGES
-                               : snapshot->messages.count;
-    for (uint32_t i = 0; i < total; ++i) {
-        const struct mesh_ui_message *reaction = &snapshot->messages.entries[i];
+    /* The same messages the transcript is drawn from rather than the flat list, which for a
+       conversation read off the card is the difference between a reaction on a message from
+       this morning and one on a message from last week: the reaction and its target are
+       archived together, and a lookup that only saw the radio's last 64 would find neither. */
+    for (uint32_t i = 0; i < messages.count; ++i) {
+        const struct mesh_ui_message *reaction = &messages.entries[i];
         if (!reaction->is_reaction || reaction->reply_id != packet_id ||
             reaction->text[0] == '\0') {
             continue;
@@ -480,17 +490,14 @@ static void fb_thread_reactions(const struct mesh_ui_snapshot *snapshot, uint32_
  * simply loses its quote. A reaction is never quoted: it has no bubble to be answered from,
  * and a reply *to* one is not a thing any client makes.
  */
-static void fb_thread_quote(const struct mesh_ui_snapshot *snapshot, uint32_t reply_id, char *out,
+static void fb_thread_quote(struct mesh_ui_message_view messages, uint32_t reply_id, char *out,
                             size_t out_len) {
     out[0] = '\0';
-    if (reply_id == 0U) {
+    if (reply_id == 0U || messages.entries == NULL) {
         return;
     }
-    const uint32_t total = snapshot->messages.count > MESH_UI_MAX_MESSAGES
-                               ? MESH_UI_MAX_MESSAGES
-                               : snapshot->messages.count;
-    for (uint32_t i = total; i > 0U; --i) {
-        const struct mesh_ui_message *target = &snapshot->messages.entries[i - 1U];
+    for (uint32_t i = messages.count; i > 0U; --i) {
+        const struct mesh_ui_message *target = &messages.entries[i - 1U];
         if (target->packet_id != reply_id || target->is_reaction) {
             continue;
         }
@@ -508,12 +515,13 @@ static void fb_thread_quote(const struct mesh_ui_snapshot *snapshot, uint32_t re
  * message above it - which is what the first bubble on screen has to do, because the message
  * above it is not on screen to have said it.
  */
-static void fb_thread_row_build(const struct mesh_ui_snapshot *snapshot, const uint32_t *indices,
+static void fb_thread_row_build(const struct mesh_ui_snapshot *snapshot,
+                                struct mesh_ui_message_view messages, const uint32_t *indices,
                                 uint32_t position, bool force_name, struct fb_thread_row *row) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
-    const struct mesh_ui_message *message = &snapshot->messages.entries[indices[position]];
+    const struct mesh_ui_message *message = &messages.entries[indices[position]];
     const struct mesh_ui_message *previous =
-        position > 0U ? &snapshot->messages.entries[indices[position - 1U]] : NULL;
+        position > 0U ? &messages.entries[indices[position - 1U]] : NULL;
     const bool outbound = (message->direction == MESH_MESSAGE_OUTBOUND);
 
     memset(row, 0, sizeof *row);
@@ -529,7 +537,7 @@ static void fb_thread_row_build(const struct mesh_ui_snapshot *snapshot, const u
     row->bubble.meta.clock = row->clock;
     /* A reaction never reaches a bubble - the transcript filters it out - so anything here
        carrying a reply_id is a threaded reply, and the quote is what says so. */
-    fb_thread_quote(snapshot, message->reply_id, row->quote, sizeof row->quote);
+    fb_thread_quote(messages, message->reply_id, row->quote, sizeof row->quote);
 
     /* A separator opens the transcript and marks every day boundary and every long silence, so
        "when was this" is answered by the shape of the screen rather than by reading timestamps. */
@@ -695,7 +703,7 @@ static void fb_thread_row_build(const struct mesh_ui_snapshot *snapshot, const u
 
     /* Reactions ride the trailing run rather than taking a row: they are an annotation on this
        bubble, and a row of their own is the bubble they were filtered out of being. */
-    fb_thread_reactions(snapshot, message->packet_id, row->reactions, sizeof row->reactions);
+    fb_thread_reactions(messages, message->packet_id, row->reactions, sizeof row->reactions);
 }
 
 /* A bubble's height, clamped into the byte the transcript window measures in. */
@@ -708,6 +716,7 @@ static uint8_t fb_thread_height(const struct mesh_ui_backend_fb_state *state,
 static struct fb_thread_cache *fb_thread_cache_get(struct mesh_ui_backend_fb_state *state,
                                                    const struct mesh_ui_snapshot *snapshot,
                                                    const struct fb_layout *layout,
+                                                   struct mesh_ui_message_view messages,
                                                    const uint32_t *indices, uint32_t count) {
     if (state->thread_cache_disabled) {
         return NULL;
@@ -726,17 +735,23 @@ static struct fb_thread_cache *fb_thread_cache_get(struct mesh_ui_backend_fb_sta
     if (localtime_r(&now, &local) != NULL) {
         (void)strftime(calendar, sizeof calendar, "%Y-%m-%d %Z %z", &local);
     }
-    const bool changed =
-        !cache->valid || cache->count != count || cache->inbox != snapshot->nav.inbox ||
-        cache->target_node != snapshot->nav.target_node ||
-        cache->unread_from != snapshot->nav.thread_unread_from || cache->theme != state->theme ||
-        cache->locale != mesh_i18n_locale() || cache->scale != state->scale ||
-        cache->cols != layout->cols || strcmp(cache->calendar, calendar) != 0 ||
-        memcmp(cache->indices, indices, count * sizeof *indices) != 0 ||
-        memcmp(&cache->messages, &snapshot->messages, sizeof cache->messages) != 0;
+    /* Gathered before the comparison because it is also what is kept: the filtered run is the
+       key and the rows are built from the same entries a moment later. */
+    bool same_entries = cache->valid && cache->count == count;
+    for (uint32_t i = 0; same_entries && i < count; ++i) {
+        same_entries = memcmp(&cache->entries[i], &messages.entries[indices[i]],
+                              sizeof cache->entries[i]) == 0;
+    }
+    const bool changed = !same_entries || cache->inbox != snapshot->nav.inbox ||
+                         cache->target_node != snapshot->nav.target_node ||
+                         cache->unread_from != snapshot->nav.thread_unread_from ||
+                         cache->theme != state->theme || cache->locale != mesh_i18n_locale() ||
+                         cache->scale != state->scale || cache->cols != layout->cols ||
+                         strcmp(cache->calendar, calendar) != 0;
     if (changed) {
-        cache->messages = snapshot->messages;
-        memcpy(cache->indices, indices, count * sizeof *indices);
+        for (uint32_t i = 0; i < count; ++i) {
+            cache->entries[i] = messages.entries[indices[i]];
+        }
         cache->count = count;
         cache->inbox = snapshot->nav.inbox;
         cache->target_node = snapshot->nav.target_node;
@@ -748,7 +763,8 @@ static struct fb_thread_cache *fb_thread_cache_get(struct mesh_ui_backend_fb_sta
         memcpy(cache->calendar, calendar, sizeof calendar);
         for (unsigned variant = 0U; variant < 2U; ++variant) {
             for (uint32_t i = 0U; i < count; ++i) {
-                fb_thread_row_build(snapshot, indices, i, variant != 0U, &cache->rows[variant][i]);
+                fb_thread_row_build(snapshot, messages, indices, i, variant != 0U,
+                                    &cache->rows[variant][i]);
                 cache->heights[variant][i] =
                     fb_thread_height(state, layout, &cache->rows[variant][i]);
             }
@@ -758,16 +774,17 @@ static struct fb_thread_cache *fb_thread_cache_get(struct mesh_ui_backend_fb_sta
     return cache;
 }
 
-static void fb_thread_row_get(const struct mesh_ui_snapshot *snapshot, const uint32_t *indices,
+static void fb_thread_row_get(const struct mesh_ui_snapshot *snapshot,
+                              struct mesh_ui_message_view messages, const uint32_t *indices,
                               uint32_t position, bool force_name,
                               const struct fb_thread_cache *cache, struct fb_thread_row *row) {
     if (cache == NULL) {
-        fb_thread_row_build(snapshot, indices, position, force_name, row);
+        fb_thread_row_build(snapshot, messages, indices, position, force_name, row);
         return;
     }
     *row = cache->rows[force_name ? 1 : 0][position];
     /* Never retain pointers into a caller-owned snapshot, or into a copied row's strings. */
-    row->bubble.text = snapshot->messages.entries[indices[position]].text;
+    row->bubble.text = messages.entries[indices[position]].text;
     row->bubble.separator = row->separator;
     row->bubble.name = row->name;
     row->bubble.note = row->note;
@@ -781,21 +798,25 @@ static void fb_render_thread(struct mesh_ui_backend_fb_state *state,
                              const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
 
-    uint32_t indices[MESH_UI_MAX_MESSAGES];
+    const struct mesh_ui_message_view messages = mesh_ui_snapshot_message_view(snapshot);
+    uint32_t indices[MESH_UI_MAX_THREAD_MESSAGES];
     const uint32_t count =
-        mesh_ui_nav_filter_messages(nav, &snapshot->messages, indices, MESH_UI_MAX_MESSAGES);
+        mesh_ui_nav_filter_messages(nav, messages, indices, MESH_UI_MAX_THREAD_MESSAGES);
 
     char convo[MESH_UI_NAV_TARGET_NAME_MAX];
     mesh_ui_nav_conversation_name(nav, convo, sizeof convo);
     char title[96];
+    /* The view's own count of what is behind the top of it, not the transport ring's: a
+       conversation drawn from the card has the messages the ring evicted, and saying "+30 older"
+       over thirty messages the reader can scroll to is the opposite of what the line is for. */
     if (nav->inbox) {
-        fb_title_count(title, sizeof title, convo, count, snapshot->messages.dropped);
-    } else if (snapshot->messages.dropped > 0U) {
+        fb_title_count(title, sizeof title, convo, count, messages.dropped);
+    } else if (messages.dropped > 0U) {
         mesh_str_format(title, sizeof title, MESH_STR_THREAD_TITLE_OLDER, convo,
                         mesh_str(nav->target_node == MESH_MESSAGE_BROADCAST_ADDR
                                      ? MESH_STR_THREAD_KIND_CHANNEL
                                      : MESH_STR_THREAD_KIND_DIRECT),
-                        (unsigned)snapshot->messages.dropped);
+                        (unsigned)messages.dropped);
     } else {
         mesh_str_format(title, sizeof title, MESH_STR_THREAD_TITLE, convo,
                         mesh_str(nav->target_node == MESH_MESSAGE_BROADCAST_ADDR
@@ -816,14 +837,15 @@ static void fb_render_thread(struct mesh_ui_backend_fb_state *state,
     /* Measure every message, then let the transcript say which of them are on screen. Heights
        come from the same component that draws them, so the window can never be a row out. */
     const uint32_t cursor = nav->cursor[MESH_UI_SCREEN_MESSAGES];
-    uint8_t heights[MESH_UI_MAX_MESSAGES];
+    uint8_t heights[MESH_UI_MAX_THREAD_MESSAGES];
     struct fb_thread_row row;
-    struct fb_thread_cache *cache = fb_thread_cache_get(state, snapshot, layout, indices, count);
+    struct fb_thread_cache *cache =
+        fb_thread_cache_get(state, snapshot, layout, messages, indices, count);
     for (uint32_t i = 0; i < count; ++i) {
         if (cache != NULL) {
             heights[i] = cache->heights[0][i];
         } else {
-            fb_thread_row_build(snapshot, indices, i, false, &row);
+            fb_thread_row_build(snapshot, messages, indices, i, false, &row);
             heights[i] = fb_thread_height(state, layout, &row);
         }
     }
@@ -851,7 +873,7 @@ static void fb_render_thread(struct mesh_ui_backend_fb_state *state,
             if (cache != NULL) {
                 heights[named] = cache->heights[0][named];
             } else {
-                fb_thread_row_build(snapshot, indices, named, false, &row);
+                fb_thread_row_build(snapshot, messages, indices, named, false, &row);
                 heights[named] = fb_thread_height(state, layout, &row);
             }
         }
@@ -859,7 +881,7 @@ static void fb_render_thread(struct mesh_ui_backend_fb_state *state,
         if (cache != NULL) {
             heights[named] = cache->heights[1][named];
         } else {
-            fb_thread_row_build(snapshot, indices, named, true, &row);
+            fb_thread_row_build(snapshot, messages, indices, named, true, &row);
             heights[named] = fb_thread_height(state, layout, &row);
         }
         window = mesh_ui_transcript_window(heights, count, cursor, layout->rows);
@@ -870,7 +892,7 @@ static void fb_render_thread(struct mesh_ui_backend_fb_state *state,
 
     int y = layout->body_y + (int)window.pad * layout->line;
     for (uint32_t i = window.first; i < window.first + window.count && i < count; ++i) {
-        fb_thread_row_get(snapshot, indices, i, settled && i == named, cache, &row);
+        fb_thread_row_get(snapshot, messages, indices, i, settled && i == named, cache, &row);
         row.bubble.selected = (i == cursor);
         fb_draw_bubble(state, layout, y, &row.bubble);
         y += (int)heights[i] * layout->line;
@@ -1775,25 +1797,42 @@ static void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
 }
 
 /*
- * The tapback picker: the fixed emoji set, one per row, aimed at the message X was pressed on.
+ * The bubble sheet: the fixed emoji set one per row, then the delete, aimed at the message X
+ * was pressed on.
  *
  * The message it is about is the heading rather than a row, for the reason the compose sheet's
  * destination is: nothing on this screen chooses it, so a row that looked pressable would be
- * offering a choice that is already made.
+ * offering a choice that is already made. It is also what makes the delete safe to put here -
+ * the thing about to be thrown away is quoted at the top of the screen it is thrown away from.
  */
 static void fb_render_reactions(struct mesh_ui_backend_fb_state *state,
                                 const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
     char target[96] = {0};
-    fb_thread_quote(snapshot, nav->reply_to, target, sizeof target);
+    fb_thread_quote(mesh_ui_snapshot_message_view(snapshot), nav->reply_to, target, sizeof target);
     char title[160];
-    mesh_str_format(title, sizeof title, MESH_STR_REACT_TO, target);
+    mesh_str_format(title, sizeof title, MESH_STR_MESSAGE_ACTIONS, target);
     fb_draw_app_bar(state, layout, &(const struct fb_app_bar){.title = title});
 
     const uint32_t count = mesh_ui_nav_reaction_row_count();
     struct fb_list list = fb_list_begin(layout, count, nav->reaction_cursor);
     uint32_t i;
     while (fb_list_next(&list, &i)) {
+        /* The delete takes an icon rather than an emoji, and the danger role rather than the
+           neutral fill: it is the one row here that destroys something, and the two are told
+           apart by what they look like before they are read. */
+        if (mesh_ui_nav_reaction_row_is_delete(i)) {
+            const struct fb_list_item row = {
+                .leading = {.kind = FB_LEADING_ICON,
+                            .icon = MESH_UI_ICON_DELETE,
+                            .role = MESH_UI_COLOR_ERROR},
+                .text = mesh_str(nav->message_delete_armed ? MESH_STR_MESSAGE_DELETE_CONFIRM
+                                                           : MESH_STR_MESSAGE_DELETE),
+                .divider = true,
+            };
+            fb_list_item(state, &list, i, &row);
+            continue;
+        }
         /* The glyph in the leading slot and the word beside it: eight faces in a column at
            this scale are not eight distinguishable things, and a text backend has no sprites
            for any of them. */

@@ -53,6 +53,7 @@ static const struct mesh_ui_help_entry k_help_messages[] = {
 
 static const struct mesh_ui_help_entry k_help_thread[] = {
     {MESH_STR_NONE, MESH_STR_HELP_NOTE_THREAD},
+    {MESH_STR_HELP_LABEL_THREAD_HISTORY, MESH_STR_HELP_NOTE_THREAD_HISTORY},
     {MESH_STR_HELP_LABEL_THREAD_MARKS, MESH_STR_HELP_NOTE_THREAD_MARKS},
     {MESH_STR_HELP_LABEL_THREAD_REPLY, MESH_STR_HELP_NOTE_THREAD_REPLY},
     {MESH_STR_HELP_LABEL_THREAD_RESEND, MESH_STR_HELP_NOTE_THREAD_RESEND},
@@ -62,6 +63,7 @@ static const struct mesh_ui_help_entry k_help_thread[] = {
 static const struct mesh_ui_help_entry k_help_reaction[] = {
     {MESH_STR_NONE, MESH_STR_HELP_NOTE_REACTION},
     {MESH_STR_HELP_LABEL_REACTION_SEND, MESH_STR_HELP_NOTE_REACTION_SEND},
+    {MESH_STR_HELP_LABEL_REACTION_DELETE, MESH_STR_HELP_NOTE_REACTION_DELETE},
 };
 
 static const struct mesh_ui_help_entry k_help_nodes[] = {

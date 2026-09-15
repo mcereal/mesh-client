@@ -68,6 +68,7 @@ void mesh_ui_store_shutdown(struct mesh_ui_store *store) {
     store->network_host[0] = '\0';
     store->handshake_valid = false;
     memset(&store->messages, 0, sizeof store->messages);
+    memset(&store->thread, 0, sizeof store->thread);
 }
 
 bool mesh_ui_store_handle_key(struct mesh_ui_store *store, enum mesh_ui_key key,
@@ -662,12 +663,233 @@ uint32_t mesh_ui_message_list_forget(struct mesh_ui_message_list *list, uint8_t 
     return removed;
 }
 
+uint32_t mesh_ui_message_list_forget_message(struct mesh_ui_message_list *list,
+                                             uint32_t packet_id) {
+    if (list == NULL || packet_id == 0U) {
+        return 0U;
+    }
+    const uint32_t count = list->count > MESH_UI_MAX_MESSAGES ? MESH_UI_MAX_MESSAGES : list->count;
+    uint32_t kept = 0U;
+    uint32_t removed = 0U;
+    for (uint32_t i = 0; i < count; ++i) {
+        const struct mesh_ui_message *entry = &list->entries[i];
+        /* The bubble itself, and the reactions that were drawn on it. See the header for why
+           the second half is not a separate press. */
+        const bool drop =
+            (entry->packet_id == packet_id) || (entry->is_reaction && entry->reply_id == packet_id);
+        if (drop) {
+            removed++;
+            continue;
+        }
+        if (kept != i) {
+            list->entries[kept] = list->entries[i];
+        }
+        kept++;
+    }
+    if (removed > 0U) {
+        memset(&list->entries[kept], 0, (count - kept) * sizeof list->entries[0]);
+        list->count = kept;
+    }
+    return removed;
+}
+
+void mesh_ui_thread_merge(struct mesh_ui_thread *thread, const struct mesh_ui_message_list *live) {
+    if (thread == NULL || live == NULL) {
+        return;
+    }
+    const uint32_t count = live->count > MESH_UI_MAX_MESSAGES ? MESH_UI_MAX_MESSAGES : live->count;
+    for (uint32_t i = 0; i < count; ++i) {
+        const struct mesh_ui_message *message = &live->entries[i];
+        if (!mesh_ui_message_belongs(message, thread->kind, thread->node, thread->channel)) {
+            continue;
+        }
+
+        /* Already in the window: the same message, further along. Replaced where it sits, so a
+           bubble does not jump to the bottom of the transcript when its ack arrives. */
+        bool held = false;
+        if (message->packet_id != 0U) {
+            for (uint32_t j = 0; j < thread->count; ++j) {
+                if (thread->entries[j].packet_id == message->packet_id) {
+                    thread->entries[j] = *message;
+                    held = true;
+                    break;
+                }
+            }
+        }
+        if (held) {
+            continue;
+        }
+
+        if (thread->count >= MESH_UI_MAX_THREAD_MESSAGES) {
+            /* Full: the oldest goes, and is counted as gone, exactly as the archive reader
+               counts what its own ring overwrote. */
+            memmove(&thread->entries[0], &thread->entries[1],
+                    (MESH_UI_MAX_THREAD_MESSAGES - 1U) * sizeof thread->entries[0]);
+            thread->count = MESH_UI_MAX_THREAD_MESSAGES - 1U;
+            thread->dropped++;
+        }
+        thread->entries[thread->count] = *message;
+        thread->count++;
+    }
+}
+
+struct mesh_ui_message_view mesh_ui_message_list_view(const struct mesh_ui_message_list *list) {
+    if (list == NULL) {
+        return (struct mesh_ui_message_view){NULL, 0U, 0U};
+    }
+    const uint32_t count = list->count > MESH_UI_MAX_MESSAGES ? MESH_UI_MAX_MESSAGES : list->count;
+    return (struct mesh_ui_message_view){list->entries, count, list->dropped};
+}
+
+struct mesh_ui_message_view mesh_ui_thread_view(const struct mesh_ui_thread *thread) {
+    if (thread == NULL || !thread->valid) {
+        return (struct mesh_ui_message_view){NULL, 0U, 0U};
+    }
+    const uint32_t count =
+        thread->count > MESH_UI_MAX_THREAD_MESSAGES ? MESH_UI_MAX_THREAD_MESSAGES : thread->count;
+    return (struct mesh_ui_message_view){thread->entries, count, thread->dropped};
+}
+
+/*
+ * Whether the window in hand is a window over the conversation the nav has open.
+ *
+ * Asked before every draw rather than trusted, because the two move independently: the nav
+ * turns on a press and the window is refilled a publish later, so for one frame after opening a
+ * thread the window still holds the conversation the reader just left. Drawing it would put
+ * somebody else's messages under the right title, which is the one failure mode a transcript
+ * must not have.
+ */
+static bool mesh_ui_thread_matches(const struct mesh_ui_thread *thread,
+                                   const struct mesh_ui_nav *nav) {
+    if (thread == NULL || nav == NULL || !thread->valid || !nav->thread_open || nav->inbox) {
+        return false;
+    }
+    if (nav->target_node == MESH_MESSAGE_BROADCAST_ADDR) {
+        return thread->kind == (uint8_t)MESH_UI_CONVERSATION_CHANNEL &&
+               thread->channel == nav->target_channel;
+    }
+    return thread->kind == (uint8_t)MESH_UI_CONVERSATION_DIRECT && thread->node == nav->target_node;
+}
+
+/*
+ * The deep window when it is the right one, the flat list otherwise - and the fallback is not a
+ * degraded mode. The all-traffic view is several conversations at once and has no window by
+ * definition; the conversation list is derived from the flat list; and a thread opened a moment
+ * ago is drawn from the flat list for exactly one frame, which shows the newest messages in the
+ * right order and is simply shallower than the frame after it.
+ *
+ * Three arguments rather than a store, because both sides of the publish seam ask it of the
+ * record they hold - the nav and the backends of a snapshot, the press handler of the store -
+ * and a second copy of this decision is a second opinion about which messages are on screen.
+ */
+static struct mesh_ui_message_view
+mesh_ui_pick_message_view(const struct mesh_ui_thread *thread, const struct mesh_ui_nav *nav,
+                          const struct mesh_ui_message_list *messages) {
+    if (mesh_ui_thread_matches(thread, nav)) {
+        return mesh_ui_thread_view(thread);
+    }
+    return mesh_ui_message_list_view(messages);
+}
+
+struct mesh_ui_message_view mesh_ui_store_message_view(const struct mesh_ui_store *store,
+                                                       const struct mesh_ui_nav *nav) {
+    if (store == NULL) {
+        return (struct mesh_ui_message_view){NULL, 0U, 0U};
+    }
+    /* `nav` rather than `store->nav`, because the two are not always the same one: a store built
+       by mesh_ui_store_view() has no nav at all and its caller carries the real one separately.
+       Reading the store's own would be this file quietly answering a different question from the
+       one it was asked. */
+    return mesh_ui_pick_message_view(&store->thread, nav != NULL ? nav : &store->nav,
+                                     &store->messages);
+}
+
+struct mesh_ui_message_view mesh_ui_snapshot_message_view(const struct mesh_ui_snapshot *snapshot) {
+    if (snapshot == NULL) {
+        return (struct mesh_ui_message_view){NULL, 0U, 0U};
+    }
+    return mesh_ui_pick_message_view(&snapshot->thread, &snapshot->nav, &snapshot->messages);
+}
+
+void mesh_ui_store_set_thread(struct mesh_ui_store *store, const struct mesh_ui_thread *thread) {
+    if (store == NULL) {
+        return;
+    }
+    struct mesh_ui_thread next;
+    memset(&next, 0, sizeof next);
+    if (thread != NULL) {
+        next = *thread;
+        if (next.count > MESH_UI_MAX_THREAD_MESSAGES) {
+            next.count = MESH_UI_MAX_THREAD_MESSAGES;
+        }
+    }
+    if (memcmp(&store->thread, &next, sizeof next) == 0) {
+        return;
+    }
+    store->thread = next;
+    mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_MESSAGES);
+}
+
+uint32_t mesh_ui_store_forget_message(struct mesh_ui_store *store, uint32_t packet_id) {
+    if (store == NULL || packet_id == 0U) {
+        return 0U;
+    }
+    const uint32_t removed = mesh_ui_message_list_forget_message(&store->messages, packet_id);
+
+    /*
+     * And out of the window under the reader's eyes, which is a separate list holding a
+     * separate copy - the bubble being deleted is almost always one the deep window is what
+     * put on screen, so a delete that reached only the flat list would appear to do nothing.
+     *
+     * The read mark is deliberately left alone, unlike a conversation delete. It names a packet
+     * id as "everything up to here has been seen", and one message going does not un-see the
+     * rest; a mark whose own message has been deleted reads as "everything still in view
+     * arrived after it", which is the ring's rule and the right one here.
+     */
+    struct mesh_ui_thread *thread = &store->thread;
+    uint32_t kept = 0U;
+    const uint32_t count =
+        thread->count > MESH_UI_MAX_THREAD_MESSAGES ? MESH_UI_MAX_THREAD_MESSAGES : thread->count;
+    for (uint32_t i = 0; i < count; ++i) {
+        const struct mesh_ui_message *entry = &thread->entries[i];
+        if (entry->packet_id == packet_id || (entry->is_reaction && entry->reply_id == packet_id)) {
+            continue;
+        }
+        if (kept != i) {
+            thread->entries[kept] = thread->entries[i];
+        }
+        kept++;
+    }
+    if (kept != count) {
+        memset(&thread->entries[kept], 0, (count - kept) * sizeof thread->entries[0]);
+        thread->count = kept;
+    }
+
+    const uint32_t from_window = count - kept;
+    if (removed > 0U || from_window > 0U) {
+        mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_MESSAGES);
+    }
+    /* The larger of the two, because they are two copies of one transcript rather than two
+       transcripts: the window is the deeper of them, so a bubble the flat list had already let
+       go still counts as a message the reader has just deleted. */
+    return removed > from_window ? removed : from_window;
+}
+
 uint32_t mesh_ui_store_forget_conversation(struct mesh_ui_store *store, uint8_t kind, uint32_t node,
                                            uint8_t channel) {
     if (store == NULL) {
         return 0U;
     }
     const uint32_t removed = mesh_ui_message_list_forget(&store->messages, kind, node, channel);
+
+    /* The window goes with the conversation it was a window over. It is the deeper of the two
+       copies, so leaving it would put the deleted messages straight back on screen the moment
+       the reader opened the thread again. */
+    if (store->thread.valid && store->thread.kind == kind &&
+        ((kind == (uint8_t)MESH_UI_CONVERSATION_CHANNEL && store->thread.channel == channel) ||
+         (kind == (uint8_t)MESH_UI_CONVERSATION_DIRECT && store->thread.node == node))) {
+        memset(&store->thread, 0, sizeof store->thread);
+    }
 
     /* The mark goes with the messages it marked. Leaving it would badge the conversation's
        whole next exchange as read, because a mark whose message is gone reads as "everything
@@ -785,6 +1007,9 @@ void mesh_ui_store_view(const struct mesh_ui_snapshot *snapshot, struct mesh_ui_
     view->handshake = snapshot->handshake;
     view->handshake_valid = snapshot->handshake_valid;
     view->messages = snapshot->messages;
+    /* `thread` is left zeroed for `nav`'s reason, and the two go together: the window is only
+       ever read through the nav that says which conversation is open, and this view has none.
+       It is also the largest record in a snapshot, and this one is built on the stack. */
     view->waypoints = snapshot->waypoints;
     view->read_state = snapshot->read_state;
     /* The radio's display units, which is what a waypoint's range is stated in. */
@@ -1007,6 +1232,7 @@ bool mesh_ui_store_consume_updates(struct mesh_ui_store *store, struct mesh_ui_s
     }
 
     snapshot->messages = store->messages;
+    snapshot->thread = store->thread;
     snapshot->waypoints = store->waypoints;
     snapshot->read_state = store->read_state;
     snapshot->settings = store->settings;

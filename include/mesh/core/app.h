@@ -15,6 +15,7 @@
 #include "mesh/ui/preferences.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
+#include "mesh/ui/store_archive.h"
 #include "mesh/ui/theme.h"
 
 #include <stdint.h>
@@ -88,6 +89,13 @@ struct mesh_app {
     bool ui_theme_from_env;
     char ui_preferences_path[256];
     char ui_handshake_cache_path[256];
+    /*
+     * The per-conversation transcript on the card, beside the handshake cache rather than
+     * inside it. What it is for is in mesh/ui/store_archive.h; what it is *here* for is that
+     * the app is the only thing that sees both halves of a publish - the transport ring that
+     * says what is new, and the nav that says which conversation the reader has open.
+     */
+    struct mesh_ui_archive ui_archive;
     bool ui_preferences_dirty;
     bool ui_handshake_cache_dirty;
     bool ui_cache_timer_armed;

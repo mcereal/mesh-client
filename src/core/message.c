@@ -93,6 +93,34 @@ uint32_t mesh_message_log_forget(struct mesh_message_log *log, uint32_t peer, ui
     return removed;
 }
 
+uint32_t mesh_message_log_forget_message(struct mesh_message_log *log, uint32_t packet_id) {
+    if (log == NULL || log->count == 0U || packet_id == 0U) {
+        return 0U;
+    }
+
+    /* Compacted into a fresh ring for mesh_message_log_forget()'s reason: one forward pass over
+       the modulo, rather than a shuffle that has to get the wrap right. */
+    struct mesh_message_log kept;
+    memset(&kept, 0, sizeof(kept));
+    kept.dropped = log->dropped;
+
+    uint32_t removed = 0U;
+    for (size_t i = 0; i < log->count; ++i) {
+        const struct mesh_message *message =
+            &log->entries[(log->head + i) % MESH_MESSAGE_LOG_CAPACITY];
+        if (message->packet_id == packet_id ||
+            (message->is_reaction && message->reply_id == packet_id)) {
+            removed++;
+            continue;
+        }
+        kept.entries[kept.count++] = *message;
+    }
+    if (removed > 0U) {
+        *log = kept;
+    }
+    return removed;
+}
+
 struct mesh_message *mesh_message_log_find(struct mesh_message_log *log, uint32_t packet_id) {
     if (log == NULL || packet_id == 0U) {
         return NULL;

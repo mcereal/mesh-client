@@ -905,6 +905,15 @@ uint32_t mesh_session_next_packet_id(struct mesh_session *session);
 uint32_t mesh_session_forget_conversation(struct mesh_session *session, uint32_t peer,
                                           uint8_t channel);
 
+/*
+ * Throws one message out of the log, with the reactions about it; returns how many went.
+ *
+ * Purely local for the conversation delete's reason, and one more: there is no retraction in
+ * Meshtastic at all, so every client that heard the message still has it and this radio will
+ * hand us the same packet again if it is re-delivered.
+ */
+uint32_t mesh_session_forget_message(struct mesh_session *session, uint32_t packet_id);
+
 /* Borrowed views; valid until the next call into the session. */
 const struct mesh_handshake_status *mesh_session_handshake(const struct mesh_session *session);
 const struct mesh_message_log *mesh_session_messages(const struct mesh_session *session);

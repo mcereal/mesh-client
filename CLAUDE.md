@@ -111,6 +111,10 @@ not buy.
 
 The cache `store.h` also declares is not in `store.c`: `src/ui/store_file.c` is both halves of
 the file on the card, over `store_keys.c` (the key) and `store_fields.c` (the value).
+`src/ui/store_archive.c` is the *second* file on the card - one append-only log per conversation,
+which is what lets a thread go back further than the 64-message transport ring - and shares that
+record codec over `store_internal.h`. See [`docs/ui.md`](docs/ui.md#what-the-client-remembers)
+for which file answers which question.
 
 | Area | Where |
 |---|---|
@@ -125,7 +129,7 @@ the file on the card, over `store_keys.c` (the key) and `store_fields.c` (the va
 | App glue | `src/core/app*.c` - lifecycle/link, `_actions`, `_publish`, `_settings` |
 | Self-update | `src/core/updater.c`, `version.c`, `fetch.c` |
 | Radio firmware | `src/core/firmware*.c`, `uf2.c`, `esp_image.c`, `src/transport/*/{usb_msc,ble_ota,ble_hci}.c` - the *other* binary |
-| UI | `src/ui/` - store/controller (records in `include/mesh/ui/store_*.h`), `store_file.c` the cache on the card, `nav*.c`, `settings*.c`, `layout.c`, `backends/{fb*,cli,stub}.c`; **`fb` is the device UI** |
+| UI | `src/ui/` - store/controller (records in `include/mesh/ui/store_*.h`), `store_file.c` the cache on the card and `store_archive.c` the per-conversation transcript beside it, `nav*.c`, `settings*.c`, `layout.c`, `backends/{fb*,cli,stub}.c`; **`fb` is the device UI** |
 | UI components | `src/ui/layout.c`, `src/ui/backends/fb_widgets.c` - cell-measured line builder, scroll window, cards, lists, meters, charts |
 | Tables the UI reads | `actions.c` (button verbs), `status.c` (card verbs), `help.c`, `devices.c`, `nodes.c`, `delivery.c`, `trust.c`, `chrome.c`, `trend.c`, `duration.c`, `units.c` (metric/imperial lengths) |
 | Themes & fonts | `src/ui/theme.c`, `font*.c`, `icon*.c` - palette by role, shape scale, metrics |
