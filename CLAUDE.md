@@ -120,6 +120,7 @@ the file on the card, over `store_keys.c` (the key) and `store_fields.c` (the va
 | Admin protocol | `src/core/radio_settings.c` - `AdminMessage` get/set queue, passkeys, NodeDB verbs |
 | Messaging | `src/core/message.c`, `store_forward.c`, `waypoint.c` |
 | Key trust | `src/core/key_verification.c` - the out-of-band ceremony behind the padlock; `add_contact` lives in `radio_settings.c` |
+| Channel sharing | `src/proto/channel_url.c` (the `meshtastic.org/e/#` link), `src/core/channel_share.c` (the radio's table either way), `src/utils/qr.c` (the code), `src/ui/channel_share.c` (what the two screens say) |
 | App glue | `src/core/app*.c` - lifecycle/link, `_actions`, `_publish`, `_settings` |
 | Self-update | `src/core/updater.c`, `version.c`, `fetch.c` |
 | Radio firmware | `src/core/firmware*.c`, `uf2.c`, `esp_image.c`, `src/transport/*/{usb_msc,ble_ota,ble_hci}.c` - the *other* binary |
@@ -180,6 +181,10 @@ The few that bite soonest:
 - **No threads.** Everything is the one epoll loop.
 - **BLE is not Nordic UART** and carries no length framing: one bare protobuf per GATT
   write/read. Framing is a *stream* concern - serial and TCP - in `src/proto/stream_framing.c`.
+- **A QR code is black on white on every theme.** Several scanners will not read an inverted
+  one, so `MESH_UI_COLOR_CODE`/`_GROUND` are the one pair in `theme.c` that does not vary. There
+  is no *decoder* and there will not be one: the Brick has no camera, so a link arriving is
+  typed in.
 - **The Brick's face buttons do not report by position.** A is `BTN_EAST`, B is `BTN_SOUTH`, the
   button printed **Y (left)** is `BTN_NORTH`. See `src/ui/input_profile.c`.
 - **A radio reboot after a settings write is expected.** The link drops and auto-connect returns.
@@ -201,7 +206,8 @@ The few that bite soonest:
 ## Protobufs
 
 `MESH_PROTO_NAMES` in `CMakeLists.txt` is a hardcoded list; **adding a new upstream `.proto` means
-adding it there.** Headers are included as `meshtastic/<name>.pb.h`. The generator is
+adding it there.** `apponly.proto` is in it for `ChannelSet`, which is the only message here that
+never goes over the air - it exists to be a URL. Headers are included as `meshtastic/<name>.pb.h`. The generator is
 `nanopb_generator` from PATH, falling back to `third_party/nanopb/generator/nanopb_generator.py`
 (needs `pip install protobuf grpcio-tools`).
 

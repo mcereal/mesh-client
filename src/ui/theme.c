@@ -159,6 +159,11 @@ static const struct mesh_ui_theme
                         /* The cursor fill's own colour, which is where a track wants to sit on a
                            dark palette: one step off the surface and well under every fill. */
                         [MESH_UI_COLOR_METER_TRACK] = RGB(40, 80, 120),
+                        /* The QR code, which is black on white on every theme - see
+                           mesh/ui/theme.h. A phone camera reads it, not a person, and several
+                           scanners refuse an inverted code outright. */
+                        [MESH_UI_COLOR_CODE] = RGB(0, 0, 0),
+                        [MESH_UI_COLOR_CODE_GROUND] = RGB(255, 255, 255),
                     },
                 /* Bright tints for a dark ground: the initials over them are the ground colour, so
                    a tint has to carry the contrast the way the accent fill does. */
@@ -253,6 +258,8 @@ static const struct mesh_ui_theme
                            1.18:1, so a track drawn in it vanishes on the Status screen - and this
                            is the quietest step that still separates from both grounds. */
                         [MESH_UI_COLOR_METER_TRACK] = RGB(186, 198, 214),
+                        [MESH_UI_COLOR_CODE] = RGB(0, 0, 0),
+                        [MESH_UI_COLOR_CODE_GROUND] = RGB(255, 255, 255),
                     },
                 /* The dark half of each hue, because here the initials are the paper ground. */
                 .avatars =
@@ -350,6 +357,8 @@ static const struct mesh_ui_theme
                            SURFACE_SEL and the success colour are both effectively white, so a track
                            borrowed from either would swallow the fill it is meant to contain. */
                         [MESH_UI_COLOR_METER_TRACK] = RGB(96, 96, 96),
+                        [MESH_UI_COLOR_CODE] = RGB(0, 0, 0),
+                        [MESH_UI_COLOR_CODE_GROUND] = RGB(255, 255, 255),
                     },
                 /* Two, not six. A palette of hues is exactly what this theme exists to do without,
                    so an avatar here is the yellow or the white and the initials carry the rest. */
@@ -443,6 +452,8 @@ static const struct mesh_ui_theme
                         [MESH_UI_COLOR_RULE_STRONG] = RGB(86, 180, 233),
                         [MESH_UI_COLOR_OUTLINE] = RGB(62, 100, 140),
                         [MESH_UI_COLOR_METER_TRACK] = RGB(40, 80, 120),
+                        [MESH_UI_COLOR_CODE] = RGB(0, 0, 0),
+                        [MESH_UI_COLOR_CODE_GROUND] = RGB(255, 255, 255),
                     },
                 /* The Okabe-Ito set again, this time as fills. They are the six that stay separable
                    under every common dichromacy, which is the only reason to spend six on avatars

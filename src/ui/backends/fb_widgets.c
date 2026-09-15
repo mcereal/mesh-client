@@ -5333,3 +5333,62 @@ void fb_draw_dialog(const struct mesh_ui_backend_fb_state *state, const struct f
     };
     fb_draw_button(state, &accept);
 }
+
+/* ---- the QR code ---------------------------------------------------------------------------- */
+
+/*
+ * How many pixels one module gets, and therefore how big the code comes out.
+ *
+ * Integer division on purpose - see the header. A code whose modules are 7.4 pixels across has
+ * boundaries that fall between pixels, and a reader thresholding a photograph of that finds
+ * edges the code does not have; seven is worth more than the 5% of the box that rounding down
+ * gives away.
+ */
+static int fb_qr_module_px(const struct fb_qr *qr) {
+    if (qr == NULL || qr->code == NULL || qr->code->size == 0U) {
+        return 0;
+    }
+    /* Four modules of quiet zone on each side, which the standard asks for and a reader needs
+       to lock on at all. */
+    const int modules = (int)qr->code->size + 8;
+    const int room = qr->box.w < qr->box.h ? qr->box.w : qr->box.h;
+    return room / modules;
+}
+
+int fb_qr_side(const struct fb_qr *qr) {
+    const int px = fb_qr_module_px(qr);
+    return px > 0 ? px * ((int)qr->code->size + 8) : 0;
+}
+
+void fb_draw_qr(const struct mesh_ui_backend_fb_state *state, const struct fb_qr *qr) {
+    const int px = fb_qr_module_px(qr);
+    if (px <= 0) {
+        return;
+    }
+    const int size = (int)qr->code->size;
+    const int side = px * (size + 8);
+    const int x0 = qr->box.x + (qr->box.w - side) / 2;
+    const int y0 = qr->box.y + (qr->box.h - side) / 2;
+
+    /* The margin is drawn rather than left to the screen behind it: the quiet zone is part of
+       the code, and a reader that cannot find it does not lock on. */
+    fb_fill_rect(state, x0, y0, side, side, fb_color(state, MESH_UI_COLOR_CODE_GROUND));
+    const struct mesh_ui_rgb ink = fb_color(state, MESH_UI_COLOR_CODE);
+    for (int y = 0; y < size; ++y) {
+        /* A run of dark modules is one fill rather than one per module: a code at the version
+           cap is thirteen thousand of them, and the whole screen is repainted whenever anything
+           on the frame moves. */
+        int run = 0;
+        for (int x = 0; x <= size; ++x) {
+            const bool dark = x < size && mesh_qr_dark(qr->code, x, y);
+            if (dark) {
+                run++;
+                continue;
+            }
+            if (run > 0) {
+                fb_fill_rect(state, x0 + (x - run + 4) * px, y0 + (y + 4) * px, run * px, px, ink);
+                run = 0;
+            }
+        }
+    }
+}

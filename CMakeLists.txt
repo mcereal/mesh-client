@@ -53,6 +53,7 @@ add_library(meshclient_core
     src/core/app_actions.c
     src/core/app_publish.c
     src/core/app_settings.c
+    src/core/channel_share.c
     src/core/config.c
     src/core/esp_image.c
     src/core/event_loop.c
@@ -84,6 +85,7 @@ add_library(meshclient_core
     src/transport/serial/serial_usb.c
     src/transport/serial/usb_msc.c
     src/transport/tcp/tcp_transport.c
+    src/proto/channel_url.c
     src/proto/stream_framing.c
     src/geo/coords.c
     src/geo/mercator.c
@@ -96,16 +98,19 @@ add_library(meshclient_core
     src/map/wuffs_png.c
     src/i18n/strings.c
     src/i18n/locale_es.c
+    src/utils/base64.c
     src/utils/crash.c
     src/utils/env.c
     src/utils/file.c
     src/utils/json.c
     src/utils/log.c
+    src/utils/qr.c
     src/utils/sha256.c
     src/utils/text.c
     src/utils/time.c
     src/utils/zip.c
     src/ui/actions.c
+    src/ui/channel_share.c
     src/ui/chrome.c
     src/ui/help.c
     src/ui/delivery.c
@@ -291,6 +296,7 @@ set(MESH_PROTO_NAMES
     module_config
     telemetry
     channel
+    apponly
     device_ui
     xmodem
     atak

@@ -27,6 +27,7 @@
 #include "mesh/ui/layout.h"
 #include "mesh/ui/theme.h"
 #include "mesh/ui/trend.h"
+#include "mesh/utils/qr.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -2412,6 +2413,39 @@ struct fb_snackbar {
  */
 void fb_draw_snackbar(struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
                       const struct fb_snackbar *bar);
+
+/* ---- the QR code ----------------------------------------------------------------------------
+ *
+ * A matrix of modules, drawn as squares in the one colour pair that does not follow the theme.
+ *
+ * It is the only widget here whose audience is not a person: what reads it is a phone camera
+ * held by somebody standing next to the Brick, so every decision about it is about scanning
+ * rather than about looking. Two of them are worth stating.
+ *
+ * **The module size is a whole number of pixels.** A code scaled to fill the room available
+ * would put module boundaries between pixels, and a reader thresholding a photograph of that
+ * finds edges where the code has none. So the scale is the largest integer that fits and the
+ * code is centred in whatever is left over, which is why a smaller code may not fill its box.
+ *
+ * **The quiet zone is part of the code.** The standard asks for four modules of clear margin,
+ * and a reader that cannot find it will not lock on however sharp the modules are - so the
+ * margin is drawn in the code's own ground rather than left to whatever the screen behind it
+ * happens to be.
+ */
+struct fb_qr {
+    /* The matrix. NULL, or one that failed to encode, draws nothing at all. */
+    const struct mesh_qr *code;
+    /* The box to fit it in. The code is centred inside it and never drawn larger. */
+    struct fb_rect box;
+};
+
+/* The side of the square this code would actually occupy inside `box`, quiet zone included, or
+   0 when there is no room for even one pixel per module. Asked before drawing by a screen that
+   has to put something underneath it. */
+int fb_qr_side(const struct fb_qr *qr);
+
+/* Draws it centred in its box. Nothing is drawn when fb_qr_side() is 0. */
+void fb_draw_qr(const struct mesh_ui_backend_fb_state *state, const struct fb_qr *qr);
 
 /* "Messages (12)", or "Messages (12, +40 older)" when a ring has dropped some. */
 void fb_title_count(char *out, size_t out_len, const char *name, uint32_t count, uint32_t dropped);

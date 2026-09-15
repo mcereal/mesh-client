@@ -79,6 +79,7 @@
 #include "mesh/ui/route.h"
 /* For the flag rows' masks: the fixture sets position_flags and the field table is what says
    which bit each row is, so the scene is filmed against the same answer the screen draws. */
+#include "mesh/proto/channel_url.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
 #include "mesh/ui/theme.h"
@@ -1742,6 +1743,54 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         settings.has_bluetooth = true;
         settings.bluetooth_enabled = true;
         settings.pairing_mode = 0U; /* a random PIN, which is the firmware's default */
+
+        /*
+         * The channel table, in full rather than as the handshake summary.
+         *
+         * The difference is what the Channels section *is*: with only the summary every slot is
+         * a read-only line, and with the table each one opens and the two sharing rows appear
+         * under them. The same two channels the handshake advertises, so the tab and the message
+         * list do not disagree about what this radio is on.
+         */
+        settings.has_channels = true;
+        settings.channels[0].present = true;
+        settings.channels[0].index = 0U;
+        settings.channels[0].role = 1U; /* primary */
+        snprintf(settings.channels[0].name, sizeof settings.channels[0].name, "%s", "LongFast");
+        settings.channels[0].psk_len = 1U;
+        settings.channels[0].psk[0] = 1U; /* the default key's shorthand */
+        settings.channels[1].present = true;
+        settings.channels[1].index = 1U;
+        settings.channels[1].role = 2U; /* secondary */
+        snprintf(settings.channels[1].name, sizeof settings.channels[1].name, "%s", "Trail");
+        settings.channels[1].psk_len = 16U;
+        for (unsigned i = 0; i < 16U; ++i) {
+            settings.channels[1].psk[i] = (uint8_t)(0xA0U + i);
+        }
+        settings.channels[2].present = true; /* an empty slot, which is how one is added */
+        settings.channels[2].index = 2U;
+
+        /*
+         * And the link the publish boundary would have built from them, which is what the share
+         * screen draws as a QR code. Assembled here from the same two channels rather than
+         * invented: a code in a capture that decoded to something else would be a picture of a
+         * bug nobody could see.
+         */
+        {
+            meshtastic_ChannelSet set = meshtastic_ChannelSet_init_zero;
+            for (unsigned i = 0; i < 2U; ++i) {
+                meshtastic_ChannelSettings *slot = &set.settings[set.settings_count++];
+                snprintf(slot->name, sizeof slot->name, "%s", settings.channels[i].name);
+                slot->psk.size = settings.channels[i].psk_len;
+                memcpy(slot->psk.bytes, settings.channels[i].psk, slot->psk.size);
+            }
+            set.has_lora_config = true;
+            set.lora_config.use_preset = true;
+            set.lora_config.region = meshtastic_Config_LoRaConfig_RegionCode_EU_868;
+            set.lora_config.hop_limit = 3U;
+            (void)mesh_channel_url_encode(&set, false, settings.share_url,
+                                          sizeof settings.share_url);
+        }
 
         /*
          * The network the radio was told to join, which is what the read-only Network section

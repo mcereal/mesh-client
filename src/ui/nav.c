@@ -465,6 +465,16 @@ bool mesh_ui_nav_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_store *stor
         moved = true;
     }
     /*
+     * And the share sheet when there is no longer a link to show, which is the same clamp again:
+     * a radio swap or a dropped channel table leaves a screen whose whole content has gone. The
+     * screen says so rather than drawing an empty square, but leaving it standing would be a
+     * level the user has to back out of to find out there was nothing in it.
+     */
+    if (nav->share_open && store->settings.share_url[0] == '\0') {
+        nav->share_open = false;
+        moved = true;
+    }
+    /*
      * And the same for a node's chart, which has three ways to empty rather than one: the node
      * can fall out of the list, the history can be forgotten under it, and the *row* can go
      * while the history stays. It runs after the detail's own close above, which has already
@@ -1139,13 +1149,15 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
             /* A on a channel row opens that slot, when the radio's full table is held. */
             const int slot = mesh_ui_settings_channel_at_row(&store->settings,
                                                              mesh_ui_nav_handshake(store), cursor);
-            if (slot < 0) {
-                return false;
+            if (slot >= 0) {
+                nav->settings_channel_list_cursor = cursor;
+                nav->settings_channel = (uint8_t)slot;
+                mesh_ui_nav_cursor_to_first_row(nav, store, MESH_UI_SCREEN_SETTINGS);
+                return true;
             }
-            nav->settings_channel_list_cursor = cursor;
-            nav->settings_channel = (uint8_t)slot;
-            mesh_ui_nav_cursor_to_first_row(nav, store, MESH_UI_SCREEN_SETTINGS);
-            return true;
+            /* Not a slot. The list's last two rows - share and import - are ordinary ACTION
+               rows carrying a verb rather than a slot number, and are answered by the handler
+               below with every other section's action rows. */
         }
         if (nav->settings_section == MESH_UI_SETTINGS_MODULES) {
             /* A on a module row opens that module, exactly as a channel row opens a slot. The
@@ -1183,6 +1195,19 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
                 if (mesh_ui_settings_action_is_radio(which)) {
                     mesh_ui_nav_fill_settings_action(nav, which, action);
                     return false; /* the rows redraw when the read-back lands */
+                }
+                /*
+                 * The two channel-sharing rows, which reach neither the app nor the radio on
+                 * this press: one opens a screen and the other opens the keyboard. What the
+                 * radio hears about is the answer to the sheet the keyboard raises.
+                 */
+                if (which == MESH_UI_SETTINGS_ACTION_SHARE_CHANNELS) {
+                    nav->share_open = true;
+                    return true;
+                }
+                if (which == MESH_UI_SETTINGS_ACTION_IMPORT_CHANNELS) {
+                    mesh_ui_nav_open_channel_url_keyboard(nav);
+                    return true;
                 }
                 if (action != NULL) {
                     if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CHECK_UPDATE) {
@@ -1338,6 +1363,22 @@ static bool mesh_ui_nav_open_help(struct mesh_ui_nav *nav, const struct mesh_ui_
     return true;
 }
 
+/*
+ * The share sheet, which is a picture and a way out of it.
+ *
+ * Every key closes it except the ones that would be a surprise. There is nothing here to
+ * choose, so a d-pad press that scrolled nothing and a Y that saved nothing would both be the
+ * screen pretending to have state; B leaves, the way it leaves help, and the rest are ignored
+ * so that a thumb resting on the pad does not dismiss the code somebody is trying to scan.
+ */
+bool mesh_ui_nav_share_key(struct mesh_ui_nav *nav, enum mesh_ui_key key) {
+    if (key != MESH_UI_KEY_B) {
+        return false;
+    }
+    nav->share_open = false;
+    return true;
+}
+
 bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                             enum mesh_ui_key key, struct mesh_ui_action *out_action) {
     if (out_action != NULL) {
@@ -1401,6 +1442,17 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
     }
     if (nav->reaction_open) {
         return mesh_ui_nav_reaction_key(nav, key, out_action) || changed;
+    }
+    /*
+     * The share sheet, under every overlay above and over the tab's own screen.
+     *
+     * Below them rather than above, which is the opposite of where it is *raised* from: it is
+     * opened by a row, so it is a level of the Settings tab rather than a question - and the
+     * things above it are the two the *radio* raises at any moment, a pairing PIN and a key
+     * verification. A code being scanned is not a reason to make a PIN prompt unanswerable.
+     */
+    if (nav->share_open) {
+        return mesh_ui_nav_share_key(nav, key) || changed;
     }
 
     /* One press arms Y on the Devices tab; anything else stands it back down. */

@@ -136,6 +136,7 @@ reference; what follows is the map.
 | `fb_draw_proportion()` | a whole and its parts |
 | `struct fb_text_field`, `struct fb_dialog` | the draft box and the confirm sheet |
 | `struct fb_snackbar` | the transient notice |
+| `struct fb_qr` | a QR code — the one component drawn for a camera rather than for a reader |
 | `fb_draw_app_bar()` | the heading, with slots |
 | `fb_draw_nav_bar()`, `fb_draw_action_bar()` | the chrome |
 | `fb_draw_progress()`, `fb_draw_banner()` | what the *client* says, as opposed to the radio |
@@ -155,6 +156,22 @@ Four authoring rules hold across all of them, and breaking one compiles and look
 The tables a screen reads instead of deciding for itself: `actions.c` (button verbs), `status.c`
 (card verbs), `help.c`, `devices.c`, `nodes.c`, `delivery.c`, `trust.c`, `chrome.c`, `trend.c`,
 `duration.c`.
+
+### The one colour pair that is not a theme choice
+
+`MESH_UI_COLOR_CODE` and `MESH_UI_COLOR_CODE_GROUND` are black on white on every palette, and
+that is deliberate rather than an omission. A QR code on this panel is not read by a person — it
+is read by a phone camera held by somebody standing next to the Brick — and several scanners,
+the one built into iOS among them, will not read an inverted code at all. The choice still lives
+in `theme.c` rather than in the renderer, which is the rule doing its job: a screen names a role
+and the theme answers, and the answer for these two happens not to vary.
+
+Two other things about drawing a code are worth knowing before changing `fb_draw_qr()`. Its
+module size is a whole number of pixels, because a code scaled to fill the room available puts
+module boundaries between pixels and a reader thresholding a photograph of that finds edges the
+code has none of; so a code may not quite fill its box. And the quiet zone is part of the code —
+four modules of clear margin, drawn in the code's own ground rather than left to whatever is
+behind it, because a reader that cannot find the margin does not lock on.
 
 ### Animation and transitions
 

@@ -1,0 +1,55 @@
+# Channel sharing: the Meshtastic link, in both directions.
+#
+# This is the phone apps' onboarding path and the one thing the Brick could not do at all until
+# now. Three things to watch:
+#
+#   1. The channel list, which has grown two rows under the slots. They are at the foot rather
+#      than the head because they are about the *set* rather than about a channel, and because
+#      the row somebody arrives here wanting is almost always a slot.
+#   2. The share screen. The code takes every pixel of the body it can get, because how large
+#      its modules are is most of whether a phone across the table reads it - and its scale is a
+#      whole number of pixels, so it may not quite fill the room it was given. Under it, what is
+#      in it, and then the link itself: last, dim, and wrapped rather than cut, because a link
+#      with an ellipsis in it is not a link.
+#   3. The code is black on white on every theme, which is the one colour pair in this client
+#      that does not follow the palette. Watch it stay put as the theme changes around it. That
+#      is not an oversight - several scanners, the one built into iOS among them, will not read
+#      an inverted code at all, so a code that followed the dark theme would be a code half the
+#      people it is shown to cannot scan.
+#
+# The other direction - a link typed in - is the keyboard and then the ordinary confirm sheet,
+# both of which are filmed elsewhere; what is new there is the check in front of the sheet, and
+# a refusal is not a thing a capture can show usefully.
+
+scene demo
+scale 4
+delay 200
+config
+
+tab settings
+hold 500
+
+# Into Channels. The slots first, then the two rows this change adds.
+key down 11
+key a
+hold 1200
+key down 2
+hold 1600
+
+# The code. Everything needed to join this radio - both channels, their keys, and the LoRa
+# settings - as one square somebody points a phone at.
+key down
+key a
+hold 2600
+
+# The same code on the light palette and on the one with a single accent, where every other
+# colour on the panel moves and this one does not.
+theme light
+hold 2200
+theme contrast
+hold 2200
+theme dark
+hold 1400
+
+key b
+hold 800

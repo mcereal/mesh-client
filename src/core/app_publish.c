@@ -13,6 +13,7 @@
 
 #include "mesh/i18n/strings.h"
 
+#include "mesh/core/channel_share.h"
 #include "mesh/core/version.h"
 #include "mesh/geo/coords.h"
 #include "mesh/transport/ble.h"
@@ -1365,6 +1366,12 @@ static void mesh_app_flatten_settings(const struct mesh_radio_settings *src,
                 channel->settings.has_module_settings && channel->settings.module_settings.is_muted;
         }
     }
+    /* The whole set as one link, for the Share screen's QR code. Built here rather than from
+       the rows above for the reason store_settings.h gives: the link carries the radio's own
+       LoRaConfig bytes, and the rows are this client's reading of them. Empty until the channel
+       table has arrived with a primary in it. */
+    (void)mesh_channel_share_url(src, dst->share_url, sizeof dst->share_url);
+
     if (src->has_ui_config) {
         dst->has_ui_config = true;
         dst->ui_theme = (uint8_t)src->ui_config.theme;

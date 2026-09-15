@@ -13,6 +13,7 @@
 
 #include "mesh/ui/settings.h"
 
+#include "mesh/utils/base64.h"
 #include "mesh/utils/text.h"
 
 #include <ctype.h>
@@ -263,33 +264,18 @@ void mesh_ui_settings_key_hex(const uint8_t *key, size_t len, char *out, size_t 
     }
 }
 
-static const char k_base64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
 void mesh_ui_settings_key_text(const uint8_t *key, size_t len, char *out, size_t out_len) {
     if (out == NULL || out_len == 0U) {
         return;
     }
     out[0] = '\0';
-    if (key == NULL || (len + 2U) / 3U * 4U + 1U > out_len) {
+    if (key == NULL) {
         return;
     }
-    size_t pos = 0U;
-    for (size_t i = 0; i < len; i += 3U) {
-        const uint32_t b0 = key[i];
-        const uint32_t b1 = i + 1U < len ? key[i + 1U] : 0U;
-        const uint32_t b2 = i + 2U < len ? key[i + 2U] : 0U;
-        const uint32_t triple = (b0 << 16) | (b1 << 8) | b2;
-        out[pos++] = k_base64[(triple >> 18) & 0x3FU];
-        out[pos++] = k_base64[(triple >> 12) & 0x3FU];
-        out[pos++] = i + 1U < len ? k_base64[(triple >> 6) & 0x3FU] : '=';
-        out[pos++] = i + 2U < len ? k_base64[triple & 0x3FU] : '=';
-    }
-    out[pos] = '\0';
-}
-
-static int base64_value(char c) {
-    const char *at = c != '\0' ? strchr(k_base64, c) : NULL;
-    return at != NULL ? (int)(at - k_base64) : -1;
+    /* The standard alphabet, padded: this is the form the Meshtastic apps show a key in and the
+       form mesh_ui_settings_key_parse() reads back. The URL-safe one belongs to a channel URL
+       and nowhere near a field somebody types into. */
+    (void)mesh_base64_encode(key, len, false, out, out_len);
 }
 
 static bool parse_hex(const char *text, size_t digits, uint8_t *out, size_t out_cap,
@@ -306,52 +292,6 @@ static bool parse_hex(const char *text, size_t digits, uint8_t *out, size_t out_
         out[i / 2U] = (uint8_t)((hi << 4) | lo);
     }
     *out_len = digits / 2U;
-    return true;
-}
-
-static bool parse_base64(const char *text, size_t chars, uint8_t *out, size_t out_cap,
-                         size_t *out_len) {
-    if (chars % 4U != 0U) {
-        return false;
-    }
-    size_t len = 0U;
-    for (size_t i = 0; i < chars; i += 4U) {
-        int values[4];
-        unsigned pad = 0U;
-        for (unsigned j = 0; j < 4U; ++j) {
-            const char c = text[i + j];
-            if (c == '=') {
-                /* Padding only in the last group's last two places. */
-                if (i + 4U != chars || j < 2U) {
-                    return false;
-                }
-                pad++;
-                values[j] = 0;
-                continue;
-            }
-            if (pad > 0U) {
-                return false;
-            }
-            values[j] = base64_value(c);
-            if (values[j] < 0) {
-                return false;
-            }
-        }
-        const uint32_t triple = ((uint32_t)values[0] << 18) | ((uint32_t)values[1] << 12) |
-                                ((uint32_t)values[2] << 6) | (uint32_t)values[3];
-        const unsigned bytes = 3U - pad;
-        if (len + bytes > out_cap) {
-            return false;
-        }
-        out[len++] = (uint8_t)(triple >> 16);
-        if (bytes > 1U) {
-            out[len++] = (uint8_t)(triple >> 8);
-        }
-        if (bytes > 2U) {
-            out[len++] = (uint8_t)triple;
-        }
-    }
-    *out_len = len;
     return true;
 }
 
@@ -376,5 +316,8 @@ bool mesh_ui_settings_key_parse(const char *text, uint8_t *out, size_t out_cap, 
     if (all_hex && (chars == 2U || chars == 32U || chars == 64U)) {
         return parse_hex(text, chars, out, out_cap, out_len);
     }
-    return parse_base64(text, chars, out, out_cap, out_len);
+    /* Padded, and every character accounted for: a key is a fixed number of bytes, a mistyped
+       one decodes to a plausible wrong key, and nothing on the wire says so - the radio simply
+       stops hearing the mesh. See mesh/utils/base64.h. */
+    return mesh_base64_decode(text, chars, MESH_BASE64_PADDED, out, out_cap, out_len);
 }

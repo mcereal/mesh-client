@@ -404,15 +404,26 @@ MESH_TEST_CASE(ui_nav_channel_edit, unit) {
     struct mesh_ui_settings_item item;
     (void)mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS);
     mesh_test_settings_open(&store, MESH_UI_SETTINGS_CHANNELS);
+    /* Three slots and the import row under them. The share row is not there: this fixture has
+       no link, which is what a radio that has not sent a primary looks like. */
     if (store.nav.settings_section != MESH_UI_SETTINGS_CHANNELS ||
-        mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS) != 3U ||
+        mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS) != 4U ||
         mesh_ui_settings_channel_at_row(&store.settings, NULL, 1U) != 1 ||
         mesh_ui_settings_channel_at_row(&store.settings, NULL, 2U) != 2 ||
-        mesh_ui_settings_channel_at_row(&store.settings, NULL, 3U) != -1 ||
         !mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_CHANNELS,
                                MESH_UI_SETTINGS_NO_CHANNEL, 2U, &item) ||
         strcmp(item.label, "2 (empty)") != 0 || strstr(item.value, "disabled") == NULL) {
         failure = "the channel list should show every slot, the empty one openable";
+        goto cleanup;
+    }
+    /* The import row is an ACTION row like a slot is, and carries a verb rather than a slot
+       number - which is the whole of what keeps one from being read as the other. */
+    if (mesh_ui_settings_channel_at_row(&store.settings, NULL, 3U) != -1 ||
+        !mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_CHANNELS,
+                               MESH_UI_SETTINGS_NO_CHANNEL, 3U, &item) ||
+        item.kind != MESH_UI_SETTING_ACTION ||
+        item.number != (uint32_t)MESH_UI_SETTINGS_ACTION_IMPORT_CHANNELS) {
+        failure = "the import row should be an action row that is not a channel slot";
         goto cleanup;
     }
     /* An empty slot opens with the same rows, role Disabled: that is how a channel is added.

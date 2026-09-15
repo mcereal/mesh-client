@@ -58,6 +58,9 @@ static uint8_t route_screen_depth(const struct mesh_ui_nav *nav) {
         if (nav->settings_channel != MESH_UI_SETTINGS_NO_CHANNEL) {
             depth++; /* one channel slot, reached through the Channels section */
         }
+        if (nav->share_open) {
+            depth++; /* the share sheet, reached through a row of the Channels section */
+        }
         return depth;
     }
     case MESH_UI_SCREEN_STATUS:
@@ -131,6 +134,13 @@ static void route_screen_place(const struct mesh_ui_nav *nav, struct mesh_ui_rou
         return;
     case MESH_UI_SCREEN_SETTINGS:
         if (nav->settings_section == MESH_UI_SETTINGS_NO_SECTION) {
+            return;
+        }
+        /* The topmost first, as the Nodes tab does it. The share sheet is the deepest thing
+           this tab opens: a row of the Channels list raises it. */
+        if (nav->share_open) {
+            out->level = MESH_UI_ROUTE_SHARE;
+            out->slot = nav->settings_section;
             return;
         }
         if (nav->settings_channel != MESH_UI_SETTINGS_NO_CHANNEL) {
@@ -333,7 +343,7 @@ static const char *const k_level_names[MESH_UI_ROUTE_COUNT] = {
     [MESH_UI_ROUTE_COMPOSE] = "compose",   [MESH_UI_ROUTE_PICKER] = "picker",
     [MESH_UI_ROUTE_KEYBOARD] = "keyboard", [MESH_UI_ROUTE_CONFIRM] = "confirm",
     [MESH_UI_ROUTE_REACTION] = "reaction", [MESH_UI_ROUTE_HELP] = "help",
-    [MESH_UI_ROUTE_VERIFY] = "verify",
+    [MESH_UI_ROUTE_VERIFY] = "verify",     [MESH_UI_ROUTE_SHARE] = "share",
 };
 
 const char *mesh_ui_screen_id(enum mesh_ui_screen screen) {

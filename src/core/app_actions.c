@@ -21,6 +21,7 @@
 #include "mesh/core/version.h"
 #include "mesh/geo/coords.h"
 #include "mesh/i18n/strings.h"
+#include "mesh/proto/channel_url.h"
 #include "mesh/transport/ble.h"
 #include "mesh/transport/ble_hci.h"
 #include "mesh/transport/serial.h"
@@ -1533,6 +1534,52 @@ struct app_action_entry {
     bool needs_ble;
 };
 
+/*
+ * A Meshtastic channel link, joined.
+ *
+ * The link is parsed here rather than in the nav, against the radio's table *as it stands now*:
+ * the sheet the user answered may have been up while a read-back landed, and what gets
+ * overwritten is whatever is on the radio at this moment. Parsing twice is the cheap half of
+ * that; the nav's parse decided whether to raise the sheet at all.
+ */
+static void on_import_channels(struct mesh_app *app, const struct mesh_ui_action *action) {
+    char toast[MESH_UI_NAV_TOAST_MAX];
+    const uint64_t now = mesh_time_monotonic_ms();
+
+    meshtastic_ChannelSet set;
+    bool add = false;
+    if (!mesh_channel_url_decode(action->text, &set, &add)) {
+        mesh_ui_store_set_toast(&app->ui_store, now, mesh_str(MESH_STR_TOAST_IMPORT_NOT_A_LINK));
+        return;
+    }
+
+    const int queued = mesh_session_import_channels(&app->session, &set, add);
+    if (queued > 0) {
+        /*
+         * Announced like a section save, because that is what it is: several channel writes and
+         * a LoRa config, acked one at a time, with a reboot at the end. Tracking it through the
+         * same counters is what makes the Settings tab say "saving" while they are in flight
+         * and report the first one that the radio refuses.
+         */
+        const struct mesh_radio_settings *radio = mesh_session_settings(&app->session);
+        app->settings_save_pending = true;
+        app->settings_writes_acked_seen = radio != NULL ? radio->writes_acked : 0U;
+        app->settings_writes_failed_seen = radio != NULL ? radio->writes_failed : 0U;
+        snprintf(app->settings_save_section, sizeof app->settings_save_section, "%s",
+                 mesh_str(MESH_STR_SETTINGS_SECTION_CHANNELS));
+        mesh_str_format_plural(toast, sizeof toast, MESH_STR_TOAST_IMPORT_QUEUED_ONE,
+                               (uint32_t)set.settings_count, (unsigned)set.settings_count);
+    } else if (queued == 0) {
+        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_IMPORT_NO_CHANGE));
+    } else if (queued == -ENOTCONN) {
+        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_NOT_CONNECTED));
+    } else {
+        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_IMPORT_FAILED));
+        mesh_log_warn("ui", "Channel import failed: %d", queued);
+    }
+    mesh_ui_store_set_toast(&app->ui_store, now, toast);
+}
+
 static const struct app_action_entry k_app_actions[] = {
     {MESH_UI_ACTION_CONNECT, on_connect, false},
     {MESH_UI_ACTION_SEND_TEXT, on_send_text, true},
@@ -1570,6 +1617,7 @@ static const struct app_action_entry k_app_actions[] = {
     {MESH_UI_ACTION_CHECK_RADIO_FIRMWARE, on_check_radio_firmware, false},
     {MESH_UI_ACTION_INSTALL_UPDATE, on_install_update, false},
     {MESH_UI_ACTION_INSTALL_RADIO_FIRMWARE, on_install_radio_firmware, false},
+    {MESH_UI_ACTION_IMPORT_CHANNELS, on_import_channels, false},
 };
 
 /*

@@ -66,6 +66,11 @@ enum mesh_ui_route_level {
        a confirm is raised by the press underneath it, and this arrives because a radio asked
        something, from any screen, at any time. */
     MESH_UI_ROUTE_VERIFY,
+    /* The share sheet: this radio's channel set drawn as a QR code, raised from a row of the
+       Channels list. A level rather than a flavour of SECTION because it is a picture with
+       nothing on it to move between, and because being one is what buys it the slide, the back
+       arrow and the B keycap without any of the three being told about it. */
+    MESH_UI_ROUTE_SHARE,
     MESH_UI_ROUTE_COUNT
 };
 

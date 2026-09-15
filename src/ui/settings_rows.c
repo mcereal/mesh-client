@@ -1233,6 +1233,24 @@ static void build_channels(const struct mesh_ui_settings *s,
         item_str(list, MESH_STR_SETTINGS_CHANNELS_ROW, MESH_UI_SETTING_INFO,
                  MESH_STR_CHANNELS_NONE_KNOWN);
     }
+
+    /*
+     * Sharing, under the slots.
+     *
+     * The share row appears only when there is a link to show, which is what `share_url` being
+     * non-empty means: the radio's table has arrived and has a primary in it. The import row
+     * appears whenever the full table is held, because that is what an import needs to write
+     * back - a link typed against a table this client has only the handshake summary of would
+     * be a write built on a guess about the slots it is overwriting.
+     */
+    if (s->share_url[0] != '\0') {
+        item_action(list, MESH_STR_CHANNELS_SHARE_ROW, mesh_str(MESH_STR_COMMON_PRESS_A),
+                    MESH_UI_SETTINGS_ACTION_SHARE_CHANNELS);
+    }
+    if (s->has_channels) {
+        item_action(list, MESH_STR_CHANNELS_IMPORT_ROW, mesh_str(MESH_STR_COMMON_PRESS_A),
+                    MESH_UI_SETTINGS_ACTION_IMPORT_CHANNELS);
+    }
 }
 
 /* One channel's rows. The primary slot's role is shown but not offered: a mesh with two
@@ -1265,7 +1283,10 @@ int mesh_ui_settings_channel_at_row(const struct mesh_ui_settings *settings,
         item.kind != MESH_UI_SETTING_ACTION) {
         return -1;
     }
-    return (int)item.number;
+    /* The two sharing rows at the foot of the list are ACTION rows too, and carry an
+       enum mesh_ui_settings_action rather than a slot. A slot is 0 to 7 and nothing else, which
+       is the invariant that keeps one kind of row from being read as the other. */
+    return item.number < MESH_UI_MAX_CHANNELS ? (int)item.number : -1;
 }
 
 static void build_security(const struct mesh_ui_settings *s, struct item_list *list) {

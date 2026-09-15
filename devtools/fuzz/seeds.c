@@ -12,13 +12,14 @@
  * quietly stopped seeding anything.
  *
  * Usage: meshclient_fuzz_seeds <directory>
- *        (creates <directory>/{session,stream_framing,firmware_catalog,zip,uf2}/)
+ *        (creates <directory>/{session,stream_framing,firmware_catalog,zip,uf2,channel_url}/)
  */
 
 #include "fuzz_state.h"
 
 #include "mesh/core/message.h"
 #include "mesh/core/session.h"
+#include "mesh/proto/channel_url.h"
 #include "mesh/proto/stream_framing.h"
 
 #include <pb_encode.h>
@@ -45,6 +46,10 @@ static void die(const char *what) {
     fprintf(stderr, "seeds: %s: %s\n", what, strerror(errno));
     exit(1);
 }
+
+/* A seed that is text rather than bytes, written without its NUL: the harness terminates what
+   it is handed, so a zero in the corpus would only ever be a link cut short. */
+static void write_channel_url_seed(const char *name, const char *text, size_t len);
 
 static void write_seed(const char *subdir, const char *name, const uint8_t *bytes, size_t len) {
     char path[768];
@@ -504,6 +509,51 @@ static void write_uf2_seeds(void) {
     write_seed("uf2", "two_blocks", pair, sizeof pair);
 }
 
+/*
+ * Channel links, which are text rather than bytes: the reader takes a whole URL, so a fuzzer
+ * starting from noise would spend its budget rediscovering base64 before reaching the protobuf
+ * underneath. One real link, and the payload on its own - which is the form somebody typing one
+ * in will produce, and the shorter string for a mutator to work on.
+ */
+static void write_channel_url_seeds(void) {
+    meshtastic_ChannelSet set = meshtastic_ChannelSet_init_zero;
+    snprintf(set.settings[0].name, sizeof set.settings[0].name, "%s", "LongFast");
+    set.settings[0].psk.size = 1U;
+    set.settings[0].psk.bytes[0] = 1U;
+    snprintf(set.settings[1].name, sizeof set.settings[1].name, "%s", "Trail");
+    set.settings[1].psk.size = 16U;
+    for (unsigned i = 0; i < 16U; ++i) {
+        set.settings[1].psk.bytes[i] = (uint8_t)(0xA0U + i);
+    }
+    set.settings_count = 2U;
+    set.has_lora_config = true;
+    set.lora_config.use_preset = true;
+    set.lora_config.region = meshtastic_Config_LoRaConfig_RegionCode_EU_868;
+    set.lora_config.hop_limit = 3U;
+
+    char url[MESH_CHANNEL_URL_MAX];
+    const size_t len = mesh_channel_url_encode(&set, false, url, sizeof url);
+    if (len == 0U) {
+        fprintf(stderr, "seeds: the channel link would not encode\n");
+        exit(1);
+    }
+    write_channel_url_seed("link", url, len);
+
+    const size_t prefix = strlen(MESH_CHANNEL_URL_PREFIX);
+    write_channel_url_seed("payload", url + prefix, len - prefix);
+
+    /* And the add form, so the query tail is explored rather than invented. */
+    char with_add[MESH_CHANNEL_URL_MAX];
+    const size_t add_len = mesh_channel_url_encode(&set, true, with_add, sizeof with_add);
+    if (add_len > 0U) {
+        write_channel_url_seed("link_add", with_add, add_len);
+    }
+}
+
+static void write_channel_url_seed(const char *name, const char *text, size_t len) {
+    write_seed("channel_url", name, (const uint8_t *)text, len);
+}
+
 int main(int argc, char **argv) {
     if (argc != 2) {
         fprintf(stderr, "usage: %s <directory>\n", argv[0]);
@@ -535,12 +585,17 @@ int main(int argc, char **argv) {
     if (mkdir(path, 0755) != 0 && errno != EEXIST) {
         die(path);
     }
+    snprintf(path, sizeof path, "%s/channel_url", g_dir);
+    if (mkdir(path, 0755) != 0 && errno != EEXIST) {
+        die(path);
+    }
 
     write_session_seeds();
     write_framing_seeds();
     write_catalog_seeds();
     write_zip_seeds();
     write_uf2_seeds();
+    write_channel_url_seeds();
     printf("wrote %u seeds under %s\n", g_written, g_dir);
     return 0;
 }
