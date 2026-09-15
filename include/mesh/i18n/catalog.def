@@ -154,6 +154,10 @@ MESH_STR_ENTRY(ACTION_WRITE,              "write")
 /* Put an emoji on the message under the cursor - a tapback, not a message of its own. Every
    messenger has a word for this one and it is rarely "react"; use the one yours uses. */
 MESH_STR_ENTRY(ACTION_REACT,              "react")
+/* Send the message under the cursor again, after it came back undelivered. The same words to
+   the same place, not a new message being written - the word your messenger puts on a failed
+   bubble is the one to use. */
+MESH_STR_ENTRY(ACTION_RESEND,             "resend")
 /* Stop a conversation interrupting: no badge on the tab, no notice over whatever the user is
    doing. Its messages still arrive and its thread still fills, so this is not "block". */
 MESH_STR_ENTRY(ACTION_MUTE,               "mute")
@@ -1286,10 +1290,12 @@ MESH_STR_ENTRY(HELP_NOTE_MESSAGES_MUTE,   "START stops a conversation interrupti
 MESH_STR_ENTRY(HELP_LABEL_THREAD_MARKS,   "The mark on a message")
 MESH_STR_ENTRY(HELP_LABEL_THREAD_REPLY,   "Replies and tapbacks")
 MESH_STR_ENTRY(HELP_LABEL_THREAD_ALL,     "The all-traffic view")
+MESH_STR_ENTRY(HELP_LABEL_THREAD_RESEND,  "Sending it again")
 MESH_STR_ENTRY(HELP_NOTE_THREAD,          "What was said here, oldest at the top. Your own messages sit on the right; a padlock means the channel was encrypted, and the hop count is how far the message travelled.")
 MESH_STR_ENTRY(HELP_NOTE_THREAD_MARKS,    "A clock means the radio is still waiting to hear that a message arrived, a double tick that a node confirmed it, an alert that it did not. A broadcast asks for no answer and carries no mark.")
 MESH_STR_ENTRY(HELP_NOTE_THREAD_REPLY,    "A answers the message under the cursor and X puts an emoji on it; Y writes to the conversation instead. A reply stays aimed at the message you pressed on, however far the transcript moves underneath.")
 MESH_STR_ENTRY(HELP_NOTE_THREAD_ALL,      "The top row of the list is every message the radio heard, whoever it was for. There is nobody to reply to in it, so it offers no reply and no tapback - open the conversation itself for those.")
+MESH_STR_ENTRY(HELP_NOTE_THREAD_RESEND,   "A message marked undelivered can go out again: START sends the same words to the same place as a new message. The one that failed stays where it is, because it is part of what happened here.")
 
 /* Messages: the tapback picker. */
 MESH_STR_ENTRY(HELP_LABEL_REACTION_SEND,  "What it costs")
@@ -2443,6 +2449,10 @@ MESH_STR_ENTRY(TOAST_BUSY_RETRY,          "Busy; try again in a moment")
 MESH_STR_ENTRY(TOAST_CONNECTING,          "Connecting to %.40s")
 MESH_STR_ENTRY(TOAST_CONNECT_FAILED,      "Connect failed (%d)")
 MESH_STR_ENTRY(TOAST_SENT_TO,             "Sent to %s")
+/* The retry of a message that came back undelivered went out. A separate sentence from the one
+   above because what the user pressed was "try that again", and "Sent to" would read as though
+   a second message had been written. */
+MESH_STR_ENTRY(TOAST_RESENT_TO,           "Resent to %s")
 /* A tapback went out. It names no destination because it does not choose one - it goes where
    the message it answers came from. */
 MESH_STR_ENTRY(TOAST_REACTION_SENT,       "Reaction sent")

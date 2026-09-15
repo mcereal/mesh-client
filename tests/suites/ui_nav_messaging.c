@@ -955,6 +955,137 @@ cleanup:
 }
 
 /*
+ * START on a bubble the mesh came back on: the same words, going out again.
+ *
+ * A failed message was drawable and nothing else - the error bubble and its mark have been
+ * there since the transcript was written, and the only thing a reader could do about one was
+ * type it out a second time. What is checked here is that the retry is aimed off the *record*
+ * rather than off the nav: where it was going, on which channel, what it said, and what it was
+ * answering all come from the bubble, which is what makes a retry of a threaded reply still a
+ * reply to the same message rather than to its own failed attempt.
+ */
+MESH_TEST_CASE(ui_nav_resend_repeats_a_failed_message, unit) {
+    const char *failure = NULL;
+    mesh_ui_canned_reset();
+
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    /* One more line in BRVO's conversation: ours, answering theirs, and undelivered. */
+    struct mesh_ui_message_list messages = store.messages;
+    messages.entries[messages.count].packet_id = 13U;
+    messages.entries[messages.count].peer = 0x3000U;
+    messages.entries[messages.count].direction = MESH_MESSAGE_OUTBOUND;
+    messages.entries[messages.count].ack = MESH_MESSAGE_ACK_FAILED;
+    messages.entries[messages.count].ack_error = 1U;
+    messages.entries[messages.count].reply_id = 12U;
+    messages.entries[messages.count].channel = 2U;
+    snprintf(messages.entries[messages.count].peer_name,
+             sizeof messages.entries[messages.count].peer_name, "%s", "BRVO");
+    snprintf(messages.entries[messages.count].text, sizeof messages.entries[messages.count].text,
+             "%s", "yes, on my way");
+    messages.count++;
+    mesh_ui_store_set_messages(&store, &messages);
+
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+
+    /* Into BRVO's conversation: their message, then ours under it. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (!store.nav.thread_open || store.nav.target_node != 0x3000U) {
+        failure = "the test needs BRVO's thread open";
+        goto cleanup;
+    }
+
+    /* A thread reads from its newest line, so the first press inside one settles the cursor
+       there - here that is our own message, and it did not arrive. */
+    memset(&action, 0, sizeof action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    if (store.nav.cursor[MESH_UI_SCREEN_MESSAGES] != 1U) {
+        failure = "the test needs the cursor on our own failed message";
+        goto cleanup;
+    }
+    const struct mesh_ui_message *failed = mesh_ui_nav_resendable(&store.nav, &store.messages);
+    if (failed == NULL || failed->packet_id != 13U) {
+        failure = "the failed bubble under the cursor should be the one offered";
+        goto cleanup;
+    }
+
+    memset(&action, 0, sizeof action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
+    if (action.type != MESH_UI_ACTION_RESEND) {
+        failure = "START on a failed bubble should ask the app to send it again";
+        goto cleanup;
+    }
+    if (action.dest != 0x3000U || action.channel != 2U ||
+        strcmp(action.text, "yes, on my way") != 0) {
+        failure = "the resend should carry the failed message's destination and words";
+        goto cleanup;
+    }
+    if (action.reply_id != 12U) {
+        failure = "a retry of a reply answers what the reply answered, not the failed attempt";
+        goto cleanup;
+    }
+    if (action.number != 13U) {
+        failure = "the resend should name the attempt that failed";
+        goto cleanup;
+    }
+    if (store.nav.compose_open || store.nav.keyboard_open) {
+        failure = "the retry is one press; it should not open anything over the thread";
+        goto cleanup;
+    }
+
+    /* And the nav has sent nothing and changed nothing about the log: the failed bubble stays
+       where it is, because the attempt is part of what happened here. */
+    if (store.messages.count != 3U || store.messages.entries[2].ack != MESH_MESSAGE_ACK_FAILED) {
+        failure = "the nav should not have touched the message it asked to have sent again";
+        goto cleanup;
+    }
+
+    /* One line up is their message, which arrived: there is nothing to retry on it, so START
+       goes on standing in for A and opens the compose sheet. */
+    memset(&action, 0, sizeof action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    if (store.nav.cursor[MESH_UI_SCREEN_MESSAGES] != 0U ||
+        mesh_ui_nav_resendable(&store.nav, &store.messages) != NULL) {
+        failure = "a message we received is not one this client can send again";
+        goto cleanup;
+    }
+    memset(&action, 0, sizeof action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
+    if (action.type != MESH_UI_ACTION_NONE || !store.nav.compose_open) {
+        failure = "START on a bubble with nothing to retry should still stand in for A";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+
+    /* All traffic offers it on no row at all: it is a transcript of several conversations, and
+       the verbs about one bubble live in the conversation itself. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    memset(&action, 0, sizeof action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action); /* the all-traffic row */
+    if (!store.nav.inbox) {
+        failure = "the test needs the all-traffic view open";
+        goto cleanup;
+    }
+    store.nav.cursor[MESH_UI_SCREEN_MESSAGES] = 2U;
+    if (mesh_ui_nav_resendable(&store.nav, &store.messages) != NULL) {
+        failure = "all traffic should offer no retry";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
  * A reaction is an annotation, not a message, and every place that counts or shows messages
  * has to agree about that. Before the emoji flag was read, a tapback arrived as a bubble
  * containing one emoji, became the conversation's preview text, and bumped its unread badge -

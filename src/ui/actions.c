@@ -121,6 +121,18 @@ static void actions_messages(const struct mesh_ui_nav *nav, const struct mesh_ui
     bar_add(bar, MESH_UI_BUTTON_X, MESH_STR_ACTION_REACT);
     bar_add(bar, MESH_UI_BUTTON_Y, MESH_STR_ACTION_WRITE);
     bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
+    /*
+     * And one more that is only sometimes there, named for the bubble rather than for the key:
+     * a message the mesh came back on can go out again, and one that arrived has nothing to
+     * retry. Absent on every other row, because a keycap that does nothing is the thing this
+     * table exists to prevent - the conversation list's mute above is the same shape.
+     *
+     * The nav is asked rather than the ack re-read here, so the press and the word naming it
+     * come from one answer; on any row where this is absent, START goes on standing in for A.
+     */
+    if (mesh_ui_nav_resendable(nav, &snapshot->messages) != NULL) {
+        bar_add(bar, MESH_UI_BUTTON_START, MESH_STR_ACTION_RESEND);
+    }
     bar_add_help(snapshot, bar);
     bar_add_tabs(bar);
 }

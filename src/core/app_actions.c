@@ -339,6 +339,48 @@ static void on_send_text(struct mesh_app *app, const struct mesh_ui_action *acti
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
 }
 
+/*
+ * One message that came back undelivered, sent again.
+ *
+ * A new packet with a new id rather than the old one put back on the air: a Routing reply has
+ * already been seen for that id, so re-using it would hand every node on the path a duplicate
+ * of something it has already forwarded and answered - and this client would have two log
+ * entries claiming the same id, which is what mesh_message_log_find() resolves by taking the
+ * newest. The words, the destination, the channel and whatever it was replying to are the
+ * same; nothing else about it is.
+ *
+ * The failed bubble stays. The transcript is a record of what happened on the air and that
+ * attempt happened, so the retry appears under it as its own message - which is also the only
+ * honest thing to draw while the second one is still pending.
+ */
+static void on_resend(struct mesh_app *app, const struct mesh_ui_action *action) {
+    char toast[MESH_UI_NAV_TOAST_MAX];
+    const uint64_t now = mesh_time_monotonic_ms();
+
+    const bool broadcast = (action->dest == MESH_MESSAGE_BROADCAST_ADDR);
+    uint32_t packet_id = 0U;
+    /* Never a reaction: one is drawn on the message it names rather than as a bubble, so it is
+       filtered out of the thread and can never be the row under the cursor. */
+    const int result =
+        mesh_session_send_reply(&app->session, action->dest, action->channel, action->text,
+                                !broadcast, action->reply_id, &packet_id);
+    if (result == 0) {
+        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_RESENT_TO,
+                        app->ui_store.nav.target_name);
+        mesh_log_info("ui", "Resent \"%s\" to %s as packet %u (packet %u went undelivered)",
+                      action->text, app->ui_store.nav.target_name, packet_id, action->number);
+        /* Watched like any other send, so the retry's own result reaches the user. The failed
+           attempt has already been reported and is no longer watched. */
+        mesh_app_watch_sent(app, packet_id, app->ui_store.nav.target_name);
+    } else if (result == -ENOTCONN) {
+        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_NOT_CONNECTED));
+    } else {
+        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_SEND_FAILED, result);
+        mesh_log_warn("ui", "Resend to %s failed: %d", app->ui_store.nav.target_name, result);
+    }
+    mesh_ui_store_set_toast(&app->ui_store, now, toast);
+}
+
 static void on_refresh_settings(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
     const uint64_t now = mesh_time_monotonic_ms();
@@ -1676,6 +1718,7 @@ static void on_import_contact(struct mesh_app *app, const struct mesh_ui_action 
 static const struct app_action_entry k_app_actions[] = {
     {MESH_UI_ACTION_CONNECT, on_connect, false},
     {MESH_UI_ACTION_SEND_TEXT, on_send_text, true},
+    {MESH_UI_ACTION_RESEND, on_resend, true},
     {MESH_UI_ACTION_REFRESH_SETTINGS, on_refresh_settings, true},
     {MESH_UI_ACTION_SAVE_SETTINGS, on_save_settings, true},
     {MESH_UI_ACTION_RADIO_ACTION, on_radio_action, false},
