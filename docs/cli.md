@@ -172,6 +172,9 @@ messages, a *New message* row) and one conversation. X arms a delete on the firs
 throws the messages away on the second — from the log, the cache and the file on disk. Nothing is
 asked of the radio, which keeps no per-client history. Deleting a channel empties it but keeps
 its row (that row is the radio's channel table); deleting a direct conversation takes the row.
+Inside a conversation A answers the bubble under the cursor, X puts an emoji on it, Y writes to
+the conversation, and START sends it again when it is one of ours the mesh came back on — the
+failed bubble stays where it is and the retry goes out as a new message.
 
 **Compose** is an overlay over the conversation rather than a tab, so it always knows where the
 message is going: a d-pad keyboard (A types, B deletes, X shifts, Y space, START sends) and quick

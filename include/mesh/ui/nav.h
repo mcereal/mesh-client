@@ -278,6 +278,26 @@ struct mesh_ui_nav {
        message - it never opens the keyboard and it never takes the draft. */
     bool reaction_open;
     uint32_t reaction_cursor;
+    /*
+     * A retry has been raised and no other press has happened since, so START is spent.
+     *
+     * This is what makes one press one send, and it has to live here because the nav is the
+     * only thing that can. A button going *down* and the kernel's autorepeat arrive as the
+     * same event - mesh_ui_input_handle_event() drops `value == 2` only for the four
+     * directions, because those are repeated by our own timer instead, and a face button keeps
+     * whatever the kernel does with it. Every other press in this client either changes what
+     * is on screen or arms something, so a repeat lands somewhere different; a resend leaves
+     * the cursor on the same failed bubble, and a held START would put the same words on the
+     * air thirty times a second until the store caught up. That is airtime on a shared band,
+     * and a DM asks for an ack, so each one costs the mesh retransmits too.
+     *
+     * Spent rather than a packet id, because a bubble restored from the card may have no id to
+     * name and two of them would then be one latch. Any press that is not START stands it back
+     * down, which is the conversation list's delete arming turned around: there a second press
+     * of the *same* key carries the thing out, and here a second press of the same key is the
+     * one thing that must not.
+     */
+    bool resend_spent;
     /* "Send to" picker: every enabled channel, then every node. Picking opens that
        conversation's thread, and `picker_follow` says what opens over it. */
     bool picker_open;
@@ -612,6 +632,23 @@ enum mesh_ui_action_type {
        tapback. One type rather than three because the destination, the text and the failure
        path are the same three things in all of them. */
     MESH_UI_ACTION_SEND_TEXT,
+    /*
+     * One message that came back undelivered, sent again: `dest`, `channel`, `text` and
+     * `reply_id` are copied off the failed bubble and `number` is the packet id that failed.
+     *
+     * Its own verb rather than a SEND_TEXT the nav happens to have pre-filled, and the
+     * difference is not the wire - the packet is identical. It is that this one names a prior
+     * attempt, which is the one thing nothing else in this list does: the app says "resent"
+     * rather than "sent", and the log line can name the id that went unanswered. A press that
+     * silently became an ordinary send would leave the retry indistinguishable, in the toast
+     * and in the log, from the user typing the same words out a second time.
+     *
+     * The failed bubble is deliberately left where it is. The transcript is a record of what
+     * happened on the air, and the attempt that failed is part of it - the same reason a
+     * reaction stays in the log. What the user gets is a second bubble that goes out, not an
+     * edit to the first.
+     */
+    MESH_UI_ACTION_RESEND,
     MESH_UI_ACTION_REFRESH_SETTINGS,  /* re-read the radio's configuration */
     MESH_UI_ACTION_SAVE_SETTINGS,     /* section + edits: write one section to the radio */
     MESH_UI_ACTION_TOGGLE_FAVORITE,   /* dest = node to pin/unpin; `number` is 1 to pin */
@@ -778,12 +815,14 @@ struct mesh_ui_action {
     uint8_t channel;
     /* TOGGLE_FAVORITE: 1 to pin, 0 to unpin. The nav reads the node's current flag and sends
        the state it wants, so a press that races a NodeInfo cannot end up as a no-op toggle.
-       RADIO_ACTION: the enum mesh_ui_settings_action that was confirmed. */
+       RADIO_ACTION: the enum mesh_ui_settings_action that was confirmed.
+       RESEND: the packet id of the attempt that failed. */
     uint32_t number;
     char text[MESH_UI_DRAFT_MAX];
     /* SEND_TEXT: the message this one answers (0 for a new one), and whether `text` is an
        emoji about it rather than a line of its own. A reaction always names a target; the app
-       refuses one that does not. */
+       refuses one that does not. RESEND: whatever the failed message answered, because a retry
+       of a reply is still a reply to the same thing. */
     uint32_t reply_id;
     bool is_reaction;
     /* SAVE_SETTINGS: the section (enum mesh_ui_settings_section), the channel slot for the
@@ -838,6 +877,21 @@ uint32_t mesh_ui_nav_row_count(const struct mesh_ui_nav *nav, const struct mesh_
 uint32_t mesh_ui_nav_filter_messages(const struct mesh_ui_nav *nav,
                                      const struct mesh_ui_message_list *messages,
                                      uint32_t *out_indices, uint32_t capacity);
+
+/*
+ * The bubble under the cursor in the open thread when it is one this client sent and the mesh
+ * came back to say it did not arrive, or NULL for anything else.
+ *
+ * Asked by both the press that resends and the bar that names the keycap, which is the point:
+ * a verb that appears on some rows and not others has to be one answer, or the frame ends up
+ * offering a press the nav refuses. The same seam mesh_ui_actions_node_press() uses.
+ *
+ * Takes the message list rather than the whole store because the action bar has only a
+ * snapshot, and building a store view to ask one question would be a snapshot-sized copy per
+ * frame for a pointer comparison.
+ */
+const struct mesh_ui_message *mesh_ui_nav_resendable(const struct mesh_ui_nav *nav,
+                                                     const struct mesh_ui_message_list *messages);
 
 /* Human name for the open thread: "All traffic", "#LongFast", "BRVO", or "Messages" when the
    conversation list is showing. */

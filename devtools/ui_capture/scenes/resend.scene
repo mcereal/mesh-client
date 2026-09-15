@@ -1,0 +1,54 @@
+# Sending a message again after the mesh came back to say it did not arrive.
+#
+# A failed bubble was drawable and nothing else: the error fill, the reason under it and the
+# alert mark in the corner have been there since the transcript was written, and the only thing
+# a reader could do about one was type the whole message out a second time. The phone apps let
+# you tap it and resend, and this is that press.
+#
+# What the frames are for is the *keycap*, because that is the whole of the interaction and it
+# is a property of the bubble rather than of the screen: START says "resend" while the cursor
+# is on the message that failed and says nothing at all one line up, where there is nothing to
+# send again. A keycap that appeared everywhere and worked on one row would be the action bar
+# promising a press the nav refuses.
+#
+# The send itself is not here. There is no app behind this harness, so the MESH_UI_ACTION_RESEND
+# the press raises goes nowhere - see docs/ui.md, and the `reply out` verb replies.scene uses to
+# stand a send in.
+
+scene demo
+scale 4
+clock 2026-01-12 19:12
+tab messages
+
+# Into the direct conversation with Bravo Creek.
+key down 4
+key a
+hold 500
+
+# One of ours, refused. Routing_Error 35 is PKI_UNKNOWN_PUBKEY - the reason goes under the
+# message as a supporting line, and the mark in the corner is the same alert circle the
+# delivery scene walks.
+message out BRVO Bring the spare antenna
+ack failed 35
+hold 1600
+
+# Up one, onto a message that arrived: the retry goes off the bar and START is back to standing
+# in for A, which is what it does on every screen that has not spent it.
+key up
+hold 1400
+
+# And back down onto the refused one, where it returns.
+key down
+hold 1400
+
+# The press, and then the held button. One press is one send: START raises the retry and is
+# spent, so the keycap goes at once rather than waiting for the store to catch up - which is
+# what stops the kernel's autorepeat putting the same words on the air thirty times a second.
+# The second press does nothing at all, and in particular does not fall through to A and open
+# the compose sheet. Any other press re-arms it, which the `key up` below shows.
+key start
+hold 1400
+key start
+hold 1000
+key up
+hold 1200

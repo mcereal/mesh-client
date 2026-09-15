@@ -21,6 +21,7 @@
 
 #include "framework/mesh_test.h"
 
+#include "mesh/core/message.h"
 #include "mesh/ui/actions.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/settings.h"
@@ -123,6 +124,64 @@ MESH_TEST_CASE(actions_screens_offer_their_own_presses, unit) {
     mesh_ui_actions_for(&snapshot, &bar);
     MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_A) != MESH_STR_ACTION_REFRESH,
                       "A on the Radio card's verb should say refresh");
+    record_success(test_name);
+}
+
+/*
+ * The retry keycap, which is a property of the bubble and not of the screen.
+ *
+ * Both halves matter. A thread whose cursor is on a message that arrived must not name START,
+ * because START goes on standing in for A there and a keycap that does nothing is what this
+ * table exists to prevent - and the bar must not run past MESH_UI_ACTIONS_MAX when it does
+ * appear, because a thread already names six presses without it and the bar drops from the end.
+ */
+MESH_TEST_CASE(actions_resend_names_only_a_failed_bubble, unit) {
+    struct mesh_ui_snapshot snapshot;
+    struct mesh_ui_action_bar bar;
+
+    actions_snapshot(&snapshot);
+    snapshot.nav.thread_open = true;
+    snapshot.nav.target_node = 0x3000U;
+    snapshot.messages.count = 1U;
+    snapshot.messages.entries[0].packet_id = 12U;
+    snapshot.messages.entries[0].peer = 0x3000U;
+    snapshot.messages.entries[0].direction = MESH_MESSAGE_INBOUND;
+
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_A) != MESH_STR_ACTION_REPLY,
+                      "A answers the bubble under the cursor in a thread");
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_START) != MESH_STR_NONE,
+                      "a message that arrived has nothing to send again");
+
+    /* Our own, undelivered. */
+    snapshot.messages.entries[0].direction = MESH_MESSAGE_OUTBOUND;
+    snapshot.messages.entries[0].ack = MESH_MESSAGE_ACK_FAILED;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_START) != MESH_STR_ACTION_RESEND,
+                      "START should name the retry on a failed bubble");
+    MESH_TEST_FAIL_IF(bar.count > MESH_UI_ACTIONS_MAX,
+                      "the thread's bar should still fit with the retry on it");
+
+    /* A retry already raised on this press: the keycap goes with it, so a held START never
+       names a verb it will refuse. */
+    snapshot.nav.resend_spent = true;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_START) != MESH_STR_NONE,
+                      "a spent retry should not be named on the bar");
+    snapshot.nav.resend_spent = false;
+
+    /* One this client sent and the mesh confirmed: back to nothing to do. */
+    snapshot.messages.entries[0].ack = MESH_MESSAGE_ACK_DELIVERED;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_START) != MESH_STR_NONE,
+                      "a message that was acknowledged has nothing to send again");
+
+    /* And all traffic offers it on no row, the way it offers no reply and no tapback. */
+    snapshot.messages.entries[0].ack = MESH_MESSAGE_ACK_FAILED;
+    snapshot.nav.inbox = true;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_START) != MESH_STR_NONE,
+                      "all traffic should name no retry");
     record_success(test_name);
 }
 

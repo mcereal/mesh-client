@@ -93,6 +93,10 @@ void mesh_ui_nav_open_thread(struct mesh_ui_nav *nav, const struct mesh_ui_store
     /* A reply names a packet id, and a packet id from the conversation we just left is not a
        message in this one. */
     nav->reply_to = 0U;
+    /* Nor is a spent retry: the bubble it was spent on is not in this thread. Cleared here as
+       well as on the next press, because the app opens a thread without one - from the picker,
+       and from "Message this node" on the Nodes tab. */
+    nav->resend_spent = false;
 }
 
 void mesh_ui_nav_open_all_traffic(struct mesh_ui_nav *nav) {
@@ -142,6 +146,7 @@ static bool mesh_ui_nav_close_thread(struct mesh_ui_nav *nav) {
     nav->messages_seen = 0U;
     nav->reply_to = 0U;
     nav->reaction_open = false;
+    nav->resend_spent = false;
     nav->cursor[MESH_UI_SCREEN_MESSAGES] = nav->conversation_list_cursor;
     return true;
 }
@@ -287,6 +292,44 @@ uint32_t mesh_ui_nav_filter_messages(const struct mesh_ui_nav *nav,
     return written;
 }
 
+const struct mesh_ui_message *mesh_ui_nav_resendable(const struct mesh_ui_nav *nav,
+                                                     const struct mesh_ui_message_list *messages) {
+    if (nav == NULL || messages == NULL || !nav->thread_open) {
+        return NULL;
+    }
+    /* Already spent on this press - see the field. Answered here rather than at the two call
+       sites so the keycap goes with the press: the bar stops naming START the moment it stops
+       doing anything, which is the whole reason both ask this one function. */
+    if (nav->resend_spent) {
+        return NULL;
+    }
+    /*
+     * Not in the all-traffic view, for the tapback's reason: it is a transcript of several
+     * conversations at once and the verbs about one bubble live in the conversation itself.
+     * The failed message is still there to open and retry from.
+     */
+    if (nav->inbox) {
+        return NULL;
+    }
+    uint32_t indices[MESH_UI_MAX_MESSAGES];
+    const uint32_t count =
+        mesh_ui_nav_filter_messages(nav, messages, indices, MESH_UI_MAX_MESSAGES);
+    const uint32_t cursor = nav->cursor[MESH_UI_SCREEN_MESSAGES];
+    if (cursor >= count) {
+        return NULL;
+    }
+    const struct mesh_ui_message *message = &messages->entries[indices[cursor]];
+    if (message->direction != MESH_MESSAGE_OUTBOUND || message->ack != MESH_MESSAGE_ACK_FAILED) {
+        return NULL;
+    }
+    /*
+     * A message restored from the card before packet ids were kept has none, and it is still
+     * resendable: everything the retry needs - who it was for, on which channel, and what it
+     * said - is on the record itself. The id only names the attempt in the log line.
+     */
+    return message;
+}
+
 /* Our own node, which cannot be messaged and whose SNR and hop count mean nothing. */
 static bool mesh_ui_nav_node_is_self(const struct mesh_ui_store *store,
                                      const struct mesh_ui_node_summary *node) {
@@ -304,6 +347,31 @@ static void mesh_ui_nav_fill_favorite(struct mesh_ui_action *action,
     action->type = MESH_UI_ACTION_TOGGLE_FAVORITE;
     action->dest = node->node_id;
     action->number = node->is_favorite ? 0U : 1U;
+}
+
+/*
+ * The failed bubble, restated as the send that will replace it.
+ *
+ * Everything comes off the record rather than off the nav, including the destination: a thread
+ * is filtered on nav->target_node, so the two agree here by construction, but the message is
+ * the thing that failed and it is the thing that says where it was going. `reply_id` travels
+ * with it because a retry of a reply is still an answer to the same message - re-aiming it at
+ * the attempt that failed would thread the conversation to its own ghost.
+ *
+ * `text` is MESH_UI_DRAFT_MAX and a message's is MESH_UI_MESSAGE_TEXT_MAX, which are the same
+ * number for the same reason: both are what one Data payload holds.
+ */
+static void mesh_ui_nav_fill_resend(struct mesh_ui_action *action,
+                                    const struct mesh_ui_message *message) {
+    if (action == NULL || message == NULL) {
+        return;
+    }
+    action->type = MESH_UI_ACTION_RESEND;
+    action->dest = message->peer;
+    action->channel = message->channel;
+    action->number = message->packet_id;
+    action->reply_id = message->reply_id;
+    snprintf(action->text, sizeof action->text, "%s", message->text);
 }
 
 /* ---- rows and cursors --------------------------------------------------------------------- */
@@ -1543,6 +1611,14 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
         nav->waypoint_delete_armed = false;
         changed = true;
     }
+    /* The retry, which is the opposite arrangement: the thing a second press of the same key
+       must not do is happen again. Anything else re-arms it, including the cursor move that
+       walks onto another failed bubble - so a deliberate second press costs one other press
+       and the kernel's autorepeat, which sends nothing but START, costs the mesh nothing. */
+    if (nav->resend_spent && key != MESH_UI_KEY_START) {
+        nav->resend_spent = false;
+        changed = true;
+    }
     /* And the conversation list's delete, which only a second X on the list may carry out. A
        cursor move standing it down is the point: the row the question was asked about is the
        only row the answer may apply to. */
@@ -1746,6 +1822,35 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
             return mesh_ui_nav_mute_conversation(nav, store, nav->cursor[nav->screen],
                                                  out_action) ||
                    changed;
+        }
+        /*
+         * And inside a conversation it is the retry, on a bubble the mesh came back to say did
+         * not arrive. The other three verbs about a bubble are already spoken for - A answers
+         * it, X puts an emoji on it, Y writes to the conversation - and this is what is left.
+         *
+         * Only on such a bubble: everywhere else in the thread START goes on standing in for A,
+         * which is what it does on every screen that has not taken it. That is the same shape
+         * as the mute above, where the keycap names the press only on rows that offer one - and
+         * it is why the bar asks mesh_ui_nav_resendable() rather than deciding for itself.
+         */
+        if (nav->screen == MESH_UI_SCREEN_MESSAGES && nav->thread_open) {
+            /*
+             * A retry already raised on this press goes nowhere, and stops here rather than
+             * falling through to A. The fall-through is what makes the rest of the thread
+             * behave, but under a held button it would resend once and then open the compose
+             * sheet over the conversation - a sheet nobody asked for, from a button nobody
+             * pressed twice. The bar is naming no verb on START while this is set, so a press
+             * that does nothing is the bar and the nav agreeing.
+             */
+            if (nav->resend_spent) {
+                return changed;
+            }
+            const struct mesh_ui_message *failed = mesh_ui_nav_resendable(nav, &store->messages);
+            if (failed != NULL) {
+                mesh_ui_nav_fill_resend(out_action, failed);
+                nav->resend_spent = true;
+                return true;
+            }
         }
         return mesh_ui_nav_confirm(nav, store, out_action) || changed;
     case MESH_UI_KEY_A:
