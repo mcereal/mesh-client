@@ -36,6 +36,7 @@
 #include "mesh/ui/status.h"
 #include "mesh/ui/trend.h"
 #include "mesh/ui/trust.h"
+#include "mesh/ui/units.h"
 #include "mesh/ui/waypoints.h"
 #include "mesh/utils/text.h"
 #include "mesh/utils/time.h"
@@ -930,7 +931,8 @@ static void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
     const uint32_t count = mesh_ui_node_detail_build(
         node, is_self, mesh_time_wall_s(), &snapshot->traceroute, nav->node_remove_armed,
-        &snapshot->handshake, &snapshot->history, items, MESH_UI_NODE_ITEMS_MAX);
+        &snapshot->handshake, &snapshot->history, mesh_ui_units_imperial(snapshot->settings.units),
+        items, MESH_UI_NODE_ITEMS_MAX);
     if (count == 0U) {
         fb_draw_empty(state, layout, MESH_UI_ICON_NODES, mesh_str(MESH_STR_NODES_DETAIL_EMPTY));
         return;

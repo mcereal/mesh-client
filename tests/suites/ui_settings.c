@@ -1344,7 +1344,7 @@ MESH_TEST_CASE(ui_node_detail_items, unit) {
 
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
     uint32_t count = mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, false, NULL, NULL,
-                                               items, MESH_UI_NODE_ITEMS_MAX);
+                                               false, items, MESH_UI_NODE_ITEMS_MAX);
     MESH_TEST_FAIL_IF(count != mesh_ui_node_detail_count(&node, false, NULL, NULL),
                       "the count the nav walks disagrees with the built list");
     /* The actions group names itself, so row 0 is its heading and the message row is the first
@@ -1411,7 +1411,7 @@ MESH_TEST_CASE(ui_node_detail_items, unit) {
     /* Our own node cannot be messaged and its SNR against itself means nothing. */
     const uint32_t self_count = mesh_ui_node_detail_count(&node, true, NULL, NULL);
     struct mesh_ui_node_item self_items[MESH_UI_NODE_ITEMS_MAX];
-    mesh_ui_node_detail_build(&node, true, 1750000600U, NULL, false, NULL, NULL, self_items,
+    mesh_ui_node_detail_build(&node, true, 1750000600U, NULL, false, NULL, NULL, false, self_items,
                               MESH_UI_NODE_ITEMS_MAX);
     for (uint32_t i = 0; i < self_count; ++i) {
         if (self_items[i].kind == MESH_UI_NODE_ROW_ACTION ||
@@ -1433,8 +1433,8 @@ MESH_TEST_CASE(ui_node_detail_items, unit) {
     node.environment.has_temperature = true;
     node.environment.temperature = 20.0f;
 
-    count = mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, false, NULL, NULL, items,
-                                      MESH_UI_NODE_ITEMS_MAX);
+    count = mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, false, NULL, NULL, false,
+                                      items, MESH_UI_NODE_ITEMS_MAX);
     bool battery_ok = false;
     bool latitude_ok = false;
     bool temperature_ok = false;
@@ -1495,7 +1495,7 @@ MESH_TEST_CASE(node_detail_states_are_chips, unit) {
 
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
     uint32_t count = mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, false, NULL, NULL,
-                                               items, MESH_UI_NODE_ITEMS_MAX);
+                                               false, items, MESH_UI_NODE_ITEMS_MAX);
 
     bool trust_chip = false;
     bool via_chip = false;
@@ -1530,8 +1530,8 @@ MESH_TEST_CASE(node_detail_states_are_chips, unit) {
        capsule is filled from the family rather than merely outlined. */
     node.via_mqtt = true;
     node.in_nodedb = false;
-    count = mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, false, NULL, NULL, items,
-                                      MESH_UI_NODE_ITEMS_MAX);
+    count = mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, false, NULL, NULL, false,
+                                      items, MESH_UI_NODE_ITEMS_MAX);
     bool mqtt_ok = false;
     bool nodedb_ok = false;
     for (uint32_t i = 0; i < count; ++i) {
@@ -1567,8 +1567,8 @@ MESH_TEST_CASE(ui_node_detail_position_honesty, unit) {
     node.position.time = 1750000000U;
     node.position.received = 1750000500U;
     node.position.precision_bits = 16U;
-    uint32_t count = mesh_ui_node_detail_build(&node, false, now, NULL, false, NULL, NULL, items,
-                                               MESH_UI_NODE_ITEMS_MAX);
+    uint32_t count = mesh_ui_node_detail_build(&node, false, now, NULL, false, NULL, NULL, false,
+                                               items, MESH_UI_NODE_ITEMS_MAX);
     bool fix_ok = false;
     bool precision_ok = false;
     bool heard_row_present = false;
@@ -1596,7 +1596,7 @@ MESH_TEST_CASE(ui_node_detail_position_honesty, unit) {
      */
     node.position.time = 0U;
     node.position.received = 1750000300U;
-    count = mesh_ui_node_detail_build(&node, false, now, NULL, false, NULL, NULL, items,
+    count = mesh_ui_node_detail_build(&node, false, now, NULL, false, NULL, NULL, false, items,
                                       MESH_UI_NODE_ITEMS_MAX);
     bool heard_ok = false;
     bool fix_row_present = false;
@@ -1615,7 +1615,7 @@ MESH_TEST_CASE(ui_node_detail_position_honesty, unit) {
     /* A fix restored from a cache written before arrival times existed knows neither, and
        says so rather than picking one. */
     node.position.received = 0U;
-    count = mesh_ui_node_detail_build(&node, false, now, NULL, false, NULL, NULL, items,
+    count = mesh_ui_node_detail_build(&node, false, now, NULL, false, NULL, NULL, false, items,
                                       MESH_UI_NODE_ITEMS_MAX);
     bool unknown_ok = false;
     for (uint32_t i = 0; i < count; ++i) {
@@ -1627,7 +1627,7 @@ MESH_TEST_CASE(ui_node_detail_position_honesty, unit) {
 
     /* precision_bits 0 is "the node never said", not "off": no row rather than a claim. */
     node.position.precision_bits = 0U;
-    count = mesh_ui_node_detail_build(&node, false, now, NULL, false, NULL, NULL, items,
+    count = mesh_ui_node_detail_build(&node, false, now, NULL, false, NULL, NULL, false, items,
                                       MESH_UI_NODE_ITEMS_MAX);
     for (uint32_t i = 0; i < count; ++i) {
         MESH_TEST_FAIL_IF(strcmp(items[i].label, "Precision") == 0,
@@ -2311,8 +2311,9 @@ MESH_TEST_CASE(node_detail_row_budget, unit) {
     node = roster.nodes[0];
 
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
-    const uint32_t count = mesh_ui_node_detail_build(&node, false, 1750000600U, &trace, true,
-                                                     &roster, NULL, items, MESH_UI_NODE_ITEMS_MAX);
+    const uint32_t count =
+        mesh_ui_node_detail_build(&node, false, 1750000600U, &trace, true, &roster, NULL, false,
+                                  items, MESH_UI_NODE_ITEMS_MAX);
     MESH_TEST_FAIL_IF(count >= MESH_UI_NODE_ITEMS_MAX,
                       "a node reporting everything fills the row budget; raise it");
     MESH_TEST_FAIL_IF(count != mesh_ui_node_detail_count(&node, false, &trace, &roster),
@@ -2369,7 +2370,7 @@ MESH_TEST_CASE(node_detail_row_budget, unit) {
     memset(&bare, 0, sizeof bare);
     bare.node_id = 0x6002U;
     const uint32_t bare_count = mesh_ui_node_detail_build(
-        &bare, false, 1750000600U, NULL, false, NULL, NULL, items, MESH_UI_NODE_ITEMS_MAX);
+        &bare, false, 1750000600U, NULL, false, NULL, NULL, false, items, MESH_UI_NODE_ITEMS_MAX);
     for (uint32_t i = 0; i < bare_count; ++i) {
         MESH_TEST_FAIL_IF(
             strcmp(items[i].label, "Power") == 0 || strcmp(items[i].label, "Air quality") == 0 ||
@@ -2413,7 +2414,7 @@ MESH_TEST_CASE(node_detail_listener_count, unit) {
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
     const uint32_t count =
         mesh_ui_node_detail_build(&roster.nodes[0], false, 1750000600U, NULL, false, &roster, NULL,
-                                  items, MESH_UI_NODE_ITEMS_MAX);
+                                  false, items, MESH_UI_NODE_ITEMS_MAX);
     MESH_TEST_FAIL_IF(count >= MESH_UI_NODE_ITEMS_MAX, "the row budget was filled");
 
     /* Counted from the heading onwards rather than by label shape: "Last heard" and "Load" are
@@ -2449,7 +2450,7 @@ MESH_TEST_CASE(node_detail_listener_count, unit) {
     roster.node_count = 1U + MESH_UI_NODE_MAX_LISTENERS;
     const uint32_t exact =
         mesh_ui_node_detail_build(&roster.nodes[0], false, 1750000600U, NULL, false, &roster, NULL,
-                                  items, MESH_UI_NODE_ITEMS_MAX);
+                                  false, items, MESH_UI_NODE_ITEMS_MAX);
     for (uint32_t i = 0; i < exact; ++i) {
         MESH_TEST_FAIL_IF(strcmp(items[i].label, "and more") == 0,
                           "a full but untruncated list should not claim a remainder");
@@ -2476,7 +2477,7 @@ MESH_TEST_CASE(node_detail_rssi_is_stamped, unit) {
 
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
     uint32_t count = mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, false, NULL, NULL,
-                                               items, MESH_UI_NODE_ITEMS_MAX);
+                                               false, items, MESH_UI_NODE_ITEMS_MAX);
     bool plain = false;
     for (uint32_t i = 0; i < count; ++i) {
         if (strcmp(items[i].label, "RSSI") == 0 && strcmp(items[i].value, "-97 dBm") == 0) {
@@ -2488,8 +2489,8 @@ MESH_TEST_CASE(node_detail_rssi_is_stamped, unit) {
     /* Now the node turns up over MQTT: last_heard moves on, the reading does not. */
     node.last_heard = 1750000500U;
     node.via_mqtt = true;
-    count = mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, false, NULL, NULL, items,
-                                      MESH_UI_NODE_ITEMS_MAX);
+    count = mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, false, NULL, NULL, false,
+                                      items, MESH_UI_NODE_ITEMS_MAX);
     bool stamped = false;
     for (uint32_t i = 0; i < count; ++i) {
         if (strcmp(items[i].label, "RSSI") == 0) {
@@ -3293,7 +3294,7 @@ MESH_TEST_CASE(node_detail_groups_are_unbroken_runs, unit) {
 
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
     const uint32_t count = mesh_ui_node_detail_build(&node, false, 1750000600U, &trace, false, NULL,
-                                                     NULL, items, MESH_UI_NODE_ITEMS_MAX);
+                                                     NULL, false, items, MESH_UI_NODE_ITEMS_MAX);
     MESH_TEST_FAIL_IF(count == 0U, "a node with a trace and a fix should produce rows");
 
     /*

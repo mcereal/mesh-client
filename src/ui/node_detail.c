@@ -11,6 +11,7 @@
 #include "mesh/core/session.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/trust.h"
+#include "mesh/ui/units.h"
 
 #include <limits.h>
 #include <stdarg.h>
@@ -33,6 +34,10 @@ struct node_rows {
      */
     const struct mesh_ui_history *history;
     uint32_t node_id;
+    /* The radio's display units, for the two rows that are lengths: a node's altitude and the
+       footprint its precision_bits describe. Carried on the row builder rather than read from a
+       store, because this file takes a node and a roster and never sees the settings. */
+    bool imperial;
 };
 
 static struct mesh_ui_node_item *rows_next(struct node_rows *rows) {
@@ -651,7 +656,10 @@ static void node_rows_position(struct node_rows *rows, const struct mesh_ui_node
     rows_info(rows, MESH_STR_NODE_LONGITUDE, MESH_STR_NODE_VAL_DEGREES,
               (double)position->longitude_i / 1e7);
     if (position->has_altitude) {
-        rows_info(rows, MESH_STR_NODE_ALTITUDE, MESH_STR_NODE_VAL_METRES, (int)position->altitude);
+        char altitude[24];
+        mesh_ui_format_altitude((int32_t)position->altitude, rows->imperial, altitude,
+                                sizeof altitude);
+        rows_text(rows, MESH_STR_NODE_ALTITUDE, altitude);
     }
     if (position->sats_in_view > 0U) {
         rows_info(rows, MESH_STR_NODE_SATELLITES, MESH_STR_NODE_VAL_NUMBER,
@@ -665,8 +673,8 @@ static void node_rows_position(struct node_rows *rows, const struct mesh_ui_node
        footprint it cannot support. */
     if (position->precision_bits > 0U) {
         char precision[24];
-        mesh_ui_settings_format_precision((uint32_t)position->precision_bits, precision,
-                                          sizeof precision);
+        mesh_ui_settings_format_precision((uint32_t)position->precision_bits, rows->imperial,
+                                          precision, sizeof precision);
         rows_text(rows, MESH_STR_NODE_PRECISION, precision);
     }
 
@@ -1072,7 +1080,7 @@ static void node_rows_route_path(struct node_rows *rows, const struct mesh_ui_no
 uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool is_self,
                                    uint32_t now, const struct mesh_ui_traceroute *trace,
                                    bool remove_armed, const struct mesh_ui_handshake_state *roster,
-                                   const struct mesh_ui_history *history,
+                                   const struct mesh_ui_history *history, bool imperial,
                                    struct mesh_ui_node_item *out, uint32_t capacity) {
     if (node == NULL) {
         return 0U;
@@ -1084,6 +1092,7 @@ uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool
         .count = 0U,
         .history = history,
         .node_id = node->node_id,
+        .imperial = imperial,
     };
 
     /*
@@ -1248,7 +1257,7 @@ mesh_ui_node_detail_trend_at(const struct mesh_ui_node_summary *node, bool is_se
      */
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
     const uint32_t count = mesh_ui_node_detail_build(node, is_self, 0U, trace, false, roster,
-                                                     history, items, MESH_UI_NODE_ITEMS_MAX);
+                                                     history, false, items, MESH_UI_NODE_ITEMS_MAX);
     if (row >= count) {
         return MESH_UI_HISTORY_NONE;
     }
@@ -1266,7 +1275,7 @@ bool mesh_ui_node_detail_trend_row(const struct mesh_ui_node_summary *node, bool
     }
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
     const uint32_t count = mesh_ui_node_detail_build(node, is_self, 0U, trace, false, roster,
-                                                     history, items, MESH_UI_NODE_ITEMS_MAX);
+                                                     history, false, items, MESH_UI_NODE_ITEMS_MAX);
     for (uint32_t i = 0U; i < count; ++i) {
         if (items[i].trend == NULL || items[i].trend_reading != (uint8_t)reading) {
             continue;
@@ -1290,7 +1299,7 @@ enum mesh_ui_node_press mesh_ui_node_detail_press_at(const struct mesh_ui_node_s
     }
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
     const uint32_t count = mesh_ui_node_detail_build(node, is_self, 0U, trace, false, roster,
-                                                     history, items, MESH_UI_NODE_ITEMS_MAX);
+                                                     history, false, items, MESH_UI_NODE_ITEMS_MAX);
     if (row >= count) {
         return MESH_UI_NODE_PRESS_NONE;
     }
@@ -1464,7 +1473,7 @@ uint32_t mesh_ui_node_detail_step(const struct mesh_ui_node_summary *node, bool 
     }
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
     const uint32_t count = mesh_ui_node_detail_build(node, is_self, 0U, trace, false, roster,
-                                                     history, items, MESH_UI_NODE_ITEMS_MAX);
+                                                     history, false, items, MESH_UI_NODE_ITEMS_MAX);
     if (row >= count) {
         return row;
     }
@@ -1494,7 +1503,7 @@ uint32_t mesh_ui_node_detail_group_step(const struct mesh_ui_node_summary *node,
     }
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
     const uint32_t count = mesh_ui_node_detail_build(node, is_self, 0U, trace, false, roster,
-                                                     history, items, MESH_UI_NODE_ITEMS_MAX);
+                                                     history, false, items, MESH_UI_NODE_ITEMS_MAX);
     if (row >= count) {
         return row;
     }
@@ -1557,7 +1566,8 @@ bool mesh_ui_node_detail_span(const struct mesh_ui_node_item *items, uint32_t co
 uint32_t mesh_ui_node_detail_count(const struct mesh_ui_node_summary *node, bool is_self,
                                    const struct mesh_ui_traceroute *trace,
                                    const struct mesh_ui_handshake_state *roster) {
-    return mesh_ui_node_detail_build(node, is_self, 0U, trace, false, roster, NULL, NULL, 0U);
+    return mesh_ui_node_detail_build(node, is_self, 0U, trace, false, roster, NULL, false, NULL,
+                                     0U);
 }
 
 static uint32_t node_list_count(const struct mesh_ui_handshake_state *handshake) {

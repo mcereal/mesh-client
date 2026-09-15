@@ -733,8 +733,8 @@ MESH_TEST_CASE(key_trust_node_detail_offers_the_key_rows, unit) {
         node->key_verified = cases[i].verified;
         node->in_nodedb = cases[i].in_nodedb;
 
-        const uint32_t count = mesh_ui_node_detail_build(node, false, 0U, NULL, false, &handshake,
-                                                         NULL, items, MESH_UI_NODE_ITEMS_MAX);
+        const uint32_t count = mesh_ui_node_detail_build(
+            node, false, 0U, NULL, false, &handshake, NULL, false, items, MESH_UI_NODE_ITEMS_MAX);
 
         bool saw_verify = false;
         bool saw_add = false;

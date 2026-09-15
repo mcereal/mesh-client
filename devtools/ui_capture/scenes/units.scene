@@ -1,0 +1,107 @@
+# Metric and imperial, over the four screens that used to disagree.
+#
+# The radio's own DisplayConfig.units is the only say the client has over this, and for a while
+# only half the client was listening: the map drew its scale bar and its ranges in miles while
+# everything behind it answered in metres whatever the setting said - a node's altitude, the
+# footprint its precision describes, the smart broadcast threshold, and the MQTT section's map
+# precision. The footprint was the worst of them, because the map's own selected-marker card
+# draws it two lines under a range in miles.
+#
+# So the scene is one walk run twice. Node detail, Settings > Position, Settings > Modules >
+# MQTT, then the map; first with the radio set to metric and then with it set to imperial. What
+# it asks a reader to check is that the second half has no metres left in it anywhere, not that
+# any one row converted correctly - that is what the ui_units suite is for.
+
+scene demo
+scale 4
+delay 200
+config
+
+units metric
+
+# Alfa Ridge is a repeater with a rounded fix, so its detail carries both of the node rows this
+# is about: an altitude and a precision. It is seeds[1], and rows 0 and 1 of the Nodes list are
+# the filter chips and the Map, so its row is 3. Inside a detail the counts are *presses* rather
+# than row numbers - the cursor steps over each group's title on its way down.
+tab nodes
+key down 3
+key a
+key down 30
+hold 2200
+key b
+hold 300
+
+# Settings > Position: the smart broadcast threshold, which is a length the reader picks off a
+# list rather than one the mesh reported.
+tab settings
+key down 6
+key a
+key down 4
+hold 2200
+key b
+hold 300
+
+# Settings > Modules > MQTT: the map report's precision, which is the same ladder the node
+# detail's Precision row reads and was the last place still answering in metres.
+tab settings
+key down 13
+key a
+key a
+key down 9
+hold 2200
+key b
+key b
+hold 300
+
+# The map, which was already honouring the setting - filmed so the strip holds the screen the
+# other three had to agree with rather than asking a reader to remember it, and because its
+# selected-marker line is where the disagreement was loudest: a range in feet and a footprint in
+# metres, one space apart. The list is left with the cursor on a node, so this walks back to the
+# top rather than indexing into it; the Map row is the second, under the filter chips.
+tab nodes
+key up 6
+key down 1
+key a
+hold 1200
+key left
+hold 2400
+key b
+hold 600
+
+# The same four, with the radio switched over. Nothing else about the scene changes.
+units imperial
+hold 1400
+
+tab nodes
+key down 3
+key a
+key down 30
+hold 2200
+key b
+hold 300
+
+tab settings
+key down 6
+key a
+key down 4
+hold 2200
+key b
+hold 300
+
+tab settings
+key down 13
+key a
+key a
+key down 9
+hold 2200
+key b
+key b
+hold 300
+
+tab nodes
+key up 6
+key down 1
+key a
+hold 1200
+key left
+hold 2600

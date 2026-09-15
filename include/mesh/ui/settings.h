@@ -795,13 +795,16 @@ bool mesh_ui_settings_section_icons_rows(enum mesh_ui_settings_section section);
 
 /*
  * Position precision as a distance rather than a bit count: 0 is off, 32 or more is precise,
- * and 10..19 are the ten steps the phone apps label ("~23 km" down to "~45 m"). Public
- * because the node detail asks the same question of a *received* fix that the channel's
- * position_precision row asks of an outgoing one - and a rounded location described two
- * different ways on two screens is how a client comes to disagree with itself about how much
- * it knows. Writes at most `out_len` bytes including the NUL.
+ * and 10..19 are the ten steps the phone apps label ("~23 km" down to "~45 m", or "~14 mi" down
+ * to "~150 ft" when `imperial`). Public because the node detail asks the same question of a
+ * *received* fix that the channel's position_precision row asks of an outgoing one - and a
+ * rounded location described two different ways on two screens is how a client comes to disagree
+ * with itself about how much it knows. `imperial` is mesh_ui_units_imperial() of the radio's
+ * display units, so a footprint reads in the system every other length on the screen does.
+ * Writes at most `out_len` bytes including the NUL.
  */
-void mesh_ui_settings_format_precision(uint32_t bits, char *out, size_t out_len);
+void mesh_ui_settings_format_precision(uint32_t bits, bool imperial, char *out, size_t out_len);
+
 /*
  * The same answer as a number of metres, for a caller that has to draw the footprint rather than
  * name it - the map's ring around an approximate marker.

@@ -145,6 +145,7 @@ add_library(meshclient_core
     src/ui/node_detail.c
     src/ui/devices.c
     src/ui/nodes.c
+    src/ui/units.c
     src/ui/waypoints.c
     src/ui/backends/stub.c
     src/ui/backends/cli.c

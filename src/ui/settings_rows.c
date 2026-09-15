@@ -25,6 +25,7 @@
 #include "mesh/core/updater.h"
 #include "mesh/core/version.h"
 #include "mesh/i18n/strings.h"
+#include "mesh/ui/units.h"
 #include "mesh/utils/array.h"
 #include "mesh/utils/text.h"
 
@@ -61,6 +62,15 @@ struct item_list {
     uint32_t count;
     const struct mesh_ui_setting_edit *edits;
     size_t edit_count;
+    /*
+     * Which system of units every length in this section reads in - the radio's own
+     * DisplayConfig.units, taken once for the whole section rather than asked per row.
+     *
+     * It follows a pending edit of the Units row like any other value, which is what makes the
+     * Display section show its own change before it is written: stepping to Imperial rewords the
+     * rows under it immediately, and backing out of the section rewords them back.
+     */
+    bool imperial;
 };
 
 /*
@@ -235,7 +245,7 @@ static struct mesh_ui_settings_item *item_field(struct item_list *list,
         if (number == 0U && spec->zero_label != MESH_STR_NONE) {
             snprintf(item->value, sizeof item->value, "%s", mesh_str(spec->zero_label));
         } else if (spec->format != NULL) {
-            spec->format(number, item->value, sizeof item->value);
+            spec->format(number, list->imperial, item->value, sizeof item->value);
         } else {
             format_seconds(item->value, sizeof item->value, number,
                            spec->zero_label != MESH_STR_NONE ? spec->zero_label
@@ -2061,6 +2071,10 @@ static void build_section(const struct mesh_ui_settings *settings,
     if (settings == NULL || !mesh_ui_settings_section_loaded(settings, handshake, section)) {
         return;
     }
+    const struct mesh_ui_setting_edit *units_edit =
+        mesh_ui_settings_find_edit(list->edits, list->edit_count, MESH_UI_FIELD_DISPLAY_UNITS);
+    list->imperial =
+        mesh_ui_units_imperial(units_edit != NULL ? (uint8_t)units_edit->number : settings->units);
     switch (section) {
     case MESH_UI_SETTINGS_ABOUT:
         build_about(settings, list);

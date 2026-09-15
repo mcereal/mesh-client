@@ -22,6 +22,7 @@
 #include "mesh/ui/settings.h"
 #include "mesh/ui/status.h"
 #include "mesh/ui/trend.h"
+#include "mesh/ui/units.h"
 #include "mesh/utils/array.h"
 #include "mesh/utils/text.h"
 
@@ -661,7 +662,7 @@ static bool mesh_ui_nav_row_is_heading(const struct mesh_ui_nav *nav,
            nothing for, and for the same reason. */
         const uint32_t count = mesh_ui_node_detail_build(
             node, mesh_ui_nav_node_is_self(store, node), 0U, &store->traceroute, false,
-            &store->handshake, NULL, items, MESH_UI_NODE_ITEMS_MAX);
+            &store->handshake, NULL, false, items, MESH_UI_NODE_ITEMS_MAX);
         return row < count && items[row].kind == MESH_UI_NODE_ROW_HEADING;
     }
     if (nav->screen == MESH_UI_SCREEN_SETTINGS &&
@@ -1000,10 +1001,10 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
             return false;
         }
         struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
-        const uint32_t count =
-            mesh_ui_node_detail_build(node, mesh_ui_nav_node_is_self(store, node), 0U,
-                                      &store->traceroute, nav->node_remove_armed, &store->handshake,
-                                      &store->history, items, MESH_UI_NODE_ITEMS_MAX);
+        const uint32_t count = mesh_ui_node_detail_build(
+            node, mesh_ui_nav_node_is_self(store, node), 0U, &store->traceroute,
+            nav->node_remove_armed, &store->handshake, &store->history,
+            mesh_ui_units_imperial(store->settings.units), items, MESH_UI_NODE_ITEMS_MAX);
         /*
          * A meter row carrying a trend opens that trend as a chart, and it is taken ahead of the
          * action-row guard below because it is the one press on this screen that is not an

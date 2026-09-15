@@ -367,6 +367,18 @@ only a consequence of one of them, and neither is a thing a test could pin.
   with an off state; off the air it is an absent field, so the detail guards on `> 0`. One table
   for both screens is what stops a rounded location being described two ways.
   `ui_node_detail_position_honesty`, `ui_settings_coords`.
+- **Every length the client shows follows the radio's `DisplayConfig.units`, and there is no
+  second preference.** A reader who set their radio to miles is not asked to set the Brick to
+  miles as well, so the byte off the wire is the only say - `mesh_ui_units_imperial()` is the one
+  place that decodes it and `src/ui/units.c` the only place that words a length. A new row that
+  formats metres directly is the way this comes undone, which is why the guard is a sweep over
+  every section rather than an assertion per row.
+  `ui_units_no_setting_reads_in_metres_under_imperial`,
+  `ui_units_node_detail_lengths_follow_the_setting`.
+- **The fixed-position altitude row stays in metres under either setting**, and says so in its
+  label. It is typed rather than read: the value is written to the radio as whole metres, and an
+  integer round trip through feet moves a fixed position a metre each time the row is opened and
+  backed out of. `ui_units_no_setting_reads_in_feet_under_metric`.
 - **`(0, 0)` is a valid coordinate** - where a half-initialised GPS most often claims to be, and
   a real point in the Gulf of Guinea. `mesh_geo_coords_valid()` is a *range* check and nothing
   more; rejecting Null Island there is a guess about the sender's firmware in a range check's

@@ -368,6 +368,13 @@ MESH_STR_ENTRY(VALUE_DISTANCE_KM,         "%.1f km")
 MESH_STR_ENTRY(VALUE_DISTANCE_FT,         "%u ft")
 MESH_STR_ENTRY(VALUE_DISTANCE_MI,         "%.1f mi")
 
+/* A height, which stays in the small unit however large it gets: a node on a mountain reading
+   "3.1 km" would be a height that looks like a range. Signed, because a fix below sea level is a
+   real place - and wider on the imperial side, because a height is whatever int32_t the sender
+   put in the packet and three metres of that range are more than four feet of it. */
+MESH_STR_ENTRY(VALUE_ALTITUDE_M,          "%d m")
+MESH_STR_ENTRY(VALUE_ALTITUDE_FT,         "%lld ft")
+
 /* ---- the Nodes tab -------------------------------------------------------------------------- */
 
 MESH_STR_ENTRY(NODES_EMPTY_WAITING,       "Waiting for the node list...")
@@ -898,7 +905,6 @@ MESH_STR_ENTRY(NODE_VAL_MILLIAMPS,        "%.0f mA")
 MESH_STR_ENTRY(NODE_VAL_MILLIAMPS_FINE,   "%.1f mA")
 MESH_STR_ENTRY(NODE_VAL_VOLTS_MILLIAMPS,  "%.2f V, %.0f mA")
 MESH_STR_ENTRY(NODE_VAL_DEGREES,          "%.5f")
-MESH_STR_ENTRY(NODE_VAL_METRES,           "%d m")
 /* Celsius first because the radio reports Celsius; the Fahrenheit conversion follows it. */
 MESH_STR_ENTRY(NODE_VAL_TEMPERATURE,      "%.1f C (%.1f F)")
 MESH_STR_ENTRY(NODE_VAL_PRESSURE,         "%.1f hPa")
@@ -986,7 +992,7 @@ MESH_STR_ENTRY(SETTINGS_NOTE_ABOUT,                       "MeshClient itself: wh
 MESH_STR_ENTRY(SETTINGS_NOTE_RADIO,                       "What the radio says about itself, and what firmware upstream publishes for its board. Installing one takes the radio off the mesh for minutes and cannot be undone; a row says why it cannot be.")
 MESH_STR_ENTRY(SETTINGS_NOTE_USER,                        "Your identity on the mesh. The long name is what node lists show; the short name is the few characters other radios draw on their own screens.")
 MESH_STR_ENTRY(SETTINGS_NOTE_DEVICE,                      "How this radio behaves on the mesh: the role it plays, how often it announces itself, and what it repeats for other nodes. Role has the widest effect of anything here.")
-MESH_STR_ENTRY(SETTINGS_NOTE_DISPLAY,                     "The radio's own screen: how long it stays lit, which way up it draws, and whether it reads in metric or imperial. None of it changes what the Brick shows.")
+MESH_STR_ENTRY(SETTINGS_NOTE_DISPLAY,                     "The radio's own screen: how long it stays lit and which way up it draws. None of that changes what the Brick shows - Units does, and says so on its own row.")
 MESH_STR_ENTRY(SETTINGS_NOTE_LORA,                        "The radio link itself - region, modem settings, and how far a message may travel. Two radios must agree on region and preset or they cannot hear each other at all.")
 MESH_STR_ENTRY(SETTINGS_NOTE_BLUETOOTH,                   "How the radio accepts a connection from a phone or from this client. Changing the mode or the PIN drops the current link and needs a fresh pairing.")
 MESH_STR_ENTRY(SETTINGS_NOTE_CHANNELS,                    "The channels this radio listens on. A channel is a name plus a key: anyone holding the same pair can read its traffic, and anyone without it cannot.")
@@ -1119,6 +1125,7 @@ MESH_STR_ENTRY(SETTINGS_NOTE_POWER_SHUTDOWN,              "Powers the radio off 
 /* Display - the radio's own panel. */
 MESH_STR_ENTRY(SETTINGS_NOTE_DISPLAY_SCREEN_ON,           "How long the radio's screen stays lit after a press. The screen is a large part of what a screened board draws, so a short timeout is most of what power saving buys.")
 MESH_STR_ENTRY(SETTINGS_NOTE_DISPLAY_CAROUSEL,            "How often the radio's screen moves itself on to the next page. Off leaves it on whichever page it was left showing.")
+MESH_STR_ENTRY(SETTINGS_NOTE_DISPLAY_UNITS,               "Metric or imperial, for the radio's own screen and for this one. It is the one row here the Brick reads too: distances, altitudes and footprints follow it wherever they are shown.")
 MESH_STR_ENTRY(SETTINGS_NOTE_DISPLAY_COMPASS,             "Which way round the compass is drawn on the radio's screen, for a board mounted at an angle. It turns the drawing and not the heading behind it.")
 MESH_STR_ENTRY(SETTINGS_NOTE_DISPLAY_FLIP,                "Draws the radio's screen upside down, for a board mounted the other way up. The buttons do not move with it, so they end up on the wrong side.")
 MESH_STR_ENTRY(SETTINGS_NOTE_DISPLAY_OLED,                "Which panel the radio has, when its own autodetect got it wrong. Auto is right on almost every board; a wrong choice here leaves the screen blank or scrambled. Changing it restarts the radio.")
@@ -1785,6 +1792,20 @@ MESH_STR_ENTRY(VALUE_PRECISION_360M,      "~360 m")
 MESH_STR_ENTRY(VALUE_PRECISION_180M,      "~180 m")
 MESH_STR_ENTRY(VALUE_PRECISION_90M,       "~90 m")
 MESH_STR_ENTRY(VALUE_PRECISION_45M,       "~45 m")
+/* The same ten footprints for a reader whose radio is set to imperial. Written out rather than
+   converted at the point of use, for the reason the metric ten are: every one of these is a round
+   number somebody can picture, and running 730 m through a conversion yields "2395 ft", which is a
+   figure precise about a rounding. */
+MESH_STR_ENTRY(VALUE_PRECISION_14MI,      "~14 mi")
+MESH_STR_ENTRY(VALUE_PRECISION_7_5MI,     "~7.5 mi")
+MESH_STR_ENTRY(VALUE_PRECISION_3_6MI,     "~3.6 mi")
+MESH_STR_ENTRY(VALUE_PRECISION_1_8MI,     "~1.8 mi")
+MESH_STR_ENTRY(VALUE_PRECISION_0_9MI,     "~0.9 mi")
+MESH_STR_ENTRY(VALUE_PRECISION_2400FT,    "~2400 ft")
+MESH_STR_ENTRY(VALUE_PRECISION_1200FT,    "~1200 ft")
+MESH_STR_ENTRY(VALUE_PRECISION_600FT,     "~600 ft")
+MESH_STR_ENTRY(VALUE_PRECISION_300FT,     "~300 ft")
+MESH_STR_ENTRY(VALUE_PRECISION_150FT,     "~150 ft")
 
 /* ---- settings: rows and their values ------------------------------------------------------------ */
 
