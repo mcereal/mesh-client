@@ -244,6 +244,67 @@ counts as a save or toasts over one.
 **Most sections reboot the radio 7 s after a set**, so the link drops and auto-connect
 reconnects. That is expected, not a bug.
 
+### Administering another node's radio
+
+`mesh_radio_settings_set_admin_dest()` points the Settings tab at a node in the roster instead
+of the radio on the end of the link. The same queue, the same verbs, the same rows; four things
+change.
+
+- **The packet is addressed to that node and sealed to it.** `MeshPacket.to` is the node,
+  `pki_encrypted` is set and `public_key` carries the node's own key, taken from its roster
+  record — the division of labour every other packet here has, where the client says what it
+  wants and the firmware does the cryptography. A destination we hold no key for is refused
+  rather than sent in the clear; there is no unencrypted remote admin, because the legacy way of
+  doing it is a shared channel named `admin` that every node holding the key is an administrator
+  of. It deliberately does **not** carry `want_ack`: the firmware reports a delivery ack for a
+  packet we originated as a ROUTING_APP packet quoting the same id the answer will quote, and
+  `ingest_routing()` cannot tell the two apart — it would arrive first, release the queue before
+  the AdminMessage landed, and record a write as saved by its delivery rather than by the
+  firmware's verdict. The reply is the acknowledgement, which is `request_position`'s rule with
+  a second reason behind it.
+- **A reply is allowed a minute**, not five seconds — the same `MESH_TRACEROUTE_TIMEOUT_MS`
+  allows, and for the same reason. The deadline is a property of the request that went out
+  (`pending_dest`), not of where the tab is pointed now, because the two interleave. Three
+  unanswered remote requests in a row drop the rest of the queue: a refresh is nearly thirty
+  requests, and half an hour of a tab that looks busy and will never fill in says less than
+  stopping does.
+- **Everything the struct held is dropped**, because a config section is one radio's, and the
+  tab showing this radio's LoRa settings beside that radio's owner reads as a working screen and
+  is not one. What survives is what is not a section: the write tallies the app announces
+  outcomes from, the region preset map (which no admin verb can ask a remote node for), and
+  `link_metadata`.
+
+That last one is the seam between two questions that used to share an answer. "What board is
+this and what is it running" is the Settings tab's and follows the target;
+`mesh_radio_settings_link_metadata()` answers "which firmware image may be written down this
+cable", which is the *link's* and does not move — reading the tab's would offer a Heltec image
+for a RAK in your hand, and the model comparison that exists to refuse exactly that would be
+comparing the wrong two radios. The firmware group is not drawn in About radio while a target is
+set: there is nothing to put in its place, because an image crosses a cable or a BLE link and
+never a mesh.
+- **Only the Settings tab's own requests follow it.** `queue_probe`, `queue_all`, `queue_write`,
+  `queue_action` and `queue_ham_mode` go to the target; the clock push, the NodeDB verbs behind
+  the Nodes tab, `add_contact`, the key-verification ceremony and the OTA request are always the
+  connected radio's. The one action refused remotely is `ENTER_DFU_MODE` — a UF2 bootloader
+  needs somebody at the USB port, so over the air it is a verb that takes a node off the mesh
+  and puts the only way back at the far end of a walk.
+
+Every queued request carries the `dest` it was stamped with, and the deduplication that folds
+two `get_owner`s together keys on it. That is what makes one `session_passkey` slot safe with
+two radios in the queue: each set sits directly behind its own passkey refresh, the queue is
+strictly one at a time, and a refresh for our own radio is never folded into one for the target.
+A reply that answers a request sent elsewhere contributes its passkey and nothing else.
+
+**What authorises the request is not something this client can check.** Our own public key has
+to be in the far radio's `SecurityConfig.admin_key` list, which only that radio knows. So the
+gate is the half this side can answer — we hold a key to seal the request to — and a node that
+has not been told to trust us answers nothing, which looks exactly like a node out of range.
+Both end at the give-up count.
+
+The banner (`mesh/ui/chrome.h`) outranks every other entry while a target is set, and stands
+down only inside Settings > About radio, which names the node in a row and carries the press
+that comes back.
+
 ## `src/core/store_forward.c`
 
 A Store & Forward router keeps the last few hours of text traffic and hands it back on request —

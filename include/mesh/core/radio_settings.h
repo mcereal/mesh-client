@@ -145,6 +145,10 @@ enum mesh_admin_request_kind {
 /* The length of an OTA hash: SHA-256, and the firmware refuses anything else. */
 #define MESH_ADMIN_OTA_HASH_LEN 32U
 
+/* A Curve25519 public key, which is what both halves of PKI are measured in: the one on the
+   node we are administering and the one MeshPacket.public_key carries. */
+#define MESH_ADMIN_PUBLIC_KEY_LEN 32U
+
 /* How long the radio is told to wait before a reboot or a shutdown. Not zero: the firmware
    answers before it acts, and the Routing ack has to get out of the door while the radio is
    still listening. It is also just long enough to notice a mistake. */
@@ -153,7 +157,21 @@ enum mesh_admin_request_kind {
 struct mesh_admin_request {
     enum mesh_admin_request_kind kind;
     uint32_t type;
-    uint32_t my_node;   /* MeshPacket.to: admin goes to ourselves */
+    uint32_t my_node; /* MeshPacket.to when `dest` is 0: admin goes to ourselves */
+    /*
+     * The node this request is addressed to, or 0 for the radio on the end of the link.
+     *
+     * The whole of what makes remote administration a thing this client can do. `my_node` is
+     * still what a local request is addressed to - the firmware answers those without ever
+     * putting them on the air - and a request with a `dest` is the same AdminMessage travelling
+     * over the mesh to somebody else's radio instead. See mesh_radio_settings_set_admin_dest().
+     *
+     * Stamped when the request is *queued* rather than read from the target when it is sent, so
+     * a target that moves cannot redirect a request that was queued for the old one. That is
+     * belt and braces - retargeting empties the queue - but it is the field that makes the two
+     * facts independent, and it is what the passkey correlation below is written against.
+     */
+    uint32_t dest;
     uint32_t packet_id; /* MeshPacket.id; replies quote it in Data.request_id */
     /* What a set_* carries. The firmware replaces the whole section, so this is the full
        struct as the radio last reported it with the edits applied, never a partial. */
@@ -202,8 +220,35 @@ bool mesh_admin_request_is_action(enum mesh_admin_request_kind kind);
    things, the way the module table already makes them count modules the same way. */
 #define MESH_RADIO_SETTINGS_EXTRA_FETCHES 4U
 #define MESH_RADIO_SETTINGS_MAX_CHANNELS 8U
-/* A reply that has not arrived after this long is given up on and the queue moves on. */
+/* A reply that has not arrived after this long is given up on and the queue moves on. Five
+   seconds is a *local* round trip: the request never leaves the radio and the answer comes
+   back over the same GATT characteristic it went out on. */
 #define MESH_RADIO_SETTINGS_REPLY_TIMEOUT_MS 5000U
+/*
+ * The same deadline for a request addressed to somebody else's radio, where the five seconds
+ * above is not a slow answer but a wrong question: the request crosses the mesh, the far end
+ * answers it, and the answer crosses back, each leg over LoRa and through however many hops
+ * the route takes.
+ *
+ * The same minute MESH_TRACEROUTE_TIMEOUT_MS allows, and for the same reason - a reply has to
+ * cross the mesh twice - and deliberately not longer. A radio that has not answered in a
+ * minute is one of two things and the queue cannot tell them apart: out of range, or not
+ * listening to us. Both are answered by giving up on this request rather than by waiting.
+ */
+#define MESH_RADIO_SETTINGS_REMOTE_REPLY_TIMEOUT_MS 60000U
+/*
+ * How many remote requests in a row may go unanswered before the rest of the queue is dropped.
+ *
+ * A full refresh is nearly thirty requests. Against a node that is not answering at all, at a
+ * minute each, that is half an hour of a Settings tab that looks busy and will never fill in -
+ * so the queue stops rather than grinds, and the user presses refresh again if they move
+ * somewhere with a better path. Any reply at all resets the count, which is what keeps a mesh
+ * that is merely slow from being mistaken for one that is not there.
+ *
+ * Local requests are deliberately not counted: a radio on the end of a GATT link that stops
+ * answering is a link that is about to drop, which the transport reports for itself.
+ */
+#define MESH_RADIO_SETTINGS_REMOTE_GIVE_UP 3U
 /* Floor on a clock we are willing to push at a radio: 2025-01-01T00:00:00Z. A Brick whose RTC
    has been lost reads back somewhere near the epoch, and a node with no time at all is better
    off than a node confidently set to 1970. */
@@ -257,6 +302,22 @@ struct mesh_radio_settings {
     bool has_metadata;
     meshtastic_DeviceMetadata metadata;
     /*
+     * The same thing for the radio on the end of the link, which is the same record until the
+     * Settings tab is pointed at somebody else's radio and a different one afterwards.
+     *
+     * Kept apart because two different questions read it and only one of them is about the
+     * radio being configured. "What board is this and what is it running" is the Settings tab's
+     * and follows the admin target; "which firmware image may be written down this USB cable or
+     * over this BLE link" is the *link's*, and answering it from the target's model would offer
+     * a Heltec image for a RAK in your hand - the one failure the firmware install exists to
+     * refuse. Read it through mesh_radio_settings_link_metadata().
+     *
+     * On the link's side of the line for the region preset map's reason, and it survives a
+     * retarget for the same one.
+     */
+    bool has_link_metadata;
+    meshtastic_DeviceMetadata link_metadata;
+    /*
      * The four the radio keeps outside Config/ModuleConfig/Channel.
      *
      * `ui_config` is kept whole and written back whole, which is not tidiness: DeviceUIConfig
@@ -290,11 +351,32 @@ struct mesh_radio_settings {
     bool has_region_presets;
     meshtastic_LoRaRegionPresetMap region_presets;
 
-    /* Admin session. */
+    /*
+     * Admin session.
+     *
+     * One passkey slot for however many radios this queue is talking to, which is safe for one
+     * reason and worth stating: every write and every action is queued *directly behind its own
+     * get_owner*, the queue is strictly one request at a time, and the deduplication that folds
+     * two get_owners together keys on the destination. So the passkey a set_* carries is always
+     * the one the reply immediately before it brought back, from the node the set_* is going
+     * to.
+     */
     bool has_session_passkey;
     uint8_t session_passkey[8];
     size_t session_passkey_len;
     uint32_t admin_replies; /* ADMIN_APP replies decoded since reset */
+
+    /*
+     * Whose radio the sections above describe, and the key its packets are sealed to.
+     *
+     * 0 - the ordinary case - is the radio on the end of the link. Anything else is remote
+     * administration: every Settings-tab request goes to that node instead, over the mesh and
+     * under PKI, and everything this struct holds is that node's configuration rather than the
+     * connected radio's. The two are never mixed; see mesh_radio_settings_set_admin_dest().
+     */
+    uint32_t admin_dest;
+    uint8_t admin_dest_key[MESH_ADMIN_PUBLIC_KEY_LEN];
+    size_t admin_dest_key_len;
 
     /* One-at-a-time request queue. */
     struct mesh_admin_request queue[MESH_RADIO_SETTINGS_FETCH_MAX];
@@ -303,7 +385,14 @@ struct mesh_radio_settings {
     uint32_t pending_request_id; /* 0 = nothing in flight */
     uint64_t pending_sent_at_ms;
     bool pending_is_write;
+    /* Where the request in flight went, copied off it when it was dequeued: it decides which
+       of the two deadlines above applies, and whether the reply may be folded into the
+       sections this struct keeps. */
+    uint32_t pending_dest;
     unsigned timeouts;
+    /* Consecutive unanswered *remote* requests, against MESH_RADIO_SETTINGS_REMOTE_GIVE_UP.
+       Reset by any admin reply. */
+    unsigned remote_silence;
 
     /* Write outcomes, counted so the app can announce each one once. */
     uint32_t writes_sent;
@@ -370,6 +459,43 @@ void mesh_radio_settings_reset_session(struct mesh_radio_settings *settings);
 /* True once any section, the owner or the metadata has arrived. */
 bool mesh_radio_settings_loaded(const struct mesh_radio_settings *settings);
 
+/*
+ * Points the Settings tab's admin requests at another node's radio, or back at our own.
+ *
+ * `node_id` 0 returns to the connected radio and takes no key. Anything else is remote
+ * administration and **needs the node's public key**: the request goes out over the mesh with
+ * `pki_encrypted` set and that key in `MeshPacket.public_key`, which is what makes an
+ * AdminMessage something only that node can read and only an authorised client can have sent.
+ * A key of the wrong length, or none, is -EINVAL - there is no unencrypted remote admin here,
+ * because the legacy way of doing it is a shared channel named "admin" that every node holding
+ * the key is an administrator of.
+ *
+ * **Everything this struct holds is dropped.** A config section is a fact about one radio, and
+ * a tab showing this radio's LoRa settings beside that radio's owner would be worse than an
+ * empty one. The session passkey goes with it (it is issued per node), the queue is emptied
+ * (its requests were addressed to whoever was the target when they were queued), and the
+ * caller follows this with a refresh for the new target.
+ *
+ * What is *not* retargeted is everything that is about the radio on the end of the link rather
+ * than about a configuration: the clock push, the NodeDB verbs behind the Nodes tab, adding a
+ * contact, the key-verification ceremony and the OTA request. Those keep going to our own
+ * radio whatever this is set to - see the queue calls below, which say so one at a time.
+ *
+ * Returns 0, or -EINVAL for a bad key. Setting the target it already has still clears and
+ * returns 0: it is what a second press on "configure this node" means.
+ */
+int mesh_radio_settings_set_admin_dest(struct mesh_radio_settings *settings, uint32_t node_id,
+                                       const uint8_t *public_key, size_t key_len);
+
+/* The node the Settings tab is administering, or 0 for the connected radio. */
+uint32_t mesh_radio_settings_admin_dest(const struct mesh_radio_settings *settings);
+
+/* What the radio on the end of the link said about itself, or NULL before it has. Not the same
+   record as `metadata` while another node is being administered, and the one the firmware
+   install must read: the image goes down this link whatever the Settings tab is describing. */
+const meshtastic_DeviceMetadata *
+mesh_radio_settings_link_metadata(const struct mesh_radio_settings *settings);
+
 /* Fold in fragments the radio streams during the want_config handshake. */
 void mesh_radio_settings_apply_config(struct mesh_radio_settings *settings,
                                       const meshtastic_Config *config);
@@ -398,35 +524,46 @@ void mesh_radio_settings_apply_region_presets(struct mesh_radio_settings *settin
 int mesh_radio_settings_ingest(struct mesh_radio_settings *settings,
                                const meshtastic_MeshPacket *packet);
 
-/* Encodes one request as a ToRadio protobuf ready for a single BLE write: a MeshPacket to
-   ourselves on ADMIN_APP with want_response set, carrying the passkey we hold (harmless on a
-   get; required on a set). Returns 0 and sets *written on success. */
+/* Encodes one request as a ToRadio protobuf ready for a single BLE write: a MeshPacket on
+   ADMIN_APP with want_response set, carrying the passkey we hold (harmless on a get; required
+   on a set). Addressed to ourselves, or - when the request carries a `dest` - to that node,
+   sealed under PKI and asking for an ack, because it has a mesh to cross. Returns 0 and sets
+   *written on success; -EINVAL for a `dest` that is not the target this struct holds a key
+   for. */
 int mesh_radio_settings_encode_request(const struct mesh_radio_settings *settings,
                                        const struct mesh_admin_request *request, uint8_t *out,
                                        size_t out_len, size_t *written);
 
 /* Fetch queue. queue_probe() asks for the owner and the metadata (enough to prove the admin
    round trip); queue_all() asks for everything the Settings tab shows, every channel slot
-   included. Duplicates of a kind already queued are skipped. Returns the number added. */
+   included. Both go to the admin target, so a full refresh against a remote node is nearly
+   thirty round trips over the mesh - which is why the give-up count above exists. Duplicates
+   of a kind already queued *for the same destination* are skipped. Returns the number added. */
 size_t mesh_radio_settings_queue_probe(struct mesh_radio_settings *settings);
 size_t mesh_radio_settings_queue_all(struct mesh_radio_settings *settings);
 
 /* Queues one write: a get_owner_request first (a fresh passkey, since the one we hold may be
    minutes old), the set_* itself, then the get_* for the same section. `write->kind` must be
-   a SET_* kind with its payload filled in; my_node and packet_id are assigned at send time.
-   Returns the number of requests queued, -EINVAL for a non-write, -ENOSPC when the queue
-   cannot take all three. */
+   a SET_* kind with its payload filled in; the destination is taken from the admin target and
+   my_node and packet_id are assigned at send time. Returns the number of requests queued,
+   -EINVAL for a non-write, -ENOSPC when the queue cannot take all three. */
 int mesh_radio_settings_queue_write(struct mesh_radio_settings *settings,
                                     const struct mesh_admin_request *write);
 /* Queues a clock push: a get_owner_request for a fresh passkey, then set_time_only carrying
-   `epoch` (UTC seconds). There is no get_time, so nothing is read back. Returns the number of
-   requests queued, -EINVAL for an epoch below MESH_RADIO_CLOCK_MIN_EPOCH, -ENOSPC when the
-   queue cannot take both. */
+   `epoch` (UTC seconds). There is no get_time, so nothing is read back. Always to the radio on
+   the end of the link, whatever the admin target is: the clock is pushed once per connection
+   because *this* radio may have lost its RTC, and a handheld's idea of the time has no
+   business being pushed at somebody else's node over the air. Returns the number of requests
+   queued, -EINVAL for an epoch below MESH_RADIO_CLOCK_MIN_EPOCH, -ENOSPC when the queue cannot
+   take both. */
 int mesh_radio_settings_queue_time(struct mesh_radio_settings *settings, uint32_t epoch);
 
 /* Pins or unpins a node in the radio's NodeDB, the same shape as the clock push: a get_owner
    for a fresh passkey, then the set. There is no get_favorite to read back with - the flag
-   comes home on the next NodeInfo for that node, so the caller updates its own copy. */
+   comes home on the next NodeInfo for that node, so the caller updates its own copy.
+   "The radio" here and in every NodeDB verb below is the connected one, never the admin
+   target: these are presses on the Nodes tab, and a list of nodes this client can see is a
+   fact about the radio it is seeing them through. */
 int mesh_radio_settings_queue_favorite(struct mesh_radio_settings *settings, uint32_t node_id,
                                        bool favorite);
 
@@ -494,6 +631,11 @@ size_t mesh_radio_settings_cancel_key_verification(struct mesh_radio_settings *s
 /* Queues one radio action, the same shape again: a get_owner for a fresh passkey (the firmware
    rejects these without one exactly as it rejects a set_*), then the action itself. `seconds`
    is the delay for MESH_ADMIN_REBOOT and MESH_ADMIN_SHUTDOWN and is ignored by the resets.
+   Goes to the admin target like a write does, which is most of what makes remote
+   administration worth having: rebooting a repeater you are standing under is the point.
+   MESH_ADMIN_ENTER_DFU_MODE is the one exception and is refused with -EINVAL against a remote
+   target - a UF2 bootloader needs somebody at the USB port, so sending it over the mesh puts a
+   node somewhere the mesh cannot reach it again.
    Returns the number of requests queued, -EINVAL for a kind that is not an action or is one of
    the two that carry a payload (an ota_request and a set_ham_mode, each of which has its own
    queue call that insists on what it carries), -ENOSPC
@@ -503,14 +645,18 @@ int mesh_radio_settings_queue_action(struct mesh_radio_settings *settings,
                                      enum mesh_admin_request_kind kind, uint32_t seconds);
 
 /* Queues an ota_request for a BLE install of the image whose SHA-256 is `hash`, behind a
-   get_owner for the passkey like every action. Returns the number of requests queued, -EINVAL
-   for a missing or all-zero hash, -EBUSY when one is already queued (a second press must not
-   quietly swap the hash the loader will hold the radio to), -ENOSPC when the queue is full. */
+   get_owner for the passkey like every action. Always local, whatever the admin target is:
+   what answers this verb is a BLE loader advertising at the connected radio's address plus
+   one, which is a conversation only the radio in front of us can have. Returns the number of
+   requests queued, -EINVAL for a missing or all-zero hash, -EBUSY when one is already queued
+   (a second press must not quietly swap the hash the loader will hold the radio to), -ENOSPC
+   when the queue is full. */
 /* Queues a set_ham_mode behind a get_owner for the passkey, like every action, and one more
    get_owner *after* it - the owner is the half of what this verb changes that a caller's
    refresh cannot ask for, because its own get_owner would be folded into the passkey one in
    front of the write. The rest of what moved (LoRa, the primary channel) the caller picks up
-   with a refresh behind this. Returns the number of requests queued, -EINVAL without a call
+   with a refresh behind this. A Settings-tab verb, so it follows the admin target the way a
+   write does. Returns the number of requests queued, -EINVAL without a call
    sign (which is the whole of what makes the mode legal), -EBUSY when one is already queued,
    -ENOSPC when the queue is full. */
 int mesh_radio_settings_queue_ham_mode(struct mesh_radio_settings *settings,

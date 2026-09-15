@@ -47,13 +47,26 @@ void mesh_radio_settings_reset_session(struct mesh_radio_settings *settings) {
     settings->session_passkey_len = 0U;
     settings->admin_replies = 0U;
 
+    /*
+     * The admin target goes with the link too, and it is on that side of the line for the
+     * passkey's reason rather than the preset map's: remote administration is a conversation
+     * held *through* a radio, so it cannot outlive the radio it was being held through. A
+     * reconnect comes back pointed at its own radio, which is also the only thing a client that
+     * has just found a link can safely assume it is looking at.
+     */
+    settings->admin_dest = 0U;
+    memset(settings->admin_dest_key, 0, sizeof settings->admin_dest_key);
+    settings->admin_dest_key_len = 0U;
+
     memset(settings->queue, 0, sizeof settings->queue);
     settings->queue_head = 0U;
     settings->queue_len = 0U;
     settings->pending_request_id = 0U;
     settings->pending_sent_at_ms = 0U;
     settings->pending_is_write = false;
+    settings->pending_dest = 0U;
     settings->timeouts = 0U;
+    settings->remote_silence = 0U;
 
     /* Counted so the app can announce each outcome once, which makes them facts about the link
        that reported them rather than about the radio. */
@@ -94,6 +107,87 @@ bool mesh_radio_settings_loaded(const struct mesh_radio_settings *settings) {
         }
     }
     return false;
+}
+
+/* ---- the admin target --------------------------------------------------------------------- */
+
+uint32_t mesh_radio_settings_admin_dest(const struct mesh_radio_settings *settings) {
+    return settings == NULL ? 0U : settings->admin_dest;
+}
+
+const meshtastic_DeviceMetadata *
+mesh_radio_settings_link_metadata(const struct mesh_radio_settings *settings) {
+    if (settings == NULL || !settings->has_link_metadata) {
+        return NULL;
+    }
+    return &settings->link_metadata;
+}
+
+int mesh_radio_settings_set_admin_dest(struct mesh_radio_settings *settings, uint32_t node_id,
+                                       const uint8_t *public_key, size_t key_len) {
+    if (settings == NULL) {
+        return -EINVAL;
+    }
+    if (node_id != 0U && (public_key == NULL || key_len != MESH_ADMIN_PUBLIC_KEY_LEN)) {
+        return -EINVAL;
+    }
+
+    /*
+     * Everything the old target said, forgotten in one go.
+     *
+     * A blunter instrument than walking the has_* flags, and deliberately so: this struct is
+     * "one radio's configuration", the eight Config sections and seventeen modules are listed
+     * by hand in three other places already, and a section that a future phase added and that
+     * this function forgot would be that radio's settings shown under somebody else's name.
+     * Clearing the whole thing and putting back what is not a section cannot make that mistake.
+     */
+    const uint32_t writes_sent = settings->writes_sent;
+    const uint32_t writes_acked = settings->writes_acked;
+    const uint32_t writes_failed = settings->writes_failed;
+    const int32_t last_write_error = settings->last_write_error;
+    /*
+     * And the preset map, which is the one thing here that is not a fact about a *radio*: it
+     * describes the firmware's own table of which modem presets each region will take, it
+     * arrives unasked during the handshake, and there is no admin verb that can ask a remote
+     * node for its copy. So the connected radio's is the only answer this client will ever
+     * have, and dropping it would leave the LoRa section unconstrained for as long as the link
+     * lasted - including after a return to our own radio, whose map would not come back until
+     * the next reconnect.
+     */
+    const bool has_region_presets = settings->has_region_presets;
+    const meshtastic_LoRaRegionPresetMap region_presets = settings->region_presets;
+    /*
+     * And what the radio on the end of the link said about itself, which is the other thing
+     * here that is not a section. It is what decides which firmware image may be written down
+     * this cable, and that question does not change because the Settings tab is now describing
+     * somebody else's radio - nor could it be asked again, since the handshake that answers it
+     * happens once per connection.
+     */
+    const bool has_link_metadata = settings->has_link_metadata;
+    const meshtastic_DeviceMetadata link_metadata = settings->link_metadata;
+
+    memset(settings, 0, sizeof *settings);
+
+    settings->writes_sent = writes_sent;
+    settings->writes_acked = writes_acked;
+    settings->writes_failed = writes_failed;
+    settings->last_write_error = last_write_error;
+    settings->has_region_presets = has_region_presets;
+    settings->region_presets = region_presets;
+    settings->has_link_metadata = has_link_metadata;
+    settings->link_metadata = link_metadata;
+
+    settings->admin_dest = node_id;
+    if (node_id != 0U) {
+        memcpy(settings->admin_dest_key, public_key, MESH_ADMIN_PUBLIC_KEY_LEN);
+        settings->admin_dest_key_len = MESH_ADMIN_PUBLIC_KEY_LEN;
+    }
+    if (node_id == 0U) {
+        mesh_log_info("admin", "Administering the connected radio again");
+    } else {
+        mesh_log_info("admin", "Administering node 0x%08x over the mesh", node_id);
+    }
+    return 0;
 }
 
 /* ---- handshake fragments ------------------------------------------------------------------ */
@@ -263,6 +357,19 @@ void mesh_radio_settings_apply_metadata(struct mesh_radio_settings *settings,
     }
     settings->has_metadata = true;
     settings->metadata = *metadata;
+    /*
+     * And the link's own copy, while there is nothing else being administered.
+     *
+     * With no remote target every metadata that reaches here is the connected radio's - the
+     * handshake's FromRadio and an admin reply are the only two ways in, and the second is
+     * already filtered to the target by mesh_radio_settings_reply_is_targets(). So this one
+     * branch is the whole of keeping the two apart, and what it buys is a firmware install that
+     * still knows which board it is writing to.
+     */
+    if (settings->admin_dest == 0U) {
+        settings->has_link_metadata = true;
+        settings->link_metadata = *metadata;
+    }
 }
 
 void mesh_radio_settings_apply_owner(struct mesh_radio_settings *settings,
@@ -359,7 +466,35 @@ static bool mesh_radio_settings_finish_pending(struct mesh_radio_settings *setti
     settings->pending_request_id = 0U;
     settings->pending_sent_at_ms = 0U;
     settings->pending_is_write = false;
+    settings->pending_dest = 0U;
+    /* Something answered, so the mesh is carrying our admin traffic: the give-up count starts
+       again. A Routing rejection counts - it is still the far end talking to us. */
+    settings->remote_silence = 0U;
     return true;
+}
+
+/*
+ * Whether a get_*_response may be folded into the sections this struct keeps.
+ *
+ * The question only exists because the queue can be pointed at somebody else's radio while
+ * still carrying requests for our own - the clock push and the NodeDB verbs never follow the
+ * target - and a get_owner sent for one of those would otherwise overwrite the remote node's
+ * owner with ours, in the very rows the Settings tab is showing under that node's name.
+ *
+ * Answered from the request in flight rather than from `packet->from`, because the reply is
+ * already correlated by id and that correlation is the one this queue is built on: a client
+ * that also had to recognise its own node number would need to be told what it is.
+ *
+ * With no remote target set nothing changes - every reply is this radio's, including an
+ * unsolicited one that answers no request we are holding.
+ */
+static bool mesh_radio_settings_reply_is_targets(const struct mesh_radio_settings *settings,
+                                                 uint32_t request_id) {
+    if (settings->admin_dest == 0U) {
+        return true;
+    }
+    return request_id != 0U && settings->pending_request_id == request_id &&
+           settings->pending_dest == settings->admin_dest;
 }
 
 /* The ack (or rejection) of a set_*: a Routing packet quoting our packet id. */
@@ -415,6 +550,8 @@ int mesh_radio_settings_ingest(struct mesh_radio_settings *settings,
     }
 
     settings->admin_replies += 1U;
+    const bool is_targets =
+        mesh_radio_settings_reply_is_targets(settings, packet->decoded.request_id);
     if (admin.session_passkey.size > 0U) {
         size_t len = admin.session_passkey.size;
         if (len > sizeof settings->session_passkey) {
@@ -423,6 +560,19 @@ int mesh_radio_settings_ingest(struct mesh_radio_settings *settings,
         memcpy(settings->session_passkey, admin.session_passkey.bytes, len);
         settings->session_passkey_len = len;
         settings->has_session_passkey = true;
+    }
+
+    /*
+     * A reply that belongs to a request we sent somewhere other than the node this tab is
+     * describing carries a passkey worth keeping - that is the whole of what it was asked for -
+     * and nothing else. Folding its sections in would put one radio's configuration under
+     * another's name, in the rows the tab is drawing under that name right now.
+     */
+    if (!is_targets) {
+        mesh_log_info("admin", "Admin reply for another node (request_id=%u); passkey only",
+                      packet->decoded.request_id);
+        mesh_radio_settings_finish_pending(settings, packet->decoded.request_id, 0);
+        return 1;
     }
 
     const char *what = "other";
@@ -756,13 +906,60 @@ int mesh_radio_settings_encode_request(const struct mesh_radio_settings *setting
     to_radio.which_payload_variant = meshtastic_ToRadio_packet_tag;
     meshtastic_MeshPacket *packet = &to_radio.packet;
     /* Addressed to ourselves: the firmware handles it locally and never puts it on the air.
-       `from` stays unset, as for text messages. */
+       `from` stays unset, as for text messages. A request carrying a `dest` is readdressed
+       below, which is the one thing that puts an AdminMessage on the mesh. */
     packet->to = request->my_node;
     packet->id = request->packet_id;
     packet->which_payload_variant = meshtastic_MeshPacket_decoded_tag;
     packet->decoded.portnum = meshtastic_PortNum_ADMIN_APP;
     /* A get is answered with the data; a set with a Routing ack we correlate by id. */
     packet->decoded.want_response = true;
+
+    if (request->dest != 0U) {
+        /*
+         * Remote administration: the same AdminMessage, addressed to somebody else's radio and
+         * put on the air.
+         *
+         * `pki_encrypted` with the node's key in `public_key` is what the phone apps and the
+         * Python CLI send, and the division of labour is the same one every other packet here
+         * has - the client says what it wants and the firmware does the cryptography. The
+         * firmware seals the payload to that key, so the AdminMessage is readable only by that
+         * node and the far end can tell which key signed it; without this it would go out under
+         * the channel key, which is a key every node on the channel holds.
+         *
+         * Refused rather than sent in the clear when the key we hold is not this destination's.
+         * A request that fell back would be an admin verb every node on the channel could read,
+         * sent by a client that believed it was doing the opposite.
+         */
+        if (request->dest != settings->admin_dest ||
+            settings->admin_dest_key_len != MESH_ADMIN_PUBLIC_KEY_LEN) {
+            mesh_log_warn("admin", "No public key for admin destination 0x%08x", request->dest);
+            return -EINVAL;
+        }
+        packet->to = request->dest;
+        packet->pki_encrypted = true;
+        packet->public_key.size = (pb_size_t)MESH_ADMIN_PUBLIC_KEY_LEN;
+        memcpy(packet->public_key.bytes, settings->admin_dest_key, MESH_ADMIN_PUBLIC_KEY_LEN);
+        /*
+         * And deliberately **no** `want_ack`, which is the one thing a packet crossing a mesh
+         * looks like it ought to have.
+         *
+         * The reply is the acknowledgement here, the same rule request_position and
+         * request_telemetry are written to (see mesh_session_request_on_port). But this queue
+         * has a second reason, and it is the stronger one: the whole correlation model is *one*
+         * reply per request, quoting our packet id, releasing the one request in flight.
+         * `want_ack` adds a second - the firmware reports a delivery ack for a packet we
+         * originated as a ROUTING_APP packet quoting that same id - and
+         * mesh_radio_settings_ingest_routing() cannot tell it from the answer. It would arrive
+         * first, being generated a hop away rather than at the far end, and it would release
+         * the queue before the AdminMessage landed: the get's response would then match no
+         * pending request and be dropped, and a set would be recorded as saved by its delivery
+         * before the firmware's own ADMIN_BAD_SESSION_KEY had a chance to say otherwise.
+         *
+         * So the retransmissions are given up on purpose, and what stands in for them is the
+         * minute above and a refresh the user can press again.
+         */
+    }
 
     pb_ostream_t payload =
         pb_ostream_from_buffer(packet->decoded.payload.bytes, sizeof packet->decoded.payload.bytes);
@@ -783,12 +980,20 @@ int mesh_radio_settings_encode_request(const struct mesh_radio_settings *setting
 
 /* ---- fetch queue -------------------------------------------------------------------------- */
 
-static bool mesh_radio_settings_queued(const struct mesh_radio_settings *settings,
+/*
+ * Whether this queue already holds this request *for this destination*.
+ *
+ * The destination is part of what makes two requests the same one, and not only for tidiness:
+ * the passkey refresh in front of every write and every action is a get_owner, one node's
+ * passkey is no use to another, and folding a refresh aimed at the admin target into one
+ * already queued for our own radio would hand the target a key it will reject.
+ */
+static bool mesh_radio_settings_queued(const struct mesh_radio_settings *settings, uint32_t dest,
                                        enum mesh_admin_request_kind kind, uint32_t type) {
     for (size_t i = 0; i < settings->queue_len; ++i) {
         const struct mesh_admin_request *entry =
             &settings->queue[(settings->queue_head + i) % MESH_RADIO_SETTINGS_FETCH_MAX];
-        if (entry->kind == kind && entry->type == type) {
+        if (entry->dest == dest && entry->kind == kind && entry->type == type) {
             return true;
         }
     }
@@ -806,7 +1011,7 @@ static bool mesh_radio_settings_queued(const struct mesh_radio_settings *setting
  * pins that its passkey refresh and its read-back are one request - and changing that is a
  * decision about a shipped mechanism rather than a line in this one.
  */
-static size_t mesh_radio_settings_append(struct mesh_radio_settings *settings,
+static size_t mesh_radio_settings_append(struct mesh_radio_settings *settings, uint32_t dest,
                                          enum mesh_admin_request_kind kind, uint32_t type) {
     if (settings->queue_len >= MESH_RADIO_SETTINGS_FETCH_MAX) {
         return 0U;
@@ -815,22 +1020,30 @@ static size_t mesh_radio_settings_append(struct mesh_radio_settings *settings,
         &settings
              ->queue[(settings->queue_head + settings->queue_len) % MESH_RADIO_SETTINGS_FETCH_MAX];
     memset(slot, 0, sizeof *slot);
+    slot->dest = dest;
     slot->kind = kind;
     slot->type = type;
     settings->queue_len += 1U;
     return 1U;
 }
 
-static size_t mesh_radio_settings_enqueue(struct mesh_radio_settings *settings,
+/*
+ * `dest` is the one argument here that is never guessed at: a caller passes `settings->admin_dest`
+ * when the request is one the Settings tab makes about a radio's configuration, and 0 when it is
+ * about the radio on the end of the link whatever that tab is pointed at. Which of the two each
+ * queue call is, is stated where it is made.
+ */
+static size_t mesh_radio_settings_enqueue(struct mesh_radio_settings *settings, uint32_t dest,
                                           enum mesh_admin_request_kind kind, uint32_t type) {
     if (settings->queue_len >= MESH_RADIO_SETTINGS_FETCH_MAX ||
-        mesh_radio_settings_queued(settings, kind, type)) {
+        mesh_radio_settings_queued(settings, dest, kind, type)) {
         return 0U;
     }
     struct mesh_admin_request *slot =
         &settings
              ->queue[(settings->queue_head + settings->queue_len) % MESH_RADIO_SETTINGS_FETCH_MAX];
     memset(slot, 0, sizeof *slot);
+    slot->dest = dest;
     slot->kind = kind;
     slot->type = type;
     settings->queue_len += 1U;
@@ -888,21 +1101,29 @@ int mesh_radio_settings_queue_write(struct mesh_radio_settings *settings,
        are never deduplicated: two saves of one section both carry a full struct and the
        later one wins, which is what the user asked for. */
     const size_t needed =
-        (mesh_radio_settings_queued(settings, MESH_ADMIN_GET_OWNER, 0U) ? 0U : 1U) + 1U +
-        (mesh_radio_settings_queued(settings, readback, write->type) ? 0U : 1U);
+        (mesh_radio_settings_queued(settings, settings->admin_dest, MESH_ADMIN_GET_OWNER, 0U)
+             ? 0U
+             : 1U) +
+        1U +
+        (mesh_radio_settings_queued(settings, settings->admin_dest, readback, write->type) ? 0U
+                                                                                           : 1U);
     if (settings->queue_len + needed > MESH_RADIO_SETTINGS_FETCH_MAX) {
         return -ENOSPC;
     }
-    size_t added = mesh_radio_settings_enqueue(settings, MESH_ADMIN_GET_OWNER, 0U);
+    size_t added =
+        mesh_radio_settings_enqueue(settings, settings->admin_dest, MESH_ADMIN_GET_OWNER, 0U);
     struct mesh_admin_request *slot =
         &settings
              ->queue[(settings->queue_head + settings->queue_len) % MESH_RADIO_SETTINGS_FETCH_MAX];
     *slot = *write;
+    /* The caller hands over a kind and a payload; where it goes is this queue's business, so
+       the destination is stamped here rather than read off whatever the caller left in it. */
+    slot->dest = settings->admin_dest;
     slot->my_node = 0U;
     slot->packet_id = 0U;
     settings->queue_len += 1U;
     added += 1U;
-    added += mesh_radio_settings_enqueue(settings, readback, write->type);
+    added += mesh_radio_settings_enqueue(settings, settings->admin_dest, readback, write->type);
     return (int)added;
 }
 
@@ -919,13 +1140,13 @@ static int mesh_radio_settings_queue_node_op(struct mesh_radio_settings *setting
         return -EINVAL;
     }
     const size_t needed =
-        (mesh_radio_settings_queued(settings, MESH_ADMIN_GET_OWNER, 0U) ? 0U : 1U) +
-        (mesh_radio_settings_queued(settings, kind, node_id) ? 0U : 1U);
+        (mesh_radio_settings_queued(settings, 0U, MESH_ADMIN_GET_OWNER, 0U) ? 0U : 1U) +
+        (mesh_radio_settings_queued(settings, 0U, kind, node_id) ? 0U : 1U);
     if (settings->queue_len + needed > MESH_RADIO_SETTINGS_FETCH_MAX) {
         return -ENOSPC;
     }
-    size_t added = mesh_radio_settings_enqueue(settings, MESH_ADMIN_GET_OWNER, 0U);
-    added += mesh_radio_settings_enqueue(settings, kind, node_id);
+    size_t added = mesh_radio_settings_enqueue(settings, 0U, MESH_ADMIN_GET_OWNER, 0U);
+    added += mesh_radio_settings_enqueue(settings, 0U, kind, node_id);
     return (int)added;
 }
 
@@ -967,16 +1188,18 @@ int mesh_radio_settings_queue_contact(struct mesh_radio_settings *settings,
         return -EINVAL;
     }
     const size_t needed =
-        (mesh_radio_settings_queued(settings, MESH_ADMIN_GET_OWNER, 0U) ? 0U : 1U) +
-        (mesh_radio_settings_queued(settings, MESH_ADMIN_ADD_CONTACT, contact->node_num) ? 0U : 1U);
+        (mesh_radio_settings_queued(settings, 0U, MESH_ADMIN_GET_OWNER, 0U) ? 0U : 1U) +
+        (mesh_radio_settings_queued(settings, 0U, MESH_ADMIN_ADD_CONTACT, contact->node_num) ? 0U
+                                                                                             : 1U);
     if (settings->queue_len + needed > MESH_RADIO_SETTINGS_FETCH_MAX) {
         return -ENOSPC;
     }
-    size_t added = mesh_radio_settings_enqueue(settings, MESH_ADMIN_GET_OWNER, 0U);
+    size_t added = mesh_radio_settings_enqueue(settings, 0U, MESH_ADMIN_GET_OWNER, 0U);
     struct mesh_admin_request *const slot =
         &settings
              ->queue[(settings->queue_head + settings->queue_len) % MESH_RADIO_SETTINGS_FETCH_MAX];
-    if (mesh_radio_settings_enqueue(settings, MESH_ADMIN_ADD_CONTACT, contact->node_num) == 1U) {
+    if (mesh_radio_settings_enqueue(settings, 0U, MESH_ADMIN_ADD_CONTACT, contact->node_num) ==
+        1U) {
         slot->payload.contact = *contact;
         added += 1U;
     }
@@ -1078,11 +1301,11 @@ int mesh_radio_settings_queue_key_verification(struct mesh_radio_settings *setti
         return -EBUSY;
     }
     const size_t needed =
-        (mesh_radio_settings_queued(settings, MESH_ADMIN_GET_OWNER, 0U) ? 0U : 1U) + 1U;
+        (mesh_radio_settings_queued(settings, 0U, MESH_ADMIN_GET_OWNER, 0U) ? 0U : 1U) + 1U;
     if (settings->queue_len + needed > MESH_RADIO_SETTINGS_FETCH_MAX) {
         return -ENOSPC;
     }
-    size_t added = mesh_radio_settings_enqueue(settings, MESH_ADMIN_GET_OWNER, 0U);
+    size_t added = mesh_radio_settings_enqueue(settings, 0U, MESH_ADMIN_GET_OWNER, 0U);
     struct mesh_admin_request *const slot =
         &settings
              ->queue[(settings->queue_head + settings->queue_len) % MESH_RADIO_SETTINGS_FETCH_MAX];
@@ -1110,6 +1333,19 @@ int mesh_radio_settings_queue_action(struct mesh_radio_settings *settings,
         kind == MESH_ADMIN_SET_HAM_MODE) {
         return -EINVAL;
     }
+    /*
+     * The one action that does not travel.
+     *
+     * Every other action here leaves a radio that comes back: a reboot returns, a shutdown is
+     * pressed again at the node, and a reset leaves a node that still speaks Meshtastic. The
+     * UF2 bootloader does not - the radio stops being a mesh node and becomes a USB drive
+     * waiting for a file - so sent over the air this is a verb that takes a node off the mesh
+     * and puts the only way back at the far end of a walk. It stays a thing you do to the radio
+     * in your hand.
+     */
+    if (settings->admin_dest != 0U && kind == MESH_ADMIN_ENTER_DFU_MODE) {
+        return -EINVAL;
+    }
     /* Only the reboot and the shutdown have a delay; the resets carry nothing, and pinning
        their `type` at zero keeps two presses of one reset a single queued request. */
     const uint32_t type = (kind == MESH_ADMIN_REBOOT || kind == MESH_ADMIN_SHUTDOWN) ? seconds : 0U;
@@ -1120,13 +1356,16 @@ int mesh_radio_settings_queue_action(struct mesh_radio_settings *settings,
        accept, then the action. There is nothing to read back - a rebooting radio has no state
        to re-read, and a factory-reset one has none we would recognise. */
     const size_t needed =
-        (mesh_radio_settings_queued(settings, MESH_ADMIN_GET_OWNER, 0U) ? 0U : 1U) +
-        (mesh_radio_settings_queued(settings, kind, type) ? 0U : 1U);
+        (mesh_radio_settings_queued(settings, settings->admin_dest, MESH_ADMIN_GET_OWNER, 0U)
+             ? 0U
+             : 1U) +
+        (mesh_radio_settings_queued(settings, settings->admin_dest, kind, type) ? 0U : 1U);
     if (settings->queue_len + needed > MESH_RADIO_SETTINGS_FETCH_MAX) {
         return -ENOSPC;
     }
-    size_t added = mesh_radio_settings_enqueue(settings, MESH_ADMIN_GET_OWNER, 0U);
-    added += mesh_radio_settings_enqueue(settings, kind, type);
+    size_t added =
+        mesh_radio_settings_enqueue(settings, settings->admin_dest, MESH_ADMIN_GET_OWNER, 0U);
+    added += mesh_radio_settings_enqueue(settings, settings->admin_dest, kind, type);
     return (int)added;
 }
 
@@ -1145,20 +1384,20 @@ int mesh_radio_settings_queue_ota(struct mesh_radio_settings *settings,
     /* Deduplicated like any action - but refused rather than folded, because the payload is
        the point: two presses naming two images must not become one request naming whichever
        came first. */
-    if (mesh_radio_settings_queued(settings, MESH_ADMIN_OTA_REQUEST, 0U)) {
+    if (mesh_radio_settings_queued(settings, 0U, MESH_ADMIN_OTA_REQUEST, 0U)) {
         return -EBUSY;
     }
     const size_t needed =
-        (mesh_radio_settings_queued(settings, MESH_ADMIN_GET_OWNER, 0U) ? 0U : 1U) + 1U;
+        (mesh_radio_settings_queued(settings, 0U, MESH_ADMIN_GET_OWNER, 0U) ? 0U : 1U) + 1U;
     if (settings->queue_len + needed > MESH_RADIO_SETTINGS_FETCH_MAX) {
         return -ENOSPC;
     }
-    size_t added = mesh_radio_settings_enqueue(settings, MESH_ADMIN_GET_OWNER, 0U);
+    size_t added = mesh_radio_settings_enqueue(settings, 0U, MESH_ADMIN_GET_OWNER, 0U);
     /* The slot enqueue() is about to fill, so the hash can go in after it has been zeroed. */
     struct mesh_admin_request *const slot =
         &settings
              ->queue[(settings->queue_head + settings->queue_len) % MESH_RADIO_SETTINGS_FETCH_MAX];
-    if (mesh_radio_settings_enqueue(settings, MESH_ADMIN_OTA_REQUEST, 0U) == 1U) {
+    if (mesh_radio_settings_enqueue(settings, 0U, MESH_ADMIN_OTA_REQUEST, 0U) == 1U) {
         memcpy(slot->payload.ota_hash, hash, MESH_ADMIN_OTA_HASH_LEN);
         added += 1U;
     }
@@ -1173,21 +1412,26 @@ int mesh_radio_settings_queue_ham_mode(struct mesh_radio_settings *settings,
     /* Refused rather than folded while one is in flight, the reason queue_ota() gives: the
        payload is the point, and two presses naming two call signs must not become one request
        naming whichever was pressed first. */
-    if (mesh_radio_settings_queued(settings, MESH_ADMIN_SET_HAM_MODE, 0U)) {
+    if (mesh_radio_settings_queued(settings, settings->admin_dest, MESH_ADMIN_SET_HAM_MODE, 0U)) {
         return -EBUSY;
     }
     /* The passkey refresh, the verb, and an owner read *after* it - three, or two when a
        passkey refresh is already on its way. */
     const size_t needed =
-        (mesh_radio_settings_queued(settings, MESH_ADMIN_GET_OWNER, 0U) ? 0U : 1U) + 2U;
+        (mesh_radio_settings_queued(settings, settings->admin_dest, MESH_ADMIN_GET_OWNER, 0U)
+             ? 0U
+             : 1U) +
+        2U;
     if (settings->queue_len + needed > MESH_RADIO_SETTINGS_FETCH_MAX) {
         return -ENOSPC;
     }
-    size_t added = mesh_radio_settings_enqueue(settings, MESH_ADMIN_GET_OWNER, 0U);
+    size_t added =
+        mesh_radio_settings_enqueue(settings, settings->admin_dest, MESH_ADMIN_GET_OWNER, 0U);
     struct mesh_admin_request *const slot =
         &settings
              ->queue[(settings->queue_head + settings->queue_len) % MESH_RADIO_SETTINGS_FETCH_MAX];
-    if (mesh_radio_settings_enqueue(settings, MESH_ADMIN_SET_HAM_MODE, 0U) == 1U) {
+    if (mesh_radio_settings_enqueue(settings, settings->admin_dest, MESH_ADMIN_SET_HAM_MODE, 0U) ==
+        1U) {
         slot->payload.ham = *ham;
         added += 1U;
     }
@@ -1201,7 +1445,7 @@ int mesh_radio_settings_queue_ham_mode(struct mesh_radio_settings *settings,
      * before the switch. The rest of what moved (LoRa, the primary channel) the caller's
      * refresh picks up behind this, because those reads are not already queued.
      */
-    added += mesh_radio_settings_append(settings, MESH_ADMIN_GET_OWNER, 0U);
+    added += mesh_radio_settings_append(settings, settings->admin_dest, MESH_ADMIN_GET_OWNER, 0U);
     return (int)added;
 }
 
@@ -1217,13 +1461,13 @@ int mesh_radio_settings_queue_time(struct mesh_radio_settings *settings, uint32_
        old. The epoch rides in `type`, so a second push with a different time is not mistaken
        for a duplicate of the first. */
     const size_t needed =
-        (mesh_radio_settings_queued(settings, MESH_ADMIN_GET_OWNER, 0U) ? 0U : 1U) +
-        (mesh_radio_settings_queued(settings, MESH_ADMIN_SET_TIME, epoch) ? 0U : 1U);
+        (mesh_radio_settings_queued(settings, 0U, MESH_ADMIN_GET_OWNER, 0U) ? 0U : 1U) +
+        (mesh_radio_settings_queued(settings, 0U, MESH_ADMIN_SET_TIME, epoch) ? 0U : 1U);
     if (settings->queue_len + needed > MESH_RADIO_SETTINGS_FETCH_MAX) {
         return -ENOSPC;
     }
-    size_t added = mesh_radio_settings_enqueue(settings, MESH_ADMIN_GET_OWNER, 0U);
-    added += mesh_radio_settings_enqueue(settings, MESH_ADMIN_SET_TIME, epoch);
+    size_t added = mesh_radio_settings_enqueue(settings, 0U, MESH_ADMIN_GET_OWNER, 0U);
+    added += mesh_radio_settings_enqueue(settings, 0U, MESH_ADMIN_SET_TIME, epoch);
     return (int)added;
 }
 
@@ -1257,8 +1501,9 @@ size_t mesh_radio_settings_queue_probe(struct mesh_radio_settings *settings) {
         return 0U;
     }
     size_t added = 0U;
-    added += mesh_radio_settings_enqueue(settings, MESH_ADMIN_GET_METADATA, 0U);
-    added += mesh_radio_settings_enqueue(settings, MESH_ADMIN_GET_OWNER, 0U);
+    added +=
+        mesh_radio_settings_enqueue(settings, settings->admin_dest, MESH_ADMIN_GET_METADATA, 0U);
+    added += mesh_radio_settings_enqueue(settings, settings->admin_dest, MESH_ADMIN_GET_OWNER, 0U);
     return added;
 }
 
@@ -1279,23 +1524,30 @@ size_t mesh_radio_settings_queue_all(struct mesh_radio_settings *settings) {
 
     size_t added = mesh_radio_settings_queue_probe(settings);
     for (size_t i = 0; i < sizeof k_config_types / sizeof k_config_types[0]; ++i) {
-        added += mesh_radio_settings_enqueue(settings, MESH_ADMIN_GET_CONFIG, k_config_types[i]);
+        added += mesh_radio_settings_enqueue(settings, settings->admin_dest, MESH_ADMIN_GET_CONFIG,
+                                             k_config_types[i]);
     }
     /* One per module, from the table rather than a list kept beside it: a module whose row
        exists is refreshed, and one that is not kept is not asked for. */
     for (size_t i = 0; i < mesh_radio_module_count(); ++i) {
-        added += mesh_radio_settings_enqueue(settings, MESH_ADMIN_GET_MODULE_CONFIG,
+        added += mesh_radio_settings_enqueue(settings, settings->admin_dest,
+                                             MESH_ADMIN_GET_MODULE_CONFIG,
                                              mesh_radio_module_at(i)->admin_type);
     }
     /* The four that are neither a Config nor a ModuleConfig. A radio too old to know a verb
        answers nothing at all rather than erroring, and the queue's own timeout moves past it -
        which is why they can be asked for unconditionally. */
-    added += mesh_radio_settings_enqueue(settings, MESH_ADMIN_GET_CONNECTION_STATUS, 0U);
-    added += mesh_radio_settings_enqueue(settings, MESH_ADMIN_GET_UI_CONFIG, 0U);
-    added += mesh_radio_settings_enqueue(settings, MESH_ADMIN_GET_CANNED_MESSAGES, 0U);
-    added += mesh_radio_settings_enqueue(settings, MESH_ADMIN_GET_RINGTONE, 0U);
+    added += mesh_radio_settings_enqueue(settings, settings->admin_dest,
+                                         MESH_ADMIN_GET_CONNECTION_STATUS, 0U);
+    added +=
+        mesh_radio_settings_enqueue(settings, settings->admin_dest, MESH_ADMIN_GET_UI_CONFIG, 0U);
+    added += mesh_radio_settings_enqueue(settings, settings->admin_dest,
+                                         MESH_ADMIN_GET_CANNED_MESSAGES, 0U);
+    added +=
+        mesh_radio_settings_enqueue(settings, settings->admin_dest, MESH_ADMIN_GET_RINGTONE, 0U);
     for (uint32_t slot = 0; slot < MESH_RADIO_SETTINGS_MAX_CHANNELS; ++slot) {
-        added += mesh_radio_settings_enqueue(settings, MESH_ADMIN_GET_CHANNEL, slot);
+        added += mesh_radio_settings_enqueue(settings, settings->admin_dest, MESH_ADMIN_GET_CHANNEL,
+                                             slot);
     }
     return added;
 }
@@ -1310,18 +1562,47 @@ bool mesh_radio_settings_next_request(struct mesh_radio_settings *settings, uint
         return false;
     }
     if (settings->pending_request_id != 0U) {
-        if (now_ms - settings->pending_sent_at_ms < MESH_RADIO_SETTINGS_REPLY_TIMEOUT_MS) {
+        /* Which deadline applies is a property of where the request went, not of where the tab
+           is pointed now: a local clock push queued behind a remote refresh is still a local
+           round trip and should not be given a minute to make it. */
+        const uint32_t deadline = settings->pending_dest != 0U
+                                      ? MESH_RADIO_SETTINGS_REMOTE_REPLY_TIMEOUT_MS
+                                      : MESH_RADIO_SETTINGS_REPLY_TIMEOUT_MS;
+        if (now_ms - settings->pending_sent_at_ms < deadline) {
             return false;
         }
         mesh_log_warn("admin", "No reply to admin request %u after %u ms; moving on",
-                      settings->pending_request_id, MESH_RADIO_SETTINGS_REPLY_TIMEOUT_MS);
+                      settings->pending_request_id, deadline);
         settings->timeouts += 1U;
+        if (settings->pending_dest != 0U) {
+            settings->remote_silence += 1U;
+        }
         if (settings->pending_is_write) {
             mesh_radio_settings_record_write_result(settings, MESH_RADIO_SETTINGS_WRITE_TIMEOUT);
         }
+        const bool give_up = settings->remote_silence >= MESH_RADIO_SETTINGS_REMOTE_GIVE_UP;
         settings->pending_request_id = 0U;
         settings->pending_sent_at_ms = 0U;
         settings->pending_is_write = false;
+        settings->pending_dest = 0U;
+        /*
+         * Enough silence from a node over the air and the rest of the queue is dropped.
+         *
+         * A refresh is nearly thirty requests and a remote one waits a minute for each, so a
+         * node that is out of range or is not letting us administer it would leave the tab
+         * looking busy for half an hour and then show what it showed at the start. Stopping
+         * says the same thing sooner, and the refresh row is one press away when the user has
+         * moved or the path has come back.
+         */
+        if (give_up) {
+            mesh_log_warn("admin", "Node 0x%08x has not answered %u admin requests; giving up",
+                          settings->admin_dest, MESH_RADIO_SETTINGS_REMOTE_GIVE_UP);
+            memset(settings->queue, 0, sizeof settings->queue);
+            settings->queue_head = 0U;
+            settings->queue_len = 0U;
+            settings->remote_silence = 0U;
+            return false;
+        }
     }
     if (settings->queue_len == 0U) {
         return false;
@@ -1329,9 +1610,10 @@ bool mesh_radio_settings_next_request(struct mesh_radio_settings *settings, uint
     *out = settings->queue[settings->queue_head];
     settings->queue_head = (settings->queue_head + 1U) % MESH_RADIO_SETTINGS_FETCH_MAX;
     settings->queue_len -= 1U;
-    /* Remember what kind went out so the reply (or its absence) is accounted correctly. The
-       caller's mark_sent() confirms it actually left. */
+    /* Remember what kind went out, and where, so the reply (or its absence) is accounted
+       correctly. The caller's mark_sent() confirms it actually left. */
     settings->pending_is_write = mesh_admin_request_is_write(out->kind);
+    settings->pending_dest = out->dest;
     return true;
 }
 

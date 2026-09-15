@@ -95,14 +95,18 @@ static bool mesh_app_firmware_radio_ready(void *userdata) {
     struct mesh_app *const app = (struct mesh_app *)userdata;
     const struct mesh_firmware_update *const update = &app->firmware_update;
     const char *const identifier = mesh_app_connected_identifier();
-    const struct mesh_radio_settings *const settings = mesh_session_settings(&app->session);
-    if (identifier == NULL || settings == NULL || !settings->has_metadata) {
+    /* The *link's* metadata, not the Settings tab's: what this asks is whether the radio now on
+       the other end is the one the image was chosen for, and the tab may be describing a node
+       over the mesh that has nothing to do with this cable. */
+    const meshtastic_DeviceMetadata *const metadata =
+        mesh_radio_settings_link_metadata(mesh_session_settings(&app->session));
+    if (identifier == NULL || metadata == NULL) {
         return false;
     }
     if (mesh_app_firmware_bus() != update->path) {
         return false;
     }
-    if (update->hw_model != 0U && (uint32_t)settings->metadata.hw_model != update->hw_model) {
+    if (update->hw_model != 0U && (uint32_t)metadata->hw_model != update->hw_model) {
         return false;
     }
     /* The USB path names the port by the transport's own id rather than by the row's label, for
@@ -351,6 +355,39 @@ static void on_refresh_settings(struct mesh_app *app, const struct mesh_ui_actio
         snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_NOT_CONNECTED));
     } else {
         mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_REFRESH_FAILED, result);
+    }
+    mesh_ui_store_set_toast(&app->ui_store, now, toast);
+}
+
+/*
+ * Point the Settings tab at another node's radio, or bring it back to our own.
+ *
+ * One handler for both directions because the verb is one verb: `dest` says which radio, and 0
+ * is the one on the end of the link. What it says afterwards is the new subject rather than the
+ * refresh it queued - the round trips are the progress bar's business, and on a remote target
+ * there are nearly thirty of them over the air, so a count here would be promising a wait
+ * rather than reporting a change.
+ */
+static void on_set_admin_target(struct mesh_app *app, const struct mesh_ui_action *action) {
+    char toast[MESH_UI_NAV_TOAST_MAX];
+    const uint64_t now = mesh_time_monotonic_ms();
+
+    char name[MESH_UI_NAV_TARGET_NAME_MAX];
+    action_peer_name(app, action->dest, name, sizeof name);
+    const int result = mesh_session_set_admin_dest(&app->session, action->dest);
+    if (result >= 0 && action->dest == 0U) {
+        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_ADMIN_LOCAL));
+    } else if (result >= 0) {
+        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_ADMIN_REMOTE, name);
+    } else if (result == -ENOTCONN) {
+        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_NOT_CONNECTED));
+    } else if (result == -EINVAL || result == -ENOENT) {
+        /* The one thing this side can check: an admin request to a remote node is sealed to
+           that node's key, and a node that has never broadcast one cannot be addressed at all.
+           Said as what is missing rather than as a press that failed. */
+        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_ADMIN_NO_KEY, name);
+    } else {
+        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_ADMIN_FAILED, result);
     }
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
 }
@@ -1341,12 +1378,16 @@ static void on_check_radio_firmware(struct mesh_app *app, const struct mesh_ui_a
     /* What the radio said about itself is the whole input: the model number decides which
        board this is and the version decides whether the newest release is news. Both may
        be absent, and a check on either still reports what upstream has published - see
-       mesh_firmware_check(). */
-    const struct mesh_radio_settings *const settings = mesh_session_settings(&app->session);
-    const bool known = settings != NULL && settings->has_metadata;
+       mesh_firmware_check().
+       The link's copy, because the image this leads to is written to the radio on the end of
+       the link. While the Settings tab is administering another node it is *that* node's model
+       in `metadata`, and checking against it would offer an image for a board nobody here is
+       holding. */
+    const meshtastic_DeviceMetadata *const metadata =
+        mesh_radio_settings_link_metadata(mesh_session_settings(&app->session));
     const int result =
-        mesh_firmware_check(&app->firmware, known ? (uint32_t)settings->metadata.hw_model : 0U,
-                            known ? settings->metadata.firmware_version : "", now);
+        mesh_firmware_check(&app->firmware, metadata != NULL ? (uint32_t)metadata->hw_model : 0U,
+                            metadata != NULL ? metadata->firmware_version : "", now);
     if (result == 0) {
         mesh_str_copy(toast, sizeof toast, mesh_str(MESH_STR_TOAST_CHECKING_FIRMWARE));
     } else if (result == -ENOTSUP) {
@@ -1671,6 +1712,7 @@ static const struct app_action_entry k_app_actions[] = {
     {MESH_UI_ACTION_INSTALL_RADIO_FIRMWARE, on_install_radio_firmware, false},
     {MESH_UI_ACTION_IMPORT_CHANNELS, on_import_channels, false},
     {MESH_UI_ACTION_IMPORT_CONTACT, on_import_contact, false},
+    {MESH_UI_ACTION_SET_ADMIN_TARGET, on_set_admin_target, false},
 };
 
 /*

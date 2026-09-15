@@ -109,6 +109,10 @@ static const struct mesh_ui_help_entry k_help_node[] = {
        panel asking the user a question is not a place to open an explanation over. */
     {MESH_STR_HELP_LABEL_NODE_KEY, MESH_STR_HELP_NOTE_NODE_KEY},
     {MESH_STR_HELP_LABEL_NODE_VERIFY, MESH_STR_HELP_NOTE_NODE_VERIFY},
+    /* Beside the key paragraphs rather than with the verbs above them, because the key is what
+       the row runs on: an admin request to a remote node is sealed to it, which is why the row
+       is not offered for a node we hold none for. */
+    {MESH_STR_HELP_LABEL_NODE_ADMIN, MESH_STR_HELP_NOTE_NODE_ADMIN},
     {MESH_STR_HELP_LABEL_NODE_SIGNAL, MESH_STR_HELP_NOTE_NODE_SIGNAL},
     {MESH_STR_HELP_LABEL_NODE_FIX, MESH_STR_HELP_NOTE_NODE_FIX},
     {MESH_STR_HELP_LABEL_NODE_TREND, MESH_STR_HELP_NOTE_NODE_TREND},

@@ -849,12 +849,16 @@ static void mesh_app_flatten_firmware(struct mesh_app *app, struct mesh_ui_setti
      *
      * Gated on knowing a model, because a link that has merely *dropped* clears the metadata
      * and the answer is still worth reading with the radio back in a pocket.
+     *
+     * The link's own copy rather than the Settings tab's: an answer stops being this radio's
+     * when the *radio* changes, not when the tab is pointed at somebody else's over the mesh -
+     * and read from the tab's, a retarget would throw the answer away and then re-fetch one for
+     * a board that is not on the other end of this cable.
      */
-    const struct mesh_radio_settings *const radio = mesh_session_settings(&app->session);
-    const bool known = radio != NULL && radio->has_metadata;
-    const uint32_t model = known ? (uint32_t)radio->metadata.hw_model : 0U;
-    if (model != 0U &&
-        !mesh_firmware_answers_for(firmware, model, radio->metadata.firmware_version)) {
+    const meshtastic_DeviceMetadata *const radio =
+        mesh_radio_settings_link_metadata(mesh_session_settings(&app->session));
+    const uint32_t model = radio != NULL ? (uint32_t)radio->hw_model : 0U;
+    if (model != 0U && !mesh_firmware_answers_for(firmware, model, radio->firmware_version)) {
         mesh_firmware_forget(firmware);
     }
 
@@ -1053,6 +1057,10 @@ static void mesh_app_flatten_settings(const struct mesh_radio_settings *src,
     dst->admin_busy = mesh_radio_settings_busy(src) || src->queue_len > 0U;
     dst->write_pending = mesh_radio_settings_write_pending(src);
     dst->admin_replies = src->admin_replies;
+    /* The number only. The name that goes with it comes out of the roster, which this
+       flattening does not see and which moves on its own schedule - so the caller fills it in
+       after, beside the radio's own position. */
+    dst->admin_dest = mesh_radio_settings_admin_dest(src);
 
     if (src->has_owner) {
         dst->has_owner = true;
@@ -2335,6 +2343,13 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
     /* flatten_settings() zeroes the struct, so the client's own facts go in after it. */
     mesh_app_flatten_client_info(app, &ui_settings.client);
     mesh_app_flatten_firmware(app, &ui_settings);
+    /* And the name of the radio being administered, for the same reason: it is a roster fact,
+       so a node that has just introduced itself renames the banner without the settings having
+       moved at all. */
+    if (ui_settings.admin_dest != 0U) {
+        mesh_app_format_peer_name(status, ui_settings.admin_dest, ui_settings.admin_dest_name,
+                                  sizeof ui_settings.admin_dest_name);
+    }
     /* Where the radio says it is, which is not part of PositionConfig: it comes from our own
        node's record, and it is what the Position section's coordinate rows start from. */
     if (status->has_my_info) {

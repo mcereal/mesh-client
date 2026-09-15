@@ -103,6 +103,20 @@ enum mesh_ui_banner_kind {
      * so a fault happening now cannot make the frame announce itself mid-crash.
      */
     MESH_UI_BANNER_CRASH_REPORT,
+    /*
+     * The Settings tab is pointed at another node's radio, over the mesh.
+     *
+     * The clearest case this table has for a banner, and the one furthest from an announcement:
+     * it is not news, it is the state every *other* press is made in. A save from the Settings
+     * tab lands on somebody else's LoRa region, "Reboot" takes somebody else's repeater down,
+     * and nothing anywhere else on the frame says so - the tab looks exactly as it does against
+     * our own radio, because that is the point of the feature.
+     *
+     * It resolves the way the rest do: one row in Settings > About radio comes back, which is
+     * also where its detail - the node's name - is stated in full, so the banner stands down
+     * inside that section exactly as the update pair stand down inside About.
+     */
+    MESH_UI_BANNER_REMOTE_ADMIN,
     MESH_UI_BANNER_KIND_COUNT,
 };
 

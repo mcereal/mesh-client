@@ -386,3 +386,50 @@ MESH_TEST_CASE(ui_chrome_bar_follows_a_firmware_install, unit) {
                       "a firmware check is a request already sent");
     record_success(test_name);
 }
+
+/*
+ * The Settings tab pointed at somebody else's radio.
+ *
+ * The one entry in the table that is not news. Every other banner reports something that has
+ * happened; this reports the state the *next press* is made in, and there is nothing else on the
+ * frame that says it - the tab looks exactly as it does against our own radio, which is what
+ * makes the feature work and what makes the banner necessary. So it outranks all four.
+ */
+MESH_TEST_CASE(ui_chrome_banner_names_the_radio_being_configured, unit) {
+    struct mesh_ui_snapshot snapshot;
+    struct mesh_ui_banner banner;
+
+    chrome_fixture(&snapshot);
+    snapshot.settings.admin_dest = 0x7001U;
+    snprintf(snapshot.settings.admin_dest_name, sizeof snapshot.settings.admin_dest_name,
+             "Hill repeater");
+    MESH_TEST_FAIL_IF(!mesh_ui_chrome_banner(&snapshot, &banner),
+                      "a save that lands on another radio is worth saying on every screen");
+    MESH_TEST_FAIL_IF(banner.kind != (uint8_t)MESH_UI_BANNER_REMOTE_ADMIN,
+                      "the wrong banner for remote administration");
+    MESH_TEST_FAIL_IF(banner.detail == NULL || strcmp(banner.detail, "Hill repeater") != 0,
+                      "which radio is the whole of what the reader needs, and it is a name off "
+                      "the mesh rather than a word - so it rides in the detail slot");
+    MESH_TEST_FAIL_IF(banner.supporting == MESH_STR_NONE,
+                      "it has to name what comes back, or it is a banner that cannot resolve");
+
+    /* Ahead of every other entry, including the two that are about a radio in trouble. */
+    snapshot.settings.fw_radio_in_loader = true;
+    snapshot.settings.client.crash_report_waiting = true;
+    snapshot.settings.client.update_state = (uint8_t)MESH_UPDATE_READY;
+    MESH_TEST_FAIL_IF(!mesh_ui_chrome_banner(&snapshot, &banner) ||
+                          banner.kind != (uint8_t)MESH_UI_BANNER_REMOTE_ADMIN,
+                      "what the next press will do outranks anything that has already happened");
+
+    /* And down inside About radio, which names the node in a row and carries the way back. */
+    chrome_fixture(&snapshot);
+    snapshot.settings.admin_dest = 0x7001U;
+    snapshot.nav.screen = MESH_UI_SCREEN_SETTINGS;
+    snapshot.nav.settings_section = (uint8_t)MESH_UI_SETTINGS_RADIO;
+    MESH_TEST_FAIL_IF(mesh_ui_chrome_banner(&snapshot, &banner),
+                      "About radio already says this, and offers the row that undoes it");
+    snapshot.nav.settings_section = (uint8_t)MESH_UI_SETTINGS_LORA;
+    MESH_TEST_FAIL_IF(!mesh_ui_chrome_banner(&snapshot, &banner),
+                      "and the section whose Save would land on the other radio says nothing");
+    record_success(test_name);
+}

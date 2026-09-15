@@ -889,6 +889,28 @@ static void build_radio_firmware(const struct mesh_ui_settings *s, struct item_l
 static void build_radio(const struct mesh_ui_settings *s, const struct mesh_ui_handshake_state *hs,
                         struct item_list *list) {
     char buffer[48];
+    /*
+     * Whose radio the rest of this section - and the rest of this tab - is about.
+     *
+     * First, because every row under it changes meaning with it: the firmware version, the
+     * capabilities and the admin session below all describe the node named here, and reading
+     * them in the belief that they described the radio in your hand is the one mistake this
+     * section can cause. Drawn only while there is a remote target, so the ordinary case is the
+     * section exactly as it was.
+     */
+    if (s->admin_dest != 0U) {
+        item_heading(list, MESH_STR_RADIO_ADMIN_REMOTE_HEAD);
+        item_text(list, MESH_STR_RADIO_ADMIN_REMOTE_NODE, MESH_UI_SETTING_INFO, s->admin_dest_name);
+        item_action(list, MESH_STR_RADIO_ADMIN_REMOTE_RETURN, mesh_str(MESH_STR_COMMON_PRESS_A),
+                    MESH_UI_SETTINGS_ACTION_ADMIN_LOCAL);
+    }
+    /* Whether the firmware group below belongs on this screen at all. It is about the radio on
+       the end of the link - the check reads that radio's model and the install writes down that
+       cable - and while this section is describing somebody else's node it would be three rows
+       answering a question nobody asked here, under a heading that has just named another
+       radio. There is no remote firmware install to offer in its place: an image crosses a
+       cable or a BLE link, never a mesh. */
+    const bool link_firmware = (s->admin_dest == 0U);
     if (s->has_metadata) {
         item_text(list, MESH_STR_RADIO_FIRMWARE, MESH_UI_SETTING_INFO,
                   s->firmware_version[0] != '\0' ? s->firmware_version
@@ -897,13 +919,28 @@ static void build_radio(const struct mesh_ui_settings *s, const struct mesh_ui_h
                   /* The board upstream's hardware list identified, when a check has run: it is
                      the name that decides which image this radio takes, and "Heltec Mesh Node
                      T114" says more than the HardwareModel enum's own spelling of it. Falls
-                     back to that spelling, which is what every radio has before a check. */
-                  s->fw_board[0] != '\0'
+                     back to that spelling, which is what every radio has before a check - and
+                     always falls back for a node being administered over the mesh, because the
+                     check that produced that name was about a different radio. */
+                  (link_firmware && s->fw_board[0] != '\0')
                       ? s->fw_board
                       : mesh_radio_hw_model_name(s->hw_model, buffer, sizeof buffer));
     }
-    build_radio_firmware(s, list);
-    if (hs != NULL && hs->has_my_info) {
+    if (link_firmware) {
+        build_radio_firmware(s, list);
+    }
+    /*
+     * The node number, which is the one row here that does not come from the admin path at all:
+     * `my_info` is the handshake's, so it is our own radio's whatever this section is
+     * describing. With a remote target it is the target's number that belongs here, and the
+     * reboot count is simply dropped - MyNodeInfo is a thing a radio tells the client attached
+     * to it, and there is no admin verb that asks a node over the mesh how many times it has
+     * restarted.
+     */
+    if (s->admin_dest != 0U) {
+        mesh_str_format(buffer, sizeof buffer, MESH_STR_NODE_VAL_USER_ID_HEX, s->admin_dest);
+        item_text(list, MESH_STR_RADIO_NODE_NUMBER, MESH_UI_SETTING_INFO, buffer);
+    } else if (hs != NULL && hs->has_my_info) {
         mesh_str_format(buffer, sizeof buffer, MESH_STR_NODE_VAL_USER_ID_HEX, hs->my_info.node_num);
         item_text(list, MESH_STR_RADIO_NODE_NUMBER, MESH_UI_SETTING_INFO, buffer);
         mesh_str_format(buffer, sizeof buffer, MESH_STR_VALUE_PLAIN, hs->my_info.reboot_count);
@@ -2015,6 +2052,23 @@ static void build_actions(const struct mesh_ui_settings *s,
        confirm dialog - and would already have done so on a cold start with a restored roster,
        because the handshake is persisted. */
     const bool connected = handshake != NULL && handshake->link_up;
+
+    /*
+     * Whose radio these rows would act on, first, the way About radio states it.
+     *
+     * The only section besides that one where getting the answer wrong costs something: with a
+     * remote target, "Reboot" takes somebody else's repeater down. The banner says so on every
+     * frame up to the moment the confirm sheet opens, and the sheet says it too - this is the
+     * line the reader passes on the way to the press.
+     *
+     * A statement rather than the way back, which stays in About radio: this section is a list
+     * of things to do *to a radio*, and a row that changed which radio would be the one press
+     * here that is not one of those.
+     */
+    if (s->admin_dest != 0U) {
+        item_heading(list, MESH_STR_RADIO_ADMIN_REMOTE_HEAD);
+        item_text(list, MESH_STR_RADIO_ADMIN_REMOTE_NODE, MESH_UI_SETTING_INFO, s->admin_dest_name);
+    }
 
     item_heading(list, MESH_STR_HEAD_POWER);
     item_radio_action(list, MESH_STR_ACTION_REBOOT, MESH_UI_SETTINGS_ACTION_REBOOT, connected);

@@ -2948,6 +2948,10 @@ static void fb_render_confirm(struct mesh_ui_backend_fb_state *state,
         mesh_ui_settings_confirm_title(section, nav->settings_channel, confirmed, title,
                                        sizeof title);
         mesh_ui_settings_confirm_text(section, confirmed, text, sizeof text);
+        /* And which radio, when it is not this one. The banner that has been saying so on every
+           other frame is gone the moment this panel takes the body, so the sheet says it
+           instead - in a sentence of settings.c's own, joined here rather than composed here. */
+        mesh_ui_settings_confirm_add_subject(&snapshot->settings, confirmed, text, sizeof text);
     }
 
     /*

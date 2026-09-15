@@ -10,6 +10,7 @@
 #include "mesh/core/session.h"
 
 #include <pb_decode.h>
+#include <pb_encode.h>
 
 #include "meshtastic/admin.pb.h"
 #include "meshtastic/channel.pb.h"
@@ -1340,5 +1341,433 @@ MESH_TEST_CASE(radio_settings_ham_mode, unit) {
     MESH_TEST_FAIL_IF(mesh_radio_settings_encode_request(&settings, &next, buffer, sizeof buffer,
                                                          &written) != -EINVAL,
                       "a ham request with no call sign would rename the node to nothing");
+    record_success(test_name);
+}
+
+/* ---- remote administration ------------------------------------------------------------------
+ *
+ * The same AdminMessage queue pointed at somebody else's radio. What these hold is the four
+ * things that make it a different question from a local write: where the packet goes, what it
+ * is sealed to, how long an answer is allowed to take, and which of this client's other verbs
+ * go with it (none of them).
+ */
+
+/* The key a test radio is administered under. Not all-zero and not patterned, so a request
+   carrying the wrong one is visibly the wrong one. */
+static const uint8_t k_remote_key[MESH_ADMIN_PUBLIC_KEY_LEN] = {
+    0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x01,
+    0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x20,
+};
+
+/* Encodes one request and hands back the MeshPacket it became, so a test can read the envelope
+   rather than the AdminMessage inside it - which is where every remote-admin fact lives. */
+static bool remote_encode_packet(const struct mesh_radio_settings *settings,
+                                 const struct mesh_admin_request *request,
+                                 meshtastic_MeshPacket *out) {
+    uint8_t buffer[512];
+    size_t written = 0U;
+    if (mesh_radio_settings_encode_request(settings, request, buffer, sizeof buffer, &written) !=
+        0) {
+        return false;
+    }
+    meshtastic_ToRadio to_radio = meshtastic_ToRadio_init_default;
+    pb_istream_t in = pb_istream_from_buffer(buffer, written);
+    if (!pb_decode(&in, meshtastic_ToRadio_fields, &to_radio) ||
+        to_radio.which_payload_variant != meshtastic_ToRadio_packet_tag) {
+        return false;
+    }
+    *out = to_radio.packet;
+    return true;
+}
+
+MESH_TEST_CASE(radio_settings_remote_admin_encodes_under_pki, unit) {
+    struct mesh_radio_settings settings;
+    mesh_radio_settings_reset(&settings);
+
+    MESH_TEST_FAIL_IF(mesh_radio_settings_set_admin_dest(&settings, 0x7001U, k_remote_key,
+                                                         sizeof k_remote_key) != 0,
+                      "a node and a 32-byte key is the whole of what a target needs");
+    MESH_TEST_FAIL_IF(mesh_radio_settings_admin_dest(&settings) != 0x7001U,
+                      "the target should be readable back");
+
+    /* A refresh is the Settings tab's own request, so every one of these goes to the target. */
+    MESH_TEST_FAIL_IF(mesh_radio_settings_queue_probe(&settings) != 2U, "probe should queue two");
+    struct mesh_admin_request next;
+    MESH_TEST_FAIL_IF(!mesh_radio_settings_next_request(&settings, 1000U, &next) ||
+                          next.dest != 0x7001U,
+                      "a refresh request is addressed to the node being administered");
+
+    next.my_node = 0x1234U;
+    next.packet_id = 11U;
+    meshtastic_MeshPacket packet = meshtastic_MeshPacket_init_default;
+    MESH_TEST_FAIL_IF(!remote_encode_packet(&settings, &next, &packet), "it should encode");
+    MESH_TEST_FAIL_IF(packet.to != 0x7001U,
+                      "it goes to the remote node, not to the radio on the link");
+    MESH_TEST_FAIL_IF(!packet.pki_encrypted, "an admin request over the mesh is sealed under PKI");
+    MESH_TEST_FAIL_IF(packet.public_key.size != MESH_ADMIN_PUBLIC_KEY_LEN ||
+                          memcmp(packet.public_key.bytes, k_remote_key, sizeof k_remote_key) != 0,
+                      "and sealed to the node's own key");
+    /*
+     * And deliberately no want_ack, which is the one thing a packet crossing a mesh looks like
+     * it ought to have. The firmware reports a delivery ack for a packet we originated as a
+     * ROUTING_APP packet quoting the same id the answer will quote, generated a hop away rather
+     * than at the far end - so it would arrive first, release the one request in flight, and
+     * leave the AdminMessage matching nothing. A set would be worse: recorded as saved by its
+     * delivery, before the firmware's own rejection had a chance to say otherwise.
+     */
+    MESH_TEST_FAIL_IF(packet.want_ack,
+                      "a delivery ack quoting our id would be mistaken for the answer");
+    MESH_TEST_FAIL_IF(packet.decoded.portnum != meshtastic_PortNum_ADMIN_APP ||
+                          !packet.decoded.want_response,
+                      "it is still an ADMIN_APP request wanting a reply");
+
+    /*
+     * And the local shape is untouched: to ourselves, no PKI, no ack. The firmware answers one
+     * of these without putting it on the air, so both of the extras above would be asking the
+     * radio to do work for a packet that never leaves it.
+     */
+    struct mesh_admin_request local = next;
+    local.dest = 0U;
+    MESH_TEST_FAIL_IF(!remote_encode_packet(&settings, &local, &packet), "a local one encodes too");
+    MESH_TEST_FAIL_IF(packet.to != 0x1234U || packet.pki_encrypted ||
+                          packet.public_key.size != 0U || packet.want_ack,
+                      "a request with no destination is the local one it always was");
+
+    /*
+     * The delivery ack the queue must never be handed, written out as the packet the firmware
+     * would send: a ROUTING_APP with error NONE quoting our id. It is indistinguishable from a
+     * set_*'s real ack, which is exactly why the request that could earn one does not ask for
+     * it - this pins the shape of the collision rather than a behaviour, so the day somebody
+     * puts want_ack back the test above is what says why.
+     */
+    struct mesh_admin_request pending = next;
+    MESH_TEST_FAIL_IF(!remote_encode_packet(&settings, &pending, &packet), "re-encode");
+    MESH_TEST_FAIL_IF(!packet.decoded.want_response,
+                      "the reply is the acknowledgement, so it has to be asked for");
+
+    /*
+     * A destination this struct holds no key for is refused rather than sent in the clear. The
+     * fallback would be an admin verb every node holding the channel key could read, sent by a
+     * client that believed it was doing the opposite.
+     */
+    struct mesh_admin_request stranger = next;
+    stranger.dest = 0x7002U;
+    uint8_t buffer[512];
+    size_t written = 0U;
+    MESH_TEST_FAIL_IF(mesh_radio_settings_encode_request(&settings, &stranger, buffer,
+                                                         sizeof buffer, &written) != -EINVAL,
+                      "there is no unencrypted remote admin");
+
+    /* And a target cannot be set without a key of the right length in the first place. */
+    MESH_TEST_FAIL_IF(
+        mesh_radio_settings_set_admin_dest(&settings, 0x7003U, NULL, 0U) != -EINVAL ||
+            mesh_radio_settings_set_admin_dest(&settings, 0x7003U, k_remote_key, 16U) != -EINVAL,
+        "a short key or none is not a target");
+    record_success(test_name);
+}
+
+/*
+ * Retargeting forgets the radio it was describing.
+ *
+ * The rows on the Settings tab are one radio's configuration, so the alternative to clearing is
+ * a tab showing this radio's LoRa section beside that radio's owner - which reads as a working
+ * screen and is not one. What survives is what is not a section: the write tallies the app
+ * announces outcomes from, and the firmware's region preset table, which no admin verb can ask
+ * a remote node for.
+ */
+MESH_TEST_CASE(radio_settings_remote_admin_clears_the_sections, unit) {
+    struct mesh_radio_settings settings;
+    mesh_radio_settings_reset(&settings);
+
+    meshtastic_Config config = meshtastic_Config_init_default;
+    config.which_payload_variant = meshtastic_Config_lora_tag;
+    config.payload_variant.lora.hop_limit = 5U;
+    mesh_radio_settings_apply_config(&settings, &config);
+    meshtastic_User owner = meshtastic_User_init_default;
+    snprintf(owner.long_name, sizeof owner.long_name, "Brick");
+    mesh_radio_settings_apply_owner(&settings, &owner);
+    meshtastic_DeviceMetadata metadata = meshtastic_DeviceMetadata_init_default;
+    metadata.hw_model = meshtastic_HardwareModel_RAK4631;
+    mesh_radio_settings_apply_metadata(&settings, &metadata);
+    settings.has_session_passkey = true;
+    settings.session_passkey_len = 4U;
+    settings.admin_replies = 9U;
+    settings.writes_acked = 3U;
+    settings.writes_failed = 1U;
+    meshtastic_LoRaRegionPresetMap presets = meshtastic_LoRaRegionPresetMap_init_default;
+    presets.region_groups_count = 1U;
+    mesh_radio_settings_apply_region_presets(&settings, &presets);
+    MESH_TEST_FAIL_IF(mesh_radio_settings_queue_probe(&settings) != 2U, "something queued");
+
+    MESH_TEST_FAIL_IF(mesh_radio_settings_set_admin_dest(&settings, 0x7001U, k_remote_key,
+                                                         sizeof k_remote_key) != 0,
+                      "retarget");
+    MESH_TEST_FAIL_IF(settings.has_lora || settings.has_owner ||
+                          mesh_radio_settings_loaded(&settings),
+                      "the sections belonged to the radio we stopped describing");
+    MESH_TEST_FAIL_IF(settings.has_session_passkey || settings.admin_replies != 0U,
+                      "a passkey is issued per node, and so is 'has this one answered'");
+    MESH_TEST_FAIL_IF(settings.queue_len != 0U,
+                      "the queued requests were addressed to the old target");
+    MESH_TEST_FAIL_IF(settings.writes_acked != 3U || settings.writes_failed != 1U,
+                      "the write tallies are the link's, and the app counts announcements off "
+                      "them - restarting them would swallow the next outcome");
+    MESH_TEST_FAIL_IF(!settings.has_region_presets,
+                      "the preset map describes the firmware's table and no verb can re-ask "
+                      "for it, so dropping it would leave the LoRa rows unconstrained for good");
+
+    /*
+     * And what the radio on the end of the link said about itself, which is the other thing
+     * here that is not a section.
+     *
+     * It decides which firmware image may be written down this cable. Read from `metadata` -
+     * which is now the remote node's - the install would offer an image for a board nobody is
+     * holding and the safety check that compares models would be comparing the wrong two.
+     */
+    const meshtastic_DeviceMetadata *const link = mesh_radio_settings_link_metadata(&settings);
+    MESH_TEST_FAIL_IF(link == NULL || link->hw_model != meshtastic_HardwareModel_RAK4631,
+                      "the link's own metadata is not the tab's, and survives a retarget");
+    MESH_TEST_FAIL_IF(settings.has_metadata,
+                      "while the target's is dropped with every other section");
+
+    /* A metadata reply from the node being administered fills the tab's copy and leaves the
+       link's alone - which is the whole of what keeps the two questions apart. */
+    meshtastic_DeviceMetadata remote_meta = meshtastic_DeviceMetadata_init_default;
+    remote_meta.hw_model = meshtastic_HardwareModel_HELTEC_V3;
+    mesh_radio_settings_apply_metadata(&settings, &remote_meta);
+    MESH_TEST_FAIL_IF(!settings.has_metadata ||
+                          settings.metadata.hw_model != meshtastic_HardwareModel_HELTEC_V3,
+                      "the tab shows the node it is administering");
+    MESH_TEST_FAIL_IF(mesh_radio_settings_link_metadata(&settings)->hw_model !=
+                          meshtastic_HardwareModel_RAK4631,
+                      "and the radio in your hand is still the one the image would go to");
+
+    /* And coming back is the same clearing in the other direction. */
+    mesh_radio_settings_apply_owner(&settings, &owner);
+    MESH_TEST_FAIL_IF(mesh_radio_settings_set_admin_dest(&settings, 0U, NULL, 0U) != 0, "return");
+    MESH_TEST_FAIL_IF(mesh_radio_settings_admin_dest(&settings) != 0U || settings.has_owner,
+                      "the remote node's owner must not be left standing over our own radio");
+    record_success(test_name);
+}
+
+/*
+ * What follows the target and what does not.
+ *
+ * The line is "is this about a radio's configuration, or about the radio on the end of the
+ * link". A save and a reboot are the first; the clock push and every NodeDB verb are the
+ * second, because a list of nodes this client can see is a fact about the radio it is seeing
+ * them through.
+ */
+MESH_TEST_CASE(radio_settings_remote_admin_leaves_the_link_verbs_alone, unit) {
+    struct mesh_radio_settings settings;
+    mesh_radio_settings_reset(&settings);
+    MESH_TEST_FAIL_IF(mesh_radio_settings_set_admin_dest(&settings, 0x7001U, k_remote_key,
+                                                         sizeof k_remote_key) != 0,
+                      "retarget");
+
+    struct mesh_admin_request write;
+    memset(&write, 0, sizeof write);
+    write.kind = MESH_ADMIN_SET_CONFIG;
+    write.type = meshtastic_AdminMessage_ConfigType_LORA_CONFIG;
+    write.payload.config.which_payload_variant = meshtastic_Config_lora_tag;
+    MESH_TEST_FAIL_IF(mesh_radio_settings_queue_write(&settings, &write) != 3,
+                      "a write is still a passkey refresh, the set and the read-back");
+    MESH_TEST_FAIL_IF(mesh_radio_settings_queue_favorite(&settings, 0x9001U, true) != 2,
+                      "and a pin is still two");
+
+    /*
+     * The order the queue holds them in is what makes one passkey slot safe: each set sits
+     * directly behind its own get_owner, and the two refreshes are not folded together because
+     * they are addressed to different radios.
+     */
+    static const struct {
+        enum mesh_admin_request_kind kind;
+        uint32_t dest;
+        const char *why;
+    } expected[] = {
+        {MESH_ADMIN_GET_OWNER, 0x7001U, "the write's passkey comes from the node being written"},
+        {MESH_ADMIN_SET_CONFIG, 0x7001U, "the write goes to the node being configured"},
+        {MESH_ADMIN_GET_CONFIG, 0x7001U, "and so does the read-back that proves it landed"},
+        {MESH_ADMIN_GET_OWNER, 0U, "the pin needs our own radio's passkey, not the target's"},
+        {MESH_ADMIN_SET_FAVORITE, 0U, "a NodeDB entry belongs to the radio on the link"},
+    };
+    for (size_t i = 0; i < sizeof expected / sizeof expected[0]; ++i) {
+        struct mesh_admin_request next;
+        MESH_TEST_FAIL_IF(!mesh_radio_settings_next_request(&settings, 1000U * (i + 1U), &next),
+                          "the queue should still have requests in it");
+        MESH_TEST_FAIL_IF(next.kind != expected[i].kind || next.dest != expected[i].dest,
+                          expected[i].why);
+        mesh_radio_settings_mark_sent(&settings, (uint32_t)(100U + i), 1000U * (i + 1U));
+        /* Release it so the next call is not looking at a pending request. */
+        settings.pending_request_id = 0U;
+        settings.pending_dest = 0U;
+    }
+
+    /* The clock is the other one that stays home: our idea of the time has no business being
+       pushed at somebody else's node over the air. */
+    MESH_TEST_FAIL_IF(mesh_radio_settings_queue_time(&settings, MESH_RADIO_CLOCK_MIN_EPOCH + 10U) !=
+                          2,
+                      "a clock push queues its refresh and the set");
+    struct mesh_admin_request next;
+    MESH_TEST_FAIL_IF(!mesh_radio_settings_next_request(&settings, 20000U, &next) ||
+                          next.dest != 0U,
+                      "the clock push is about the radio in our hand");
+
+    /* An action does follow the target - reconfiguring and rebooting a repeater you are
+       standing under is the point - with one exception. */
+    mesh_radio_settings_reset(&settings);
+    MESH_TEST_FAIL_IF(mesh_radio_settings_set_admin_dest(&settings, 0x7001U, k_remote_key,
+                                                         sizeof k_remote_key) != 0,
+                      "retarget");
+    MESH_TEST_FAIL_IF(mesh_radio_settings_queue_action(&settings, MESH_ADMIN_REBOOT,
+                                                       MESH_RADIO_ACTION_DELAY_SECONDS) != 2,
+                      "a remote reboot is the capability this feature is for");
+    MESH_TEST_FAIL_IF(mesh_radio_settings_queue_action(&settings, MESH_ADMIN_ENTER_DFU_MODE, 0U) !=
+                          -EINVAL,
+                      "a UF2 bootloader needs somebody at the USB port, so it is never sent "
+                      "somewhere nobody is standing");
+    record_success(test_name);
+}
+
+/*
+ * A remote reply is allowed a mesh round trip; a local one is not.
+ *
+ * Which deadline applies is a property of the request that went out rather than of where the
+ * tab is pointed now, because the two interleave: the clock push queued behind a remote refresh
+ * is still a local round trip.
+ */
+MESH_TEST_CASE(radio_settings_remote_admin_waits_for_the_mesh, unit) {
+    struct mesh_radio_settings settings;
+    mesh_radio_settings_reset(&settings);
+    MESH_TEST_FAIL_IF(mesh_radio_settings_set_admin_dest(&settings, 0x7001U, k_remote_key,
+                                                         sizeof k_remote_key) != 0,
+                      "retarget");
+    MESH_TEST_FAIL_IF(mesh_radio_settings_queue_probe(&settings) != 2U, "probe");
+
+    struct mesh_admin_request next;
+    MESH_TEST_FAIL_IF(!mesh_radio_settings_next_request(&settings, 1000U, &next), "first request");
+    mesh_radio_settings_mark_sent(&settings, 41U, 1000U);
+    MESH_TEST_FAIL_IF(mesh_radio_settings_next_request(
+                          &settings, 1000U + MESH_RADIO_SETTINGS_REPLY_TIMEOUT_MS + 1U, &next),
+                      "five seconds is a local round trip, not a mesh one");
+    MESH_TEST_FAIL_IF(
+        !mesh_radio_settings_next_request(
+            &settings, 1000U + MESH_RADIO_SETTINGS_REMOTE_REPLY_TIMEOUT_MS + 1U, &next),
+        "a minute is long enough to call a remote node lost");
+
+    /* And the local deadline is still five seconds while the target is remote. */
+    mesh_radio_settings_reset(&settings);
+    MESH_TEST_FAIL_IF(mesh_radio_settings_set_admin_dest(&settings, 0x7001U, k_remote_key,
+                                                         sizeof k_remote_key) != 0,
+                      "retarget");
+    MESH_TEST_FAIL_IF(mesh_radio_settings_queue_favorite(&settings, 0x9001U, true) != 2, "pin");
+    MESH_TEST_FAIL_IF(!mesh_radio_settings_next_request(&settings, 1000U, &next) || next.dest != 0U,
+                      "a local request");
+    mesh_radio_settings_mark_sent(&settings, 42U, 1000U);
+    MESH_TEST_FAIL_IF(!mesh_radio_settings_next_request(
+                          &settings, 1000U + MESH_RADIO_SETTINGS_REPLY_TIMEOUT_MS + 1U, &next),
+                      "a local request queued behind a remote one keeps the local deadline");
+    record_success(test_name);
+}
+
+/*
+ * A node that answers nothing stops the queue rather than grinding through it.
+ *
+ * A full refresh is nearly thirty requests; at a minute each against a node that is out of
+ * range or has not been told to trust us, that is half an hour of a tab that looks busy and
+ * will never fill in. The refresh row is one press away when the path comes back.
+ */
+MESH_TEST_CASE(radio_settings_remote_admin_gives_up_on_silence, unit) {
+    struct mesh_radio_settings settings;
+    mesh_radio_settings_reset(&settings);
+    MESH_TEST_FAIL_IF(mesh_radio_settings_set_admin_dest(&settings, 0x7001U, k_remote_key,
+                                                         sizeof k_remote_key) != 0,
+                      "retarget");
+    const size_t queued = mesh_radio_settings_queue_all(&settings);
+    MESH_TEST_FAIL_IF(queued <= MESH_RADIO_SETTINGS_REMOTE_GIVE_UP,
+                      "a refresh is many more requests than the give-up count");
+
+    uint64_t now = 1000U;
+    struct mesh_admin_request next;
+    for (unsigned i = 0; i < MESH_RADIO_SETTINGS_REMOTE_GIVE_UP; ++i) {
+        MESH_TEST_FAIL_IF(!mesh_radio_settings_next_request(&settings, now, &next),
+                          "the queue should still be handing requests out");
+        mesh_radio_settings_mark_sent(&settings, (uint32_t)(50U + i), now);
+        now += MESH_RADIO_SETTINGS_REMOTE_REPLY_TIMEOUT_MS + 1U;
+    }
+    MESH_TEST_FAIL_IF(mesh_radio_settings_next_request(&settings, now, &next),
+                      "the last timeout drops the rest rather than starting another minute");
+    MESH_TEST_FAIL_IF(settings.queue_len != 0U, "and the queue is empty, not merely paused");
+    MESH_TEST_FAIL_IF(mesh_radio_settings_admin_dest(&settings) != 0x7001U,
+                      "giving up on the requests is not giving up on the target - the refresh "
+                      "row is the press that tries again");
+
+    /* One reply is enough to say the mesh is carrying this traffic, and the count starts over. */
+    MESH_TEST_FAIL_IF(mesh_radio_settings_queue_probe(&settings) != 2U, "probe again");
+    MESH_TEST_FAIL_IF(!mesh_radio_settings_next_request(&settings, now, &next), "a request");
+    mesh_radio_settings_mark_sent(&settings, 60U, now);
+    meshtastic_MeshPacket reply = meshtastic_MeshPacket_init_default;
+    reply.from = 0x7001U;
+    reply.which_payload_variant = meshtastic_MeshPacket_decoded_tag;
+    reply.decoded.portnum = meshtastic_PortNum_ADMIN_APP;
+    reply.decoded.request_id = 60U;
+    meshtastic_AdminMessage admin = meshtastic_AdminMessage_init_default;
+    admin.which_payload_variant = meshtastic_AdminMessage_get_owner_response_tag;
+    snprintf(admin.get_owner_response.long_name, sizeof admin.get_owner_response.long_name,
+             "Repeater");
+    pb_ostream_t out =
+        pb_ostream_from_buffer(reply.decoded.payload.bytes, sizeof reply.decoded.payload.bytes);
+    MESH_TEST_FAIL_IF(!pb_encode(&out, meshtastic_AdminMessage_fields, &admin), "encode reply");
+    reply.decoded.payload.size = (pb_size_t)out.bytes_written;
+    MESH_TEST_FAIL_IF(mesh_radio_settings_ingest(&settings, &reply) != 1, "the reply is ours");
+    MESH_TEST_FAIL_IF(settings.remote_silence != 0U, "an answer means the path is working");
+    MESH_TEST_FAIL_IF(!settings.has_owner || strcmp(settings.owner.long_name, "Repeater") != 0,
+                      "and the remote node's owner is what the tab now shows");
+    record_success(test_name);
+}
+
+/*
+ * A reply to a request that went somewhere else brings back a passkey and nothing more.
+ *
+ * The clock push and the NodeDB verbs never follow the target, so a get_owner for one of them
+ * is answered by *our* radio while the tab is describing somebody else's - and folding it in
+ * would rename the remote node to ours in the rows being drawn under its name.
+ */
+MESH_TEST_CASE(radio_settings_remote_admin_does_not_cross_owners, unit) {
+    struct mesh_radio_settings settings;
+    mesh_radio_settings_reset(&settings);
+    MESH_TEST_FAIL_IF(mesh_radio_settings_set_admin_dest(&settings, 0x7001U, k_remote_key,
+                                                         sizeof k_remote_key) != 0,
+                      "retarget");
+    MESH_TEST_FAIL_IF(mesh_radio_settings_queue_favorite(&settings, 0x9001U, true) != 2, "pin");
+
+    struct mesh_admin_request next;
+    MESH_TEST_FAIL_IF(!mesh_radio_settings_next_request(&settings, 1000U, &next) ||
+                          next.dest != 0U || next.kind != MESH_ADMIN_GET_OWNER,
+                      "the pin's own passkey refresh, addressed to our radio");
+    mesh_radio_settings_mark_sent(&settings, 70U, 1000U);
+
+    meshtastic_MeshPacket reply = meshtastic_MeshPacket_init_default;
+    reply.which_payload_variant = meshtastic_MeshPacket_decoded_tag;
+    reply.decoded.portnum = meshtastic_PortNum_ADMIN_APP;
+    reply.decoded.request_id = 70U;
+    meshtastic_AdminMessage admin = meshtastic_AdminMessage_init_default;
+    admin.which_payload_variant = meshtastic_AdminMessage_get_owner_response_tag;
+    snprintf(admin.get_owner_response.long_name, sizeof admin.get_owner_response.long_name,
+             "My own Brick");
+    admin.session_passkey.size = 4U;
+    admin.session_passkey.bytes[0] = 0xABU;
+    pb_ostream_t out =
+        pb_ostream_from_buffer(reply.decoded.payload.bytes, sizeof reply.decoded.payload.bytes);
+    MESH_TEST_FAIL_IF(!pb_encode(&out, meshtastic_AdminMessage_fields, &admin), "encode reply");
+    reply.decoded.payload.size = (pb_size_t)out.bytes_written;
+
+    MESH_TEST_FAIL_IF(mesh_radio_settings_ingest(&settings, &reply) != 1,
+                      "it still answers a request of ours");
+    MESH_TEST_FAIL_IF(settings.has_owner,
+                      "our own radio's owner must not land in the remote node's rows");
+    MESH_TEST_FAIL_IF(!settings.has_session_passkey || settings.session_passkey[0] != 0xABU,
+                      "the passkey is the whole reason that get_owner was sent");
+    MESH_TEST_FAIL_IF(settings.pending_request_id != 0U, "and the queue is released either way");
     record_success(test_name);
 }

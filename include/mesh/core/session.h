@@ -604,6 +604,29 @@ void mesh_session_packet_failed(struct mesh_session *session, uint32_t packet_id
    tick. Returns the number of requests queued, -ENOTCONN before the handshake has my_info. */
 int mesh_session_refresh_settings(struct mesh_session *session);
 
+/*
+ * Points the Settings tab at another node's radio, or back at our own.
+ *
+ * The client-side half of remote administration: `node_id` names a node in the roster, its
+ * public key is taken from that record, and every Settings-tab request from here on crosses the
+ * mesh to it under PKI instead of being answered locally
+ * (mesh_radio_settings_set_admin_dest). `node_id` 0 comes back to the connected radio.
+ *
+ * Whether it *works* is the far end's decision and not one this client can make in advance:
+ * what authorises an admin request is our public key sitting in that node's
+ * SecurityConfig.admin_key list, which is a thing only that radio knows. So the gate here is
+ * the one this side can actually answer - we hold a key to seal the request to - and a node
+ * that has not been told to trust us answers nothing at all, which the queue reports as
+ * silence rather than as a refusal.
+ *
+ * Everything the tab was showing is dropped and a full refresh is queued against the new
+ * target; see the core call for what survives and why. Returns the number of requests queued,
+ * -ENOTCONN before the handshake has my_info, -ENOENT for a node not in the roster, -EINVAL
+ * for our own node (which is what `node_id` 0 means, said properly) or for a node we hold no
+ * public key for.
+ */
+int mesh_session_set_admin_dest(struct mesh_session *session, uint32_t node_id);
+
 /* Queues one settings write (see mesh_radio_settings_queue_write) behind a passkey refresh and
    ahead of a read-back. Returns the number of requests queued, -ENOTCONN before the handshake
    has my_info, -ENOSPC when the queue is full, -EINVAL for anything but a write. */

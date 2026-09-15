@@ -460,6 +460,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_NODE_ACT_VERIFY_KEY] = "Verificar la clave",
     [MESH_STR_NODE_ACT_VERIFY_AGAIN] = "Verificar de nuevo",
     [MESH_STR_NODE_ACT_ADD_CONTACT] = "Devolver a la radio",
+    [MESH_STR_NODE_ACT_ADMIN] = "Ajustar por radio",
     [MESH_STR_VERIFY_HEAD_WAITING] = "Verificando a %s",
     [MESH_STR_VERIFY_BODY_WAITING] =
         "Las dos radios lo están resolviendo. A quien pregunten primero le mostrarán algo que leer "
@@ -552,6 +553,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_HELP_LABEL_NODES_CACHED] = "Nodos que la radio ha olvidado",
     [MESH_STR_HELP_LABEL_NODE_GROUPS] = "Moverse por la pantalla",
     [MESH_STR_HELP_LABEL_NODE_VERBS] = "Silenciar, ignorar, quitar",
+    [MESH_STR_HELP_LABEL_NODE_ADMIN] = "Ajustar por radio",
     [MESH_STR_HELP_LABEL_NODE_SIGNAL] = "SNR, RSSI y saltos",
     [MESH_STR_HELP_LABEL_NODE_KEY] = "Clave",
     [MESH_STR_HELP_LABEL_NODE_VERIFY] = "Verificar una clave",
@@ -972,6 +974,9 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_RADIO_ADMIN_REFRESHING] = ", recargando",
     [MESH_STR_RADIO_ADMIN_WAITING] = "esperando respuesta",
     [MESH_STR_RADIO_ADMIN_NO_REPLY] = "aún sin respuesta",
+    [MESH_STR_RADIO_ADMIN_REMOTE_HEAD] = "Por la malla",
+    [MESH_STR_RADIO_ADMIN_REMOTE_NODE] = "Ajustando",
+    [MESH_STR_RADIO_ADMIN_REMOTE_RETURN] = "Volver a mi radio",
     [MESH_STR_CHANNELS_NONE_KNOWN] = "aún no se conocen",
     [MESH_STR_CHANNELS_SLOT] = "%u %s",
     [MESH_STR_CHANNELS_SLOT_EMPTY] = "%u (vacío)",
@@ -1146,6 +1151,8 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_CONFIRM_ACCEPT_SAVE] = "Guardar en la radio",
     [MESH_STR_CONFIRM_ACCEPT_IMPORT] = "Unirse",
     [MESH_STR_CONFIRM_ACCEPT_ADD_CONTACT] = "Añadir",
+    [MESH_STR_CONFIRM_TEXT_REMOTE] =
+        " Esto va a %.20s por la malla, no a la radio que tienes en la mano; tu enlace sigue.",
     [MESH_STR_CONFIRM_TEXT_REBOOT] =
         "La radio se reinicia en unos segundos. Se pierde el enlace y la conexión automática lo "
         "recupera; todo lo enviado a este nodo mientras tanto se pierde.",
@@ -1295,6 +1302,9 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_BANNER_UPDATE_AVAILABLE_HINT] = "Instálala desde la pestaña Ajustes",
     [MESH_STR_BANNER_CRASH_REPORT] = "MeshClient se detuvo de forma inesperada",
     [MESH_STR_BANNER_CRASH_REPORT_HINT] = "Hay un informe guardado; mira la pestaña Ajustes",
+    [MESH_STR_BANNER_REMOTE_ADMIN] = "Ajustando otra radio",
+    [MESH_STR_BANNER_REMOTE_ADMIN_HINT] =
+        "Los cambios van a ese nodo; «Sobre la radio» te devuelve",
     [MESH_STR_TOAST_NOT_CONNECTED] = "Sin conexión a un nodo",
     [MESH_STR_TOAST_NODE_GONE] = "Ese nodo ya no está en la lista",
     [MESH_STR_TOAST_BLE_UNAVAILABLE] = "Transporte BLE no disponible",
@@ -1357,6 +1367,10 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_TOAST_ASKED_TELEMETRY] = "Se pidió a %.20s su telemetría",
     [MESH_STR_TOAST_STILL_SYNCING] = "Sincronizando; intenta de nuevo en un momento",
     [MESH_STR_TOAST_CANNOT_ASK] = "No se puede consultar a este nodo",
+    [MESH_STR_TOAST_ADMIN_REMOTE] = "Ajustando %.20s por radio",
+    [MESH_STR_TOAST_ADMIN_LOCAL] = "Ajustando esta radio de nuevo",
+    [MESH_STR_TOAST_ADMIN_NO_KEY] = "Sin clave para %.20s",
+    [MESH_STR_TOAST_ADMIN_FAILED] = "No se puede ajustar ese nodo (%d)",
     [MESH_STR_TOAST_IGNORING] = "Descartando paquetes de %.20s",
     [MESH_STR_TOAST_UNIGNORING] = "Recibiendo a %.20s de nuevo",
     [MESH_STR_TOAST_ALREADY_IGNORED] = "%.20s ya se está ignorando",

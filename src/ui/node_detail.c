@@ -122,6 +122,10 @@ static const enum mesh_ui_icon k_action_icons[] = {
     /* The radio, because that is what the row is about: our list already has this node and the
        radio's does not. */
     [MESH_UI_NODE_ACTION_ADD_CONTACT] = MESH_UI_ICON_RADIO,
+    /* The Settings tab's own mark, because that is where the press lands and what it changes is
+       which radio that tab is about. The radio rune next door means "this node's entry in our
+       radio's database", which is a different sentence. */
+    [MESH_UI_NODE_ACTION_ADMIN] = MESH_UI_ICON_SETTINGS,
 };
 
 /*
@@ -162,6 +166,17 @@ static const enum mesh_ui_tone k_action_tones[] = {
        the row is for. */
     [MESH_UI_NODE_ACTION_VERIFY_KEY] = MESH_UI_TONE_NORMAL,
     [MESH_UI_NODE_ACTION_ADD_CONTACT] = MESH_UI_TONE_NORMAL,
+    /*
+     * The warning family, and the only row on this card that earns one without taking anything
+     * away.
+     *
+     * What it costs is not this node - it is every press on the Settings tab afterwards, which
+     * stops meaning the radio in your hand. The two rows above establish trust and the two
+     * coloured ones below spend it; this one moves where the client is pointed, and a reader
+     * who presses it by accident would not find out from any row on this screen. The banner
+     * says so from then on (mesh/ui/chrome.h); the colour is what says it first.
+     */
+    [MESH_UI_NODE_ACTION_ADMIN] = MESH_UI_TONE_WARNING,
 };
 
 static enum mesh_ui_icon action_icon(enum mesh_ui_node_action action) {
@@ -1166,6 +1181,23 @@ uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool
                         key_trust == MESH_UI_KEY_TRUST_VERIFIED ? MESH_STR_NODE_ACT_VERIFY_AGAIN
                                                                 : MESH_STR_NODE_ACT_VERIFY_KEY,
                         mesh_str(MESH_STR_COMMON_PRESS_A), MESH_UI_NODE_ACTION_VERIFY_KEY);
+            /*
+             * And the last row on the card: open the Settings tab against this node's radio
+             * instead of our own.
+             *
+             * Under the same gate as the two above, and for a harder reason than theirs - a
+             * remote AdminMessage is sealed to the node's public key, so without one there is
+             * nothing to address it to. Last of the verbs because it is the one that changes
+             * what every *other* screen means, which is not something to land on by
+             * overshooting a cursor.
+             *
+             * The row reads the same whether or not this node is already the one being
+             * configured, and that is deliberate: pressing it then takes you to the tab, which
+             * is what somebody pressing "configure this radio" wanted either way. The way back
+             * is a row in About radio, which is where the banner sends them.
+             */
+            rows_action(&rows, MESH_STR_NODE_ACT_ADMIN, mesh_str(MESH_STR_COMMON_PRESS_A),
+                        MESH_UI_NODE_ACTION_ADMIN);
         }
     }
     /*
