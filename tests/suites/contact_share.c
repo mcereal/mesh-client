@@ -207,7 +207,8 @@ MESH_TEST_CASE(contact_share_builds_this_radios_own_record, unit) {
     both.owner.public_key.size = 4U;
     memset(both.owner.public_key.bytes, 0x5AU, 4U);
     MESH_TEST_FAIL_IF(!mesh_contact_share_build(&both, &contact), "the contact did not build");
-    MESH_TEST_FAIL_IF(contact.user.public_key.size != 4U || contact.user.public_key.bytes[0] != 0x5AU,
+    MESH_TEST_FAIL_IF(contact.user.public_key.size != 4U ||
+                          contact.user.public_key.bytes[0] != 0x5AU,
                       "the owner's own key was not preferred over SecurityConfig's");
 
     /* And the whole thing waits: no owner, no key, or an id that is not a node number. */
@@ -306,9 +307,12 @@ MESH_TEST_CASE(contact_import_drops_the_senders_claims, unit) {
 static uint32_t user_action_row(const struct mesh_ui_store *store,
                                 enum mesh_ui_settings_action which) {
     struct mesh_ui_settings_item items[32];
+    /* The roster the way every public caller reaches it. `mesh_ui_nav_handshake()` is the same
+       question in one call, but it lives in src/ui/nav_internal.h - which is the group's own
+       header and not something outside it may include (CLAUDE.md). */
     const uint32_t count =
-        mesh_ui_settings_items(&store->settings, mesh_ui_nav_handshake(store), NULL, 0U,
-                               MESH_UI_SETTINGS_USER, MESH_UI_SETTINGS_NO_CHANNEL, items,
+        mesh_ui_settings_items(&store->settings, store->handshake_valid ? &store->handshake : NULL,
+                               NULL, 0U, MESH_UI_SETTINGS_USER, MESH_UI_SETTINGS_NO_CHANNEL, items,
                                (uint32_t)(sizeof items / sizeof items[0]));
     for (uint32_t i = 0; i < count; ++i) {
         if (items[i].kind == MESH_UI_SETTING_ACTION && items[i].number == (uint32_t)which) {

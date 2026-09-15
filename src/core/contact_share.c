@@ -31,7 +31,8 @@ static bool owner_node_num(const meshtastic_User *owner, uint32_t *out) {
     const char *hex = &owner->id[1];
     for (size_t i = 0; i < 8U; ++i) {
         const char c = hex[i];
-        const bool digit = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+        const bool digit =
+            (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
         if (!digit) {
             return false;
         }
