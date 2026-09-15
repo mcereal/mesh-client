@@ -963,6 +963,10 @@ static const struct theme_pair k_required[] = {
     {MESH_UI_COLOR_OUTLINE, MESH_UI_COLOR_BG, 1.4},
     {MESH_UI_COLOR_OUTLINE, MESH_UI_COLOR_SURFACE, 1.4},
     {MESH_UI_COLOR_OUTLINE, MESH_UI_COLOR_SURFACE_HIGH, 1.4},
+    /* And the third thing with an edge: the neutral state chip, which is a ring round a row's
+       own ground rather than a fill - so on a row under the cursor it is a ring on the cursor's
+       fill. Found, not read, like the two above it. */
+    {MESH_UI_COLOR_OUTLINE, MESH_UI_COLOR_SURFACE_SEL, 1.2},
     /* The rule that closes the tab strip off meets the strip's own bar rather than the ground,
        and the active tab's pill - the primary container, and the only container drawn up
        there - sits on that same bar. Neither has to be *read*, but a tab indicator nobody can
@@ -1159,7 +1163,13 @@ bool mesh_ui_theme_validate(const struct mesh_ui_theme *theme, char *reason, siz
                fill is white and its one accent is a yellow that clears 1.4:1 by a hair, so a
                text threshold here would fail the shipped palette for a bar that is not text.
                It still catches the case that matters - a family whose base *is* the cursor
-               fill, which is a marker nobody can see. */
+               fill, which is a marker nobody can see.
+               This row now carries a second thing, and it is why a disc and a chip commit to
+               the base on the cursor rather than keeping their container: a container is picked
+               to be a quiet fill on the body ground and the cursor's fill is picked to be a
+               quiet fill on the body ground, so the two are near each other by construction -
+               1.01:1 on the dark palette's success, 1.04:1 on the colour-blind error. The base
+               is the half of a family this already holds to being findable there. */
             {MESH_UI_SLOT_COUNT, MESH_UI_SLOT_BASE, MESH_UI_COLOR_SURFACE_SEL, MESH_UI_STATE_REST,
              1.2},
         };

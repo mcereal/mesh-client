@@ -3842,17 +3842,14 @@ MESH_TEST_CASE(ui_capture_node_detail_verbs_wear_their_colour_in_a_disc, unit) {
          * panel at every glyph scale - at the largest, this card is taller than the window and a
          * row stepped off is a row that has scrolled away.
          *
-         * Which means the fill is the container with its own ink mixed in: a container is the
-         * half of a family with room for a state layer, and taking one is what makes a selected
-         * control look pressed. Derived from the theme rather than matched as a role, for the
-         * reason the layer exists at all - it is a fill no palette states.
+         * Which means the family's BASE rather than its container: a disc on the cursor's own
+         * fill commits to full strength, because a container and that fill are both quiet fills
+         * on the body ground and therefore near each other. The marker bar down the same row is
+         * drawn in that colour too, but it is one scale wide - narrower than `min_run` by
+         * construction - so what this finds is the disc.
          */
-        const struct mesh_ui_theme *theme = mesh_ui_capture_theme(capture);
-        const struct mesh_ui_rgb pressed = mesh_ui_theme_state_layer(
-            mesh_ui_theme_family(theme, MESH_UI_FAMILY_ERROR, MESH_UI_SLOT_CONTAINER),
-            mesh_ui_theme_family(theme, MESH_UI_FAMILY_ERROR, MESH_UI_SLOT_ON_CONTAINER),
-            MESH_UI_STATE_SELECTED);
-        const uint32_t danger = bands_of_rgb(pixels, width, height, stride, pressed, min_run);
+        const uint32_t danger =
+            bands_of(capture, pixels, width, height, stride, MESH_UI_COLOR_ERROR, min_run);
         /* Four, because one of the accent's bands is the navigation bar's own tab pill and the
            card this is about holds several verbs plus the disc on its heading. */
         if (accent < 4U || danger < 1U) {

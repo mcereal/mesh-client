@@ -579,8 +579,17 @@ void fb_draw_state_chip(const struct mesh_ui_backend_fb_state *state, const stru
                         enum mesh_ui_color ground, struct mesh_ui_rgb ink, int scale) {
     const enum mesh_ui_family family = mesh_ui_tone_family(tone);
     if (family != MESH_UI_FAMILY_COUNT) {
+        /* The container at rest and the family's full strength on the cursor's own fill, which
+           is the leading disc's rule one screen up and fb_button_paint()'s for a tonal control.
+           `ground` is what says which: a container and the cursor fill are both quiet fills on
+           the body ground and therefore near each other, so a chip that kept its container
+           there would be a state that disappears on the row being pointed at. */
+        const bool on_cursor =
+            ground == MESH_UI_COLOR_SURFACE_SEL || ground == MESH_UI_COLOR_SURFACE_ACTIVE;
         fb_fill_capsule_text(state, box, text_y, text,
-                             fb_paint(state, family, MESH_UI_SLOT_CONTAINER, MESH_UI_STATE_REST),
+                             fb_paint(state, family,
+                                      on_cursor ? MESH_UI_SLOT_BASE : MESH_UI_SLOT_CONTAINER,
+                                      MESH_UI_STATE_REST),
                              scale);
         return;
     }
@@ -2209,16 +2218,28 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
         /*
          * Which pair the disc wears, and the tonal one reads it off the row's tone exactly as
          * the accent bar below does - the row says once what it means and the disc is one of
-         * the renderings of that, never a second opinion. The container half rather than the
-         * base, because a symbol has to sit on this and a column of them is read rather than
-         * spotted; see FB_LEADING_TONAL.
+         * the renderings of that, never a second opinion.
+         *
+         * The container at rest, because a symbol has to sit on this and a column of them is
+         * read rather than spotted. Under the cursor it commits to the family's full strength
+         * instead, which is fb_button_paint()'s rule for a tonal control word for word, and it
+         * is a correction rather than a flourish: a container is picked to be a quiet fill on
+         * the body ground, the cursor's own fill is picked to be a quiet fill on the body
+         * ground, and two quiet fills are necessarily near each other. Laid on the cursor it
+         * came to 1.01:1 on the dark palette's success and 1.04:1 on the colour-blind error -
+         * a disc that vanishes on precisely the row being pointed at. The state layer made it
+         * worse rather than better, because a layer can only move a fill towards its own ink.
+         *
+         * The base is the one half of a family the theme already holds to being findable on
+         * that fill: it is the pair the marker bar down a selected row is checked as. So the
+         * focused row's disc brightens instead of disappearing, and no palette had to move.
          */
         struct mesh_ui_paint disc;
         if (item->leading.kind == FB_LEADING_TONAL) {
             const enum mesh_ui_family family = mesh_ui_tone_family(item->tone);
-            disc = fb_paint(state, family != MESH_UI_FAMILY_COUNT ? family : MESH_UI_FAMILY_PRIMARY,
-                            MESH_UI_SLOT_CONTAINER,
-                            selected ? MESH_UI_STATE_SELECTED : MESH_UI_STATE_REST);
+            disc =
+                fb_paint(state, family != MESH_UI_FAMILY_COUNT ? family : MESH_UI_FAMILY_PRIMARY,
+                         selected ? MESH_UI_SLOT_BASE : MESH_UI_SLOT_CONTAINER, MESH_UI_STATE_REST);
         } else {
             disc =
                 (struct mesh_ui_paint){item->leading.role < MESH_UI_COLOR_COUNT
