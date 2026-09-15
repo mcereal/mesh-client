@@ -1,5 +1,6 @@
 #pragma once
 
+#include "mesh/core/channel_share.h"
 #include "mesh/core/key_verification.h"
 #include "mesh/core/message.h"
 #include "mesh/core/radio_settings.h"
@@ -608,6 +609,21 @@ int mesh_session_refresh_settings(struct mesh_session *session);
    has my_info, -ENOSPC when the queue is full, -EINVAL for anything but a write. */
 int mesh_session_write_settings(struct mesh_session *session,
                                 const struct mesh_admin_request *write);
+
+/*
+ * Puts the channel set out of a Meshtastic link on the radio (mesh/core/channel_share.h).
+ *
+ * Its own entry rather than a run of mesh_session_write_settings() calls because it is one
+ * decision and has to fail as one: the queue is checked for the whole import first, so a link
+ * that will not fit queues nothing rather than leaving the radio half moved to a mesh that does
+ * not exist. `add` is the link's own `?add=true` - keep this radio's channels and add these.
+ *
+ * Returns the number of admin requests queued, 0 when the radio is already on that set,
+ * -ENOTCONN before the handshake has my_info, -EINVAL for an empty set or a radio that has not
+ * finished answering for its channels, -ENOSPC when the queue cannot take it.
+ */
+int mesh_session_import_channels(struct mesh_session *session, const meshtastic_ChannelSet *set,
+                                 bool add);
 
 /*
  * Pins or unpins a node in the radio's NodeDB. The cached record's `is_favorite` is flipped

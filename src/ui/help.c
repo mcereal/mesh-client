@@ -154,6 +154,21 @@ static const struct mesh_ui_help_entry k_help_status[] = {
     {MESH_STR_HELP_LABEL_STATUS_TRAFFIC, MESH_STR_HELP_NOTE_STATUS_TRAFFIC},
 };
 
+/*
+ * The share screen.
+ *
+ * Its first paragraph is not about the screen at all: a QR code needs no explaining, and what
+ * somebody standing here does need told is that the thing on the panel is a *secret*. The
+ * client cannot enforce that - a code on a screen is readable by whoever is looking at it - so
+ * the only place it can be said is here, second, where somebody who opened help will read it.
+ */
+static const struct mesh_ui_help_entry k_help_share[] = {
+    {MESH_STR_NONE, MESH_STR_HELP_NOTE_SHARE},
+    {MESH_STR_HELP_LABEL_SHARE_KEYS, MESH_STR_HELP_NOTE_SHARE_KEYS},
+    {MESH_STR_HELP_LABEL_SHARE_WHAT, MESH_STR_HELP_NOTE_SHARE_WHAT},
+    {MESH_STR_HELP_LABEL_SHARE_IMPORT, MESH_STR_HELP_NOTE_SHARE_IMPORT},
+};
+
 /* The airtime chart, whose two paragraphs are both about reading a picture rather than about
    working a screen - which is why it is a feature of its own rather than the Status tab's help
    one level in. What a reader arrives wanting to know here is what the axes mean, and the cards
@@ -229,6 +244,10 @@ static const struct help_feature k_help_features[] = {
     HELP_FEATURE(MESH_UI_SCREEN_STATUS, MESH_UI_ROUTE_LIST, MESH_STR_TAB_STATUS, k_help_status),
     HELP_FEATURE(MESH_UI_SCREEN_STATUS, MESH_UI_ROUTE_TREND, MESH_STR_HELP_SUBJECT_TREND,
                  k_help_trend),
+    /* The Settings tab's one feature. Every other screen under that tab is a settings section,
+       whose paragraphs are the fields' own; this one has no fields and is not a list. */
+    HELP_FEATURE(MESH_UI_SCREEN_SETTINGS, MESH_UI_ROUTE_SHARE, MESH_STR_HELP_SUBJECT_SHARE,
+                 k_help_share),
 };
 
 #undef HELP_FEATURE

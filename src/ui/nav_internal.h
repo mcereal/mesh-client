@@ -76,6 +76,17 @@ void mesh_ui_nav_open_network_keyboard(struct mesh_ui_nav *nav, const char *host
  */
 bool mesh_ui_nav_commit_network_host(struct mesh_ui_nav *nav, struct mesh_ui_action *action);
 
+/* The keyboard that collects a Meshtastic channel link, from the Channels list's import row,
+   and the Done that checks it. The commit raises the confirm sheet rather than an action: what
+   reaches the app is the answer to that sheet. */
+void mesh_ui_nav_open_channel_url_keyboard(struct mesh_ui_nav *nav);
+bool mesh_ui_nav_commit_channel_url(struct mesh_ui_nav *nav);
+
+/* B on the share sheet. Its own handler rather than a branch in the tab's, the way the help
+   overlay has one: nothing on this screen moves, so every key but the one that leaves it is a
+   key that does nothing. */
+bool mesh_ui_nav_share_key(struct mesh_ui_nav *nav, enum mesh_ui_key key);
+
 /* ---- nav_waypoints.c --------------------------------------------------------------------- */
 
 /* Opens the place with this id over the list, parking the list's cursor. */

@@ -2298,6 +2298,10 @@ const char *mesh_ui_settings_confirm_accept(enum mesh_ui_settings_action action)
         return mesh_str(MESH_STR_CONFIRM_ACCEPT_FW_BLE);
     case MESH_UI_SETTINGS_ACTION_SET_HAM_MODE:
         return mesh_str(MESH_STR_CONFIRM_ACCEPT_HAM_MODE);
+    /* "Join", not "Import": what the user is agreeing to is being on somebody else's mesh, and
+       the word for the file operation says nothing about that. */
+    case MESH_UI_SETTINGS_ACTION_IMPORT_CHANNELS:
+        return mesh_str(MESH_STR_CONFIRM_ACCEPT_IMPORT);
     default:
         return mesh_str(MESH_STR_CONFIRM_ACCEPT_SAVE);
     }

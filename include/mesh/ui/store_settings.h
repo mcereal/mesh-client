@@ -17,6 +17,16 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+/*
+ * The longest channel link, restated here rather than pulled in.
+ *
+ * mesh/proto/channel_url.h works this out from the protobuf's own bound, and including it here
+ * would drag nanopb into a header every screen in the client already includes. Restated the way
+ * MESH_UI_VERIFY_DIGITS_MAX is, and pinned against the real bound by a static assertion in
+ * src/ui/channel_share.c - so the two cannot drift without the build saying so.
+ */
+#define MESH_UI_CHANNEL_URL_MAX 960U
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -589,7 +599,30 @@ struct mesh_ui_settings {
     struct mesh_ui_beacon_target beacon_targets[MESH_UI_BEACON_TARGETS];
 
     bool has_channels; /* any slot present */
+    /*
+     * Every slot answered for, and the LoRa config with them - what
+     * mesh_channel_share_settled() asks of the radio, published so the two sharing rows can ask
+     * it too.
+     *
+     * Not the same fact as `has_channels`, and the difference is the whole of why this field
+     * exists: a channel table comes back one admin reply at a time, so `has_channels` is true
+     * from the *first* of them. A row offered then cannot keep its promise - an array cannot
+     * tell "has not arrived" from "disabled", so an import would treat an unseen slot as free.
+     */
+    bool channels_settled;
     struct mesh_ui_channel_detail channels[MESH_UI_MAX_CHANNELS];
+    /*
+     * This radio's channel set as a Meshtastic link - `https://meshtastic.org/e/#...` - which
+     * is what the Share screen draws as a QR code and what a phone beside it scans to join.
+     *
+     * Built at the publish boundary rather than here from the rows above, and that is not
+     * laziness. The link carries a whole `Config.LoRaConfig`, and this struct holds LoRa as
+     * rows - a frequency offset in scaled decimal places, a region as an index - so a link
+     * assembled from them would be this client's *reading* of the radio's settings rather than
+     * the radio's own bytes. Empty when the radio's channel table has not arrived or has no
+     * primary in it, which is also what the Share row keys off.
+     */
+    char share_url[MESH_UI_CHANNEL_URL_MAX];
 
     /* The radio's own screen (DeviceUIConfig), which is a different thing from Display: that
        is the OLED's geometry and units, this is the graphical UI's own preferences. The two

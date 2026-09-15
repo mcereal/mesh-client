@@ -328,6 +328,22 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_NODE_TREND_HUMIDITY] = "Humedad",
     [MESH_STR_NODE_TREND_AXIS_CELSIUS] = "%dC",
     [MESH_STR_HELP_SUBJECT_NODE_CHART] = "Tendencia de este nodo",
+    [MESH_STR_HELP_NOTE_SHARE] =
+        "Todo lo necesario para unirse a los canales de esta radio, en un enlace. Apunta la cámara "
+        "del móvil o la app de Meshtastic al código; teclear el enlace de debajo hace lo mismo.",
+    [MESH_STR_HELP_LABEL_SHARE_KEYS] = "Lleva las claves",
+    [MESH_STR_HELP_NOTE_SHARE_KEYS] =
+        "Quien lea este código puede leer el tráfico de estos canales. Es tan secreto como la "
+        "propia clave: muéstralo a quienes se unen, a nadie más, y nunca a una cámara que grabe.",
+    [MESH_STR_HELP_LABEL_SHARE_WHAT] = "Qué contiene",
+    [MESH_STR_HELP_NOTE_SHARE_WHAT] =
+        "El canal principal, todos los secundarios y los ajustes LoRa de esta radio: región, "
+        "preajuste y demás. Las ranuras desactivadas quedan fuera; una radio que se una deja atrás "
+        "sus propios canales.",
+    [MESH_STR_HELP_LABEL_SHARE_IMPORT] = "En el otro sentido",
+    [MESH_STR_HELP_NOTE_SHARE_IMPORT] =
+        "Aquí no hay cámara, así que un enlace que llega hay que teclearlo: «Añadir desde un "
+        "enlace», en la lista de canales, abre el teclado. Basta con la parte posterior al #.",
     [MESH_STR_NODE_HEAD_ACTIONS] = "Acciones",
     [MESH_STR_NODE_HEAD_IDENTITY] = "Identidad",
     [MESH_STR_NODE_HEAD_SIGNAL] = "Señal",
@@ -506,6 +522,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_HELP_SUBJECT_NODE] = "Nodo",
     [MESH_STR_HELP_SUBJECT_WAYPOINT] = "Lugar",
     [MESH_STR_HELP_SUBJECT_MAP] = "Mapa",
+    [MESH_STR_HELP_SUBJECT_SHARE] = "Compartir canales",
     [MESH_STR_HELP_LABEL_MESSAGES_NEW] = "Empezar una conversación",
     [MESH_STR_HELP_LABEL_MESSAGES_DROP] = "Borrar una",
     [MESH_STR_HELP_LABEL_MESSAGES_MUTE] = "Silenciar una",
@@ -938,6 +955,16 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_CHANNELS_KEY_AES128] = "AES-128",
     [MESH_STR_CHANNELS_KEY_AES256] = "AES-256",
     [MESH_STR_CHANNELS_KEY_ODD] = "clave inusual",
+    [MESH_STR_CHANNELS_SHARE_ROW] = "Compartir estos canales",
+    [MESH_STR_CHANNELS_IMPORT_ROW] = "Añadir desde un enlace",
+    [MESH_STR_SHARE_TITLE] = "Compartir canales",
+    [MESH_STR_SHARE_SUMMARY_ONE] = "%u canal. Escanéalo con la app de Meshtastic para unirte.",
+    [MESH_STR_SHARE_SUMMARY_OTHER] = "%u canales. Escanéalos con la app de Meshtastic para unirte.",
+    [MESH_STR_SHARE_NOTHING] = "Nada que compartir todavía: esta radio no ha enviado sus canales.",
+    [MESH_STR_SHARE_NO_CODE] =
+        "Demasiado largo para mostrarlo como código. El enlace sigue sirviendo.",
+    [MESH_STR_IMPORT_PROMPT] = "Enlace de canal",
+    [MESH_STR_CHANNELS_DEFAULT_NAME] = "el canal predeterminado",
     [MESH_STR_HEAD_POSITION_CARRIES] = "Enviado con posición",
     [MESH_STR_HEAD_MAP_REPORT] = "Informe al mapa",
     [MESH_STR_HEAD_SERVER] = "Servidor",
@@ -1076,6 +1103,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_CONFIRM_ACCEPT_FW_USB] = "Actualizar por USB",
     [MESH_STR_CONFIRM_ACCEPT_FW_BLE] = "Actualizar por Bluetooth",
     [MESH_STR_CONFIRM_ACCEPT_SAVE] = "Guardar en la radio",
+    [MESH_STR_CONFIRM_ACCEPT_IMPORT] = "Unirse",
     [MESH_STR_CONFIRM_TEXT_REBOOT] =
         "La radio se reinicia en unos segundos. Se pierde el enlace y la conexión automática lo "
         "recupera; todo lo enviado a este nodo mientras tanto se pierde.",
@@ -1138,6 +1166,15 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
         "Renombra este nodo con tu indicativo, lo mueve a la frecuencia de arriba y desactiva el "
         "cifrado del canal principal. Solo para operadores con licencia.",
     [MESH_STR_CONFIRM_TEXT_DEFAULT] = "La radio se reiniciará para aplicar esto.",
+    [MESH_STR_CONFIRM_TITLE_IMPORT] = "¿Unirse a %s?",
+    [MESH_STR_CONFIRM_TEXT_IMPORT_ONE] =
+        "El enlace lleva %u canal y los ajustes LoRa de su radio. Reemplaza todos los canales de "
+        "esta radio y la radio se reiniciará; los nodos de los canales antiguos ya no podrán "
+        "alcanzarla.",
+    [MESH_STR_CONFIRM_TEXT_IMPORT_OTHER] =
+        "El enlace lleva %u canales y los ajustes LoRa de su radio. Reemplazan todos los canales "
+        "de esta radio y la radio se reiniciará; los nodos de los canales antiguos ya no podrán "
+        "alcanzarla.",
     [MESH_STR_TRANSPORT_UNKNOWN] = "desconocido",
     [MESH_STR_TRANSPORT_DISABLED] = "desactivado",
     [MESH_STR_TRANSPORT_INACTIVE] = "inactivo",
@@ -1243,6 +1280,11 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_TOAST_HISTORY_FAILED] = "No se pudieron pedir los mensajes (%d)",
     [MESH_STR_TOAST_FORGOT_NODES_ONE] = "Se olvidó %d nodo; fijados conservados",
     [MESH_STR_TOAST_FORGOT_NODES_OTHER] = "Se olvidaron %d nodos; fijados conservados",
+    [MESH_STR_TOAST_IMPORT_NOT_A_LINK] = "No es un enlace de canal de Meshtastic",
+    [MESH_STR_TOAST_IMPORT_QUEUED_ONE] = "Uniéndose: escribiendo %u canal",
+    [MESH_STR_TOAST_IMPORT_QUEUED_OTHER] = "Uniéndose: escribiendo %u canales",
+    [MESH_STR_TOAST_IMPORT_FAILED] = "No se pudieron escribir los canales en la radio",
+    [MESH_STR_TOAST_IMPORT_NO_CHANGE] = "Esta radio ya está en esos canales",
     [MESH_STR_TOAST_NOTHING_CACHED] = "No hay nodos guardados que olvidar",
     [MESH_STR_TOAST_ALL_ON_RADIO] = "Todos los nodos guardados están en la radio",
     [MESH_STR_TOAST_FORGET_FAILED] = "No se pudo olvidar (%d)",

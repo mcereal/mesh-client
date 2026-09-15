@@ -384,6 +384,19 @@ static void bar_add_help(const struct mesh_ui_snapshot *snapshot, struct mesh_ui
 
 static void actions_settings(const struct mesh_ui_nav *nav, const struct mesh_ui_snapshot *snapshot,
                              struct mesh_ui_action_bar *bar) {
+    /*
+     * The share sheet, first because it is the deepest thing this tab opens.
+     *
+     * One press and no more: there is nothing on it to move between, and a keycap for a press
+     * that does nothing is the one thing this table exists to prevent. The tab keys are left off
+     * for the same reason help leaves them off - walking sideways out of a code somebody is
+     * scanning is not a move anyone means to make.
+     */
+    if (nav->share_open) {
+        bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
+        bar_add_help(snapshot, bar);
+        return;
+    }
     if (nav->settings_section == MESH_UI_SETTINGS_NO_SECTION) {
         bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_OPEN);
         bar_add(bar, MESH_UI_BUTTON_X, MESH_STR_ACTION_REFRESH);

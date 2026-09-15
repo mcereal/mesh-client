@@ -2,6 +2,8 @@
 
 #include "mesh/core/session.h"
 
+#include "mesh/core/channel_share.h"
+
 #include "mesh/geo/coords.h"
 #include "mesh/utils/log.h"
 #include "mesh/utils/sha256.h"
@@ -1878,6 +1880,22 @@ int mesh_session_write_settings(struct mesh_session *session,
     if (queued > 0) {
         mesh_log_info("session", "Queued settings write kind=%u type=%u (%d requests)",
                       (unsigned)write->kind, (unsigned)write->type, queued);
+    }
+    return queued;
+}
+
+int mesh_session_import_channels(struct mesh_session *session, const meshtastic_ChannelSet *set,
+                                 bool add) {
+    if (session == NULL || set == NULL) {
+        return -EINVAL;
+    }
+    if (session->send == NULL || !session->handshake.has_my_info) {
+        return -ENOTCONN;
+    }
+    const int queued = mesh_channel_share_queue_import(&session->settings, set, add);
+    if (queued > 0) {
+        mesh_log_info("session", "Queued channel import: %u channels (%d requests)",
+                      (unsigned)set->settings_count, queued);
     }
     return queued;
 }
