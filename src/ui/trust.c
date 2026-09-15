@@ -109,7 +109,8 @@ bool mesh_ui_verify_sheet_of(const struct mesh_ui_verification *verification,
         /* The digits are the headline, drawn at the dialog's largest: they are the whole of
            what this screen is for, and the paragraph under them is the instructions. */
         mesh_str_format(headline, headline_len, MESH_STR_VERIFY_VAL_NUMBER,
-                        (unsigned)verification->security_number);
+                        (unsigned)(verification->security_number / 1000U % 1000U),
+                        (unsigned)(verification->security_number % 1000U));
         mesh_str_format(text, text_len, MESH_STR_VERIFY_BODY_NUMBER, peer);
         out->accept = MESH_STR_VERIFY_ANSWER_READING;
         out->cancel = MESH_STR_VERIFY_ANSWER_STOP;

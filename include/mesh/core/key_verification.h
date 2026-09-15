@@ -15,7 +15,7 @@
  *
  *   1. A's user presses verify. A's client sends INITIATE_VERIFICATION; A's radio picks a
  *      nonce and puts a KeyVerification packet on the mesh.
- *   2. B's radio answers it and tells B's user a **four digit security number**
+ *   2. B's radio answers it and tells B's user a **six digit security number**
  *      (`key_verification_number_inform`). B reads it out loud - down a phone, across a table,
  *      anywhere but the mesh.
  *   3. A's radio asks A's user for that number (`key_verification_number_request`). A types
@@ -57,9 +57,10 @@ extern "C" {
    plus its NUL. */
 #define MESH_KEY_VERIFICATION_CHARS_MAX 11U
 
-/* How many digits a security number has. The firmware generates exactly four, and the entry
-   field refuses a fifth rather than sending a number the radio will reject. */
-#define MESH_KEY_VERIFICATION_DIGITS 4U
+/* How many digits a security number has. The firmware draws it from 1..999999 and writes it
+   as two groups of three with leading zeros ("048 172"), so the user reads out six digits
+   whatever the value, and the entry field takes exactly that many. */
+#define MESH_KEY_VERIFICATION_DIGITS 6U
 
 /*
  * How long an exchange stands before it is given up on.
@@ -84,10 +85,10 @@ enum mesh_key_verification_stage {
     /* We asked, and the two radios are talking. Nothing for the user to do but wait for their
        own radio to come back with a question. */
     MESH_KEY_VERIFICATION_WAITING,
-    /* Our radio generated the security number: read these four digits out to the other person.
+    /* Our radio generated the security number: read these six digits out to the other person.
        The end that did *not* initiate. */
     MESH_KEY_VERIFICATION_SHOW_NUMBER,
-    /* Our radio wants the four digits the other person is reading out. The end that did. */
+    /* Our radio wants the six digits the other person is reading out. The end that did. */
     MESH_KEY_VERIFICATION_ENTER_NUMBER,
     /* Both radios have finished; both users compare the characters and answer. */
     MESH_KEY_VERIFICATION_COMPARE,

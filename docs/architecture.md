@@ -207,7 +207,7 @@ field.
 key that was: a public key arrives in a `NodeInfo` from whoever transmitted it, so "the radio
 held a key for that name" and "the radio held *their* key" are different claims.
 `NodeInfo.is_key_manually_verified` is the difference, and `src/core/key_verification.c` is the
-out-of-band ceremony that sets it — two radios show a four-digit number and a short code, and the
+out-of-band ceremony that sets it — two radios show a six-digit number and a short code, and the
 users read both to each other by voice. The mark is a padlock for a key that merely arrived and a
 shield for one somebody proved, which is `src/ui/trust.c`'s answer rather than the transcript's,
 since three screens draw trust and they have to agree. `AdminMessage.add_contact` is the other

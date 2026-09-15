@@ -266,7 +266,7 @@ struct mesh_ui_traceroute {
  */
 #define MESH_UI_VERIFY_NAME_MAX 41U
 #define MESH_UI_VERIFY_CHARS_MAX 11U
-#define MESH_UI_VERIFY_DIGITS 4U
+#define MESH_UI_VERIFY_DIGITS 6U
 
 /* enum mesh_key_verification_stage, value for value. */
 enum mesh_ui_verify_stage {

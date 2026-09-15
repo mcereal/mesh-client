@@ -1455,7 +1455,7 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
             verification.we_initiated = true;
         } else if (strcmp(stage, "show") == 0) {
             verification.stage = (uint8_t)MESH_UI_VERIFY_SHOW_NUMBER;
-            verification.security_number = 4817U;
+            verification.security_number = 48172U;
         } else if (strcmp(stage, "enter") == 0) {
             verification.stage = (uint8_t)MESH_UI_VERIFY_ENTER_NUMBER;
             verification.we_initiated = true;

@@ -896,7 +896,7 @@ bool mesh_ui_nav_close_passkey(struct mesh_ui_nav *nav);
 
 /* How many digits a security number has, restated here for the draft cap the way
    MESH_UI_PASSKEY_DIGITS is. Pinned against the core's in the nodes suite. */
-#define MESH_UI_VERIFY_DIGITS_MAX 4U
+#define MESH_UI_VERIFY_DIGITS_MAX 6U
 
 /* Opens and closes the key-verification sheet, and the keyboard that collects the security
    number. Driven by the app from the ceremony's state rather than by a key press, the way the
