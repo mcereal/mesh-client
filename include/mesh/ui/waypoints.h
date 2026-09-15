@@ -114,10 +114,6 @@ bool mesh_ui_waypoint_format_range(int32_t from_latitude_i, int32_t from_longitu
                                    int32_t to_latitude_i, int32_t to_longitude_i, bool imperial,
                                    char *out, size_t out_len);
 
-/* A distance on its own, in the reader's units. Public because the node detail wants the same
-   words for the same quantity. */
-void mesh_ui_format_distance(double metres, bool imperial, char *out, size_t out_len);
-
 /* ---- one waypoint's detail ------------------------------------------------------------------ */
 
 enum mesh_ui_waypoint_item_kind {

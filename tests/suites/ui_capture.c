@@ -3655,7 +3655,8 @@ MESH_TEST_CASE(ui_capture_node_detail_cards_survive_the_cursor, unit) {
         struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
         const uint32_t count = mesh_ui_node_detail_build(
             node, hs->has_my_info && node != NULL && node->node_id == hs->my_info.node_num, 0U,
-            &snapshot.traceroute, false, hs, &snapshot.history, items, MESH_UI_NODE_ITEMS_MAX);
+            &snapshot.traceroute, false, hs, &snapshot.history, false, items,
+            MESH_UI_NODE_ITEMS_MAX);
         struct mesh_ui_node_span span = {0};
         const bool on_card =
             mesh_ui_node_detail_span(items, count, mesh_ui_capture_page_rows(capture),
@@ -3787,8 +3788,9 @@ MESH_TEST_CASE(ui_capture_node_detail_verbs_wear_their_colour_in_a_disc, unit) {
                               mesh_ui_store_shutdown(&store),
                               "the walk landed on our own node rather than on somebody else's");
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
-    const uint32_t count = mesh_ui_node_detail_build(
-        node, false, 0U, NULL, false, &snapshot.handshake, NULL, items, MESH_UI_NODE_ITEMS_MAX);
+    const uint32_t count =
+        mesh_ui_node_detail_build(node, false, 0U, NULL, false, &snapshot.handshake, NULL, false,
+                                  items, MESH_UI_NODE_ITEMS_MAX);
     uint32_t remove_row = count;
     for (uint32_t i = 0; i < count; ++i) {
         if (items[i].action == (uint8_t)MESH_UI_NODE_ACTION_REMOVE) {

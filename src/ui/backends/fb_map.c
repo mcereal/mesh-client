@@ -22,6 +22,7 @@
 #include "mesh/ui/latency.h"
 #include "mesh/ui/map.h"
 #include "mesh/ui/settings.h"
+#include "mesh/ui/units.h"
 #include "mesh/ui/waypoints.h"
 #include "mesh/utils/log.h"
 #include "mesh/utils/text.h"
@@ -456,7 +457,7 @@ static void fb_map_draw_selection(const struct mesh_ui_backend_fb_state *state,
     }
 
     const struct mesh_ui_map_marker *marker = &view->markers[index];
-    const bool imperial = snapshot->settings.units == 1U;
+    const bool imperial = mesh_ui_units_imperial(snapshot->settings.units);
 
     /*
      * The range from our own radio rather than from the middle of the view.
@@ -487,7 +488,8 @@ static void fb_map_draw_selection(const struct mesh_ui_backend_fb_state *state,
         mesh_str_copy(note, sizeof note, mesh_str(MESH_STR_MAP_SELECTED_OFF_RADIO));
     } else if (mesh_ui_settings_precision_metres(marker->precision_bits) > 0U) {
         char footprint[24];
-        mesh_ui_settings_format_precision(marker->precision_bits, footprint, sizeof footprint);
+        mesh_ui_settings_format_precision(marker->precision_bits, imperial, footprint,
+                                          sizeof footprint);
         mesh_str_format(note, sizeof note, MESH_STR_MAP_SELECTED_APPROX, footprint);
     }
 

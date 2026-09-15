@@ -84,7 +84,14 @@ struct field_spec {
      */
     bool preset_zero_aside;
     enum mesh_str_id zero_label; /* NUMBER: what 0 means (seconds formatting) */
-    void (*format)(uint32_t value, char *out, size_t out_len); /* NUMBER: overrides seconds */
+    /*
+     * NUMBER: overrides the seconds default. `imperial` is the radio's display units, decoded
+     * by mesh_ui_units_imperial(), and every formatter takes it whether or not it has anything
+     * to say with it - a length row that quietly kept metres while the map beside it read in
+     * miles is the whole reason this argument exists, and a signature that made it optional
+     * would let the next one do the same.
+     */
+    void (*format)(uint32_t value, bool imperial, char *out, size_t out_len);
     uint32_t choices; /* KEY: MESH_UI_PSK_CHOICE_BIT mask Left/Right walk */
     /*
      * What this setting does, in a sentence or two, for the help screen - and MESH_STR_NONE

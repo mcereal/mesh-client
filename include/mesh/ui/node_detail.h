@@ -268,11 +268,16 @@ enum mesh_ui_node_press {
  * reading a row is already making, so it hangs on the row that made it - which is why
  * mesh_ui_node_detail_count() does not take one and why the nav and the renderer cannot come to
  * different totals over it.
+ *
+ * `imperial` is mesh_ui_units_imperial() of the radio's display units and words the two rows that
+ * are lengths - Altitude, and the footprint Precision names. Like `history` it changes no row's
+ * existence, which is why mesh_ui_node_detail_count() does not take one either and why a caller
+ * that only wants to know *which* row it is looking at may pass false.
  */
 uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool is_self,
                                    uint32_t now, const struct mesh_ui_traceroute *trace,
                                    bool remove_armed, const struct mesh_ui_handshake_state *roster,
-                                   const struct mesh_ui_history *history,
+                                   const struct mesh_ui_history *history, bool imperial,
                                    struct mesh_ui_node_item *out, uint32_t capacity);
 
 /*

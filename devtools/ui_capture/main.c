@@ -52,6 +52,8 @@
  *   notice info|warn|error TEXT   what the radio last said about itself (Status tab)
  *   queue FREE MAXLEN [refused]   the radio's outgoing packet queue (Status tab)
  *   reboots N              times the radio has restarted under us (Status tab)
+ *   units metric|imperial  the radio's display units, which every length the client shows
+ *                          follows - a range, a height, a position footprint, the map's scale
  *   verified NAME          mark that node's public key as proven out of band - the shield on a
  *                          direct message and the "verified in person" row on its detail
  *   verify STAGE NAME      raise the key-verification sheet at a stage:
@@ -1995,7 +1997,10 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         snprintf(settings.mqtt_root, sizeof settings.mqtt_root, "%s", "msh/US");
         settings.mqtt_encryption_enabled = true;
         settings.mqtt_map_publish_interval_secs = 3600U;
-        settings.mqtt_map_position_precision = 32U;
+        /* A rounded map report rather than an exact one, which is both what the row's own note
+           recommends and the only value that gives the row something to *say*: "precise" is a
+           state, and the ladder of footprints is what the setting is for. */
+        settings.mqtt_map_position_precision = 14U;
 
         settings.has_store_forward = true;
         settings.store_forward_enabled = false;
@@ -2567,6 +2572,30 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         mesh_ui_store_set_handshake(&cap->store, &handshake);
         uicap_emit(cap);
         uicap_settle(cap);
+        return;
+    }
+
+    /*
+     * The radio's metric/imperial preference, which is the client's too - a reader who set their
+     * radio to miles is not asked to set the Brick to miles as well.
+     *
+     * A verb rather than part of `scene demo` because it is the whole point of a capture: every
+     * length on every screen follows this one byte, so the way to review a change to any of them
+     * is to run the same scene twice with the two values and put the strips side by side.
+     */
+    if (strcmp(command, "units") == 0) {
+        char *value = uicap_word(&rest);
+        if (value == NULL ||
+            (strcmp(value, "metric") != 0 && strcmp(value, "imperial") != 0)) {
+            fprintf(stderr, "uicap: line %u: 'units' is metric or imperial\n", line_number);
+            exit(1);
+        }
+        uicap_start(cap);
+        struct mesh_ui_settings settings = cap->store.settings;
+        settings.has_display = true;
+        settings.units = (uint8_t)(strcmp(value, "imperial") == 0 ? 1U : 0U);
+        mesh_ui_store_set_settings(&cap->store, &settings);
+        uicap_emit(cap);
         return;
     }
 

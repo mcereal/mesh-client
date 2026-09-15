@@ -17,6 +17,7 @@
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/duration.h"
 #include "mesh/ui/node_detail.h"
+#include "mesh/ui/units.h"
 #include "mesh/utils/text.h"
 #include "mesh/utils/time.h"
 
@@ -24,37 +25,6 @@
 #include <string.h>
 
 /* ---- distances and directions -------------------------------------------------------------- */
-
-/* Where a distance stops being a walk and starts being a journey, in each system of units. */
-#define MESH_UI_DISTANCE_KM_FROM 1000.0
-#define MESH_UI_METRES_PER_FOOT 0.3048
-#define MESH_UI_METRES_PER_MILE 1609.344
-
-void mesh_ui_format_distance(double metres, bool imperial, char *out, size_t out_len) {
-    if (out == NULL || out_len == 0U) {
-        return;
-    }
-    if (!(metres >= 0.0)) {
-        /* Also the NaN case, which is why the test is written this way round. */
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_COMMON_UNKNOWN_SHORT));
-        return;
-    }
-
-    if (imperial) {
-        if (metres < MESH_UI_METRES_PER_MILE) {
-            mesh_str_format(out, out_len, MESH_STR_VALUE_DISTANCE_FT,
-                            (unsigned)(metres / MESH_UI_METRES_PER_FOOT + 0.5));
-            return;
-        }
-        mesh_str_format(out, out_len, MESH_STR_VALUE_DISTANCE_MI, metres / MESH_UI_METRES_PER_MILE);
-        return;
-    }
-    if (metres < MESH_UI_DISTANCE_KM_FROM) {
-        mesh_str_format(out, out_len, MESH_STR_VALUE_DISTANCE_M, (unsigned)(metres + 0.5));
-        return;
-    }
-    mesh_str_format(out, out_len, MESH_STR_VALUE_DISTANCE_KM, metres / MESH_UI_DISTANCE_KM_FROM);
-}
 
 /* The word for a compass point. The mapping is here rather than in geo/ for the reason the
    delivery marks' words are in the UI: geo answers with a direction, and what a direction is

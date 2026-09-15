@@ -156,7 +156,22 @@ Four authoring rules hold across all of them, and breaking one compiles and look
 
 The tables a screen reads instead of deciding for itself: `actions.c` (button verbs), `status.c`
 (card verbs), `help.c`, `devices.c`, `nodes.c`, `delivery.c`, `trust.c`, `chrome.c`, `trend.c`,
-`duration.c`.
+`duration.c`, `units.c`.
+
+`units.c` is the last of those and the one with a preference behind it. Metric or imperial comes
+from the radio's own `DisplayConfig.units` — the client keeps no second setting, so a reader who
+set their radio to miles is not asked to set the Brick to miles as well — and
+`mesh_ui_units_imperial()` is the single place that decodes the byte. Every length is worded
+through one of three formatters, each taking that answer as an argument rather than reading a
+global: `mesh_ui_format_distance()` for a range between two places, `mesh_ui_format_altitude()`
+for a height (which stays in metres or feet however large it gets, so a node on a mountain does
+not read as being kilometres away), and `mesh_ui_format_length()` for a setting whose value is
+metres on the wire. Position precision is the fourth and lives with its bit-count table in
+`settings.c`, with a column per system. A row that formats metres itself is the way this comes
+undone; `ui_units_no_setting_reads_in_metres_under_imperial` sweeps every section for one.
+
+The exception is the fixed-position **Altitude (m)** row, which is typed rather than read and
+states its unit in its label — see `docs/non-bugs.md`.
 
 ### Colour on a row is one statement, drawn in more than one place
 

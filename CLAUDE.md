@@ -127,7 +127,7 @@ the file on the card, over `store_keys.c` (the key) and `store_fields.c` (the va
 | Radio firmware | `src/core/firmware*.c`, `uf2.c`, `esp_image.c`, `src/transport/*/{usb_msc,ble_ota,ble_hci}.c` - the *other* binary |
 | UI | `src/ui/` - store/controller (records in `include/mesh/ui/store_*.h`), `store_file.c` the cache on the card, `nav*.c`, `settings*.c`, `layout.c`, `backends/{fb*,cli,stub}.c`; **`fb` is the device UI** |
 | UI components | `src/ui/layout.c`, `src/ui/backends/fb_widgets.c` - cell-measured line builder, scroll window, cards, lists, meters, charts |
-| Tables the UI reads | `actions.c` (button verbs), `status.c` (card verbs), `help.c`, `devices.c`, `nodes.c`, `delivery.c`, `trust.c`, `chrome.c`, `trend.c`, `duration.c` |
+| Tables the UI reads | `actions.c` (button verbs), `status.c` (card verbs), `help.c`, `devices.c`, `nodes.c`, `delivery.c`, `trust.c`, `chrome.c`, `trend.c`, `duration.c`, `units.c` (metric/imperial lengths) |
 | Themes & fonts | `src/ui/theme.c`, `font*.c`, `icon*.c` - palette by role, shape scale, metrics |
 | Strings | `src/i18n/strings.c`, `include/mesh/i18n/catalog.def` |
 | Geography & map | `src/geo/` (the only directory that includes `<math.h>`), `src/map/`, `src/ui/{map,nav_map}.c`, `backends/fb_map.c` |

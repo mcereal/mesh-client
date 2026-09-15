@@ -21,6 +21,7 @@
 
 #include "mesh/ui/anim.h"
 #include "mesh/ui/settings.h"
+#include "mesh/ui/units.h"
 
 #include "mesh/core/radio_settings.h"
 #include "mesh/core/updater.h"
@@ -415,7 +416,8 @@ static const char *compass_name(uint32_t orientation) {
 }
 
 static const char *units_name(uint32_t units) {
-    return mesh_str(units == 1U ? MESH_STR_ENUM_UNITS_IMPERIAL : MESH_STR_ENUM_UNITS_METRIC);
+    return mesh_str(mesh_ui_units_imperial((uint8_t)units) ? MESH_STR_ENUM_UNITS_IMPERIAL
+                                                           : MESH_STR_ENUM_UNITS_METRIC);
 }
 
 /* DisplayConfig.OledType, 0..5 and contiguous. The panel a board carries, for the case where
@@ -575,13 +577,19 @@ static const char *pairing_enum_name(uint32_t mode) {
  */
 static const struct {
     enum mesh_str_id label;
+    enum mesh_str_id imperial;
     uint32_t metres;
 } k_precision[] = {
-    {MESH_STR_VALUE_PRECISION_23KM, 23000U}, {MESH_STR_VALUE_PRECISION_12KM, 12000U},
-    {MESH_STR_VALUE_PRECISION_6KM, 5800U},   {MESH_STR_VALUE_PRECISION_3KM, 2900U},
-    {MESH_STR_VALUE_PRECISION_1_5KM, 1500U}, {MESH_STR_VALUE_PRECISION_730M, 730U},
-    {MESH_STR_VALUE_PRECISION_360M, 360U},   {MESH_STR_VALUE_PRECISION_180M, 180U},
-    {MESH_STR_VALUE_PRECISION_90M, 90U},     {MESH_STR_VALUE_PRECISION_45M, 45U},
+    {MESH_STR_VALUE_PRECISION_23KM, MESH_STR_VALUE_PRECISION_14MI, 23000U},
+    {MESH_STR_VALUE_PRECISION_12KM, MESH_STR_VALUE_PRECISION_7_5MI, 12000U},
+    {MESH_STR_VALUE_PRECISION_6KM, MESH_STR_VALUE_PRECISION_3_6MI, 5800U},
+    {MESH_STR_VALUE_PRECISION_3KM, MESH_STR_VALUE_PRECISION_1_8MI, 2900U},
+    {MESH_STR_VALUE_PRECISION_1_5KM, MESH_STR_VALUE_PRECISION_0_9MI, 1500U},
+    {MESH_STR_VALUE_PRECISION_730M, MESH_STR_VALUE_PRECISION_2400FT, 730U},
+    {MESH_STR_VALUE_PRECISION_360M, MESH_STR_VALUE_PRECISION_1200FT, 360U},
+    {MESH_STR_VALUE_PRECISION_180M, MESH_STR_VALUE_PRECISION_600FT, 180U},
+    {MESH_STR_VALUE_PRECISION_90M, MESH_STR_VALUE_PRECISION_300FT, 90U},
+    {MESH_STR_VALUE_PRECISION_45M, MESH_STR_VALUE_PRECISION_150FT, 45U},
 };
 
 uint32_t mesh_ui_settings_precision_metres(uint32_t bits) {
@@ -597,27 +605,27 @@ uint32_t mesh_ui_settings_precision_metres(uint32_t bits) {
     return k_precision[bits - 10U].metres;
 }
 
-void mesh_ui_settings_format_precision(uint32_t bits, char *out, size_t out_len) {
+void mesh_ui_settings_format_precision(uint32_t bits, bool imperial, char *out, size_t out_len) {
     if (bits == 0U) {
         snprintf(out, out_len, "%s", mesh_str(MESH_STR_VALUE_PRECISION_OFF));
     } else if (bits >= 32U) {
         snprintf(out, out_len, "%s", mesh_str(MESH_STR_VALUE_PRECISION_EXACT));
     } else if (bits >= 10U && bits <= 19U) {
-        snprintf(out, out_len, "%s", mesh_str(k_precision[bits - 10U].label));
+        const size_t row = (size_t)bits - 10U;
+        snprintf(out, out_len, "%s",
+                 mesh_str(imperial ? k_precision[row].imperial : k_precision[row].label));
     } else {
         mesh_str_format(out, out_len, MESH_STR_VALUE_PRECISION_BITS, (unsigned)bits);
     }
 }
 
-/* Metres, which is what PositionConfig's smart-broadcast threshold is in. */
-static void format_metres(uint32_t metres, char *out, size_t out_len) {
+/* PositionConfig's smart-broadcast threshold, which is metres on the wire whatever it reads as. */
+static void format_metres(uint32_t metres, bool imperial, char *out, size_t out_len) {
     if (metres == 0U) {
         snprintf(out, out_len, "%s", mesh_str(MESH_STR_COMMON_DEFAULT));
-    } else if (metres >= 1000U && metres % 1000U == 0U) {
-        mesh_str_format(out, out_len, MESH_STR_VALUE_KILOMETRES, (unsigned)(metres / 1000U));
-    } else {
-        mesh_str_format(out, out_len, MESH_STR_VALUE_METRES, (unsigned)metres);
+        return;
     }
+    mesh_ui_format_length(metres, imperial, out, out_len);
 }
 
 /*
@@ -678,7 +686,10 @@ static const char *beacon_target_region_name(uint32_t value) {
  * it can carry the shift without a second naming function - the field's zero_label says what 0
  * is and the formatter prints n-1, so nothing outside these three lines sees the offset.
  */
-static void format_beacon_channel(uint32_t value, char *out, size_t out_len) {
+static void format_beacon_channel(uint32_t value, bool imperial, char *out, size_t out_len) {
+    /* Not a length. Every NUMBER formatter takes the units so none of them can silently
+       decide to keep metres; the ones with nothing to say discard it here. */
+    (void)imperial;
     mesh_str_format(out, out_len, MESH_STR_VALUE_PLAIN, (unsigned)(value > 0U ? value - 1U : 0U));
 }
 
@@ -695,7 +706,8 @@ static const char *signature_policy_name(uint32_t policy) {
     }
 }
 
-static void format_bandwidth(uint32_t khz, char *out, size_t out_len) {
+static void format_bandwidth(uint32_t khz, bool imperial, char *out, size_t out_len) {
+    (void)imperial;
     if (khz == 31U) {
         snprintf(out, out_len, "%s", mesh_str(MESH_STR_VALUE_BANDWIDTH_31));
     } else if (khz == 62U) {
@@ -704,13 +716,16 @@ static void format_bandwidth(uint32_t khz, char *out, size_t out_len) {
         mesh_str_format(out, out_len, MESH_STR_VALUE_BANDWIDTH_KHZ, (unsigned)khz);
     }
 }
-static void format_plain(uint32_t value, char *out, size_t out_len) {
+static void format_plain(uint32_t value, bool imperial, char *out, size_t out_len) {
+    (void)imperial;
     mesh_str_format(out, out_len, MESH_STR_VALUE_PLAIN, (unsigned)value);
 }
-static void format_coding_rate(uint32_t value, char *out, size_t out_len) {
+static void format_coding_rate(uint32_t value, bool imperial, char *out, size_t out_len) {
+    (void)imperial;
     mesh_str_format(out, out_len, MESH_STR_VALUE_CODING_RATE, (unsigned)value);
 }
-static void format_tx_power(uint32_t value, char *out, size_t out_len) {
+static void format_tx_power(uint32_t value, bool imperial, char *out, size_t out_len) {
+    (void)imperial;
     if (value == 0U) {
         snprintf(out, out_len, "%s", mesh_str(MESH_STR_VALUE_TX_POWER_MAX));
     } else {
@@ -863,7 +878,8 @@ static const uint32_t k_led_level_presets[] = {0U, 32U, 64U, 96U, 128U, 160U, 19
 
 /* Milliseconds, for the notification's on-time: the seconds formatter would call 500 ms
    "500s". */
-static void format_millis(uint32_t value, char *out, size_t out_len) {
+static void format_millis(uint32_t value, bool imperial, char *out, size_t out_len) {
+    (void)imperial;
     if (value % 1000U == 0U && value != 0U) {
         mesh_str_format(out, out_len, MESH_STR_VALUE_SECONDS, (unsigned)(value / 1000U));
     } else {
@@ -872,7 +888,8 @@ static void format_millis(uint32_t value, char *out, size_t out_len) {
 }
 
 /* A GPIO pin, or nothing at all. */
-static void format_pin(uint32_t value, char *out, size_t out_len) {
+static void format_pin(uint32_t value, bool imperial, char *out, size_t out_len) {
+    (void)imperial;
     if (value == 0U) {
         snprintf(out, out_len, "%s", mesh_str(MESH_STR_VALUE_PIN_UNSET));
     } else {
@@ -881,23 +898,27 @@ static void format_pin(uint32_t value, char *out, size_t out_len) {
 }
 
 /* Signed dBm, read back out of the uint32_t the preset table stores it in. */
-static void format_rssi(uint32_t value, char *out, size_t out_len) {
+static void format_rssi(uint32_t value, bool imperial, char *out, size_t out_len) {
+    (void)imperial;
     mesh_str_format(out, out_len, MESH_STR_VALUE_DBM, (int)(int32_t)value);
 }
 
 /* A plain 0-255 level, so an LED channel does not read as a duration. */
-static void format_level(uint32_t value, char *out, size_t out_len) {
+static void format_level(uint32_t value, bool imperial, char *out, size_t out_len) {
+    (void)imperial;
     mesh_str_format(out, out_len, MESH_STR_VALUE_PLAIN, (unsigned)value);
 }
 
 /* Milliamps, for the LED current row. */
-static void format_milliamps(uint32_t value, char *out, size_t out_len) {
+static void format_milliamps(uint32_t value, bool imperial, char *out, size_t out_len) {
+    (void)imperial;
     mesh_str_format(out, out_len, MESH_STR_VALUE_MILLIAMPS, (unsigned)value);
 }
 
 /* NUMBER fields whose value is a count rather than a duration; without this the seconds
    formatter would render 100 records as "1m40s". */
-static void format_count(uint32_t value, char *out, size_t out_len) {
+static void format_count(uint32_t value, bool imperial, char *out, size_t out_len) {
+    (void)imperial;
     if (value == 0U) {
         snprintf(out, out_len, "%s", mesh_str(MESH_STR_COMMON_DEFAULT));
     } else {
@@ -1126,6 +1147,16 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                                           MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_POSITION,
                                           MESH_UI_TEXT_LIMIT_POSITION_LONGITUDE, NULL, NO_PRESETS,
                                           MESH_STR_NONE, NULL, 0U, MESH_STR_NONE},
+    /*
+     * The one length in the client that stays metric whatever DisplayConfig.units says, and it
+     * says so in its own label: "Altitude (m)".
+     *
+     * It is typed rather than read. The value goes to the radio as whole metres, so wording the
+     * box in feet would mean parsing feet and converting back on every write - and an integer
+     * round trip through 0.3048 does not land where it started, which is a fixed position that
+     * drifts a metre each time somebody opens the row and backs out of it. A reading can be
+     * reworded for free; an edit cannot, and a label that states its unit is the honest version.
+     */
     [MESH_UI_FIELD_POSITION_ALTITUDE] = {MESH_STR_SETTINGS_FIELD_POSITION_ALTITUDE,
                                          MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_POSITION,
                                          MESH_UI_TEXT_LIMIT_POSITION_ALTITUDE, NULL, NO_PRESETS,
@@ -1168,9 +1199,10 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
     [MESH_UI_FIELD_DISPLAY_12H] = {MESH_STR_SETTINGS_FIELD_DISPLAY_12H, MESH_UI_SETTING_TOGGLE,
                                    MESH_UI_SETTINGS_DISPLAY, 0U, NULL, NO_PRESETS, MESH_STR_NONE,
                                    NULL, 0U, MESH_STR_NONE},
+    /* The one Display row this client reads for itself: see src/ui/units.c. */
     [MESH_UI_FIELD_DISPLAY_UNITS] = {MESH_STR_SETTINGS_FIELD_DISPLAY_UNITS, MESH_UI_SETTING_ENUM,
                                      MESH_UI_SETTINGS_DISPLAY, 2U, units_name, NO_PRESETS,
-                                     MESH_STR_NONE, NULL, 0U, MESH_STR_NONE},
+                                     MESH_STR_NONE, NULL, 0U, MESH_STR_SETTINGS_NOTE_DISPLAY_UNITS},
     [MESH_UI_FIELD_DISPLAY_FLIP] = {MESH_STR_SETTINGS_FIELD_DISPLAY_FLIP, MESH_UI_SETTING_TOGGLE,
                                     MESH_UI_SETTINGS_DISPLAY, 0U, NULL, NO_PRESETS, MESH_STR_NONE,
                                     NULL, 0U, MESH_STR_SETTINGS_NOTE_DISPLAY_FLIP},

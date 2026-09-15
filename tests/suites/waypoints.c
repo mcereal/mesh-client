@@ -18,6 +18,7 @@
 #include "mesh/geo/vector.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/store.h"
+#include "mesh/ui/units.h"
 #include "mesh/ui/waypoints.h"
 #include "mesh/utils/time.h"
 

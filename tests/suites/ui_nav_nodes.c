@@ -59,7 +59,7 @@ MESH_TEST_CASE(ui_nav_node_trend_opens_from_its_row, unit) {
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
     const uint32_t count =
         mesh_ui_node_detail_build(&handshake.nodes[0], false, 0U, NULL, false, &handshake,
-                                  &store.history, items, MESH_UI_NODE_ITEMS_MAX);
+                                  &store.history, false, items, MESH_UI_NODE_ITEMS_MAX);
     uint32_t row = count;
     for (uint32_t i = 0U; i < count; ++i) {
         if (items[i].trend_reading == MESH_UI_HISTORY_TEMPERATURE) {
@@ -130,7 +130,7 @@ MESH_TEST_CASE(ui_nav_node_trend_keeps_the_row_it_was_opened_from, unit) {
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
     const uint32_t count =
         mesh_ui_node_detail_build(&handshake.nodes[0], false, 0U, NULL, false, &handshake,
-                                  &store.history, items, MESH_UI_NODE_ITEMS_MAX);
+                                  &store.history, false, items, MESH_UI_NODE_ITEMS_MAX);
     uint32_t row = count;
     for (uint32_t i = 0U; i < count; ++i) {
         if (items[i].trend_reading == MESH_UI_HISTORY_TEMPERATURE) {
@@ -368,7 +368,7 @@ MESH_TEST_CASE(ui_nav_node_detail_walks_its_groups, unit) {
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
     const uint32_t count =
         mesh_ui_node_detail_build(&handshake.nodes[0], false, 0U, NULL, false, &handshake, NULL,
-                                  items, MESH_UI_NODE_ITEMS_MAX);
+                                  false, items, MESH_UI_NODE_ITEMS_MAX);
     /* Where opening the detail leaves the cursor: the first row that is not a group title. */
     for (uint32_t i = 0U; i < count; ++i) {
         if (items[i].kind != MESH_UI_NODE_ROW_HEADING) {
@@ -500,7 +500,7 @@ MESH_TEST_CASE(ui_nav_node_detail_walks_its_stops, unit) {
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
     const uint32_t count =
         mesh_ui_node_detail_build(held, false, 0U, &store.traceroute, false, &store.handshake,
-                                  &store.history, items, MESH_UI_NODE_ITEMS_MAX);
+                                  &store.history, false, items, MESH_UI_NODE_ITEMS_MAX);
     MESH_TEST_FAIL_IF(count == 0U, "the node should produce rows");
     uint8_t heights[MESH_UI_NODE_ITEMS_MAX];
     for (uint32_t i = 0U; i < count; ++i) {
@@ -637,7 +637,7 @@ MESH_TEST_CASE(ui_node_detail_press_matches_the_row, unit) {
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
     const uint32_t count =
         mesh_ui_node_detail_build(&handshake.nodes[0], false, 0U, NULL, false, &handshake,
-                                  &store.history, items, MESH_UI_NODE_ITEMS_MAX);
+                                  &store.history, false, items, MESH_UI_NODE_ITEMS_MAX);
     MESH_TEST_FAIL_IF(count == 0U, "the node should produce rows");
 
     uint32_t facts = 0U;
@@ -752,7 +752,7 @@ MESH_TEST_CASE(ui_nav_node_favorite, unit) {
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
     const uint32_t count =
         mesh_ui_node_detail_build(&store.handshake.nodes[1], false, 0U, NULL, false,
-                                  &store.handshake, NULL, items, MESH_UI_NODE_ITEMS_MAX);
+                                  &store.handshake, NULL, false, items, MESH_UI_NODE_ITEMS_MAX);
     uint32_t favorite_row = count;
     for (uint32_t i = 0; i < count; ++i) {
         if (items[i].action == MESH_UI_NODE_ACTION_FAVORITE) {
@@ -1119,7 +1119,7 @@ MESH_TEST_CASE(ui_nav_node_mute_remove, unit) {
 
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
     uint32_t count = mesh_ui_node_detail_build(node, false, 0U, NULL, false, &store.handshake, NULL,
-                                               items, MESH_UI_NODE_ITEMS_MAX);
+                                               false, items, MESH_UI_NODE_ITEMS_MAX);
     uint32_t mute_row = count;
     uint32_t remove_row = count;
     for (uint32_t i = 0; i < count; ++i) {
@@ -1136,8 +1136,8 @@ MESH_TEST_CASE(ui_nav_node_mute_remove, unit) {
         goto cleanup;
     }
     /* The armed spelling is the only thing the flag changes. */
-    (void)mesh_ui_node_detail_build(node, false, 0U, NULL, true, &store.handshake, NULL, items,
-                                    MESH_UI_NODE_ITEMS_MAX);
+    (void)mesh_ui_node_detail_build(node, false, 0U, NULL, true, &store.handshake, NULL, false,
+                                    items, MESH_UI_NODE_ITEMS_MAX);
     if (strcmp(items[remove_row].value, "A again to remove") != 0) {
         failure = "arming should change what the remove row says";
         goto cleanup;
