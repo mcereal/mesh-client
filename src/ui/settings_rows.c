@@ -932,6 +932,32 @@ static void build_user(const struct mesh_ui_settings *s, struct item_list *list)
     item_field(list, MESH_UI_FIELD_USER_SHORT_NAME, 0U, s->short_name);
     item_field(list, MESH_UI_FIELD_USER_LICENSED, s->is_licensed ? 1U : 0U, NULL);
     item_field(list, MESH_UI_FIELD_USER_UNMESSAGEABLE, s->is_unmessagable ? 1U : 0U, NULL);
+
+    /*
+     * Contact sharing, under the fields it is made of.
+     *
+     * Here rather than on the Nodes tab because this section *is* the record a contact carries:
+     * the name above, the number and the key the radio keeps beside them. The pair sits under a
+     * heading because they are a subject of their own rather than two more properties of this
+     * radio's owner - the second one is about somebody else's.
+     *
+     * The show row appears only when there is a link to show, which is what a non-empty
+     * `contact_url` means: the owner reply has arrived and had a public key in it. The add row
+     * waits on the radio answering admin at all, because that is the whole of what an
+     * add_contact needs - unlike a channel import it overwrites no table and so needs no
+     * settled reading of one.
+     */
+    if (s->contact_url[0] != '\0' || s->admin_ok) {
+        item_heading(list, MESH_STR_USER_CONTACT_HEAD);
+    }
+    if (s->contact_url[0] != '\0') {
+        item_action(list, MESH_STR_USER_SHARE_CONTACT_ROW, mesh_str(MESH_STR_COMMON_PRESS_A),
+                    MESH_UI_SETTINGS_ACTION_SHARE_CONTACT);
+    }
+    if (s->admin_ok) {
+        item_action(list, MESH_STR_USER_ADD_CONTACT_ROW, mesh_str(MESH_STR_COMMON_PRESS_A),
+                    MESH_UI_SETTINGS_ACTION_IMPORT_CONTACT);
+    }
 }
 
 static void build_device(const struct mesh_ui_settings *s, struct item_list *list) {

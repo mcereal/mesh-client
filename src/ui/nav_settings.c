@@ -269,6 +269,13 @@ void mesh_ui_nav_fill_settings_action(const struct mesh_ui_nav *nav,
         snprintf(action->text, sizeof action->text, "%s", nav->channel_url);
         return;
     }
+    /* And the contact link, the same shape: the characters travel, the app parses them. */
+    if (which == MESH_UI_SETTINGS_ACTION_IMPORT_CONTACT) {
+        action->type = MESH_UI_ACTION_IMPORT_CONTACT;
+        action->section = nav->settings_section;
+        snprintf(action->text, sizeof action->text, "%s", nav->contact_url);
+        return;
+    }
     if (mesh_ui_settings_action_is_forget(which)) {
         action->type = MESH_UI_ACTION_FORGET_NODES;
         action->section = nav->settings_section;

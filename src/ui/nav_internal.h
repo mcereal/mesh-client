@@ -82,10 +82,19 @@ bool mesh_ui_nav_commit_network_host(struct mesh_ui_nav *nav, struct mesh_ui_act
 void mesh_ui_nav_open_channel_url_keyboard(struct mesh_ui_nav *nav);
 bool mesh_ui_nav_commit_channel_url(struct mesh_ui_nav *nav);
 
+/* The same pair for a Meshtastic contact link, from the User list's add row. Separate from the
+   channel pair rather than one taking a kind: the parsers differ, the sheets differ, and the
+   only thing they share is the keyboard they open. */
+void mesh_ui_nav_open_contact_url_keyboard(struct mesh_ui_nav *nav);
+bool mesh_ui_nav_commit_contact_url(struct mesh_ui_nav *nav);
+
 /* B on the share sheet. Its own handler rather than a branch in the tab's, the way the help
    overlay has one: nothing on this screen moves, so every key but the one that leaves it is a
    key that does nothing. */
 bool mesh_ui_nav_share_key(struct mesh_ui_nav *nav, enum mesh_ui_key key);
+
+/* B on the contact code sheet, the share sheet's counterpart and for its reason. */
+bool mesh_ui_nav_contact_key(struct mesh_ui_nav *nav, enum mesh_ui_key key);
 
 /* ---- nav_waypoints.c --------------------------------------------------------------------- */
 

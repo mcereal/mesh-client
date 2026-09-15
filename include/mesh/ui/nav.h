@@ -496,6 +496,16 @@ struct mesh_ui_nav {
      * alternative is a screen full of base64 thrown away over one wrong character.
      */
     bool keyboard_channel_url;
+    /*
+     * When the keyboard is typing a Meshtastic *contact* link, from the User list's add row.
+     *
+     * A sixth flavour, beside the channel link and for its reasons: it is not a field the radio
+     * holds, and it is checked before the keyboard closes rather than after, because a link
+     * that does not parse must leave the user on the keyboard with what they typed. The two
+     * link flavours stay separate flags rather than one with a kind beside it, because what
+     * differs is not only the parser but where B lands and which sheet comes up.
+     */
+    bool keyboard_contact_url;
     /* When the keyboard edits a setting rather than the Compose draft: the field it is for
        (NONE for Compose) and the Compose draft parked while it is open. */
     uint8_t keyboard_field;
@@ -568,6 +578,15 @@ struct mesh_ui_nav {
      */
     bool share_open;
     /*
+     * The contact code sheet: this radio's own identity as a QR code, over the User list.
+     *
+     * Its own flag beside `share_open` rather than a kind on one of them. They are raised from
+     * different sections, they clamp on different fields of the store, and only one can be open
+     * at a time by construction - a row of one list cannot be pressed while the other's screen
+     * is up - so a shared flag would buy nothing and cost every reader a second question.
+     */
+    bool contact_open;
+    /*
      * A channel link that has been typed and parsed, waiting on the sheet in front of it.
      *
      * Its own buffer rather than the draft, because the keyboard closes before the sheet opens
@@ -576,6 +595,10 @@ struct mesh_ui_nav {
      * a link longer than that is one nobody was going to type anyway.
      */
     char channel_url[MESH_UI_DRAFT_MAX];
+    /* A contact link that has been typed and parsed, waiting on the sheet in front of it.
+       Its own buffer beside the channel one, for that buffer's reason: the keyboard closes
+       before the sheet opens, and closing it is what puts the parked Compose draft back. */
+    char contact_url[MESH_UI_DRAFT_MAX];
     /* Devices tab: Y is armed by one press and forgets the node on the second, because a
        bond dropped by accident costs the user a re-pair with the PIN. */
     bool devices_forget_armed;
@@ -709,6 +732,21 @@ enum mesh_ui_action_type {
      * may have moved since the press.
      */
     MESH_UI_ACTION_IMPORT_CHANNELS,
+    /*
+     * Adds the contact in a Meshtastic link to the radio's NodeDB: `text` is the link, exactly
+     * as it was typed and after the sheet in front of it was answered.
+     *
+     * The link rather than a parsed contact, for MESH_UI_ACTION_IMPORT_CHANNELS's reason: a
+     * `SharedContact` is a node number, a name and a 32-byte key, which the nav has no business
+     * holding as protobuf. What it has is the characters the user typed, which it has already
+     * checked parse; the app parses them again on the other side of the seam.
+     *
+     * Distinct from MESH_UI_ACTION_ADD_CONTACT above, which hands over a node this client
+     * already holds and carries a `dest` rather than text. They queue the same admin verb and
+     * arrive from opposite directions - one from a node's own row, one from a stranger's link -
+     * and only this one can name a node that has never transmitted.
+     */
+    MESH_UI_ACTION_IMPORT_CONTACT,
     /* Not a verb: how many there are. It is what pins the dispatch table in
        src/core/app_actions.c to this list - a verb added above and not given a row there is a
        press that reaches the app and does nothing, with nothing to see at the seam. */

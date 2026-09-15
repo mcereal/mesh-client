@@ -3,6 +3,7 @@
 #include "mesh/core/session.h"
 
 #include "mesh/core/channel_share.h"
+#include "mesh/core/contact_share.h"
 
 #include "mesh/geo/coords.h"
 #include "mesh/utils/log.h"
@@ -1896,6 +1897,28 @@ int mesh_session_import_channels(struct mesh_session *session, const meshtastic_
     if (queued > 0) {
         mesh_log_info("session", "Queued channel import: %u channels (%d requests)",
                       (unsigned)set->settings_count, queued);
+    }
+    return queued;
+}
+
+int mesh_session_import_contact(struct mesh_session *session,
+                                const meshtastic_SharedContact *contact) {
+    if (session == NULL || contact == NULL) {
+        return -EINVAL;
+    }
+    if (session->send == NULL || !session->handshake.has_my_info) {
+        return -ENOTCONN;
+    }
+    /* Our own record is already in the radio's database by definition - it is the radio. The
+       same guard mesh_session_add_contact() carries, and here it catches the likelier mistake:
+       somebody reading this client's own contact code back into it to see what happens. */
+    if (contact->node_num == session->handshake.my_info.my_node_num) {
+        return -EINVAL;
+    }
+    const int queued = mesh_contact_share_queue_import(&session->settings, contact);
+    if (queued > 0) {
+        mesh_log_info("session", "Queued contact import for 0x%08x (%d requests)",
+                      (unsigned)contact->node_num, queued);
     }
     return queued;
 }

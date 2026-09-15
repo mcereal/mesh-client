@@ -172,6 +172,16 @@ since three screens draw trust and they have to agree. `AdminMessage.add_contact
 half: the radio's NodeDB evicts and this roster does not, so handing a record back — public key
 and verified bit included — is what makes a DM to it encryptable again.
 
+A `SharedContact` reaches that verb two ways, and they are not equally trusted. From a node's own
+row it is a record this client already holds, so `manually_verified` rides across intact — the
+ceremony happened, and a round trip through the radio is not a reason to undo it. From a
+`meshtastic.org/v/#` link (`src/proto/contact_url.c`) it is a stranger's bytes with nothing
+authenticating them, so `src/core/contact_share.c` clears both `manually_verified` and
+`should_ignore` before queueing: those two are instructions to the *reader's* radio rather than
+statements about the sender's node, and a link that could set the first would launder a shield
+out of a picture on a screen. What the link is for is the other direction — a key for a node that
+has never transmitted, which no `NodeInfo` and therefore no roster record can supply.
+
 For **our own** sends the echo is the only source of it, so the dedup branch in
 `mesh_message_ingest` copies the encryption state as well as the timestamps. All four fields —
 kind, padlock, `reply_id`, reaction flag — are written to the node cache on their own `msg_meta[]`

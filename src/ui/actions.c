@@ -385,14 +385,14 @@ static void bar_add_help(const struct mesh_ui_snapshot *snapshot, struct mesh_ui
 static void actions_settings(const struct mesh_ui_nav *nav, const struct mesh_ui_snapshot *snapshot,
                              struct mesh_ui_action_bar *bar) {
     /*
-     * The share sheet, first because it is the deepest thing this tab opens.
+     * The two code sheets, first because they are the deepest things this tab opens.
      *
      * One press and no more: there is nothing on it to move between, and a keycap for a press
      * that does nothing is the one thing this table exists to prevent. The tab keys are left off
      * for the same reason help leaves them off - walking sideways out of a code somebody is
      * scanning is not a move anyone means to make.
      */
-    if (nav->share_open) {
+    if (nav->share_open || nav->contact_open) {
         bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
         bar_add_help(snapshot, bar);
         return;
@@ -650,10 +650,12 @@ void mesh_ui_actions_for(const struct mesh_ui_snapshot *snapshot, struct mesh_ui
            rule for the keycap on the grid - and it has to be the same rule, or the bar and the
            key one row above it name the same press two ways. It was the field alone, so the
            waypoint keyboard's bar said "send" over a grid whose own key said "done", and a
-           network address would have joined it. */
+           network address would have joined it - and the two link keyboards did join it, saying
+           "send" over a link that goes to a radio setting rather than to anybody. */
         bar_add(out, MESH_UI_BUTTON_START,
                 (nav->keyboard_field != MESH_UI_FIELD_NONE || nav->keyboard_waypoint ||
-                 nav->keyboard_network || nav->keyboard_verify)
+                 nav->keyboard_network || nav->keyboard_verify || nav->keyboard_channel_url ||
+                 nav->keyboard_contact_url)
                     ? MESH_STR_ACTION_DONE
                     : MESH_STR_ACTION_SEND);
         bar_add(out, MESH_UI_BUTTON_B, MESH_STR_ACTION_DELETE);

@@ -80,6 +80,7 @@
 /* For the flag rows' masks: the fixture sets position_flags and the field table is what says
    which bit each row is, so the scene is filmed against the same answer the screen draws. */
 #include "mesh/proto/channel_url.h"
+#include "mesh/proto/contact_url.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
 #include "mesh/ui/theme.h"
@@ -1727,6 +1728,31 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
            Status card was one radio answering to two names. */
         snprintf(settings.long_name, sizeof settings.long_name, "%s", "Home Base");
         snprintf(settings.short_name, sizeof settings.short_name, "%s", "HOME");
+
+        /*
+         * And this radio's own identity as a contact link, which is what the contact code screen
+         * at the foot of the User section draws.
+         *
+         * Built here from the names above and our own node number rather than invented, for the
+         * reason the channel link below is: a code in a capture that decoded to something other
+         * than the screen says would be a picture of a bug nobody could see. The key is filler -
+         * a capture has no key pair - but it is a full-length one, so the code comes out the
+         * size a real one would.
+         */
+        {
+            meshtastic_SharedContact me = meshtastic_SharedContact_init_zero;
+            me.node_num = cap->store.handshake.my_info.node_num;
+            me.has_user = true;
+            snprintf(me.user.id, sizeof me.user.id, "!%08x", (unsigned)me.node_num);
+            snprintf(me.user.long_name, sizeof me.user.long_name, "%s", settings.long_name);
+            snprintf(me.user.short_name, sizeof me.user.short_name, "%s", settings.short_name);
+            me.user.hw_model = meshtastic_HardwareModel_TBEAM;
+            me.user.public_key.size = 32U;
+            for (unsigned i = 0; i < 32U; ++i) {
+                me.user.public_key.bytes[i] = (uint8_t)(0x10U + i);
+            }
+            (void)mesh_contact_url_encode(&me, settings.contact_url, sizeof settings.contact_url);
+        }
         settings.has_device = true;
         settings.node_info_broadcast_secs = 10800U;
         settings.led_heartbeat_disabled = false;

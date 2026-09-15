@@ -628,6 +628,18 @@ enum mesh_ui_settings_action {
      */
     MESH_UI_SETTINGS_ACTION_SHARE_CHANNELS,
     MESH_UI_SETTINGS_ACTION_IMPORT_CHANNELS,
+    /*
+     * Contact sharing, at the foot of the User list: this radio's own identity as a link, and
+     * somebody else's typed in.
+     *
+     * The channel pair one directory over, for one node instead of a mesh, and neither is a
+     * radio action for the same reasons: showing a code touches nothing at all, and adding one
+     * does not reach the radio on this press either - it opens the keyboard, and what the radio
+     * hears about is whatever comes back from the sheet in front of *that*. So neither appears
+     * in mesh_ui_settings_action_is_radio().
+     */
+    MESH_UI_SETTINGS_ACTION_SHARE_CONTACT,
+    MESH_UI_SETTINGS_ACTION_IMPORT_CONTACT,
 };
 
 /* Which press writes this field (mesh/ui/nav.h). */

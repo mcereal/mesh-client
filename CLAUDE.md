@@ -121,6 +121,7 @@ the file on the card, over `store_keys.c` (the key) and `store_fields.c` (the va
 | Messaging | `src/core/message.c`, `store_forward.c`, `waypoint.c` |
 | Key trust | `src/core/key_verification.c` - the out-of-band ceremony behind the padlock; `add_contact` lives in `radio_settings.c` |
 | Channel sharing | `src/proto/channel_url.c` (the `meshtastic.org/e/#` link), `src/core/channel_share.c` (the radio's table either way), `src/utils/qr.c` (the code), `src/ui/channel_share.c` (what the two screens say) |
+| Contact sharing | `src/proto/contact_url.c` (the `meshtastic.org/v/#` link), `src/core/contact_share.c` (this radio's record out, a stranger's in), `src/ui/contact_share.c` (what the two screens say); the wrapper both links share is `src/proto/link_url.h` |
 | App glue | `src/core/app*.c` - lifecycle/link, `_actions`, `_publish`, `_settings` |
 | Self-update | `src/core/updater.c`, `version.c`, `fetch.c` |
 | Radio firmware | `src/core/firmware*.c`, `uf2.c`, `esp_image.c`, `src/transport/*/{usb_msc,ble_ota,ble_hci}.c` - the *other* binary |
@@ -207,7 +208,9 @@ The few that bite soonest:
 
 `MESH_PROTO_NAMES` in `CMakeLists.txt` is a hardcoded list; **adding a new upstream `.proto` means
 adding it there.** `apponly.proto` is in it for `ChannelSet`, which is the only message here that
-never goes over the air - it exists to be a URL. Headers are included as `meshtastic/<name>.pb.h`. The generator is
+never goes over the air - it exists to be a URL. `SharedContact` is the other half of that
+pattern and the counter-example: it is in `admin.proto` and is both a link payload and the
+`add_contact` verb's argument. Headers are included as `meshtastic/<name>.pb.h`. The generator is
 `nanopb_generator` from PATH, falling back to `third_party/nanopb/generator/nanopb_generator.py`
 (needs `pip install protobuf grpcio-tools`).
 

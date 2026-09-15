@@ -169,6 +169,21 @@ static const struct mesh_ui_help_entry k_help_share[] = {
     {MESH_STR_HELP_LABEL_SHARE_IMPORT, MESH_STR_HELP_NOTE_SHARE_IMPORT},
 };
 
+/*
+ * The contact code screen, whose help exists mostly to separate it from the one above.
+ *
+ * Two squares on two screens, and the reader has just been told that one of them is a secret to
+ * be shown only to the people joining. This one is a public key and is safe to show to anybody,
+ * which is the second paragraph - and the third is the other half of that, because "safe to
+ * show" is not "proves who sent it", and the padlock in this client means the second thing.
+ */
+static const struct mesh_ui_help_entry k_help_contact[] = {
+    {MESH_STR_NONE, MESH_STR_HELP_NOTE_CONTACT},
+    {MESH_STR_HELP_LABEL_CONTACT_SAFE, MESH_STR_HELP_NOTE_CONTACT_SAFE},
+    {MESH_STR_HELP_LABEL_CONTACT_TRUST, MESH_STR_HELP_NOTE_CONTACT_TRUST},
+    {MESH_STR_HELP_LABEL_CONTACT_IMPORT, MESH_STR_HELP_NOTE_CONTACT_IMPORT},
+};
+
 /* The airtime chart, whose two paragraphs are both about reading a picture rather than about
    working a screen - which is why it is a feature of its own rather than the Status tab's help
    one level in. What a reader arrives wanting to know here is what the axes mean, and the cards
@@ -244,10 +259,12 @@ static const struct help_feature k_help_features[] = {
     HELP_FEATURE(MESH_UI_SCREEN_STATUS, MESH_UI_ROUTE_LIST, MESH_STR_TAB_STATUS, k_help_status),
     HELP_FEATURE(MESH_UI_SCREEN_STATUS, MESH_UI_ROUTE_TREND, MESH_STR_HELP_SUBJECT_TREND,
                  k_help_trend),
-    /* The Settings tab's one feature. Every other screen under that tab is a settings section,
-       whose paragraphs are the fields' own; this one has no fields and is not a list. */
+    /* The Settings tab's two features. Every other screen under that tab is a settings section,
+       whose paragraphs are the fields' own; these two have no fields and are not lists. */
     HELP_FEATURE(MESH_UI_SCREEN_SETTINGS, MESH_UI_ROUTE_SHARE, MESH_STR_HELP_SUBJECT_SHARE,
                  k_help_share),
+    HELP_FEATURE(MESH_UI_SCREEN_SETTINGS, MESH_UI_ROUTE_CONTACT, MESH_STR_HELP_SUBJECT_CONTACT,
+                 k_help_contact),
 };
 
 #undef HELP_FEATURE

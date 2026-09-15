@@ -13,6 +13,7 @@
 #include "nav_internal.h"
 
 #include "mesh/ui/channel_share.h"
+#include "mesh/ui/contact_share.h"
 #include "mesh/ui/settings.h"
 #include "mesh/utils/array.h"
 #include "mesh/utils/text.h"
@@ -69,11 +70,12 @@ const char *mesh_ui_kb_action_label(const struct mesh_ui_nav *nav, enum mesh_ui_
            security number is the sharpest case of the same rule: it goes to the radio in the
            user's hand, and a keycap saying "Send" over four digits the whole ceremony depends
            on staying off the mesh would be teaching exactly the wrong thing. */
-        return mesh_str((nav != NULL && (nav->keyboard_field != MESH_UI_FIELD_NONE ||
-                                         nav->keyboard_waypoint || nav->keyboard_network ||
-                                         nav->keyboard_verify || nav->keyboard_channel_url))
-                            ? MESH_STR_KEY_DONE
-                            : MESH_STR_KEY_SEND);
+        return mesh_str(
+            (nav != NULL && (nav->keyboard_field != MESH_UI_FIELD_NONE || nav->keyboard_waypoint ||
+                             nav->keyboard_network || nav->keyboard_verify ||
+                             nav->keyboard_channel_url || nav->keyboard_contact_url))
+                ? MESH_STR_KEY_DONE
+                : MESH_STR_KEY_SEND);
     case MESH_UI_KB_ACTION_CANCEL:
         return mesh_str(MESH_STR_KEY_CANCEL);
     default:
@@ -205,6 +207,15 @@ void mesh_ui_nav_keyboard_close(struct mesh_ui_nav *nav) {
         nav->draft_saved[0] = '\0';
         /* Back to the Channels list the import row is on, which is where the section the sheet
            is about to write to is showing. */
+        nav->screen = MESH_UI_SCREEN_SETTINGS;
+        return;
+    }
+    if (nav->keyboard_contact_url) {
+        nav->keyboard_contact_url = false;
+        snprintf(nav->draft, sizeof nav->draft, "%s", nav->draft_saved);
+        nav->draft_saved[0] = '\0';
+        /* Back to the User list the add row is on, the way the channel link goes back to the
+           Channels list. */
         nav->screen = MESH_UI_SCREEN_SETTINGS;
         return;
     }
@@ -422,6 +433,50 @@ bool mesh_ui_nav_commit_channel_url(struct mesh_ui_nav *nav) {
     return true;
 }
 
+void mesh_ui_nav_open_contact_url_keyboard(struct mesh_ui_nav *nav) {
+    if (nav == NULL) {
+        return;
+    }
+    /* The Compose draft into the one parking slot, and a blank line to type on: a contact link
+       is somebody else's, read off their phone, and the last one typed is not a starting point
+       for the next. */
+    snprintf(nav->draft_saved, sizeof nav->draft_saved, "%s", nav->draft);
+    nav->draft[0] = '\0';
+    nav->keyboard_contact_url = true;
+    nav->keyboard_channel_url = false;
+    nav->keyboard_network = false;
+    nav->keyboard_waypoint = false;
+    nav->keyboard_field = MESH_UI_FIELD_NONE;
+    nav->keyboard_open = true;
+    nav->compose_open = false;
+    nav->kb_row = 0U;
+    nav->kb_col = 0U;
+    nav->kb_layer = MESH_UI_KB_LOWER;
+    nav->screen = MESH_UI_SCREEN_SETTINGS;
+}
+
+/* Done on the contact link keyboard: check it, then raise the sheet. The channel link's commit
+   exactly, and it refuses for that one's reason - a link is base64 typed a character at a time
+   on a d-pad, and the honest answer to one wrong character is to leave the user standing on the
+   keyboard with what they typed. */
+bool mesh_ui_nav_commit_contact_url(struct mesh_ui_nav *nav) {
+    if (nav == NULL) {
+        return false;
+    }
+    if (!mesh_ui_contact_link_valid(nav->draft)) {
+        mesh_ui_nav_raise_toast(nav, mesh_str(MESH_STR_TOAST_CONTACT_LINK_INVALID));
+        return true; /* stay on the keyboard so it can be fixed */
+    }
+    snprintf(nav->contact_url, sizeof nav->contact_url, "%s", nav->draft);
+    mesh_ui_nav_keyboard_close(nav);
+    /* Cancel by default, so a repeated press on Done cannot write a stranger's key to the
+       radio. */
+    nav->confirm_open = true;
+    nav->confirm_cursor = 1U;
+    nav->confirm_action = (uint8_t)MESH_UI_SETTINGS_ACTION_IMPORT_CONTACT;
+    return true;
+}
+
 bool mesh_ui_nav_keyboard_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                               enum mesh_ui_key key, struct mesh_ui_action *action) {
     const bool for_passkey = nav->keyboard_passkey;
@@ -434,6 +489,8 @@ bool mesh_ui_nav_keyboard_key(struct mesh_ui_nav *nav, const struct mesh_ui_stor
         (!for_passkey && !for_verify && !for_setting && !for_waypoint && nav->keyboard_network);
     const bool for_link = (!for_passkey && !for_verify && !for_setting && !for_waypoint &&
                            !for_network && nav->keyboard_channel_url);
+    const bool for_contact = (!for_passkey && !for_verify && !for_setting && !for_waypoint &&
+                              !for_network && !for_link && nav->keyboard_contact_url);
     switch (key) {
     case MESH_UI_KEY_UP:
     case MESH_UI_KEY_DOWN: {
@@ -504,6 +561,9 @@ bool mesh_ui_nav_keyboard_key(struct mesh_ui_nav *nav, const struct mesh_ui_stor
             if (for_link) {
                 return mesh_ui_nav_commit_channel_url(nav);
             }
+            if (for_contact) {
+                return mesh_ui_nav_commit_contact_url(nav);
+            }
             return for_waypoint ? mesh_ui_nav_commit_waypoint(nav, action)
                                 : mesh_ui_nav_send_draft(nav, action);
         case MESH_UI_KB_ACTION_CANCEL:
@@ -558,6 +618,9 @@ bool mesh_ui_nav_keyboard_key(struct mesh_ui_nav *nav, const struct mesh_ui_stor
         }
         if (for_link) {
             return mesh_ui_nav_commit_channel_url(nav);
+        }
+        if (for_contact) {
+            return mesh_ui_nav_commit_contact_url(nav);
         }
         return for_waypoint ? mesh_ui_nav_commit_waypoint(nav, action)
                             : mesh_ui_nav_send_draft(nav, action);

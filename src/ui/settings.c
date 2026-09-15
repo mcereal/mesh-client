@@ -2302,6 +2302,9 @@ const char *mesh_ui_settings_confirm_accept(enum mesh_ui_settings_action action)
        the word for the file operation says nothing about that. */
     case MESH_UI_SETTINGS_ACTION_IMPORT_CHANNELS:
         return mesh_str(MESH_STR_CONFIRM_ACCEPT_IMPORT);
+    /* "Add", not "Import": what the press does is put one node in a list. */
+    case MESH_UI_SETTINGS_ACTION_IMPORT_CONTACT:
+        return mesh_str(MESH_STR_CONFIRM_ACCEPT_ADD_CONTACT);
     default:
         return mesh_str(MESH_STR_CONFIRM_ACCEPT_SAVE);
     }

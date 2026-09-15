@@ -27,6 +27,17 @@
  */
 #define MESH_UI_CHANNEL_URL_MAX 960U
 
+/*
+ * The longest contact link, restated here for the reason above and pinned the same way - by a
+ * static assertion in src/ui/contact_share.c against mesh/proto/contact_url.h's real bound.
+ *
+ * A fifth of the channel one, because a `SharedContact` is one node rather than eight channels:
+ * a node number, a name, a key and two flags. That is small enough that the whole of it fits
+ * under the QR code on the share screen, which is the one place the characters themselves are
+ * any use.
+ */
+#define MESH_UI_CONTACT_URL_MAX 224U
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -623,6 +634,19 @@ struct mesh_ui_settings {
      * primary in it, which is also what the Share row keys off.
      */
     char share_url[MESH_UI_CHANNEL_URL_MAX];
+
+    /*
+     * This radio's own identity as a Meshtastic contact link - `https://meshtastic.org/v/#...`
+     * - which the contact code screen draws as a QR and a phone beside it scans to add this
+     * node without waiting to hear it transmit.
+     *
+     * Built at the publish boundary from the radio's own owner record and key, the way
+     * `share_url` is and for the same reason: the rows above are this client's reading of those
+     * bytes - a name truncated to what a row can hold, a key as hex - and a link assembled from
+     * them would be a reading of a reading. Empty until the owner reply has landed with a
+     * public key in it, which is also what the row that opens the screen keys off.
+     */
+    char contact_url[MESH_UI_CONTACT_URL_MAX];
 
     /* The radio's own screen (DeviceUIConfig), which is a different thing from Display: that
        is the OLED's geometry and units, this is the graphical UI's own preferences. The two
