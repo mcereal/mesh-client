@@ -12,6 +12,7 @@
 
 #include "nav_internal.h"
 
+#include "mesh/ui/node_detail.h"
 #include "mesh/ui/waypoints.h"
 
 #include <stdio.h>
