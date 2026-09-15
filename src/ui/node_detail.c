@@ -558,17 +558,26 @@ static void node_rows_identity(struct node_rows *rows, const struct mesh_ui_node
  * Resolved here rather than joined in at publish, unlike a message's relay: this screen is
  * handed the roster anyway (it is what "Heard by" is read across), and resolving live means a
  * relay that was two hex digits at connect time becomes a name the moment its NodeInfo lands.
+ *
+ * `ambiguous` is the one part it cannot work out for itself, and it is not an optimisation.
+ * This roster is the ranked MESH_UI_MAX_HANDSHAKE_NODES of a session that holds twice as many,
+ * so on a big mesh a byte can have exactly one claimant *here* and another one that was ranked
+ * away - and a scan of what was published would then name a node and sound certain about it.
+ * The flag is settled at publish over the whole roster; see mesh_app_relay_byte_is_ambiguous().
  */
 static void node_rows_relay_name(const struct mesh_ui_handshake_state *roster, uint8_t last_byte,
-                                 char *out, size_t out_len) {
+                                 bool ambiguous, uint32_t exclude, char *out, size_t out_len) {
     const struct mesh_ui_node_summary *match = NULL;
-    if (roster != NULL) {
+    if (roster != NULL && !ambiguous) {
         const uint32_t count = roster->node_count > MESH_UI_MAX_HANDSHAKE_NODES
                                    ? MESH_UI_MAX_HANDSHAKE_NODES
                                    : roster->node_count;
         for (uint32_t i = 0; i < count; ++i) {
             if ((uint8_t)(roster->nodes[i].node_id & 0xFFU) != last_byte) {
                 continue;
+            }
+            if (exclude != 0U && roster->nodes[i].node_id == exclude) {
+                continue; /* it cannot have relayed a packet it is the far end of */
             }
             if (match != NULL) {
                 match = NULL; /* a second candidate, so the byte names neither */
@@ -610,15 +619,29 @@ static void node_rows_route(struct node_rows *rows, const struct mesh_ui_node_su
     }
 
     if (node->relay_node != 0U) {
-        if ((uint8_t)(node->node_id & 0xFFU) == node->relay_node) {
-            /* The sender's own last byte: nothing relayed it, we heard the node itself. A
-               state rather than a name, because "direct" is a fact about the path and the
+        /*
+         * A byte matching the node's own is the firmware saying nothing carried this: a node
+         * stamps itself into relay_node as it transmits, so a packet heard straight from it
+         * names it.
+         *
+         * Except when the hop count says otherwise. A packet that came at least one hop *was*
+         * relayed, so the match is a collision with some other node ending in the same byte,
+         * and "direct" there would be the one row on the screen contradicting the row above it.
+         * `has_hops_away` unset is the firmware declining to say, which is not zero - the same
+         * distinction the hop row itself is careful about - so it leaves the shortcut standing.
+         */
+        const bool relayed = node->has_hops_away && node->hops_away > 0U;
+        if ((uint8_t)(node->node_id & 0xFFU) == node->relay_node && !relayed) {
+            /* A state rather than a name, because "direct" is a fact about the path and the
                reader is scanning this column for node names. */
             rows_state(rows, MESH_STR_NODE_RELAYED_BY, mesh_str(MESH_STR_NODE_RELAY_DIRECT),
                        MESH_UI_TONE_SUCCESS);
         } else {
-            char relay[MESH_UI_NODE_LABEL_MAX];
-            node_rows_relay_name(roster, node->relay_node, relay, sizeof relay);
+            char relay[MESH_UI_NODE_VALUE_MAX];
+            /* Struck off when we know the packet travelled: whatever carried it, it was not
+               the node it came from, so naming that node here would contradict the hop row. */
+            node_rows_relay_name(roster, node->relay_node, node->relay_ambiguous,
+                                 relayed ? node->node_id : 0U, relay, sizeof relay);
             rows_text(rows, MESH_STR_NODE_RELAYED_BY, relay);
         }
     }
@@ -630,8 +653,8 @@ static void node_rows_route(struct node_rows *rows, const struct mesh_ui_node_su
         rows_state(rows, MESH_STR_NODE_NEXT_HOP, mesh_str(MESH_STR_NODE_NEXT_HOP_FLOOD),
                    MESH_UI_TONE_TERTIARY);
     } else {
-        char hop[MESH_UI_NODE_LABEL_MAX];
-        node_rows_relay_name(roster, node->next_hop, hop, sizeof hop);
+        char hop[MESH_UI_NODE_VALUE_MAX];
+        node_rows_relay_name(roster, node->next_hop, node->next_hop_ambiguous, 0U, hop, sizeof hop);
         rows_text(rows, MESH_STR_NODE_NEXT_HOP, hop);
     }
 }

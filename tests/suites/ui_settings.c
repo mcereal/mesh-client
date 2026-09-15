@@ -2605,6 +2605,71 @@ MESH_TEST_CASE(node_detail_routing_rows, unit) {
     MESH_TEST_FAIL_IF(strcmp(relay, "direct") != 0,
                       "a packet that came straight from the node is not relayed by it");
 
+    /*
+     * Unless the hop count contradicts it. The packet came two hops, so something carried it,
+     * and the byte matching the node's own is a collision with whatever that was - "direct"
+     * there would be this row disagreeing with the hop row three lines above it.
+     */
+    node.has_hops_away = true;
+    node.hops_away = 2U;
+    relay[0] = '\0';
+    count = mesh_ui_node_detail_build(&node, false, 1750000060U, NULL, false, &roster, NULL, false,
+                                      items, MESH_UI_NODE_ITEMS_MAX);
+    for (uint32_t i = 0; i < count; ++i) {
+        if (strcmp(items[i].label, "Relayed by") == 0) {
+            snprintf(relay, sizeof relay, "%s", items[i].value);
+        }
+    }
+    MESH_TEST_FAIL_IF(strcmp(relay, "!..01") != 0,
+                      "a packet that took a hop cannot have come straight from its sender");
+
+    /* Zero hops is the firmware saying direct rather than declining to, so the row may. */
+    node.hops_away = 0U;
+    relay[0] = '\0';
+    count = mesh_ui_node_detail_build(&node, false, 1750000060U, NULL, false, &roster, NULL, false,
+                                      items, MESH_UI_NODE_ITEMS_MAX);
+    for (uint32_t i = 0; i < count; ++i) {
+        if (strcmp(items[i].label, "Relayed by") == 0) {
+            snprintf(relay, sizeof relay, "%s", items[i].value);
+        }
+    }
+    MESH_TEST_FAIL_IF(strcmp(relay, "direct") != 0, "zero hops agrees with the byte");
+
+    /*
+     * The collision this screen cannot see for itself. `relay_ambiguous` says the *session*
+     * roster holds a second claimant for the byte - one this screen was never handed, because
+     * the publish ranks a big mesh down to MESH_UI_MAX_HANDSHAKE_NODES. RLAY is the only
+     * claimant among these three nodes, so without the flag the row would name it and sound
+     * certain.
+     */
+    node.has_hops_away = false;
+    node.relay_node = 0x55U;
+    node.relay_ambiguous = true;
+    relay[0] = '\0';
+    count = mesh_ui_node_detail_build(&node, false, 1750000060U, NULL, false, &roster, NULL, false,
+                                      items, MESH_UI_NODE_ITEMS_MAX);
+    for (uint32_t i = 0; i < count; ++i) {
+        if (strcmp(items[i].label, "Relayed by") == 0) {
+            snprintf(relay, sizeof relay, "%s", items[i].value);
+        }
+    }
+    MESH_TEST_FAIL_IF(strcmp(relay, "!..55") != 0,
+                      "a claimant the publish ranked away still makes the byte ambiguous");
+
+    /* And the next hop reads the same flag, so neither row can be certain alone. */
+    node.relay_ambiguous = false;
+    node.next_hop = 0x55U;
+    node.next_hop_ambiguous = true;
+    hop[0] = '\0';
+    count = mesh_ui_node_detail_build(&node, false, 1750000060U, NULL, false, &roster, NULL, false,
+                                      items, MESH_UI_NODE_ITEMS_MAX);
+    for (uint32_t i = 0; i < count; ++i) {
+        if (strcmp(items[i].label, "Next hop") == 0) {
+            snprintf(hop, sizeof hop, "%s", items[i].value);
+        }
+    }
+    MESH_TEST_FAIL_IF(strcmp(hop, "!..55") != 0, "the next hop carries its own ambiguity");
+
     record_success(test_name);
 }
 

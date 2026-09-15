@@ -164,34 +164,86 @@ void mesh_app_format_peer_name(const struct mesh_handshake_status *status, uint3
     snprintf(out, out_len, "!%08x", node_id);
 }
 
+/*
+ * The nodes in the *whole* roster whose number ends in `last_byte`, up to two - which is all
+ * anybody asking needs, because the answer is only ever "one node" or "more than one".
+ *
+ * Over `status`, the session's 256 slots, and never over the 128 the UI publishes: the ranking
+ * in mesh_app_publish_ui_state() drops the tail of a big mesh, and a byte that looks unique
+ * once the losers are gone is the one way this resolver can name a node confidently and
+ * wrongly. Ambiguity is a fact about the mesh, so it is settled where the whole mesh is.
+ */
+static size_t mesh_app_relay_candidates(const struct mesh_handshake_status *status,
+                                        uint8_t last_byte, uint32_t exclude,
+                                        const struct mesh_node_summary **first) {
+    size_t found = 0U;
+    *first = NULL;
+    if (status == NULL) {
+        return 0U;
+    }
+    for (size_t i = 0; i < status->node_count && i < MESH_SESSION_MAX_NODES; ++i) {
+        const struct mesh_node_summary *node = &status->nodes[i];
+        if ((uint8_t)(node->node_id & 0xFFU) != last_byte) {
+            continue;
+        }
+        if (exclude != 0U && node->node_id == exclude) {
+            continue; /* it cannot have relayed a packet it is the far end of */
+        }
+        if (found == 0U) {
+            *first = node;
+        }
+        if (++found > 1U) {
+            break; /* two is as much as "more than one" needs */
+        }
+    }
+    return found;
+}
+
+bool mesh_app_relay_byte_is_ambiguous(const struct mesh_handshake_status *status,
+                                      uint8_t last_byte) {
+    const struct mesh_node_summary *first = NULL;
+    return mesh_app_relay_candidates(status, last_byte, 0U, &first) > 1U;
+}
+
 /* The last-byte form of the same question; see app_internal.h for the ambiguity rule. */
 void mesh_app_format_relay_name(const struct mesh_handshake_status *status, uint8_t last_byte,
-                                uint32_t origin, char *out, size_t out_len) {
+                                uint32_t origin, int origin_hops, char *out, size_t out_len) {
     if (out == NULL || out_len == 0U) {
         return;
     }
     out[0] = '\0';
 
-    /* Nothing to say: the firmware named no relay, or the one it named is the sender itself and
-       the packet came to us straight from them. */
-    if (last_byte == 0U || (origin != 0U && (uint8_t)(origin & 0xFFU) == last_byte)) {
+    if (last_byte == 0U) {
+        return; /* upstream's NO_RELAY_NODE: the firmware named nobody */
+    }
+
+    /*
+     * The byte is the sender's own, which is the firmware saying nothing carried this: a node
+     * stamps itself into relay_node as it transmits, so a packet heard straight from its sender
+     * names that sender. There is nothing to say and a chip saying it would be on most of the
+     * transcript.
+     *
+     * Unless the hop count contradicts it. A packet that took at least one hop *was* relayed by
+     * definition, so a byte matching the sender there is a collision - some other node ending in
+     * the same byte carried it - and reading it as "straight from them" would hide the one relay
+     * the reader could have been told about. `origin_hops` is negative when the firmware did not
+     * say, which is not zero: see mesh_message's has_hops_away.
+     */
+    if (origin != 0U && (uint8_t)(origin & 0xFFU) == last_byte && origin_hops <= 0) {
         return;
     }
 
+    /*
+     * A packet we know travelled was not relayed by the node it came from, whatever the byte
+     * says, so the sender is struck off the candidates rather than left in to be named. Without
+     * this the row would answer "relayed by" with the sender's own name, which is the one
+     * answer the hop count above it has already ruled out.
+     */
+    const uint32_t exclude = origin_hops > 0 ? origin : 0U;
+
     const struct mesh_node_summary *match = NULL;
-    if (status != NULL) {
-        for (size_t i = 0; i < status->node_count && i < MESH_SESSION_MAX_NODES; ++i) {
-            const struct mesh_node_summary *node = &status->nodes[i];
-            if ((uint8_t)(node->node_id & 0xFFU) != last_byte) {
-                continue;
-            }
-            if (match != NULL) {
-                /* A second candidate, so the byte names neither of them. */
-                match = NULL;
-                break;
-            }
-            match = node;
-        }
+    if (mesh_app_relay_candidates(status, last_byte, exclude, &match) != 1U) {
+        match = NULL; /* none, or more than one, and a byte names neither */
     }
 
     if (match != NULL && match->short_name[0] != '\0') {
@@ -610,8 +662,9 @@ static void mesh_app_publish_messages(struct mesh_app *app,
         /* Against `source->from` either way, which for one of ours is our own radio: a send
            that went straight out to the mesh names nobody, exactly as a message heard direct
            from its sender does. */
-        mesh_app_format_relay_name(status, source->relay_node, source->from, target->relay_name,
-                                   sizeof(target->relay_name));
+        mesh_app_format_relay_name(status, source->relay_node, source->from,
+                                   source->has_hops_away ? (int)source->hops_away : -1,
+                                   target->relay_name, sizeof(target->relay_name));
         snprintf(target->text, sizeof(target->text), "%s", source->text);
         live.count++;
     }
@@ -2260,6 +2313,10 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
             dst->has_route = src->has_route;
             dst->relay_node = src->relay_node;
             dst->next_hop = src->next_hop;
+            /* Settled here because `status` is the whole roster and `ui_handshake.nodes` is the
+               ranked 128 of it; see mesh_app_relay_byte_is_ambiguous(). */
+            dst->relay_ambiguous = mesh_app_relay_byte_is_ambiguous(status, src->relay_node);
+            dst->next_hop_ambiguous = mesh_app_relay_byte_is_ambiguous(status, src->next_hop);
             snprintf(dst->user_id, sizeof(dst->user_id), "%s", src->user_id);
             dst->has_user = src->has_user;
             dst->in_nodedb = src->in_nodedb;

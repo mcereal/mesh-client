@@ -108,20 +108,34 @@ void mesh_app_format_peer_name(const struct mesh_handshake_status *status, uint3
  * The same, for the *last byte* of a node number - MeshPacket.relay_node and .next_hop, which
  * is all the LoRa header has room for.
  *
- * `origin` is the node the byte would be uninteresting for: the sender, whose own last byte is
- * what the firmware writes when nothing relayed the packet. That case, and a zero byte, both
- * write "" - there is nothing to say and a row or a chip saying it would be noise on every
- * packet a mesh carries.
+ * `origin` is the node the byte would be uninteresting for: the sender, whose own last byte the
+ * firmware stamps in as it transmits, so a packet heard straight from its sender names that
+ * sender. That case and a zero byte both write "" - there is nothing to say, and a chip saying
+ * it would be on most of the transcript. `origin_hops` is how far the packet came, negative
+ * when the firmware did not say, and it is what stops that shortcut lying: a packet that took
+ * at least one hop *was* relayed, so a byte matching the sender there is a collision with some
+ * other node rather than the firmware saying "direct". Pass `origin` 0 to skip the test.
  *
  * Otherwise the roster is scanned for the nodes the byte could name. Exactly one match gets
  * its short name; none and more than one both get MESH_STR_NODE_VAL_RELAY_HEX, the "!..a3"
  * partial id. That is the whole of the ambiguity policy and it is deliberately the strict one:
  * a byte matches 1 in 256 node numbers, so a mesh of a hundred nodes has collisions by
  * arithmetic rather than by bad luck, and the wrong name confidently drawn is worse than the
- * two hex digits the radio actually gave us. Pass `origin` 0 to skip the sender test.
+ * two hex digits the radio actually gave us.
  */
 void mesh_app_format_relay_name(const struct mesh_handshake_status *status, uint8_t last_byte,
-                                uint32_t origin, char *out, size_t out_len);
+                                uint32_t origin, int origin_hops, char *out, size_t out_len);
+
+/*
+ * Whether more than one node in the *whole* session roster ends in `last_byte`.
+ *
+ * Published onto each node so the detail screen can render the byte honestly without the roster
+ * that settles it. It cannot settle it itself: mesh_app_publish_ui_state() ranks a mesh larger
+ * than MESH_UI_MAX_HANDSHAKE_NODES down to that many, and a byte that looks unique only because
+ * its other claimant was ranked away is exactly how a confident wrong name gets drawn.
+ */
+bool mesh_app_relay_byte_is_ambiguous(const struct mesh_handshake_status *status,
+                                      uint8_t last_byte);
 
 /* Seeds the session's node roster from the handshake cache the last run left on disk. Call
    once at startup, after the store has been loaded and before the first connect. */
