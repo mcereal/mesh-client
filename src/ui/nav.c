@@ -256,13 +256,27 @@ static bool mesh_ui_nav_nodes_control_step(struct mesh_ui_nav *nav, uint32_t cur
     return false;
 }
 
-/* Whether the Nodes list itself is what the reader is looking at, which is what decides that a
-   press belongs to a control row rather than to the map or the detail drawn over it. The screen
-   is checked as well as the two flags for `map_open`'s reason: both say where the Nodes tab is
-   standing, not what is on the panel. */
-static bool mesh_ui_nav_nodes_list_showing(const struct mesh_ui_nav *nav) {
+/*
+ * Whether the Nodes list itself is what the reader is looking at, which is what decides that a
+ * press belongs to a control row rather than to the map or the detail drawn over it.
+ *
+ * The screen is checked as well as the two flags for `map_open`'s reason: both say where the
+ * Nodes tab is standing, not what is on the panel.
+ *
+ * And the row count is checked, which is the half that is not about overlays at all. A roster
+ * with nothing in it answers 0 rows and the screen draws fb_draw_empty() - no filter, no sort,
+ * no list - so row 0 is not the filter row there, it is a row that does not exist. Left and
+ * Right have to stay the tab switch on that screen, because it is the first one a client with
+ * no radio attached shows and stepping a control nobody can see is the d-pad going dead on
+ * exactly the screen a reader is trying to leave. It is the guard mesh_ui_nav_confirm() already
+ * makes one line in - `cursor >= rows` - asked here for the same reason.
+ */
+static bool mesh_ui_nav_nodes_list_showing(const struct mesh_ui_nav *nav,
+                                           const struct mesh_ui_store *store) {
     return nav != NULL && nav->screen == MESH_UI_SCREEN_NODES && !nav->node_detail_open &&
-           !nav->map_open;
+           !nav->map_open &&
+           nav->cursor[MESH_UI_SCREEN_NODES] <
+               mesh_ui_nav_row_count(nav, store, MESH_UI_SCREEN_NODES);
 }
 
 void mesh_ui_nav_conversation_name(const struct mesh_ui_nav *nav, char *out, size_t out_len) {
@@ -1827,7 +1841,7 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
      * field walks the tabs, and the pencil in the gutter is what tells the two apart before the
      * press. The rows that edit here wear the same pencil for the same reason.
      */
-    if (mesh_ui_nav_nodes_list_showing(nav) &&
+    if (mesh_ui_nav_nodes_list_showing(nav, store) &&
         (key == MESH_UI_KEY_LEFT || key == MESH_UI_KEY_RIGHT) &&
         mesh_ui_nav_nodes_control_step(nav, nav->cursor[MESH_UI_SCREEN_NODES], key)) {
         return true;

@@ -1390,6 +1390,45 @@ MESH_TEST_CASE(ui_nav_nodes_controls_take_the_d_pad, unit) {
 }
 
 /*
+ * A roster with nothing in it has no control rows, so the d-pad is the tab switch there.
+ *
+ * The one state where row 0 is not the filter row: mesh_ui_nav_row_count() answers 0 for an
+ * empty roster and the screen draws the empty state rather than a list, so there is no filter
+ * on the panel to step. Taking Left and Right for it anyway would be the d-pad going dead on
+ * the first screen a client with no radio attached shows - a reader trying to leave the tab,
+ * silently changing a control they cannot see.
+ *
+ * mesh_ui_nav_confirm() has always made this check one line in (`cursor >= rows`), so A was
+ * never wrong here; it is the d-pad arm that had to be told.
+ */
+MESH_TEST_CASE(ui_nav_nodes_an_empty_roster_keeps_the_tab_switch, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+
+    /* No handshake and no roster, which is what the client looks like before a radio answers. */
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    store.nav.screen = MESH_UI_SCREEN_NODES;
+    store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_FILTER_ROW;
+
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_NODES) != 0U,
+                              mesh_ui_store_shutdown(&store),
+                              "an empty roster is a list with no rows at all");
+
+    const uint8_t filter_before = store.nav.node_filter;
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_filter != filter_before,
+                              mesh_ui_store_shutdown(&store),
+                              "Right must not step a filter that is not on the panel");
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.screen == MESH_UI_SCREEN_NODES,
+                              mesh_ui_store_shutdown(&store),
+                              "Right on an empty Nodes list is still the tab switch");
+
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
+/*
  * A filter that keeps nothing keeps its own two rows, and the map row still opens the map.
  *
  * The failure this is against is a list that empties itself: the chip that emptied it is on the
