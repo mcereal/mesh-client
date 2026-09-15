@@ -484,6 +484,18 @@ struct mesh_ui_nav {
      * differs is where the keyboard came from and therefore where B lands.
      */
     bool keyboard_network;
+    /*
+     * When the keyboard is typing a Meshtastic channel link, from the Channels list's import
+     * row.
+     *
+     * A fifth flavour beside the network address, and a flavour for the same reason that one
+     * is: `k_fields` is what the radio holds, and this is not a field on it - it is a whole
+     * channel set on its way in, which the app turns into as many writes as it takes. It is
+     * also the one keyboard here whose text is *checked* before the keyboard closes: a link
+     * that does not parse leaves the user on the keyboard with what they typed, because the
+     * alternative is a screen full of base64 thrown away over one wrong character.
+     */
+    bool keyboard_channel_url;
     /* When the keyboard edits a setting rather than the Compose draft: the field it is for
        (NONE for Compose) and the Compose draft parked while it is open. */
     uint8_t keyboard_field;
@@ -546,6 +558,24 @@ struct mesh_ui_nav {
      */
     bool verify_open;
     uint8_t verify_cursor;
+    /*
+     * The share sheet: this radio's channel set as a QR code, over the Channels list.
+     *
+     * A screen rather than a dialog, and not one of the tabs' own levels: it is raised by a row
+     * and leaves by B, exactly as help does, and what it draws is a picture rather than a list
+     * anything can be chosen from. It carries no cursor for that reason - there is nothing on
+     * it to move between.
+     */
+    bool share_open;
+    /*
+     * A channel link that has been typed and parsed, waiting on the sheet in front of it.
+     *
+     * Its own buffer rather than the draft, because the keyboard closes before the sheet opens
+     * and closing it is what puts the parked Compose draft back. Bounded by the draft rather
+     * than by the link format: what can be typed is what fits in the keyboard's own buffer, and
+     * a link longer than that is one nobody was going to type anyway.
+     */
+    char channel_url[MESH_UI_DRAFT_MAX];
     /* Devices tab: Y is armed by one press and forgets the node on the second, because a
        bond dropped by accident costs the user a re-pair with the PIN. */
     bool devices_forget_armed;
@@ -667,6 +697,18 @@ enum mesh_ui_action_type {
     MESH_UI_ACTION_VERIFY_NUMBER,
     /* The comparison, answered: `number` is 1 for "they match" and 0 for "they do not". */
     MESH_UI_ACTION_VERIFY_ANSWER,
+    /*
+     * Joins the channel set in a Meshtastic link: `text` is the link, exactly as it was typed
+     * and after the sheet in front of it was answered.
+     *
+     * The link rather than a parsed set, and that is deliberate. A `ChannelSet` is eight
+     * channels with their keys in it, which is far more than `struct mesh_ui_action` should
+     * grow to carry, and the nav has no business holding protobuf: what it has is the
+     * characters the user typed, which it has already checked parse. The app parses them again
+     * against the radio's *current* table, which is the one that will be overwritten and which
+     * may have moved since the press.
+     */
+    MESH_UI_ACTION_IMPORT_CHANNELS,
     /* Not a verb: how many there are. It is what pins the dispatch table in
        src/core/app_actions.c to this list - a verb added above and not given a row there is a
        press that reaches the app and does nothing, with nothing to see at the seam. */

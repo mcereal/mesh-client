@@ -188,6 +188,22 @@ enum mesh_ui_color {
      * and mesh_ui_theme_validate() is what stops quiet becoming absent.
      */
     MESH_UI_COLOR_METER_TRACK,
+    /*
+     * The two the QR code is drawn in, and the only pair here that is the *same on every theme*.
+     *
+     * Not an oversight and not a shortcut past this file's whole argument. A code on this panel
+     * is not read by a person: it is read by a phone camera across the room, and what decides
+     * whether that works is a dark-on-light square with a light margin round it. Several
+     * scanners - the one built into iOS among them - will not read an inverted code at all, so
+     * a code that followed the dark theme would be a code half the people it is shown to cannot
+     * scan.
+     *
+     * So the choice still belongs here rather than in the renderer, which is the rule doing its
+     * job: a screen names a role, this file answers, and the answer for these two happens not to
+     * vary. A theme that wanted a warmer white for the margin could still have one.
+     */
+    MESH_UI_COLOR_CODE,
+    MESH_UI_COLOR_CODE_GROUND,
     MESH_UI_COLOR_COUNT
 };
 

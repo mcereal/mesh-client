@@ -16,6 +16,7 @@
 
 #include "mesh/core/message.h"
 #include "mesh/i18n/strings.h"
+#include "mesh/ui/channel_share.h"
 #include "mesh/ui/chrome.h"
 #include "mesh/ui/delivery.h"
 #include "mesh/ui/devices.h"
@@ -2899,9 +2900,22 @@ static void fb_render_confirm(struct mesh_ui_backend_fb_state *state,
     const enum mesh_ui_settings_action confirmed =
         (enum mesh_ui_settings_action)nav->confirm_action;
     char title[96];
-    mesh_ui_settings_confirm_title(section, nav->settings_channel, confirmed, title, sizeof title);
     char text[256];
-    mesh_ui_settings_confirm_text(section, confirmed, text, sizeof text);
+    /*
+     * The import sheet's words come out of the *link*, not out of the tables: what the user is
+     * agreeing to is joining a named mesh, and the name is in the characters they just typed.
+     * Asked of src/ui/channel_share.c for the reason the verification sheet asks src/ui/trust.c
+     * - parsing a link is not something a renderer may do - and the tables answer for every
+     * other sheet exactly as before.
+     */
+    if (confirmed == MESH_UI_SETTINGS_ACTION_IMPORT_CHANNELS &&
+        mesh_ui_channel_import_sheet(nav->channel_url, title, sizeof title, text, sizeof text)) {
+        /* nothing more to do: the sheet filled both */
+    } else {
+        mesh_ui_settings_confirm_title(section, nav->settings_channel, confirmed, title,
+                                       sizeof title);
+        mesh_ui_settings_confirm_text(section, confirmed, text, sizeof text);
+    }
 
     /*
      * A dialog rather than a screen. There is no title bar and no list: the question is the
@@ -2962,6 +2976,101 @@ static void fb_render_verify(struct mesh_ui_backend_fb_state *state,
         .destructive = false,
     };
     fb_draw_dialog(state, layout, &dialog);
+}
+
+/*
+ * The share sheet: this radio's channel set as a QR code, with the link written under it.
+ *
+ * Three things on one screen, and the order matters more than it looks. The code is the point
+ * and takes every pixel it can get, because how large its modules are is most of whether a
+ * phone across the table reads it. Under it goes what is in it, and under that the link itself -
+ * last, smallest, and there for the one case the code cannot serve: reading it out to somebody
+ * who will type it, or checking with the eye that the thing on screen is a Meshtastic link at
+ * all.
+ *
+ * The link is drawn dim and wrapped, and it is deliberately not cut with an ellipsis. A cut
+ * link is not a link, and somebody copying one down needs the whole of it; if the panel cannot
+ * hold every line, the lines that fit are the ones that fit, and the code above is what that
+ * reader was meant to use anyway.
+ */
+static void fb_render_share(struct mesh_ui_backend_fb_state *state,
+                            const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
+    fb_draw_app_bar(state, layout,
+                    &(const struct fb_app_bar){.title = mesh_str(MESH_STR_SHARE_TITLE)});
+
+    const char *const url = snapshot->settings.share_url;
+    char summary[96];
+    if (!mesh_ui_channel_share_summary(url, summary, sizeof summary)) {
+        /* The row that opens this screen is only offered when there is a link, so getting here
+           means the radio dropped its table between the press and this frame. */
+        fb_draw_empty(state, layout, MESH_UI_ICON_CHANNEL, mesh_str(MESH_STR_SHARE_NOTHING));
+        return;
+    }
+
+    /*
+     * The words go at the bottom of the body and the code gets everything above them, rather
+     * than the code being placed first and the words taking what is left. The code's own size
+     * steps in whole pixels per module (fb_widgets.h), so where it ends depends on how many
+     * modules this particular link came out as - and a caption whose position moved with that
+     * would sit at a different height on every radio.
+     */
+    const int text_rows = 5;
+    const int text_y = layout->footer_y - text_rows * layout->line;
+
+    /*
+     * The code is built here rather than carried on the snapshot, and that is the right place
+     * for it: it is a function of the link and of nothing else, the link is on the snapshot
+     * already, and a matrix on the store would be fourteen kilobytes copied into every frame
+     * for a screen that is open perhaps twice in the life of a radio.
+     *
+     * Kept between frames beside the link that produced it, which is the snackbar's trick and is
+     * here for a sharper reason: encoding walks the whole matrix eight times to choose a mask,
+     * and this screen repaints whenever anything else on the frame moves - a notice sliding in,
+     * the link summary in the footer changing. The link is the whole of the input, so comparing
+     * it is the whole of the cache test. Static rather than on the state because nothing else in
+     * this backend has any use for it, and because there is one thread and one frame at a time.
+     *
+     * LOW correction on purpose - see mesh/utils/qr.h. More correction would push the same link
+     * into a higher version and make every module smaller, and on a backlit panel with no print
+     * noise to recover from, module size is what decides whether a phone reads it.
+     */
+    static struct mesh_qr code;
+    static char encoded_from[MESH_UI_CHANNEL_URL_MAX];
+    if (strcmp(encoded_from, url) != 0) {
+        /* A refused encode zeroes the matrix, so the failure needs no flag of its own: a code
+           of no size is what fb_qr_side() answers 0 for. */
+        (void)mesh_qr_encode((const uint8_t *)url, strlen(url), MESH_QR_ECC_LOW, &code);
+        snprintf(encoded_from, sizeof encoded_from, "%s", url);
+    }
+    const struct fb_qr qr = {
+        .code = code.size > 0U ? &code : NULL,
+        .box = {.x = 0,
+                .y = layout->body_y,
+                .w = (int)state->var.xres,
+                .h = text_y - layout->body_y},
+    };
+    if (fb_qr_side(&qr) > 0) {
+        fb_draw_qr(state, &qr);
+    } else {
+        /* No code: say so where the code would have been. The bound is tested
+           (tests/suites/channel_share.c), so this is a frame that should not happen rather than
+           one the screen pretends cannot. */
+        (void)fb_draw_wrapped(state, layout->body_y, mesh_str(MESH_STR_SHARE_NO_CODE), layout->cols,
+                              2, fb_tone_color(state, MESH_UI_TONE_DIM),
+                              fb_color(state, MESH_UI_COLOR_BG));
+    }
+
+    int y = text_y;
+    y += fb_draw_wrapped(state, y, summary, layout->cols, 2,
+                         fb_tone_color(state, MESH_UI_TONE_NORMAL),
+                         fb_color(state, MESH_UI_COLOR_BG)) *
+         layout->line;
+    const int left = (layout->footer_y - y) / layout->line;
+    if (left > 0) {
+        (void)fb_draw_wrapped(state, y, url, layout->cols, left,
+                              fb_tone_color(state, MESH_UI_TONE_DIM),
+                              fb_color(state, MESH_UI_COLOR_BG));
+    }
 }
 
 /* Settings: the section list, or one section's label/value rows. Editable rows show a
@@ -3899,6 +4008,12 @@ void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
         fb_render_compose(state, snapshot, &layout);
     } else if (snapshot->nav.reaction_open) {
         fb_render_reactions(state, snapshot, &layout);
+    } else if (snapshot->nav.share_open) {
+        /* Under every overlay above and over the tab's own screen, the same order nav.c takes
+           the keys in: it is a level of the Settings tab raised by a row, not a question, and
+           the two things above it that a radio can raise at any moment - a pairing PIN and a key
+           verification - must not end up behind a code somebody is scanning. */
+        fb_render_share(state, snapshot, &layout);
     } else {
         switch (snapshot->nav.screen) {
         case MESH_UI_SCREEN_MESSAGES:

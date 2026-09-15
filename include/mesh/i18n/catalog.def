@@ -1255,6 +1255,7 @@ MESH_STR_ENTRY(HELP_SUBJECT_REACTION,     "Tapbacks")
 MESH_STR_ENTRY(HELP_SUBJECT_NODE,         "Node")
 MESH_STR_ENTRY(HELP_SUBJECT_WAYPOINT,     "Place")
 MESH_STR_ENTRY(HELP_SUBJECT_MAP,          "Map")
+MESH_STR_ENTRY(HELP_SUBJECT_SHARE,        "Sharing channels")
 
 /* Messages: the conversation list. */
 MESH_STR_ENTRY(HELP_LABEL_MESSAGES_NEW,   "Starting a conversation")
@@ -1363,6 +1364,18 @@ MESH_STR_ENTRY(HELP_NOTE_STATUS_FLOOR,    "How loud the channel is with nothing 
    keyed on its route rather than read off a settings row. */
 MESH_STR_ENTRY(HELP_SUBJECT_TREND,        "Airtime trend")
 MESH_STR_ENTRY(HELP_SUBJECT_NODE_CHART,   "This node's trend")
+/*
+ * The share screen. What a reader arrives here wanting is not "what is a QR code" - it is
+ * whether the key is in the picture, which it is, and that is the sentence that has to be in
+ * the first paragraph rather than the third.
+ */
+MESH_STR_ENTRY(HELP_NOTE_SHARE,           "Everything needed to join this radio's channels, as one link. Point a phone's camera or the Meshtastic app at the code; typing the link underneath it does the same thing.")
+MESH_STR_ENTRY(HELP_LABEL_SHARE_KEYS,     "It carries the keys")
+MESH_STR_ENTRY(HELP_NOTE_SHARE_KEYS,      "Anyone who reads this code can read these channels' traffic. It is as secret as the key itself: show it to the people joining, to nobody else, and never to a camera that is recording.")
+MESH_STR_ENTRY(HELP_LABEL_SHARE_WHAT,     "What is in it")
+MESH_STR_ENTRY(HELP_NOTE_SHARE_WHAT,      "The primary channel, every secondary, and this radio's LoRa settings - region, preset and the rest. Disabled slots are left out. A radio that joins gets all of it and leaves its own channels behind.")
+MESH_STR_ENTRY(HELP_LABEL_SHARE_IMPORT,   "Going the other way")
+MESH_STR_ENTRY(HELP_NOTE_SHARE_IMPORT,    "There is no camera here, so a link arriving has to be typed: \"Add from a link\" on the channel list opens the keyboard. Just the part after the # will do.")
 MESH_STR_ENTRY(HELP_LABEL_TREND_AXES,     "What the axes say")
 MESH_STR_ENTRY(HELP_LABEL_TREND_MARKS,    "Columns and lines")
 MESH_STR_ENTRY(HELP_LABEL_TREND_SPAN,     "Choosing how far back")
@@ -1881,6 +1894,30 @@ MESH_STR_ENTRY(CHANNELS_KEY_AES256,       "AES-256")
 /* A key length the firmware should never produce, kept so the row cannot lie about it. */
 MESH_STR_ENTRY(CHANNELS_KEY_ODD,          "odd key")
 
+/*
+ * Channel sharing: the Meshtastic link, which is how the phone apps hand a mesh to a group.
+ *
+ * Two rows at the foot of the channel list and the screen one of them opens. "Scan" is the
+ * word to keep in the share screen's text: what the reader does is point a phone at the panel,
+ * and the QR code is the only part of this that needs no explanation at all.
+ */
+MESH_STR_ENTRY(CHANNELS_SHARE_ROW,        "Share these channels")
+MESH_STR_ENTRY(CHANNELS_IMPORT_ROW,       "Add from a link")
+MESH_STR_ENTRY(SHARE_TITLE,               "Share channels")
+/* Under the code. Says what is in it and what to do with it, in that order. */
+MESH_STR_PLURAL_ENTRY(SHARE_SUMMARY,      "%u channel. Scan it with the Meshtastic app to join.", "%u channels. Scan them with the Meshtastic app to join.")
+/* The radio has not sent its channel table, or has sent one with no primary in it. */
+MESH_STR_ENTRY(SHARE_NOTHING,             "Nothing to share yet: this radio has not sent its channels.")
+/* A link too long for the largest code this client draws. Not reachable with eight slots and
+   256-bit keys, and said rather than drawn as an empty square if it ever is. */
+MESH_STR_ENTRY(SHARE_NO_CODE,             "Too long to show as a code. The link itself still works.")
+/* The keyboard that collects one. */
+MESH_STR_ENTRY(IMPORT_PROMPT,             "Channel link")
+/* A channel whose name is the empty string, which upstream reads as "the preset's default
+   channel" rather than as a channel with no name. Named here so a sheet asking whether to join
+   one has something to put in its headline. */
+MESH_STR_ENTRY(CHANNELS_DEFAULT_NAME,     "the default channel")
+
 /* Section headings inside a module's own screen. */
 /* Position: the ten bits of position_flags, which are a set rather than ten settings - so the
    heading names what the set is about and the rows under it are checkboxes. */
@@ -2072,6 +2109,7 @@ MESH_STR_ENTRY(CONFIRM_ACCEPT_HAM_MODE,   "Switch to ham mode")
 MESH_STR_ENTRY(CONFIRM_ACCEPT_FW_USB,     "Update over USB")
 MESH_STR_ENTRY(CONFIRM_ACCEPT_FW_BLE,     "Update over Bluetooth")
 MESH_STR_ENTRY(CONFIRM_ACCEPT_SAVE,       "Save to radio")
+MESH_STR_ENTRY(CONFIRM_ACCEPT_IMPORT,     "Join")
 
 /*
  * The paragraph under it. Four wrapped lines is what the sheet draws, so each of these has to
@@ -2106,6 +2144,12 @@ MESH_STR_ENTRY(CONFIRM_TEXT_HAM_MODE,     "Renames this node to your call sign, 
 MESH_STR_ENTRY(CONFIRM_TEXT_FW_USB,       "The image downloads, then the radio restarts into its bootloader and the blocks are written over the cable. Keep it plugged in: an interrupted write leaves the bootloader running and is retried by writing again.")
 MESH_STR_ENTRY(CONFIRM_TEXT_FW_BLE,       "The image downloads, then the radio leaves the mesh and reboots into its update loader. There is no way back out of that loader except finishing, which takes about four minutes. Keep the Brick near the radio until it does.")
 MESH_STR_ENTRY(CONFIRM_TEXT_DEFAULT,      "The radio will reboot to apply this.")
+/*
+ * Joining a link. The headline names the mesh being joined, because that is the fact the user
+ * is agreeing to and a channel's name is the only part of a link a person can read.
+ */
+MESH_STR_ENTRY(CONFIRM_TITLE_IMPORT,      "Join %s?")
+MESH_STR_PLURAL_ENTRY(CONFIRM_TEXT_IMPORT, "The link carries %u channel and this radio's LoRa settings. It replaces every channel on this radio and the radio will reboot; nodes on the old channels can no longer reach it.", "The link carries %u channels and this radio's LoRa settings. They replace every channel on this radio and the radio will reboot; nodes on the old channels can no longer reach it.")
 
 /* ---- transport status ------------------------------------------------------------------------- */
 
@@ -2309,6 +2353,12 @@ MESH_STR_ENTRY(TOAST_HISTORY_RUNNING,     "Already asking; the messages arrive a
 MESH_STR_ENTRY(TOAST_HISTORY_FAILED,      "Could not ask for the missed messages (%d)")
 /* Dropping cached nodes. */
 MESH_STR_PLURAL_ENTRY(TOAST_FORGOT_NODES, "Forgot %d node; pins kept", "Forgot %d nodes; pins kept")
+/* Channel sharing. The refusal says which of the two things went wrong, because "that is not a
+   link" and "there is no radio to put it on" are fixed in different places. */
+MESH_STR_ENTRY(TOAST_IMPORT_NOT_A_LINK,   "Not a Meshtastic channel link")
+MESH_STR_PLURAL_ENTRY(TOAST_IMPORT_QUEUED, "Joining: %u channel being written", "Joining: %u channels being written")
+MESH_STR_ENTRY(TOAST_IMPORT_FAILED,       "Could not write the channels to the radio")
+MESH_STR_ENTRY(TOAST_IMPORT_NO_CHANGE,    "This radio is already on those channels")
 MESH_STR_ENTRY(TOAST_NOTHING_CACHED,      "Nothing cached to forget")
 MESH_STR_ENTRY(TOAST_ALL_ON_RADIO,        "Every cached node is on the radio")
 MESH_STR_ENTRY(TOAST_FORGET_FAILED,       "Forget failed (%d)")

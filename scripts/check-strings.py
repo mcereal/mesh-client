@@ -30,6 +30,7 @@ ROOT = Path(__file__).resolve().parent.parent
 # script would only be able to tell apart from prose with a very long ALLOWED list.
 CHECKED = [
     "src/ui/actions.c",
+    "src/ui/channel_share.c",
     "src/ui/chrome.c",
     "src/ui/help.c",
     "src/ui/layout.c",

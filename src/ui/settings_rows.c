@@ -1233,6 +1233,30 @@ static void build_channels(const struct mesh_ui_settings *s,
         item_str(list, MESH_STR_SETTINGS_CHANNELS_ROW, MESH_UI_SETTING_INFO,
                  MESH_STR_CHANNELS_NONE_KNOWN);
     }
+
+    /*
+     * Sharing, under the slots, and both rows wait for the same moment: the radio having
+     * finished answering for every slot and for its LoRa config (`channels_settled`, which is
+     * mesh_channel_share_settled() published).
+     *
+     * `has_channels` would be the obvious condition and is the wrong one - it is true from the
+     * *first* channel reply, and neither row can keep its promise against a table that is still
+     * arriving. A code built then is missing the secondaries that have not landed; an import
+     * then reads every unseen slot as free and writes over one.
+     *
+     * One condition for both rather than one each, so they appear together: two conditions a
+     * reply apart would put the import row on screen and then push it down when the share row
+     * arrived under the user's cursor. The share row needs the extra half - there has to be a
+     * link, which a radio with no primary does not have - and that is what the empty test is.
+     */
+    if (s->channels_settled) {
+        if (s->share_url[0] != '\0') {
+            item_action(list, MESH_STR_CHANNELS_SHARE_ROW, mesh_str(MESH_STR_COMMON_PRESS_A),
+                        MESH_UI_SETTINGS_ACTION_SHARE_CHANNELS);
+        }
+        item_action(list, MESH_STR_CHANNELS_IMPORT_ROW, mesh_str(MESH_STR_COMMON_PRESS_A),
+                    MESH_UI_SETTINGS_ACTION_IMPORT_CHANNELS);
+    }
 }
 
 /* One channel's rows. The primary slot's role is shown but not offered: a mesh with two
@@ -1265,7 +1289,10 @@ int mesh_ui_settings_channel_at_row(const struct mesh_ui_settings *settings,
         item.kind != MESH_UI_SETTING_ACTION) {
         return -1;
     }
-    return (int)item.number;
+    /* The two sharing rows at the foot of the list are ACTION rows too, and carry an
+       enum mesh_ui_settings_action rather than a slot. A slot is 0 to 7 and nothing else, which
+       is the invariant that keeps one kind of row from being read as the other. */
+    return item.number < MESH_UI_MAX_CHANNELS ? (int)item.number : -1;
 }
 
 static void build_security(const struct mesh_ui_settings *s, struct item_list *list) {

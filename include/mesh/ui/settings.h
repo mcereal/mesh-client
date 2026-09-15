@@ -616,6 +616,18 @@ enum mesh_ui_settings_action {
      */
     MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB,
     MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE,
+    /*
+     * Channel sharing, at the foot of the Channels list: this radio's set as a link, and a
+     * link typed in.
+     *
+     * Neither is a radio action. Sharing touches nothing at all - it opens a screen with a QR
+     * code on it - and importing does not reach the radio on this press either: it opens the
+     * keyboard, and what the radio hears about is whatever comes back from the sheet in front
+     * of *that*. So they are rows the nav answers itself rather than verbs the app is handed,
+     * which is why neither appears in mesh_ui_settings_action_is_radio().
+     */
+    MESH_UI_SETTINGS_ACTION_SHARE_CHANNELS,
+    MESH_UI_SETTINGS_ACTION_IMPORT_CHANNELS,
 };
 
 /* Which press writes this field (mesh/ui/nav.h). */
