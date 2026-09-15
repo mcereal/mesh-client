@@ -29,16 +29,16 @@ config
 tab settings
 hold 500
 
-# Into Channels. The slots first, then the two rows this change adds.
+# Into Channels: eight slots, which is what a finished sync looks like - the firmware answers
+# for every index, disabled ones included. The two rows this change adds are under them.
 key down 11
 key a
 hold 1200
-key down 2
-hold 1600
+key down 8
+hold 1800
 
 # The code. Everything needed to join this radio - both channels, their keys, and the LoRa
 # settings - as one square somebody points a phone at.
-key down
 key a
 hold 2600
 

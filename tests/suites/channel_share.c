@@ -21,12 +21,12 @@
 
 #include "mesh/core/channel_share.h"
 #include "mesh/proto/channel_url.h"
+#include "mesh/ui/channel_share.h"
 #include "mesh/ui/settings.h"
+#include "mesh/ui/store.h"
 #include "mesh/utils/base64.h"
 #include "mesh/utils/qr.h"
 #include "mesh/utils/sha256.h"
-#include "mesh/ui/channel_share.h"
-#include "mesh/ui/store.h"
 #include "support/ui_fixture.h"
 
 #include <stdio.h>
@@ -40,7 +40,8 @@ MESH_TEST_CASE(base64_round_trips_both_alphabets, unit) {
     const uint8_t bytes[] = {0xFBU, 0xF0U, 0x00U, 0x01U, 0x02U};
     char standard[32];
     char url[32];
-    MESH_TEST_FAIL_IF(mesh_base64_encode(bytes, sizeof bytes, false, standard, sizeof standard) == 0U,
+    MESH_TEST_FAIL_IF(mesh_base64_encode(bytes, sizeof bytes, false, standard, sizeof standard) ==
+                          0U,
                       "the standard encoding did not fit");
     MESH_TEST_FAIL_IF(mesh_base64_encode(bytes, sizeof bytes, true, url, sizeof url) == 0U,
                       "the URL-safe encoding did not fit");
@@ -50,14 +51,14 @@ MESH_TEST_CASE(base64_round_trips_both_alphabets, unit) {
     /* Either spelling decodes, whichever was asked for, and padding is optional in ANY. */
     uint8_t out[8];
     size_t len = 0U;
-    MESH_TEST_FAIL_IF(!mesh_base64_decode(standard, strlen(standard), MESH_BASE64_ANY, out,
-                                          sizeof out, &len) ||
-                          len != sizeof bytes || memcmp(out, bytes, len) != 0,
-                      "the standard encoding did not decode back");
-    MESH_TEST_FAIL_IF(!mesh_base64_decode(url, strlen(url), MESH_BASE64_ANY, out, sizeof out,
-                                          &len) ||
-                          len != sizeof bytes || memcmp(out, bytes, len) != 0,
-                      "the URL-safe encoding did not decode back");
+    MESH_TEST_FAIL_IF(
+        !mesh_base64_decode(standard, strlen(standard), MESH_BASE64_ANY, out, sizeof out, &len) ||
+            len != sizeof bytes || memcmp(out, bytes, len) != 0,
+        "the standard encoding did not decode back");
+    MESH_TEST_FAIL_IF(
+        !mesh_base64_decode(url, strlen(url), MESH_BASE64_ANY, out, sizeof out, &len) ||
+            len != sizeof bytes || memcmp(out, bytes, len) != 0,
+        "the URL-safe encoding did not decode back");
 
     /* An output buffer one byte short refuses rather than writing what fits. */
     MESH_TEST_FAIL_IF(mesh_base64_encode(bytes, sizeof bytes, false, standard, 8U) != 0U,
@@ -142,8 +143,9 @@ static bool qr_finder_at(const struct mesh_qr *qr, int ox, int oy) {
 MESH_TEST_CASE(qr_structure_is_a_qr_code, unit) {
     static const char k_text[] = MESH_CHANNEL_URL_PREFIX "CgkSAQEqA0FRSQ";
     struct mesh_qr qr;
-    MESH_TEST_FAIL_IF(!mesh_qr_encode((const uint8_t *)k_text, strlen(k_text), MESH_QR_ECC_LOW, &qr),
-                      "a channel-sized URL did not encode");
+    MESH_TEST_FAIL_IF(
+        !mesh_qr_encode((const uint8_t *)k_text, strlen(k_text), MESH_QR_ECC_LOW, &qr),
+        "a channel-sized URL did not encode");
 
     /* 21 + 4*(version - 1), so a size outside that series is not a QR code at all. */
     MESH_TEST_FAIL_IF(qr.size < 21U || qr.size > MESH_QR_MAX_SIZE || (qr.size - 17U) % 4U != 0U,
@@ -345,9 +347,21 @@ static void set_slot(struct mesh_radio_settings *settings, size_t slot, const ch
     fill_channel(&settings->channels[slot].settings, name, key);
 }
 
-/* A radio with a primary, one secondary and a LoRa config - the shape a share is built from. */
+/*
+ * A radio that has *finished* answering: a primary, one secondary, the six disabled slots after
+ * them, and a LoRa config.
+ *
+ * All eight slots rather than the two that carry anything, because that is what the end of a
+ * sync looks like - the client asks for every index and the firmware answers for every index,
+ * disabled ones included. A fixture that set only the two would be a radio frozen half way
+ * through its handshake, which is the state channel_share_waits_for_the_whole_table() is about
+ * and the state nothing else here means to test.
+ */
 static void seed_radio(struct mesh_radio_settings *settings) {
     mesh_radio_settings_reset(settings);
+    for (size_t slot = 0; slot < MESH_RADIO_SETTINGS_MAX_CHANNELS; ++slot) {
+        set_slot(settings, slot, "", 0U, meshtastic_Channel_Role_DISABLED);
+    }
     set_slot(settings, 0U, "LongFast", 1U, meshtastic_Channel_Role_PRIMARY);
     set_slot(settings, 1U, "Trail", 2U, meshtastic_Channel_Role_SECONDARY);
     settings->has_lora = true;
@@ -426,6 +440,11 @@ MESH_TEST_CASE(channel_import_replaces_the_table, unit) {
     MESH_TEST_FAIL_IF(!mesh_channel_import_plan(&same, &mine, false, &plan), "the plan refused");
     MESH_TEST_FAIL_IF(plan.writes != 0U, "re-importing this radio's own set planned writes");
     MESH_TEST_FAIL_IF(plan.replaces_primary, "re-importing its own set claimed a new primary");
+    MESH_TEST_FAIL_IF(plan.writes_lora,
+                      "re-importing this radio's own set planned a LoRa write, which is the "
+                      "reboot the no-op is supposed to avoid");
+    MESH_TEST_FAIL_IF(mesh_channel_share_queue_import(&same, &mine, false) != 0,
+                      "re-importing this radio's own set queued something");
     record_success(test_name);
 }
 
@@ -459,6 +478,68 @@ MESH_TEST_CASE(channel_import_add_keeps_what_is_there, unit) {
     MESH_TEST_FAIL_IF(!mesh_channel_import_plan(&full, &set, true, &plan), "the plan refused");
     MESH_TEST_FAIL_IF(!plan.full, "a full channel table was not reported");
     MESH_TEST_FAIL_IF(plan.writes != 0U, "a full channel table planned a write anyway");
+    record_success(test_name);
+}
+
+/*
+ * A channel table that is still arriving is not a channel table.
+ *
+ * The slots come back one admin reply at a time, so for the first few seconds of every connect
+ * the radio has told us about some of them and not the others - and "not arrived" is
+ * indistinguishable from "disabled" to anything reading the array. Both directions get that
+ * wrong in a way the user pays for:
+ *
+ *   - Sharing half a set is a QR code that joins somebody to a mesh missing its secondaries,
+ *     and without the LoRa config it joins them on the *default* modem settings, where they
+ *     hear nothing at all. That failure looks exactly like a mistyped key.
+ *   - Importing against half a table treats every unseen slot as free: an add lands on top of a
+ *     secondary that had not arrived, and a replace leaves an old channel enabled beside the
+ *     new set.
+ *
+ * So both halves wait for the whole table and the LoRa config, and this is the case that says
+ * so. It is a *timing* bug, which is the kind a test has to be written for deliberately: every
+ * other case here starts from a radio that has finished answering.
+ */
+MESH_TEST_CASE(channel_share_waits_for_the_whole_table, unit) {
+    struct mesh_radio_settings settings;
+    seed_radio(&settings);
+    /* seed_radio() leaves a complete radio; take one slot back out to make it mid-sync. */
+    settings.has_channel[5] = false;
+
+    meshtastic_ChannelSet set;
+    char url[MESH_CHANNEL_URL_MAX];
+    MESH_TEST_FAIL_IF(mesh_channel_share_build(&settings, &set) != 0U,
+                      "a half-arrived table produced a set to share");
+    MESH_TEST_FAIL_IF(mesh_channel_share_url(&settings, url, sizeof url) != 0U || url[0] != '\0',
+                      "a half-arrived table produced a link");
+
+    /* And the same for the LoRa config, which decides whether a joiner can hear the mesh at
+       all: a link without it is worse than no link. */
+    struct mesh_radio_settings no_lora;
+    seed_radio(&no_lora);
+    no_lora.has_lora = false;
+    MESH_TEST_FAIL_IF(mesh_channel_share_build(&no_lora, &set) != 0U,
+                      "a radio that has not sent its LoRa config produced a set to share");
+
+    /* Importing is refused for the same reason from the other side: an unseen slot reads as a
+       free one, so an add would land on top of a channel and a replace would leave one on. */
+    meshtastic_ChannelSet theirs = meshtastic_ChannelSet_init_zero;
+    fill_channel(&theirs.settings[0], "Rally", 9U);
+    theirs.settings_count = 1U;
+    struct mesh_channel_import_plan plan;
+    MESH_TEST_FAIL_IF(mesh_channel_import_plan(&settings, &theirs, false, &plan),
+                      "a half-arrived table was planned against");
+    MESH_TEST_FAIL_IF(mesh_channel_share_queue_import(&settings, &theirs, false) >= 0,
+                      "a half-arrived table was written to");
+    MESH_TEST_FAIL_IF(mesh_channel_share_queue_import(&settings, &theirs, true) >= 0,
+                      "a half-arrived table was added to");
+
+    /* The slot arriving is what opens both halves. */
+    settings.has_channel[5] = true;
+    MESH_TEST_FAIL_IF(mesh_channel_share_build(&settings, &set) == 0U,
+                      "the complete table did not produce a set");
+    MESH_TEST_FAIL_IF(!mesh_channel_import_plan(&settings, &theirs, false, &plan),
+                      "the complete table was not planned against");
     record_success(test_name);
 }
 
@@ -502,6 +583,8 @@ MESH_TEST_CASE(channel_share_rows_drive_the_two_screens, unit) {
     memset(&settings, 0, sizeof settings);
     settings.loaded = true;
     settings.has_channels = true;
+    /* The radio has finished answering, which is what both sharing rows wait for. */
+    settings.channels_settled = true;
     settings.channels[0].present = true;
     settings.channels[0].role = 1U;
     settings.channels[0].psk_len = 1U;
@@ -522,6 +605,20 @@ MESH_TEST_CASE(channel_share_rows_drive_the_two_screens, unit) {
     if (mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS) != 3U) {
         failure = "a radio with a link should offer both sharing rows";
         goto cleanup;
+    }
+    /*
+     * And neither of them before the radio has finished answering, which is the window both
+     * rows would otherwise be wrong in - `has_channels` is true from the first channel reply.
+     */
+    {
+        struct mesh_ui_settings syncing = settings;
+        syncing.channels_settled = false;
+        mesh_ui_store_set_settings(&store, &syncing);
+        if (mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS) != 1U) {
+            failure = "a table that is still arriving should offer neither sharing row";
+            goto cleanup;
+        }
+        mesh_ui_store_set_settings(&store, &settings);
     }
 
     /* ---- share: a row that opens a picture and nothing else ---- */

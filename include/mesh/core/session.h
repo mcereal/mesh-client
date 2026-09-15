@@ -619,8 +619,8 @@ int mesh_session_write_settings(struct mesh_session *session,
  * not exist. `add` is the link's own `?add=true` - keep this radio's channels and add these.
  *
  * Returns the number of admin requests queued, 0 when the radio is already on that set,
- * -ENOTCONN before the handshake has my_info, -EINVAL for an empty set or a radio whose channel
- * table has not arrived, -ENOSPC when the queue cannot take it.
+ * -ENOTCONN before the handshake has my_info, -EINVAL for an empty set or a radio that has not
+ * finished answering for its channels, -ENOSPC when the queue cannot take it.
  */
 int mesh_session_import_channels(struct mesh_session *session, const meshtastic_ChannelSet *set,
                                  bool add);

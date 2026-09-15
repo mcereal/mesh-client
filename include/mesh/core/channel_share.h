@@ -27,9 +27,21 @@ extern "C" {
 #endif
 
 /*
+ * Whether the radio has finished telling us what it is on: every channel slot answered for, and
+ * the LoRa config with them.
+ *
+ * The gate on both directions, asked separately because the *screens* need it too - a row that
+ * offers to share or import against a table that is still arriving is a row that cannot keep
+ * its promise. A channel table comes back one admin reply at a time, and an array cannot tell
+ * "has not arrived" from "disabled": sharing then is a code missing its secondaries, and
+ * importing then treats every unseen slot as free. See the definition for what each costs.
+ */
+bool mesh_channel_share_settled(const struct mesh_radio_settings *settings);
+
+/*
  * Builds the set this radio is on: its primary first, then every secondary, then its LoRa
- * config. Returns how many channels went in, 0 when the radio's table has not arrived or holds
- * no primary.
+ * config. Returns how many channels went in, 0 when the radio has not finished answering
+ * (mesh_channel_share_settled) or holds no primary.
  *
  * Disabled slots are dropped rather than carried as holes, which is what `ChannelSet` means by
  * "the most compact possible representation" - and what a reader joining will expect, since a
@@ -51,11 +63,11 @@ size_t mesh_channel_share_url(const struct mesh_radio_settings *settings, char *
  * by the code that will do the writing, rather than guessed at twice.
  */
 struct mesh_channel_import_plan {
-    size_t writes;          /* channel slots that would be written */
-    bool replaces_primary;  /* the radio's primary channel would change */
-    bool writes_lora;       /* the set carries a LoRa config and it differs from this radio's */
-    bool full;              /* channels had to be dropped: the set is wider than the table */
-    size_t channels;        /* channels in the set, dropped ones included */
+    size_t writes;         /* channel slots that would be written */
+    bool replaces_primary; /* the radio's primary channel would change */
+    bool writes_lora;      /* the set carries a LoRa config and it differs from this radio's */
+    bool full;             /* channels had to be dropped: the set is wider than the table */
+    size_t channels;       /* channels in the set, dropped ones included */
 };
 
 /*
@@ -66,8 +78,9 @@ struct mesh_channel_import_plan {
  * the table - its first channel becomes the primary, the rest become secondaries in order, and
  * any slot past them that is in use is disabled.
  *
- * Returns false only on a NULL argument or a radio whose channel table has not arrived; a plan
- * with `writes` of 0 is a legitimate answer meaning this radio is already on that set.
+ * Returns false only on a NULL argument or a radio that has not finished answering
+ * (mesh_channel_share_settled); a plan with `writes` of 0 and `writes_lora` false is a
+ * legitimate answer meaning this radio is already on that set.
  */
 bool mesh_channel_import_plan(const struct mesh_radio_settings *settings,
                               const meshtastic_ChannelSet *set, bool add,
@@ -81,9 +94,9 @@ bool mesh_channel_import_plan(const struct mesh_radio_settings *settings,
  * the conversation goes last, and the channels are already in flash by the time it lands.
  *
  * Returns the number of requests queued, 0 when there was nothing to do, or a negative errno:
- * -EINVAL for a NULL argument or a table that has not arrived, -ENOSPC when the queue cannot
- * take the whole import. Nothing is queued in the -ENOSPC case: half an imported channel set is
- * a radio on a mesh that does not exist.
+ * -EINVAL for a NULL argument or a radio that has not finished answering, -ENOSPC when the
+ * queue cannot take the whole import. Nothing is queued in the -ENOSPC case: half an imported
+ * channel set is a radio on a mesh that does not exist.
  */
 int mesh_channel_share_queue_import(struct mesh_radio_settings *settings,
                                     const meshtastic_ChannelSet *set, bool add);

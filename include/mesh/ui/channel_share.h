@@ -43,8 +43,8 @@ bool mesh_ui_channel_link_valid(const char *text);
  * part of a link a person can read, and it is what they will have been told to look for. False
  * when the text is not a link, which the caller draws as a refusal rather than an empty panel.
  */
-bool mesh_ui_channel_import_sheet(const char *text, char *headline, size_t headline_len,
-                                  char *body, size_t body_len);
+bool mesh_ui_channel_import_sheet(const char *text, char *headline, size_t headline_len, char *body,
+                                  size_t body_len);
 
 #ifdef __cplusplus
 }

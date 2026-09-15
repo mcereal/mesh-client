@@ -1368,8 +1368,9 @@ static void mesh_app_flatten_settings(const struct mesh_radio_settings *src,
     }
     /* The whole set as one link, for the Share screen's QR code. Built here rather than from
        the rows above for the reason store_settings.h gives: the link carries the radio's own
-       LoRaConfig bytes, and the rows are this client's reading of them. Empty until the channel
-       table has arrived with a primary in it. */
+       LoRaConfig bytes, and the rows are this client's reading of them. Empty until the radio
+       has finished answering and has a primary in what it answered. */
+    dst->channels_settled = mesh_channel_share_settled(src);
     (void)mesh_channel_share_url(src, dst->share_url, sizeof dst->share_url);
 
     if (src->has_ui_config) {

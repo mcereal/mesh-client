@@ -37,8 +37,8 @@ bool mesh_ui_channel_share_summary(const char *url, char *out, size_t out_len) {
     if (url == NULL || url[0] == '\0' || !mesh_channel_url_decode(url, &set, NULL)) {
         return false;
     }
-    mesh_str_format_plural(out, out_len, MESH_STR_SHARE_SUMMARY_ONE,
-                           (uint32_t)set.settings_count, (unsigned)set.settings_count);
+    mesh_str_format_plural(out, out_len, MESH_STR_SHARE_SUMMARY_ONE, (uint32_t)set.settings_count,
+                           (unsigned)set.settings_count);
     return true;
 }
 

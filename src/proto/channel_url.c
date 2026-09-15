@@ -44,9 +44,8 @@ size_t mesh_channel_url_encode(const meshtastic_ChannelSet *set, bool add, char 
         return 0U;
     }
     memcpy(out, MESH_CHANNEL_URL_PREFIX, prefix_len);
-    const size_t payload =
-        mesh_base64_encode(encoded, stream.bytes_written, true, out + prefix_len,
-                           out_len - prefix_len);
+    const size_t payload = mesh_base64_encode(encoded, stream.bytes_written, true, out + prefix_len,
+                                              out_len - prefix_len);
     if (payload == 0U) {
         out[0] = '\0';
         return 0U;

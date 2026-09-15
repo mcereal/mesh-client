@@ -1235,19 +1235,25 @@ static void build_channels(const struct mesh_ui_settings *s,
     }
 
     /*
-     * Sharing, under the slots.
+     * Sharing, under the slots, and both rows wait for the same moment: the radio having
+     * finished answering for every slot and for its LoRa config (`channels_settled`, which is
+     * mesh_channel_share_settled() published).
      *
-     * The share row appears only when there is a link to show, which is what `share_url` being
-     * non-empty means: the radio's table has arrived and has a primary in it. The import row
-     * appears whenever the full table is held, because that is what an import needs to write
-     * back - a link typed against a table this client has only the handshake summary of would
-     * be a write built on a guess about the slots it is overwriting.
+     * `has_channels` would be the obvious condition and is the wrong one - it is true from the
+     * *first* channel reply, and neither row can keep its promise against a table that is still
+     * arriving. A code built then is missing the secondaries that have not landed; an import
+     * then reads every unseen slot as free and writes over one.
+     *
+     * One condition for both rather than one each, so they appear together: two conditions a
+     * reply apart would put the import row on screen and then push it down when the share row
+     * arrived under the user's cursor. The share row needs the extra half - there has to be a
+     * link, which a radio with no primary does not have - and that is what the empty test is.
      */
-    if (s->share_url[0] != '\0') {
-        item_action(list, MESH_STR_CHANNELS_SHARE_ROW, mesh_str(MESH_STR_COMMON_PRESS_A),
-                    MESH_UI_SETTINGS_ACTION_SHARE_CHANNELS);
-    }
-    if (s->has_channels) {
+    if (s->channels_settled) {
+        if (s->share_url[0] != '\0') {
+            item_action(list, MESH_STR_CHANNELS_SHARE_ROW, mesh_str(MESH_STR_COMMON_PRESS_A),
+                        MESH_UI_SETTINGS_ACTION_SHARE_CHANNELS);
+        }
         item_action(list, MESH_STR_CHANNELS_IMPORT_ROW, mesh_str(MESH_STR_COMMON_PRESS_A),
                     MESH_UI_SETTINGS_ACTION_IMPORT_CHANNELS);
     }

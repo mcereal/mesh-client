@@ -381,6 +381,8 @@ MESH_TEST_CASE(ui_nav_channel_edit, unit) {
     memset(&settings, 0, sizeof settings);
     settings.loaded = true;
     settings.has_channels = true;
+    /* Every slot answered for, which is what the import row waits on. */
+    settings.channels_settled = true;
     settings.channels[0].present = true;
     settings.channels[0].role = 1U;
     settings.channels[0].psk_len = 1U;

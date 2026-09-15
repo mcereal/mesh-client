@@ -7,6 +7,7 @@
 #include "mesh/proto/channel_url.h"
 
 #include <errno.h>
+#include <pb_encode.h>
 #include <string.h>
 
 /*
@@ -30,10 +31,70 @@ static bool channel_matches(const meshtastic_Channel *have, const meshtastic_Cha
            memcmp(have->settings.psk.bytes, want->psk.bytes, want->psk.size) == 0;
 }
 
-/* True when the slot is holding nothing: never sent, or sent as disabled. */
+/* True when the slot is holding nothing. Only ever asked of a settled table - see
+   table_settled() for why "has not arrived" must not reach this question. */
 static bool slot_is_free(const struct mesh_radio_settings *settings, size_t slot) {
-    return !settings->has_channel[slot] ||
-           settings->channels[slot].role == meshtastic_Channel_Role_DISABLED;
+    return settings->channels[slot].role == meshtastic_Channel_Role_DISABLED;
+}
+
+/*
+ * Whether the radio has finished telling us what it is on.
+ *
+ * The gate on both directions, and the reason is that a channel table arrives one admin reply
+ * at a time: for the first seconds of every connect some slots are here and the rest are not,
+ * and *an array cannot tell "not arrived" from "disabled"*. Everything below would read the
+ * second where the first is true.
+ *
+ * Both halves pay for that, differently. Sharing half a set is a QR code that joins somebody to
+ * a mesh missing its secondaries - and without the LoRa config, on the *default* modem settings,
+ * where they hear nothing at all and it looks exactly like a mistyped key. Importing against
+ * half a table treats every unseen slot as free: an add lands on top of a secondary that had not
+ * arrived yet, and a replace leaves an old channel enabled beside the new set.
+ *
+ * The LoRa config is part of the question rather than a separate one because it is part of what
+ * a link carries and the part a joiner cannot do without. A radio that has answered for eight
+ * slots and not for its modem has not finished answering.
+ */
+static bool table_settled(const struct mesh_radio_settings *settings) {
+    if (!settings->has_lora) {
+        return false;
+    }
+    for (size_t slot = 0; slot < MESH_RADIO_SETTINGS_MAX_CHANNELS; ++slot) {
+        if (!settings->has_channel[slot]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool mesh_channel_share_settled(const struct mesh_radio_settings *settings) {
+    return settings != NULL && table_settled(settings);
+}
+
+/*
+ * Whether two LoRa configurations are the same, by encoding both and comparing the bytes.
+ *
+ * Field by field would be the obvious way and is the one that rots: LoRaConfig has eighteen
+ * fields today, a firmware release adds a nineteenth, and a comparison that has not heard about
+ * it quietly answers "same" for two radios that differ. nanopb writes fields in tag order and
+ * omits nothing it was given, so two configs that encode identically are identical - and a new
+ * field is carried by the comparison the day the protobuf is regenerated.
+ *
+ * An encode that does not fit answers "different", which costs a write nobody needed rather
+ * than skipping one somebody did.
+ */
+static bool lora_config_same(const meshtastic_Config_LoRaConfig *a,
+                             const meshtastic_Config_LoRaConfig *b) {
+    uint8_t left[meshtastic_Config_LoRaConfig_size];
+    uint8_t right[meshtastic_Config_LoRaConfig_size];
+    pb_ostream_t left_stream = pb_ostream_from_buffer(left, sizeof left);
+    pb_ostream_t right_stream = pb_ostream_from_buffer(right, sizeof right);
+    if (!pb_encode(&left_stream, meshtastic_Config_LoRaConfig_fields, a) ||
+        !pb_encode(&right_stream, meshtastic_Config_LoRaConfig_fields, b)) {
+        return false;
+    }
+    return left_stream.bytes_written == right_stream.bytes_written &&
+           memcmp(left, right, left_stream.bytes_written) == 0;
 }
 
 size_t mesh_channel_share_build(const struct mesh_radio_settings *settings,
@@ -43,12 +104,15 @@ size_t mesh_channel_share_build(const struct mesh_radio_settings *settings,
     }
     *out = (meshtastic_ChannelSet)meshtastic_ChannelSet_init_zero;
 
+    /* Nothing is shareable until the radio has finished answering: see table_settled(). */
+    if (!table_settled(settings)) {
+        return 0U;
+    }
     /*
      * The primary first, and there is nothing to share without one: a ChannelSet whose first
-     * entry is a secondary is a set every reader would join under the wrong role, and the radio
-     * has told us nothing yet if slot 0 has not arrived.
+     * entry is a secondary is a set every reader would join under the wrong role.
      */
-    if (!settings->has_channel[0] || !settings->channels[0].has_settings ||
+    if (!settings->channels[0].has_settings ||
         settings->channels[0].role != meshtastic_Channel_Role_PRIMARY) {
         return 0U;
     }
@@ -63,11 +127,10 @@ size_t mesh_channel_share_build(const struct mesh_radio_settings *settings,
     }
 
     /* Without the LoRa config a reader joins the right channels on the wrong radio settings and
-       hears nothing, which looks exactly like a mistyped key. */
-    if (settings->has_lora) {
-        out->has_lora_config = true;
-        out->lora_config = settings->lora;
-    }
+       hears nothing, which looks exactly like a mistyped key. table_settled() is what makes it
+       present rather than hoped for. */
+    out->has_lora_config = true;
+    out->lora_config = settings->lora;
     return out->settings_count;
 }
 
@@ -90,9 +153,9 @@ size_t mesh_channel_share_url(const struct mesh_radio_settings *settings, char *
  * have to be the same answer: a sheet that says "two channels" in front of a write that moves
  * three is worse than no sheet. `queue` NULL is the dry run.
  */
-static int import_walk(const struct mesh_radio_settings *settings,
-                       const meshtastic_ChannelSet *set, bool add,
-                       struct mesh_channel_import_plan *plan, struct mesh_radio_settings *queue) {
+static int import_walk(const struct mesh_radio_settings *settings, const meshtastic_ChannelSet *set,
+                       bool add, struct mesh_channel_import_plan *plan,
+                       struct mesh_radio_settings *queue) {
     struct mesh_admin_request writes[MESH_RADIO_SETTINGS_MAX_CHANNELS + 1U];
     size_t count = 0U;
 
@@ -183,11 +246,19 @@ static int import_walk(const struct mesh_radio_settings *settings,
     plan->writes = count;
 
     /*
-     * The LoRa config, and only when the set is replacing the table. An add is somebody handing
-     * over one more channel on a mesh this radio is already on; taking their region and modem
-     * preset with it would move the radio off every channel it already had.
+     * The LoRa config: only when the set is replacing the table, and only when it says something
+     * different from what the radio is running.
+     *
+     * The first half is because an add is somebody handing over one more channel on a mesh this
+     * radio is already on; taking their region and modem preset with it would move the radio off
+     * every channel it already had.
+     *
+     * The second is what makes re-importing a link the radio is already on the no-op this
+     * module promises. Without it, every link generated by this client - which always carries a
+     * LoRa config - queued a write, and a LoRa write is the one that makes the firmware reboot:
+     * scanning your own code twice would have cost the mesh a restart for nothing.
      */
-    if (!add && set->has_lora_config) {
+    if (!add && set->has_lora_config && !lora_config_same(&set->lora_config, &settings->lora)) {
         plan->writes_lora = true;
         struct mesh_admin_request *write = &writes[count++];
         memset(write, 0, sizeof *write);
@@ -227,7 +298,7 @@ bool mesh_channel_import_plan(const struct mesh_radio_settings *settings,
     if (settings == NULL || set == NULL || out == NULL || set->settings_count == 0U) {
         return false;
     }
-    if (!mesh_radio_settings_loaded(settings)) {
+    if (!table_settled(settings)) {
         return false;
     }
     (void)import_walk(settings, set, add, out, NULL);
@@ -239,7 +310,7 @@ int mesh_channel_share_queue_import(struct mesh_radio_settings *settings,
     if (settings == NULL || set == NULL || set->settings_count == 0U) {
         return -EINVAL;
     }
-    if (!mesh_radio_settings_loaded(settings)) {
+    if (!table_settled(settings)) {
         return -EINVAL;
     }
     struct mesh_channel_import_plan plan;

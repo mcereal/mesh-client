@@ -599,6 +599,17 @@ struct mesh_ui_settings {
     struct mesh_ui_beacon_target beacon_targets[MESH_UI_BEACON_TARGETS];
 
     bool has_channels; /* any slot present */
+    /*
+     * Every slot answered for, and the LoRa config with them - what
+     * mesh_channel_share_settled() asks of the radio, published so the two sharing rows can ask
+     * it too.
+     *
+     * Not the same fact as `has_channels`, and the difference is the whole of why this field
+     * exists: a channel table comes back one admin reply at a time, so `has_channels` is true
+     * from the *first* of them. A row offered then cannot keep its promise - an array cannot
+     * tell "has not arrived" from "disabled", so an import would treat an unseen slot as free.
+     */
+    bool channels_settled;
     struct mesh_ui_channel_detail channels[MESH_UI_MAX_CHANNELS];
     /*
      * This radio's channel set as a Meshtastic link - `https://meshtastic.org/e/#...` - which

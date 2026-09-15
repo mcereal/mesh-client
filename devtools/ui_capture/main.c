@@ -1753,6 +1753,9 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
          * list do not disagree about what this radio is on.
          */
         settings.has_channels = true;
+        /* Every slot answered for and the LoRa config with them, which is what both sharing
+           rows wait on: `config` is a radio that has *finished* the handshake. */
+        settings.channels_settled = true;
         settings.channels[0].present = true;
         settings.channels[0].index = 0U;
         settings.channels[0].role = 1U; /* primary */
@@ -1769,6 +1772,12 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         }
         settings.channels[2].present = true; /* an empty slot, which is how one is added */
         settings.channels[2].index = 2U;
+        for (unsigned i = 3U; i < MESH_UI_MAX_CHANNELS; ++i) {
+            /* The five disabled slots after it. A finished sync answers for every index, so a
+               capture that stopped at three would be filming a radio mid-handshake. */
+            settings.channels[i].present = true;
+            settings.channels[i].index = (uint8_t)i;
+        }
 
         /*
          * And the link the publish boundary would have built from them, which is what the share

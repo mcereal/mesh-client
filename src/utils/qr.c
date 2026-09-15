@@ -54,7 +54,7 @@ static const uint8_t k_ecc_per_block[4][41] = {
 };
 
 static const uint8_t k_blocks[4][41] = {
-    {0, 1, 1, 1, 1, 1, 2,  2,  2,  2,  4,  4,  4,  4,  4,  6,  6,  6,  6,  7, 8,
+    {0, 1, 1, 1,  1,  1,  2,  2,  2,  2,  4,  4,  4,  4,  4,  6,  6,  6,  6,  7, 8,
      8, 9, 9, 10, 12, 12, 12, 13, 14, 15, 16, 17, 18, 19, 19, 20, 21, 22, 24, 25},
     {0,  1,  1,  1,  2,  2,  4,  4,  4,  5,  5,  5,  8,  9,  9,  10, 10, 11, 13, 14, 16,
      17, 17, 18, 20, 21, 23, 25, 26, 28, 29, 31, 33, 35, 37, 38, 40, 43, 45, 47, 49},
@@ -71,9 +71,7 @@ static const uint8_t k_ecc_format_bits[4] = {1U, 0U, 3U, 2U};
 /* ---- the version's shape ------------------------------------------------------------------ */
 
 /* How many alignment patterns a version has along one edge (none below version 2). */
-static int align_count(int version) {
-    return version == 1 ? 0 : version / 7 + 2;
-}
+static int align_count(int version) { return version == 1 ? 0 : version / 7 + 2; }
 
 /* Where they sit. The first is always at 6 and the last at size - 7; the rest are evenly spaced
    between, rounded to an even step. Returns how many were written. */
@@ -114,9 +112,7 @@ static size_t data_codewords(int version, enum mesh_qr_ecc ecc) {
 }
 
 /* Byte mode's character-count field widens once, at version 10. */
-static int count_bits(int version) {
-    return version < 10 ? 8 : 16;
-}
+static int count_bits(int version) { return version < 10 ? 8 : 16; }
 
 /* ---- GF(256) and Reed-Solomon -------------------------------------------------------------- */
 
@@ -300,8 +296,8 @@ static void draw_function_patterns(struct mesh_qr *qr, int version, enum mesh_qr
     for (int i = 0; i < count; ++i) {
         for (int j = 0; j < count; ++j) {
             /* The three corners already hold a finder pattern. */
-            const bool corner = (i == 0 && j == 0) || (i == 0 && j == count - 1) ||
-                                (i == count - 1 && j == 0);
+            const bool corner =
+                (i == 0 && j == 0) || (i == 0 && j == count - 1) || (i == count - 1 && j == 0);
             if (!corner) {
                 draw_alignment(qr, positions[i], positions[j]);
             }
