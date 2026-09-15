@@ -137,6 +137,13 @@ const char *mesh_ui_input_quit_cap(void);
 bool mesh_ui_input_reads_code(uint16_t code);
 
 /*
+ * The same question for an absolute axis: the d-pad's hat, or a trigger. Two of this client's
+ * controls are not buttons, so the capability filter has to ask about both halves - see
+ * mesh_ui_input_device_wanted(), which asks this rather than naming the axes itself.
+ */
+bool mesh_ui_input_reads_axis(uint16_t code);
+
+/*
  * Whether a node reporting these capability bitmaps is worth watching - the decision behind the
  * filter in mesh_ui_input_init(), with the ioctls taken off it so it can be exercised without a
  * device.

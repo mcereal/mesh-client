@@ -785,13 +785,32 @@ MESH_TEST_CASE(input_device_filter_keeps_the_pad, unit) {
     MESH_TEST_FAIL_IF(mesh_ui_input_device_wanted(keys.words, words, axes.words, words),
                       "a node whose only key is KEY_POWER is not one we read");
 
-    /* A mouse or a trackpad: absolute axes, none of them a hat. */
+    /*
+     * The triggers, which are the second control here that is not a button. A node exposing
+     * only those - a split input device, or a driver that puts them on a node of their own -
+     * used to be opened, asked what it reported, and closed, with the mapping for them
+     * unreachable one function away. The filter names no axis of its own now; it asks
+     * mesh_ui_input_reads_axis(), which is the same answer the event path acts on.
+     */
+    memset(&keys, 0, sizeof keys);
+    memset(&axes, 0, sizeof axes);
+    test_evdev_bits_set(&axes, ABS_Z);
+    test_evdev_bits_set(&axes, ABS_RZ);
+    MESH_TEST_FAIL_IF(!mesh_ui_input_device_wanted(keys.words, words, axes.words, words),
+                      "a node reporting only the triggers is worth watching");
+    MESH_TEST_FAIL_IF(!mesh_ui_input_reads_axis(ABS_Z) || !mesh_ui_input_reads_axis(ABS_RZ) ||
+                          !mesh_ui_input_reads_axis(ABS_HAT0Y),
+                      "the triggers and the hat are the axes this client reads");
+
+    /* A mouse or a trackpad: absolute axes, none of them a hat or a trigger. */
     memset(&keys, 0, sizeof keys);
     memset(&axes, 0, sizeof axes);
     test_evdev_bits_set(&axes, ABS_X);
     test_evdev_bits_set(&axes, ABS_Y);
     MESH_TEST_FAIL_IF(mesh_ui_input_device_wanted(keys.words, words, axes.words, words),
                       "a pointer's axes are not the d-pad");
+    MESH_TEST_FAIL_IF(mesh_ui_input_reads_axis(ABS_X) || mesh_ui_input_reads_axis(ABS_Y),
+                      "a pointer's axes mean nothing here");
 
     /* A node that cannot answer is watched: being unable to tell is not evidence of a useless
        device, and the two failures cost very different things. */

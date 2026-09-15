@@ -627,6 +627,13 @@ bool mesh_ui_input_reads_code(uint16_t code) {
     return mesh_ui_input_map_key(code) != MESH_UI_KEY_NONE || mesh_ui_input_is_quit_key(code);
 }
 
+bool mesh_ui_input_reads_axis(uint16_t code) {
+    /* 1 rather than 0, because 0 on the hat is the release rather than a direction and the
+       question here is whether the axis means anything at all - not which way it is pushed. */
+    return mesh_ui_input_map_hat(code, 1) != MESH_UI_KEY_NONE ||
+           mesh_ui_input_axis_is_trigger(code);
+}
+
 /*
  * Which /dev/input nodes are worth watching.
  *
@@ -660,11 +667,26 @@ bool mesh_ui_input_device_wanted(const unsigned long *key_bits, size_t key_words
         }
     }
 
-    /* The d-pad, which on this hardware is a pair of absolute axes rather than four buttons -
-       so a pad whose only useful control is its d-pad reports nothing above. */
-    if (axes_known && (mesh_ui_input_bit_set(abs_bits, abs_words, ABS_HAT0X) ||
-                       mesh_ui_input_bit_set(abs_bits, abs_words, ABS_HAT0Y))) {
-        return true;
+    /*
+     * The axes, walked the same way and for the same reason the codes above are: two of this
+     * client's controls are not buttons. The d-pad is a pair of absolute axes rather than four
+     * keys, so a pad whose only useful control is its d-pad reports nothing above - and the
+     * triggers are two more, with no BTN_ code anywhere in the key bitmap.
+     *
+     * Asked through mesh_ui_input_reads_axis() rather than by naming ABS_HAT0X/Y here, so the
+     * filter and the mapping cannot come to disagree: they did for one commit, when the
+     * triggers became readable and this list did not hear about it. A node exposing only the
+     * triggers - a split device, or a driver that puts them on a node of their own - was opened,
+     * asked what it reported, and closed, with the mapping for them sitting unreachable one
+     * function away.
+     */
+    if (axes_known) {
+        for (unsigned int code = 0U; code <= (unsigned int)ABS_MAX; ++code) {
+            if (mesh_ui_input_bit_set(abs_bits, abs_words, code) &&
+                mesh_ui_input_reads_axis((uint16_t)code)) {
+                return true;
+            }
+        }
     }
 
     return !keys_known && !axes_known;
