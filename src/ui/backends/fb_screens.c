@@ -302,6 +302,7 @@ struct fb_thread_row {
     char name[48];
     char clock[8];
     char reactions[40];
+    char relay[24]; /* "via BOB" - the relay chip, sized for the longest short name plus it */
     char note[64];
     char quote[64]; /* the message this one replies to; the bubble elides it to one line */
 };
@@ -524,6 +525,7 @@ static void fb_thread_row_build(const struct mesh_ui_snapshot *snapshot, const u
     row->bubble.note = row->note;
     row->bubble.quote = row->quote;
     row->bubble.meta.reactions = row->reactions;
+    row->bubble.meta.relay = row->relay;
     row->bubble.meta.clock = row->clock;
     /* A reaction never reaches a bubble - the transcript filters it out - so anything here
        carrying a reply_id is a threaded reply, and the quote is what says so. */
@@ -621,6 +623,17 @@ static void fb_thread_row_build(const struct mesh_ui_snapshot *snapshot, const u
      * here - see struct fb_bubble_meta for why that distinction is the whole of it.
      */
     fb_format_clock(message->rx_time, row->clock, sizeof row->clock);
+
+    /*
+     * And through whom, when that was somebody other than whoever sent it. The store resolves
+     * the relay's name at publish and writes "" when there is nothing to say - the firmware
+     * named no relay, or it named the sender - so the chip is present exactly when the message
+     * reached us second-hand, which is the one thing a hop count in a heading cannot say about
+     * an individual message.
+     */
+    if (message->relay_name[0] != '\0') {
+        mesh_str_format(row->relay, sizeof row->relay, MESH_STR_BUBBLE_RELAY, message->relay_name);
+    }
 
     /*
      * A padlock on a message the radio decrypted with our key pair rather than with a channel
@@ -760,6 +773,7 @@ static void fb_thread_row_get(const struct mesh_ui_snapshot *snapshot, const uin
     row->bubble.note = row->note;
     row->bubble.quote = row->quote;
     row->bubble.meta.reactions = row->reactions;
+    row->bubble.meta.relay = row->relay;
     row->bubble.meta.clock = row->clock;
 }
 

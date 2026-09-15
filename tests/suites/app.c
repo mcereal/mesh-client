@@ -3349,3 +3349,134 @@ MESH_TEST_CASE(app_scale_float_refuses_what_it_cannot_cast, unit) {
                       "a magnitude past the cast's range is refused rather than wrapped");
     record_success(test_name);
 }
+
+/*
+ * Resolving a relay byte to a name, and declining to.
+ *
+ * MeshPacket.relay_node and .next_hop carry the *last byte* of a node number, because that is
+ * all the LoRa header has room for. So the lookup is not a lookup: a byte matches one node
+ * number in 256, and a mesh of a hundred nodes therefore collides by arithmetic rather than by
+ * bad luck. The rule this pins is that a name is drawn only when the roster has exactly one
+ * candidate, and that everything else - no candidate, two candidates - falls back to the
+ * "!..a3" partial id, which is the honest rendering of two hex digits.
+ *
+ * Getting this wrong is not a cosmetic bug. "Relayed by ALICE" against a node that did not
+ * relay it is the client inventing a path through the mesh, and the reader has no way to tell
+ * that from one it measured.
+ *
+ * The sender shortcut is the subtle half. A node stamps itself into relay_node as it transmits,
+ * so a byte matching the sender normally means nothing carried the packet - but a packet that
+ * came at least one hop *was* carried, and there the match is a collision. The hop count is the
+ * evidence that tells those apart, and without it the shortcut hides the one relay the reader
+ * could have been told about.
+ */
+MESH_TEST_CASE(app_relay_name_declines_to_guess, unit) {
+    struct mesh_handshake_status status;
+    memset(&status, 0, sizeof status);
+    status.node_count = 3U;
+    status.nodes[0].node_id = 0xAAAA0055U;
+    snprintf(status.nodes[0].short_name, sizeof status.nodes[0].short_name, "RLAY");
+    status.nodes[1].node_id = 0xBBBB0077U;
+    snprintf(status.nodes[1].short_name, sizeof status.nodes[1].short_name, "TWIN");
+    /* The collision: a different node whose number ends in the same byte as node[1]'s. */
+    status.nodes[2].node_id = 0xCCCC0077U;
+    snprintf(status.nodes[2].short_name, sizeof status.nodes[2].short_name, "ALSO");
+
+    char name[16];
+    const int unknown_hops = -1;
+
+    /* One candidate: the name, and this is the whole point of the feature. */
+    mesh_app_format_relay_name(&status, 0x55U, 0U, unknown_hops, name, sizeof name);
+    MESH_TEST_FAIL_IF(strcmp(name, "RLAY") != 0, "an unambiguous byte should name its node");
+
+    /* Two candidates: neither, because naming either would be a coin toss drawn as a fact. */
+    mesh_app_format_relay_name(&status, 0x77U, 0U, unknown_hops, name, sizeof name);
+    MESH_TEST_FAIL_IF(strcmp(name, "!..77") != 0, "an ambiguous byte named one of its candidates");
+
+    /* None: the byte, rather than silence - the radio did tell us something. */
+    mesh_app_format_relay_name(&status, 0x12U, 0U, unknown_hops, name, sizeof name);
+    MESH_TEST_FAIL_IF(strcmp(name, "!..12") != 0, "an unmatched byte should still say what it is");
+
+    /* Nothing to say, twice over. Zero is upstream's NO_RELAY_NODE, and a byte that is the
+       sender's own is the firmware saying nothing relayed this - the overwhelmingly common
+       case on a small mesh, and a chip on every bubble if it were not filtered here. */
+    mesh_app_format_relay_name(&status, 0U, 0xAAAA0055U, unknown_hops, name, sizeof name);
+    MESH_TEST_FAIL_IF(name[0] != '\0', "a zero relay byte is 'the firmware did not say'");
+    mesh_app_format_relay_name(&status, 0x55U, 0xAAAA0055U, unknown_hops, name, sizeof name);
+    MESH_TEST_FAIL_IF(name[0] != '\0', "a packet heard straight from its sender names no relay");
+
+    /* Zero hops is the firmware *saying* direct, which is the same answer and not the same
+       thing as it declining to say. Both leave the shortcut standing. */
+    mesh_app_format_relay_name(&status, 0x55U, 0xAAAA0055U, 0, name, sizeof name);
+    MESH_TEST_FAIL_IF(name[0] != '\0', "a zero-hop packet came straight from its sender");
+
+    /*
+     * And the case the shortcut used to swallow: the packet came a hop, so something *did*
+     * carry it, and a byte matching the sender is a collision with whatever that was. Saying
+     * nothing here hid a relay the reader could have been told about.
+     *
+     * The answer is the partial id and specifically not "RLAY", which is the sender's own name
+     * and the only node in this roster ending in 0x55: a node cannot have relayed a packet it
+     * sent, so it is struck off the candidates rather than left in to be named.
+     */
+    mesh_app_format_relay_name(&status, 0x55U, 0xAAAA0055U, 2, name, sizeof name);
+    MESH_TEST_FAIL_IF(strcmp(name, "!..55") != 0,
+                      "a relayed packet whose relay byte matches its sender is a collision");
+
+    /* The sender test is on the byte, not the node: a relay that merely shares the sender's
+       last byte is indistinguishable from the sender while nothing says it travelled. */
+    mesh_app_format_relay_name(&status, 0x55U, 0xDDDD0055U, unknown_hops, name, sizeof name);
+    MESH_TEST_FAIL_IF(name[0] != '\0', "a byte matching the sender's cannot be read as a relay");
+
+    /* A roster we do not have yet is not a reason to say nothing: the byte still stands. */
+    mesh_app_format_relay_name(NULL, 0x55U, 0U, unknown_hops, name, sizeof name);
+    MESH_TEST_FAIL_IF(strcmp(name, "!..55") != 0, "no roster should still render the byte");
+
+    /* The same roster read as the ambiguity question the detail screen is handed, because it
+       cannot ask it of the 128 nodes it gets. 0x77 has two claimants; 0x55 has one. */
+    MESH_TEST_FAIL_IF(!mesh_app_relay_byte_is_ambiguous(&status, 0x77U),
+                      "two nodes ending in 0x77 is the definition of ambiguous");
+    MESH_TEST_FAIL_IF(mesh_app_relay_byte_is_ambiguous(&status, 0x55U) ||
+                          mesh_app_relay_byte_is_ambiguous(&status, 0x12U),
+                      "one claimant, or none, is not ambiguous");
+
+    record_success(test_name);
+}
+
+/*
+ * The ambiguity a screen cannot see, which is the reason it is answered at publish at all.
+ *
+ * The session holds MESH_SESSION_MAX_NODES and the UI is published MESH_UI_MAX_HANDSHAKE_NODES
+ * of them, ranked. So on a mesh past that cut a relay byte can have exactly one claimant among
+ * the nodes a screen was handed and another one that was ranked away - and a resolver scanning
+ * only what it was given would name that survivor and sound certain. Nothing about the published
+ * roster can detect this; it has to be settled where the whole roster is.
+ */
+MESH_TEST_CASE(app_relay_ambiguity_spans_the_whole_roster, unit) {
+    static struct mesh_handshake_status status;
+    memset(&status, 0, sizeof status);
+
+    /* A roster past the publish cut, every node ending in a distinct byte except the pair
+       below, so nothing else in it colours the answer. */
+    status.node_count = MESH_UI_MAX_HANDSHAKE_NODES + 8U;
+    MESH_TEST_FAIL_IF(status.node_count > MESH_SESSION_MAX_NODES, "fixture outgrew the roster");
+    for (size_t i = 0; i < status.node_count; ++i) {
+        status.nodes[i].node_id = 0x00010000U + (uint32_t)(i * 0x100U);
+    }
+
+    /* The colliding pair: one inside the published 128, one past it. */
+    status.nodes[0].node_id = 0x0A0A00C3U;
+    snprintf(status.nodes[0].short_name, sizeof status.nodes[0].short_name, "NEAR");
+    status.nodes[status.node_count - 1U].node_id = 0x0B0B00C3U;
+    snprintf(status.nodes[status.node_count - 1U].short_name,
+             sizeof status.nodes[status.node_count - 1U].short_name, "FARR");
+
+    MESH_TEST_FAIL_IF(!mesh_app_relay_byte_is_ambiguous(&status, 0xC3U),
+                      "a claimant past the publish cut still makes the byte ambiguous");
+    char name[16];
+    mesh_app_format_relay_name(&status, 0xC3U, 0U, -1, name, sizeof name);
+    MESH_TEST_FAIL_IF(strcmp(name, "!..c3") != 0,
+                      "the core resolver reads the whole roster, so it refuses to name NEAR");
+
+    record_success(test_name);
+}

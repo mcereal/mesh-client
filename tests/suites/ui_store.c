@@ -1098,6 +1098,7 @@ MESH_TEST_CASE(ui_store_cache_keys_round_trip, unit) {
     messages.entries[0].reply_id = 42U;
     messages.entries[0].is_reaction = true;
     snprintf(messages.entries[0].peer_name, sizeof messages.entries[0].peer_name, "Primary");
+    snprintf(messages.entries[0].relay_name, sizeof messages.entries[0].relay_name, "RLAY");
     snprintf(messages.entries[0].text, sizeof messages.entries[0].text, "back\\slash=and\nbreak");
     mesh_ui_store_set_messages(&store, &messages);
 

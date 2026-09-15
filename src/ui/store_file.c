@@ -234,6 +234,17 @@ static void mesh_ui_store_save_messages(FILE *file, const struct mesh_ui_message
                                 message->reply_id, message->is_reaction ? 1U : 0U);
 
         mesh_ui_store_write_row_text(file, MESH_UI_STORE_KEY_MSG_NAME, i, message->peer_name);
+        /* The relay's name, written only when there is one - it is absent from most messages on
+           most meshes, and an empty line each would be a third of the file.
+
+           The resolved name rather than MeshPacket.relay_node's byte, because that is what the
+           store holds: resolving needs the roster, and the roster the *next* run loads is the
+           one from the cache rather than the one that was in front of us when the packet
+           landed. A name written down is the route the message took; a byte re-resolved later
+           would be this run's guess at it. */
+        if (message->relay_name[0] != '\0') {
+            mesh_ui_store_write_row_text(file, MESH_UI_STORE_KEY_MSG_RELAY, i, message->relay_name);
+        }
         mesh_ui_store_write_row_text(file, MESH_UI_STORE_KEY_MSG_TEXT, i, message->text);
     }
 }
@@ -895,6 +906,12 @@ static void load_message_name(struct mesh_ui_message *message, const char *value
     }
 }
 
+static void load_message_relay(struct mesh_ui_message *message, const char *value) {
+    if (message != NULL) {
+        cache_text(message->relay_name, sizeof message->relay_name, value);
+    }
+}
+
 static void load_message_text(struct mesh_ui_message *message, const char *value) {
     if (message != NULL) {
         cache_text(message->text, sizeof message->text, value);
@@ -1063,6 +1080,9 @@ static void load_line(struct mesh_ui_store_cache *cache, const char *key, char *
         break;
     case MESH_UI_STORE_KEY_MSG_NAME:
         load_message_name(cache_message(cache, index), value);
+        break;
+    case MESH_UI_STORE_KEY_MSG_RELAY:
+        load_message_relay(cache_message(cache, index), value);
         break;
     case MESH_UI_STORE_KEY_MSG_TEXT:
         load_message_text(cache_message(cache, index), value);

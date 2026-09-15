@@ -1945,3 +1945,75 @@ MESH_TEST_CASE(session_remote_admin_target, unit) {
                       "and the tab describes the radio on the end of the link again");
     record_success(test_name);
 }
+
+/*
+ * Relay attribution: MeshPacket.relay_node and .next_hop, off the air and onto the node the
+ * packet came from and the message it carried.
+ *
+ * Three things worth pinning, and all three are about zero meaning something.
+ *
+ * `has_route` is the first: `next_hop` of 0 is a real reading - upstream's
+ * NO_NEXT_HOP_PREFERENCE, which is how a flooded packet looks and how *every* packet looked
+ * before firmware 2.5 - so a node that has only ever been replayed out of the NodeDB must not
+ * be indistinguishable from one whose traffic is flooding. Nothing but the flag can tell those
+ * apart.
+ *
+ * The second is that the pair describes the *last* packet and is overwritten rather than
+ * accumulated: a route that has just changed is the thing this is for.
+ *
+ * The third is that a message keeps its own copy. The node's relay moves with the mesh; the
+ * route a message actually took does not change after it arrives.
+ */
+MESH_TEST_CASE(session_relay_attribution, unit) {
+    struct mesh_session session;
+    mesh_session_init(&session);
+
+    const uint32_t sender = 0x7A01U;
+    const uint32_t relay = 0x7A55U;
+
+    /* A NodeInfo out of the radio's database says nothing about how anything reached us. */
+    meshtastic_FromRadio info = meshtastic_FromRadio_init_default;
+    info.which_payload_variant = meshtastic_FromRadio_node_info_tag;
+    info.node_info.num = sender;
+    info.node_info.last_heard = 1000U;
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &info), "feed the NodeInfo");
+    const struct mesh_node_summary *replayed = mesh_test_session_find_node(&session, sender);
+    MESH_TEST_FAIL_IF(replayed == NULL || replayed->has_route,
+                      "a replayed NodeDB entry claimed to describe a packet's route");
+
+    /* Now one off the air, relayed by 0x55 and asking for 0x77 next. */
+    meshtastic_FromRadio wrapper = meshtastic_FromRadio_init_default;
+    wrapper.which_payload_variant = meshtastic_FromRadio_packet_tag;
+    wrapper.packet = mesh_test_make_decoded_packet(
+        sender, 0xFFFFFFFFU, 0U, 0x5001U, meshtastic_PortNum_TEXT_MESSAGE_APP, "relayed", 7U);
+    wrapper.packet.relay_node = (uint32_t)(relay & 0xFFU);
+    wrapper.packet.next_hop = 0x77U;
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &wrapper), "feed the packet");
+
+    const struct mesh_node_summary *node = mesh_test_session_find_node(&session, sender);
+    MESH_TEST_FAIL_IF(node == NULL || !node->has_route, "the packet left no routing record");
+    MESH_TEST_FAIL_IF(node->relay_node != 0x55U || node->next_hop != 0x77U,
+                      "the header's relay and next hop did not reach the node");
+
+    const struct mesh_message *message = mesh_message_log_find(&session.messages, 0x5001U);
+    MESH_TEST_FAIL_IF(message == NULL || message->relay_node != 0x55U,
+                      "the message did not keep the relay that carried it");
+
+    /* The mesh re-forms: the same node now reaches us through somebody else, and the reading
+       moves with it rather than being kept because it looked more informative. A next hop of 0
+       is the flooded case and has to land as 0 rather than be skipped as "unset". */
+    wrapper.packet.id = 0x5002U;
+    wrapper.packet.relay_node = 0x99U;
+    wrapper.packet.next_hop = 0U;
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &wrapper), "feed the second");
+    node = mesh_test_session_find_node(&session, sender);
+    MESH_TEST_FAIL_IF(node == NULL || node->relay_node != 0x99U || node->next_hop != 0U,
+                      "the node kept the route the packet before last took");
+
+    /* And the first message still says how *it* came, which is the whole of why it has a copy. */
+    message = mesh_message_log_find(&session.messages, 0x5001U);
+    MESH_TEST_FAIL_IF(message == NULL || message->relay_node != 0x55U,
+                      "a later packet rewrote an earlier message's route");
+
+    record_success(test_name);
+}

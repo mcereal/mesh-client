@@ -62,6 +62,19 @@ struct mesh_message {
     uint8_t ack_error;  /* meshtastic_Routing_Error, meaningful when ack == FAILED */
     bool has_hops_away; /* hop_start/hop_limit were both usable */
     uint8_t hops_away;
+    /*
+     * The last byte of the node that handed this packet to our radio - MeshPacket.relay_node.
+     *
+     * A fact about the packet rather than about the conversation, which is why it lives here
+     * and is kept for the life of the entry: the route a message actually took does not change
+     * afterwards, however the mesh re-forms. `hops_away` says how far it came; this says
+     * through whom the last of that was.
+     *
+     * Zero is upstream's NO_RELAY_NODE - the firmware did not say - and so is a relay whose
+     * number happens to end in 0x00. See struct mesh_node_summary for why a byte is all there
+     * is and what that costs a lookup.
+     */
+    uint8_t relay_node;
     /* The radio decrypted this with the sender's public key rather than with a channel PSK, so
        it was addressed to us and to nobody else. Worth showing: on a default-key channel every
        node on the mesh can read a "direct" message, and the two look identical without this. */

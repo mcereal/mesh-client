@@ -130,6 +130,48 @@ else describes one link.
 - The list **is** persisted, unlike the traceroute: the broadcast interval is floored at four
   hours by the firmware.
 
+### Relay attribution is a byte, not a node
+
+`MeshPacket.relay_node` and `MeshPacket.next_hop` are the routing half of the header: who handed
+this packet to our radio, and who that packet asked to carry it onward. Both are the **last byte**
+of a node number, because that is all the header has room for, and everything awkward about them
+follows from that.
+
+- **A byte names one node number in 256.** Resolving one means scanning the roster, and a mesh of
+  a hundred nodes collides by arithmetic rather than by bad luck. The rule both resolvers follow —
+  `mesh_app_format_relay_name` for a message, `node_rows_relay_name` for the detail screen — is
+  that a name is drawn only when there is **exactly one** candidate; no candidate and several
+  both fall back to the `!..a3` partial id. "Relayed by ALICE" against a node that did not relay it is the client
+  inventing a path through the mesh, and nothing on the screen would say so.
+- **Zero means two different things.** `NO_RELAY_NODE` is "the firmware did not say";
+  `NO_NEXT_HOP_PREFERENCE` is "flooded rather than routed", which is a real reading and is how
+  every packet looked before firmware 2.5. So the node record carries a `has_route` flag: without
+  it a node nothing has been heard from is indistinguishable from one whose traffic is flooding.
+- **A relay byte equal to the sender's is usually not a relay.** A node stamps itself into
+  `relay_node` as it transmits, so a packet heard straight from its sender names that sender —
+  the common case on a small mesh, and a chip on every bubble if it were not filtered out. The
+  message store writes `""` there and the detail screen says *direct*. The exception is a packet
+  that came at least one hop: that one *was* carried, so the match is a collision with some other
+  node ending in the same byte, and both fall back to the partial id. The sender is struck off
+  the candidates there too — a node cannot have relayed what it sent, so naming it would be the
+  relay row contradicting the hop row above it.
+- **Ambiguity is settled over the whole session roster, never the published one.** The session
+  holds `MESH_SESSION_MAX_NODES` and the UI is published the ranked `MESH_UI_MAX_HANDSHAKE_NODES`
+  of them, so a byte can have one claimant among the nodes a screen was handed and another that
+  was ranked away. The message resolver runs in core and sees all of it; the detail screen cannot,
+  so it is handed `relay_ambiguous` / `next_hop_ambiguous` — computed at publish — and renders the
+  partial id whenever either is set, rather than naming the one survivor it can see.
+- **The node's pair is the last packet's and is not persisted**, for the reason the traceroute is
+  not: a route is true for about as long as the mesh holds still. A **message's** relay is
+  persisted, because the route one packet took does not change after it arrives — it rides its own
+  `msg_relay[]` key, resolved to a name at publish rather than re-resolved on load against
+  whatever roster the next run happens to have.
+
+The pair is not a route and the screen does not draw it as one: the traceroute above is what
+answers that. It answers "did this come straight to me, and is the mesh routing this node's
+traffic or flooding it", which a hop count does not say and which is what changes first when a
+repeater goes down.
+
 ### Three ports carry text
 
 `ALERT_APP` and `DETECTION_SENSOR_APP` are both "same as Text Message" upstream, so

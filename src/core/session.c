@@ -790,6 +790,19 @@ static void mesh_session_touch_node_from_packet(struct mesh_session *session,
         summary->hops_away = (uint8_t)(packet->hop_start - packet->hop_limit);
     }
     summary->via_mqtt = packet->via_mqtt;
+    /*
+     * Who handed us this one, and who it asked for next. Overwritten on every packet rather
+     * than kept when it looks more informative, because both describe *the last packet* and
+     * nothing else: a route that has just changed is exactly what this is for, and a
+     * remembered relay would hide the change behind the reading it replaced.
+     *
+     * Stored for an MQTT packet too, where they describe somebody else's air rather than ours.
+     * That is the same bargain the SNR beside them strikes, and the detail screen qualifies
+     * the whole group with the row that says how the packet reached us.
+     */
+    summary->has_route = true;
+    summary->relay_node = (uint8_t)packet->relay_node;
+    summary->next_hop = (uint8_t)packet->next_hop;
 }
 
 /*

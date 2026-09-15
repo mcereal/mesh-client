@@ -2197,6 +2197,11 @@ MESH_TEST_CASE(node_detail_row_budget, unit) {
     node.has_user = true;
     node.has_hops_away = true;
     node.hops_away = 3U;
+    /* Heard through somebody, and routed rather than flooded: both routing rows present, which
+       is what the budget has to hold. */
+    node.has_route = true;
+    node.relay_node = 0x11U;
+    node.next_hop = 0x22U;
     node.hw_model = 9U;
     node.role = 1U;
     node.is_licensed = true;
@@ -2499,6 +2504,171 @@ MESH_TEST_CASE(node_detail_rssi_is_stamped, unit) {
     }
     MESH_TEST_FAIL_IF(!stamped,
                       "an RSSI older than the newest packet should say when it was measured");
+
+    record_success(test_name);
+}
+
+/*
+ * The two routing rows, and the four answers between them that are not a node name.
+ *
+ * They read off MeshPacket.relay_node and .next_hop, which are last bytes rather than node
+ * numbers, so every one of those four is a case where saying a name would be a guess:
+ *
+ *   - nothing heard from the node at all - the rows are absent, because a next hop of 0 is a
+ *     real reading and a row of zeroes would read as a flooded packet that never arrived;
+ *   - the relay byte is the node's own - "direct", the packet came straight to us;
+ *   - two nodes in the roster end in the byte - the partial id, because either name is a
+ *     coin toss drawn as a measurement;
+ *   - the next hop is 0 - "flood", which is upstream's NO_NEXT_HOP_PREFERENCE and is how the
+ *     whole mesh worked before firmware 2.5.
+ */
+MESH_TEST_CASE(node_detail_routing_rows, unit) {
+    struct mesh_ui_handshake_state roster;
+    memset(&roster, 0, sizeof roster);
+    roster.node_count = 3U;
+    roster.nodes[0].node_id = 0x7301U;
+    snprintf(roster.nodes[0].short_name, sizeof roster.nodes[0].short_name, "SUBJ");
+    roster.nodes[1].node_id = 0x7355U;
+    snprintf(roster.nodes[1].short_name, sizeof roster.nodes[1].short_name, "RLAY");
+    roster.nodes[2].node_id = 0x9955U;
+    snprintf(roster.nodes[2].short_name, sizeof roster.nodes[2].short_name, "TWIN");
+
+    struct mesh_ui_node_summary node;
+    memset(&node, 0, sizeof node);
+    node.node_id = 0x7301U;
+    snprintf(node.short_name, sizeof node.short_name, "SUBJ");
+    node.last_heard = 1750000000U;
+
+    struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
+    /* The value column's own width, so copying a row's value out cannot truncate it - a test
+       that compared a shortened copy would pass on a row that draws something else. */
+    char relay[MESH_UI_NODE_VALUE_MAX];
+    char hop[MESH_UI_NODE_VALUE_MAX];
+
+    /* Nothing heard: neither row exists. */
+    uint32_t count = mesh_ui_node_detail_build(&node, false, 1750000060U, NULL, false, &roster,
+                                               NULL, false, items, MESH_UI_NODE_ITEMS_MAX);
+    for (uint32_t i = 0; i < count; ++i) {
+        MESH_TEST_FAIL_IF(strcmp(items[i].label, "Relayed by") == 0 ||
+                              strcmp(items[i].label, "Next hop") == 0,
+                          "a node nothing has been heard from should have no routing rows");
+    }
+
+    /* Heard, relayed by an ambiguous byte, flooded onward. */
+    node.has_route = true;
+    node.relay_node = 0x55U;
+    node.next_hop = 0U;
+    relay[0] = '\0';
+    hop[0] = '\0';
+    count = mesh_ui_node_detail_build(&node, false, 1750000060U, NULL, false, &roster, NULL, false,
+                                      items, MESH_UI_NODE_ITEMS_MAX);
+    for (uint32_t i = 0; i < count; ++i) {
+        if (strcmp(items[i].label, "Relayed by") == 0) {
+            snprintf(relay, sizeof relay, "%s", items[i].value);
+        } else if (strcmp(items[i].label, "Next hop") == 0) {
+            snprintf(hop, sizeof hop, "%s", items[i].value);
+        }
+    }
+    MESH_TEST_FAIL_IF(strcmp(relay, "!..55") != 0,
+                      "two nodes end in 0x55, so neither of them relayed it as far as we know");
+    MESH_TEST_FAIL_IF(strcmp(hop, "flood") != 0, "a next hop of zero is flooded, not unknown");
+
+    /* Drop the collision and the same byte becomes a name. The next hop resolves through the
+       same door, so naming the subject there proves it is one rule and not two. */
+    roster.node_count = 2U;
+    node.relay_node = 0x55U;
+    node.next_hop = 0x01U;
+    relay[0] = '\0';
+    hop[0] = '\0';
+    count = mesh_ui_node_detail_build(&node, false, 1750000060U, NULL, false, &roster, NULL, false,
+                                      items, MESH_UI_NODE_ITEMS_MAX);
+    for (uint32_t i = 0; i < count; ++i) {
+        if (strcmp(items[i].label, "Relayed by") == 0) {
+            snprintf(relay, sizeof relay, "%s", items[i].value);
+        } else if (strcmp(items[i].label, "Next hop") == 0) {
+            snprintf(hop, sizeof hop, "%s", items[i].value);
+        }
+    }
+    MESH_TEST_FAIL_IF(strcmp(relay, "RLAY") != 0, "one candidate should be named");
+    MESH_TEST_FAIL_IF(strcmp(hop, "SUBJ") != 0, "a next hop resolves the same way a relay does");
+
+    /* And the node named as its own relay, which is the firmware saying nothing carried it. */
+    node.relay_node = 0x01U; /* the subject's own last byte */
+    relay[0] = '\0';
+    count = mesh_ui_node_detail_build(&node, false, 1750000060U, NULL, false, &roster, NULL, false,
+                                      items, MESH_UI_NODE_ITEMS_MAX);
+    for (uint32_t i = 0; i < count; ++i) {
+        if (strcmp(items[i].label, "Relayed by") == 0) {
+            snprintf(relay, sizeof relay, "%s", items[i].value);
+        }
+    }
+    MESH_TEST_FAIL_IF(strcmp(relay, "direct") != 0,
+                      "a packet that came straight from the node is not relayed by it");
+
+    /*
+     * Unless the hop count contradicts it. The packet came two hops, so something carried it,
+     * and the byte matching the node's own is a collision with whatever that was - "direct"
+     * there would be this row disagreeing with the hop row three lines above it.
+     */
+    node.has_hops_away = true;
+    node.hops_away = 2U;
+    relay[0] = '\0';
+    count = mesh_ui_node_detail_build(&node, false, 1750000060U, NULL, false, &roster, NULL, false,
+                                      items, MESH_UI_NODE_ITEMS_MAX);
+    for (uint32_t i = 0; i < count; ++i) {
+        if (strcmp(items[i].label, "Relayed by") == 0) {
+            snprintf(relay, sizeof relay, "%s", items[i].value);
+        }
+    }
+    MESH_TEST_FAIL_IF(strcmp(relay, "!..01") != 0,
+                      "a packet that took a hop cannot have come straight from its sender");
+
+    /* Zero hops is the firmware saying direct rather than declining to, so the row may. */
+    node.hops_away = 0U;
+    relay[0] = '\0';
+    count = mesh_ui_node_detail_build(&node, false, 1750000060U, NULL, false, &roster, NULL, false,
+                                      items, MESH_UI_NODE_ITEMS_MAX);
+    for (uint32_t i = 0; i < count; ++i) {
+        if (strcmp(items[i].label, "Relayed by") == 0) {
+            snprintf(relay, sizeof relay, "%s", items[i].value);
+        }
+    }
+    MESH_TEST_FAIL_IF(strcmp(relay, "direct") != 0, "zero hops agrees with the byte");
+
+    /*
+     * The collision this screen cannot see for itself. `relay_ambiguous` says the *session*
+     * roster holds a second claimant for the byte - one this screen was never handed, because
+     * the publish ranks a big mesh down to MESH_UI_MAX_HANDSHAKE_NODES. RLAY is the only
+     * claimant among these three nodes, so without the flag the row would name it and sound
+     * certain.
+     */
+    node.has_hops_away = false;
+    node.relay_node = 0x55U;
+    node.relay_ambiguous = true;
+    relay[0] = '\0';
+    count = mesh_ui_node_detail_build(&node, false, 1750000060U, NULL, false, &roster, NULL, false,
+                                      items, MESH_UI_NODE_ITEMS_MAX);
+    for (uint32_t i = 0; i < count; ++i) {
+        if (strcmp(items[i].label, "Relayed by") == 0) {
+            snprintf(relay, sizeof relay, "%s", items[i].value);
+        }
+    }
+    MESH_TEST_FAIL_IF(strcmp(relay, "!..55") != 0,
+                      "a claimant the publish ranked away still makes the byte ambiguous");
+
+    /* And the next hop reads the same flag, so neither row can be certain alone. */
+    node.relay_ambiguous = false;
+    node.next_hop = 0x55U;
+    node.next_hop_ambiguous = true;
+    hop[0] = '\0';
+    count = mesh_ui_node_detail_build(&node, false, 1750000060U, NULL, false, &roster, NULL, false,
+                                      items, MESH_UI_NODE_ITEMS_MAX);
+    for (uint32_t i = 0; i < count; ++i) {
+        if (strcmp(items[i].label, "Next hop") == 0) {
+            snprintf(hop, sizeof hop, "%s", items[i].value);
+        }
+    }
+    MESH_TEST_FAIL_IF(strcmp(hop, "!..55") != 0, "the next hop carries its own ambiguity");
 
     record_success(test_name);
 }

@@ -545,8 +545,123 @@ static void node_rows_identity(struct node_rows *rows, const struct mesh_ui_node
     }
 }
 
+/*
+ * A relay or next-hop byte, resolved against the roster the screen already has.
+ *
+ * The same job node_rows_neighbor_name() does for a whole node number, and it is a separate
+ * function rather than a parameter on that one because the ambiguity is different in kind: a
+ * node number identifies a node, and a last byte identifies 1 in 256 of them. So an exact match
+ * has to be the *only* match to be a name at all - a mesh of a hundred nodes collides here by
+ * arithmetic - and everything else falls back to the "!..a3" partial id, which is the honest
+ * rendering of what the LoRa header actually had room to carry.
+ *
+ * Resolved here rather than joined in at publish, unlike a message's relay: this screen is
+ * handed the roster anyway (it is what "Heard by" is read across), and resolving live means a
+ * relay that was two hex digits at connect time becomes a name the moment its NodeInfo lands.
+ *
+ * `ambiguous` is the one part it cannot work out for itself, and it is not an optimisation.
+ * This roster is the ranked MESH_UI_MAX_HANDSHAKE_NODES of a session that holds twice as many,
+ * so on a big mesh a byte can have exactly one claimant *here* and another one that was ranked
+ * away - and a scan of what was published would then name a node and sound certain about it.
+ * The flag is settled at publish over the whole roster; see mesh_app_relay_byte_is_ambiguous().
+ */
+static void node_rows_relay_name(const struct mesh_ui_handshake_state *roster, uint8_t last_byte,
+                                 bool ambiguous, uint32_t exclude, char *out, size_t out_len) {
+    const struct mesh_ui_node_summary *match = NULL;
+    if (roster != NULL && !ambiguous) {
+        const uint32_t count = roster->node_count > MESH_UI_MAX_HANDSHAKE_NODES
+                                   ? MESH_UI_MAX_HANDSHAKE_NODES
+                                   : roster->node_count;
+        for (uint32_t i = 0; i < count; ++i) {
+            if ((uint8_t)(roster->nodes[i].node_id & 0xFFU) != last_byte) {
+                continue;
+            }
+            if (exclude != 0U && roster->nodes[i].node_id == exclude) {
+                continue; /* it cannot have relayed a packet it is the far end of */
+            }
+            if (match != NULL) {
+                match = NULL; /* a second candidate, so the byte names neither */
+                break;
+            }
+            match = &roster->nodes[i];
+        }
+    }
+    if (match != NULL) {
+        const char *name = match->short_name[0] != '\0' ? match->short_name : match->long_name;
+        if (name[0] != '\0') {
+            mesh_str_copy(out, out_len, name);
+            return;
+        }
+    }
+    mesh_str_format(out, out_len, MESH_STR_NODE_VAL_RELAY_HEX, (unsigned)last_byte);
+}
+
+/*
+ * The two routing rows, off the last packet this node's traffic arrived in.
+ *
+ * They are a pair and they point in opposite directions, which is the whole reason both are
+ * worth a row. "Relayed by" is who handed that packet to *us* - the last stop on the way here,
+ * and so the first stop of anything going back. "Next hop" is who that packet asked to carry
+ * it onward, which is the sender's own routing table talking rather than ours.
+ *
+ * Neither is a route and neither should be read as one: a traced route is further up this
+ * screen and is the thing that answers that. These answer "did this come straight to me, and
+ * is the mesh routing it or flooding it", which a hop count does not say and which is what
+ * changes first when a repeater goes down.
+ */
+static void node_rows_route(struct node_rows *rows, const struct mesh_ui_node_summary *node,
+                            const struct mesh_ui_handshake_state *roster) {
+    if (!node->has_route) {
+        /* Nothing has been heard from this node this run - a roster entry the NodeDB replayed,
+           or one restored from the cache. Silence rather than a row of zeroes, which would read
+           as a flooded packet that never arrived. */
+        return;
+    }
+
+    if (node->relay_node != 0U) {
+        /*
+         * A byte matching the node's own is the firmware saying nothing carried this: a node
+         * stamps itself into relay_node as it transmits, so a packet heard straight from it
+         * names it.
+         *
+         * Except when the hop count says otherwise. A packet that came at least one hop *was*
+         * relayed, so the match is a collision with some other node ending in the same byte,
+         * and "direct" there would be the one row on the screen contradicting the row above it.
+         * `has_hops_away` unset is the firmware declining to say, which is not zero - the same
+         * distinction the hop row itself is careful about - so it leaves the shortcut standing.
+         */
+        const bool relayed = node->has_hops_away && node->hops_away > 0U;
+        if ((uint8_t)(node->node_id & 0xFFU) == node->relay_node && !relayed) {
+            /* A state rather than a name, because "direct" is a fact about the path and the
+               reader is scanning this column for node names. */
+            rows_state(rows, MESH_STR_NODE_RELAYED_BY, mesh_str(MESH_STR_NODE_RELAY_DIRECT),
+                       MESH_UI_TONE_SUCCESS);
+        } else {
+            char relay[MESH_UI_NODE_VALUE_MAX];
+            /* Struck off when we know the packet travelled: whatever carried it, it was not
+               the node it came from, so naming that node here would contradict the hop row. */
+            node_rows_relay_name(roster, node->relay_node, node->relay_ambiguous,
+                                 relayed ? node->node_id : 0U, relay, sizeof relay);
+            rows_text(rows, MESH_STR_NODE_RELAYED_BY, relay);
+        }
+    }
+
+    if (node->next_hop == 0U) {
+        /* Upstream's NO_NEXT_HOP_PREFERENCE: the packet went out to whoever would carry it
+           rather than to a chosen relay. Tertiary, not a warning - flooding is how the mesh
+           works until it has learnt a route, and how all of it worked before firmware 2.5. */
+        rows_state(rows, MESH_STR_NODE_NEXT_HOP, mesh_str(MESH_STR_NODE_NEXT_HOP_FLOOD),
+                   MESH_UI_TONE_TERTIARY);
+    } else {
+        char hop[MESH_UI_NODE_VALUE_MAX];
+        node_rows_relay_name(roster, node->next_hop, node->next_hop_ambiguous, 0U, hop, sizeof hop);
+        rows_text(rows, MESH_STR_NODE_NEXT_HOP, hop);
+    }
+}
+
 static void node_rows_signal(struct node_rows *rows, const struct mesh_ui_node_summary *node,
-                             bool is_self, uint32_t now) {
+                             const struct mesh_ui_handshake_state *roster, bool is_self,
+                             uint32_t now) {
     rows_heading(rows, MESH_STR_NODE_HEAD_SIGNAL, MESH_UI_ICON_LORA);
 
     char age[24];
@@ -587,6 +702,10 @@ static void node_rows_signal(struct node_rows *rows, const struct mesh_ui_node_s
         } else {
             rows_text(rows, MESH_STR_NODE_HOPS_AWAY, mesh_str(MESH_STR_COMMON_UNKNOWN));
         }
+        /* Beside the hop count rather than under its own heading: how far away a node is and
+           which node stands between us are one question asked twice, and a heading between
+           them would put a card boundary through the middle of it. */
+        node_rows_route(rows, node, roster);
     }
     rows_info(rows, MESH_STR_NODE_CHANNEL, MESH_STR_NODE_VAL_NUMBER, (unsigned)node->channel);
     /*
@@ -1254,7 +1373,7 @@ uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool
         node_rows_route_path(&rows, node, trace, now);
     }
     node_rows_identity(&rows, node);
-    node_rows_signal(&rows, node, is_self, now);
+    node_rows_signal(&rows, node, roster, is_self, now);
     node_rows_power(&rows, node, now);
     node_rows_position(&rows, node, now);
     node_rows_environment(&rows, node, now);

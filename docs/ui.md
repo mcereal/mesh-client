@@ -127,7 +127,7 @@ reference; what follows is the map.
 |---|---|
 | `fb_list_*` | the list model above: rows, cards, chips, notes, mixed heights |
 | `struct fb_list_item` | one row with slots — marker gutter, leading avatar or tonal disc, label, trailing value, supporting line |
-| `struct fb_bubble` | the transcript's one component: wrapped body, quote line, reactions, the delivery mark |
+| `struct fb_bubble` | the transcript's one component: wrapped body, quote line, reactions, the relay chip, the delivery mark |
 | `struct fb_selection` | the checkbox and the radio |
 | `struct fb_segmented` | a small set of alternatives, all on screen at once |
 | `struct fb_meter`, the slider | a quantity as a length; the slider is the editable one |

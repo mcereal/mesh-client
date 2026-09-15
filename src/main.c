@@ -1738,6 +1738,9 @@ static void print_handshake_pretty(FILE *out, const struct mesh_cli_peer *device
             if (node->via_mqtt) {
                 fprintf(out, " via_mqtt");
             }
+            if (node->has_route) {
+                fprintf(out, " relay=%02x next_hop=%02x", node->relay_node, node->next_hop);
+            }
             fprintf(out, "\n");
         }
     }
@@ -1905,6 +1908,9 @@ static void print_cached_messages(FILE *out, const struct mesh_ui_message_list *
         if (outbound && message->ack != MESH_MESSAGE_ACK_NONE) {
             fprintf(out, " [%s]", mesh_message_ack_to_string((enum mesh_message_ack)message->ack));
         }
+        if (message->relay_name[0] != '\0') {
+            fprintf(out, " (via %s)", message->relay_name);
+        }
         fprintf(out, ": %s\n", message->text);
     }
 }
@@ -1931,6 +1937,10 @@ static void print_cached_messages_json(FILE *out, const struct mesh_ui_message_l
         }
         fprintf(out, ",\"peer_name\":");
         json_print_string(out, message->peer_name);
+        if (message->relay_name[0] != '\0') {
+            fprintf(out, ",\"relay\":");
+            json_print_string(out, message->relay_name);
+        }
         fprintf(out, ",\"ack\":\"%s\"",
                 mesh_message_ack_to_string((enum mesh_message_ack)message->ack));
         fprintf(out, ",\"text\":");
@@ -2078,6 +2088,11 @@ static void print_handshake_json(FILE *out, const struct mesh_cli_peer *device,
                 (double)node->snr, node->via_mqtt ? "true" : "false");
         if (node->has_hops_away) {
             fprintf(out, ",\"hops_away\":%u", node->hops_away);
+        }
+        /* The last bytes MeshPacket carries, not node numbers - the name is what says so. */
+        if (node->has_route) {
+            fprintf(out, ",\"relay_node_byte\":%u,\"next_hop_byte\":%u", node->relay_node,
+                    node->next_hop);
         }
         fputc('}', out);
     }

@@ -172,6 +172,25 @@ struct mesh_ui_node_summary {
     bool via_mqtt;
     bool has_hops_away;
     uint8_t hops_away;
+    /* The routing half of the last packet's header: the last byte of the node that relayed it
+       to us, and the last byte of the next hop that packet named. See the session's twin for
+       what a byte can and cannot be resolved to, and why neither is cached to the card. */
+    bool has_route;
+    uint8_t relay_node;
+    uint8_t next_hop;
+    /*
+     * Whether more than one node ends in that byte, answered at publish over the *whole*
+     * session roster rather than here.
+     *
+     * Two bools rather than the resolved names, because the screen resolves a byte live - a
+     * relay that was two hex digits at connect time becomes a name the moment its NodeInfo
+     * lands - and only the ambiguity needs an authority this side of the seam does not have.
+     * This roster is capped at MESH_UI_MAX_HANDSHAKE_NODES and the session's is twice that, so
+     * a byte can look unique here purely because its other claimant was ranked away, and a
+     * screen scanning only what it was given would name that one node and sound certain.
+     */
+    bool relay_ambiguous;
+    bool next_hop_ambiguous;
     char user_id[16];
     /* False while the name is the one derived from the node number rather than one the node
        gave; see mesh_session_default_identity(). */

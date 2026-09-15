@@ -124,6 +124,13 @@ static void mesh_ui_backend_cli_print_handshake(struct mesh_ui_backend_cli_conte
         if (node->via_mqtt) {
             mesh_ui_backend_cli_write(context, " via_mqtt");
         }
+        /* The routing pair as the radio gave it: last bytes, unresolved. A text backend has no
+           roster join to make and the ambiguity is the interesting part here - two nodes whose
+           numbers end the same are one line apart in this dump. */
+        if (node->has_route) {
+            mesh_ui_backend_cli_write(context, " relay=%02x next_hop=%02x", node->relay_node,
+                                      node->next_hop);
+        }
         mesh_ui_backend_cli_write(context, "\n");
     }
 }

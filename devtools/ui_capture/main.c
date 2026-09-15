@@ -145,6 +145,9 @@ struct uicap_node_seed {
 struct uicap_message_seed {
     uint32_t peer;
     const char *peer_name;
+    /* The relay that carried it the last stretch, "" for one heard straight from its sender.
+       Most of the log is the second kind, because most of a real transcript is. */
+    const char *relay_name;
     const char *text;
     uint32_t sent_ago_s;
     uint8_t channel;
@@ -261,6 +264,24 @@ static void uicap_scene_demo(struct uicap *cap) {
         node->via_mqtt = seeds[i].via_mqtt;
         node->has_user = true;
         node->in_nodedb = true;
+        /*
+         * Where the last packet came from and where it was going next, which is what the two
+         * routing rows on the detail read. Only for the nodes something was actually heard
+         * from: the MQTT-only ones have no packet of ours to describe, and the rows are absent
+         * there rather than showing a flood nobody heard.
+         *
+         * A node at zero hops names itself as its own relay, which is the firmware's way of
+         * saying nothing carried it - the "direct" the row draws. Anything further out is
+         * relayed by Alfa Ridge and asks for Home Base next, so the demo shows both halves of
+         * a resolved byte rather than only the hex fallback.
+         */
+        if (!seeds[i].via_mqtt) {
+            node->has_route = true;
+            const bool direct = seeds[i].has_hops && seeds[i].hops == 0U;
+            node->relay_node =
+                direct ? (uint8_t)(seeds[i].node_id & 0xFFU) : (uint8_t)(seeds[1].node_id & 0xFFU);
+            node->next_hop = direct ? 0U : (uint8_t)(seeds[0].node_id & 0xFFU);
+        }
         /*
          * A public key on every node, because a node on a real mesh running anything recent has
          * one: the roster is where the padlock in a transcript and the Key row on a detail both
@@ -499,24 +520,28 @@ static void uicap_scene_demo(struct uicap *cap) {
     mesh_ui_store_set_handshake(&cap->store, &handshake);
 
     static const struct uicap_message_seed log[] = {
-        {0x8F21B004U, "ALFA", "Heading up the ridge, back before dark", 93000U, 0U, true, false,
+        {0x8F21B004U, "ALFA", "", "Heading up the ridge, back before dark", 93000U, 0U, true, false,
          MESH_MESSAGE_ACK_NONE},
-        {0x8F21B004U, "ALFA", "Copy that, we'll keep the repeater warm", 92400U, 0U, true, true,
+        {0x8F21B004U, "ALFA", "", "Copy that, we'll keep the repeater warm", 92400U, 0U, true, true,
          MESH_MESSAGE_ACK_DELIVERED},
-        {0x8F21B006U, "CHRL", "Lookout is clear, no smoke", 88000U, 0U, true, false,
+        {0x8F21B006U, "CHRL", "", "Lookout is clear, no smoke", 88000U, 0U, true, false,
          MESH_MESSAGE_ACK_NONE},
-        {0x8F21B005U, "BRVO", "Are you still at the creek?", 5400U, 0U, false, true,
+        {0x8F21B005U, "BRVO", "", "Are you still at the creek?", 5400U, 0U, false, true,
          MESH_MESSAGE_ACK_DELIVERED},
-        {0x8F21B005U, "BRVO", "Yes, water is high but crossable", 5100U, 0U, false, false,
+        {0x8F21B005U, "BRVO", "", "Yes, water is high but crossable", 5100U, 0U, false, false,
          MESH_MESSAGE_ACK_NONE},
-        {0x8F21B005U, "BRVO", "Bring the long rope if you have it", 5040U, 0U, false, false,
+        /* Two the mesh carried rather than handed over directly: one named relay, and one the
+           roster could not settle on, which is the pair the chip has to be able to draw. */
+        {0x8F21B005U, "BRVO", "ALFA", "Bring the long rope if you have it", 5040U, 0U, false, false,
          MESH_MESSAGE_ACK_NONE},
-        {0x8F21B008U, "ECHO", "Repeater battery at 71%", 3000U, 1U, true, false,
+        {0x8F21B008U, "ECHO", "ALFA", "Repeater battery at 71%", 3000U, 1U, true, false,
          MESH_MESSAGE_ACK_NONE},
-        {0x8F21B004U, "ALFA", "Anyone got eyes on the north trail?", 900U, 0U, true, false,
+        {0x8F21B004U, "ALFA", "", "Anyone got eyes on the north trail?", 900U, 0U, true, false,
          MESH_MESSAGE_ACK_NONE},
-        {0x8F21B006U, "CHRL", "Rolling that way now", 300U, 0U, true, false, MESH_MESSAGE_ACK_NONE},
-        {0x8F21B009U, "FXTR", "Radio check", 120U, 0U, false, false, MESH_MESSAGE_ACK_NONE},
+        {0x8F21B006U, "CHRL", "", "Rolling that way now", 300U, 0U, true, false,
+         MESH_MESSAGE_ACK_NONE},
+        {0x8F21B009U, "FXTR", "!..1c", "Radio check", 120U, 0U, false, false,
+         MESH_MESSAGE_ACK_NONE},
     };
 
     struct mesh_ui_message_list messages;
@@ -528,6 +553,7 @@ static void uicap_scene_demo(struct uicap *cap) {
         entry->peer = log[i].peer;
         entry->rx_time = now - log[i].sent_ago_s;
         snprintf(entry->peer_name, sizeof entry->peer_name, "%s", log[i].peer_name);
+        snprintf(entry->relay_name, sizeof entry->relay_name, "%s", log[i].relay_name);
         snprintf(entry->text, sizeof entry->text, "%s", log[i].text);
         entry->channel = log[i].channel;
         entry->direction =

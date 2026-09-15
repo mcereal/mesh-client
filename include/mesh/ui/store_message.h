@@ -58,6 +58,19 @@ struct mesh_ui_message {
        nobody else. On a default-key channel a "direct" message is not that, and the transcript
        has no other way to say so. */
     bool pki_encrypted;
+    /*
+     * Who handed this packet to our radio, resolved for display exactly as `peer_name` is: the
+     * relay's short name when the roster settles on one, the "!..a3" partial id when it cannot,
+     * and "" when there is nothing to say - the firmware did not name a relay, or the one it
+     * named is the sender itself and the message came to us straight from them.
+     *
+     * A name rather than the byte MeshPacket.relay_node carries, because resolving it needs the
+     * whole roster and a byte only ever matches part of a node number (struct mesh_node_summary
+     * says what that costs). The node roster keeps its raw bytes and resolves them on the
+     * detail screen, which has the roster in front of it; a transcript does not, and a bubble
+     * that had to join against one is the rule this header opens with.
+     */
+    char relay_name[16];
     /* The message this one answers, and whether it is a reaction rather than a reply. A
        reaction is an annotation on its target, not a line of its own, so it is filtered out of
        the thread (mesh_ui_nav_filter_messages) and drawn on the bubble it belongs to. */
