@@ -95,14 +95,18 @@ static bool mesh_app_firmware_radio_ready(void *userdata) {
     struct mesh_app *const app = (struct mesh_app *)userdata;
     const struct mesh_firmware_update *const update = &app->firmware_update;
     const char *const identifier = mesh_app_connected_identifier();
-    const struct mesh_radio_settings *const settings = mesh_session_settings(&app->session);
-    if (identifier == NULL || settings == NULL || !settings->has_metadata) {
+    /* The *link's* metadata, not the Settings tab's: what this asks is whether the radio now on
+       the other end is the one the image was chosen for, and the tab may be describing a node
+       over the mesh that has nothing to do with this cable. */
+    const meshtastic_DeviceMetadata *const metadata =
+        mesh_radio_settings_link_metadata(mesh_session_settings(&app->session));
+    if (identifier == NULL || metadata == NULL) {
         return false;
     }
     if (mesh_app_firmware_bus() != update->path) {
         return false;
     }
-    if (update->hw_model != 0U && (uint32_t)settings->metadata.hw_model != update->hw_model) {
+    if (update->hw_model != 0U && (uint32_t)metadata->hw_model != update->hw_model) {
         return false;
     }
     /* The USB path names the port by the transport's own id rather than by the row's label, for
@@ -1374,12 +1378,16 @@ static void on_check_radio_firmware(struct mesh_app *app, const struct mesh_ui_a
     /* What the radio said about itself is the whole input: the model number decides which
        board this is and the version decides whether the newest release is news. Both may
        be absent, and a check on either still reports what upstream has published - see
-       mesh_firmware_check(). */
-    const struct mesh_radio_settings *const settings = mesh_session_settings(&app->session);
-    const bool known = settings != NULL && settings->has_metadata;
+       mesh_firmware_check().
+       The link's copy, because the image this leads to is written to the radio on the end of
+       the link. While the Settings tab is administering another node it is *that* node's model
+       in `metadata`, and checking against it would offer an image for a board nobody here is
+       holding. */
+    const meshtastic_DeviceMetadata *const metadata =
+        mesh_radio_settings_link_metadata(mesh_session_settings(&app->session));
     const int result =
-        mesh_firmware_check(&app->firmware, known ? (uint32_t)settings->metadata.hw_model : 0U,
-                            known ? settings->metadata.firmware_version : "", now);
+        mesh_firmware_check(&app->firmware, metadata != NULL ? (uint32_t)metadata->hw_model : 0U,
+                            metadata != NULL ? metadata->firmware_version : "", now);
     if (result == 0) {
         mesh_str_copy(toast, sizeof toast, mesh_str(MESH_STR_TOAST_CHECKING_FIRMWARE));
     } else if (result == -ENOTSUP) {

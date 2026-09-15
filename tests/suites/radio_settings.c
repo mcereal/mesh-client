@@ -1407,8 +1407,16 @@ MESH_TEST_CASE(radio_settings_remote_admin_encodes_under_pki, unit) {
     MESH_TEST_FAIL_IF(packet.public_key.size != MESH_ADMIN_PUBLIC_KEY_LEN ||
                           memcmp(packet.public_key.bytes, k_remote_key, sizeof k_remote_key) != 0,
                       "and sealed to the node's own key");
-    MESH_TEST_FAIL_IF(!packet.want_ack,
-                      "a packet with a mesh to cross asks for the firmware's retransmissions");
+    /*
+     * And deliberately no want_ack, which is the one thing a packet crossing a mesh looks like
+     * it ought to have. The firmware reports a delivery ack for a packet we originated as a
+     * ROUTING_APP packet quoting the same id the answer will quote, generated a hop away rather
+     * than at the far end - so it would arrive first, release the one request in flight, and
+     * leave the AdminMessage matching nothing. A set would be worse: recorded as saved by its
+     * delivery, before the firmware's own rejection had a chance to say otherwise.
+     */
+    MESH_TEST_FAIL_IF(packet.want_ack,
+                      "a delivery ack quoting our id would be mistaken for the answer");
     MESH_TEST_FAIL_IF(packet.decoded.portnum != meshtastic_PortNum_ADMIN_APP ||
                           !packet.decoded.want_response,
                       "it is still an ADMIN_APP request wanting a reply");
@@ -1424,6 +1432,18 @@ MESH_TEST_CASE(radio_settings_remote_admin_encodes_under_pki, unit) {
     MESH_TEST_FAIL_IF(packet.to != 0x1234U || packet.pki_encrypted ||
                           packet.public_key.size != 0U || packet.want_ack,
                       "a request with no destination is the local one it always was");
+
+    /*
+     * The delivery ack the queue must never be handed, written out as the packet the firmware
+     * would send: a ROUTING_APP with error NONE quoting our id. It is indistinguishable from a
+     * set_*'s real ack, which is exactly why the request that could earn one does not ask for
+     * it - this pins the shape of the collision rather than a behaviour, so the day somebody
+     * puts want_ack back the test above is what says why.
+     */
+    struct mesh_admin_request pending = next;
+    MESH_TEST_FAIL_IF(!remote_encode_packet(&settings, &pending, &packet), "re-encode");
+    MESH_TEST_FAIL_IF(!packet.decoded.want_response,
+                      "the reply is the acknowledgement, so it has to be asked for");
 
     /*
      * A destination this struct holds no key for is refused rather than sent in the clear. The
@@ -1466,6 +1486,9 @@ MESH_TEST_CASE(radio_settings_remote_admin_clears_the_sections, unit) {
     meshtastic_User owner = meshtastic_User_init_default;
     snprintf(owner.long_name, sizeof owner.long_name, "Brick");
     mesh_radio_settings_apply_owner(&settings, &owner);
+    meshtastic_DeviceMetadata metadata = meshtastic_DeviceMetadata_init_default;
+    metadata.hw_model = meshtastic_HardwareModel_RAK4631;
+    mesh_radio_settings_apply_metadata(&settings, &metadata);
     settings.has_session_passkey = true;
     settings.session_passkey_len = 4U;
     settings.admin_replies = 9U;
@@ -1492,6 +1515,32 @@ MESH_TEST_CASE(radio_settings_remote_admin_clears_the_sections, unit) {
     MESH_TEST_FAIL_IF(!settings.has_region_presets,
                       "the preset map describes the firmware's table and no verb can re-ask "
                       "for it, so dropping it would leave the LoRa rows unconstrained for good");
+
+    /*
+     * And what the radio on the end of the link said about itself, which is the other thing
+     * here that is not a section.
+     *
+     * It decides which firmware image may be written down this cable. Read from `metadata` -
+     * which is now the remote node's - the install would offer an image for a board nobody is
+     * holding and the safety check that compares models would be comparing the wrong two.
+     */
+    const meshtastic_DeviceMetadata *const link = mesh_radio_settings_link_metadata(&settings);
+    MESH_TEST_FAIL_IF(link == NULL || link->hw_model != meshtastic_HardwareModel_RAK4631,
+                      "the link's own metadata is not the tab's, and survives a retarget");
+    MESH_TEST_FAIL_IF(settings.has_metadata,
+                      "while the target's is dropped with every other section");
+
+    /* A metadata reply from the node being administered fills the tab's copy and leaves the
+       link's alone - which is the whole of what keeps the two questions apart. */
+    meshtastic_DeviceMetadata remote_meta = meshtastic_DeviceMetadata_init_default;
+    remote_meta.hw_model = meshtastic_HardwareModel_HELTEC_V3;
+    mesh_radio_settings_apply_metadata(&settings, &remote_meta);
+    MESH_TEST_FAIL_IF(!settings.has_metadata ||
+                          settings.metadata.hw_model != meshtastic_HardwareModel_HELTEC_V3,
+                      "the tab shows the node it is administering");
+    MESH_TEST_FAIL_IF(mesh_radio_settings_link_metadata(&settings)->hw_model !=
+                          meshtastic_HardwareModel_RAK4631,
+                      "and the radio in your hand is still the one the image would go to");
 
     /* And coming back is the same clearing in the other direction. */
     mesh_radio_settings_apply_owner(&settings, &owner);

@@ -302,6 +302,22 @@ struct mesh_radio_settings {
     bool has_metadata;
     meshtastic_DeviceMetadata metadata;
     /*
+     * The same thing for the radio on the end of the link, which is the same record until the
+     * Settings tab is pointed at somebody else's radio and a different one afterwards.
+     *
+     * Kept apart because two different questions read it and only one of them is about the
+     * radio being configured. "What board is this and what is it running" is the Settings tab's
+     * and follows the admin target; "which firmware image may be written down this USB cable or
+     * over this BLE link" is the *link's*, and answering it from the target's model would offer
+     * a Heltec image for a RAK in your hand - the one failure the firmware install exists to
+     * refuse. Read it through mesh_radio_settings_link_metadata().
+     *
+     * On the link's side of the line for the region preset map's reason, and it survives a
+     * retarget for the same one.
+     */
+    bool has_link_metadata;
+    meshtastic_DeviceMetadata link_metadata;
+    /*
      * The four the radio keeps outside Config/ModuleConfig/Channel.
      *
      * `ui_config` is kept whole and written back whole, which is not tidiness: DeviceUIConfig
@@ -473,6 +489,12 @@ int mesh_radio_settings_set_admin_dest(struct mesh_radio_settings *settings, uin
 
 /* The node the Settings tab is administering, or 0 for the connected radio. */
 uint32_t mesh_radio_settings_admin_dest(const struct mesh_radio_settings *settings);
+
+/* What the radio on the end of the link said about itself, or NULL before it has. Not the same
+   record as `metadata` while another node is being administered, and the one the firmware
+   install must read: the image goes down this link whatever the Settings tab is describing. */
+const meshtastic_DeviceMetadata *
+mesh_radio_settings_link_metadata(const struct mesh_radio_settings *settings);
 
 /* Fold in fragments the radio streams during the want_config handshake. */
 void mesh_radio_settings_apply_config(struct mesh_radio_settings *settings,

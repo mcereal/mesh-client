@@ -115,6 +115,14 @@ uint32_t mesh_radio_settings_admin_dest(const struct mesh_radio_settings *settin
     return settings == NULL ? 0U : settings->admin_dest;
 }
 
+const meshtastic_DeviceMetadata *
+mesh_radio_settings_link_metadata(const struct mesh_radio_settings *settings) {
+    if (settings == NULL || !settings->has_link_metadata) {
+        return NULL;
+    }
+    return &settings->link_metadata;
+}
+
 int mesh_radio_settings_set_admin_dest(struct mesh_radio_settings *settings, uint32_t node_id,
                                        const uint8_t *public_key, size_t key_len) {
     if (settings == NULL) {
@@ -148,6 +156,15 @@ int mesh_radio_settings_set_admin_dest(struct mesh_radio_settings *settings, uin
      */
     const bool has_region_presets = settings->has_region_presets;
     const meshtastic_LoRaRegionPresetMap region_presets = settings->region_presets;
+    /*
+     * And what the radio on the end of the link said about itself, which is the other thing
+     * here that is not a section. It is what decides which firmware image may be written down
+     * this cable, and that question does not change because the Settings tab is now describing
+     * somebody else's radio - nor could it be asked again, since the handshake that answers it
+     * happens once per connection.
+     */
+    const bool has_link_metadata = settings->has_link_metadata;
+    const meshtastic_DeviceMetadata link_metadata = settings->link_metadata;
 
     memset(settings, 0, sizeof *settings);
 
@@ -157,6 +174,8 @@ int mesh_radio_settings_set_admin_dest(struct mesh_radio_settings *settings, uin
     settings->last_write_error = last_write_error;
     settings->has_region_presets = has_region_presets;
     settings->region_presets = region_presets;
+    settings->has_link_metadata = has_link_metadata;
+    settings->link_metadata = link_metadata;
 
     settings->admin_dest = node_id;
     if (node_id != 0U) {
@@ -338,6 +357,19 @@ void mesh_radio_settings_apply_metadata(struct mesh_radio_settings *settings,
     }
     settings->has_metadata = true;
     settings->metadata = *metadata;
+    /*
+     * And the link's own copy, while there is nothing else being administered.
+     *
+     * With no remote target every metadata that reaches here is the connected radio's - the
+     * handshake's FromRadio and an admin reply are the only two ways in, and the second is
+     * already filtered to the target by mesh_radio_settings_reply_is_targets(). So this one
+     * branch is the whole of keeping the two apart, and what it buys is a firmware install that
+     * still knows which board it is writing to.
+     */
+    if (settings->admin_dest == 0U) {
+        settings->has_link_metadata = true;
+        settings->link_metadata = *metadata;
+    }
 }
 
 void mesh_radio_settings_apply_owner(struct mesh_radio_settings *settings,
@@ -909,13 +941,24 @@ int mesh_radio_settings_encode_request(const struct mesh_radio_settings *setting
         packet->public_key.size = (pb_size_t)MESH_ADMIN_PUBLIC_KEY_LEN;
         memcpy(packet->public_key.bytes, settings->admin_dest_key, MESH_ADMIN_PUBLIC_KEY_LEN);
         /*
-         * And an ack, which a local request has no use for.
+         * And deliberately **no** `want_ack`, which is the one thing a packet crossing a mesh
+         * looks like it ought to have.
          *
-         * `want_response` is the reply we correlate on either way, but it only comes back if
-         * the request arrived: over the air the firmware's own retransmissions are the
-         * difference between one dropped packet and a minute of waiting followed by a timeout.
+         * The reply is the acknowledgement here, the same rule request_position and
+         * request_telemetry are written to (see mesh_session_request_on_port). But this queue
+         * has a second reason, and it is the stronger one: the whole correlation model is *one*
+         * reply per request, quoting our packet id, releasing the one request in flight.
+         * `want_ack` adds a second - the firmware reports a delivery ack for a packet we
+         * originated as a ROUTING_APP packet quoting that same id - and
+         * mesh_radio_settings_ingest_routing() cannot tell it from the answer. It would arrive
+         * first, being generated a hop away rather than at the far end, and it would release
+         * the queue before the AdminMessage landed: the get's response would then match no
+         * pending request and be dropped, and a set would be recorded as saved by its delivery
+         * before the firmware's own ADMIN_BAD_SESSION_KEY had a chance to say otherwise.
+         *
+         * So the retransmissions are given up on purpose, and what stands in for them is the
+         * minute above and a refresh the user can press again.
          */
-        packet->want_ack = true;
     }
 
     pb_ostream_t payload =

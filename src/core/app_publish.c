@@ -849,12 +849,16 @@ static void mesh_app_flatten_firmware(struct mesh_app *app, struct mesh_ui_setti
      *
      * Gated on knowing a model, because a link that has merely *dropped* clears the metadata
      * and the answer is still worth reading with the radio back in a pocket.
+     *
+     * The link's own copy rather than the Settings tab's: an answer stops being this radio's
+     * when the *radio* changes, not when the tab is pointed at somebody else's over the mesh -
+     * and read from the tab's, a retarget would throw the answer away and then re-fetch one for
+     * a board that is not on the other end of this cable.
      */
-    const struct mesh_radio_settings *const radio = mesh_session_settings(&app->session);
-    const bool known = radio != NULL && radio->has_metadata;
-    const uint32_t model = known ? (uint32_t)radio->metadata.hw_model : 0U;
-    if (model != 0U &&
-        !mesh_firmware_answers_for(firmware, model, radio->metadata.firmware_version)) {
+    const meshtastic_DeviceMetadata *const radio =
+        mesh_radio_settings_link_metadata(mesh_session_settings(&app->session));
+    const uint32_t model = radio != NULL ? (uint32_t)radio->hw_model : 0U;
+    if (model != 0U && !mesh_firmware_answers_for(firmware, model, radio->firmware_version)) {
         mesh_firmware_forget(firmware);
     }
 

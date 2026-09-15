@@ -256,7 +256,12 @@ change.
   wants and the firmware does the cryptography. A destination we hold no key for is refused
   rather than sent in the clear; there is no unencrypted remote admin, because the legacy way of
   doing it is a shared channel named `admin` that every node holding the key is an administrator
-  of. The packet also carries `want_ack`, which a local request has no use for.
+  of. It deliberately does **not** carry `want_ack`: the firmware reports a delivery ack for a
+  packet we originated as a ROUTING_APP packet quoting the same id the answer will quote, and
+  `ingest_routing()` cannot tell the two apart — it would arrive first, release the queue before
+  the AdminMessage landed, and record a write as saved by its delivery rather than by the
+  firmware's verdict. The reply is the acknowledgement, which is `request_position`'s rule with
+  a second reason behind it.
 - **A reply is allowed a minute**, not five seconds — the same `MESH_TRACEROUTE_TIMEOUT_MS`
   allows, and for the same reason. The deadline is a property of the request that went out
   (`pending_dest`), not of where the tab is pointed now, because the two interleave. Three
@@ -266,7 +271,17 @@ change.
 - **Everything the struct held is dropped**, because a config section is one radio's, and the
   tab showing this radio's LoRa settings beside that radio's owner reads as a working screen and
   is not one. What survives is what is not a section: the write tallies the app announces
-  outcomes from, and the region preset map, which no admin verb can ask a remote node for.
+  outcomes from, the region preset map (which no admin verb can ask a remote node for), and
+  `link_metadata`.
+
+That last one is the seam between two questions that used to share an answer. "What board is
+this and what is it running" is the Settings tab's and follows the target;
+`mesh_radio_settings_link_metadata()` answers "which firmware image may be written down this
+cable", which is the *link's* and does not move — reading the tab's would offer a Heltec image
+for a RAK in your hand, and the model comparison that exists to refuse exactly that would be
+comparing the wrong two radios. The firmware group is not drawn in About radio while a target is
+set: there is nothing to put in its place, because an image crosses a cable or a BLE link and
+never a mesh.
 - **Only the Settings tab's own requests follow it.** `queue_probe`, `queue_all`, `queue_write`,
   `queue_action` and `queue_ham_mode` go to the target; the clock push, the NodeDB verbs behind
   the Nodes tab, `add_contact`, the key-verification ceremony and the OTA request are always the

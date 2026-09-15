@@ -3844,6 +3844,57 @@ MESH_TEST_CASE(ui_settings_about_radio_names_the_node_being_configured, unit) {
                       "verb asks a node over the mesh how often it has restarted");
 
     /*
+     * The firmware group is gone with it.
+     *
+     * Those rows are about the radio on the end of the link - the check reads that radio's
+     * model and the install writes down that cable - so under a heading that has just named
+     * another node they would be offering an image for a board nobody here is holding. There
+     * is nothing to put in their place: an image crosses a cable or a BLE link, never a mesh.
+     */
+    settings.fw_supported = true;
+    settings.fw_can_install = true;
+    snprintf(settings.fw_latest, sizeof settings.fw_latest, "2.7.7");
+    snprintf(settings.fw_board, sizeof settings.fw_board, "Heltec Mesh Node T114");
+    settings.has_metadata = true;
+    settings.hw_model = 9U;
+    bool saw_install = false;
+    bool saw_catalog_board = false;
+    count = mesh_ui_settings_item_count(&settings, &handshake, MESH_UI_SETTINGS_RADIO,
+                                        MESH_UI_SETTINGS_NO_CHANNEL);
+    for (uint32_t i = 0; i < count; ++i) {
+        if (!mesh_ui_settings_item(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_RADIO,
+                                   MESH_UI_SETTINGS_NO_CHANNEL, i, &item)) {
+            continue;
+        }
+        saw_install = saw_install ||
+                      item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB ||
+                      item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE ||
+                      item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CHECK_RADIO_FIRMWARE;
+        saw_catalog_board = saw_catalog_board || strcmp(item.value, "Heltec Mesh Node T114") == 0;
+    }
+    MESH_TEST_FAIL_IF(saw_install,
+                      "a firmware image goes down a cable, so it has no business being offered "
+                      "under a heading naming a node across the mesh");
+    MESH_TEST_FAIL_IF(saw_catalog_board,
+                      "the board name came out of a check about the radio in your hand, so the "
+                      "Hardware row falls back to the target's own model instead");
+
+    /* And the group comes back with the target. */
+    settings.admin_dest = 0U;
+    saw_install = false;
+    count = mesh_ui_settings_item_count(&settings, &handshake, MESH_UI_SETTINGS_RADIO,
+                                        MESH_UI_SETTINGS_NO_CHANNEL);
+    for (uint32_t i = 0; i < count; ++i) {
+        if (mesh_ui_settings_item(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_RADIO,
+                                  MESH_UI_SETTINGS_NO_CHANNEL, i, &item) &&
+            item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CHECK_RADIO_FIRMWARE) {
+            saw_install = true;
+        }
+    }
+    MESH_TEST_FAIL_IF(!saw_install, "back on our own radio the rows are the ones they were");
+    settings.admin_dest = 0x7001U;
+
+    /*
      * And the section still fits, which is the half of this that a row added to the top can
      * break silently: the list is built onto the stack every frame and anything past
      * MESH_UI_SETTINGS_ITEMS_MAX is dropped without a word - so the longest this section can be

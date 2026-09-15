@@ -904,6 +904,13 @@ static void build_radio(const struct mesh_ui_settings *s, const struct mesh_ui_h
         item_action(list, MESH_STR_RADIO_ADMIN_REMOTE_RETURN, mesh_str(MESH_STR_COMMON_PRESS_A),
                     MESH_UI_SETTINGS_ACTION_ADMIN_LOCAL);
     }
+    /* Whether the firmware group below belongs on this screen at all. It is about the radio on
+       the end of the link - the check reads that radio's model and the install writes down that
+       cable - and while this section is describing somebody else's node it would be three rows
+       answering a question nobody asked here, under a heading that has just named another
+       radio. There is no remote firmware install to offer in its place: an image crosses a
+       cable or a BLE link, never a mesh. */
+    const bool link_firmware = (s->admin_dest == 0U);
     if (s->has_metadata) {
         item_text(list, MESH_STR_RADIO_FIRMWARE, MESH_UI_SETTING_INFO,
                   s->firmware_version[0] != '\0' ? s->firmware_version
@@ -912,12 +919,16 @@ static void build_radio(const struct mesh_ui_settings *s, const struct mesh_ui_h
                   /* The board upstream's hardware list identified, when a check has run: it is
                      the name that decides which image this radio takes, and "Heltec Mesh Node
                      T114" says more than the HardwareModel enum's own spelling of it. Falls
-                     back to that spelling, which is what every radio has before a check. */
-                  s->fw_board[0] != '\0'
+                     back to that spelling, which is what every radio has before a check - and
+                     always falls back for a node being administered over the mesh, because the
+                     check that produced that name was about a different radio. */
+                  (link_firmware && s->fw_board[0] != '\0')
                       ? s->fw_board
                       : mesh_radio_hw_model_name(s->hw_model, buffer, sizeof buffer));
     }
-    build_radio_firmware(s, list);
+    if (link_firmware) {
+        build_radio_firmware(s, list);
+    }
     /*
      * The node number, which is the one row here that does not come from the admin path at all:
      * `my_info` is the handshake's, so it is our own radio's whatever this section is
