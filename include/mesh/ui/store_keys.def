@@ -80,6 +80,7 @@ MESH_STORE_KEY_ENTRY(MESSAGES, "messages")
 MESH_STORE_KEY_ROW(MSG, "msg")
 MESH_STORE_KEY_ROW(MSG_META, "msg_meta")
 MESH_STORE_KEY_ROW(MSG_NAME, "msg_name")
+MESH_STORE_KEY_ROW(MSG_RELAY, "msg_relay")
 MESH_STORE_KEY_ROW(MSG_TEXT, "msg_text")
 
 /* ---- what has been read, and what is muted -------------------------------------------------- */

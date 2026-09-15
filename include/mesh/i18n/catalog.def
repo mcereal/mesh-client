@@ -278,6 +278,11 @@ MESH_STR_ENTRY(BUBBLE_CHANNEL,            "  #%u")
 MESH_STR_ENTRY(BUBBLE_DIRECT,             "  dm")
 MESH_STR_ENTRY(BUBBLE_ALERT,              "  \U0001F6A8 alert")
 MESH_STR_ENTRY(BUBBLE_SENSOR,             "  sensor")
+/* Who carried the packet the last stretch, when that was somebody other than the sender. Rides
+   the bubble's trailing run beside the clock rather than the header line, because it is a fact
+   about the packet and not about who is talking - and because a run of relayed messages must
+   not grow a header line each. No leading spaces: the run spaces its own parts. */
+MESH_STR_ENTRY(BUBBLE_RELAY,              "via %s")
 /* What became of a message we sent, in words.
  *
  * The bubble draws a mark rather than any of these - a clock, a double tick, an alert circle,
@@ -763,6 +768,9 @@ MESH_STR_ENTRY(NODE_LAST_HEARD,           "Last heard")
 MESH_STR_ENTRY(NODE_SNR,                  "SNR")
 MESH_STR_ENTRY(NODE_RSSI,                 "RSSI")
 MESH_STR_ENTRY(NODE_HOPS_AWAY,            "Hops away")
+/* The routing pair off the last packet: who handed it to us, and who it asked for next. */
+MESH_STR_ENTRY(NODE_RELAYED_BY,           "Relayed by")
+MESH_STR_ENTRY(NODE_NEXT_HOP,             "Next hop")
 MESH_STR_ENTRY(NODE_CHANNEL,              "Channel")
 MESH_STR_ENTRY(NODE_HEARD_VIA,            "Heard via")
 MESH_STR_ENTRY(NODE_BATTERY,              "Battery")
@@ -817,6 +825,11 @@ MESH_STR_ENTRY(NODE_FLAG_SEPARATOR,       ", ")
    protocol names and stay as they are. */
 MESH_STR_ENTRY(NODE_VIA_MQTT,             "MQTT")
 MESH_STR_ENTRY(NODE_VIA_RF,               "RF")
+/* The two answers the routing rows have that are not a node: the packet came straight from the
+   node itself, and it went out with no next hop named - which is upstream's way of saying it
+   was flooded rather than routed. */
+MESH_STR_ENTRY(NODE_RELAY_DIRECT,         "direct")
+MESH_STR_ENTRY(NODE_NEXT_HOP_FLOOD,       "flood")
 
 /* The traceroute row and the states it passes through. */
 MESH_STR_ENTRY(NODE_TRACE_ROUTE,          "Trace route")
@@ -905,6 +918,10 @@ MESH_STR_ENTRY(VERIFY_NUMBER_PROMPT,      "Four digits from %s")
 
 /* Value formats. */
 MESH_STR_ENTRY(NODE_VAL_USER_ID_HEX,      "!%08x")
+/* A relay or next hop that could not be resolved to one node. The ".." is the three bytes the
+   LoRa header had no room for, so the id reads as the partial one it is rather than as a node
+   number that happens to be small. */
+MESH_STR_ENTRY(NODE_VAL_RELAY_HEX,        "!..%02x")
 MESH_STR_ENTRY(NODE_VAL_NUMBER,           "%u")
 MESH_STR_ENTRY(NODE_VAL_SNR,              "%.2f dB")
 MESH_STR_ENTRY(NODE_VAL_RSSI,             "%d dBm")

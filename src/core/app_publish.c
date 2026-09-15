@@ -164,6 +164,47 @@ void mesh_app_format_peer_name(const struct mesh_handshake_status *status, uint3
     snprintf(out, out_len, "!%08x", node_id);
 }
 
+/* The last-byte form of the same question; see app_internal.h for the ambiguity rule. */
+void mesh_app_format_relay_name(const struct mesh_handshake_status *status, uint8_t last_byte,
+                                uint32_t origin, char *out, size_t out_len) {
+    if (out == NULL || out_len == 0U) {
+        return;
+    }
+    out[0] = '\0';
+
+    /* Nothing to say: the firmware named no relay, or the one it named is the sender itself and
+       the packet came to us straight from them. */
+    if (last_byte == 0U || (origin != 0U && (uint8_t)(origin & 0xFFU) == last_byte)) {
+        return;
+    }
+
+    const struct mesh_node_summary *match = NULL;
+    if (status != NULL) {
+        for (size_t i = 0; i < status->node_count && i < MESH_SESSION_MAX_NODES; ++i) {
+            const struct mesh_node_summary *node = &status->nodes[i];
+            if ((uint8_t)(node->node_id & 0xFFU) != last_byte) {
+                continue;
+            }
+            if (match != NULL) {
+                /* A second candidate, so the byte names neither of them. */
+                match = NULL;
+                break;
+            }
+            match = node;
+        }
+    }
+
+    if (match != NULL && match->short_name[0] != '\0') {
+        mesh_text_sanitise_str(match->short_name, out, out_len);
+        return;
+    }
+    if (match != NULL && match->long_name[0] != '\0') {
+        mesh_text_sanitise_str(match->long_name, out, out_len);
+        return;
+    }
+    mesh_str_format(out, out_len, MESH_STR_NODE_VAL_RELAY_HEX, (unsigned)last_byte);
+}
+
 /* Position, device metrics, environment and the four sensor groups, from the session's structs
    into the UI's twins.
    Field by field rather than a memcpy: the two declarations are deliberately independent (the
@@ -566,6 +607,11 @@ static void mesh_app_publish_messages(struct mesh_app *app,
         target->is_reaction = source->is_reaction;
         mesh_app_format_peer_name(status, target->peer, target->peer_name,
                                   sizeof(target->peer_name));
+        /* Against `source->from` either way, which for one of ours is our own radio: a send
+           that went straight out to the mesh names nobody, exactly as a message heard direct
+           from its sender does. */
+        mesh_app_format_relay_name(status, source->relay_node, source->from, target->relay_name,
+                                   sizeof(target->relay_name));
         snprintf(target->text, sizeof(target->text), "%s", source->text);
         live.count++;
     }
@@ -2211,6 +2257,9 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
             dst->via_mqtt = src->via_mqtt;
             dst->has_hops_away = src->has_hops_away;
             dst->hops_away = src->hops_away;
+            dst->has_route = src->has_route;
+            dst->relay_node = src->relay_node;
+            dst->next_hop = src->next_hop;
             snprintf(dst->user_id, sizeof(dst->user_id), "%s", src->user_id);
             dst->has_user = src->has_user;
             dst->in_nodedb = src->in_nodedb;

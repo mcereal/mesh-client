@@ -3349,3 +3349,63 @@ MESH_TEST_CASE(app_scale_float_refuses_what_it_cannot_cast, unit) {
                       "a magnitude past the cast's range is refused rather than wrapped");
     record_success(test_name);
 }
+
+/*
+ * Resolving a relay byte to a name, and declining to.
+ *
+ * MeshPacket.relay_node and .next_hop carry the *last byte* of a node number, because that is
+ * all the LoRa header has room for. So the lookup is not a lookup: a byte matches one node
+ * number in 256, and a mesh of a hundred nodes therefore collides by arithmetic rather than by
+ * bad luck. The rule this pins is that a name is drawn only when the roster has exactly one
+ * candidate, and that everything else - no candidate, two candidates - falls back to the
+ * "!..a3" partial id, which is the honest rendering of two hex digits.
+ *
+ * Getting this wrong is not a cosmetic bug. "Relayed by ALICE" against a node that did not
+ * relay it is the client inventing a path through the mesh, and the reader has no way to tell
+ * that from one it measured.
+ */
+MESH_TEST_CASE(app_relay_name_declines_to_guess, unit) {
+    struct mesh_handshake_status status;
+    memset(&status, 0, sizeof status);
+    status.node_count = 3U;
+    status.nodes[0].node_id = 0xAAAA0055U;
+    snprintf(status.nodes[0].short_name, sizeof status.nodes[0].short_name, "RLAY");
+    status.nodes[1].node_id = 0xBBBB0077U;
+    snprintf(status.nodes[1].short_name, sizeof status.nodes[1].short_name, "TWIN");
+    /* The collision: a different node whose number ends in the same byte as node[1]'s. */
+    status.nodes[2].node_id = 0xCCCC0077U;
+    snprintf(status.nodes[2].short_name, sizeof status.nodes[2].short_name, "ALSO");
+
+    char name[16];
+
+    /* One candidate: the name, and this is the whole point of the feature. */
+    mesh_app_format_relay_name(&status, 0x55U, 0U, name, sizeof name);
+    MESH_TEST_FAIL_IF(strcmp(name, "RLAY") != 0, "an unambiguous byte should name its node");
+
+    /* Two candidates: neither, because naming either would be a coin toss drawn as a fact. */
+    mesh_app_format_relay_name(&status, 0x77U, 0U, name, sizeof name);
+    MESH_TEST_FAIL_IF(strcmp(name, "!..77") != 0, "an ambiguous byte named one of its candidates");
+
+    /* None: the byte, rather than silence - the radio did tell us something. */
+    mesh_app_format_relay_name(&status, 0x12U, 0U, name, sizeof name);
+    MESH_TEST_FAIL_IF(strcmp(name, "!..12") != 0, "an unmatched byte should still say what it is");
+
+    /* Nothing to say, twice over. Zero is upstream's NO_RELAY_NODE, and a byte that is the
+       sender's own is the firmware saying nothing relayed this - the overwhelmingly common
+       case on a small mesh, and a chip on every bubble if it were not filtered here. */
+    mesh_app_format_relay_name(&status, 0U, 0xAAAA0055U, name, sizeof name);
+    MESH_TEST_FAIL_IF(name[0] != '\0', "a zero relay byte is 'the firmware did not say'");
+    mesh_app_format_relay_name(&status, 0x55U, 0xAAAA0055U, name, sizeof name);
+    MESH_TEST_FAIL_IF(name[0] != '\0', "a packet heard straight from its sender names no relay");
+
+    /* And the sender test is on the byte, not the node: a relay that merely shares the
+       sender's last byte is indistinguishable from the sender, so it is the same answer. */
+    mesh_app_format_relay_name(&status, 0x55U, 0xDDDD0055U, name, sizeof name);
+    MESH_TEST_FAIL_IF(name[0] != '\0', "a byte matching the sender's cannot be read as a relay");
+
+    /* A roster we do not have yet is not a reason to say nothing: the byte still stands. */
+    mesh_app_format_relay_name(NULL, 0x55U, 0U, name, sizeof name);
+    MESH_TEST_FAIL_IF(strcmp(name, "!..55") != 0, "no roster should still render the byte");
+
+    record_success(test_name);
+}

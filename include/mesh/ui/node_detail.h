@@ -273,9 +273,12 @@ enum mesh_ui_node_press {
  * list and takes its own row with it. It only changes what that row's value column says.
  *
  * `roster` is the whole node list and may be NULL, in which case the neighbour rows are left
- * out. Two of this screen's groups need it rather than just this node: a neighbour is a bare
- * node number on the wire and has to be resolved to a name, and "who hears this node" is not
- * reported by anybody - it only exists as the reverse of every *other* node's list.
+ * out. Three of this screen's groups need it rather than just this node: a neighbour is a bare
+ * node number on the wire and has to be resolved to a name, "who hears this node" is not
+ * reported by anybody - it only exists as the reverse of every *other* node's list - and the
+ * routing pair in the signal group is a last byte, which is less than a node number and needs
+ * the whole roster to say whether it names one node or several. Those rows are still drawn
+ * without it; the byte simply stays a byte.
  *
  * `history` is what the client has watched this node's readings do (include/mesh/ui/history.h)
  * and may be NULL. It adds no rows and removes none - a trend is a third thing said about a

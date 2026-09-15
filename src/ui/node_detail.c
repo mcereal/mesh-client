@@ -545,8 +545,100 @@ static void node_rows_identity(struct node_rows *rows, const struct mesh_ui_node
     }
 }
 
+/*
+ * A relay or next-hop byte, resolved against the roster the screen already has.
+ *
+ * The same job node_rows_neighbor_name() does for a whole node number, and it is a separate
+ * function rather than a parameter on that one because the ambiguity is different in kind: a
+ * node number identifies a node, and a last byte identifies 1 in 256 of them. So an exact match
+ * has to be the *only* match to be a name at all - a mesh of a hundred nodes collides here by
+ * arithmetic - and everything else falls back to the "!..a3" partial id, which is the honest
+ * rendering of what the LoRa header actually had room to carry.
+ *
+ * Resolved here rather than joined in at publish, unlike a message's relay: this screen is
+ * handed the roster anyway (it is what "Heard by" is read across), and resolving live means a
+ * relay that was two hex digits at connect time becomes a name the moment its NodeInfo lands.
+ */
+static void node_rows_relay_name(const struct mesh_ui_handshake_state *roster, uint8_t last_byte,
+                                 char *out, size_t out_len) {
+    const struct mesh_ui_node_summary *match = NULL;
+    if (roster != NULL) {
+        const uint32_t count = roster->node_count > MESH_UI_MAX_HANDSHAKE_NODES
+                                   ? MESH_UI_MAX_HANDSHAKE_NODES
+                                   : roster->node_count;
+        for (uint32_t i = 0; i < count; ++i) {
+            if ((uint8_t)(roster->nodes[i].node_id & 0xFFU) != last_byte) {
+                continue;
+            }
+            if (match != NULL) {
+                match = NULL; /* a second candidate, so the byte names neither */
+                break;
+            }
+            match = &roster->nodes[i];
+        }
+    }
+    if (match != NULL) {
+        const char *name = match->short_name[0] != '\0' ? match->short_name : match->long_name;
+        if (name[0] != '\0') {
+            mesh_str_copy(out, out_len, name);
+            return;
+        }
+    }
+    mesh_str_format(out, out_len, MESH_STR_NODE_VAL_RELAY_HEX, (unsigned)last_byte);
+}
+
+/*
+ * The two routing rows, off the last packet this node's traffic arrived in.
+ *
+ * They are a pair and they point in opposite directions, which is the whole reason both are
+ * worth a row. "Relayed by" is who handed that packet to *us* - the last stop on the way here,
+ * and so the first stop of anything going back. "Next hop" is who that packet asked to carry
+ * it onward, which is the sender's own routing table talking rather than ours.
+ *
+ * Neither is a route and neither should be read as one: a traced route is further up this
+ * screen and is the thing that answers that. These answer "did this come straight to me, and
+ * is the mesh routing it or flooding it", which a hop count does not say and which is what
+ * changes first when a repeater goes down.
+ */
+static void node_rows_route(struct node_rows *rows, const struct mesh_ui_node_summary *node,
+                            const struct mesh_ui_handshake_state *roster) {
+    if (!node->has_route) {
+        /* Nothing has been heard from this node this run - a roster entry the NodeDB replayed,
+           or one restored from the cache. Silence rather than a row of zeroes, which would read
+           as a flooded packet that never arrived. */
+        return;
+    }
+
+    if (node->relay_node != 0U) {
+        if ((uint8_t)(node->node_id & 0xFFU) == node->relay_node) {
+            /* The sender's own last byte: nothing relayed it, we heard the node itself. A
+               state rather than a name, because "direct" is a fact about the path and the
+               reader is scanning this column for node names. */
+            rows_state(rows, MESH_STR_NODE_RELAYED_BY, mesh_str(MESH_STR_NODE_RELAY_DIRECT),
+                       MESH_UI_TONE_SUCCESS);
+        } else {
+            char relay[MESH_UI_NODE_LABEL_MAX];
+            node_rows_relay_name(roster, node->relay_node, relay, sizeof relay);
+            rows_text(rows, MESH_STR_NODE_RELAYED_BY, relay);
+        }
+    }
+
+    if (node->next_hop == 0U) {
+        /* Upstream's NO_NEXT_HOP_PREFERENCE: the packet went out to whoever would carry it
+           rather than to a chosen relay. Tertiary, not a warning - flooding is how the mesh
+           works until it has learnt a route, and how all of it worked before firmware 2.5. */
+        rows_state(rows, MESH_STR_NODE_NEXT_HOP, mesh_str(MESH_STR_NODE_NEXT_HOP_FLOOD),
+                   MESH_UI_TONE_TERTIARY);
+    } else {
+        char hop[MESH_UI_NODE_LABEL_MAX];
+        node_rows_relay_name(roster, node->next_hop, hop, sizeof hop);
+        rows_text(rows, MESH_STR_NODE_NEXT_HOP, hop);
+    }
+}
+
 static void node_rows_signal(struct node_rows *rows, const struct mesh_ui_node_summary *node,
-                             bool is_self, uint32_t now) {
+                             const struct mesh_ui_handshake_state *roster, bool is_self,
+                             uint32_t now) {
     rows_heading(rows, MESH_STR_NODE_HEAD_SIGNAL, MESH_UI_ICON_LORA);
 
     char age[24];
@@ -587,6 +679,10 @@ static void node_rows_signal(struct node_rows *rows, const struct mesh_ui_node_s
         } else {
             rows_text(rows, MESH_STR_NODE_HOPS_AWAY, mesh_str(MESH_STR_COMMON_UNKNOWN));
         }
+        /* Beside the hop count rather than under its own heading: how far away a node is and
+           which node stands between us are one question asked twice, and a heading between
+           them would put a card boundary through the middle of it. */
+        node_rows_route(rows, node, roster);
     }
     rows_info(rows, MESH_STR_NODE_CHANNEL, MESH_STR_NODE_VAL_NUMBER, (unsigned)node->channel);
     /*
@@ -1254,7 +1350,7 @@ uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool
         node_rows_route_path(&rows, node, trace, now);
     }
     node_rows_identity(&rows, node);
-    node_rows_signal(&rows, node, is_self, now);
+    node_rows_signal(&rows, node, roster, is_self, now);
     node_rows_power(&rows, node, now);
     node_rows_position(&rows, node, now);
     node_rows_environment(&rows, node, now);

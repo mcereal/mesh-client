@@ -2476,8 +2476,9 @@ void fb_draw_conversation(struct mesh_ui_backend_fb_state *state, struct fb_list
 #define FB_BUBBLE_ICON_CELLS 1U
 #define FB_BUBBLE_META_GAP 1U
 
-/* Reactions, padlock, clock, delivery mark: the run is never longer than its four slots. */
-#define FB_BUBBLE_META_PARTS 4U
+/* Reactions, relay chip, padlock, clock, delivery mark: the run is never longer than its five
+   slots. */
+#define FB_BUBBLE_META_PARTS 5U
 
 /* One drawable part of a trailing run: a text or an icon, never both. */
 struct fb_bubble_part {
@@ -2621,6 +2622,7 @@ static size_t fb_bubble_run(const struct fb_bubble_meta *meta, size_t budget,
                             struct fb_bubble_part *parts, size_t *count) {
     *count = 0U;
     fb_bubble_part_text(parts, count, meta->reactions);
+    fb_bubble_part_text(parts, count, meta->relay);
     fb_bubble_part_icon(parts, count, meta->lock);
     fb_bubble_part_text(parts, count, meta->clock);
     fb_bubble_part_icon(parts, count, meta->state);

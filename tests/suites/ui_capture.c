@@ -1910,6 +1910,10 @@ MESH_TEST_CASE(ui_capture_bubble_contains_its_own_ink, unit) {
     message->direction = MESH_MESSAGE_OUTBOUND;
     message->pki_encrypted = true;
     snprintf(message->peer_name, sizeof message->peer_name, "BRVO");
+    /* And a relay chip, which is the newest part of the trailing run and so the newest way for
+       one to grow past the bubble measured around it. The longest form it takes: a four-cell
+       short name, which is what the store writes when the roster resolves the byte. */
+    snprintf(message->relay_name, sizeof message->relay_name, "RLAY");
     snprintf(message->text, sizeof message->text, "Meet at the creek");
 
     /* Four reactions on it as well, which is the other half of what made the run long: the

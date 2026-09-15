@@ -172,6 +172,12 @@ struct mesh_ui_node_summary {
     bool via_mqtt;
     bool has_hops_away;
     uint8_t hops_away;
+    /* The routing half of the last packet's header: the last byte of the node that relayed it
+       to us, and the last byte of the next hop that packet named. See the session's twin for
+       what a byte can and cannot be resolved to, and why neither is cached to the card. */
+    bool has_route;
+    uint8_t relay_node;
+    uint8_t next_hop;
     char user_id[16];
     /* False while the name is the one derived from the node number rather than one the node
        gave; see mesh_session_default_identity(). */

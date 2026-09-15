@@ -343,6 +343,36 @@ struct mesh_node_summary {
     bool via_mqtt;
     bool has_hops_away;
     uint8_t hops_away;
+    /*
+     * Who carried the last packet we heard from this node, and who that packet asked for next -
+     * MeshPacket.relay_node and MeshPacket.next_hop, which are the routing half of a header the
+     * client otherwise only reads hop counts out of.
+     *
+     * Both are the *last byte* of a node number rather than a node number: that is all the
+     * LoRa header has room for, so resolving one means scanning the roster for the nodes it
+     * could be and accepting that a mesh larger than a couple of dozen will have more than
+     * one. Naming a node here is therefore a decision about ambiguity and not a
+     * lookup - see mesh_app_format_relay_name(), which declines to guess.
+     *
+     * Zero means "the firmware did not say" for `relay_node` (upstream's NO_RELAY_NODE) and
+     * "no preference, this went out flooded" for `next_hop` (NO_NEXT_HOP_PREFERENCE). A node
+     * whose own number ends in 0x00 is indistinguishable from either, which is upstream's
+     * ambiguity and not one worth a flag of our own here.
+     *
+     * Deliberately *not* cached to the card, for the reason struct mesh_ui_traceroute gives:
+     * a route is true for about as long as the mesh holds still, and a relay restored from
+     * last week's file would be the one row on the screen describing a path that no longer
+     * exists. The session fills them from the first packet the node sends and not before.
+     *
+     * `has_route` is that "and not before", and it is the pair's `has_` flag for the same
+     * reason `has_hops_away` is one: zero is a legitimate reading of `next_hop` - it is how a
+     * flooded packet looks, which is how *every* packet looked before firmware 2.5 - so a node
+     * nothing has been heard from and a node whose traffic is flooded are indistinguishable
+     * without it. It says only that a packet arrived, never that the packet said anything.
+     */
+    bool has_route;
+    uint8_t relay_node;
+    uint8_t next_hop;
     /* Identity, from NodeInfo.user. `user_id` is the "!0a1b2c3d" form the apps show. */
     char user_id[16];
     /* False while the only identity we have is the one derived from the node number; true once

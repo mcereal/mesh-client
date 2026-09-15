@@ -1921,6 +1921,19 @@ void fb_draw_conversation(struct mesh_ui_backend_fb_state *state, struct fb_list
 struct fb_bubble_meta {
     const char *reactions; /* the reaction chip run: "\U0001F44D3 \U0001F602"; "" for none */
     /*
+     * Who carried the packet the last stretch - "via BOB" - for a message that did not come
+     * straight from the node that sent it. "" for one that did, and for a mesh whose firmware
+     * does not fill the field in.
+     *
+     * In the run rather than on the bubble's header line, which is where the channel and alert
+     * chips live, for two reasons. It is a fact about *this packet* and the header line is
+     * about the sender, said once per run of theirs; and on a multi-hop mesh nearly every
+     * message is relayed, so a header line each would be a transcript of alternating names.
+     * Second to be dropped when the bubble is too narrow, after the reaction chips: the route
+     * a message took is worth more than a tapback and less than when it arrived.
+     */
+    const char *relay;
+    /*
      * The padlock on a direct message the radio decrypted with our key pair rather than with a
      * channel PSK.
      *

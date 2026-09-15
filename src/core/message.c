@@ -364,6 +364,7 @@ int mesh_message_ingest(struct mesh_message_log *log, const meshtastic_MeshPacke
         message.has_hops_away = true;
         message.hops_away = (uint8_t)(packet->hop_start - packet->hop_limit);
     }
+    message.relay_node = (uint8_t)packet->relay_node;
     message.pki_encrypted = packet->pki_encrypted;
     message.reply_id = data->reply_id;
     /* `emoji` is a fixed32 used as a flag: non-zero means the payload is an emoji reacting to
@@ -391,6 +392,10 @@ int mesh_message_ingest(struct mesh_message_log *log, const meshtastic_MeshPacke
         existing->rx_time = message.rx_time;
         existing->rx_snr = message.rx_snr;
         existing->pki_encrypted = message.pki_encrypted;
+        /* The echo is the only place this can come from for one of ours: the record was made
+           before the radio had done anything with the packet. It names our own radio on a send
+           that went straight out, which is the case the transcript says nothing about. */
+        existing->relay_node = message.relay_node;
         return 0;
     }
 
