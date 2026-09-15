@@ -20,11 +20,12 @@ config
 units metric
 
 # Alfa Ridge is a repeater with a rounded fix, so its detail carries both of the node rows this
-# is about: an altitude and a precision. It is seeds[1], and rows 0 and 1 of the Nodes list are
-# the filter chips and the Map, so its row is 3. Inside a detail the counts are *presses* rather
-# than row numbers - the cursor steps over each group's title on its way down.
+# is about: an altitude and a precision. It is seeds[1], and the Nodes list has three rows before
+# its first node - the filter chips, the sort row and the Map (MESH_UI_NODES_LEAD_ROWS) - so its
+# row is 4. Inside a detail the counts are *presses* rather than row numbers - the cursor steps
+# over each group's title on its way down.
 tab nodes
-key down 3
+key down 4
 key a
 key down 30
 hold 2200
@@ -57,10 +58,11 @@ hold 300
 # other three had to agree with rather than asking a reader to remember it, and because its
 # selected-marker line is where the disagreement was loudest: a range in feet and a footprint in
 # metres, one space apart. The list is left with the cursor on a node, so this walks back to the
-# top rather than indexing into it; the Map row is the second, under the filter chips.
+# top rather than indexing into it; the Map row is the third, under the filter chips and the
+# sort row.
 tab nodes
 key up 6
-key down 1
+key down 2
 key a
 hold 1200
 key left
@@ -73,7 +75,7 @@ units imperial
 hold 1400
 
 tab nodes
-key down 3
+key down 4
 key a
 key down 30
 hold 2200
@@ -100,7 +102,7 @@ hold 300
 
 tab nodes
 key up 6
-key down 1
+key down 2
 key a
 hold 1200
 key left
