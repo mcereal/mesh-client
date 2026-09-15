@@ -798,15 +798,27 @@ static void on_delete_message(struct mesh_app *app, const struct mesh_ui_action 
     const uint32_t node = is_channel ? 0U : action->dest;
     const uint8_t channel = is_channel ? action->channel : 0U;
 
-    (void)mesh_session_forget_message(&app->session, packet_id);
-    (void)mesh_ui_message_list_forget_message(&app->ui_messages_cached, packet_id);
+    /*
+     * All four scoped to the conversation the press came from, not just to the packet id.
+     *
+     * The archive is scoped by construction - it opens that conversation's file and no other -
+     * and the three in RAM have to be told, because a packet id is only unique per sender for a
+     * few minutes (mesh_session_next_packet_id). An id on its own would let one press delete a
+     * message in a conversation the user was never looking at, and the handshake cache would
+     * then write that absence to the card.
+     */
+    const uint32_t ring_peer = is_channel ? MESH_MESSAGE_BROADCAST_ADDR : action->dest;
+    (void)mesh_session_forget_message(&app->session, ring_peer, action->channel, packet_id);
+    (void)mesh_ui_message_list_forget_message(&app->ui_messages_cached, kind, node, channel,
+                                              packet_id);
     const int archived =
         mesh_ui_archive_forget_message(&app->ui_archive, kind, node, channel, packet_id);
     if (archived < 0) {
         mesh_log_warn("ui", "Could not remove message %u from the stored transcript: %d", packet_id,
                       archived);
     }
-    const uint32_t removed = mesh_ui_store_forget_message(&app->ui_store, packet_id);
+    const uint32_t removed =
+        mesh_ui_store_forget_message(&app->ui_store, kind, node, channel, packet_id);
 
     /* Written straight back out, so the message does not come back on the next start. */
     if (app->ui_handshake_cache_path[0] != '\0') {

@@ -83,27 +83,71 @@ static void archive_conversation_of(const struct mesh_ui_message *message, uint8
 
 /* ---- what this run has already written ------------------------------------------------------ */
 
-static bool archive_recently_written(const struct mesh_ui_archive *archive, uint32_t packet_id) {
-    if (packet_id == 0U) {
-        return false;
-    }
-    for (uint32_t i = 0; i < archive->recent_count; ++i) {
-        if (archive->recent[i] == packet_id) {
-            return true;
-        }
-    }
-    return false;
+/*
+ * Whether two records are the same message.
+ *
+ * Not the packet id alone: MeshPacket.id only has to be unique per sender for a few minutes, and
+ * one conversation's file holds every sender on that channel, so two nodes can legitimately land
+ * on the same id. Folding those together would lose one of the two messages for good, which is
+ * the worst thing a transcript can do quietly. See struct mesh_ui_archive_recent.
+ *
+ * Deliberately not the text or the delivery state: those are what *changes* about a message
+ * that is still the same message, and this is the question "have I seen this one before".
+ */
+static bool archive_same_message(const struct mesh_ui_message *a, const struct mesh_ui_message *b) {
+    return a->packet_id != 0U && a->packet_id == b->packet_id && a->peer == b->peer &&
+           a->direction == b->direction;
 }
 
-static void archive_remember(struct mesh_ui_archive *archive, uint32_t packet_id) {
-    if (packet_id == 0U) {
+/* The slot this run already holds for `message`, or NULL. */
+static struct mesh_ui_archive_recent *archive_recent_slot(struct mesh_ui_archive *archive,
+                                                          const struct mesh_ui_message *message) {
+    if (message->packet_id == 0U) {
+        return NULL;
+    }
+    for (uint32_t i = 0; i < archive->recent_count; ++i) {
+        struct mesh_ui_archive_recent *slot = &archive->recent[i];
+        if (slot->packet_id != 0U && slot->packet_id == message->packet_id &&
+            slot->peer == message->peer && slot->direction == message->direction) {
+            return slot;
+        }
+    }
+    return NULL;
+}
+
+/*
+ * Whether this run has already put this message on the card *in this state*.
+ *
+ * The state half is the point: an outbound message goes out pending and is acknowledged a few
+ * seconds later, and an archive that only asked "have I written this id" would keep the pending
+ * copy for good. A changed ack is a record worth appending again.
+ */
+static bool archive_recently_written(struct mesh_ui_archive *archive,
+                                     const struct mesh_ui_message *message) {
+    const struct mesh_ui_archive_recent *slot = archive_recent_slot(archive, message);
+    return slot != NULL && slot->ack == message->ack && slot->ack_error == message->ack_error;
+}
+
+/* Records what was written. A message already in the ring keeps its slot and takes the new
+   delivery state, so a message acknowledged twice does not spend two slots. */
+static void archive_remember(struct mesh_ui_archive *archive,
+                             const struct mesh_ui_message *message) {
+    if (message->packet_id == 0U) {
         return;
     }
-    archive->recent[archive->recent_next] = packet_id;
-    archive->recent_next = (archive->recent_next + 1U) % MESH_UI_ARCHIVE_RECENT_MAX;
-    if (archive->recent_count < MESH_UI_ARCHIVE_RECENT_MAX) {
-        archive->recent_count++;
+    struct mesh_ui_archive_recent *slot = archive_recent_slot(archive, message);
+    if (slot == NULL) {
+        slot = &archive->recent[archive->recent_next];
+        archive->recent_next = (archive->recent_next + 1U) % MESH_UI_ARCHIVE_RECENT_MAX;
+        if (archive->recent_count < MESH_UI_ARCHIVE_RECENT_MAX) {
+            archive->recent_count++;
+        }
     }
+    slot->packet_id = message->packet_id;
+    slot->peer = message->peer;
+    slot->direction = message->direction;
+    slot->ack = message->ack;
+    slot->ack_error = message->ack_error;
 }
 
 /*
@@ -120,6 +164,11 @@ static bool archive_writable(const struct mesh_ui_message *message) {
 }
 
 /* ---- reading a file ------------------------------------------------------------------------- */
+
+/* One line of either file on the card. store_file.c's own reader uses the same number, and for
+   the same reason: a msg_text[] line is a 233-byte payload in which every byte may have gone out
+   as a four-character escape, plus its key. */
+#define MESH_UI_ARCHIVE_LINE_MAX 1280U
 
 /*
  * Every record in one file, newest last, folded into a caller's buffer that holds the newest
@@ -155,13 +204,14 @@ static uint32_t archive_reader_finish(struct archive_reader *reader);
    few hundred `uint32_t`, run once per record: the alternative is an index kept in step with a
    ring that overwrites its own oldest slot, for a file read at most once per thread the reader
    opens. */
-static uint32_t archive_buffer_find(const struct archive_reader *reader, uint32_t packet_id) {
-    if (packet_id == 0U) {
+static uint32_t archive_buffer_find(const struct archive_reader *reader,
+                                    const struct mesh_ui_message *message) {
+    if (message->packet_id == 0U) {
         return reader->capacity;
     }
     const uint32_t held = reader->wrapped ? reader->capacity : reader->next;
     for (uint32_t i = 0; i < held; ++i) {
-        if (reader->entries[i].packet_id == packet_id) {
+        if (archive_same_message(&reader->entries[i], message)) {
             return i;
         }
     }
@@ -182,7 +232,7 @@ static void archive_reader_commit(struct archive_reader *reader) {
      * seen; its position does not, because where the conversation reached it is where it
      * happened.
      */
-    const uint32_t seen = archive_buffer_find(reader, reader->current.packet_id);
+    const uint32_t seen = archive_buffer_find(reader, &reader->current);
     if (seen < reader->capacity) {
         reader->entries[seen] = reader->current;
         return;
@@ -286,7 +336,7 @@ static int archive_read_file(const char *path, struct mesh_ui_message *entries, 
     reader.entries = entries;
     reader.capacity = capacity;
 
-    char line[1280];
+    char line[MESH_UI_ARCHIVE_LINE_MAX];
     while (fgets(line, sizeof line, file) != NULL) {
         line[strcspn(line, "\r\n")] = '\0';
         if (line[0] == '\0' || line[0] == '#') {
@@ -459,7 +509,7 @@ int mesh_ui_archive_append(struct mesh_ui_archive *archive,
             continue;
         }
         const struct mesh_ui_message *first = &list->entries[i];
-        if (!archive_writable(first) || archive_recently_written(archive, first->packet_id)) {
+        if (!archive_writable(first) || archive_recently_written(archive, first)) {
             taken[i] = true;
             continue;
         }
@@ -483,8 +533,7 @@ int mesh_ui_archive_append(struct mesh_ui_archive *archive,
                 continue;
             }
             const struct mesh_ui_message *candidate = &list->entries[j];
-            if (!archive_writable(candidate) ||
-                archive_recently_written(archive, candidate->packet_id)) {
+            if (!archive_writable(candidate) || archive_recently_written(archive, candidate)) {
                 continue;
             }
             uint8_t other_kind = 0U;
@@ -506,7 +555,7 @@ int mesh_ui_archive_append(struct mesh_ui_archive *archive,
         /* Remembered only once the records are on the card, so a failed write is retried on the
            next publish rather than silently dropped. */
         for (uint32_t k = 0; k < batch_count; ++k) {
-            archive_remember(archive, batch[k]->packet_id);
+            archive_remember(archive, batch[k]);
         }
         written += result;
     }
@@ -521,7 +570,8 @@ static bool archive_seen(const struct mesh_ui_archive *archive, uint8_t kind, ui
         if (archive->seeded[i].kind != kind) {
             continue;
         }
-        if (kind == (uint8_t)MESH_UI_CONVERSATION_CHANNEL && archive->seeded[i].channel == channel) {
+        if (kind == (uint8_t)MESH_UI_CONVERSATION_CHANNEL &&
+            archive->seeded[i].channel == channel) {
             return true;
         }
         if (kind == (uint8_t)MESH_UI_CONVERSATION_DIRECT && archive->seeded[i].node == node) {
@@ -606,7 +656,7 @@ int mesh_ui_archive_seed(struct mesh_ui_archive *archive, const struct mesh_ui_m
         }
         /* Seeded records are on the card now, so the append path must not write them again. */
         for (uint32_t k = 0; k < batch_count; ++k) {
-            archive_remember(archive, batch[k].packet_id);
+            archive_remember(archive, &batch[k]);
         }
         written += (int)batch_count;
     }
@@ -633,7 +683,7 @@ int mesh_ui_archive_load_thread(const struct mesh_ui_archive *archive, uint8_t k
     }
 
     const int result = archive_read_file(path, out->entries, MESH_UI_MAX_THREAD_MESSAGES,
-                                        &out->count, &out->dropped);
+                                         &out->count, &out->dropped);
     if (result == -ENOENT) {
         /* A conversation nobody has said anything in yet. Valid and empty, so the window is the
            authority for it rather than the flat list - which for a brand new conversation holds
@@ -667,6 +717,118 @@ int mesh_ui_archive_forget_conversation(struct mesh_ui_archive *archive, uint8_t
     return 0;
 }
 
+/*
+ * One record's worth of streaming state, for a delete that must not lose the rest of the file.
+ *
+ * The file is capped by *bytes* and ordinarily holds thousands of records, so a delete cannot
+ * read it into a buffer and write the buffer back: whatever did not fit would be discarded along
+ * with the message the user asked to be rid of. It copies instead, line by line, and the only
+ * thing it has to hold is the one line whose verdict is not settled yet.
+ *
+ * That line is the msg[] line. A record is dropped when it *is* the target or when it is a
+ * reaction naming the target, and the second of those is only knowable from the msg_meta[] line
+ * that follows - so msg[] is held back until its meta arrives, or until anything else shows the
+ * record has no meta to come.
+ */
+struct archive_filter {
+    FILE *out;
+    uint32_t target;
+    /* The msg[] line, verbatim, waiting for its verdict. */
+    char pending[MESH_UI_ARCHIVE_LINE_MAX];
+    bool pending_held;
+    uint32_t pending_index;
+    uint32_t pending_packet_id;
+    /* The settled verdict for the record now streaming through. */
+    bool dropping;
+    uint32_t dropped_records;
+};
+
+/* Write the held msg[] line, or drop it, and settle the record either way. */
+static void archive_filter_settle(struct archive_filter *filter, bool is_reaction,
+                                  uint32_t reply_id) {
+    if (!filter->pending_held) {
+        return;
+    }
+    filter->pending_held = false;
+    filter->dropping = (filter->pending_packet_id == filter->target) ||
+                       (is_reaction && reply_id == filter->target);
+    if (filter->dropping) {
+        filter->dropped_records++;
+        return;
+    }
+    fputs(filter->pending, filter->out);
+    fputc('\n', filter->out);
+}
+
+/*
+ * One line of the file, copied through or dropped.
+ *
+ * `raw` is the line as it sits on disk, which is what gets written back - re-escaping a value
+ * this code never had a reason to decode would be a second spelling of the format, and the
+ * whole point of sharing store_keys.h is that there is only one.
+ */
+static void archive_filter_line(struct archive_filter *filter, const char *raw, char *work) {
+    char *equals = strchr(work, '=');
+    if (equals == NULL) {
+        /* Not a key line at all - a comment, a blank, something hand-added. It belongs to
+           nobody, so it is copied rather than attached to whatever record is open. */
+        archive_filter_settle(filter, false, 0U);
+        fputs(raw, filter->out);
+        fputc('\n', filter->out);
+        return;
+    }
+    *equals = '\0';
+    char *value = equals + 1;
+    mesh_ui_store_unescape_value(value);
+
+    uint32_t index = 0U;
+    uint32_t slot = 0U;
+    const enum mesh_ui_store_key id = mesh_ui_store_key_lookup(work, &index, &slot);
+
+    if (id == MESH_UI_STORE_KEY_MSG) {
+        /* A msg[] line always begins a record, so whatever was open is settled on what is known
+           about it - which for a record with no msg_meta[] is its packet id alone. */
+        archive_filter_settle(filter, false, 0U);
+        struct mesh_ui_message opened;
+        memset(&opened, 0, sizeof opened);
+        if (!mesh_ui_store_read_message_line(&opened, id, value)) {
+            /* A torn or hand-edited line opens no record. Kept: this is a delete of one named
+               message, not a tidy-up of the file. */
+            filter->dropping = false;
+            fputs(raw, filter->out);
+            fputc('\n', filter->out);
+            return;
+        }
+        mesh_str_copy(filter->pending, sizeof filter->pending, raw);
+        filter->pending_held = true;
+        filter->pending_index = index;
+        filter->pending_packet_id = opened.packet_id;
+        return;
+    }
+
+    if (id == MESH_UI_STORE_KEY_MSG_META && filter->pending_held &&
+        index == filter->pending_index) {
+        struct mesh_ui_message meta;
+        memset(&meta, 0, sizeof meta);
+        (void)mesh_ui_store_read_message_line(&meta, id, value);
+        archive_filter_settle(filter, meta.is_reaction, meta.reply_id);
+        if (filter->dropping) {
+            return;
+        }
+        fputs(raw, filter->out);
+        fputc('\n', filter->out);
+        return;
+    }
+
+    /* Any other line: the record it belongs to is settled by now. */
+    archive_filter_settle(filter, false, 0U);
+    if (mesh_ui_store_key_is_message(id) && filter->dropping) {
+        return;
+    }
+    fputs(raw, filter->out);
+    fputc('\n', filter->out);
+}
+
 int mesh_ui_archive_forget_message(struct mesh_ui_archive *archive, uint8_t kind, uint32_t node,
                                    uint8_t channel, uint32_t packet_id) {
     if (archive == NULL || packet_id == 0U) {
@@ -677,45 +839,66 @@ int mesh_ui_archive_forget_message(struct mesh_ui_archive *archive, uint8_t kind
         return 0;
     }
 
-    /* The cap rather than the window, for compaction's reason: a delete must not also truncate
-       the transcript to whatever was on screen when the press landed. */
-    struct mesh_ui_message keep[MESH_UI_ARCHIVE_MAX_MESSAGES];
-    uint32_t count = 0U;
-    const int result = archive_read_file(path, keep, MESH_UI_ARCHIVE_MAX_MESSAGES, &count, NULL);
-    if (result == -ENOENT) {
-        return 0;
+    FILE *source = fopen(path, "r");
+    if (source == NULL) {
+        return (errno == ENOENT) ? 0 : -errno;
+    }
+
+    char temp[sizeof archive->dir + 64];
+    const int named = snprintf(temp, sizeof temp, "%s.tmp", path);
+    if (named <= 0 || named >= (int)sizeof temp) {
+        fclose(source);
+        return -ENAMETOOLONG;
+    }
+    FILE *out = fopen(temp, "w");
+    if (out == NULL) {
+        const int failed = -errno;
+        fclose(source);
+        return failed;
+    }
+
+    struct archive_filter filter;
+    memset(&filter, 0, sizeof filter);
+    filter.out = out;
+    filter.target = packet_id;
+
+    char raw[MESH_UI_ARCHIVE_LINE_MAX];
+    char work[MESH_UI_ARCHIVE_LINE_MAX];
+    while (fgets(raw, sizeof raw, source) != NULL) {
+        raw[strcspn(raw, "\r\n")] = '\0';
+        mesh_str_copy(work, sizeof work, raw);
+        archive_filter_line(&filter, raw, work);
+    }
+    archive_filter_settle(&filter, false, 0U);
+
+    int result = ferror(source) || ferror(out) ? -EIO : 0;
+    fclose(source);
+    if (fclose(out) != 0) {
+        result = -errno;
     }
     if (result != 0) {
+        (void)unlink(temp);
         return result;
     }
 
-    uint32_t kept = 0U;
-    for (uint32_t i = 0; i < count; ++i) {
-        const struct mesh_ui_message *entry = &keep[i];
-        if (entry->packet_id == packet_id ||
-            (entry->is_reaction && entry->reply_id == packet_id)) {
-            continue;
-        }
-        if (kept != i) {
-            keep[kept] = keep[i];
-        }
-        kept++;
-    }
-    const uint32_t removed = count - kept;
-    if (removed == 0U) {
+    if (filter.dropped_records == 0U) {
+        /* Nothing to say, so nothing is replaced: a delete that found its message somewhere else
+           must not rewrite this file at all. */
+        (void)unlink(temp);
         return 0;
     }
-
-    const int rewritten = archive_rewrite(path, keep, kept);
-    if (rewritten != 0) {
-        return rewritten;
+    if (rename(temp, path) != 0) {
+        result = -errno;
+        (void)unlink(temp);
+        return result;
     }
-    /* The id must not be remembered as written: if the same packet is delivered again the user
-       should see it arrive rather than have it silently swallowed by this run's ring. */
+
+    /* The message must not be remembered as written: if the radio delivers the same packet again
+       the user should see it arrive rather than have it swallowed by this run's ring. */
     for (uint32_t i = 0; i < archive->recent_count; ++i) {
-        if (archive->recent[i] == packet_id) {
-            archive->recent[i] = 0U;
+        if (archive->recent[i].packet_id == packet_id) {
+            memset(&archive->recent[i], 0, sizeof archive->recent[i]);
         }
     }
-    return (int)removed;
+    return (int)filter.dropped_records;
 }

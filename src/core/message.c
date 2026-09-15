@@ -93,7 +93,8 @@ uint32_t mesh_message_log_forget(struct mesh_message_log *log, uint32_t peer, ui
     return removed;
 }
 
-uint32_t mesh_message_log_forget_message(struct mesh_message_log *log, uint32_t packet_id) {
+uint32_t mesh_message_log_forget_message(struct mesh_message_log *log, uint32_t peer,
+                                         uint8_t channel, uint32_t packet_id) {
     if (log == NULL || log->count == 0U || packet_id == 0U) {
         return 0U;
     }
@@ -108,8 +109,9 @@ uint32_t mesh_message_log_forget_message(struct mesh_message_log *log, uint32_t 
     for (size_t i = 0; i < log->count; ++i) {
         const struct mesh_message *message =
             &log->entries[(log->head + i) % MESH_MESSAGE_LOG_CAPACITY];
-        if (message->packet_id == packet_id ||
-            (message->is_reaction && message->reply_id == packet_id)) {
+        const bool names_it = (message->packet_id == packet_id) ||
+                              (message->is_reaction && message->reply_id == packet_id);
+        if (names_it && mesh_message_in_conversation(message, peer, channel)) {
             removed++;
             continue;
         }

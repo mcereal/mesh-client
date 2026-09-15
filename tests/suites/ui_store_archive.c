@@ -421,8 +421,8 @@ MESH_TEST_CASE(ui_archive_delete_reaches_the_card, unit) {
         goto cleanup;
     }
 
-    if (mesh_ui_archive_forget_conversation(&archive, (uint8_t)MESH_UI_CONVERSATION_DIRECT,
-                                            0x5000U, 0U) != 0) {
+    if (mesh_ui_archive_forget_conversation(&archive, (uint8_t)MESH_UI_CONVERSATION_DIRECT, 0x5000U,
+                                            0U) != 0) {
         failure = "removing the conversation's file failed";
         goto cleanup;
     }
@@ -433,8 +433,8 @@ MESH_TEST_CASE(ui_archive_delete_reaches_the_card, unit) {
         goto cleanup;
     }
     /* Twice is not a failure: the press can race the file already being gone. */
-    if (mesh_ui_archive_forget_conversation(&archive, (uint8_t)MESH_UI_CONVERSATION_DIRECT,
-                                            0x5000U, 0U) != 0) {
+    if (mesh_ui_archive_forget_conversation(&archive, (uint8_t)MESH_UI_CONVERSATION_DIRECT, 0x5000U,
+                                            0U) != 0) {
         failure = "removing a conversation that has no file is not an error";
         goto cleanup;
     }
@@ -505,8 +505,7 @@ MESH_TEST_CASE(ui_thread_merge_folds_the_live_log_in, unit) {
         failure = "the new message should be appended and the known one folded in";
         goto done;
     }
-    if (window.entries[0].packet_id != 61U ||
-        window.entries[0].ack != MESH_MESSAGE_ACK_DELIVERED) {
+    if (window.entries[0].packet_id != 61U || window.entries[0].ack != MESH_MESSAGE_ACK_DELIVERED) {
         failure = "a message already in the window should be updated where it sits";
         goto done;
     }
@@ -665,7 +664,8 @@ MESH_TEST_CASE(ui_store_forget_message, unit) {
     window.count = 3U;
     mesh_ui_store_set_thread(&store, &window);
 
-    if (mesh_ui_store_forget_message(&store, 82U) != 2U) {
+    if (mesh_ui_store_forget_message(&store, (uint8_t)MESH_UI_CONVERSATION_DIRECT, 0x8100U, 0U,
+                                     82U) != 2U) {
         failure = "the message and its tapback should both go";
         goto cleanup;
     }
@@ -679,7 +679,9 @@ MESH_TEST_CASE(ui_store_forget_message, unit) {
     }
 
     /* Upstream's "no id" names no message, so it removes nothing rather than everything. */
-    if (mesh_ui_store_forget_message(&store, 0U) != 0U || store.messages.count != 1U) {
+    if (mesh_ui_store_forget_message(&store, (uint8_t)MESH_UI_CONVERSATION_DIRECT, 0x8100U, 0U,
+                                     0U) != 0U ||
+        store.messages.count != 1U) {
         failure = "a packet id of 0 should delete nothing at all";
         goto cleanup;
     }
@@ -707,7 +709,7 @@ MESH_TEST_CASE(message_log_forget_message, unit) {
     log.entries[2].reply_id = 92U;
     log.dropped = 4U;
 
-    if (mesh_message_log_forget_message(&log, 92U) != 2U) {
+    if (mesh_message_log_forget_message(&log, 0x1U, 0U, 92U) != 2U) {
         failure = "the entry and the reaction naming it should both go";
         goto done;
     }
@@ -720,7 +722,7 @@ MESH_TEST_CASE(message_log_forget_message, unit) {
         failure = "a delete is not an eviction and should not be counted as one";
         goto done;
     }
-    if (mesh_message_log_forget_message(&log, 0U) != 0U || log.count != 1U) {
+    if (mesh_message_log_forget_message(&log, 0x1U, 0U, 0U) != 0U || log.count != 1U) {
         failure = "a packet id of 0 names no entry";
         goto done;
     }
@@ -815,6 +817,270 @@ MESH_TEST_CASE(ui_archive_compacts_to_the_cap, unit) {
 
 cleanup:
     archive_close(&archive, dir);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * Deleting one message out of a long transcript keeps the rest of it.
+ *
+ * The file is capped by bytes and ordinarily holds thousands of records, so a delete that read
+ * it into a buffer and wrote the buffer back would discard everything that did not fit - which
+ * is the transcript this whole feature exists to keep, thrown away by the press that was only
+ * meant to remove one line. The delete streams instead; this is what holds it to that.
+ */
+MESH_TEST_CASE(ui_archive_delete_keeps_the_rest_of_a_long_file, unit) {
+    const char *failure = NULL;
+    struct mesh_ui_archive archive;
+    char dir[64];
+    MESH_TEST_FAIL_IF(!archive_open(&archive, dir, sizeof dir), "could not open an archive");
+
+    /* Comfortably more than the delete could ever hold in one buffer. */
+    const uint32_t total = MESH_UI_ARCHIVE_MAX_MESSAGES * 2U;
+    uint32_t next_id = 1U;
+    while (next_id <= total) {
+        struct mesh_ui_message batch[MESH_UI_MAX_MESSAGES];
+        uint32_t n = 0U;
+        while (n < MESH_UI_MAX_MESSAGES && next_id <= total) {
+            batch[n++] = archive_message(next_id++, false, 0xABCDU, 0U, "in the record");
+        }
+        struct mesh_ui_message_list list;
+        archive_list_of(&list, batch, n);
+        if (mesh_ui_archive_append(&archive, &list) != (int)n) {
+            failure = "the fixture should have been written";
+            goto cleanup;
+        }
+    }
+
+    /* A message near the *newest* end, so a buffered rewrite would have found it and still
+       thrown the older half away. */
+    if (mesh_ui_archive_forget_message(&archive, (uint8_t)MESH_UI_CONVERSATION_DIRECT, 0xABCDU, 0U,
+                                       total) != 1) {
+        failure = "the message should have been deleted";
+        goto cleanup;
+    }
+
+    char path[128];
+    snprintf(path, sizeof path, "%s/n0000abcd.log", dir);
+    FILE *file = fopen(path, "r");
+    if (file == NULL) {
+        failure = "the conversation's file should still be there";
+        goto cleanup;
+    }
+    uint32_t records = 0U;
+    bool found_oldest = false;
+    bool found_target = false;
+    char line[1400];
+    while (fgets(line, sizeof line, file) != NULL) {
+        if (strncmp(line, "msg[", 4) != 0) {
+            continue;
+        }
+        records++;
+        /* The packet id is the first field of the msg[] value. */
+        const char *value = strchr(line, '=');
+        if (value == NULL) {
+            continue;
+        }
+        const unsigned long id = strtoul(value + 1, NULL, 10);
+        if (id == 1UL) {
+            found_oldest = true;
+        }
+        if (id == (unsigned long)total) {
+            found_target = true;
+        }
+    }
+    fclose(file);
+
+    if (found_target) {
+        failure = "the deleted message should be gone from the card";
+        goto cleanup;
+    }
+    if (records != total - 1U) {
+        failure = "a delete should remove one record and leave every other one alone";
+        goto cleanup;
+    }
+    if (!found_oldest) {
+        failure = "the oldest message must survive a delete at the other end of the file";
+        goto cleanup;
+    }
+
+cleanup:
+    archive_close(&archive, dir);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * Two senders on one channel that land on the same packet id are two messages.
+ *
+ * MeshPacket.id only has to be unique per sender for a few minutes, and a channel's file holds
+ * every sender on it - so an identity of "the packet id" would have the reader fold one node's
+ * message onto another's and lose it. The sender is part of the identity for exactly this.
+ */
+MESH_TEST_CASE(ui_archive_tells_two_senders_apart, unit) {
+    const char *failure = NULL;
+    struct mesh_ui_archive archive;
+    char dir[64];
+    MESH_TEST_FAIL_IF(!archive_open(&archive, dir, sizeof dir), "could not open an archive");
+
+    /* One id, two nodes, one channel - which upstream permits. */
+    struct mesh_ui_message clash[2] = {
+        archive_message(7777U, true, 0x1111U, 4U, "from ALFA"),
+        archive_message(7777U, true, 0x2222U, 4U, "from BRVO"),
+    };
+    struct mesh_ui_message_list list;
+    archive_list_of(&list, clash, 2U);
+
+    if (mesh_ui_archive_append(&archive, &list) != 2) {
+        failure = "both messages should be written: they are not the same message";
+        goto cleanup;
+    }
+
+    struct mesh_ui_thread window;
+    if (mesh_ui_archive_load_thread(&archive, (uint8_t)MESH_UI_CONVERSATION_CHANNEL, 0U, 4U,
+                                    &window) != 0) {
+        failure = "loading the channel failed";
+        goto cleanup;
+    }
+    if (window.count != 2U) {
+        failure = "two senders sharing a packet id are two messages, not one";
+        goto cleanup;
+    }
+    if (strcmp(window.entries[0].text, "from ALFA") != 0 ||
+        strcmp(window.entries[1].text, "from BRVO") != 0) {
+        failure = "neither message should have been folded onto the other";
+        goto cleanup;
+    }
+
+cleanup:
+    archive_close(&archive, dir);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * A message whose delivery state moves is written again, and the newer state is what loads.
+ *
+ * An outbound message is published pending and acknowledged a few seconds later. If the archive
+ * treated "same packet id" as "already written", the card would keep the pending copy for good:
+ * after a restart, a message that had in fact failed would read as still in flight, and the
+ * transcript offers no resend on anything but a FAILED one.
+ */
+MESH_TEST_CASE(ui_archive_follows_a_delivery_state, unit) {
+    const char *failure = NULL;
+    struct mesh_ui_archive archive;
+    char dir[64];
+    MESH_TEST_FAIL_IF(!archive_open(&archive, dir, sizeof dir), "could not open an archive");
+
+    struct mesh_ui_message sent = archive_message(300U, false, 0xBEEFU, 0U, "are you there?");
+    sent.direction = MESH_MESSAGE_OUTBOUND;
+    sent.ack = MESH_MESSAGE_ACK_PENDING;
+
+    struct mesh_ui_message_list list;
+    archive_list_of(&list, &sent, 1U);
+    if (mesh_ui_archive_append(&archive, &list) != 1) {
+        failure = "the outbound message should have been written";
+        goto cleanup;
+    }
+
+    /* Published again, unchanged, as the ring keeps handing it over: written once. */
+    if (mesh_ui_archive_append(&archive, &list) != 0) {
+        failure = "an unchanged message should not be written twice";
+        goto cleanup;
+    }
+
+    /* Now the mesh answers. */
+    sent.ack = MESH_MESSAGE_ACK_FAILED;
+    sent.ack_error = 5U;
+    archive_list_of(&list, &sent, 1U);
+    if (mesh_ui_archive_append(&archive, &list) != 1) {
+        failure = "a message whose delivery state moved is worth writing again";
+        goto cleanup;
+    }
+
+    struct mesh_ui_thread window;
+    if (mesh_ui_archive_load_thread(&archive, (uint8_t)MESH_UI_CONVERSATION_DIRECT, 0xBEEFU, 0U,
+                                    &window) != 0) {
+        failure = "loading the transcript failed";
+        goto cleanup;
+    }
+    if (window.count != 1U) {
+        failure = "the two records are one message and should fold back into one bubble";
+        goto cleanup;
+    }
+    if (window.entries[0].ack != MESH_MESSAGE_ACK_FAILED) {
+        failure = "the later delivery state is the one that should survive a restart";
+        goto cleanup;
+    }
+    /*
+     * `ack_error` is deliberately not asserted: neither format on the card carries it - msg[]
+     * writes the ack and not the reason behind it, in the archive and in the handshake cache
+     * alike - so a failure restored from either reads as failed with the generic word rather
+     * than with its Routing error. That is what fb_thread_row_build() falls back to, and it
+     * predates this file; what matters here is that the bubble reads as failed at all, because
+     * the resend the transcript offers is gated on exactly that.
+     */
+
+cleanup:
+    archive_close(&archive, dir);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * Deleting a bubble does not reach into another conversation that shares its packet id.
+ *
+ * The press names a conversation and the archive is scoped by opening one file; the three copies
+ * in RAM have to be told, or one press would silently remove somebody else's message and the
+ * next cache save would write that absence to the card.
+ */
+MESH_TEST_CASE(ui_store_forget_message_stays_in_its_conversation, unit) {
+    const char *failure = NULL;
+
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+
+    /* The same id in two conversations, which upstream permits. */
+    struct mesh_ui_message items[2] = {
+        archive_message(555U, false, 0xAAAAU, 0U, "the one pressed on"),
+        archive_message(555U, false, 0xBBBBU, 0U, "somebody else's"),
+    };
+    struct mesh_ui_message_list list;
+    archive_list_of(&list, items, 2U);
+    mesh_ui_store_set_messages(&store, &list);
+
+    if (mesh_ui_store_forget_message(&store, (uint8_t)MESH_UI_CONVERSATION_DIRECT, 0xAAAAU, 0U,
+                                     555U) != 1U) {
+        failure = "only the message in the conversation pressed on should go";
+        goto cleanup;
+    }
+    if (store.messages.count != 1U || store.messages.entries[0].peer != 0xBBBBU) {
+        failure = "the other conversation's message must survive";
+        goto cleanup;
+    }
+
+    /* And the transport ring behaves the same way. */
+    struct mesh_message log_entries;
+    memset(&log_entries, 0, sizeof log_entries);
+    struct mesh_message_log log;
+    memset(&log, 0, sizeof log);
+    log.entries[0].packet_id = 555U;
+    log.entries[0].from = 0xAAAAU;
+    log.entries[0].to = 0x1U;
+    log.entries[1].packet_id = 555U;
+    log.entries[1].from = 0xBBBBU;
+    log.entries[1].to = 0x1U;
+    log.count = 2U;
+    (void)log_entries;
+
+    if (mesh_message_log_forget_message(&log, 0xAAAAU, 0U, 555U) != 1U || log.count != 1U ||
+        log.entries[0].from != 0xBBBBU) {
+        failure = "the ring's delete should stay in its conversation too";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }

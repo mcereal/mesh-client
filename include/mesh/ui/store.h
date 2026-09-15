@@ -238,12 +238,16 @@ uint32_t mesh_ui_store_forget_conversation(struct mesh_ui_store *store, uint8_t 
 /*
  * One message, out of both lists and out of the open window, with its reactions.
  *
+ * Named by its conversation as well as its packet id, because an id is only unique per sender -
+ * see mesh_ui_message_list_forget_message(), which this is the store's half of.
+ *
  * The same warning the conversation delete carries applies here and for the same reason: this
  * is only the UI's copy, and a delete that does not also reach the transport's ring and the
  * history read back at startup is undone by the next publish. MESH_UI_ACTION_DELETE_MESSAGE is
  * what reaches all three.
  */
-uint32_t mesh_ui_store_forget_message(struct mesh_ui_store *store, uint32_t packet_id);
+uint32_t mesh_ui_store_forget_message(struct mesh_ui_store *store, uint8_t kind, uint32_t node,
+                                      uint8_t channel, uint32_t packet_id);
 
 /* Navigation. A key press moves the cursor or switches tabs and, for A on an actionable row,
    fills *out_action for the caller to carry out (connect, send). Returns true when the frame

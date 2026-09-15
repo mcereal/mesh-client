@@ -89,7 +89,24 @@ Three rules the archive turns on, each stated at length in `include/mesh/ui/stor
 - **A file is capped by rewriting it.** Compaction fires on append, off one `stat()`, and the
   threshold is above what `MESH_UI_ARCHIVE_MAX_MESSAGES` records can possibly occupy — a cap the
   worst case could exceed would rewrite the transcript on every message, on a card mounted
-  `sync`.
+  `sync`. A *delete* is the other way round: it streams the file through a temporary, holding
+  only the one line whose verdict is unsettled, because a file ordinarily holds thousands of
+  records and rebuilding it from a bounded read would throw away everything that did not fit.
+
+**A packet id is not an identity.** `MeshPacket.id` only has to be unique per sender for a few
+minutes (`mesh_session_next_packet_id`), and a channel's file holds every sender on it — so two
+nodes can land on the same id. Anything that asks "is this the same message" keys on
+`(packet_id, peer, direction)`: the archive's dedup, the reader's fold, and
+`mesh_ui_thread_merge()`. Anything that asks "is this the message the user pressed on" also
+takes the conversation, which is why `mesh_ui_store_forget_message()` and
+`mesh_message_log_forget_message()` do.
+
+**What changes about a message is its delivery state**, and that is the one thing the archive
+re-writes: an outbound message goes to the card pending and is appended again when its ack
+arrives, with the reader folding the later record onto the earlier one. Without that, a message
+that had failed would read as still in flight after a restart — and the transcript offers a
+resend on nothing but a `FAILED` one. (The Routing error *behind* a failure is not persisted by
+either format; a restored failure reads with the generic word, as it always has.)
 
 Deleting has to reach every copy or the next publish undoes it: the transport's ring, the
 history the app restored at startup, the store (both lists), and the card. `on_delete_message()`

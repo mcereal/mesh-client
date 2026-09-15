@@ -92,10 +92,36 @@ extern "C" {
    mark's reason: it is the same "conversations anyone realistically keeps in view". */
 #define MESH_UI_ARCHIVE_CONVERSATIONS_MAX 32U
 
-/* Packet ids already written this run, so a message sitting in the transport ring across
-   several publishes is appended once. Four times the ring, so an id stays remembered for well
-   past the point the ring itself has let it go. */
+/* Messages already written this run, so one sitting in the transport ring across several
+   publishes is appended once. Four times the ring, so a message stays remembered for well past
+   the point the ring itself has let it go. */
 #define MESH_UI_ARCHIVE_RECENT_MAX 256U
+
+/*
+ * What this run has written, and in what state.
+ *
+ * A packet id is not an identity on its own. MeshPacket.id only has to be unique *per sender*
+ * for a few minutes (see mesh_session_next_packet_id), and a channel's log holds every sender
+ * on that channel - so two nodes can legitimately land on the same id, and a check that
+ * compared ids alone would decide the second one had already been written and drop it. The peer
+ * and the direction name the other end and which end that is, which between them separate two
+ * senders inside one conversation's file.
+ *
+ * The delivery state is here because it is the one thing about a message that *changes* after
+ * it is first seen: an outbound message is published pending and acknowledged a few seconds
+ * later. Without it the archive would keep the pending copy for good, and after a restart a
+ * message that had actually failed would read as still in flight - with no resend offered on
+ * it, because the bar asks whether the ack is FAILED. A changed ack is therefore not a message
+ * already written: it is appended again, and the reader folds the later copy onto the earlier
+ * one (see mesh_ui_archive_load_thread).
+ */
+struct mesh_ui_archive_recent {
+    uint32_t packet_id;
+    uint32_t peer;
+    uint8_t direction; /* enum mesh_message_direction */
+    uint8_t ack;       /* enum mesh_message_ack */
+    uint8_t ack_error; /* meshtastic_Routing_Error behind a FAILED ack */
+};
 
 /*
  * The archive's in-RAM half: where the files are, and what has already been written to them.
@@ -113,8 +139,9 @@ struct mesh_ui_archive {
     /* The record index handed to the next append - a grouping counter, not a count of what is
        on disk. See the header comment. */
     uint32_t next_index;
-    /* Packet ids appended this run, oldest first, wrapping. Zero is "no id" and never matches. */
-    uint32_t recent[MESH_UI_ARCHIVE_RECENT_MAX];
+    /* Messages appended this run, oldest first, wrapping. A zero packet id is "no id" and never
+       matches, so a slot cleared to zero is a slot that holds nothing. */
+    struct mesh_ui_archive_recent recent[MESH_UI_ARCHIVE_RECENT_MAX];
     uint32_t recent_count;
     uint32_t recent_next;
     /* Conversations whose file has been seen to exist this run, so the seed below runs once per
@@ -159,8 +186,7 @@ int mesh_ui_archive_append(struct mesh_ui_archive *archive,
  *
  * Returns how many records were written, or a negative errno.
  */
-int mesh_ui_archive_seed(struct mesh_ui_archive *archive,
-                         const struct mesh_ui_message_list *list);
+int mesh_ui_archive_seed(struct mesh_ui_archive *archive, const struct mesh_ui_message_list *list);
 
 /*
  * Fills `out` with the newest messages of one conversation, oldest first.

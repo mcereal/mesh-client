@@ -663,8 +663,15 @@ uint32_t mesh_ui_message_list_forget(struct mesh_ui_message_list *list, uint8_t 
     return removed;
 }
 
-uint32_t mesh_ui_message_list_forget_message(struct mesh_ui_message_list *list,
-                                             uint32_t packet_id) {
+/* Whether this entry is the message `packet_id` names, or a reaction drawn on it. Says nothing
+   about which conversation it is in - that is mesh_ui_message_belongs()'s question, and both
+   have to be true before anything is thrown away. */
+static bool mesh_ui_message_names(const struct mesh_ui_message *entry, uint32_t packet_id) {
+    return (entry->packet_id == packet_id) || (entry->is_reaction && entry->reply_id == packet_id);
+}
+
+uint32_t mesh_ui_message_list_forget_message(struct mesh_ui_message_list *list, uint8_t kind,
+                                             uint32_t node, uint8_t channel, uint32_t packet_id) {
     if (list == NULL || packet_id == 0U) {
         return 0U;
     }
@@ -673,10 +680,10 @@ uint32_t mesh_ui_message_list_forget_message(struct mesh_ui_message_list *list,
     uint32_t removed = 0U;
     for (uint32_t i = 0; i < count; ++i) {
         const struct mesh_ui_message *entry = &list->entries[i];
-        /* The bubble itself, and the reactions that were drawn on it. See the header for why
-           the second half is not a separate press. */
-        const bool drop =
-            (entry->packet_id == packet_id) || (entry->is_reaction && entry->reply_id == packet_id);
+        /* The bubble itself, and the reactions that were drawn on it, in this conversation and
+           no other. See the header for both halves. */
+        const bool drop = mesh_ui_message_names(entry, packet_id) &&
+                          mesh_ui_message_belongs(entry, kind, node, channel);
         if (drop) {
             removed++;
             continue;
@@ -706,10 +713,15 @@ void mesh_ui_thread_merge(struct mesh_ui_thread *thread, const struct mesh_ui_me
 
         /* Already in the window: the same message, further along. Replaced where it sits, so a
            bubble does not jump to the bottom of the transcript when its ack arrives. */
+        /* Matched on the sender as well as the id, for the archive's reason: an id is unique
+           per sender, so two nodes on one channel can share one and folding them together
+           would drop a message the reader has every right to see. */
         bool held = false;
         if (message->packet_id != 0U) {
             for (uint32_t j = 0; j < thread->count; ++j) {
-                if (thread->entries[j].packet_id == message->packet_id) {
+                const struct mesh_ui_message *seen = &thread->entries[j];
+                if (seen->packet_id == message->packet_id && seen->peer == message->peer &&
+                    seen->direction == message->direction) {
                     thread->entries[j] = *message;
                     held = true;
                     break;
@@ -830,11 +842,13 @@ void mesh_ui_store_set_thread(struct mesh_ui_store *store, const struct mesh_ui_
     mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_MESSAGES);
 }
 
-uint32_t mesh_ui_store_forget_message(struct mesh_ui_store *store, uint32_t packet_id) {
+uint32_t mesh_ui_store_forget_message(struct mesh_ui_store *store, uint8_t kind, uint32_t node,
+                                      uint8_t channel, uint32_t packet_id) {
     if (store == NULL || packet_id == 0U) {
         return 0U;
     }
-    const uint32_t removed = mesh_ui_message_list_forget_message(&store->messages, packet_id);
+    const uint32_t removed =
+        mesh_ui_message_list_forget_message(&store->messages, kind, node, channel, packet_id);
 
     /*
      * And out of the window under the reader's eyes, which is a separate list holding a
@@ -852,7 +866,11 @@ uint32_t mesh_ui_store_forget_message(struct mesh_ui_store *store, uint32_t pack
         thread->count > MESH_UI_MAX_THREAD_MESSAGES ? MESH_UI_MAX_THREAD_MESSAGES : thread->count;
     for (uint32_t i = 0; i < count; ++i) {
         const struct mesh_ui_message *entry = &thread->entries[i];
-        if (entry->packet_id == packet_id || (entry->is_reaction && entry->reply_id == packet_id)) {
+        /* The window is a window over one conversation already, so the second half of this is
+           always true here - asked anyway, through the same predicate, so the two lists cannot
+           come to disagree about what a delete reaches. */
+        if (mesh_ui_message_names(entry, packet_id) &&
+            mesh_ui_message_belongs(entry, kind, node, channel)) {
             continue;
         }
         if (kept != i) {

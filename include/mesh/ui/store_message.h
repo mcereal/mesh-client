@@ -285,8 +285,14 @@ uint32_t mesh_ui_message_list_forget(struct mesh_ui_message_list *list, uint8_t 
                                      uint8_t channel);
 
 /*
- * Drops the one message carrying `packet_id`, wherever in the list it sits, along with every
- * reaction that named it as a target. Returns how many entries went.
+ * Drops the one message carrying `packet_id` from the conversation named by (kind, node,
+ * channel), along with every reaction there that named it as a target. Returns how many entries
+ * went.
+ *
+ * The conversation is part of the key rather than context, and for the reason
+ * mesh_ui_message_list_forget() takes one: a packet id only has to be unique per sender for a
+ * few minutes, so `packet_id` alone can name a message in a conversation the user was not
+ * looking at just as well as the bubble they pressed on.
  *
  * The reactions go with it because a reaction is drawn on the bubble it belongs to and has no
  * bubble of its own (see `is_reaction`): left behind, they would be rows the transcript filters
@@ -296,7 +302,8 @@ uint32_t mesh_ui_message_list_forget(struct mesh_ui_message_list *list, uint8_t 
  * and a message restored from a cache written before ids were kept has one, which is why this
  * cannot fall back to matching on anything else.
  */
-uint32_t mesh_ui_message_list_forget_message(struct mesh_ui_message_list *list, uint32_t packet_id);
+uint32_t mesh_ui_message_list_forget_message(struct mesh_ui_message_list *list, uint8_t kind,
+                                             uint32_t node, uint8_t channel, uint32_t packet_id);
 
 /*
  * Folds this session's messages into a window read off the card, in place.
