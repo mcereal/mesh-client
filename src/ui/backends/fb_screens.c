@@ -1559,6 +1559,12 @@ static void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
      * panel or a large glyph scale falls back to the word here too rather than to three pills
      * with no labels in them.
      */
+    /* The set is copied into a fixed array, so the bound is checked where the two constants meet
+       rather than trusted. A fourth filter is free; a fifth is a write past `labels` that only
+       shows up as whatever sits after it on the stack, which is the one way this row could fail
+       without looking wrong. The same guard mesh_ui_node_view::order states about the roster. */
+    MESH_UI_STATIC_ASSERT((unsigned)MESH_UI_NODE_FILTER_COUNT <= FB_SEGMENTED_MAX,
+                          "a filter has been added that the segmented button cannot hold");
     struct fb_segmented filter_segments = {
         .count = (size_t)MESH_UI_NODE_FILTER_COUNT,
         .active = (size_t)filter,
