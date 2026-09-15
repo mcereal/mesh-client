@@ -1100,6 +1100,28 @@ int fb_badge_width(const struct mesh_ui_backend_fb_state *state, const char *tex
 void fb_draw_badge(const struct mesh_ui_backend_fb_state *state, const struct fb_rect *box,
                    int text_y, const char *text, enum mesh_ui_family family, int scale);
 
+/*
+ * The badge's quieter sibling: a state, said as a capsule, in the middle of a row rather than
+ * against its edge.
+ *
+ * Same shape and the same measurement - fb_badge_width() answers for both - and a different
+ * half of the family. A badge fills with the BASE, because an unread count is meant to be seen
+ * from across the room; a chip fills with the CONTAINER, because a column of them is *read*,
+ * and eight saturated pills down one card is the wall of colour this was added to undo. A tone
+ * that names no family gets the neutral cursor surface, which is the same pair a resting filled
+ * button wears and is therefore already a pair the theme was validated on.
+ *
+ * A tone that names no family has no container to fill with - "the state it is normally in" is
+ * not one of the six things a family means - so the neutral chip is a *ring* instead: the
+ * theme's outline, the row's own `ground` inside it and the row's own `ink` on that. Which is
+ * also the more honest shape, and Material's own: a filled chip is a state worth reporting, an
+ * outlined one a state worth checking. `ground` and `ink` are the row's because that is what the
+ * capsule's inside is; a caller that is not a list row hands in whatever it is drawing on.
+ */
+void fb_draw_state_chip(const struct mesh_ui_backend_fb_state *state, const struct fb_rect *box,
+                        int text_y, const char *text, enum mesh_ui_tone tone,
+                        enum mesh_ui_color ground, struct mesh_ui_rgb ink, int scale);
+
 /* ---- the top app bar ------------------------------------------------------------------------
  *
  * The heading a screen opens with: where you are, how to get out, and one fact about the whole
@@ -1595,13 +1617,32 @@ enum fb_leading_kind {
      * and the rows with nothing to say leave it empty.
      */
     FB_LEADING_ICON,
+    /*
+     * The same icon, in a filled disc the width of an avatar: what Material puts at the leading
+     * edge of a list item that is a *verb* rather than a fact.
+     *
+     * The disc is the row's own family held back until a symbol can sit on it - the container
+     * slot, the pair a tonal button takes - and which family it is, is not a second thing the
+     * caller says. It is `tone`'s, and the primary where the tone names none, which is word for
+     * word the rule `accent_edge` follows a few fields down. That is the whole reason this is a
+     * kind rather than a colour: the row states once what it means, and the disc, the words and
+     * the marker bar are three renderings of that one statement.
+     *
+     * What it buys is the screen the node detail was: eleven verbs whose ink was the accent, so
+     * a card of actions read as a wall of one colour and the row that deletes something had to
+     * shout over ten rows already shouting. With the colour in the disc the words go back to the
+     * ordinary ink, the eye runs down a column of *labels*, and the two rows that cost something
+     * are the only two coloured words on the card.
+     */
+    FB_LEADING_TONAL,
 };
 
 struct fb_leading {
     enum fb_leading_kind kind;
-    const char *label;      /* AVATAR: initials */
-    enum mesh_ui_icon icon; /* ICON, and AVATAR when a disc holds a symbol rather than letters */
-    uint32_t tint;          /* AVATAR: seeds the disc's colour through the theme's avatar palette */
+    const char *label; /* AVATAR: initials */
+    /* ICON and TONAL, and AVATAR when a disc holds a symbol rather than letters. */
+    enum mesh_ui_icon icon;
+    uint32_t tint; /* AVATAR: seeds the disc's colour through the theme's avatar palette */
     /* AVATAR: a stated fill instead of a tint - the primary for "all traffic", the error
        colour for a row armed to be deleted. MESH_UI_COLOR_COUNT means "use the tint". */
     enum mesh_ui_color role;
@@ -1691,6 +1732,31 @@ struct fb_list_item {
      * Ignored on a plain row, which has no label column to ink.
      */
     bool label_quiet;
+    /*
+     * Whether the value column is a *state* rather than a reading, and so is drawn as a capsule
+     * instead of as words - the status bubble every phone app answers "is this thing OK?" with.
+     *
+     * Which capsule is not a second thing the row says, for the reason FB_LEADING_TONAL's disc
+     * is not: it is `tone`'s family, and the neutral surface where the tone names none. So a
+     * verified key is a green pill and an unverified one a grey pill by the row having said
+     * success and nothing, and the colour-blind theme's swap reaches both without this knowing
+     * a palette exists.
+     *
+     * The shape is the point rather than the colour. A state said in ink alone is a state said
+     * to people who can tell those two inks apart; a state said in a pill is legible as *a
+     * state* before it is read at all, which is what stops "verified" and "Weather Hut" being
+     * typographically the same kind of answer.
+     *
+     * It follows that a row whose value is a measurement, a name or an identifier must not set
+     * it - a capsule round "6.75 dB" is a pill that shouts a number - and that a card where
+     * every row set it is a column of pills reporting nothing. Same bar fb_draw_badge() states.
+     *
+     * Ignored on a plain row, which has no value column, and silently declined when the value
+     * column is too narrow for the capsule: the words are drawn instead, which is the fallback
+     * FB_TRAILING_SEGMENTED already has and is right for the same reason - a caller that has
+     * supplied the text has supplied something to fall back to.
+     */
+    bool value_chip;
     struct fb_trailing trailing;
 
     /*
