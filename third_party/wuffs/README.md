@@ -42,11 +42,10 @@ CRC32, DEFLATE, ZLIB, PNG and three of BASE's seven sub-modules, so the JPEG, GI
 CBOR and JSON decoders in this file are never compiled - checked by symbol count, not assumed:
 the built object carries 56 `wuffs_png__` symbols and zero from any of the other twelve codecs.
 
-**It costs more than the roadmap's measurement predicted, and the reason is the pak's build
+**It costs more than the standalone measurement predicted, and the reason is the pak's build
 rather than the decoder.** That measurement put this subset at +106 KB, built with
 `-ffunction-sections -fdata-sections -Wl,--gc-sections`; `scripts/cross-build.sh` uses plain
 `-Os` and none of those, so nothing gets dropped *within* an object and the whole compiled
 subset ships. Measured on the host at `-Os`, the object is **335 KB of text** - 31 KB of which
 naming BASE's sub-modules individually already saves, and the rest of which `--gc-sections`
-would take back. See [`docs/maps-roadmap.md`](../../docs/maps-roadmap.md) for the numbers and
-what is proposed about them.
+would take back.
