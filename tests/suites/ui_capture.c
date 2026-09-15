@@ -3316,6 +3316,84 @@ static const char *card_edges_carry_no_ink(const struct mesh_ui_capture *capture
 }
 
 /*
+ * And the other half of that question: the gap between two cards keeps its clearance.
+ *
+ * card_edges_carry_no_ink() asks whether anything is drawn *through* a hairline, which is the
+ * failure that corrupts the frame - and it is blind to the one that merely looks wrong. A
+ * heading's disc sized to the break it stands in comes out exactly as tall as the break and
+ * lands with its crown on the hairline above it and its foot on the hairline below: nothing
+ * overlaps, every scanline is legal, and the result reads as a bead wedged between two panels
+ * rather than as the header of the card under it.
+ *
+ * So this asks the *gap* instead, and only the gap. A scanline of the break is one that is
+ * mostly body ground; one within a clearance step of a card's edge is the break's own margin,
+ * and nothing wearing a family's container - which is what every disc and every filled chip is
+ * drawn in - may be on it. The step comes from the theme, so the bar means the same thing at
+ * every glyph scale, and it is the step the heading's disc insets itself by.
+ *
+ * Deliberately not asked of the rows *inside* a card. A row's own disc is as tall as its row and
+ * the card's padding is what separates the last one from the edge - a different measurement,
+ * made by a different component, and holding it to this one would be this test having an opinion
+ * about how much padding a card owes its contents.
+ */
+static const char *card_edges_keep_their_clearance(const struct mesh_ui_capture *capture,
+                                                   const uint8_t *pixels, uint32_t width,
+                                                   uint32_t height, size_t stride, int scale) {
+    const struct mesh_ui_theme *theme = mesh_ui_capture_theme(capture);
+    const int clear = mesh_ui_theme_space(theme, MESH_UI_SPACE_SM, scale);
+    /* The rail's gutter is outside every card, exactly as it is outside the check above. */
+    const uint32_t right = width > 16U ? width - 16U : width;
+    if (clear <= 0) {
+        return NULL;
+    }
+    for (uint32_t y = 0U; y < height; ++y) {
+        const uint8_t *row = pixels + (size_t)y * stride;
+        uint32_t ground = 0U;
+        for (uint32_t x = 0U; x < right; ++x) {
+            if (pixel_is_role(capture, row + (size_t)x * 4U, MESH_UI_COLOR_BG)) {
+                ground++;
+            }
+        }
+        /* A scanline of the break. A card's own rows are mostly its fill, so they never qualify
+           however much ground a short value leaves at the end of one. */
+        if (ground * 5U < right * 3U) {
+            continue;
+        }
+        bool near_edge = false;
+        for (int step = 1; step <= clear && !near_edge; ++step) {
+            const int ys[2] = {(int)y - step, (int)y + step};
+            for (size_t which = 0U; which < 2U && !near_edge; ++which) {
+                if (ys[which] < 0 || ys[which] >= (int)height) {
+                    continue;
+                }
+                const uint8_t *other = pixels + (size_t)ys[which] * stride;
+                uint32_t edge = 0U;
+                for (uint32_t x = 0U; x < right; ++x) {
+                    if (pixel_is_role(capture, other + (size_t)x * 4U, MESH_UI_COLOR_OUTLINE)) {
+                        edge++;
+                    }
+                }
+                near_edge = edge * 5U >= right * 3U;
+            }
+        }
+        if (!near_edge) {
+            continue;
+        }
+        for (uint32_t x = 0U; x < right; ++x) {
+            const uint8_t *px = row + (size_t)x * 4U;
+            for (int f = 0; f < MESH_UI_FAMILY_COUNT; ++f) {
+                if (pixel_is_role(
+                        capture, px,
+                        mesh_ui_family_role((enum mesh_ui_family)f, MESH_UI_SLOT_CONTAINER))) {
+                    return "a heading's disc is up against the edge of a card";
+                }
+            }
+        }
+    }
+    return NULL;
+}
+
+/*
  * Whether the scroll rail is beside the cards rather than on them.
  *
  * This is the bug the rail's gutter exists to prevent, and it is one the two card cases above
@@ -3521,6 +3599,10 @@ MESH_TEST_CASE(ui_capture_node_detail_cards_survive_the_cursor, unit) {
         }
         if (failure == NULL) {
             failure = card_edges_carry_no_ink(capture, pixels, width, height, stride, scale);
+        }
+        if (failure == NULL) {
+            failure =
+                card_edges_keep_their_clearance(capture, pixels, width, height, stride, scale);
         }
         if (failure == NULL) {
             const char *broke =

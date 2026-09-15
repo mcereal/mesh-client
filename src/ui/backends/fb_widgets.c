@@ -1441,18 +1441,38 @@ void fb_list_subheader_icon(const struct mesh_ui_backend_fb_state *state, struct
         const int gutter = list->line - state->scale;
         if (fb_list_has_cards(list)) {
             /*
-             * Drawn to the *gap* rather than to that gutter, and centred in it both ways.
+             * Sized to the heading's own words, not to the break it stands in, and centred in
+             * that break both ways.
              *
-             * The gutter is a body row's height, because that is the column it is matching; the
-             * break a heading stands in is shorter than a body row once the card above has taken
-             * its inset out of the top. A disc sized to the column it aligns with would therefore
-             * hang a few pixels past the break and paint through the hairline of the card it is
-             * naming - which is the one thing a card's edge may not have on it, and is what
-             * card_edges_carry_no_ink() watches for.
+             * The gap is what a disc has to *fit inside*, and it is the wrong thing to measure
+             * one against: the break between two cards is a body row less the inset the card
+             * above took out of its top, so a disc grown to fill it comes out exactly as tall as
+             * the gap and lands with its crown on the hairline above and its foot on the
+             * hairline below. Nothing overlaps, so no edge check catches it - it just reads as a
+             * bead jammed between two panels.
+             *
+             * Half again the cell the words are drawn in is the size a mark beside a heading
+             * wants, and it scales with the type rather than with the furniture: a theme asking
+             * for bigger text gets a bigger disc, and one asking for roomier cards gets more air
+             * around the same one. The break is then only a clamp, and it keeps a clearance
+             * step at each end - MESH_UI_SPACE_SM, which is what that step is named for - so the
+             * disc is seen to be *in* the gap rather than wedged between the two cards the gap
+             * separates. Half a step is not enough to read as clearance at any scale this
+             * ships: it leaves two pixels, and two pixels of ground between a disc and a
+             * hairline looks exactly like the disc touching it.
              */
+            const int inset = fb_space(state, MESH_UI_SPACE_SM);
             const int gap_top = step_top + fb_list_card_pad(state);
             const int gap_h = step_top + step_h - fb_edge(state) - gap_top;
-            const int size = gap_h < gutter ? gap_h : gutter;
+            const int cell = (int)fb_font(state)->height * scale;
+            const int room = gap_h - 2 * inset;
+            int size = cell + cell / 2;
+            if (size > room) {
+                size = room;
+            }
+            if (size > gutter) {
+                size = gutter;
+            }
             const enum mesh_ui_family family = mesh_ui_tone_family(tone);
             const struct mesh_ui_paint disc =
                 fb_paint(state, family != MESH_UI_FAMILY_COUNT ? family : MESH_UI_FAMILY_PRIMARY,
