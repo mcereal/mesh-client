@@ -40,3 +40,15 @@ hold 1400
 # And back down onto the refused one, where it returns.
 key down
 hold 1400
+
+# The press, and then the held button. One press is one send: START raises the retry and is
+# spent, so the keycap goes at once rather than waiting for the store to catch up - which is
+# what stops the kernel's autorepeat putting the same words on the air thirty times a second.
+# The second press does nothing at all, and in particular does not fall through to A and open
+# the compose sheet. Any other press re-arms it, which the `key up` below shows.
+key start
+hold 1400
+key start
+hold 1000
+key up
+hold 1200

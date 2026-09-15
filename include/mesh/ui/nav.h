@@ -278,6 +278,26 @@ struct mesh_ui_nav {
        message - it never opens the keyboard and it never takes the draft. */
     bool reaction_open;
     uint32_t reaction_cursor;
+    /*
+     * A retry has been raised and no other press has happened since, so START is spent.
+     *
+     * This is what makes one press one send, and it has to live here because the nav is the
+     * only thing that can. A button going *down* and the kernel's autorepeat arrive as the
+     * same event - mesh_ui_input_handle_event() drops `value == 2` only for the four
+     * directions, because those are repeated by our own timer instead, and a face button keeps
+     * whatever the kernel does with it. Every other press in this client either changes what
+     * is on screen or arms something, so a repeat lands somewhere different; a resend leaves
+     * the cursor on the same failed bubble, and a held START would put the same words on the
+     * air thirty times a second until the store caught up. That is airtime on a shared band,
+     * and a DM asks for an ack, so each one costs the mesh retransmits too.
+     *
+     * Spent rather than a packet id, because a bubble restored from the card may have no id to
+     * name and two of them would then be one latch. Any press that is not START stands it back
+     * down, which is the conversation list's delete arming turned around: there a second press
+     * of the *same* key carries the thing out, and here a second press of the same key is the
+     * one thing that must not.
+     */
+    bool resend_spent;
     /* "Send to" picker: every enabled channel, then every node. Picking opens that
        conversation's thread, and `picker_follow` says what opens over it. */
     bool picker_open;

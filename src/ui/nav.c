@@ -93,6 +93,10 @@ void mesh_ui_nav_open_thread(struct mesh_ui_nav *nav, const struct mesh_ui_store
     /* A reply names a packet id, and a packet id from the conversation we just left is not a
        message in this one. */
     nav->reply_to = 0U;
+    /* Nor is a spent retry: the bubble it was spent on is not in this thread. Cleared here as
+       well as on the next press, because the app opens a thread without one - from the picker,
+       and from "Message this node" on the Nodes tab. */
+    nav->resend_spent = false;
 }
 
 void mesh_ui_nav_open_all_traffic(struct mesh_ui_nav *nav) {
@@ -142,6 +146,7 @@ static bool mesh_ui_nav_close_thread(struct mesh_ui_nav *nav) {
     nav->messages_seen = 0U;
     nav->reply_to = 0U;
     nav->reaction_open = false;
+    nav->resend_spent = false;
     nav->cursor[MESH_UI_SCREEN_MESSAGES] = nav->conversation_list_cursor;
     return true;
 }
@@ -290,6 +295,12 @@ uint32_t mesh_ui_nav_filter_messages(const struct mesh_ui_nav *nav,
 const struct mesh_ui_message *mesh_ui_nav_resendable(const struct mesh_ui_nav *nav,
                                                      const struct mesh_ui_message_list *messages) {
     if (nav == NULL || messages == NULL || !nav->thread_open) {
+        return NULL;
+    }
+    /* Already spent on this press - see the field. Answered here rather than at the two call
+       sites so the keycap goes with the press: the bar stops naming START the moment it stops
+       doing anything, which is the whole reason both ask this one function. */
+    if (nav->resend_spent) {
         return NULL;
     }
     /*
@@ -1600,6 +1611,14 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
         nav->waypoint_delete_armed = false;
         changed = true;
     }
+    /* The retry, which is the opposite arrangement: the thing a second press of the same key
+       must not do is happen again. Anything else re-arms it, including the cursor move that
+       walks onto another failed bubble - so a deliberate second press costs one other press
+       and the kernel's autorepeat, which sends nothing but START, costs the mesh nothing. */
+    if (nav->resend_spent && key != MESH_UI_KEY_START) {
+        nav->resend_spent = false;
+        changed = true;
+    }
     /* And the conversation list's delete, which only a second X on the list may carry out. A
        cursor move standing it down is the point: the row the question was asked about is the
        only row the answer may apply to. */
@@ -1815,9 +1834,21 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
          * it is why the bar asks mesh_ui_nav_resendable() rather than deciding for itself.
          */
         if (nav->screen == MESH_UI_SCREEN_MESSAGES && nav->thread_open) {
+            /*
+             * A retry already raised on this press goes nowhere, and stops here rather than
+             * falling through to A. The fall-through is what makes the rest of the thread
+             * behave, but under a held button it would resend once and then open the compose
+             * sheet over the conversation - a sheet nobody asked for, from a button nobody
+             * pressed twice. The bar is naming no verb on START while this is set, so a press
+             * that does nothing is the bar and the nav agreeing.
+             */
+            if (nav->resend_spent) {
+                return changed;
+            }
             const struct mesh_ui_message *failed = mesh_ui_nav_resendable(nav, &store->messages);
             if (failed != NULL) {
                 mesh_ui_nav_fill_resend(out_action, failed);
+                nav->resend_spent = true;
                 return true;
             }
         }

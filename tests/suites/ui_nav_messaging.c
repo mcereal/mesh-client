@@ -1086,6 +1086,108 @@ cleanup:
 }
 
 /*
+ * One press is one send, however long the button is held.
+ *
+ * A button going down and the kernel's autorepeat reach the nav as the same event: only the
+ * four directions are filtered, because those are repeated by our own timer instead
+ * (mesh_ui_input_handle_event). Every other press in this client either changes the screen or
+ * arms something, so a repeat lands somewhere different - a retry is the first one that leaves
+ * the cursor exactly where it was, on a bubble that is still failed until the store catches
+ * up. Held, it would put the same words on the air thirty times a second, each a DM asking for
+ * an ack. The latch is what makes that one message, and any press that is not START re-arms it
+ * so a deliberate second retry still costs one press.
+ */
+MESH_TEST_CASE(ui_nav_resend_is_one_press_one_send, unit) {
+    const char *failure = NULL;
+    mesh_ui_canned_reset();
+
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    struct mesh_ui_message_list messages = store.messages;
+    messages.entries[messages.count].packet_id = 13U;
+    messages.entries[messages.count].peer = 0x3000U;
+    messages.entries[messages.count].direction = MESH_MESSAGE_OUTBOUND;
+    messages.entries[messages.count].ack = MESH_MESSAGE_ACK_FAILED;
+    snprintf(messages.entries[messages.count].text, sizeof messages.entries[messages.count].text,
+             "%s", "yes, on my way");
+    messages.count++;
+    mesh_ui_store_set_messages(&store, &messages);
+
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    if (!store.nav.thread_open || store.nav.cursor[MESH_UI_SCREEN_MESSAGES] != 1U) {
+        failure = "the test needs the cursor on our own failed message";
+        goto cleanup;
+    }
+
+    memset(&action, 0, sizeof action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
+    if (action.type != MESH_UI_ACTION_RESEND || !store.nav.resend_spent) {
+        failure = "the first START should send and spend the press";
+        goto cleanup;
+    }
+
+    /*
+     * The held button, which is the same event arriving again. The store has not published the
+     * new message yet, so the bubble under the cursor is still the failed one - and this is
+     * exactly the moment the guard exists for.
+     */
+    memset(&action, 0, sizeof action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
+    if (action.type != MESH_UI_ACTION_NONE) {
+        failure = "a held START should not send the same message twice";
+        goto cleanup;
+    }
+    if (mesh_ui_nav_resendable(&store.nav, &store.messages) != NULL) {
+        failure = "the bar should stop naming a press that is spent";
+        goto cleanup;
+    }
+    /* And it stops there rather than falling through to A, which would answer a held button
+       with a compose sheet over the conversation. */
+    if (store.nav.compose_open) {
+        failure = "a held START should not open the compose sheet";
+        goto cleanup;
+    }
+
+    /*
+     * Any other press re-arms it. Down is the one to check, because the cursor is already on
+     * the last bubble and cannot move: what stands the latch down is the press arriving, not
+     * the screen changing under it.
+     */
+    memset(&action, 0, sizeof action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    if (store.nav.resend_spent || store.nav.cursor[MESH_UI_SCREEN_MESSAGES] != 1U) {
+        failure = "a press that is not START should re-arm the retry where it stands";
+        goto cleanup;
+    }
+    memset(&action, 0, sizeof action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
+    if (action.type != MESH_UI_ACTION_RESEND) {
+        failure = "a deliberate second retry should still send";
+        goto cleanup;
+    }
+
+    /* And leaving the conversation takes the latch with it, so the next thread opens armed. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    if (store.nav.thread_open || store.nav.resend_spent) {
+        failure = "closing the thread should stand the retry down";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
  * A reaction is an annotation, not a message, and every place that counts or shows messages
  * has to agree about that. Before the emoji flag was read, a tapback arrived as a bubble
  * containing one emoji, became the conversation's preview text, and bumped its unread badge -

@@ -162,6 +162,14 @@ MESH_TEST_CASE(actions_resend_names_only_a_failed_bubble, unit) {
     MESH_TEST_FAIL_IF(bar.count > MESH_UI_ACTIONS_MAX,
                       "the thread's bar should still fit with the retry on it");
 
+    /* A retry already raised on this press: the keycap goes with it, so a held START never
+       names a verb it will refuse. */
+    snapshot.nav.resend_spent = true;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_START) != MESH_STR_NONE,
+                      "a spent retry should not be named on the bar");
+    snapshot.nav.resend_spent = false;
+
     /* One this client sent and the mesh confirmed: back to nothing to do. */
     snapshot.messages.entries[0].ack = MESH_MESSAGE_ACK_DELIVERED;
     mesh_ui_actions_for(&snapshot, &bar);
