@@ -1,0 +1,54 @@
+# The two things a node's detail says that are not sentences: a verb's disc and a fact's bubble.
+#
+# The screen this replaced said both in ink alone. Every action row drew its label in the
+# accent, so a card of eleven verbs was a wall of one colour with the row that deletes something
+# somewhere inside it; and every fact was a grey label beside a white value, so "verified" and
+# "Echo Repeater" were the same kind of answer typographically and the difference between a key
+# somebody proved and one nobody has was one of two inks on two words.
+#
+# What to watch is that the colour has moved twice, and in opposite directions. Out of the verbs'
+# words and into a container at their leading edge - so the labels read as a column of labels and
+# the two rows that cost something are the only coloured words on the card. And into a shape
+# around the values that are *states*, which is the handful of rows a reader is checking rather
+# than reading: a filled capsule for a state worth reporting, an outlined one for the state a
+# thing is normally in.
+#
+# Row 0 of the Nodes list is the Map, so a node's row is its index in the demo roster plus one.
+# Delta Camp is seeds[4] and row 6 after the roster re-ranks by last_heard; it is the node worth
+# opening because it arrived over MQTT rather than over the air, which is the one fact on the
+# Signal card that quietly invalidates the three above it.
+
+scene demo
+clock 2026-01-15 12:00
+verified DLTA
+tab nodes
+key down 6
+key a
+hold 1400
+
+# The card of verbs. Discs down the leading edge, ordinary ink in the words, and the two rows
+# that are not ordinary - ignore in the warning family, remove in the error family - saying so in
+# both places at once.
+key down 3
+hold 1000
+
+# Identity, and the row the whole screen is qualified by: a key this node proved in person, as a
+# filled capsule rather than as a green word.
+key right
+hold 1600
+
+# Signal, where "MQTT" is the qualifier on the SNR and the hop count above it. The neutral state -
+# a node heard over the air - is the outlined capsule this one is not wearing.
+key right
+hold 1600
+
+# The same two marks in every theme. A disc is a family's container and a chip is a row's tone, so
+# nothing here is switched by hand: the colourblind palette moves the accent and the verdicts
+# without a renderer knowing a palette exists, and on the contrast theme the outline is the whole
+# of what says a neutral state is a state at all.
+theme light
+hold 1400
+theme contrast
+hold 1400
+theme colorblind
+hold 1800

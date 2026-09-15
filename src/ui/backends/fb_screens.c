@@ -968,23 +968,6 @@ static void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
      */
     uint8_t cards[MESH_UI_NODE_ITEMS_MAX];
     uint8_t card = FB_LIST_NO_CARD;
-    /*
-     * And whether this list leads with a symbol at all, measured in the same pass.
-     *
-     * The slot is declared for the whole list or for none of it - FB_LEADING_ICON's own rule,
-     * because a list that indents only the rows carrying an icon starts its text in two
-     * columns. What decides is whether anything fills it: our own node with no fix produces no
-     * action rows at all, and reserving a gutter across a hundred rows of facts for icons that
-     * are not coming is an indent that buys nothing. Same shape as the settings list's
-     * mesh_ui_settings_section_icons_rows(), asked of the built rows rather than of a table
-     * because here it is a property of the node rather than of the screen.
-     *
-     * A *heading's* icon is deliberately not counted. Every group has one, so counting them
-     * would make the answer "always" and indent a hundred rows of facts behind a gutter that
-     * only the card headings above them ever fill - which is the two-column start this test
-     * exists to prevent, reached by way of the thing that was meant to prevent it.
-     */
-    bool leads_with_icon = false;
     for (uint32_t r = 0; r < count; ++r) {
         heights[r] = mesh_ui_node_item_steps(&items[r]);
         if (items[r].kind == MESH_UI_NODE_ROW_HEADING) {
@@ -992,12 +975,30 @@ static void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
             cards[r] = FB_LIST_NO_CARD;
             continue;
         }
-        leads_with_icon = leads_with_icon || items[r].icon != MESH_UI_ICON_NONE;
         cards[r] = card;
     }
-    const struct fb_leading blank =
-        leads_with_icon ? (struct fb_leading){.kind = FB_LEADING_ICON, .icon = MESH_UI_ICON_NONE}
-                        : (struct fb_leading){.kind = FB_LEADING_NONE};
+    /*
+     * Which column a row's words start in, and this screen answers it per *card* rather than
+     * once for the whole list.
+     *
+     * The leading slot's rule is that it is declared for a whole list or for none of it, because
+     * a list that indents only the rows carrying a symbol starts its text in two columns. A card
+     * is the run of rows that rule is about here: every row of one is the same kind of row, and
+     * what separates two of them is a heading with air on either side - so two cards starting
+     * their words in two columns is not an eye running down a column and losing it, it is two
+     * panels.
+     *
+     * There are exactly two shapes on this screen and nothing in between:
+     *
+     *   - a card of verbs, where every row leads with a disc and the heading over them is a disc
+     *     too. The symbol is never missing here: an action with no icon would be a row that is
+     *     not about anything, which is what node_detail.c's table exists to prevent.
+     *   - a card of facts - a label and a value, and never a symbol on either - whose rows start
+     *     at the card's own padding under a heading that is the card's header.
+     *
+     * Which is also the end of the gutter that used to be reserved across a hundred rows of
+     * facts for icons that were never coming to fill it.
+     */
     /*
      * What the cursor is standing on, from the rows just built - with the history, because that
      * is what decides which readings are presses. A row A acts on is highlighted with its group
@@ -1017,19 +1018,20 @@ static void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
         const struct mesh_ui_node_item *item = &items[i];
         if (item->kind == MESH_UI_NODE_ROW_HEADING) {
             /*
-             * The card's own symbol, from the group rather than from here.
+             * The card's own symbol, from the group rather than from here, in the disc that
+             * makes this line a card *header* rather than a label floating above a panel.
              *
-             * In `blank`'s slot rather than in one of its own, which matters on the one node
-             * that declares no slot at all: our own, with no fix, produces no action rows and so
-             * no icons among the rows. A heading that took a gutter there would start its words
-             * an icon-box further in than every row under it - the two-column start this screen
-             * tests for, arrived at from the heading's side. The slot is declared for the whole
-             * list or for none of it, headings included, and the icon is drawn into it when
-             * there is one to draw into.
+             * Every group gets one, including the groups whose rows carry nothing in a leading
+             * slot - which is not the two-column start the slot's rule is about. A heading is
+             * not one of the rows: it stands in the break between two cards with air above and
+             * below it, so the column it starts in is the card's title column and the column its
+             * rows start in is the card's content. Every phone app sets those two apart the same
+             * way, and it is what gives a hundred and twenty rows of facts a set of landmarks
+             * the eye can find without reading any of them.
              */
-            fb_list_subheader_icon(
-                state, &list, i, item->label,
-                (struct fb_leading){.kind = blank.kind, .icon = (enum mesh_ui_icon)item->icon});
+            fb_list_subheader_icon(state, &list, i, item->label,
+                                   (struct fb_leading){.kind = FB_LEADING_TONAL,
+                                                       .icon = (enum mesh_ui_icon)item->icon});
         } else if (item->kind == MESH_UI_NODE_ROW_ACTION) {
             /*
              * What the row is about, on its leading edge, and what it costs, in its ink - both
@@ -1062,9 +1064,19 @@ static void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
                                                                       : MESH_UI_FAMILY_PRIMARY,
                 .on = item->on,
             };
+            /*
+             * The disc rather than a bare icon, and it is what took the accent off the words.
+             *
+             * Every verb here used to draw in the primary, so a card of eleven of them was a
+             * wall of one colour with the destructive row somewhere in it. The colour is still
+             * on the row - it is what a verb is about, and the eye finds "Remove" by its red
+             * long before it reads the word - but it is in a container at the leading edge,
+             * where Material puts it and where it does not compete with the label beside it.
+             * Which family the disc wears is the row's own tone, read by the component; see
+             * FB_LEADING_TONAL.
+             */
             const struct fb_list_item row = {
-                .leading = {.kind = leads_with_icon ? FB_LEADING_ICON : FB_LEADING_NONE,
-                            .icon = (enum mesh_ui_icon)item->icon},
+                .leading = {.kind = FB_LEADING_TONAL, .icon = (enum mesh_ui_icon)item->icon},
                 .text = item->label,
                 .tone = (enum mesh_ui_tone)item->tone,
                 .trailing = item->toggle
@@ -1111,7 +1123,6 @@ static void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
             mesh_ui_series_project(item->trend, item->scale, &points);
             struct fb_sparkline trend = {.points = &points, .tone = MESH_UI_TONE_PRIMARY};
             const struct fb_list_item row = {
-                .leading = blank,
                 .label = item->label,
                 .label_cols = label_cols,
                 /* The question recedes and the answer keeps the row - see the INFO row below,
@@ -1141,7 +1152,6 @@ static void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
              * two a row is, is the row's to say.
              */
             const struct fb_list_item row = {
-                .leading = blank,
                 .label = item->label,
                 .label_cols = label_cols,
                 .label_quiet = true,
@@ -1154,6 +1164,13 @@ static void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
                  * worth a colour for the reason no temperature is.
                  */
                 .tone = (enum mesh_ui_tone)item->tone,
+                /*
+                 * And, on the handful of rows whose answer is one of a set rather than a figure,
+                 * the shape that says so. Which rows those are is node_detail.c's to decide -
+                 * a renderer testing the value text would be a second table - and which colour
+                 * follows from the tone above, so the two cannot be paired wrongly from here.
+                 */
+                .value_chip = item->chip,
             };
             fb_list_item(state, &list, i, &row);
         }

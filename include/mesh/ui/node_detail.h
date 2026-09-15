@@ -164,6 +164,25 @@ struct mesh_ui_node_item {
     bool toggle;
     bool on;
     /*
+     * INFO: the value is a *state* rather than a reading, a name or an identifier - one of a
+     * closed set this row can be in, and the kind of answer a phone app draws as a bubble.
+     *
+     * "Verified", "over MQTT", "not in the radio's list", "plugged in": each is a word the
+     * reader is checking rather than a figure they are reading, and until now every one of them
+     * was typographically identical to the node's own long name two rows above. The flag is
+     * here rather than in the renderer for the reason `tone` and `icon` are: which rows are
+     * states is a property of what the row says, and a backend deciding it by matching the
+     * value text would be a second table that drifts the first time a string is retranslated.
+     *
+     * It says only *that* the value is a state. Which one, and so what colour it takes, is
+     * `tone`, already on the row - so a backend has one thing to read and a renderer cannot
+     * pair a colour with a shape the builder did not intend.
+     *
+     * A backend with no shapes draws the value as it always did, which is the whole of what
+     * makes this safe to set: the fact is complete in `value` either way.
+     */
+    bool chip;
+    /*
      * METER: the reading, the ends it is measured between, and where it changes meaning.
      *
      * Held as whole units of whatever the row is about - percent, decibels - rather than

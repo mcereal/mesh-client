@@ -120,33 +120,43 @@ static const enum mesh_ui_icon k_action_icons[] = {
 };
 
 /*
- * Two of these eleven rows cost something, and until now nothing on the frame said so: "Message
- * this node" and "Remove from radio" were one colour and one weight, and the only thing between
- * them was reading the words. Ignoring a node is the radio dropping its packets - recoverable,
- * and a surprise if it was not meant - so it takes the warning family; removing it takes the
- * node's own row away, which is the error family and the same ink the confirm dialog uses.
+ * Two of these eleven rows cost something, and the tone is how the row says so.
  *
- * Stated here rather than at each call site so the arming press, the row's ink and the action
- * bar's "confirm remove" cannot come from three different opinions about which row is which.
+ * Every verb used to name the primary, which said the true thing the wrong way round: eleven
+ * rows in the accent is not eleven emphases, it is a card with no emphasis in it at all, and
+ * the one row that deletes something had to shout over ten rows already shouting. The accent
+ * did not go away - it moved to the leading disc, where a colour marks *what the row is about*
+ * without competing with the words (see FB_LEADING_TONAL) - and the ink went back to saying
+ * only what it can say once: this row is not like the others.
+ *
+ * So an ordinary errand is the ordinary ink. Ignoring a node is the radio dropping its packets -
+ * recoverable, and a surprise if it was not meant - so it takes the warning family; removing it
+ * takes the node's own row away, which is the error family and the same ink the confirm dialog
+ * uses. Both are now the only coloured words on the card, which is what a colour on a control
+ * is for.
+ *
+ * Stated here rather than at each call site so the arming press, the row's ink, the disc at its
+ * leading edge and the action bar's "confirm remove" cannot come from four different opinions
+ * about which row is which.
  */
 static const enum mesh_ui_tone k_action_tones[] = {
-    [MESH_UI_NODE_ACTION_NONE] = MESH_UI_TONE_PRIMARY,
-    [MESH_UI_NODE_ACTION_MESSAGE] = MESH_UI_TONE_PRIMARY,
-    [MESH_UI_NODE_ACTION_FAVORITE] = MESH_UI_TONE_PRIMARY,
-    [MESH_UI_NODE_ACTION_TRACEROUTE] = MESH_UI_TONE_PRIMARY,
-    [MESH_UI_NODE_ACTION_REQUEST_INFO] = MESH_UI_TONE_PRIMARY,
-    [MESH_UI_NODE_ACTION_REQUEST_POSITION] = MESH_UI_TONE_PRIMARY,
-    [MESH_UI_NODE_ACTION_REQUEST_TELEMETRY] = MESH_UI_TONE_PRIMARY,
+    [MESH_UI_NODE_ACTION_NONE] = MESH_UI_TONE_NORMAL,
+    [MESH_UI_NODE_ACTION_MESSAGE] = MESH_UI_TONE_NORMAL,
+    [MESH_UI_NODE_ACTION_FAVORITE] = MESH_UI_TONE_NORMAL,
+    [MESH_UI_NODE_ACTION_TRACEROUTE] = MESH_UI_TONE_NORMAL,
+    [MESH_UI_NODE_ACTION_REQUEST_INFO] = MESH_UI_TONE_NORMAL,
+    [MESH_UI_NODE_ACTION_REQUEST_POSITION] = MESH_UI_TONE_NORMAL,
+    [MESH_UI_NODE_ACTION_REQUEST_TELEMETRY] = MESH_UI_TONE_NORMAL,
     [MESH_UI_NODE_ACTION_IGNORE] = MESH_UI_TONE_WARNING,
-    [MESH_UI_NODE_ACTION_MUTE] = MESH_UI_TONE_PRIMARY,
+    [MESH_UI_NODE_ACTION_MUTE] = MESH_UI_TONE_NORMAL,
     [MESH_UI_NODE_ACTION_REMOVE] = MESH_UI_TONE_ERROR,
-    [MESH_UI_NODE_ACTION_WAYPOINT] = MESH_UI_TONE_PRIMARY,
-    [MESH_UI_NODE_ACTION_SHOW_ON_MAP] = MESH_UI_TONE_PRIMARY,
+    [MESH_UI_NODE_ACTION_WAYPOINT] = MESH_UI_TONE_NORMAL,
+    [MESH_UI_NODE_ACTION_SHOW_ON_MAP] = MESH_UI_TONE_NORMAL,
     /* Ordinary verbs, both of them. Neither costs anything that cannot be done again, and a
        warning colour on the row that establishes trust would be saying the opposite of what
        the row is for. */
-    [MESH_UI_NODE_ACTION_VERIFY_KEY] = MESH_UI_TONE_PRIMARY,
-    [MESH_UI_NODE_ACTION_ADD_CONTACT] = MESH_UI_TONE_PRIMARY,
+    [MESH_UI_NODE_ACTION_VERIFY_KEY] = MESH_UI_TONE_NORMAL,
+    [MESH_UI_NODE_ACTION_ADD_CONTACT] = MESH_UI_TONE_NORMAL,
 };
 
 static enum mesh_ui_icon action_icon(enum mesh_ui_node_action action) {
@@ -158,7 +168,7 @@ static enum mesh_ui_icon action_icon(enum mesh_ui_node_action action) {
 static enum mesh_ui_tone action_tone(enum mesh_ui_node_action action) {
     return (size_t)action < sizeof k_action_tones / sizeof k_action_tones[0]
                ? k_action_tones[action]
-               : MESH_UI_TONE_PRIMARY;
+               : MESH_UI_TONE_NORMAL;
 }
 
 static struct mesh_ui_node_item *rows_action(struct node_rows *rows, enum mesh_str_id label,
@@ -244,6 +254,36 @@ static void rows_named(struct node_rows *rows, const char *label, enum mesh_str_
     va_start(args, format);
     (void)mesh_str_vformat(item->value, sizeof item->value, format, args);
     va_end(args);
+}
+
+/*
+ * The fourth: a fact whose value is a *state* rather than a reading, a name or an identifier.
+ *
+ * rows_text() above states something the node reported - a name, a figure, an age - and the
+ * reader takes it at face value. These are the rows the reader is *checking*: whether the key
+ * is verified, whether the packets crossed the air or came over somebody's MQTT bridge, whether
+ * the radio still carries this node at all. Each is one of a handful of answers, each answer
+ * means something, and a screen that can draw a shape draws them as bubbles - see
+ * mesh_ui_node_item.chip.
+ *
+ * The tone is the answer's meaning and the only thing the call site decides: the chip's colour
+ * follows from it, so a row cannot end up green and "not verified". The neutral tone is the
+ * honest answer for a state that is simply the usual one, and most of these take it.
+ *
+ * The bar for using this rather than rows_text() is deliberately high, and it is the one
+ * fb_draw_badge() states: a card where every row is a bubble is a column of colour reporting
+ * nothing. A measurement is never a state - there is no "6.75 dB" to be in - and neither is
+ * anything the node chose for itself, which is what its names and its hardware are.
+ */
+static void rows_state(struct node_rows *rows, enum mesh_str_id label, const char *value,
+                       enum mesh_ui_tone tone) {
+    struct mesh_ui_node_item *item = rows_info_row(rows, mesh_str(label));
+    if (item == NULL) {
+        return;
+    }
+    snprintf(item->value, sizeof item->value, "%s", value != NULL ? value : "");
+    item->tone = (uint8_t)tone;
+    item->chip = true;
 }
 
 /*
@@ -401,14 +441,22 @@ static void node_rows_identity(struct node_rows *rows, const struct mesh_ui_node
        chose, and a node the radio's NodeDB no longer carries is one this client remembers
        alone - it is still on the mesh, but a message to it has no stored key to travel with. */
     if (!node->has_user) {
-        rows_text(rows, MESH_STR_NODE_NAME, mesh_str(MESH_STR_NODE_DERIVED_NAME));
+        rows_state(rows, MESH_STR_NODE_NAME, mesh_str(MESH_STR_NODE_DERIVED_NAME),
+                   MESH_UI_TONE_NORMAL);
     }
     if (!node->in_nodedb) {
-        rows_text(rows, MESH_STR_NODE_NODEDB, mesh_str(MESH_STR_NODE_NOT_IN_NODEDB));
+        /* The warning tone rather than the neutral one, because this row only exists when the
+           answer is the bad one: a node the radio has evicted is one a direct message has no
+           stored key to travel with, and the row is here to be noticed. */
+        rows_state(rows, MESH_STR_NODE_NODEDB, mesh_str(MESH_STR_NODE_NOT_IN_NODEDB),
+                   MESH_UI_TONE_WARNING);
     }
 
     if (node->role != 0U || node->hw_model != 0U) {
-        rows_text(rows, MESH_STR_NODE_ROLE, mesh_radio_role_name(node->role));
+        /* What the node is *for* - client, router, repeater - which is a role out of a fixed
+           set and the one thing on this card that changes how every other card should be read.
+           The hardware beside it is a model name the node chose, so it stays words. */
+        rows_state(rows, MESH_STR_NODE_ROLE, mesh_radio_role_name(node->role), MESH_UI_TONE_NORMAL);
     }
     if (node->hw_model != 0U) {
         char fallback[MESH_UI_NODE_VALUE_MAX];
@@ -439,8 +487,13 @@ static void node_rows_identity(struct node_rows *rows, const struct mesh_ui_node
         /* The tone and not the mark. This card has no icon column - every fact in it is a
            label and a value - so a leading icon here would start one row's words in a column of
            their own. The mark belongs where there is no room for the words: the padlock on a
-           bubble, and the row that opens the ceremony. */
+           bubble, and the row that opens the ceremony.
+           What the tone does get is a shape around it. This is the row the whole card is
+           qualified by, its three answers are a closed set, and until it was a bubble the
+           difference between "verified" and "not verified" was one of two inks on two words of
+           the same size - which is a claim made to whoever can tell those inks apart. */
         trust_row->tone = (uint8_t)mesh_ui_key_trust_tone(trust);
+        trust_row->chip = true;
     }
 
     /* One row for the handful of booleans, so a plain node does not carry four "no" rows. */
@@ -463,7 +516,12 @@ static void node_rows_identity(struct node_rows *rows, const struct mesh_ui_node
                  i > 0U ? mesh_str(MESH_STR_NODE_FLAG_SEPARATOR) : "", set[i]);
     }
     if (flags[0] != '\0') {
-        rows_text(rows, MESH_STR_NODE_FLAGS, flags);
+        /* Every flag in this set is something being withheld - the radio dropping the node's
+           packets, a node that cannot be written to - so the row warns whenever it is there at
+           all. Licensed alone is the exception and is merely a fact about the operator. */
+        rows_state(rows, MESH_STR_NODE_FLAGS, flags,
+                   (node->is_ignored || node->is_unmessagable) ? MESH_UI_TONE_WARNING
+                                                               : MESH_UI_TONE_NORMAL);
     }
 }
 
@@ -511,8 +569,18 @@ static void node_rows_signal(struct node_rows *rows, const struct mesh_ui_node_s
         }
     }
     rows_info(rows, MESH_STR_NODE_CHANNEL, MESH_STR_NODE_VAL_NUMBER, (unsigned)node->channel);
-    rows_text(rows, MESH_STR_NODE_HEARD_VIA,
-              mesh_str(node->via_mqtt ? MESH_STR_NODE_VIA_MQTT : MESH_STR_NODE_VIA_RF));
+    /*
+     * And the qualifier on everything above it: whether this node reached us across the air or
+     * through somebody's MQTT bridge. Two answers, and the second one quietly invalidates the
+     * SNR, the RSSI and the hop count three rows up - which is exactly the kind of fact a
+     * bubble is for and exactly the kind that disappears when it is set as a word.
+     *
+     * The tertiary family for MQTT: neither good nor bad, and not the thing the reader is
+     * looking for - a packet that came in over the internet is still a packet.
+     */
+    rows_state(rows, MESH_STR_NODE_HEARD_VIA,
+               mesh_str(node->via_mqtt ? MESH_STR_NODE_VIA_MQTT : MESH_STR_NODE_VIA_RF),
+               node->via_mqtt ? MESH_UI_TONE_TERTIARY : MESH_UI_TONE_NORMAL);
 }
 
 static void node_rows_power(struct node_rows *rows, const struct mesh_ui_node_summary *node,
@@ -526,7 +594,10 @@ static void node_rows_power(struct node_rows *rows, const struct mesh_ui_node_su
     if (metrics->has_battery) {
         /* 101 is upstream's "running off USB", not a 101% battery. */
         if (metrics->battery_level > 100U) {
-            rows_text(rows, MESH_STR_NODE_BATTERY, mesh_str(MESH_STR_STATUS_BATTERY_USB));
+            /* Not a reading at all - upstream's way of saying there is nothing to measure -
+               so it is a state where every other battery row is a percentage with a bar. */
+            rows_state(rows, MESH_STR_NODE_BATTERY, mesh_str(MESH_STR_STATUS_BATTERY_USB),
+                       MESH_UI_TONE_SUCCESS);
         } else {
             rows_info(rows, MESH_STR_NODE_BATTERY, MESH_STR_NODE_VAL_PERCENT,
                       (unsigned)metrics->battery_level);

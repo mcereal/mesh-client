@@ -550,20 +550,135 @@ int fb_badge_width(const struct mesh_ui_backend_fb_state *state, const char *tex
     return cells > 0U ? (int)(cells + 1U) * fb_char_adv(state, scale) : 0;
 }
 
-void fb_draw_badge(const struct mesh_ui_backend_fb_state *state, const struct fb_rect *box,
-                   int text_y, const char *text, enum mesh_ui_family family, int scale) {
+/* The capsule itself: a pill of `paint.fill` with the words on it in `paint.ink`. Both callers
+   below are this with a different pair, which is the whole of what tells a badge from a chip -
+   so the shape, the radius and the half-cell inset are stated once. */
+static void fb_fill_capsule_text(const struct mesh_ui_backend_fb_state *state,
+                                 const struct fb_rect *box, int text_y, const char *text,
+                                 struct mesh_ui_paint paint, int scale) {
     if (text == NULL || text[0] == '\0' || box->w <= 0) {
         return;
     }
-    /* One call for both halves: whatever the theme says reads on that family's own fill - on
-       the dark palette that is the ground colour, because white on its yellow is unreadable at
-       this glyph size. */
-    const struct mesh_ui_paint paint =
-        fb_paint(state, family, MESH_UI_SLOT_BASE, MESH_UI_STATE_REST);
     fb_fill_round_rect(state, box->x, box->y, box->w, box->h, fb_radius(state, MESH_UI_SHAPE_FULL),
                        paint.fill);
     fb_draw_text(state, box->x + fb_char_adv(state, scale) / 2, text_y, text, scale, paint.ink,
                  paint.fill);
+}
+
+void fb_draw_badge(const struct mesh_ui_backend_fb_state *state, const struct fb_rect *box,
+                   int text_y, const char *text, enum mesh_ui_family family, int scale) {
+    /* One call for both halves: whatever the theme says reads on that family's own fill - on
+       the dark palette that is the ground colour, because white on its yellow is unreadable at
+       this glyph size. */
+    fb_fill_capsule_text(state, box, text_y, text,
+                         fb_paint(state, family, MESH_UI_SLOT_BASE, MESH_UI_STATE_REST), scale);
+}
+
+void fb_draw_state_chip(const struct mesh_ui_backend_fb_state *state, const struct fb_rect *box,
+                        int text_y, const char *text, enum mesh_ui_tone tone,
+                        enum mesh_ui_color ground, struct mesh_ui_rgb ink, int scale) {
+    const enum mesh_ui_family family = mesh_ui_tone_family(tone);
+    if (family != MESH_UI_FAMILY_COUNT) {
+        fb_fill_capsule_text(state, box, text_y, text,
+                             fb_paint(state, family, MESH_UI_SLOT_CONTAINER, MESH_UI_STATE_REST),
+                             scale);
+        return;
+    }
+    if (text == NULL || text[0] == '\0' || box->w <= 0) {
+        return;
+    }
+    /*
+     * The neutral one, drawn as a ring rather than a fill, and that is the design rather than a
+     * workaround for a palette.
+     *
+     * "The state it is normally in" is not one of the six things a family means, so there is no
+     * container to fill it with; the nearest neutral fill is the cursor surface, and on the
+     * light theme that sits 1.18:1 from a card - a pill nobody can see. An edge can be found on
+     * every theme by contract (it is what says a card is there at all), and it says the right
+     * thing besides: a filled chip is a state worth reporting and an outlined one is a state
+     * worth *checking*, which is Material's own distinction between the two and the difference
+     * between "verified" and "not verified" being two pills of equal weight.
+     *
+     * Two fills rather than a stroke, on fb_draw_card()'s terms: the ring, then the row's own
+     * ground inset by one hairline. The words keep the row's ink, because the inside of the
+     * capsule is the same colour they were already legible on.
+     */
+    const int radius = fb_radius(state, MESH_UI_SHAPE_FULL);
+    const int edge = fb_edge(state);
+    const struct mesh_ui_rgb fill = fb_color(state, ground);
+    fb_fill_round_rect(state, box->x, box->y, box->w, box->h, radius,
+                       fb_color(state, MESH_UI_COLOR_OUTLINE));
+    if (box->w > 2 * edge && box->h > 2 * edge) {
+        fb_fill_round_rect(state, box->x + edge, box->y + edge, box->w - 2 * edge,
+                           box->h - 2 * edge, radius, fill);
+    }
+    fb_draw_text(state, box->x + fb_char_adv(state, scale) / 2, text_y, text, scale, ink, fill);
+}
+
+/* ---- the disc ------------------------------------------------------------------------------
+ *
+ * Shared by two components and therefore neither's: a list row's leading slot draws one, and so
+ * does a card heading over rows that carry them.
+ */
+
+/*
+ * The disc and what is in it: a node's initials, or an icon for the rows that are not a person.
+ * `size` is both its width and its height, so the radius is half of it and the shape is a
+ * circle.
+ *
+ * What it holds is drawn at the largest multiplier that *fits inside the disc*, which is not
+ * always the body's. A two-row item gives the disc two lines to be round in and the body scale
+ * fits with room; a one-row item - a node, a picker row - gives it one, and two cells at the
+ * body scale then overhang a circle barely taller than a single glyph. That drew initials
+ * sliced off at both ends, which is worse than no disc at all: the whole job of the colour and
+ * the two letters is to be recognised without being read.
+ *
+ * So the fit is measured rather than assumed. It is done here, once, because the caller cannot
+ * answer it - which scale fits is a fact about this component's geometry, and a screen that had
+ * to work it out would be computing a glyph size, which is the thing screens do not do. An icon
+ * is measured by the same loop: it is one cell wide and drawn at the glyph body's height, which
+ * is the taller of the two the loop tests.
+ *
+ * An icon takes the same ink the initials do and is blended over the fill it is standing on.
+ *
+ * The fill and that ink arrive as a pair rather than as a tint, which is what lets one disc
+ * serve two meanings. An avatar's is a tint from the theme's avatar palette with the ground
+ * colour on it, every one of which is validated that way; a leading tonal container's is a
+ * family's held-back half with the ink that family states - and a component that took a colour
+ * and chose the ink itself would be drawing the second combination against the first's contract.
+ */
+static void fb_draw_avatar(const struct mesh_ui_backend_fb_state *state, int x, int y, int size,
+                           const char *label, enum mesh_ui_icon icon, struct mesh_ui_paint paint) {
+    fb_fill_round_rect(state, x, y, size, size, size / 2, paint.fill);
+    const bool has_icon = mesh_ui_icon_is_valid(icon);
+    if (!has_icon && (label == NULL || label[0] == '\0')) {
+        return;
+    }
+    /*
+     * The inset a circle owes its contents: at the corners of the text box the disc has already
+     * curved away, so text measured against the full diameter still touches the edge. An eighth
+     * on each side is what keeps two cells clear of it at every scale the theme allows.
+     */
+    const int room = size - size / 4;
+    const size_t cells = has_icon ? 1U : mesh_ui_text_cells(label);
+    int scale = state->scale;
+    while (scale > 1 && ((int)cells * fb_char_adv(state, scale) > room ||
+                         (int)fb_font(state)->height * scale > room)) {
+        --scale;
+    }
+
+    /* Centred in cells, and vertically on the glyph body rather than the line advance - the
+       advance carries the gap accents hang in, and counting it sits the initials low in the
+       disc. The same reasoning as fb_draw_button's label. */
+    const int text_h = (int)fb_font(state)->height * scale;
+    const int content_y = y + (size - text_h) / 2;
+    if (has_icon) {
+        fb_draw_icon(state, x + (size - fb_icon_box(state, scale)) / 2, content_y, icon, scale,
+                     paint.ink, paint.fill);
+        return;
+    }
+    const int text_w = (int)cells * fb_char_adv(state, scale);
+    fb_draw_text(state, x + (size - text_w) / 2, content_y, label, scale, paint.ink, paint.fill);
 }
 
 /* ---- the top app bar ------------------------------------------------------------------------ */
@@ -1313,7 +1428,42 @@ void fb_list_subheader_icon(const struct mesh_ui_backend_fb_state *state, struct
     const struct mesh_ui_rgb ink = fb_item_ink(state, tone, selected, tone == MESH_UI_TONE_DIM);
 
     int x = fb_row_box(state).text_x;
-    if (leading.kind != FB_LEADING_NONE) {
+    if (leading.kind == FB_LEADING_TONAL) {
+        /*
+         * The card's symbol in a disc, which is what a heading over rows that carry discs has to
+         * be: the slot is the rows' gutter being matched, so a heading that drew a bare icon
+         * there would name a column a disc narrower than the one its rows start in.
+         *
+         * It is also the header every phone app gives a card - a circled mark beside the card's
+         * name - and the two readings are the same one, which is why this takes the kind rather
+         * than a flag. The disc wears the heading's own tone, exactly as a row's does.
+         */
+        const int gutter = list->line - state->scale;
+        if (fb_list_has_cards(list)) {
+            /*
+             * Drawn to the *gap* rather than to that gutter, and centred in it both ways.
+             *
+             * The gutter is a body row's height, because that is the column it is matching; the
+             * break a heading stands in is shorter than a body row once the card above has taken
+             * its inset out of the top. A disc sized to the column it aligns with would therefore
+             * hang a few pixels past the break and paint through the hairline of the card it is
+             * naming - which is the one thing a card's edge may not have on it, and is what
+             * card_edges_carry_no_ink() watches for.
+             */
+            const int gap_top = step_top + fb_list_card_pad(state);
+            const int gap_h = step_top + step_h - fb_edge(state) - gap_top;
+            const int size = gap_h < gutter ? gap_h : gutter;
+            const enum mesh_ui_family family = mesh_ui_tone_family(tone);
+            const struct mesh_ui_paint disc =
+                fb_paint(state, family != MESH_UI_FAMILY_COUNT ? family : MESH_UI_FAMILY_PRIMARY,
+                         MESH_UI_SLOT_CONTAINER, MESH_UI_STATE_REST);
+            if (size > 0) {
+                fb_draw_avatar(state, x + (gutter - size) / 2, gap_top + (gap_h - size) / 2, size,
+                               NULL, leading.icon, disc);
+            }
+        }
+        x += gutter + fb_char_adv(state, state->scale) / 2;
+    } else if (leading.kind != FB_LEADING_NONE) {
         if (mesh_ui_icon_is_valid(leading.icon) && fb_list_has_cards(list)) {
             /* On the heading's own baseline rather than the body's: this row draws at the label
                scale, and a symbol standing where a body row's would floats a third of a row
@@ -1424,62 +1574,6 @@ void fb_list_row_line(const struct mesh_ui_backend_fb_state *state, struct fb_li
 
 /* ---- the conversation cell ----------------------------------------------------------------- */
 
-/*
- * The disc and what is in it: a node's initials, or an icon for the rows that are not a person.
- * `size` is both its width and its height, so the radius is half of it and the shape is a
- * circle.
- *
- * What it holds is drawn at the largest multiplier that *fits inside the disc*, which is not
- * always the body's. A two-row item gives the disc two lines to be round in and the body scale
- * fits with room; a one-row item - a node, a picker row - gives it one, and two cells at the
- * body scale then overhang a circle barely taller than a single glyph. That drew initials
- * sliced off at both ends, which is worse than no disc at all: the whole job of the colour and
- * the two letters is to be recognised without being read.
- *
- * So the fit is measured rather than assumed. It is done here, once, because the caller cannot
- * answer it - which scale fits is a fact about this component's geometry, and a screen that had
- * to work it out would be computing a glyph size, which is the thing screens do not do. An icon
- * is measured by the same loop: it is one cell wide and drawn at the glyph body's height, which
- * is the taller of the two the loop tests.
- *
- * An icon takes the same ink the initials do - the ground colour, which every avatar tint is
- * validated against - and is blended over the tint it is standing on.
- */
-static void fb_draw_avatar(const struct mesh_ui_backend_fb_state *state, int x, int y, int size,
-                           const char *label, enum mesh_ui_icon icon, struct mesh_ui_rgb tint) {
-    fb_fill_round_rect(state, x, y, size, size, size / 2, tint);
-    const bool has_icon = mesh_ui_icon_is_valid(icon);
-    if (!has_icon && (label == NULL || label[0] == '\0')) {
-        return;
-    }
-    /*
-     * The inset a circle owes its contents: at the corners of the text box the disc has already
-     * curved away, so text measured against the full diameter still touches the edge. An eighth
-     * on each side is what keeps two cells clear of it at every scale the theme allows.
-     */
-    const int room = size - size / 4;
-    const size_t cells = has_icon ? 1U : mesh_ui_text_cells(label);
-    int scale = state->scale;
-    while (scale > 1 && ((int)cells * fb_char_adv(state, scale) > room ||
-                         (int)fb_font(state)->height * scale > room)) {
-        --scale;
-    }
-
-    /* Centred in cells, and vertically on the glyph body rather than the line advance - the
-       advance carries the gap accents hang in, and counting it sits the initials low in the
-       disc. The same reasoning as fb_draw_button's label. */
-    const int text_h = (int)fb_font(state)->height * scale;
-    const int content_y = y + (size - text_h) / 2;
-    if (has_icon) {
-        fb_draw_icon(state, x + (size - fb_icon_box(state, scale)) / 2, content_y, icon, scale,
-                     fb_color(state, MESH_UI_COLOR_BG), tint);
-        return;
-    }
-    const int text_w = (int)cells * fb_char_adv(state, scale);
-    fb_draw_text(state, x + (size - text_w) / 2, content_y, label, scale,
-                 fb_color(state, MESH_UI_COLOR_BG), tint);
-}
-
 /* ---- the list item ------------------------------------------------------------------------ */
 
 /*
@@ -1547,7 +1641,11 @@ static struct fb_item_geom fb_item_measure(const struct mesh_ui_backend_fb_state
 
     g.content_x = box.text_x;
     g.text_x = g.content_x;
-    if (item->leading.kind == FB_LEADING_AVATAR) {
+    if (item->leading.kind == FB_LEADING_AVATAR || item->leading.kind == FB_LEADING_TONAL) {
+        /* One measurement for both discs. A tonal container is an avatar that happens to be
+           filled from a family rather than from a hash, and a gutter that differed between them
+           would be a list unable to mix the two - which the node detail does, one card of verbs
+           at a time. */
         g.text_x = g.content_x + (g.fill_h - scale) + adv / 2;
     } else if (item->leading.kind == FB_LEADING_ICON) {
         /* Reserved whether or not this row filled it, so every row's words start in the same
@@ -2086,14 +2184,30 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
     const struct mesh_ui_rgb ground =
         fb_color(state, selected ? MESH_UI_COLOR_SURFACE_SEL : rest_role);
 
-    if (item->leading.kind == FB_LEADING_AVATAR) {
+    if (item->leading.kind == FB_LEADING_AVATAR || item->leading.kind == FB_LEADING_TONAL) {
         const int size = g.fill_h - scale;
-        const struct mesh_ui_rgb tint =
-            item->leading.role < MESH_UI_COLOR_COUNT
-                ? fb_color(state, item->leading.role)
-                : mesh_ui_theme_avatar(state->theme, item->leading.tint);
+        /*
+         * Which pair the disc wears, and the tonal one reads it off the row's tone exactly as
+         * the accent bar below does - the row says once what it means and the disc is one of
+         * the renderings of that, never a second opinion. The container half rather than the
+         * base, because a symbol has to sit on this and a column of them is read rather than
+         * spotted; see FB_LEADING_TONAL.
+         */
+        struct mesh_ui_paint disc;
+        if (item->leading.kind == FB_LEADING_TONAL) {
+            const enum mesh_ui_family family = mesh_ui_tone_family(item->tone);
+            disc = fb_paint(state, family != MESH_UI_FAMILY_COUNT ? family : MESH_UI_FAMILY_PRIMARY,
+                            MESH_UI_SLOT_CONTAINER,
+                            selected ? MESH_UI_STATE_SELECTED : MESH_UI_STATE_REST);
+        } else {
+            disc =
+                (struct mesh_ui_paint){item->leading.role < MESH_UI_COLOR_COUNT
+                                           ? fb_color(state, item->leading.role)
+                                           : mesh_ui_theme_avatar(state->theme, item->leading.tint),
+                                       fb_color(state, MESH_UI_COLOR_BG)};
+        }
         fb_draw_avatar(state, g.content_x, g.fill_top + fb_space(state, MESH_UI_SPACE_XS), size,
-                       item->leading.label, item->leading.icon, tint);
+                       item->leading.label, item->leading.icon, disc);
     } else if (item->leading.kind == FB_LEADING_ICON) {
         fb_draw_icon(state, g.content_x, g.head_y, item->leading.icon, scale, head_ink, ground);
     }
@@ -2129,8 +2243,22 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
                       fb_item_ink(state, label_tone, selected, item->label_quiet), ground);
         const size_t gutter = item->label_cols + FB_ITEM_MARKER_CELLS;
         if (head_cols > gutter) {
-            fb_item_piece(state, g.text_x + (int)gutter * fb_char_adv(state, scale), g.head_y,
-                          item->value, head_cols - gutter, head_ink, ground);
+            const int value_x = g.text_x + (int)gutter * fb_char_adv(state, scale);
+            const size_t value_cols = head_cols - gutter;
+            /* The capsule, where the row said its value is a state and the column is wide
+               enough to hold one. Measured against the room the words would have had, so a
+               chip never runs under a trailing slot - and drawn as words when it does not fit,
+               which is the fallback the row has because the caller supplied the text either
+               way. */
+            const int chip_w = item->value_chip ? fb_badge_width(state, item->value, scale) : 0;
+            if (chip_w > 0 && chip_w <= (int)value_cols * fb_char_adv(state, scale)) {
+                const struct fb_rect box = {value_x, g.head_slot_top, chip_w, g.slot_h};
+                fb_draw_state_chip(state, &box, g.head_y, item->value, item->tone,
+                                   selected ? MESH_UI_COLOR_SURFACE_SEL : rest_role, head_ink,
+                                   scale);
+            } else {
+                fb_item_piece(state, value_x, g.head_y, item->value, value_cols, head_ink, ground);
+            }
         }
     } else {
         fb_item_piece(state, g.text_x, g.head_y, item->text, head_cols, head_ink, ground);

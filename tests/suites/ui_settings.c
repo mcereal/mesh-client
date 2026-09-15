@@ -1370,6 +1370,14 @@ MESH_TEST_CASE(ui_node_detail_items, unit) {
         } else if (items[i].action == MESH_UI_NODE_ACTION_IGNORE) {
             MESH_TEST_FAIL_IF(items[i].tone != MESH_UI_TONE_WARNING,
                               "ignoring a node should be drawn in the warning family");
+        } else {
+            /* And everything else is the ordinary ink, which is the half of that statement the
+               table used to get wrong: eleven verbs in the accent is not eleven emphases, it is
+               a card with none - and the two rows above cannot be the exception if they are not
+               the exception. The accent is on these rows still, in the disc at the leading edge
+               (FB_LEADING_TONAL), which is a colour the words are not competing with. */
+            MESH_TEST_FAIL_IF(items[i].tone != MESH_UI_TONE_NORMAL,
+                              "an ordinary verb should draw in the ordinary ink");
         }
         /* The three flags are controls rather than errands, and each carries its state as a
            field as well as in the words a text backend prints. */
@@ -1457,6 +1465,89 @@ MESH_TEST_CASE(ui_node_detail_items, unit) {
  * count that means nothing to a reader, and a "Fix" heading over a timestamp that was often
  * simply absent.
  */
+/*
+ * Which of a node's facts are *states* and which are readings, asked of the rows themselves.
+ *
+ * The screen draws a state as a capsule and a reading as words, and the whole of what decides is
+ * `chip` on the row - so this is the table that stops the two from being decided by a renderer
+ * matching on value text, which is a second table that drifts the first time a string is
+ * retranslated.
+ *
+ * It is also the bar, in both directions. A state is a closed set the reader is *checking*:
+ * whether the key is verified, whether the packets crossed the air. A reading has no such set -
+ * there is no "6.75 dB" to be in - and neither has anything the node chose for itself. A card
+ * where every row is a bubble is a column of colour reporting nothing, which is the failure this
+ * guards against from the other side.
+ */
+MESH_TEST_CASE(node_detail_states_are_chips, unit) {
+    struct mesh_ui_node_summary node;
+    memset(&node, 0, sizeof node);
+    node.node_id = 0x5002U;
+    snprintf(node.long_name, sizeof node.long_name, "Ridge Relay");
+    snprintf(node.short_name, sizeof node.short_name, "RDG");
+    node.has_user = true;
+    node.in_nodedb = true;
+    node.last_heard = 1750000000U;
+    node.snr = -4.5f;
+    node.has_hops_away = true;
+    node.role = 1U;
+    node.public_key_len = 32U;
+
+    struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
+    uint32_t count = mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, false, NULL, NULL,
+                                               items, MESH_UI_NODE_ITEMS_MAX);
+
+    bool trust_chip = false;
+    bool via_chip = false;
+    for (uint32_t i = 0; i < count; ++i) {
+        const struct mesh_ui_node_item *item = &items[i];
+        if (item->kind != MESH_UI_NODE_ROW_INFO) {
+            MESH_TEST_FAIL_IF(item->chip, "only a stated fact can be a state");
+            continue;
+        }
+        if (strcmp(item->label, "Key") == 0) {
+            trust_chip = item->chip;
+        }
+        if (strcmp(item->label, "Heard via") == 0) {
+            via_chip = item->chip;
+            /* Over the air is the ordinary answer and takes the neutral tone, which is what
+               draws the quiet outlined capsule rather than a filled one. */
+            MESH_TEST_FAIL_IF(item->tone != (uint8_t)MESH_UI_TONE_NORMAL,
+                              "a node heard over the air is in no particular state");
+        }
+        /* The readings this node reports carry no capsule, and neither does anything it chose
+           for itself. Both directions in one loop, because the bar is one bar. */
+        if (strcmp(item->label, "SNR") == 0 || strcmp(item->label, "Long name") == 0 ||
+            strcmp(item->label, "Node number") == 0 || strcmp(item->label, "Public key") == 0 ||
+            strcmp(item->label, "Last heard") == 0 || strcmp(item->label, "Hops away") == 0) {
+            MESH_TEST_FAIL_IF(item->chip, "a reading or a name is not a state");
+        }
+    }
+    MESH_TEST_FAIL_IF(!trust_chip, "what a key is worth is the state this screen is qualified by");
+    MESH_TEST_FAIL_IF(!via_chip, "how a node reached us is a state");
+
+    /* And the states that only exist when the answer is the bad one say so in their tone, so the
+       capsule is filled from the family rather than merely outlined. */
+    node.via_mqtt = true;
+    node.in_nodedb = false;
+    count = mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, false, NULL, NULL, items,
+                                      MESH_UI_NODE_ITEMS_MAX);
+    bool mqtt_ok = false;
+    bool nodedb_ok = false;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (strcmp(items[i].label, "Heard via") == 0) {
+            mqtt_ok = items[i].chip && items[i].tone == (uint8_t)MESH_UI_TONE_TERTIARY;
+        }
+        if (strcmp(items[i].label, "NodeDB") == 0) {
+            nodedb_ok = items[i].chip && items[i].tone == (uint8_t)MESH_UI_TONE_WARNING;
+        }
+    }
+    MESH_TEST_FAIL_IF(!mqtt_ok, "a node reaching us over MQTT should say so in a tone of its own");
+    MESH_TEST_FAIL_IF(!nodedb_ok, "a node the radio has forgotten should warn");
+
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(ui_node_detail_position_honesty, unit) {
     struct mesh_ui_node_summary node;
     memset(&node, 0, sizeof node);

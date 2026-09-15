@@ -3607,6 +3607,188 @@ MESH_TEST_CASE(ui_capture_node_detail_cards_survive_the_cursor, unit) {
 }
 
 /*
+ * How many separate horizontal *bands* of `role` the frame carries: runs at least `min_run`
+ * wide, counted once per unbroken span of scanlines that hold one.
+ *
+ * Bands rather than pixels, and bands rather than a single widest run, because both of the
+ * cheaper answers are wrong here. A pixel count cannot tell a filled disc from the partial
+ * coverage around a glyph that happens to be drawn in the same role; a widest run cannot tell
+ * ten discs down a card from the one pill the navigation bar draws in the primary's container
+ * behind the tab you are on. A column of discs is a column of bands, and nothing else on the
+ * frame is.
+ */
+static uint32_t bands_of_rgb(const uint8_t *pixels, uint32_t width, uint32_t height, size_t stride,
+                             struct mesh_ui_rgb want, uint32_t min_run) {
+    uint32_t bands = 0U;
+    bool inside = false;
+    for (uint32_t y = 0U; y < height; ++y) {
+        const uint8_t *row = pixels + (size_t)y * stride;
+        uint32_t run = 0U;
+        bool wide = false;
+        for (uint32_t x = 0U; x < width; ++x) {
+            const uint8_t *px = row + (size_t)x * 4U;
+            run = (px[0] == want.b && px[1] == want.g && px[2] == want.r) ? run + 1U : 0U;
+            wide = wide || run >= min_run;
+        }
+        if (wide && !inside) {
+            bands++;
+        }
+        inside = wide;
+    }
+    return bands;
+}
+
+static uint32_t bands_of(const struct mesh_ui_capture *capture, const uint8_t *pixels,
+                         uint32_t width, uint32_t height, size_t stride, enum mesh_ui_color role,
+                         uint32_t min_run) {
+    return bands_of_rgb(pixels, width, height, stride,
+                        mesh_ui_theme_color(mesh_ui_capture_theme(capture), role), min_run);
+}
+
+/*
+ * A card of verbs wears its colour in the discs, not in the words.
+ *
+ * The screen this replaced drew every action row's label in the primary: eleven rows of one
+ * colour, which is not eleven emphases but a card with none in it - and the one row that deletes
+ * something had to shout over ten rows already shouting. The accent did not go away, it moved to
+ * a container at each row's leading edge, where the eye finds what a row is *about* without the
+ * words competing with it.
+ *
+ * Asked as two runs rather than as one, because either alone passes on a renderer that has got
+ * half of it wrong. That the primary's container is laid down at all says the discs are drawn;
+ * that the *error* family's is laid down as well says each disc reads its own row's tone rather
+ * than a colour the screen picked once - which is the whole of why FB_LEADING_TONAL takes no
+ * family, and it is the row that would be missed if it did, since Remove is the only one on the
+ * card that is not the default.
+ *
+ * A run rather than a pixel count: a glyph drawn in either role contributes a scattering of
+ * partial coverage, and a disc is a solid block wider than a cell. Held to the glyph scale so
+ * the bar means the same thing at every size the themes allow.
+ */
+MESH_TEST_CASE(ui_capture_node_detail_verbs_wear_their_colour_in_a_disc, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    while (store.nav.screen != MESH_UI_SCREEN_NODES) {
+        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    }
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action); /* past the map row */
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action); /* our own node */
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action); /* somebody else's */
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(!store.nav.node_detail_open, mesh_ui_store_shutdown(&store),
+                              "A should open the node detail");
+
+    struct mesh_ui_snapshot snapshot;
+    memset(&snapshot, 0, sizeof snapshot);
+    mesh_ui_store_request_refresh(&store);
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_ui_store_consume_updates(&store, &snapshot),
+                              mesh_ui_store_shutdown(&store), "no snapshot to render");
+
+    /*
+     * Walked onto the destructive row, because a card of verbs is taller than this panel and the
+     * one that is not the default is near the bottom of it. Found by building the rows rather
+     * than by counting presses: which verbs a node offers depends on what it has reported, so a
+     * fixed number of downs is a test that passes while pointing at the wrong row.
+     */
+    const struct mesh_ui_node_summary *node =
+        mesh_ui_node_detail_find(&snapshot.handshake, snapshot.nav.node_detail_node);
+    MESH_TEST_FAIL_IF_CLEANUP(node == NULL, mesh_ui_store_shutdown(&store),
+                              "the open node is not in the roster");
+    /* Our own node offers no verb that costs anything - it cannot be messaged, ignored or
+       removed - so this test would have nothing to look at on it. */
+    MESH_TEST_FAIL_IF_CLEANUP(snapshot.handshake.has_my_info &&
+                                  node->node_id == snapshot.handshake.my_info.node_num,
+                              mesh_ui_store_shutdown(&store),
+                              "the walk landed on our own node rather than on somebody else's");
+    struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
+    const uint32_t count = mesh_ui_node_detail_build(
+        node, false, 0U, NULL, false, &snapshot.handshake, NULL, items, MESH_UI_NODE_ITEMS_MAX);
+    uint32_t remove_row = count;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (items[i].action == (uint8_t)MESH_UI_NODE_ACTION_REMOVE) {
+            remove_row = i;
+        }
+    }
+    MESH_TEST_FAIL_IF_CLEANUP(remove_row == count, mesh_ui_store_shutdown(&store),
+                              "the fixture's node offers no row to remove it");
+    const char *failure = NULL;
+    static char detail[192];
+    for (int scale = MESH_UI_SCALE_MIN; scale <= MESH_UI_SCALE_MAX && failure == NULL; ++scale) {
+        struct mesh_ui_capture *capture = NULL;
+        if (mesh_ui_capture_open(&capture, MESH_UI_CAPTURE_WIDTH, MESH_UI_CAPTURE_HEIGHT, scale) !=
+            0) {
+            failure = "capture open failed";
+            break;
+        }
+        mesh_ui_capture_set_scale(capture, scale);
+        uint32_t width = 0U;
+        uint32_t height = 0U;
+        size_t stride = 0U;
+        const uint8_t *pixels = mesh_ui_capture_pixels(capture, &width, &height, &stride);
+        mesh_ui_capture_render(capture, &snapshot);
+
+        /*
+         * The window this panel has, handed back to the store, and then the walk down to the
+         * destructive row - both inside the scale loop because a taller glyph is a shorter
+         * window and the nav pages a tall card by it. Up and Down on this screen walk *stops*
+         * and ask the store for that window; without it no press moves at all, which is the
+         * shape of a test that renders the top of the card forever.
+         */
+        mesh_ui_store_set_page_rows(&store, mesh_ui_capture_page_rows(capture));
+        for (uint32_t guard = 0U; guard <= count; ++guard) {
+            if (snapshot.nav.cursor[MESH_UI_SCREEN_NODES] >= remove_row) {
+                break;
+            }
+            (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+            mesh_ui_store_request_refresh(&store);
+            (void)mesh_ui_store_consume_updates(&store, &snapshot);
+        }
+        mesh_ui_capture_render(capture, &snapshot);
+
+        /* Wider than a glyph's own strokes at this size and well inside a disc, which is as
+           wide as the row is tall. */
+        const uint32_t min_run = (uint32_t)(4 * scale);
+        const uint32_t accent = bands_of(capture, pixels, width, height, stride,
+                                         MESH_UI_COLOR_PRIMARY_CONTAINER, min_run);
+        /*
+         * The destructive one is looked for under the cursor, because that is where the walk
+         * above leaves it and because the cursor's row is the one row guaranteed to be on the
+         * panel at every glyph scale - at the largest, this card is taller than the window and a
+         * row stepped off is a row that has scrolled away.
+         *
+         * Which means the fill is the container with its own ink mixed in: a container is the
+         * half of a family with room for a state layer, and taking one is what makes a selected
+         * control look pressed. Derived from the theme rather than matched as a role, for the
+         * reason the layer exists at all - it is a fill no palette states.
+         */
+        const struct mesh_ui_theme *theme = mesh_ui_capture_theme(capture);
+        const struct mesh_ui_rgb pressed = mesh_ui_theme_state_layer(
+            mesh_ui_theme_family(theme, MESH_UI_FAMILY_ERROR, MESH_UI_SLOT_CONTAINER),
+            mesh_ui_theme_family(theme, MESH_UI_FAMILY_ERROR, MESH_UI_SLOT_ON_CONTAINER),
+            MESH_UI_STATE_SELECTED);
+        const uint32_t danger = bands_of_rgb(pixels, width, height, stride, pressed, min_run);
+        /* Four, because one of the accent's bands is the navigation bar's own tab pill and the
+           card this is about holds several verbs plus the disc on its heading. */
+        if (accent < 4U || danger < 1U) {
+            snprintf(detail, sizeof detail,
+                     "the node detail's verbs draw no tonal disc (%u accent bands, %u destructive, "
+                     "at glyph scale %d)",
+                     accent, danger, scale);
+            failure = detail;
+        }
+        mesh_ui_capture_close(capture);
+    }
+
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
  * Scanlines on which `first` ink appears and no `second` ink stands to the left of it.
  *
  * The question a two-tier row answers in pixels, and it is asked in both directions. A row that

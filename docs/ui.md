@@ -126,7 +126,7 @@ reference; what follows is the map.
 | Component | What it is |
 |---|---|
 | `fb_list_*` | the list model above: rows, cards, chips, notes, mixed heights |
-| `struct fb_list_item` | one row with slots — marker gutter, leading avatar, label, trailing value, supporting line |
+| `struct fb_list_item` | one row with slots — marker gutter, leading avatar or tonal disc, label, trailing value, supporting line |
 | `struct fb_bubble` | the transcript's one component: wrapped body, quote line, reactions, the delivery mark |
 | `struct fb_selection` | the checkbox and the radio |
 | `struct fb_segmented` | a small set of alternatives, all on screen at once |
@@ -136,6 +136,7 @@ reference; what follows is the map.
 | `fb_draw_proportion()` | a whole and its parts |
 | `struct fb_text_field`, `struct fb_dialog` | the draft box and the confirm sheet |
 | `struct fb_snackbar` | the transient notice |
+| `fb_draw_badge()`, `fb_draw_state_chip()` | a capsule of text: a count that shouts, a state that is read |
 | `fb_draw_app_bar()` | the heading, with slots |
 | `fb_draw_nav_bar()`, `fb_draw_action_bar()` | the chrome |
 | `fb_draw_progress()`, `fb_draw_banner()` | what the *client* says, as opposed to the radio |
@@ -155,6 +156,25 @@ Four authoring rules hold across all of them, and breaking one compiles and look
 The tables a screen reads instead of deciding for itself: `actions.c` (button verbs), `status.c`
 (card verbs), `help.c`, `devices.c`, `nodes.c`, `delivery.c`, `trust.c`, `chrome.c`, `trend.c`,
 `duration.c`.
+
+### Colour on a row is one statement, drawn in more than one place
+
+A row says what it means once, with its `tone`, and three of its slots are renderings of that one
+answer rather than three fields a caller has to keep in step:
+
+- **`FB_LEADING_TONAL`** fills the leading disc from the tone's family (the primary where the tone
+  names none), which is what a verb's colour is *for* — the eye finds "Remove" by its red long
+  before it reads the word. Its width is the avatar's, so a list may mix the two.
+- **`value_chip`** draws the value column as a capsule instead of as words, filled from the same
+  family, and outlined in the theme's `OUTLINE` where the tone names none. A state, not a reading:
+  "verified", "over MQTT", "plugged in". A card where every row is a bubble is a column of colour
+  reporting nothing, which is the bar `fb_draw_badge()` already states.
+- **`accent_edge`** is the bar down a selected row, in the same family.
+
+The node detail is what this was written for. Eleven verbs in the accent is not eleven emphases,
+it is a card with none — so the words went back to the ordinary ink, the colour went into the
+discs, and the handful of facts that are *states* became shapes as well as inks. A state said in
+ink alone is a state said to whoever can tell those two inks apart.
 
 ### Animation and transitions
 
@@ -308,6 +328,7 @@ container, a CI runner or a cloud session.
 
 ```bash
 make ui-capture ARGS="devtools/ui_capture/scenes/messages.scene -o messages.gif"
+make ui-capture ARGS="devtools/ui_capture/scenes/node-states.scene -o states.gif"
 make docker-ui-capture ARGS="..."          # on macOS
 make screenshots                           # re-render the listing stills
 printf 'scene demo\ntab nodes\nkey down 2\nkey a\n' | ./scripts/ui-capture.sh -o node.gif

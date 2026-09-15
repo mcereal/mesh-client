@@ -5,6 +5,11 @@
 # says instead is said by a fill and an edge, and there are three things about doing that in a
 # *scrolling* list that a still of the top of the screen cannot show. So this walks down.
 #
+# Each card is now headed by its symbol in a disc, and a card of verbs carries one per row while
+# a card of facts carries none - the leading slot answered per card rather than per screen, which
+# is what node-states.scene is about. Watch that every row of a card starts its words in one
+# column even so.
+#
 # Row 0 of the Nodes list is the Map, so a node's row is its index in the demo roster plus one -
 # Echo Repeater is seeds[5] and row 6. It is the node worth opening here because it reports
 # nearly everything: actions, identity, signal, an environment reading with a bar under it, a

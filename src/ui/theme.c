@@ -216,35 +216,42 @@ static const struct mesh_ui_theme
                         /* An apricot container rather than the palest tint of the primary: on a
                            paper ground the two nearest surface tiers are already near-white, so a
                            container has to come down far enough to be a fill at all before it is a
-                           quiet one. */
+                           quiet one.
+                           All six containers here came down a further twentieth when a container
+                           became something drawn on a *card* as well as on the ground - a status
+                           chip in a row's value column, the tonal disc on an action row. Measured
+                           against paper they cleared their contract by a whisker; measured against
+                           a card, which on this palette is a step down from paper, the blue one
+                           sat at 1.13:1 and was a pill you could not see. The step is uniform on
+                           purpose: it keeps the six in the relationship they were picked in. */
                         [MESH_UI_COLOR_PRIMARY] = RGB(160, 72, 0),
                         [MESH_UI_COLOR_ON_PRIMARY] = RGB(255, 255, 255),
-                        [MESH_UI_COLOR_PRIMARY_CONTAINER] = RGB(250, 192, 142),
+                        [MESH_UI_COLOR_PRIMARY_CONTAINER] = RGB(238, 182, 135),
                         [MESH_UI_COLOR_ON_PRIMARY_CONTAINER] = RGB(98, 40, 0),
                         /* The outbound bubble's blue, as on the dark theme. */
                         [MESH_UI_COLOR_SECONDARY] = RGB(26, 88, 160),
                         [MESH_UI_COLOR_ON_SECONDARY] = RGB(255, 255, 255),
-                        [MESH_UI_COLOR_SECONDARY_CONTAINER] = RGB(203, 224, 248),
+                        [MESH_UI_COLOR_SECONDARY_CONTAINER] = RGB(193, 213, 236),
                         [MESH_UI_COLOR_ON_SECONDARY_CONTAINER] = RGB(18, 32, 52),
                         /* A violet, for the same reason the dark theme's is a lavender. */
                         [MESH_UI_COLOR_TERTIARY] = RGB(98, 58, 150),
                         [MESH_UI_COLOR_ON_TERTIARY] = RGB(255, 255, 255),
-                        [MESH_UI_COLOR_TERTIARY_CONTAINER] = RGB(223, 210, 248),
+                        [MESH_UI_COLOR_TERTIARY_CONTAINER] = RGB(212, 200, 236),
                         [MESH_UI_COLOR_ON_TERTIARY_CONTAINER] = RGB(58, 30, 100),
                         [MESH_UI_COLOR_SUCCESS] = RGB(20, 110, 60),
                         [MESH_UI_COLOR_ON_SUCCESS] = RGB(255, 255, 255),
-                        [MESH_UI_COLOR_SUCCESS_CONTAINER] = RGB(190, 232, 205),
+                        [MESH_UI_COLOR_SUCCESS_CONTAINER] = RGB(180, 220, 195),
                         [MESH_UI_COLOR_ON_SUCCESS_CONTAINER] = RGB(10, 64, 34),
                         /* A dark amber. It has to be tellable from the primary's burnt orange above
                            it and from the error's red below it, which is what the distinctness
                            check in mesh_ui_theme_validate() holds it to. */
                         [MESH_UI_COLOR_WARNING] = RGB(150, 100, 0),
                         [MESH_UI_COLOR_ON_WARNING] = RGB(255, 255, 255),
-                        [MESH_UI_COLOR_WARNING_CONTAINER] = RGB(250, 222, 170),
+                        [MESH_UI_COLOR_WARNING_CONTAINER] = RGB(238, 211, 162),
                         [MESH_UI_COLOR_ON_WARNING_CONTAINER] = RGB(92, 58, 0),
                         [MESH_UI_COLOR_ERROR] = RGB(176, 32, 40),
                         [MESH_UI_COLOR_ON_ERROR] = RGB(255, 255, 255),
-                        [MESH_UI_COLOR_ERROR_CONTAINER] = RGB(250, 214, 214),
+                        [MESH_UI_COLOR_ERROR_CONTAINER] = RGB(238, 203, 203),
                         [MESH_UI_COLOR_ON_ERROR_CONTAINER] = RGB(120, 16, 22),
                         [MESH_UI_COLOR_RULE] = RGB(188, 199, 213),
                         [MESH_UI_COLOR_RULE_STRONG] = RGB(120, 160, 205),
@@ -1138,6 +1145,14 @@ bool mesh_ui_theme_validate(const struct mesh_ui_theme *theme, char *reason, siz
             /* A container is a fill on the body ground. It only has to be found, not read -
                the same "visible at all" bar the meter track gets, and for the same reason. */
             {MESH_UI_SLOT_COUNT, MESH_UI_SLOT_CONTAINER, MESH_UI_COLOR_BG, MESH_UI_STATE_REST, 1.2},
+            /* And on a card, which is where the two containers a list row can hold are drawn: a
+               status chip in a value column and the tonal disc at an action row's leading edge.
+               A card is a SURFACE panel, so without this row a theme is free to put its cards
+               on top of its own containers and the bubbles simply are not there - which the
+               light palette did, at 1.13:1, because every container in it was measured against
+               paper and a card here is a step down from paper. */
+            {MESH_UI_SLOT_COUNT, MESH_UI_SLOT_CONTAINER, MESH_UI_COLOR_SURFACE, MESH_UI_STATE_REST,
+             1.2},
             /* The marker bar down a selected row is a family's BASE laid under the cursor
                fill, so it has to be tellable from that fill. The same "found, not read" bar,
                deliberately, rather than the 3:1 an ink would owe: the contrast theme's cursor
