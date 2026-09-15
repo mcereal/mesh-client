@@ -1433,37 +1433,6 @@ void fb_list_subheader(const struct mesh_ui_backend_fb_state *state, struct fb_l
                        uint32_t index, const char *text);
 
 /*
- * ---- the chip row ----------------------------------------------------------------------------
- *
- * A row of the list that is a strip of chips: the filter over the rows below it, drawn where a
- * row's words would be and highlighted like any other row when the cursor is on it.
- *
- * It is the third caller of fb_draw_chip_strip() and the one the strip was lifted out of
- * fb_screens.c for - fb_draw_chip()'s own comment predicted "a tab strip, a filter row and a
- * segmented control are one shape", and the navigation bar was the first two thirds of that.
- * Nothing here re-derives the measuring or the elision: a strip that does not fit drops its
- * labels in the two steps the component already knows, keeping the chosen one's words longest,
- * which is exactly the state a filter row most needs to survive.
- *
- * Two things it does that a plain strip does not, and both are the list's rules rather than the
- * strip's:
- *
- *   - **The chips are drawn against the row's fill**, not against the panel. A row under the
- *     cursor is a different ground, and a chip is a pill with words on it - the same halo a
- *     glyph told the wrong ground gets, at capsule size. fb_list_ground() is asked and the
- *     answer is handed on, which is what every other row entry point here already does.
- *   - **It is a row the cursor stops on**, unlike fb_list_subheader(). A heading is furniture
- *     and a strip is a control, so the press has somewhere to land - and the screen names what
- *     that press does in the action bar rather than the row carrying a verb of its own.
- *
- * What it is *not* is the navigation bar. That draws a recessed tier behind its chips because
- * it is chrome around the body; this stands in the body, on the row it costs, because it is
- * content about what the rows below it are.
- */
-void fb_list_chips(const struct mesh_ui_backend_fb_state *state, struct fb_list *list,
-                   uint32_t index, const struct fb_chip *chips, size_t count, size_t active);
-
-/*
  * ---- the note row ----
  *
  * A paragraph as a list row: a heading line at the label scale and the sentences under it,

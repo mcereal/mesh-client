@@ -169,6 +169,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_NODES_DETAIL_EMPTY] = "Aún no hay datos de este nodo.",
     [MESH_STR_NODES_TITLE_OF] = "Nodos (%u de %u)",
     [MESH_STR_NODES_TITLE_OFF_RADIO] = "Nodos (%u, %u fuera de radio)",
+    [MESH_STR_NODES_FILTER_ROW] = "Filtro",
     [MESH_STR_NODES_FILTER_ALL] = "Todos",
     [MESH_STR_NODES_FILTER_DIRECT] = "Directos",
     [MESH_STR_NODES_FILTER_PINNED] = "Fijados",

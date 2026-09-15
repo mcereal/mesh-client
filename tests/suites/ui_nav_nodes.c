@@ -1196,9 +1196,9 @@ nodes_filter_at(const struct mesh_ui_handshake_state *handshake, enum mesh_ui_no
 }
 
 /*
- * ---- the filter chips ---------------------------------------------------------------------
+ * ---- the filter row -------------------------------------------------------------------------
  *
- * The list's first row is a strip of chips and A steps it, which is three separate claims: the
+ * The list's first row is a control and A steps it, which is three separate claims: the
  * press changes the filter, the filter changes how many rows the list has, and - the one worth
  * the test rather than a screenshot - the *row-to-node mapping* moves with it. That last is why
  * the filter goes through mesh_ui_node_view_at() rather than through an offset: a wrong
@@ -1244,11 +1244,12 @@ MESH_TEST_CASE(ui_nav_nodes_filter_steps_and_renumbers_the_rows, unit) {
                               mesh_ui_store_shutdown(&store),
                               "All shows the whole roster under the two lead rows");
 
-    /* A steps the chips and leaves the cursor where it is - this row is the one row the press
-       cannot re-number. */
+    /* A steps the filter and leaves the cursor where it is - this row is the one row the press
+       cannot re-number. Left and Right do the same thing and are what the row and the bar name;
+       ui_nav_nodes_controls_take_the_d_pad holds that half. */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_filter != MESH_UI_NODE_FILTER_DIRECT,
-                              mesh_ui_store_shutdown(&store), "A steps the chips on");
+                              mesh_ui_store_shutdown(&store), "A steps the filter on");
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.cursor[MESH_UI_SCREEN_NODES] != MESH_UI_NODES_FILTER_ROW,
                               mesh_ui_store_shutdown(&store), "and stays on the row it pressed");
     MESH_TEST_FAIL_IF_CLEANUP(action.type != MESH_UI_ACTION_NONE, mesh_ui_store_shutdown(&store),
@@ -1288,11 +1289,101 @@ MESH_TEST_CASE(ui_nav_nodes_filter_steps_and_renumbers_the_rows, unit) {
                               "the same row under a Pinned filter is the pinned node");
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
 
-    /* Three chips, so a third press is back where it started. */
+    /* Three filters, so a third press is back where it started. */
     store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_FILTER_ROW;
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_filter != MESH_UI_NODE_FILTER_ALL,
                               mesh_ui_store_shutdown(&store), "and wraps back to All");
+
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
+/*
+ * ---- the d-pad on the two control rows -------------------------------------------------------
+ *
+ * The filter and the sort are edited with Left and Right, which is the press the row's pencil and
+ * the action bar both name, and the reason this list's top no longer reads as a caption over it.
+ *
+ * Four claims, and the last two are the ones that pay for the first two. The axis steps the
+ * control *both ways*, which A alone could not do - five sorts wrapped in one direction meant
+ * four presses to undo one. It leaves the cursor where it is, which is what makes it safe: these
+ * are the only two rows of this list that what they change cannot re-number. On any row under
+ * them Left and Right are the tab switch again, unchanged. And the shoulders are the tab switch
+ * on *every* row including these two, which is the whole reason the d-pad's axis could be spent
+ * here at all - the same split the map and the trend chart already make.
+ */
+MESH_TEST_CASE(ui_nav_nodes_controls_take_the_d_pad, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    store.nav.screen = MESH_UI_SCREEN_NODES;
+    store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_FILTER_ROW;
+
+    /* Forward, and the cursor has not moved off the row that did it. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_filter != MESH_UI_NODE_FILTER_DIRECT,
+                              mesh_ui_store_shutdown(&store), "Right steps the filter on");
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.screen != MESH_UI_SCREEN_NODES,
+                              mesh_ui_store_shutdown(&store),
+                              "and does not fall through to the tab switch");
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.cursor[MESH_UI_SCREEN_NODES] != MESH_UI_NODES_FILTER_ROW,
+                              mesh_ui_store_shutdown(&store), "and stays on the row it pressed");
+
+    /* And back the way it came, which is the half A never had. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_filter != MESH_UI_NODE_FILTER_ALL,
+                              mesh_ui_store_shutdown(&store), "Left steps the filter back");
+
+    /* Left off the first of the set wraps rather than leaving the tab, for the same reason
+       Right off the last one does: the row is a ring and the shoulders are the way out. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_filter != MESH_UI_NODE_FILTER_PINNED,
+                              mesh_ui_store_shutdown(&store), "and wraps rather than escaping");
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.screen != MESH_UI_SCREEN_NODES,
+                              mesh_ui_store_shutdown(&store), "still on the Nodes tab");
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action); /* back to All */
+
+    /* The sort row, the same axis over a set of five. */
+    store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_SORT_ROW;
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_sort != MESH_UI_NODE_SORT_HEARD,
+                              mesh_ui_store_shutdown(&store), "Right steps the sort on");
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_sort != MESH_UI_NODE_SORT_DEFAULT,
+                              mesh_ui_store_shutdown(&store), "Left steps the sort back");
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.cursor[MESH_UI_SCREEN_NODES] != MESH_UI_NODES_SORT_ROW,
+                              mesh_ui_store_shutdown(&store), "and stays on the sort row");
+
+    /*
+     * The shoulders still walk the tabs from a control row, which is what pays for all of the
+     * above: a reader who has landed on the filter is never stuck on this tab.
+     */
+    store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_FILTER_ROW;
+    const uint8_t filter_before = store.nav.node_filter;
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_R1, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.screen == MESH_UI_SCREEN_NODES,
+                              mesh_ui_store_shutdown(&store),
+                              "the shoulder leaves the tab from a control row");
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_filter != filter_before,
+                              mesh_ui_store_shutdown(&store),
+                              "and does not also step the control it was standing on");
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_L1, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.screen != MESH_UI_SCREEN_NODES,
+                              mesh_ui_store_shutdown(&store), "and back again");
+
+    /*
+     * And on a node row the d-pad is the tab switch, unchanged. This is the claim the whole
+     * arrangement rests on: the axis is spent on two rows, not on the screen.
+     */
+    store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_LEAD_ROWS;
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.screen == MESH_UI_SCREEN_NODES,
+                              mesh_ui_store_shutdown(&store),
+                              "Right on a node row is still the tab switch");
 
     mesh_ui_store_shutdown(&store);
     record_success(test_name);
@@ -1432,7 +1523,7 @@ MESH_TEST_CASE(ui_nav_nodes_filter_direct_asks_the_lists_own_question, unit) {
      * And a value the enum has never held reads as All rather than as an empty screen.
      *
      * nav.node_filter is a uint8_t and the nav is memcpy'd around, so this is reachable without
-     * anyone writing a bug: what a reader can act on is a chip strip that has come back on All,
+     * anyone writing a bug: what a reader can act on is a filter row that has come back on All,
      * and what they cannot act on is a node list that is empty for no stated reason.
      */
     const enum mesh_ui_node_filter bogus = (enum mesh_ui_node_filter)200;
@@ -1546,7 +1637,7 @@ MESH_TEST_CASE(ui_nav_nodes_sort_steps_and_renumbers_the_rows, unit) {
                               mesh_ui_store_shutdown(&store), "the sort row is under the filter's");
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_sort != MESH_UI_NODE_SORT_HEARD,
-                              mesh_ui_store_shutdown(&store), "A steps the chips on");
+                              mesh_ui_store_shutdown(&store), "A steps the filter on");
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.cursor[MESH_UI_SCREEN_NODES] != MESH_UI_NODES_SORT_ROW,
                               mesh_ui_store_shutdown(&store), "and stays on the row it pressed");
     MESH_TEST_FAIL_IF_CLEANUP(action.type != MESH_UI_ACTION_NONE, mesh_ui_store_shutdown(&store),

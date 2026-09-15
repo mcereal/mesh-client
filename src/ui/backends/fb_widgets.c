@@ -1317,47 +1317,6 @@ void fb_list_subheader(const struct mesh_ui_backend_fb_state *state, struct fb_l
     fb_list_subheader_icon(state, list, index, text, (struct fb_leading){.kind = FB_LEADING_NONE});
 }
 
-void fb_list_chips(const struct mesh_ui_backend_fb_state *state, struct fb_list *list,
-                   uint32_t index, const struct fb_chip *chips, size_t count, size_t active) {
-    if (chips == NULL || count == 0U) {
-        return;
-    }
-    fb_list_chrome(state, list);
-    const uint32_t rows = fb_list_row_height(list, index);
-    const bool selected = fb_list_is_cursor(list, index);
-    (void)fb_draw_row_fill_on(state, list->y, rows, selected, fb_list_ground(list, index));
-
-    /*
-     * The role the strip blends its unfilled chips against, which is the fill this row is
-     * actually wearing rather than the one it rests on.
-     *
-     * This is the *other* side of the rule a switch and a meter follow. Those take the resting
-     * ground because they are patches that replace what is under them, and on two themes the
-     * cursor fill is the resting track's own colour - so handing them the current ground makes
-     * the control vanish on the row being pointed at. A chip that is not the chosen one lays no
-     * fill at all: it is a word on whatever is behind it, and a word told the wrong ground keeps
-     * its shape and gains a halo. fb_draw_row_fill_on() names the highlight and this names the
-     * same role, which is what stops the two from drifting.
-     */
-    const enum mesh_ui_color ground =
-        selected ? MESH_UI_COLOR_SURFACE_SEL : fb_list_ground(list, index);
-
-    /*
-     * Drawn from the row's text column rather than from its fill, so the chips start where the
-     * words of every row under them start. A strip flush with the highlight's left edge would
-     * be a control standing a gutter further out than the list it filters.
-     *
-     * The room is the row's own span, and it is the span fb_row_box() states rather than the
-     * panel's: the scroll rail's gutter is already off it, so a strip measured against the panel
-     * would put its last chip under a rail that appears the moment the list outgrows its window.
-     */
-    const struct fb_row_box box = fb_row_box(state);
-    (void)fb_draw_chip_strip(state, box.text_x, list->y, chips, count, active,
-                             box.text_right - box.text_x, ground, state->scale);
-
-    list->y += (int)rows * list->line;
-}
-
 void fb_list_subheader_icon(const struct mesh_ui_backend_fb_state *state, struct fb_list *list,
                             uint32_t index, const char *text, struct fb_leading leading) {
     fb_list_chrome(state, list);

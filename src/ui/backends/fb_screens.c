@@ -1416,7 +1416,7 @@ static void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
      * Two counts, and keeping them apart is what the filter row cost this screen.
      *
      * `held` is the published roster - what the client knows and what "of" is measured against.
-     * `count` is what this list is about to draw, which is however much of it the chip strip
+     * `count` is what this list is about to draw, which is however much of it the filter
      * keeps. Every number below is one or the other on purpose: conflated, the title said
      * "Nodes 42" over three pinned rows, which is the arithmetic-no-screen-should-show rule
      * reached from the other end.
@@ -1448,7 +1448,7 @@ static void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
      *
      * The third is the roster this screen is *itself* holding back, which is the filter. It
      * needs no title of its own: the heading already says "n of m" whenever something is
-     * bigger than what is drawn, and a chip strip two rows down is where the reader looks for
+     * bigger than what is drawn, and the filter row under it is where the reader looks for
      * why. Which of the three is doing the holding back is deliberately not spelled out - one
      * sentence that says "there is more than this" is worth more than three that compete.
      */
@@ -1526,44 +1526,48 @@ static void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
     struct fb_list list =
         fb_list_begin_heights(layout, rows, nav->cursor[MESH_UI_SCREEN_NODES], node_heights);
     /*
-     * M3's filter chip: the chosen one wears the check, and the pill's tonal fill says the same
-     * thing a second time for a reader who is scanning shape rather than reading.
+     * The filter and the sort are one control group, drawn as two Settings field rows.
      *
-     * A check rather than a symbol per filter, and that is a measurement rather than a
-     * preference. There is no icon in include/mesh/ui/icons.def that means "heard directly", the
-     * set is generated data (scripts/gen-icons.py, run by hand against a font that has moved
-     * since), and adding one to say what the word beside it already says would be a kilobyte of
-     * sprite for a strip that has room for the word. The check is what Material puts there
-     * anyway.
+     * Both were bespoke before this: the filter a chip strip that filled the row on its own, the
+     * sort a label and a word. Neither carried the pencil that everything else in the client
+     * puts in a row's gutter to say "this is set here", so the strip read as a caption about the
+     * list rather than a control over it, and the sort read as a stated fact. The screen was
+     * two rows of what looked like status above a list, and the presses that worked them were
+     * named only at the bottom of the panel.
+     *
+     * So they are the shape this client already has for "one of a small set, chosen on the row":
+     * a label naming the axis, MESH_UI_ICON_EDIT in the gutter, and the value column. Nothing
+     * here is a new component - it is `struct fb_list_item` with the trailing slot the Settings
+     * tab's enums already use, which is what makes the two screens answer Left and Right with
+     * the same picture as well as the same key.
+     *
+     * One label column for both rows, measured from the longer of the two words, so the pencils
+     * line up and the group reads as one block rather than as two rows that happen to adjoin.
      */
-    struct fb_chip filter_chips[MESH_UI_NODE_FILTER_COUNT];
-    for (uint32_t f = 0; f < (uint32_t)MESH_UI_NODE_FILTER_COUNT; ++f) {
-        filter_chips[f] = (struct fb_chip){
-            .icon =
-                ((enum mesh_ui_node_filter)f == filter) ? MESH_UI_ICON_CHECK : MESH_UI_ICON_NONE,
-            .label = mesh_str(mesh_ui_node_filter_label((enum mesh_ui_node_filter)f)),
-        };
-    }
+    const size_t control_label_cols = fb_field_label_cols(state, layout, 6U);
     /*
-     * The sort is a label and the word it is set to, not a second strip of chips - which is the
-     * one place the two rows deliberately do not match, and it is a measurement rather than a
-     * preference.
+     * The filter gets the whole set and the sort gets the chosen word, and that split is a
+     * measurement rather than a preference - it is FB_SEGMENTED_MAX, stated once in the
+     * component and read here.
      *
-     * Five chips do not fit. fb_chip_strip_fit() answers a strip that is too wide by dropping
-     * every label but the chosen one and then dropping them all, which is right for the
-     * navigation bar because a tab that loses its word still has its icon - and wrong here,
-     * because a filter chip carries no icon but the check on the chosen one. The strip came out
-     * as one word with four invisible pills in front of it at the glyph scales somebody chooses
-     * because they cannot read the small ones, which is a control disappearing at exactly the
-     * setting it is most needed. Three short words fit at every scale, which is why the row
-     * above it is still chips.
-     *
-     * So it is the shape the Settings tab already gives an enum this size, and for the reason
-     * stated there: "a set nobody can take in at a glance is better read one at a time". A
-     * label as well, which the strip could not carry - two chip rows one above the other are two
-     * questions with nothing on the frame naming either.
+     * Three filters are inside it, so all three are on the panel: the reader sees that "Direct"
+     * and "Pinned" exist without pressing anything, which is the single biggest thing the chip
+     * strip got right and the reason the set is still shown rather than stepped. Five sorts are
+     * outside it, so the sort is the word - five equal shares of a value column are five clipped
+     * words, which is the same answer the Settings tab gives a region or a modem preset. The
+     * component decides between the set and the word from the room it is given, so a narrow
+     * panel or a large glyph scale falls back to the word here too rather than to three pills
+     * with no labels in them.
      */
-    const size_t sort_label_cols = fb_field_label_cols(state, layout, 6U);
+    struct fb_segmented filter_segments = {
+        .count = (size_t)MESH_UI_NODE_FILTER_COUNT,
+        .active = (size_t)filter,
+        .value = mesh_str(mesh_ui_node_filter_label(filter)),
+    };
+    for (uint32_t f = 0; f < (uint32_t)MESH_UI_NODE_FILTER_COUNT; ++f) {
+        filter_segments.labels[f] =
+            mesh_str(mesh_ui_node_filter_label((enum mesh_ui_node_filter)f));
+    }
     struct mesh_ui_line line;
     char right[32];
     char age[8];
@@ -1587,14 +1591,25 @@ static void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
     uint32_t i;
     while (fb_list_next(&list, &i)) {
         if (i == MESH_UI_NODES_FILTER_ROW) {
-            fb_list_chips(state, &list, i, filter_chips, (size_t)MESH_UI_NODE_FILTER_COUNT,
-                          (size_t)filter);
+            const struct fb_list_item filter_row = {
+                .label = mesh_str(MESH_STR_NODES_FILTER_ROW),
+                .label_cols = control_label_cols,
+                .marker_icon = MESH_UI_ICON_EDIT,
+                /* No value column: the set is the value, and the word for the chosen one is
+                   inside the control, which is what lets it decide between the two forms. The
+                   Settings tab's segmented rows say this the same way. */
+                .trailing = {.kind = FB_TRAILING_SEGMENTED, .segmented = &filter_segments},
+            };
+            fb_list_item(state, &list, i, &filter_row);
             continue;
         }
         if (i == MESH_UI_NODES_SORT_ROW) {
             const struct fb_list_item sort_row = {
                 .label = mesh_str(MESH_STR_NODES_SORT_ROW),
-                .label_cols = sort_label_cols,
+                .label_cols = control_label_cols,
+                /* The same pencil the filter above it wears, and the same one a Settings field
+                   wears: the gutter is where this client says a row is set rather than read. */
+                .marker_icon = MESH_UI_ICON_EDIT,
                 /* The order, and what it could not do - never dim, whatever it says. On this
                    list a dim row is one that cannot be pressed, and this one always can: the
                    press steps on to a sort that works. */

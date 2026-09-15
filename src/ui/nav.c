@@ -218,6 +218,53 @@ static const struct mesh_ui_node_summary *mesh_ui_nav_node_at_row(const struct m
     return mesh_ui_node_view_at(&store->handshake, &view, cursor - MESH_UI_NODES_LEAD_ROWS);
 }
 
+/*
+ * The two control rows at the top of the Nodes list, stepped by one.
+ *
+ * Left and Right, which is the Settings tab's rule arriving on the only other screen in this
+ * client that has a field row. mesh_ui_nav_settings_edit_key() reads Left as -1 and everything
+ * else as +1; this reads it the same way, from the same shaped call, so A still steps forward
+ * and the two screens cannot drift into meaning different things by the same press.
+ *
+ * It used to be A and nothing else, and the strip it stepped carried no mark saying so. That is
+ * the whole of what made this screen hard to start using: the pencil in a row's gutter is how
+ * everything else in the client says "this is set here", the action bar's keycap is how it names
+ * the press, and a filter that used neither was a control a reader had to find by trying every
+ * button on the case.
+ *
+ * The shoulders are deliberately not taken. L1/R1 still walk the tabs, which is the whole reason
+ * the d-pad's axis could be spent here - the same split the map, the trend chart and the node
+ * detail already make, and the reason the action bar can go on saying "L/R tabs" and meaning it.
+ *
+ * The cursor stays where it is on both rows, and that is the property that makes the press safe
+ * rather than a convention: they are the only two rows of this list that what they change cannot
+ * re-number.
+ */
+static bool mesh_ui_nav_nodes_control_step(struct mesh_ui_nav *nav, uint32_t cursor,
+                                           enum mesh_ui_key key) {
+    const int delta = (key == MESH_UI_KEY_LEFT) ? -1 : +1;
+    if (cursor == MESH_UI_NODES_FILTER_ROW) {
+        nav->node_filter =
+            (uint8_t)mesh_ui_node_filter_step((enum mesh_ui_node_filter)nav->node_filter, delta);
+        return true;
+    }
+    if (cursor == MESH_UI_NODES_SORT_ROW) {
+        nav->node_sort =
+            (uint8_t)mesh_ui_node_sort_step((enum mesh_ui_node_sort)nav->node_sort, delta);
+        return true;
+    }
+    return false;
+}
+
+/* Whether the Nodes list itself is what the reader is looking at, which is what decides that a
+   press belongs to a control row rather than to the map or the detail drawn over it. The screen
+   is checked as well as the two flags for `map_open`'s reason: both say where the Nodes tab is
+   standing, not what is on the panel. */
+static bool mesh_ui_nav_nodes_list_showing(const struct mesh_ui_nav *nav) {
+    return nav != NULL && nav->screen == MESH_UI_SCREEN_NODES && !nav->node_detail_open &&
+           !nav->map_open;
+}
+
 void mesh_ui_nav_conversation_name(const struct mesh_ui_nav *nav, char *out, size_t out_len) {
     if (out == NULL || out_len == 0U) {
         return;
@@ -1030,44 +1077,17 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
             return false;
         }
         if (!nav->node_detail_open) {
-            if (cursor == MESH_UI_NODES_FILTER_ROW) {
-                /*
-                 * The chips step on, and that is the whole of the interaction.
-                 *
-                 * A rather than Left and Right, which is what a strip of chips looks like it
-                 * wants. Left and Right are the tab switch on every top-level list in this
-                 * client, and taking them for one row of one list is the per-row d-pad the
-                 * three screens that *do* take them deliberately avoid: the map, the node
-                 * detail and both charts take the axis for the whole level and pay for it by
-                 * leaving the shoulders alone. There is no level here to take it for - this is
-                 * the tab's own list - so the press is A, which is exactly how an enum row in
-                 * Settings is stepped (mesh_ui_nav_settings_edit_key). Three chips, so every
-                 * one of them is at most two presses away and a wrap is not a hardship.
-                 *
-                 * The cursor stays where it is, which is on this row: it is the only row that
-                 * cannot be re-numbered by what the press just did.
-                 */
-                nav->node_filter = (uint8_t)mesh_ui_node_filter_step(
-                    (enum mesh_ui_node_filter)nav->node_filter, +1);
-                return true;
-            }
-            if (cursor == MESH_UI_NODES_SORT_ROW) {
-                /*
-                 * The row under it, stepped the same way and for the same reasons - the axis is
-                 * different, the control is not.
-                 *
-                 * Five orders here against the filter's three, and a wrap is therefore four
-                 * presses rather than two. That is still cheaper than the alternatives, which
-                 * are a second keycap on a bar that has no free one, or Left and Right - and
-                 * Left and Right are the tab switch on every top-level list in this client,
-                 * which the filter row's note declines to take for the same reason. Five is also
-                 * why the row is a word rather than a strip of chips; the renderer has that.
-                 *
-                 * The cursor stays on this row, which like the filter's is a row the press
-                 * cannot re-number: everything the sort moves is below it.
-                 */
-                nav->node_sort =
-                    (uint8_t)mesh_ui_node_sort_step((enum mesh_ui_node_sort)nav->node_sort, +1);
+            /*
+             * The filter and the sort, stepped forward.
+             *
+             * A as well as Left and Right, and in that order of importance: the d-pad is what
+             * the row's pencil and the action bar both name, and A is here because it is what
+             * steps an enum on a Settings field too (mesh_ui_nav_settings_edit_key), so a
+             * reader who has learned either screen has learned both. One helper answers all
+             * three keys, which is what keeps the forward step and the backward one from
+             * becoming two opinions about the same two rows.
+             */
+            if (mesh_ui_nav_nodes_control_step(nav, cursor, MESH_UI_KEY_A)) {
                 return true;
             }
             if (cursor == MESH_UI_NODES_MAP_ROW) {
@@ -1794,6 +1814,23 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
             nav->cursor[MESH_UI_SCREEN_NODES] = next;
             return true;
         }
+    }
+
+    /*
+     * The Nodes list's two control rows, before the routing below turns Left and Right into a
+     * change of tab - the map's placement and the map's reason, one screen along.
+     *
+     * Only these two rows take the axis. On every node row under them Left and Right are still
+     * the tab switch, which is the objection this arrangement has to answer: a d-pad that means
+     * two things on one screen. It is answered the way the Settings tab answers it, because that
+     * screen has had exactly this shape since it was written - a field row edits, a row with no
+     * field walks the tabs, and the pencil in the gutter is what tells the two apart before the
+     * press. The rows that edit here wear the same pencil for the same reason.
+     */
+    if (mesh_ui_nav_nodes_list_showing(nav) &&
+        (key == MESH_UI_KEY_LEFT || key == MESH_UI_KEY_RIGHT) &&
+        mesh_ui_nav_nodes_control_step(nav, nav->cursor[MESH_UI_SCREEN_NODES], key)) {
+        return true;
     }
 
     if (nav->screen == MESH_UI_SCREEN_SETTINGS &&

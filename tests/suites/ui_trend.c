@@ -326,7 +326,7 @@ static bool open_airtime_chart(struct mesh_ui_store *store) {
 
     while (store->nav.screen != MESH_UI_SCREEN_STATUS) {
         const enum mesh_ui_screen before = store->nav.screen;
-        (void)mesh_ui_store_handle_key(store, MESH_UI_KEY_RIGHT, &action);
+        (void)mesh_ui_store_handle_key(store, MESH_UI_KEY_R1, &action);
         if (store->nav.screen == before) {
             return false;
         }

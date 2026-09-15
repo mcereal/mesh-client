@@ -22,7 +22,7 @@ scene demo
 clock 2026-01-15 12:00
 verified DLTA
 tab nodes
-# The Nodes list has three rows before its first node - the filter chips, the sort row and
+# The Nodes list has three rows before its first node - the filter row, the sort row and
 # the Map (MESH_UI_NODES_LEAD_ROWS) - so a node's row is its index in the demo roster plus
 # three. Delta Camp is seeds[4] and row 7.
 key down 7

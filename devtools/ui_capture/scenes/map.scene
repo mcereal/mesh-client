@@ -29,7 +29,7 @@ waypoint CHRL Water cache
 # The Nodes list's Map row is the way in, and it says how many of the roster has a position at
 # all - which on a real mesh is a small fraction of it.
 #
-# The Map is the third row of the Nodes list, under the filter chips and the sort row
+# The Map is the third row of the Nodes list, under the filter row and the sort row
 # (MESH_UI_NODES_LEAD_ROWS) - it was the first row before either of them existed, and a
 # bare `key a` here steps the chips instead.
 tab nodes

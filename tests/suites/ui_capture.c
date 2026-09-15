@@ -176,9 +176,9 @@ MESH_TEST_CASE(ui_capture_draws_the_status_cards, unit) {
     while (store.nav.screen != MESH_UI_SCREEN_STATUS) {
         const enum mesh_ui_screen before = store.nav.screen;
         memset(&action, 0, sizeof action);
-        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_R1, &action);
         MESH_TEST_FAIL_IF_CLEANUP(store.nav.screen == before, mesh_ui_store_shutdown(&store),
-                                  "Right stopped moving before the Status tab");
+                                  "the shoulder stopped moving before the Status tab");
     }
 
     struct mesh_ui_snapshot snapshot;
@@ -312,9 +312,9 @@ MESH_TEST_CASE(ui_capture_status_keeps_the_last_card_when_the_one_above_overflow
     while (store.nav.screen != MESH_UI_SCREEN_STATUS) {
         const enum mesh_ui_screen before = store.nav.screen;
         memset(&action, 0, sizeof action);
-        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_R1, &action);
         MESH_TEST_FAIL_IF_CLEANUP(store.nav.screen == before, mesh_ui_store_shutdown(&store),
-                                  "Right stopped moving before the Status tab");
+                                  "the shoulder stopped moving before the Status tab");
     }
 
     struct mesh_ui_snapshot snapshot;
@@ -390,9 +390,9 @@ MESH_TEST_CASE(ui_capture_draws_the_card_variants, unit) {
     while (store.nav.screen != MESH_UI_SCREEN_STATUS) {
         const enum mesh_ui_screen before = store.nav.screen;
         memset(&action, 0, sizeof action);
-        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_R1, &action);
         MESH_TEST_FAIL_IF_CLEANUP(store.nav.screen == before, mesh_ui_store_shutdown(&store),
-                                  "Right stopped moving before the Status tab");
+                                  "the shoulder stopped moving before the Status tab");
     }
 
     struct mesh_ui_snapshot snapshot;
@@ -1073,7 +1073,7 @@ MESH_TEST_CASE(ui_capture_app_bar_badges_unsaved_edits, unit) {
     struct mesh_ui_action action;
     memset(&action, 0, sizeof action);
     while (store.nav.screen != MESH_UI_SCREEN_SETTINGS) {
-        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_R1, &action);
     }
     MESH_TEST_FAIL_IF_CLEANUP(!mesh_test_settings_open(&store, MESH_UI_SETTINGS_DISPLAY),
                               mesh_ui_store_shutdown(&store), "could not open a settings section");
@@ -3194,7 +3194,7 @@ MESH_TEST_CASE(ui_capture_nav_bar_badges_unread_messages, unit) {
     struct mesh_ui_action action;
     memset(&action, 0, sizeof action);
     while (store.nav.screen != MESH_UI_SCREEN_NODES) {
-        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_R1, &action);
     }
 
     struct mesh_ui_capture *capture = NULL;
@@ -3550,7 +3550,7 @@ MESH_TEST_CASE(ui_capture_node_detail_cards_survive_the_cursor, unit) {
     struct mesh_ui_action action;
     memset(&action, 0, sizeof action);
     while (store.nav.screen != MESH_UI_SCREEN_NODES) {
-        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_R1, &action);
     }
     /* Past the filter and map rows, then past our own node, onto one that is not us - which is
        the one with enough reported about it to outgrow the window and put a rail up. */
@@ -3760,9 +3760,9 @@ MESH_TEST_CASE(ui_capture_node_detail_verbs_wear_their_colour_in_a_disc, unit) {
     struct mesh_ui_action action;
     memset(&action, 0, sizeof action);
     while (store.nav.screen != MESH_UI_SCREEN_NODES) {
-        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_R1, &action);
     }
-    /* Past the lead rows - the chip strips and the map row - and then one node further, onto
+    /* Past the lead rows - the filter, the sort and the map row - and then one node further, onto
        somebody who is not us. Counted from the constant rather than written out, because a
        fourth lead row would otherwise leave this walking onto our own node and failing with a
        message about discs. */
@@ -3929,9 +3929,9 @@ MESH_TEST_CASE(ui_capture_node_detail_states_its_labels_quietly, unit) {
     struct mesh_ui_action action;
     memset(&action, 0, sizeof action);
     while (store.nav.screen != MESH_UI_SCREEN_NODES) {
-        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_R1, &action);
     }
-    /* Past the lead rows - the chip strips and the map row - onto the first node, counted from
+    /* Past the lead rows - the filter, the sort and the map row - onto the first node, counted from
        the constant for the reason the case above counts it. */
     for (uint32_t step = 0; step < MESH_UI_NODES_LEAD_ROWS; ++step) {
         (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
@@ -4030,7 +4030,7 @@ MESH_TEST_CASE(ui_capture_settings_marks_both_halves_of_an_unsaved_row, unit) {
     struct mesh_ui_action action;
     memset(&action, 0, sizeof action);
     while (store.nav.screen != MESH_UI_SCREEN_SETTINGS) {
-        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_R1, &action);
     }
     MESH_TEST_FAIL_IF_CLEANUP(!mesh_test_settings_open(&store, MESH_UI_SETTINGS_DISPLAY),
                               mesh_ui_store_shutdown(&store), "could not open a settings section");

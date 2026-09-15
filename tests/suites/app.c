@@ -1762,11 +1762,13 @@ MESH_TEST_CASE(app_theme_switcher, unit) {
     }
 
     /* Settings > About, then down to the theme row, exactly as thumbs would. */
-    /* Right to the Settings tab, whatever is between it and Messages. */
+    /* The right shoulder to the Settings tab, whatever is between it and Messages. The shoulder
+       rather than Right because Right is only the tab switch on a row with no control on it, and
+       the Nodes tab in between lands on its filter row. */
     for (unsigned guard = 0; guard <= (unsigned)MESH_UI_SCREEN_COUNT &&
                              app.ui_store.nav.screen != MESH_UI_SCREEN_SETTINGS;
          ++guard) {
-        mesh_ui_controller_handle_key(&app.ui_controller, MESH_UI_KEY_RIGHT);
+        mesh_ui_controller_handle_key(&app.ui_controller, MESH_UI_KEY_R1);
     }
     mesh_ui_controller_handle_key(&app.ui_controller, MESH_UI_KEY_A);
     if (app.ui_store.nav.settings_section != MESH_UI_SETTINGS_ABOUT) {

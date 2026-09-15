@@ -498,8 +498,12 @@ MESH_TEST_CASE(actions_the_chart_offers_only_the_way_out, unit) {
                       "the top app bar's arrow is derived from the same table");
 
     /* And the flag alone is not enough: it outlives a change of tab, so a bar that read it
-       without the screen would draw the chart's three keycaps over the Nodes list. */
+       without the screen would draw the chart's three keycaps over the Nodes list.
+       On a node row rather than on row 0, because the list's first two rows are the filter and
+       the sort and those name the d-pad instead of A - so a cursor left at zero would be asking
+       this about the one part of the list where A is deliberately not named. */
     snapshot.nav.screen = MESH_UI_SCREEN_NODES;
+    snapshot.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_LEAD_ROWS;
     mesh_ui_actions_for(&snapshot, &bar);
     bool names_a_node_press = false;
     for (size_t i = 0; i < bar.count; ++i) {

@@ -72,7 +72,7 @@ bool mesh_ui_node_filter_matches(const struct mesh_ui_handshake_state *handshake
          *
          * The default is deliberate rather than defensive. `nav.node_filter` is a uint8_t
          * restored from a preferences file, so a value this enum has never held can reach here
-         * - and the failure a reader can act on is a chip strip that has come back on "All",
+         * - and the failure a reader can act on is a filter row that has come back on "All",
          * not a node list that is empty for a reason nothing on the frame can say.
          */
         return true;

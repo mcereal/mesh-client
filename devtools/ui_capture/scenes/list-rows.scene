@@ -14,7 +14,7 @@ delay 220
 # has something to say. Rows 0 and 1 of the Nodes list are the filter chips and the Map, so a
 # node's row is its index in the demo roster plus two - Foxtrot Mobile is seeds[6] and row 8.
 tab nodes
-# The Nodes list has three rows before its first node - the filter chips, the sort row and
+# The Nodes list has three rows before its first node - the filter row, the sort row and
 # the Map (MESH_UI_NODES_LEAD_ROWS) - so a node's row is its index in the demo roster plus
 # three. Foxtrot Mobile is seeds[6] and row 9.
 key down 9
