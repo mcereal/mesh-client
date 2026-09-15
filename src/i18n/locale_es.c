@@ -344,6 +344,24 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_HELP_NOTE_SHARE_IMPORT] =
         "Aquí no hay cámara, así que un enlace que llega hay que teclearlo: «Añadir desde un "
         "enlace», en la lista de canales, abre el teclado. Basta con la parte posterior al #.",
+    [MESH_STR_HELP_SUBJECT_CONTACT] = "Tu código de contacto",
+    [MESH_STR_HELP_NOTE_CONTACT] =
+        "El nombre, el número y la clave pública de esta radio, en un solo enlace. Un teléfono "
+        "que lo lea puede escribirle cifrado sin esperar a oírla transmitir.",
+    [MESH_STR_HELP_LABEL_CONTACT_SAFE] = "No es un secreto",
+    [MESH_STR_HELP_NOTE_CONTACT_SAFE] =
+        "Una clave pública está hecha para publicarse: este código se puede enseñar a "
+        "cualquiera, al contrario que el de los canales. Lo que no lleva es la clave privada, "
+        "así que nadie que lo lea puede hacerse pasar por esta radio.",
+    [MESH_STR_HELP_LABEL_CONTACT_TRUST] = "No es una verificación",
+    [MESH_STR_HELP_NOTE_CONTACT_TRUST] =
+        "Un código demuestra quién lo envió tan poco como un nombre. Un contacto añadido desde "
+        "un enlace llega sin verificar: el candado sigue exigiendo la ceremonia hablada de "
+        "\"Verificar clave\".",
+    [MESH_STR_HELP_LABEL_CONTACT_IMPORT] = "En el otro sentido",
+    [MESH_STR_HELP_NOTE_CONTACT_IMPORT] =
+        "Aquí no hay cámara, así que un código que llega hay que teclearlo: \"Añadir desde un "
+        "enlace\", bajo tu propio nombre, abre el teclado. Basta con la parte posterior al #.",
     [MESH_STR_NODE_HEAD_ACTIONS] = "Acciones",
     [MESH_STR_NODE_HEAD_IDENTITY] = "Identidad",
     [MESH_STR_NODE_HEAD_SIGNAL] = "Señal",
@@ -964,6 +982,18 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_SHARE_NO_CODE] =
         "Demasiado largo para mostrarlo como código. El enlace sigue sirviendo.",
     [MESH_STR_IMPORT_PROMPT] = "Enlace de canal",
+    [MESH_STR_USER_CONTACT_HEAD] = "Código de contacto",
+    [MESH_STR_USER_SHARE_CONTACT_ROW] = "Mostrar mi código de contacto",
+    [MESH_STR_USER_ADD_CONTACT_ROW] = "Añadir desde un enlace",
+    [MESH_STR_CONTACT_TITLE] = "Mi código de contacto",
+    [MESH_STR_CONTACT_SUMMARY] =
+        "%s (%s). Escanéalo con la app de Meshtastic para añadir esta radio.",
+    [MESH_STR_CONTACT_NOTHING] =
+        "Nada que mostrar todavía: esta radio no ha enviado su nombre y su clave.",
+    [MESH_STR_CONTACT_NO_CODE] =
+        "Demasiado largo para mostrarlo como código. El enlace sigue funcionando.",
+    [MESH_STR_CONTACT_IMPORT_PROMPT] = "Enlace de contacto",
+    [MESH_STR_CONTACT_NO_NAME] = "un nodo sin nombre",
     [MESH_STR_CHANNELS_DEFAULT_NAME] = "el canal predeterminado",
     [MESH_STR_HEAD_POSITION_CARRIES] = "Enviado con posición",
     [MESH_STR_HEAD_MAP_REPORT] = "Informe al mapa",
@@ -1104,6 +1134,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_CONFIRM_ACCEPT_FW_BLE] = "Actualizar por Bluetooth",
     [MESH_STR_CONFIRM_ACCEPT_SAVE] = "Guardar en la radio",
     [MESH_STR_CONFIRM_ACCEPT_IMPORT] = "Unirse",
+    [MESH_STR_CONFIRM_ACCEPT_ADD_CONTACT] = "Añadir",
     [MESH_STR_CONFIRM_TEXT_REBOOT] =
         "La radio se reinicia en unos segundos. Se pierde el enlace y la conexión automática lo "
         "recupera; todo lo enviado a este nodo mientras tanto se pierde.",
@@ -1175,6 +1206,11 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
         "El enlace lleva %u canales y los ajustes LoRa de su radio. Reemplazan todos los canales "
         "de esta radio y la radio se reiniciará; los nodos de los canales antiguos ya no podrán "
         "alcanzarla.",
+    [MESH_STR_CONFIRM_TITLE_ADD_CONTACT] = "¿Añadir a %s?",
+    [MESH_STR_CONFIRM_TEXT_ADD_CONTACT] =
+        "El nodo %s entra en los contactos de esta radio con su clave pública, así que los "
+        "mensajes hacia él pueden cifrarse antes de haberlo oído nunca. La clave no queda "
+        "marcada como verificada: eso sigue exigiendo la ceremonia hablada.",
     [MESH_STR_TRANSPORT_UNKNOWN] = "desconocido",
     [MESH_STR_TRANSPORT_DISABLED] = "desactivado",
     [MESH_STR_TRANSPORT_INACTIVE] = "inactivo",
@@ -1285,6 +1321,10 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_TOAST_IMPORT_QUEUED_OTHER] = "Uniéndose: escribiendo %u canales",
     [MESH_STR_TOAST_IMPORT_FAILED] = "No se pudieron escribir los canales en la radio",
     [MESH_STR_TOAST_IMPORT_NO_CHANGE] = "Esta radio ya está en esos canales",
+    [MESH_STR_TOAST_CONTACT_LINK_INVALID] = "No es un enlace de contacto de Meshtastic",
+    [MESH_STR_TOAST_CONTACT_LINK_QUEUED] = "%s enviado a los contactos de la radio",
+    [MESH_STR_TOAST_CONTACT_LINK_IS_SELF] = "Ese código es el de esta misma radio",
+    [MESH_STR_TOAST_CONTACT_LINK_FAILED] = "No se pudo enviar el contacto a la radio",
     [MESH_STR_TOAST_NOTHING_CACHED] = "No hay nodos guardados que olvidar",
     [MESH_STR_TOAST_ALL_ON_RADIO] = "Todos los nodos guardados están en la radio",
     [MESH_STR_TOAST_FORGET_FAILED] = "No se pudo olvidar (%d)",

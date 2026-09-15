@@ -31,6 +31,7 @@ ROOT = Path(__file__).resolve().parent.parent
 CHECKED = [
     "src/ui/actions.c",
     "src/ui/channel_share.c",
+    "src/ui/contact_share.c",
     "src/ui/chrome.c",
     "src/ui/help.c",
     "src/ui/layout.c",

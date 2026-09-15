@@ -27,6 +27,7 @@ set(MESHCLIENT_TEST_SUITES
     suites/app.c
     suites/ble_ota.c
     suites/channel_share.c
+    suites/contact_share.c
     suites/core_basics.c
     suites/crash.c
     suites/fetch.c

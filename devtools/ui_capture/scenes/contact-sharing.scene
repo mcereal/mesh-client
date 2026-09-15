@@ -1,0 +1,52 @@
+# Contact sharing: one node as a link, in both directions.
+#
+# The channel link's sibling, and the half that closes a gap the admin verb could not. A radio
+# can already be handed a contact for any node in its roster - but a roster record only exists
+# for a node that has *transmitted*, and a node that has transmitted is one the radio could have
+# kept for itself. The link is the only way to get a key for a node that has never been heard,
+# which is what makes a first direct message to it encryptable instead of impossible.
+#
+# Three things to watch:
+#
+#   1. The User section, which has grown a heading and two rows under its four fields. They are
+#      here rather than on the Nodes tab because this section *is* the record a contact carries:
+#      the names above, and the number and key the radio keeps beside them.
+#   2. The contact code screen. The same shape as the channel share screen - the code takes
+#      every pixel of the body it can get, the caption under it says whose code it is, and the
+#      link itself is last, dim and wrapped rather than cut. The caption is worth more here than
+#      on the channel screen: a QR code says nothing to an eye, so the name and node number
+#      under it are the only check that the picture is this radio's own.
+#   3. It is a *shorter* code than the channel one, because a SharedContact is one node rather
+#      than eight channels - so its modules are larger and it scans from further away. That is
+#      the version difference doing the work, not a change of scale.
+#
+# The code is black on white on every theme, which is the one colour pair in this client that
+# does not follow the palette; the channel-sharing scene films that rule and it is the same rule
+# here, so this scene spends its frames on the screen instead.
+#
+# The other direction - a link typed in - is the keyboard and then the ordinary confirm sheet,
+# both filmed elsewhere. What is new there is the check in front of the sheet, and a refusal is
+# not a thing a capture can show usefully.
+
+scene demo
+scale 4
+delay 200
+config
+
+tab settings
+hold 500
+
+# Into the User section: the four fields that are this radio's owner record, and then the two
+# contact rows under their heading.
+key down 2
+key a
+hold 1400
+key down 4
+hold 1800
+
+# The code. This radio's name, number and public key as one square a phone adds in a press.
+key a
+hold 2800
+
+key b
+hold 800

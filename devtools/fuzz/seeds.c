@@ -12,7 +12,8 @@
  * quietly stopped seeding anything.
  *
  * Usage: meshclient_fuzz_seeds <directory>
- *        (creates <directory>/{session,stream_framing,firmware_catalog,zip,uf2,channel_url}/)
+ *        (creates <directory>/{session,stream_framing,firmware_catalog,zip,uf2,channel_url,
+ *         contact_url}/)
  */
 
 #include "fuzz_state.h"
@@ -20,6 +21,7 @@
 #include "mesh/core/message.h"
 #include "mesh/core/session.h"
 #include "mesh/proto/channel_url.h"
+#include "mesh/proto/contact_url.h"
 #include "mesh/proto/stream_framing.h"
 
 #include <pb_encode.h>
@@ -50,6 +52,7 @@ static void die(const char *what) {
 /* A seed that is text rather than bytes, written without its NUL: the harness terminates what
    it is handed, so a zero in the corpus would only ever be a link cut short. */
 static void write_channel_url_seed(const char *name, const char *text, size_t len);
+static void write_contact_url_seed(const char *name, const char *text, size_t len);
 
 static void write_seed(const char *subdir, const char *name, const uint8_t *bytes, size_t len) {
     char path[768];
@@ -554,6 +557,49 @@ static void write_channel_url_seed(const char *name, const char *text, size_t le
     write_seed("channel_url", name, (const uint8_t *)text, len);
 }
 
+/* The contact link's seeds, for the channel link's reason: a fuzzer starting from noise would
+   spend its budget rediscovering base64 before reaching the protobuf underneath. One real
+   contact with a full-length key, and the payload on its own - which is the form somebody
+   typing one in will produce, and the shorter string for a mutator to work on. */
+static void write_contact_url_seeds(void) {
+    meshtastic_SharedContact contact = meshtastic_SharedContact_init_zero;
+    contact.node_num = 0xA1B2C3D4U;
+    contact.has_user = true;
+    snprintf(contact.user.id, sizeof contact.user.id, "!%08x", (unsigned)contact.node_num);
+    snprintf(contact.user.long_name, sizeof contact.user.long_name, "%s", "Trail Boss");
+    snprintf(contact.user.short_name, sizeof contact.user.short_name, "%s", "TRBS");
+    contact.user.hw_model = meshtastic_HardwareModel_TBEAM;
+    contact.user.public_key.size = 32U;
+    for (unsigned i = 0; i < 32U; ++i) {
+        contact.user.public_key.bytes[i] = (uint8_t)(0x10U + i);
+    }
+
+    char url[MESH_CONTACT_URL_MAX];
+    const size_t len = mesh_contact_url_encode(&contact, url, sizeof url);
+    if (len == 0U) {
+        fprintf(stderr, "seeds: the contact link would not encode\n");
+        exit(1);
+    }
+    write_contact_url_seed("link", url, len);
+
+    const size_t prefix = strlen(MESH_CONTACT_URL_PREFIX);
+    write_contact_url_seed("payload", url + prefix, len - prefix);
+
+    /* And one carrying the two flags this client refuses to act on, so the fields exist in the
+       corpus rather than having to be invented a bit at a time. */
+    contact.should_ignore = true;
+    contact.manually_verified = true;
+    char flagged[MESH_CONTACT_URL_MAX];
+    const size_t flagged_len = mesh_contact_url_encode(&contact, flagged, sizeof flagged);
+    if (flagged_len > 0U) {
+        write_contact_url_seed("link_flagged", flagged, flagged_len);
+    }
+}
+
+static void write_contact_url_seed(const char *name, const char *text, size_t len) {
+    write_seed("contact_url", name, (const uint8_t *)text, len);
+}
+
 int main(int argc, char **argv) {
     if (argc != 2) {
         fprintf(stderr, "usage: %s <directory>\n", argv[0]);
@@ -589,6 +635,10 @@ int main(int argc, char **argv) {
     if (mkdir(path, 0755) != 0 && errno != EEXIST) {
         die(path);
     }
+    snprintf(path, sizeof path, "%s/contact_url", g_dir);
+    if (mkdir(path, 0755) != 0 && errno != EEXIST) {
+        die(path);
+    }
 
     write_session_seeds();
     write_framing_seeds();
@@ -596,6 +646,7 @@ int main(int argc, char **argv) {
     write_zip_seeds();
     write_uf2_seeds();
     write_channel_url_seeds();
+    write_contact_url_seeds();
     printf("wrote %u seeds under %s\n", g_written, g_dir);
     return 0;
 }

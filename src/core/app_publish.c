@@ -14,6 +14,7 @@
 #include "mesh/i18n/strings.h"
 
 #include "mesh/core/channel_share.h"
+#include "mesh/core/contact_share.h"
 #include "mesh/core/version.h"
 #include "mesh/geo/coords.h"
 #include "mesh/transport/ble.h"
@@ -1372,6 +1373,11 @@ static void mesh_app_flatten_settings(const struct mesh_radio_settings *src,
        has finished answering and has a primary in what it answered. */
     dst->channels_settled = mesh_channel_share_settled(src);
     (void)mesh_channel_share_url(src, dst->share_url, sizeof dst->share_url);
+
+    /* And this radio's own identity as a contact link, for the contact code screen. Same
+       boundary and same reason: it is built from the owner record and the key the radio
+       reported, not from the rows flattened above them. Empty until that reply has landed. */
+    (void)mesh_contact_share_url(src, dst->contact_url, sizeof dst->contact_url);
 
     if (src->has_ui_config) {
         dst->has_ui_config = true;

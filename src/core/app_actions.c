@@ -22,10 +22,12 @@
 #include "mesh/geo/coords.h"
 #include "mesh/i18n/strings.h"
 #include "mesh/proto/channel_url.h"
+#include "mesh/proto/contact_url.h"
 #include "mesh/transport/ble.h"
 #include "mesh/transport/ble_hci.h"
 #include "mesh/transport/serial.h"
 #include "mesh/transport/tcp.h"
+#include "mesh/ui/contact_share.h"
 #include "mesh/ui/node_detail.h"
 #include "mesh/ui/preferences.h"
 #include "mesh/utils/crash.h"
@@ -1580,6 +1582,56 @@ static void on_import_channels(struct mesh_app *app, const struct mesh_ui_action
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
 }
 
+/*
+ * A Meshtastic contact link, added to the radio's NodeDB.
+ *
+ * on_import_channels()'s shape, and the link is parsed here rather than in the nav for its
+ * reason: the nav's parse decided whether to raise the sheet at all, and this one runs against
+ * the session as it stands now, which is what will carry the write.
+ *
+ * The one case worth its own sentence is a link naming this radio - somebody reading our own
+ * contact code back in to see what happens, which is the likeliest way to arrive at a refusal
+ * here. It is asked before the session is, so that the answer can say which of the two -EINVALs
+ * it was: the session refuses our own node and a contact with no key with the same code, and
+ * the decoder above has already ruled the second out.
+ */
+static void on_import_contact(struct mesh_app *app, const struct mesh_ui_action *action) {
+    char toast[MESH_UI_NAV_TOAST_MAX];
+    const uint64_t now = mesh_time_monotonic_ms();
+
+    meshtastic_SharedContact contact;
+    if (!mesh_contact_url_decode(action->text, &contact)) {
+        mesh_ui_store_set_toast(&app->ui_store, now, mesh_str(MESH_STR_TOAST_CONTACT_LINK_INVALID));
+        return;
+    }
+
+    const struct mesh_handshake_status *const status = mesh_session_handshake(&app->session);
+    if (status != NULL && status->has_my_info && contact.node_num == status->my_info.my_node_num) {
+        mesh_ui_store_set_toast(&app->ui_store, now, mesh_str(MESH_STR_TOAST_CONTACT_LINK_IS_SELF));
+        return;
+    }
+
+    char name[MESH_UI_NAV_TARGET_NAME_MAX];
+    if (!mesh_ui_contact_link_name(action->text, name, sizeof name)) {
+        name[0] = '\0';
+    }
+    const int queued = mesh_session_import_contact(&app->session, &contact);
+    if (queued > 0) {
+        /* "Sent", not "added", for the reason on_add_contact() gives: the radio's database may
+           be full, and what settles whether the entry landed is this node's next NodeInfo
+           rather than the ack for this request. */
+        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_CONTACT_LINK_QUEUED, name);
+        mesh_log_info("ui", "Added node 0x%08x to the NodeDB from a contact link",
+                      (unsigned)contact.node_num);
+    } else if (queued == -ENOTCONN) {
+        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_NOT_CONNECTED));
+    } else {
+        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_CONTACT_LINK_FAILED));
+        mesh_log_warn("ui", "Contact import failed: %d", queued);
+    }
+    mesh_ui_store_set_toast(&app->ui_store, now, toast);
+}
+
 static const struct app_action_entry k_app_actions[] = {
     {MESH_UI_ACTION_CONNECT, on_connect, false},
     {MESH_UI_ACTION_SEND_TEXT, on_send_text, true},
@@ -1618,6 +1670,7 @@ static const struct app_action_entry k_app_actions[] = {
     {MESH_UI_ACTION_INSTALL_UPDATE, on_install_update, false},
     {MESH_UI_ACTION_INSTALL_RADIO_FIRMWARE, on_install_radio_firmware, false},
     {MESH_UI_ACTION_IMPORT_CHANNELS, on_import_channels, false},
+    {MESH_UI_ACTION_IMPORT_CONTACT, on_import_contact, false},
 };
 
 /*

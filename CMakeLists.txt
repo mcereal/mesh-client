@@ -54,6 +54,7 @@ add_library(meshclient_core
     src/core/app_publish.c
     src/core/app_settings.c
     src/core/channel_share.c
+    src/core/contact_share.c
     src/core/config.c
     src/core/esp_image.c
     src/core/event_loop.c
@@ -86,6 +87,7 @@ add_library(meshclient_core
     src/transport/serial/usb_msc.c
     src/transport/tcp/tcp_transport.c
     src/proto/channel_url.c
+    src/proto/contact_url.c
     src/proto/stream_framing.c
     src/geo/coords.c
     src/geo/mercator.c
@@ -111,6 +113,7 @@ add_library(meshclient_core
     src/utils/zip.c
     src/ui/actions.c
     src/ui/channel_share.c
+    src/ui/contact_share.c
     src/ui/chrome.c
     src/ui/help.c
     src/ui/delivery.c

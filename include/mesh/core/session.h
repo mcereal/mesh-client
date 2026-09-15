@@ -626,6 +626,26 @@ int mesh_session_import_channels(struct mesh_session *session, const meshtastic_
                                  bool add);
 
 /*
+ * Puts the contact out of a Meshtastic link into the radio's NodeDB
+ * (mesh/core/contact_share.h).
+ *
+ * The counterpart of mesh_session_add_contact(), which hands the radio a node this client
+ * already holds. That one can only ever offer a node that has transmitted, because that is the
+ * only way a roster record exists; this one is how a node that has *never* been heard gets a
+ * key on this radio at all, which is what makes a first direct message to it encryptable.
+ *
+ * Our own node is refused, for mesh_session_add_contact()'s reason: our record is already in
+ * the radio's database by definition - it is the radio - and a link naming it is either our own
+ * code read back or somebody else's copy of it.
+ *
+ * Returns the number of admin requests queued, -ENOTCONN before the handshake has my_info,
+ * -EINVAL for a contact with no node number or key or for our own node, -ENOSPC when the queue
+ * is full.
+ */
+int mesh_session_import_contact(struct mesh_session *session,
+                                const meshtastic_SharedContact *contact);
+
+/*
  * Pins or unpins a node in the radio's NodeDB. The cached record's `is_favorite` is flipped
  * straight away rather than waiting for the radio: there is no get_favorite to read back with
  * and the flag only returns with that node's next NodeInfo, which on a quiet mesh is hours

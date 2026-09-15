@@ -71,6 +71,11 @@ enum mesh_ui_route_level {
        nothing on it to move between, and because being one is what buys it the slide, the back
        arrow and the B keycap without any of the three being told about it. */
     MESH_UI_ROUTE_SHARE,
+    /* The contact code sheet: this radio's own identity as a QR code, raised from a row of the
+       User list. Its own level rather than a second flavour of SHARE, because the two screens
+       answer different questions and the help feature table is keyed on the level - one entry
+       for both would explain a channel key to somebody looking at a public one. */
+    MESH_UI_ROUTE_CONTACT,
     MESH_UI_ROUTE_COUNT
 };
 

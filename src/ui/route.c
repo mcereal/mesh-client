@@ -61,6 +61,9 @@ static uint8_t route_screen_depth(const struct mesh_ui_nav *nav) {
         if (nav->share_open) {
             depth++; /* the share sheet, reached through a row of the Channels section */
         }
+        if (nav->contact_open) {
+            depth++; /* the contact code sheet, reached through a row of the User section */
+        }
         return depth;
     }
     case MESH_UI_SCREEN_STATUS:
@@ -140,6 +143,11 @@ static void route_screen_place(const struct mesh_ui_nav *nav, struct mesh_ui_rou
            this tab opens: a row of the Channels list raises it. */
         if (nav->share_open) {
             out->level = MESH_UI_ROUTE_SHARE;
+            out->slot = nav->settings_section;
+            return;
+        }
+        if (nav->contact_open) {
+            out->level = MESH_UI_ROUTE_CONTACT;
             out->slot = nav->settings_section;
             return;
         }
@@ -344,6 +352,7 @@ static const char *const k_level_names[MESH_UI_ROUTE_COUNT] = {
     [MESH_UI_ROUTE_KEYBOARD] = "keyboard", [MESH_UI_ROUTE_CONFIRM] = "confirm",
     [MESH_UI_ROUTE_REACTION] = "reaction", [MESH_UI_ROUTE_HELP] = "help",
     [MESH_UI_ROUTE_VERIFY] = "verify",     [MESH_UI_ROUTE_SHARE] = "share",
+    [MESH_UI_ROUTE_CONTACT] = "contact",
 };
 
 const char *mesh_ui_screen_id(enum mesh_ui_screen screen) {

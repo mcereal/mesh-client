@@ -1256,6 +1256,7 @@ MESH_STR_ENTRY(HELP_SUBJECT_NODE,         "Node")
 MESH_STR_ENTRY(HELP_SUBJECT_WAYPOINT,     "Place")
 MESH_STR_ENTRY(HELP_SUBJECT_MAP,          "Map")
 MESH_STR_ENTRY(HELP_SUBJECT_SHARE,        "Sharing channels")
+MESH_STR_ENTRY(HELP_SUBJECT_CONTACT,      "Your contact code")
 
 /* Messages: the conversation list. */
 MESH_STR_ENTRY(HELP_LABEL_MESSAGES_NEW,   "Starting a conversation")
@@ -1376,6 +1377,18 @@ MESH_STR_ENTRY(HELP_LABEL_SHARE_WHAT,     "What is in it")
 MESH_STR_ENTRY(HELP_NOTE_SHARE_WHAT,      "The primary channel, every secondary, and this radio's LoRa settings - region, preset and the rest. Disabled slots are left out. A radio that joins gets all of it and leaves its own channels behind.")
 MESH_STR_ENTRY(HELP_LABEL_SHARE_IMPORT,   "Going the other way")
 MESH_STR_ENTRY(HELP_NOTE_SHARE_IMPORT,    "There is no camera here, so a link arriving has to be typed: \"Add from a link\" on the channel list opens the keyboard. Just the part after the # will do.")
+/*
+ * The contact code screen. What somebody arrives here wanting is the difference between this
+ * code and the channel one, because both are squares on a screen and only one of them is a
+ * secret - so that is the first paragraph rather than a caveat at the bottom.
+ */
+MESH_STR_ENTRY(HELP_NOTE_CONTACT,         "This radio's name, number and public key, as one link. A phone that reads it can message this radio encrypted without waiting to hear it transmit.")
+MESH_STR_ENTRY(HELP_LABEL_CONTACT_SAFE,   "It is not a secret")
+MESH_STR_ENTRY(HELP_NOTE_CONTACT_SAFE,    "A public key is meant to be published; this code is safe to show to anyone, unlike the channel one. What it does not carry is the private key, so nobody who reads it can pretend to be this radio.")
+MESH_STR_ENTRY(HELP_LABEL_CONTACT_TRUST,  "It is not a verification")
+MESH_STR_ENTRY(HELP_NOTE_CONTACT_TRUST,   "A code proves who sent it no more than a name does. A contact added from a link arrives unverified: the padlock still takes the spoken ceremony under \"Verify key\".")
+MESH_STR_ENTRY(HELP_LABEL_CONTACT_IMPORT, "Going the other way")
+MESH_STR_ENTRY(HELP_NOTE_CONTACT_IMPORT,  "There is no camera here, so a code arriving has to be typed: \"Add from a link\" under your own name opens the keyboard. Just the part after the # will do.")
 MESH_STR_ENTRY(HELP_LABEL_TREND_AXES,     "What the axes say")
 MESH_STR_ENTRY(HELP_LABEL_TREND_MARKS,    "Columns and lines")
 MESH_STR_ENTRY(HELP_LABEL_TREND_SPAN,     "Choosing how far back")
@@ -1918,6 +1931,34 @@ MESH_STR_ENTRY(IMPORT_PROMPT,             "Channel link")
    one has something to put in its headline. */
 MESH_STR_ENTRY(CHANNELS_DEFAULT_NAME,     "the default channel")
 
+/*
+ * Contact sharing: the other Meshtastic link, which is how the phone apps hand one *node* to
+ * each other rather than a mesh.
+ *
+ * Two rows at the foot of the user section and the screen one of them opens. "Scan" is the word
+ * to keep, as it is for channels - but the thing being scanned is this radio's own identity, so
+ * the sentence says what the reader gains rather than what they join.
+ */
+MESH_STR_ENTRY(USER_CONTACT_HEAD,         "Contact code")
+MESH_STR_ENTRY(USER_SHARE_CONTACT_ROW,    "Show my contact code")
+/* "Add from a link", the same words the channel list uses, and short enough for the label
+   column: the heading above these two says which kind of link it is. */
+MESH_STR_ENTRY(USER_ADD_CONTACT_ROW,      "Add from a link")
+MESH_STR_ENTRY(CONTACT_TITLE,             "My contact code")
+/* Under the code: whose it is, then what to do with it. The name and number are there so
+   somebody showing the code can see at a glance that it is their own radio's. */
+MESH_STR_ENTRY(CONTACT_SUMMARY,           "%s (%s). Scan it with the Meshtastic app to add this radio.")
+/* The owner reply has not landed, or landed with no public key - a radio with PKC turned off. */
+MESH_STR_ENTRY(CONTACT_NOTHING,           "Nothing to show yet: this radio has not sent its name and key.")
+/* A contact link too long for the largest code this client draws. Not reachable with a 256-bit
+   key and a 40-character name, and said rather than drawn as an empty square if it ever is. */
+MESH_STR_ENTRY(CONTACT_NO_CODE,           "Too long to show as a code. The link itself still works.")
+/* The keyboard that collects one. */
+MESH_STR_ENTRY(CONTACT_IMPORT_PROMPT,     "Contact link")
+/* A contact whose link carries no name at all, so the sheet asking whether to add it has
+   something to put in its headline. Its node number is shown beside this. */
+MESH_STR_ENTRY(CONTACT_NO_NAME,           "an unnamed node")
+
 /* Section headings inside a module's own screen. */
 /* Position: the ten bits of position_flags, which are a set rather than ten settings - so the
    heading names what the set is about and the rows under it are checkboxes. */
@@ -2110,6 +2151,8 @@ MESH_STR_ENTRY(CONFIRM_ACCEPT_FW_USB,     "Update over USB")
 MESH_STR_ENTRY(CONFIRM_ACCEPT_FW_BLE,     "Update over Bluetooth")
 MESH_STR_ENTRY(CONFIRM_ACCEPT_SAVE,       "Save to radio")
 MESH_STR_ENTRY(CONFIRM_ACCEPT_IMPORT,     "Join")
+/* "Add", not "Import": what the press does is put one node in a list. */
+MESH_STR_ENTRY(CONFIRM_ACCEPT_ADD_CONTACT, "Add")
 
 /*
  * The paragraph under it. Four wrapped lines is what the sheet draws, so each of these has to
@@ -2150,6 +2193,11 @@ MESH_STR_ENTRY(CONFIRM_TEXT_DEFAULT,      "The radio will reboot to apply this."
  */
 MESH_STR_ENTRY(CONFIRM_TITLE_IMPORT,      "Join %s?")
 MESH_STR_PLURAL_ENTRY(CONFIRM_TEXT_IMPORT, "The link carries %u channel and this radio's LoRa settings. It replaces every channel on this radio and the radio will reboot; nodes on the old channels can no longer reach it.", "The link carries %u channels and this radio's LoRa settings. They replace every channel on this radio and the radio will reboot; nodes on the old channels can no longer reach it.")
+/* The sheet in front of a typed contact link. The headline names the node, because the name is
+   the part of a link a person can read and the part they were told to look for; the paragraph
+   says the one thing adding a contact does *not* do, which is vouch for it. */
+MESH_STR_ENTRY(CONFIRM_TITLE_ADD_CONTACT, "Add %s?")
+MESH_STR_ENTRY(CONFIRM_TEXT_ADD_CONTACT,  "Node %s goes into this radio's contacts with its public key, so messages to it can be encrypted before it has ever been heard. The key is not marked as verified: that still takes the spoken ceremony.")
 
 /* ---- transport status ------------------------------------------------------------------------- */
 
@@ -2359,6 +2407,20 @@ MESH_STR_ENTRY(TOAST_IMPORT_NOT_A_LINK,   "Not a Meshtastic channel link")
 MESH_STR_PLURAL_ENTRY(TOAST_IMPORT_QUEUED, "Joining: %u channel being written", "Joining: %u channels being written")
 MESH_STR_ENTRY(TOAST_IMPORT_FAILED,       "Could not write the channels to the radio")
 MESH_STR_ENTRY(TOAST_IMPORT_NO_CHANGE,    "This radio is already on those channels")
+/*
+ * The contact link's four answers. "%s" is the node's name, or a stand-in when the link carried
+ * none.
+ *
+ * Their own ids rather than the TOAST_CONTACT_* block further down, which announces the same
+ * admin write reached from a node's own row: the two are read on different screens with
+ * different things around them, and this set has to account for a link as well as for a write.
+ * "Sent" rather than "added" is kept from that block, and for its reason - the radio's database
+ * may be full, and what settles it is the node's next NodeInfo rather than this request's ack.
+ */
+MESH_STR_ENTRY(TOAST_CONTACT_LINK_INVALID, "Not a Meshtastic contact link")
+MESH_STR_ENTRY(TOAST_CONTACT_LINK_QUEUED, "Sent %s to the radio's contacts")
+MESH_STR_ENTRY(TOAST_CONTACT_LINK_IS_SELF, "That code is this radio's own")
+MESH_STR_ENTRY(TOAST_CONTACT_LINK_FAILED, "Could not send the contact to the radio")
 MESH_STR_ENTRY(TOAST_NOTHING_CACHED,      "Nothing cached to forget")
 MESH_STR_ENTRY(TOAST_ALL_ON_RADIO,        "Every cached node is on the radio")
 MESH_STR_ENTRY(TOAST_FORGET_FAILED,       "Forget failed (%d)")

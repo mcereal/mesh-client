@@ -80,9 +80,14 @@ Nothing gates on formatting: the tree is normalised with clang-format 18 and hos
 
 ## Fuzzing
 
-Two harnesses in `devtools/fuzz/`, over the two places bytes we did not write enter the client:
-`stream_framing` (`mesh_stream_parser_push()` — the serial link, where the radio interleaves its
-text log with framed protobufs on one port) and `session` (`mesh_session_handle_from_radio()`).
+A harness per reader in `devtools/fuzz/`, over the places bytes we did not write enter the
+client. Off the air: `stream_framing` (`mesh_stream_parser_push()` — the serial link, where the
+radio interleaves its text log with framed protobufs on one port) and `session`
+(`mesh_session_handle_from_radio()`). Off the network: `firmware_catalog`, `zip` and `uf2`, which
+are what a downloaded firmware image arrives as. And off a *person* — `channel_url` and
+`contact_url`, the two Meshtastic links, which are the odd ones out: nothing they parse came over
+a wire, but each is two parsers stacked (forgiving base64, then nanopb over the result) reading a
+string a stranger wrote and somebody typed in, and what comes out is written to a radio.
 
 ```bash
 make fuzz                       # what CI runs: seeds, then 20k fixed-seed runs

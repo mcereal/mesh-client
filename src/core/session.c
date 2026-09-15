@@ -3,6 +3,7 @@
 #include "mesh/core/session.h"
 
 #include "mesh/core/channel_share.h"
+#include "mesh/core/contact_share.h"
 
 #include "mesh/geo/coords.h"
 #include "mesh/utils/log.h"
@@ -1896,6 +1897,101 @@ int mesh_session_import_channels(struct mesh_session *session, const meshtastic_
     if (queued > 0) {
         mesh_log_info("session", "Queued channel import: %u channels (%d requests)",
                       (unsigned)set->settings_count, queued);
+    }
+    return queued;
+}
+
+/*
+ * A contact out of a link, put into this client's own roster.
+ *
+ * The inverse of mesh_session_contact_from_node(), and the half of an import that is not the
+ * admin write. Queueing `add_contact` puts the node in the *radio's* NodeDB; the Nodes tab, the
+ * conversation list and every message destination in this client are built from
+ * `handshake.nodes` instead. Without this the headline case of a contact link - a node that has
+ * never transmitted - would be written to the radio and then be invisible here until it
+ * transmitted anyway, which is the wait the link exists to skip.
+ *
+ * It only ever *adds*. A node already in the roster was put there by hearing it, and what a
+ * link says about it is a third party's account of a node we have first-hand; so an existing
+ * record keeps its name, its key and everything else, and the link may only fill a field that
+ * is empty. The one that matters is a key: a node seen in a text packet with no NodeInfo behind
+ * it has a roster row and no key at all, and a link is exactly how that gets fixed.
+ */
+static void mesh_session_seed_contact_node(struct mesh_session *session,
+                                           const meshtastic_SharedContact *contact) {
+    struct mesh_node_summary *summary = mesh_session_node_slot(session, contact->node_num);
+    if (summary == NULL) {
+        return; /* the roster is full and nothing was evictable; the radio still gets the write */
+    }
+
+    /*
+     * `has_user` is the question, and it is the one the roster already keeps: false means the
+     * only identity on this row is the one mesh_session_default_identity() derived from the node
+     * number - "Meshtastic 1234" and a short name of four hex digits - and true means a real
+     * `User` arrived from the node itself.
+     *
+     * So a row with no user takes the link's whole identity, and a row that has one keeps it. It
+     * is not "fill the empty fields": a fresh slot has no empty fields, it has placeholders, and
+     * a rule written that way would leave every imported contact reading as "Meshtastic f00d".
+     */
+    if (!summary->has_user && contact->has_user) {
+        summary->has_user = true;
+        (void)mesh_str_copy(summary->long_name, sizeof summary->long_name, contact->user.long_name);
+        (void)mesh_str_copy(summary->short_name, sizeof summary->short_name,
+                            contact->user.short_name);
+        summary->hw_model = (uint32_t)contact->user.hw_model;
+        summary->role = (uint32_t)contact->user.role;
+        summary->is_licensed = contact->user.is_licensed;
+        summary->is_unmessagable =
+            contact->user.has_is_unmessagable && contact->user.is_unmessagable;
+    }
+    /*
+     * The key is asked separately, because the two are not the same question: a node seen in a
+     * text packet has a real `User` and no key at all, and a link is exactly how that gets
+     * fixed. Only ever filled in, never replaced - a key we hold came with a NodeInfo from the
+     * node, and a link is a third party's account of the same node.
+     */
+    if (summary->public_key_len == 0U && contact->has_user && contact->user.public_key.size > 0U &&
+        contact->user.public_key.size <= sizeof summary->public_key) {
+        summary->public_key_len = (uint8_t)contact->user.public_key.size;
+        memcpy(summary->public_key, contact->user.public_key.bytes, summary->public_key_len);
+    }
+
+    /*
+     * `user_id` is left to mesh_session_node_slot(), which spells it from the node number - the
+     * field the radio files the entry under, and the one mesh_contact_url_decode() has already
+     * checked the link's own id against.
+     *
+     * Three more this deliberately does not touch, the first two for mesh_session_add_contact()'s
+     * reasons. `key_verified` stays false: a link is not a ceremony, and
+     * mesh/core/contact_share.h drops the sender's claim to have run one, so setting it here
+     * would put the claim back a layer down. `in_nodedb` likewise - the radio acks the
+     * AdminMessage rather than the insertion, its database may be full, and what settles it is
+     * the node's next NodeInfo. And `last_heard` stays 0, which the list draws as never heard,
+     * because that is exactly what this node is.
+     */
+}
+
+int mesh_session_import_contact(struct mesh_session *session,
+                                const meshtastic_SharedContact *contact) {
+    if (session == NULL || contact == NULL) {
+        return -EINVAL;
+    }
+    if (session->send == NULL || !session->handshake.has_my_info) {
+        return -ENOTCONN;
+    }
+    /* Our own record is already in the radio's database by definition - it is the radio. The
+       same guard mesh_session_add_contact() carries, and here it catches the likelier mistake:
+       somebody reading this client's own contact code back into it to see what happens. */
+    if (contact->node_num == session->handshake.my_info.my_node_num) {
+        return -EINVAL;
+    }
+    const int queued = mesh_contact_share_queue_import(&session->settings, contact);
+    if (queued > 0) {
+        /* The other half: the radio's NodeDB is not the list this client draws from. */
+        mesh_session_seed_contact_node(session, contact);
+        mesh_log_info("session", "Queued contact import for 0x%08x (%d requests)",
+                      (unsigned)contact->node_num, queued);
     }
     return queued;
 }

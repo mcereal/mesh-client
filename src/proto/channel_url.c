@@ -6,22 +6,11 @@
 
 #include "mesh/utils/base64.h"
 
+#include "link_url.h"
+
 #include <pb_decode.h>
 #include <pb_encode.h>
 #include <string.h>
-
-/* The `#` is what separates the link from its payload in both spellings. Kept as the fragment
-   marker rather than matching the whole prefix, because the host in front of it is not ours to
-   have an opinion about - community sites mirror the page, and the payload is the same. */
-static const char *payload_of(const char *text) {
-    const char *hash = strrchr(text, '#');
-    if (hash != NULL) {
-        return hash + 1;
-    }
-    /* No fragment at all: a bare payload, which is what somebody typing one in will produce
-       rather than spelling out twenty-six characters of URL on an on-screen keyboard. */
-    return strchr(text, '/') == NULL ? text : NULL;
-}
 
 size_t mesh_channel_url_encode(const meshtastic_ChannelSet *set, bool add, char *out,
                                size_t out_len) {
@@ -67,7 +56,7 @@ bool mesh_channel_url_decode(const char *text, meshtastic_ChannelSet *out, bool 
     if (text == NULL || out == NULL) {
         return false;
     }
-    const char *payload = payload_of(text);
+    const char *payload = mesh_link_url_payload(text);
     if (payload == NULL || payload[0] == '\0') {
         return false;
     }

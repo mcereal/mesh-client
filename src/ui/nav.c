@@ -474,6 +474,13 @@ bool mesh_ui_nav_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_store *stor
         nav->share_open = false;
         moved = true;
     }
+    /* And the contact code sheet, on the field that feeds it, which is the same clamp once
+       more: a radio swap or a dropped owner record leaves a screen whose whole content has
+       gone. */
+    if (nav->contact_open && store->settings.contact_url[0] == '\0') {
+        nav->contact_open = false;
+        moved = true;
+    }
     /*
      * And the same for a node's chart, which has three ways to empty rather than one: the node
      * can fall out of the list, the history can be forgotten under it, and the *row* can go
@@ -1209,6 +1216,15 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
                     mesh_ui_nav_open_channel_url_keyboard(nav);
                     return true;
                 }
+                /* And the contact pair, which are the same two presses one section over. */
+                if (which == MESH_UI_SETTINGS_ACTION_SHARE_CONTACT) {
+                    nav->contact_open = true;
+                    return true;
+                }
+                if (which == MESH_UI_SETTINGS_ACTION_IMPORT_CONTACT) {
+                    mesh_ui_nav_open_contact_url_keyboard(nav);
+                    return true;
+                }
                 if (action != NULL) {
                     if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CHECK_UPDATE) {
                         action->type = MESH_UI_ACTION_CHECK_UPDATE;
@@ -1379,6 +1395,17 @@ bool mesh_ui_nav_share_key(struct mesh_ui_nav *nav, enum mesh_ui_key key) {
     return true;
 }
 
+/* B on the contact code sheet. The same screen shape as the share sheet and so the same rule:
+   there is nothing on it to choose, so every key but the one that leaves is ignored rather than
+   dismissing a code somebody is trying to scan. */
+bool mesh_ui_nav_contact_key(struct mesh_ui_nav *nav, enum mesh_ui_key key) {
+    if (key != MESH_UI_KEY_B) {
+        return false;
+    }
+    nav->contact_open = false;
+    return true;
+}
+
 bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                             enum mesh_ui_key key, struct mesh_ui_action *out_action) {
     if (out_action != NULL) {
@@ -1453,6 +1480,9 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
      */
     if (nav->share_open) {
         return mesh_ui_nav_share_key(nav, key) || changed;
+    }
+    if (nav->contact_open) {
+        return mesh_ui_nav_contact_key(nav, key) || changed;
     }
 
     /* One press arms Y on the Devices tab; anything else stands it back down. */
