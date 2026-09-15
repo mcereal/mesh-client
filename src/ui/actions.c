@@ -687,9 +687,19 @@ void mesh_ui_actions_for(const struct mesh_ui_snapshot *snapshot, struct mesh_ui
                  nav->keyboard_contact_url)
                     ? MESH_STR_ACTION_DONE
                     : MESH_STR_ACTION_SEND);
-        bar_add(out, MESH_UI_BUTTON_B, MESH_STR_ACTION_DELETE);
-        bar_add(out, MESH_UI_BUTTON_X, MESH_STR_ACTION_SHIFT);
+        /*
+         * X deletes and B leaves, which is the arrangement every pad-driven keyboard uses and
+         * the reverse of what this one did. The bar naming them is the whole point of the swap:
+         * a keyboard whose backspace is the button that goes back everywhere else is one people
+         * stumble over on every draft, not once.
+         */
+        bar_add(out, MESH_UI_BUTTON_X, MESH_STR_ACTION_DELETE);
+        bar_add(out, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
         bar_add(out, MESH_UI_BUTTON_Y, MESH_STR_ACTION_SPACE);
+        /* Last, and in this order, because the bar drops from the end: the shoulders reach the
+           panel the character is on, which is no use without the shift that is one of them. */
+        bar_add(out, MESH_UI_BUTTON_TRIGGERS, MESH_STR_ACTION_SHIFT);
+        bar_add(out, MESH_UI_BUTTON_SHOULDERS, MESH_STR_ACTION_KEYS);
         return;
     }
     if (nav->compose_open) {

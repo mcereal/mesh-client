@@ -32,6 +32,7 @@ static const char *const k_caps_abxy[MESH_UI_BUTTON_COUNT] = {
     [MESH_UI_BUTTON_START] = "START",
     [MESH_UI_BUTTON_SELECT] = "SELECT",
     [MESH_UI_BUTTON_SHOULDERS] = "L/R",
+    [MESH_UI_BUTTON_TRIGGERS] = "L2/R2",
     [MESH_UI_BUTTON_UP_DOWN] = "\xE2\x86\x91\xE2\x86\x93",    /* up arrow, down arrow */
     [MESH_UI_BUTTON_LEFT_RIGHT] = "\xE2\x86\x90\xE2\x86\x92", /* left arrow, right arrow */
     [MESH_UI_BUTTON_QUIT] = NULL,

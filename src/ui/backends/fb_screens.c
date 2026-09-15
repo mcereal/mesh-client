@@ -2071,8 +2071,12 @@ static void fb_render_keyboard(const struct mesh_ui_backend_fb_state *state,
     const int cell_h = line + fb_space(state, MESH_UI_SPACE_MD);
     for (unsigned row = 0; row < MESH_UI_KB_CHAR_ROWS; ++row) {
         for (unsigned col = 0; col < MESH_UI_KB_COLS; ++col) {
-            const char ch = mesh_ui_kb_char((enum mesh_ui_kb_layer)nav->kb_layer, row, col);
-            const char key[2] = {ch, '\0'};
+            /* The cell rather than the character: three of the four layers are one ASCII byte
+               and the fourth is an emoji, and fb_draw_text() already walks cells rather than
+               bytes - so a keycap carrying four bytes of UTF-8 draws as the one sprite it is,
+               by the same path a node named with one does. */
+            char scratch[MESH_UI_KB_CELL_MAX];
+            const char *const key = mesh_ui_kb_cell(nav, row, col, scratch);
             const struct fb_button button = {
                 .rect = {.x = margin + (int)col * cell_w,
                          .y = y,

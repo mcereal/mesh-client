@@ -766,10 +766,11 @@ struct uicap_key_name {
 
 static enum mesh_ui_key uicap_key_from_name(const char *name) {
     static const struct uicap_key_name names[] = {
-        {"up", MESH_UI_KEY_UP},       {"down", MESH_UI_KEY_DOWN},   {"left", MESH_UI_KEY_LEFT},
-        {"right", MESH_UI_KEY_RIGHT}, {"a", MESH_UI_KEY_A},         {"b", MESH_UI_KEY_B},
-        {"x", MESH_UI_KEY_X},         {"y", MESH_UI_KEY_Y},         {"l1", MESH_UI_KEY_L1},
-        {"r1", MESH_UI_KEY_R1},       {"start", MESH_UI_KEY_START}, {"select", MESH_UI_KEY_SELECT},
+        {"up", MESH_UI_KEY_UP},       {"down", MESH_UI_KEY_DOWN},     {"left", MESH_UI_KEY_LEFT},
+        {"right", MESH_UI_KEY_RIGHT}, {"a", MESH_UI_KEY_A},           {"b", MESH_UI_KEY_B},
+        {"x", MESH_UI_KEY_X},         {"y", MESH_UI_KEY_Y},           {"l1", MESH_UI_KEY_L1},
+        {"r1", MESH_UI_KEY_R1},       {"l2", MESH_UI_KEY_L2},         {"r2", MESH_UI_KEY_R2},
+        {"start", MESH_UI_KEY_START}, {"select", MESH_UI_KEY_SELECT},
     };
     for (size_t i = 0U; i < sizeof names / sizeof names[0]; ++i) {
         if (strcmp(names[i].name, name) == 0) {

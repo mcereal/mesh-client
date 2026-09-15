@@ -32,6 +32,11 @@ enum mesh_ui_key {
     MESH_UI_KEY_Y,
     MESH_UI_KEY_L1,
     MESH_UI_KEY_R1,
+    /* The triggers. Analogue on the wire - the Brick reports them as ABS_Z/ABS_RZ rather than
+       as buttons, and src/ui/input.c is where that becomes a press - but digital in the hand,
+       and logical keys like any other once they get here. */
+    MESH_UI_KEY_L2,
+    MESH_UI_KEY_R2,
     MESH_UI_KEY_START,
     MESH_UI_KEY_SELECT,
 };
@@ -173,11 +178,36 @@ enum mesh_ui_kb_layer {
     MESH_UI_KB_LOWER = 0,
     MESH_UI_KB_UPPER,
     MESH_UI_KB_SYMBOLS,
+    /*
+     * The one layer whose cells are not ASCII. It is pages rather than a single grid - forty
+     * keys is what the grid holds and a useful set is several times that - so `kb_emoji_page`
+     * says which forty are showing, and the layer and the page are stepped as one ring by
+     * mesh_ui_nav_kb_panel_step(). See MESH_UI_KB_EMOJI_PAGES.
+     */
+    MESH_UI_KB_EMOJI,
     MESH_UI_KB_LAYER_COUNT,
 };
 
+/* The layers whose cells are one ASCII character: everything before the emoji one. */
+#define MESH_UI_KB_ASCII_LAYERS ((unsigned)MESH_UI_KB_EMOJI)
+
+/* Pages of forty in the emoji layer. The table is in src/ui/nav_keyboard.c and every cell of
+   it is asserted to be an emoji this build can actually draw - kb_emoji_cells_are_drawable. */
+#define MESH_UI_KB_EMOJI_PAGES 3U
+
+/*
+ * The panels the layer key and the shoulders walk: the three ASCII layers, then one per page of
+ * emoji. One ring rather than a layer ring with a page ring inside it, because two rings is two
+ * things to learn about a grid whose whole job is to be obvious.
+ */
+#define MESH_UI_KB_PANELS ((unsigned)MESH_UI_KB_EMOJI + MESH_UI_KB_EMOJI_PAGES)
+
+/* The most bytes one keycap's text can take, with its NUL: the longest emoji in the table is a
+   ZWJ sequence, and a cell holds one of those. */
+#define MESH_UI_KB_CELL_MAX 32U
+
 enum mesh_ui_kb_action {
-    MESH_UI_KB_ACTION_LAYER = 0, /* cycle lower/upper/symbols */
+    MESH_UI_KB_ACTION_LAYER = 0, /* step the panel ring: abc, ABC, symbols, emoji pages */
     MESH_UI_KB_ACTION_SPACE,
     MESH_UI_KB_ACTION_DELETE,
     MESH_UI_KB_ACTION_SEND,
@@ -323,7 +353,8 @@ struct mesh_ui_nav {
     bool keyboard_open;
     uint8_t kb_row;
     uint8_t kb_col;
-    uint8_t kb_layer; /* enum mesh_ui_kb_layer */
+    uint8_t kb_layer;      /* enum mesh_ui_kb_layer */
+    uint8_t kb_emoji_page; /* which forty, while kb_layer is MESH_UI_KB_EMOJI */
     char draft[MESH_UI_DRAFT_MAX];
     /* Nodes tab: a node's detail is open (cursor[NODES] indexes its rows) rather than the node
        list, whose position is parked in node_list_cursor meanwhile. The same two-level shape
@@ -1095,8 +1126,36 @@ uint32_t mesh_ui_nav_reaction_row_count(void);
 bool mesh_ui_nav_reaction_row_is_delete(uint32_t index);
 
 /* Keyboard legend for the backends. Character rows return the glyph at that cell (a NUL for an
-   unused cell); the action row is described by mesh_ui_kb_action_label(). */
+   unused cell); the action row is described by mesh_ui_kb_action_label(). ASCII layers only -
+   the emoji layer answers MESH_UI_KB_CELL_MAX bytes rather than a char, so ask
+   mesh_ui_kb_cell() instead unless the ASCII is the point. */
 char mesh_ui_kb_char(enum mesh_ui_kb_layer layer, unsigned row, unsigned col);
+
+/*
+ * What is written on the keycap at that cell, as UTF-8: one ASCII character on three of the
+ * layers and an emoji on the fourth.
+ *
+ * `scratch` is where a one-character cell is spelled, so the answer is a string either way and
+ * a caller never has to know which layer it is on; the emoji layer answers with the table's own
+ * pointer and leaves the buffer alone. Never NULL, and "" for a cell outside the grid.
+ */
+const char *mesh_ui_kb_cell(const struct mesh_ui_nav *nav, unsigned row, unsigned col,
+                            char scratch[MESH_UI_KB_CELL_MAX]);
+
+/*
+ * Step the panel ring by `delta` panels, wrapping: abc, ABC, symbols, then one panel per page
+ * of emoji. What the grid's layer key does, and what the shoulders do.
+ */
+void mesh_ui_nav_kb_panel_step(struct mesh_ui_nav *nav, int delta);
+
+/*
+ * Shift: one capital, then back to lower case, the way a phone's does - and back to lower case
+ * at once when it was already armed, so a press that was a mistake is undone by a second.
+ *
+ * It lands on MESH_UI_KB_LOWER from anywhere, the symbols and emoji layers included, because a
+ * shift key that did nothing on two of four panels would be the keycap this client refuses.
+ */
+void mesh_ui_nav_kb_shift(struct mesh_ui_nav *nav);
 const char *mesh_ui_kb_action_label(const struct mesh_ui_nav *nav, enum mesh_ui_kb_action action);
 /*
  * The most bytes the draft may hold, whichever job the keyboard is doing: the message limit, a

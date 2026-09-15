@@ -142,8 +142,11 @@ MESH_STR_ENTRY(ACTION_FIT,                "fit all")
 MESH_STR_ENTRY(ACTION_TYPE,               "type")
 MESH_STR_ENTRY(ACTION_PAIR,               "pair")
 MESH_STR_ENTRY(ACTION_DELETE,             "delete")
-/* The keyboard's own three: the case layer, a space, and "I have finished typing". */
+/* The keyboard's own: the case layer, a space, and "I have finished typing". */
 MESH_STR_ENTRY(ACTION_SHIFT,              "shift")
+/* The shoulders on the keyboard, which step the panel ring rather than the tabs: the three
+   character layers and then a page of emoji at a time. */
+MESH_STR_ENTRY(ACTION_KEYS,               "keys")
 MESH_STR_ENTRY(ACTION_SPACE,              "space")
 MESH_STR_ENTRY(ACTION_DONE,               "done")
 MESH_STR_ENTRY(ACTION_SEND,               "send")
@@ -510,11 +513,15 @@ MESH_STR_ENTRY(PAIRING_SHOWN_ON,          "PIN shown on %s")
 MESH_STR_ENTRY(PAIRING_NODE_FALLBACK,     "the node")
 
 /* Keyboard keys. The three letter rows are the layout itself and are not translated here;
-   these are the named keys along the bottom. SHIFT_* are what the shift key shows for the
-   layer it would switch *to*. */
+   these are the named keys along the bottom. KEY_LAYER_* are what the layer key shows for the
+   panel it would switch *to*, walking the ring abc, ABC, symbols, then a page of emoji at a
+   time. The last two are a face and an ellipsis rather than words for the same reason the
+   layer names are the layers: they are drawn, not read, and a translation of ":)" is ":)". */
 MESH_STR_ENTRY(KEY_LAYER_UPPER,           "ABC")
 MESH_STR_ENTRY(KEY_LAYER_SYMBOLS,         "#+=")
 MESH_STR_ENTRY(KEY_LAYER_LOWER,           "abc")
+MESH_STR_ENTRY(KEY_LAYER_EMOJI,           ":)")
+MESH_STR_ENTRY(KEY_LAYER_EMOJI_MORE,      ":)>")
 MESH_STR_ENTRY(KEY_SPACE,                 "space")
 MESH_STR_ENTRY(KEY_DELETE,                "del")
 MESH_STR_ENTRY(KEY_DONE,                  "done")

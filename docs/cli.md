@@ -177,8 +177,12 @@ the conversation, and START sends it again when it is one of ours the mesh came 
 failed bubble stays where it is and the retry goes out as a new message.
 
 **Compose** is an overlay over the conversation rather than a tab, so it always knows where the
-message is going: a d-pad keyboard (A types, B deletes, X shifts, Y space, START sends) and quick
-replies from `$HOME/.meshclient/canned.txt`.
+message is going: a d-pad keyboard and quick replies from `$HOME/.meshclient/canned.txt`. The
+keyboard uses the pad the way a console keyboard does — **A** types the key under the cursor,
+**X** is the backspace, **B** leaves (keeping what was typed; the grid's own ✕ discards),
+**Y** is a space, **START** sends. **L2/R2** shift for one capital, and **L1/R1** step the panel
+the grid is showing: `abc`, `ABC`, symbols, then three pages of forty emoji. The bottom-left key
+of the grid steps the same ring, so everything is reachable without the shoulders.
 
 **Nodes** is the contact list; A opens a node's detail, where rows appear only for what the node
 has actually reported. **Devices** lists USB ports first (no pairing, so they sort to the top),

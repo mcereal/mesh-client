@@ -133,6 +133,7 @@ void mesh_ui_nav_open_keyboard(struct mesh_ui_nav *nav) {
     nav->kb_row = 0U;
     nav->kb_col = 0U;
     nav->kb_layer = MESH_UI_KB_LOWER;
+    nav->kb_emoji_page = 0U;
 }
 
 /* B out of a thread. Returns false when the conversation list is already showing. */
@@ -2179,6 +2180,7 @@ bool mesh_ui_nav_open_passkey(struct mesh_ui_nav *nav, const char *label, uint32
     nav->kb_row = 0U; /* the digit row */
     nav->kb_col = 0U;
     nav->kb_layer = MESH_UI_KB_LOWER;
+    nav->kb_emoji_page = 0U;
     return true;
 }
 
@@ -2262,6 +2264,7 @@ bool mesh_ui_nav_open_verify_number(struct mesh_ui_nav *nav) {
     nav->kb_row = 0U; /* the digit row */
     nav->kb_col = 0U;
     nav->kb_layer = MESH_UI_KB_LOWER;
+    nav->kb_emoji_page = 0U;
     return true;
 }
 

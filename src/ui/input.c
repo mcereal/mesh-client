@@ -384,6 +384,37 @@ enum mesh_ui_key mesh_ui_input_map_key(uint16_t code) {
     return from_profile != MESH_UI_KEY_NONE ? from_profile : mesh_ui_input_map_convention(code);
 }
 
+/*
+ * The two shoulder triggers, which on the Brick are not buttons at all.
+ *
+ * Its pad impersonates an Xbox 360 controller, and a 360's triggers are analogue: there is no
+ * BTN_TL2 anywhere in the key bitmap, so the only way to read L2 and R2 is as ABS_Z and ABS_RZ.
+ * They are digital in the hand - 255 down, 0 up, nothing between - which is why they can be
+ * logical keys rather than something the UI has to think of as an axis.
+ *
+ * The threshold is low and deliberately so: it is a press detector for a switch, not a curve
+ * for a racing game, and a pad that really does report the whole way up should fire at the
+ * top of the travel rather than at the bottom of it.
+ */
+bool mesh_ui_input_axis_is_trigger(uint16_t code) { return code == ABS_Z || code == ABS_RZ; }
+
+uint8_t mesh_ui_input_trigger_bit(uint16_t code) {
+    return (uint8_t)(code == ABS_Z ? 1U : code == ABS_RZ ? 2U : 0U);
+}
+
+enum mesh_ui_key mesh_ui_input_map_trigger(uint16_t code, int32_t value) {
+    if (value < MESH_UI_INPUT_TRIGGER_PRESS) {
+        return MESH_UI_KEY_NONE;
+    }
+    if (code == ABS_Z) {
+        return MESH_UI_KEY_L2;
+    }
+    if (code == ABS_RZ) {
+        return MESH_UI_KEY_R2;
+    }
+    return MESH_UI_KEY_NONE;
+}
+
 enum mesh_ui_key mesh_ui_input_map_hat(uint16_t code, int32_t value) {
     /* 0 is the release back to centre; only the edge into a direction counts as a press. */
     if (value == 0) {
@@ -450,14 +481,38 @@ void mesh_ui_input_handle_device_event(struct mesh_ui_input *input, int source_f
             return;
         }
     } else if (type == EV_ABS) {
-        /* The hat back at centre: the release of whichever direction was held. */
-        if (value == 0) {
-            if (mesh_ui_input_repeat_owns(input, type, code)) {
-                mesh_ui_input_repeat_cancel(input);
+        /*
+         * The triggers before the hat, because they are the one axis whose release is not the
+         * hat's release: L2 and R2 come back as ABS_Z/ABS_RZ rather than as buttons, and a
+         * trigger at rest reports the same 0 the d-pad reports at centre.
+         *
+         * A latch rather than the value alone. On this pad a trigger is digital - 255 down, 0
+         * up - but the axis is an axis, and a pad that reports the way up as 4, 31, 96, 200,
+         * 255 would be five presses of shift for one squeeze. The edge is the press.
+         */
+        if (mesh_ui_input_axis_is_trigger(code)) {
+            const enum mesh_ui_key pressed = mesh_ui_input_map_trigger(code, value);
+            const uint8_t bit = mesh_ui_input_trigger_bit(code);
+            const bool was_down = (input->triggers_down & bit) != 0U;
+            if (pressed == MESH_UI_KEY_NONE) {
+                input->triggers_down = (uint8_t)(input->triggers_down & (uint8_t)~bit);
+                return;
             }
-            return;
+            if (was_down) {
+                return; /* still held; the axis is only reporting how hard */
+            }
+            input->triggers_down = (uint8_t)(input->triggers_down | bit);
+            key = pressed;
+        } else {
+            /* The hat back at centre: the release of whichever direction was held. */
+            if (value == 0) {
+                if (mesh_ui_input_repeat_owns(input, type, code)) {
+                    mesh_ui_input_repeat_cancel(input);
+                }
+                return;
+            }
+            key = mesh_ui_input_map_hat(code, value);
         }
-        key = mesh_ui_input_map_hat(code, value);
     }
 
     if (key == MESH_UI_KEY_NONE) {
@@ -572,6 +627,13 @@ bool mesh_ui_input_reads_code(uint16_t code) {
     return mesh_ui_input_map_key(code) != MESH_UI_KEY_NONE || mesh_ui_input_is_quit_key(code);
 }
 
+bool mesh_ui_input_reads_axis(uint16_t code) {
+    /* 1 rather than 0, because 0 on the hat is the release rather than a direction and the
+       question here is whether the axis means anything at all - not which way it is pushed. */
+    return mesh_ui_input_map_hat(code, 1) != MESH_UI_KEY_NONE ||
+           mesh_ui_input_axis_is_trigger(code);
+}
+
 /*
  * Which /dev/input nodes are worth watching.
  *
@@ -605,11 +667,26 @@ bool mesh_ui_input_device_wanted(const unsigned long *key_bits, size_t key_words
         }
     }
 
-    /* The d-pad, which on this hardware is a pair of absolute axes rather than four buttons -
-       so a pad whose only useful control is its d-pad reports nothing above. */
-    if (axes_known && (mesh_ui_input_bit_set(abs_bits, abs_words, ABS_HAT0X) ||
-                       mesh_ui_input_bit_set(abs_bits, abs_words, ABS_HAT0Y))) {
-        return true;
+    /*
+     * The axes, walked the same way and for the same reason the codes above are: two of this
+     * client's controls are not buttons. The d-pad is a pair of absolute axes rather than four
+     * keys, so a pad whose only useful control is its d-pad reports nothing above - and the
+     * triggers are two more, with no BTN_ code anywhere in the key bitmap.
+     *
+     * Asked through mesh_ui_input_reads_axis() rather than by naming ABS_HAT0X/Y here, so the
+     * filter and the mapping cannot come to disagree: they did for one commit, when the
+     * triggers became readable and this list did not hear about it. A node exposing only the
+     * triggers - a split device, or a driver that puts them on a node of their own - was opened,
+     * asked what it reported, and closed, with the mapping for them sitting unreachable one
+     * function away.
+     */
+    if (axes_known) {
+        for (unsigned int code = 0U; code <= (unsigned int)ABS_MAX; ++code) {
+            if (mesh_ui_input_bit_set(abs_bits, abs_words, code) &&
+                mesh_ui_input_reads_axis((uint16_t)code)) {
+                return true;
+            }
+        }
     }
 
     return !keys_known && !axes_known;
