@@ -3728,11 +3728,35 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
      * actually fixes it; see FB_LEADING_TONAL_SLOT.
      */
     bool section_has_verb = false;
+    /*
+     * And whether it has a value column, which is what decides where a *verb's* value is written.
+     *
+     * A section is settings with presses among them or it is a list of presses, and the two want
+     * the value in different places. Radio actions is the second: eleven verbs, no field, nothing
+     * to line a column up with, and what a row has to say goes against the trailing edge where a
+     * trailing age goes - "21 nodes", the size of what the press costs, beside the eye.
+     *
+     * About and About radio are the first, and there the trailing edge is the wrong column. Both
+     * screens are mostly read: a stack of facts with their values at the column every other
+     * settings row puts one in, and one or two verbs among them - Language, Theme, the firmware
+     * channel - whose value is a value in exactly the same sense. Sent to the trailing slot they
+     * came out alone against the right-hand edge, so a four-row screen read its values in two
+     * columns with nothing to tell the reader which row belonged to which. A row joins the
+     * column its neighbours are in.
+     *
+     * A withdrawn verb's reason is not a value and keeps the trailing slot either way - see the
+     * verb branch below.
+     */
+    bool section_has_field = false;
     if (section_open) {
         for (uint32_t r = 0; r < count; ++r) {
+            if (items[r].kind == MESH_UI_SETTING_HEADING) {
+                continue;
+            }
             if (mesh_ui_settings_item_is_verb(&items[r])) {
                 section_has_verb = true;
-                break;
+            } else {
+                section_has_field = true;
             }
         }
     }
@@ -3766,14 +3790,23 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                  *
                  * Optional per heading, unlike the node detail's, because a settings group's
                  * subject is not always a thing this client has a rune for - "Sent with a
-                 * position" is a sentence about ten bits. MESH_UI_ICON_NONE leaves the heading
-                 * exactly as it was, which is what most sections still draw.
+                 * position" is a sentence about ten bits.
+                 *
+                 * It still owes the gutter, though, on exactly the terms its rows do: the
+                 * leading slot is declared for a whole list or for none of it, and a heading is
+                 * a row of the list. One left at the panel's own margin over rows that begin a
+                 * disc further in is the two-column seam the slot exists to close, with the
+                 * label of a card sitting outside the column it names - LoRa's "Advanced" and
+                 * Position's "Sent with a position" are the two that showed it. So a heading
+                 * with no symbol takes the empty slot in a section that reserves one, and
+                 * nothing at all in a section that does not.
                  */
                 fb_list_subheader_icon(
                     state, &list, i, item.label,
                     item.icon != MESH_UI_ICON_NONE
                         ? (struct fb_leading){.kind = FB_LEADING_TONAL, .icon = item.icon}
-                        : (struct fb_leading){.kind = FB_LEADING_NONE});
+                    : section_has_verb ? (struct fb_leading){.kind = FB_LEADING_TONAL_SLOT}
+                                       : (struct fb_leading){.kind = FB_LEADING_NONE});
                 continue;
             }
             /*
@@ -3838,6 +3871,36 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                 const enum mesh_ui_tone verb_tone = item.conflict ? MESH_UI_TONE_WARNING
                                                     : item.dirty  ? MESH_UI_TONE_STRONG
                                                                   : item.tone;
+                /*
+                 * A verb with a value, in a section that has a column for one.
+                 *
+                 * The same row as the one below in every other respect - the disc, the ordinary
+                 * ink, the chevron, the edge on a press with no way back - and only the value
+                 * moves, into the column the fields around it are already writing in. `label`
+                 * rather than `text` is the whole of the difference: it is what asks
+                 * fb_list_item() for a label column, and the column is measured once for the
+                 * screen, so the verb's value starts in the same cell a setting's does.
+                 *
+                 * MESH_UI_SETTING_ACTION only, and not the withdrawn one beside it: "not
+                 * supported" is a reason rather than a value, it belongs against the trailing
+                 * edge where the chevron it replaces was, and it is drawn quietly there - which
+                 * is what says the offer is withdrawn rather than the answer being blank.
+                 */
+                if (section_has_field && item.kind == MESH_UI_SETTING_ACTION &&
+                    item.value[0] != '\0') {
+                    const struct fb_list_item value_row = {
+                        .leading = {.kind = FB_LEADING_TONAL, .icon = item.icon},
+                        .label = item.label,
+                        .label_cols = label_cols,
+                        .value = item.value,
+                        .tone = verb_tone,
+                        .label_plain = true,
+                        .trailing = {.kind = FB_TRAILING_ICON, .icon = MESH_UI_ICON_CHEVRON},
+                        .accent_edge = verb_tone == MESH_UI_TONE_ERROR,
+                    };
+                    fb_list_item(state, &list, i, &value_row);
+                    continue;
+                }
                 /*
                  * The trailing slot says the one thing the row has left to say, and for most
                  * verbs that is "this opens something" - which every one of these does, into a

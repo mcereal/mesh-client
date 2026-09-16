@@ -87,13 +87,22 @@ MESH_TEST_CASE(ui_settings_items, unit) {
             item.kind != MESH_UI_SETTING_KEY || strncmp(item.value, "deadbeef...", 11U) != 0 ||
             strstr(item.value, "32 bytes") == NULL,
         "public key fingerprint is wrong");
+    /*
+     * What a slot says in the list is what it is and how it is keyed, and *not* its two MQTT
+     * bits. Four facts do not fit a settings value column - every row of the list came out cut
+     * mid-word, "secondary, AES-128, up" - so the pair that was never readable came off the row
+     * and the uplink and downlink toggles in the slot's own section are where they are read.
+     * Asserted as an absence as well as a presence, because the failure this is about is a
+     * value that fits nowhere rather than a value that is missing.
+     */
     MESH_TEST_FAIL_IF(
         mesh_ui_settings_item_count(&settings, &handshake, MESH_UI_SETTINGS_CHANNELS,
                                     MESH_UI_SETTINGS_NO_CHANNEL) != 2U ||
             !mesh_ui_settings_item(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_CHANNELS,
                                    MESH_UI_SETTINGS_NO_CHANNEL, 1U, &item) ||
             strcmp(item.label, "1 Team") != 0 || strstr(item.value, "AES-128") == NULL ||
-            strstr(item.value, "up on") == NULL || strstr(item.value, "down off") == NULL,
+            strstr(item.value, "secondary") == NULL || strstr(item.value, "up") != NULL ||
+            strstr(item.value, "down") != NULL,
         "channel row is wrong");
     MESH_TEST_FAIL_IF(
         !mesh_ui_settings_item(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_CHANNELS,

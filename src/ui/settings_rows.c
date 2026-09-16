@@ -1319,8 +1319,21 @@ static void channel_label(uint8_t index, const char *name, char *out, size_t out
                                                            : MESH_STR_COMMON_UNKNOWN_SHORT));
 }
 
-static void channel_summary(uint8_t role, uint8_t psk_len, bool uplink, bool downlink, char *out,
-                            size_t out_len) {
+/*
+ * What a slot says in the list, which is what it is and how it is keyed - and not its two MQTT
+ * bits.
+ *
+ * It used to be four facts ("%s, %s, up %s, down %s"), and a settings row has about two dozen
+ * cells of value column: every row of the list came out cut mid-word - "primary, default key,"
+ * and "secondary, AES-128, up" - so the two bits at the end were never once readable and the
+ * clipping took a comma's worth of the two that were. That is the radio-firmware rows' rule
+ * reached from the other direction: a settings value is short or it is nothing.
+ *
+ * The uplink and downlink toggles are the first thing under this row, in the slot's own section,
+ * which is where a bit that is a *setting* belongs. What is left here is the pair a reader is
+ * scanning the list for - which slot is the primary, and what each one is encrypted with.
+ */
+static void channel_summary(uint8_t role, uint8_t psk_len, char *out, size_t out_len) {
     const char *key = mesh_str(psk_len == 0U    ? MESH_STR_CHANNELS_KEY_NONE
                                : psk_len == 1U  ? MESH_STR_CHANNELS_KEY_DEFAULT
                                : psk_len == 16U ? MESH_STR_CHANNELS_KEY_AES128
@@ -1329,8 +1342,7 @@ static void channel_summary(uint8_t role, uint8_t psk_len, bool uplink, bool dow
     mesh_str_format(
         out, out_len, MESH_STR_CHANNELS_SUMMARY,
         mesh_str(role == 1U ? MESH_STR_CHANNELS_ROLE_PRIMARY : MESH_STR_CHANNELS_ROLE_SECONDARY),
-        key, mesh_str(uplink ? MESH_STR_COMMON_ON : MESH_STR_COMMON_OFF),
-        mesh_str(downlink ? MESH_STR_COMMON_ON : MESH_STR_COMMON_OFF));
+        key);
 }
 
 /* The channel list. With the radio's full table held every slot is listed, disabled ones
@@ -1361,8 +1373,7 @@ static void build_channels(const struct mesh_ui_settings *s,
             if (channel->role == 0U) {
                 snprintf(item->value, sizeof item->value, "%s", mesh_str(MESH_STR_CHANNELS_SET_UP));
             } else {
-                channel_summary(channel->role, channel->psk_len, channel->uplink_enabled,
-                                channel->downlink_enabled, item->value, sizeof item->value);
+                channel_summary(channel->role, channel->psk_len, item->value, sizeof item->value);
             }
         }
     } else if (hs != NULL) {
@@ -1374,8 +1385,7 @@ static void build_channels(const struct mesh_ui_settings *s,
             channel_label(channel->index, channel->name, label, sizeof label);
             struct mesh_ui_settings_item *item = item_add_named(list, label, MESH_UI_SETTING_INFO);
             if (item != NULL) {
-                channel_summary(channel->role, channel->psk_len, channel->uplink_enabled,
-                                channel->downlink_enabled, item->value, sizeof item->value);
+                channel_summary(channel->role, channel->psk_len, item->value, sizeof item->value);
                 item->number = channel->index;
             }
         }
