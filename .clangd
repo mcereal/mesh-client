@@ -1,0 +1,5 @@
+# clangd reads the compile database the presets now always write. build/debug is the tree
+# `make debug` and `cmake --preset debug` both produce, so an editor is correct after the
+# build everybody already runs, with nothing further to configure.
+CompileFlags:
+  CompilationDatabase: build/debug

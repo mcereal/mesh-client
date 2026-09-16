@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# `cmake --preset` reads CMakePresets.json from the working directory, so stand in the repo
+# root regardless of where this was called from. BUILD_ROOT stays relative to the same place it
+# always was.
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
 BUILD_TYPE=${1:-debug}
 shift || true
 
@@ -11,18 +16,9 @@ if [[ "${1:-}" == "--" ]]; then
 fi
 
 case "${BUILD_TYPE}" in
-  debug|Debug)
-    CMAKE_BUILD_TYPE=Debug
-    BUILD_SUBDIR=debug
-    ;;
-  release|Release)
-    CMAKE_BUILD_TYPE=Release
-    BUILD_SUBDIR=release
-    ;;
-  relwithdebinfo|RelWithDebInfo)
-    CMAKE_BUILD_TYPE=RelWithDebInfo
-    BUILD_SUBDIR=relwithdebinfo
-    ;;
+  debug|Debug)                   PRESET=debug ;;
+  release|Release)               PRESET=release ;;
+  relwithdebinfo|RelWithDebInfo) PRESET=relwithdebinfo ;;
   *)
     echo "Unknown build type: ${BUILD_TYPE}" >&2
     echo "Usage: $0 [debug|release|relwithdebinfo] [-- CMake args]" >&2
@@ -30,9 +26,22 @@ case "${BUILD_TYPE}" in
     ;;
 esac
 
+# The generator, the build type and CMAKE_EXPORT_COMPILE_COMMANDS all live in
+# CMakePresets.json, so `cmake --preset debug` and `make debug` configure the same tree the
+# same way - and an editor that reads presets agrees with both without being told anything.
+#
+# -B is still passed because the preset's binaryDir cannot be one: BUILD_ROOT is how the
+# container build (build/linux) and the sanitizer build (build/san) keep their own CMake
+# caches, and a preset's paths are fixed at the point it is written. An explicit -B overrides
+# binaryDir and changes nothing else about the preset.
 BUILD_ROOT="${BUILD_ROOT:-build}"
-BUILD_DIR="${BUILD_ROOT}/${BUILD_SUBDIR}"
+BUILD_DIR="${BUILD_ROOT}/${PRESET}"
+
+# shellcheck source=scripts/cmake-tree.sh
+source "$(dirname "${BASH_SOURCE[0]}")/cmake-tree.sh"
+mesh_reset_stale_tree "${BUILD_DIR}"
+
 mkdir -p "${BUILD_DIR}"
 
-cmake -S . -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}" "$@"
+cmake --preset "${PRESET}" -B "${BUILD_DIR}" "$@"
 cmake --build "${BUILD_DIR}"

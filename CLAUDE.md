@@ -21,6 +21,7 @@ provisions the prerequisites and the plain targets work directly.
 git submodule update --init --recursive   # nanopb, protobufs; CMake FATAL_ERRORs without them
 make test                                 # Debug build + ctest - the default verify step
 make debug                                # Debug build only
+cmake --preset debug                      # the same configure, for an editor or a bare shell
 make format                               # clang-format all tracked .c/.h (needs clang-format 18)
 make proto                                # regenerate nanopb sources
 make release && make package              # release binary + dist/MeshClient.pak.zip
@@ -29,6 +30,11 @@ make fuzz                                 # libFuzzer over the two decoders that
 
 Run `make test` before every push. It is the suite CI runs, plus `scripts/check-strings.py`,
 which fails on a prose literal in a renderer.
+
+The build types live in `CMakePresets.json` - generator (Ninja), build type, and
+`CMAKE_EXPORT_COMPILE_COMMANDS`, which is what `.clangd` reads out of `build/debug`. The scripts
+pass `-B` over the preset's `binaryDir` so `BUILD_ROOT` still places the container (`build/linux`)
+and sanitizer (`build/san`) trees; everything else about a configure comes from the preset.
 
 ```bash
 make docker-test                          # the same, in the dev container (use this on macOS)
