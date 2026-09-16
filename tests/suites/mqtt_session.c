@@ -15,6 +15,7 @@
 #include "support/mqtt_fixture.h"
 #include "support/session_fixture.h"
 
+#include "mesh/core/radio_settings.h"
 #include "mesh/core/session.h"
 
 #include <pb_decode.h>
@@ -511,6 +512,65 @@ MESH_TEST_CASE(mqtt_session_reports_a_buffer_that_cannot_hold_a_filter, unit) {
     char filter[64];
     if (mesh_session_mqtt_filter(&session, 9U, filter, sizeof filter) != 0) {
         record_failure(test_name, "an index past the end should be 0");
+        return;
+    }
+    record_success(test_name);
+}
+
+/*
+ * A channel edited from this client, which arrives by a different door than the sync's.
+ *
+ * Found on hardware and not by anything above, because everything above feeds channels the way
+ * the config sync does - as a FromRadio - and that path writes both of the two tables a channel
+ * lives in. An edit made from the Settings screen comes back as an AdminMessage
+ * get_channel_response instead, which lands in mesh_radio_settings_apply_channel() and writes
+ * only `settings`. The derivation was reading `handshake.channels[]`, so turning downlink on
+ * from the Brick left it subscribed to nothing while the row that had just been pressed said
+ * "on" - the Settings screen reads the table the admin reply updates.
+ *
+ * The two paths are checked against each other rather than separately: one channel in by each
+ * door, and the filters have to follow both.
+ */
+MESH_TEST_CASE(mqtt_session_follows_a_channel_edited_from_here, unit) {
+    struct mesh_session session;
+    mesh_session_init(&session);
+
+    if (!feed_mqtt_root(&session, "msh/US/PR") ||
+        !mesh_test_feed_lora(&session, meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST, true) ||
+        !mesh_test_feed_channel(&session, 0U, "", false)) {
+        record_failure(test_name, "the config sync should be accepted");
+        return;
+    }
+
+    char filters[MESH_SESSION_MAX_CHANNELS + 1U][64];
+    if (collect_filters(&session, filters, MESH_SESSION_MAX_CHANNELS + 1U) != 0U) {
+        record_failure(test_name, "a channel with downlink off should subscribe to nothing");
+        return;
+    }
+
+    /*
+     * The same channel back with downlink on, by the door an admin reply uses. Nothing here
+     * touches the handshake's own copy, which is the whole point: this is what the radio really
+     * sends after a set_channel, and the derivation has to be reading the table it lands in.
+     */
+    meshtastic_Channel edited = meshtastic_Channel_init_default;
+    edited.index = 0;
+    edited.role = meshtastic_Channel_Role_PRIMARY;
+    edited.has_settings = true;
+    edited.settings.uplink_enabled = true;
+    edited.settings.downlink_enabled = true;
+    mesh_radio_settings_apply_channel(&session.settings, &edited);
+
+    const size_t count = collect_filters(&session, filters, MESH_SESSION_MAX_CHANNELS + 1U);
+    if (count != 2U) {
+        record_failure(test_name, "an edited channel should be subscribed to");
+        return;
+    }
+    /* The unnamed primary takes the preset's name, and PKI comes with it because something now
+       downlinks - both of which the edit has to carry, not just the flag. */
+    if (strcmp(filters[0], "msh/US/PR/2/e/LongFast/+") != 0 ||
+        strcmp(filters[1], "msh/US/PR/2/e/PKI/+") != 0) {
+        record_failure(test_name, "the edited channel should name the same topics as a synced one");
         return;
     }
     record_success(test_name);

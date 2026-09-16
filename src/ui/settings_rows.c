@@ -1666,6 +1666,13 @@ static void build_modules(const struct mesh_ui_settings *s,
 
 static void build_mqtt(const struct mesh_ui_settings *s, struct item_list *list) {
     item_field(list, MESH_UI_FIELD_MQTT_ENABLED, s->mqtt_enabled ? 1U : 0U, NULL);
+    /*
+     * Second, because it is the second question about the same connection - whether this radio
+     * reaches the broker itself or hands it to whatever it is paired with - and every row below
+     * is a detail of the first. It sat at the foot of the section, under the map-report heading
+     * it has nothing to do with, for as long as it was read-only.
+     */
+    item_field(list, MESH_UI_FIELD_MQTT_PROXY, s->mqtt_proxy_to_client_enabled ? 1U : 0U, NULL);
     item_field(list, MESH_UI_FIELD_MQTT_ADDRESS, 0U, s->mqtt_address);
     item_field(list, MESH_UI_FIELD_MQTT_USERNAME, 0U, s->mqtt_username);
     item_field(list, MESH_UI_FIELD_MQTT_PASSWORD, 0U, s->mqtt_password);
@@ -1682,15 +1689,6 @@ static void build_mqtt(const struct mesh_ui_settings *s, struct item_list *list)
     item_field(list, MESH_UI_FIELD_MQTT_MAP_PRECISION, s->mqtt_map_position_precision, NULL);
     item_field(list, MESH_UI_FIELD_MQTT_MAP_LOCATION, s->mqtt_map_should_report_location ? 1U : 0U,
                NULL);
-    /*
-     * The one row here that stays read-only. With proxying on, the radio stops talking to the
-     * broker itself and hands every MQTT message to the attached client as a
-     * MqttClientProxyMessage for it to relay - and this client ignores that FromRadio variant
-     * entirely. Offering the toggle would let the Brick silently take the radio's MQTT off
-     * the air; showing the setting still tells you why MQTT is not working if a phone left it
-     * on. Editable once we speak the proxy protocol, not before.
-     */
-    item_toggle(list, MESH_STR_SETTINGS_PROXY_VIA_CLIENT, s->mqtt_proxy_to_client_enabled);
 }
 
 /*

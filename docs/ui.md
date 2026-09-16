@@ -37,8 +37,9 @@ two declarations in step, so **adding a field means touching both**.
 
 They are declared by subject rather than all in `store.h`: `store_device.h` a discovered radio,
 `store_node.h` a node, `store_channel.h` a channel slot, `store_handshake.h` the roster,
-`store_message.h` the transcript and waypoint book, `store_settings.h` what Settings reads.
-`store.h` is the store itself and includes all six.
+`store_message.h` the transcript and waypoint book, `store_mqtt.h` the broker connection held on
+a radio's behalf, `store_settings.h` what Settings reads. `store.h` is the store itself and
+includes all seven.
 
 **Naming the narrow header decouples a reader, not a writer.** `mesh_ui_snapshot` embeds every
 record by value, so anything holding a snapshot rebuilds when any one changes. What the split

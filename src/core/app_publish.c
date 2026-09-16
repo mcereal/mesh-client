@@ -2631,6 +2631,12 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
                                 &ui_traceroute);
     mesh_ui_store_set_traceroute(&app->ui_store, &ui_traceroute);
 
+    /* The second link, on the same terms as the first: read off the thing that owns it and
+       handed to the store, which repaints only if something moved. */
+    struct mesh_ui_mqtt_state ui_mqtt;
+    mesh_app_mqtt_publish_state(app, &ui_mqtt);
+    mesh_ui_store_set_mqtt(&app->ui_store, &ui_mqtt);
+
     if (cache != NULL) {
         if (handshake_changed) {
             cache->handshake = *source_status;

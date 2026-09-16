@@ -22,8 +22,12 @@
 #include "support/session_fixture.h"
 
 #include "mesh/core/mqtt_proxy.h"
+#include "mesh/core/radio_settings.h"
 #include "mesh/core/session.h"
+#include "mesh/ui/settings.h"
+#include "mesh/ui/store_mqtt.h"
 
+#include "meshtastic/admin.pb.h"
 #include "meshtastic/config.pb.h"
 #include "meshtastic/module_config.pb.h"
 
@@ -443,5 +447,204 @@ MESH_TEST_CASE(mqtt_app_does_not_redial_a_broker_it_was_already_refused, unit) {
         return;
     }
     mesh_mqtt_proxy_shutdown(&app.mqtt);
+    record_success(test_name);
+}
+
+/* ------------------------------------------------------------------ what the screen reads */
+
+/*
+ * The four numbers mesh/ui/store_mqtt.h restates on the far side of the seam.
+ *
+ * That header is nanopb-free and names no core module by construction, so it cannot say
+ * `MESH_MQTT_ADDRESS_MAX` and has to carry its own copy - the same arrangement
+ * MESH_UI_NETWORK_HOST_MAX and MESH_WAYPOINT_NAME_MAX already have. What holds a restated
+ * constant honest is a case like this one: the failure it prevents is a broker name that is
+ * fine everywhere in the client and clipped on the one screen that exists to name it.
+ */
+MESH_TEST_CASE(mqtt_status_limits_agree_across_the_seam, unit) {
+    if (MESH_UI_MQTT_HOST_MAX < MESH_MQTT_ADDRESS_MAX) {
+        record_failure(test_name, "the published host should hold any address the radio can");
+        return;
+    }
+    struct mesh_mqtt_proxy probe;
+    (void)mesh_mqtt_proxy_init(&probe, NULL);
+    if (MESH_UI_MQTT_ERROR_MAX < sizeof probe.last_error) {
+        record_failure(test_name, "the published reason should hold any reason the proxy writes");
+        return;
+    }
+    /* Every sentence the core's own table can produce, including the default arm: a state added
+       to the enum without a string still comes back as something, and that something has to fit
+       too. */
+    for (int state = 0; state <= (int)MESH_MQTT_PROXY_STATE_COUNT; ++state) {
+        const char *text = mesh_mqtt_proxy_state_string((enum mesh_mqtt_proxy_state)state);
+        if (text == NULL || strlen(text) >= MESH_UI_MQTT_STATE_MAX) {
+            record_failure(test_name, "a connection state does not fit the published field");
+            return;
+        }
+    }
+    mesh_mqtt_proxy_shutdown(&probe);
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(mqtt_status_says_nothing_about_a_radio_that_never_asked, unit) {
+    static struct mesh_app app;
+    memset(&app, 0, sizeof app);
+    meshtastic_ModuleConfig_MQTTConfig mqtt = proxying_config();
+    mqtt.proxy_to_client_enabled = false;
+    session_synced(&app.session, &mqtt, 0xABCD1234U);
+    (void)mesh_mqtt_proxy_init(&app.mqtt, NULL);
+
+    struct mesh_ui_mqtt_state ui;
+    /* Deliberately dirty, so a publish that forgot to clear the record would be caught rather
+       than passing on whatever the caller's stack held. */
+    memset(&ui, 0xA5, sizeof ui);
+    mesh_app_mqtt_publish_state(&app, &ui);
+
+    /*
+     * The whole card is drawn on `wanted`, so this is the case that decides whether almost every
+     * Brick in the world spends four rows of its Status screen saying "Off" about a feature
+     * nobody turned on.
+     */
+    if (ui.wanted) {
+        record_failure(test_name, "a radio that is not proxying should draw no card");
+        return;
+    }
+    if (ui.host[0] != '\0' || ui.state[0] != '\0' || ui.subscriptions != 0U) {
+        record_failure(test_name, "the record should be cleared, not left as it was found");
+        return;
+    }
+    mesh_mqtt_proxy_shutdown(&app.mqtt);
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(mqtt_status_names_the_broker_the_radio_did_not, unit) {
+    static struct mesh_app app;
+    memset(&app, 0, sizeof app);
+    const meshtastic_ModuleConfig_MQTTConfig mqtt = proxying_config();
+    session_synced(&app.session, &mqtt, 0xABCD1234U);
+    (void)mesh_test_feed_lora(&app.session, meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST,
+                              true);
+    (void)mesh_test_feed_channel(&app.session, 0U, "", true);
+    (void)mesh_mqtt_proxy_init(&app.mqtt, NULL);
+    mesh_app_mqtt_tick(&app, 1000U);
+
+    struct mesh_ui_mqtt_state ui;
+    mesh_app_mqtt_publish_state(&app, &ui);
+    if (!ui.wanted) {
+        record_failure(test_name, "a radio asking to be proxied for should draw the card");
+        return;
+    }
+    /*
+     * The row the radio's own Settings screen cannot draw. `MQTTConfig.address` is empty here -
+     * which is the ordinary configuration - so the Server field over in Settings is blank, and
+     * the substitution that turns it into a real broker happens on this client.
+     */
+    if (strcmp(ui.host, "mqtt.meshtastic.org") != 0) {
+        record_failure(test_name, "the card should name the broker the plan resolved");
+        return;
+    }
+    /*
+     * Two subscriptions from one downlink channel, read off the recorded plan rather than off
+     * the proxy - which in this test has no event loop and therefore holds none. That is the
+     * case the choice was made for: a start the proxy refused would otherwise report "none
+     * subscribed" and blame the radio's channels for the client's own refusal.
+     */
+    if (ui.subscriptions != 2U) {
+        record_failure(test_name, "the card should count the subscriptions that were planned");
+        return;
+    }
+    if (ui.connected || ui.failing) {
+        record_failure(test_name, "a proxy that never started is neither connected nor failing");
+        return;
+    }
+    mesh_mqtt_proxy_shutdown(&app.mqtt);
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(mqtt_status_tells_the_clients_refusal_from_the_radios_silence, unit) {
+    static struct mesh_app app;
+    memset(&app, 0, sizeof app);
+    const meshtastic_ModuleConfig_MQTTConfig mqtt = proxying_config();
+    session_synced(&app.session, &mqtt, 0xABCD1234U);
+    (void)mesh_mqtt_proxy_init(&app.mqtt, NULL);
+    app.mqtt_disabled = true;
+    /* The radio offering messages nobody is taking, which is what this looks like from its side
+       and is the only number that moves while the client is declining. */
+    app.session.mqtt_unhandled = 57U;
+
+    struct mesh_ui_mqtt_state ui;
+    mesh_app_mqtt_publish_state(&app, &ui);
+    /*
+     * Both true at once, and that is the point of keeping them apart. The radio *is* asking, so
+     * the card is drawn; this client is refusing, so what it says is about the Brick. Folding
+     * the two into one flag would have left the card either absent - hiding the refusal from the
+     * one person who could undo it - or indistinguishable from a broker that is down.
+     */
+    if (!ui.wanted || !ui.disabled) {
+        record_failure(test_name, "a declined radio is still a radio that asked");
+        return;
+    }
+    if (ui.unhandled != 57U) {
+        record_failure(test_name, "what the radio offered and nobody took should be carried");
+        return;
+    }
+    mesh_mqtt_proxy_shutdown(&app.mqtt);
+    record_success(test_name);
+}
+
+/* ------------------------------------------------------------------ handing the job over */
+
+/*
+ * The press that makes this client the radio's route to the internet.
+ *
+ * The row was read-only for three phases, on the argument that offering it would let the Brick
+ * take the radio's MQTT off the air and hand it to something that was ignoring the messages.
+ * What makes it safe is not the write - it is one boolean - but everything under it: this case
+ * checks the write, and the plan cases above check that the radio's reply to it actually starts
+ * a proxy.
+ */
+MESH_TEST_CASE(mqtt_app_hands_the_broker_over_when_the_row_is_pressed, unit) {
+    struct mesh_radio_settings radio;
+    mesh_radio_settings_reset(&radio);
+    radio.has_mqtt = true;
+    radio.mqtt.enabled = true;
+    /* Something else already set, so the case would also fail if the write built a fresh
+       MQTTConfig rather than the radio's own with the edit applied - the firmware replaces
+       sections whole, so a write that forgot the rest would silently clear the broker. */
+    snprintf(radio.mqtt.address, sizeof radio.mqtt.address, "%s", "broker.example");
+
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    action.section = MESH_UI_SETTINGS_MQTT;
+    action.edit_count = 1U;
+    action.edits[0].field = MESH_UI_FIELD_MQTT_PROXY;
+    action.edits[0].number = 1U;
+
+    struct mesh_admin_request write;
+    if (mesh_app_build_settings_write(&radio, &action, &write) != 0) {
+        record_failure(test_name, "the MQTT section should be writable");
+        return;
+    }
+    const meshtastic_ModuleConfig_MQTTConfig *out =
+        &write.payload.module_config.payload_variant.mqtt;
+    if (write.type != meshtastic_AdminMessage_ModuleConfigType_MQTT_CONFIG ||
+        !out->proxy_to_client_enabled) {
+        record_failure(test_name, "the press should turn client proxying on");
+        return;
+    }
+    if (!out->enabled || strcmp(out->address, "broker.example") != 0) {
+        record_failure(test_name, "the rest of the section should survive the write");
+        return;
+    }
+
+    /* And back, which is the press that hands the connection to the radio's own WiFi. A toggle
+       that could only be turned on would be a one-way door on a handheld somebody walks away
+       with. */
+    action.edits[0].number = 0U;
+    if (mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+        write.payload.module_config.payload_variant.mqtt.proxy_to_client_enabled) {
+        record_failure(test_name, "the press should turn client proxying off again");
+        return;
+    }
     record_success(test_name);
 }

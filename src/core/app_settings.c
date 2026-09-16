@@ -324,6 +324,15 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
     case MESH_UI_FIELD_MQTT_ENABLED:
         mqtt->enabled = on;
         break;
+    /*
+     * The write that turns this client into the radio's route to the internet, or hands the job
+     * back to the radio's own WiFi. Nothing else is needed on this side: the proxy is re-derived
+     * from MQTTConfig on every loop turn, so the radio's reply to this write - which arrives as
+     * the config sync after the reboot a settings write causes - is what starts or stops it.
+     */
+    case MESH_UI_FIELD_MQTT_PROXY:
+        mqtt->proxy_to_client_enabled = on;
+        break;
     case MESH_UI_FIELD_MQTT_ADDRESS:
         mesh_str_copy(mqtt->address, sizeof mqtt->address, edit->text);
         break;

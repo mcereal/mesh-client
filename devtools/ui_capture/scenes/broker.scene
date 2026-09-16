@@ -1,0 +1,48 @@
+# The Broker card: the connection this client holds on a radio's behalf.
+#
+# It is the one card on the Status screen that reports on something the *radio* cannot see. A
+# radio with `proxy_to_client_enabled` hands over a message and is told nothing about what
+# happened to it - the firmware's publishQueuedMessages() runs every 200 ms whether or not a
+# broker is reachable - so from the radio, and from every other screen on this client, a proxy
+# that is failing looks exactly like one that is working.
+#
+# Four situations, in the order they are worth telling apart. Only the first is the one people
+# expect; the other three are the reason the card exists.
+
+scene demo
+delay 300
+config
+
+tab status
+stats
+hold 900
+
+# Working. Green heading, a server the radio never named - an empty MQTTConfig.address means the
+# public broker, and that substitution happens here rather than on the radio, so the Settings
+# screen shows a blank Server field while this says where the traffic is actually going.
+broker connected
+hold 2200
+
+# Connected, and for the ninth time. Every single frame of a flapping link says "Connected"; the
+# sign-in count is the only thing on the screen that disagrees, and the reason it last dropped
+# stays up after it comes back.
+broker flapping
+hold 2400
+
+# Refused. The card goes red, the retry is on its own backoff, and the sentence names the host
+# and the reason - which is a whole line and so a note rather than a value.
+broker refused
+hold 2400
+
+# And the fault with no error behind it. Connected, publishing, subscribed to nothing, because
+# every channel on this radio has downlink turned off. Nothing logs it and nothing fails; as far
+# as MQTT is concerned everything worked. The Topics row is the only place it is visible.
+broker silent
+hold 2600
+
+# And the client's own refusal, which is the one state the radio cannot be blamed for. The
+# connection rows are gone rather than showing zeros - "none subscribed" here would put a warning
+# on the radio's channels for something the Brick decided - and what is left is the count of
+# messages the radio offered with nowhere to put them.
+broker disabled
+hold 2600

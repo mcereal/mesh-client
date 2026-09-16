@@ -49,6 +49,7 @@ struct fake_broker {
 /* ------------------------------------------------------------------ TLS */
 
 #ifdef MESHCLIENT_HAVE_TLS
+#include <mbedtls/platform.h>
 
 #include <mbedtls/ctr_drbg.h>
 #include <mbedtls/entropy.h>
@@ -1361,4 +1362,32 @@ cleanup:
     probe_stop(&probe);
 }
 
+#endif /* MESHCLIENT_HAVE_TLS */
+
+#ifdef MESHCLIENT_HAVE_TLS
+/*
+ * The entropy file mbedtls would open, which must never be the blocking one.
+ *
+ * This is a configuration assertion rather than a behavioural test, and it is here because the
+ * behaviour cannot be reached from a test at all: entropy_poll.c opens a file only when
+ * `HAVE_GETRANDOM` was not detected at compile time, and it *is* detected in the container this
+ * suite runs in. The device build is the one that takes the file path - which is how a hang that
+ * freezes the whole client got past a green suite and a green CI and was found by a person
+ * holding the handheld.
+ *
+ * What went wrong is worth stating in one line: upstream's default is `/dev/random`, that device
+ * blocks until the kernel's entropy *estimate* recovers, and a Brick refills it at a crawl. The
+ * seeding happens inline on the one epoll thread, so the client stops drawing frames and stops
+ * reading buttons - including the one that quits it.
+ *
+ * So what is pinned is the only thing that can be pinned from here: that this build asks for the
+ * device that does not block. See third_party/mbedtls-config/mesh_mbedtls_config.h.
+ */
+MESH_TEST_CASE(mqtt_proxy_never_seeds_from_the_blocking_random_device, unit) {
+    if (strcmp(mbedtls_platform_dev_random, "/dev/urandom") != 0) {
+        record_failure(test_name, "TLS would seed from a device that can block the event loop");
+        return;
+    }
+    record_success(test_name);
+}
 #endif /* MESHCLIENT_HAVE_TLS */

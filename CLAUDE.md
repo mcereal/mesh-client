@@ -109,8 +109,9 @@ evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 source file that defines it.
 
 The one group that is several headers to one source is the UI store: `src/ui/store.c` defines
-what `store.h` and its six subject headers (`store_device.h`, `store_node.h`,
-`store_channel.h`, `store_handshake.h`, `store_message.h`, `store_settings.h`) declare. Include
+what `store.h` and its seven subject headers (`store_device.h`, `store_node.h`,
+`store_channel.h`, `store_handshake.h`, `store_message.h`, `store_mqtt.h`,
+`store_settings.h`) declare. Include
 the subject you need - `store.h` is the umbrella and pulls all six in. See
 [`docs/ui.md`](docs/ui.md#shape) for what each one owns and what the split does and does
 not buy.

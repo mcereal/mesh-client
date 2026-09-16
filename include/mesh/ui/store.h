@@ -36,6 +36,7 @@
 #include "mesh/ui/store_device.h"
 #include "mesh/ui/store_handshake.h"
 #include "mesh/ui/store_message.h"
+#include "mesh/ui/store_mqtt.h"
 #include "mesh/ui/store_node.h"
 #include "mesh/ui/store_settings.h"
 
@@ -62,6 +63,10 @@ enum mesh_ui_update_flag {
        frame that repainted only when the nav moved would leave the question unasked until the
        user happened to touch something. */
     MESH_UI_UPDATE_VERIFY = 1U << 8,
+    /* The broker connection moved. Its own flag rather than a share of TRANSPORT's, because
+       TRANSPORT means the radio link and the CLI backend prints a line when it changes - an
+       MQTT retry every five seconds would scroll the radio's own state off the console. */
+    MESH_UI_UPDATE_MQTT = 1U << 9,
 };
 typedef uint32_t mesh_ui_update_flags;
 
@@ -111,6 +116,9 @@ struct mesh_ui_snapshot {
      * include/mesh/ui/history.h. Not persisted, for the reason stated there.
      */
     struct mesh_ui_history history;
+    /* The broker connection held for the attached radio, or a zeroed record when no radio has
+       asked for one. Not persisted: see mesh/ui/store_mqtt.h. */
+    struct mesh_ui_mqtt_state mqtt;
     mesh_ui_update_flags update_flags;
 };
 
@@ -130,6 +138,7 @@ struct mesh_ui_store {
     struct mesh_ui_traceroute traceroute;
     struct mesh_ui_verification verification;
     struct mesh_ui_history history;
+    struct mesh_ui_mqtt_state mqtt;
     /*
      * The clock the last mesh_ui_store_tick() carried, which is what stamps a history sample.
      *
@@ -162,6 +171,16 @@ void mesh_ui_store_set_discovery(struct mesh_ui_store *store, const struct mesh_
 void mesh_ui_store_set_handshake(struct mesh_ui_store *store,
                                  const struct mesh_ui_handshake_state *handshake);
 void mesh_ui_store_set_transport_status(struct mesh_ui_store *store, const char *status);
+/*
+ * The broker connection, whole.
+ *
+ * One setter for the whole record rather than one per field, because every field of it is read
+ * off the same proxy in the same turn and a half-updated record is a card that says "Connected"
+ * beside last week's error. NULL clears it, which is what a client that has stopped proxying
+ * publishes. Marks MESH_UI_UPDATE_MQTT only when something actually moved - this is called on
+ * every publish, and the counters move on most of them.
+ */
+void mesh_ui_store_set_mqtt(struct mesh_ui_store *store, const struct mesh_ui_mqtt_state *mqtt);
 /*
  * The network address the client is configured to reach, or NULL/"" for none.
  *

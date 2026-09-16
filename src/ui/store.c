@@ -427,6 +427,32 @@ void mesh_ui_store_set_transport_status(struct mesh_ui_store *store, const char 
     mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_TRANSPORT);
 }
 
+void mesh_ui_store_set_mqtt(struct mesh_ui_store *store, const struct mesh_ui_mqtt_state *mqtt) {
+    if (store == NULL) {
+        return;
+    }
+
+    struct mesh_ui_mqtt_state next;
+    memset(&next, 0, sizeof next);
+    if (mqtt != NULL) {
+        next = *mqtt;
+    }
+
+    /*
+     * memcmp over the whole record, which is safe here in a way it usually is not: both sides
+     * were memset before they were filled - this one above, the caller's in the publish - so the
+     * padding is zero in both. The alternative is a field-by-field comparison of thirteen
+     * fields that exists only to answer "did anything move", and the field somebody forgets to
+     * add to it is a card that stops repainting.
+     */
+    if (memcmp(&store->mqtt, &next, sizeof next) == 0) {
+        return;
+    }
+
+    store->mqtt = next;
+    mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_MQTT);
+}
+
 void mesh_ui_store_set_settings(struct mesh_ui_store *store,
                                 const struct mesh_ui_settings *settings) {
     if (store == NULL) {
@@ -1257,6 +1283,7 @@ bool mesh_ui_store_consume_updates(struct mesh_ui_store *store, struct mesh_ui_s
     snapshot->traceroute = store->traceroute;
     snapshot->verification = store->verification;
     snapshot->history = store->history;
+    snapshot->mqtt = store->mqtt;
 
     memcpy(snapshot->transport_status, store->transport_status, sizeof snapshot->transport_status);
 

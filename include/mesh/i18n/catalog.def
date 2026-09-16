@@ -616,6 +616,11 @@ MESH_STR_ENTRY(DEVICES_NETWORK_READY,     "Connect over the network")
 MESH_STR_ENTRY(STATUS_CARD_LINK,          "Link")
 MESH_STR_ENTRY(STATUS_CARD_MESH,          "Mesh")
 MESH_STR_ENTRY(STATUS_CARD_RADIO,         "Radio")
+/* The second link: the broker this client holds a connection to on the radio's behalf. "Broker"
+   rather than "MQTT" because the card is about the far end rather than about the protocol, and
+   because the Settings section already called MQTT is where the radio's own configuration
+   lives - two cards named MQTT saying different things would be worse than either. */
+MESH_STR_ENTRY(STATUS_CARD_BROKER,        "Broker")
 
 /* Row labels down the left of the Status screen. They share one narrow column, so a
    translation that will not fit is better shortened than wrapped. */
@@ -637,6 +642,13 @@ MESH_STR_ENTRY(STATUS_LABEL_RADIO_SAID,   "Radio said")
 MESH_STR_ENTRY(STATUS_LABEL_REBOOTS,      "Reboots")
 MESH_STR_ENTRY(STATUS_LABEL_MESSAGES,     "Messages")
 MESH_STR_ENTRY(STATUS_LABEL_DEVICES,      "Devices")
+/* The Broker card's own labels. "Status" rather than "State" for the one that carries the
+   connection's sentence: every other row here reports a fact and this one reports progress. */
+MESH_STR_ENTRY(STATUS_LABEL_BROKER,       "Server")
+MESH_STR_ENTRY(STATUS_LABEL_BROKER_STATE, "Status")
+MESH_STR_ENTRY(STATUS_LABEL_TOPICS,       "Topics")
+MESH_STR_ENTRY(STATUS_LABEL_RELAYED,      "Relayed")
+MESH_STR_ENTRY(STATUS_LABEL_DROPPED,      "Dropped")
 
 MESH_STR_ENTRY(STATUS_NOT_CONNECTED,      "not connected")
 /* How far the settings sync has got, and "(cached)" when what is shown was read from disk
@@ -694,6 +706,32 @@ MESH_STR_ENTRY(STATUS_RADIO_SAID_COUNT,   "%s, %u this connection")
 MESH_STR_ENTRY(STATUS_REBOOTS_SINCE,      "%u since connecting")
 MESH_STR_ENTRY(STATUS_MESSAGES_KEPT,      "%u kept, %u dropped")
 MESH_STR_ENTRY(STATUS_DEVICES_IN_RANGE,   "%zu in range")
+
+/*
+ * The Broker card's values.
+ *
+ * "Topics" counts subscriptions, and none is worth saying out loud rather than printing 0: a
+ * radio with downlink off on every channel publishes perfectly well and receives nothing, and
+ * that is a configuration rather than a fault. The number nobody can see anywhere else.
+ *
+ * The two counts are kept apart from the radio's own "Packets" figures deliberately. These are
+ * messages that crossed *this* client, and a reader comparing them against the mesh counters
+ * above would be comparing a proxy's throughput with a radio's.
+ */
+MESH_STR_ENTRY(STATUS_BROKER_TOPICS,      "%u subscribed")
+MESH_STR_ENTRY(STATUS_BROKER_NO_TOPICS,   "none - no channel downlinks")
+MESH_STR_ENTRY(STATUS_BROKER_RELAYED,     "%u out, %u in")
+MESH_STR_ENTRY(STATUS_BROKER_DROPPED,     "%u out, %u in")
+/* A connection that keeps being remade, which "Connected" on its own hides completely. Only
+   drawn past the first, since one sign-in is what a working proxy looks like. */
+MESH_STR_ENTRY(STATUS_BROKER_RECONNECTS,  "%s, %u sign-ins")
+/* The client declining a radio that asked. Names the variable because that is the only place
+   the answer is, and somebody reading this row has already checked the radio. */
+MESH_STR_ENTRY(STATUS_BROKER_DISABLED,    "The radio is asking for a broker and this client is not holding one: MESHCLIENT_MQTT_PROXY turned it off here.")
+/* Messages the radio offered with nowhere to go. It is what `disabled` looks like from the
+   radio's side, and it is also what a refused connection looks like - so it is a row rather
+   than a line inside either sentence. */
+MESH_STR_ENTRY(STATUS_BROKER_UNHANDLED,   "%u not taken")
 
 /* ---- the trend screen ------------------------------------------------------------------------ */
 
@@ -1201,6 +1239,7 @@ MESH_STR_ENTRY(SETTINGS_NOTE_DISPLAY_MESSAGE_BUBBLES,     "Draws messages on the
 
 /* MQTT. */
 MESH_STR_ENTRY(SETTINGS_NOTE_MQTT_ENABLED,                "Connects the radio to a broker. Nothing crosses until a channel is set to uplink or downlink, so this alone changes what the radio talks to and not what it shares.")
+MESH_STR_ENTRY(SETTINGS_NOTE_MQTT_PROXY,                  "Hands the broker connection to whatever this radio is paired with, instead of the radio's own WiFi. This client holds it - see the Broker card on Status - but only while it is running and connected.")
 MESH_STR_ENTRY(SETTINGS_NOTE_MQTT_ADDRESS,                "The broker to connect to, with a port after a colon if it is not the usual one. Left empty, the radio uses the public Meshtastic broker.")
 MESH_STR_ENTRY(SETTINGS_NOTE_MQTT_ROOT,                   "The topic everything is published under. Two meshes sharing one broker need different roots, or each will hear the other's traffic as though it were its own.")
 MESH_STR_ENTRY(SETTINGS_NOTE_MQTT_ENCRYPTION,             "Publishes each packet still encrypted with its channel key, so the broker carries traffic it cannot read. Off hands the plain text to whoever runs the broker.")
@@ -1446,11 +1485,16 @@ MESH_STR_ENTRY(HELP_LABEL_STATUS_COUNTS,  "Why two node counts differ")
 MESH_STR_ENTRY(HELP_LABEL_STATUS_AIRTIME, "The airtime figures")
 MESH_STR_ENTRY(HELP_LABEL_STATUS_TRAFFIC, "Sent and Heard")
 MESH_STR_ENTRY(HELP_LABEL_STATUS_FLOOR,   "The noise floor")
+/* The Broker card, which is on screen only for a radio that asked to be proxied for - so the
+   note is written for somebody who has one and is wondering why it is not working, rather than
+   as an introduction to the feature. */
+MESH_STR_ENTRY(HELP_LABEL_STATUS_BROKER,  "The Broker card")
 MESH_STR_ENTRY(HELP_NOTE_STATUS,          "How this client, its link and the radio are doing, one card each. A card the radio has told us nothing about says so rather than disappearing, so nothing moves under the cursor.")
 MESH_STR_ENTRY(HELP_NOTE_STATUS_COUNTS,   "NodeDB is what the radio still holds and Cached here is what this client remembers, which is deliberately more: a node the radio evicted is gone for good, so we keep it.")
 MESH_STR_ENTRY(HELP_NOTE_STATUS_AIRTIME,  "Busy is the share of the air every radio in earshot is using; tx is the part of it this radio sent. Past a quarter busy, hops start failing - which is where the bar is notched.")
 MESH_STR_ENTRY(HELP_NOTE_STATUS_TRAFFIC,  "Sent is what this radio transmitted, including what it relayed for others. Heard splits what arrived into new, repeats and malformed. Both are totals since the radio booted.")
 MESH_STR_ENTRY(HELP_NOTE_STATUS_FLOOR,    "How loud the channel is with nothing on it, in dBm. It is negative and nearer zero is worse: around -120 is a clean band, and a floor above -100 is something local drowning quiet nodes out.")
+MESH_STR_ENTRY(HELP_NOTE_STATUS_BROKER,   "Shown when the radio has asked this client to reach a broker for it. Topics is what we subscribed to: none means no channel has downlink on, so traffic goes out and none comes back.")
 
 /* The trend chart, which is a screen of its own rather than a row on the Status list - so it is
    keyed on its route rather than read off a settings row. */
@@ -1551,6 +1595,7 @@ MESH_STR_ENTRY(SETTINGS_FIELD_DISPLAY_WAKE_ON_MOTION,     "Wake on motion")
 MESH_STR_ENTRY(SETTINGS_FIELD_DISPLAY_LONG_NAMES,         "Long node names")
 MESH_STR_ENTRY(SETTINGS_FIELD_DISPLAY_MESSAGE_BUBBLES,    "Message bubbles")
 MESH_STR_ENTRY(SETTINGS_FIELD_MQTT_ENABLED,               "MQTT")
+MESH_STR_ENTRY(SETTINGS_FIELD_MQTT_PROXY,                 "Proxy via client")
 MESH_STR_ENTRY(SETTINGS_FIELD_MQTT_ADDRESS,               "Server")
 MESH_STR_ENTRY(SETTINGS_FIELD_MQTT_USERNAME,              "Username")
 MESH_STR_ENTRY(SETTINGS_FIELD_MQTT_PASSWORD,              "Password")
@@ -2122,8 +2167,7 @@ MESH_STR_ENTRY(NOTE_TEST_PACKETS,         "Test packets")
 MESH_STR_ENTRY(NOTE_TEST_PACKETS_VALUE,   "go to everyone on the channel")
 MESH_STR_ENTRY(NOTE_EACH_LIMIT,           "Each limit")
 MESH_STR_ENTRY(NOTE_EACH_LIMIT_VALUE,     "is off when it is 0")
-/* Rows the MQTT and Position screens add outside the field table. */
-MESH_STR_ENTRY(SETTINGS_PROXY_VIA_CLIENT, "Proxy via client")
+/* Rows the Position screen adds outside the field table. */
 MESH_STR_ENTRY(SETTINGS_FIXED_POSITION,   "Fixed position")
 MESH_STR_ENTRY(SETTINGS_SET_FIXED_POS,    "Set fixed position")
 MESH_STR_ENTRY(SETTINGS_CLEAR_FIXED_POS,  "Clear fixed position")
