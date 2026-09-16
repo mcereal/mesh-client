@@ -14,6 +14,8 @@
 #include <pb_decode.h>
 #include <pb_encode.h>
 
+#include "mesh/proto/mqtt_topic.h"
+
 #include "meshtastic/channel.pb.h"
 #include "meshtastic/mesh.pb.h"
 #include "meshtastic/portnums.pb.h"
@@ -85,6 +87,10 @@ static void mesh_session_reset_link_state(struct mesh_session *session) {
        asking the user to answer a question nothing is listening for any more. */
     mesh_key_verification_reset(&session->verification);
     session->reboot_notices = 0U;
+    /* Counts proxy messages this link offered with nowhere to put them, so it answers "is this
+       happening now" rather than "has it ever". The handler itself is not touched: it belongs
+       to the setting, not to the connection. */
+    session->mqtt_unhandled = 0U;
     session->node_cache_warned = false;
     mesh_radio_settings_reset_session(&session->settings);
     session->admin_probe_queued = false;
@@ -1284,6 +1290,64 @@ static void mesh_session_handle_channel(struct mesh_session *session,
     }
 }
 
+/* ------------------------------------------------------------------ the MQTT client proxy */
+
+/*
+ * A message the radio wants put on a broker.
+ *
+ * Nothing here interprets the payload. It is a ServiceEnvelope the radio encoded, on a topic the
+ * radio built, and the whole point of a client proxy is that the client is the radio's route to
+ * the internet rather than a second opinion about what should be on it. The one thing this does
+ * decide is whether there is anywhere to put it.
+ */
+static void mesh_session_handle_mqtt_proxy(struct mesh_session *session,
+                                           const meshtastic_MqttClientProxyMessage *message) {
+    if (session->mqtt == NULL) {
+        /*
+         * A radio with proxying on and a client that is not proxying: an ordinary combination,
+         * not an error, and one somebody may be staring at a blank MQTT screen over. Counted so
+         * a status row can say it is happening; logged at debug because a busy mesh would
+         * otherwise fill the log with one line per packet.
+         */
+        if (session->mqtt_unhandled < UINT32_MAX) {
+            session->mqtt_unhandled++;
+        }
+        mesh_log_debug("session", "MQTT proxy message for '%.60s' with no proxy running",
+                       message->topic);
+        return;
+    }
+
+    if (message->topic[0] == '\0') {
+        mesh_log_warn("session", "MQTT proxy message with no topic");
+        return;
+    }
+
+    const uint8_t *payload = NULL;
+    size_t len = 0U;
+    /*
+     * The variant tag decides which half of the union to read, and reading it unconditionally is
+     * a real bug the firmware fixed rather than a hypothetical one: `data.size` and the first
+     * bytes of `text` are the same storage, so a text message read as bytes announces a length
+     * taken from its own characters.
+     */
+    switch (message->which_payload_variant) {
+    case meshtastic_MqttClientProxyMessage_data_tag:
+        payload = message->payload_variant.data.bytes;
+        len = message->payload_variant.data.size;
+        break;
+    case meshtastic_MqttClientProxyMessage_text_tag:
+        payload = (const uint8_t *)message->payload_variant.text;
+        len = strnlen(message->payload_variant.text, sizeof message->payload_variant.text);
+        break;
+    default:
+        mesh_log_warn("session", "MQTT proxy message for '%.60s' carries no payload",
+                      message->topic);
+        return;
+    }
+
+    session->mqtt(session->mqtt_ctx, message->topic, payload, len, message->retained);
+}
+
 void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t *payload,
                                     size_t len) {
     if (session == NULL || payload == NULL || len == 0U) {
@@ -1426,6 +1490,9 @@ void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t 
     case meshtastic_FromRadio_queueStatus_tag:
         mesh_session_handle_queue_status(session, &message.queueStatus);
         break;
+    case meshtastic_FromRadio_mqttClientProxyMessage_tag:
+        mesh_session_handle_mqtt_proxy(session, &message.mqttClientProxyMessage);
+        break;
     case meshtastic_FromRadio_rebooted_tag:
         /*
          * The radio restarted underneath a link that survived it. Everything the config sync
@@ -1453,6 +1520,130 @@ void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t 
                        (uint32_t)message.which_payload_variant);
         break;
     }
+}
+
+void mesh_session_set_mqtt_handler(struct mesh_session *session, mesh_session_mqtt_fn handler,
+                                   void *ctx) {
+    if (session == NULL) {
+        return;
+    }
+    session->mqtt = handler;
+    session->mqtt_ctx = ctx;
+}
+
+int mesh_session_send_mqtt_proxy(struct mesh_session *session, const char *topic,
+                                 const uint8_t *payload, size_t len) {
+    if (session == NULL || topic == NULL || topic[0] == '\0') {
+        return -EINVAL;
+    }
+    /*
+     * A length with no bytes behind it. Skipping the copy and sending the zeroed field anyway
+     * would be the worst of the three options available: the radio would get a full-length
+     * envelope of zeros, decode nothing out of it, and nobody would be told - a caller's bad
+     * argument turned into silent corruption on the mesh. A NULL with a length of 0 is fine and
+     * means an empty message, which is a thing MQTT does.
+     */
+    if (payload == NULL && len > 0U) {
+        return -EINVAL;
+    }
+    if (session->send == NULL) {
+        return -ENOTCONN;
+    }
+    /*
+     * The firmware's gate, mirrored rather than guessed at. PhoneAPI drops this variant outright
+     * while it is still in the config handshake - "Ignore MqttClientProxy msg during config
+     * handshake" - so anything sent now is a round trip spent to have the radio discard it in
+     * silence. Better to report it here, where the caller can count a drop against the right
+     * reason.
+     */
+    if (!session->handshake.config_complete) {
+        return -ENOTCONN;
+    }
+
+    meshtastic_ToRadio to_radio = meshtastic_ToRadio_init_default;
+    to_radio.which_payload_variant = meshtastic_ToRadio_mqttClientProxyMessage_tag;
+    meshtastic_MqttClientProxyMessage *message = &to_radio.mqttClientProxyMessage;
+
+    if (!mesh_str_copy(message->topic, sizeof message->topic, topic)) {
+        return -EMSGSIZE;
+    }
+    /*
+     * 435 bytes, and a broker can send more. The proxy will hand over whatever it accepted, so
+     * the cap has to be enforced on this side of it: a message too big for the radio's own field
+     * cannot be truncated - it is an encrypted envelope, and half of one decodes to nothing - so
+     * it is refused whole and counted as dropped.
+     */
+    if (len > sizeof message->payload_variant.data.bytes) {
+        return -EMSGSIZE;
+    }
+    /*
+     * Always `data`. The firmware accepts `text` too and measures it with strnlen(), which for
+     * the protobuf envelopes that actually travel here would stop at the first zero byte in a
+     * payload largely made of them.
+     */
+    message->which_payload_variant = meshtastic_MqttClientProxyMessage_data_tag;
+    message->payload_variant.data.size = (pb_size_t)len;
+    if (len > 0U) {
+        memcpy(message->payload_variant.data.bytes, payload, len);
+    }
+
+    uint8_t buffer[meshtastic_ToRadio_size];
+    pb_ostream_t stream = pb_ostream_from_buffer(buffer, sizeof buffer);
+    if (!pb_encode(&stream, meshtastic_ToRadio_fields, &to_radio)) {
+        mesh_log_error("session", "Failed to encode MQTT proxy message: %s", PB_GET_ERROR(&stream));
+        return -EIO;
+    }
+    /* Packet id 0: this is not a message in the log, so a send that fails must mark nothing
+       FAILED. The mesh packet inside it belongs to somebody else's radio. */
+    return mesh_session_send_raw(session, buffer, stream.bytes_written, 0U);
+}
+
+int mesh_session_mqtt_filter(const struct mesh_session *session, size_t index, char *out,
+                             size_t cap) {
+    if (session == NULL || out == NULL || cap == 0U) {
+        return -EINVAL;
+    }
+
+    /*
+     * The root and the preset come from the settings rather than from `handshake.config`,
+     * which is a oneof holding whichever fragment arrived last. `settings` is where the config
+     * sync accumulates them, so it is the only place both are true at once.
+     */
+    const char *root = session->settings.has_mqtt ? session->settings.mqtt.root : NULL;
+    const meshtastic_Config_LoRaConfig *lora =
+        session->settings.has_lora ? &session->settings.lora : NULL;
+    const struct mesh_handshake_status *handshake = &session->handshake;
+
+    size_t seen = 0U;
+    for (size_t slot = 0U; slot < handshake->channel_count && slot < MESH_SESSION_MAX_CHANNELS;
+         ++slot) {
+        const struct mesh_channel_summary *channel = &handshake->channels[slot];
+        /*
+         * Downlink, not uplink. They are separate settings and this is the receiving half: a
+         * channel that uplinks without downlinking is one whose traffic should reach the broker
+         * and whose broker traffic should not reach the mesh, and subscribing to it anyway
+         * would quietly undo the setting.
+         */
+        if (!channel->downlink_enabled) {
+            continue;
+        }
+        if (seen == index) {
+            return mesh_mqtt_subscribe_filter(out, cap, root,
+                                              mesh_mqtt_channel_id(channel->name, lora));
+        }
+        seen++;
+    }
+
+    /*
+     * PKI last, and only when something downlinks. Direct messages are addressed to a node
+     * rather than carried on a channel, so the firmware subscribes to this once if *any* channel
+     * wants downlink rather than once per channel - and a radio that wants no downlink at all
+     * should not be handed other people's direct messages either.
+     */
+    if (seen > 0U && index == seen) {
+        return mesh_mqtt_pki_filter(out, cap, root);
+    }
+    return 0;
 }
 
 /*

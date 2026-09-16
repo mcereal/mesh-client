@@ -108,6 +108,7 @@ add_library(meshclient_core
     src/proto/channel_url.c
     src/proto/contact_url.c
     src/proto/mqtt_packet.c
+    src/proto/mqtt_topic.c
     src/proto/stream_framing.c
     src/geo/coords.c
     src/geo/mercator.c
