@@ -979,6 +979,14 @@ static uint8_t fb_list_card_of(const struct fb_list *list, uint32_t index) {
     return list->cards[index];
 }
 
+/* Whether item `index` stands on a card at all. The two panel sentinels differ only in what the
+   card above may spend into the step (see FB_LIST_PANEL_ROW); to everything else - the ground a
+   row is drawn against, the run walk, the leading slot - they are the same answer. */
+static bool fb_list_on_card(const struct fb_list *list, uint32_t index) {
+    const uint8_t card = fb_list_card_of(list, index);
+    return card != FB_LIST_NO_CARD && card != FB_LIST_PANEL_ROW;
+}
+
 /* Whether this list draws its groups as cards at all, which is a question about the list and
    not about one row of it - see fb_list_subheader_icon(), where a heading stands *between* two
    cards and so has a card list's ground under it either way. */
@@ -1017,8 +1025,7 @@ static int fb_list_card_pad(const struct mesh_ui_backend_fb_state *state) {
 }
 
 enum mesh_ui_color fb_list_ground(const struct fb_list *list, uint32_t index) {
-    return fb_list_card_of(list, index) == FB_LIST_NO_CARD ? MESH_UI_COLOR_BG
-                                                           : MESH_UI_COLOR_SURFACE;
+    return fb_list_on_card(list, index) ? MESH_UI_COLOR_SURFACE : MESH_UI_COLOR_BG;
 }
 
 uint32_t fb_list_row_height(const struct fb_list *list, uint32_t index) {
@@ -1098,7 +1105,7 @@ static void fb_list_cards(const struct mesh_ui_backend_fb_state *state, struct f
             height += (int)mesh_ui_list_item_height(&list->model, run) * list->line;
             run++;
         }
-        if (card == FB_LIST_NO_CARD) {
+        if (!fb_list_on_card(list, i)) {
             top += height;
             i = run;
             continue;
@@ -1133,10 +1140,19 @@ static void fb_list_cards(const struct mesh_ui_backend_fb_state *state, struct f
         }
         int box_bottom = top + height;
         if (!cut_bottom) {
-            /* Into the step the group's next heading stands in, which is where the break between
-               two cards comes from - never past the body, or the bottom card of a list that
-               filled its window would put its edge through the action bar. */
-            box_bottom += pad;
+            /*
+             * Into the step the group's next heading stands in, which is where the break between
+             * two cards comes from - never past the body, or the bottom card of a list that
+             * filled its window would put its edge through the action bar.
+             *
+             * Not into a step that is a full row. A heading is drawn small and centres itself in
+             * what is left, so it can give the padding up; a row is a line advance with a glyph
+             * cell in it and cannot, so the card's hairline lands on the row's own leading disc
+             * and its corner under the row's highlight. See FB_LIST_PANEL_ROW.
+             */
+            if (fb_list_card_of(list, run) != FB_LIST_PANEL_ROW) {
+                box_bottom += pad;
+            }
             const int floor_y = list->track_y + list->track_h;
             if (box_bottom > floor_y) {
                 box_bottom = floor_y;
@@ -1587,6 +1603,8 @@ struct fb_item_geom {
     int text_x, text_right;
     int content_x;    /* where the row's content starts, before any leading slot is reserved */
     int lead_size;    /* the leading slot's side: one width per list, never per row */
+    int lead_disc;    /* what may actually be drawn in it, once the cards either side have theirs */
+    int lead_y;       /* and where: its own answer, because a shrunken disc is centred not seated */
     int marker_x;     /* a plain row's marker cell; only meaningful when the row reserved one */
     size_t cols;      /* text columns between the leading slot and the trailing edge */
     int bar_y, bar_h; /* a stacked meter's track; bar_h of 0 is a row that has none */
@@ -1594,7 +1612,8 @@ struct fb_item_geom {
 
 static struct fb_item_geom fb_item_measure(const struct mesh_ui_backend_fb_state *state,
                                            const struct fb_list *list,
-                                           const struct fb_list_item *item, uint32_t rows) {
+                                           const struct fb_list_item *item, uint32_t index,
+                                           uint32_t rows) {
     const int scale = state->scale;
     const int adv = fb_char_adv(state, scale);
     const struct fb_row_box box = fb_row_box(state);
@@ -1656,6 +1675,52 @@ static struct fb_item_geom fb_item_measure(const struct mesh_ui_backend_fb_state
      */
     g.lead_size =
         item->leading.kind == FB_LEADING_TONAL_SLOT ? list->line - scale : g.fill_h - scale;
+    /*
+     * And what may actually be *drawn* in that slot, which is a different question the moment
+     * this row stands on the panel with a card under it.
+     *
+     * The slot is the gutter and the gutter may not move - it is what puts every row's words in
+     * one column, which is the whole of what the slot is for. The disc is only what is put in
+     * it, and a row floated between two cards has less room for one than its step suggests: the
+     * card below spends its hairline *upward*, into this step, because a hairline drawn inside
+     * its own first row is a hairline that row's highlight paints out. (The card above no longer
+     * spends anything - see fb_list_cards() - so the room lost is the one edge and not a whole
+     * inset.)
+     *
+     * So the disc is sized to the band the neighbours leave, less a hairline's clearance at each
+     * end so that it is seen to be *between* the cards rather than resting on one, and centred
+     * in the slot. A row with no card under it keeps the full disc, which is every row of every
+     * list that does not draw cards at all.
+     */
+    g.lead_disc = g.lead_size;
+    /* Where it goes: a hairline inside the top of the row's box, which is where a glyph's own
+       ink sits and so what keeps a disc reading as part of the line beside it. */
+    g.lead_y = g.fill_top + fb_space(state, MESH_UI_SPACE_XS);
+    if (fb_list_has_cards(list) && !fb_list_on_card(list, index)) {
+        /*
+         * The band: the step, less the hairline the card below spends upward into it. (The card
+         * above spends nothing - fb_list_cards() closes it at the boundary where a full row
+         * follows - so the only room lost is that one edge.)
+         *
+         * The clearance either end is one pixel and is written as one, not as a hairline or a
+         * space step, because it is the least that can be *seen* and this is the one place in
+         * the list where the room to spend is a handful of pixels. Insetting by a hairline
+         * instead was tried and costs the disc two: at the Brick's own glyph scale that is
+         * exactly the step where fb_draw_avatar() drops its symbol a scale - a third off the
+         * icon, to buy clearance nobody can see. So the disc keeps its full size wherever the
+         * band can hold one, and shrinks only at the small scales where it cannot.
+         */
+        const int band_top = g.fill_top + 1;
+        const int band_bottom = g.fill_top + (int)g.rows * list->line - 1 -
+                                (fb_list_on_card(list, index + 1U) ? fb_edge(state) : 0);
+        const int band = band_bottom - band_top;
+        if (g.lead_disc > band) {
+            g.lead_disc = band > 0 ? band : 0;
+        }
+        /* Centred in the band rather than seated at the top of the box, so what the band has
+           spare is ground at both ends rather than all of it at one. */
+        g.lead_y = band_top + (band - g.lead_disc) / 2;
+    }
     g.content_x = box.text_x;
     g.text_x = g.content_x;
     if (item->leading.kind == FB_LEADING_AVATAR || item->leading.kind == FB_LEADING_TONAL ||
@@ -2189,7 +2254,7 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
     const int scale = state->scale;
     const bool selected = fb_list_is_cursor(list, index);
     const uint32_t rows = fb_list_row_height(list, index);
-    const struct fb_item_geom g = fb_item_measure(state, list, item, rows);
+    const struct fb_item_geom g = fb_item_measure(state, list, item, index, rows);
 
     if (selected) {
         const int radius = fb_radius(state, MESH_UI_SHAPE_SM);
@@ -2238,8 +2303,10 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
     if (item->leading.kind == FB_LEADING_AVATAR || item->leading.kind == FB_LEADING_TONAL) {
         /* The slot the measure reserved, and not a second opinion about it: a disc drawn to any
            other size either leaves a gap its list's other rows do not have or runs under the
-           words. See fb_item_measure(). */
-        const int size = g.lead_size;
+           words. Centred in the slot where the measure had to make it smaller than one, so the
+           room a card took comes off the disc and never off the column. See fb_item_measure(). */
+        const int size = g.lead_disc;
+        const int lead_x = g.content_x + (g.lead_size - size) / 2;
         /*
          * Which pair the disc wears, and the tonal one reads it off the row's tone exactly as
          * the accent bar below does - the row says once what it means and the disc is one of
@@ -2272,8 +2339,8 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
                                            : mesh_ui_theme_avatar(state->theme, item->leading.tint),
                                        fb_color(state, MESH_UI_COLOR_BG)};
         }
-        fb_draw_avatar(state, g.content_x, g.fill_top + fb_space(state, MESH_UI_SPACE_XS), size,
-                       item->leading.label, item->leading.icon, disc);
+        fb_draw_avatar(state, lead_x, g.lead_y, size, item->leading.label, item->leading.icon,
+                       disc);
     } else if (item->leading.kind == FB_LEADING_ICON) {
         fb_draw_icon(state, g.content_x, g.head_y, item->leading.icon, scale, head_ink, ground);
     }
