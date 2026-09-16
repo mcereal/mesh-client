@@ -370,6 +370,14 @@ bool mesh_ui_nav_settings_section_key(struct mesh_ui_nav *nav, const struct mesh
     case MESH_UI_KEY_LEFT:
     case MESH_UI_KEY_RIGHT:
         return mesh_ui_nav_settings_edit_key(nav, store, key);
+    /* A card at a time, where the section has cards. The d-pad walks rows and Left/Right are
+       spoken for by the editor, so the crossing the cards draw is the shoulder pair's - see
+       mesh_ui_nav_cursor_group(). A section with no groups refuses both, which is the same
+       answer the screen gives by drawing no cards. */
+    case MESH_UI_KEY_L2:
+        return mesh_ui_nav_cursor_group(nav, store, -1);
+    case MESH_UI_KEY_R2:
+        return mesh_ui_nav_cursor_group(nav, store, +1);
     case MESH_UI_KEY_Y:
         if (nav->settings_edit_count == 0U) {
             return false;

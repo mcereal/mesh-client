@@ -47,7 +47,10 @@ struct mesh_ui_handshake_state;
  * this is the number that makes the failure unreachable. It costs a couple of hundred bytes of a
  * structure the callers already build on the stack.
  */
-#define MESH_UI_HELP_ENTRIES_MAX (MESH_UI_SETTINGS_ITEMS_MAX + 1U)
+/* The overview, one paragraph per row, and the trailing note about crossing the groups. The
+   last is why this is +2: mesh_ui_help_entry_for_row() maps a row onto 0..rows and relies on the
+   topic being able to hold all of them, so the extra has to be room rather than a row's place. */
+#define MESH_UI_HELP_ENTRIES_MAX (MESH_UI_SETTINGS_ITEMS_MAX + 2U)
 
 /*
  * One paragraph and what it is about.

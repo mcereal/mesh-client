@@ -1329,6 +1329,12 @@ MESH_STR_ENTRY(HELP_SUBJECT_MAP,          "Map")
 MESH_STR_ENTRY(HELP_SUBJECT_SHARE,        "Sharing channels")
 MESH_STR_ENTRY(HELP_SUBJECT_CONTACT,      "Your contact code")
 
+/* Settings, on any section drawn as a column of cards: the one control the action bar has no
+   room to name. A note rather than a keycap on the bar, because the bar is five hints wide on
+   these screens already and a sixth would crowd the thing the cards are there to declutter. */
+MESH_STR_ENTRY(HELP_LABEL_SETTINGS_GROUPS, "Moving between groups")
+MESH_STR_ENTRY(HELP_NOTE_SETTINGS_GROUPS, "L2 and R2 jump a whole group at a time - one card per press - where up and down walk the rows. L1 and R1 still change tabs.")
+
 /* Messages: the conversation list. */
 MESH_STR_ENTRY(HELP_LABEL_MESSAGES_NEW,   "Starting a conversation")
 MESH_STR_ENTRY(HELP_LABEL_MESSAGES_DROP,  "Deleting one")

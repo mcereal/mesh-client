@@ -1555,3 +1555,122 @@ cleanup:
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
+
+/*
+ * The shoulders below the tab pair walk a section a card at a time.
+ *
+ * The cards gave the reader a grouping they could see and had no way to cross: the d-pad walks
+ * rows, Left and Right are the editor's inside a section, and L1/R1 are the tabs. Radio actions
+ * is five groups and eleven rows, so the last group cost ten presses of a button that skips
+ * nothing - which is a card drawn as decoration rather than as structure.
+ *
+ * Four claims, and each is a way the pair could be useless:
+ *
+ *   - forward lands on the first row of the next group, not on its title. A cursor may not stand
+ *     on a heading, and a jump that left it on one would be refused a press later.
+ *   - forward from the last group is refused rather than wrapping, so the two ends of a section
+ *     are where they are on every other key.
+ *   - back from inside a group goes to the top of *that* group before leaving it. This is the
+ *     asymmetry that makes the pair usable with one thumb, and it is the part a "previous
+ *     heading" implementation gets wrong.
+ *   - back again, from the top of a group, crosses into the one before it.
+ *
+ * Radio actions rather than a section built here, because the rule is about what the renderer
+ * cards on and this is the screen it was written for - and the cursor is walked with presses so
+ * the case cannot drift from what the row order actually is.
+ */
+MESH_TEST_CASE(ui_nav_settings_shoulders_walk_the_cards, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+    const char *failure = NULL;
+    char message[160];
+
+    (void)mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS);
+    if (!mesh_test_settings_open(&store, MESH_UI_SETTINGS_ACTIONS)) {
+        failure = "Radio actions could not be opened";
+    }
+
+    struct mesh_ui_action action;
+    uint32_t seen[MESH_UI_SETTINGS_ITEMS_MAX];
+    uint32_t groups = 0U;
+    if (failure == NULL) {
+        /* Forward to the end, recording where each press lands. */
+        seen[groups++] = store.nav.cursor[MESH_UI_SCREEN_SETTINGS];
+        for (;;) {
+            const uint32_t before = store.nav.cursor[MESH_UI_SCREEN_SETTINGS];
+            memset(&action, 0, sizeof action);
+            (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_R2, &action);
+            const uint32_t after = store.nav.cursor[MESH_UI_SCREEN_SETTINGS];
+            if (after == before) {
+                break; /* refused: no group that way */
+            }
+            if (after < before) {
+                failure = "a forward card jump moved the cursor backwards";
+                break;
+            }
+            /* Read through mesh_ui_settings_item() rather than the nav's own accessor, which
+               lives in the group's private header - the rule this file follows above. */
+            struct mesh_ui_settings_item item;
+            if (mesh_ui_settings_item(&store.settings, &store.handshake, store.nav.settings_edits,
+                                      store.nav.settings_edit_count, MESH_UI_SETTINGS_ACTIONS,
+                                      MESH_UI_SETTINGS_NO_CHANNEL, after, &item) &&
+                item.kind == MESH_UI_SETTING_HEADING) {
+                failure = "a card jump parked the cursor on a group title";
+                break;
+            }
+            if (groups >= MESH_UI_SETTINGS_ITEMS_MAX) {
+                failure = "a card jump never stopped going forward";
+                break;
+            }
+            seen[groups++] = after;
+        }
+    }
+    if (failure == NULL && groups < 3U) {
+        snprintf(message, sizeof message,
+                 "Radio actions crossed %u groups, which is too few to be testing anything",
+                 (unsigned)groups);
+        failure = message;
+    }
+
+    /* Back from *inside* the last group goes to that group's own first row, not to the previous
+       group - the asymmetry the pair is built on. Stepping down first is what puts the cursor
+       inside rather than at the top, and a group of one row has nowhere to step. */
+    if (failure == NULL) {
+        const uint32_t top = store.nav.cursor[MESH_UI_SCREEN_SETTINGS];
+        memset(&action, 0, sizeof action);
+        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+        if (store.nav.cursor[MESH_UI_SCREEN_SETTINGS] == top) {
+            failure = "the last group is one row, so there is no 'inside' to come back from";
+        } else {
+            memset(&action, 0, sizeof action);
+            (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_L2, &action);
+            if (store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != top) {
+                snprintf(message, sizeof message,
+                         "back from inside a group landed on row %u rather than on its first row "
+                         "%u",
+                         (unsigned)store.nav.cursor[MESH_UI_SCREEN_SETTINGS], (unsigned)top);
+                failure = message;
+            }
+        }
+    }
+
+    /* And again, from the top, crosses into the group before it - which is where the forward
+       walk said it would be. */
+    if (failure == NULL) {
+        memset(&action, 0, sizeof action);
+        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_L2, &action);
+        const uint32_t want = seen[groups - 2U];
+        if (store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != want) {
+            snprintf(message, sizeof message,
+                     "back from the top of a group landed on row %u rather than on the previous "
+                     "group's first row %u",
+                     (unsigned)store.nav.cursor[MESH_UI_SCREEN_SETTINGS], (unsigned)want);
+            failure = message;
+        }
+    }
+
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}

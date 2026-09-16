@@ -920,6 +920,170 @@ static bool mesh_ui_nav_move_cursor(struct mesh_ui_nav *nav, const struct mesh_u
     return true;
 }
 
+/*
+ * Which of a screen's rows are group titles, in one pass.
+ *
+ * mesh_ui_nav_row_is_heading() answers for one row by building the whole screen, which is the
+ * right trade for a single step - a press asks it twice - and the wrong one for a jump, which
+ * would ask it once per row it walks past. Same two screens and the same two builds, asked once
+ * between them. Returns the row count, or 0 for a screen that draws no groups.
+ */
+static uint32_t mesh_ui_nav_heading_map(const struct mesh_ui_nav *nav,
+                                        const struct mesh_ui_store *store, bool *out,
+                                        uint32_t max) {
+    if (nav == NULL || store == NULL) {
+        return 0U;
+    }
+    if (nav->screen == MESH_UI_SCREEN_NODES && nav->node_detail_open) {
+        const struct mesh_ui_node_summary *node =
+            mesh_ui_node_detail_find(&store->handshake, nav->node_detail_node);
+        if (node == NULL) {
+            return 0U;
+        }
+        struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
+        const uint32_t count = mesh_ui_node_detail_build(
+            node, mesh_ui_nav_node_is_self(store, node), 0U, &store->traceroute, false,
+            &store->handshake, NULL, false, items, MESH_UI_NODE_ITEMS_MAX);
+        const uint32_t rows = count < max ? count : max;
+        for (uint32_t r = 0; r < rows; ++r) {
+            out[r] = items[r].kind == MESH_UI_NODE_ROW_HEADING;
+        }
+        return rows;
+    }
+    if (nav->screen == MESH_UI_SCREEN_SETTINGS &&
+        nav->settings_section != MESH_UI_SETTINGS_NO_SECTION) {
+        struct mesh_ui_settings_item items[MESH_UI_SETTINGS_ITEMS_MAX];
+        const uint32_t count = mesh_ui_settings_items(
+            &store->settings, store->handshake_valid ? &store->handshake : NULL,
+            nav->settings_edits, nav->settings_edit_count,
+            (enum mesh_ui_settings_section)nav->settings_section, nav->settings_channel, items,
+            MESH_UI_SETTINGS_ITEMS_MAX);
+        const uint32_t rows = count < max ? count : max;
+        for (uint32_t r = 0; r < rows; ++r) {
+            out[r] = items[r].kind == MESH_UI_SETTING_HEADING;
+        }
+        return rows;
+    }
+    return 0U;
+}
+
+/* The first row at or after `row` that is not a title, walking forward. The map's own form of
+   mesh_ui_nav_skip_headings(), and forward-only because every caller below opens a group. */
+static uint32_t mesh_ui_nav_map_first_row(const bool *heading, uint32_t rows, uint32_t row) {
+    uint32_t at = row;
+    while (at < rows && heading[at]) {
+        at += 1U;
+    }
+    return at;
+}
+
+/*
+ * Moves the cursor a whole *group* instead of a row: L2 and R2, on the two screens that draw
+ * their groups as cards.
+ *
+ * The d-pad walks rows, which is the right unit for choosing one and the wrong unit for reaching
+ * the group it is in. Radio actions is five groups and eleven rows, and a card is a boundary the
+ * reader can see and had no way to cross - so the cards were a grouping the eye was given and
+ * the thumb was not. L1/R1 are the tabs; within a screen the pair below them was free, and this
+ * is what makes a card worth drawing rather than decoration.
+ *
+ * Forward lands on the first row of the next group. Back lands on the first row of *this* group,
+ * and only on the previous group's when the cursor is already there. The asymmetry is deliberate
+ * and it is what makes the pair usable with one thumb: back from halfway down a long group means
+ * "to the top of this one", which is what the same button does in every document reader, and it
+ * is why this is not simply "the previous title".
+ *
+ * Headings are the boundary because a heading is what the renderer opens a card on - the rule
+ * settings_section_has_heading() states one file over. A screen that draws no groups has no
+ * boundaries to cross, so the press is refused rather than answered with a grouping the reader
+ * cannot see.
+ */
+bool mesh_ui_nav_cursor_group(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                              int delta) {
+    if (nav == NULL || store == NULL || delta == 0) {
+        return false;
+    }
+    bool heading[MESH_UI_NODE_ITEMS_MAX];
+    memset(heading, 0, sizeof heading);
+    const uint32_t rows = mesh_ui_nav_heading_map(nav, store, heading, MESH_UI_NODE_ITEMS_MAX);
+    if (rows == 0U) {
+        return false;
+    }
+    /*
+     * Two groups, or there is nothing to cross.
+     *
+     * The same count mesh_ui_settings_section_groups() answers for a settings section, taken off
+     * the map here because this serves the node detail too - and the same threshold the renderer
+     * draws cards at, deliberately: a screen showing one group and a screen showing none look
+     * identical, so a press that moved on one and not the other would be a key whose meaning the
+     * reader cannot see. Counted rather than assumed from the heading, which is the correction:
+     * a lone heading over the only group is a section with a title, not a section with parts.
+     */
+    uint32_t groups = 0U;
+    bool in_group = false;
+    for (uint32_t r = 0; r < rows; ++r) {
+        if (heading[r]) {
+            in_group = false;
+            continue;
+        }
+        if (!in_group) {
+            groups++;
+            in_group = true;
+        }
+    }
+    if (groups < 2U) {
+        return false;
+    }
+    uint32_t *cursor = &nav->cursor[nav->screen];
+    if (*cursor >= rows) {
+        return false;
+    }
+
+    uint32_t dest;
+    if (delta > 0) {
+        uint32_t at = *cursor + 1U;
+        while (at < rows && !heading[at]) {
+            at += 1U;
+        }
+        if (at >= rows) {
+            return false; /* no group after this one */
+        }
+        dest = mesh_ui_nav_map_first_row(heading, rows, at);
+    } else {
+        /* The title that opens the cursor's own group, and the row under it. */
+        uint32_t head = *cursor;
+        bool have_head = false;
+        while (head-- > 0U) {
+            if (heading[head]) {
+                have_head = true;
+                break;
+            }
+        }
+        const uint32_t start = mesh_ui_nav_map_first_row(heading, rows, have_head ? head + 1U : 0U);
+        if (start < *cursor) {
+            dest = start; /* not at the top of this group yet */
+        } else {
+            if (!have_head) {
+                return false; /* already at the first row of the first group */
+            }
+            uint32_t prev = head;
+            bool have_prev = false;
+            while (prev-- > 0U) {
+                if (heading[prev]) {
+                    have_prev = true;
+                    break;
+                }
+            }
+            dest = mesh_ui_nav_map_first_row(heading, rows, have_prev ? prev + 1U : 0U);
+        }
+    }
+    if (dest >= rows || heading[dest] || dest == *cursor) {
+        return false;
+    }
+    *cursor = dest;
+    return true;
+}
+
 /* ---- compose overlay ---------------------------------------------------------------------- */
 
 /* Sends one canned reply to the open thread. */
@@ -1948,6 +2112,14 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
         return mesh_ui_nav_move_cursor(nav, store, -1) || changed;
     case MESH_UI_KEY_DOWN:
         return mesh_ui_nav_move_cursor(nav, store, +1) || changed;
+    /* A whole group at a time, for the screens that draw their groups as cards - the node detail
+       here, and a settings section through mesh_ui_nav_settings_section_key() above. Safe to ask
+       unconditionally: a screen with no headings has no boundaries and answers false, exactly as
+       it draws no cards. See mesh_ui_nav_cursor_group(). */
+    case MESH_UI_KEY_L2:
+        return mesh_ui_nav_cursor_group(nav, store, -1) || changed;
+    case MESH_UI_KEY_R2:
+        return mesh_ui_nav_cursor_group(nav, store, +1) || changed;
     case MESH_UI_KEY_START:
         /*
          * The conversation list is the second screen to spend START on something of its own,

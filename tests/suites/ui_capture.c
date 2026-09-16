@@ -4124,3 +4124,162 @@ MESH_TEST_CASE(ui_capture_settings_marks_both_halves_of_an_unsaved_row, unit) {
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
+
+/* ---- what a card is for, and what a verb's colour is for ---------------------------------- */
+
+/*
+ * Opens `section` on a populated store and renders it, leaving the page ready to be read.
+ *
+ * Four of the cases below want the same six steps, and the store and the capture both have to
+ * outlive the read - so this hands both back and every caller closes both. Returns NULL, or the
+ * message to fail with.
+ */
+static const char *render_section(enum mesh_ui_settings_section section,
+                                  struct mesh_ui_store *store, struct mesh_ui_capture **capture) {
+    *capture = NULL;
+    if (mesh_ui_store_init(store) != 0) {
+        return "store init failed";
+    }
+    mesh_test_nav_populate(store);
+    if (!mesh_test_open_tab(store, MESH_UI_SCREEN_SETTINGS)) {
+        return "the Settings tab could not be reached";
+    }
+    if (!mesh_test_settings_open(store, section)) {
+        return "the section could not be opened";
+    }
+    struct mesh_ui_snapshot snapshot;
+    memset(&snapshot, 0, sizeof snapshot);
+    mesh_ui_store_request_refresh(store);
+    if (!mesh_ui_store_consume_updates(store, &snapshot)) {
+        return "no snapshot to render";
+    }
+    if (mesh_ui_capture_open(capture, MESH_UI_CAPTURE_WIDTH, MESH_UI_CAPTURE_HEIGHT, 4) != 0) {
+        return "capture open failed";
+    }
+    mesh_ui_capture_render(*capture, &snapshot);
+    return NULL;
+}
+
+/*
+ * A section with no groups draws no cards.
+ *
+ * A card says "these rows belong together", so it needs something to be together apart from. One
+ * card wrapping a whole section says nothing at all: it is a border drawn round the page. Modules
+ * is the case - fourteen rows, no headings, nothing to group - and it was drawn inside a single
+ * surface because the renderer set its card flag for every open section and only the *assignment*
+ * checked for headings.
+ *
+ * Asked the way ui_capture_draws_the_status_cards() asks the opposite question, and with the same
+ * two roles, so the pair cannot drift: a card is a fill spanning most of the width with a
+ * hairline doing the same, and neither belongs on a screen of plain rows. A selected row is a
+ * fill on its own, which is why the edge is checked too and why the threshold is what Status is
+ * held to rather than zero.
+ */
+MESH_TEST_CASE(ui_capture_an_ungrouped_section_draws_no_card, unit) {
+    struct mesh_ui_store store;
+    struct mesh_ui_capture *capture = NULL;
+    const char *failure = render_section(MESH_UI_SETTINGS_MODULES, &store, &capture);
+    if (failure == NULL) {
+        uint32_t width = 0U;
+        uint32_t height = 0U;
+        size_t stride = 0U;
+        const uint8_t *pixels = mesh_ui_capture_pixels(capture, &width, &height, &stride);
+        if (widest_row_run(capture, pixels, width, height, stride, MESH_UI_COLOR_OUTLINE) >= 80U) {
+            failure = "Modules draws a card edge across a section that has no groups";
+        }
+    }
+    if (capture != NULL) {
+        mesh_ui_capture_close(capture);
+    }
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * And a section that *does* have groups still draws them, which is the other half of the rule
+ * above and the reason it is two cases. A gate that silenced every card would pass the one
+ * before this and lose the grouping everywhere - Radio actions is five groups and is what the
+ * cards were added for.
+ */
+MESH_TEST_CASE(ui_capture_a_grouped_section_draws_cards, unit) {
+    struct mesh_ui_store store;
+    struct mesh_ui_capture *capture = NULL;
+    const char *failure = render_section(MESH_UI_SETTINGS_ACTIONS, &store, &capture);
+    if (failure == NULL) {
+        uint32_t width = 0U;
+        uint32_t height = 0U;
+        size_t stride = 0U;
+        const uint8_t *pixels = mesh_ui_capture_pixels(capture, &width, &height, &stride);
+        if (widest_row_run(capture, pixels, width, height, stride, MESH_UI_COLOR_OUTLINE) < 80U) {
+            failure = "Radio actions draws no card edge across a section that is five groups";
+        }
+    }
+    if (capture != NULL) {
+        mesh_ui_capture_close(capture);
+    }
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * A verb's colour is in its gutter, never in its words.
+ *
+ * FB_LEADING_TONAL is documented with exactly this - "with the colour in the disc the words go
+ * back to the ordinary ink" - and the settings renderer said it again in a comment of its own.
+ * Neither was true: the row handed its tone to fb_list_item, which inks the label from it, so
+ * every weighted row drew weighted words. Radio actions carries a warning or an error on nine
+ * rows in ten, and what that came to on the screen was a wall of orange with the two rows that
+ * cannot be undone somewhere inside it - the thing the discs were introduced to end.
+ *
+ * Read as a bound on *where* rather than a count of how many, because the tone is still spent:
+ * the accent edge down an irreversible row is drawn in the row's own family, and it lives in the
+ * gutter with the disc. So the claim is that no tone ink reaches the text column, which holds
+ * whatever the rows come to say and however many of them carry a weight. It fails by a wide
+ * margin in either direction - the labels put warning ink out to 43% of the width, and the
+ * gutter alone reaches 5%.
+ */
+MESH_TEST_CASE(ui_capture_a_verb_keeps_the_ordinary_ink, unit) {
+    struct mesh_ui_store store;
+    struct mesh_ui_capture *capture = NULL;
+    const char *failure = render_section(MESH_UI_SETTINGS_ACTIONS, &store, &capture);
+    char message[160];
+    if (failure == NULL) {
+        uint32_t width = 0U;
+        uint32_t height = 0U;
+        size_t stride = 0U;
+        const uint8_t *pixels = mesh_ui_capture_pixels(capture, &width, &height, &stride);
+        const struct mesh_ui_theme *theme = mesh_ui_capture_theme(capture);
+        const struct mesh_ui_rgb warn = mesh_ui_theme_tone(theme, MESH_UI_TONE_WARNING);
+        const struct mesh_ui_rgb err = mesh_ui_theme_tone(theme, MESH_UI_TONE_ERROR);
+        /* Where the leading gutter ends, generously: a disc is one line tall and the words start
+           just past it, so a tenth of the panel is room for the gutter and nothing else. */
+        const uint32_t gutter = width / 10U;
+        uint32_t rightmost = 0U;
+        for (uint32_t y = 0U; y < height; ++y) {
+            const uint8_t *row = pixels + (size_t)y * stride;
+            for (uint32_t x = gutter; x < width; ++x) {
+                const uint8_t *p = row + (size_t)x * 4U;
+                const bool toned = (p[0] == warn.b && p[1] == warn.g && p[2] == warn.r) ||
+                                   (p[0] == err.b && p[1] == err.g && p[2] == err.r);
+                if (toned && x > rightmost) {
+                    rightmost = x;
+                }
+            }
+        }
+        if (rightmost > 0U) {
+            snprintf(message, sizeof message,
+                     "a verb's tone reaches the text column: warning or error ink at x=%u, past "
+                     "the gutter at x=%u",
+                     rightmost, gutter);
+            failure = message;
+        }
+    }
+    if (capture != NULL) {
+        mesh_ui_capture_close(capture);
+    }
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}

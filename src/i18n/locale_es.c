@@ -562,6 +562,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_HELP_SUBJECT_WAYPOINT] = "Lugar",
     [MESH_STR_HELP_SUBJECT_MAP] = "Mapa",
     [MESH_STR_HELP_SUBJECT_SHARE] = "Compartir canales",
+    [MESH_STR_HELP_LABEL_SETTINGS_GROUPS] = "Moverse entre grupos",
     [MESH_STR_HELP_LABEL_MESSAGES_NEW] = "Empezar una conversación",
     [MESH_STR_HELP_LABEL_MESSAGES_DROP] = "Borrar una",
     [MESH_STR_HELP_LABEL_MESSAGES_MUTE] = "Silenciar una",

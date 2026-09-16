@@ -159,6 +159,7 @@ Five tabs: **Messages, Nodes, Devices, Status, Settings.**
 | Key | Action |
 |---|---|
 | Left/Right, L1/R1 | switch tab |
+| L2/R2 | move a whole group at a time, where a screen draws its groups as cards |
 | Up/Down | move the cursor — hold to keep scrolling, which speeds up after a few rows |
 | A | act on the row |
 | B | back out |
