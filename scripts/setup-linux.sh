@@ -4,9 +4,12 @@
 # The core is Linux-only (epoll/timerfd/eventfd), so on macOS everything goes through
 # scripts/docker.sh. On a Linux host the same build works natively once these are present:
 #
+#   - cmake >= 3.21       CMakePresets.json is version 3; below that nothing configures
+#   - ninja               the generator every build tree here is configured with
 #   - git submodules      nanopb, meshtastic/protobufs (CMake FATAL_ERRORs without them)
 #   - libdbus-1-dev       sets MESH_HAVE_DBUS; without it the BLE transport compiles out
 #   - python protobuf     needed by nanopb_generator to regenerate the .pb.c/.pb.h sources
+#   - libclang-rt-18-dev  clang's sanitizer runtimes; only the ASan/UBSan builds need them
 #
 # Usage:
 #   scripts/setup-linux.sh              # install everything that is missing
@@ -72,25 +75,78 @@ have_compiler() {
     command -v cc >/dev/null 2>&1 || command -v gcc >/dev/null 2>&1 || command -v clang >/dev/null 2>&1
 }
 
+# Present is not the same as usable, and these two are why this script checks more than
+# `command -v`. Each one is a host that builds nothing while every check passes.
+CMAKE_REQUIRED_MAJOR=3
+CMAKE_REQUIRED_MINOR=21
+
+cmake_version() {
+    command -v cmake >/dev/null 2>&1 || return 1
+    cmake --version 2>/dev/null | sed -n '1s/^cmake version \([0-9][0-9]*\.[0-9][0-9]*\).*/\1/p'
+}
+
+# CMakePresets.json is version 3, which arrived in CMake 3.21. Every documented build route
+# goes through it, so an older cmake stops before configuring anything - and `command -v cmake`
+# says yes the whole time.
+cmake_too_old() {
+    local version major minor
+    version="$(cmake_version)" || return 1
+    [ -n "$version" ] || return 1
+    major="${version%%.*}"
+    minor="${version#*.}"
+    if [ "$major" -lt "$CMAKE_REQUIRED_MAJOR" ]; then
+        return 0
+    fi
+    if [ "$major" -eq "$CMAKE_REQUIRED_MAJOR" ] && [ "$minor" -lt "$CMAKE_REQUIRED_MINOR" ]; then
+        return 0
+    fi
+    return 1
+}
+
+# Ubuntu's clang package does not pull the sanitizer runtimes in, so `command -v clang` says
+# yes and `-fsanitize=address` fails at the link step. Ask clang where its runtime directory is
+# rather than guessing: the file is libclang_rt.asan-x86_64.a here and -aarch64.a elsewhere.
+# No clang, nothing to be missing.
+sanitizer_runtime_missing() {
+    local dir lib
+    command -v clang >/dev/null 2>&1 || return 1
+    dir="$(clang -print-runtime-dir 2>/dev/null)" || return 1
+    [ -n "$dir" ] || return 1
+    for lib in "$dir"/libclang_rt.asan*; do
+        if [ -e "$lib" ]; then
+            return 1
+        fi
+    done
+    return 0
+}
+
 toolchain_missing() {
-    for tool in cmake pkg-config python3; do
+    for tool in cmake ninja pkg-config python3; do
         command -v "$tool" >/dev/null 2>&1 || return 0
     done
     have_compiler || return 0
+    cmake_too_old && return 0
+    sanitizer_runtime_missing && return 0
     return 1
 }
 
 echo "==> Toolchain"
 if toolchain_missing; then
-    for tool in cmake pkg-config python3; do
+    for tool in cmake ninja pkg-config python3; do
         command -v "$tool" >/dev/null 2>&1 || say "missing: $tool"
     done
     have_compiler || say "missing: a C compiler"
+    if cmake_too_old; then
+        say "too old: cmake $(cmake_version), and CMakePresets.json needs ${CMAKE_REQUIRED_MAJOR}.${CMAKE_REQUIRED_MINOR}"
+    fi
+    if sanitizer_runtime_missing; then
+        say "missing: libclang-rt-18-dev (clang's sanitizer runtimes)"
+    fi
     if [ "$CHECK_ONLY" -eq 0 ]; then
         ensure_apt_packages || true
     fi
 else
-    for tool in cmake pkg-config python3; do
+    for tool in cmake ninja pkg-config python3; do
         say "$tool: $(command -v "$tool")"
     done
     say "C compiler: present"
@@ -140,10 +196,22 @@ echo
 REMAINING=0
 report_missing() { REMAINING=1; printf '  STILL MISSING: %s\n' "$*"; }
 
-for tool in cmake pkg-config python3; do
+# Reported but not fatal: an ordinary build and the whole test suite are fine without the
+# sanitizer runtimes, and only `make debug CMAKE_ARGS="-- -DMESHCLIENT_ENABLE_ASAN=ON"` is not.
+# Turning a host that cannot install them - anything not apt-based - away from building at all
+# would be the wrong trade, but going on to print "Ready" was how this went unnoticed.
+report_note() { printf '  NOTE: %s\n' "$*"; }
+
+for tool in cmake ninja pkg-config python3; do
     command -v "$tool" >/dev/null 2>&1 || report_missing "$tool"
 done
 have_compiler || report_missing "a C compiler"
+if cmake_too_old; then
+    report_missing "cmake ${CMAKE_REQUIRED_MAJOR}.${CMAKE_REQUIRED_MINOR} or newer (found $(cmake_version); CMakePresets.json is version 3)"
+fi
+if sanitizer_runtime_missing; then
+    report_note "libclang-rt-18-dev is absent, so the ASan/UBSan builds will not link"
+fi
 pkg-config --exists dbus-1 2>/dev/null || report_missing "libdbus-1-dev"
 python3 -c 'import google.protobuf' >/dev/null 2>&1 || report_missing "python protobuf"
 if git submodule status --recursive 2>/dev/null | grep '^[-+]' >/dev/null; then
