@@ -249,11 +249,18 @@ static void app_mqtt_state_changed(void *userdata, enum mesh_mqtt_proxy_state st
     if (app == NULL) {
         return;
     }
-    const char *host = mesh_mqtt_proxy_host(&app->mqtt);
-    if (state == MESH_MQTT_PROXY_READY) {
-        mesh_log_info("mqtt", "Broker %s accepted us as %s", host, app->mqtt.config.client_id);
-    } else if (state == MESH_MQTT_PROXY_WAITING) {
-        mesh_log_warn("mqtt", "Broker %s: %s", host, mesh_mqtt_proxy_last_error(&app->mqtt));
+    /*
+     * Only the failure. The proxy logs its own CONNACK - "Connected to %s as %s" - and a second
+     * line here saying the same thing in different words is two entries per connection in a log
+     * somebody is reading to find out why there is none.
+     *
+     * The reason a failure needs saying *here* is that the proxy records it and carries on: it
+     * goes into `last_error` for the Status card and nothing prints it, so on a device whose
+     * screen is not being watched the retry loop would be silent about what it was retrying.
+     */
+    if (state == MESH_MQTT_PROXY_WAITING) {
+        mesh_log_warn("mqtt", "Broker %s: %s", mesh_mqtt_proxy_host(&app->mqtt),
+                      mesh_mqtt_proxy_last_error(&app->mqtt));
     }
 }
 

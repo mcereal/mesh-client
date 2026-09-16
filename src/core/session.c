@@ -1605,31 +1605,44 @@ int mesh_session_mqtt_filter(const struct mesh_session *session, size_t index, c
     }
 
     /*
-     * The root and the preset come from the settings rather than from `handshake.config`,
-     * which is a oneof holding whichever fragment arrived last. `settings` is where the config
-     * sync accumulates them, so it is the only place both are true at once.
+     * All three inputs come from `settings` rather than from `handshake`, and the third one is
+     * there because of a bug the first two were already written to avoid.
+     *
+     * The root and the preset were taken from here because `handshake.config` is a oneof holding
+     * whichever fragment arrived last, and `settings` is where the config sync accumulates them.
+     * The channel table was read out of `handshake.channels[]` anyway - and that table is
+     * written by *one* of the two paths a channel arrives on. A channel edited from this client
+     * comes back as an AdminMessage get_channel_response, which lands in
+     * `mesh_radio_settings_apply_channel()` and updates `settings` alone, so turning downlink on
+     * from the Settings screen left the derivation reading the flag it had at connect time and
+     * the subscription was never made. The Settings screen itself reads `settings.has_channel[]`,
+     * so the row said "on" while the proxy was still subscribed to nothing.
+     *
+     * One table, written by both paths, and the same table the rest of this function already
+     * trusted.
      */
-    const char *root = session->settings.has_mqtt ? session->settings.mqtt.root : NULL;
-    const meshtastic_Config_LoRaConfig *lora =
-        session->settings.has_lora ? &session->settings.lora : NULL;
-    const struct mesh_handshake_status *handshake = &session->handshake;
+    const struct mesh_radio_settings *radio = &session->settings;
+    const char *root = radio->has_mqtt ? radio->mqtt.root : NULL;
+    const meshtastic_Config_LoRaConfig *lora = radio->has_lora ? &radio->lora : NULL;
 
     size_t seen = 0U;
-    for (size_t slot = 0U; slot < handshake->channel_count && slot < MESH_SESSION_MAX_CHANNELS;
-         ++slot) {
-        const struct mesh_channel_summary *channel = &handshake->channels[slot];
+    for (size_t slot = 0U; slot < MESH_RADIO_SETTINGS_MAX_CHANNELS; ++slot) {
+        if (!radio->has_channel[slot]) {
+            continue;
+        }
+        const meshtastic_Channel *channel = &radio->channels[slot];
         /*
          * Downlink, not uplink. They are separate settings and this is the receiving half: a
          * channel that uplinks without downlinking is one whose traffic should reach the broker
          * and whose broker traffic should not reach the mesh, and subscribing to it anyway
          * would quietly undo the setting.
          */
-        if (!channel->downlink_enabled) {
+        if (!channel->has_settings || !channel->settings.downlink_enabled) {
             continue;
         }
         if (seen == index) {
             return mesh_mqtt_subscribe_filter(out, cap, root,
-                                              mesh_mqtt_channel_id(channel->name, lora));
+                                              mesh_mqtt_channel_id(channel->settings.name, lora));
         }
         seen++;
     }
