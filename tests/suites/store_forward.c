@@ -748,12 +748,15 @@ MESH_TEST_CASE(store_forward_rows_say_who_would_answer, unit) {
                       "there should be no result row before the first press");
 
     /* With no link the row says why it cannot be pressed rather than disappearing: a section
-       whose length changes when the radio drops moves the cursor out from under the user. */
+       whose length changes when the radio drops moves the cursor out from under the user. It
+       stays the *verb* it was - ACTION_OFF rather than a stated fact - so it keeps its symbol
+       and its place in the column, and only the offer is withdrawn. */
     count = sf_rows(&sf, false, items, (uint32_t)(sizeof items / sizeof items[0]));
     ask = sf_row(items, count, "Get missed messages");
-    MESH_TEST_FAIL_IF(ask == NULL || ask->kind != MESH_UI_SETTING_INFO ||
+    MESH_TEST_FAIL_IF(ask == NULL || ask->kind != MESH_UI_SETTING_ACTION_OFF ||
+                          !mesh_ui_settings_item_is_verb(ask) ||
                           strcmp(ask->value, "not connected") != 0,
-                      "without a link the request row should say why");
+                      "without a link the request row should be the same verb, withdrawn");
 
     sf.router = SF_ROUTER;
     sf.router_secondary = true;

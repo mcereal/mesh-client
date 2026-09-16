@@ -3422,10 +3422,99 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
      * Modules, which is one wearing a section's clothes. Everything else is settings, and a
      * setting's row already says what it is in its label column.
      */
-    const bool rows_lead_with_icon = !section_open || mesh_ui_settings_section_icons_rows(section);
-
     /* Label column: a fixed width so values line up, capped for narrow scales. */
     const size_t label_cols = fb_field_label_cols(state, layout, 0U);
+    /*
+     * Which card each row stands on, and whether that card is a card of verbs - measured here,
+     * in one pass, before anything is placed.
+     *
+     * This is the node detail's arrangement arriving on the screen it was always going to be
+     * wanted on. A heading opens a card and everything under it belongs to that card until the
+     * next one; the heading itself stands on no card, in the break, where it becomes the card's
+     * label and pays for both cards' insets without costing a row. Derived rather than declared
+     * because the groups are already in the rows - a `group` field on the item would be a second
+     * way of saying what MESH_UI_SETTING_HEADING says.
+     *
+     * A section with no headings gets no cards at all and draws exactly as it always has. That
+     * is the right answer rather than a gap: a card is what says "these rows belong together",
+     * and a list with one group has nothing to say it about.
+     *
+     * The leading slot is decided per card, which is the same rule the node detail follows and
+     * for the same reason. A slot is declared for a whole list or for none of it, because a list
+     * that indents only the rows carrying a symbol starts its text in two columns - and on a
+     * column of cards the run of rows that rule is about is the card, not the screen. Two shapes
+     * and nothing between them: a card of verbs, where every row leads with a disc, and a card
+     * of settings, whose rows start at the card's own padding.
+     */
+    uint8_t cards[MESH_UI_SETTINGS_ITEMS_MAX];
+    bool any_cards = false;
+    memset(cards, FB_LIST_NO_CARD, sizeof cards);
+    if (section_open) {
+        /*
+         * Every row of an open section stands on a card, and the headings are what break the
+         * column into them. A section with no headings at all is one card, which is the same
+         * statement with one group in it - and the rows ahead of a section's first heading are
+         * a group too, an unnamed one, exactly as the block at the top of a phone's settings
+         * page is a card before any label appears.
+         *
+         * Starting at 0 rather than at FB_LIST_NO_CARD is the whole of that: the first heading
+         * closes the opening card instead of creating the first one.
+         */
+        uint8_t card = 0U;
+        bool run_verbs = false;
+        bool run_open = false;
+        any_cards = true;
+        for (uint32_t r = 0; r < count; ++r) {
+            if (items[r].kind == MESH_UI_SETTING_HEADING) {
+                /*
+                 * The heading stands on no card, in the break between the one that ended and the
+                 * one it opens - which is where the column gets the only air it has, and why the
+                 * grouping costs no rows. See the card-list note in fb_widgets.h.
+                 */
+                card = (uint8_t)(card + 1U);
+                cards[r] = FB_LIST_NO_CARD;
+                run_open = false;
+                continue;
+            }
+            const bool verb = mesh_ui_settings_item_is_verb(&items[r]);
+            if (run_open && verb != run_verbs) {
+                /*
+                 * A group that turns from settings into verbs partway down is two cards, and
+                 * this is the one place the grouping is not simply the headings.
+                 *
+                 * The leading slot forces it. A card of verbs indents every row past a disc and
+                 * a card of settings starts at the card's own padding, so a card holding both
+                 * begins its words in two columns - the exact failure the slot's all-or-nothing
+                 * rule exists to prevent, and one that is visible the moment a section puts a
+                 * press under a group of fields: LoRa's "Ham mode" is three values and then the
+                 * switch that applies them.
+                 *
+                 * Splitting rather than picking one shape for the whole group is the node
+                 * detail's answer restated - a card of verbs or a card of facts, nothing between
+                 * - and it keeps the reason visible, because what separates the two cards is the
+                 * thing that separates the two kinds of row. The heading still names the group;
+                 * the second card is the part of it that does something.
+                 */
+                card = (uint8_t)(card + 1U);
+            }
+            cards[r] = card;
+            run_verbs = verb;
+            run_open = true;
+        }
+    }
+    /*
+     * Which rows lead with a symbol, for everything that is not a verb.
+     *
+     * The two lists here that are lists of *subjects* rather than of settings: the section list,
+     * and Modules, which is one wearing a section's clothes. Neither is grouped, so both answer
+     * for the whole screen the way they always have.
+     *
+     * A verb does not consult this and does not need to. The split above leaves every card
+     * either all verbs or no verbs, so "this row leads with a disc" and "this card leads with
+     * discs" are the same statement - which is what makes the leading slot's all-or-nothing rule
+     * hold per card without anything having to check it twice.
+     */
+    const bool rows_lead_with_icon = !section_open || mesh_ui_settings_section_icons_rows(section);
     /*
      * Which rows carry a slider, measured here and handed to the model before the first row is
      * placed - the node detail's arrangement, and the rule step 9 left behind: the screen
@@ -3441,8 +3530,8 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
     for (uint32_t r = 0; r < count; ++r) {
         heights[r] = (section_open && settings_row_slider(&items[r], NULL)) ? 2U : 1U;
     }
-    struct fb_list list =
-        fb_list_begin_heights(layout, count, nav->cursor[MESH_UI_SCREEN_SETTINGS], heights);
+    struct fb_list list = fb_list_begin_cards(layout, count, nav->cursor[MESH_UI_SCREEN_SETTINGS],
+                                              heights, any_cards ? cards : NULL);
     uint32_t i;
     while (fb_list_next(&list, &i)) {
         if (section_open) {
@@ -3450,7 +3539,20 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
             /* A heading names the group below it: dimmed, no marker, and no value column -
                the same row the node detail draws, so the two screens stay identical. */
             if (item.kind == MESH_UI_SETTING_HEADING) {
-                fb_list_subheader(state, &list, i, item.label);
+                /*
+                 * The card's own symbol, from the group rather than from here, in the disc that
+                 * makes this line a card *header* rather than a label floating over a panel.
+                 *
+                 * Optional per heading, unlike the node detail's, because a settings group's
+                 * subject is not always a thing this client has a rune for - "Sent with a
+                 * position" is a sentence about ten bits. MESH_UI_ICON_NONE leaves the heading
+                 * exactly as it was, which is what most sections still draw.
+                 */
+                fb_list_subheader_icon(
+                    state, &list, i, item.label,
+                    item.icon != MESH_UI_ICON_NONE
+                        ? (struct fb_leading){.kind = FB_LEADING_TONAL, .icon = item.icon}
+                        : (struct fb_leading){.kind = FB_LEADING_NONE});
                 continue;
             }
             /*
@@ -3480,6 +3582,71 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                 rows_lead_with_icon
                     ? (struct fb_leading){.kind = FB_LEADING_ICON, .icon = item.icon}
                     : (struct fb_leading){.kind = FB_LEADING_NONE};
+            /*
+             * A verb, drawn as one: the symbol in a tonal disc at the leading edge, the label
+             * across the row, and nothing in a value column - which is where "press A" used to
+             * be, eight times down one screen.
+             *
+             * That value is still on the item and still what the CLI backend draws. Here it is
+             * noise twice over: the action bar three rows below already says what A does on this
+             * screen, and a column of identical instructions is a column the eye has to skip to
+             * reach the labels, which are the only part that differs. The chevron says the row
+             * opens something - every one of these opens a confirm sheet or a screen - and the
+             * disc says what it is about, which is what the words were carrying alone.
+             *
+             * The colour is the row's own tone, stated once. FB_LEADING_TONAL reads the family
+             * back out of it for the disc, `accent_edge` takes the same answer for the bar down
+             * a row that cannot be walked back, and the label keeps the ordinary ink either way -
+             * because a card where every verb shouts is a card where none of them does. This is
+             * word for word the node detail's action card, which is the point: there is one way
+             * this client draws a verb.
+             *
+             * What rides the trailing edge instead of the chevron, when there is something to
+             * say: the count a forget would remove, as a badge in the row's own family, because
+             * "seven nodes" is the size of what the press costs and a figure the reader is meant
+             * to weigh belongs where the eye already is. A withdrawn verb puts the reason there
+             * as quiet words and drops the chevron altogether - a row that does nothing must not
+             * claim to open anything.
+             */
+            if (mesh_ui_settings_item_is_verb(&item)) {
+                const bool off = (item.kind == MESH_UI_SETTING_ACTION_OFF);
+                const enum mesh_ui_tone verb_tone = item.conflict ? MESH_UI_TONE_WARNING
+                                                    : item.dirty  ? MESH_UI_TONE_STRONG
+                                                                  : item.tone;
+                /*
+                 * The trailing slot says the one thing the row has left to say, and for most
+                 * verbs that is "this opens something" - which every one of these does, into a
+                 * confirm sheet or a screen.
+                 *
+                 * A verb with a value states the value instead, quietly, in the slot a trailing
+                 * age takes: the count a forget would remove, the language a press would cycle
+                 * to, the reason a withdrawn verb cannot be pressed. One shape for all three
+                 * rather than a badge for the counts, and that is deliberate - a filled capsule
+                 * is a count that *shouts*, which is right for unread messages and wrong for
+                 * "English". A card where every row ends in a bubble is a column of colour
+                 * reporting nothing, which is the bar fb_draw_badge() is already held to.
+                 *
+                 * The chevron goes when a value takes the slot. That is the honest order of the
+                 * two: the reader needs the figure before the press more than they need to be
+                 * told there is a question after it, and the action bar names A either way.
+                 */
+                const struct fb_list_item row = {
+                    .leading = {.kind = FB_LEADING_TONAL, .icon = item.icon},
+                    .text = item.label,
+                    .tone = verb_tone,
+                    .trailing =
+                        item.value[0] != '\0'
+                            ? (struct fb_trailing){.kind = FB_TRAILING_TEXT, .text = item.value}
+                            : (struct fb_trailing){.kind = FB_TRAILING_ICON,
+                                                   .icon = MESH_UI_ICON_CHEVRON},
+                    /* Only on a row whose press cannot be walked back, and only while it is one:
+                       a withdrawn verb is an absent offer rather than a dangerous one, so it
+                       keeps neither the red nor the bar. */
+                    .accent_edge = !off && verb_tone == MESH_UI_TONE_ERROR,
+                };
+                fb_list_item(state, &list, i, &row);
+                continue;
+            }
             /*
              * A boolean gets a switch rather than the words. The words are still what the CLI
              * backend draws and still what item.value holds - this is the fb backend deciding

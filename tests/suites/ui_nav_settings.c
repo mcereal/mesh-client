@@ -721,8 +721,8 @@ MESH_TEST_CASE(ui_nav_radio_actions, unit) {
     mesh_ui_store_set_settings(&store, &settings);
     if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
                                MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL, 2U, &item) ||
-        item.kind != MESH_UI_SETTING_INFO || strcmp(item.value, "not supported") != 0) {
-        failure = "Shutdown should be a fact on a board that cannot shut down";
+        item.kind != MESH_UI_SETTING_ACTION_OFF || strcmp(item.value, "not supported") != 0) {
+        failure = "Shutdown should be a withdrawn verb on a board that cannot shut down";
         goto cleanup;
     }
 
@@ -760,19 +760,20 @@ MESH_TEST_CASE(ui_nav_forget_nodes, unit) {
     }
 
     /* Every row here reads the count the app published for it, and that count is what the
-       press would remove - so with nothing to remove the row is a fact. The fixture publishes
-       no forget counts, which is the state before the first sync fills them. */
+       press would remove - so with nothing to remove the offer is withdrawn: the same verb,
+       still in the same place in the column, saying why instead of opening a question. The
+       fixture publishes no forget counts, which is the state before the first sync fills them. */
     struct mesh_ui_settings_item item;
     if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
                                MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL, 6U, &item) ||
-        strcmp(item.label, "Forget off-radio") != 0 || item.kind != MESH_UI_SETTING_INFO ||
+        strcmp(item.label, "Forget off-radio") != 0 || item.kind != MESH_UI_SETTING_ACTION_OFF ||
         strcmp(item.value, "nothing to drop") != 0) {
-        failure = "with nothing off-radio the first forget row should be a fact";
+        failure = "with nothing off-radio the first forget row should be a withdrawn verb";
         goto cleanup;
     }
     if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
                                MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL, 7U, &item) ||
-        strcmp(item.label, "Forget all cached") != 0 || item.kind != MESH_UI_SETTING_INFO ||
+        strcmp(item.label, "Forget all cached") != 0 || item.kind != MESH_UI_SETTING_ACTION_OFF ||
         strcmp(item.value, "nothing to drop") != 0) {
         failure = "an empty forget count should not draw as a press";
         goto cleanup;
@@ -797,8 +798,8 @@ MESH_TEST_CASE(ui_nav_forget_nodes, unit) {
     }
 
     /* The case the row must not get wrong: two nodes are off the radio and a forget keeps
-       both, so the row is a fact even though the Nodes tab still marks two rows "off radio".
-       A press that would drop nothing must never be offered. */
+       both, so the offer is withdrawn even though the Nodes tab still marks two rows "off
+       radio". A press that would drop nothing must never be offered. */
     struct mesh_ui_handshake_state pinned = handshake;
     pinned.nodes[1].is_favorite = true;
     pinned.nodes[2].is_favorite = true;
@@ -807,7 +808,7 @@ MESH_TEST_CASE(ui_nav_forget_nodes, unit) {
     mesh_ui_store_set_handshake(&store, &pinned);
     if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
                                MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL, 6U, &item) ||
-        item.kind != MESH_UI_SETTING_INFO || strcmp(item.value, "nothing to drop") != 0) {
+        item.kind != MESH_UI_SETTING_ACTION_OFF || strcmp(item.value, "nothing to drop") != 0) {
         failure = "a roster of pinned orphans should offer no press at all";
         goto cleanup;
     }
@@ -887,7 +888,7 @@ MESH_TEST_CASE(ui_nav_forget_nodes, unit) {
     mesh_ui_store_set_handshake(&store, &handshake);
     if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
                                MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL, 1U, &item) ||
-        item.kind != MESH_UI_SETTING_INFO || strcmp(item.value, "not connected") != 0) {
+        item.kind != MESH_UI_SETTING_ACTION_OFF || strcmp(item.value, "not connected") != 0) {
         failure = "Reboot should say why it cannot be pressed with no link";
         goto cleanup;
     }
@@ -1304,7 +1305,7 @@ MESH_TEST_CASE(ui_settings_actions_need_a_live_link, unit) {
         if (item.kind == MESH_UI_SETTING_ACTION) {
             ++pressable;
         }
-        if (item.kind == MESH_UI_SETTING_INFO &&
+        if (item.kind == MESH_UI_SETTING_ACTION_OFF &&
             strcmp(item.value, mesh_str(MESH_STR_SETTINGS_NOT_CONNECTED)) == 0) {
             ++not_connected;
         }

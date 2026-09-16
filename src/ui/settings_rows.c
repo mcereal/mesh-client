@@ -146,6 +146,27 @@ static void item_heading(struct item_list *list, enum mesh_str_id label) {
     item_add(list, label, MESH_UI_SETTING_HEADING);
 }
 
+/*
+ * A heading that also names what its group is about.
+ *
+ * A backend drawing the section as a column of cards puts this in the card's *header* - the
+ * disc beside the title, in the break above the rows - which is the one slot on that shape a
+ * plain heading leaves empty. It is the node detail's arrangement and it is the same argument
+ * fb_widgets.h makes there: a heading is not one of the rows, so a symbol on it is not the
+ * two-column start the leading slot's rule is about.
+ *
+ * Optional per heading rather than required, deliberately. MESH_UI_ICON_NONE draws the heading
+ * exactly as it always has, so a group whose subject has no honest symbol says nothing instead
+ * of reaching for an approximate one - and a flat backend is unaffected either way.
+ */
+static void item_heading_icon(struct item_list *list, enum mesh_str_id label,
+                              enum mesh_ui_icon icon) {
+    struct mesh_ui_settings_item *item = item_add(list, label, MESH_UI_SETTING_HEADING);
+    if (item != NULL) {
+        item->icon = icon;
+    }
+}
+
 /* "30s", "5m", "2h"; `zero` says what 0 means for this field ("off", "default"). */
 static void format_seconds(char *out, size_t out_len, uint32_t seconds, enum mesh_str_id zero) {
     if (seconds == 0U) {
@@ -409,20 +430,85 @@ static void item_key(struct item_list *list, enum mesh_str_id label, const uint8
                     (unsigned)len);
 }
 
-/* An ACTION row: drawn like an editable one and activated with A, carrying what it does in
-   `number` so the nav can raise the action without knowing about updates. */
+/*
+ * An ACTION row: activated with A, carrying what it does in `number` so the nav can raise the
+ * action without knowing about updates.
+ *
+ * The symbol and the weight come off the verb rather than off the call site, which is what
+ * makes this one function the whole of "a settings row is a verb": every action row in every
+ * section gets the leading disc and the tone the two tables in settings.c answer with, and a
+ * new verb is a row in those tables rather than a change here or in a renderer.
+ *
+ * `value` is empty on almost all of them and that is the change this shape is really about.
+ * Every verb here used to carry "press A" in its value column, so Radio actions was eight rows
+ * of one instruction with the labels - the only part that differs - read past it. It said
+ * nothing the frame was not already saying: the action bar names A three rows below, and it
+ * names it for this screen rather than once per row. What is left in the column is the handful
+ * of rows with a real value to state, which is what a value column is for: the count a forget
+ * would remove.
+ *
+ * No backend loses by it. The CLI backend draws the Messages, Nodes and Status screens and has
+ * never drawn a settings section at all, so the instruction was only ever reaching the one
+ * renderer that also draws the keycap.
+ */
 static void item_action_named(struct item_list *list, const char *label, const char *value,
                               enum mesh_ui_settings_action action) {
     struct mesh_ui_settings_item *item = item_add_named(list, label, MESH_UI_SETTING_ACTION);
     if (item != NULL) {
         mesh_str_copy(item->value, sizeof item->value, value);
         item->number = (uint32_t)action;
+        item->icon = mesh_ui_settings_action_icon(action);
+        item->tone = mesh_ui_settings_action_tone(action);
+        item->verb = true;
     }
+}
+
+/*
+ * The same verb, withdrawn, and why - the shape MESH_UI_SETTING_ACTION_OFF is for.
+ *
+ * It keeps the verb's symbol and loses its weight: a row that cannot be pressed is not a
+ * dangerous row, it is an absent one, so the disc goes quiet rather than staying red. What it
+ * does *not* lose is its place in the column, which is the whole point - the section keeps its
+ * length and its shape whatever the transport is doing, and the cursor does not move under
+ * somebody because a link dropped.
+ */
+static void item_action_off_named(struct item_list *list, const char *label, const char *reason,
+                                  enum mesh_ui_settings_action action) {
+    struct mesh_ui_settings_item *item = item_add_named(list, label, MESH_UI_SETTING_ACTION_OFF);
+    if (item != NULL) {
+        mesh_str_copy(item->value, sizeof item->value, reason);
+        item->number = (uint32_t)action;
+        item->icon = mesh_ui_settings_action_icon(action);
+        item->tone = MESH_UI_TONE_DIM;
+        item->verb = true;
+    }
+}
+
+static void item_action_off(struct item_list *list, enum mesh_str_id label, enum mesh_str_id reason,
+                            enum mesh_ui_settings_action action) {
+    item_action_off_named(list, mesh_str(label), mesh_str(reason), action);
 }
 
 static void item_action(struct item_list *list, enum mesh_str_id label, const char *value,
                         enum mesh_ui_settings_action action) {
     item_action_named(list, mesh_str(label), value, action);
+}
+
+/*
+ * The common shape: a verb with nothing to state.
+ *
+ * Named rather than spelled as an empty value at a dozen call sites, because the empty string is
+ * the *point* here - it is what replaced "press A" - and a column of calls passing "" reads as a
+ * value somebody forgot to fill in rather than as a row that has none.
+ */
+static void item_verb(struct item_list *list, enum mesh_str_id label,
+                      enum mesh_ui_settings_action action) {
+    item_action_named(list, mesh_str(label), "", action);
+}
+
+static void item_verb_named(struct item_list *list, const char *label,
+                            enum mesh_ui_settings_action action) {
+    item_action_named(list, label, "", action);
 }
 
 /* One of the two rows that drop cached nodes. The value column is the count the press would
@@ -432,7 +518,7 @@ static void item_action(struct item_list *list, enum mesh_str_id label, const ch
 static void forget_row(struct item_list *list, enum mesh_str_id label, uint32_t forgettable,
                        enum mesh_ui_settings_action action) {
     if (forgettable == 0U) {
-        item_str(list, label, MESH_UI_SETTING_INFO, MESH_STR_ACTION_NOTHING_TO_DROP);
+        item_action_off(list, label, MESH_STR_ACTION_NOTHING_TO_DROP, action);
         return;
     }
     char value[MESH_UI_SETTINGS_VALUE_MAX];
@@ -446,9 +532,9 @@ static void forget_row(struct item_list *list, enum mesh_str_id label, uint32_t 
 static void item_radio_action(struct item_list *list, enum mesh_str_id label,
                               enum mesh_ui_settings_action action, bool connected) {
     if (connected) {
-        item_action(list, label, mesh_str(MESH_STR_COMMON_PRESS_A), action);
+        item_verb(list, label, action);
     } else {
-        item_str(list, label, MESH_UI_SETTING_INFO, MESH_STR_SETTINGS_NOT_CONNECTED);
+        item_action_off(list, label, MESH_STR_SETTINGS_NOT_CONNECTED, action);
     }
 }
 
@@ -514,8 +600,7 @@ static void build_about(const struct mesh_ui_settings *s, struct item_list *list
             name = slash + 1;
         }
         item_text(list, MESH_STR_ABOUT_CRASH_REPORT, MESH_UI_SETTING_INFO, name);
-        item_action(list, MESH_STR_ABOUT_CRASH_DISCARD, mesh_str(MESH_STR_COMMON_PRESS_A),
-                    MESH_UI_SETTINGS_ACTION_DISCARD_CRASH_REPORT);
+        item_verb(list, MESH_STR_ABOUT_CRASH_DISCARD, MESH_UI_SETTINGS_ACTION_DISCARD_CRASH_REPORT);
     }
     /* Keep each language's own name visible so users can always find their way back. */
     if (client->language_name[0] != '\0') {
@@ -638,8 +723,7 @@ static void build_about(const struct mesh_ui_settings *s, struct item_list *list
         return;
     }
 
-    item_action(list, MESH_STR_ABOUT_CHECK_UPDATES, mesh_str(MESH_STR_COMMON_PRESS_A),
-                MESH_UI_SETTINGS_ACTION_CHECK_UPDATE);
+    item_verb(list, MESH_STR_ABOUT_CHECK_UPDATES, MESH_UI_SETTINGS_ACTION_CHECK_UPDATE);
     if (state == MESH_UPDATE_AVAILABLE) {
         /* The version goes in the label so the value column can say how to act on it: the row
            the user has to find is the one that names what it will install. The label is
@@ -647,8 +731,7 @@ static void build_about(const struct mesh_ui_settings *s, struct item_list *list
         char label[MESH_UI_SETTINGS_LABEL_MAX];
         mesh_str_format(label, sizeof label, MESH_STR_ABOUT_INSTALL_VERSION,
                         (int)(sizeof label - 9U), client->update_latest);
-        item_action_named(list, label, mesh_str(MESH_STR_COMMON_PRESS_A),
-                          MESH_UI_SETTINGS_ACTION_INSTALL_UPDATE);
+        item_verb_named(list, label, MESH_UI_SETTINGS_ACTION_INSTALL_UPDATE);
     } else if (!client->update_can_install) {
         /* Nothing here will offer an install, so say so once - and name the row that changes
            it, rather than leaving the user hunting for one that is never coming. */
@@ -824,8 +907,7 @@ static void build_radio_firmware(const struct mesh_ui_settings *s, struct item_l
               s->fw_message[0] != '\0'
                   ? s->fw_message
                   : mesh_firmware_state_name((enum mesh_firmware_state)s->fw_state));
-    item_action(list, MESH_STR_FW_CHECK, mesh_str(MESH_STR_COMMON_PRESS_A),
-                MESH_UI_SETTINGS_ACTION_CHECK_RADIO_FIRMWARE);
+    item_verb(list, MESH_STR_FW_CHECK, MESH_UI_SETTINGS_ACTION_CHECK_RADIO_FIRMWARE);
 
     /*
      * Why it cannot be installed, once there is something to install. Not shown before a check
@@ -880,10 +962,10 @@ static void build_radio_firmware(const struct mesh_ui_settings *s, struct item_l
      * - the confirm sheet, the action bar and the app all read the action it emits - which is
      * why the bus is baked into the action rather than looked up again downstream.
      */
-    item_action(list, MESH_STR_FW_INSTALL, mesh_str(MESH_STR_COMMON_PRESS_A),
-                s->fw_bus == (uint8_t)MESH_FIRMWARE_PATH_BLE
-                    ? MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE
-                    : MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB);
+    item_verb(list, MESH_STR_FW_INSTALL,
+              s->fw_bus == (uint8_t)MESH_FIRMWARE_PATH_BLE
+                  ? MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE
+                  : MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB);
 }
 
 static void build_radio(const struct mesh_ui_settings *s, const struct mesh_ui_handshake_state *hs,
@@ -899,10 +981,9 @@ static void build_radio(const struct mesh_ui_settings *s, const struct mesh_ui_h
      * section exactly as it was.
      */
     if (s->admin_dest != 0U) {
-        item_heading(list, MESH_STR_RADIO_ADMIN_REMOTE_HEAD);
+        item_heading_icon(list, MESH_STR_RADIO_ADMIN_REMOTE_HEAD, MESH_UI_ICON_LINK);
         item_text(list, MESH_STR_RADIO_ADMIN_REMOTE_NODE, MESH_UI_SETTING_INFO, s->admin_dest_name);
-        item_action(list, MESH_STR_RADIO_ADMIN_REMOTE_RETURN, mesh_str(MESH_STR_COMMON_PRESS_A),
-                    MESH_UI_SETTINGS_ACTION_ADMIN_LOCAL);
+        item_verb(list, MESH_STR_RADIO_ADMIN_REMOTE_RETURN, MESH_UI_SETTINGS_ACTION_ADMIN_LOCAL);
     }
     /* Whether the firmware group below belongs on this screen at all. It is about the radio on
        the end of the link - the check reads that radio's model and the install writes down that
@@ -998,12 +1079,10 @@ static void build_user(const struct mesh_ui_settings *s, struct item_list *list)
         item_heading(list, MESH_STR_USER_CONTACT_HEAD);
     }
     if (s->contact_url[0] != '\0') {
-        item_action(list, MESH_STR_USER_SHARE_CONTACT_ROW, mesh_str(MESH_STR_COMMON_PRESS_A),
-                    MESH_UI_SETTINGS_ACTION_SHARE_CONTACT);
+        item_verb(list, MESH_STR_USER_SHARE_CONTACT_ROW, MESH_UI_SETTINGS_ACTION_SHARE_CONTACT);
     }
     if (s->admin_ok) {
-        item_action(list, MESH_STR_USER_ADD_CONTACT_ROW, mesh_str(MESH_STR_COMMON_PRESS_A),
-                    MESH_UI_SETTINGS_ACTION_IMPORT_CONTACT);
+        item_verb(list, MESH_STR_USER_ADD_CONTACT_ROW, MESH_UI_SETTINGS_ACTION_IMPORT_CONTACT);
     }
 }
 
@@ -1170,8 +1249,7 @@ static void build_lora(const struct mesh_ui_settings *s, struct item_list *list)
                                   MESH_UI_FREQUENCY_DIGITS, typed, sizeof typed);
     item_field(list, MESH_UI_FIELD_LORA_HAM_FREQUENCY, 0U, typed);
     item_field(list, MESH_UI_FIELD_LORA_HAM_TX_POWER, (uint32_t)(uint8_t)s->tx_power, NULL);
-    item_action(list, MESH_STR_SETTINGS_SET_HAM_MODE, mesh_str(MESH_STR_COMMON_PRESS_A),
-                MESH_UI_SETTINGS_ACTION_SET_HAM_MODE);
+    item_verb(list, MESH_STR_SETTINGS_SET_HAM_MODE, MESH_UI_SETTINGS_ACTION_SET_HAM_MODE);
 }
 
 static void build_bluetooth(const struct mesh_ui_settings *s, struct item_list *list) {
@@ -1324,11 +1402,9 @@ static void build_channels(const struct mesh_ui_settings *s,
      */
     if (s->channels_settled) {
         if (s->share_url[0] != '\0') {
-            item_action(list, MESH_STR_CHANNELS_SHARE_ROW, mesh_str(MESH_STR_COMMON_PRESS_A),
-                        MESH_UI_SETTINGS_ACTION_SHARE_CHANNELS);
+            item_verb(list, MESH_STR_CHANNELS_SHARE_ROW, MESH_UI_SETTINGS_ACTION_SHARE_CHANNELS);
         }
-        item_action(list, MESH_STR_CHANNELS_IMPORT_ROW, mesh_str(MESH_STR_COMMON_PRESS_A),
-                    MESH_UI_SETTINGS_ACTION_IMPORT_CHANNELS);
+        item_verb(list, MESH_STR_CHANNELS_IMPORT_ROW, MESH_UI_SETTINGS_ACTION_IMPORT_CHANNELS);
     }
 }
 
@@ -1421,12 +1497,11 @@ static void build_position(const struct mesh_ui_settings *s, struct item_list *l
     item_field(list, MESH_UI_FIELD_POSITION_LONGITUDE, 0U, coord);
     snprintf(coord, sizeof coord, "%d", s->has_own_altitude ? (int)s->own_altitude : 0);
     item_field(list, MESH_UI_FIELD_POSITION_ALTITUDE, 0U, coord);
-    item_action(list, MESH_STR_SETTINGS_SET_FIXED_POS, mesh_str(MESH_STR_COMMON_PRESS_A),
-                MESH_UI_SETTINGS_ACTION_SET_FIXED_POSITION);
+    item_verb(list, MESH_STR_SETTINGS_SET_FIXED_POS, MESH_UI_SETTINGS_ACTION_SET_FIXED_POSITION);
     /* Only offered when there is one to clear; the row would otherwise do nothing twice. */
     if (s->fixed_position) {
-        item_action(list, MESH_STR_SETTINGS_CLEAR_FIXED_POS, mesh_str(MESH_STR_COMMON_PRESS_A),
-                    MESH_UI_SETTINGS_ACTION_CLEAR_FIXED_POSITION);
+        item_verb(list, MESH_STR_SETTINGS_CLEAR_FIXED_POS,
+                  MESH_UI_SETTINGS_ACTION_CLEAR_FIXED_POSITION);
     }
 }
 
@@ -1788,7 +1863,7 @@ static void build_telemetry(const struct mesh_ui_settings *s, struct item_list *
     item_field(list, MESH_UI_FIELD_TELEMETRY_AIR_INTERVAL, s->air_quality_interval, NULL);
     item_field(list, MESH_UI_FIELD_TELEMETRY_AIR_SCREEN, s->air_quality_screen_enabled ? 1U : 0U,
                NULL);
-    item_heading(list, MESH_STR_HEAD_POWER);
+    item_heading_icon(list, MESH_STR_HEAD_POWER, MESH_UI_ICON_POWER);
     item_field(list, MESH_UI_FIELD_TELEMETRY_POWER, s->power_measurement_enabled ? 1U : 0U, NULL);
     item_field(list, MESH_UI_FIELD_TELEMETRY_POWER_INTERVAL, s->power_update_interval, NULL);
     item_field(list, MESH_UI_FIELD_TELEMETRY_POWER_SCREEN, s->power_screen_enabled ? 1U : 0U, NULL);
@@ -2066,30 +2141,30 @@ static void build_actions(const struct mesh_ui_settings *s,
      * here that is not one of those.
      */
     if (s->admin_dest != 0U) {
-        item_heading(list, MESH_STR_RADIO_ADMIN_REMOTE_HEAD);
+        item_heading_icon(list, MESH_STR_RADIO_ADMIN_REMOTE_HEAD, MESH_UI_ICON_LINK);
         item_text(list, MESH_STR_RADIO_ADMIN_REMOTE_NODE, MESH_UI_SETTING_INFO, s->admin_dest_name);
     }
 
-    item_heading(list, MESH_STR_HEAD_POWER);
+    item_heading_icon(list, MESH_STR_HEAD_POWER, MESH_UI_ICON_ACTIONS);
     item_radio_action(list, MESH_STR_ACTION_REBOOT, MESH_UI_SETTINGS_ACTION_REBOOT, connected);
     /* DeviceMetadata says whether the hardware can cut its own power; on a board that cannot,
        the request is simply ignored, so the row says so rather than lying about what A does.
        Until the metadata arrives the row is offered: the radio is the authority, not us. */
     if (s->has_metadata && !s->can_shutdown) {
-        item_str(list, MESH_STR_ACTION_SHUTDOWN, MESH_UI_SETTING_INFO,
-                 MESH_STR_ACTION_SHUTDOWN_UNSUPPORTED);
+        item_action_off(list, MESH_STR_ACTION_SHUTDOWN, MESH_STR_ACTION_SHUTDOWN_UNSUPPORTED,
+                        MESH_UI_SETTINGS_ACTION_SHUTDOWN);
     } else {
         item_radio_action(list, MESH_STR_ACTION_SHUTDOWN, MESH_UI_SETTINGS_ACTION_SHUTDOWN,
                           connected);
     }
-    item_heading(list, MESH_STR_HEAD_NODES_RADIO);
+    item_heading_icon(list, MESH_STR_HEAD_NODES_RADIO, MESH_UI_ICON_RADIO);
     item_radio_action(list, MESH_STR_ACTION_RESET_NODEDB, MESH_UI_SETTINGS_ACTION_RESET_NODEDB,
                       connected);
 
     /* Both numbers are what the press would remove, not what is cached or stale: a forget
        keeps our own record and every pin, so a roster of eighty nodes that are all pinned has
        nothing to drop and both rows say so. */
-    item_heading(list, MESH_STR_HEAD_NODES_CACHED);
+    item_heading_icon(list, MESH_STR_HEAD_NODES_CACHED, MESH_UI_ICON_NODES);
     forget_row(list, MESH_STR_ACTION_FORGET_OFF_RADIO,
                handshake != NULL ? handshake->nodes_forgettable_off_radio : 0U,
                MESH_UI_SETTINGS_ACTION_FORGET_OFF_RADIO_NODES);
@@ -2099,7 +2174,7 @@ static void build_actions(const struct mesh_ui_settings *s,
 
     /* Before the factory resets, which is the order the whole section runs in: least to most
        destructive, and a backup is the thing you want to have pressed before the row below. */
-    item_heading(list, MESH_STR_HEAD_BACKUP);
+    item_heading_icon(list, MESH_STR_HEAD_BACKUP, MESH_UI_ICON_BACKUP);
     item_radio_action(list, MESH_STR_ACTION_BACKUP_CONFIG, MESH_UI_SETTINGS_ACTION_BACKUP_CONFIG,
                       connected);
     item_radio_action(list, MESH_STR_ACTION_RESTORE_CONFIG, MESH_UI_SETTINGS_ACTION_RESTORE_CONFIG,
@@ -2107,7 +2182,7 @@ static void build_actions(const struct mesh_ui_settings *s,
     item_radio_action(list, MESH_STR_ACTION_REMOVE_BACKUP, MESH_UI_SETTINGS_ACTION_REMOVE_BACKUP,
                       connected);
 
-    item_heading(list, MESH_STR_HEAD_FACTORY_RESET);
+    item_heading_icon(list, MESH_STR_HEAD_FACTORY_RESET, MESH_UI_ICON_FACTORY);
     item_radio_action(list, MESH_STR_ACTION_FACTORY_CONFIG,
                       MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG, connected);
     item_radio_action(list, MESH_STR_ACTION_FACTORY_DEVICE,
