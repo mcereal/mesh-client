@@ -102,12 +102,7 @@ target_include_directories(meshclient_core_tests PRIVATE ${CMAKE_CURRENT_SOURCE_
 target_compile_definitions(meshclient_core_tests
     PRIVATE MESH_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
 
-target_link_libraries(meshclient_core_tests PRIVATE meshclient_core)
-
-target_compile_options(meshclient_core_tests PRIVATE ${MESHCLIENT_COMPILE_OPTIONS})
-if(MESHCLIENT_LINK_OPTIONS)
-    target_link_options(meshclient_core_tests PRIVATE ${MESHCLIENT_LINK_OPTIONS})
-endif()
+target_link_libraries(meshclient_core_tests PRIVATE meshclient_core meshclient_options)
 
 add_test(NAME meshclient_core_unit COMMAND meshclient_core_tests --category unit)
 set_tests_properties(meshclient_core_unit PROPERTIES LABELS "unit")
@@ -141,11 +136,7 @@ if(DBUS_FOUND)
     if(DBUS_RUN_SESSION)
         add_executable(meshclient_bluez_bus_tests bluez_bus.c)
         target_include_directories(meshclient_bluez_bus_tests PRIVATE ${DBUS_INCLUDE_DIRS})
-        target_link_libraries(meshclient_bluez_bus_tests PRIVATE meshclient_core)
-        target_compile_options(meshclient_bluez_bus_tests PRIVATE ${MESHCLIENT_COMPILE_OPTIONS})
-        if(MESHCLIENT_LINK_OPTIONS)
-            target_link_options(meshclient_bluez_bus_tests PRIVATE ${MESHCLIENT_LINK_OPTIONS})
-        endif()
+        target_link_libraries(meshclient_bluez_bus_tests PRIVATE meshclient_core meshclient_options)
         add_test(NAME meshclient_bluez_bus COMMAND ${DBUS_RUN_SESSION} -- $<TARGET_FILE:meshclient_bluez_bus_tests>)
         set_tests_properties(meshclient_bluez_bus PROPERTIES LABELS integration TIMEOUT 15)
     endif()

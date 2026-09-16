@@ -5,19 +5,10 @@
 
 add_executable(meshclient_uicap ui_capture/main.c)
 
-target_link_libraries(meshclient_uicap PRIVATE meshclient_core)
-
-target_compile_options(meshclient_uicap PRIVATE ${MESHCLIENT_COMPILE_OPTIONS})
-if(MESHCLIENT_LINK_OPTIONS)
-    target_link_options(meshclient_uicap PRIVATE ${MESHCLIENT_LINK_OPTIONS})
-endif()
+target_link_libraries(meshclient_uicap PRIVATE meshclient_core meshclient_options)
 
 add_executable(meshclient_perf perf/main.c)
-target_link_libraries(meshclient_perf PRIVATE meshclient_core)
-target_compile_options(meshclient_perf PRIVATE ${MESHCLIENT_COMPILE_OPTIONS})
-if(MESHCLIENT_LINK_OPTIONS)
-    target_link_options(meshclient_perf PRIVATE ${MESHCLIENT_LINK_OPTIONS})
-endif()
+target_link_libraries(meshclient_perf PRIVATE meshclient_core meshclient_options)
 
 # The fuzz harnesses, off unless MESHCLIENT_ENABLE_FUZZERS. Each one is a LLVMFuzzerTestOneInput
 # and no main(); `-fsanitize=fuzzer` at link time is what provides one, over the coverage
@@ -25,17 +16,12 @@ endif()
 # ordinary program that has its own main, so it links without that flag.
 if(MESHCLIENT_ENABLE_FUZZERS)
     add_executable(meshclient_fuzz_seeds fuzz/seeds.c)
-    target_link_libraries(meshclient_fuzz_seeds PRIVATE meshclient_core)
-    target_compile_options(meshclient_fuzz_seeds PRIVATE ${MESHCLIENT_COMPILE_OPTIONS})
-    if(MESHCLIENT_LINK_OPTIONS)
-        target_link_options(meshclient_fuzz_seeds PRIVATE ${MESHCLIENT_LINK_OPTIONS})
-    endif()
+    target_link_libraries(meshclient_fuzz_seeds PRIVATE meshclient_core meshclient_options)
 
     foreach(fuzz_target IN ITEMS stream_framing session firmware_catalog zip uf2 channel_url contact_url)
         add_executable(meshclient_fuzz_${fuzz_target} fuzz/fuzz_${fuzz_target}.c)
-        target_link_libraries(meshclient_fuzz_${fuzz_target} PRIVATE meshclient_core)
-        target_compile_options(meshclient_fuzz_${fuzz_target} PRIVATE ${MESHCLIENT_COMPILE_OPTIONS})
-        target_link_options(meshclient_fuzz_${fuzz_target} PRIVATE ${MESHCLIENT_LINK_OPTIONS}
-                            -fsanitize=fuzzer)
+        target_link_libraries(meshclient_fuzz_${fuzz_target}
+                              PRIVATE meshclient_core meshclient_options)
+        target_link_options(meshclient_fuzz_${fuzz_target} PRIVATE -fsanitize=fuzzer)
     endforeach()
 endif()
