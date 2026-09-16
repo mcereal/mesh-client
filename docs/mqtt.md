@@ -9,9 +9,10 @@ The radio stays the origin. This client is only the box with a route to the inte
 Brick is the whole point: the radio has LoRa and Bluetooth and no WiFi worth the name, and the
 handheld it is paired with has WiFi.
 
-**The connection and the protocol are both here.** What is still missing is the last wire:
-nothing constructs a proxy or hands it to a session yet, and the "proxy via client" toggle in
-settings is still read-only.
+**The client proxies.** A radio that asks for it gets a broker connection, the right
+subscriptions, and both directions relayed, with no setting on the Brick involved. What is still
+missing is the reporting: nothing on screen says whether the broker accepted us or why it did
+not, and the "proxy via client" toggle in settings is still read-only.
 
 ## The pieces
 
@@ -22,6 +23,7 @@ settings is still read-only.
 | `src/core/tls_client.c` | Mbed TLS over a non-blocking descriptor |
 | `src/proto/mqtt_topic.c` | where a mesh lives on a broker, matched to the firmware |
 | `src/core/session.c` | the two hooks: the radio's message out, the broker's message back |
+| `src/core/app_mqtt.c` | the decision: whether to be connected, to what, with which subscriptions |
 | `third_party/mbedtls-config/mesh_mbedtls_config.h` | what this build of Mbed TLS is and is not |
 
 The codec/client split is the same one `stream_framing.c` and `stream_link.c` already have: the
@@ -89,6 +91,59 @@ broker can send more, and an encrypted envelope cannot be truncated — half of 
 nothing — so an oversized message is dropped whole and counted. This is the same bound the
 [skip](#an-oversized-message-is-skipped-not-buffered) above exists to survive, seen from the
 other end.
+
+## The client decides nothing it can read off the radio
+
+`src/core/app_mqtt.c` re-derives the whole arrangement from `MQTTConfig` on every loop turn:
+whether to be connected, to what, and with which subscriptions. There is no client-side broker
+setting and there should not be one — the radio is the origin, it decides where its mesh is
+published, and a client with its own idea of the broker would be publishing this mesh somewhere
+its own radio is not listening. The only say the client has is `MESHCLIENT_MQTT_PROXY=0`, which
+turns the whole thing off from a shell.
+
+Deriving it every turn rather than reacting to a change is what removes the class of bug where a
+setting moves by a path nobody wired up. The cost is a few hundred bytes of comparison per turn.
+
+### The credentials are all-or-nothing
+
+This is the rule most likely to be "fixed" into a bug. The firmware's `PubSubConfig` reads the
+username and password *only* inside `if (*config.address)`:
+
+| `MQTTConfig.address` | Connects to | As |
+|---|---|---|
+| empty | `mqtt.meshtastic.org` | `meshdev` / `large4cats`, whatever the config's own username says |
+| set | that address | that username and password, **including empty ones** |
+
+Substituting only the address sends `meshdev` to somebody's private broker. Substituting only
+when empty sends a blank username to the public one, which refuses it — and a refusal at that
+point looks from the Brick exactly like a broker that is down. The Android proxy carries the same
+rule for the same reason.
+
+### The client id is not the radio's
+
+The firmware presents a bare `!abcd1234` when it dials a broker itself. This client presents
+`meshclient-!abcd1234`, and the prefix is the point: a broker does not report a duplicate client
+id, it disconnects the older holder. Without the prefix, the moment somebody turned proxying off
+this client and that radio would both be live under one id, taking turns evicting each other —
+during exactly the window in which the user is watching to see whether the change worked.
+
+### A changed configuration is a reconnect
+
+Any of the five things a CONNECT carries moving — address, username, password, client id,
+TLS — drops the connection and remakes it, as does any change to the filter set.
+
+A new *filter* could be added to a live connection, but the set can also **shrink**, and
+`mesh_mqtt_proxy_clear_filters()` deliberately does not unsubscribe on the wire: a channel whose
+downlink was just turned off would keep delivering until the connection went away by itself.
+Reconnecting is also nearly free in practice, since every way this set can change is a settings
+write, and a settings write reboots the radio and takes the link with it.
+
+The link dropping stands the broker connection down too. `handshake.config_complete` is the gate
+for starting at all — the module config and the channel table arrive as separate fragments, so
+anything started earlier would connect with an address about to change — and it is also the one
+field a link reset clears. With no radio there is nothing to publish and nothing that could take
+a delivery; the only thing an open socket would still be doing is holding this client's id at
+the broker.
 
 ## 3.1.1, QoS 0, clean session
 
@@ -234,6 +289,10 @@ the proxy by hand — a real non-blocking connect, real partial reads, a real EO
 hangs up. The clock is synthetic throughout, which is the only reason the five-second backoff and
 the ninety-second silence timeout are testable at all. The TLS cases run a real Mbed TLS server
 against a certificate generated for that file and valid until 2120.
+
+`tests/suites/mqtt_app.c` covers the decisions above without opening a socket — the plan, the
+credential rule, the client id and the filter set are all pure functions of a session, which is
+the reason they were written as pure functions of a session.
 
 `devtools/fuzz/fuzz_mqtt_packet.c` runs the proxy's own reader loop — decode, skip, take, advance
 — over arbitrary bytes, because fuzzing the decoder without that loop would miss the case that

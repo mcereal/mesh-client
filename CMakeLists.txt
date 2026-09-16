@@ -67,6 +67,7 @@ endif()
 add_library(meshclient_core
     src/core/app.c
     src/core/app_actions.c
+    src/core/app_mqtt.c
     src/core/app_publish.c
     src/core/app_settings.c
     src/core/channel_share.c

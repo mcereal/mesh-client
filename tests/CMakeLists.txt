@@ -16,6 +16,7 @@ set(MESHCLIENT_TEST_SUPPORT
     support/data_fixture.c
     support/fs_fixture.c
     support/map_fixture.c
+    support/mqtt_fixture.c
     support/proto_fixture.c
     support/serial_fixture.c
     support/session_fixture.c
@@ -46,6 +47,7 @@ set(MESHCLIENT_TEST_SUITES
     suites/tile_cache.c
     suites/tile_image.c
     suites/message.c
+    suites/mqtt_app.c
     suites/mqtt_packet.c
     suites/mqtt_proxy.c
     suites/mqtt_session.c
