@@ -130,6 +130,7 @@ from 2 s to 60 s; only an established link clears it. The USB and BLE preference
 | `MESHCLIENT_PREFERRED_BLE_DEVICE`, `_SERIAL_DEVICE` | preferred node / port |
 | `MESHCLIENT_TCP_HOST` | the node to reach over the network. Not named `PREFERRED_`: the other two pick one of several things the client found, and this one *is* the link |
 | `MESHCLIENT_AUTOCONNECT` | `0` stops the foreground loop connecting on its own |
+| `MESHCLIENT_MQTT_PROXY` | `0` stops the client holding a broker connection for a radio that asks for one. The whole arrangement is otherwise the *radio's* decision — see [`mqtt.md`](mqtt.md) — so this is the only say the Brick has in it |
 | `MESHCLIENT_SCAN_RESUME_GRACE_MS` | how long a teardown keeps the BLE scan down, 0–60000, default 3000, so it is not restarted for the second between a drop and the reconnect |
 | `MESHCLIENT_UI_BACKEND` | `fb\|cli\|stub`; `fb` unless there is no `/dev/fb0` |
 | `MESHCLIENT_FB_SCALE` | framebuffer font multiplier, 2–6; default is the theme's (4) |

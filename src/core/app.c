@@ -876,6 +876,11 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
     (void)mesh_firmware_update_init(&app->firmware_update, &app->loop);
     mesh_firmware_update_use_ca_bundle(&app->firmware_update, app->updater.fetch.ca_bundle);
 
+    /* The MQTT proxy, which borrows the same bundle for the same reason and is otherwise driven
+       entirely by what the radio asks for. Nothing connects here: the decision is re-derived on
+       every loop turn from the radio's own configuration. See src/core/app_mqtt.c. */
+    mesh_app_mqtt_init(app);
+
     /* Optional canned.txt next to the preferences file replaces the built-in quick replies. */
     if (app->ui_preferences_path[0] != '\0') {
         char canned_path[sizeof app->ui_preferences_path + 16U];
@@ -947,7 +952,9 @@ void mesh_app_shutdown(struct mesh_app *app) {
     mesh_ui_input_shutdown(&app->ui_input);
     mesh_signals_shutdown(&app->signals);
     /* Before the loop goes: the updater has an fd registered with it, and a half-finished
-       download to clean up. */
+       download to clean up. The broker connection goes for the same reason, and goes first so
+       the DISCONNECT is written while there is still a session to write it about. */
+    mesh_app_mqtt_shutdown(app);
     mesh_updater_shutdown(&app->updater);
     mesh_firmware_shutdown(&app->firmware);
     mesh_firmware_update_shutdown(&app->firmware_update);
@@ -1033,6 +1040,10 @@ int mesh_app_run(struct mesh_app *app) {
                                                 : NULL);
             }
             mesh_app_firmware_update_tick(app, mesh_time_monotonic_ms());
+            /* After the transports have been pumped, so a link that dropped this turn has
+               already cleared the config sync that this reads to decide whether to stay
+               connected at all. */
+            mesh_app_mqtt_tick(app, mesh_time_monotonic_ms());
             /* Before auto-connect, not after: a retry starts the link over and clears the
                reason the last attempt failed. */
             (void)mesh_app_report_link_errors(app);

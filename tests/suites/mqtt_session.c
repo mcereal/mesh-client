@@ -12,6 +12,7 @@
  */
 
 #include "framework/mesh_test.h"
+#include "support/mqtt_fixture.h"
 #include "support/session_fixture.h"
 
 #include "mesh/core/session.h"
@@ -376,38 +377,15 @@ MESH_TEST_CASE(mqtt_session_refuses_a_length_with_no_bytes_behind_it, unit) {
 
 /* ------------------------------------------------------------------ what to subscribe to */
 
-/* The three fragments the derivation reads, delivered the way the radio delivers them. */
-static bool feed_lora(struct mesh_session *session, meshtastic_Config_LoRaConfig_ModemPreset preset,
-                      bool use_preset) {
-    meshtastic_FromRadio from_radio = meshtastic_FromRadio_init_default;
-    from_radio.which_payload_variant = meshtastic_FromRadio_config_tag;
-    from_radio.config.which_payload_variant = meshtastic_Config_lora_tag;
-    from_radio.config.payload_variant.lora.use_preset = use_preset;
-    from_radio.config.payload_variant.lora.modem_preset = preset;
-    return mesh_test_session_feed_from_radio(session, &from_radio);
-}
-
+/*
+ * The fragments the derivation reads are fed from support/mqtt_fixture.h, since the app's half
+ * of the proxy is derived from the same sync. Only the root matters to the cases below, so this
+ * is the shorthand for "an MQTT config that says nothing else".
+ */
 static bool feed_mqtt_root(struct mesh_session *session, const char *root) {
-    meshtastic_FromRadio from_radio = meshtastic_FromRadio_init_default;
-    from_radio.which_payload_variant = meshtastic_FromRadio_moduleConfig_tag;
-    from_radio.moduleConfig.which_payload_variant = meshtastic_ModuleConfig_mqtt_tag;
-    snprintf(from_radio.moduleConfig.payload_variant.mqtt.root,
-             sizeof from_radio.moduleConfig.payload_variant.mqtt.root, "%s", root);
-    return mesh_test_session_feed_from_radio(session, &from_radio);
-}
-
-static bool feed_channel(struct mesh_session *session, uint8_t index, const char *name,
-                         bool downlink) {
-    meshtastic_FromRadio from_radio = meshtastic_FromRadio_init_default;
-    from_radio.which_payload_variant = meshtastic_FromRadio_channel_tag;
-    from_radio.channel.index = (int8_t)index;
-    from_radio.channel.role =
-        index == 0U ? meshtastic_Channel_Role_PRIMARY : meshtastic_Channel_Role_SECONDARY;
-    from_radio.channel.has_settings = true;
-    snprintf(from_radio.channel.settings.name, sizeof from_radio.channel.settings.name, "%s", name);
-    from_radio.channel.settings.downlink_enabled = downlink;
-    from_radio.channel.settings.uplink_enabled = true;
-    return mesh_test_session_feed_from_radio(session, &from_radio);
+    meshtastic_ModuleConfig_MQTTConfig mqtt = meshtastic_ModuleConfig_MQTTConfig_init_default;
+    snprintf(mqtt.root, sizeof mqtt.root, "%s", root);
+    return mesh_test_feed_mqtt(session, &mqtt);
 }
 
 /* Collects the whole derived set, so a case can compare it as a list. */
@@ -428,10 +406,10 @@ MESH_TEST_CASE(mqtt_session_subscribes_where_the_firmware_would_have, unit) {
     mesh_session_init(&session);
 
     if (!feed_mqtt_root(&session, "msh/US") ||
-        !feed_lora(&session, meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST, true) ||
-        !feed_channel(&session, 0U, "", true) ||        /* the unnamed default primary */
-        !feed_channel(&session, 1U, "weather", true) || /* a named secondary */
-        !feed_channel(&session, 2U, "private", false)) {
+        !mesh_test_feed_lora(&session, meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST, true) ||
+        !mesh_test_feed_channel(&session, 0U, "", true) ||        /* the unnamed default primary */
+        !mesh_test_feed_channel(&session, 1U, "weather", true) || /* a named secondary */
+        !mesh_test_feed_channel(&session, 2U, "private", false)) {
         record_failure(test_name, "the config sync should be accepted");
         return;
     }
@@ -468,8 +446,9 @@ MESH_TEST_CASE(mqtt_session_subscribes_to_nothing_without_downlink, unit) {
     mesh_session_init(&session);
 
     if (!feed_mqtt_root(&session, "msh") ||
-        !feed_lora(&session, meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST, true) ||
-        !feed_channel(&session, 0U, "", false) || !feed_channel(&session, 1U, "weather", false)) {
+        !mesh_test_feed_lora(&session, meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST, true) ||
+        !mesh_test_feed_channel(&session, 0U, "", false) ||
+        !mesh_test_feed_channel(&session, 1U, "weather", false)) {
         record_failure(test_name, "the config sync should be accepted");
         return;
     }
@@ -493,7 +472,7 @@ MESH_TEST_CASE(mqtt_session_derives_filters_before_the_sync_finishes, unit) {
 
     /* A channel has arrived; the LoRa fragment and the MQTT module have not. The set has to be
        answerable anyway, because the fragments arrive in whatever order the radio sends them. */
-    if (!feed_channel(&session, 0U, "", true)) {
+    if (!mesh_test_feed_channel(&session, 0U, "", true)) {
         record_failure(test_name, "a channel should be accepted on its own");
         return;
     }
@@ -517,8 +496,8 @@ MESH_TEST_CASE(mqtt_session_reports_a_buffer_that_cannot_hold_a_filter, unit) {
     struct mesh_session session;
     mesh_session_init(&session);
     if (!feed_mqtt_root(&session, "msh/US") ||
-        !feed_lora(&session, meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST, true) ||
-        !feed_channel(&session, 0U, "", true)) {
+        !mesh_test_feed_lora(&session, meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST, true) ||
+        !mesh_test_feed_channel(&session, 0U, "", true)) {
         record_failure(test_name, "the config sync should be accepted");
         return;
     }

@@ -2,16 +2,19 @@
 #define MESH_CORE_APP_INTERNAL_H
 
 /*
- * The seams between app.c and the three files split out of it.
+ * The seams between app.c and the files split out of it.
  *
  * app.c had grown to 2700 lines around four jobs that only touch each other through the handful
  * of calls below: owning the link and the process lifecycle (app.c), turning the UI's pending
  * edits into admin writes (app_settings.c), reacting to a button press (app_actions.c), and
- * copying transport state into the UI store (app_publish.c).
+ * copying transport state into the UI store (app_publish.c). A fifth joined them rather than
+ * going back into app.c - deciding whether to hold a broker connection for the attached radio
+ * (app_mqtt.c), which is the one job here that reads the radio's configuration and answers with
+ * a socket.
  *
  * Nothing here is part of the client's public surface - that is include/mesh/core/app.h. These
  * declarations exist because C has no unit smaller than a translation unit: they would all be
- * `static` if the four files were still one.
+ * `static` if the files were still one.
  */
 
 #include "mesh/core/app.h"
@@ -49,6 +52,47 @@ void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *action);
  * meet. Call every loop turn.
  */
 void mesh_app_firmware_update_tick(struct mesh_app *app, uint64_t now);
+
+/* ---- app_mqtt.c ------------------------------------------------------------------------- */
+
+/*
+ * What the radio's MQTT configuration asks this client to connect to on its behalf.
+ *
+ * True when the radio wants proxying, with `out` describing the broker; false when it does not,
+ * and `out` is zeroed either way. Mirrors the firmware's own defaulting rules - which are not
+ * obvious and are explained where they are applied. Exposed for tests.
+ */
+bool mesh_app_mqtt_plan(const struct mesh_session *session, struct mesh_mqtt_proxy_config *out);
+
+/* Whether a connection already open on `have` would have to be torn down to become `want`.
+   Exposed for tests. */
+bool mesh_app_mqtt_config_differs(const struct mesh_mqtt_proxy_config *have,
+                                  const struct mesh_mqtt_proxy_config *want);
+
+/* Whether what the proxy was last told to do differs from this, which is the whole of the
+   decision to reconnect. `filters` is not const because C will not convert `char (*)[N]` to
+   `const char (*)[N]`. Exposed for tests. */
+bool mesh_app_mqtt_plan_changed(const struct mesh_app_mqtt_plan *planned,
+                                const struct mesh_mqtt_proxy_config *want,
+                                char (*filters)[MESH_MQTT_FILTER_MAX], size_t count);
+
+/* Fills `out` with the topic filters this radio's configuration says to subscribe to and returns
+   how many. Stops at `cap`, and at the first filter that cannot be built. Exposed for tests. */
+size_t mesh_app_mqtt_filters(const struct mesh_session *session, char (*out)[MESH_MQTT_FILTER_MAX],
+                             size_t cap);
+
+/* Brings the proxy up with the event loop and the CA bundle the updater resolved. Call from
+   mesh_app_init() once both exist. */
+void mesh_app_mqtt_init(struct mesh_app *app);
+/* Drops the connection and unregisters its descriptor. Call before the loop goes. */
+void mesh_app_mqtt_shutdown(struct mesh_app *app);
+/*
+ * Brings the broker connection into line with what the radio is asking for, and drives its
+ * clock. Call every loop turn: the whole of the decision is re-derived each time rather than
+ * pushed at from wherever a setting changes, so there is no path by which a configuration can
+ * move without the connection following it.
+ */
+void mesh_app_mqtt_tick(struct mesh_app *app, uint64_t now_ms);
 
 /* ---- app_settings.c --------------------------------------------------------------------- */
 

@@ -4,6 +4,7 @@
 #include "mesh/core/event_loop.h"
 #include "mesh/core/firmware.h"
 #include "mesh/core/firmware_update.h"
+#include "mesh/core/mqtt_proxy.h"
 #include "mesh/core/session.h"
 #include "mesh/core/signals.h"
 #include "mesh/core/updater.h"
@@ -25,6 +26,24 @@ extern "C" {
 #endif
 
 struct mesh_app_publish_cache;
+
+/*
+ * The MQTT arrangement this client last acted on, which is what a new one is compared against.
+ *
+ * Kept here rather than read back out of the proxy because the two are not the same question.
+ * The proxy holds what it is *doing*; this holds what it was *told*, and a start the proxy
+ * refused - an address the radio holds that is not a host - leaves the first empty while the
+ * second is exactly what must not be tried again on the next turn. Comparing against the proxy
+ * would retry a refusal at the frequency of the event loop.
+ */
+struct mesh_app_mqtt_plan {
+    struct mesh_mqtt_proxy_config config;
+    char filters[MESH_MQTT_FILTERS_MAX][MESH_MQTT_FILTER_MAX];
+    size_t filter_count;
+    /* Something has been handed to the proxy. False before the first one and after a stop, which
+       is what makes "no plan" and "a plan for no subscriptions at all" different states. */
+    bool active;
+};
 
 struct mesh_app {
     struct mesh_app_publish_cache *publish_cache;
@@ -202,6 +221,24 @@ struct mesh_app {
      */
     uint32_t ui_message_announced_id;
     bool ui_message_announce_primed;
+    /*
+     * One MQTT broker connection, held on behalf of whichever radio is attached and asking for
+     * it. Everything about it - whether to be connected, to what, with which subscriptions - is
+     * derived from the radio's own MQTTConfig every loop turn; see src/core/app_mqtt.c.
+     */
+    struct mesh_mqtt_proxy mqtt;
+    /* What it was last told to do; see struct mesh_app_mqtt_plan. */
+    struct mesh_app_mqtt_plan mqtt_planned;
+    /*
+     * Broker messages that reached the radio's doorstep and no further, which neither side
+     * counts: the proxy has already booked them as received, and the session has no counter for
+     * a send it refused. The link dropping mid-turn and a message too large for the radio's own
+     * field are both ordinary rather than exotic.
+     */
+    uint32_t mqtt_undelivered;
+    /* MESHCLIENT_MQTT_PROXY said no. The connection is otherwise the radio's decision entirely,
+       so this is the only say the client has in it. */
+    bool mqtt_disabled;
     /* A Settings save in flight: the write counters seen when it was queued, so its ack or
        rejection can be announced once; see mesh_app_track_settings_save(). */
     bool settings_save_pending;
