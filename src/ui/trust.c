@@ -117,6 +117,28 @@ bool mesh_ui_verify_sheet_of(const struct mesh_ui_verification *verification,
         return true;
     case MESH_UI_VERIFY_COMPARE:
         out->icon = MESH_UI_ICON_SECURITY;
+        /*
+         * Nothing to compare, which is not an edge case: no firmware yet populates
+         * KeyVerificationFinal.verification_characters at either end, and the *initiating* end
+         * never generates a code at all - its notification quotes a stale scratch buffer, so
+         * two ceremonies hours apart read the same digits. Asking "do these match?" over a
+         * blank headline leaves the reader nothing to answer with but a guess, which is the one
+         * failure this whole file exists to prevent.
+         *
+         * So the sheet asks what is actually true instead. The radio raises this step only
+         * after the six digits have been hashed together with the nonce, both node numbers and
+         * both public keys and agreed - a mismatch returns without sending anything - so the
+         * proof is already done and what is left for the user is whether to accept it. The
+         * comparison below is kept for the firmware that populates the field: when there is a
+         * code, comparing it is the stronger ceremony and this stays the fallback.
+         */
+        if (verification->characters[0] == '\0') {
+            (void)mesh_str_copy(headline, headline_len, mesh_str(MESH_STR_VERIFY_HEAD_CHECKED));
+            mesh_str_format(text, text_len, MESH_STR_VERIFY_BODY_CHECKED, peer);
+            out->accept = MESH_STR_VERIFY_ANSWER_TRUST;
+            out->cancel = MESH_STR_VERIFY_ANSWER_NOT_NOW;
+            return true;
+        }
         /* The code as the radio sent it, as the headline, for the reason the digits above are
            one - and unformatted, because it is not a sentence: it is the thing being compared,
            and a specifier around it would be a translator's chance to put something between

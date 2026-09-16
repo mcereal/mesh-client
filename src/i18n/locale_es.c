@@ -505,11 +505,18 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
         "dos personas veréis un código corto que comparar.",
     [MESH_STR_VERIFY_BODY_COMPARE] = "%s también está viendo un código. Decíoslo en voz alta. "
                                      "Responde que coinciden solo si coincide cada carácter.",
+    [MESH_STR_VERIFY_HEAD_CHECKED] = "Los dígitos coinciden",
+    [MESH_STR_VERIFY_BODY_CHECKED] =
+        "Esta radio comprobó los seis dígitos contra la clave de %s y coincidieron. No envió "
+        "ningún código que comparar, así que esa es toda la prueba: marca la clave como "
+        "verificada solo si escuchaste esos dígitos de viva voz.",
     [MESH_STR_VERIFY_ANSWER_LATER] = "Más tarde",
     [MESH_STR_VERIFY_ANSWER_READING] = "Leyéndolo",
     [MESH_STR_VERIFY_ANSWER_STOP] = "Parar",
     [MESH_STR_VERIFY_ANSWER_MATCH] = "Coinciden",
     [MESH_STR_VERIFY_ANSWER_DIFFER] = "No coinciden",
+    [MESH_STR_VERIFY_ANSWER_TRUST] = "Marcar verificada",
+    [MESH_STR_VERIFY_ANSWER_NOT_NOW] = "Ahora no",
     [MESH_STR_VERIFY_NUMBER_PROMPT] = "Seis dígitos de %s",
     [MESH_STR_NODE_VAL_USER_ID_HEX] = "!%08x",
     [MESH_STR_NODE_VAL_RELAY_HEX] = "!..%02x",

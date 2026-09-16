@@ -784,6 +784,58 @@ MESH_TEST_CASE(key_trust_sheet_answers_every_stage, unit) {
 }
 
 /*
+ * The comparison stage with no code in it must not ask for a comparison.
+ *
+ * This is the shape the radio actually sends: KeyVerificationFinal.verification_characters is
+ * populated by no firmware yet, and the initiating end never generates a code at all. The sheet
+ * that resulted showed a blank headline over "say yours to each other", and the only answer
+ * available to the reader was a guess - a user pressing "They match" against nothing, which is
+ * the precise failure this file's header calls the one that looks like working software.
+ *
+ * So the case checks the two things that would let it come back: that the stage still has a
+ * headline and a paragraph, and that the accepting label is *not* the comparison's. A sheet
+ * that fell back to "They match" here would pass every other case in this file.
+ */
+MESH_TEST_CASE(key_trust_sheet_does_not_ask_to_compare_nothing, unit) {
+    struct mesh_ui_verification verification;
+    memset(&verification, 0, sizeof verification);
+    verification.stage = (uint8_t)MESH_UI_VERIFY_COMPARE;
+    verification.remote_node = 0x2001U;
+    snprintf(verification.remote_name, sizeof verification.remote_name, "Pine Ridge");
+    verification.characters[0] = '\0';
+
+    struct mesh_ui_verify_sheet sheet;
+    char headline[96];
+    char text[256];
+    MESH_TEST_FAIL_IF(!mesh_ui_verify_sheet_of(&verification, &sheet, headline, sizeof headline,
+                                               text, sizeof text),
+                      "a final with no code left the user with no sheet at all");
+    MESH_TEST_FAIL_IF(headline[0] == '\0', "the sheet drew a blank headline");
+    MESH_TEST_FAIL_IF(text[0] == '\0', "the sheet dropped the paragraph that carries the caveat");
+    MESH_TEST_FAIL_IF(sheet.accept == MESH_STR_VERIFY_ANSWER_MATCH,
+                      "the sheet asked whether a code the radio never sent matched");
+    MESH_TEST_FAIL_IF(sheet.accept != MESH_STR_VERIFY_ANSWER_TRUST ||
+                          sheet.cancel != MESH_STR_VERIFY_ANSWER_NOT_NOW,
+                      "the no-code stage answered with the wrong pair");
+    /* The other person's name still reaches it: the paragraph is about a particular key, and a
+       sheet that said "their key" would be asking about nobody in particular. */
+    MESH_TEST_FAIL_IF(strstr(text, "Pine Ridge") == NULL,
+                      "the sheet did not name the node it is about");
+
+    /* And a code, when there is one, is still compared - the stronger ceremony is the one that
+       runs the moment a firmware populates the field. */
+    snprintf(verification.characters, sizeof verification.characters, "A7K2");
+    MESH_TEST_FAIL_IF(!mesh_ui_verify_sheet_of(&verification, &sheet, headline, sizeof headline,
+                                               text, sizeof text),
+                      "a final carrying a code had no sheet");
+    MESH_TEST_FAIL_IF(strcmp(headline, "A7K2") != 0,
+                      "the code the radio sent was not the headline");
+    MESH_TEST_FAIL_IF(sheet.accept != MESH_STR_VERIFY_ANSWER_MATCH,
+                      "a sheet with a code to compare stopped asking about it");
+    record_success(test_name);
+}
+
+/*
  * The node detail's key rows: the state always, and the two verbs only where they can do
  * something. A row that could only ever fail teaches the user to distrust the rows around it.
  */
