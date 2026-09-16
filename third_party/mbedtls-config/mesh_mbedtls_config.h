@@ -107,3 +107,36 @@
  * never completed a handshake under test is one that ships broken, and the alternative - two
  * builds of the library with two configurations - is a worse trade than the code this leaves in.
  */
+
+/* ---- where randomness comes from ---------------------------------------------------------- */
+
+/*
+ * **The entropy file, which upstream defaults to the blocking one.**
+ *
+ * mbedtls reaches for `getrandom()` first and only falls back to reading a file when
+ * `HAVE_GETRANDOM` was not detected at compile time - and that detection is a glibc version test
+ * in entropy_poll.c that the cross toolchain this pak is built with does not satisfy. So the
+ * device build takes the file path, and the file upstream picks by default is `/dev/random`.
+ *
+ * On a desktop that is merely old-fashioned. On the Brick it is a hang. `/dev/random` blocks
+ * until the kernel's entropy *estimate* reaches read_wakeup_threshold (64 bits here), and a
+ * handheld with no disks, no network interrupts worth the name and no hardware RNG refills that
+ * estimate at a crawl: measured at 15 bits, climbing to 54 over three minutes, with a TLS
+ * handshake waiting on the other side of it.
+ *
+ * And the wait is not in a corner. `mesh_tls_client_start()` seeds the DRBG inline, on the one
+ * epoll thread, so the whole client stops - no frames, no button handling, not even the MENU
+ * press that quits it. It presents as a frozen device, and the only thing on screen that could
+ * explain it is a status card that is no longer being drawn.
+ *
+ * `/dev/urandom` is the same CSPRNG on any kernel this runs on, it is seeded from the same pool,
+ * and it does not block once that pool has been initialised - which happened days before any of
+ * this. The "entropy depletion" argument for preferring /dev/random does not describe how
+ * modern Linux works; what it does describe is this hang.
+ *
+ * It bit on the second connection rather than the first, which is worth knowing when reading a
+ * bug report: five days of uptime had banked enough for one handshake, and that handshake spent
+ * it.
+ */
+#undef MBEDTLS_PLATFORM_DEV_RANDOM
+#define MBEDTLS_PLATFORM_DEV_RANDOM "/dev/urandom"
