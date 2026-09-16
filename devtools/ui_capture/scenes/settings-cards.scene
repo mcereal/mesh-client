@@ -1,0 +1,67 @@
+# What a card is for, and the pair of buttons that crosses one.
+#
+# Three things this is a picture of, and the first two are the same correction seen from either
+# end: a card has to be a grouping rather than a border.
+#
+#   - Modules is fourteen rows and no headings, so it has no groups and draws none. It used to
+#     come out inside a single surface, which is a box drawn round the page - it says nothing
+#     about any row, because there is nothing for those rows to be grouped apart from.
+#   - Radio actions is five groups, so it keeps every card it had. The gate is about sections
+#     with nothing to say, not about cards.
+#   - And About is the case the cards were hiding rather than fixing. Four ungrouped rows, two of
+#     them verbs: the verbs indented past a disc and the fields began at the panel's padding, so
+#     the text started in two columns with a card edge between them. Every row now starts in the
+#     verbs' column, the empty gutter included.
+#
+# Then the part that is new rather than undone. The d-pad walks rows, Left/Right are the editor's
+# inside a section and L1/R1 are the tabs - so until now the cards were a grouping the eye was
+# given and the thumb was not. L2/R2 move a whole group at a time.
+
+scene demo
+scale 4
+delay 200
+config
+
+tab settings
+hold 700
+
+# About: four rows, one column. The two verbs carry a disc and the two fields carry the gutter.
+key a
+hold 1800
+key b
+hold 500
+
+# Modules: no groups, so no card. Fourteen rows on the panel, with room around their symbols.
+key down 13
+key a
+hold 2000
+key b
+hold 500
+
+# Radio actions: five groups, five cards, and the weight now lives in the discs rather than in
+# the words. Nine of these eleven rows carry a warning or an error tone; none of them shouts.
+key down 1
+key a
+hold 2200
+
+# R2 down the cards, one press per group, landing on each group's first row rather than on its
+# title. Eleven rows crossed in four presses.
+key r2
+hold 900
+key r2
+hold 900
+key r2
+hold 900
+key r2
+hold 1400
+
+# And back. The first L2 goes to the top of the group the cursor is in - not out of it - which is
+# what the same button does in a document reader, and what makes the pair usable with one thumb.
+key down
+hold 700
+key l2
+hold 1200
+key l2
+hold 900
+key l2
+hold 1600

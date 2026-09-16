@@ -157,6 +157,11 @@ bool mesh_ui_nav_keyboard_key(struct mesh_ui_nav *nav, const struct mesh_ui_stor
  * actions group's heading. Two opinions about where a level opens is exactly the split this
  * group of files keeps collapsing.
  */
+/* Moves the cursor one whole group - one card - rather than one row: L2 and R2. Returns false
+   where there is no group that way, or where the screen draws no groups at all. */
+bool mesh_ui_nav_cursor_group(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                              int delta);
+
 void mesh_ui_nav_cursor_to_first_row(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                                      enum mesh_ui_screen screen);
 

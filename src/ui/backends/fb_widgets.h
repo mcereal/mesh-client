@@ -1604,6 +1604,27 @@ enum fb_leading_kind {
      * are the only two coloured words on the card.
      */
     FB_LEADING_TONAL,
+    /*
+     * The tonal gutter, reserved and left empty.
+     *
+     * FB_LEADING_ICON has always reserved its slot on every row of a list whether or not the row
+     * filled it, because a list that indents only the rows with something to show is a list
+     * whose text starts in two columns. A disc is wider than an icon, so a list mixing the two
+     * needs the same promise kept at the disc's width - and until now there was no way to say
+     * it: a row with nothing to put in a disc had to pick between drawing an empty circle and
+     * starting its words a gutter to the left of every other row.
+     *
+     * A settings section that mixes verbs with fields is exactly that list. About is four rows,
+     * two of them verbs, and it drew "Language" and "Theme" past a disc while "Version" and
+     * "Updates" began at the panel's own padding. The cards were hiding it rather than fixing
+     * it - each run got a surface and the mismatch moved to the boundary between them - which is
+     * why removing a card that was saying nothing is what made it visible.
+     *
+     * A kind rather than TONAL with an empty icon, so a row that means "nothing here" cannot be
+     * confused with one that forgot its symbol, and so fb_draw_avatar() is never asked to draw a
+     * disc with nothing in it.
+     */
+    FB_LEADING_TONAL_SLOT,
 };
 
 struct fb_leading {
@@ -1701,6 +1722,28 @@ struct fb_list_item {
      * Ignored on a plain row, which has no label column to ink.
      */
     bool label_quiet;
+    /*
+     * Whether the row's tone is spent on its *marks* alone, leaving the words in ordinary ink.
+     *
+     * A tone says what a row means, and there are three places to spend it: the leading disc,
+     * the accent edge, and the text. Spending all three at once is right for a row whose whole
+     * state is unusual - a section that is not loaded, a field that will not be honoured - and
+     * wrong for a column of verbs, where every row means something and only the difference
+     * between them is worth a colour. Radio actions is the case: nine of its ten rows carry a
+     * warning or error tone, so inking the words made the screen a wall of orange with the two
+     * rows that cannot be undone somewhere inside it. The disc and the edge carry the same
+     * gradient in a container, which is where Material puts it, and the labels stay a column
+     * the eye can run down.
+     *
+     * A flag rather than a second tone, for the reason `label_quiet` is one: a tone cannot say
+     * "whatever ordinary is" without MESH_UI_TONE_NORMAL's zero flattening the rows that meant
+     * something by it. This says only *where* the row's one statement is drawn, never what it
+     * is - the disc and `accent_edge` still read `tone`, so nothing here is a second opinion.
+     *
+     * Quiet wins where both are set: a tier that recedes is a stronger claim than a tier that
+     * is merely ordinary.
+     */
+    bool label_plain;
     /*
      * Whether the value column is a *state* rather than a reading, and so is drawn as a capsule
      * instead of as words - the status bubble every phone app answers "is this thing OK?" with.

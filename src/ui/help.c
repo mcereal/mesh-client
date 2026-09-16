@@ -439,6 +439,34 @@ bool mesh_ui_help_topic(const struct mesh_ui_settings *settings,
         out->entries[out->count].body = note;
         out->count++;
     }
+
+    /*
+     * How to cross the groups, on the sections that have any.
+     *
+     * Conditional rather than a line on every section, and read off the rows rather than
+     * declared: a heading is what the renderer opens a card on, so a section with none draws no
+     * cards and L2/R2 refuse the press there. Offering the note anyway would be the help screen
+     * advertising a key that does nothing, which is the rule the action bar is held to one table
+     * over.
+     *
+     * **Last, and that is load-bearing rather than a preference.** The overview is entry 0 and
+     * the explained rows run 1..n in row order - mesh_ui_help_entry_for_row() walks the rows and
+     * counts, rather than searching, so a paragraph inserted anywhere among them shifts every
+     * row's landing out from under it. Written second, this opened Ham mode's note on the row
+     * above it all the way down LoRa (`help_opens_where_the_cursor_was`). After the rows it
+     * names no row, so nothing maps onto it and the correspondence is untouched.
+     */
+    if (out->count < MESH_UI_HELP_ENTRIES_MAX) {
+        for (uint32_t i = 0U; i < rows; ++i) {
+            if (items[i].kind != MESH_UI_SETTING_HEADING) {
+                continue;
+            }
+            out->entries[out->count].label = MESH_STR_HELP_LABEL_SETTINGS_GROUPS;
+            out->entries[out->count].body = MESH_STR_HELP_NOTE_SETTINGS_GROUPS;
+            out->count++;
+            break;
+        }
+    }
     return true;
 }
 
@@ -516,8 +544,10 @@ uint32_t mesh_ui_help_entry_for_row(const struct mesh_ui_settings *settings,
      * the paragraph that names all five readings.
      *
      * No clamp on the way out, and that is MESH_UI_HELP_ENTRIES_MAX's doing rather than an
-     * omission: the entry count runs to one per row plus the overview, which is exactly what a
-     * topic holds, so this cannot name an entry the topic does not have.
+     * omission: the entry count runs to one per row plus the overview, and a topic holds that
+     * with room to spare, so this cannot name an entry the topic does not have. The spare is the
+     * group note, which is appended *after* the rows precisely so that it is not one of the
+     * indices counted here.
      */
     uint32_t entry = 1U;
     uint32_t landing = 0U;

@@ -2903,20 +2903,21 @@ MESH_TEST_CASE(ui_settings_every_section_has_an_icon, unit) {
 }
 
 /*
- * The invariant struct mesh_ui_settings_item's `icon` is documented with, in the shape it took
- * once a settings section became a column of cards: the leading slot is all-or-nothing over a
- * *card*, not over a section, because that is the run of rows an eye runs down.
+ * The invariant struct mesh_ui_settings_item's `icon` is documented with: which rows carry a
+ * symbol, which is what the renderer measures its leading slot from.
  *
  * Two claims here, and between them they are what the renderer relies on:
  *
  *   - a verb always carries a symbol. A tonal disc with nothing in it is a row that is not about
- *     anything, and one blank disc in a card of them is the hole the reader's eye stops in.
+ *     anything, and one blank disc in a column of them is the hole the reader's eye stops in.
  *   - every row that is *not* a verb answers mesh_ui_settings_section_icons_rows(), exactly as
- *     the whole section used to. That is still the rule for the two lists of subjects, and it is
- *     what keeps a card of settings starting its words in one column.
+ *     the whole section used to. That is still the rule for the two lists of subjects.
  *
- * What makes those two enough is the split in fb_render_settings(): a card never holds both
- * kinds, so "every verb has one and no setting has one" cannot produce a mixed card.
+ * What this does *not* decide is the gutter. A symbol is per row; the width every row's words
+ * start at is per section, because a list that indents only the rows with something in it starts
+ * its text in two columns - so a section holding any verb reserves the disc's gutter on its
+ * fields too, and FB_LEADING_TONAL_SLOT is what it reserves it with. About is the case the two
+ * rules part company on: four rows, two of them verbs, and only the verbs have a symbol to draw.
  *
  * The list is built with everything loaded, because a module row that has not been answered for
  * still names its module - and that is the row most likely to be the one that forgets.

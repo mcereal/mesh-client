@@ -1127,6 +1127,7 @@ static void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
                    ink, in its own tone - the accent edge is drawn in the row's family, so the
                    one row on the screen that deletes something is the one row marked in red on
                    both of its edges. */
+                .label_plain = true,
                 .accent_edge = item->tone == (uint8_t)MESH_UI_TONE_ERROR,
             };
             fb_list_item(state, &list, i, &row);
@@ -3309,6 +3310,52 @@ static bool settings_row_slider(const struct mesh_ui_settings_item *item,
     return mesh_ui_settings_number_track(item->field, item->number, out);
 }
 
+/*
+ * Whether a section's groups are worth drawing as cards at all.
+ *
+ * A card says "these rows belong together", so it needs something to be together *apart from*.
+ * One card wrapping a whole section says nothing: it is a border drawn round the page, and a
+ * border is not a grouping.
+ *
+ * Two shapes fail that, and both are the same failure arriving by different roads. A section
+ * with no headings has no groups, so Modules' fourteen rows came out inside one surface. And a
+ * section whose assignment yields a single card has one group, which is the same statement with
+ * the heading left in.
+ *
+ * This is not a new rule. It is the one the assignment below was already written against - "a
+ * section with no headings gets no cards at all... a list with one group has nothing to say it
+ * about" - and did not enforce, because `any_cards` was set for every open section. About is
+ * what the gap cost: four ungrouped rows, half of them verbs, came out as two one-row cards
+ * with the verbs floating between them at the panel's indent while the carded rows started at
+ * the card's. Text beginning in two columns is the exact failure the leading slot's
+ * all-or-nothing rule exists to prevent - it was simply happening *between* cards rather than
+ * inside one, where nothing was looking for it.
+ */
+static bool settings_section_has_heading(const struct mesh_ui_settings_item *items,
+                                         uint32_t count) {
+    for (uint32_t r = 0; r < count; ++r) {
+        if (items[r].kind == MESH_UI_SETTING_HEADING) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* How many distinct surfaces the assignment actually placed. Counted from the ordinals rather
+   than from the headings, because a mixed group floats its verbs onto the panel and so does not
+   always leave a card behind. */
+static uint32_t settings_card_count(const uint8_t *cards, uint32_t count) {
+    uint32_t cardinal = 0U;
+    uint8_t last = FB_LIST_NO_CARD;
+    for (uint32_t r = 0; r < count; ++r) {
+        if (cards[r] != FB_LIST_NO_CARD && cards[r] != last) {
+            cardinal++;
+        }
+        last = cards[r];
+    }
+    return cardinal;
+}
+
 static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                                const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
@@ -3449,7 +3496,8 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
     uint8_t cards[MESH_UI_SETTINGS_ITEMS_MAX];
     bool any_cards = false;
     memset(cards, FB_LIST_NO_CARD, sizeof cards);
-    if (section_open) {
+    /* No headings, no groups, no cards - see settings_section_has_heading(). */
+    if (section_open && settings_section_has_heading(items, count)) {
         /*
          * Every row of an open section stands on a card, and the headings are what break the
          * column into them. A section with no headings at all is one card, which is the same
@@ -3537,6 +3585,11 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
             cards[r] = card;
         }
     }
+    /* And one card is a border round the page rather than a grouping, however it was arrived
+       at. See settings_section_has_heading(). */
+    if (any_cards && settings_card_count(cards, count) < 2U) {
+        any_cards = false;
+    }
     /*
      * Which rows lead with a symbol, for everything that is not a verb.
      *
@@ -3550,6 +3603,29 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
      * hold per card without anything having to check it twice.
      */
     const bool rows_lead_with_icon = !section_open || mesh_ui_settings_section_icons_rows(section);
+    /*
+     * Whether anything in this section draws a disc, and so whether every row owes the gutter.
+     *
+     * The leading slot is declared for a whole list or for none of it - the rule stated at the
+     * top of this function - and a verb declares it by drawing a tonal disc. A section that
+     * mixes verbs with fields therefore owes that width on its *fields* too, or its text begins
+     * in two columns: About is four rows and drew "Language" and "Theme" past a disc while
+     * "Version" and "Updates" started at the panel's padding.
+     *
+     * That was true before the cards and stayed true under them. Splitting a mixed group into a
+     * card of fields and floated verbs did not align the two columns, it moved the seam between
+     * them onto a card edge, where it read as a card that had lost its indent. The slot is what
+     * actually fixes it; see FB_LEADING_TONAL_SLOT.
+     */
+    bool section_has_verb = false;
+    if (section_open) {
+        for (uint32_t r = 0; r < count; ++r) {
+            if (mesh_ui_settings_item_is_verb(&items[r])) {
+                section_has_verb = true;
+                break;
+            }
+        }
+    }
     /*
      * Which rows carry a slider, measured here and handed to the model before the first row is
      * placed - the node detail's arrangement, and the rule step 9 left behind: the screen
@@ -3616,6 +3692,10 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
             const struct fb_leading leading =
                 rows_lead_with_icon
                     ? (struct fb_leading){.kind = FB_LEADING_ICON, .icon = item.icon}
+                : section_has_verb
+                    /* A field in a section that also holds verbs owes the disc's gutter, so its
+                       words start in the verbs' column rather than a slot to the left of them. */
+                    ? (struct fb_leading){.kind = FB_LEADING_TONAL_SLOT}
                     : (struct fb_leading){.kind = FB_LEADING_NONE};
             /*
              * A verb, drawn as one: the symbol in a tonal disc at the leading edge, the label
@@ -3674,6 +3754,12 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                             ? (struct fb_trailing){.kind = FB_TRAILING_TEXT, .text = item.value}
                             : (struct fb_trailing){.kind = FB_TRAILING_ICON,
                                                    .icon = MESH_UI_ICON_CHEVRON},
+                    /* The tone goes to the disc and the edge, never to the words - which is
+                       what the paragraph above claims and what this flag is what makes true.
+                       Without it `tone` also inks the label, and a section where nine rows in
+                       ten carry a weight draws nine tinted labels: the wall of orange this was
+                       supposed to have replaced. */
+                    .label_plain = true,
                     /* Only on a row whose press cannot be walked back, and only while it is one:
                        a withdrawn verb is an absent offer rather than a dangerous one, so it
                        keeps neither the red nor the bar. */

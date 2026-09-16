@@ -345,8 +345,17 @@ whoever was reading it (`settings_withdrawn_verbs_keep_the_section_shape`).
 
 `fb_render_settings()` derives `cards[]` the way the node detail does: a heading opens a card,
 everything under it belongs to that card, and the heading itself stands on no card — in the break,
-where it becomes the card's label and pays for both cards' insets without costing a row. A
-section with no headings is one card, and the rows ahead of the first heading are an unnamed one.
+where it becomes the card's label and pays for both cards' insets without costing a row. The
+rows ahead of the first heading are an unnamed group and get a card of their own.
+
+**A card has to be a grouping, not a border.** A section with no headings has no groups, so it
+draws as a plain list — and so does one whose assignment comes out as a single card, which is the
+same screen with a title on it. One surface wrapping a whole page says nothing: Modules is
+fourteen ungrouped rows and was drawn inside one, which is a box round the screen rather than a
+statement about any of it. Both gates are in `fb_render_settings()` and both are held by
+`ui_capture_an_ungrouped_section_draws_no_card`, with
+`ui_capture_a_grouped_section_draws_cards` as the other half — a gate that silenced every card
+would pass the first and lose the grouping everywhere.
 
 One kind of row stands on the panel instead, and the leading slot is what forces it. A card of
 verbs indents every row past a disc and a card of settings starts at the card's own padding, so
@@ -365,9 +374,28 @@ out of a step and a step is a row. Standing the verbs on the panel spends the pa
 non-card step, which is what a heading already is — and it reads as the better answer anyway,
 since a verb under a group of fields is the thing that *applies* them.
 
-That is also what lets the leading slot's rule be checked per card without anything checking it
-twice: no card holds both kinds, so "every verb has a symbol and no setting has one" is enough
-(`ui_settings_row_icons_are_all_or_nothing`).
+A *symbol* is still per row and per card on those terms — "every verb has one and no setting
+has one" (`ui_settings_row_icons_are_all_or_nothing`). The **gutter** is not: it is per section.
+A list that indents only the rows carrying something starts its text in two columns, and the
+cards were hiding that rather than fixing it — About is four ungrouped rows, two of them verbs,
+and drawing the verbs past a disc while the fields began at the panel's padding put the seam on
+a card edge instead of removing it. So a section holding any verb reserves the disc's width on
+its fields too, with `FB_LEADING_TONAL_SLOT`: the gutter, promised to a row that has nothing to
+put in it.
+
+### Crossing the cards
+
+The d-pad walks rows, Left/Right belong to the editor inside a section and L1/R1 are the tabs —
+so the cards were a grouping the eye was given and the thumb was not. **L2/R2 move a whole group
+at a time** (`mesh_ui_nav_cursor_group()`), on both screens that draw groups as cards: a settings
+section and the node detail.
+
+Forward lands on the first row of the next group. Back lands on the first row of *this* group and
+only crosses into the previous one when the cursor is already there — the asymmetry every
+document reader has, and what makes the pair usable with one thumb. A screen with no headings has
+no boundaries and refuses both, which is the same answer it gives by drawing no cards. Held by
+`ui_nav_settings_shoulders_walk_the_cards`; the help screen names the pair on the sections that
+have it, since the action bar is five hints wide there already.
 
 ### The one colour pair that is not a theme choice
 

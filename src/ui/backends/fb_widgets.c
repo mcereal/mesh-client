@@ -1629,11 +1629,13 @@ static struct fb_item_geom fb_item_measure(const struct mesh_ui_backend_fb_state
 
     g.content_x = box.text_x;
     g.text_x = g.content_x;
-    if (item->leading.kind == FB_LEADING_AVATAR || item->leading.kind == FB_LEADING_TONAL) {
-        /* One measurement for both discs. A tonal container is an avatar that happens to be
+    if (item->leading.kind == FB_LEADING_AVATAR || item->leading.kind == FB_LEADING_TONAL ||
+        item->leading.kind == FB_LEADING_TONAL_SLOT) {
+        /* One measurement for all three. A tonal container is an avatar that happens to be
            filled from a family rather than from a hash, and a gutter that differed between them
            would be a list unable to mix the two - which the node detail does, one card of verbs
-           at a time. */
+           at a time. The empty slot measures with them for the same reason it exists: it is this
+           gutter, promised to a row that has nothing to put in it. */
         g.text_x = g.content_x + (g.fill_h - scale) + adv / 2;
     } else if (item->leading.kind == FB_LEADING_ICON) {
         /* Reserved whether or not this row filled it, so every row's words start in the same
@@ -2162,7 +2164,12 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
      * Under the cursor everything is drawn against that fill instead of against the ground,
      * which is a different pair of colours and not a dimmer version of the same one.
      */
-    const struct mesh_ui_rgb head_ink = fb_item_ink(state, item->tone, selected, false);
+    /* Where the row's tone is spent on its words. `label_plain` keeps them ordinary and leaves
+       the tone to the disc and the accent edge, which is the whole of that flag; see
+       fb_list_item.label_plain. Resolved once here so the plain row below and the label column
+       further down cannot disagree about it. */
+    const enum mesh_ui_tone text_tone = item->label_plain ? MESH_UI_TONE_NORMAL : item->tone;
+    const struct mesh_ui_rgb head_ink = fb_item_ink(state, text_tone, selected, false);
     /* What every icon on this row is blended against: the fill if the cursor laid one down, and
        otherwise whatever the row is standing on - the panel, or the surface of the card its
        group was drawn on. Asked of the list rather than assumed, because a glyph carries
@@ -2237,7 +2244,7 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
          */
         /* The row's own tone unless the row said the label is its quiet tier, which is what
            keeps a dim section and a strong unsaved field marked across both halves. */
-        const enum mesh_ui_tone label_tone = item->label_quiet ? MESH_UI_TONE_DIM : item->tone;
+        const enum mesh_ui_tone label_tone = item->label_quiet ? MESH_UI_TONE_DIM : text_tone;
         const size_t label_cols = item->label_cols < head_cols ? item->label_cols : head_cols;
         fb_item_piece(state, g.text_x, g.head_y, item->label, label_cols,
                       fb_item_ink(state, label_tone, selected, item->label_quiet), ground);
