@@ -1436,7 +1436,7 @@ MESH_STR_ENTRY(HELP_NOTE_DEVICES,         "The radios this Brick can reach: Blue
 MESH_STR_ENTRY(HELP_NOTE_DEVICES_PAIR,    "A Bluetooth radio wants pairing the first time. The radio shows a six-digit code on its own screen and this client asks for it; the pairing is then kept until one side forgets it.")
 MESH_STR_ENTRY(HELP_NOTE_DEVICES_FORGET,  "Y twice drops a radio's pairing from this Brick. Connecting again needs the code again, which is what to do when a radio was re-flashed and no longer knows this client.")
 MESH_STR_ENTRY(HELP_LABEL_DEVICES_NETWORK, "The network radio")
-MESH_STR_ENTRY(HELP_NOTE_DEVICES_NETWORK, "The last row reaches a node over WiFi. It takes a numeric address like 192.168.1.50, never a name: looking one up would freeze the screen. Add :4403 only for another port. Y edits, clearing forgets.")
+MESH_STR_ENTRY(HELP_NOTE_DEVICES_NETWORK, "The last row reaches a node over WiFi. It takes an address like 192.168.1.50 or a name like meshtastic.local; add :4403 only for another port. Y edits, clearing forgets.")
 
 /* Status. */
 MESH_STR_ENTRY(HELP_LABEL_STATUS_COUNTS,  "Why two node counts differ")
@@ -2443,9 +2443,10 @@ MESH_STR_ENTRY(LINK_USB_BOOTLOADER,       "%.20s is in its bootloader; press res
    translated, and neither is the C library's own word for an errno. */
 MESH_STR_ENTRY(LINK_TCP_DISABLED,         "Network links are disabled")
 MESH_STR_ENTRY(LINK_TCP_BAD_TARGET,       "%.32s is not an address and port")
-/* Said when the target parses but is a name rather than a numeric address. Resolving one would
-   block the client's single loop, so this names the thing the user can do instead. */
-MESH_STR_ENTRY(LINK_TCP_NEEDS_ADDRESS,    "%.24s: use an IP address, not a name")
+/* A name that resolved to nothing: a typo, or a host that is not on this network. */
+MESH_STR_ENTRY(LINK_TCP_UNKNOWN_HOST,     "%.24s: no such host")
+/* And the other half - the lookup itself did not work, which says nothing about the name. */
+MESH_STR_ENTRY(LINK_TCP_LOOKUP_FAILED,    "%.24s: could not look up the name")
 MESH_STR_ENTRY(LINK_TCP_UNREACHABLE,      "%.24s: %.20s")
 MESH_STR_ENTRY(LINK_TCP_TIMEOUT,          "%.32s did not answer")
 MESH_STR_ENTRY(LINK_TCP_NO_ANSWER,        "%.24s: the radio did not answer")

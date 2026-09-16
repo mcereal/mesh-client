@@ -31,10 +31,9 @@ is ignored for them.
 
 BLE is the default. `--serial[=ID]` takes a sysfs interface id (`1-1:1.1`) or a device node, and
 without one uses the first port found. `--tcp-host ADDR[:PORT]` reaches an ESP32 with its network
-module enabled, or `meshtasticd` on any Linux box; the port defaults to 4403. **It takes a
-numeric address, not a name** — resolving one would block the single event loop, so
-`meshtastic.local` is refused in words rather than paid for in a frozen UI
-([`transport.md`](transport.md#an-address-not-a-name)).
+module enabled, or `meshtasticd` on any Linux box; the port defaults to 4403. It takes an address
+or a name — a name is resolved in a forked child rather than on the loop, so it costs a fork and
+a round trip rather than a frozen UI ([`transport.md`](transport.md#a-name-costs-a-fork)).
 
 `--serial` outranks `--tcp-host`. `--disable-ble` / `--disable-serial` / `--disable-tcp` turn a
 transport off entirely.

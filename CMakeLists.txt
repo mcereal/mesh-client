@@ -86,6 +86,7 @@ add_library(meshclient_core
     src/core/message.c
     src/core/waypoint.c
     src/core/radio_settings.c
+    src/core/resolve.c
     src/core/session.c
     src/core/signals.c
     src/core/store_forward.c

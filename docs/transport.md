@@ -159,13 +159,32 @@ Three things it does that the serial link does not:
 - **`TCP_NODELAY` and keepalive.** The traffic is small request/reply pairs, exactly what Nagle
   delays; keepalive notices the network going away without anybody closing anything.
 
-### An address, not a name
+### A name costs a fork
 
 **`getaddrinfo()` blocks, and this client is one epoll loop with no threads.** There is no
-non-blocking resolver in POSIX (`getaddrinfo_a` starts threads), so a target is a numeric literal
-— `192.168.1.50:4403`, `[fd00::1]:4403` — and a name is refused in words rather than paid for in a
-stall. The shape that would lift it is the one `src/core/fetch.c` uses for HTTPS: fork a child,
-let it block, read the answer back through the loop.
+non-blocking resolver in POSIX (`getaddrinfo_a` starts threads), so the call cannot be made on the
+loop at all — for a long time that meant a target had to be a numeric literal and a name was
+refused in words.
+
+[`src/core/resolve.c`](../src/core/resolve.c) is the way out, and it is the shape
+`src/core/fetch.c` already uses for HTTPS with the tool taken out: fork a child, let *it* block in
+`getaddrinfo()`, read one fixed-size record back through the loop. The child does not exec —
+there is nothing worth exec'ing, since `getent` is not on the Brick and busybox's `nslookup`
+prints something different every version — so it inherits everything this process has open and
+must touch none of it before `_exit`.
+
+A literal still costs nothing: `mesh_resolve_literal()` answers `192.168.1.50:4403` and
+`[fd00::1]:4403` with `inet_pton` and no child, which is both faster and what keeps an address
+behaving exactly as it did. So the link gained a state — `RESOLVING`, before `CONNECTING`, with
+no socket yet and nothing for epoll to watch — and a name now fails later and more usefully:
+"no such host" when it resolved to nothing, "could not look up the name" when the lookup itself
+did not work. The two are different sentences because they ask the reader for different things.
+
+`AI_ADDRCONFIG`, and the first answer only. A Brick on WiFi usually has no routable IPv6, and an
+AAAA record there is an address whose connect can only time out; walking a second A record is not
+what fixes a failed connect, and a retry goes back through the whole attempt anyway — which is
+also how it picks up a lease that moved. `tcp_transport_connects_by_name`,
+`tcp_transport_takes_a_name`, `resolve_*`.
 
 ### Typing one: the Devices tab's last row
 
@@ -183,8 +202,9 @@ count, by `actions.c` for the keycaps and by the renderer for the row.
 list is what auto-connect ranks a *scan* with, and a host is in no scan. It is written when the
 connect is *asked for* rather than when it succeeds — the radio may be off and the WiFi elsewhere,
 and it is still the address the user wrote down. What is saved is the address the transport
-**adopted**, asked rather than inferred from a return code: the link takes a target only once it
-has parsed it *and* got a socket, and enumerating the refusal codes missed three of them
+**adopted**, asked rather than inferred from a return code: the link takes a target only once the
+attempt is actually under way — a socket for an address, a forked lookup for a name — and
+enumerating the refusal codes missed three of them
 (`tcp_refused_target_is_remembered_by_nobody`).
 
 The link that is *already up* gets a row synthesised by `mesh_app_publish_ui_state()` for

@@ -24,6 +24,15 @@ An epoll loop over a fixed table of 32 fd sources: D-Bus watches, the timerfd di
 the UI store eventfd, the serial tty, the updater's curl child stdout. **No threads anywhere. Do
 not add them.**
 
+### A name lookup forks
+
+Nothing may block the loop, and a name lookup is blocking by nature. `getaddrinfo()` blocks,
+POSIX offers no non-blocking form, and `getaddrinfo_a()` starts threads.
+[`src/core/resolve.c`](../src/core/resolve.c) forks a child that blocks in it and writes one
+fixed-size record back through a pipe the loop owns — `src/core/fetch.c`'s shape with the tool
+taken out. An address literal costs no child at all. See
+[`docs/transport.md`](transport.md#a-name-costs-a-fork).
+
 ## `src/core/session.c` — the Meshtastic conversation
 
 `struct mesh_session` is the conversation, independent of how the bytes travel: the
