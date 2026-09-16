@@ -86,9 +86,12 @@ add_library(meshclient_core
     src/core/message.c
     src/core/waypoint.c
     src/core/radio_settings.c
+    src/core/mqtt_proxy.c
+    src/core/resolve.c
     src/core/session.c
     src/core/signals.c
     src/core/store_forward.c
+    src/core/tls_client.c
     src/core/uf2.c
     src/core/updater.c
     src/core/version.c
@@ -104,6 +107,7 @@ add_library(meshclient_core
     src/transport/tcp/tcp_transport.c
     src/proto/channel_url.c
     src/proto/contact_url.c
+    src/proto/mqtt_packet.c
     src/proto/stream_framing.c
     src/geo/coords.c
     src/geo/mercator.c
@@ -297,6 +301,50 @@ set(BUILD_STATIC_LIBS ON CACHE BOOL "Build static nanopb" FORCE)
 
 add_subdirectory(third_party/nanopb)
 target_link_libraries(meshclient_core PUBLIC protobuf-nanopb-static)
+
+# Mbed TLS, for the one connection this process has to encrypt itself: MQTT to a broker, on
+# behalf of a radio that cannot reach one. Everything else it fetches over HTTPS is a forked
+# curl (src/core/fetch.c), and a broker connection cannot be - it is long-lived, bidirectional
+# and has to sit on the same epoll loop as the UI. See include/mesh/core/tls_client.h.
+#
+# Optional on purpose. `MESHCLIENT_HAVE_TLS` is what src/core/tls_client.c switches on, and
+# without the submodule it compiles to a stub that reports TLS unavailable - the same
+# arrangement MESH_HAVE_DBUS gives the BLE transport. A checkout that skipped
+# `git submodule update --recursive` still builds and still runs; MQTT over TLS is the one thing
+# it cannot do, and it says so rather than failing to link.
+if(EXISTS ${PROJECT_SOURCE_DIR}/third_party/mbedtls/CMakeLists.txt)
+    # Mbed TLS builds its own tests, sample programs and package config by default, none of which
+    # belong in this build. FATAL_WARNINGS is turned off because it is that project's policy
+    # about its own warnings, applied with this project's compiler flags - a combination neither
+    # side tested.
+    set(ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+    set(ENABLE_PROGRAMS OFF CACHE BOOL "" FORCE)
+    set(MBEDTLS_FATAL_WARNINGS OFF CACHE BOOL "" FORCE)
+    set(GEN_FILES OFF CACHE BOOL "" FORCE)
+    set(DISABLE_PACKAGE_CONFIG_AND_INSTALL ON CACHE BOOL "" FORCE)
+    set(USE_STATIC_MBEDTLS_LIBRARY ON CACHE BOOL "" FORCE)
+    set(USE_SHARED_MBEDTLS_LIBRARY OFF CACHE BOOL "" FORCE)
+
+    add_subdirectory(third_party/mbedtls EXCLUDE_FROM_ALL)
+
+    # What this build of the library is, and is not. The header subtracts from Mbed TLS's own
+    # default config rather than replacing it; it says why at length. It is applied to the
+    # library's targets - not to meshclient_core - because it has to be in effect while the
+    # library itself compiles, or its headers and its objects disagree about what is enabled.
+    foreach(MBEDTLS_TARGET mbedtls mbedx509 mbedcrypto)
+        target_compile_definitions(${MBEDTLS_TARGET}
+            PUBLIC MBEDTLS_USER_CONFIG_FILE="mesh_mbedtls_config.h")
+        target_include_directories(${MBEDTLS_TARGET}
+            PUBLIC ${PROJECT_SOURCE_DIR}/third_party/mbedtls-config)
+    endforeach()
+
+    target_compile_definitions(meshclient_core PUBLIC MESHCLIENT_HAVE_TLS)
+    target_link_libraries(meshclient_core PUBLIC mbedtls mbedx509 mbedcrypto)
+else()
+    message(STATUS
+        "third_party/mbedtls is missing: building without TLS, so MQTT will be plaintext only. "
+        "Run `git submodule update --init --recursive` to enable it.")
+endif()
 
 set(NANOPB_GENERATED_DIR ${CMAKE_BINARY_DIR}/generated/nanopb)
 file(MAKE_DIRECTORY ${NANOPB_GENERATED_DIR})

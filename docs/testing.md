@@ -84,7 +84,10 @@ A harness per reader in `devtools/fuzz/`, over the places bytes we did not write
 client. Off the air: `stream_framing` (`mesh_stream_parser_push()` — the serial link, where the
 radio interleaves its text log with framed protobufs on one port) and `session`
 (`mesh_session_handle_from_radio()`). Off the network: `firmware_catalog`, `zip` and `uf2`, which
-are what a downloaded firmware image arrives as. And off a *person* — `channel_url` and
+are what a downloaded firmware image arrives as, and `mqtt_packet`, which is the only one whose
+far end is a machine on the internet rather than something on the end of a cable — a public
+broker carries whatever every other mesh pointed at it published. And off a *person* —
+`channel_url` and
 `contact_url`, the two Meshtastic links, which are the odd ones out: nothing they parse came over
 a wire, but each is two parsers stacked (forgiving base64, then nanopb over the result) reading a
 string a stranger wrote and somebody typed in, and what comes out is written to a radio.
@@ -101,6 +104,13 @@ in — the 256-node roster, the 8-slot channel table, the message ring — live 
 allocator handed out whole: nothing faults and nothing is poisoned. The harness checks those
 counts by hand. The framing harness checks two identities: every byte pushed is accounted for
 once, and every byte handed to the text callback is counted as dropped.
+
+**The MQTT harness runs the proxy's own reader loop**, not just the decoder: decode a header,
+skip a body too large to hold, take one that fits, advance. The case worth finding there is a
+skip that miscounts, and it only exists in the loop — MQTT has no resynchronisation, so one
+packet read at the wrong offset makes every packet after it plausible nonsense. It checks that a
+decoded header describes a packet that fits, and that a PUBLISH's topic and payload both point
+inside the body they came from.
 
 The seed corpus is **generated, not committed** — `meshclient_fuzz_seeds` encodes one real
 message per FromRadio variant with the same nanopb encoders the client decodes with, so a

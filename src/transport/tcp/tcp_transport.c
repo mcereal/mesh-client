@@ -5,6 +5,7 @@
 #include "mesh/transport/tcp.h"
 
 #include "mesh/core/config.h"
+#include "mesh/core/resolve.h"
 #include "mesh/transport/stream_link.h"
 #include "mesh/utils/log.h"
 #include "mesh/utils/text.h"
@@ -12,6 +13,7 @@
 
 #include <arpa/inet.h>
 #include <errno.h>
+#include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <stdarg.h>
@@ -56,6 +58,13 @@ enum mesh_tcp_state {
 
 enum mesh_tcp_link_state {
     MESH_TCP_LINK_DISCONNECTED = 0,
+    /*
+     * A name is being looked up. There is no socket yet - the address to open one to is what the
+     * forked resolver is out fetching - which is the whole reason this is a state of its own and
+     * not part of CONNECTING: a target in this state has nothing for epoll to watch, and the
+     * connect deadline has not started because there is nothing to connect to.
+     */
+    MESH_TCP_LINK_RESOLVING,
     MESH_TCP_LINK_CONNECTING, /* the socket exists, the handshake has not gone out */
     MESH_TCP_LINK_CONNECTED,
 };
@@ -80,6 +89,15 @@ struct mesh_tcp_transport_state {
     int pending_fd;
     bool pending_registered;
     uint64_t connect_deadline_ms;
+
+    /*
+     * The forked name lookup, when the target is a name.
+     *
+     * Owned by the transport rather than shared, because a lookup is part of one connect
+     * attempt: dropping the link has to be able to abandon it, and a resolver shared with
+     * anything else could not be cancelled here without cancelling somebody else's.
+     */
+    struct mesh_resolve resolve;
 
     char target[MESH_TCP_TARGET_MAX]; /* what is being connected to, or what is up */
     /*
@@ -185,40 +203,6 @@ int mesh_tcp_target_split(const char *target, char *host, size_t host_len, uint1
     host[host_chars] = '\0';
     *port = parsed_port;
     return 0;
-}
-
-/*
- * Fills `out` from a numeric host, or reports that the host is a name.
- *
- * inet_pton rather than getaddrinfo, and that is the whole of why this client will not take a
- * hostname: getaddrinfo blocks, and the one thing this process must never do is block. Returns 0,
- * or -EINVAL when the text is not a literal address.
- */
-static int mesh_tcp_address_from_text(const char *host, uint16_t port, struct sockaddr_storage *out,
-                                      socklen_t *out_len) {
-    memset(out, 0, sizeof *out);
-
-    struct in_addr v4;
-    if (inet_pton(AF_INET, host, &v4) == 1) {
-        struct sockaddr_in *addr = (struct sockaddr_in *)out;
-        addr->sin_family = AF_INET;
-        addr->sin_port = htons(port);
-        addr->sin_addr = v4;
-        *out_len = (socklen_t)sizeof *addr;
-        return 0;
-    }
-
-    struct in6_addr v6;
-    if (inet_pton(AF_INET6, host, &v6) == 1) {
-        struct sockaddr_in6 *addr = (struct sockaddr_in6 *)out;
-        addr->sin6_family = AF_INET6;
-        addr->sin6_port = htons(port);
-        addr->sin6_addr = v6;
-        *out_len = (socklen_t)sizeof *addr;
-        return 0;
-    }
-
-    return -EINVAL;
 }
 
 /* ------------------------------------------------------------------ send */
@@ -367,51 +351,51 @@ static void mesh_tcp_reset_link(struct mesh_tcp_transport_state *state, const ch
     state->connect_deadline_ms = 0U;
     state->next_heartbeat_ms = 0U;
     mesh_session_detach(state->session);
+    /* A name still being looked up is part of the attempt being abandoned. Cancelling rather
+       than letting it land is what stops a child that was out for five seconds opening a socket
+       to a link the user has already dropped. */
+    mesh_resolve_cancel(&state->resolve);
     mesh_tcp_drop_pending(state);
     mesh_stream_link_close(&state->link);
     state->target[0] = '\0';
     mesh_log_info("tcp", "Disconnected from %s (%s)", target, reason);
 }
 
-int mesh_tcp_transport_connect(struct mesh_transport *transport, const char *target) {
-    if (transport == NULL || transport->state == NULL || target == NULL || target[0] == '\0') {
-        return -EINVAL;
-    }
-    struct mesh_tcp_transport_state *state = (struct mesh_tcp_transport_state *)transport->state;
-    /* A new attempt supersedes whatever the last one failed with. */
-    state->last_error[0] = '\0';
+/*
+ * This link is now pointed at `state->target`, whether or not the attempt succeeds.
+ *
+ * Adopted rather than inferred from a return code: auto-connect reads `configured` to know where
+ * to go back to, and enumerating the ways a connect can be refused missed three of them once
+ * already (`tcp_refused_target_is_remembered_by_nobody`). The bar is that the attempt got off the
+ * ground - a socket for an address, a forked child for a name - and not that it worked. A radio
+ * that is switched off is still the address the user wrote down.
+ */
+static void mesh_tcp_adopt_target(struct mesh_tcp_transport_state *state) {
+    mesh_str_copy(state->configured, sizeof state->configured, state->target);
+    state->state = MESH_TCP_STATE_READY;
+}
 
-    if (state->state == MESH_TCP_STATE_DISABLED) {
-        mesh_tcp_set_error(state, MESH_STR_LINK_TCP_DISABLED);
-        return -ENODEV;
-    }
-    if (state->link_state != MESH_TCP_LINK_DISCONNECTED) {
-        return -EBUSY;
-    }
+/*
+ * The half of a connect that begins once there is an address: open the socket, start the
+ * handshake, watch for it to finish.
+ *
+ * Split out from mesh_tcp_transport_connect() because a name reaches it a second time and
+ * seconds later, from the resolver's completion - and the only thing the two paths differ in
+ * is how they got the `sockaddr`. `state->target` and `state->configured` are already set by
+ * the time this runs; it is not this function's business to decide what the link is pointed at.
+ */
+static int mesh_tcp_open(struct mesh_tcp_transport_state *state, struct mesh_transport *transport,
+                         const struct sockaddr_storage *address, socklen_t address_len) {
+    const char *const target = state->target;
 
-    char host[MESH_TCP_TARGET_MAX];
-    uint16_t port = 0U;
-    if (mesh_tcp_target_split(target, host, sizeof host, &port) < 0) {
-        mesh_log_warn("tcp", "'%s' is not an address and port", target);
-        mesh_tcp_set_error(state, MESH_STR_LINK_TCP_BAD_TARGET, target);
-        return -EINVAL;
-    }
-
-    struct sockaddr_storage address;
-    socklen_t address_len = 0;
-    if (mesh_tcp_address_from_text(host, port, &address, &address_len) < 0) {
-        mesh_log_warn("tcp", "'%s' is a name; this client needs a numeric address", host);
-        mesh_tcp_set_error(state, MESH_STR_LINK_TCP_NEEDS_ADDRESS, host);
-        return -EINVAL;
-    }
-
-    const int fd = socket(address.ss_family, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+    const int fd = socket(address->ss_family, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
     if (fd < 0) {
         const int error = errno;
         mesh_log_warn("tcp", "Cannot open a socket: %s", strerror(error));
         mesh_tcp_set_error(state, MESH_STR_LINK_TCP_UNREACHABLE, target, strerror(error));
         return -error;
     }
+    mesh_tcp_adopt_target(state);
 
     /* Meshtastic frames are small and a reply usually follows a request immediately, which is
        exactly the traffic Nagle delays. */
@@ -427,16 +411,7 @@ int mesh_tcp_transport_connect(struct mesh_transport *transport, const char *tar
     (void)setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &count, sizeof count);
 #endif
 
-    mesh_str_copy(state->target, sizeof state->target, target);
-    /*
-     * Adopted here rather than only at start: connecting to a host *is* pointing this link at
-     * it, and auto-connect reads this to know where to go back to. Taken after the target has
-     * been parsed and found to be an address, so a refused one never becomes what we retry.
-     */
-    mesh_str_copy(state->configured, sizeof state->configured, target);
-    state->state = MESH_TCP_STATE_READY;
-
-    const int connected = connect(fd, (const struct sockaddr *)&address, address_len);
+    const int connected = connect(fd, (const struct sockaddr *)address, address_len);
     if (connected < 0 && errno != EINPROGRESS) {
         const int error = errno;
         mesh_log_warn("tcp", "Cannot reach %s: %s", target, strerror(error));
@@ -489,6 +464,132 @@ int mesh_tcp_transport_connect(struct mesh_transport *transport, const char *tar
     return 0;
 }
 
+/*
+ * The name came back. Either open the socket to it, or say why we are not going to.
+ *
+ * Nothing is returned to anybody here: the press that asked for this was answered when the
+ * lookup started, so a failure at this point reaches the user the way a failed connect does -
+ * through `last_error`, picked up by whichever screen asks next.
+ */
+static void mesh_tcp_on_resolved(void *userdata, const struct mesh_resolve_result *result) {
+    struct mesh_transport *transport = (struct mesh_transport *)userdata;
+    if (transport == NULL || transport->state == NULL) {
+        return;
+    }
+    struct mesh_tcp_transport_state *state = (struct mesh_tcp_transport_state *)transport->state;
+    /*
+     * A lookup that was overtaken - the link was dropped, or something else connected while the
+     * child was out - is not this answer's to act on. mesh_resolve_cancel() already suppresses
+     * the callback for any teardown that went through us; this is the belt behind those braces.
+     */
+    if (state->link_state != MESH_TCP_LINK_RESOLVING) {
+        return;
+    }
+
+    char host[MESH_TCP_TARGET_MAX];
+    uint16_t port = 0U;
+    (void)mesh_tcp_target_split(state->target, host, sizeof host, &port);
+
+    if (result->outcome != MESH_RESOLVE_OK) {
+        /*
+         * Two sentences rather than one, because they ask for different things from the person
+         * reading them: a name that does not resolve is a typo or the wrong network, and a
+         * resolver that did not answer is neither - the name may be perfectly good.
+         */
+        switch (result->outcome) {
+        case MESH_RESOLVE_NOT_FOUND:
+            mesh_log_warn("tcp", "No address for %s", host);
+            mesh_tcp_set_error(state, MESH_STR_LINK_TCP_UNKNOWN_HOST, host);
+            break;
+        case MESH_RESOLVE_TIMED_OUT:
+            mesh_log_warn("tcp", "Looking up %s took too long", host);
+            mesh_tcp_set_error(state, MESH_STR_LINK_TCP_LOOKUP_FAILED, host);
+            break;
+        default:
+            mesh_log_warn("tcp", "Cannot look up %s: %s", host,
+                          result->error != 0 ? gai_strerror(result->error) : "no resolver");
+            mesh_tcp_set_error(state, MESH_STR_LINK_TCP_LOOKUP_FAILED, host);
+            break;
+        }
+        state->link_state = MESH_TCP_LINK_DISCONNECTED;
+        state->target[0] = '\0';
+        return;
+    }
+
+    /* Back to DISCONNECTED first: mesh_tcp_open() is the same function the literal path calls,
+       and it moves the link to CONNECTING itself. */
+    state->link_state = MESH_TCP_LINK_DISCONNECTED;
+    if (mesh_tcp_open(state, transport, &result->address, result->address_len) < 0 &&
+        state->link_state == MESH_TCP_LINK_DISCONNECTED) {
+        state->target[0] = '\0';
+    }
+}
+
+int mesh_tcp_transport_connect(struct mesh_transport *transport, const char *target) {
+    if (transport == NULL || transport->state == NULL || target == NULL || target[0] == '\0') {
+        return -EINVAL;
+    }
+    struct mesh_tcp_transport_state *state = (struct mesh_tcp_transport_state *)transport->state;
+    /* A new attempt supersedes whatever the last one failed with. */
+    state->last_error[0] = '\0';
+
+    if (state->state == MESH_TCP_STATE_DISABLED) {
+        mesh_tcp_set_error(state, MESH_STR_LINK_TCP_DISABLED);
+        return -ENODEV;
+    }
+    if (state->link_state != MESH_TCP_LINK_DISCONNECTED) {
+        return -EBUSY;
+    }
+
+    char host[MESH_TCP_TARGET_MAX];
+    uint16_t port = 0U;
+    if (mesh_tcp_target_split(target, host, sizeof host, &port) < 0) {
+        mesh_log_warn("tcp", "'%s' is not an address and port", target);
+        mesh_tcp_set_error(state, MESH_STR_LINK_TCP_BAD_TARGET, target);
+        return -EINVAL;
+    }
+
+    /* Named now because everything below reports through it; adopted only once something is
+       actually under way - see mesh_tcp_adopt_target(). */
+    mesh_str_copy(state->target, sizeof state->target, target);
+
+    struct sockaddr_storage address;
+    socklen_t address_len = 0;
+    if (mesh_resolve_literal(host, port, &address, &address_len)) {
+        const int opened = mesh_tcp_open(state, transport, &address, address_len);
+        if (opened < 0 && state->link_state == MESH_TCP_LINK_DISCONNECTED) {
+            state->target[0] = '\0';
+        }
+        return opened;
+    }
+
+    /*
+     * A name. The lookup is a forked child and the answer arrives on a later loop turn, so what
+     * this returns is "under way" rather than "connected" - and unlike the literal path there is
+     * no refusal to hand back, because nothing has been tried yet. Whatever goes wrong from here
+     * is reported through `last_error`; see mesh_tcp_on_resolved().
+     */
+    const int started = mesh_resolve_start(&state->resolve, host, port, mesh_tcp_on_resolved,
+                                           transport, mesh_time_monotonic_ms());
+    if (started < 0) {
+        mesh_log_warn("tcp", "Cannot look up %s: %d", host, started);
+        mesh_tcp_set_error(state, MESH_STR_LINK_TCP_LOOKUP_FAILED, host);
+        state->target[0] = '\0';
+        return started;
+    }
+
+    /*
+     * A name is adopted here, on the fork rather than on the answer, which is the same bar the
+     * address path uses one function up: the lookup is under way. `meshtastic.local` on a network
+     * that is not this one is the address the user wrote down exactly as an IP to a radio that is
+     * switched off is.
+     */
+    mesh_tcp_adopt_target(state);
+    state->link_state = MESH_TCP_LINK_RESOLVING;
+    mesh_log_info("tcp", "Looking up %s", host);
+    return 0;
+}
+
 int mesh_tcp_transport_disconnect(struct mesh_transport *transport) {
     if (transport == NULL || transport->state == NULL) {
         return -EINVAL;
@@ -513,6 +614,17 @@ static void mesh_tcp_tick(struct mesh_transport *transport) {
     }
 
     const uint64_t now = mesh_time_monotonic_ms();
+
+    /* The resolver's own deadline and its reap, for the reason mesh_fetch_tick() is called every
+       turn: the fd callback sees the answer, but the child is only ever collected here. */
+    mesh_resolve_tick(&state->resolve, now);
+
+    if (state->link_state == MESH_TCP_LINK_RESOLVING) {
+        /* Nothing to time out here that mesh_resolve_tick() does not already own - it kills the
+           child on its own deadline and reports TIMED_OUT, which mesh_tcp_on_resolved() turns
+           into the error and the drop. */
+        return;
+    }
 
     if (state->link_state == MESH_TCP_LINK_CONNECTING) {
         if (state->connect_deadline_ms != 0U && now >= state->connect_deadline_ms) {
@@ -558,6 +670,8 @@ static int mesh_tcp_start(struct mesh_transport *transport, const struct mesh_ap
     state->pending_fd = -1;
     state->loop = loop;
     state->link_state = MESH_TCP_LINK_DISCONNECTED;
+    /* After the memset, which would otherwise leave the resolver looking like it owned pid 0. */
+    (void)mesh_resolve_init(&state->resolve, loop);
     /* The app hands every link the same session; standalone (tests, --list-devices) each link
        falls back to its own and initialises it here. */
     if (state->session == NULL) {
@@ -591,6 +705,7 @@ static void mesh_tcp_stop(struct mesh_transport *transport) {
     }
     struct mesh_tcp_transport_state *state = (struct mesh_tcp_transport_state *)transport->state;
     mesh_tcp_reset_link(state, "shutting down");
+    mesh_resolve_shutdown(&state->resolve);
     mesh_tcp_drop_pending(state);
     mesh_stream_link_close(&state->link);
     state->loop = NULL;
@@ -604,6 +719,9 @@ static const char *mesh_tcp_status(const struct mesh_transport *transport) {
     const struct mesh_tcp_transport_state *state =
         (const struct mesh_tcp_transport_state *)transport->state;
     switch (state->link_state) {
+    /* Looking a name up is the first half of connecting and reads as one thing from outside:
+       the user pressed connect and it has not finished. */
+    case MESH_TCP_LINK_RESOLVING:
     case MESH_TCP_LINK_CONNECTING:
         return mesh_str(MESH_STR_TRANSPORT_CONNECTING);
     case MESH_TCP_LINK_CONNECTED:
@@ -691,7 +809,8 @@ bool mesh_tcp_transport_is_connecting(struct mesh_transport *transport) {
     }
     const struct mesh_tcp_transport_state *state =
         (const struct mesh_tcp_transport_state *)transport->state;
-    return state->link_state == MESH_TCP_LINK_CONNECTING;
+    return state->link_state == MESH_TCP_LINK_CONNECTING ||
+           state->link_state == MESH_TCP_LINK_RESOLVING;
 }
 
 struct mesh_tcp_transport_stats mesh_tcp_transport_stats(struct mesh_transport *transport) {

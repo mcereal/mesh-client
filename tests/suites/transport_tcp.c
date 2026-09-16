@@ -29,6 +29,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <time.h>
 #include <unistd.h>
 
 /*
@@ -39,12 +40,15 @@
  */
 struct tcp_test_radio {
     int listener;
+    /* The v6 loopback on the same port, for the cases that connect by name. -1 otherwise. */
+    int listener6;
     int accepted;
     char target[MESH_TCP_TARGET_MAX];
 };
 
 static void tcp_test_radio_init(struct tcp_test_radio *radio) {
     radio->listener = -1;
+    radio->listener6 = -1;
     radio->accepted = -1;
     radio->target[0] = '\0';
 }
@@ -74,6 +78,71 @@ static bool tcp_test_radio_listen(struct tcp_test_radio *radio) {
     return true;
 }
 
+/*
+ * The same listener, reachable by the name `localhost` rather than by an address.
+ *
+ * Both loopbacks, on one port, because which of them `localhost` resolves to is the resolver's
+ * business and not ours: /etc/hosts orders the two differently on different images, and
+ * AI_ADDRCONFIG drops whichever family the machine has no address in. Binding both is what makes
+ * a test of the *name* path independent of that - the v6 half is best-effort, since a host with
+ * no IPv6 at all is exactly the host whose resolver will not offer it either.
+ */
+static bool tcp_test_radio_listen_by_name(struct tcp_test_radio *radio) {
+    if (!tcp_test_radio_listen(radio)) {
+        return false;
+    }
+
+    struct sockaddr_in bound;
+    socklen_t bound_len = (socklen_t)sizeof bound;
+    if (getsockname(radio->listener, (struct sockaddr *)&bound, &bound_len) != 0) {
+        return false;
+    }
+    const uint16_t port = ntohs(bound.sin_port);
+
+    radio->listener6 = socket(AF_INET6, SOCK_STREAM, 0);
+    if (radio->listener6 >= 0) {
+        /* v6-only, so this cannot collide with the v4 listener already holding the port. */
+        const int on = 1;
+        (void)setsockopt(radio->listener6, IPPROTO_IPV6, IPV6_V6ONLY, &on, sizeof on);
+
+        struct sockaddr_in6 address6;
+        memset(&address6, 0, sizeof address6);
+        address6.sin6_family = AF_INET6;
+        address6.sin6_port = htons(port);
+        address6.sin6_addr = in6addr_loopback;
+        if (bind(radio->listener6, (const struct sockaddr *)&address6, sizeof address6) != 0 ||
+            listen(radio->listener6, 1) != 0) {
+            close(radio->listener6);
+            radio->listener6 = -1;
+        }
+    }
+
+    snprintf(radio->target, sizeof radio->target, "localhost:%u", (unsigned)port);
+    return true;
+}
+
+/* Accepts on whichever of the two listeners the client actually arrived on. */
+static bool tcp_test_radio_accept_either(struct tcp_test_radio *radio) {
+    for (unsigned turn = 0U; turn < 100U; ++turn) {
+        const int fds[2] = {radio->listener, radio->listener6};
+        for (unsigned which = 0U; which < 2U; ++which) {
+            if (fds[which] < 0) {
+                continue;
+            }
+            (void)fcntl(fds[which], F_SETFL, O_NONBLOCK);
+            const int taken = accept(fds[which], NULL, NULL);
+            if (taken >= 0) {
+                radio->accepted = taken;
+                (void)fcntl(radio->accepted, F_SETFL, O_NONBLOCK);
+                return true;
+            }
+        }
+        struct timespec pause = {0, 10 * 1000 * 1000};
+        (void)nanosleep(&pause, NULL);
+    }
+    return false;
+}
+
 /* Takes the client's connection. The transport connects non-blocking, so the accept can be
    ready either side of the call returning. */
 static bool tcp_test_radio_accept(struct tcp_test_radio *radio) {
@@ -93,6 +162,10 @@ static void tcp_test_radio_close(struct tcp_test_radio *radio) {
     if (radio->listener >= 0) {
         close(radio->listener);
         radio->listener = -1;
+    }
+    if (radio->listener6 >= 0) {
+        close(radio->listener6);
+        radio->listener6 = -1;
     }
 }
 
@@ -604,12 +677,170 @@ cleanup:
 }
 
 /*
- * A name is refused, and the refusal says what to do instead.
+ * A name resolves and the link comes up on the other side of it.
  *
- * This is the one deliberate limitation of the link: resolving a name means getaddrinfo(), which
- * blocks, and this client is one epoll loop. A refusal a user can read beats a UI that freezes.
+ * The seam this covers is the handoff: an OK answer from the forked resolver has to arrive back
+ * on the loop and go into the same socket-and-connect the literal path uses, with the link
+ * ending up in exactly the state a numeric target leaves it in. Everything about `localhost`
+ * that the machine gets to decide - which family, in which order - is absorbed by the fixture
+ * listening on both.
  */
-MESH_TEST_CASE(tcp_transport_refuses_a_name, unit) {
+MESH_TEST_CASE(tcp_transport_connects_by_name, unit) {
+    struct mesh_event_loop loop;
+    if (mesh_event_loop_init(&loop) != 0) {
+        record_failure(test_name, "the loop did not start");
+        return;
+    }
+    struct tcp_test_radio radio;
+    tcp_test_radio_init(&radio);
+    struct mesh_transport *transport = mesh_tcp_transport();
+    bool started = false;
+
+    if (!tcp_test_radio_listen_by_name(&radio)) {
+        record_failure(test_name, "the listener did not come up");
+        goto cleanup;
+    }
+
+    struct mesh_app_config config = mesh_app_config_default();
+    if (transport->ops->start(transport, &config, &loop) != 0) {
+        record_failure(test_name, "tcp start failed");
+        goto cleanup;
+    }
+    started = true;
+
+    if (mesh_tcp_transport_connect(transport, radio.target) != 0) {
+        record_failure(test_name, "connecting to a name should be accepted");
+        goto cleanup;
+    }
+    /* Nothing is connected yet: the address is still out with a forked child. */
+    if (mesh_tcp_transport_connected_target(transport) != NULL) {
+        record_failure(test_name, "a name must not report a link before it resolves");
+        goto cleanup;
+    }
+
+    for (unsigned turn = 0U; turn < 200U && mesh_tcp_transport_connected_target(transport) == NULL;
+         ++turn) {
+        (void)mesh_event_loop_run(&loop, 20);
+        transport->ops->tick(transport);
+    }
+
+    const char *connected = mesh_tcp_transport_connected_target(transport);
+    if (connected == NULL) {
+        char error[MESH_TRANSPORT_ERROR_MAX];
+        if (transport->ops->take_error(transport, error, sizeof error)) {
+            record_failure(test_name, error);
+        } else {
+            record_failure(test_name, "the link never came up");
+        }
+        goto cleanup;
+    }
+    /* The link is named by what the user typed, not by what it resolved to. */
+    if (strcmp(connected, radio.target) != 0) {
+        record_failure(test_name, "the link should be named by the target as typed");
+        goto cleanup;
+    }
+    /* And the far end really was reached - the handshake is on the wire. */
+    if (!tcp_test_radio_accept_either(&radio)) {
+        record_failure(test_name, "the radio never saw the connection");
+        goto cleanup;
+    }
+    record_success(test_name);
+
+cleanup:
+    if (started) {
+        transport->ops->stop(transport);
+    }
+    mesh_event_loop_shutdown(&loop);
+    tcp_test_radio_close(&radio);
+}
+
+/*
+ * A name is taken, looked up, and the failure that follows is reported in words.
+ *
+ * This used to be the case that proved a hostname was *refused*. Resolving one means
+ * getaddrinfo(), which blocks - so for as long as the client had nowhere to put a blocking call
+ * a refusal a user could read beat a UI that froze. src/core/resolve.c is that somewhere: the
+ * lookup is a forked child read back through the loop, so the name is now accepted and the
+ * connect simply starts a step later.
+ *
+ * `.invalid` is reserved by RFC 6761 to never resolve, so what this drives is the whole unhappy
+ * path - accepted, looked up, failed, dropped, explained - without asking anything of the DNS on
+ * the machine running it.
+ */
+MESH_TEST_CASE(tcp_transport_takes_a_name, unit) {
+    struct mesh_event_loop loop;
+    if (mesh_event_loop_init(&loop) != 0) {
+        record_failure(test_name, "the loop did not start");
+        return;
+    }
+    struct mesh_transport *transport = mesh_tcp_transport();
+    struct mesh_app_config config = mesh_app_config_default();
+    bool started = false;
+    if (transport->ops->start(transport, &config, &loop) != 0) {
+        record_failure(test_name, "tcp start failed");
+        goto cleanup;
+    }
+    started = true;
+
+    if (mesh_tcp_transport_connect(transport, "meshclient-nothing-here.invalid:4403") != 0) {
+        record_failure(test_name, "a hostname should be accepted");
+        goto cleanup;
+    }
+    /* Resolving is the first half of connecting, and reads as one thing from outside. */
+    if (!mesh_tcp_transport_is_connecting(transport)) {
+        record_failure(test_name, "a name being looked up should read as connecting");
+        goto cleanup;
+    }
+    /*
+     * And it is the address the user wrote down from the moment it was asked for, not from the
+     * moment it resolves - the same rule an IP to a switched-off radio follows.
+     */
+    const char *configured = mesh_tcp_transport_configured_target(transport);
+    if (configured == NULL || strcmp(configured, "meshclient-nothing-here.invalid:4403") != 0) {
+        record_failure(test_name, "a name should be adopted as the configured target");
+        goto cleanup;
+    }
+
+    for (unsigned turn = 0U; turn < 200U && mesh_tcp_transport_is_connecting(transport); ++turn) {
+        (void)mesh_event_loop_run(&loop, 50);
+        transport->ops->tick(transport);
+    }
+    if (mesh_tcp_transport_is_connecting(transport)) {
+        record_failure(test_name, "the lookup never finished");
+        goto cleanup;
+    }
+    if (mesh_tcp_transport_connected_target(transport) != NULL) {
+        record_failure(test_name, "a name that did not resolve must leave no link behind");
+        goto cleanup;
+    }
+
+    char error[MESH_TRANSPORT_ERROR_MAX];
+    if (!transport->ops->take_error(transport, error, sizeof error) || error[0] == '\0') {
+        record_failure(test_name, "the failure should reach the user in words");
+        goto cleanup;
+    }
+    if (transport->ops->take_error(transport, error, sizeof error)) {
+        record_failure(test_name, "take_error is one-shot");
+        goto cleanup;
+    }
+    record_success(test_name);
+
+cleanup:
+    if (started) {
+        transport->ops->stop(transport);
+    }
+    mesh_event_loop_shutdown(&loop);
+}
+
+/*
+ * The refusals that survive the resolver, and the one it creates.
+ *
+ * A malformed target is still refused before anything is forked - "not an address and port" is a
+ * shape, and no lookup would make `:not-a-port` into one. A name with no event loop to read a
+ * child through is the new refusal: there is nowhere to put the blocking call, which is the old
+ * limitation surviving exactly where it is still true.
+ */
+MESH_TEST_CASE(tcp_transport_refuses_what_it_cannot_resolve, unit) {
     struct mesh_transport *transport = mesh_tcp_transport();
     struct mesh_app_config config = mesh_app_config_default();
     if (transport->ops->start(transport, &config, NULL) != 0) {
@@ -617,8 +848,8 @@ MESH_TEST_CASE(tcp_transport_refuses_a_name, unit) {
         return;
     }
 
-    if (mesh_tcp_transport_connect(transport, "meshtastic.local") != -EINVAL) {
-        record_failure(test_name, "a hostname should be refused");
+    if (mesh_tcp_transport_connect(transport, "192.168.1.50:not-a-port") != -EINVAL) {
+        record_failure(test_name, "a malformed target should be refused");
         goto cleanup;
     }
 
@@ -632,11 +863,16 @@ MESH_TEST_CASE(tcp_transport_refuses_a_name, unit) {
         goto cleanup;
     }
 
-    /* Not an address and not a shape either: a different refusal, and still a refusal. */
-    if (mesh_tcp_transport_connect(transport, "192.168.1.50:not-a-port") != -EINVAL) {
-        record_failure(test_name, "a malformed target should be refused");
+    /* No loop, so there is nothing to read a forked lookup through. */
+    if (mesh_tcp_transport_connect(transport, "meshtastic.local") != -ENOTSUP) {
+        record_failure(test_name, "a name with no loop should be refused");
         goto cleanup;
     }
+    if (!transport->ops->take_error(transport, error, sizeof error) || error[0] == '\0') {
+        record_failure(test_name, "that refusal should reach the user too");
+        goto cleanup;
+    }
+
     if (mesh_tcp_transport_connected_target(transport) != NULL ||
         mesh_tcp_transport_is_connecting(transport)) {
         record_failure(test_name, "a refused connect must leave no link behind");

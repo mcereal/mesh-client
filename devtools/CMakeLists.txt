@@ -18,7 +18,7 @@ if(MESHCLIENT_ENABLE_FUZZERS)
     add_executable(meshclient_fuzz_seeds fuzz/seeds.c)
     target_link_libraries(meshclient_fuzz_seeds PRIVATE meshclient_core meshclient_options)
 
-    foreach(fuzz_target IN ITEMS stream_framing session firmware_catalog zip uf2 channel_url contact_url)
+    foreach(fuzz_target IN ITEMS stream_framing session firmware_catalog zip uf2 channel_url contact_url mqtt_packet)
         add_executable(meshclient_fuzz_${fuzz_target} fuzz/fuzz_${fuzz_target}.c)
         target_link_libraries(meshclient_fuzz_${fuzz_target}
                               PRIVATE meshclient_core meshclient_options)

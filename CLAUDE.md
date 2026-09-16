@@ -18,7 +18,7 @@ provisions the prerequisites and the plain targets work directly.
 `.claude/hooks/session-start.sh` runs that setup automatically for remote sessions.
 
 ```bash
-git submodule update --init --recursive   # nanopb, protobufs; CMake FATAL_ERRORs without them
+git submodule update --init --recursive   # nanopb + protobufs (required), Mbed TLS (TLS)
 make test                                 # Debug build + ctest - the default verify step
 make debug                                # Debug build only
 cmake --preset debug                      # the same configure, for an editor or a bare shell
@@ -134,6 +134,7 @@ for which file answers which question.
 | Contact sharing | `src/proto/contact_url.c` (the `meshtastic.org/v/#` link), `src/core/contact_share.c` (this radio's record out, a stranger's in), `src/ui/contact_share.c` (what the two screens say); the wrapper both links share is `src/proto/link_url.h` |
 | App glue | `src/core/app*.c` - lifecycle/link, `_actions`, `_publish`, `_settings` |
 | Self-update | `src/core/updater.c`, `version.c`, `fetch.c` |
+| MQTT proxy | `src/proto/mqtt_packet.c` (the wire format), `src/core/mqtt_proxy.c` (one broker connection), `src/core/tls_client.c` (Mbed TLS on the loop) |
 | Radio firmware | `src/core/firmware*.c`, `uf2.c`, `esp_image.c`, `src/transport/*/{usb_msc,ble_ota,ble_hci}.c` - the *other* binary |
 | UI | `src/ui/` - store/controller (records in `include/mesh/ui/store_*.h`), `store_file.c` the cache on the card and `store_archive.c` the per-conversation transcript beside it, `nav*.c`, `settings*.c`, `layout.c`, `backends/{fb*,cli,stub}.c`; **`fb` is the device UI** |
 | UI components | `src/ui/layout.c`, `src/ui/backends/fb_widgets.c` - cell-measured line builder, scroll window, cards, lists, meters, charts |
@@ -254,6 +255,7 @@ stable release; hand edits are overwritten. See
 | [`docs/transport.md`](docs/transport.md) | BLE, serial, TCP, and the Brick USB workaround |
 | [`docs/ui.md`](docs/ui.md) | store/nav/backends, fb rendering, fonts and emoji |
 | [`docs/i18n.md`](docs/i18n.md) | the string catalog, adding a string, adding a language |
+| [`docs/mqtt.md`](docs/mqtt.md) | the MQTT client proxy and its TLS |
 | [`docs/help.md`](docs/help.md) | the in-client help screen and what a note may say |
 | [`docs/cli.md`](docs/cli.md) | flags, environment variables, on-device controls |
 | [`docs/device.md`](docs/device.md) | Brick setup, deploy loop, screenshots, troubleshooting |

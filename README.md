@@ -61,7 +61,7 @@ Controls, flags and environment variables are in [`docs/cli.md`](docs/cli.md).
 The core is Linux-only (`epoll`/`timerfd`/`eventfd`). On a Linux host:
 
 ```bash
-git submodule update --init --recursive   # nanopb, Meshtastic protobufs
+git submodule update --init --recursive   # nanopb, Meshtastic protobufs, Mbed TLS
 make setup                                # libdbus-1-dev + the Python protobuf packages
 make debug                                # needs CMake >= 3.21, Ninja and a C17 toolchain
 make test
@@ -124,7 +124,7 @@ With the Brick on WiFi and the SSH Server pak installed, skip the SD card: set `
 | `devtools/` | host-only development tools; today the off-screen UI capture harness |
 | `docker/` | `Dockerfile` (`dev` and `cross` stages) and the cross toolchain bootstrap |
 | `Tools/tg5040/MeshClient.pak/` | pak scaffold: `launch.sh` and the updater's CA bundle |
-| `proto/meshtastic/`, `third_party/nanopb/` | upstream protobufs and nanopb (submodules) |
+| `proto/meshtastic/`, `third_party/nanopb/`, `third_party/mbedtls/` | upstream protobufs, nanopb and Mbed TLS (submodules) |
 | `docs/` | architecture, transports, UI, CLI, device and release documentation |
 
 ## Documentation
@@ -133,6 +133,7 @@ With the Brick on WiFi and the SSH Server pak installed, skip the SD card: set `
 - [`docs/transport.md`](docs/transport.md) — BLE and USB serial, including the Brick's USB quirks
 - [`docs/ui.md`](docs/ui.md) — UI store, navigation model, framebuffer rendering
 - [`docs/i18n.md`](docs/i18n.md) — the string catalog, adding a string, adding a language
+- [`docs/mqtt.md`](docs/mqtt.md) — the MQTT client proxy, and the TLS that goes with it
 - [`docs/cli.md`](docs/cli.md) — flags, environment variables, on-device controls
 - [`docs/device.md`](docs/device.md) — Brick setup and the deploy loop
 - [`docs/help.md`](docs/help.md) — the in-client help screen and what a note may say

@@ -22,6 +22,7 @@
 #include "mesh/core/session.h"
 #include "mesh/proto/channel_url.h"
 #include "mesh/proto/contact_url.h"
+#include "mesh/proto/mqtt_packet.h"
 #include "mesh/proto/stream_framing.h"
 
 #include <pb_encode.h>
@@ -600,6 +601,73 @@ static void write_contact_url_seed(const char *name, const char *text, size_t le
     write_seed("contact_url", name, (const uint8_t *)text, len);
 }
 
+/*
+ * MQTT, as a broker would send it.
+ *
+ * Written with this project's own encoders where it has one, so a change to the wire format
+ * changes the seeds with it - the same reason the session seeds go through nanopb. The two that
+ * are not encoded are the ones no encoder here will produce: a long remaining length, which is
+ * what a message too large to forward looks like on the wire, and a stream of several packets,
+ * which is where the skip arithmetic actually lives.
+ */
+static void write_mqtt_seeds(void) {
+    uint8_t packet[1024];
+    static const uint8_t payload[] = {0x08U, 0x01U, 0x12U, 0x04U, 't', 'e', 's', 't'};
+
+    int len = mesh_mqtt_encode_publish(packet, sizeof packet, "msh/US/2/e/LongFast/!abcd1234",
+                                       payload, sizeof payload, false);
+    if (len > 0) {
+        write_seed("mqtt_packet", "publish", packet, (size_t)len);
+    }
+
+    struct mesh_mqtt_connect connect;
+    memset(&connect, 0, sizeof connect);
+    connect.client_id = "meshclient-!abcd1234";
+    connect.username = "meshdev";
+    connect.password = "large4cats";
+    connect.keepalive_s = 60U;
+    connect.clean_session = true;
+    len = mesh_mqtt_encode_connect(packet, sizeof packet, &connect);
+    if (len > 0) {
+        write_seed("mqtt_packet", "connect", packet, (size_t)len);
+    }
+
+    len = mesh_mqtt_encode_subscribe(packet, sizeof packet, 1U, "msh/US/2/e/LongFast/#");
+    if (len > 0) {
+        write_seed("mqtt_packet", "subscribe", packet, (size_t)len);
+    }
+
+    /* The three short answers, which is most of what a live connection actually reads. */
+    static const uint8_t connack[] = {0x20U, 0x02U, 0x00U, 0x00U};
+    static const uint8_t suback[] = {0x90U, 0x03U, 0x00U, 0x01U, 0x00U};
+    static const uint8_t pingresp[] = {0xD0U, 0x00U};
+    write_seed("mqtt_packet", "connack", connack, sizeof connack);
+    write_seed("mqtt_packet", "suback", suback, sizeof suback);
+    write_seed("mqtt_packet", "pingresp", pingresp, sizeof pingresp);
+
+    /* A PUBLISH header claiming a 300 KB body - a retained message far larger than a radio could
+       accept. The body is not here and does not need to be: what the harness does with this is
+       count it off the stream, which is the arithmetic worth mutating. */
+    static const uint8_t oversized[] = {0x30U, 0x80U, 0x89U, 0x12U, 0x00U, 0x01U, 'a'};
+    write_seed("mqtt_packet", "oversized", oversized, sizeof oversized);
+
+    /* Two whole packets back to back, so the corpus starts out knowing that a stream is more
+       than one packet. A mutation that shortens the first is exactly the desynchronisation this
+       decoder is supposed to notice. */
+    uint8_t stream[512];
+    size_t at = 0U;
+    len = mesh_mqtt_encode_publish(stream, sizeof stream, "msh/US/2/e/LongFast/!1", payload,
+                                   sizeof payload, false);
+    if (len > 0) {
+        at = (size_t)len;
+        len = mesh_mqtt_encode_publish(stream + at, sizeof stream - at, "msh/US/2/e/LongFast/!2",
+                                       payload, sizeof payload, true);
+        if (len > 0) {
+            write_seed("mqtt_packet", "two_publishes", stream, at + (size_t)len);
+        }
+    }
+}
+
 int main(int argc, char **argv) {
     if (argc != 2) {
         fprintf(stderr, "usage: %s <directory>\n", argv[0]);
@@ -639,6 +707,10 @@ int main(int argc, char **argv) {
     if (mkdir(path, 0755) != 0 && errno != EEXIST) {
         die(path);
     }
+    snprintf(path, sizeof path, "%s/mqtt_packet", g_dir);
+    if (mkdir(path, 0755) != 0 && errno != EEXIST) {
+        die(path);
+    }
 
     write_session_seeds();
     write_framing_seeds();
@@ -647,6 +719,7 @@ int main(int argc, char **argv) {
     write_uf2_seeds();
     write_channel_url_seeds();
     write_contact_url_seeds();
+    write_mqtt_seeds();
     printf("wrote %u seeds under %s\n", g_written, g_dir);
     return 0;
 }
