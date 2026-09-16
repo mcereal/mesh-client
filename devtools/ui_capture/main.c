@@ -2214,6 +2214,33 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         return;
     }
 
+    /*
+     * The link, up or down, without touching anything else the radio has told us.
+     *
+     * `config` brings a radio up and there was no way back down, so the half of the UI that is
+     * about *losing* a radio could be photographed but not filmed: Radio actions withdrawing
+     * every one of its verbs, the transport line changing, the auto-connect notice. A scene
+     * could only start from one state or the other.
+     *
+     * Deliberately only the link. The roster, the channels and the config outlive a drop on the
+     * real client - that is the point of the cache, and `has_my_info` has survived a drop since
+     * it was made to - so a verb that also cleared them would be filming a state this client is
+     * never in.
+     */
+    if (strcmp(command, "link") == 0) {
+        char *state = uicap_word(&rest);
+        if (state == NULL || (strcmp(state, "up") != 0 && strcmp(state, "down") != 0)) {
+            fprintf(stderr, "uicap: line %u: 'link' takes up or down\n", line_number);
+            exit(1);
+        }
+        uicap_start(cap);
+        struct mesh_ui_handshake_state handshake = cap->store.handshake;
+        handshake.link_up = strcmp(state, "up") == 0;
+        mesh_ui_store_set_handshake(&cap->store, &handshake);
+        uicap_emit(cap);
+        return;
+    }
+
     if (strcmp(command, "stats") == 0) {
         uicap_start(cap);
         struct mesh_ui_settings settings = cap->store.settings;

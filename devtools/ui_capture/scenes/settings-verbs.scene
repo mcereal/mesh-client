@@ -1,0 +1,68 @@
+# A settings row that is a verb, and what a section looks like once its groups are cards.
+#
+# Radio actions is the screen this was written for, and the one worth watching: eleven rows that
+# all said "press A" in their value column, under group labels that were dim text wedged between
+# them. The instruction was noise - the action bar three rows below names A for the whole screen,
+# and a column of identical words is a column the eye has to skip to reach the labels, which are
+# the only part that differs. What is there instead is what the words were carrying alone: a
+# symbol in a tonal disc at the leading edge, and a weight.
+#
+# Three things to watch, and none of them is new machinery. The node detail's action card has
+# drawn verbs this way since it was written; this is the settings renderer catching up.
+#
+#   - The red is spent twice on the whole screen. Everything in this section costs something, so
+#     "destructive" is the baseline rather than the exception, and what the colour marks is where
+#     there is no way back - the two factory resets. A reboot is amber: nothing is lost, you wait.
+#   - A group is a card, and its heading stands in the break with the card's symbol beside it.
+#     Neither costs a row.
+#   - A withdrawn verb keeps its place, its symbol and its column, and says why on the trailing
+#     edge. A section whose length changes when the radio drops moves the cursor out from under
+#     whoever was reading it.
+
+scene demo
+scale 4
+delay 220
+config
+
+tab settings
+hold 900
+
+# Into Radio actions. Five cards, a gradient of weights down them, and not one "press A".
+key down 14
+key a
+hold 2400
+
+# Down through the groups. The cursor walks rows, not cards, and the disc under it brightens to
+# the family's full strength rather than dissolving into the cursor fill.
+key down 3
+hold 1200
+key down 4
+hold 1600
+
+# The two rows that say how much they would take. A verb with something to state puts it where a
+# trailing age goes rather than in a capsule: "21 nodes" is a figure to weigh, not a count that
+# shouts.
+offradio all
+hold 2000
+
+# And the same section with the link gone. Same rows, same order, same symbols - every offer
+# withdrawn, each saying why, and the two forget rows still live because they send nothing. This
+# is the shape MESH_UI_SETTING_ACTION_OFF exists for: a section whose length changed when the
+# radio dropped would move the cursor out from under whoever was reading it.
+link down
+hold 2600
+
+link up
+hold 1200
+
+# The other end of the change: a section that is mostly fields, with its presses at the foot.
+# LoRa's "Ham mode" group is three values and then the switch that applies them, and those are
+# two cards - a card of settings starts its words at the card's own padding and a card of verbs
+# starts them past a disc, so a card holding both would begin in two columns.
+key b
+hold 800
+key down 6
+key a
+hold 900
+key down 40
+hold 2600

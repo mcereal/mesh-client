@@ -303,6 +303,72 @@ it is a card with none — so the words went back to the ordinary ink, the colou
 discs, and the handful of facts that are *states* became shapes as well as inks. A state said in
 ink alone is a state said to whoever can tell those two inks apart.
 
+### A settings row that is a verb
+
+`MESH_UI_SETTING_ACTION` is a row that *does* something, and it is drawn as one rather than as a
+setting whose value happens to be an instruction. Three tables answer for it and the renderer
+reads all three:
+
+| Question | Answer |
+|---|---|
+| what is it about | `mesh_ui_settings_action_icon()` — the symbol in the leading disc |
+| what does it cost | `mesh_ui_settings_action_tone()` — `NORMAL`, `WARNING` or `ERROR` |
+| is it a verb at all | `mesh_ui_settings_item_is_verb()` |
+
+The third exists because the kind is doing two jobs. A Modules row and a channel slot are
+`ACTION` too — the nav answers all three with A, which is what the kind is for there — so the
+row carries a `verb` flag that only the action builders set. Splitting the kind is a change to
+the nav (`mesh_ui_settings_channel_at_row()` tells a slot from a share row by reading `number`
+against the radio's table), and worth doing on its own rather than on the way past.
+
+**The value column is empty on a verb.** Every one of these used to say "press A", which is the
+action bar's job and is said once per screen there rather than once per row — eleven rows of one
+instruction with the labels, the only part that differs, read past it. What is left in the
+column is the rows with a real value: the count a forget would remove, the language a press would
+cycle to. It goes in the trailing slot as quiet text, never as a badge; a filled capsule is a
+count that *shouts*, which is right for unread messages and wrong for "English".
+
+**The red is spent where there is no way back**, not on everything that asks first. Radio actions
+is a list of things done *to* a radio, so "this costs something" is the baseline and marking
+every row marks none — the section is ordered least to most destructive and the three weights
+draw that gradient. `settings_verbs_that_cannot_be_undone_are_red` holds the half that bites: an
+`ERROR` row always has the confirm sheet in front of it, because a red row A fires straight off
+is a trap.
+
+**A verb that cannot be pressed keeps its shape.** `MESH_UI_SETTING_ACTION_OFF` is the same row
+dimmed, with the reason where the chevron was — "not connected", "not supported", "nothing to
+drop". It is a kind rather than a flag so the nav refuses it by construction, and it exists at
+all because a section whose length changes when the radio drops moves the cursor out from under
+whoever was reading it (`settings_withdrawn_verbs_keep_the_section_shape`).
+
+### A settings section is a column of cards
+
+`fb_render_settings()` derives `cards[]` the way the node detail does: a heading opens a card,
+everything under it belongs to that card, and the heading itself stands on no card — in the break,
+where it becomes the card's label and pays for both cards' insets without costing a row. A
+section with no headings is one card, and the rows ahead of the first heading are an unnamed one.
+
+One kind of row stands on the panel instead, and the leading slot is what forces it. A card of
+verbs indents every row past a disc and a card of settings starts at the card's own padding, so
+a card holding both would begin its words in two columns — exactly what the slot's
+all-or-nothing rule exists to prevent, and visible the moment a section puts a press under a
+group of fields. **So a group that is not all verbs puts its verbs on the panel, under its
+card.** LoRa's "Ham mode" is the case: three values on a card, then the switch that applies them
+below it.
+
+Giving that run a card of its own does not work, and the reason is worth knowing before trying
+it. `fb_list_cards()` spends a card's bottom padding *into the step the next group's heading
+stands in* — that step is where the break between two cards comes from. Two card runs with no
+step between them have nowhere to take the break from: the second is painted over the first's
+padding, its bottom edge and its corners. No arithmetic fixes it, because the gap has to come
+out of a step and a step is a row. Standing the verbs on the panel spends the padding against a
+non-card step, which is what a heading already is — and it reads as the better answer anyway,
+since a verb under a group of fields is the thing that *applies* them.
+
+That is also what lets the leading slot's rule be checked per card without anything checking it
+twice: no card holds both kinds, so "every verb has a symbol and no setting has one" is enough
+(`ui_settings_row_icons_are_all_or_nothing`).
+
 ### The one colour pair that is not a theme choice
 
 `MESH_UI_COLOR_CODE` and `MESH_UI_COLOR_CODE_GROUND` are black on white on every palette, and
@@ -512,6 +578,7 @@ a frame (`key ... 3` emits three). Worked examples are in `devtools/ui_capture/s
 | `update check\|download [PCT]\|available\|ready` | the self-updater's state |
 | `firmware ... `, `firmware-channel stable\|alpha` | what the client knows about the *radio's* firmware |
 | `syncing on\|off` | put the config handshake back in flight |
+| `link up\|down` | attach or drop the radio, leaving the roster and config alone |
 | `offradio NAME\|all` | mark nodes the radio's NodeDB no longer carries |
 | `battery NAME PCT`, `environment NAME C [HUM]` | one telemetry report each, one reading at a time |
 | `nofix` | take our own radio's fix away |

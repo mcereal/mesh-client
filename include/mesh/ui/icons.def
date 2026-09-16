@@ -134,6 +134,56 @@ MESH_ICON_ENTRY(DETECTION,   "sensors")
 MESH_ICON_ENTRY(EXT_NOTIFY,  "notifications")
 MESH_ICON_ENTRY(TRAFFIC,     "traffic")
 
+/* ---- what a settings row *does* ---------------------------------------------------------------
+ *
+ * One per verb a settings section offers, on the same terms as the section icons above: the
+ * leading slot wants a symbol, and a row that is a verb rather than a value is exactly where
+ * Material puts one. The node detail's action card has had these since it was written - the
+ * ids there are drawn from the sections above, because a node's verbs are all *about* a
+ * subject this file already names ("message this node", "verify this key"). A settings verb is
+ * not about a subject; it is a thing being done, so it needs its own entries.
+ *
+ * Several rows share an id, and that is the rule at the top of this file rather than an
+ * economy: the two factory resets are one job done to two depths, and the four share/import
+ * rows are two jobs done to a channel set and to a contact. A separate sprite per row would be
+ * a set of symbols the reader has to tell apart in order to learn they mean the same thing.
+ */
+
+/* Ask the radio to come back up. Its own id rather than ACTIONS' power rune, which is the
+   *section* - and the two are drawn a finger apart, the section's symbol in the app bar and
+   this one in the first row's disc. */
+MESH_ICON_ENTRY(RESTART,     "restart_alt")
+/* Ask it to cut its own power, which is the one row here with no way back from the client: a
+   radio that is off cannot be told to come on. */
+MESH_ICON_ENTRY(SHUTDOWN,    "power_off")
+/* Put the radio back the way it left the factory - the config, or the whole of it. */
+MESH_ICON_ENTRY(FACTORY,     "reset_settings")
+/* The radio's configuration copied into its own flash, and brought back out of it. A pair, and
+   drawn as a pair: the same arc, once each way. */
+MESH_ICON_ENTRY(BACKUP,      "backup")
+MESH_ICON_ENTRY(RESTORE,     "settings_backup_restore")
+/* Go and ask whether there is a newer one - of this client, or of the radio's firmware. Not the
+   action bar's X, which is a keycap and stays a letter. */
+MESH_ICON_ENTRY(REFRESH,     "refresh")
+/* Fetch it and write it over what is running. */
+MESH_ICON_ENTRY(DOWNLOAD,    "download")
+/* Step a client-side choice to the next value: the update channel, the firmware channel, the
+   theme's neighbour language. A row that cycles rather than opening, which is why it is not the
+   chevron. */
+MESH_ICON_ENTRY(SWAP,        "swap_horiz")
+/* The two About rows that change how this client looks and reads. */
+MESH_ICON_ENTRY(THEME,       "palette")
+MESH_ICON_ENTRY(LANGUAGE,    "language")
+/* Put the radio on an amateur band under a call sign. The one verb in this tab that is a claim
+   about the operator rather than about the hardware. */
+MESH_ICON_ENTRY(LICENSE,     "workspace_premium")
+/* Ask a Store & Forward router for what arrived while this client was away. */
+MESH_ICON_ENTRY(HISTORY,     "history")
+/* This radio's channel set, or its own contact record, as a link somebody else can take - and
+   the same thing arriving the other way, typed in. */
+MESH_ICON_ENTRY(SHARE,       "share")
+MESH_ICON_ENTRY(IMPORT,      "add_link")
+
 /* ---- what a row or a message is ---------------------------------------------------------------
  *
  * The two marks that were still characters in a text run. Each says a fact about the thing it

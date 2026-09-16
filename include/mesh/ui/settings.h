@@ -15,6 +15,7 @@
 #include "mesh/ui/nav.h"
 #include "mesh/ui/store_handshake.h"
 #include "mesh/ui/store_settings.h"
+#include "mesh/ui/theme.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -170,6 +171,27 @@ enum mesh_ui_setting_kind {
     MESH_UI_SETTING_NUMBER,
     MESH_UI_SETTING_KEY,
     MESH_UI_SETTING_ACTION,
+    /*
+     * A verb that cannot be pressed right now, and why - "not connected", "not supported",
+     * "nothing to drop".
+     *
+     * Every one of these used to be MESH_UI_SETTING_INFO, which was right about the *nav* and
+     * wrong about the row: A does nothing on either, but an INFO row is a stated fact and this
+     * is an offer that is currently withdrawn. A section whose rows change shape when the link
+     * drops moves the cursor out from under the reader - which is the rule item_radio_action()
+     * was written for - and collapsing a verb to a fact changed its shape in every way but its
+     * row count. Drawn as the verb it is: the same symbol in the same column, dimmed, with the
+     * reason against the trailing edge instead of the chevron.
+     *
+     * Not pressable, and that is the whole reason it is a kind of its own rather than a flag on
+     * ACTION. The nav answers A by looking for MESH_UI_SETTING_ACTION, so a withdrawn verb is
+     * refused by construction; spelled as `action + disabled` it would be refused only by
+     * everywhere that remembered to ask.
+     *
+     * The CLI backend draws it exactly as INFO, because there the difference was never visible:
+     * a label, and the reason in the value column.
+     */
+    MESH_UI_SETTING_ACTION_OFF,
     /* A group title inside a long section: dimmed, no value column, and A on it does nothing.
        The same row mesh_ui_node_item has drawn since the node detail existed. A heading is
        never added or removed by an edit - a row count that moves under the cursor mid-edit
@@ -654,7 +676,39 @@ enum mesh_ui_settings_action {
      * times it is most wanted. Drawn only while there is something to come back from.
      */
     MESH_UI_SETTINGS_ACTION_ADMIN_LOCAL,
+    /* Not an action: what the two verb tables below are sized by, so a row added above without
+       a symbol or a weight is a hole in an array rather than a row that quietly draws nothing.
+       Last, so no existing value moves - nav->confirm_action carries one in a uint8_t. */
+    MESH_UI_SETTINGS_ACTION_COUNT,
 };
+
+/*
+ * What a verb *is*, for the leading slot, and what it *costs*, for the ink - one table each,
+ * in the enum's own order.
+ *
+ * Here rather than in the renderer for the reason k_section_icons[] is here and the reason
+ * node_detail.c grew the same pair: a row states once what it means, and the disc, the words
+ * and the marker bar are three renderings of that one statement. A backend deciding which of
+ * its verbs is the dangerous one is a backend holding an opinion the CLI backend cannot share.
+ *
+ * The weight is a tone rather than a family because it is the *row's* tone: FB_LEADING_TONAL
+ * reads the family back out of it, the accent edge takes the same answer, and so does the label.
+ * Three weights, and the first of them is the reason a card of verbs is readable at all:
+ *
+ *   NORMAL   the ordinary verb. The words stay in the body ink and the disc takes the primary,
+ *            which is what FB_LEADING_TONAL does with a tone that names no family. A verb drawn
+ *            in the accent is a verb shouting, and a card where all of them shout is a card
+ *            where none of them does - which is the state the node detail was in before its own
+ *            table, and the state Radio actions would be in with eleven coloured rows.
+ *   WARNING  the radio goes away for a while, or something takes time to come back. A reboot is
+ *            the shape of it: nothing is lost, and you wait.
+ *   ERROR    the floor drops out. Spent sparingly and on purpose: in a section that is nothing
+ *            but things done *to* a radio, "this costs something" is the baseline rather than
+ *            the exception, so the red marks where there is no way back rather than every row a
+ *            confirm sheet stands in front of.
+ */
+enum mesh_ui_icon mesh_ui_settings_action_icon(enum mesh_ui_settings_action action);
+enum mesh_ui_tone mesh_ui_settings_action_tone(enum mesh_ui_settings_action action);
 
 /* Which press writes this field (mesh/ui/nav.h). */
 enum mesh_ui_setting_consumer mesh_ui_settings_field_consumer(enum mesh_ui_setting_field field);
@@ -746,7 +800,42 @@ struct mesh_ui_settings_item {
      * answers it for a caller, and a test holds every section to it.
      */
     enum mesh_ui_icon icon;
+    /*
+     * What this row *costs*, for an ACTION or an ACTION_OFF - mesh_ui_settings_action_tone()'s
+     * answer, carried on the row so a backend reads one thing.
+     *
+     * Zero is MESH_UI_TONE_NORMAL, which is what every row that is not a verb says and what the
+     * settings rows have always drawn in. A renderer still layers the two marks that are about
+     * the *value* over it - a conflict is a warning and an unsaved edit is strong, and both of
+     * those outrank what the row would otherwise have been - because those describe the state of
+     * this row now and this describes what the row is for.
+     */
+    enum mesh_ui_tone tone;
+    /*
+     * This row is a verb: something happens when A is pressed, as opposed to a list opening.
+     *
+     * Set by the action builders and by nothing else, which is what makes it a fact about how
+     * the row was made rather than a second opinion about its kind. See
+     * mesh_ui_settings_item_is_verb() just below for why it is not the kind itself.
+     */
+    bool verb;
 };
+
+/*
+ * Whether this row is a *verb* - a thing being done to the radio or to this client - rather than
+ * a row that merely opens a list.
+ *
+ * Reads `verb` and exists so that one question has one asker: a backend needs the answer to
+ * decide whether a row gets a tonal disc and drops its value column, and two backends working
+ * it out for themselves is how they come to disagree.
+ *
+ * It is a stored flag rather than a kind because MESH_UI_SETTING_ACTION is doing two jobs, and
+ * separating them is a change to the nav rather than to the drawing. A channel row and a module
+ * row are ACTION too - the nav answers all three with A, which is what the kind is for there -
+ * and mesh_ui_settings_channel_at_row() tells a slot from a share row by reading `number`
+ * against the radio's table. Worth untangling one day; not on the way past.
+ */
+bool mesh_ui_settings_item_is_verb(const struct mesh_ui_settings_item *item);
 
 /*
  * The radio's canned message list, which the wire carries as one '|'-separated string.

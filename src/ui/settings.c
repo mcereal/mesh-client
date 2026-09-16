@@ -136,6 +136,165 @@ enum mesh_ui_icon mesh_ui_settings_section_icon(enum mesh_ui_settings_section se
 }
 
 /*
+ * What each verb is, in the enum's own order - the leading slot's entry for an action row.
+ *
+ * Several rows share a symbol on purpose and the header says why: the two factory resets are
+ * one job done to two depths, and the four share/import rows are two jobs done to a channel set
+ * and to a contact. What a reader has to tell apart is the *label*; the symbol is what gets the
+ * eye to the right row of the card first.
+ *
+ * MESH_UI_ICON_NONE is a legible answer here rather than a hole - the disc draws empty and the
+ * row keeps its column - which is the same bargain k_section_icons[] makes, and the reason both
+ * are tables rather than switches.
+ */
+static const enum mesh_ui_icon k_action_icons[MESH_UI_SETTINGS_ACTION_COUNT] = {
+    /* About: this client's own update, and the two rows that change how it looks and reads. */
+    [MESH_UI_SETTINGS_ACTION_CHECK_UPDATE] = MESH_UI_ICON_REFRESH,
+    [MESH_UI_SETTINGS_ACTION_INSTALL_UPDATE] = MESH_UI_ICON_DOWNLOAD,
+    [MESH_UI_SETTINGS_ACTION_CYCLE_UPDATE_CHANNEL] = MESH_UI_ICON_SWAP,
+    [MESH_UI_SETTINGS_ACTION_TOGGLE_DEV_UPDATES] = MESH_UI_ICON_SWAP,
+    [MESH_UI_SETTINGS_ACTION_CYCLE_THEME] = MESH_UI_ICON_THEME,
+    [MESH_UI_SETTINGS_ACTION_CYCLE_LANGUAGE] = MESH_UI_ICON_LANGUAGE,
+    [MESH_UI_SETTINGS_ACTION_DISCARD_CRASH_REPORT] = MESH_UI_ICON_DELETE,
+
+    /* Radio actions, in the order the section runs them: least to most destructive. */
+    [MESH_UI_SETTINGS_ACTION_REBOOT] = MESH_UI_ICON_RESTART,
+    [MESH_UI_SETTINGS_ACTION_SHUTDOWN] = MESH_UI_ICON_SHUTDOWN,
+    /* The radio's own database, and this client's cache of it. Three rows, one symbol, because
+       all three are the same sentence about three stores - which is exactly what makes the
+       group readable as a group. */
+    [MESH_UI_SETTINGS_ACTION_RESET_NODEDB] = MESH_UI_ICON_DELETE,
+    [MESH_UI_SETTINGS_ACTION_FORGET_OFF_RADIO_NODES] = MESH_UI_ICON_DELETE,
+    [MESH_UI_SETTINGS_ACTION_FORGET_ALL_NODES] = MESH_UI_ICON_DELETE,
+    [MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG] = MESH_UI_ICON_FACTORY,
+    [MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE] = MESH_UI_ICON_FACTORY,
+    [MESH_UI_SETTINGS_ACTION_BACKUP_CONFIG] = MESH_UI_ICON_BACKUP,
+    [MESH_UI_SETTINGS_ACTION_RESTORE_CONFIG] = MESH_UI_ICON_RESTORE,
+    [MESH_UI_SETTINGS_ACTION_REMOVE_BACKUP] = MESH_UI_ICON_DELETE,
+
+    /* Position: the pin this radio is pinned to, and taking it off again. */
+    [MESH_UI_SETTINGS_ACTION_SET_FIXED_POSITION] = MESH_UI_ICON_POSITION,
+    [MESH_UI_SETTINGS_ACTION_CLEAR_FIXED_POSITION] = MESH_UI_ICON_CLOSE,
+    /* LoRa: a claim about the operator rather than about the hardware. */
+    [MESH_UI_SETTINGS_ACTION_SET_HAM_MODE] = MESH_UI_ICON_LICENSE,
+    /* Store & Forward: what arrived while this client was away. */
+    [MESH_UI_SETTINGS_ACTION_REQUEST_HISTORY] = MESH_UI_ICON_HISTORY,
+
+    /* About radio: the *other* binary. The check and the channel step are About's own pair one
+       subject over, so they answer with the same two symbols; the install says which bus it is
+       going over, because that is the whole reason there are two of it. */
+    [MESH_UI_SETTINGS_ACTION_CHECK_RADIO_FIRMWARE] = MESH_UI_ICON_REFRESH,
+    [MESH_UI_SETTINGS_ACTION_CYCLE_FIRMWARE_CHANNEL] = MESH_UI_ICON_SWAP,
+    [MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB] = MESH_UI_ICON_USB,
+    [MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE] = MESH_UI_ICON_BLUETOOTH,
+
+    /* The two link pairs: a channel set and a contact, each going out as a code and coming back
+       typed in. */
+    [MESH_UI_SETTINGS_ACTION_SHARE_CHANNELS] = MESH_UI_ICON_SHARE,
+    [MESH_UI_SETTINGS_ACTION_IMPORT_CHANNELS] = MESH_UI_ICON_IMPORT,
+    [MESH_UI_SETTINGS_ACTION_SHARE_CONTACT] = MESH_UI_ICON_SHARE,
+    [MESH_UI_SETTINGS_ACTION_IMPORT_CONTACT] = MESH_UI_ICON_IMPORT,
+
+    /* Stop configuring somebody else's radio. The way back, which is what that arrow means
+       everywhere else in this client. */
+    [MESH_UI_SETTINGS_ACTION_ADMIN_LOCAL] = MESH_UI_ICON_BACK,
+};
+
+/*
+ * What each verb costs, in the enum's own order.
+ *
+ * MESH_UI_TONE_NORMAL is both the zero and the right answer for most rows, and the entries that
+ * say so are written out anyway: a verb left out of this table and a verb deliberately drawn at
+ * the ordinary weight are the same value, so spelling every row is the only thing that makes the
+ * second one legible. What must not be left to the default is a row that deserved a weight and
+ * did not get one, which is what `settings_verbs_that_cannot_be_undone_are_red` holds.
+ */
+static const enum mesh_ui_tone k_action_tones[MESH_UI_SETTINGS_ACTION_COUNT] = {
+    [MESH_UI_SETTINGS_ACTION_CHECK_UPDATE] = MESH_UI_TONE_NORMAL,
+    /* Replaces the running binary and restarts under the reader. Not red - the check is the
+       separate first press and the pak keeps what was there - but not an ordinary verb. */
+    [MESH_UI_SETTINGS_ACTION_INSTALL_UPDATE] = MESH_UI_TONE_WARNING,
+    [MESH_UI_SETTINGS_ACTION_CYCLE_UPDATE_CHANNEL] = MESH_UI_TONE_NORMAL,
+    [MESH_UI_SETTINGS_ACTION_TOGGLE_DEV_UPDATES] = MESH_UI_TONE_NORMAL,
+    [MESH_UI_SETTINGS_ACTION_CYCLE_THEME] = MESH_UI_TONE_NORMAL,
+    [MESH_UI_SETTINGS_ACTION_CYCLE_LANGUAGE] = MESH_UI_TONE_NORMAL,
+    /* The one copy of why the last run died, and nothing else has it - but what is lost is a
+       diagnosis rather than anything the reader made, and this is the one row in the two tables
+       with no confirm sheet in front of it. Red without a sheet is a trap; see
+       `settings_verbs_that_cannot_be_undone_are_red`, which is what holds the pair together. */
+    [MESH_UI_SETTINGS_ACTION_DISCARD_CRASH_REPORT] = MESH_UI_TONE_WARNING,
+
+    /* The link drops and auto-connect brings it back: nothing is lost, and you wait. */
+    [MESH_UI_SETTINGS_ACTION_REBOOT] = MESH_UI_TONE_WARNING,
+    /* And the one row in the section this client cannot undo by any route - a radio that is off
+       cannot be told to come on, so the way back is a walk to wherever it is. Red for the trip
+       rather than for anything destroyed, which is the honest reading of what it costs. */
+    [MESH_UI_SETTINGS_ACTION_SHUTDOWN] = MESH_UI_TONE_ERROR,
+    /* Both node stores rebuild from the air as their nodes speak again, which is what keeps
+       them out of the red: what a press costs is the time until they do. The one that drops
+       everything is a step above the one that drops what the radio has already let go. */
+    [MESH_UI_SETTINGS_ACTION_RESET_NODEDB] = MESH_UI_TONE_WARNING,
+    [MESH_UI_SETTINGS_ACTION_FORGET_OFF_RADIO_NODES] = MESH_UI_TONE_NORMAL,
+    [MESH_UI_SETTINGS_ACTION_FORGET_ALL_NODES] = MESH_UI_TONE_WARNING,
+    /*
+     * The two rows nothing brings back. A factory reset is where the section has been heading
+     * since its first row, and it is the only place the red belongs - which is the point of
+     * spending it here rather than spreading it over the eight rows above.
+     *
+     * Marking every destructive row red marks none of them: this section is a list of things
+     * done *to* a radio, so "this one costs something" is the baseline rather than the
+     * exception, and what a reader needs from the colour is where the floor drops out. The
+     * gradient the rows are already ordered by - least to most destructive - is what the three
+     * weights are drawing.
+     */
+    [MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG] = MESH_UI_TONE_ERROR,
+    [MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE] = MESH_UI_TONE_ERROR,
+    /* A backup is the row you want pressed before the two under it. The restore overwrites every
+       setting the radio holds and the delete throws the copy away - but the live configuration
+       survives both, and another backup is one press away. */
+    [MESH_UI_SETTINGS_ACTION_BACKUP_CONFIG] = MESH_UI_TONE_NORMAL,
+    [MESH_UI_SETTINGS_ACTION_RESTORE_CONFIG] = MESH_UI_TONE_WARNING,
+    [MESH_UI_SETTINGS_ACTION_REMOVE_BACKUP] = MESH_UI_TONE_WARNING,
+
+    [MESH_UI_SETTINGS_ACTION_SET_FIXED_POSITION] = MESH_UI_TONE_NORMAL,
+    [MESH_UI_SETTINGS_ACTION_CLEAR_FIXED_POSITION] = MESH_UI_TONE_NORMAL,
+    /* Turns the primary channel's encryption off, and pressing the row again does not turn it
+       back on - the way out is two other rows in two other sections. */
+    [MESH_UI_SETTINGS_ACTION_SET_HAM_MODE] = MESH_UI_TONE_ERROR,
+    [MESH_UI_SETTINGS_ACTION_REQUEST_HISTORY] = MESH_UI_TONE_NORMAL,
+
+    [MESH_UI_SETTINGS_ACTION_CHECK_RADIO_FIRMWARE] = MESH_UI_TONE_NORMAL,
+    [MESH_UI_SETTINGS_ACTION_CYCLE_FIRMWARE_CHANNEL] = MESH_UI_TONE_NORMAL,
+    /* Writing the radio's own firmware. Over USB the worst case is a board sitting in its
+       bootloader that any computer can write again; over Bluetooth it leaves the mesh for a
+       loader it cannot come back out of on its own, which is the difference the two rows exist
+       for and the reason only one of them is red. */
+    [MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB] = MESH_UI_TONE_WARNING,
+    [MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE] = MESH_UI_TONE_ERROR,
+
+    /* Showing a code touches nothing. Taking one in overwrites this radio's channel table,
+       which is every channel the reader is on. */
+    [MESH_UI_SETTINGS_ACTION_SHARE_CHANNELS] = MESH_UI_TONE_NORMAL,
+    [MESH_UI_SETTINGS_ACTION_IMPORT_CHANNELS] = MESH_UI_TONE_WARNING,
+    [MESH_UI_SETTINGS_ACTION_SHARE_CONTACT] = MESH_UI_TONE_NORMAL,
+    [MESH_UI_SETTINGS_ACTION_IMPORT_CONTACT] = MESH_UI_TONE_NORMAL,
+
+    [MESH_UI_SETTINGS_ACTION_ADMIN_LOCAL] = MESH_UI_TONE_NORMAL,
+};
+
+enum mesh_ui_icon mesh_ui_settings_action_icon(enum mesh_ui_settings_action action) {
+    return action < MESH_UI_SETTINGS_ACTION_COUNT ? k_action_icons[action] : MESH_UI_ICON_NONE;
+}
+
+enum mesh_ui_tone mesh_ui_settings_action_tone(enum mesh_ui_settings_action action) {
+    return action < MESH_UI_SETTINGS_ACTION_COUNT ? k_action_tones[action] : MESH_UI_TONE_NORMAL;
+}
+
+bool mesh_ui_settings_item_is_verb(const struct mesh_ui_settings_item *item) {
+    return item != NULL && item->verb;
+}
+
+/*
  * What each section is *for*, in a sentence or two, in the enum's own order.
  *
  * A table beside the icons and for the same reason the comment above them gives: it is a lookup

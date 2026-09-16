@@ -16,6 +16,7 @@
 #include "mesh/ui/node_detail.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
+#include "mesh/utils/text.h"
 
 #include "meshtastic/config.pb.h"
 #include "meshtastic/mesh.pb.h"
@@ -2674,6 +2675,206 @@ MESH_TEST_CASE(node_detail_routing_rows, unit) {
 }
 
 /*
+ * A verb that cannot be walked back is drawn red, and a red verb always has the confirm sheet
+ * in front of it.
+ *
+ * The pair is the point rather than either half. The sheet and the colour are two statements of
+ * one fact - "this one is different" - so a red row that A fires straight off is a trap, and a
+ * sheet in front of a row drawn like every other is a question nobody was expecting. The
+ * direction that bites is the first, which is why it is the one asserted over the whole table
+ * rather than for the handful of rows somebody remembered.
+ *
+ * Not the converse: plenty of rows are confirmed without being red. A reboot asks before it
+ * drops the link and costs nothing but the wait, which is exactly the weight below the red.
+ */
+MESH_TEST_CASE(settings_verbs_that_cannot_be_undone_are_red, unit) {
+    char message[160];
+    for (int i = 1; i < (int)MESH_UI_SETTINGS_ACTION_COUNT; ++i) {
+        const enum mesh_ui_settings_action action = (enum mesh_ui_settings_action)i;
+        if (mesh_ui_settings_action_tone(action) != MESH_UI_TONE_ERROR) {
+            continue;
+        }
+        if (!mesh_ui_settings_action_needs_confirm(action)) {
+            snprintf(message, sizeof message,
+                     "action %d is drawn in the error tone and fires without a confirm sheet", i);
+            record_failure(test_name, message);
+            return;
+        }
+    }
+    /* And the weight is a lookup rather than whatever sits past the table. */
+    MESH_TEST_FAIL_IF(
+        mesh_ui_settings_action_tone((enum mesh_ui_settings_action)MESH_UI_SETTINGS_ACTION_COUNT) !=
+            MESH_UI_TONE_NORMAL,
+        "an unknown action should answer with the ordinary weight");
+    MESH_TEST_FAIL_IF(
+        mesh_ui_settings_action_icon((enum mesh_ui_settings_action)MESH_UI_SETTINGS_ACTION_COUNT) !=
+            MESH_UI_ICON_NONE,
+        "an unknown action should answer with no symbol");
+    record_success(test_name);
+}
+
+/*
+ * MESH_UI_SETTING_ACTION is doing two jobs, and mesh_ui_settings_item_is_verb() is what tells
+ * them apart: Radio actions' rows *do* something, and the Modules and Channels lists' rows open
+ * a list. Both are ACTION because the nav answers both with A.
+ *
+ * A renderer reads the answer to decide whether a row gets a tonal disc and gives up its value
+ * column, so getting it wrong does not fail anywhere - it draws a card of channel slots as a
+ * card of verbs, with the summary that says what each slot is set to thrown away.
+ */
+MESH_TEST_CASE(settings_openers_are_not_verbs, unit) {
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_channels = true;
+    settings.channels[0].present = true;
+    settings.channels[0].index = 0U;
+    settings.channels[0].role = 1U;
+
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.has_my_info = true;
+    handshake.link_up = true;
+    handshake.channel_count = 1U;
+
+    struct mesh_ui_settings_item item;
+    char message[160];
+
+    /* Modules: every row is a section wearing a row's clothes. */
+    const uint32_t modules = mesh_ui_settings_item_count(
+        &settings, &handshake, MESH_UI_SETTINGS_MODULES, MESH_UI_SETTINGS_NO_CHANNEL);
+    MESH_TEST_FAIL_IF(modules == 0U, "the Modules list should have rows");
+    for (uint32_t row = 0; row < modules; ++row) {
+        if (!mesh_ui_settings_item(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_MODULES,
+                                   MESH_UI_SETTINGS_NO_CHANNEL, row, &item)) {
+            break;
+        }
+        if (mesh_ui_settings_item_is_verb(&item)) {
+            snprintf(message, sizeof message, "module row %u reads as a verb", row);
+            record_failure(test_name, message);
+            return;
+        }
+    }
+
+    /* A channel slot, which carries its number rather than an action. */
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, &handshake, NULL, 0U,
+                                             MESH_UI_SETTINGS_CHANNELS, MESH_UI_SETTINGS_NO_CHANNEL,
+                                             0U, &item),
+                      "the Channels list should have a slot row");
+    MESH_TEST_FAIL_IF(item.kind != MESH_UI_SETTING_ACTION,
+                      "a channel slot should still be the kind the nav opens with A");
+    MESH_TEST_FAIL_IF(mesh_ui_settings_item_is_verb(&item),
+                      "a channel slot opens a list and is not a verb");
+
+    /* And the other side of it: Radio actions is nothing but verbs, and every one of them
+       carries the symbol its disc is drawn from. */
+    const uint32_t actions = mesh_ui_settings_item_count(
+        &settings, &handshake, MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL);
+    MESH_TEST_FAIL_IF(actions == 0U, "Radio actions should have rows");
+    uint32_t verbs = 0U;
+    for (uint32_t row = 0; row < actions; ++row) {
+        if (!mesh_ui_settings_item(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_ACTIONS,
+                                   MESH_UI_SETTINGS_NO_CHANNEL, row, &item)) {
+            break;
+        }
+        if (item.kind == MESH_UI_SETTING_HEADING) {
+            continue;
+        }
+        if (!mesh_ui_settings_item_is_verb(&item)) {
+            snprintf(message, sizeof message, "Radio actions row %u does not read as a verb", row);
+            record_failure(test_name, message);
+            return;
+        }
+        if (!mesh_ui_icon_is_valid(item.icon)) {
+            snprintf(message, sizeof message, "Radio actions row %u is a verb with no symbol", row);
+            record_failure(test_name, message);
+            return;
+        }
+        ++verbs;
+    }
+    MESH_TEST_FAIL_IF(verbs < 8U, "Radio actions should be a section of presses");
+    record_success(test_name);
+}
+
+/*
+ * A link dropping changes what the rows *offer* and nothing else about them.
+ *
+ * This is the rule item_radio_action() was written for and the reason a withdrawn verb is a kind
+ * rather than a disappearance: a section whose length changes when the radio drops moves the
+ * cursor out from under whoever was reading it, and "not connected" is the answer they were
+ * about to press A to find out. Nothing tested it - the shape was held by every row remembering
+ * to be built the same way twice.
+ *
+ * Asserted over the labels rather than the count alone, because the count survives a section
+ * that reorders itself and the cursor does not.
+ */
+MESH_TEST_CASE(settings_withdrawn_verbs_keep_the_section_shape, unit) {
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+
+    struct mesh_ui_handshake_state up;
+    memset(&up, 0, sizeof up);
+    up.has_my_info = true;
+    up.link_up = true;
+
+    struct mesh_ui_handshake_state down = up;
+    down.link_up = false;
+
+    char live[MESH_UI_SETTINGS_ITEMS_MAX][MESH_UI_SETTINGS_LABEL_MAX];
+    const uint32_t count = mesh_ui_settings_item_count(&settings, &up, MESH_UI_SETTINGS_ACTIONS,
+                                                       MESH_UI_SETTINGS_NO_CHANNEL);
+    MESH_TEST_FAIL_IF(count == 0U || count > MESH_UI_SETTINGS_ITEMS_MAX,
+                      "Radio actions should have rows over a live link");
+    struct mesh_ui_settings_item item;
+    for (uint32_t row = 0; row < count; ++row) {
+        MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, &up, NULL, 0U, MESH_UI_SETTINGS_ACTIONS,
+                                                 MESH_UI_SETTINGS_NO_CHANNEL, row, &item),
+                          "a row should exist over a live link");
+        mesh_str_copy(live[row], sizeof live[row], item.label);
+    }
+
+    char message[160];
+    const uint32_t dropped = mesh_ui_settings_item_count(&settings, &down, MESH_UI_SETTINGS_ACTIONS,
+                                                         MESH_UI_SETTINGS_NO_CHANNEL);
+    if (dropped != count) {
+        snprintf(message, sizeof message, "the section is %u rows with a link and %u without",
+                 count, dropped);
+        record_failure(test_name, message);
+        return;
+    }
+    for (uint32_t row = 0; row < count; ++row) {
+        if (!mesh_ui_settings_item(&settings, &down, NULL, 0U, MESH_UI_SETTINGS_ACTIONS,
+                                   MESH_UI_SETTINGS_NO_CHANNEL, row, &item)) {
+            record_failure(test_name, "a row should exist with no link");
+            return;
+        }
+        if (strcmp(item.label, live[row]) != 0) {
+            snprintf(message, sizeof message, "row %u is \"%s\" with a link and \"%s\" without",
+                     row, live[row], item.label);
+            record_failure(test_name, message);
+            return;
+        }
+        if (item.kind == MESH_UI_SETTING_HEADING) {
+            continue;
+        }
+        /* Withdrawn, and still the same verb: same symbol, same place, and the nav cannot fire
+           it because it is no longer the kind A answers. */
+        if (item.kind == MESH_UI_SETTING_ACTION) {
+            continue; /* the two forget rows are local and stay pressable */
+        }
+        if (item.kind != MESH_UI_SETTING_ACTION_OFF || !mesh_ui_settings_item_is_verb(&item) ||
+            !mesh_ui_icon_is_valid(item.icon)) {
+            snprintf(message, sizeof message, "row %u (%s) lost its shape when the link dropped",
+                     row, live[row]);
+            record_failure(test_name, message);
+            return;
+        }
+    }
+    record_success(test_name);
+}
+
+/*
  * Every section answers with an icon, and the two lists of sections can therefore fill their
  * leading slot on every row.
  *
@@ -2702,9 +2903,20 @@ MESH_TEST_CASE(ui_settings_every_section_has_an_icon, unit) {
 }
 
 /*
- * The invariant struct mesh_ui_settings_item's `icon` is documented with: a section gives every
- * one of its rows an icon or gives none of them one, and mesh_ui_settings_section_icons_rows()
- * is the answer a renderer declares the slot from.
+ * The invariant struct mesh_ui_settings_item's `icon` is documented with, in the shape it took
+ * once a settings section became a column of cards: the leading slot is all-or-nothing over a
+ * *card*, not over a section, because that is the run of rows an eye runs down.
+ *
+ * Two claims here, and between them they are what the renderer relies on:
+ *
+ *   - a verb always carries a symbol. A tonal disc with nothing in it is a row that is not about
+ *     anything, and one blank disc in a card of them is the hole the reader's eye stops in.
+ *   - every row that is *not* a verb answers mesh_ui_settings_section_icons_rows(), exactly as
+ *     the whole section used to. That is still the rule for the two lists of subjects, and it is
+ *     what keeps a card of settings starting its words in one column.
+ *
+ * What makes those two enough is the split in fb_render_settings(): a card never holds both
+ * kinds, so "every verb has one and no setting has one" cannot produce a mixed card.
  *
  * The list is built with everything loaded, because a module row that has not been answered for
  * still names its module - and that is the row most likely to be the one that forgets.
@@ -2741,11 +2953,25 @@ MESH_TEST_CASE(ui_settings_row_icons_are_all_or_nothing, unit) {
                                        MESH_UI_SETTINGS_NO_CHANNEL, row, &item)) {
                 break;
             }
-            if (mesh_ui_icon_is_valid(item.icon) != declared) {
+            const bool has_icon = mesh_ui_icon_is_valid(item.icon);
+            if (mesh_ui_settings_item_is_verb(&item)) {
+                if (!has_icon) {
+                    snprintf(message, sizeof message, "%s row %u is a verb with no symbol",
+                             mesh_ui_settings_section_name(section), row);
+                    record_failure(test_name, message);
+                    return;
+                }
+                continue;
+            }
+            /* A heading's symbol is the card's header rather than one of its rows' - it stands
+               in the break above them - so it is outside the slot this rule is about. */
+            if (item.kind == MESH_UI_SETTING_HEADING) {
+                continue;
+            }
+            if (has_icon != declared) {
                 snprintf(message, sizeof message,
                          "%s row %u %s an icon, and the section says it %s",
-                         mesh_ui_settings_section_name(section), row,
-                         mesh_ui_icon_is_valid(item.icon) ? "has" : "has no",
+                         mesh_ui_settings_section_name(section), row, has_icon ? "has" : "has no",
                          declared ? "should" : "should not");
                 record_failure(test_name, message);
                 return;
