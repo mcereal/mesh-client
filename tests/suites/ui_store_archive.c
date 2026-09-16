@@ -143,6 +143,71 @@ cleanup:
 }
 
 /*
+ * A replayed Store & Forward message reaches the card, now that it has an id to be written under.
+ *
+ * `archive_writable()` declines a record with no packet id, because such a record names no single
+ * message and so cannot be recognised on the next publish. A replay used to be exactly that: the
+ * router's delivery id was not the message's, so the entry carried 0 and the history somebody had
+ * just asked for lived in the 64-entry flat list until the client restarted, then was gone. A
+ * router filling `StoreAndForward.original_id` gives it the message's own id, and it persists like
+ * anything else - which is the only way asking for history is worth doing twice.
+ *
+ * The pair here is the whole claim: same sender, same channel, same words, told apart by whether
+ * the router named what it was handing back.
+ */
+MESH_TEST_CASE(ui_archive_keeps_a_replay_that_names_itself, unit) {
+    const char *failure = NULL;
+    struct mesh_ui_archive archive;
+    char dir[64];
+    MESH_TEST_FAIL_IF(!archive_open(&archive, dir, sizeof dir), "could not open an archive");
+
+    /* What a replay looks like once store_forward.c has built it: a real id from `original_id`,
+       and - deliberately - no date of its own. */
+    struct mesh_ui_message named = archive_message(0x9001U, true, 0U, 1U, "said hours ago");
+    named.rx_time = 0U;
+    /* And the same replay from a router too old to name it. */
+    struct mesh_ui_message anonymous = archive_message(0U, true, 0U, 1U, "said hours ago");
+    anonymous.rx_time = 0U;
+
+    const struct mesh_ui_message items[] = {named, anonymous};
+    struct mesh_ui_message_list list;
+    archive_list_of(&list, items, 2U);
+
+    if (mesh_ui_archive_append(&archive, &list) != 1) {
+        failure = "only the replay that names itself should have been written";
+        goto cleanup;
+    }
+
+    struct mesh_ui_thread window;
+    if (mesh_ui_archive_load_thread(&archive, (uint8_t)MESH_UI_CONVERSATION_CHANNEL, 0U, 1U,
+                                    &window) != 0) {
+        failure = "loading the channel's transcript failed";
+        goto cleanup;
+    }
+    if (!window.valid || window.count != 1U || window.entries[0].packet_id != 0x9001U) {
+        failure = "the replayed message should have survived under its original id";
+        goto cleanup;
+    }
+    if (strcmp(window.entries[0].text, "said hours ago") != 0) {
+        failure = "a replayed message should come back saying what it said";
+        goto cleanup;
+    }
+
+    /* Appended again, the way the next publish would: the id is what lets the archive recognise
+       it, so the transcript does not grow a second copy of fetched history on every tick. */
+    archive_list_of(&list, items, 2U);
+    if (mesh_ui_archive_append(&archive, &list) != 0) {
+        failure = "a replay already on the card should not be written twice";
+        goto cleanup;
+    }
+
+cleanup:
+    archive_close(&archive, dir);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
  * The point of the whole thing: one conversation holds more than the flat list can.
  *
  * MESH_UI_MAX_MESSAGES is the transport ring and it is shared by every conversation at once. A

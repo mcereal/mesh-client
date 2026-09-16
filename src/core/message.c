@@ -156,6 +156,18 @@ bool mesh_message_log_holds_replay(const struct mesh_message_log *log,
         if (held->is_reaction != replayed->is_reaction || held->reply_id != replayed->reply_id) {
             continue;
         }
+        /*
+         * Two ids that are both known settle it, and settle it both ways: a Store & Forward
+         * router that fills `original_id` names the message rather than the delivery, so a copy
+         * we heard live carries the same number and one that does not is a different message.
+         * Skipped when either side reads 0 - firmware older than the field, and every message
+         * heard before it - for the reason the stamp below is, which is that absent is not a
+         * difference.
+         */
+        if (held->packet_id != 0U && replayed->packet_id != 0U &&
+            held->packet_id != replayed->packet_id) {
+            continue;
+        }
         if (held->rx_time != 0U && replayed->rx_time != 0U && held->rx_time != replayed->rx_time) {
             continue;
         }
