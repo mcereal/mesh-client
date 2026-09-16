@@ -3313,48 +3313,17 @@ static bool settings_row_slider(const struct mesh_ui_settings_item *item,
 /*
  * Whether a section's groups are worth drawing as cards at all.
  *
- * A card says "these rows belong together", so it needs something to be together *apart from*.
- * One card wrapping a whole section says nothing: it is a border drawn round the page, and a
- * border is not a grouping.
+ * A card says "these rows belong together", so it needs something to be together apart from. One
+ * card wrapping a whole section says nothing: it is a border drawn round the page, and a border
+ * is not a grouping. Modules is fourteen ungrouped rows and was drawn inside one, because
+ * `any_cards` was set for every open section while only the *assignment* below looked at
+ * headings - the rule that assignment is written against, and did not have.
  *
- * Two shapes fail that, and both are the same failure arriving by different roads. A section
- * with no headings has no groups, so Modules' fourteen rows came out inside one surface. And a
- * section whose assignment yields a single card has one group, which is the same statement with
- * the heading left in.
- *
- * This is not a new rule. It is the one the assignment below was already written against - "a
- * section with no headings gets no cards at all... a list with one group has nothing to say it
- * about" - and did not enforce, because `any_cards` was set for every open section. About is
- * what the gap cost: four ungrouped rows, half of them verbs, came out as two one-row cards
- * with the verbs floating between them at the panel's indent while the carded rows started at
- * the card's. Text beginning in two columns is the exact failure the leading slot's
- * all-or-nothing rule exists to prevent - it was simply happening *between* cards rather than
- * inside one, where nothing was looking for it.
+ * Asked of mesh_ui_settings_section_groups() rather than answered here, because the navigation and
+ * the help screen ask the same question and a second implementation of it is a second opinion:
+ * a section that drew no cards while L2/R2 claimed to cross them is exactly the disagreement
+ * that header's note is about. Groups and cards are the same number - see there.
  */
-static bool settings_section_has_heading(const struct mesh_ui_settings_item *items,
-                                         uint32_t count) {
-    for (uint32_t r = 0; r < count; ++r) {
-        if (items[r].kind == MESH_UI_SETTING_HEADING) {
-            return true;
-        }
-    }
-    return false;
-}
-
-/* How many distinct surfaces the assignment actually placed. Counted from the ordinals rather
-   than from the headings, because a mixed group floats its verbs onto the panel and so does not
-   always leave a card behind. */
-static uint32_t settings_card_count(const uint8_t *cards, uint32_t count) {
-    uint32_t cardinal = 0U;
-    uint8_t last = FB_LIST_NO_CARD;
-    for (uint32_t r = 0; r < count; ++r) {
-        if (cards[r] != FB_LIST_NO_CARD && cards[r] != last) {
-            cardinal++;
-        }
-        last = cards[r];
-    }
-    return cardinal;
-}
 
 static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                                const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
@@ -3496,8 +3465,7 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
     uint8_t cards[MESH_UI_SETTINGS_ITEMS_MAX];
     bool any_cards = false;
     memset(cards, FB_LIST_NO_CARD, sizeof cards);
-    /* No headings, no groups, no cards - see settings_section_has_heading(). */
-    if (section_open && settings_section_has_heading(items, count)) {
+    if (section_open && mesh_ui_settings_section_groups(items, count) >= 2U) {
         /*
          * Every row of an open section stands on a card, and the headings are what break the
          * column into them. A section with no headings at all is one card, which is the same
@@ -3584,11 +3552,6 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                above for one that does not. */
             cards[r] = card;
         }
-    }
-    /* And one card is a border round the page rather than a grouping, however it was arrived
-       at. See settings_section_has_heading(). */
-    if (any_cards && settings_card_count(cards, count) < 2U) {
-        any_cards = false;
     }
     /*
      * Which rows lead with a symbol, for everything that is not a verb.

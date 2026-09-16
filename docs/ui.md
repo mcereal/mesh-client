@@ -348,14 +348,26 @@ everything under it belongs to that card, and the heading itself stands on no ca
 where it becomes the card's label and pays for both cards' insets without costing a row. The
 rows ahead of the first heading are an unnamed group and get a card of their own.
 
-**A card has to be a grouping, not a border.** A section with no headings has no groups, so it
-draws as a plain list — and so does one whose assignment comes out as a single card, which is the
-same screen with a title on it. One surface wrapping a whole page says nothing: Modules is
-fourteen ungrouped rows and was drawn inside one, which is a box round the screen rather than a
-statement about any of it. Both gates are in `fb_render_settings()` and both are held by
-`ui_capture_an_ungrouped_section_draws_no_card`, with
-`ui_capture_a_grouped_section_draws_cards` as the other half — a gate that silenced every card
+**A card has to be a grouping, not a border.** Cards are drawn at *two* groups, never one: one
+surface wrapping a whole page says nothing, and a lone heading over the only group is a section
+with a title rather than a section with parts. Modules is fourteen ungrouped rows and was drawn
+inside a single surface, which is a box round the screen rather than a statement about any of it.
+Held by `ui_capture_an_ungrouped_section_draws_no_card` with
+`ui_capture_a_grouped_section_draws_cards` as its other half — a gate that silenced every card
 would pass the first and lose the grouping everywhere.
+
+Three things ask that question — the renderer, to draw cards; the navigation, to let L2/R2 cross
+one; the help screen, to say the pair exists — so it is **one predicate**,
+`mesh_ui_settings_section_groups()`, and not three. They disagreed once: the help asked only
+whether a heading was present, so the Radio section while administering a remote node (its one
+conditional heading, over a single unnamed run) drew no cards and refused R2 while the help still
+promised the jump. `help_does_not_offer_a_key_that_does_nothing` checks the equivalence against
+the behaviour rather than against the predicate, in that state as well as the ordinary one.
+
+Groups and cards are the same number rather than merely close, which is what lets the model
+answer for the renderer: every group holding a row leaves at least one card behind. A group that
+is all verbs is one card; a group that is not floats its verbs onto the panel but keeps its
+fields, and "not all verbs" means it has a field to keep.
 
 One kind of row stands on the panel instead, and the leading slot is what forces it. A card of
 verbs indents every row past a disc and a card of settings starts at the card's own padding, so

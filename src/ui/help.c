@@ -443,11 +443,12 @@ bool mesh_ui_help_topic(const struct mesh_ui_settings *settings,
     /*
      * How to cross the groups, on the sections that have any.
      *
-     * Conditional rather than a line on every section, and read off the rows rather than
-     * declared: a heading is what the renderer opens a card on, so a section with none draws no
-     * cards and L2/R2 refuse the press there. Offering the note anyway would be the help screen
-     * advertising a key that does nothing, which is the rule the action bar is held to one table
-     * over.
+     * Conditional rather than a line on every section, and asked of the same predicate the
+     * renderer and the navigation ask: two groups, because one group is nothing to cross. A
+     * heading alone is not enough and that was the bug - a section whose single heading opened
+     * its only group drew no cards and refused R2, while this still promised the jump. Offering
+     * a note for a key that does nothing is the help screen doing what the action bar keeps a
+     * single table to avoid.
      *
      * **Last, and that is load-bearing rather than a preference.** The overview is entry 0 and
      * the explained rows run 1..n in row order - mesh_ui_help_entry_for_row() walks the rows and
@@ -456,16 +457,11 @@ bool mesh_ui_help_topic(const struct mesh_ui_settings *settings,
      * above it all the way down LoRa (`help_opens_where_the_cursor_was`). After the rows it
      * names no row, so nothing maps onto it and the correspondence is untouched.
      */
-    if (out->count < MESH_UI_HELP_ENTRIES_MAX) {
-        for (uint32_t i = 0U; i < rows; ++i) {
-            if (items[i].kind != MESH_UI_SETTING_HEADING) {
-                continue;
-            }
-            out->entries[out->count].label = MESH_STR_HELP_LABEL_SETTINGS_GROUPS;
-            out->entries[out->count].body = MESH_STR_HELP_NOTE_SETTINGS_GROUPS;
-            out->count++;
-            break;
-        }
+    if (out->count < MESH_UI_HELP_ENTRIES_MAX &&
+        mesh_ui_settings_section_groups(items, rows) >= 2U) {
+        out->entries[out->count].label = MESH_STR_HELP_LABEL_SETTINGS_GROUPS;
+        out->entries[out->count].body = MESH_STR_HELP_NOTE_SETTINGS_GROUPS;
+        out->count++;
     }
     return true;
 }

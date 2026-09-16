@@ -27,6 +27,7 @@
 #include "mesh/ui/route.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
+#include "mesh/utils/text.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -950,5 +951,148 @@ MESH_TEST_CASE(help_is_not_offered_where_there_is_nothing_to_say, unit) {
     press(&picker, MESH_UI_KEY_SELECT);
     MESH_TEST_FAIL_IF(picker.nav.help_open, "SELECT opened help over the picker");
     MESH_TEST_FAIL_IF(!picker.nav.picker_open, "SELECT closed the picker instead");
+    record_success(test_name);
+}
+
+/*
+ * The help screen never offers the group hint on a screen where the group keys do nothing.
+ *
+ * Three things decide whether a settings section has groups - the renderer, to draw cards; the
+ * navigation, to let L2/R2 cross one; and this, to say the pair exists - and the first version
+ * of the hint answered it differently from the other two. It asked only whether a heading was
+ * present, while the renderer draws cards at two groups and the navigation crosses at two. A
+ * section whose single heading opens its only group is the gap between those: no cards drawn,
+ * R2 refused, and the help promising a jump. The Radio section reaches it, because its
+ * remote-admin heading is the one it emits conditionally.
+ *
+ * Checked as an equivalence against the *behaviour* rather than against the predicate, and over
+ * every section, so it holds whatever the three come to be implemented as: the hint is on this
+ * screen exactly when R2 moves the cursor on it. Written the other way round - both asking
+ * mesh_ui_settings_section_groups() - it would pass with all three wrong together.
+ *
+ * R2 is pressed from the section's first row, where a section with two groups always has one
+ * ahead of it. L2 is not the test: from the first row it has nowhere to go even where the pair
+ * works, which is the asymmetry the pair is built on.
+ *
+ * Run twice, and the second pass is the one that catches the bug rather than merely restating
+ * the rule: no section reaches "a heading over one group" in the ordinary state, so a pass over
+ * the sections as they usually are agrees with a heading-only gate and proves nothing. Radio
+ * with a remote target is the shape - build_radio() has exactly one heading and emits it at the
+ * top only while administering somebody else's node, so everything below it is a single unnamed
+ * run. That is a section with a title, not a section with parts.
+ */
+MESH_TEST_CASE(help_does_not_offer_a_key_that_does_nothing, unit) {
+    const char *failure = NULL;
+    char message[192];
+
+    for (int pass = 0; pass < 2 && failure == NULL; ++pass) {
+        const bool remote = (pass == 1);
+        for (int i = 0; i < (int)MESH_UI_SETTINGS_SECTION_COUNT && failure == NULL; ++i) {
+            const enum mesh_ui_settings_section section = (enum mesh_ui_settings_section)i;
+            struct mesh_ui_store store;
+            if (!help_store_open(&store, section)) {
+                continue; /* a section this fixture cannot reach says nothing either way */
+            }
+            if (remote) {
+                /* Administering another node: the one state that puts a heading over a single
+                   group. Set on the store's own copy, which is what the help model and the nav
+                   both read, and the section is rebuilt from it on every draw and press. */
+                struct mesh_ui_settings admin = store.settings;
+                admin.admin_dest = 0x7001U;
+                mesh_str_copy(admin.admin_dest_name, sizeof admin.admin_dest_name, "Weather Hut");
+                mesh_ui_store_set_settings(&store, &admin);
+            }
+
+            struct mesh_ui_help_topic topic;
+            bool offers_hint = false;
+            if (topic_for(&store, &topic)) {
+                for (uint32_t e = 0; e < topic.count; ++e) {
+                    if (topic.entries[e].body == MESH_STR_HELP_NOTE_SETTINGS_GROUPS) {
+                        offers_hint = true;
+                        break;
+                    }
+                }
+            }
+
+            const uint32_t before = store.nav.cursor[MESH_UI_SCREEN_SETTINGS];
+            press(&store, MESH_UI_KEY_R2);
+            const bool key_moves = store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != before;
+
+            if (offers_hint != key_moves) {
+                snprintf(
+                    message, sizeof message, "%s%s: help %s the group hint and R2 %s the cursor",
+                    mesh_ui_settings_section_name(section),
+                    remote ? " (administering a remote node)" : "",
+                    offers_hint ? "offers" : "withholds", key_moves ? "moves" : "does not move");
+                failure = message;
+            }
+            mesh_ui_store_shutdown(&store);
+        }
+    }
+
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * What counts as a group, on the shapes that decide it.
+ *
+ * The equivalence above is the rule that matters, but it can only test the sections that exist;
+ * these are the arrangements the count has to get right for it to keep holding as they change.
+ * A heading is a boundary and never a group of its own - a title with nothing under it is a
+ * title - and the rows ahead of the first heading are a group with no name, the way the block at
+ * the top of a phone's settings page is a card before any label appears.
+ */
+MESH_TEST_CASE(help_counts_a_group_by_its_rows, unit) {
+    struct mesh_ui_settings_item items[8];
+    memset(items, 0, sizeof items);
+    const char *failure = NULL;
+    char message[160];
+
+    struct {
+        const char *shape;
+        uint32_t count;
+        uint8_t kinds[6];
+        uint32_t want;
+    } cases[] = {
+        {"three plain rows",
+         3U,
+         {MESH_UI_SETTING_INFO, MESH_UI_SETTING_INFO, MESH_UI_SETTING_INFO},
+         1U},
+        {"a heading over one group",
+         3U,
+         {MESH_UI_SETTING_HEADING, MESH_UI_SETTING_INFO, MESH_UI_SETTING_INFO},
+         1U},
+        {"two named groups",
+         4U,
+         {MESH_UI_SETTING_HEADING, MESH_UI_SETTING_INFO, MESH_UI_SETTING_HEADING,
+          MESH_UI_SETTING_INFO},
+         2U},
+        {"an unnamed group then a named one",
+         3U,
+         {MESH_UI_SETTING_INFO, MESH_UI_SETTING_HEADING, MESH_UI_SETTING_INFO},
+         2U},
+        {"a heading with nothing under it",
+         4U,
+         {MESH_UI_SETTING_INFO, MESH_UI_SETTING_HEADING, MESH_UI_SETTING_HEADING,
+          MESH_UI_SETTING_INFO},
+         2U},
+        {"nothing but headings", 2U, {MESH_UI_SETTING_HEADING, MESH_UI_SETTING_HEADING}, 0U},
+    };
+
+    for (size_t c = 0; c < sizeof cases / sizeof cases[0] && failure == NULL; ++c) {
+        for (uint32_t r = 0; r < cases[c].count; ++r) {
+            memset(&items[r], 0, sizeof items[r]);
+            items[r].kind = (enum mesh_ui_setting_kind)cases[c].kinds[r];
+        }
+        const uint32_t got = mesh_ui_settings_section_groups(items, cases[c].count);
+        if (got != cases[c].want) {
+            snprintf(message, sizeof message, "%s came to %u groups, expected %u", cases[c].shape,
+                     (unsigned)got, (unsigned)cases[c].want);
+            failure = message;
+        }
+    }
+
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }

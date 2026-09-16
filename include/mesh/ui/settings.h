@@ -838,6 +838,27 @@ struct mesh_ui_settings_item {
 bool mesh_ui_settings_item_is_verb(const struct mesh_ui_settings_item *item);
 
 /*
+ * How many groups a built section actually has: maximal runs of non-heading rows, counting only
+ * the runs that hold at least one row. The rows ahead of the first heading are a group too - an
+ * unnamed one - exactly as the block at the top of a phone's settings page is a card before any
+ * label appears.
+ *
+ * One predicate because three things were asking this question and answering it differently, and
+ * a reader can tell: the renderer decides whether to draw cards, the navigation decides whether
+ * L2/R2 may cross one, and the help screen decides whether to say the pair exists. A section
+ * with one group drew no cards while the help still promised the jump and R2 did nothing - which
+ * is the help advertising a key that does nothing, the thing the action bar keeps a single table
+ * to avoid.
+ *
+ * Groups rather than cards, and the two are the same number rather than merely close: every
+ * group holding a row leaves at least one card behind. A group that is all verbs is one card; a
+ * group that is not floats its verbs onto the panel but keeps its fields, and "not all verbs"
+ * means it has a field to keep. Counting groups is therefore what the renderer was already
+ * counting, and it is a question the model can answer without knowing a card exists.
+ */
+uint32_t mesh_ui_settings_section_groups(const struct mesh_ui_settings_item *items, uint32_t count);
+
+/*
  * The radio's canned message list, which the wire carries as one '|'-separated string.
  *
  * Two accessors rather than a parsed array because both readers want one entry at a time: the

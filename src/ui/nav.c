@@ -1009,6 +1009,31 @@ bool mesh_ui_nav_cursor_group(struct mesh_ui_nav *nav, const struct mesh_ui_stor
     if (rows == 0U) {
         return false;
     }
+    /*
+     * Two groups, or there is nothing to cross.
+     *
+     * The same count mesh_ui_settings_section_groups() answers for a settings section, taken off
+     * the map here because this serves the node detail too - and the same threshold the renderer
+     * draws cards at, deliberately: a screen showing one group and a screen showing none look
+     * identical, so a press that moved on one and not the other would be a key whose meaning the
+     * reader cannot see. Counted rather than assumed from the heading, which is the correction:
+     * a lone heading over the only group is a section with a title, not a section with parts.
+     */
+    uint32_t groups = 0U;
+    bool in_group = false;
+    for (uint32_t r = 0; r < rows; ++r) {
+        if (heading[r]) {
+            in_group = false;
+            continue;
+        }
+        if (!in_group) {
+            groups++;
+            in_group = true;
+        }
+    }
+    if (groups < 2U) {
+        return false;
+    }
     uint32_t *cursor = &nav->cursor[nav->screen];
     if (*cursor >= rows) {
         return false;

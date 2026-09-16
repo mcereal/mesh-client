@@ -294,6 +294,26 @@ bool mesh_ui_settings_item_is_verb(const struct mesh_ui_settings_item *item) {
     return item != NULL && item->verb;
 }
 
+uint32_t mesh_ui_settings_section_groups(const struct mesh_ui_settings_item *items,
+                                         uint32_t count) {
+    if (items == NULL) {
+        return 0U;
+    }
+    uint32_t groups = 0U;
+    bool open = false;
+    for (uint32_t r = 0; r < count; ++r) {
+        if (items[r].kind == MESH_UI_SETTING_HEADING) {
+            open = false;
+            continue;
+        }
+        if (!open) {
+            groups++;
+            open = true;
+        }
+    }
+    return groups;
+}
+
 /*
  * What each section is *for*, in a sentence or two, in the enum's own order.
  *
