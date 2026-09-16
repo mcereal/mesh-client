@@ -2397,6 +2397,31 @@ bool mesh_ui_settings_action_needs_confirm(enum mesh_ui_settings_action action) 
            mesh_ui_settings_action_is_forget(action);
 }
 
+/*
+ * The presses that raise something. See the note in settings.h for what the chevron promises.
+ *
+ * Spelled as "the ones behind a sheet, plus the four links", which is the shape the nav has: a
+ * verb needing confirmation opens the question, and the sharing and importing pairs open a
+ * screen and the keyboard. Everything else acts where it stands and the rows redraw when the
+ * reply lands.
+ *
+ * "Back to my radio" is deliberately not here, and it is the one that has to be argued. It does
+ * put a different radio's settings on the panel, so it navigates - but it raises nothing, and
+ * what it navigates is *back*. A chevron pointing further in on the row that leaves is the wrong
+ * half of the promise even where the promise is kept.
+ *
+ * `ui_nav_a_chevron_is_a_promise_the_nav_keeps` holds this against the nav rather than against
+ * this list: it walks every section, presses A on every verb in it, and asks whether anything
+ * was raised.
+ */
+bool mesh_ui_settings_action_opens(enum mesh_ui_settings_action action) {
+    return mesh_ui_settings_action_needs_confirm(action) ||
+           action == MESH_UI_SETTINGS_ACTION_SHARE_CHANNELS ||
+           action == MESH_UI_SETTINGS_ACTION_IMPORT_CHANNELS ||
+           action == MESH_UI_SETTINGS_ACTION_SHARE_CONTACT ||
+           action == MESH_UI_SETTINGS_ACTION_IMPORT_CONTACT;
+}
+
 /* The two firmware installs, which are one press with two sheets in front of it. Asked as a
    predicate rather than compared inline for the reason mesh_ui_settings_action_is_forget() is:
    four places want the question and a fifth arriving is how they stop agreeing. */

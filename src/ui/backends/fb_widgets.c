@@ -1396,7 +1396,7 @@ void fb_list_subheader_icon(const struct mesh_ui_backend_fb_state *state, struct
     const struct mesh_ui_rgb ink = fb_item_ink(state, tone, selected, tone == MESH_UI_TONE_DIM);
 
     int x = fb_row_box(state).text_x;
-    if (leading.kind == FB_LEADING_TONAL) {
+    if (leading.kind == FB_LEADING_TONAL || leading.kind == FB_LEADING_TONAL_SLOT) {
         /*
          * The card's symbol in a disc, which is what a heading over rows that carry discs has to
          * be: the slot is the rows' gutter being matched, so a heading that drew a bare icon
@@ -1445,7 +1445,13 @@ void fb_list_subheader_icon(const struct mesh_ui_backend_fb_state *state, struct
             const struct mesh_ui_paint disc =
                 fb_paint(state, family != MESH_UI_FAMILY_COUNT ? family : MESH_UI_FAMILY_PRIMARY,
                          MESH_UI_SLOT_CONTAINER, MESH_UI_STATE_REST);
-            if (size > 0) {
+            /* The empty slot takes the gutter and draws nothing in it, which is the whole of
+               what it is for here: a group whose subject this client has no rune for - "Sent
+               with a position" is a sentence about ten bits - still has to begin where its rows
+               begin. Without it the heading stood at the panel's margin over rows indented past
+               a disc, which is the heading "naming a column nothing is in" that the note above
+               is about, seen from the one side that had no answer. */
+            if (size > 0 && leading.kind == FB_LEADING_TONAL) {
                 fb_draw_avatar(state, x + (gutter - size) / 2, gap_top + (gap_h - size) / 2, size,
                                NULL, leading.icon, disc);
             }
@@ -1580,6 +1586,7 @@ struct fb_item_geom {
     int head_slot_top, supp_slot_top;
     int text_x, text_right;
     int content_x;    /* where the row's content starts, before any leading slot is reserved */
+    int lead_size;    /* the leading slot's side: one width per list, never per row */
     int marker_x;     /* a plain row's marker cell; only meaningful when the row reserved one */
     size_t cols;      /* text columns between the leading slot and the trailing edge */
     int bar_y, bar_h; /* a stacked meter's track; bar_h of 0 is a row that has none */
@@ -1627,6 +1634,28 @@ static struct fb_item_geom fb_item_measure(const struct mesh_ui_backend_fb_state
         g.supp_slot_top = g.fill_top;
     }
 
+    /*
+     * The leading slot's side, and the two answers are the point rather than an oversight.
+     *
+     * A disc is a *picture* and is sized to the row it leads, so a conversation cell's avatar
+     * fills the two steps its preview line gave it. The empty slot is not a picture: its whole
+     * job is to put the words of a row that carries nothing in the same column as the words of
+     * the rows that do - and in every list that mixes the two, the row carrying a disc is one
+     * step tall. A settings verb never takes a second step (a slider and a meter are settings,
+     * and neither is a verb), and neither does a node detail's.
+     *
+     * So the slot is measured off `list->line`, the one step every row of the list is built
+     * out of, where `g.fill_h` is how many of them this row happened to take. It used to be
+     * `g.fill_h - scale` for all three, which is the same number on a one-step row and a
+     * larger one on every row that took two - so a settings section that mixed a slider in
+     * with its neighbours drew that row's label, its value and its track a cell to the right
+     * of the rows above and below it, and the gutter promised to a row with nothing in it was
+     * not the gutter the discs beside it actually stood in. Position and LoRa are where it
+     * showed; the rule it breaks is the one stated on FB_LEADING_ICON directly below, and
+     * `ui_capture_a_section_starts_every_row_in_one_column` is what holds it now.
+     */
+    g.lead_size =
+        item->leading.kind == FB_LEADING_TONAL_SLOT ? list->line - scale : g.fill_h - scale;
     g.content_x = box.text_x;
     g.text_x = g.content_x;
     if (item->leading.kind == FB_LEADING_AVATAR || item->leading.kind == FB_LEADING_TONAL ||
@@ -1636,7 +1665,7 @@ static struct fb_item_geom fb_item_measure(const struct mesh_ui_backend_fb_state
            would be a list unable to mix the two - which the node detail does, one card of verbs
            at a time. The empty slot measures with them for the same reason it exists: it is this
            gutter, promised to a row that has nothing to put in it. */
-        g.text_x = g.content_x + (g.fill_h - scale) + adv / 2;
+        g.text_x = g.content_x + g.lead_size + adv / 2;
     } else if (item->leading.kind == FB_LEADING_ICON) {
         /* Reserved whether or not this row filled it, so every row's words start in the same
            column - a list that indents only the rows with something to say is a list the eye
@@ -1867,6 +1896,12 @@ static size_t fb_trailing_cols(const struct mesh_ui_backend_fb_state *state, siz
     return (want > 0U && cols > want + reserved) ? want : 0U;
 }
 
+/* One piece of a headline, clipped to the cells it was given - declared here for the segmented
+   slot's fallback, which writes into the row's value column rather than the trailing edge and
+   owes that column the same clipping every other piece of the line gets. */
+static void fb_item_piece(struct mesh_ui_backend_fb_state *state, int x, int y, const char *text,
+                          size_t cols, struct mesh_ui_rgb ink, struct mesh_ui_rgb ground);
+
 /* `reserved` is the same figure fb_trailing_cols() was given - see there. Only the slot with
    two forms reads it, and it has to: a segmented button that measured itself against the free
    room and then drew itself against the whole line would be the one kind able to disagree with
@@ -1886,9 +1921,12 @@ static size_t fb_trailing_cols(const struct mesh_ui_backend_fb_state *state, siz
  * pointed at. `selected` is already here, so the ink's ground is derived rather than passed and
  * the two cannot be handed the wrong way round.
  */
+/* `value_ink` is the ink the row's own value column is written in, and only the segmented
+   slot's fallback uses it - see there. */
 static void fb_draw_trailing(struct mesh_ui_backend_fb_state *state, const struct fb_item_geom *g,
                              size_t reserved, const struct fb_trailing *trailing, int baseline,
-                             int slot_top, bool selected, enum mesh_ui_color rest_role) {
+                             int slot_top, bool selected, enum mesh_ui_color rest_role,
+                             struct mesh_ui_rgb value_ink) {
     const struct mesh_ui_rgb ground =
         fb_color(state, selected ? MESH_UI_COLOR_SURFACE_SEL : rest_role);
     const int scale = state->scale;
@@ -1983,8 +2021,26 @@ static void fb_draw_trailing(struct mesh_ui_backend_fb_state *state, const struc
             return;
         }
         if (as_text) {
-            /* The chosen word, drawn exactly as a trailing text is - because that is what it
-               now is. Quiet ink on the ground and on the fill alike. */
+            /*
+             * The chosen word, in the row's own value column - because that is what it now is:
+             * a setting whose value is a word, which is what every row around it is.
+             *
+             * It used to be drawn as a trailing text, quietly and against the right-hand edge,
+             * and that was the control's fallback reasoning rather than the row's: the segments
+             * were a trailing slot, so the word that replaced them took the trailing slot's
+             * place. On the screen it read as a second value column - Display draws "Panel type
+             * / Auto" in the column and drew "Layout / Default" against the edge, two rows
+             * apart, for no reason a reader could see. A row that has a value column writes its
+             * value there.
+             *
+             * Right-aligned only when there is no column to write in, which is a row that gave
+             * its whole line to its words.
+             */
+            if (reserved > 0U && g->cols > reserved) {
+                fb_item_piece(state, g->text_x + (int)reserved * adv, baseline,
+                              trailing->segmented->value, g->cols - reserved, value_ink, ground);
+                return;
+            }
             fb_draw_text(state,
                          g->text_right - (int)mesh_ui_text_cells(trailing->segmented->value) * adv,
                          baseline, trailing->segmented->value, scale,
@@ -2180,7 +2236,10 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
         fb_color(state, selected ? MESH_UI_COLOR_SURFACE_SEL : rest_role);
 
     if (item->leading.kind == FB_LEADING_AVATAR || item->leading.kind == FB_LEADING_TONAL) {
-        const int size = g.fill_h - scale;
+        /* The slot the measure reserved, and not a second opinion about it: a disc drawn to any
+           other size either leaves a gap its list's other rows do not have or runs under the
+           words. See fb_item_measure(). */
+        const int size = g.lead_size;
         /*
          * Which pair the disc wears, and the tonal one reads it off the row's tone exactly as
          * the accent bar below does - the row says once what it means and the disc is one of
@@ -2285,7 +2344,7 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
     }
     if (head_take > 0U) {
         fb_draw_trailing(state, &g, reserved, &item->trailing, g.head_y, g.head_slot_top, selected,
-                         rest_role);
+                         rest_role, head_ink);
     }
 
     if (g.rows >= 2U && item->supporting != NULL) {
@@ -2306,7 +2365,7 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
                       g.cols - supp_take - (supp_icon ? 1U : 0U), supp_ink, ground);
         if (supp_take > 0U) {
             fb_draw_trailing(state, &g, 0U, &item->supporting_trailing, g.supp_y, g.supp_slot_top,
-                             selected, rest_role);
+                             selected, rest_role, supp_ink);
         }
     }
 

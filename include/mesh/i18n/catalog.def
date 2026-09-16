@@ -2076,9 +2076,11 @@ MESH_STR_ENTRY(RADIO_ADMIN_REMOTE_RETURN, "Back to my radio")
 MESH_STR_ENTRY(CHANNELS_NONE_KNOWN,       "none known yet")
 MESH_STR_ENTRY(CHANNELS_SLOT,             "%u %s")
 MESH_STR_ENTRY(CHANNELS_SLOT_EMPTY,       "%u (empty)")
-MESH_STR_ENTRY(CHANNELS_SET_UP,           "disabled, A to set up")
-/* One channel in a line: role, key, and whether it is bridged to MQTT either way. */
-MESH_STR_ENTRY(CHANNELS_SUMMARY,          "%s, %s, up %s, down %s")
+MESH_STR_ENTRY(CHANNELS_SET_UP,           "disabled")
+/* One slot in a line: what it is, and how it is keyed. Its MQTT bits used to be here too and
+   did not fit - a settings value column is about two dozen cells - so they are read as the two
+   toggles at the top of the slot's own section, where a bit that is a setting belongs. */
+MESH_STR_ENTRY(CHANNELS_SUMMARY,          "%s, %s")
 MESH_STR_ENTRY(CHANNELS_ROLE_PRIMARY,     "primary")
 MESH_STR_ENTRY(CHANNELS_ROLE_SECONDARY,   "secondary")
 MESH_STR_ENTRY(CHANNELS_KEY_NONE,         "no key")

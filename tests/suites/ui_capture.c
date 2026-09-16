@@ -4283,3 +4283,227 @@ MESH_TEST_CASE(ui_capture_a_verb_keeps_the_ordinary_ink, unit) {
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
+
+/*
+ * Every row of a settings section starts its words in one column, whatever height the row is.
+ *
+ * The leading slot is declared for a whole list or for none of it, and that rule is stated twice
+ * in fb_widgets.c - once on FB_LEADING_ICON ("reserved whether or not this row filled it") and
+ * once on the empty slot that exists for nothing else. The geometry had been breaking it since
+ * the settings screen gained a row two steps tall: the gutter was measured off the row's own
+ * fill height rather than off the list's step, so a section that mixed a slider in with its
+ * neighbours drew that row's label, its value and its track a step further right than the rows
+ * above and below it. Position is the worst of them - four of its six top rows carry a track -
+ * and the seam is perfectly legible on the panel once it is pointed at.
+ *
+ * Asked of the *normal* ink and of the body band, which between them leave in exactly the rows
+ * this is about. A group heading stands at the panel's own margin rather than in the column, and
+ * it is dim; the row under the cursor is drawn in the on-selection ink; the app bar's back arrow
+ * is above the band. What is left is the rows of the section, and their left edges have only a
+ * glyph's own bearing to differ by - where the bug under test moves one of them by a whole step.
+ */
+MESH_TEST_CASE(ui_capture_a_section_starts_every_row_in_one_column, unit) {
+    const char *failure = NULL;
+    static char detail[256];
+
+    for (size_t t = 0; t < mesh_ui_theme_count() && failure == NULL; ++t) {
+        const struct mesh_ui_theme *theme = mesh_ui_theme_at(t);
+        for (int scale = MESH_UI_SCALE_MIN; scale <= MESH_UI_SCALE_MAX && failure == NULL;
+             ++scale) {
+            struct mesh_ui_store store;
+            if (mesh_ui_store_init(&store) != 0) {
+                failure = "store init failed";
+                break;
+            }
+            mesh_test_nav_populate(&store);
+            /* A Position the radio has answered for, with every one of its scales somewhere in
+               the middle of its own track - a row at an end of its scale still draws the track,
+               but a value the field reads as a word does not, and this wants the rows that do. */
+            struct mesh_ui_settings settings = store.settings;
+            settings.loaded = true;
+            settings.has_position = true;
+            settings.gps_mode = 1U;
+            settings.position_broadcast_secs = 900U;
+            settings.position_broadcast_smart_enabled = true;
+            settings.smart_minimum_distance = 100U;
+            settings.smart_minimum_interval_secs = 30U;
+            settings.gps_update_interval = 120U;
+            mesh_ui_store_set_settings(&store, &settings);
+
+            uint8_t *frame = NULL;
+            uint32_t width = 0U;
+            uint32_t height = 0U;
+            size_t stride = 0U;
+            if (!mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS)) {
+                failure = "the Settings tab could not be reached";
+            } else if (!mesh_test_settings_open(&store, MESH_UI_SETTINGS_POSITION)) {
+                failure = "Settings > Position could not be opened";
+            } else {
+                frame = capture_frame(&store, theme, scale, &width, &height, &stride);
+                if (frame == NULL) {
+                    failure = "capture failed";
+                }
+            }
+
+            if (failure == NULL) {
+                /*
+                 * A row's content is whatever is not furniture, rather than one ink.
+                 *
+                 * Asking for MESH_UI_COLOR_TEXT exactly finds only the solid core of a glyph,
+                 * and at the small scales a stroke is two pixels wide and blended the whole way
+                 * through - so the leftmost "text" pixel came back somewhere in the middle of a
+                 * word, differently on every row. What the four colours below have in common is
+                 * that they are the only things drawn flat: the ground, a card's surface and its
+                 * hairline, and the cursor's fill. Everything else on these rows - a word, a
+                 * blend at the edge of one, a slider's track - is content, and content starts
+                 * where the column starts.
+                 */
+                const struct mesh_ui_rgb furniture[] = {
+                    mesh_ui_theme_color(theme, MESH_UI_COLOR_BG),
+                    mesh_ui_theme_color(theme, MESH_UI_COLOR_SURFACE),
+                    mesh_ui_theme_color(theme, MESH_UI_COLOR_SURFACE_SEL),
+                    mesh_ui_theme_color(theme, MESH_UI_COLOR_OUTLINE),
+                };
+                /* From the panel's own margin: a card in a list is drawn wider than the rows
+                   standing in it, so its left edge and its corners are outside every column
+                   this is about. */
+                const uint32_t left_edge = (uint32_t)theme->metrics.margin;
+                /*
+                 * And only as far right as the label column, which is where the question is
+                 * settled anyway - and what keeps the scroll rail out of it. The rail is a bar
+                 * down the whole body on the one side, so a scan that ran to the panel's edge
+                 * found content on every scanline, never saw a blank one, and read the entire
+                 * section as a single row.
+                 */
+                const uint32_t right_edge = settings_label_right(theme, width, scale);
+                /* The suite's own estimate of the two bars, the one
+                   ui_capture_settings_marks_both_halves_of_an_unsaved_row() uses. */
+                const uint32_t body_top = height / 8U;
+                const uint32_t body_bottom = height - height / 8U;
+                /* A glyph's left bearing is the only thing two rows of the same column may
+                   differ by. The failure this is about is a whole step - nine of these - so the
+                   allowance can be generous and still catch it. */
+                const uint32_t bearing = (uint32_t)(3 * scale);
+                uint32_t band_left = width;
+                uint32_t band_rows = 0U;
+                uint32_t lefts[64];
+                uint32_t bands = 0U;
+                for (uint32_t y = body_top; y <= body_bottom; ++y) {
+                    const uint8_t *row = frame + (size_t)y * stride;
+                    /*
+                     * Where this scanline's own ground begins, which is where the search for
+                     * content starts. A card is drawn wider than the rows standing in it and its
+                     * edge is a hairline blended against the panel, so a scan that began at the
+                     * margin found that blend on every scanline the card covers and reported the
+                     * card's left edge as if it were a word. Starting at the card's own surface
+                     * steps over its edge without anything here having to know how thick one is;
+                     * a scanline with no card on it - a heading in the break between two, a verb
+                     * floated onto the panel - has none to find and starts at the margin.
+                     */
+                    uint32_t start = left_edge;
+                    for (uint32_t x = left_edge; x < right_edge; ++x) {
+                        const uint8_t *p = row + (size_t)x * 4U;
+                        if ((p[0] == furniture[1].b && p[1] == furniture[1].g &&
+                             p[2] == furniture[1].r) ||
+                            (p[0] == furniture[2].b && p[1] == furniture[2].g &&
+                             p[2] == furniture[2].r)) {
+                            start = x;
+                            break;
+                        }
+                    }
+                    uint32_t left = width;
+                    for (uint32_t x = start; x < right_edge && left == width; ++x) {
+                        const uint8_t *p = row + (size_t)x * 4U;
+                        bool flat = false;
+                        for (size_t f = 0U; f < sizeof furniture / sizeof furniture[0]; ++f) {
+                            flat = flat || (p[0] == furniture[f].b && p[1] == furniture[f].g &&
+                                            p[2] == furniture[f].r);
+                        }
+                        if (!flat) {
+                            left = x;
+                        }
+                    }
+                    if (left < band_left) {
+                        band_left = left;
+                    }
+                    if (left != width) {
+                        band_rows++;
+                        continue;
+                    }
+                    /*
+                     * A blank scanline closes the band above it: one row of words, measured at
+                     * its leftmost.
+                     *
+                     * A band has to be as tall as a letter to be one. A card's hairline is a
+                     * scanline or two of blend against the ground, and it runs the width of the
+                     * card rather than of the column - so counted as a row it reports the card's
+                     * own left edge and nothing about where any word starts.
+                     */
+                    const uint32_t tall = band_rows >= (uint32_t)(2 * scale);
+                    band_rows = 0U;
+                    if (band_left == width || !tall) {
+                        band_left = width;
+                        continue;
+                    }
+                    if (bands < (uint32_t)(sizeof lefts / sizeof lefts[0])) {
+                        lefts[bands++] = band_left;
+                    }
+                    band_left = width;
+                }
+                /*
+                 * The column the section is written in: the one the most rows agree on.
+                 *
+                 * Taken from the rows rather than derived here, because deriving it would be
+                 * this test re-stating the arithmetic it is meant to be checking - and because
+                 * the answer is not a constant: a section that holds a verb reserves the disc's
+                 * width on its fields too, and one that holds none does not.
+                 */
+                uint32_t column = 0U;
+                uint32_t agreed = 0U;
+                for (uint32_t a = 0U; a < bands; ++a) {
+                    uint32_t near = 0U;
+                    for (uint32_t b = 0U; b < bands; ++b) {
+                        const uint32_t hi = lefts[a] > lefts[b] ? lefts[a] : lefts[b];
+                        const uint32_t lo = lefts[a] > lefts[b] ? lefts[b] : lefts[a];
+                        near += (hi - lo <= bearing) ? 1U : 0U;
+                    }
+                    if (near > agreed) {
+                        agreed = near;
+                        column = lefts[a];
+                    }
+                }
+                /*
+                 * Nothing may start to the *right* of it, and that is the whole assertion.
+                 *
+                 * Left of it is the gutter, and a row is entitled to put a disc there - that is
+                 * what the slot is: the rows carrying a symbol start it in the gutter and their
+                 * words in the column, and the rows carrying none leave the gutter empty. Right
+                 * of it there is nothing a row may legitimately be, so a row that begins there
+                 * has been indented by something that is not the list.
+                 */
+                for (uint32_t a = 0U; a < bands && failure == NULL; ++a) {
+                    if (lefts[a] > column + bearing) {
+                        snprintf(detail, sizeof detail,
+                                 "a settings row starts in its own column: row %u begins at x=%u "
+                                 "where the section is written at x=%u, on theme %s at glyph "
+                                 "scale %d",
+                                 a + 1U, lefts[a], column, theme->name, scale);
+                        failure = detail;
+                    }
+                }
+                if (failure == NULL && (bands < 4U || agreed < 3U)) {
+                    snprintf(detail, sizeof detail,
+                             "only %u rows of Position were readable at glyph scale %d, %u of "
+                             "them in one column - there is nothing here to compare",
+                             bands, scale, agreed);
+                    failure = detail;
+                }
+            }
+            free(frame);
+            mesh_ui_store_shutdown(&store);
+        }
+    }
+
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}

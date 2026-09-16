@@ -324,10 +324,32 @@ against the radio's table), and worth doing on its own rather than on the way pa
 
 **The value column is empty on a verb.** Every one of these used to say "press A", which is the
 action bar's job and is said once per screen there rather than once per row — eleven rows of one
-instruction with the labels, the only part that differs, read past it. What is left in the
-column is the rows with a real value: the count a forget would remove, the language a press would
-cycle to. It goes in the trailing slot as quiet text, never as a badge; a filled capsule is a
-count that *shouts*, which is right for unread messages and wrong for "English".
+instruction with the labels, the only part that differs, read past it. What is left is the rows
+with a real value: the count a forget would remove, the language a press would cycle to. Never as
+a badge; a filled capsule is a count that *shouts*, which is right for unread messages and wrong
+for "English".
+
+**A chevron is a promise the nav keeps.** The mark means "this row opens something", and it used
+to be spent on any verb whose value column was empty — true of every verb that opens something,
+and also of several that do not: "Check for firmware" sends a request, Language and Theme cycle,
+the fixed-position pair goes straight to the radio. Which rows raise a sheet, a screen or the
+keyboard is `mesh_ui_settings_action_opens()`, asked of the model because the answer is the
+nav's, and held against the nav's own behaviour by
+`ui_nav_a_chevron_is_a_promise_the_nav_keeps`. It is the action bar's rule — a keycap that does
+nothing is a bug — one column further to the right.
+
+**Which column the value goes in is the section's answer, not the row's.** A section is settings with
+presses among them or it is a list of presses, and the two want the value in different places.
+Radio actions is the second — eleven verbs, no field, nothing to line a column up with — and
+there the value rides the trailing edge where a trailing age goes: "21 nodes" is the size of what
+the press costs, and it belongs beside the eye. About and About radio are the first, mostly-read
+screens whose values sit in the column every settings row puts one in, with a verb or two among
+them (Language, Theme, the firmware channel) whose value is a value in exactly the same sense.
+Sent to the trailing edge those came out alone against the right-hand margin, so a four-row
+screen read its values in two columns with nothing to say which row belonged to which. **A row
+joins the column its neighbours are in.** A withdrawn verb is the exception and keeps the
+trailing edge either way: "not supported" is a reason rather than a value, and it is drawn
+quietly where the chevron it replaces was.
 
 **The red is spent where there is no way back**, not on everything that asks first. Radio actions
 is a list of things done *to* a radio, so "this costs something" is the baseline and marking
@@ -395,6 +417,24 @@ and drawing the verbs past a disc while the fields began at the panel's padding 
 a card edge instead of removing it. So a section holding any verb reserves the disc's width on
 its fields too, with `FB_LEADING_TONAL_SLOT`: the gutter, promised to a row that has nothing to
 put in it.
+
+**The gutter is one width, and a heading owes it too.** Two things used to make a section's own
+rows disagree about where its words begin, and both are the same rule broken from a different
+side. The slot was measured off the row's *fill height* rather than off the list's step, so a
+row two steps tall — a setting whose value is a scale, and its track with it — reserved a wider
+gutter than its neighbours and started a step to their right; Position is four such rows out of
+six and LoRa two. And a heading with no symbol stood at the panel's own margin over rows indented
+past a disc, which is the card's label sitting outside the column it names. Both are held by
+`ui_capture_a_section_starts_every_row_in_one_column`, which reads the section's column off the
+rows rather than deriving it and asks only that nothing begin to the right of it — left of it is
+the gutter, and a row carrying a symbol is entitled to it.
+
+**A control that will not fit falls back to a value, and a value goes in the value column.** The
+segmented button is the one slot with a second form: a set of two to four choices is drawn as the
+set, and anything wider is drawn as the chosen word. That word used to take the trailing slot,
+because the segments had — which is the control's reasoning rather than the row's, and put
+Display's "Layout / Default" against the right-hand edge two rows under "Panel type / Auto" in
+the column.
 
 ### Crossing the cards
 
