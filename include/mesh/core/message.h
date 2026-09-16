@@ -89,6 +89,22 @@ struct mesh_message {
      */
     uint32_t reply_id;
     bool is_reaction;
+    /*
+     * Handed back by a Store & Forward router rather than heard live, so it is old news however
+     * new the entry is.
+     *
+     * The transcript wants it and a notice does not: a history request is the user asking for
+     * what they missed, and answering with a burst of toasts about conversations from four hours
+     * ago is the client shouting the answer back. mesh_app_report_direct_messages() skips these
+     * for that reason, and radio_request_history() promises it.
+     *
+     * A flag rather than a reading of the other fields, because none of them is that fact. A
+     * replay carries no date, no SNR and no hop count - but so does a live message on a Brick
+     * whose radio has no clock and whose firmware left the metadata out, and announcing that one
+     * is the whole job. `packet_id` used to stand in for this by being 0, which was never what it
+     * meant; it now holds StoreAndForward.original_id and says nothing about how the copy arrived.
+     */
+    bool replayed;
     /* Sanitised text: control bytes are folded to spaces or '?' by mesh_message_ingest, so
        backends can draw this straight into a framebuffer without re-checking it. */
     char text[MESH_MESSAGE_TEXT_MAX + 1U];

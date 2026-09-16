@@ -184,6 +184,9 @@ static bool store_forward_build_message(const meshtastic_MeshPacket *packet,
      * mesh_message_log_holds_replay() still falls back to matching on what was said.
      */
     out->packet_id = sf->original_id;
+    /* Old news, whatever id it now carries: the transcript takes it, a notice does not. See
+       struct mesh_message. */
+    out->replayed = true;
     out->from = packet->from;
     /*
      * The router tells us which it was through `rr` rather than through `to`, because `to` on
