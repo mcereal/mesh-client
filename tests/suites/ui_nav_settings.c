@@ -1674,3 +1674,123 @@ MESH_TEST_CASE(ui_nav_settings_shoulders_walk_the_cards, unit) {
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
+
+/*
+ * A chevron on a settings verb is a promise, and the nav is what keeps it.
+ *
+ * The mark means "this row opens something", and the renderer used to spend it on any verb whose
+ * value column was empty - which is true of every verb that opens something, and also of several
+ * that do not. "Check for firmware" sends a request and redraws when the answer lands; Language
+ * and Theme cycle to the next one; the fixed-position pair goes straight to the radio. Each drew
+ * a chevron and raised nothing, which is the action bar's rule - a keycap that does nothing is a
+ * bug - one column further right.
+ *
+ * So the promise is asked of `mesh_ui_settings_action_opens()`, and this is that predicate held
+ * against the behaviour rather than against its own list: every section is opened, A is pressed
+ * on every verb in it, and the nav is asked whether anything was raised. Written against the
+ * behaviour for the reason `help_does_not_offer_a_key_that_does_nothing` is - an equivalence
+ * checked against the predicate on both sides passes while both are wrong together.
+ */
+MESH_TEST_CASE(ui_nav_a_chevron_is_a_promise_the_nav_keeps, unit) {
+    const char *failure = NULL;
+    static char detail[224];
+    unsigned opened = 0U;
+    unsigned acted = 0U;
+
+    /* Every section that has a verb in it, which is the root list and the modules under it. */
+    for (uint32_t s = 0U;
+         s < mesh_ui_settings_root_count() + mesh_ui_settings_module_count() && failure == NULL;
+         ++s) {
+        const enum mesh_ui_settings_section section =
+            s < mesh_ui_settings_root_count()
+                ? mesh_ui_settings_root_at(s)
+                : mesh_ui_settings_module_at(s - mesh_ui_settings_root_count());
+        /* Modules is a list of subjects rather than of settings - its rows are ACTION and are
+           not verbs - and opening one from here would walk into the section it names. */
+        if (section == MESH_UI_SETTINGS_MODULES) {
+            continue;
+        }
+
+        for (uint32_t row = 0U; row < MESH_UI_SETTINGS_ITEMS_MAX && failure == NULL; ++row) {
+            /*
+             * A store per press. The point of the case is what one press left behind, and a
+             * press that opened a sheet has to be undone before the next one - undoing it with
+             * B would be testing the way back rather than the way in.
+             */
+            struct mesh_ui_store store;
+            if (mesh_ui_store_init(&store) != 0) {
+                failure = "store init failed";
+                break;
+            }
+            mesh_test_nav_populate(&store);
+            /*
+             * A radio that has answered for everything, so the verbs are offered rather than
+             * withdrawn: the link is up (the fixture's own), the metadata is in (the radio
+             * actions), the channel table has settled and both links exist (the four rows that
+             * open a screen or the keyboard).
+             */
+            struct mesh_ui_settings settings = store.settings;
+            settings.loaded = true;
+            settings.has_metadata = true;
+            settings.can_shutdown = true;
+            settings.has_channels = true;
+            settings.channels_settled = true;
+            settings.has_position = true;
+            settings.has_lora = true;
+            snprintf(settings.share_url, sizeof settings.share_url, "%s",
+                     "https://meshtastic.org/e/#test");
+            snprintf(settings.contact_url, sizeof settings.contact_url, "%s",
+                     "https://meshtastic.org/v/#test");
+            mesh_ui_store_set_settings(&store, &settings);
+
+            struct mesh_ui_settings_item item;
+            if (!mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS) ||
+                !mesh_test_settings_open(&store, section) ||
+                !mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U, section,
+                                       MESH_UI_SETTINGS_NO_CHANNEL, row, &item)) {
+                mesh_ui_store_shutdown(&store);
+                break; /* past the end of this section */
+            }
+            /* Only a verb the renderer would draw a chevron for. A channel slot and a module
+               row are ACTION too and open a list, which is what their kind means there. */
+            if (item.kind != MESH_UI_SETTING_ACTION || !mesh_ui_settings_item_is_verb(&item) ||
+                !mesh_test_settings_cursor_to(&store, row)) {
+                mesh_ui_store_shutdown(&store);
+                continue;
+            }
+
+            const enum mesh_ui_settings_action which = (enum mesh_ui_settings_action)item.number;
+            struct mesh_ui_action out;
+            memset(&out, 0, sizeof out);
+            (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &out);
+            /* Everything the nav can raise from a settings row: the question, the two code
+               screens, and the keyboard the two importing rows open. */
+            const bool raised = store.nav.confirm_open || store.nav.share_open ||
+                                store.nav.contact_open || store.nav.keyboard_open;
+            const bool promised = mesh_ui_settings_action_opens(which);
+            if (raised != promised) {
+                snprintf(detail, sizeof detail,
+                         "\"%s\" in section %u %s a chevron and %s: a row promises what the press "
+                         "does",
+                         item.label, (unsigned)section, promised ? "draws" : "draws no",
+                         raised ? "raised something" : "raised nothing");
+                failure = detail;
+            }
+            opened += raised ? 1U : 0U;
+            acted += raised ? 0U : 1U;
+            mesh_ui_store_shutdown(&store);
+        }
+    }
+
+    /* Both halves have to be reached, or the equivalence above is one of them asserted twice. */
+    if (failure == NULL && (opened == 0U || acted == 0U)) {
+        snprintf(detail, sizeof detail,
+                 "the walk found %u verbs that raise something and %u that act where they stand "
+                 "- it needs both to be saying anything",
+                 opened, acted);
+        failure = detail;
+    }
+
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}

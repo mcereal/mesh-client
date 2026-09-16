@@ -734,6 +734,23 @@ bool mesh_ui_settings_action_is_forget(enum mesh_ui_settings_action action);
 /* True for the ones that cannot be undone by pressing the opposite row, which the nav puts
    behind the confirm overlay. */
 bool mesh_ui_settings_action_needs_confirm(enum mesh_ui_settings_action action);
+/*
+ * True for a verb whose press raises something - a confirm sheet, a screen, the keyboard -
+ * rather than acting where it stands.
+ *
+ * What the chevron means, and the reason it is a question rather than a reading of the row: a
+ * verb used to earn one by having no value, which is true of every row that opens something and
+ * also of several that do not. "Check for firmware" sends a request and redraws when the answer
+ * lands; Language and Theme cycle to the next one; the fixed-position pair goes straight to the
+ * radio. Each of them promised a screen that was never coming, which is the action bar's own
+ * rule - a keycap that does nothing is a bug - read one column further to the right.
+ *
+ * Kept beside the tone and the icon rather than derived in a backend, because the answer is the
+ * nav's: these are exactly the presses mesh_ui_nav_handle_key() consumes by raising a sheet, a
+ * screen or the keyboard instead of filling in an action. Two readers would be two opinions
+ * about what a chevron promises, and the one that is wrong is the one the user acts on.
+ */
+bool mesh_ui_settings_action_opens(enum mesh_ui_settings_action action);
 /* True for the two that install firmware on the radio. They are a radio action in every sense
    that matters and in none that this client's plumbing recognises: nothing goes through the
    admin queue that the app does not send itself, and what comes back is a bus rather than a

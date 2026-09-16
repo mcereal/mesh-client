@@ -3886,6 +3886,15 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                  * edge where the chevron it replaces was, and it is drawn quietly there - which
                  * is what says the offer is withdrawn rather than the answer being blank.
                  */
+                /*
+                 * Whether the press raises anything, which is what the chevron is for. It used
+                 * to be spent on any verb with an empty value column, and that is a reading of
+                 * the row rather than of the press: it is true of every verb that opens
+                 * something and of several that do not. Asked of the model, which is where the
+                 * nav's own answer lives.
+                 */
+                const bool verb_opens = !off && mesh_ui_settings_action_opens(
+                                                    (enum mesh_ui_settings_action)item.number);
                 if (section_has_field && item.kind == MESH_UI_SETTING_ACTION &&
                     item.value[0] != '\0') {
                     const struct fb_list_item value_row = {
@@ -3895,7 +3904,9 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                         .value = item.value,
                         .tone = verb_tone,
                         .label_plain = true,
-                        .trailing = {.kind = FB_TRAILING_ICON, .icon = MESH_UI_ICON_CHEVRON},
+                        .trailing = verb_opens ? (struct fb_trailing){.kind = FB_TRAILING_ICON,
+                                                                      .icon = MESH_UI_ICON_CHEVRON}
+                                               : (struct fb_trailing){.kind = FB_TRAILING_NONE},
                         .accent_edge = verb_tone == MESH_UI_TONE_ERROR,
                     };
                     fb_list_item(state, &list, i, &value_row);
@@ -3925,8 +3936,9 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                     .trailing =
                         item.value[0] != '\0'
                             ? (struct fb_trailing){.kind = FB_TRAILING_TEXT, .text = item.value}
-                            : (struct fb_trailing){.kind = FB_TRAILING_ICON,
-                                                   .icon = MESH_UI_ICON_CHEVRON},
+                        : verb_opens ? (struct fb_trailing){.kind = FB_TRAILING_ICON,
+                                                            .icon = MESH_UI_ICON_CHEVRON}
+                                     : (struct fb_trailing){.kind = FB_TRAILING_NONE},
                     /* The tone goes to the disc and the edge, never to the words - which is
                        what the paragraph above claims and what this flag is what makes true.
                        Without it `tone` also inks the label, and a section where nine rows in

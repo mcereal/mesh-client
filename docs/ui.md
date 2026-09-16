@@ -329,7 +329,16 @@ with a real value: the count a forget would remove, the language a press would c
 a badge; a filled capsule is a count that *shouts*, which is right for unread messages and wrong
 for "English".
 
-**Which column it goes in is the section's answer, not the row's.** A section is settings with
+**A chevron is a promise the nav keeps.** The mark means "this row opens something", and it used
+to be spent on any verb whose value column was empty — true of every verb that opens something,
+and also of several that do not: "Check for firmware" sends a request, Language and Theme cycle,
+the fixed-position pair goes straight to the radio. Which rows raise a sheet, a screen or the
+keyboard is `mesh_ui_settings_action_opens()`, asked of the model because the answer is the
+nav's, and held against the nav's own behaviour by
+`ui_nav_a_chevron_is_a_promise_the_nav_keeps`. It is the action bar's rule — a keycap that does
+nothing is a bug — one column further to the right.
+
+**Which column the value goes in is the section's answer, not the row's.** A section is settings with
 presses among them or it is a list of presses, and the two want the value in different places.
 Radio actions is the second — eleven verbs, no field, nothing to line a column up with — and
 there the value rides the trailing edge where a trailing age goes: "21 nodes" is the size of what
