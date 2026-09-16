@@ -2694,6 +2694,38 @@ MESH_TEST_CASE(app_direct_message_notice, unit) {
         goto cleanup;
     }
 
+    /*
+     * And the third way it must not misfire: a Store & Forward window.
+     *
+     * A replayed direct message is inbound, addressed to us, text, and now carries a real packet
+     * id from StoreAndForward.original_id - so every structural gate above it passes. It is still
+     * not news: radio_request_history() promises the fetched messages arrive in the transcript
+     * and are counted by the section's own row, and a window of them would otherwise come back as
+     * a burst of notices about conversations from hours ago.
+     */
+    mesh_ui_store_set_toast(&app->ui_store, test_now_ms(), "");
+    message.packet_id = 0x9001U;
+    message.from = 2U;
+    message.replayed = true;
+    snprintf(message.text, sizeof message.text, "%s", "said four hours ago");
+    mesh_message_log_append(&app->session.messages, &message);
+    mesh_app_publish_ui_state(app);
+    if (app->ui_store.nav.toast[0] != '\0') {
+        failure = "a replayed message is history the user asked for, not a notice";
+        goto cleanup;
+    }
+
+    /* And the window has not wedged the cursor: what arrives next still speaks. */
+    message.packet_id = 104U;
+    message.replayed = false;
+    snprintf(message.text, sizeof message.text, "%s", "live again");
+    mesh_message_log_append(&app->session.messages, &message);
+    mesh_app_publish_ui_state(app);
+    if (strstr(app->ui_store.nav.toast, "live again") == NULL) {
+        failure = "a replayed window should not stop the next real arrival being announced";
+        goto cleanup;
+    }
+
 cleanup:
     /* The publish cache is lazily allocated by the first publish, exactly as it is on a device,
        and this app was never through mesh_app_shutdown() to have it released. */

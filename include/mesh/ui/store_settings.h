@@ -24,8 +24,12 @@
  * would drag nanopb into a header every screen in the client already includes. Restated the way
  * MESH_UI_VERIFY_DIGITS_MAX is, and pinned against the real bound by a static assertion in
  * src/ui/channel_share.c - so the two cannot drift without the build saying so.
+ *
+ * It said so: `ChannelSettings.use_aead` widened a channel by a byte and the real bound went
+ * from 953 to 973, which is what a round number with room in it is for. Raising this is the
+ * whole of what such a bump costs, and the assertion is how it gets found.
  */
-#define MESH_UI_CHANNEL_URL_MAX 960U
+#define MESH_UI_CHANNEL_URL_MAX 1024U
 
 /*
  * The longest contact link, restated here for the reason above and pinned the same way - by a

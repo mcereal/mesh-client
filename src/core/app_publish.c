@@ -1984,6 +1984,19 @@ static void mesh_app_report_direct_messages(struct mesh_app *app) {
         if (entry->packet_id == 0U) {
             continue;
         }
+        /*
+         * History the user asked for, which is the one kind of inbound message that is not news.
+         * radio_request_history() promises the fetched messages arrive in the transcript and are
+         * counted by the section's own row, and nowhere else; a window of direct messages would
+         * otherwise come back as a burst of notices about conversations from hours ago.
+         *
+         * Above the cursor rather than below it, with the other skips for things that could
+         * never be announced at all, rather than with the mute and the open thread - those are a
+         * message worth announcing that this moment does not want.
+         */
+        if (entry->replayed) {
+            continue;
+        }
 
         app->ui_message_announced_id = entry->packet_id;
         if (!announce || lost || !foreground) {

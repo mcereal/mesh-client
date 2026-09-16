@@ -171,13 +171,22 @@ static bool store_forward_build_message(const meshtastic_MeshPacket *packet,
     }
     out->kind = (uint8_t)MESH_MESSAGE_KIND_TEXT;
     /*
-     * Deliberately not the replay packet's id. That id belongs to the router's own packet, and
-     * two routers replaying the same message would give it two of them - it identifies the
-     * delivery, never the message. Nothing correlates a replayed message by id (an ack cannot
-     * arrive for something that happened hours ago), so it is left at 0 rather than filled with
-     * a number that would look like one.
+     * Still deliberately not the replay packet's id. That id belongs to the router's own packet,
+     * and two routers replaying the same message would give it two of them - it identifies the
+     * delivery, never the message.
+     *
+     * `original_id` is the message's own, which is the one thing the delivery's id never was: the
+     * router names what it is handing back rather than how it handed it back, so both routers
+     * replaying the same message now agree, and the copy we heard live carries the same number.
+     * That is a real correlation handle, so it is kept.
+     *
+     * Firmware older than the field leaves it 0, which is the case this used to be in always -
+     * mesh_message_log_holds_replay() still falls back to matching on what was said.
      */
-    out->packet_id = 0U;
+    out->packet_id = sf->original_id;
+    /* Old news, whatever id it now carries: the transcript takes it, a notice does not. See
+       struct mesh_message. */
+    out->replayed = true;
     out->from = packet->from;
     /*
      * The router tells us which it was through `rr` rather than through `to`, because `to` on

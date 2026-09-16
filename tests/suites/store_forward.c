@@ -60,15 +60,25 @@ static bool sf_feed(struct mesh_session *session, const meshtastic_StoreAndForwa
     return mesh_test_session_feed_from_radio(session, &from_radio);
 }
 
-/* A ROUTER_TEXT_* frame: what one replayed message looks like on the air. */
-static meshtastic_StoreAndForward sf_text(const char *text, bool broadcast) {
+/*
+ * A ROUTER_TEXT_* frame: what one replayed message looks like on the air. `original_id` is the
+ * id of the message being handed back, which a router older than the field leaves at 0.
+ */
+static meshtastic_StoreAndForward sf_text_id(const char *text, bool broadcast,
+                                             uint32_t original_id) {
     meshtastic_StoreAndForward sf = meshtastic_StoreAndForward_init_default;
     sf.rr = broadcast ? meshtastic_StoreAndForward_RequestResponse_ROUTER_TEXT_BROADCAST
                       : meshtastic_StoreAndForward_RequestResponse_ROUTER_TEXT_DIRECT;
     sf.which_variant = meshtastic_StoreAndForward_text_tag;
+    sf.original_id = original_id;
     sf.variant.text.size = (pb_size_t)strlen(text);
     memcpy(sf.variant.text.bytes, text, sf.variant.text.size);
     return sf;
+}
+
+/* The same, from a router that does not name what it is replaying. */
+static meshtastic_StoreAndForward sf_text(const char *text, bool broadcast) {
+    return sf_text_id(text, broadcast, 0U);
 }
 
 static meshtastic_StoreAndForward sf_history(uint32_t count, uint32_t last_request) {
@@ -362,8 +372,9 @@ MESH_TEST_CASE(store_forward_replay_skips_what_we_already_had, unit) {
     MESH_TEST_FAIL_IF(!sf_feed(&session, &history, SF_ROUTER, 0U, SF_WHEN), "encode history");
 
     /* The router replays its whole window, which for a client that was only briefly off is
-       mostly traffic it already heard. The copy carries a different packet id - it is inside
-       the router's own packet - so nothing but the content can tell it is the same message. */
+       mostly traffic it already heard. These frames name nothing - `sf_text` leaves
+       `original_id` at 0, the way firmware older than the field does - so content is all there
+       is to match on, and it still has to be enough. */
     meshtastic_StoreAndForward again = sf_text(said, true);
     meshtastic_StoreAndForward fresh = sf_text("missed this one", true);
     /*
@@ -382,6 +393,92 @@ MESH_TEST_CASE(store_forward_replay_skips_what_we_already_had, unit) {
     const struct mesh_store_forward *state = mesh_session_store_forward(&session);
     /* Two numbers, and they are not the same fact: the router did two messages of work and the
        user gained one. A row saying "2 messages" here would be describing the router. */
+    MESH_TEST_FAIL_IF(state->received != 2U || state->stored != 1U,
+                      "the replay should count what arrived and what was new separately");
+
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(store_forward_replay_keeps_the_original_id, unit) {
+    struct mesh_session session;
+    struct mesh_test_trace_capture capture;
+    sf_open_session(&session, &capture);
+
+    meshtastic_StoreAndForward history = sf_history(2U, 0U);
+    MESH_TEST_FAIL_IF(!sf_feed(&session, &history, SF_ROUTER, 0U, SF_WHEN), "encode history");
+
+    /* Two frames inside the same delivery packet id (sf_feed stamps every one 0x5F00), which is
+       exactly the number that must not end up on either message. */
+    meshtastic_StoreAndForward named = sf_text_id("named", true, 0x9001U);
+    meshtastic_StoreAndForward anonymous = sf_text("anonymous", true);
+    MESH_TEST_FAIL_IF(!sf_feed(&session, &named, SF_TALKER, 1U, SF_WHEN) ||
+                          !sf_feed(&session, &anonymous, SF_TALKER, 1U, SF_WHEN),
+                      "encode replayed texts failed");
+
+    const struct mesh_message_log *log = mesh_session_messages(&session);
+    MESH_TEST_FAIL_IF(log->count != 2U, "both replayed messages should be in the log");
+
+    const struct mesh_message *named_entry = mesh_message_log_at(log, 0U);
+    MESH_TEST_FAIL_IF(named_entry->packet_id != 0x9001U,
+                      "a replayed message should be identified by original_id");
+
+    /* A router old enough not to fill the field leaves the entry where it has always been: with
+       no id at all, rather than with the delivery's. */
+    const struct mesh_message *anonymous_entry = mesh_message_log_at(log, 1U);
+    MESH_TEST_FAIL_IF(anonymous_entry->packet_id != 0U,
+                      "a replay that names nothing should carry no id");
+    MESH_TEST_FAIL_IF(named_entry->packet_id == 0x5F00U || anonymous_entry->packet_id == 0x5F00U,
+                      "the router's delivery id must never reach a replayed message");
+
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(store_forward_replay_tells_two_identical_messages_apart, unit) {
+    struct mesh_session session;
+    struct mesh_test_trace_capture capture;
+    sf_open_session(&session, &capture);
+
+    /*
+     * Somebody said the same short thing twice, which is the case content-matching alone cannot
+     * call: both copies read "ok" from the same sender on the same channel. `original_id` is what
+     * tells them apart, so the second one survives the replay instead of being swallowed as a
+     * duplicate of the first.
+     */
+    const char *said = "ok";
+    meshtastic_FromRadio live = meshtastic_FromRadio_init_default;
+    live.which_payload_variant = meshtastic_FromRadio_packet_tag;
+    live.packet.from = SF_TALKER;
+    live.packet.to = MESH_MESSAGE_BROADCAST_ADDR;
+    live.packet.id = 0x9001U;
+    live.packet.channel = 1U;
+    live.packet.has_rx_time = true;
+    live.packet.rx_time = SF_WHEN - 600U;
+    live.packet.which_payload_variant = meshtastic_MeshPacket_decoded_tag;
+    live.packet.decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
+    memcpy(live.packet.decoded.payload.bytes, said, strlen(said));
+    live.packet.decoded.payload.size = (pb_size_t)strlen(said);
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &live), "encode live failed");
+    MESH_TEST_FAIL_IF(mesh_session_messages(&session)->count != 1U, "the live message is missing");
+
+    meshtastic_StoreAndForward history = sf_history(2U, 0U);
+    MESH_TEST_FAIL_IF(!sf_feed(&session, &history, SF_ROUTER, 0U, SF_WHEN), "encode history");
+
+    /* The copy of what we already have, named by the same id the live one carries. */
+    meshtastic_StoreAndForward again = sf_text_id(said, true, 0x9001U);
+    /* And the one we missed - same words, same sender, same channel, different message. */
+    meshtastic_StoreAndForward other = sf_text_id(said, true, 0x9002U);
+    MESH_TEST_FAIL_IF(!sf_feed(&session, &again, SF_TALKER, 1U, SF_WHEN) ||
+                          !sf_feed(&session, &other, SF_TALKER, 1U, SF_WHEN),
+                      "encode replayed texts failed");
+
+    const struct mesh_message_log *log = mesh_session_messages(&session);
+    MESH_TEST_FAIL_IF(log->count != 2U,
+                      "the second 'ok' is a different message and should have been kept");
+    MESH_TEST_FAIL_IF(mesh_message_log_at(log, 0U)->packet_id != 0x9001U ||
+                          mesh_message_log_at(log, 1U)->packet_id != 0x9002U,
+                      "the log should hold both ids, in the order they were said");
+
+    const struct mesh_store_forward *state = mesh_session_store_forward(&session);
     MESH_TEST_FAIL_IF(state->received != 2U || state->stored != 1U,
                       "the replay should count what arrived and what was new separately");
 

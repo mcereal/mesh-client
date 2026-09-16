@@ -307,11 +307,14 @@ only a consequence of one of them, and neither is a thing a test could pin.
   when it landed; copying it would date the whole window at the minute it was fetched and defeat
   `mesh_message_log_holds_replay()`. The SNR, hop count and padlock are left off because they
   measure the router's link, not the sender's. `store_forward_replay`.
-- **A replayed message has a packet id, and it is not its own.** The router wraps the message in
-  a packet of its own, so that id names the *delivery*, and the replayed entry's `packet_id` is
-  left at 0 rather than at a number that would look like a correlation handle. Matching on content
-  instead is what stops one press putting a second copy of the last four hours under the first.
-  `store_forward_replay_skips_what_we_already_had`.
+- **A replayed message takes its id from `original_id`, never from the packet carrying it.** The
+  router wraps the message in a packet of its own, so *that* id names the delivery and two routers
+  replaying one message would give it two of them. `StoreAndForward.original_id` names the message
+  instead, which is the number the live copy already has, so it is kept and the de-duplication uses
+  it. Firmware that leaves it 0 falls back to matching on content, which is what stops one press
+  putting a second copy of the last four hours under the first.
+  `store_forward_replay_skips_what_we_already_had`,
+  `store_forward_replay_tells_two_identical_messages_apart`.
 - **A replay counts twice, and the two numbers are different facts.** A router hands back its
   whole window, mostly traffic heard live - so `received` is the router's work and `stored` is the
   user's gain. `store_forward_rows_say_what_the_request_did`.

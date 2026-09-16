@@ -89,6 +89,22 @@ struct mesh_message {
      */
     uint32_t reply_id;
     bool is_reaction;
+    /*
+     * Handed back by a Store & Forward router rather than heard live, so it is old news however
+     * new the entry is.
+     *
+     * The transcript wants it and a notice does not: a history request is the user asking for
+     * what they missed, and answering with a burst of toasts about conversations from four hours
+     * ago is the client shouting the answer back. mesh_app_report_direct_messages() skips these
+     * for that reason, and radio_request_history() promises it.
+     *
+     * A flag rather than a reading of the other fields, because none of them is that fact. A
+     * replay carries no date, no SNR and no hop count - but so does a live message on a Brick
+     * whose radio has no clock and whose firmware left the metadata out, and announcing that one
+     * is the whole job. `packet_id` used to stand in for this by being 0, which was never what it
+     * meant; it now holds StoreAndForward.original_id and says nothing about how the copy arrived.
+     */
+    bool replayed;
     /* Sanitised text: control bytes are folded to spaces or '?' by mesh_message_ingest, so
        backends can draw this straight into a framebuffer without re-checking it. */
     char text[MESH_MESSAGE_TEXT_MAX + 1U];
@@ -142,16 +158,19 @@ struct mesh_message *mesh_message_log_find(struct mesh_message_log *log, uint32_
  * Whether the log already holds `replayed` - a message a Store & Forward router has handed back
  * that we may well have heard live the first time.
  *
- * Not a packet-id lookup, and it cannot be one: the router replays a message inside a packet of
- * its own, so the id on the copy is the delivery's rather than the message's, and the original
- * we are holding has a different one. What is the same is what was said: the sender, the
- * channel, the text, and - when both copies carry one - the moment the radio stamped it.
+ * Not a packet-id lookup, though it does use one when there is one to use. The router replays a
+ * message inside a packet of its own, so the id on *that* is the delivery's rather than the
+ * message's - but `StoreAndForward.original_id` carries the message's own, and a router that
+ * fills it hands back the same number the live copy already has. What is otherwise the same is
+ * what was said: the sender, the channel, the text, and - when both copies carry one - the
+ * moment the radio stamped it.
  *
- * The rx_time comparison is skipped when either side reads 0 rather than treated as a mismatch.
- * A Brick's radio very often has no clock, so both copies of everything it heard are stamped 0,
- * and requiring the stamps to agree would be requiring them to be absent together - while
- * treating an absent stamp as a difference would put a second copy of every message on the
- * screen, which is the failure this exists to prevent.
+ * The packet-id and rx_time comparisons are both skipped when either side reads 0 rather than
+ * treated as a mismatch, and for the same reason. A Brick's radio very often has no clock, so
+ * both copies of everything it heard are stamped 0, and firmware older than `original_id` leaves
+ * every replay's id at 0 too: requiring either to agree would be requiring them to be absent
+ * together - while treating an absent one as a difference would put a second copy of every
+ * message on the screen, which is the failure this exists to prevent.
  */
 bool mesh_message_log_holds_replay(const struct mesh_message_log *log,
                                    const struct mesh_message *replayed);
