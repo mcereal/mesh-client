@@ -619,6 +619,82 @@ MESH_TEST_CASE(key_trust_session_reads_the_radio_asking, unit) {
     record_success(test_name);
 }
 
+/*
+ * A question the user has answered stops being something the client reports.
+ *
+ * The three key-verification notifications are the radio asking its own user something, and the
+ * firmware raises all of them at WARNING - which is the level the Status screen's Radio card
+ * takes its whole tone from. Left standing, a ceremony that ended in a yes painted that card in
+ * the warning tone for the rest of the connection, with "Final confirmation for outgoing manual
+ * key verification" under it: the client reporting a fault where it had been asked a question
+ * and had answered it. What must not follow is the other mistake - a settle that wipes whatever
+ * the radio happened to have said last - so both halves are here.
+ */
+MESH_TEST_CASE(key_trust_session_retires_an_answered_question, unit) {
+    struct mesh_session session;
+    unsigned sends = 0U;
+    key_trust_seed(&session, &sends, false);
+
+    MESH_TEST_FAIL_IF(mesh_session_verify_key_begin(&session, 0x2001U) <= 0,
+                      "the ceremony would not start against a node with a key");
+
+    meshtastic_FromRadio note = meshtastic_FromRadio_init_default;
+    note.which_payload_variant = meshtastic_FromRadio_clientNotification_tag;
+    note.clientNotification.level = meshtastic_LogRecord_Level_WARNING;
+    snprintf(note.clientNotification.message, sizeof note.clientNotification.message,
+             "Final confirmation for outgoing manual key verification");
+    note.clientNotification.which_payload_variant =
+        meshtastic_ClientNotification_key_verification_final_tag;
+    note.clientNotification.payload_variant.key_verification_final.nonce = 0x77U;
+    snprintf(note.clientNotification.payload_variant.key_verification_final.remote_longname,
+             sizeof note.clientNotification.payload_variant.key_verification_final.remote_longname,
+             "Pine Ridge");
+    snprintf(note.clientNotification.payload_variant.key_verification_final.verification_characters,
+             sizeof note.clientNotification.payload_variant.key_verification_final
+                 .verification_characters,
+             "A7K2");
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &note),
+                      "encode the notification failed");
+
+    /* Up until it is answered it is the words on the Radio card, exactly as before. */
+    const struct mesh_client_notification *notice = mesh_session_notification(&session);
+    MESH_TEST_FAIL_IF(notice->text[0] == '\0' || !notice->ceremony,
+                      "the radio's question did not reach the Status card as a ceremony");
+    const uint32_t asked = notice->seq;
+
+    MESH_TEST_FAIL_IF(mesh_session_verify_key_settle(&session, true) < 0, "a yes was not accepted");
+    notice = mesh_session_notification(&session);
+    MESH_TEST_FAIL_IF(notice->text[0] != '\0',
+                      "an answered ceremony left its question on the Radio card");
+    MESH_TEST_FAIL_IF(notice->ceremony, "the retired notification still claims to be a ceremony");
+    /* The running count is how many things this radio has said, and answering one of them has
+       not un-said it - it is also what the toast path compares against. */
+    MESH_TEST_FAIL_IF(notice->seq != asked,
+                      "retiring the question wound the notification count back");
+
+    /* The other half: a settle takes down the ceremony's own words and nothing else. The first
+       ceremony's steps are still queued, so the admin session is cleared the way a radio that
+       had answered them would have left it - see the refusal case above. */
+    mesh_radio_settings_reset_session(&session.settings);
+    MESH_TEST_FAIL_IF(mesh_session_verify_key_begin(&session, 0x2001U) <= 0,
+                      "a second ceremony would not start");
+    meshtastic_FromRadio plain = meshtastic_FromRadio_init_default;
+    plain.which_payload_variant = meshtastic_FromRadio_clientNotification_tag;
+    plain.clientNotification.level = meshtastic_LogRecord_Level_WARNING;
+    snprintf(plain.clientNotification.message, sizeof plain.clientNotification.message,
+             "Low entropy key detected");
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &plain),
+                      "encode the plain notification failed");
+    (void)mesh_key_verification_on_final(&session.verification, 0x78U, "Pine Ridge", "A7K2",
+                                         VERIFY_NOW);
+    MESH_TEST_FAIL_IF(mesh_session_verify_key_settle(&session, true) < 0,
+                      "the second yes was not accepted");
+    notice = mesh_session_notification(&session);
+    MESH_TEST_FAIL_IF(notice->text[0] == '\0',
+                      "a settle took down something the radio said that was not the ceremony");
+    record_success(test_name);
+}
+
 /* ---- the sheet ------------------------------------------------------------------------------ */
 
 /*

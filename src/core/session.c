@@ -1176,6 +1176,10 @@ static void mesh_session_handle_client_notification(struct mesh_session *session
      * and are already fully said by that text, which is why they are not arms here.
      */
     const uint32_t now = out->received;
+    /* Assumed one of the ceremony's, and taken back by the default arm: the three that are the
+       ceremony are exactly the three the switch has arms for, and a second list of them written
+       out beside it is the pair that drifts. */
+    out->ceremony = true;
     switch (note->which_payload_variant) {
     case meshtastic_ClientNotification_key_verification_number_request_tag:
         (void)mesh_key_verification_on_number_request(
@@ -1193,8 +1197,20 @@ static void mesh_session_handle_client_notification(struct mesh_session *session
             &session->verification, note->payload_variant.key_verification_final.nonce,
             note->payload_variant.key_verification_final.remote_longname,
             note->payload_variant.key_verification_final.verification_characters, now);
+        /*
+         * The characters as they will be drawn, because they are the whole of what the
+         * comparison sheet shows and the one field of the ceremony that reaches the log no
+         * other way - the firmware's sentence beside them does not carry them. An empty pair of
+         * quotes here is the difference between "the sheet never came up" and "it came up with
+         * nothing on it to compare", which is not a question a screenshot taken afterwards can
+         * answer.
+         */
+        mesh_log_info("verify", "Final for exchange %llu with \"%s\": characters \"%s\"",
+                      (unsigned long long)note->payload_variant.key_verification_final.nonce,
+                      session->verification.remote_name, session->verification.characters);
         break;
     default:
+        out->ceremony = false;
         break;
     }
     /*
@@ -2506,12 +2522,34 @@ int mesh_session_verify_key_number(struct mesh_session *session, uint32_t number
     return queued;
 }
 
+/*
+ * The ceremony's last words, taken down with the ceremony.
+ *
+ * A key-verification ClientNotification is a question (see struct mesh_client_notification), and
+ * an answered question is not something to keep reporting - least of all at the WARNING level
+ * the firmware raises all three at, which is what the Status screen's Radio card reads its tone
+ * from. Every way an exchange can end comes through here: a yes, a no, a stand-down, a timeout.
+ *
+ * The text goes and `seq` stays. The count is the honest answer to "how many things has this
+ * radio said on this connection", and a ceremony being over has not un-said them; it is also
+ * what the toast path compares against, and winding it back would re-announce the next one.
+ */
+static void mesh_session_retire_ceremony_notice(struct mesh_session *session) {
+    if (!session->notification.ceremony) {
+        return;
+    }
+    session->notification.ceremony = false;
+    session->notification.level = 0U;
+    session->notification.text[0] = '\0';
+}
+
 int mesh_session_verify_key_settle(struct mesh_session *session, bool verified) {
     if (session == NULL || !mesh_key_verification_active(&session->verification)) {
         return -EINVAL;
     }
     struct mesh_key_verification done;
     (void)mesh_key_verification_settle(&session->verification, &done);
+    mesh_session_retire_ceremony_notice(session);
     /*
      * The exchange is over here whatever the radio makes of the step, and the step is sent
      * afterwards rather than before. A no that could not be queued - no link, a full queue -
@@ -2580,6 +2618,7 @@ bool mesh_session_verify_key_tick(struct mesh_session *session, struct mesh_key_
     if (!mesh_key_verification_tick(&session->verification, mesh_session_wall_clock(), &expired)) {
         return false;
     }
+    mesh_session_retire_ceremony_notice(session);
     /*
      * Tell the radio too, and do not care whether it hears. Our end has given up; the firmware
      * keeps a half-finished exchange of its own, and a DO_NOT_VERIFY is how it is told to drop

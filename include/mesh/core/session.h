@@ -74,6 +74,19 @@ struct mesh_client_notification {
     bool has_reply_id;
     uint32_t reply_id; /* the packet it is about, when it is about one */
     uint8_t level;     /* meshtastic_LogRecord_Level */
+    /*
+     * This one was the radio's half of the key-verification ceremony rather than a report about
+     * the radio (mesh/core/key_verification.h). The words are a report either way - the firmware
+     * writes a readable sentence for each step - but a step is a *question*, and a question
+     * stops being worth showing the moment it is answered.
+     *
+     * The firmware raises all three of them at WARNING, and the Status screen's Radio card takes
+     * its whole tone from the newest notification's level. So a slot left standing after a
+     * ceremony headed that card in the warning tone for the rest of the connection, over a
+     * verification that had just succeeded - the client reporting a fault where it had been
+     * asked a question and got an answer. mesh_session_verify_key_settle() takes it down.
+     */
+    bool ceremony;
     char text[MESH_CLIENT_NOTIFICATION_TEXT_MAX];
 };
 
