@@ -493,6 +493,21 @@ struct mesh_handshake_status {
 typedef int (*mesh_session_send_fn)(void *ctx, const uint8_t *packet, size_t len,
                                     uint32_t packet_id);
 
+/*
+ * One MQTT message the radio wants published on its behalf.
+ *
+ * The radio built the topic itself and it is passed through untouched: a client proxy is a
+ * relay, not a second opinion about where a mesh lives. `topic` is NUL-terminated, `payload` is
+ * not, and both are only valid for the duration of the call - they point into the FromRadio
+ * currently being decoded.
+ *
+ * Called from the link's read path, which is the event loop. A handler that cannot take the
+ * message now must drop it rather than block: the alternative is a queue of mesh traffic to
+ * replay at a broker minutes later, which mesh/core/mqtt_proxy.h declines for the same reason.
+ */
+typedef void (*mesh_session_mqtt_fn)(void *ctx, const char *topic, const uint8_t *payload,
+                                     size_t len, bool retained);
+
 struct mesh_session {
     struct mesh_handshake_status handshake;
     /* Describes the radio that is connected right now; cleared with the handshake. */
@@ -533,6 +548,14 @@ struct mesh_session {
     uint32_t reboot_notices;
     mesh_session_send_fn send;
     void *send_ctx;
+    /* Where a MqttClientProxyMessage goes. NULL - the default - means this client is not
+       proxying, and the variant is counted and dropped rather than decoded. */
+    mesh_session_mqtt_fn mqtt;
+    void *mqtt_ctx;
+    /* MqttClientProxyMessages the radio offered with nowhere to put them. Not an error: a radio
+       with proxying on and a client that is not proxying is an ordinary configuration, and this
+       is what lets a status row say so instead of the screen simply staying empty. */
+    uint32_t mqtt_unhandled;
     uint32_t next_config_request_id;
     uint32_t next_packet_id;
     /* Counts config syncs, so a node the current NodeDB replay carried can be told from one
@@ -593,6 +616,56 @@ void mesh_session_seed_node(struct mesh_session *session, const struct mesh_node
    message log. Admin replies never reach the message log. */
 void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t *payload,
                                     size_t len);
+
+/* ------------------------------------------------------------------ the MQTT client proxy */
+
+/*
+ * Installs the handler for MqttClientProxyMessage, or clears it with NULL.
+ *
+ * Kept apart from mesh_session_attach() because it has a different lifetime: the send path
+ * belongs to whichever link is up and is dropped when it goes, while proxying is a setting that
+ * outlives any one connection. Safe to call before or after attaching.
+ */
+void mesh_session_set_mqtt_handler(struct mesh_session *session, mesh_session_mqtt_fn handler,
+                                   void *ctx);
+
+/*
+ * Hands the radio one message that arrived from the broker, as ToRadio.mqttClientProxyMessage.
+ *
+ * Always the `data` variant. The firmware accepts `text` as well and treats it as bytes up to
+ * the first NUL, which for the protobuf envelopes that actually travel here would truncate at
+ * the first zero byte in a payload that is full of them.
+ *
+ * Returns 0, -ENOTCONN with no link or before the config sync has finished, -EINVAL for a NULL
+ * or empty topic or for a NULL payload with a non-zero length, or -EMSGSIZE for a topic or
+ * payload past what the protobuf will hold. A NULL payload with a length of 0 is an empty
+ * message, which is legal.
+ *
+ * The handshake gate is the firmware's, mirrored rather than guessed: PhoneAPI drops this
+ * variant outright while `state != STATE_SEND_PACKETS`, so sending during the sync would spend
+ * a radio round trip to have the message discarded in silence.
+ */
+int mesh_session_send_mqtt_proxy(struct mesh_session *session, const char *topic,
+                                 const uint8_t *payload, size_t len);
+
+/*
+ * Derives the topic filters this radio's configuration says to subscribe to, one at a time.
+ *
+ * Writes the `index`-th filter into `out` and returns its length; **0 means there is no such
+ * filter**, which is how a caller knows it has them all. Negative is an errno: -EINVAL for bad
+ * arguments, -ENOSPC for a buffer too small to hold the filter at that index.
+ *
+ * The set is one `<root>/2/e/<channel>/+` per downlink-enabled channel in slot order, then a
+ * single `<root>/2/e/PKI/+` if any channel has downlink at all - which is what the firmware's
+ * own MQTT::sendSubscriptions() would have sent had the radio been holding the connection
+ * itself. A radio with downlink on no channel yields nothing, and that is an answer rather than
+ * a failure: it is a radio that wants to publish and not to receive.
+ *
+ * An index rather than an array because the two ends disagree about how wide a filter buffer
+ * is and neither should have to know: this fills whatever it is given, and stops at -ENOSPC.
+ */
+int mesh_session_mqtt_filter(const struct mesh_session *session, size_t index, char *out,
+                             size_t cap);
 
 /* Drives the admin request queue: once the handshake completes, probes metadata and owner,
    then sends whatever is queued one request at a time. Call every loop turn while attached. */

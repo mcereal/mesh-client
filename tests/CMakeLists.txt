@@ -48,6 +48,8 @@ set(MESHCLIENT_TEST_SUITES
     suites/message.c
     suites/mqtt_packet.c
     suites/mqtt_proxy.c
+    suites/mqtt_session.c
+    suites/mqtt_topic.c
     suites/radio_settings.c
     suites/resolve.c
     suites/session.c

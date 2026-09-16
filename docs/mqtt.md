@@ -9,9 +9,9 @@ The radio stays the origin. This client is only the box with a route to the inte
 Brick is the whole point: the radio has LoRa and Bluetooth and no WiFi worth the name, and the
 handheld it is paired with has WiFi.
 
-**This page describes the connection.** What goes over it — which topics, and how a
-`MqttClientProxyMessage` becomes a publish — is not wired up yet; `src/core/session.c` does not
-mention MQTT, and the "proxy via client" toggle in settings is still read-only.
+**The connection and the protocol are both here.** What is still missing is the last wire:
+nothing constructs a proxy or hands it to a session yet, and the "proxy via client" toggle in
+settings is still read-only.
 
 ## The pieces
 
@@ -20,11 +20,75 @@ mention MQTT, and the "proxy via client" toggle in settings is still read-only.
 | `src/proto/mqtt_packet.c` | the MQTT 3.1.1 wire format, and nothing else |
 | `src/core/mqtt_proxy.c` | one broker connection: resolve, connect, subscribe, publish, keepalive, backoff |
 | `src/core/tls_client.c` | Mbed TLS over a non-blocking descriptor |
+| `src/proto/mqtt_topic.c` | where a mesh lives on a broker, matched to the firmware |
+| `src/core/session.c` | the two hooks: the radio's message out, the broker's message back |
 | `third_party/mbedtls-config/mesh_mbedtls_config.h` | what this build of Mbed TLS is and is not |
 
 The codec/client split is the same one `stream_framing.c` and `stream_link.c` already have: the
 format is a pure function over bytes, testable against hand-written packets with no broker in
 sight, and the client is the state machine that owns a socket.
+
+## Publishing is a relay; subscribing is not
+
+The two directions are not symmetric, and the asymmetry is the reason `src/proto/mqtt_topic.c`
+exists at all.
+
+**Outbound, the radio has already decided everything.** `MqttClientProxyMessage` carries the
+topic the radio built, the payload it encoded and the retain flag it wants, and this client
+copies all three onto the broker without reading any of them. That is the whole contract: the
+client is a route to the internet, not a second opinion about what should be on it. A payload
+here is a `ServiceEnvelope` that may well be encrypted with a key this client does not hold.
+
+**Inbound, there is no message to follow.** The firmware's `MQTT::sendSubscriptions()` is
+wrapped entirely in `#if HAS_NETWORKING`, so a radio proxying through a client never subscribes
+to anything and never says what it *would* have subscribed to. The client has to derive the
+topics itself, from the same configuration the radio used.
+
+That makes topic derivation a compatibility surface rather than a design. Every string has to
+match what the firmware would have produced, character for character:
+
+```
+<root>/2/e/<channel>/+        one per downlink-enabled channel
+<root>/2/e/PKI/+              once, if any channel downlinks at all
+```
+
+`<root>` is `MQTTConfig.root` or `msh`. `<channel>` is the channel's name, or — for the unnamed
+default primary, which is most of them — the name of the modem preset. `+` rather than `#`
+because the one level left open is the gateway node id, which is what the firmware asks for.
+
+The failure mode if any of this is wrong is the reason it is pinned by tests: a filter that is
+merely *sensible* subscribes to a topic nobody publishes on, and the mesh publishes fine and
+receives nothing. Nothing logs an error, because as far as MQTT is concerned everything worked.
+
+### Two names that look like typos and are not
+
+`mesh_mqtt_preset_name()` reproduces `DisplayFormatters::getModemPresetDisplayName()`, including
+the two entries somebody will eventually try to correct:
+
+- **`LONG_MODERATE` is `LongMod`**, while every other long name is spelled out.
+- **`VERY_LONG_SLOW` has no case in the firmware's switch**, so it falls through to the default
+  and comes out as **`Invalid`**. A radio still on that preset — deprecated in 2.5 — genuinely
+  publishes to `.../2/e/Invalid/...`.
+
+A radio that is not using a preset at all (`use_preset` false, bandwidth set by hand) is
+`Custom`, which the firmware decides before it looks at the preset field.
+
+The same rule covers the root topic, which is concatenated and **not normalised**: the firmware
+writes `moduleConfig.mqtt.root + "/2/e/"` with no slash handling, so a radio configured with
+`msh/` publishes to `msh//2/e/...`. Tidying that up here would subscribe to a topic this radio
+is not using.
+
+### Two gates worth knowing about
+
+`mesh_session_send_mqtt_proxy()` refuses before the config sync finishes. That is the firmware's
+own rule mirrored rather than guessed: `PhoneAPI` drops the variant outright while it is still
+handshaking, so sending earlier spends a round trip to have the message discarded in silence.
+
+It also refuses a payload over 435 bytes, which is what `MqttClientProxyMessage.data` holds. A
+broker can send more, and an encrypted envelope cannot be truncated — half of one decodes to
+nothing — so an oversized message is dropped whole and counted. This is the same bound the
+[skip](#an-oversized-message-is-skipped-not-buffered) above exists to survive, seen from the
+other end.
 
 ## 3.1.1, QoS 0, clean session
 
