@@ -63,9 +63,20 @@ The core is Linux-only (`epoll`/`timerfd`/`eventfd`). On a Linux host:
 ```bash
 git submodule update --init --recursive   # nanopb, Meshtastic protobufs
 make setup                                # libdbus-1-dev + the Python protobuf packages
-make debug                                # needs CMake >= 3.18 and a C17 toolchain
+make debug                                # needs CMake >= 3.21, Ninja and a C17 toolchain
 make test
 ```
+
+The build types are `CMakePresets.json`, so an editor that reads presets - VS Code's CMake
+Tools, CLion, anything driving `cmake --preset` - configures exactly what `make debug` does:
+
+```bash
+cmake --preset debug && cmake --build build/debug
+ctest --preset debug
+```
+
+Either route writes `build/debug/compile_commands.json`, which is what `.clangd` points at, so
+clangd indexes the tree after the build you were going to run anyway.
 
 On macOS, or any host with Docker, use the container targets — they bind-mount the repo and build
 into `build/linux/`:

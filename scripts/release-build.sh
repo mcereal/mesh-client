@@ -73,7 +73,11 @@ PLATFORM="${PLATFORM:-tg5040}"
 CC_BIN="${CROSS_COMPILE:-}gcc"
 CXX_BIN="${CROSS_COMPILE:-}g++"
 
-cmake -S . -B build/release \
+# shellcheck source=scripts/cmake-tree.sh
+source "$(dirname "${BASH_SOURCE[0]}")/cmake-tree.sh"
+mesh_reset_stale_tree build/release
+
+cmake -S . -B build/release -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_C_COMPILER="${CC_BIN}" \
     -DCMAKE_CXX_COMPILER="${CXX_BIN}" \

@@ -63,8 +63,12 @@ if ! command -v "${CC}" >/dev/null 2>&1; then
     exit 1
 fi
 
+# shellcheck source=scripts/cmake-tree.sh
+source "$(dirname "${BASH_SOURCE[0]}")/cmake-tree.sh"
+mesh_reset_stale_tree "${BUILD_DIR}"
+
 # ASan alongside, because a fuzzer without one reports only the crashes bad enough to fault.
-CC="${CC}" cmake -S . -B "${BUILD_DIR}" \
+CC="${CC}" cmake -S . -B "${BUILD_DIR}" -G Ninja \
     -DCMAKE_BUILD_TYPE=Debug \
     -DMESHCLIENT_ENABLE_FUZZERS=ON \
     -DMESHCLIENT_ENABLE_ASAN=ON \

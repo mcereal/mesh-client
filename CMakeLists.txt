@@ -1,3 +1,7 @@
+# 3.18 is what this file needs; the *workflow* wants 3.21, which is where CMakePresets.json
+# version 3 lands. Deliberately not raised to match: presets are a command-line feature, and
+# nothing here is written against a policy newer than this. A too-old cmake is turned away by
+# the presets file itself, which says so by name.
 cmake_minimum_required(VERSION 3.18)
 project(meshclient VERSION 2.70.0 LANGUAGES C)
 
@@ -9,7 +13,18 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 option(MESHCLIENT_ENABLE_ASAN "Enable AddressSanitizer for debugging" OFF)
 option(MESHCLIENT_ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer for debugging" OFF)
 
-list(APPEND MESHCLIENT_COMPILE_OPTIONS
+# Every target here - the core, the client, the tests, the devtools, the fuzz harnesses -
+# compiles under the same warnings and links under the same sanitizers. Carrying that as a
+# target rather than as a pair of variables is what keeps the two halves of a sanitizer
+# together: -fsanitize=address has to reach the compile *and* the link, and a variable holding
+# one of them can be applied to a new target without the other. An INTERFACE library cannot be
+# half-applied, and an empty one contributes nothing - which is also what retires the
+# `if(MESHCLIENT_LINK_OPTIONS)` guard that used to precede every target_link_options() call.
+#
+# Always linked PRIVATE: this is how this project compiles, not something a consumer inherits.
+add_library(meshclient_options INTERFACE)
+
+target_compile_options(meshclient_options INTERFACE
     -Wall
     -Wextra
     -Wpedantic
@@ -22,8 +37,8 @@ list(APPEND MESHCLIENT_COMPILE_OPTIONS
 )
 
 if(MESHCLIENT_ENABLE_ASAN)
-    list(APPEND MESHCLIENT_COMPILE_OPTIONS -fsanitize=address)
-    list(APPEND MESHCLIENT_LINK_OPTIONS -fsanitize=address)
+    target_compile_options(meshclient_options INTERFACE -fsanitize=address)
+    target_link_options(meshclient_options INTERFACE -fsanitize=address)
 endif()
 
 # The harnesses in devtools/fuzz/ need two halves of libFuzzer, and this is the half that goes
@@ -37,15 +52,16 @@ if(MESHCLIENT_ENABLE_FUZZERS)
         message(FATAL_ERROR
                 "MESHCLIENT_ENABLE_FUZZERS needs clang for libFuzzer; configure with CC=clang.")
     endif()
-    list(APPEND MESHCLIENT_COMPILE_OPTIONS -fsanitize=fuzzer-no-link)
+    target_compile_options(meshclient_options INTERFACE -fsanitize=fuzzer-no-link)
 endif()
 
 # -fno-sanitize-recover because UBSan otherwise prints a diagnostic and carries on, so the
 # test that found the undefined behaviour still passes and CI still goes green. A check nobody
 # fails is a check nobody reads.
 if(MESHCLIENT_ENABLE_UBSAN)
-    list(APPEND MESHCLIENT_COMPILE_OPTIONS -fsanitize=undefined -fno-sanitize-recover=undefined)
-    list(APPEND MESHCLIENT_LINK_OPTIONS -fsanitize=undefined)
+    target_compile_options(meshclient_options INTERFACE
+                           -fsanitize=undefined -fno-sanitize-recover=undefined)
+    target_link_options(meshclient_options INTERFACE -fsanitize=undefined)
 endif()
 
 add_library(meshclient_core
@@ -216,10 +232,7 @@ else()
         MESHCLIENT_VERSION="${MESHCLIENT_VERSION_FULL}-dev")
 endif()
 
-target_compile_options(meshclient_core PRIVATE ${MESHCLIENT_COMPILE_OPTIONS})
-if(MESHCLIENT_LINK_OPTIONS)
-    target_link_options(meshclient_core PRIVATE ${MESHCLIENT_LINK_OPTIONS})
-endif()
+target_link_libraries(meshclient_core PRIVATE meshclient_options)
 
 # Wuffs, for the map's PNG decoder. See third_party/wuffs/README.md for what it is and why it is
 # a vendored file rather than a submodule; src/map/wuffs_png.h is what keeps the thirty codecs
@@ -275,7 +288,7 @@ target_link_libraries(meshclient_core
 
 add_executable(meshclient src/main.c)
 
-target_link_libraries(meshclient PRIVATE meshclient_core)
+target_link_libraries(meshclient PRIVATE meshclient_core meshclient_options)
 
 set(nanopb_BUILD_GENERATOR OFF CACHE BOOL "Disable nanopb generator build" FORCE)
 set(nanopb_BUILD_RUNTIME ON CACHE BOOL "Enable nanopb runtime" FORCE)
@@ -360,11 +373,6 @@ add_custom_target(nanopb_codegen DEPENDS ${NANOPB_GENERATED_SOURCES} ${NANOPB_GE
 add_dependencies(meshclient_core nanopb_codegen)
 target_sources(meshclient_core PRIVATE ${NANOPB_GENERATED_SOURCES})
 target_include_directories(meshclient_core PUBLIC ${NANOPB_GENERATED_DIR})
-
-target_compile_options(meshclient PRIVATE ${MESHCLIENT_COMPILE_OPTIONS})
-if(MESHCLIENT_LINK_OPTIONS)
-    target_link_options(meshclient PRIVATE ${MESHCLIENT_LINK_OPTIONS})
-endif()
 
 # Host-only development tools (devtools/README.md): they render the UI off-screen so a change
 # can be looked at without a Brick. Nothing in the pak needs them, and the cross build cannot

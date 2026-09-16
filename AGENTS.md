@@ -23,6 +23,9 @@ under `docs/`. Tests are split across `tests/suites/<area>.c` over a small frame
 - `make release` / `make package` — optimized binary, then `dist/MeshClient.pak.zip`. Inspect the
   zip before publishing.
 - `make proto` — regenerate nanopb sources after editing `proto/meshtastic/meshtastic/`.
+- `cmake --preset debug` — the same configure `make debug` runs, for an editor or a bare
+  shell; `CMakePresets.json` holds the generator (Ninja), the build type and
+  `CMAKE_EXPORT_COMPILE_COMMANDS`, so every route agrees.
 - `cmake --build build/debug --target meshclient` — rebuild a single target after edits.
 - `make format` — clang-format the tree. See the note below.
 - `make ui-capture ARGS="<scene> -o out.gif"` — render a UI scene off-screen, no device needed

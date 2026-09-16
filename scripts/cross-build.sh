@@ -21,7 +21,11 @@ DBUS_CFLAGS="-I${CROSS_DBUS_PREFIX}/include/dbus-1.0 -I${CROSS_DBUS_PREFIX}/lib/
 # build whose reports have no backtrace in them, while every debug and test build produced a
 # full one. The PC alone still resolves to a line, so this buys the call chain rather than the
 # crash site; at well under one percent of the binary that is the right way round.
-cmake -S . -B "$BUILD_DIR" \
+# shellcheck source=scripts/cmake-tree.sh
+source "$(dirname "${BASH_SOURCE[0]}")/cmake-tree.sh"
+mesh_reset_stale_tree "$BUILD_DIR"
+
+cmake -S . -B "$BUILD_DIR" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_C_COMPILER="${CROSS_COMPILE}gcc" \
     -DCMAKE_SYSTEM_NAME=Linux \
