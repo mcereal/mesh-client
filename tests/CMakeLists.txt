@@ -46,6 +46,8 @@ set(MESHCLIENT_TEST_SUITES
     suites/tile_cache.c
     suites/tile_image.c
     suites/message.c
+    suites/mqtt_packet.c
+    suites/mqtt_proxy.c
     suites/radio_settings.c
     suites/resolve.c
     suites/session.c

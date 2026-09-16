@@ -2451,6 +2451,48 @@ MESH_STR_ENTRY(LINK_TCP_UNREACHABLE,      "%.24s: %.20s")
 MESH_STR_ENTRY(LINK_TCP_TIMEOUT,          "%.32s did not answer")
 MESH_STR_ENTRY(LINK_TCP_NO_ANSWER,        "%.24s: the radio did not answer")
 
+/*
+ * The MQTT client proxy: this client holding a broker connection on behalf of a radio that has
+ * no route to the internet of its own. Every one of these names the *broker*, never the radio -
+ * the radio is fine, and saying so is the difference between a user checking their WiFi and a
+ * user power-cycling a node that was never at fault.
+ *
+ * The refusals are kept apart rather than collapsed into "the broker said no" because they are
+ * three different things to do next: a wrong password is a setting, a client that is not
+ * permitted is an account, and a broker that is unavailable is somebody else's outage.
+ */
+MESH_STR_ENTRY(LINK_MQTT_BAD_ADDRESS,     "%.32s is not a broker address")
+MESH_STR_ENTRY(LINK_MQTT_UNKNOWN_HOST,    "%.24s: no such host")
+MESH_STR_ENTRY(LINK_MQTT_LOOKUP_FAILED,   "%.24s: could not look up the name")
+MESH_STR_ENTRY(LINK_MQTT_UNREACHABLE,     "%.24s: %.20s")
+MESH_STR_ENTRY(LINK_MQTT_TIMEOUT,         "%.32s did not answer")
+MESH_STR_ENTRY(LINK_MQTT_DROPPED,         "%.32s closed the connection")
+MESH_STR_ENTRY(LINK_MQTT_PROTOCOL,        "%.32s is not speaking MQTT")
+MESH_STR_ENTRY(LINK_MQTT_BAD_LOGIN,       "%.32s rejected the username or password")
+MESH_STR_ENTRY(LINK_MQTT_NOT_ALLOWED,     "%.32s did not allow this client")
+MESH_STR_ENTRY(LINK_MQTT_BROKER_BUSY,     "%.32s is not accepting connections")
+MESH_STR_ENTRY(LINK_MQTT_REFUSED,         "%.24s refused the connection (%u)")
+/* The second slot is Mbed TLS's own sentence for what went wrong with the certificate or the
+   handshake. Untranslated, in the same category as the C library's word for an errno. */
+MESH_STR_ENTRY(LINK_MQTT_TLS,             "%.24s: %.64s")
+MESH_STR_ENTRY(LINK_MQTT_NO_TLS,          "%.32s needs TLS and this build has none")
+
+/*
+ * Where the broker connection has got to, one string per state of `enum mesh_mqtt_proxy_state`.
+ *
+ * They are a set rather than a sentence with a variable in it because each is a different length
+ * of wait and a different thing to do about it. "Signing in" in particular is worth its own
+ * line: a connection that reaches it has found the broker and been let onto the socket, so
+ * everything after that is about credentials rather than about the network.
+ */
+MESH_STR_ENTRY(MQTT_STATE_OFF,            "Off")
+MESH_STR_ENTRY(MQTT_STATE_RESOLVING,      "Looking up the broker")
+MESH_STR_ENTRY(MQTT_STATE_CONNECTING,     "Connecting")
+MESH_STR_ENTRY(MQTT_STATE_SECURING,       "Securing the connection")
+MESH_STR_ENTRY(MQTT_STATE_GREETING,       "Signing in")
+MESH_STR_ENTRY(MQTT_STATE_READY,          "Connected")
+MESH_STR_ENTRY(MQTT_STATE_WAITING,        "Reconnecting shortly")
+
 /* ---- the banner --------------------------------------------------------------------------------- */
 
 /*

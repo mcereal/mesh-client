@@ -24,14 +24,21 @@ An epoll loop over a fixed table of 32 fd sources: D-Bus watches, the timerfd di
 the UI store eventfd, the serial tty, the updater's curl child stdout. **No threads anywhere. Do
 not add them.**
 
-### A name lookup forks
+### Blocking work, and the two ways out of it
 
-Nothing may block the loop, and a name lookup is blocking by nature. `getaddrinfo()` blocks,
-POSIX offers no non-blocking form, and `getaddrinfo_a()` starts threads.
-[`src/core/resolve.c`](../src/core/resolve.c) forks a child that blocks in it and writes one
-fixed-size record back through a pipe the loop owns — `src/core/fetch.c`'s shape with the tool
-taken out. An address literal costs no child at all. See
+Nothing may block the loop, and two things a client has to do are blocking by nature.
+
+**A name lookup forks.** `getaddrinfo()` blocks, POSIX offers no non-blocking form, and
+`getaddrinfo_a()` starts threads. `src/core/resolve.c` forks a child that blocks in it and writes
+one fixed-size record back through a pipe the loop owns — `src/core/fetch.c`'s shape with the
+tool taken out. An address literal costs no child at all. See
 [`docs/transport.md`](transport.md#a-name-costs-a-fork).
+
+**TLS does not.** `src/core/tls_client.c` drives Mbed TLS through BIO callbacks over a
+non-blocking socket, reporting `-EAGAIN` back out to the loop rather than waiting. It exists for
+MQTT and only for MQTT: a broker connection is long-lived and bidirectional, so there is nothing
+to fork and nowhere for a child to put the result. Everything else HTTPS is still a forked curl.
+See [`docs/mqtt.md`](mqtt.md).
 
 ## `src/core/session.c` — the Meshtastic conversation
 
@@ -418,6 +425,10 @@ never offers to "update" itself to a release.
 The updater has **no TLS of its own**: it forks the device's `curl` (then `wget`) and reads its
 stdout through the event loop, because the release build is static musl with libdbus as its only
 dependency. One child at a time, states strictly sequential.
+
+That is the rule for a *fetch* — a request and a reply, which a child process does well — and it
+has exactly one exception, for the one connection that is not a fetch. See
+[`docs/mqtt.md`](mqtt.md#tls).
 
 **It has to bring its own CA bundle.** The Brick has no system CA store at all, so a bare `curl`
 fails every HTTPS request with exit 60. The pak ships Mozilla's roots at `certs/certificates.crt`
