@@ -307,6 +307,7 @@ set(MESH_PROTO_NAMES
     atak
     admin
     connection_status
+    field_metadata
     storeforward
 )
 
