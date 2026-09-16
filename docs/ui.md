@@ -348,14 +348,26 @@ everything under it belongs to that card, and the heading itself stands on no ca
 where it becomes the card's label and pays for both cards' insets without costing a row. A
 section with no headings is one card, and the rows ahead of the first heading are an unnamed one.
 
-There is one break in the column that is not a heading, and the leading slot is what forces it.
-A card of verbs indents every row past a disc and a card of settings starts at the card's own
-padding, so **a group that turns from settings into verbs partway down is two cards** — LoRa's
-"Ham mode" is three values and then the switch that applies them. Without the split that card
-would begin its words in two columns, which is exactly what the slot's all-or-nothing rule
-exists to prevent. The split is also what lets the rule be checked per card without anything
-checking it twice: no card holds both kinds, so "every verb has a symbol and no setting has one"
-is enough (`ui_settings_row_icons_are_all_or_nothing`).
+One kind of row stands on the panel instead, and the leading slot is what forces it. A card of
+verbs indents every row past a disc and a card of settings starts at the card's own padding, so
+a card holding both would begin its words in two columns — exactly what the slot's
+all-or-nothing rule exists to prevent, and visible the moment a section puts a press under a
+group of fields. **So a group that is not all verbs puts its verbs on the panel, under its
+card.** LoRa's "Ham mode" is the case: three values on a card, then the switch that applies them
+below it.
+
+Giving that run a card of its own does not work, and the reason is worth knowing before trying
+it. `fb_list_cards()` spends a card's bottom padding *into the step the next group's heading
+stands in* — that step is where the break between two cards comes from. Two card runs with no
+step between them have nowhere to take the break from: the second is painted over the first's
+padding, its bottom edge and its corners. No arithmetic fixes it, because the gap has to come
+out of a step and a step is a row. Standing the verbs on the panel spends the padding against a
+non-card step, which is what a heading already is — and it reads as the better answer anyway,
+since a verb under a group of fields is the thing that *applies* them.
+
+That is also what lets the leading slot's rule be checked per card without anything checking it
+twice: no card holds both kinds, so "every verb has a symbol and no setting has one" is enough
+(`ui_settings_row_icons_are_all_or_nothing`).
 
 ### The one colour pair that is not a theme choice
 

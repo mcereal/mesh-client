@@ -3457,49 +3457,84 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
          * a group too, an unnamed one, exactly as the block at the top of a phone's settings
          * page is a card before any label appears.
          *
-         * Starting at 0 rather than at FB_LIST_NO_CARD is the whole of that: the first heading
-         * closes the opening card instead of creating the first one.
+         * One kind of row stands on the panel instead, and the leading slot is what forces it.
+         * A card of verbs indents every row past a disc and a card of settings starts at the
+         * card's own padding, so a card holding both would begin its words in two columns -
+         * the exact failure the slot's all-or-nothing rule exists to prevent, and one that is
+         * visible the moment a section puts a press under a group of fields: LoRa's "Ham mode"
+         * is three values and then the switch that applies them.
+         *
+         * **So a group that is not all verbs puts its verbs on the panel, under its card.**
+         *
+         * The alternative was to give that run a card of its own, and it cannot be done here:
+         * fb_list_cards() spends a card's bottom padding *into the step the next group's
+         * heading stands in*, which is where the break between two cards comes from. Two card
+         * runs with no step between them have nowhere to take that break from - the second is
+         * painted over the first's padding, its bottom edge and its corners - and no arithmetic
+         * fixes it, because the gap has to come out of a step and a step is a row. Standing the
+         * verbs on the panel spends the card's padding against a non-card step, which is exactly
+         * what a heading already is.
+         *
+         * It reads as the better answer rather than merely the available one: a verb under a
+         * group of fields is the thing that *applies* them, which is a button under a form
+         * rather than one more row in it. A group that is nothing but verbs is a different
+         * shape - there the card is the verbs - and it keeps its card.
          */
         uint8_t card = 0U;
-        bool run_verbs = false;
-        bool run_open = false;
+        uint32_t group_start = 0U;
+        bool group_all_verbs = true;
+        bool group_has_rows = false;
         any_cards = true;
-        for (uint32_t r = 0; r < count; ++r) {
-            if (items[r].kind == MESH_UI_SETTING_HEADING) {
+        for (uint32_t r = 0; r <= count; ++r) {
+            const bool boundary = (r == count) || items[r].kind == MESH_UI_SETTING_HEADING;
+            if (boundary) {
                 /*
-                 * The heading stands on no card, in the break between the one that ended and the
-                 * one it opens - which is where the column gets the only air it has, and why the
-                 * grouping costs no rows. See the card-list note in fb_widgets.h.
+                 * The group that just ended, placed now that what is in it is known. A group of
+                 * verbs is one card; any other group cards its settings and floats its verbs,
+                 * with a fresh ordinal per run so that two runs separated by a float are two
+                 * cards rather than one the painter believes the window cut in half.
                  */
-                card = (uint8_t)(card + 1U);
+                if (group_has_rows && !group_all_verbs) {
+                    bool run_verbs = false;
+                    bool run_open = false;
+                    for (uint32_t g = group_start; g < r; ++g) {
+                        if (items[g].kind == MESH_UI_SETTING_HEADING) {
+                            continue;
+                        }
+                        const bool verb = mesh_ui_settings_item_is_verb(&items[g]);
+                        if (verb) {
+                            cards[g] = FB_LIST_NO_CARD;
+                            run_open = false;
+                            continue;
+                        }
+                        if (!run_open || run_verbs) {
+                            card = (uint8_t)(card + 1U);
+                        }
+                        cards[g] = card;
+                        run_verbs = verb;
+                        run_open = true;
+                    }
+                }
+                if (r == count) {
+                    break;
+                }
+                /* The heading stands on no card, in the break between the one that ended and the
+                   one it opens - which is where the column gets the only air it has, and why the
+                   grouping costs no rows. See the card-list note in fb_widgets.h. */
                 cards[r] = FB_LIST_NO_CARD;
-                run_open = false;
+                card = (uint8_t)(card + 1U);
+                group_start = r + 1U;
+                group_all_verbs = true;
+                group_has_rows = false;
                 continue;
             }
-            const bool verb = mesh_ui_settings_item_is_verb(&items[r]);
-            if (run_open && verb != run_verbs) {
-                /*
-                 * A group that turns from settings into verbs partway down is two cards, and
-                 * this is the one place the grouping is not simply the headings.
-                 *
-                 * The leading slot forces it. A card of verbs indents every row past a disc and
-                 * a card of settings starts at the card's own padding, so a card holding both
-                 * begins its words in two columns - the exact failure the slot's all-or-nothing
-                 * rule exists to prevent, and one that is visible the moment a section puts a
-                 * press under a group of fields: LoRa's "Ham mode" is three values and then the
-                 * switch that applies them.
-                 *
-                 * Splitting rather than picking one shape for the whole group is the node
-                 * detail's answer restated - a card of verbs or a card of facts, nothing between
-                 * - and it keeps the reason visible, because what separates the two cards is the
-                 * thing that separates the two kinds of row. The heading still names the group;
-                 * the second card is the part of it that does something.
-                 */
-                card = (uint8_t)(card + 1U);
+            group_has_rows = true;
+            if (!mesh_ui_settings_item_is_verb(&items[r])) {
+                group_all_verbs = false;
             }
+            /* Provisional: right for a group that turns out to be all verbs, and rewritten
+               above for one that does not. */
             cards[r] = card;
-            run_verbs = verb;
-            run_open = true;
         }
     }
     /*
