@@ -1145,14 +1145,17 @@ static void fb_list_cards(const struct mesh_ui_backend_fb_state *state, struct f
              * two cards comes from - never past the body, or the bottom card of a list that
              * filled its window would put its edge through the action bar.
              *
-             * Not into a step that is a full row. A heading is drawn small and centres itself in
-             * what is left, so it can give the padding up; a row is a line advance with a glyph
-             * cell in it and cannot, so the card's hairline lands on the row's own leading disc
-             * and its corner under the row's highlight. See FB_LIST_PANEL_ROW.
+             * A step that is a full row gets the hairline and not the inset. The inset is what a
+             * heading can absorb and a row cannot: a row is a line advance with a glyph cell in
+             * it and a leading disc nearly as tall as the step, so a card padding into it lands
+             * its edge on the disc's crown. The hairline still has to go *somewhere* outside the
+             * last card row's own fill, which is the same reason box_top spends one upward - a
+             * hairline inside a row box is a hairline that row's highlight paints out, and the
+             * card then reads as open at the bottom on precisely the row being pointed at. So it
+             * is spent downward here exactly as it is spent upward there, and the row below
+             * gives that hairline back out of its own box - see fb_item_measure().
              */
-            if (fb_list_card_of(list, run) != FB_LIST_PANEL_ROW) {
-                box_bottom += pad;
-            }
+            box_bottom += (fb_list_card_of(list, run) == FB_LIST_PANEL_ROW) ? edge : pad;
             const int floor_y = list->track_y + list->track_h;
             if (box_bottom > floor_y) {
                 box_bottom = floor_y;
@@ -1676,50 +1679,51 @@ static struct fb_item_geom fb_item_measure(const struct mesh_ui_backend_fb_state
     g.lead_size =
         item->leading.kind == FB_LEADING_TONAL_SLOT ? list->line - scale : g.fill_h - scale;
     /*
-     * And what may actually be *drawn* in that slot, which is a different question the moment
-     * this row stands on the panel with a card under it.
+     * A row on the panel gives back the hairline each card beside it spends into its step, and
+     * what may actually be *drawn* in its leading slot follows from what is left.
      *
-     * The slot is the gutter and the gutter may not move - it is what puts every row's words in
-     * one column, which is the whole of what the slot is for. The disc is only what is put in
-     * it, and a row floated between two cards has less room for one than its step suggests: the
-     * card below spends its hairline *upward*, into this step, because a hairline drawn inside
-     * its own first row is a hairline that row's highlight paints out. (The card above no longer
-     * spends anything - see fb_list_cards() - so the room lost is the one edge and not a whole
-     * inset.)
+     * A card's edge is drawn outside its own rows' boxes so that no row's highlight can paint it
+     * out (fb_list_cards()), and where the card's neighbour is a full row rather than a heading,
+     * that "outside" is inside *this* row's box. Left there it is the same bug from either side
+     * of one hairline: selecting this row paints over the card's edge and its corners, and
+     * selecting the card's last row paints over the other one. So the box stops short of both,
+     * which costs the row two pixels of fill it was not using and nothing else - the baseline
+     * does not move and a glyph's cell sits inside what is left.
      *
-     * So the disc is sized to the band the neighbours leave, less a hairline's clearance at each
-     * end so that it is seen to be *between* the cards rather than resting on one, and centred
-     * in the slot. A row with no card under it keeps the full disc, which is every row of every
-     * list that does not draw cards at all.
+     * The slot is the gutter and the gutter may not move: it is what puts every row's words in
+     * one column, which is the whole of what the slot is for. `lead_size` is therefore measured
+     * before any of this, and only the disc drawn in it gives way - centred in the slot, so the
+     * room a card took comes off the disc and never off the column.
+     *
+     * A pixel of clearance at each end where a card is adjacent, because a disc laid against a
+     * card's hairline reads as attached to that card rather than standing between two, which is
+     * what the row is. It costs the disc two pixels at the Brick's own glyph scale, and those
+     * two are the step at which fb_draw_avatar() drops its symbol a scale - which is a real cost
+     * and the right way round: a smaller mark on a row that is a button under a form, against a
+     * card that looks broken.
      */
-    g.lead_disc = g.lead_size;
-    /* Where it goes: a hairline inside the top of the row's box, which is where a glyph's own
-       ink sits and so what keeps a disc reading as part of the line beside it. */
-    g.lead_y = g.fill_top + fb_space(state, MESH_UI_SPACE_XS);
     if (fb_list_has_cards(list) && !fb_list_on_card(list, index)) {
-        /*
-         * The band: the step, less the hairline the card below spends upward into it. (The card
-         * above spends nothing - fb_list_cards() closes it at the boundary where a full row
-         * follows - so the only room lost is that one edge.)
-         *
-         * The clearance either end is one pixel and is written as one, not as a hairline or a
-         * space step, because it is the least that can be *seen* and this is the one place in
-         * the list where the room to spend is a handful of pixels. Insetting by a hairline
-         * instead was tried and costs the disc two: at the Brick's own glyph scale that is
-         * exactly the step where fb_draw_avatar() drops its symbol a scale - a third off the
-         * icon, to buy clearance nobody can see. So the disc keeps its full size wherever the
-         * band can hold one, and shrinks only at the small scales where it cannot.
-         */
-        const int band_top = g.fill_top + 1;
-        const int band_bottom = g.fill_top + (int)g.rows * list->line - 1 -
-                                (fb_list_on_card(list, index + 1U) ? fb_edge(state) : 0);
-        const int band = band_bottom - band_top;
-        if (g.lead_disc > band) {
-            g.lead_disc = band > 0 ? band : 0;
+        const int edge = fb_edge(state);
+        const bool card_above = index > 0U && fb_list_on_card(list, index - 1U);
+        const bool card_below = fb_list_on_card(list, index + 1U);
+        if (card_above) {
+            g.fill_top += edge;
+            g.fill_h -= edge;
         }
-        /* Centred in the band rather than seated at the top of the box, so what the band has
-           spare is ground at both ends rather than all of it at one. */
+        if (card_below) {
+            g.fill_h -= edge;
+        }
+        const int band_top = g.fill_top + (card_above ? 1 : 0);
+        const int band = g.fill_top + g.fill_h - (card_below ? 1 : 0) - band_top;
+        g.lead_disc = g.lead_size > band ? (band > 0 ? band : 0) : g.lead_size;
+        /* Centred in what is left, so the room the cards took is ground at both ends of the disc
+           rather than all of it at one. */
         g.lead_y = band_top + (band - g.lead_disc) / 2;
+    } else {
+        g.lead_disc = g.lead_size;
+        /* A hairline inside the top of the row's box, which is where a glyph's own ink sits and
+           so what keeps a disc reading as part of the line beside it. */
+        g.lead_y = g.fill_top + fb_space(state, MESH_UI_SPACE_XS);
     }
     g.content_x = box.text_x;
     g.text_x = g.content_x;

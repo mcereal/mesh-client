@@ -4509,24 +4509,40 @@ MESH_TEST_CASE(ui_capture_a_section_starts_every_row_in_one_column, unit) {
 }
 
 /*
- * A card's edge is one unbroken line, and the row floated under it does not draw through it.
+ * A card's edges survive the row floated under it, and the cursor standing on either.
  *
  * A settings group that is not all verbs floats its verbs onto the panel under its card, and a
- * floated verb leads with a tonal disc that is very nearly as tall as the step it stands in. The
- * card above used to spend its bottom padding into that step - which is right for the step a
- * *heading* stands in, since a heading is drawn small and centres itself in what is left, and
- * wrong for a row, which cannot give the room up. The result was the card's hairline crossing
- * the disc's crown and, with the cursor on the row, the card's bottom corner painted out by the
- * row's own highlight. About radio is the case: two floated verbs, each under a card.
+ * floated verb is a full row: a line advance with a glyph cell in it and a leading disc nearly
+ * as tall as the step. Three things can go wrong where such a row meets a card, and they are
+ * three readings of one hairline that has to live outside *both* boxes it separates:
  *
- * Asked as "nothing that is not the edge, the ground or the surface may stand on a scanline the
- * edge owns", which is a property of the frame rather than of the arithmetic that produced it -
- * so it holds whatever the padding, the disc size or the step height turn out to be. The tonal
- * families are what a disc is filled from, and none of them belongs on a card's edge.
+ *   - the card pads into the row's step, and its edge comes down across the disc's crown;
+ *   - the hairline is left inside the card's own last row, and that row's highlight paints it
+ *     out - the card reads as open at the bottom on the row above the verb;
+ *   - the hairline is left inside the floated row's box, and that row's highlight paints it out
+ *     instead.
+ *
+ * Two assertions, because no one of them catches all three. **Purity**: nothing filled from a
+ * tonal family - which is what a disc is filled from - may stand on a scanline a card's edge
+ * owns, or the one either side of it. **Presence**: the number of edges does not depend on where
+ * the cursor is. The second is the one the first cannot make, and it is the whole reason this
+ * case walks the cursor: a highlight laid over an edge does not corrupt that scanline, it
+ * *removes* it, so a frame where the card has lost its bottom is a frame where a check looking
+ * for edges simply finds one fewer. The first version of this case looked only at row 0 and
+ * passed against exactly that.
+ *
+ * The walk stops short of the window, so every frame shows the same cards and the counts are
+ * comparable, and it starts one row down. The very first row of the body is a case of its own
+ * and not this one: fb_list_cards() spends a card's top hairline upward, and the first card has
+ * nowhere above it to spend into, so the ceiling clamps the hairline back inside the row and the
+ * cursor there covers it. That is the body's edge, deliberate, and it would read here as an edge
+ * the cursor removed. What is left is the neighbourhood this case is about - the last fact on a
+ * card, the floated firmware channel under it, the one-row card under that, and the second
+ * floated verb under that.
  */
 MESH_TEST_CASE(ui_capture_a_floated_row_clears_the_cards_around_it, unit) {
     const char *failure = NULL;
-    static char detail[224];
+    static char detail[256];
 
     for (size_t t = 0; t < mesh_ui_theme_count() && failure == NULL; ++t) {
         const struct mesh_ui_theme *theme = mesh_ui_theme_at(t);
@@ -4538,19 +4554,18 @@ MESH_TEST_CASE(ui_capture_a_floated_row_clears_the_cards_around_it, unit) {
                 break;
             }
             mesh_test_nav_populate(&store);
-            /* A radio that has answered for itself, which is what puts the firmware pair - the
-               two verbs this case is about - on the panel between three cards. */
+            /*
+             * A radio that has answered for itself. `fw_supported` is what puts the firmware
+             * pair - the floated verbs this case is about - on the panel at all; without it the
+             * whole group collapses to one fact, and an earlier version of this case passed
+             * against a broken renderer for exactly that reason. The connection gives the
+             * section its second group, and so its cards.
+             */
             struct mesh_ui_settings settings = store.settings;
             settings.loaded = true;
             settings.has_metadata = true;
-            snprintf(settings.firmware_version, sizeof settings.firmware_version, "%s", "2.7.6");
-            /* And a connection it can report, which is what gives the section its second group
-               and so its cards - a section with one group draws none, and there would then be
-               no edge for anything to be drawn through. */
-            /* The firmware pair is the floated verb this case is about, and it is only
-               offered where a check could run - without this the whole group collapses to one
-               fact and the section has no floated row in it at all. */
             settings.fw_supported = true;
+            snprintf(settings.firmware_version, sizeof settings.firmware_version, "%s", "2.7.6");
             snprintf(settings.fw_channel, sizeof settings.fw_channel, "%s", "stable");
             settings.connection.valid = true;
             settings.connection.has_wifi = true;
@@ -4559,65 +4574,67 @@ MESH_TEST_CASE(ui_capture_a_floated_row_clears_the_cards_around_it, unit) {
                      "shed");
             mesh_ui_store_set_settings(&store, &settings);
 
-            uint8_t *frame = NULL;
-            uint32_t width = 0U;
-            uint32_t height = 0U;
-            size_t stride = 0U;
-            if (!mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS)) {
-                failure = "the Settings tab could not be reached";
-            } else if (!mesh_test_settings_open(&store, MESH_UI_SETTINGS_RADIO)) {
+            if (!mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS) ||
+                !mesh_test_settings_open(&store, MESH_UI_SETTINGS_RADIO)) {
                 failure = "Settings > About radio could not be opened";
-            } else {
-                frame = capture_frame(&store, theme, scale, &width, &height, &stride);
-                if (frame == NULL) {
-                    failure = "capture failed";
-                }
+                mesh_ui_store_shutdown(&store);
+                break;
             }
 
-            if (failure == NULL) {
-                const struct mesh_ui_rgb edge = mesh_ui_theme_color(theme, MESH_UI_COLOR_OUTLINE);
-                const struct mesh_ui_rgb ground = mesh_ui_theme_color(theme, MESH_UI_COLOR_BG);
-                const struct mesh_ui_rgb surface =
-                    mesh_ui_theme_color(theme, MESH_UI_COLOR_SURFACE);
+            const struct mesh_ui_rgb edge = mesh_ui_theme_color(theme, MESH_UI_COLOR_OUTLINE);
+            const struct mesh_ui_rgb ground = mesh_ui_theme_color(theme, MESH_UI_COLOR_BG);
+            const struct mesh_ui_rgb surface = mesh_ui_theme_color(theme, MESH_UI_COLOR_SURFACE);
+            struct mesh_ui_action act;
+            memset(&act, 0, sizeof act);
+            uint32_t seen[4] = {0U, 0U, 0U, 0U};
+            uint32_t frames = 0U;
+            size_t discs = 0U;
+
+            /* Off the first row, for the reason in the note above. */
+            (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &act);
+            for (uint32_t row = 0U; row < 4U && failure == NULL; ++row) {
+                if (row > 0U) {
+                    const uint32_t before = store.nav.cursor[MESH_UI_SCREEN_SETTINGS];
+                    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &act);
+                    if (store.nav.cursor[MESH_UI_SCREEN_SETTINGS] == before) {
+                        break;
+                    }
+                }
+                uint32_t width = 0U;
+                uint32_t height = 0U;
+                size_t stride = 0U;
+                uint8_t *frame = capture_frame(&store, theme, scale, &width, &height, &stride);
+                if (frame == NULL) {
+                    failure = "capture failed";
+                    break;
+                }
                 uint32_t edges = 0U;
                 for (uint32_t y = 0U; y < height && failure == NULL; ++y) {
-                    const uint8_t *row = frame + (size_t)y * stride;
+                    const uint8_t *line = frame + (size_t)y * stride;
                     uint32_t run = 0U;
                     uint32_t longest = 0U;
                     for (uint32_t x = 0U; x < width; ++x) {
-                        const uint8_t *p = row + (size_t)x * 4U;
+                        const uint8_t *p = line + (size_t)x * 4U;
                         run = (p[0] == edge.b && p[1] == edge.g && p[2] == edge.r) ? run + 1U : 0U;
                         if (run > longest) {
                             longest = run;
                         }
                     }
-                    /* A card's hairline crosses most of the panel; nothing else on these frames
-                       is a long unbroken run of the outline role. */
                     if (longest < width / 2U) {
                         continue;
                     }
                     edges++;
-                    /*
-                     * The edge's own scanline and the one either side of it. Drawn *through* the
-                     * edge is the failure this was written for; resting *on* it is the same
-                     * statement one pixel weaker - a disc with no ground between it and a card
-                     * reads as attached to that card rather than standing between two, which is
-                     * what the row is. One scanline of clearance is the least that can be seen.
-                     */
                     const uint32_t from = y > 0U ? y - 1U : y;
                     const uint32_t to = y + 1U < height ? y + 1U : y;
                     for (uint32_t ny = from; ny <= to && failure == NULL; ++ny) {
-                        const uint8_t *near = frame + (size_t)ny * stride;
+                        const uint8_t *band = frame + (size_t)ny * stride;
                         for (uint32_t x = 0U; x < width && failure == NULL; ++x) {
-                            const uint8_t *p = near + (size_t)x * 4U;
+                            const uint8_t *p = band + (size_t)x * 4U;
                             if ((p[0] == edge.b && p[1] == edge.g && p[2] == edge.r) ||
                                 (p[0] == ground.b && p[1] == ground.g && p[2] == ground.r) ||
                                 (p[0] == surface.b && p[1] == surface.g && p[2] == surface.r)) {
                                 continue;
                             }
-                            /* Only a tonal fill is worth failing on: a rounded end blends the
-                               edge with what is on either side of it, and those blends are the
-                               corner doing its job. */
                             for (int f = 0; f < (int)MESH_UI_FAMILY_COUNT; ++f) {
                                 const struct mesh_ui_rgb fill = mesh_ui_theme_family(
                                     theme, (enum mesh_ui_family)f, MESH_UI_SLOT_CONTAINER);
@@ -4626,54 +4643,59 @@ MESH_TEST_CASE(ui_capture_a_floated_row_clears_the_cards_around_it, unit) {
                                 }
                                 snprintf(detail, sizeof detail,
                                          "a leading disc reaches a card's edge at (%u,%u), which "
-                                         "the edge owns at y=%u - on theme %s at glyph scale %d",
-                                         x, ny, y, theme->name, scale);
+                                         "the edge owns at y=%u - cursor on row %u, theme %s, "
+                                         "glyph scale %d",
+                                         x, ny, y, row, theme->name, scale);
                                 failure = detail;
                                 break;
                             }
                         }
                     }
                 }
-                /*
-                 * And that there was a disc to be drawn through one. The two guards are the
-                 * case's own honesty: without cards there is no edge, and without a floated
-                 * verb there is nothing standing next to it - and a frame missing either passes
-                 * the loop above for the wrong reason. This one caught a fixture that offered
-                 * no firmware check, which is exactly the row the case is about.
-                 */
-                size_t disc = 0U;
-                for (uint32_t y = 0U; y < height && disc == 0U; ++y) {
-                    const uint8_t *row = frame + (size_t)y * stride;
-                    for (uint32_t x = 0U; x < width && disc == 0U; ++x) {
-                        const uint8_t *p = row + (size_t)x * 4U;
+                /* And that there was a disc on the frame at all, or the sweep above passes for
+                   want of anything to find. */
+                for (uint32_t y = 0U; y < height && discs == 0U; ++y) {
+                    const uint8_t *line = frame + (size_t)y * stride;
+                    for (uint32_t x = 0U; x < width && discs == 0U; ++x) {
+                        const uint8_t *p = line + (size_t)x * 4U;
                         for (int f = 0; f < (int)MESH_UI_FAMILY_COUNT; ++f) {
                             const struct mesh_ui_rgb fill = mesh_ui_theme_family(
                                 theme, (enum mesh_ui_family)f, MESH_UI_SLOT_CONTAINER);
                             if (p[0] == fill.b && p[1] == fill.g && p[2] == fill.r) {
-                                disc++;
+                                discs++;
                                 break;
                             }
                         }
                     }
                 }
-                if (failure == NULL && disc == 0U) {
-                    snprintf(detail, sizeof detail,
-                             "About radio drew no tonal disc at glyph scale %d on theme %s - "
-                             "there is no floated verb here to clear anything",
-                             scale, theme->name);
-                    failure = detail;
-                }
-                /* Two is a card: one edge at each end of it. Fewer means the section drew no
-                   cards at this scale and the case is asserting nothing. */
-                if (failure == NULL && edges < 2U) {
-                    snprintf(detail, sizeof detail,
-                             "only %u card edges were found on About radio at glyph scale %d - "
-                             "there is nothing here to stand on",
-                             edges, scale);
-                    failure = detail;
-                }
+                seen[frames++] = edges;
+                free(frame);
             }
-            free(frame);
+
+            if (failure == NULL && (frames < 2U || seen[0] < 2U)) {
+                snprintf(detail, sizeof detail,
+                         "About radio gave %u frames and %u card edges at glyph scale %d - there "
+                         "is nothing here to stand on",
+                         frames, frames > 0U ? seen[0] : 0U, scale);
+                failure = detail;
+            }
+            if (failure == NULL && discs == 0U) {
+                snprintf(detail, sizeof detail,
+                         "About radio drew no tonal disc at glyph scale %d on theme %s - there is "
+                         "no floated verb here to clear anything",
+                         scale, theme->name);
+                failure = detail;
+            }
+            for (uint32_t f = 1U; f < frames && failure == NULL; ++f) {
+                if (seen[f] == seen[0]) {
+                    continue;
+                }
+                snprintf(detail, sizeof detail,
+                         "moving the cursor down %u took a card edge off the frame: %u edges "
+                         "against %u where the walk started - theme %s, glyph scale %d",
+                         f, seen[f], seen[0], theme->name, scale);
+                failure = detail;
+            }
             mesh_ui_store_shutdown(&store);
         }
     }
