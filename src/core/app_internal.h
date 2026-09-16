@@ -94,6 +94,16 @@ void mesh_app_mqtt_shutdown(struct mesh_app *app);
  */
 void mesh_app_mqtt_tick(struct mesh_app *app, uint64_t now_ms);
 
+/*
+ * The broker connection as the Status screen reads it. Zeroed when the radio has not asked to be
+ * proxied for, which is what the card is drawn on.
+ *
+ * Here rather than in app_publish.c because it reads the proxy and the recorded plan, which are
+ * this file's to interpret - the publish path's job is to carry it to the store.
+ */
+struct mesh_ui_mqtt_state;
+void mesh_app_mqtt_publish_state(const struct mesh_app *app, struct mesh_ui_mqtt_state *out);
+
 /* ---- app_settings.c --------------------------------------------------------------------- */
 
 /* Queues the admin write a MESH_UI_ACTION_SAVE_SETTINGS asks for and toasts the outcome. */

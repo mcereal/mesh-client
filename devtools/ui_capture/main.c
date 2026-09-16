@@ -2241,6 +2241,77 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         return;
     }
 
+    /*
+     * The broker card: the connection this client holds on a radio's behalf.
+     *
+     * Named states rather than a pile of numbers, because what the card is for is telling four
+     * situations apart that every other screen draws identically - the radio cannot see this
+     * connection at all, so a proxy that is failing looks exactly like one that is working from
+     * anywhere else on the client.
+     */
+    if (strcmp(command, "broker") == 0) {
+        const char *what = uicap_word(&rest);
+        if (what == NULL) {
+            fprintf(stderr, "uicap: line %u: 'broker' needs a state\n", line_number);
+            exit(1);
+        }
+        uicap_start(cap);
+        struct mesh_ui_mqtt_state mqtt;
+        memset(&mqtt, 0, sizeof mqtt);
+        if (strcmp(what, "off") != 0) {
+            /* Every state below is a radio that asked, which is what the card is drawn on. */
+            mqtt.wanted = true;
+            snprintf(mqtt.host, sizeof mqtt.host, "%s", "mqtt.meshtastic.org");
+            mqtt.subscriptions = 3U;
+        }
+        if (strcmp(what, "connected") == 0) {
+            snprintf(mqtt.state, sizeof mqtt.state, "%s", mesh_str(MESH_STR_MQTT_STATE_READY));
+            mqtt.connected = true;
+            mqtt.connections = 1U;
+            mqtt.published = 412U;
+            mqtt.received = 168U;
+        } else if (strcmp(what, "flapping") == 0) {
+            /* Connected *now*, and for the ninth time. The one state a single frame cannot
+               otherwise show, since every frame of it says "Connected". */
+            snprintf(mqtt.state, sizeof mqtt.state, "%s", mesh_str(MESH_STR_MQTT_STATE_READY));
+            mqtt.connected = true;
+            mqtt.connections = 9U;
+            mqtt.published = 96U;
+            mqtt.received = 14U;
+            mqtt.dropped = 71U;
+            snprintf(mqtt.last_error, sizeof mqtt.last_error, "%s",
+                     "mqtt.meshtastic.org closed the connection");
+        } else if (strcmp(what, "refused") == 0) {
+            snprintf(mqtt.state, sizeof mqtt.state, "%s", mesh_str(MESH_STR_MQTT_STATE_WAITING));
+            mqtt.failing = true;
+            mqtt.dropped = 23U;
+            snprintf(mqtt.last_error, sizeof mqtt.last_error, "%s",
+                     "broker.example.net rejected the username or password");
+        } else if (strcmp(what, "silent") == 0) {
+            /* The fault with no error behind it: connected, publishing, and subscribed to
+               nothing because every channel has downlink off. */
+            snprintf(mqtt.state, sizeof mqtt.state, "%s", mesh_str(MESH_STR_MQTT_STATE_READY));
+            mqtt.connected = true;
+            mqtt.connections = 1U;
+            mqtt.subscriptions = 0U;
+            mqtt.published = 340U;
+        } else if (strcmp(what, "disabled") == 0) {
+            snprintf(mqtt.state, sizeof mqtt.state, "%s", mesh_str(MESH_STR_MQTT_STATE_OFF));
+            mqtt.disabled = true;
+            mqtt.subscriptions = 0U;
+            mqtt.unhandled = 57U;
+        } else if (strcmp(what, "off") != 0) {
+            fprintf(stderr,
+                    "uicap: line %u: 'broker' takes off|connected|flapping|refused|silent|"
+                    "disabled\n",
+                    line_number);
+            exit(1);
+        }
+        mesh_ui_store_set_mqtt(&cap->store, &mqtt);
+        uicap_emit(cap);
+        return;
+    }
+
     if (strcmp(command, "stats") == 0) {
         uicap_start(cap);
         struct mesh_ui_settings settings = cap->store.settings;

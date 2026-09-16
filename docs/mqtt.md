@@ -9,10 +9,10 @@ The radio stays the origin. This client is only the box with a route to the inte
 Brick is the whole point: the radio has LoRa and Bluetooth and no WiFi worth the name, and the
 handheld it is paired with has WiFi.
 
-**The client proxies.** A radio that asks for it gets a broker connection, the right
-subscriptions, and both directions relayed, with no setting on the Brick involved. What is still
-missing is the reporting: nothing on screen says whether the broker accepted us or why it did
-not, and the "proxy via client" toggle in settings is still read-only.
+**The client proxies, and says so.** A radio that asks for it gets a broker connection, the right
+subscriptions, and both directions relayed, with no setting on the Brick involved — and the
+Status tab grows a Broker card that says whether it worked. What is still missing is the last
+press: the "proxy via client" toggle in Settings is still read-only.
 
 ## The pieces
 
@@ -24,6 +24,7 @@ not, and the "proxy via client" toggle in settings is still read-only.
 | `src/proto/mqtt_topic.c` | where a mesh lives on a broker, matched to the firmware |
 | `src/core/session.c` | the two hooks: the radio's message out, the broker's message back |
 | `src/core/app_mqtt.c` | the decision: whether to be connected, to what, with which subscriptions |
+| `include/mesh/ui/store_mqtt.h` | what the Status screen is told about it |
 | `third_party/mbedtls-config/mesh_mbedtls_config.h` | what this build of Mbed TLS is and is not |
 
 The codec/client split is the same one `stream_framing.c` and `stream_link.c` already have: the
@@ -144,6 +145,42 @@ anything started earlier would connect with an address about to change — and i
 field a link reset clears. With no radio there is nothing to publish and nothing that could take
 a delivery; the only thing an open socket would still be doing is holding this client's id at
 the broker.
+
+## Nothing else on the client can tell you it is broken
+
+The radio cannot see this connection. It hands over a `MqttClientProxyMessage` and is told
+nothing about what happened to it — `publishQueuedMessages()` runs every 200 ms whether or not a
+broker is reachable — so a proxy that is failing looks, from the radio and from every other
+screen here, exactly like one that is working. That is what the **Broker card** on the Status tab
+is for.
+
+It is drawn only when the radio has asked to be proxied for. Almost no radio has the setting on,
+and the Status column is the one place in this client that runs out of room, so a card saying
+"Off" on every Brick in the world would have been four rows spent on nothing.
+
+Four situations it exists to tell apart, none of which any other screen distinguishes:
+
+| What the card shows | What is actually wrong |
+|---|---|
+| `Status` red, a reason under it | the broker refused or is unreachable; the reason names it |
+| `Connected, 9 sign-ins` | the link is flapping — every single frame of that says "Connected" |
+| `Topics  none - no channel downlinks` | nothing is wrong with MQTT; no channel has downlink on, so traffic goes out and none comes back |
+| `The radio is asking… not holding one` | `MESHCLIENT_MQTT_PROXY=0` on this client, which the radio cannot know |
+
+Two rows are worth their space for less obvious reasons. **Server** is the broker the *plan*
+resolved, which the radio's own Settings screen cannot draw: an empty `MQTTConfig.address` means
+the public broker, that substitution happens here, and the Settings field a reader has already
+looked at is blank. **Dropped** keeps outbound and inbound apart — outbound is this client
+refusing a publish, which on a dead link is every position report the radio makes; inbound is a
+broker message that reached the radio's doorstep and no further. One total would have averaged
+the two.
+
+The card carries no verb. Nothing on the Brick can reach a broker to retry it, and the retry is
+already on a backoff of its own.
+
+```bash
+make ui-capture ARGS="devtools/ui_capture/scenes/broker.scene -o broker.gif"
+```
 
 ## 3.1.1, QoS 0, clean session
 

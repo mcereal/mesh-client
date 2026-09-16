@@ -160,6 +160,11 @@ static const struct mesh_ui_help_entry k_help_status[] = {
     {MESH_STR_HELP_LABEL_STATUS_AIRTIME, MESH_STR_HELP_NOTE_STATUS_AIRTIME},
     {MESH_STR_HELP_LABEL_STATUS_FLOOR, MESH_STR_HELP_NOTE_STATUS_FLOOR},
     {MESH_STR_HELP_LABEL_STATUS_TRAFFIC, MESH_STR_HELP_NOTE_STATUS_TRAFFIC},
+    /* Last, because it is the one entry about a card most readers will never see: it is drawn
+       only for a radio that asked to be proxied for. A reader who has one has come here on
+       purpose and will read to the bottom; everybody else would have had a paragraph about MQTT
+       ahead of the airtime figures they actually opened this for. */
+    {MESH_STR_HELP_LABEL_STATUS_BROKER, MESH_STR_HELP_NOTE_STATUS_BROKER},
 };
 
 /*

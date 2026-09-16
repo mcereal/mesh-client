@@ -2463,6 +2463,14 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
      * reservation below. Everything else on this screen is still declared and drawn in one go.
      */
     struct fb_card radio;
+    /*
+     * And the Broker card, for the mirror image of the same reason. It is *drawn* second and so
+     * declares a claim on the column before the two cards below it have been built - which is
+     * how it came to push the Radio card, and the refresh verb with it, off the bottom of the
+     * screen entirely. It is built where it reads and drawn at the end with the rest.
+     */
+    struct fb_card broker;
+    bool have_broker = false;
     char buffer[64];
     char second[64];
 
@@ -2560,6 +2568,127 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
                 MESH_STR_STATUS_DEVICES_IN_RANGE, devices_in_range);
     fb_status_card_actions(&card, &actions, MESH_UI_STATUS_CARD_LINK, focus);
     (void)fb_draw_card(state, layout, &y, &card);
+
+    /*
+     * ---- the broker: the second link, and only when a radio has asked for one ----
+     *
+     * Drawn on `wanted` alone, which is the radio's own configuration rather than anything about
+     * this client's socket. The card is four rows of a column that runs out of room, and almost
+     * no radio has client proxying turned on - so on almost every Brick this is nothing at all,
+     * and on the ones where it matters it is the only place the answer exists. A card saying
+     * "Off" on every other device would have been the worst of both.
+     *
+     * Everything here is about a connection the *radio* cannot see. The radio hands over a
+     * message and is told nothing about what happened to it - `publishQueuedMessages()` runs
+     * every 200 ms whether or not a broker is reachable - so a proxy that is failing looks, from
+     * the radio and from every other screen on this client, exactly like one that is working.
+     */
+    if (snapshot->mqtt.wanted) {
+        have_broker = true;
+        const struct mesh_ui_mqtt_state *mqtt = &snapshot->mqtt;
+        /*
+         * The heading's tone is the whole card in one colour: green once the broker has accepted
+         * us, red while an attempt has failed and another is scheduled, and neutral for the
+         * handful of seconds a connection spends resolving, connecting and signing in. The
+         * client declining outright is red too - it is not a transient state and it is not
+         * working.
+         */
+        const enum mesh_ui_tone broker_tone = mqtt->connected ? MESH_UI_TONE_SUCCESS
+                                              : (mqtt->failing || mqtt->disabled)
+                                                  ? MESH_UI_TONE_ERROR
+                                                  : MESH_UI_TONE_NORMAL;
+        fb_card_begin(&broker, FB_CARD_FILLED, MESH_UI_ICON_MQTT, MESH_STR_STATUS_CARD_BROKER,
+                      broker_tone);
+        /*
+         * Where, before what. It is the row the radio's own Settings screen cannot draw: an
+         * empty `MQTTConfig.address` means the public broker, and that substitution happens on
+         * this client - so the Server field over in Settings is blank while this says
+         * mqtt.meshtastic.org, and the blank one is the one somebody has already looked at.
+         */
+        fb_card_row_text(&broker, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_BROKER, mqtt->host);
+        /*
+         * How many times we have signed in, folded into the status row rather than given one of
+         * its own. A proxy that connects, drops and reconnects every minute reads as "Connected"
+         * on any single frame, and the count is the only thing on the screen that would say
+         * otherwise - but it is worth nothing at 1, which is what a healthy connection says
+         * forever.
+         */
+        if (mqtt->connections > 1U) {
+            fb_card_row(&broker, broker_tone, MESH_STR_STATUS_LABEL_BROKER_STATE,
+                        MESH_STR_STATUS_BROKER_RECONNECTS, mqtt->state, mqtt->connections);
+        } else {
+            fb_card_row_text(&broker, broker_tone, MESH_STR_STATUS_LABEL_BROKER_STATE, mqtt->state);
+        }
+        /*
+         * And the sentence, directly under the status it elaborates rather than at the foot of
+         * the card.
+         *
+         * A note rather than a row, because `last_error` names a host and a reason and runs past
+         * any value column. Its *position* is the part that was got wrong first: rows are
+         * clipped from the end, and on the crowded screen this card exists for, a sentence
+         * declared last is a sentence cut off in the middle of the only words that answer the
+         * question. The counters under it are what can afford to go.
+         *
+         * It stays on screen after a reconnect succeeds, which is deliberate - a link that flaps
+         * is diagnosed by the reason it last failed, and clearing it on every CONNACK would
+         * leave the card green with nothing to say about why it keeps going red.
+         */
+        if (mqtt->disabled) {
+            fb_card_note(&broker, MESH_UI_TONE_ERROR, mesh_str(MESH_STR_STATUS_BROKER_DISABLED));
+        } else if (mqtt->last_error[0] != '\0') {
+            fb_card_note(&broker, MESH_UI_TONE_ERROR, mqtt->last_error);
+        }
+        /*
+         * Everything below reports on a connection, so none of it is drawn when this client was
+         * told not to hold one. They would all be zero, and a zero here is not the same sentence
+         * as the zero a running proxy reports - "none subscribed" in particular would put a
+         * warning on the radio's channels for something the Brick decided.
+         */
+        if (!mqtt->disabled) {
+            /*
+             * Subscriptions, and none said in words rather than as a 0.
+             *
+             * This is the row for the fault with no error behind it: a radio whose channels all
+             * have downlink off publishes perfectly and receives nothing, and every other row on
+             * this card is green while it happens. Nothing logs it, because as far as MQTT is
+             * concerned everything worked.
+             */
+            if (mqtt->subscriptions > 0U) {
+                fb_card_row(&broker, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_TOPICS,
+                            MESH_STR_STATUS_BROKER_TOPICS, mqtt->subscriptions);
+            } else {
+                fb_card_row_text(&broker, MESH_UI_TONE_WARNING, MESH_STR_STATUS_LABEL_TOPICS,
+                                 mesh_str(MESH_STR_STATUS_BROKER_NO_TOPICS));
+            }
+            /* What has actually crossed. Drawn from the first message either way, because "0
+               out, 0 in" against a broker that says Connected is itself an answer - it means the
+               radio has not offered anything yet, which is a different problem from a broker
+               refusing. */
+            fb_card_row(&broker, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_RELAYED,
+                        MESH_STR_STATUS_BROKER_RELAYED, mqtt->published, mqtt->received);
+            /*
+             * What did not cross, in the same shape, and only once something has not.
+             *
+             * The two halves are counted at opposite ends and are two different faults. Outbound
+             * is the proxy refusing a publish, which on a broker that is down is every position
+             * report the radio makes; inbound is a broker message that reached the radio's
+             * doorstep and no further. A single total would have averaged a link that is down
+             * with a message that was too big.
+             */
+            if (mqtt->dropped > 0U || mqtt->undelivered > 0U) {
+                fb_card_row(&broker, MESH_UI_TONE_WARNING, MESH_STR_STATUS_LABEL_DROPPED,
+                            MESH_STR_STATUS_BROKER_DROPPED, mqtt->dropped, mqtt->undelivered);
+            }
+        }
+        /* Messages the radio offered with nowhere to put them - the client declining, or a
+           connection that was never made. Its own row because it is counted on the far side of
+           the link from everything above, and it is the number that moves when this client is
+           the thing that is wrong. */
+        if (mqtt->unhandled > 0U) {
+            fb_card_row(&broker, MESH_UI_TONE_WARNING, MESH_STR_STATUS_LABEL_MESSAGES,
+                        MESH_STR_STATUS_BROKER_UNHANDLED, mqtt->unhandled);
+        }
+    }
 
     /*
      * ---- the mesh: how many nodes, and how much of the air they are using ----
@@ -2988,10 +3117,28 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
      * rows it takes are the ones the Mesh card declared last - the message ring and the received
      * composition, which are the rows a reader chasing a fault would have skipped.
      */
-    (void)fb_draw_card_reserving(state, layout, &y, &card,
-                                 radio_tone == MESH_UI_TONE_PRIMARY
-                                     ? fb_card_min_height(state, layout, &radio)
-                                     : fb_card_height(state, layout, &radio));
+    const int radio_reserve = radio_tone == MESH_UI_TONE_PRIMARY
+                                  ? fb_card_min_height(state, layout, &radio)
+                                  : fb_card_height(state, layout, &radio);
+    /*
+     * The Broker card goes in above them, holding the same promise one level further up.
+     *
+     * It is the second card on the screen and the last to be drawn, which is the only way it can
+     * reserve room for cards that are built after it reads. Without the reservation it simply
+     * took what it wanted - and what it wants in the state it exists for is seven rows and a
+     * wrapped sentence, which pushed the Radio card off the bottom of the screen and left
+     * `refresh` a verb the cursor could walk onto and nobody could see.
+     *
+     * The minimum for the Mesh card and the Radio card's own claim, so the promise is "both of
+     * them exist" rather than "both of them are whole". That is the right split here: the rows
+     * the Mesh card gives up are its packet counters, and a reader who has come to this screen
+     * because MQTT is not working is not reading packet counters.
+     */
+    if (have_broker) {
+        (void)fb_draw_card_reserving(state, layout, &y, &broker,
+                                     fb_card_min_height(state, layout, &card) + radio_reserve);
+    }
+    (void)fb_draw_card_reserving(state, layout, &y, &card, radio_reserve);
     (void)fb_draw_card(state, layout, &y, &radio);
 }
 

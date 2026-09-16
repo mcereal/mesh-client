@@ -21,6 +21,7 @@
 
 #include "mesh/core/mqtt_proxy.h"
 #include "mesh/core/session.h"
+#include "mesh/ui/store_mqtt.h"
 #include "mesh/utils/env.h"
 #include "mesh/utils/log.h"
 #include "mesh/utils/text.h"
@@ -381,4 +382,60 @@ void mesh_app_mqtt_tick(struct mesh_app *app, uint64_t now_ms) {
     /* Unconditionally, including while OFF: the proxy's own tick is what drives the resolver
        and the retry backoff, neither of which has a descriptor to be woken by. */
     mesh_mqtt_proxy_tick(&app->mqtt, now_ms);
+}
+
+void mesh_app_mqtt_publish_state(const struct mesh_app *app, struct mesh_ui_mqtt_state *out) {
+    if (out == NULL) {
+        return;
+    }
+    memset(out, 0, sizeof *out);
+    if (app == NULL) {
+        return;
+    }
+
+    /*
+     * `wanted` is asked of the *radio*, not of the proxy, and that is the difference between a
+     * card that can explain itself and one that cannot. A proxy sitting at OFF because the
+     * client was told not to run one, and a proxy sitting at OFF because no radio ever asked,
+     * are the same state and different problems; only the radio's configuration tells them
+     * apart. Asking it again here rather than caching the last answer costs a few string
+     * compares and means the card cannot disagree with the tick that acted on it.
+     */
+    struct mesh_mqtt_proxy_config want;
+    out->wanted = mesh_app_mqtt_plan(&app->session, &want);
+    if (!out->wanted) {
+        return;
+    }
+    out->disabled = app->mqtt_disabled;
+
+    const enum mesh_mqtt_proxy_state state = mesh_mqtt_proxy_state(&app->mqtt);
+    (void)mesh_str_copy(out->state, sizeof out->state, mesh_mqtt_proxy_state_string(state));
+    out->connected = state == MESH_MQTT_PROXY_READY;
+    out->failing = state == MESH_MQTT_PROXY_WAITING;
+
+    /*
+     * The broker from the plan rather than from the proxy, so the row is answerable before
+     * anything has connected and while the client is disabled - both of which are exactly when
+     * somebody is reading this card. mesh_mqtt_proxy_host() is the parsed host and is empty
+     * until a start, which would leave the one row that says *where* blank on the one screen
+     * that exists to say why.
+     */
+    (void)mesh_str_copy(out->host, sizeof out->host, want.address);
+    (void)mesh_str_copy(out->last_error, sizeof out->last_error,
+                        mesh_mqtt_proxy_last_error(&app->mqtt));
+
+    const struct mesh_mqtt_proxy_stats stats = mesh_mqtt_proxy_stats(&app->mqtt);
+    out->published = stats.published;
+    out->received = stats.received;
+    out->dropped = stats.dropped;
+    out->connections = stats.connections;
+    /*
+     * The subscriptions this client last *decided on*, not the ones the proxy holds. They are
+     * the same number whenever anything is running, and they differ in the case the card is for:
+     * a start the proxy refused leaves its own table empty while the plan still says what the
+     * radio asked for, and "0 topics" there would blame the radio for the client's refusal.
+     */
+    out->subscriptions = (uint32_t)app->mqtt_planned.filter_count;
+    out->undelivered = app->mqtt_undelivered;
+    out->unhandled = app->session.mqtt_unhandled;
 }

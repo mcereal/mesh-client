@@ -46,6 +46,18 @@
 /* The cards, in the order the screen draws them. */
 enum mesh_ui_status_card {
     MESH_UI_STATUS_CARD_LINK = 0,
+    /*
+     * The broker, and it is second rather than last for a layout reason rather than an editorial
+     * one. This column is drawn top down and the last card pays for everything above it by not
+     * being drawn at all - so a card that exists to explain a failure, put at the bottom, would
+     * be missing on exactly the crowded screen somebody is reading it from. Second also puts it
+     * beside the other link, which is what it is.
+     *
+     * It carries no verb, so nothing here has to be reachable by a cursor; it is the one card on
+     * this screen that is purely a readout. Nothing on the Brick can reach the broker to retry
+     * it, and the retry is on a backoff of its own.
+     */
+    MESH_UI_STATUS_CARD_BROKER,
     MESH_UI_STATUS_CARD_MESH,
     MESH_UI_STATUS_CARD_RADIO,
     MESH_UI_STATUS_CARD_COUNT,
