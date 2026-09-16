@@ -16,6 +16,7 @@
 #include "mesh/ui/node_detail.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
+#include "mesh/utils/text.h"
 
 #include "meshtastic/config.pb.h"
 #include "meshtastic/mesh.pb.h"
