@@ -39,7 +39,13 @@ run_privileged() {
 }
 
 # apt package list, mirroring the dev stage of docker/Dockerfile.
-APT_PACKAGES="build-essential clang clang-format cmake ninja-build pkg-config
+#
+# libclang-rt-18-dev is the one that is easy to leave out, and this list had: Ubuntu's clang
+# package does not pull the sanitizer runtimes in, so without it the documented way to reproduce
+# what CI found - `make debug CMAKE_ARGS="-- -DMESHCLIENT_ENABLE_ASAN=ON"` - fails at the link
+# step looking for libclang_rt.asan-x86_64.a, on a host `make setup` reported as ready. The
+# container and CI both install it; a native Linux host is the only place that did not.
+APT_PACKAGES="build-essential clang clang-format libclang-rt-18-dev cmake ninja-build pkg-config
               libdbus-1-dev dbus-daemon protobuf-compiler python3 python3-pip git zip"
 
 apt_install_done=0
