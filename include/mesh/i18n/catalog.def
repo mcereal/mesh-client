@@ -978,6 +978,20 @@ MESH_STR_ENTRY(VERIFY_BODY_WAITING,       "The two radios are working it out. Wh
 MESH_STR_ENTRY(VERIFY_VAL_NUMBER,         "%03u %03u")
 MESH_STR_ENTRY(VERIFY_BODY_NUMBER,        "Read these six digits to %s out loud - not over the mesh. Once they have typed them in, you will both be shown a short code to compare.")
 MESH_STR_ENTRY(VERIFY_BODY_COMPARE,       "%s is looking at a code too. Say yours to each other. Answer that they match only if every character does.")
+/*
+ * The same stage with nothing to compare, which is what the firmware actually sends today:
+ * KeyVerificationFinal.verification_characters is populated at neither end, and the initiating
+ * end never generates a code at all - its notification quotes whatever was last left in a
+ * scratch buffer. A comparison sheet with a blank headline is the one thing this feature must
+ * never do, because the only answer available to the reader is a guess.
+ *
+ * What is left is still a real result. The radio raises this step only after the six digits
+ * have been hashed together with both public keys and agreed, so the honest question is whether
+ * to trust *that*, and the caveat that carries the whole ceremony is the one below: the digits
+ * are proof of something only if they arrived by voice.
+ */
+MESH_STR_ENTRY(VERIFY_HEAD_CHECKED,       "Digits matched")
+MESH_STR_ENTRY(VERIFY_BODY_CHECKED,       "This radio checked the six digits against %s's key and they agreed. No code was sent to compare, so that is the whole of the proof - mark the key verified only if you heard those digits by voice.")
 /* The sheet's two answers, per stage. "Later" leaves the exchange running and gets out of the
    way; "Stop" ends it. */
 MESH_STR_ENTRY(VERIFY_ANSWER_LATER,       "Later")
@@ -985,6 +999,11 @@ MESH_STR_ENTRY(VERIFY_ANSWER_READING,     "Reading it out")
 MESH_STR_ENTRY(VERIFY_ANSWER_STOP,        "Stop")
 MESH_STR_ENTRY(VERIFY_ANSWER_MATCH,       "They match")
 MESH_STR_ENTRY(VERIFY_ANSWER_DIFFER,      "They do not")
+/* The pair for the stage above. Not "They match": there is nothing on this screen for the
+   reader to have matched, and a label that says otherwise is the sheet lying about what the
+   press means. */
+MESH_STR_ENTRY(VERIFY_ANSWER_TRUST,       "Mark it verified")
+MESH_STR_ENTRY(VERIFY_ANSWER_NOT_NOW,     "Not now")
 /* The keyboard prompt that collects the number, on the same terms as the pairing PIN prompt:
    pushed at the user by the radio rather than opened by a press. */
 MESH_STR_ENTRY(VERIFY_NUMBER_PROMPT,      "Six digits from %s")

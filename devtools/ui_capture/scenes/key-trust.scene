@@ -107,6 +107,16 @@ hold 2400
 key right
 hold 1800
 
+# And the same stage as the radio actually delivers it. No firmware populates
+# KeyVerificationFinal.verification_characters at either end, and the end that *started* the
+# ceremony never generates a code at all - so the panel above is what this stage will look like
+# one day and this is what it looks like now. There is nothing to compare, so the sheet does not
+# ask for a comparison: the radio only raises this step once the six digits have been hashed
+# against both public keys and agreed, and that result is a question a reader can actually
+# answer. A blank headline over "say yours to each other" is not.
+verify checked BRVO
+hold 2600
+
 # And on the palette with one accent and no held-back version of it, where the two answers
 # cannot be told apart by hue - which is why the fill moves instead of being shared.
 theme contrast

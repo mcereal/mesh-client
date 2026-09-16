@@ -1425,7 +1425,7 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         if (stage == NULL || name == NULL) {
             fprintf(stderr,
                     "uicap: line %u: 'verify' needs a stage "
-                    "(waiting|show|enter|compare|off) and a short name\n",
+                    "(waiting|show|enter|compare|checked|off) and a short name\n",
                     line_number);
             exit(1);
         }
@@ -1463,6 +1463,12 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         } else if (strcmp(stage, "compare") == 0) {
             verification.stage = (uint8_t)MESH_UI_VERIFY_COMPARE;
             snprintf(verification.characters, sizeof verification.characters, "%s", "K7Q2");
+        } else if (strcmp(stage, "checked") == 0) {
+            /* The same stage as the radio actually delivers it. No firmware populates
+               KeyVerificationFinal.verification_characters, so the code is empty - which is
+               the case worth having a picture of, because the sheet has to ask something else
+               rather than ask for a comparison against a blank headline. */
+            verification.stage = (uint8_t)MESH_UI_VERIFY_COMPARE;
         } else if (strcmp(stage, "off") != 0) {
             fprintf(stderr, "uicap: line %u: unknown verification stage '%s'\n", line_number,
                     stage);
