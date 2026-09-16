@@ -246,10 +246,14 @@ void mesh_ui_node_view_build(const struct mesh_ui_handshake_state *handshake,
         key->name = node_sort_name(node);
         switch (sort) {
         case MESH_UI_NODE_SORT_HEARD:
-            key->group = node->last_heard != 0U ? 0U : 1U;
+            if (node->last_heard != 0U) {
+                key->group = 0U;
+            }
             break;
         case MESH_UI_NODE_SORT_NAME:
-            key->group = key->name[0] != '\0' ? 0U : 1U;
+            if (key->name[0] != '\0') {
+                key->group = 0U;
+            }
             break;
         case MESH_UI_NODE_SORT_DISTANCE:
             if (have_fix && node->position.valid) {

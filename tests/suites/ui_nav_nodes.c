@@ -1822,8 +1822,12 @@ MESH_TEST_CASE(ui_nav_nodes_sort_permutes_but_never_selects, unit) {
         handshake.nodes[i].node_id = 0x1000U + i;
         handshake.nodes[i].in_nodedb = true;
         handshake.nodes[i].last_heard = (uint32_t)(600U - i * 50U);
+        /* Two digits and the N is the whole of a five-byte short_name, so the counter is
+           taken modulo what the format has room for rather than left as a uint32_t a reader
+           of this line - the compiler included - has to assume could be ten digits. */
+        const unsigned label = (unsigned)(handshake.node_count - i) % 100U;
         snprintf(handshake.nodes[i].short_name, sizeof handshake.nodes[i].short_name, "N%02u",
-                 (unsigned)(handshake.node_count - i));
+                 label);
     }
     /* A spread of the things each sort reads, and gaps in all of them: what is under test is the
        arithmetic, so every "cannot say" arm has to be walked as well as every comparison. */

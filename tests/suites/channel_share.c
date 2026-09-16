@@ -27,6 +27,7 @@
 #include "mesh/utils/base64.h"
 #include "mesh/utils/qr.h"
 #include "mesh/utils/sha256.h"
+#include "mesh/utils/text.h"
 #include "support/ui_fixture.h"
 
 #include <stdio.h>
@@ -306,7 +307,10 @@ MESH_TEST_CASE(channel_url_decode_is_lenient_about_the_wrapper, unit) {
                       "the set did not encode");
     const char *payload = url + strlen(MESH_CHANNEL_URL_PREFIX);
 
-    char variant[MESH_CHANNEL_URL_MAX];
+    /* A whole link plus the suffix appended below. MESH_CHANNEL_URL_MAX already carries room
+       for `?add=true` on a link the encoder wrote; the extra is for the worst case a reader of
+       this line - the compiler included - has to assume, where `url` fills its own buffer. */
+    char variant[MESH_CHANNEL_URL_MAX + sizeof("?add=true")];
     meshtastic_ChannelSet back;
     bool add = false;
 
@@ -686,7 +690,10 @@ MESH_TEST_CASE(channel_share_rows_drive_the_two_screens, unit) {
         failure = "the link did not encode";
         goto cleanup;
     }
-    snprintf(store.nav.draft, sizeof store.nav.draft, "%s", link);
+    if (!mesh_str_copy(store.nav.draft, sizeof store.nav.draft, link)) {
+        failure = "the link did not fit the draft the keyboard fills";
+        goto cleanup;
+    }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
     if (store.nav.keyboard_open || !store.nav.confirm_open ||
         store.nav.confirm_action != (uint8_t)MESH_UI_SETTINGS_ACTION_IMPORT_CHANNELS ||

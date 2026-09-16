@@ -120,12 +120,17 @@ static int count_bits(int version) { return version < 10 ? 8 : 16; }
    Russian-peasant rather than log tables - it is called a few thousand times per code, and a
    pair of 256-byte tables to initialise is more state than that saves. */
 static uint8_t gf_mul(uint8_t a, uint8_t b) {
-    uint8_t result = 0U;
+    /* Held as words rather than as bytes, which is not about width: C promotes a uint8_t
+       operand to *int*, so every step below would mix a signed operand with an unsigned one and
+       read as a sign conversion at each. The value never leaves 0..255 - the mask is the
+       truncation the cast on each line used to do. */
+    const uint32_t multiplicand = a;
+    uint32_t result = 0U;
     for (int i = 7; i >= 0; --i) {
-        result = (uint8_t)((result << 1) ^ ((result >> 7) * 0x1DU));
-        result = (uint8_t)(result ^ (((b >> i) & 1U) * a));
+        result = ((result << 1) ^ ((result >> 7) * 0x1DU)) & 0xFFU;
+        result ^= ((uint32_t)(b >> i) & 1U) * multiplicand;
     }
-    return result;
+    return (uint8_t)result;
 }
 
 /* The generator polynomial of the given degree, as coefficients with the leading 1 implied. */
@@ -233,7 +238,7 @@ static void draw_alignment(struct mesh_qr *qr, int cx, int cy) {
    all-zero case still has dark modules in it. Written twice, in the two places a decoder that
    found only one finder pattern can still reach. */
 static void draw_format(struct mesh_qr *qr, enum mesh_qr_ecc ecc, int mask) {
-    const uint32_t data = (uint32_t)((k_ecc_format_bits[ecc] << 3) | (unsigned)mask);
+    const uint32_t data = ((uint32_t)k_ecc_format_bits[ecc] << 3) | (uint32_t)mask;
     uint32_t rem = data;
     for (int i = 0; i < 10; ++i) {
         rem = (rem << 1) ^ ((rem >> 9) * 0x537U);
@@ -325,7 +330,7 @@ static void draw_codewords(struct mesh_qr *qr, const uint8_t *data, size_t len) 
                 const bool upward = ((right + 1) & 2) == 0;
                 const int y = upward ? size - 1 - vert : vert;
                 if (!is_function(qr, x, y) && bit < len * 8U) {
-                    const bool dark = ((data[bit >> 3] >> (7 - (bit & 7U))) & 1U) != 0U;
+                    const bool dark = (((uint32_t)data[bit >> 3] >> (7U - (bit & 7U))) & 1U) != 0U;
                     set_module(qr, x, y, dark, false);
                     bit++;
                 }

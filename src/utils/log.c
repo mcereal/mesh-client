@@ -76,6 +76,9 @@ static void format_timestamp(char *buffer, size_t buffer_len) {
  * is quiet because the level was set high.
  */
 static void log_capture(const char *timestamp, enum mesh_log_level level, const char *component,
+                        const char *fmt, va_list args) __attribute__((format(printf, 4, 0)));
+
+static void log_capture(const char *timestamp, enum mesh_log_level level, const char *component,
                         const char *fmt, va_list args) {
     char line[MESH_CRASH_LOG_LINE_MAX];
     int used = snprintf(line, sizeof line, "%s [%s]", timestamp, mesh_log_level_to_string(level));

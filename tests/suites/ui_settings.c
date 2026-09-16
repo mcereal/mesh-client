@@ -2850,8 +2850,11 @@ MESH_TEST_CASE(settings_withdrawn_verbs_keep_the_section_shape, unit) {
             return;
         }
         if (strcmp(item.label, live[row]) != 0) {
-            snprintf(message, sizeof message, "row %u is \"%s\" with a link and \"%s\" without",
-                     row, live[row], item.label);
+            /* The precision is what keeps the message inside `message`: a compiler bounds a
+               row of `live` by the whole table rather than by the row, so a plain %s here
+               reads as a 768-byte write into 160. A row holds one label, by construction. */
+            snprintf(message, sizeof message, "row %u is \"%.*s\" with a link and \"%s\" without",
+                     row, (int)sizeof live[row], live[row], item.label);
             record_failure(test_name, message);
             return;
         }
@@ -2865,8 +2868,8 @@ MESH_TEST_CASE(settings_withdrawn_verbs_keep_the_section_shape, unit) {
         }
         if (item.kind != MESH_UI_SETTING_ACTION_OFF || !mesh_ui_settings_item_is_verb(&item) ||
             !mesh_ui_icon_is_valid(item.icon)) {
-            snprintf(message, sizeof message, "row %u (%s) lost its shape when the link dropped",
-                     row, live[row]);
+            snprintf(message, sizeof message, "row %u (%.*s) lost its shape when the link dropped",
+                     row, (int)sizeof live[row], live[row]);
             record_failure(test_name, message);
             return;
         }

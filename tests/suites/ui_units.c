@@ -228,9 +228,14 @@ MESH_TEST_CASE(ui_units_no_setting_reads_in_metres_under_imperial, unit) {
             section == (uint32_t)MESH_UI_SETTINGS_CHANNELS ? 0U : MESH_UI_SETTINGS_NO_CHANNEL,
             items, MESH_UI_SETTINGS_ITEMS_MAX);
         for (uint32_t i = 0U; i < count; ++i) {
+            /* The precisions are what keep the message inside `why`: a compiler bounds a row
+               of `items` by the whole array rather than by the field, so a plain %s here reads
+               as a 6 KB write into 160 bytes. A row is a label and a value wide, and that is
+               all either quote is ever allowed to be. */
             char why[160];
-            snprintf(why, sizeof why, "'%s' reads '%s' with the radio set to imperial",
-                     items[i].label, items[i].value);
+            snprintf(why, sizeof why, "'%.*s' reads '%.*s' with the radio set to imperial",
+                     (int)sizeof items[i].label, items[i].label, (int)sizeof items[i].value,
+                     items[i].value);
             MESH_TEST_FAIL_IF(value_reads_metric(items[i].value), why);
             if (strcmp(items[i].label, "Map precision") == 0 ||
                 strcmp(items[i].label, "Position precision") == 0 ||
@@ -278,8 +283,9 @@ MESH_TEST_CASE(ui_units_no_setting_reads_in_feet_under_metric, unit) {
             const bool feet = len >= 3U && strcmp(items[i].value + len - 3U, " ft") == 0;
             const bool miles = len >= 3U && strcmp(items[i].value + len - 3U, " mi") == 0;
             char why[160];
-            snprintf(why, sizeof why, "'%s' reads '%s' with the radio set to metric",
-                     items[i].label, items[i].value);
+            snprintf(why, sizeof why, "'%.*s' reads '%.*s' with the radio set to metric",
+                     (int)sizeof items[i].label, items[i].label, (int)sizeof items[i].value,
+                     items[i].value);
             MESH_TEST_FAIL_IF(feet || miles, why);
         }
     }
