@@ -9,10 +9,10 @@ The radio stays the origin. This client is only the box with a route to the inte
 Brick is the whole point: the radio has LoRa and Bluetooth and no WiFi worth the name, and the
 handheld it is paired with has WiFi.
 
-**The client proxies, and says so.** A radio that asks for it gets a broker connection, the right
-subscriptions, and both directions relayed, with no setting on the Brick involved — and the
-Status tab grows a Broker card that says whether it worked. What is still missing is the last
-press: the "proxy via client" toggle in Settings is still read-only.
+**This is finished.** A radio that asks for it gets a broker connection, the right subscriptions,
+and both directions relayed; the Status tab grows a Broker card that says whether it worked; and
+Settings → Modules → MQTT → **Proxy via client** is the press that asks for it in the first
+place. Nothing about it needs a phone any more.
 
 ## The pieces
 
@@ -177,6 +177,19 @@ the two.
 
 The card carries no verb. Nothing on the Brick can reach a broker to retry it, and the retry is
 already on a backoff of its own.
+
+## Turning it on
+
+**Settings → Modules → MQTT → Proxy via client**, the second row, under the toggle that turns
+MQTT on at all. It writes `proxy_to_client_enabled` and nothing else on this side: the proxy is
+re-derived from `MQTTConfig` every loop turn, so what starts it is the radio's own reply — the
+config sync that follows the reboot a settings write causes.
+
+It was a read-only row for three phases, and the argument for that was real: turning it on takes
+the radio's MQTT off its own WiFi and hands it to the attached client, and until this client
+spoke the protocol the client was dropping every message. What is still true is that the client
+has to be *running and connected*, which is a handheld somebody can walk away with — and that is
+what the Broker card is for.
 
 ```bash
 make ui-capture ARGS="devtools/ui_capture/scenes/broker.scene -o broker.gif"

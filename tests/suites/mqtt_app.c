@@ -22,9 +22,12 @@
 #include "support/session_fixture.h"
 
 #include "mesh/core/mqtt_proxy.h"
+#include "mesh/core/radio_settings.h"
 #include "mesh/core/session.h"
+#include "mesh/ui/settings.h"
 #include "mesh/ui/store_mqtt.h"
 
+#include "meshtastic/admin.pb.h"
 #include "meshtastic/config.pb.h"
 #include "meshtastic/module_config.pb.h"
 
@@ -586,5 +589,62 @@ MESH_TEST_CASE(mqtt_status_tells_the_clients_refusal_from_the_radios_silence, un
         return;
     }
     mesh_mqtt_proxy_shutdown(&app.mqtt);
+    record_success(test_name);
+}
+
+/* ------------------------------------------------------------------ handing the job over */
+
+/*
+ * The press that makes this client the radio's route to the internet.
+ *
+ * The row was read-only for three phases, on the argument that offering it would let the Brick
+ * take the radio's MQTT off the air and hand it to something that was ignoring the messages.
+ * What makes it safe is not the write - it is one boolean - but everything under it: this case
+ * checks the write, and the plan cases above check that the radio's reply to it actually starts
+ * a proxy.
+ */
+MESH_TEST_CASE(mqtt_app_hands_the_broker_over_when_the_row_is_pressed, unit) {
+    struct mesh_radio_settings radio;
+    mesh_radio_settings_reset(&radio);
+    radio.has_mqtt = true;
+    radio.mqtt.enabled = true;
+    /* Something else already set, so the case would also fail if the write built a fresh
+       MQTTConfig rather than the radio's own with the edit applied - the firmware replaces
+       sections whole, so a write that forgot the rest would silently clear the broker. */
+    snprintf(radio.mqtt.address, sizeof radio.mqtt.address, "%s", "broker.example");
+
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    action.section = MESH_UI_SETTINGS_MQTT;
+    action.edit_count = 1U;
+    action.edits[0].field = MESH_UI_FIELD_MQTT_PROXY;
+    action.edits[0].number = 1U;
+
+    struct mesh_admin_request write;
+    if (mesh_app_build_settings_write(&radio, &action, &write) != 0) {
+        record_failure(test_name, "the MQTT section should be writable");
+        return;
+    }
+    const meshtastic_ModuleConfig_MQTTConfig *out =
+        &write.payload.module_config.payload_variant.mqtt;
+    if (write.type != meshtastic_AdminMessage_ModuleConfigType_MQTT_CONFIG ||
+        !out->proxy_to_client_enabled) {
+        record_failure(test_name, "the press should turn client proxying on");
+        return;
+    }
+    if (!out->enabled || strcmp(out->address, "broker.example") != 0) {
+        record_failure(test_name, "the rest of the section should survive the write");
+        return;
+    }
+
+    /* And back, which is the press that hands the connection to the radio's own WiFi. A toggle
+       that could only be turned on would be a one-way door on a handheld somebody walks away
+       with. */
+    action.edits[0].number = 0U;
+    if (mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+        write.payload.module_config.payload_variant.mqtt.proxy_to_client_enabled) {
+        record_failure(test_name, "the press should turn client proxying off again");
+        return;
+    }
     record_success(test_name);
 }

@@ -294,6 +294,17 @@ enum mesh_ui_setting_field {
     MESH_UI_FIELD_POWER_WAIT_BT,
     MESH_UI_FIELD_POWER_SHUTDOWN,
     MESH_UI_FIELD_MQTT_ENABLED,
+    /*
+     * Who holds the broker connection: the radio over its own WiFi, or whatever client it is
+     * paired with. Directly under the toggle that turns MQTT on, because it is the second
+     * question about the same connection and everything below it is a detail of the first.
+     *
+     * It was a read-only row until this client could act on it, and the reason was that turning
+     * it on takes the radio's MQTT off the air and hands it to something that was ignoring the
+     * messages. That is no longer true; what is still true is that this client has to be running
+     * and connected, which is what the Status screen's Broker card is for.
+     */
+    MESH_UI_FIELD_MQTT_PROXY,
     MESH_UI_FIELD_MQTT_ADDRESS,
     MESH_UI_FIELD_MQTT_USERNAME,
     MESH_UI_FIELD_MQTT_PASSWORD,

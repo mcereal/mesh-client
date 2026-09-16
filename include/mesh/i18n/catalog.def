@@ -1239,6 +1239,7 @@ MESH_STR_ENTRY(SETTINGS_NOTE_DISPLAY_MESSAGE_BUBBLES,     "Draws messages on the
 
 /* MQTT. */
 MESH_STR_ENTRY(SETTINGS_NOTE_MQTT_ENABLED,                "Connects the radio to a broker. Nothing crosses until a channel is set to uplink or downlink, so this alone changes what the radio talks to and not what it shares.")
+MESH_STR_ENTRY(SETTINGS_NOTE_MQTT_PROXY,                  "Hands the broker connection to whatever this radio is paired with, instead of the radio's own WiFi. This client holds it - see the Broker card on Status - but only while it is running and connected.")
 MESH_STR_ENTRY(SETTINGS_NOTE_MQTT_ADDRESS,                "The broker to connect to, with a port after a colon if it is not the usual one. Left empty, the radio uses the public Meshtastic broker.")
 MESH_STR_ENTRY(SETTINGS_NOTE_MQTT_ROOT,                   "The topic everything is published under. Two meshes sharing one broker need different roots, or each will hear the other's traffic as though it were its own.")
 MESH_STR_ENTRY(SETTINGS_NOTE_MQTT_ENCRYPTION,             "Publishes each packet still encrypted with its channel key, so the broker carries traffic it cannot read. Off hands the plain text to whoever runs the broker.")
@@ -1594,6 +1595,7 @@ MESH_STR_ENTRY(SETTINGS_FIELD_DISPLAY_WAKE_ON_MOTION,     "Wake on motion")
 MESH_STR_ENTRY(SETTINGS_FIELD_DISPLAY_LONG_NAMES,         "Long node names")
 MESH_STR_ENTRY(SETTINGS_FIELD_DISPLAY_MESSAGE_BUBBLES,    "Message bubbles")
 MESH_STR_ENTRY(SETTINGS_FIELD_MQTT_ENABLED,               "MQTT")
+MESH_STR_ENTRY(SETTINGS_FIELD_MQTT_PROXY,                 "Proxy via client")
 MESH_STR_ENTRY(SETTINGS_FIELD_MQTT_ADDRESS,               "Server")
 MESH_STR_ENTRY(SETTINGS_FIELD_MQTT_USERNAME,              "Username")
 MESH_STR_ENTRY(SETTINGS_FIELD_MQTT_PASSWORD,              "Password")
@@ -2165,8 +2167,7 @@ MESH_STR_ENTRY(NOTE_TEST_PACKETS,         "Test packets")
 MESH_STR_ENTRY(NOTE_TEST_PACKETS_VALUE,   "go to everyone on the channel")
 MESH_STR_ENTRY(NOTE_EACH_LIMIT,           "Each limit")
 MESH_STR_ENTRY(NOTE_EACH_LIMIT_VALUE,     "is off when it is 0")
-/* Rows the MQTT and Position screens add outside the field table. */
-MESH_STR_ENTRY(SETTINGS_PROXY_VIA_CLIENT, "Proxy via client")
+/* Rows the Position screen adds outside the field table. */
 MESH_STR_ENTRY(SETTINGS_FIXED_POSITION,   "Fixed position")
 MESH_STR_ENTRY(SETTINGS_SET_FIXED_POS,    "Set fixed position")
 MESH_STR_ENTRY(SETTINGS_CLEAR_FIXED_POS,  "Clear fixed position")
