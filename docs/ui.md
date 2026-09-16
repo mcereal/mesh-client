@@ -418,22 +418,31 @@ a card edge instead of removing it. So a section holding any verb reserves the d
 its fields too, with `FB_LEADING_TONAL_SLOT`: the gutter, promised to a row that has nothing to
 put in it.
 
-**A card does not spend into a step that is a full row.** A card in a list takes its bottom
+**A card's edge lives outside both the boxes it separates.** A card in a list takes its bottom
 padding out of the step below it, which is where the break between two cards comes from — and
 that is right for the step a *heading* stands in, because a heading is drawn small and centres
 itself in whatever is left. A floated verb cannot give the room up: it is a line advance with a
 glyph cell in it and a leading disc nearly as tall as the step, so the card's hairline came down
-across the disc's crown and, with the cursor on the row, the card's bottom corner was painted out
-by the row's own highlight. About radio is the case — two floated verbs, each under a card — and
-Position's fixed-position pair is the other. So a screen says which kind of panel row it has
-(`FB_LIST_PANEL_ROW`), the card closes at the boundary where a full row follows, and the disc is
-sized to the band its neighbours leave and centred in the slot, so the room comes off the disc
-and never off the column. The clearance is one pixel at each end and is written as one: it is the
-least that can be seen, and a hairline's worth instead costs the disc the two pixels at which
-`fb_draw_avatar()` drops its symbol a glyph scale.
-`ui_capture_a_floated_row_clears_the_cards_around_it` holds it, on the frame rather than on the
-arithmetic — nothing tonal may stand on a scanline a card's edge owns, or on the one either side
-of it.
+across the disc's crown. About radio is the case — two floated verbs, each under a card — and
+Position's fixed-position pair is the other.
+
+So a screen says which kind of panel row it has (`FB_LIST_PANEL_ROW`), and a card followed by one
+spends the **hairline** into its step rather than the whole inset. The hairline still has to go
+somewhere, and outside is the only place: an edge drawn inside a row's box is an edge that row's
+highlight paints out, which is why `box_top` already spends one upward. So the card spends one
+downward on the same terms, and the floated row gives it back out of its own box at each end a
+card is adjacent — neither highlight can then reach an edge. The disc is sized to what is left
+and centred in the slot, so the room comes off the disc and never off the column. The clearance
+either end is one pixel and is written as one: it is the least that can be seen, and it costs the
+disc the two pixels at which `fb_draw_avatar()` drops its symbol a glyph scale — a smaller mark on
+a row that is a button under a form, against a card that looks broken.
+
+`ui_capture_a_floated_row_clears_the_cards_around_it` holds all three readings of that one
+hairline, on the frame rather than on the arithmetic, and it walks the cursor because two of them
+only appear under a highlight. Nothing tonal may stand on a scanline a card's edge owns or the one
+either side of it (*purity*), and the number of edges may not depend on where the cursor is
+(*presence*) — a highlight laid over an edge does not corrupt that scanline, it removes it, so
+only the second assertion can see it.
 
 **The gutter is one width, and a heading owes it too.** Two things used to make a section's own
 rows disagree about where its words begin, and both are the same rule broken from a different
