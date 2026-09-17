@@ -1317,6 +1317,9 @@ bool mesh_ui_store_consume_updates(struct mesh_ui_store *store, struct mesh_ui_s
     snapshot->traceroute = store->traceroute;
     snapshot->verification = store->verification;
     snapshot->history = store->history;
+    /* What the backend last said its body holds, for the one thing on the other side of the seam
+       that needs it: the action bar deciding whether a list of readings can be scrolled. */
+    snapshot->page_rows = store->page_rows;
     snapshot->mqtt = store->mqtt;
 
     memcpy(snapshot->transport_status, store->transport_status, sizeof snapshot->transport_status);

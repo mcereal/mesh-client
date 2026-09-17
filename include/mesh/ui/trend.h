@@ -143,6 +143,65 @@ struct mesh_ui_trend {
 bool mesh_ui_trend_frame(const struct mesh_ui_series *const *series, uint32_t count,
                          struct mesh_ui_scale domain, uint8_t span, struct mesh_ui_trend *out);
 
+/* ---- readings ---------------------------------------------------------------------------------
+ *
+ * The same window, read as a list instead of drawn as a picture.
+ *
+ * A chart answers "which way is this going" and is the wrong shape for "what exactly did it say":
+ * a plot 900 cells wide holding two dozen readings can be read to about a percent, which is fine
+ * for a direction and useless for a number somebody is about to write down. So the chart screen
+ * has a second face, and this is what it lists.
+ *
+ * **Only a node's chart has one.** The radio's airtime is six hours at a reading a minute, which
+ * is 360 rows nobody is going to scroll - and it is already binned into columns
+ * (mesh_ui_trend_airtime()) precisely because reading by reading is the wrong grain for it. A
+ * node's telemetry is two dozen samples half an hour apart, which is few enough that reading them
+ * exactly is a real thing to want. The difference is in the readings rather than in the screens,
+ * which is why it is stated here and not as a flag on a renderer.
+ *
+ * The window is the span picker's, the same cut mesh_ui_trend_frame() makes, so the list and the
+ * plot are two views of one set of readings rather than two opinions about which readings there
+ * are. One difference, and it is the list being able to say more rather than less: a single
+ * reading is no window at all to a picture - mesh_ui_series_window() says so - and is a perfectly
+ * good row, because somebody took it.
+ */
+
+/*
+ * One reading, as a row.
+ *
+ * `before_ms` is measured from the newest reading in the window rather than from the clock, and
+ * that is the honest unit rather than the convenient one. A Brick has no RTC; the series are
+ * stamped with a monotonic clock that counts from boot, and the caption under the plot already
+ * says how far back the picture goes on exactly those terms. A column of "ago" would be the one
+ * claim on this screen with nothing behind it.
+ *
+ * No break flag, though the series has one. A gap is what makes a *line* lie - it is why the pen
+ * is lifted - and a list does not join anything to anything: two rows an hour apart say so in the
+ * column that is already there.
+ */
+struct mesh_ui_trend_reading {
+    uint32_t time; /* the history's own timeline, as a sample's is */
+    uint32_t before_ms;
+    int32_t value;
+};
+
+/*
+ * How many readings `span` holds, and the `index`th of them counting back from the newest.
+ *
+ * Newest first, because that is the order the question arrives in - the reader came from a row
+ * showing the latest figure and is looking for the ones behind it - and because it is the order
+ * that keeps a row still while readings arrive. Oldest-first, every new sample would renumber
+ * every row under a cursor that had not moved.
+ *
+ * Two functions rather than one that fills an array, for the reason the node detail's rows are
+ * built rather than indexed: three things ask - the clamp that holds the scroll in range, the
+ * action bar that decides whether to name a scroll at all, and the renderer - and an array
+ * passed between them is a fourth place for the count to be wrong.
+ */
+uint32_t mesh_ui_trend_readings(const struct mesh_ui_series *series, uint8_t span);
+bool mesh_ui_trend_reading_at(const struct mesh_ui_series *series, uint8_t span, uint32_t index,
+                              struct mesh_ui_trend_reading *out);
+
 /* ---- columns --------------------------------------------------------------------------------
  *
  * The radio's airtime drawn as columns rather than as a line through every reading.

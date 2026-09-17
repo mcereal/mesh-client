@@ -442,6 +442,108 @@ MESH_TEST_CASE(trend_action_bar_names_the_span_press, unit) {
  * LocalStats every quarter of an hour gets quarter-hour columns rather than fourteen empty slots
  * for every full one.
  */
+/*
+ * The readings behind the picture: the same window, listed newest first.
+ *
+ * Newest first is the contract rather than a presentation choice - it is what keeps a row still
+ * while readings arrive, and the scroll the nav holds is an index into this order.
+ */
+MESH_TEST_CASE(trend_readings_list_the_window_newest_first, unit) {
+    struct mesh_ui_series series;
+    mesh_ui_series_reset(&series, 0U);
+    for (uint32_t i = 0U; i < 5U; ++i) {
+        mesh_ui_series_push(&series, 1000U + i * 60U * 1000U, (int32_t)(10 + i));
+    }
+
+    MESH_TEST_FAIL_IF(mesh_ui_trend_readings(&series, MESH_UI_TREND_SPAN_ALL) != 5U,
+                      "ALL holds every reading");
+
+    struct mesh_ui_trend_reading row;
+    MESH_TEST_FAIL_IF(!mesh_ui_trend_reading_at(&series, MESH_UI_TREND_SPAN_ALL, 0U, &row),
+                      "row 0 should be there");
+    MESH_TEST_FAIL_IF(row.value != 14, "row 0 is the newest reading");
+    MESH_TEST_FAIL_IF(row.before_ms != 0U, "and nothing came before it");
+
+    MESH_TEST_FAIL_IF(!mesh_ui_trend_reading_at(&series, MESH_UI_TREND_SPAN_ALL, 2U, &row),
+                      "row 2 should be there");
+    MESH_TEST_FAIL_IF(row.value != 12, "the rows count back from the newest");
+    MESH_TEST_FAIL_IF(row.before_ms != 2U * 60U * 1000U,
+                      "measured from the newest reading rather than from a clock");
+
+    MESH_TEST_FAIL_IF(mesh_ui_trend_reading_at(&series, MESH_UI_TREND_SPAN_ALL, 5U, &row),
+                      "past the end is not a row");
+
+    /* The span cuts this list exactly as it cuts the plot: four minutes of readings, and a
+       quarter of an hour holds all of them while a narrower window would not. */
+    MESH_TEST_FAIL_IF(mesh_ui_trend_readings(&series, MESH_UI_TREND_SPAN_15M) != 5U,
+                      "a window wider than the readings holds them all");
+
+    /* And the one place the list says more than the picture: a single reading is no window at
+       all to mesh_ui_series_window(), and is a perfectly good row. */
+    struct mesh_ui_series one;
+    mesh_ui_series_reset(&one, 0U);
+    mesh_ui_series_push(&one, 4000U, 7);
+    MESH_TEST_FAIL_IF(mesh_ui_trend_readings(&one, MESH_UI_TREND_SPAN_ALL) != 1U,
+                      "one reading is one row");
+    MESH_TEST_FAIL_IF(!mesh_ui_trend_reading_at(&one, MESH_UI_TREND_SPAN_ALL, 0U, &row) ||
+                          row.value != 7,
+                      "and it is the reading that was taken");
+
+    struct mesh_ui_series empty;
+    mesh_ui_series_reset(&empty, 0U);
+    MESH_TEST_FAIL_IF(mesh_ui_trend_readings(&empty, MESH_UI_TREND_SPAN_ALL) != 0U,
+                      "nothing kept is no rows");
+    MESH_TEST_FAIL_IF(mesh_ui_trend_readings(NULL, MESH_UI_TREND_SPAN_ALL) != 0U,
+                      "and neither is no series");
+    record_success(test_name);
+}
+
+/*
+ * The airtime chart has no readings list, and that is a decision rather than an omission.
+ *
+ * Six hours at a reading a minute is 360 rows nobody will scroll, and the screen already bins
+ * them into columns precisely because reading by reading is the wrong grain for that record. So
+ * Y means nothing here, and the bar must not name it - which is the same rule the span press is
+ * held to one case up, applied to the one difference the two charts really do have.
+ */
+MESH_TEST_CASE(trend_airtime_chart_has_no_readings_list, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(!open_airtime_chart(&store), "the airtime chart did not open");
+
+    const char *failure = NULL;
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
+    if (store.nav.trend_table) {
+        failure = "Y on the airtime chart should not list anything";
+        goto cleanup;
+    }
+
+    struct mesh_ui_snapshot *snapshot = calloc(1U, sizeof *snapshot);
+    if (snapshot == NULL) {
+        failure = "snapshot allocation failed";
+        goto cleanup;
+    }
+    snapshot->nav = store.nav;
+    snapshot->history = store.history;
+    struct mesh_ui_action_bar bar;
+    mesh_ui_actions_for(snapshot, &bar);
+    for (size_t i = 0U; i < bar.count; ++i) {
+        if (bar.items[i].button == MESH_UI_BUTTON_Y ||
+            bar.items[i].button == MESH_UI_BUTTON_UP_DOWN) {
+            failure = "the bar named a press the airtime chart does not have";
+            break;
+        }
+    }
+    free(snapshot);
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(trend_bin_follows_the_cadence_and_the_room, unit) {
     const uint32_t minute = 60U * 1000U;
     MESH_TEST_FAIL_IF(mesh_ui_trend_bin_ms(60U * minute, minute, 80U) != minute,

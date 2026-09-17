@@ -83,6 +83,9 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_ACTION_REFRESH] = "recargar",
     [MESH_STR_ACTION_TREND] = "tendencia",
     [MESH_STR_ACTION_SPAN] = "periodo",
+    /* Y on a node's chart, naming the face the press turns to rather than the one that is up. */
+    [MESH_STR_ACTION_READINGS] = "lecturas",
+    [MESH_STR_ACTION_CHART] = "gráfica",
     [MESH_STR_ACTION_GROUPS] = "grupos",
     [MESH_STR_ACTION_SAVE] = "guardar",
     [MESH_STR_ACTION_DISCARD] = "descartar",
@@ -344,6 +347,10 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_TREND_SPAN_6H] = "6h",
     [MESH_STR_TREND_SPAN_ALL] = "Todo",
     [MESH_STR_TREND_EMPTY] = "Lecturas insuficientes en este periodo",
+    /* The readings list. The caption names what the left-hand column is measured from, which is
+       the newest reading rather than the clock - the device has no RTC. */
+    [MESH_STR_TREND_READINGS_FROM] = "antes de la lectura más reciente",
+    [MESH_STR_TREND_READINGS_NEWEST] = "más reciente",
     [MESH_STR_TREND_VALUE_CELSIUS] = "%.1f C",
     [MESH_STR_HELP_SUBJECT_TREND] = "Tendencia del aire",
     [MESH_STR_HELP_LABEL_TREND_AXES] = "Qué dicen los ejes",
@@ -615,6 +622,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_HELP_LABEL_NODE_CHART] = "Qué muestra esto",
     [MESH_STR_HELP_LABEL_NODE_CHART_GAPS] = "Huecos y líneas",
     [MESH_STR_HELP_LABEL_NODE_CHART_SPAN] = "Elegir cuánto tiempo atrás",
+    [MESH_STR_HELP_LABEL_NODE_CHART_READINGS] = "Leer las cifras",
     [MESH_STR_HELP_LABEL_WAYPOINT_NEW] = "Nombrar un lugar",
     [MESH_STR_HELP_LABEL_WAYPOINT_SHARE] = "Quién más lo ve",
     [MESH_STR_HELP_LABEL_WAYPOINT_DROP] = "Borrar uno",

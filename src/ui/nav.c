@@ -173,6 +173,43 @@ static bool mesh_ui_nav_step_trend_span(struct mesh_ui_nav *nav, int delta) {
         return false;
     }
     nav->trend_span = next;
+    /* A different span is a different set of readings, so the list starts at the top of it.
+       Kept here rather than at the two call sites for the reason the step itself is: the span
+       moving and the rows it numbers are one event. */
+    nav->trend_scroll = 0U;
+    return true;
+}
+
+/*
+ * Y on a node's chart: the plot and the readings behind it - see `trend_table`.
+ *
+ * The scroll goes back to the top on the way in *and* on the way out. On the way in because a
+ * list opens at its newest row; on the way out because the flag is a preference that outlives
+ * the screen while the position is not, and a table reopened halfway down a set of readings that
+ * have moved on since is a window nobody placed.
+ */
+static bool mesh_ui_nav_toggle_trend_table(struct mesh_ui_nav *nav) {
+    nav->trend_table = !nav->trend_table;
+    nav->trend_scroll = 0U;
+    return true;
+}
+
+/*
+ * Up and Down on that list, which is the one thing on either chart screen they have ever meant.
+ *
+ * It moves the *window* rather than a cursor, because nothing here is pressable - see
+ * `trend_scroll`. The top is clamped here and the bottom by mesh_ui_nav_clamp(), which is the
+ * split every list in this client is on: this file knows a press cannot go below zero, and only
+ * the clamp knows how many readings there are and how many of them fit.
+ */
+static bool mesh_ui_nav_scroll_trend_table(struct mesh_ui_nav *nav, int delta) {
+    if (!nav->trend_table) {
+        return false; /* a picture has nothing to scroll */
+    }
+    if (delta < 0 && nav->trend_scroll == 0U) {
+        return false;
+    }
+    nav->trend_scroll = delta < 0 ? nav->trend_scroll - 1U : nav->trend_scroll + 1U;
     return true;
 }
 
@@ -188,6 +225,7 @@ static bool mesh_ui_nav_close_node_detail(struct mesh_ui_nav *nav) {
        map's `map_open` bug one screen along: the next node opened would land straight on a chart
        of whichever reading the last one was showing. */
     nav->node_trend = MESH_UI_HISTORY_NONE;
+    nav->trend_scroll = 0U;
     nav->cursor[MESH_UI_SCREEN_NODES] = nav->node_list_cursor;
     return true;
 }
@@ -653,11 +691,37 @@ bool mesh_ui_nav_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_store *stor
     if (nav->node_detail_open && nav->node_trend != MESH_UI_HISTORY_NONE) {
         const struct mesh_ui_node_summary *charted =
             mesh_ui_node_detail_find(&store->handshake, nav->node_detail_node);
+        struct mesh_ui_node_item row;
+        memset(&row, 0, sizeof row);
         if (!mesh_ui_node_detail_trend_row(charted, mesh_ui_nav_node_is_self(store, charted),
                                            &store->traceroute, &store->handshake, &store->history,
-                                           (enum mesh_ui_history_reading)nav->node_trend, NULL)) {
+                                           (enum mesh_ui_history_reading)nav->node_trend, &row)) {
             nav->node_trend = MESH_UI_HISTORY_NONE;
+            nav->trend_scroll = 0U;
             moved = true;
+        } else if (nav->trend_table) {
+            /*
+             * And how far down that chart's readings the list has been scrolled, held to what
+             * there is to scroll - see `trend_scroll`.
+             *
+             * Off the *row* rather than off the history, which is the same choice the close above
+             * makes and for a sharper reason here: the row is where the chart's whole statement
+             * lives, so the readings this counts are the readings the renderer is about to list.
+             * Asked of the history it would be a second opinion about which series is open, and
+             * the day they differed the list would scroll over one reading and draw another.
+             *
+             * `page_rows` is the body the backend last reported. Zero is a backend that has not
+             * said - a headless run, the frame before the first draw - and pins the list to its
+             * top rather than guessing a height: a window of unknown size cannot be scrolled off
+             * the end of anything.
+             */
+            const uint32_t readings = mesh_ui_trend_readings(row.trend, nav->trend_span);
+            const uint32_t rows = store->page_rows;
+            const uint32_t last = (rows > 0U && readings > rows) ? readings - rows : 0U;
+            if (nav->trend_scroll > last) {
+                nav->trend_scroll = last;
+                moved = true;
+            }
         }
     }
 
@@ -1986,12 +2050,21 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
         case MESH_UI_KEY_LEFT:
         case MESH_UI_KEY_RIGHT:
             return mesh_ui_nav_step_trend_span(nav, key == MESH_UI_KEY_RIGHT ? 1 : -1);
+        /* The two presses the airtime chart does not have, because its readings are not a list -
+           see the readings section of mesh/ui/trend.h. Down and Up move the window over the
+           readings, and do nothing at all while the plot is up. */
+        case MESH_UI_KEY_Y:
+            return mesh_ui_nav_toggle_trend_table(nav);
+        case MESH_UI_KEY_UP:
+        case MESH_UI_KEY_DOWN:
+            return mesh_ui_nav_scroll_trend_table(nav, key == MESH_UI_KEY_DOWN ? 1 : -1);
         case MESH_UI_KEY_L1:
         case MESH_UI_KEY_R1:
         case MESH_UI_KEY_SELECT:
             break; /* the tabs, and the help press: both mean here what they mean everywhere */
         case MESH_UI_KEY_B:
             nav->node_trend = MESH_UI_HISTORY_NONE;
+            nav->trend_scroll = 0U;
             return true;
         default:
             return changed;

@@ -244,7 +244,7 @@ reference; what follows is the map.
 | `struct fb_segmented` | a small set of alternatives, all on screen at once |
 | `struct fb_meter`, the slider | a quantity as a length; the slider is the editable one |
 | `fb_draw_signal()` | signal as rungs |
-| `fb_draw_sparkline()`, `fb_draw_chart()` | a reading over time; the axis frame under it |
+| `fb_draw_sparkline()`, `fb_draw_chart()` | a reading over time; the axis frame under it, or the readings listed instead |
 | `fb_draw_proportion()` | a whole and its parts |
 | `struct fb_text_field`, `struct fb_dialog` | the draft box and the confirm sheet |
 | `struct fb_snackbar` | the transient notice |

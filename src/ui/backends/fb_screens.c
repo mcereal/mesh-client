@@ -4423,11 +4423,12 @@ static void fb_render_chart(struct mesh_ui_backend_fb_state *state,
     spans.active = (size_t)span_choice < spans.count ? (size_t)span_choice : spans.count - 1U;
     spans.value = spans.labels[spans.active];
 
+    const struct fb_rect plot_rect = {.x = margin,
+                                      .y = layout->body_y,
+                                      .w = body_w,
+                                      .h = layout->footer_y - fb_gutter(state) - layout->body_y};
     struct fb_chart chart = {
-        .rect = {.x = margin,
-                 .y = layout->body_y,
-                 .w = body_w,
-                 .h = layout->footer_y - fb_gutter(state) - layout->body_y},
+        .rect = plot_rect,
         .count = screen->count,
         .top = top,
         .bottom = bottom,
@@ -4472,6 +4473,62 @@ static void fb_render_chart(struct mesh_ui_backend_fb_state *state,
         if (newest != NULL && points[i].count > 0U) {
             fb_chart_reading(screen->axis, newest->value, readings[i], sizeof readings[i]);
             chart.lines[i].value = readings[i];
+        }
+    }
+    /*
+     * The other face, when the reader has asked for the figures rather than the direction.
+     *
+     * Built here rather than in fb_draw_chart() because only this side knows what the readings
+     * *are*: which series, which span, how far the list has been scrolled and what unit the
+     * values are worded in. The component is told how many rows it has room for and handed that
+     * many - the measure-then-draw split fb_chart_reading_rows() exists for, and the same one
+     * the note list is on.
+     *
+     * Only a node's chart has one. The airtime ring is six hours at a reading a minute and is
+     * binned into columns precisely because reading by reading is the wrong grain for it - see
+     * the readings section of include/mesh/ui/trend.h - so `screen->airtime` never gets here.
+     */
+    char whens[MESH_UI_SERIES_MAX][24];
+    char figures[MESH_UI_SERIES_MAX][24];
+    struct fb_chart_reading rows[MESH_UI_SERIES_MAX];
+    if (snapshot->nav.trend_table && screen->airtime == NULL && screen->count == 1U &&
+        screen->series[0] != NULL) {
+        const uint32_t room =
+            fb_chart_reading_rows(state, layout, &plot_rect, chart.spans != NULL ? &spans : NULL);
+        /* What the nav pages this list by on the next press, and what the action bar asks before
+           it names one. Told even when it is zero, which is a panel with no room for a row. */
+        state->page_rows = room;
+        const uint32_t total = mesh_ui_trend_readings(screen->series[0], span_choice);
+        uint32_t first = snapshot->nav.trend_scroll;
+        /* The clamp has the same arithmetic and runs on the next publish; this is the frame in
+           between, and it must not draw past the end of the window it was given. */
+        if (total > room && first > total - room) {
+            first = total - room;
+        } else if (total <= room) {
+            first = 0U;
+        }
+        uint32_t drawn = 0U;
+        for (uint32_t i = 0U; i < room && drawn < MESH_UI_SERIES_MAX; ++i) {
+            struct mesh_ui_trend_reading reading;
+            if (!mesh_ui_trend_reading_at(screen->series[0], span_choice, first + i, &reading)) {
+                break;
+            }
+            if (first + i == 0U) {
+                mesh_str_copy(whens[drawn], sizeof whens[drawn],
+                              mesh_str(MESH_STR_TREND_READINGS_NEWEST));
+            } else {
+                mesh_ui_format_duration(reading.before_ms / 1000U, whens[drawn],
+                                        sizeof whens[drawn]);
+            }
+            fb_chart_reading(screen->axis, reading.value, figures[drawn], sizeof figures[drawn]);
+            rows[drawn].when = whens[drawn];
+            rows[drawn].value = figures[drawn];
+            ++drawn;
+        }
+        if (drawn > 0U) {
+            chart.readings = rows;
+            chart.reading_count = drawn;
+            chart.readings_note = mesh_str(MESH_STR_TREND_READINGS_FROM);
         }
     }
     fb_draw_chart(state, layout, &chart);

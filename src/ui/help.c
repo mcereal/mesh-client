@@ -227,6 +227,11 @@ static const struct mesh_ui_help_entry k_help_node_chart[] = {
        every half hour, so what the span picker does *here* is not what it does over a radio
        reporting every few minutes, and the general form of that would have said neither. */
     {MESH_STR_HELP_LABEL_NODE_CHART_SPAN, MESH_STR_HELP_NOTE_NODE_CHART_SPAN},
+    /* And the press that turns the picture into the readings behind it, which is the one thing on
+       this screen a reader cannot discover by looking: the bar names the keycap, and what the
+       left-hand column of that list is measured from is not a thing a column of durations can
+       say for itself. */
+    {MESH_STR_HELP_LABEL_NODE_CHART_READINGS, MESH_STR_HELP_NOTE_NODE_CHART_READINGS},
 };
 
 struct help_feature {

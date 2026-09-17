@@ -10,6 +10,7 @@
 #include "mesh/ui/settings.h"
 #include "mesh/ui/status.h"
 #include "mesh/ui/store.h"
+#include "mesh/ui/trend.h"
 
 #include <string.h>
 
@@ -557,9 +558,58 @@ static void actions_settings(const struct mesh_ui_nav *nav, const struct mesh_ui
  * airtime chart and a node's are one screen drawn twice, and a bar that named the span press on
  * one of them would be describing a difference the two do not have.
  */
+/*
+ * Whether the open chart's readings are more than the panel is showing at once.
+ *
+ * Asked of the row the chart was opened from rather than of the history, which is the clamp's
+ * rule and the renderer's: the row is where the chart's whole statement lives, so the readings
+ * counted here are the readings being listed. `page_rows` of 0 is a backend that has not said
+ * what its body holds, and answers no - a bar must not name a gesture on a guess.
+ */
+static bool mesh_ui_actions_trend_scrolls(const struct mesh_ui_snapshot *snapshot) {
+    const struct mesh_ui_nav *nav = &snapshot->nav;
+    if (snapshot->page_rows == 0U) {
+        return false;
+    }
+    const struct mesh_ui_handshake_state *hs = &snapshot->handshake;
+    const struct mesh_ui_node_summary *node = mesh_ui_node_detail_find(hs, nav->node_detail_node);
+    const bool is_self = hs->has_my_info && node != NULL && node->node_id == hs->my_info.node_num;
+    struct mesh_ui_node_item row;
+    memset(&row, 0, sizeof row);
+    if (!mesh_ui_node_detail_trend_row(node, is_self, &snapshot->traceroute, hs, &snapshot->history,
+                                       (enum mesh_ui_history_reading)nav->node_trend, &row)) {
+        return false;
+    }
+    return mesh_ui_trend_readings(row.trend, nav->trend_span) > snapshot->page_rows;
+}
+
 static void actions_trend(const struct mesh_ui_snapshot *snapshot, struct mesh_ui_action_bar *bar) {
+    const struct mesh_ui_nav *nav = &snapshot->nav;
     bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
     bar_add(bar, MESH_UI_BUTTON_LEFT_RIGHT, MESH_STR_ACTION_SPAN);
+    /*
+     * And the two presses only a node's chart has.
+     *
+     * The one difference the two screens do have, which is why it is a branch here rather than a
+     * second copy of this function: the airtime chart's readings are six hours at one a minute
+     * and are binned into columns because reading by reading is the wrong grain for them, so
+     * there is no list behind it to offer. See the readings section of mesh/ui/trend.h.
+     *
+     * Y names the face it would turn to rather than the one that is up - a keycap hint says what
+     * the press does. Up and Down are named only once there is more than a screenful, on the same
+     * terms as the Status card's "choose": a gesture for moving through a set that fits on the
+     * panel is a keycap that does nothing.
+     */
+    if (nav->node_trend == MESH_UI_HISTORY_NONE) {
+        bar_add_help(snapshot, bar);
+        bar_add_tabs(bar);
+        return;
+    }
+    bar_add(bar, MESH_UI_BUTTON_Y,
+            nav->trend_table ? MESH_STR_ACTION_CHART : MESH_STR_ACTION_READINGS);
+    if (nav->trend_table && mesh_ui_actions_trend_scrolls(snapshot)) {
+        bar_add(bar, MESH_UI_BUTTON_UP_DOWN, MESH_STR_ACTION_SCROLL);
+    }
     bar_add_help(snapshot, bar);
     bar_add_tabs(bar);
 }

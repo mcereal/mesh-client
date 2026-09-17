@@ -1684,22 +1684,30 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
             node->has_hops_away = true;
             node->hops_away = 0U;
             /*
-             * Half the distance to the clock, which is a step that always moves the stamp
-             * forward and never puts it past the present. Both ends matter: the store keys an
-             * arrival on `last_heard` having changed, so a stamp that stood still would be a
-             * packet it did not record, and mesh_ui_format_age() answers "unknown" for a stamp
-             * ahead of the clock, so a fixed bump that overshot would freshen the trend while
-             * the row above it stopped saying when. Halving also reads the way the scene is
-             * meant to: each packet is more recent than the last.
+             * An eighth of the distance to the clock, and never less than a second.
              *
-             * A node already at the clock cannot be freshened by this, which is the one case it
-             * does not serve - and is not a case any scene has, since every seeded node starts
-             * minutes or hours behind.
+             * Both ends of that matter. The store keys an arrival on `last_heard` having changed,
+             * so a stamp that stood still is a packet it does not record; and
+             * mesh_ui_format_age() answers "unknown" for a stamp ahead of the clock, so a fixed
+             * bump that overshot would freshen the trend while the row above it stopped saying
+             * when. Closing on the present rather than stepping toward it satisfies both, and
+             * reads the way a scene means it: each packet is more recent than the last.
+             *
+             * An eighth rather than a half because of how many readings a series holds. Halving,
+             * a node seeded two hours back is at the clock inside thirteen pushes and every
+             * packet after that is dropped as a repeat - a scene that silently stops recording
+             * half way through, and a list that is mysteriously short. An eighth still has room
+             * to move after two dozen, which is MESH_UI_SERIES_MAX.
+             *
+             * A node already at the clock cannot be freshened, and that is the honest answer
+             * rather than a gap: nothing is more recent than now.
              */
             const uint32_t heard_now = mesh_time_wall_s();
             const uint32_t behind =
                 node->last_heard < heard_now ? heard_now - node->last_heard : 0U;
-            node->last_heard = heard_now - behind / 2U;
+            if (behind > 0U) {
+                node->last_heard += behind / 8U > 0U ? behind / 8U : 1U;
+            }
             if (rssi != NULL) {
                 node->has_rssi = true;
                 node->rx_rssi = (int16_t)uicap_signed(rssi, "signal");

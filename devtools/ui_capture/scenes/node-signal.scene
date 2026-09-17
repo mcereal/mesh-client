@@ -70,14 +70,33 @@ hold 1200
 key a
 hold 2600
 
+# ---- the figures behind it ---------------------------------------------------------------------
+#
+# Y is the same window said exactly rather than drawn. A plot answers "which way is this going"
+# and cannot answer "what did it say at the third one" - two dozen readings across nine hundred
+# cells can be read to about a percent, which is fine for a direction and useless for a number
+# somebody is writing down.
+#
+# The left-hand column is how long before the newest reading each one was taken, and the sub-second
+# durations here are the harness rather than the client: this walk is seven packets inside two
+# seconds of capture, where a real one is seven packets over an afternoon. The caption says what
+# the column is measured from, because it is not a clock - the Brick has no RTC.
+key y
+hold 2600
+
 # ---- and the other one ------------------------------------------------------------------------
 #
 # B lands back on the row the chart was opened from rather than on the list, because a chart is a
 # level of the detail. One row on is received strength, and it is its own place rather than a
 # second line on the first: dB and dBm are two verticals, and a plot carries one.
+#
+# It opens as a *list* rather than as a plot, which is the one thing about Y that is not obvious:
+# the face is a preference that outlives the screen, the way the span is, rather than a place.
 key b
 key down 1
 key a
 hold 2600
+key y
+hold 1400
 key b
 hold 700
