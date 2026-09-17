@@ -6,7 +6,7 @@ setting, and one screen that reads it — the same shape as `theme.c` answering 
 
 ## The model
 
-`struct field_spec` (`src/ui/settings_internal.h`) carries a `note`, a catalog id.
+`struct field_spec` (`src/ui/settings/settings_internal.h`) carries a `note`, a catalog id.
 `MESH_STR_NONE` is id 0 and the empty string, so a row that explains itself needs no change and a
 field acquires help by naming one id in the row somebody was already writing. Sections get the
 same treatment in a table beside `k_section_icons[]`. Two accessors return the **id**, not the
@@ -17,7 +17,7 @@ enum mesh_str_id mesh_ui_settings_section_note(enum mesh_ui_settings_section sec
 enum mesh_str_id mesh_ui_settings_field_note(enum mesh_ui_setting_field field);
 ```
 
-`src/ui/help.c` answers one question — given where the nav is, what does the help screen say —
+`src/ui/tables/help.c` answers one question — given where the nav is, what does the help screen say —
 with data rather than pixels: a title, a subject, and a list of `{label, body}` id pairs.
 Returning **false** is how it says there is nothing to explain here, which is what decides whether
 the key is offered at all. It takes the configuration and the handshake rather than a whole

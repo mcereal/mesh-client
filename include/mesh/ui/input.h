@@ -100,7 +100,7 @@ enum mesh_ui_key mesh_ui_input_map_hat(uint16_t code, int32_t value);
 
 /*
  * The shoulder triggers, which this hardware reports as absolute axes: ABS_Z is L2 and ABS_RZ
- * is R2, and neither has a BTN_ code to be read as at all. See the note in src/ui/input.c.
+ * is R2, and neither has a BTN_ code to be read as at all. See the note in src/ui/input/input.c.
  *
  * `mesh_ui_input_map_trigger` answers with the key only for a value at or above the press
  * threshold, so it is a press detector and not a state: the edge - and therefore the latch that

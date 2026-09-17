@@ -13,7 +13,7 @@ JetBrainsMono/master/fonts/ttf/JetBrainsMono-Regular.ttf'
 
 
 The set of characters covered is not a list in this file: it is whatever the 5x7 font can draw,
-read out of src/ui/font5x7.c, because a second font that covers less is a font that turns some
+read out of src/ui/theme/font5x7.c, because a second font that covers less is a font that turns some
 node names into boxes the moment a theme selects it. tests/suites/ui_theme.c holds the two to
 that parity, so a face missing something fails the build rather than the name.
 
@@ -61,7 +61,7 @@ MASTER_W, MASTER_H = CELL_W, CELL_H + OVERHANG
 
 # Characters a mono face is unlikely to draw, and the one it should draw instead. These are the
 # typographic variants whose plain form is what this cell would show anyway - the same
-# substitution src/ui/font5x7.c makes, listed here because a missing glyph in a face has to
+# substitution src/ui/theme/font5x7.c makes, listed here because a missing glyph in a face has to
 # resolve to something rather than failing the run.
 FALLBACK = {
     0x00A0: " ", 0x2002: " ", 0x2003: " ", 0x2007: " ", 0x2008: " ", 0x2009: " ",
@@ -72,7 +72,7 @@ FALLBACK = {
 
 
 def coverage(path):
-    """Every codepoint src/ui/font5x7.c can draw, as a sorted list.
+    """Every codepoint src/ui/theme/font5x7.c can draw, as a sorted list.
 
     Parsed rather than hardcoded: the three tables there are the definition of what the UI can
     render, and a copy of them here would be a copy to keep in step.
@@ -182,7 +182,7 @@ def main():
     # font5x7.c next to it.
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-    wanted = coverage(root + "/src/ui/font5x7.c")
+    wanted = coverage(root + "/src/ui/theme/font5x7.c")
     cmap = TTFont(font_path, lazy=True).getBestCmap()
     face = ImageFont.truetype(font_path, EM * SUPERSAMPLE)
     advance = face.getlength("M")
@@ -231,7 +231,7 @@ def main():
         w(" *\n")
         w(" * %d glyphs on a %dx%d master (%d cell rows under a %d-row overhang) at %d coverage\n"
           % (len(glyphs), MASTER_W, MASTER_H, CELL_H, OVERHANG, LEVELS))
-        w(" * levels, %d bytes of pixels. The coverage set is whatever src/ui/font5x7.c can\n"
+        w(" * levels, %d bytes of pixels. The coverage set is whatever src/ui/theme/font5x7.c can\n"
           % len(blob))
         w(" * draw, so the two fonts render the same names.\n")
         w(" */\n\n")

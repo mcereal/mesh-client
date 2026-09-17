@@ -29,9 +29,9 @@
 /*
  * The look this run is drawn with.
  *
- * MESHCLIENT_THEME names it (see src/ui/theme.c for the list) and MESHCLIENT_FB_SCALE overrides
- * the glyph multiplier the theme asks for - an environment variable rather than a flag because
- * on the Brick the app is started by launch.sh, not by anyone with a shell.
+ * MESHCLIENT_THEME names it (see src/ui/theme/theme.c for the list) and MESHCLIENT_FB_SCALE
+ * overrides the glyph multiplier the theme asks for - an environment variable rather than a flag
+ * because on the Brick the app is started by launch.sh, not by anyone with a shell.
  */
 static void fb_apply_theme_from_env(struct mesh_ui_backend_fb_state *state) {
     const struct mesh_ui_theme *theme = mesh_ui_theme_from_env();

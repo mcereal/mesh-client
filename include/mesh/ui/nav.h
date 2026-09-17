@@ -33,7 +33,7 @@ enum mesh_ui_key {
     MESH_UI_KEY_L1,
     MESH_UI_KEY_R1,
     /* The triggers. Analogue on the wire - the Brick reports them as ABS_Z/ABS_RZ rather than
-       as buttons, and src/ui/input.c is where that becomes a press - but digital in the hand,
+       as buttons, and src/ui/input/input.c is where that becomes a press - but digital in the hand,
        and logical keys like any other once they get here. */
     MESH_UI_KEY_L2,
     MESH_UI_KEY_R2,
@@ -191,7 +191,7 @@ enum mesh_ui_kb_layer {
 /* The layers whose cells are one ASCII character: everything before the emoji one. */
 #define MESH_UI_KB_ASCII_LAYERS ((unsigned)MESH_UI_KB_EMOJI)
 
-/* Pages of forty in the emoji layer. The table is in src/ui/nav_keyboard.c and every cell of
+/* Pages of forty in the emoji layer. The table is in src/ui/nav/nav_keyboard.c and every cell of
    it is asserted to be an emoji this build can actually draw - kb_emoji_cells_are_drawable. */
 #define MESH_UI_KB_EMOJI_PAGES 3U
 
@@ -657,7 +657,7 @@ struct mesh_ui_nav {
     uint8_t keyboard_field_displaced;
     /*
      * The help screen over whatever is under it: what this screen is for, and what its rows
-     * mean (src/ui/help.c, docs/help.md).
+     * mean (src/ui/tables/help.c, docs/help.md).
      *
      * A level rather than an overlay, and that is the whole of its interaction model: nothing
      * is stacked on top of the screen it explains, so nothing has to be restored when it

@@ -48,7 +48,7 @@ since the last tag, not anything about your working tree.
 
 The updater verifies against the `digest` GitHub reports for the asset, not the `.sha256` file.
 **Renaming or dropping the binary asset breaks self-update for every installed client** — keep
-its name in step with `MESHCLIENT_UPDATE_ASSET` in `src/core/updater.c`. The zip holds the pak's
+its name in step with `MESHCLIENT_UPDATE_ASSET` in `src/core/update/updater.c`. The zip holds the pak's
 *contents*, not the `MeshClient.pak` folder, which is what the store unpacks into the folder it
 creates; renaming it breaks `release_filename` in `pak.json`.
 

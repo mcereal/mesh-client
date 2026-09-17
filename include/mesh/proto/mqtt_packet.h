@@ -13,7 +13,7 @@ extern "C" {
  *
  * This is a codec, not a client. It knows how a CONNECT is laid out and how to find the topic in
  * a PUBLISH; it holds no socket, no state and no opinion about what should be sent when. That
- * belongs to src/core/mqtt_proxy.c, and keeping the two apart is what makes the fiddly half -
+ * belongs to src/core/net/mqtt_proxy.c, and keeping the two apart is what makes the fiddly half -
  * variable-length integers, length-prefixed strings, a flags nibble that is part of the packet
  * type for some packets and free for others - testable against byte arrays with no broker in
  * sight. It is the same split as stream_framing.c (the format) and stream_link.c (the link).

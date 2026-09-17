@@ -150,7 +150,7 @@ struct mesh_updater {
     /*
      * The one child this module ever runs, and everything about talking to it: which fetcher
      * the device has, the CA bundle it is pointed at, the pipe, the deadline and the reply.
-     * Shared with the radio-firmware side (src/core/fetch.h), which needs the same shape for
+     * Shared with the radio-firmware side (mesh/core/fetch.h), which needs the same shape for
      * the same reason - there is no TLS in this process.
      */
     struct mesh_fetch fetch;

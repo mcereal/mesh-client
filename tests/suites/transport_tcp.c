@@ -759,7 +759,7 @@ cleanup:
  *
  * This used to be the case that proved a hostname was *refused*. Resolving one means
  * getaddrinfo(), which blocks - so for as long as the client had nowhere to put a blocking call
- * a refusal a user could read beat a UI that froze. src/core/resolve.c is that somewhere: the
+ * a refusal a user could read beat a UI that froze. src/core/net/resolve.c is that somewhere: the
  * lookup is a forked child read back through the loop, so the name is now accepted and the
  * connect simply starts a step later.
  *

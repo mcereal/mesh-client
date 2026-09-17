@@ -14,7 +14,7 @@ extern "C" {
  * What the UI says about the key behind a node - and therefore about the padlock on a direct
  * message to it.
  *
- * A table rather than a switch in the renderer, for the reason src/ui/delivery.c is a table:
+ * A table rather than a switch in the renderer, for the reason src/ui/tables/delivery.c is a table:
  * which mark a state gets is a decision about the product, and a renderer that made it would be
  * a second opinion about it. Three screens read this one - the transcript's padlock, the node
  * detail's key row, and the verification sheet - and they have to agree, because the whole
@@ -49,8 +49,8 @@ enum mesh_ui_key_trust mesh_ui_key_trust_of(const struct mesh_ui_node_summary *n
  * encryption, and one would put a mark on every broadcast on the mesh.
  *
  * The two that have one are a padlock and a shield, which is a *shape* difference rather than a
- * colour one, for the reason src/ui/delivery.c gives: the transcript's marks are drawn in the
- * ink the theme pairing already covers, so they stay out of the contrast contract.
+ * colour one, for the reason src/ui/tables/delivery.c gives: the transcript's marks are drawn in
+ * the ink the theme pairing already covers, so they stay out of the contrast contract.
  */
 enum mesh_ui_icon mesh_ui_key_trust_icon(enum mesh_ui_key_trust trust);
 
@@ -71,7 +71,7 @@ enum mesh_ui_tone mesh_ui_key_trust_tone(enum mesh_ui_key_trust trust);
  * The verification sheet: one question, assembled from the exchange the radio has open.
  *
  * Here rather than in a backend for the house rule that nothing is spelled out in a renderer,
- * and here rather than in src/ui/settings.c - whose confirm overlay this borrows its shape
+ * and here rather than in src/ui/settings/settings.c - whose confirm overlay this borrows its shape
  * from - because the two dialogs answer to different things. A settings confirm is about a
  * section the user is editing; this is about an exchange the *radio* is running, and its words
  * change without anybody pressing anything.

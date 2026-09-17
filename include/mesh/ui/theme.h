@@ -7,8 +7,8 @@
  * A renderer never names a colour. It names a *role* - "the ground", "the fill under the
  * cursor", "text on an accent fill" - or a *tone*, which is the same idea one level up: what a
  * piece of text means, rather than what colour it is. The theme answers, so a new look is a
- * table in src/ui/theme.c and nothing else, and every screen switches together because none of
- * them holds an opinion of its own.
+ * table in src/ui/theme/theme.c and nothing else, and every screen switches together because none
+ * of them holds an opinion of its own.
  *
  * The same goes for geometry. The margin, the glyph multiplier, how much smaller chrome text
  * is, how wide a bubble may grow, when the label column gives way on a narrow body: those were

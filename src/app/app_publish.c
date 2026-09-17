@@ -1188,8 +1188,8 @@ static void mesh_app_flatten_firmware(struct mesh_app *app, struct mesh_ui_setti
      * dropped as being about a radio that is not there: the state is IDLE, the blocker is
      * NO_RADIO, and every condition above is false. The banner meanwhile says to press Install
      * again - so without this the banner points at a row that is not on the screen, which is a
-     * banner that cannot resolve, and that is the one thing src/ui/chrome.c's table is written
-     * to prevent.
+     * banner that cannot resolve, and that is the one thing src/ui/tables/chrome.c's table is
+     * written to prevent.
      *
      * What makes it safe to offer is that the job still holds what it needs: the board, the
      * release and the address it was going to. The bus is stated rather than read, because what

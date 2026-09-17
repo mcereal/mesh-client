@@ -19,7 +19,7 @@
  *
  * The table itself is not here, and that is the point. What is printed beside a button and
  * which evdev code that button reports are one fact about one piece of plastic, so they are
- * stated in one row of one table - src/ui/input_profile.c - rather than in two files that a
+ * stated in one row of one table - src/ui/input/input_profile.c - rather than in two files that a
  * port has to remember to correct together. This module asks; it does not hold an opinion.
  *
  * MESH_UI_BUTTON_QUIT is the exception, for the reason it always was: MESHCLIENT_QUIT_KEYS can

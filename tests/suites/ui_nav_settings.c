@@ -1508,7 +1508,7 @@ MESH_TEST_CASE(ui_nav_lora_preset_steps_inside_the_region, unit) {
         goto cleanup;
     }
     /* Read through mesh_ui_settings_item() rather than the nav's own accessor for that row:
-       the latter lives in src/ui/nav_internal.h, which is the group's private header and not
+       the latter lives in src/ui/nav/nav_internal.h, which is the group's private header and not
        something a test may reach into. */
     struct mesh_ui_settings_item item;
     if (!mesh_ui_settings_item(&store.settings, NULL, store.nav.settings_edits,

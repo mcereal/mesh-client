@@ -3,7 +3,7 @@
 /*
  * What the frame says about the client rather than about a screen.
  *
- * Both answers in src/ui/chrome.c are read by the renderer and by nothing else, which is
+ * Both answers in src/ui/tables/chrome.c are read by the renderer and by nothing else, which is
  * exactly why they are worth a suite of their own: a rule that only a screenshot can check is
  * a rule that gets quietly broken. The cases below are the three the table is written to keep -
  * a banner says only what nothing else on the frame says, a banner must resolve, and a modal

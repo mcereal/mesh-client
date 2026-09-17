@@ -5,7 +5,7 @@
  * is in licenses/OFL-1.1-JetBrainsMono.txt and covers this derived data too.
  *
  * 323 glyphs on a 20x36 master (32 cell rows under a 4-row overhang) at 16 coverage
- * levels, 50587 bytes of pixels. The coverage set is whatever src/ui/font5x7.c can
+ * levels, 50587 bytes of pixels. The coverage set is whatever src/ui/theme/font5x7.c can
  * draw, so the two fonts render the same names.
  */
 

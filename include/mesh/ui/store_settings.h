@@ -23,7 +23,7 @@
  * mesh/proto/channel_url.h works this out from the protobuf's own bound, and including it here
  * would drag nanopb into a header every screen in the client already includes. Restated the way
  * MESH_UI_VERIFY_DIGITS_MAX is, and pinned against the real bound by a static assertion in
- * src/ui/channel_share.c - so the two cannot drift without the build saying so.
+ * src/ui/views/channel_share.c - so the two cannot drift without the build saying so.
  *
  * It said so: `ChannelSettings.use_aead` widened a channel by a byte and the real bound went
  * from 953 to 973, which is what a round number with room in it is for. Raising this is the
@@ -33,7 +33,7 @@
 
 /*
  * The longest contact link, restated here for the reason above and pinned the same way - by a
- * static assertion in src/ui/contact_share.c against mesh/proto/contact_url.h's real bound.
+ * static assertion in src/ui/views/contact_share.c against mesh/proto/contact_url.h's real bound.
  *
  * A fifth of the channel one, because a `SharedContact` is one node rather than eight channels:
  * a node number, a name, a key and two flags. That is small enough that the whole of it fits
@@ -724,7 +724,7 @@ struct mesh_ui_settings {
 
     /*
      * What is known about *newer* firmware for this radio, flattened out of
-     * src/core/firmware.c the same way the client's own update state is flattened into
+     * src/core/firmware/firmware.c the same way the client's own update state is flattened into
      * mesh_ui_client_info - as a byte and a line of text, so store.h stays free of a module
      * that forks child processes.
      *
@@ -748,7 +748,8 @@ struct mesh_ui_settings {
     char fw_blocker_reason[64];
 
     /*
-     * Installing it: the other half, flattened out of src/core/firmware_update.c the same way.
+     * Installing it: the other half, flattened out of src/core/firmware/firmware_update.c the same
+     * way.
      *
      * `fw_can_install` is the press being offered and is deliberately not derivable from the
      * two bytes below - it is the check having found something, the board having a path, the

@@ -70,32 +70,32 @@ add_library(meshclient_core
     src/app/app_mqtt.c
     src/app/app_publish.c
     src/app/app_settings.c
-    src/core/channel_share.c
-    src/core/contact_share.c
-    src/core/config.c
-    src/core/esp_image.c
-    src/core/event_loop.c
-    src/core/fetch.c
-    src/core/firmware.c
-    src/core/firmware_catalog.c
-    src/core/firmware_download.c
-    src/core/firmware_fetch.c
-    src/core/firmware_install.c
-    src/core/firmware_ota.c
-    src/core/firmware_update.c
-    src/core/key_verification.c
-    src/core/message.c
-    src/core/waypoint.c
-    src/core/radio_settings.c
-    src/core/mqtt_proxy.c
-    src/core/resolve.c
-    src/core/session.c
-    src/core/signals.c
-    src/core/store_forward.c
-    src/core/tls_client.c
-    src/core/uf2.c
-    src/core/updater.c
-    src/core/version.c
+    src/core/session/channel_share.c
+    src/core/session/contact_share.c
+    src/core/runtime/config.c
+    src/core/firmware/esp_image.c
+    src/core/runtime/event_loop.c
+    src/core/net/fetch.c
+    src/core/firmware/firmware.c
+    src/core/firmware/firmware_catalog.c
+    src/core/firmware/firmware_download.c
+    src/core/firmware/firmware_fetch.c
+    src/core/firmware/firmware_install.c
+    src/core/firmware/firmware_ota.c
+    src/core/firmware/firmware_update.c
+    src/core/session/key_verification.c
+    src/core/session/message.c
+    src/core/session/waypoint.c
+    src/core/session/radio_settings.c
+    src/core/net/mqtt_proxy.c
+    src/core/net/resolve.c
+    src/core/session/session.c
+    src/core/runtime/signals.c
+    src/core/session/store_forward.c
+    src/core/net/tls_client.c
+    src/core/firmware/uf2.c
+    src/core/update/updater.c
+    src/core/update/version.c
     src/transport/transport_registry.c
     src/transport/stream_link.c
     src/transport/ble/ble_hci.c
@@ -133,44 +133,44 @@ add_library(meshclient_core
     src/utils/text.c
     src/utils/time.c
     src/utils/zip.c
-    src/ui/actions.c
-    src/ui/channel_share.c
-    src/ui/contact_share.c
-    src/ui/chrome.c
-    src/ui/help.c
-    src/ui/delivery.c
-    src/ui/duration.c
+    src/ui/tables/actions.c
+    src/ui/views/channel_share.c
+    src/ui/views/contact_share.c
+    src/ui/tables/chrome.c
+    src/ui/tables/help.c
+    src/ui/tables/delivery.c
+    src/ui/tables/duration.c
     src/ui/anim.c
-    src/ui/store_archive.c
-    src/ui/store.c
-    src/ui/store_fields.c
-    src/ui/store_file.c
-    src/ui/store_keys.c
-    src/ui/store_trends.c
-    src/ui/history.c
-    src/ui/controller.c
-    src/ui/input.c
-    src/ui/input_profile.c
-    src/ui/latency.c
-    src/ui/map.c
-    src/ui/nav.c
-    src/ui/nav_canned.c
-    src/ui/nav_conversations.c
-    src/ui/nav_keyboard.c
-    src/ui/nav_map.c
-    src/ui/nav_settings.c
-    src/ui/nav_waypoints.c
-    src/ui/reactions.c
-    src/ui/settings.c
-    src/ui/settings_codec.c
-    src/ui/settings_rows.c
-    src/ui/route.c
-    src/ui/status.c
-    src/ui/node_detail.c
-    src/ui/devices.c
-    src/ui/nodes.c
-    src/ui/units.c
-    src/ui/waypoints.c
+    src/ui/store/store_archive.c
+    src/ui/store/store.c
+    src/ui/store/store_fields.c
+    src/ui/store/store_file.c
+    src/ui/store/store_keys.c
+    src/ui/store/store_trends.c
+    src/ui/store/history.c
+    src/ui/nav/controller.c
+    src/ui/input/input.c
+    src/ui/input/input_profile.c
+    src/ui/views/latency.c
+    src/ui/views/map.c
+    src/ui/nav/nav.c
+    src/ui/nav/nav_canned.c
+    src/ui/nav/nav_conversations.c
+    src/ui/nav/nav_keyboard.c
+    src/ui/nav/nav_map.c
+    src/ui/nav/nav_settings.c
+    src/ui/nav/nav_waypoints.c
+    src/ui/tables/reactions.c
+    src/ui/settings/settings.c
+    src/ui/settings/settings_codec.c
+    src/ui/settings/settings_rows.c
+    src/ui/nav/route.c
+    src/ui/tables/status.c
+    src/ui/views/node_detail.c
+    src/ui/tables/devices.c
+    src/ui/tables/nodes.c
+    src/ui/tables/units.c
+    src/ui/views/waypoints.c
     src/ui/backends/stub.c
     src/ui/backends/cli.c
     src/ui/backends/fb.c
@@ -179,19 +179,19 @@ add_library(meshclient_core
     src/ui/backends/fb_map.c
     src/ui/backends/fb_widgets.c
     src/ui/backends/fb_screens.c
-    src/ui/font.c
-    src/ui/font5x7.c
-    src/ui/font_ui.c
+    src/ui/theme/font.c
+    src/ui/theme/font5x7.c
+    src/ui/theme/font_ui.c
     src/ui/generated/font_ui_glyphs.c
-    src/ui/theme.c
-    src/ui/emoji.c
+    src/ui/theme/theme.c
+    src/ui/theme/emoji.c
     src/ui/generated/emoji_glyphs.c
-    src/ui/icon.c
+    src/ui/theme/icon.c
     src/ui/generated/icon_glyphs.c
-    src/ui/preferences.c
+    src/ui/store/preferences.c
     src/ui/layout.c
-    src/ui/trend.c
-    src/ui/trust.c
+    src/ui/tables/trend.c
+    src/ui/tables/trust.c
 )
 
 target_include_directories(meshclient_core
@@ -307,10 +307,10 @@ target_link_libraries(meshclient_core PUBLIC protobuf-nanopb-static)
 
 # Mbed TLS, for the one connection this process has to encrypt itself: MQTT to a broker, on
 # behalf of a radio that cannot reach one. Everything else it fetches over HTTPS is a forked
-# curl (src/core/fetch.c), and a broker connection cannot be - it is long-lived, bidirectional
+# curl (src/core/net/fetch.c), and a broker connection cannot be - it is long-lived, bidirectional
 # and has to sit on the same epoll loop as the UI. See include/mesh/core/tls_client.h.
 #
-# Optional on purpose. `MESHCLIENT_HAVE_TLS` is what src/core/tls_client.c switches on, and
+# Optional on purpose. `MESHCLIENT_HAVE_TLS` is what src/core/net/tls_client.c switches on, and
 # without the submodule it compiles to a stub that reports TLS unavailable - the same
 # arrangement MESH_HAVE_DBUS gives the BLE transport. A checkout that skipped
 # `git submodule update --recursive` still builds and still runs; MQTT over TLS is the one thing

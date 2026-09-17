@@ -695,10 +695,10 @@ MESH_TEST_CASE(input_profile_decides_which_button_confirms, unit) {
 /*
  * The regression this whole table exists for.
  *
- * The codes lived in src/ui/input.c and the caps in src/ui/actions.c, and a port that corrected
- * one and not the other leaves the action bar naming a key that does something else - which is
- * invisible, because the binding still works. Both public entry points are asked here, under a
- * profile that is not the default, so the two cannot come from different places again.
+ * The codes lived in src/ui/input/input.c and the caps in src/ui/tables/actions.c, and a port that
+ * corrected one and not the other leaves the action bar naming a key that does something else -
+ * which is invisible, because the binding still works. Both public entry points are asked here,
+ * under a profile that is not the default, so the two cannot come from different places again.
  */
 MESH_TEST_CASE(input_profile_caps_and_codes_move_together, unit) {
     const char *failure = NULL;

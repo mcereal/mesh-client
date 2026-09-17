@@ -115,8 +115,8 @@ struct mesh_ui_map_marker {
      * How much the fix should be believed.
      *
      * `precision_bits` is the sender's own statement that it rounded the position - see
-     * src/ui/settings.c's table, which turns it into the metres the node detail already shows -
-     * and a marker drawn as a hard pin over a fix rounded to 360 metres would be the map
+     * src/ui/settings/settings.c's table, which turns it into the metres the node detail already
+     * shows - and a marker drawn as a hard pin over a fix rounded to 360 metres would be the map
      * claiming a precision nobody sent. 0 means the node never set the field, which is not
      * "exact": it is "did not say", and it is the ordinary case.
      */

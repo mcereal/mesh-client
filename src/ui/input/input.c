@@ -28,7 +28,7 @@
 /* Standard evdev codes. The Brick's gamepad device ("TRIMUI Player1") reports the face and
    system buttons through the usual BTN_ space and the d-pad as ABS_HAT0X/Y. Which BTN_ code is
    which *printed* button is the one thing that is not standard, and it is a fact about the case
-   rather than about evdev - see src/ui/input_profile.c. SELECT and START are not quit keys:
+   rather than about evdev - see src/ui/input/input_profile.c. SELECT and START are not quit keys:
    they sit next to the d-pad and are too easy to hit while navigating.
 
    KEY_POWER (116) is not one either, and that is a correction rather than an omission. It was
@@ -333,10 +333,11 @@ const char *mesh_ui_input_quit_cap(void) {
  * What a convention decides, as opposed to what a case decides.
  *
  * The four face buttons are not here: which evdev code is printed A is a fact about one piece
- * of plastic, and it is stated - beside the cap that goes with it - in src/ui/input_profile.c.
- * Everything below is the same on every device that speaks evdev, so a port that grew a profile
- * does not restate it: the arrow and Enter keys of a USB keyboard, the shoulders, START and
- * SELECT, and the d-pads that some drivers report as buttons rather than as a hat.
+ * of plastic, and it is stated - beside the cap that goes with it - in
+ * src/ui/input/input_profile.c. Everything below is the same on every device that speaks evdev, so
+ * a port that grew a profile does not restate it: the arrow and Enter keys of a USB keyboard, the
+ * shoulders, START and SELECT, and the d-pads that some drivers report as buttons rather than as a
+ * hat.
  *
  * The profile is asked first, so a device that really does report one of these oddly is still a
  * table row over there rather than an exception carved into this switch.

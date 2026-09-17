@@ -136,8 +136,8 @@ static void update_finish(struct mesh_firmware_update *update,
 /*
  * The USB install's states, folded onto the ladder.
  *
- * Written as a table rather than derived, for the reason src/ui/status.c writes its verbs out:
- * what the client says it is doing should be readable in one place, and a sub-module growing a
+ * Written as a table rather than derived, for the reason src/ui/tables/status.c writes its verbs
+ * out: what the client says it is doing should be readable in one place, and a sub-module growing a
  * state should be a compile error here rather than a row that silently says the wrong thing.
  */
 static enum mesh_firmware_update_state

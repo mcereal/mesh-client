@@ -24,7 +24,7 @@ struct mesh_ui_snapshot;
  *
  * So they are chrome, drawn once by fb_render_snapshot() around whichever screen is up, and
  * *what* they say is decided here rather than beside the framebuffer - for the same reason
- * src/ui/status.c decides which card carries which verb. A second backend gets the same two
+ * src/ui/tables/status.c decides which card carries which verb. A second backend gets the same two
  * answers, and a unit test can ask the questions without a panel.
  *
  * The two are deliberately a pair, and the split between them is the rule that keeps either

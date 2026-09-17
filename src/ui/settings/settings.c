@@ -1286,8 +1286,8 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
     /*
      * PositionConfig.position_flags, ten rows over one word. `limit` is the row's own bit,
      * written as a literal because the UI layer is the nanopb-free side of the fence - the
-     * trade src/ui/settings.c already makes for the excluded-modules mask - and every one of
-     * them is pinned against meshtastic_Config_PositionConfig_PositionFlags by a test.
+     * trade src/ui/settings/settings.c already makes for the excluded-modules mask - and every one
+     * of them is pinned against meshtastic_Config_PositionConfig_PositionFlags by a test.
      */
     [MESH_UI_FIELD_POSITION_FLAG_ALTITUDE] = {MESH_STR_SETTINGS_FIELD_POSITION_FLAG_ALTITUDE,
                                               MESH_UI_SETTING_FLAG, MESH_UI_SETTINGS_POSITION,
@@ -1390,7 +1390,7 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
     [MESH_UI_FIELD_DISPLAY_12H] = {MESH_STR_SETTINGS_FIELD_DISPLAY_12H, MESH_UI_SETTING_TOGGLE,
                                    MESH_UI_SETTINGS_DISPLAY, 0U, NULL, NO_PRESETS, MESH_STR_NONE,
                                    NULL, 0U, MESH_STR_NONE},
-    /* The one Display row this client reads for itself: see src/ui/units.c. */
+    /* The one Display row this client reads for itself: see src/ui/tables/units.c. */
     [MESH_UI_FIELD_DISPLAY_UNITS] = {MESH_STR_SETTINGS_FIELD_DISPLAY_UNITS, MESH_UI_SETTING_ENUM,
                                      MESH_UI_SETTINGS_DISPLAY, 2U, units_name, NO_PRESETS,
                                      MESH_STR_NONE, NULL, 0U, MESH_STR_SETTINGS_NOTE_DISPLAY_UNITS},

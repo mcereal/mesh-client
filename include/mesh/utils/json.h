@@ -8,9 +8,9 @@
  * ones you did not. Everything it can answer is a value copied into a buffer you named, so a
  * document can be read without ever holding a second copy of it.
  *
- * Why this exists next to the scanner in src/core/updater.c, which also reads JSON: they answer
- * different questions. That one hunts for `"key":` at any depth in a document three levels deep
- * and shallow enough that the first match is the right one, and nothing it finds is trusted
+ * Why this exists next to the scanner in src/core/update/updater.c, which also reads JSON: they
+ * answer different questions. That one hunts for `"key":` at any depth in a document three levels
+ * deep and shallow enough that the first match is the right one, and nothing it finds is trusted
  * without a second check. This one has to read a 150 KB release index whose every entry carries
  * a page of release notes written by whoever merged the pull request - text that contains
  * quotes, braces and, sooner or later, a `"zip_url":` of its own. A scanner would find that one.

@@ -3,7 +3,7 @@
 /*
  * What became of a message we sent, as the UI says it.
  *
- * The table in src/ui/delivery.c is the one place that decides which mark an ack state gets,
+ * The table in src/ui/tables/delivery.c is the one place that decides which mark an ack state gets,
  * and it exists because two places draw one: the transcript puts the icon in a bubble's corner
  * and a backend with no sprites has to say the word instead. The cases below hold the table to
  * three things - every state on the wire is answered, every mark it answers with is one this

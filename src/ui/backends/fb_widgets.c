@@ -3565,8 +3565,8 @@ bool fb_draw_card_reserving(struct mesh_ui_backend_fb_state *state, const struct
      * A column of cards is drawn in order and each one takes what it wants, so the last card is
      * the one that pays for everything above it - and paying, here, means not being drawn at
      * all. That is worse than losing a row: a card carries *verbs*, and which verbs a screen
-     * offers is a table (src/ui/status.c) that knows nothing about how tall anything came out.
-     * So the cursor keeps walking onto a button that is not on the frame, which is the failure
+     * offers is a table (src/ui/tables/status.c) that knows nothing about how tall anything came
+     * out. So the cursor keeps walking onto a button that is not on the frame, which is the failure
      * "a card that can end up with no rows must not be given a verb" already names, arrived at
      * from the layout side instead of the row-count side.
      *

@@ -78,10 +78,10 @@ struct mesh_ui_device {
  *
  * Same reasoning as mesh_ui_snapshot_connected_device(), one level down: a bar that names a
  * keycap the press
- * then declines is the keycap-that-does-nothing `src/ui/actions.c` refuses everywhere else, and
- * the only way two files stay agreed about it is to give them one function to ask. Both of these
- * were conditions written into the nav's handlers with an unconditional entry in the bar beside
- * them, which is exactly how that disagreement arises.
+ * then declines is the keycap-that-does-nothing `src/ui/tables/actions.c` refuses everywhere else,
+ * and the only way two files stay agreed about it is to give them one function to ask. Both of
+ * these were conditions written into the nav's handlers with an unconditional entry in the bar
+ * beside them, which is exactly how that disagreement arises.
  *
  * NULL is false for both, so a cursor past the end needs no separate test at either call site.
  */

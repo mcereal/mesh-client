@@ -6,9 +6,9 @@
  *
  * There is no TLS in this process - the release build is a static musl binary whose only
  * dependency is libdbus - so every fetch this client makes is a child process. That shape was
- * written first for self-update (src/core/updater.c) and it is now shared, because the radio's
- * firmware needs the same thing: fetcher probing, the CA bundle the Brick has no system store
- * for, a per-step deadline, a cap on what a reply may grow to, and a reap that never blocks
+ * written first for self-update (src/core/update/updater.c) and it is now shared, because the
+ * radio's firmware needs the same thing: fetcher probing, the CA bundle the Brick has no system
+ * store for, a per-step deadline, a cap on what a reply may grow to, and a reap that never blocks
  * the loop the UI draws on.
  *
  * What this module is not is a state machine. It knows nothing about what is being fetched or
