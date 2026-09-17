@@ -1141,11 +1141,12 @@ static void node_rows_neighbors(struct node_rows *rows, const struct mesh_ui_nod
 }
 
 /*
- * The verb that starts a trace, and what the one trace slot currently says about this node.
+ * The verb that starts a trace, and what this node's record currently says.
  *
- * Emitted whatever the state, because it is also how a trace is re-run. A trace of some *other*
- * node leaves it a plain "press A", so opening a second node never appears to describe it with
- * the first one's route.
+ * Emitted whatever the state, because it is also how a trace is re-run. The record is the one
+ * mesh_ui_store_traceroute_view() picked for this node - the trace in flight while it is this
+ * node's, and the route last measured to it otherwise - so a screen never describes one node
+ * with another node's trace, and NULL is a node nothing has been asked about.
  *
  * Split from the path rows below, and the split is load-bearing rather than tidying. This is an
  * action and it belongs among the actions; a measured route is a *report*, and a report between
@@ -1175,9 +1176,12 @@ static void node_rows_route_action(struct node_rows *rows, const struct mesh_ui_
 }
 
 /*
- * The traced route itself, when the one trace slot is holding a finished trace of this node.
- * Two paths of stops, each row a node and the SNR of the link that reached it - the first stop
- * of a path is the sender and has no incoming link, so it carries no reading rather than a zero.
+ * The traced route itself, when this node's record holds a finished trace. Two paths of stops,
+ * each row a node and the SNR of the link that reached it - the first stop of a path is the
+ * sender and has no incoming link, so it carries no reading rather than a zero.
+ *
+ * The record may have been measured in an earlier run of the client, which is what the stamp at
+ * the foot of the group is for: a route is drawn with its age exactly as a position fix is.
  */
 static void node_rows_route_path(struct node_rows *rows, const struct mesh_ui_node_summary *node,
                                  const struct mesh_ui_traceroute *trace, uint32_t now) {

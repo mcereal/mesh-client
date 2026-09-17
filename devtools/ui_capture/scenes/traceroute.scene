@@ -1,0 +1,38 @@
+# A measured route stays with the node it was measured to.
+#
+# The client used to hold one traceroute: the path on this screen was whatever the last trace
+# said, whoever was being looked at, so tracing a second node took the first one's route off the
+# screen - and a restart took both. It now keeps the last route to each node and writes them to
+# the card, which is what a measurement somebody waited a minute for is worth.
+#
+# The demo traced Echo Repeater and then Golf Cabin, in that order, so Golf is the trace the one
+# slot is still holding and Echo's route comes back out of the log. The two screens here are the
+# two halves of that: under the old single slot the first of them was blank.
+#
+# The Nodes list has three rows before its first node - the filter row, the sort row and the Map
+# (MESH_UI_NODES_LEAD_ROWS) - so a node's row is its index in the demo roster plus three. Echo
+# Repeater is seeds[5] and row 8; Golf Cabin is seeds[7] and row 10.
+
+scene demo
+tab nodes
+
+# Echo Repeater, traced first. Right walks the detail a card at a time, and the two route cards
+# are the first groups after the verbs: the way out, the way back, and when it was measured.
+key down 8
+key a
+hold 1200
+key right
+hold 1200
+key right
+hold 2000
+key b
+
+# Golf Cabin, the trace the slot is still on - the one node the old client could draw. B left
+# the cursor on Echo's own row, so this is two steps down the list rather than an index into it.
+key down 2
+key a
+hold 1200
+key right
+hold 1200
+key right
+hold 2000

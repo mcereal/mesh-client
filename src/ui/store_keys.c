@@ -260,3 +260,13 @@ void mesh_ui_store_write_row_text(FILE *file, enum mesh_ui_store_key key, uint32
     write_escaped(file, text);
     fputc('\n', file);
 }
+
+void mesh_ui_store_write_slot_text(FILE *file, enum mesh_ui_store_key key, uint32_t index,
+                                   uint32_t slot, const char *text) {
+    if (!write_key(file, key)) {
+        return;
+    }
+    fprintf(file, "[%u.%u]=", index, slot);
+    write_escaped(file, text);
+    fputc('\n', file);
+}

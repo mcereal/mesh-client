@@ -2688,7 +2688,19 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
     mesh_app_flatten_traceroute(status, mesh_session_traceroute(&app->session),
                                 status->has_my_info ? status->my_info.my_node_num : 0U,
                                 &ui_traceroute);
+    /*
+     * A measured route is worth a save, and the test is the log's own revision rather than the
+     * update flag: a trace being sent and a trace timing out both move the one slot and neither
+     * leaves anything on the card to write. Without this a route reaches disk only when
+     * something else happens to dirty the cache, or at a clean exit - so the SIGKILL that
+     * `deploy-stop` sends would lose the minute the user spent waiting for it.
+     */
+    const uint32_t traces_was = app->ui_store.traceroutes.revision;
     mesh_ui_store_set_traceroute(&app->ui_store, &ui_traceroute);
+    if (app->ui_handshake_cache_path[0] != '\0' &&
+        app->ui_store.traceroutes.revision != traces_was) {
+        app->ui_handshake_cache_dirty = true;
+    }
 
     /* The second link, on the same terms as the first: read off the thing that owns it and
        handed to the store, which repaints only if something moved. */

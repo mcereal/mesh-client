@@ -102,6 +102,24 @@ MESH_STORE_KEY_ROW(READ, "read")
 MESH_STORE_KEY_ENTRY(AIRTIME_COUNT, "airtime")
 MESH_STORE_KEY_ROW(AIRTIME, "airtime")
 
+/* ---- the traceroute log --------------------------------------------------------------------- */
+
+/*
+ * One measured route, and the stops along it.
+ *
+ * `trace[i]` opens a record with `target,completed` and the two slot keys fill it in: slot `n`
+ * below MESH_UI_TRACEROUTE_MAX_HOPS is a stop on the way out, and `n` at or above it is a stop
+ * on the way back, which is what keeps one flat slot index describing two paths.
+ *
+ * A hop's name is written rather than re-resolved on load, for the reason msg_relay[] is: the
+ * roster the next run starts with is the one this file is carrying, so a name looked up later
+ * would be that run's guess at who the packet went through. The counts are not written at all -
+ * the loader takes them from the hops that actually arrive, the way a neighbour list's do.
+ */
+MESH_STORE_KEY_ROW(TRACE, "trace")
+MESH_STORE_KEY_SLOT(TRACE_HOP, "trace_hop")
+MESH_STORE_KEY_SLOT(TRACE_HOP_NAME, "trace_name")
+
 /* ---- the node trend files ------------------------------------------------------------------- */
 
 /*

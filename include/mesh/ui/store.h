@@ -105,8 +105,12 @@ struct mesh_ui_snapshot {
     /* Radio configuration for the Settings tab. Not persisted: it describes the radio that
        is connected right now. */
     struct mesh_ui_settings settings;
-    /* The last traceroute, running or finished. Not persisted. */
+    /* The trace in flight, or the last one's outcome. Not persisted: what is worth keeping
+       about a finished trace is in the log beside it. */
     struct mesh_ui_traceroute traceroute;
+    /* Every route measured and not yet forgotten, one entry per node. Persisted with the
+       roster; ask mesh_ui_snapshot_traceroute_view() rather than reading either field. */
+    struct mesh_ui_traceroute_log traceroutes;
     /* The key-verification ceremony in progress, or a record with `stage` IDLE. Not
        persisted: it belongs to one link and one nonce. */
     struct mesh_ui_verification verification;
@@ -157,6 +161,7 @@ struct mesh_ui_store {
     struct mesh_ui_nav nav;
     struct mesh_ui_settings settings;
     struct mesh_ui_traceroute traceroute;
+    struct mesh_ui_traceroute_log traceroutes;
     struct mesh_ui_verification verification;
     struct mesh_ui_history history;
     struct mesh_ui_mqtt_state mqtt;
@@ -255,9 +260,31 @@ void mesh_ui_store_set_waypoints(struct mesh_ui_store *store,
 /* Replaces the radio settings view; quiet when nothing changed. */
 void mesh_ui_store_set_settings(struct mesh_ui_store *store,
                                 const struct mesh_ui_settings *settings);
-/* Replaces the traceroute view; quiet when nothing changed. */
+/*
+ * Replaces the traceroute view; quiet when nothing changed.
+ *
+ * A record that carries a finished route is also recorded in the log, which is the only way an
+ * entry gets in there: the app hands this whatever the session's one trace slot says, every
+ * publish, and the store decides what was worth keeping.
+ */
 void mesh_ui_store_set_traceroute(struct mesh_ui_store *store,
                                   const struct mesh_ui_traceroute *traceroute);
+
+/*
+ * What this client knows about the route to one node, or NULL when it knows nothing.
+ *
+ * The trace in flight when it is this node's - so a running or timed-out trace still says so -
+ * and otherwise that node's last measured route, which may have been measured in an earlier
+ * run. Every screen asks this rather than reaching for `traceroute`: reading the one slot
+ * directly is what used to make a second node's detail describe itself with the first node's
+ * trace.
+ */
+const struct mesh_ui_traceroute *mesh_ui_store_traceroute_view(const struct mesh_ui_store *store,
+                                                               uint32_t node_id);
+
+/* The same answer, asked of the record a backend holds. */
+const struct mesh_ui_traceroute *
+mesh_ui_snapshot_traceroute_view(const struct mesh_ui_snapshot *snapshot, uint32_t node_id);
 /* Replaces the key-verification view; quiet when nothing changed. NULL is the idle record,
    which is how the app says an exchange ended. */
 void mesh_ui_store_set_verification(struct mesh_ui_store *store,

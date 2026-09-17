@@ -3,8 +3,11 @@
 /* Navigating nodes and devices: favorites, disconnect/forget, PIN prompts. */
 
 #include "framework/mesh_test.h"
+#include "mesh/i18n/strings.h"
 #include "support/ui_fixture.h"
 
+/* For enum mesh_traceroute_state, which the UI's traceroute carries as a byte. */
+#include "mesh/core/session.h"
 #include "mesh/ui/actions.h"
 #include "mesh/ui/history.h"
 #include "mesh/ui/nav.h"
@@ -659,9 +662,9 @@ MESH_TEST_CASE(ui_nav_node_detail_walks_its_stops, unit) {
 
     const struct mesh_ui_node_summary *held = mesh_ui_node_detail_find(&store.handshake, 0x2000U);
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
-    const uint32_t count =
-        mesh_ui_node_detail_build(held, false, 0U, &store.traceroute, false, &store.handshake,
-                                  &store.history, false, items, MESH_UI_NODE_ITEMS_MAX);
+    const uint32_t count = mesh_ui_node_detail_build(
+        held, false, 0U, mesh_ui_store_traceroute_view(&store, held->node_id), false,
+        &store.handshake, &store.history, false, items, MESH_UI_NODE_ITEMS_MAX);
     MESH_TEST_FAIL_IF(count == 0U, "the node should produce rows");
     uint8_t heights[MESH_UI_NODE_ITEMS_MAX];
     for (uint32_t i = 0U; i < count; ++i) {
@@ -702,7 +705,8 @@ MESH_TEST_CASE(ui_nav_node_detail_walks_its_stops, unit) {
                               "the cursor may not land on a group title");
             stops[visited++] = at;
             const enum mesh_ui_node_press press = mesh_ui_node_detail_press_at(
-                held, false, &store.traceroute, &store.handshake, &store.history, at);
+                held, false, mesh_ui_store_traceroute_view(&store, held->node_id), &store.handshake,
+                &store.history, at);
             struct mesh_ui_node_span span;
             MESH_TEST_FAIL_IF(!mesh_ui_node_detail_span(items, count, rows, at, &span),
                               "no span for a stop");
@@ -712,10 +716,11 @@ MESH_TEST_CASE(ui_nav_node_detail_walks_its_stops, unit) {
             if (press != MESH_UI_NODE_PRESS_NONE) {
                 pressed[at] = true;
                 for (uint32_t r = span.first; r <= span.last; ++r) {
-                    mixed = mixed || (items[r].kind != MESH_UI_NODE_ROW_HEADING &&
-                                      mesh_ui_node_detail_press_at(held, false, &store.traceroute,
-                                                                   &store.handshake, &store.history,
-                                                                   r) == MESH_UI_NODE_PRESS_NONE);
+                    mixed = mixed ||
+                            (items[r].kind != MESH_UI_NODE_ROW_HEADING &&
+                             mesh_ui_node_detail_press_at(
+                                 held, false, mesh_ui_store_traceroute_view(&store, held->node_id),
+                                 &store.handshake, &store.history, r) == MESH_UI_NODE_PRESS_NONE);
                 }
             } else {
                 card_stops += 1U;
@@ -745,9 +750,9 @@ MESH_TEST_CASE(ui_nav_node_detail_walks_its_stops, unit) {
         MESH_TEST_FAIL_IF(!mixed, "the environment card should hold a press among its facts");
         for (uint32_t r = 0U; r < count; ++r) {
             MESH_TEST_FAIL_IF(!covered[r], "every row should be on screen from some stop");
-            MESH_TEST_FAIL_IF(mesh_ui_node_detail_press_at(held, false, &store.traceroute,
-                                                           &store.handshake, &store.history,
-                                                           r) != MESH_UI_NODE_PRESS_NONE &&
+            MESH_TEST_FAIL_IF(mesh_ui_node_detail_press_at(
+                                  held, false, mesh_ui_store_traceroute_view(&store, held->node_id),
+                                  &store.handshake, &store.history, r) != MESH_UI_NODE_PRESS_NONE &&
                                   !pressed[r],
                               "every row A acts on should be a stop");
         }
@@ -839,6 +844,82 @@ MESH_TEST_CASE(ui_node_detail_press_matches_the_row, unit) {
                       "a row past the end is not a press");
 
     mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
+/* Whether this node's detail draws a measured route, which is the "Route out" group and the
+   stops under it. */
+static bool detail_draws_a_route(const struct mesh_ui_store *store,
+                                 const struct mesh_ui_node_summary *node) {
+    struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
+    const uint32_t count = mesh_ui_node_detail_build(
+        node, false, 0U, mesh_ui_store_traceroute_view(store, node->node_id), false,
+        &store->handshake, NULL, false, items, MESH_UI_NODE_ITEMS_MAX);
+    for (uint32_t i = 0U; i < count; ++i) {
+        if (items[i].kind == MESH_UI_NODE_ROW_HEADING &&
+            strcmp(items[i].label, mesh_str(MESH_STR_NODE_HEAD_ROUTE_OUT)) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/*
+ * Tracing one node does not erase another node's route.
+ *
+ * The store held one traceroute until the log was added, so the second trace of a session took
+ * the first one's path off the screen - a measurement the user had waited up to a minute for,
+ * gone because they looked at a different node. Each node's detail now answers from its own
+ * record, and a node nothing was traced to still has nothing to draw.
+ */
+MESH_TEST_CASE(ui_nav_node_detail_keeps_each_nodes_route, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    const char *failure = NULL;
+
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.has_my_info = true;
+    handshake.my_info.node_num = 0x1000U;
+    handshake.roster_owner = 0x1000U;
+    handshake.node_count = 3U;
+    handshake.nodes[0].node_id = 0x2000U;
+    handshake.nodes[1].node_id = 0x3000U;
+    handshake.nodes[2].node_id = 0x4000U;
+    mesh_ui_store_set_handshake(&store, &handshake);
+
+    for (uint32_t i = 0U; i < 2U; ++i) {
+        struct mesh_ui_traceroute trace;
+        memset(&trace, 0, sizeof trace);
+        trace.state = MESH_TRACEROUTE_DONE;
+        trace.target = 0x2000U + i * 0x1000U;
+        trace.completed = 1750000000U + i;
+        trace.forward_count = 2U;
+        trace.forward[0].node_id = 0x1000U;
+        snprintf(trace.forward[0].name, sizeof trace.forward[0].name, "US");
+        trace.forward[1].node_id = trace.target;
+        trace.forward[1].has_snr = true;
+        trace.forward[1].snr_quarter_db = 18;
+        snprintf(trace.forward[1].name, sizeof trace.forward[1].name, "N%u", (unsigned)i);
+        mesh_ui_store_set_traceroute(&store, &trace);
+    }
+
+    if (!detail_draws_a_route(&store, &store.handshake.nodes[1])) {
+        failure = "the node traced last should draw its route";
+        goto cleanup;
+    }
+    if (!detail_draws_a_route(&store, &store.handshake.nodes[0])) {
+        failure = "the node traced before it should still draw its own";
+        goto cleanup;
+    }
+    if (detail_draws_a_route(&store, &store.handshake.nodes[2])) {
+        failure = "a node nothing was traced to has no route to draw";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
 

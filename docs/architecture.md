@@ -143,8 +143,8 @@ else describes one link.
 - **"Heard by" is derived, never stored**, which is why `mesh_ui_node_detail_build` takes the
   whole roster. It is walked per frame rather than cached because a node that stops hearing us
   drops out of its own next report, and a cached answer would go on claiming it still does.
-- The list **is** persisted, unlike the traceroute: the broadcast interval is floored at four
-  hours by the firmware.
+- The list **is** persisted, and so is the traceroute beside it: the broadcast interval is
+  floored at four hours by the firmware, and a measured route is worth the same keeping.
 
 ### Relay attribution is a byte, not a node
 
@@ -177,8 +177,10 @@ follows from that.
   was ranked away. The message resolver runs in core and sees all of it; the detail screen cannot,
   so it is handed `relay_ambiguous` / `next_hop_ambiguous` — computed at publish — and renders the
   partial id whenever either is set, rather than naming the one survivor it can see.
-- **The node's pair is the last packet's and is not persisted**, for the reason the traceroute is
-  not: a route is true for about as long as the mesh holds still. A **message's** relay is
+- **The node's pair is the last packet's and is not persisted**, and the reason is not the one
+  the traceroute is kept on: a trace is a measurement with a stamp, where this pair is a side
+  effect of whichever packet happened to arrive last and carries no time of its own - so a
+  restored one could not say how old it is. A **message's** relay is
   persisted, because the route one packet took does not change after it arrives — it rides its own
   `msg_relay[]` key, resolved to a name at publish rather than re-resolved on load against
   whatever roster the next run happens to have.
@@ -260,6 +262,10 @@ and the SNR of every link.
   `i` taking `snr[i - 1]`. That array is normally one longer than the route — one reading per
   *link* — but every pairing is bounds checked. `INT8_MIN` is "not measured" and draws as "no
   reading", not a -32 dB link.
+- **The result is kept per node and written to the card.** The session's one slot is the trace in
+  *flight*; `struct mesh_ui_traceroute_log` beside it holds the last route measured to each of
+  eight nodes, which is what a screen asks through `mesh_ui_store_traceroute_view()`. See
+  [`ui.md`](ui.md#what-the-client-remembers) for the format and for what a swap drops.
 
 ### Asking the radio about a node
 

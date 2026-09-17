@@ -966,7 +966,8 @@ static void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
 
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
     const uint32_t count = mesh_ui_node_detail_build(
-        node, is_self, mesh_time_wall_s(), &snapshot->traceroute, nav->node_remove_armed,
+        node, is_self, mesh_time_wall_s(),
+        mesh_ui_snapshot_traceroute_view(snapshot, node->node_id), nav->node_remove_armed,
         &snapshot->handshake, &snapshot->history, mesh_ui_units_imperial(snapshot->settings.units),
         items, MESH_UI_NODE_ITEMS_MAX);
     if (count == 0U) {
@@ -4595,8 +4596,9 @@ static void fb_render_node_trend(struct mesh_ui_backend_fb_state *state,
     const bool is_self = hs->has_my_info && node->node_id == hs->my_info.node_num;
 
     struct mesh_ui_node_item found;
-    if (!mesh_ui_node_detail_trend_row(node, is_self, &snapshot->traceroute, hs, &snapshot->history,
-                                       (enum mesh_ui_history_reading)nav->node_trend, &found)) {
+    if (!mesh_ui_node_detail_trend_row(
+            node, is_self, mesh_ui_snapshot_traceroute_view(snapshot, node->node_id), hs,
+            &snapshot->history, (enum mesh_ui_history_reading)nav->node_trend, &found)) {
         fb_render_node_detail(state, snapshot, layout);
         return;
     }

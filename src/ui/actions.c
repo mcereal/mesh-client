@@ -182,9 +182,15 @@ static enum mesh_ui_node_press mesh_ui_actions_node_press(const struct mesh_ui_s
         return MESH_UI_NODE_PRESS_NONE;
     }
     const bool is_self = hs->has_my_info && node->node_id == hs->my_info.node_num;
-    return mesh_ui_node_detail_press_at(node, is_self, &snapshot->traceroute, hs,
-                                        &snapshot->history,
-                                        snapshot->nav.cursor[MESH_UI_SCREEN_NODES]);
+    /*
+     * The same record the screen was drawn from, which on this screen is the same question as
+     * which rows exist: a node's own measured route adds its two groups *above* the identity and
+     * the readings, so a bar that read the one trace slot here would count a different list from
+     * the one the cursor is standing in and name the verb belonging to some row further down.
+     */
+    return mesh_ui_node_detail_press_at(
+        node, is_self, mesh_ui_snapshot_traceroute_view(snapshot, node->node_id), hs,
+        &snapshot->history, snapshot->nav.cursor[MESH_UI_SCREEN_NODES]);
 }
 
 /* The chart's bar, defined below beside the Status arm that first needed it - a node's chart is
@@ -576,8 +582,10 @@ static bool mesh_ui_actions_trend_scrolls(const struct mesh_ui_snapshot *snapsho
     const bool is_self = hs->has_my_info && node != NULL && node->node_id == hs->my_info.node_num;
     struct mesh_ui_node_item row;
     memset(&row, 0, sizeof row);
-    if (!mesh_ui_node_detail_trend_row(node, is_self, &snapshot->traceroute, hs, &snapshot->history,
-                                       (enum mesh_ui_history_reading)nav->node_trend, &row)) {
+    if (!mesh_ui_node_detail_trend_row(
+            node, is_self,
+            mesh_ui_snapshot_traceroute_view(snapshot, node != NULL ? node->node_id : 0U), hs,
+            &snapshot->history, (enum mesh_ui_history_reading)nav->node_trend, &row)) {
         return false;
     }
     return mesh_ui_trend_readings(row.trend, nav->trend_span) > snapshot->page_rows;
