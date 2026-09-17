@@ -7,3 +7,10 @@
 [submodule "third_party/mbedtls"]
 	path = third_party/mbedtls
 	url = https://github.com/Mbed-TLS/mbedtls.git
+	# Track the 4.1 LTS branch, not upstream's default. Dependabot follows a submodule's
+	# configured branch and falls back to the remote's default when there is none - which for
+	# Mbed TLS is `development`, where 4.2 and later are written. That is how a 3.6.7 pin came
+	# back as a 4.2.0 bump that could not build. This keeps the offers to the LTS line, where
+	# the commits are the security and bug fixes. Ordinary `git submodule update` ignores it:
+	# the pinned SHA is what checks out, and only `--remote` follows the branch.
+	branch = mbedtls-4.1

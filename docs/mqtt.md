@@ -285,6 +285,12 @@ somebody else arrived at. Two modules working it out separately is two answers t
 required — without it the build still works and says so, and `mesh_tls_available()` reports
 false, which makes MQTT over TLS the one thing that build cannot do.
 
+`.gitmodules` tracks the `mbedtls-4.1` branch, which is a statement to dependabot rather than to
+git: a submodule with no branch configured is followed on the remote's *default* branch, and Mbed
+TLS writes 4.2 and later on `development`. That is how a 3.6.7 pin came back as a 4.2.0 bump that
+could not build. It changes nothing about what checks out — the pinned SHA does that, and only
+`git submodule update --remote` follows a branch.
+
 **Mbed TLS 4.x is two projects.** TLS and X.509 are the outer one; every primitive, the PSA API
 and the RNG live in the `tf-psa-crypto` submodule nested inside it. That is why the config is a
 pair — `mesh_mbedtls_config.h` is the `MBEDTLS_USER_CONFIG_FILE`, `mesh_psa_crypto_config.h` is
