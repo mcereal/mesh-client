@@ -4,7 +4,7 @@
 /*
  * What the two channel-sharing screens say.
  *
- * `src/ui/trust.c`'s shape, and here for trust.c's reason: the share screen and the sheet in
+ * `src/ui/tables/trust.c`'s shape, and here for trust.c's reason: the share screen and the sheet in
  * front of a typed link both have to put a *sentence* about a Meshtastic link in front of the
  * user, and working one out means parsing the link - which is not something a renderer may do.
  * So the renderer asks, and this answers with text out of the catalog.

@@ -27,7 +27,7 @@ extern "C" {
  * one epoll loop with no threads in it, and a DNS lookup that takes five seconds is five seconds
  * of frozen UI - so an address is a numeric literal here, v4 or v6, and a name is refused in
  * words rather than paid for in a stall. Resolving one needs the forked-child shape
- * `src/core/fetch.c` already uses for HTTPS; see docs/transport.md.
+ * `src/core/net/fetch.c` already uses for HTTPS; see docs/transport.md.
  */
 
 /* Upstream's port for the TCP client API, shared by the firmware and by meshtasticd. */

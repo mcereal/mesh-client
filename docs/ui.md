@@ -6,14 +6,19 @@ or a device, so it is testable directly.
 
 ## Shape
 
+`src/ui/` is filed by group - `store/`, `nav/`, `settings/`, `tables/`, `theme/`, `views/`,
+`input/`, `backends/`, `generated/` - with `layout.c` and `anim.c` at the top because every group
+uses them. The group is where a source lives and never part of an include path: the header stays
+at `mesh/ui/<name>.h` whichever group its source sits in. See the group map in `CLAUDE.md`.
+
 ```
 mesh_app -> mesh_ui_store (snapshot + eventfd) -> mesh_ui_controller -> backend->present()
 evdev -> mesh_ui_input -> mesh_ui_controller_handle_key -> mesh_ui_store_handle_key
       -> nav.c -> mesh_ui_action -> mesh_app_on_ui_action
 ```
 
-- **`src/ui/store.c`** owns `mesh_ui_snapshot` and signals the loop via an eventfd.
-- **`src/ui/controller.c`** drains the store and calls `backend->present(snapshot)`.
+- **`src/ui/store/store.c`** owns `mesh_ui_snapshot` and signals the loop via an eventfd.
+- **`src/ui/nav/controller.c`** drains the store and calls `backend->present(snapshot)`.
 - **Backends** implement the three-function `struct mesh_ui_backend` (`init`, `shutdown`,
   `present`): `fb.c` (the device UI), `cli.c` (a terminal fallback), `stub.c` (tests).
   **Backends are stateless** — they draw the cursor from `snapshot->nav`. A new platform
@@ -24,9 +29,9 @@ evdev -> mesh_ui_input -> mesh_ui_controller_handle_key -> mesh_ui_store_handle_
   `struct mesh_ui_wrap` (cell-measured word wrap) and `mesh_ui_transcript_window` (the
   bottom-anchored window variable-height items need). None touches a framebuffer, a font or a
   snapshot, so all are unit tested directly in `tests/suites/ui_layout.c`.
-- **`src/ui/theme.c`** and **`src/ui/font.c`** hold what the UI *looks* like. Nothing that draws
+- **`src/ui/theme/theme.c`** and **`src/ui/theme/font.c`** hold what the UI *looks* like. Nothing that draws
   holds a colour or a margin of its own — see [Themes](#themes).
-- **`src/ui/nav*.c`** own the tab/cursor/compose-target model (`struct mesh_ui_nav`, carried in
+- **`src/ui/nav/`** owns the tab/cursor/compose-target model (`struct mesh_ui_nav`, carried in
   every snapshot and clamped against the lists on each consume) and return a `mesh_ui_action`.
   `nav.c` is the router; `nav_canned.c`, `nav_keyboard.c`, `nav_conversations.c` and
   `nav_settings.c` are the subjects it dispatches into, over `nav_internal.h`.
@@ -56,7 +61,7 @@ There are three files on the card and they answer different questions.
 | Shape | one file, rewritten whole every save | a file per conversation, appended to | a file per node, appended to |
 | Keys | `include/mesh/ui/store_keys.def` | the same message records, over `store_internal.h` | one `trend` record, off the same table |
 | Read | at launch, all of it | when a conversation is opened, one file | when a node's detail is opened, one file |
-| Code | `src/ui/store_file.c` | `src/ui/store_archive.c` | `src/ui/store_trends.c` |
+| Code | `src/ui/store/store_file.c` | `src/ui/store/store_archive.c` | `src/ui/store/store_trends.c` |
 
 The cache is what makes a Brick with no radio in range open on a roster. The archive is what
 makes a conversation go back further than the radio does, and the two numbers behind that are
@@ -184,7 +189,7 @@ detail came to describe itself with the first node's trace.
 
 ## Input
 
-`src/ui/input.c` reads every `/dev/input/event*` and maps evdev codes to `enum mesh_ui_key`.
+`src/ui/input/input.c` reads every `/dev/input/event*` and maps evdev codes to `enum mesh_ui_key`.
 Quit keys stop the loop before mapping.
 
 **The Brick's face buttons do not report by position.** A is `BTN_EAST` (305), B is `BTN_SOUTH`
@@ -217,7 +222,7 @@ the store one per event-loop turn and the store coalesces its repaints.
 
 One grid, opened for seven unrelated jobs (a message, a settings field, a waypoint's name, a
 network address, a channel link, a contact link, and the PIN and security-number prompts that can
-arrive on top of any of them). `src/ui/nav_keyboard.c` owns all of it;
+arrive on top of any of them). `src/ui/nav/nav_keyboard.c` owns all of it;
 `mesh_ui_nav_keyboard_close()` is where "give the user back what they were doing" lives.
 
 **The pad is used the way a console keyboard uses it.** A types, **X** is the backspace, **B**
@@ -328,7 +333,7 @@ Four authoring rules hold across all of them, and breaking one compiles and look
   string (`MESH_STR_*`), an icon (`MESH_UI_ICON_*`), a tone/family/role/shape. No English prose,
   colour, margin, glyph size or corner radius belongs in `src/ui/backends/`.
   `scripts/check-strings.py` fails the build on prose.
-- **Button hints are (button, string id) pairs** in `src/ui/actions.c`, never a sentence. A
+- **Button hints are (button, string id) pairs** in `src/ui/tables/actions.c`, never a sentence. A
   keycap is untranslated — it is what is printed on the case. A keycap that does nothing is a bug.
 - **A heading is `struct fb_app_bar`**, with slots; the back arrow is *derived* from the action
   table, never declared.
@@ -633,10 +638,10 @@ and tinted at draw time, so changing a colour does not regenerate them.
 
 | File | What it is |
 |---|---|
-| `src/ui/font_ui.c` | `"ui"`, JetBrains Mono, the default face — generated |
-| `src/ui/font5x7.c` | `"5x7"`, the pixel face. ASCII plus composed accented Latin |
-| `src/ui/emoji.c` + `generated/emoji_glyphs.c` | emoji, generated |
-| `src/ui/icon.c` + `generated/icon_glyphs.c` | the icon set; `icons.def` is the table |
+| `src/ui/theme/font_ui.c` | `"ui"`, JetBrains Mono, the default face — generated |
+| `src/ui/theme/font5x7.c` | `"5x7"`, the pixel face. ASCII plus composed accented Latin |
+| `src/ui/theme/emoji.c` + `generated/emoji_glyphs.c` | emoji, generated |
+| `src/ui/theme/icon.c` + `generated/icon_glyphs.c` | the icon set; `icons.def` is the table |
 
 `scripts/gen-{emoji,icons,font,locale}.py` are **not part of the build** — run them by hand and
 commit the result.
@@ -644,7 +649,7 @@ commit the result.
 ## Themes
 
 Everything that makes the UI look like something — palette, margin, glyph multiplier, font — is
-one table in `src/ui/theme.c`. `MESHCLIENT_THEME` picks one (`dark`, `light`, `contrast`,
+one table in `src/ui/theme/theme.c`. `MESHCLIENT_THEME` picks one (`dark`, `light`, `contrast`,
 `colorblind`).
 
 Four vocabularies, most abstract to least:
@@ -731,7 +736,7 @@ column gives way. A "large text" theme is that struct with a different `scale`.
 
 ### Adding a theme
 
-Add an entry to `k_themes` in `src/ui/theme.c` — id, name, font id, a colour per role, metrics.
+Add an entry to `k_themes` in `src/ui/theme/theme.c` — id, name, font id, a colour per role, metrics.
 That is the whole change. `mesh_ui_theme_validate()` then holds it to a readability contract the
 suite runs over every registered theme: body text on its ground **4.5:1** (WCAG AA), secondary
 text **3:1**, a hairline only has to be visible.

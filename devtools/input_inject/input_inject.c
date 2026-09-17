@@ -53,7 +53,7 @@ struct inject_button {
 /*
  * The names on the case, and what this hardware reports for each.
  *
- * These are the `brick` row of src/ui/input_profile.c, deliberately duplicated rather than
+ * These are the `brick` row of src/ui/input/input_profile.c, deliberately duplicated rather than
  * included: this program is built on its own, outside the client's CMake, and a table of a
  * dozen codes is a smaller thing to keep in step than a build that reaches into src/. The
  * client's own test is what holds that table honest; what holds this one honest is that a wrong

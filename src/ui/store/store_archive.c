@@ -5,7 +5,7 @@
  *
  * What this is for and the three decisions behind its format are in
  * include/mesh/ui/store_archive.h; this file is the mechanics. It sits beside store_file.c in
- * the store group and shares its record codec over src/ui/store_internal.h, so a message is
+ * the store group and shares its record codec over src/ui/store/store_internal.h, so a message is
  * spelled the same way in both files on the card.
  *
  * Every entry point tolerates a disabled archive - one whose directory could not be made - and

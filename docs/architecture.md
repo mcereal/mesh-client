@@ -45,8 +45,14 @@ the complete type of each. That is why it is its own directory rather than part 
 composition root that sees everything is not a layering violation, but a composition root hiding
 inside a layer is.
 
-Adding a directory under `src/` means adding a row to `ALLOWED` in that script, with the areas it
-may include from and why. An edge with no reason written next to it is one to delete.
+Adding a *top-level* directory under `src/` means adding a row to `ALLOWED` in that script, with
+the areas it may include from and why. An edge with no reason written next to it is one to delete.
+
+A **group** inside an area is not a layer and needs no row: a file's area is its first directory,
+so `src/ui/store/store.c` is `ui` and `src/transport/ble/bluez_client.c` is `transport`. Groups
+are how `src/ui/` (51 sources) and `src/core/` (26) are kept navigable; they carry no rule of
+their own, and a source moving between two of them changes nothing a caller can see, because
+`include/mesh/<area>/` is flat.
 
 Allwinner A133P, 1 GB RAM, WiFi and Bluetooth. Constrained enough that the binary stays small
 and brings no runtime with it — C plus nanopb, no SDL, no interpreter. Pak conventions the code
@@ -54,7 +60,7 @@ depends on: a pak is `/Tools/tg5040/<Name>.pak/` with a `launch.sh`; logs go to
 `/.userdata/$PLATFORM/logs/<pak>.txt`; state lives under `/.userdata/$PLATFORM/<pak>/`, which
 `launch.sh` sets as `$HOME`.
 
-## `src/core/event_loop.c`
+## `src/core/runtime/event_loop.c`
 
 An epoll loop over a fixed table of 32 fd sources: D-Bus watches, the timerfd discovery refresh,
 the UI store eventfd, the serial tty, the updater's curl child stdout. **No threads anywhere. Do
@@ -65,18 +71,18 @@ not add them.**
 Nothing may block the loop, and two things a client has to do are blocking by nature.
 
 **A name lookup forks.** `getaddrinfo()` blocks, POSIX offers no non-blocking form, and
-`getaddrinfo_a()` starts threads. `src/core/resolve.c` forks a child that blocks in it and writes
-one fixed-size record back through a pipe the loop owns — `src/core/fetch.c`'s shape with the
+`getaddrinfo_a()` starts threads. `src/core/net/resolve.c` forks a child that blocks in it and writes
+one fixed-size record back through a pipe the loop owns — `src/core/net/fetch.c`'s shape with the
 tool taken out. An address literal costs no child at all. See
 [`docs/transport.md`](transport.md#a-name-costs-a-fork).
 
-**TLS does not.** `src/core/tls_client.c` drives Mbed TLS through BIO callbacks over a
+**TLS does not.** `src/core/net/tls_client.c` drives Mbed TLS through BIO callbacks over a
 non-blocking socket, reporting `-EAGAIN` back out to the loop rather than waiting. It exists for
 MQTT and only for MQTT: a broker connection is long-lived and bidirectional, so there is nothing
 to fork and nowhere for a child to put the result. Everything else HTTPS is still a forked curl.
 See [`docs/mqtt.md`](mqtt.md).
 
-## `src/core/session.c` — the Meshtastic conversation
+## `src/core/session/session.c` — the Meshtastic conversation
 
 `struct mesh_session` is the conversation, independent of how the bytes travel: the
 `want_config_id` handshake, the node-summary cache, the channel table, the message log, the
@@ -260,10 +266,10 @@ field.
 `MeshPacket.pki_encrypted` puts a padlock on a direct message. What it does **not** say is whose
 key that was: a public key arrives in a `NodeInfo` from whoever transmitted it, so "the radio
 held a key for that name" and "the radio held *their* key" are different claims.
-`NodeInfo.is_key_manually_verified` is the difference, and `src/core/key_verification.c` is the
+`NodeInfo.is_key_manually_verified` is the difference, and `src/core/session/key_verification.c` is the
 out-of-band ceremony that sets it — two radios show a six-digit number and a short code, and the
 users read both to each other by voice. The mark is a padlock for a key that merely arrived and a
-shield for one somebody proved, which is `src/ui/trust.c`'s answer rather than the transcript's,
+shield for one somebody proved, which is `src/ui/tables/trust.c`'s answer rather than the transcript's,
 since three screens draw trust and they have to agree. `AdminMessage.add_contact` is the other
 half: the radio's NodeDB evicts and this roster does not, so handing a record back — public key
 and verified bit included — is what makes a DM to it encryptable again.
@@ -272,7 +278,7 @@ A `SharedContact` reaches that verb two ways, and they are not equally trusted. 
 row it is a record this client already holds, so `manually_verified` rides across intact — the
 ceremony happened, and a round trip through the radio is not a reason to undo it. From a
 `meshtastic.org/v/#` link (`src/proto/contact_url.c`) it is a stranger's bytes with nothing
-authenticating them, so `src/core/contact_share.c` clears both `manually_verified` and
+authenticating them, so `src/core/session/contact_share.c` clears both `manually_verified` and
 `should_ignore` before queueing: those two are instructions to the *reader's* radio rather than
 statements about the sender's node, and a link that could set the first would launder a shield
 out of a picture on a screen. What the link is for is the other direction — a key for a node that
@@ -323,7 +329,7 @@ and the SNR of every link.
   Neither can erase anything (both are merged field by field at the far end) and neither carries
   `want_ack` — the reply *is* the acknowledgement.
 
-## `src/core/radio_settings.c` — the admin protocol
+## `src/core/session/radio_settings.c` — the admin protocol
 
 A transport-agnostic view of the radio's configuration plus the `AdminMessage` plumbing: requests
 addressed to our own node with `want_response`, replies correlated by `Data.request_id`, the
@@ -409,7 +415,7 @@ The banner (`mesh/ui/chrome.h`) outranks every other entry while a target is set
 down only inside Settings > About radio, which names the node in a row and carries the press
 that comes back.
 
-## `src/core/store_forward.c`
+## `src/core/session/store_forward.c`
 
 A Store & Forward router keeps the last few hours of text traffic and hands it back on request —
 the half that matters on a handheld, since a Brick spends most of its life switched off. One
@@ -463,7 +469,7 @@ UI can key off that return value. `mesh_app_report_link_errors()` runs between `
 `autoconnect()`, pops a transport's `take_error()` line, toasts it when the user asked for the
 connect, and counts the attempt against the backoff.
 
-## `src/core/updater.c` + `version.c` — the client updating itself
+## `src/core/update/updater.c` + `version.c` — the client updating itself
 
 `mesh_version_compare()` is SemVer precedence including prerelease ordering, so a `dev` build
 never offers to "update" itself to a release.

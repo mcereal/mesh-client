@@ -56,8 +56,8 @@ bool mesh_contact_share_settled(const struct mesh_radio_settings *settings);
  *
  *   `manually_verified` sets the bit that means "a person checked this key out of band". We
  *   cannot assert that on the reader's behalf - the whole point of the ceremony in
- *   src/core/key_verification.c is that it happens between two people over a second channel -
- *   so a code claiming it would be laundering trust through a picture on a screen.
+ *   src/core/session/key_verification.c is that it happens between two people over a second channel
+ * - so a code claiming it would be laundering trust through a picture on a screen.
  *
  * Both are left false here and dropped again on the way in (mesh_contact_share_queue_import),
  * which is belt and braces on purpose: the two ends are written by different people and only

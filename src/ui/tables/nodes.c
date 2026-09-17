@@ -15,8 +15,8 @@
 /*
  * The table.
  *
- * src/ui/status.c's shape: one row per member of the enum, in the order the chips draw, read by
- * the three files that each have an opinion about the list. What a row holds here is only the
+ * src/ui/tables/status.c's shape: one row per member of the enum, in the order the chips draw, read
+ * by the three files that each have an opinion about the list. What a row holds here is only the
  * word, because everything else about a filter is the predicate below - there is no condition
  * on offering one, which is the difference from the Status verbs. A filter that matched nothing
  * is still offered: "Pinned" with nothing pinned is the answer to "did I pin that node?", and a
@@ -279,7 +279,7 @@ void mesh_ui_node_view_build(const struct mesh_ui_handshake_state *handshake,
     }
 
     /*
-     * Insertion sort, the shape src/ui/waypoints.c uses and for its reasons. The list is 128
+     * Insertion sort, the shape src/ui/views/waypoints.c uses and for its reasons. The list is 128
      * entries at most and is rebuilt per frame, so the simplest *stable* sort is the right one -
      * and stability is the whole of the tie-break rule: the keys are built in published order,
      * so two rows this sort cannot separate come out in the order the app ranked them rather

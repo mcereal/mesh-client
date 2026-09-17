@@ -106,22 +106,30 @@ link (transport) -> mesh_session -> mesh_app -> UI store -> controller -> backen
 evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_ui_action
 ```
 
-`include/mesh/` mirrors `src/` one-for-one, so a header sits in the directory named after the
-source file that defines it.
+**`include/mesh/<area>/` is an area's public surface and is flat; `src/<area>/` subdivides by
+group.** So `store.h` is included as `mesh/ui/store.h` no matter which group under `src/ui/` its
+source is filed in - how the sources are filed is not part of the interface, and moving one
+between groups is not an API change. Find a header's source by *filename*, not by path: the two
+always share a name.
+
+The one thing that follows a source into its group is a `*_internal.h`, which is not public and
+sits beside the files it serves.
 
 **The directory under `src/` is a layer, and `scripts/check-layers.py` holds the direction.** The
 allowed edges are the table in that script; the one worth knowing is that **`core` never includes
 `ui`**. The session, the message log and the admin queue answer to a radio, not to a screen, and
 the moment one of them reads a store record the client can no longer be driven headless.
 `src/app/` is the composition root - it owns one of everything and is the single layer allowed to
-see every other, because assembling them is what it is for. A new directory under `src/` needs an
-entry in that script's `ALLOWED` before it will compile clean.
+see every other, because assembling them is what it is for. A new *top-level* directory under
+`src/` needs an entry in that script's `ALLOWED` before it will compile clean; a group inside an
+existing area does not, because a file's area is its first directory - `src/ui/store/store.c` is
+`ui`, exactly as `src/transport/ble/bluez_client.c` is `transport`.
 
 `src/ui/generated/` is the three glyph tables `scripts/gen-{emoji,icons,font}.py` write - 42k
 lines, a third of the tree, and none of it read by a human. It is out of `src/ui/` so that a
 count of this codebase is a count of what somebody wrote.
 
-The one group that is several headers to one source is the UI store: `src/ui/store.c` defines
+The one group that is several headers to one source is the UI store: `src/ui/store/store.c` defines
 what `store.h` and its seven subject headers (`store_device.h`, `store_node.h`,
 `store_channel.h`, `store_handshake.h`, `store_message.h`, `store_mqtt.h`,
 `store_settings.h`) declare. Include
@@ -129,41 +137,66 @@ the subject you need - `store.h` is the umbrella and pulls all six in. See
 [`docs/ui.md`](docs/ui.md#shape) for what each one owns and what the split does and does
 not buy.
 
-The cache `store.h` also declares is not in `store.c`: `src/ui/store_file.c` is both halves of
+The cache `store.h` also declares is not in `store.c`: `src/ui/store/store_file.c` is both halves of
 the file on the card, over `store_keys.c` (the key) and `store_fields.c` (the value).
-`src/ui/store_archive.c` is the *second* file on the card - one append-only log per conversation,
+`src/ui/store/store_archive.c` is the *second* file on the card - one append-only log per conversation,
 which is what lets a thread go back further than the 64-message transport ring - and shares that
-record codec over `store_internal.h`. `src/ui/store_trends.c` is the *third* - one append-only
+record codec over `store_internal.h`. `src/ui/store/store_trends.c` is the *third* - one append-only
 log per node, which is what lets a node's trend outlive the run that watched it, written on every
 publish and read back when that node's detail screen is opened. See
 [`docs/ui.md`](docs/ui.md#what-the-client-remembers) for which file answers which question.
 
 | Area | Where |
 |---|---|
-| Event loop | `src/core/event_loop.c` - epoll, 32 fd sources, **no threads** |
+| Event loop | `src/core/runtime/event_loop.c` - epoll, 32 fd sources, **no threads** |
 | Transports | `src/transport/` - registry, BLE (BlueZ/D-Bus), serial, TCP; `stream_link.c` is the half serial and TCP share |
-| Session | `src/core/session.c` - handshake, node roster, channels, message log, packet ids |
-| Admin protocol | `src/core/radio_settings.c` - `AdminMessage` get/set queue, passkeys, NodeDB verbs |
-| Messaging | `src/core/message.c`, `store_forward.c`, `waypoint.c` |
-| Key trust | `src/core/key_verification.c` - the out-of-band ceremony behind the padlock; `add_contact` lives in `radio_settings.c` |
-| Channel sharing | `src/proto/channel_url.c` (the `meshtastic.org/e/#` link), `src/core/channel_share.c` (the radio's table either way), `src/utils/qr.c` (the code), `src/ui/channel_share.c` (what the two screens say) |
-| Contact sharing | `src/proto/contact_url.c` (the `meshtastic.org/v/#` link), `src/core/contact_share.c` (this radio's record out, a stranger's in), `src/ui/contact_share.c` (what the two screens say); the wrapper both links share is `src/proto/link_url.h` |
+| Session | `src/core/session/session.c` - handshake, node roster, channels, message log, packet ids |
+| Admin protocol | `src/core/session/radio_settings.c` - `AdminMessage` get/set queue, passkeys, NodeDB verbs |
+| Messaging | `src/core/session/message.c`, `store_forward.c`, `waypoint.c` |
+| Key trust | `src/core/session/key_verification.c` - the out-of-band ceremony behind the padlock; `add_contact` lives in `radio_settings.c` |
+| Channel sharing | `src/proto/channel_url.c` (the `meshtastic.org/e/#` link), `src/core/session/channel_share.c` (the radio's table either way), `src/utils/qr.c` (the code), `src/ui/views/channel_share.c` (what the two screens say) |
+| Contact sharing | `src/proto/contact_url.c` (the `meshtastic.org/v/#` link), `src/core/session/contact_share.c` (this radio's record out, a stranger's in), `src/ui/views/contact_share.c` (what the two screens say); the wrapper both links share is `src/proto/link_url.h` |
 | App glue | `src/app/*.c` - the composition root: lifecycle/link, `_actions`, `_publish`, `_settings` |
-| Self-update | `src/core/updater.c`, `version.c`, `fetch.c` |
-| MQTT proxy | `src/proto/mqtt_packet.c` (the wire format), `src/proto/mqtt_topic.c` (where a mesh lives on a broker), `src/core/mqtt_proxy.c` (one broker connection), `src/core/tls_client.c` (Mbed TLS on the loop), `src/app/app_mqtt.c` (whether to hold one at all) |
-| Radio firmware | `src/core/firmware*.c`, `uf2.c`, `esp_image.c`, `src/transport/*/{usb_msc,ble_ota,ble_hci}.c` - the *other* binary |
-| UI | `src/ui/` - store/controller (records in `include/mesh/ui/store_*.h`), `store_file.c` the cache on the card, `store_archive.c` the per-conversation transcript and `store_trends.c` the per-node trend log beside it, `nav*.c`, `settings*.c`, `layout.c`, `backends/{fb*,cli,stub}.c`; **`fb` is the device UI** |
-| UI components | `src/ui/layout.c`, `src/ui/backends/fb_widgets.c` - cell-measured line builder, scroll window, cards, lists, meters, charts |
-| Tables the UI reads | `actions.c` (button verbs), `status.c` (card verbs), `help.c`, `devices.c`, `nodes.c`, `delivery.c`, `trust.c`, `chrome.c`, `trend.c`, `duration.c`, `units.c` (metric/imperial lengths) |
-| Themes & fonts | `src/ui/theme.c`, `font*.c`, `icon*.c` - palette by role, shape scale, metrics |
+| Self-update | `src/core/update/updater.c`, `version.c`, `fetch.c` |
+| MQTT proxy | `src/proto/mqtt_packet.c` (the wire format), `src/proto/mqtt_topic.c` (where a mesh lives on a broker), `src/core/net/mqtt_proxy.c` (one broker connection), `src/core/net/tls_client.c` (Mbed TLS on the loop), `src/app/app_mqtt.c` (whether to hold one at all) |
+| Radio firmware | `src/core/firmware/` - `firmware*.c`, `uf2.c`, `esp_image.c`, `src/transport/*/{usb_msc,ble_ota,ble_hci}.c` - the *other* binary |
+| UI | `src/ui/` - see the group map below; **`fb` is the device UI** |
+| UI components | `src/ui/layout.c` (top level: every group measures), `src/ui/backends/fb_widgets.c` - cell-measured line builder, scroll window, cards, lists, meters, charts |
+| Tables the UI reads | `src/ui/tables/` - `actions.c` (button verbs), `status.c` (card verbs), `help.c`, `devices.c`, `nodes.c`, `delivery.c`, `trust.c`, `chrome.c`, `trend.c`, `duration.c`, `units.c` (metric/imperial lengths) |
+| Themes & fonts | `src/ui/theme/theme.c`, `font*.c`, `icon*.c` - palette by role, shape scale, metrics |
 | Strings | `src/i18n/strings.c`, `include/mesh/i18n/catalog.def` |
-| Geography & map | `src/geo/` (the only directory that includes `<math.h>`), `src/map/`, `src/ui/{map,nav_map}.c`, `backends/fb_map.c` |
+| Geography & map | `src/geo/` (the only directory that includes `<math.h>`), `src/map/`, `src/ui/views/map.c`, `src/ui/nav/nav_map.c`, `src/ui/backends/fb_map.c` |
 | Crash reports | `src/utils/crash.c` - local only, deliberately not a service |
 | Shared utils | `src/utils/` - `text`, `time`, `env`, `json`, `log`, `sha256`, `array` |
 | Dev tools | `devtools/`, `scripts/` - UI capture, map packs, codegen |
 
+### The groups inside `src/ui/` and `src/core/`
+
+Two areas are large enough to be filed by group. The group is where a source *lives*, not part of
+its include path - see the flat-header rule above.
+
+| Group | What is in it |
+|---|---|
+| `src/ui/store/` | the records and the three files on the card, plus `history.c` and `preferences.c` |
+| `src/ui/nav/` | where the reader is and what a press does: `nav*.c`, `route.c`, `controller.c` |
+| `src/ui/settings/` | the settings model: fields, rows, the codec |
+| `src/ui/tables/` | the vocabulary tables a screen names rather than spells out |
+| `src/ui/theme/` | palette, shape scale, fonts, icons, emoji |
+| `src/ui/views/` | per-screen view models - what a screen says, not how it is drawn |
+| `src/ui/input/` | evdev to `mesh_ui_key`, and the Brick's button profile |
+| `src/ui/backends/` | the renderers. **`fb` is the device UI** |
+| `src/ui/generated/` | machine-written glyph tables |
+| `src/core/session/` | the Meshtastic conversation: session, messaging, admin, trust, sharing |
+| `src/core/firmware/` | the *radio's* firmware - a different binary on a different computer |
+| `src/core/net/` | one hostname, one socket, one TLS session, one broker |
+| `src/core/update/` | the *client* updating itself |
+| `src/core/runtime/` | the loop, signals, process config |
+
+`src/ui/layout.c` and `src/ui/anim.c` stay at the top of `src/ui/`: measuring in cells and the
+easing curves are what every group does, so neither belongs to one.
+
 Five subsystems are split across several files sharing one `*_internal.h` (`src/app/app_internal.h`,
-`src/ui/nav_internal.h`, `src/ui/settings_internal.h`, `src/ui/store_internal.h`,
+`src/ui/nav/nav_internal.h`, `src/ui/settings/settings_internal.h`, `src/ui/store/store_internal.h`,
 `src/ui/backends/fb_internal.h`). Those are **not** public API: they declare only what would still
 be `static` if the group were one file, and nothing outside the group should include one.
 
@@ -172,17 +205,17 @@ be `static` if the group were one file, and nothing outside the group should inc
 These are authoring rules - breaking one compiles and looks fine.
 
 - **Nothing is spelled out in a renderer.** A screen names an *id* and something else answers: a
-  string (`MESH_STR_*` -> `src/i18n/strings.c`), an icon (`MESH_UI_ICON_*` -> `src/ui/icon.c`), a
-  tone/family/role/shape (-> `src/ui/theme.c`). No English prose, colour, margin, glyph size or
+  string (`MESH_STR_*` -> `src/i18n/strings.c`), an icon (`MESH_UI_ICON_*` -> `src/ui/theme/icon.c`), a
+  tone/family/role/shape (-> `src/ui/theme/theme.c`). No English prose, colour, margin, glyph size or
   corner radius belongs in `src/ui/backends/`. `scripts/check-strings.py` fails the build on prose.
-- **Button hints are (button, string id) pairs** in `src/ui/actions.c`, never a sentence. A keycap
+- **Button hints are (button, string id) pairs** in `src/ui/tables/actions.c`, never a sentence. A keycap
   is untranslated - it is what is printed on the case. A keycap that does nothing is a bug.
 - **A heading is `struct fb_app_bar`**, with slots; the back arrow is *derived* from the action
   table, never declared.
 - **A list row is however many *steps* the list model says**, and the model is the authority; the
   screen measures and hands `fb_list_begin_heights()` an array.
 - **fb layout is measured in cells, not bytes.** A `strlen` or `%-Ns` there is a bug.
-- **A setting explains itself through `src/ui/help.c`**, keyed per section (and per route for
+- **A setting explains itself through `src/ui/tables/help.c`**, keyed per section (and per route for
   screens that are not lists of fields), never as a sentence on a screen.
 - **Adding a string, icon, theme or cache key is adding a table row** - `catalog.def`,
   `icons.def`, `theme.c`, `store_keys.def`. A `.def` is not a header and `make format` does not
@@ -214,7 +247,7 @@ The few that bite soonest:
   is no *decoder* and there will not be one: the Brick has no camera, so a link arriving is
   typed in.
 - **The Brick's face buttons do not report by position.** A is `BTN_EAST`, B is `BTN_SOUTH`, the
-  button printed **Y (left)** is `BTN_NORTH`. See `src/ui/input_profile.c`.
+  button printed **Y (left)** is `BTN_NORTH`. See `src/ui/input/input_profile.c`.
 - **A radio reboot after a settings write is expected.** The link drops and auto-connect returns.
 - **The node roster deliberately outlives the connection**, and a NodeDB reset does not clear it.
 - **The framebuffer needs all three steps** - draw page 0, `FBIOPAN_DISPLAY`, mirror into page 1 -

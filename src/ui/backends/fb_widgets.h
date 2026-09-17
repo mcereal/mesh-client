@@ -312,7 +312,7 @@ void fb_draw_banner(const struct mesh_ui_backend_fb_state *state, struct fb_layo
  *
  * **What it draws is `struct mesh_ui_button_action`, never a sentence.** The bar has to iterate the
  * pairs, so the pairs have to exist before the drawing does; that is why the hint catalog
- * entries were retired in favour of the table in src/ui/actions.c. See
+ * entries were retired in favour of the table in src/ui/tables/actions.c. See
  * include/mesh/ui/actions.h.
  *
  * It owns the whole bottom bar - the surface, the rule above it, the keycaps and the status
@@ -2030,8 +2030,8 @@ struct fb_bubble_meta {
     enum mesh_ui_icon lock;
     const char *clock; /* when it arrived, "14:05"; "" when the radio has no clock set */
     /* What became of one of ours: the clock, the double tick or the alert circle that
-       src/ui/delivery.c answers with. MESH_UI_ICON_NONE on anything inbound, and on a broadcast
-       that went out without want_ack - there is nothing to be waiting for. */
+       src/ui/tables/delivery.c answers with. MESH_UI_ICON_NONE on anything inbound, and on a
+       broadcast that went out without want_ack - there is nothing to be waiting for. */
     enum mesh_ui_icon state;
 };
 
@@ -2417,8 +2417,8 @@ int fb_card_min_height(const struct mesh_ui_backend_fb_state *state, const struc
  * what it wants, so the *last* card pays for everything above it - and paying means not being
  * drawn, because fb_draw_card() refuses a card it cannot fit rather than drawing an empty box.
  * Losing a card is worse than losing a row, and not only because it is more content: a card
- * carries **verbs**, and which verbs a screen offers is a table (src/ui/status.c) with no idea
- * how tall anything came out. The cursor therefore keeps walking onto a button that is not on
+ * carries **verbs**, and which verbs a screen offers is a table (src/ui/tables/status.c) with no
+ * idea how tall anything came out. The cursor therefore keeps walking onto a button that is not on
  * the frame - which is exactly the failure "a card that can end up with no rows must not be
  * given a verb" names, reached from the layout side instead of the row-count side.
  *

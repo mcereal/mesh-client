@@ -54,7 +54,7 @@ only a consequence of one of them, and neither is a thing a test could pin.
 
 - **A hostname is resolved in a forked child, never on the loop.** `getaddrinfo()` blocks, POSIX
   has no non-blocking resolver and `getaddrinfo_a` starts threads, so calling it here directly is
-  seconds of frozen UI — which is why `src/core/resolve.c` exists and why the TCP link refused a
+  seconds of frozen UI — which is why `src/core/net/resolve.c` exists and why the TCP link refused a
   name until it did. A literal is still answered by `inet_pton` with no child at all.
   `tcp_transport_connects_by_name`, `tcp_transport_refuses_what_it_cannot_resolve`,
   `tcp_target_split_shapes`. See [`docs/transport.md`](transport.md#a-name-costs-a-fork).
@@ -113,7 +113,7 @@ only a consequence of one of them, and neither is a thing a test could pin.
 
 - **The Brick's face buttons do not report by position.** A is `BTN_EAST` (305), B is
   `BTN_SOUTH` (304), the button printed **Y (left)** is `BTN_NORTH` (307), X (top) is `BTN_WEST`
-  (308). That is the `brick` row of `src/ui/input_profile.c`, **not a default the rest of the
+  (308). That is the `brick` row of `src/ui/input/input_profile.c`, **not a default the rest of the
   client may assume**: the `xbox` row is the ordinary convention, where A is the code the Brick
   calls B. The two disagree about exactly the buttons that confirm and go back, which is why one
   row holds the codes *and* the keycaps - correcting one without the other is invisible, because
@@ -387,7 +387,7 @@ only a consequence of one of them, and neither is a thing a test could pin.
 - **Every length the client shows follows the radio's `DisplayConfig.units`, and there is no
   second preference.** A reader who set their radio to miles is not asked to set the Brick to
   miles as well, so the byte off the wire is the only say - `mesh_ui_units_imperial()` is the one
-  place that decodes it and `src/ui/units.c` the only place that words a length. A new row that
+  place that decodes it and `src/ui/tables/units.c` the only place that words a length. A new row that
   formats metres directly is the way this comes undone, which is why the guard is a sweep over
   every section rather than an assertion per row.
   `ui_units_no_setting_reads_in_metres_under_imperial`,
@@ -440,7 +440,7 @@ only a consequence of one of them, and neither is a thing a test could pin.
   `ui_capture_status_keeps_the_last_card_when_the_one_above_overflows`.
 - **The screen progress bar costs no body row and the banner costs rows.** A request already sent
   must not reflow the list it went out from, so the bar takes a `const` layout; a banner is
-  content about the client. Which states raise either is `src/ui/chrome.c`, never a renderer.
+  content about the client. Which states raise either is `src/ui/tables/chrome.c`, never a renderer.
   `ui_capture_progress_costs_no_row_and_the_banner_costs_rows`.
 - **A banner says only what nothing else on the frame says, and must be able to resolve.** Hence
   no "radio disconnected" banner - the status line under the keycaps already says it - and no

@@ -12,7 +12,7 @@ extern "C" {
  * A TLS client session over a descriptor somebody else owns.
  *
  * There is one of these in the whole binary and it exists for one reason: MQTT over TLS. Every
- * *other* thing this client fetches over HTTPS is a forked curl (src/core/fetch.c), because a
+ * *other* thing this client fetches over HTTPS is a forked curl (src/core/net/fetch.c), because a
  * fetch is a request and a reply and a child process is a fine way to do one. A broker
  * connection is not - it is a long-lived, bidirectional stream that has to sit on the same epoll
  * loop as everything else and be readable and writable between UI frames. There is nothing to
@@ -37,7 +37,7 @@ extern "C" {
 
 /* The descriptor is borrowed, never closed here: the caller opened it, the caller connected it,
    and on any error the caller is the one that has to decide whether to retry. */
-struct mesh_tls_state; /* defined in src/core/tls_client.c; heap-held, one per session */
+struct mesh_tls_state; /* defined in src/core/net/tls_client.c; heap-held, one per session */
 
 struct mesh_tls_client {
     int fd;

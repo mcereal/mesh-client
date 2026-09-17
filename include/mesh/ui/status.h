@@ -16,8 +16,8 @@
  *
  * A card can carry a verb now (fb_widgets.h), and this is the table of which card carries
  * which. It lives here rather than beside the framebuffer backend for the reason
- * `src/ui/actions.c` does: *what a screen offers in a given state* is a fact about the nav, and
- * three things have to agree about it - nav.c, which moves the cursor over the verbs and runs
+ * `src/ui/tables/actions.c` does: *what a screen offers in a given state* is a fact about the nav,
+ * and three things have to agree about it - nav.c, which moves the cursor over the verbs and runs
  * the one it lands on; actions.c, which names the press in the action bar; and the renderer,
  * which draws the buttons. A second opinion about the list is how those three drift.
  *

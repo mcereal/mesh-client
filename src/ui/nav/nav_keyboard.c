@@ -68,8 +68,8 @@ static const char k_kb_layers[MESH_UI_KB_ASCII_LAYERS][MESH_UI_KB_CHAR_ROWS][MES
  * `User.short_name` is `char[5]`, which is exactly one - so the client could draw them long
  * before it could type one. These are what it can now type.
  *
- * Written as `\U` escapes rather than pasted in, for the reason src/ui/reactions.c states about
- * its own eight: an editor, a terminal or a patch tool that mangles non-ASCII cannot quietly
+ * Written as `\U` escapes rather than pasted in, for the reason src/ui/tables/reactions.c states
+ * about its own eight: an editor, a terminal or a patch tool that mangles non-ASCII cannot quietly
  * change what this client puts on the air. At a hundred and twenty cells the escape also has to
  * be *readable*, which the raw UTF-8 bytes are not - a code point names itself, and
  * kb_emoji_cells_are_drawable is what checks that each one is a glyph this build actually has a

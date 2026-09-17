@@ -419,7 +419,7 @@ bool mesh_ui_store_set_conversation_mute(struct mesh_ui_store *store, uint8_t ki
  * backend and the action bar are both handed a `const struct mesh_ui_snapshot` instead. This is
  * the adaptor, and it lives here rather than in either caller because it now has callers on
  * both sides of that seam: the fb renderer, which had a private copy of it, and
- * src/ui/actions.c, which needs the row under the cursor to name a press.
+ * src/ui/tables/actions.c, which needs the row under the cursor to name a press.
  *
  * `nav` is deliberately left zeroed. Nothing that takes a store reads it, and the screens that
  * need one are handed it separately - a view that carried it would be a second copy of the

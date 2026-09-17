@@ -3,8 +3,9 @@
  *
  * Every table here comes off include/mesh/i18n/catalog.def, so the ids, the English text and
  * the id names cannot drift apart: they are three expansions of one list. A second language is
- * a second table of the same length plus a row in k_locales, which is the shape src/ui/theme.c
- * uses for themes and for the same reason - adding one should be a table entry, not a hunt.
+ * a second table of the same length plus a row in k_locales, which is the shape
+ * src/ui/theme/theme.c uses for themes and for the same reason - adding one should be a table
+ * entry, not a hunt.
  *
  * mesh_i18n_validate() is the counterpart to mesh_ui_theme_validate(): the tests run it over
  * every locale in the build, so a translation whose %-specifiers no longer match the English

@@ -321,7 +321,7 @@ MESH_TEST_CASE(contact_share_builds_this_radios_own_record, unit) {
  * `manually_verified` is the sharper of the two. It sets the bit that means "a person checked
  * this key out of band", which is what the padlock in this client reports - so a link that
  * could set it would launder trust through a picture on a screen, and the ceremony in
- * src/core/key_verification.c would be reporting something nobody did.
+ * src/core/session/key_verification.c would be reporting something nobody did.
  */
 MESH_TEST_CASE(contact_import_drops_the_senders_claims, unit) {
     struct mesh_radio_settings settings;
@@ -391,8 +391,8 @@ static int contact_sink(void *ctx, const uint8_t *packet, size_t len, uint32_t p
 }
 
 /* The roster row for a node, through the public accessor: mesh_session_find_node() is static to
-   src/core/session.c, and the handshake status is how everything outside it reads the list -
-   including the two screens this case is really about. */
+   src/core/session/session.c, and the handshake status is how everything outside it reads the list
+   - including the two screens this case is really about. */
 static const struct mesh_node_summary *roster_row(const struct mesh_session *session,
                                                   uint32_t node_id) {
     const struct mesh_handshake_status *status = mesh_session_handshake(session);
@@ -501,7 +501,7 @@ static uint32_t user_action_row(const struct mesh_ui_store *store,
                                 enum mesh_ui_settings_action which) {
     struct mesh_ui_settings_item items[32];
     /* The roster the way every public caller reaches it. `mesh_ui_nav_handshake()` is the same
-       question in one call, but it lives in src/ui/nav_internal.h - which is the group's own
+       question in one call, but it lives in src/ui/nav/nav_internal.h - which is the group's own
        header and not something outside it may include (CLAUDE.md). */
     const uint32_t count =
         mesh_ui_settings_items(&store->settings, store->handshake_valid ? &store->handshake : NULL,

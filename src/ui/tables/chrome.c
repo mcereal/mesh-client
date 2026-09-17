@@ -10,8 +10,8 @@
 
 /*
  * The two tables, written out per state rather than composed - the same shape as the action-bar
- * tables in src/ui/actions.c and the verb table in src/ui/status.c, and for the same reason:
- * what the client says about itself in a given state should be readable in one place.
+ * tables in src/ui/tables/actions.c and the verb table in src/ui/tables/status.c, and for the same
+ * reason: what the client says about itself in a given state should be readable in one place.
  */
 
 bool mesh_ui_chrome_busy(const struct mesh_ui_snapshot *snapshot) {

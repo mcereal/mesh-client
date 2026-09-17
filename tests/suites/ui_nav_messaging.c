@@ -640,9 +640,9 @@ cleanup:
  *
  * The renderer draws a key per column whatever the layer's row holds, and the cursor walks all
  * ten of them - so a row written one character short is a blank keycap that A does nothing to,
- * which is precisely the press src/ui/actions.c exists to make unexpressible, arriving through
- * a table nothing was reading. The symbols layer's third row shipped that way: nine symbols in
- * a ten-cell row, with the tenth key drawn empty on the one layer a reader goes looking for
+ * which is precisely the press src/ui/tables/actions.c exists to make unexpressible, arriving
+ * through a table nothing was reading. The symbols layer's third row shipped that way: nine symbols
+ * in a ten-cell row, with the tenth key drawn empty on the one layer a reader goes looking for
  * punctuation on.
  *
  * A row too *long* for the grid is the compiler's job now - the table is a fixed-width array -

@@ -12,9 +12,9 @@
  *
  * The second are about the press. The bar names SELECT exactly where SELECT does something, and
  * that is not a property either half can have on its own: it is an agreement between
- * src/ui/actions.c and src/ui/nav.c, both of which ask src/ui/help.c. The way to check an
- * agreement is to walk the real key handler and compare the two answers on every screen, which
- * is what help_keycap_and_press_agree does.
+ * src/ui/tables/actions.c and src/ui/nav/nav.c, both of which ask src/ui/tables/help.c. The way to
+ * check an agreement is to walk the real key handler and compare the two answers on every screen,
+ * which is what help_keycap_and_press_agree does.
  */
 
 #include "framework/mesh_test.h"

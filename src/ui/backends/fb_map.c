@@ -9,8 +9,8 @@
  * is. Keeping it apart is what stops "a screen renderer never computes a pixel" - which is true
  * of every other screen in that file - from becoming a rule with an exception buried in it.
  *
- * What it still does not do is decide anything. Which markers exist is src/ui/map.c, where the
- * viewport is looking is the nav, which marker is selected is mesh_ui_map_selected(), and every
+ * What it still does not do is decide anything. Which markers exist is src/ui/views/map.c, where
+ * the viewport is looking is the nav, which marker is selected is mesh_ui_map_selected(), and every
  * colour, radius and margin comes from the theme. This file is placement and ink.
  */
 

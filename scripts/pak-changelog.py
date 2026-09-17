@@ -116,7 +116,7 @@ def clean(text: str) -> str:
     """Reduce a commit subject to something safe to sit inside pak.json.
 
     Double quotes go because pak.json is rewritten twice by line-oriented tools that look for
-    `"version"` - the sed in release-build.sh and the on-device stamp in src/core/updater.c -
+    `"version"` - the sed in release-build.sh and the on-device stamp in src/core/update/updater.c -
     and a quoted word inside a changelog value is the one thing that could confuse either.
     Non-ASCII goes because nothing downstream promises a font for it.
     """

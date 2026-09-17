@@ -6,7 +6,7 @@
  *
  * Nothing here computes a pixel. A marker carries a coordinate and its projection onto the unit
  * square, and the viewport turns that into a position when a screen asks - so this file is the
- * same shape as src/ui/waypoints.c, and the map's backend is the same shape as every other
+ * same shape as src/ui/views/waypoints.c, and the map's backend is the same shape as every other
  * screen renderer: a description of content.
  */
 

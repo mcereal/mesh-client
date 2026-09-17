@@ -166,8 +166,8 @@ non-blocking resolver in POSIX (`getaddrinfo_a` starts threads), so the call can
 loop at all — for a long time that meant a target had to be a numeric literal and a name was
 refused in words.
 
-[`src/core/resolve.c`](../src/core/resolve.c) is the way out, and it is the shape
-`src/core/fetch.c` already uses for HTTPS with the tool taken out: fork a child, let *it* block in
+[`src/core/net/resolve.c`](../src/core/net/resolve.c) is the way out, and it is the shape
+`src/core/net/fetch.c` already uses for HTTPS with the tool taken out: fork a child, let *it* block in
 `getaddrinfo()`, read one fixed-size record back through the loop. The child does not exec —
 there is nothing worth exec'ing, since `getent` is not on the Brick and busybox's `nslookup`
 prints something different every version — so it inherits everything this process has open and
@@ -195,7 +195,7 @@ Done forgets the host**, which is the only way to say "stop trying that address"
 draft is accepted here where the waypoint keyboard refuses one.
 
 The row is present exactly when the device list holds no network row of its own —
-[`src/ui/devices.c`](../src/ui/devices.c) is the single authority, read by the nav for the row
+[`src/ui/tables/devices.c`](../src/ui/tables/devices.c) is the single authority, read by the nav for the row
 count, by `actions.c` for the keycaps and by the renderer for the row.
 
 **The address is remembered in `network_host`**, not in the `known_devices` list beside it: that

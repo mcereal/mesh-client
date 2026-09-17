@@ -5,10 +5,10 @@
  * What the case looks like: which evdev code each printed button reports, and what is printed
  * on it.
  *
- * Those two facts used to be stated in two files. src/ui/input.c held the codes - the Brick's A
- * is BTN_EAST because its face buttons are laid out the way a Nintendo pad's are - and
- * src/ui/actions.c held the caps, a table saying the button called A is printed "A". Both are
- * one fact about one piece of plastic, and a second device is what makes the split expensive: a
+ * Those two facts used to be stated in two files. src/ui/input/input.c held the codes - the Brick's
+ * A is BTN_EAST because its face buttons are laid out the way a Nintendo pad's are - and
+ * src/ui/tables/actions.c held the caps, a table saying the button called A is printed "A". Both
+ * are one fact about one piece of plastic, and a second device is what makes the split expensive: a
  * pad following the Xbox convention reports BTN_SOUTH for the button printed A, so a port that
  * corrected the codes and not the caps would leave the action bar naming a key that does
  * something else - silently, because the binding still works, just not the one the bar promised.
@@ -19,9 +19,9 @@
  *
  * A profile states only what the *case* decides. Everything a convention decides - the arrow and
  * Enter keys of a USB keyboard, the hat axes a d-pad reports, the shoulders, START and SELECT -
- * is the same on every device that speaks evdev, so it stays in src/ui/input.c and is consulted
- * after the profile. A profile may still bind one of those codes itself and win, which is what
- * keeps a future device with an odd pad a table row rather than a patch to the conventions.
+ * is the same on every device that speaks evdev, so it stays in src/ui/input/input.c and is
+ * consulted after the profile. A profile may still bind one of those codes itself and win, which is
+ * what keeps a future device with an odd pad a table row rather than a patch to the conventions.
  *
  * MESHCLIENT_INPUT_PROFILE names one, the same way MESHCLIENT_THEME names a look; with nothing
  * set the Brick's is used, because that is the device this pak ships for. There is deliberately

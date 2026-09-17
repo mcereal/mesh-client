@@ -19,10 +19,10 @@ place. Nothing about it needs a phone any more.
 | File | What it is |
 |---|---|
 | `src/proto/mqtt_packet.c` | the MQTT 3.1.1 wire format, and nothing else |
-| `src/core/mqtt_proxy.c` | one broker connection: resolve, connect, subscribe, publish, keepalive, backoff |
-| `src/core/tls_client.c` | Mbed TLS over a non-blocking descriptor |
+| `src/core/net/mqtt_proxy.c` | one broker connection: resolve, connect, subscribe, publish, keepalive, backoff |
+| `src/core/net/tls_client.c` | Mbed TLS over a non-blocking descriptor |
 | `src/proto/mqtt_topic.c` | where a mesh lives on a broker, matched to the firmware |
-| `src/core/session.c` | the two hooks: the radio's message out, the broker's message back |
+| `src/core/session/session.c` | the two hooks: the radio's message out, the broker's message back |
 | `src/app/app_mqtt.c` | the decision: whether to be connected, to what, with which subscriptions |
 | `include/mesh/ui/store_mqtt.h` | what the Status screen is told about it |
 | `third_party/mbedtls-config/mesh_mbedtls_config.h` | what this build of Mbed TLS is and is not (TLS and X.509) |
@@ -251,8 +251,8 @@ a framed protocol gets that the reader has drifted.
 
 ## TLS
 
-`src/core/tls_client.c` is the one place this process does TLS itself. Everything else it fetches
-over HTTPS is a forked curl (`src/core/fetch.c`), because a fetch is a request and a reply and a
+`src/core/net/tls_client.c` is the one place this process does TLS itself. Everything else it fetches
+over HTTPS is a forked curl (`src/core/net/fetch.c`), because a fetch is a request and a reply and a
 child process is a fine way to do one. A broker connection is not: it is long-lived,
 bidirectional, and has to be readable and writable between UI frames on the same epoll loop as
 everything else. There is nothing to fork and nowhere to block.

@@ -143,8 +143,8 @@ void mesh_ui_route_describe(const struct mesh_ui_route *route, char *out, size_t
  * The same, with the help screen taken off the top: where the user was standing when they asked.
  *
  * Help is the one level that is a layer rather than a place. Every other one answers "what is
- * being drawn"; this one answers "what is being explained", and src/ui/help.c needs the second
- * to decide what to say. Identical to mesh_ui_route_of() whenever help is not open.
+ * being drawn"; this one answers "what is being explained", and src/ui/tables/help.c needs the
+ * second to decide what to say. Identical to mesh_ui_route_of() whenever help is not open.
  *
  * It exists so that there is one derivation rather than two. The alternative was for help.c to
  * copy the nav, clear help_open and ask again - which is a second opinion about the route, of

@@ -264,7 +264,7 @@ void mesh_ui_route_under_help(const struct mesh_ui_nav *nav, struct mesh_ui_rout
  * at length about not writing a "this move was a push" flag by hand.
  *
  * It is the one level that is a *layer* over the route rather than a place of its own, which is
- * why it is the only one split out of the walk above: src/ui/help.c has to ask what is
+ * why it is the only one split out of the walk above: src/ui/tables/help.c has to ask what is
  * underneath it to know what to explain, and reconstructing that by clearing a flag on a copy of
  * the nav would be a second derivation of the same answer. So the walk stops below help and this
  * adds it, and the two callers each get the half they mean.

@@ -365,7 +365,7 @@ struct fb_layout {
      * back() - the top app bar's leading slot.
      *
      * Here rather than on `struct fb_app_bar` because a screen renderer is the wrong place to
-     * be asked: it is a fact about the nav, the tables in src/ui/actions.c already decide it
+     * be asked: it is a fact about the nav, the tables in src/ui/tables/actions.c already decide it
      * for the action bar at the bottom, and the two pieces of chrome disagreeing about whether
      * B leaves is exactly the drift a second opinion would introduce. fb_render_snapshot()
      * asks once and both bars read the same answer.

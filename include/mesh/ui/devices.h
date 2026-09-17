@@ -4,10 +4,11 @@
  * ---- the Devices tab's rows -------------------------------------------------------------------
  *
  * What the list is made of, as a table read by everything that has an opinion about it -
- * src/ui/nav.c for the row count and what a press on a row does, src/ui/actions.c for the verb
- * that press gets named with, and the backend for what the row draws. That is src/ui/nodes.c's
- * shape one tab over, and it is here for nodes.c's reason: three files walking the same list is
- * how the row under the cursor and the verb under the keycaps come to disagree.
+ * src/ui/nav/nav.c for the row count and what a press on a row does, src/ui/tables/actions.c for
+ * the verb that press gets named with, and the backend for what the row draws. That is
+ * src/ui/tables/nodes.c's shape one tab over, and it is here for nodes.c's reason: three files
+ * walking the same list is how the row under the cursor and the verb under the keycaps come to
+ * disagree.
  *
  * Every row but one is a device discovery found. The exception is the last one, and it exists
  * because a network cannot be scanned: the TCP link ships, works and reaches a node over WiFi,
@@ -60,10 +61,10 @@ struct mesh_ui_devices_row {
  * already include one. Never 0 - which is what makes the Devices tab usable on a handheld with
  * no Bluetooth adapter and nothing plugged in.
  *
- * The published list rather than the store holding it, for src/ui/nodes.c's reason: the nav asks
- * this of a `struct mesh_ui_store` and the action bar and the renderer ask it of a
- * `struct mesh_ui_snapshot`, and taking one of the two would make the other copy a hundred
- * kilobytes onto the stack, every frame, to read two fields.
+ * The published list rather than the store holding it, for src/ui/tables/nodes.c's reason: the nav
+ * asks this of a `struct mesh_ui_store` and the action bar and the renderer ask it of a `struct
+ * mesh_ui_snapshot`, and taking one of the two would make the other copy a hundred kilobytes onto
+ * the stack, every frame, to read two fields.
  */
 uint32_t mesh_ui_devices_row_count(const struct mesh_ui_device *devices, size_t count);
 

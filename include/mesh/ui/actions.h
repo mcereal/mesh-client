@@ -39,8 +39,8 @@ struct mesh_ui_snapshot;
  *
  * This enum names the buttons; it does not say what is written on them or which evdev code each
  * reports. Those are one fact about one piece of plastic and they are stated together, a row
- * per device, in src/ui/input_profile.c - the face buttons are not by position (see the note in
- * CLAUDE.md), and a port that corrected the codes without the words would leave this bar naming
+ * per device, in src/ui/input/input_profile.c - the face buttons are not by position (see the note
+ * in CLAUDE.md), and a port that corrected the codes without the words would leave this bar naming
  * a key that does something else.
  */
 enum mesh_ui_button {

@@ -6,8 +6,8 @@
  * The table.
  *
  * Written out as a table rather than composed, for the reason the action-bar tables in
- * src/ui/actions.c are: what a screen offers in a given state should be readable in one place
- * and checkable against the nav that handles the press.
+ * src/ui/tables/actions.c are: what a screen offers in a given state should be readable in one
+ * place and checkable against the nav that handles the press.
  *
  * **The order is the order the cards draw**, and that is the whole of what the cursor walks -
  * Link, then Mesh, then Radio. It reads as the obvious arrangement and it was not reachable

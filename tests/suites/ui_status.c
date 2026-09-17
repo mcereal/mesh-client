@@ -3,7 +3,7 @@
 /*
  * What the Status cards offer.
  *
- * The table in src/ui/status.c is read by three places that have to agree - nav.c walks the
+ * The table in src/ui/tables/status.c is read by three places that have to agree - nav.c walks the
  * cursor over it and runs what it lands on, actions.c names the press, and the fb renderer
  * hangs the buttons on the cards - so the cases below check the table itself and then that a
  * card's share of it is the same list, in the same order.

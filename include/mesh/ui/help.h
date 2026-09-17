@@ -8,10 +8,10 @@
  * none of them. This is the half of that gap which is not drawing: given a snapshot, what should
  * the help screen say - as a title and a list of paragraphs, each named by a catalog id.
  *
- * It is `src/ui/status.c`'s shape and it is here for status.c's reason. `nav.c` walks this list
- * to scroll it, `src/ui/actions.c` asks whether there is one at all to decide whether to name
- * the press, and the backend draws it; three opinions about one list is how the keycap under the
- * screen and the screen above it come to disagree.
+ * It is `src/ui/tables/status.c`'s shape and it is here for status.c's reason. `nav.c` walks this
+ * list to scroll it, `src/ui/tables/actions.c` asks whether there is one at all to decide whether
+ * to name the press, and the backend draws it; three opinions about one list is how the keycap
+ * under the screen and the screen above it come to disagree.
  *
  * Nothing here holds text. A topic is ids the whole way down, which is what keeps the help
  * screen translatable and what lets a test hold every note to a length without rendering one.

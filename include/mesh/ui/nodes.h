@@ -18,11 +18,11 @@ struct mesh_ui_node_summary;
  * ---- the Nodes list's filter ------------------------------------------------------------------
  *
  * Which of the roster the list is showing, as a table read by everything that has an opinion
- * about it - src/ui/nav.c for the row count and the row-to-node mapping, src/ui/actions.c for
- * the verb the press gets named with, and the backend for the chips it draws. That is
- * src/ui/status.c's shape one tab over, and it is here for status.c's reason: three files
- * walking the same list is how the chip under the cursor and the rows under the chip come to
- * disagree about what "Direct" means.
+ * about it - src/ui/nav/nav.c for the row count and the row-to-node mapping,
+ * src/ui/tables/actions.c for the verb the press gets named with, and the backend for the chips it
+ * draws. That is src/ui/tables/status.c's shape one tab over, and it is here for status.c's reason:
+ * three files walking the same list is how the chip under the cursor and the rows under the chip
+ * come to disagree about what "Direct" means.
  *
  * Why a filter exists at all. The roster deliberately outlives the connection and the radio's
  * NodeDB evicts, so this list is the one screen in the client that grows without bound - a busy
@@ -204,8 +204,8 @@ enum mesh_ui_node_sort {
  * question here is a field comparison, but a great-circle distance is a haversine - two sines, a
  * square root and an atan2 - and a comparison sort asks its key for every pair it considers. Ask
  * per comparison and a 128-row list spends thousands of them on a frame that draws eight rows;
- * ask once per node and it spends 128. That is the shape src/ui/waypoints.c settled on for the
- * same reason, and it is the only reason this is a struct rather than another index-th-element
+ * ask once per node and it spends 128. That is the shape src/ui/views/waypoints.c settled on for
+ * the same reason, and it is the only reason this is a struct rather than another index-th-element
  * function beside mesh_ui_node_filter_at() - which it replaces, because two ways to turn a row
  * into a node is exactly how the cursor and the list come to disagree.
  *

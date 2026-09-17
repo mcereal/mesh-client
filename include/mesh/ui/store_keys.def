@@ -29,7 +29,7 @@
  *   - One key per group that can arrive on its own. node_pos, node_metrics and node_env are
  *     three keys rather than one wide node[] line for exactly that reason.
  *   - Every key here is written by mesh_ui_store_save() and read by mesh_ui_store_load() - both
- *     in src/ui/store_file.c - and the ui_store_cache_keys_round_trip test holds both halves to
+ *     in src/ui/store/store_file.c - and the ui_store_cache_keys_round_trip test holds both halves to
  *     it. The exceptions are marked below and the loader carries a case for each saying why:
  *     two the cache writes and re-derives rather than reads, and one the cache does not write
  *     at all because it belongs to the trend log next door. mesh_ui_store_key_in_cache() is
@@ -128,7 +128,7 @@ MESH_STORE_KEY_SLOT(TRACE_HOP_NAME, "trace_name")
  * The third file on the card and the one key that is not the cache's - see
  * include/mesh/ui/store_trends.h. It shares this table's line syntax and its escape and nothing
  * else, the way the msg[] records above are shared with the archive, and it is written by
- * src/ui/store_trends.c alone. mesh_ui_store_key_in_cache() is where that exception is written
+ * src/ui/store/store_trends.c alone. mesh_ui_store_key_in_cache() is where that exception is written
  * down once, for the loader's switch and for the round-trip test that otherwise holds every key
  * here to being saved and loaded.
  *

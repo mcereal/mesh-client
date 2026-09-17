@@ -371,8 +371,8 @@ bool mesh_ui_history_has_airtime(const struct mesh_ui_history *history);
  *
  * "Kept" means a sample, not a drawable line. Whether the readings can be *stroked* is the
  * further question mesh_ui_history_has_airtime() answers for the radio's own pair, and it is
- * asked here where the drawing is decided - see rows_trend() in src/ui/node_detail.c, which is
- * the one place a reading becomes a picture and a press.
+ * asked here where the drawing is decided - see rows_trend() in src/ui/views/node_detail.c, which
+ * is the one place a reading becomes a picture and a press.
  */
 const struct mesh_ui_series *mesh_ui_history_series(const struct mesh_ui_history *history,
                                                     uint32_t node_id,

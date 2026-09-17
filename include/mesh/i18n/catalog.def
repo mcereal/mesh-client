@@ -100,7 +100,7 @@ MESH_STR_ENTRY(TAB_SETTINGS,              "Settings")
  * draw the whole thing on every key or go looking for the button letters inside a translation,
  * and reading a translation back is the one thing this layer exists to prevent.
  *
- * So an action is a *pair* - a button, and one of the ids below - and src/ui/actions.c is where
+ * So an action is a *pair* - a button, and one of the ids below - and src/ui/tables/actions.c is where
  * a screen's set of them is decided. A, B, X, Y and START are printed on the Brick's case and
  * are not text; only the verb after each is.
  *
@@ -310,7 +310,7 @@ MESH_STR_ENTRY(BUBBLE_RELAY,              "via %s")
 /* What became of a message we sent, in words.
  *
  * The bubble draws a mark rather than any of these - a clock, a double tick, an alert circle,
- * from src/ui/delivery.c - because "ok", ".." and "!!" were two cells of punctuation standing
+ * from src/ui/tables/delivery.c - because "ok", ".." and "!!" were two cells of punctuation standing
  * for a state, unreadable until learnt and a translator's problem the moment they were words.
  * The words stay because the mark has to be nameable: a text backend has no sprites, and a test
  * that asserted on a sprite would be asserting on a picture. */
@@ -1605,7 +1605,7 @@ MESH_STR_ENTRY(HELP_NOTE_NODE_CHART_READINGS, "Y lists the same readings as exac
 
 /* ---- settings: field labels ------------------------------------------------------------------- */
 
-/* One per editable row, in the order src/ui/settings.c declares them. Several read the same
+/* One per editable row, in the order src/ui/settings/settings.c declares them. Several read the same
    in English - four modules each have an "Enabled" and an "Interval" - and still get an id
    each, because a language that inflects them will not want the same word in all four. */
 MESH_STR_ENTRY(SETTINGS_FIELD_USER_LONG_NAME,             "Long name")

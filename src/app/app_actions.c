@@ -45,8 +45,8 @@
 /* ---- installing the radio's firmware ------------------------------------------------------ */
 
 /*
- * The four things src/core/firmware_update.c cannot do for itself, because doing any of them
- * would mean knowing what a session or a transport registry is.
+ * The four things src/core/firmware/firmware_update.c cannot do for itself, because doing any of
+ * them would mean knowing what a session or a transport registry is.
  *
  * Both arms *queue*: the admin queue drains from the session's tick, which a transport calls
  * from its own, so what these return is "it is on its way out" rather than "the radio has it".
@@ -444,7 +444,7 @@ static void on_save_settings(struct mesh_app *app, const struct mesh_ui_action *
  * Reboot, shutdown, the three resets and the backup trio: the rows that are one AdminMessage
  * and an announcement of what was asked for.
  *
- * A table for the reason the ones in src/ui/actions.c are: the row that was confirmed, the
+ * A table for the reason the ones in src/ui/tables/actions.c are: the row that was confirmed, the
  * request it becomes and the words it answers with belong on one line, where they can be read
  * against the settings row that raised the press. Nothing here waits for an answer - the radio
  * acts a few seconds after acking and takes the link with it - so `asked` is phrased as the
@@ -1679,10 +1679,10 @@ static void on_install_radio_firmware(struct mesh_app *app, const struct mesh_ui
 /*
  * What each press runs, one row per verb.
  *
- * A table for the reason the ones in src/ui/actions.c, status.c and help.c are: what an action
- * does should be readable in one place and checkable against the nav that raises it. The order
- * is the order the verbs are declared in mesh/ui/nav.h, so a new one goes where its enumerator
- * is rather than wherever the last was appended.
+ * A table for the reason the ones in src/ui/tables/actions.c, status.c and help.c are: what an
+ * action does should be readable in one place and checkable against the nav that raises it. The
+ * order is the order the verbs are declared in mesh/ui/nav.h, so a new one goes where its
+ * enumerator is rather than wherever the last was appended.
  *
  * `needs_ble` is the one condition four of them share - no adapter means nothing to ask - and it
  * is a column rather than the first four lines of each of those arms. Everything else a press

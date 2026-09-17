@@ -6,7 +6,7 @@
  *
  * A screen never spells out a sentence. It names a *string id* - MESH_STR_TAB_NODES,
  * MESH_STR_TOAST_NOT_CONNECTED - and this module answers with the text for the locale in
- * force, exactly the way src/ui/theme.c answers a colour role. That is what makes a language
+ * force, exactly the way src/ui/theme/theme.c answers a colour role. That is what makes a language
  * switch total rather than a hunt: the renderers hold no opinion about English, so there is
  * nowhere for an untranslated sentence to hide.
  *
@@ -25,7 +25,7 @@
  *   - Names shared with the rest of Meshtastic: region codes ("EU 868"), hardware models
  *     ("Heltec V3"), modem presets ("Long Range - Fast"), device roles ("Router"). A setting
  *     read off the Brick has to be recognisable in the phone app and back, so those stay in
- *     src/core/radio_settings.c untranslated, for the same reason a channel key is shown as
+ *     src/core/session/radio_settings.c untranslated, for the same reason a channel key is shown as
  *     base64.
  *   - Protocol, path, environment and config text. Nobody reads it as prose.
  *   - src/main.c's --help and the cli/stub backends, which are the headless developer

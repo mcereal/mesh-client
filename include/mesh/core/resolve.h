@@ -8,9 +8,9 @@
  * starts threads - so a name typed on the Devices tab would be seconds of frozen UI. That is why
  * the TCP link took a numeric address and nothing else for as long as it did.
  *
- * The way out is the shape `src/core/fetch.c` already uses for HTTPS, and this is that shape with
- * the tool taken out: fork, let the child block, read the answer back through the event loop. The
- * child does not exec. There is nothing to exec - `getent` is not on the Brick and busybox's
+ * The way out is the shape `src/core/net/fetch.c` already uses for HTTPS, and this is that shape
+ * with the tool taken out: fork, let the child block, read the answer back through the event loop.
+ * The child does not exec. There is nothing to exec - `getent` is not on the Brick and busybox's
  * `nslookup` prints a different thing every version - and the resolver we want is the one this
  * binary is already linked against.
  *

@@ -676,8 +676,8 @@ static void fb_thread_row_build(const struct mesh_ui_snapshot *snapshot,
                                     : MESH_UI_ICON_ENCRYPTED;
     }
 
-    /* What became of one of ours, as src/ui/delivery.c answers - the mark for the corner, and
-       the word for the line below when there is nothing better to put there. Which one a state
+    /* What became of one of ours, as src/ui/tables/delivery.c answers - the mark for the corner,
+       and the word for the line below when there is nothing better to put there. Which one a state
        gets is a decision the transcript reads rather than makes. */
     const struct mesh_ui_delivery delivery = mesh_ui_delivery_of(message->ack);
     if (outbound) {
@@ -1224,7 +1224,7 @@ static void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
  * The list of places, and one of them opened. Two levels, the Nodes tab's shape - what differs
  * is that a row's trailing column is a *range* rather than a signal, because how far away a
  * place is and which way it lies is the whole of what a client with no map can say about a
- * point. src/ui/waypoints.c works both out; this draws them.
+ * point. src/ui/views/waypoints.c works both out; this draws them.
  */
 
 static void fb_render_waypoint_detail(struct mesh_ui_backend_fb_state *state,
@@ -3151,7 +3151,7 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
  *
  * A list of paragraphs rather than a dialog, because there is nothing here to answer - and a
  * list rather than a card for the same reason: a card note stops at three lines, and these are
- * the only content on the frame. Which paragraphs there are is src/ui/help.c's answer, read
+ * the only content on the frame. Which paragraphs there are is src/ui/tables/help.c's answer, read
  * here and by the action bar and the key handler alike.
  *
  * The heights are measured before the list opens, which on this screen is not a formality: a
@@ -3220,7 +3220,8 @@ static void fb_render_confirm(struct mesh_ui_backend_fb_state *state,
     /*
      * The import sheet's words come out of the *link*, not out of the tables: what the user is
      * agreeing to is joining a named mesh, and the name is in the characters they just typed.
-     * Asked of src/ui/channel_share.c for the reason the verification sheet asks src/ui/trust.c
+     * Asked of src/ui/views/channel_share.c for the reason the verification sheet asks
+     * src/ui/tables/trust.c
      * - parsing a link is not something a renderer may do - and the tables answer for every
      * other sheet exactly as before.
      */
@@ -3266,8 +3267,8 @@ static void fb_render_confirm(struct mesh_ui_backend_fb_state *state,
  *
  * The same dialog the settings confirm uses, and for the same reason - a question is a panel
  * with two answers on it rather than another list to walk - but everything it says comes out of
- * src/ui/trust.c rather than from here, including which two answers this stage has. That is the
- * house rule doing real work: the difference between "they match" and "stop" is the difference
+ * src/ui/tables/trust.c rather than from here, including which two answers this stage has. That is
+ * the house rule doing real work: the difference between "they match" and "stop" is the difference
  * between a verification and a refusal, and a renderer choosing it would be a renderer with an
  * opinion about cryptography.
  *
@@ -4722,9 +4723,9 @@ void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
     /*
      * The two things the *client* says about itself, rather than what any screen says about
      * itself. Both are drawn here, once, around whichever screen is up - and both take their
-     * content from src/ui/chrome.c for the reason the action bar takes its verbs from
-     * src/ui/actions.c: which states are worth a notice is a fact about the client, not about
-     * a framebuffer, and it is a unit test's business rather than a screenshot's.
+     * content from src/ui/tables/chrome.c for the reason the action bar takes its verbs from
+     * src/ui/tables/actions.c: which states are worth a notice is a fact about the client, not
+     * about a framebuffer, and it is a unit test's business rather than a screenshot's.
      *
      * The bar goes first and costs nothing: it hangs in the gap the navigation bar already
      * leaves, so `layout` is unchanged by it and a request going out never reflows a list.
@@ -4835,7 +4836,7 @@ void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
             break;
         case MESH_UI_SCREEN_NODES:
             /* The map, under any node detail opened from it and over the list it was opened
-               from - the same order src/ui/actions.c names the presses in. */
+               from - the same order src/ui/tables/actions.c names the presses in. */
             if (snapshot->nav.map_open && !snapshot->nav.node_detail_open) {
                 fb_render_map(state, snapshot, &layout);
             } else {

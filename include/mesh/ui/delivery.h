@@ -11,8 +11,8 @@ extern "C" {
 /*
  * What the UI says about an outbound message's delivery state.
  *
- * A table rather than a switch in the renderer, for the reason src/ui/status.c and
- * src/ui/chrome.c are tables: which mark a state gets is a decision about the product, and a
+ * A table rather than a switch in the renderer, for the reason src/ui/tables/status.c and
+ * src/ui/tables/chrome.c are tables: which mark a state gets is a decision about the product, and a
  * renderer that made it would be the third place holding an opinion about it. The transcript
  * draws the icon, a backend with no sprites says the word, and the tests read both - so a state
  * that gained a mark on one screen and not on another is not expressible.

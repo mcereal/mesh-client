@@ -2,7 +2,7 @@
  * Every TEXT and KEY field's byte limit, in one list, because two things need the same number
  * and the price of them disagreeing is silent.
  *
- * A row in the field table (src/ui/settings.c) says how many bytes that field will take, and
+ * A row in the field table (src/ui/settings/settings.c) says how many bytes that field will take, and
  * the keyboard refuses the next character past it. The edit buffer
  * (`MESH_UI_SETTING_TEXT_MAX`, mesh/ui/nav.h) has to be wide enough to hold whichever field is
  * widest, because `mesh_ui_nav_settings_commit_text()` copies the draft into it and a value too

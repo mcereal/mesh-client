@@ -851,7 +851,7 @@ static enum mesh_ui_key uicap_key_from_name(const char *name) {
     return MESH_UI_KEY_NONE;
 }
 
-/* The ids come from src/ui/route.c rather than from a copy here: a scene file naming a tab and
+/* The ids come from src/ui/nav/route.c rather than from a copy here: a scene file naming a tab and
    a crash report naming one are the same strings, and two tables stay in step only until a tab
    is added. Deliberately mesh_ui_screen_id() and not mesh_ui_screen_name() - the latter is
    translated, and a scene would then only run under one locale. */

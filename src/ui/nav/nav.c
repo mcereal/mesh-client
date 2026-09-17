@@ -1817,8 +1817,8 @@ static bool mesh_ui_nav_help_key(struct mesh_ui_nav *nav, const struct mesh_ui_s
 /*
  * SELECT anywhere: open the explanation of this screen, when there is one.
  *
- * It asks mesh_ui_help_offered() rather than testing the nav, because src/ui/actions.c asks the
- * same question to decide whether to draw the keycap - and a press that worked where the bar
+ * It asks mesh_ui_help_offered() rather than testing the nav, because src/ui/tables/actions.c asks
+ * the same question to decide whether to draw the keycap - and a press that worked where the bar
  * said nothing, or did nothing where it said "help", is the two-opinions bug this client keeps
  * a single table to avoid. Both halves of that happened here: with a discard armed, SELECT stood
  * the question down *and* opened help off one press, and with an edit pending it opened help
