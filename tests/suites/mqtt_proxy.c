@@ -41,6 +41,12 @@ struct fake_broker {
     /* Set before the proxy connects: the accepted socket is wrapped in a TLS session rather
        than read directly. */
     bool tls;
+    /*
+     * How many NewSessionTicket messages the TLS broker issues after the handshake. Zero takes
+     * Mbed TLS's own default, which is one - what a real broker does. A case wanting several
+     * sets this; see mqtt_proxy_reads_past_a_session_ticket().
+     */
+    uint16_t tickets;
     struct broker_tls *sec;
     uint8_t in[8192];
     size_t in_len;
@@ -54,6 +60,7 @@ struct fake_broker {
 #include <mbedtls/net_sockets.h>
 #include <mbedtls/pk.h>
 #include <mbedtls/ssl.h>
+#include <mbedtls/ssl_ticket.h>
 #include <mbedtls/x509_crt.h>
 #include <psa/crypto.h>
 
@@ -116,6 +123,11 @@ struct broker_tls {
     mbedtls_ssl_config conf;
     mbedtls_x509_crt cert;
     mbedtls_pk_context key;
+    /*
+     * The key this broker encrypts its session tickets with. Its contents never matter - nothing
+     * here ever resumes a session - but issuing the ticket at all does: see broker_tls_start().
+     */
+    mbedtls_ssl_ticket_context ticket;
     bool handshaked;
 };
 
@@ -155,6 +167,7 @@ static bool broker_tls_start(struct fake_broker *broker) {
     mbedtls_ssl_config_init(&sec->conf);
     mbedtls_x509_crt_init(&sec->cert);
     mbedtls_pk_init(&sec->key);
+    mbedtls_ssl_ticket_init(&sec->ticket);
 
     /* Seeds the PSA RNG that both ends of this handshake draw from; 4.x has no per-session
        DRBG to stand up beside it. */
@@ -180,6 +193,28 @@ static bool broker_tls_start(struct fake_broker *broker) {
     if (mbedtls_ssl_conf_own_cert(&sec->conf, &sec->cert, &sec->key) != 0) {
         return false;
     }
+    /*
+     * Session tickets, because a real broker issues them and the client has to survive one.
+     *
+     * TLS 1.3 sends its tickets *after* the handshake, so they arrive on the application stream
+     * and `mbedtls_ssl_read()` reports one by returning
+     * `MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET` rather than by hiding it. A client that
+     * treats that as a failure drops a perfectly good connection and reconnects forever - which
+     * is what this client did against mqtt.meshtastic.org, and what a handshake-only fixture
+     * could never show, because an mbedtls server with no ticket callback configured sends no
+     * ticket at all. Configuring one is what puts the post-handshake path under test.
+     *
+     * Nothing resumes, so the parameters are only what the key wants to be: the default AEAD for
+     * a ticket and a lifetime longer than any test run.
+     */
+    if (mbedtls_ssl_ticket_setup(&sec->ticket, PSA_ALG_GCM, PSA_KEY_TYPE_AES, 256U, 86400U) != 0) {
+        return false;
+    }
+    mbedtls_ssl_conf_session_tickets_cb(&sec->conf, mbedtls_ssl_ticket_write,
+                                        mbedtls_ssl_ticket_parse, &sec->ticket);
+    if (broker->tickets != 0U) {
+        mbedtls_ssl_conf_new_session_tickets(&sec->conf, broker->tickets);
+    }
     if (mbedtls_ssl_setup(&sec->ssl, &sec->conf) != 0) {
         return false;
     }
@@ -197,6 +232,7 @@ static void broker_tls_stop(struct fake_broker *broker) {
     mbedtls_ssl_config_free(&sec->conf);
     mbedtls_x509_crt_free(&sec->cert);
     mbedtls_pk_free(&sec->key);
+    mbedtls_ssl_ticket_free(&sec->ticket);
     free(sec);
     broker->sec = NULL;
 }
@@ -1247,6 +1283,89 @@ MESH_TEST_CASE(mqtt_proxy_connects_over_tls, unit) {
     if (probe.messages != 1U || probe.last_payload_len != sizeof reply ||
         memcmp(probe.last_payload, reply, sizeof reply) != 0) {
         record_failure(test_name, "an inbound message should arrive over TLS");
+        goto cleanup;
+    }
+    record_success(test_name);
+
+cleanup:
+    (void)remove(bundle);
+    probe_stop(&probe);
+}
+
+/*
+ * A session ticket is not the end of the session.
+ *
+ * TLS 1.3 delivers its tickets after the handshake, so they land on the application stream and
+ * `mbedtls_ssl_read()` reports each one by returning rather than by consuming it silently.
+ * Reading that as a failure cost this client every broker connection it made against
+ * mqtt.meshtastic.org: the proxy dropped a healthy session, reconnected, got another ticket, and
+ * backed off further each time without ever reaching READY.
+ *
+ * Answering it with -EAGAIN instead is the other tempting fix and is also wrong, which is what
+ * the *data* assertions below are for rather than READY alone. The broker's CONNACK and its
+ * tickets arrive in the same flight, so by the time the tickets are consumed the CONNACK is
+ * already inside the session and the socket underneath is empty - epoll has nothing left to
+ * report, and a client that returns -EAGAIN there waits forever on bytes it has already been
+ * given. Several tickets rather than the default one, so the retry has to survive more than a
+ * single turn.
+ */
+MESH_TEST_CASE(mqtt_proxy_reads_past_a_session_ticket, unit) {
+    struct proxy_probe probe;
+    if (!probe_start(&probe)) {
+        record_failure(test_name, "the harness did not start");
+        return;
+    }
+    probe.broker.tls = true;
+    probe.broker.tickets = 3U;
+
+    char bundle[128];
+    snprintf(bundle, sizeof bundle, "/tmp/meshclient-test-ticket-ca-%u.pem", (unsigned)getpid());
+    if (!write_pem(bundle, broker_cert_pem)) {
+        record_failure(test_name, "could not write the CA bundle");
+        goto cleanup;
+    }
+    mesh_mqtt_proxy_set_ca_bundle(&probe.proxy, bundle);
+
+    struct mesh_mqtt_proxy_config config;
+    probe_config(&config, probe.broker.port);
+    config.tls_enabled = true;
+    if (mesh_mqtt_proxy_start(&probe.proxy, &config, probe_on_message, NULL, &probe,
+                              probe.now_ms) != 0) {
+        record_failure(test_name, "the proxy did not start");
+        goto cleanup;
+    }
+
+    struct mesh_mqtt_header header;
+    const uint8_t *body = NULL;
+    if (!probe_until_packet(&probe, &header, &body, 400U) || header.type != MESH_MQTT_CONNECT) {
+        record_failure(test_name, "the CONNECT should arrive through the TLS session");
+        goto cleanup;
+    }
+    broker_connack(&probe.broker, MESH_MQTT_CONNACK_ACCEPTED);
+
+    /* The whole bug in one assertion: the tickets must not have cost us the connection. */
+    if (!probe_until_state(&probe, MESH_MQTT_PROXY_READY, 400U)) {
+        record_failure(test_name, "a session ticket should not stop the proxy reaching READY");
+        goto cleanup;
+    }
+
+    /* And the CONNACK that shared the flight with them was really read, not merely awaited: an
+       inbound message still arrives afterwards. */
+    uint8_t inbound[128];
+    static const uint8_t reply[] = {0x5AU, 0x6BU, 0x7CU};
+    const int len = mesh_mqtt_encode_publish(inbound, sizeof inbound, "msh/2/e/ticket/!e", reply,
+                                             sizeof reply, false);
+    if (len < 0) {
+        record_failure(test_name, "the fixture could not build a PUBLISH");
+        goto cleanup;
+    }
+    broker_send(&probe.broker, inbound, (size_t)len);
+    for (unsigned turn = 0U; turn < 400U && probe.messages == 0U; ++turn) {
+        probe_turn(&probe, 10U);
+    }
+    if (probe.messages != 1U || probe.last_payload_len != sizeof reply ||
+        memcmp(probe.last_payload, reply, sizeof reply) != 0) {
+        record_failure(test_name, "a message after the tickets should still arrive");
         goto cleanup;
     }
     record_success(test_name);

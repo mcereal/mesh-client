@@ -260,6 +260,17 @@ the way up. Two things about that are easy to get wrong and are handled delibera
   descriptor is empty, epoll has nothing to report, and a reader that stops after one call waits
   forever on data it already has. The proxy bounds its read loop so a busy broker cannot starve
   the UI, and sets `more_to_read` when it stops early so the next tick comes back.
+- **A session ticket is not a failure and is not `-EAGAIN` either.** TLS 1.3 sends its tickets
+  *after* the handshake, so they arrive on the application stream and `mbedtls_ssl_read()`
+  reports one by returning `MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET`. Treating that as an
+  error drops every healthy connection — which is what happened against `mqtt.meshtastic.org`
+  once Mbed TLS moved to 4.1, since 4.x enables TLS 1.3 and session tickets by default.
+  Answering it with `-EAGAIN` is the other tempting fix and fails the same way as the bullet
+  above: the broker's CONNACK usually shares the flight with the ticket, so it is already inside
+  the session with an empty socket underneath. `mesh_tls_client_read()` retries the read instead.
+  `mqtt_proxy_reads_past_a_session_ticket` holds this, and the fixture broker issues real tickets
+  so the handshake tests exercise the post-handshake path at all — an Mbed TLS server with no
+  ticket callback configured sends none, which is why a real handshake under test still missed it.
 
 ### Certificates are always verified
 
