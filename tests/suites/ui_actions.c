@@ -22,8 +22,12 @@
 #include "framework/mesh_test.h"
 
 #include "mesh/core/message.h"
+/* For enum mesh_traceroute_state, which the UI's traceroute carries as a byte. */
+#include "mesh/core/session.h"
 #include "mesh/ui/actions.h"
+#include "mesh/ui/history.h"
 #include "mesh/ui/nav.h"
+#include "mesh/ui/node_detail.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/status.h"
 #include "mesh/ui/store.h"
@@ -521,6 +525,82 @@ MESH_TEST_CASE(actions_the_chart_offers_only_the_way_out, unit) {
     }
     MESH_TEST_FAIL_IF(!names_a_node_press,
                       "a chart open on another tab must not silence this one's presses");
+    record_success(test_name);
+}
+
+/*
+ * The bar reads the same route the screen does.
+ *
+ * A node's measured route is two groups drawn *above* its identity and its readings, so which
+ * rows exist at which index depends on it - and the route a screen draws is the one for the node
+ * being looked at rather than whatever the one trace slot happens to hold. A bar that asked the
+ * slot instead counted a shorter list, so the cursor standing on a chartable reading was scored
+ * against some row eleven places further down: "A trend" went missing over the row that opens a
+ * chart, which is the keycap-that-does-nothing this table exists to prevent, wearing its other
+ * face.
+ *
+ * The state here is the ordinary one after two traces, and the one a Brick is in after every
+ * restart: the slot is another node's, and this node's route comes out of the log.
+ */
+MESH_TEST_CASE(actions_node_detail_reads_this_nodes_route, unit) {
+    struct mesh_ui_snapshot snapshot;
+    actions_snapshot(&snapshot);
+    snapshot.nav.screen = MESH_UI_SCREEN_NODES;
+    snapshot.nav.node_detail_open = true;
+    snapshot.nav.node_detail_node = 0x2000U;
+    snapshot.nav.node_trend = MESH_UI_HISTORY_NONE;
+
+    snapshot.handshake_valid = true;
+    snapshot.handshake.has_my_info = true;
+    snapshot.handshake.my_info.node_num = 0x1000U;
+    snapshot.handshake.node_count = 1U;
+    struct mesh_ui_node_summary *node = &snapshot.handshake.nodes[0];
+    node->node_id = 0x2000U;
+    node->metrics.valid = true;
+    node->metrics.has_battery = true;
+    node->metrics.battery_level = 72U;
+
+    /* Two readings, because one is a level and a row only offers a chart once there is a line
+       to draw. */
+    mesh_ui_history_reset(&snapshot.history);
+    mesh_ui_history_note_battery(&snapshot.history, 1000U, node->node_id, 80U);
+    mesh_ui_history_note_battery(&snapshot.history, 2000U, node->node_id, 72U);
+
+    /* This node's route, measured and kept; and the slot still on the node traced after it. */
+    struct mesh_ui_traceroute *logged = &snapshot.traceroutes.entries[0];
+    snapshot.traceroutes.count = 1U;
+    logged->state = MESH_TRACEROUTE_DONE;
+    logged->target = node->node_id;
+    logged->completed = 1750000000U;
+    logged->forward_count = 3U;
+    logged->back_count = 3U;
+    for (uint8_t i = 0U; i < 3U; ++i) {
+        logged->forward[i].node_id = 0x1000U + i;
+        logged->back[i].node_id = 0x3000U - i;
+    }
+    snapshot.traceroute.state = MESH_TRACEROUTE_DONE;
+    snapshot.traceroute.target = 0x9000U;
+    snapshot.traceroute.forward_count = 2U;
+
+    /* The row the chart hangs on, found in the list the screen actually draws. */
+    struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
+    const uint32_t count = mesh_ui_node_detail_build(
+        node, false, 0U, mesh_ui_snapshot_traceroute_view(&snapshot, node->node_id), false,
+        &snapshot.handshake, &snapshot.history, false, items, MESH_UI_NODE_ITEMS_MAX);
+    uint32_t row = count;
+    for (uint32_t i = 0U; i < count; ++i) {
+        if (items[i].trend_reading != MESH_UI_HISTORY_NONE) {
+            row = i;
+            break;
+        }
+    }
+    MESH_TEST_FAIL_IF(row == count, "the battery row should carry the trend behind it");
+
+    snapshot.nav.cursor[MESH_UI_SCREEN_NODES] = row;
+    struct mesh_ui_action_bar bar;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_A) != MESH_STR_ACTION_TREND,
+                      "the bar should name the press the row under the cursor really has");
     record_success(test_name);
 }
 
