@@ -20,6 +20,9 @@
 
 #include "framework/mesh_test.h"
 
+#include "support/data_fixture.h"
+#include "support/uf2_fixture.h"
+
 #include "mesh/core/event_loop.h"
 #include "mesh/core/firmware_update.h"
 #include "mesh/utils/text.h"
@@ -166,6 +169,248 @@ static bool update_install_curl(const char *dir) {
     return executable;
 }
 
+/* ---- a zip of our own, for the one case that goes all the way through --------------------- */
+
+/*
+ * The fake above serves two windows of a real release zip and deliberately cannot serve an
+ * image, so every case built on it ends in a refusal - and a ladder nobody has ever climbed to
+ * the top of is a ladder whose top rung can be broken for a release without anything noticing.
+ * It was: a fetch that finished *inside* mesh_firmware_update_tick() had its own completion
+ * written back over by the same tick, and "resolving" was where the HUD then sat forever.
+ *
+ * So this builds a small zip instead. Both members are real documents - the release's committed
+ * board manifest with the one number that says how long the image is rewritten, and the
+ * committed image's own blocks made into a whole file - and both are **stored** rather than
+ * deflated, which is a shape src/utils/zip.c supports and the only one a suite can write
+ * without a compressor. The deflated member with the bytes the CDN really serves is
+ * tests/suites/firmware_download.c's job, one file over.
+ */
+
+struct update_member {
+    const char *name;
+    const uint8_t *bytes;
+    uint32_t len;
+};
+
+static uint32_t update_crc32(const uint8_t *bytes, size_t len) {
+    uint32_t crc = 0xFFFFFFFFU;
+    for (size_t i = 0U; i < len; ++i) {
+        crc ^= bytes[i];
+        for (int bit = 0; bit < 8; ++bit) {
+            crc = (crc >> 1) ^ (0xEDB88320U & (uint32_t)(-(int32_t)(crc & 1U)));
+        }
+    }
+    return ~crc;
+}
+
+static void update_put_u16(FILE *file, uint16_t value) {
+    const uint8_t bytes[2] = {(uint8_t)(value & 0xFFU), (uint8_t)((value >> 8) & 0xFFU)};
+    (void)fwrite(bytes, 1U, sizeof bytes, file);
+}
+
+static void update_put_u32(FILE *file, uint32_t value) {
+    const uint8_t bytes[4] = {(uint8_t)(value & 0xFFU), (uint8_t)((value >> 8) & 0xFFU),
+                              (uint8_t)((value >> 16) & 0xFFU), (uint8_t)((value >> 24) & 0xFFU)};
+    (void)fwrite(bytes, 1U, sizeof bytes, file);
+}
+
+#define UPDATE_MEMBER_MAX 4U
+
+static bool update_write_zip(const char *path, const struct update_member *members, size_t count) {
+    if (count == 0U || count > UPDATE_MEMBER_MAX) {
+        return false;
+    }
+    FILE *const file = fopen(path, "wb");
+    if (file == NULL) {
+        return false;
+    }
+    uint32_t offset[UPDATE_MEMBER_MAX];
+    uint32_t crc[UPDATE_MEMBER_MAX];
+    for (size_t i = 0U; i < count; ++i) {
+        const long at = ftell(file);
+        if (at < 0) {
+            fclose(file);
+            return false;
+        }
+        offset[i] = (uint32_t)at;
+        crc[i] = update_crc32(members[i].bytes, members[i].len);
+        const uint16_t name_len = (uint16_t)strlen(members[i].name);
+        update_put_u32(file, 0x04034B50U);
+        update_put_u16(file, 20U); /* the version that reads a stored member */
+        update_put_u16(file, 0U);  /* no flags, so no data descriptor after the payload */
+        update_put_u16(file, 0U);  /* stored */
+        update_put_u16(file, 0U);  /* time */
+        update_put_u16(file, 0U);  /* date */
+        update_put_u32(file, crc[i]);
+        update_put_u32(file, members[i].len);
+        update_put_u32(file, members[i].len);
+        update_put_u16(file, name_len);
+        update_put_u16(file, 0U); /* no extra field */
+        (void)fwrite(members[i].name, 1U, name_len, file);
+        (void)fwrite(members[i].bytes, 1U, members[i].len, file);
+    }
+
+    const long central_at = ftell(file);
+    if (central_at < 0) {
+        fclose(file);
+        return false;
+    }
+    for (size_t i = 0U; i < count; ++i) {
+        const uint16_t name_len = (uint16_t)strlen(members[i].name);
+        update_put_u32(file, 0x02014B50U);
+        update_put_u16(file, 20U); /* made by */
+        update_put_u16(file, 20U); /* needed */
+        update_put_u16(file, 0U);
+        update_put_u16(file, 0U); /* stored */
+        update_put_u16(file, 0U);
+        update_put_u16(file, 0U);
+        update_put_u32(file, crc[i]);
+        update_put_u32(file, members[i].len);
+        update_put_u32(file, members[i].len);
+        update_put_u16(file, name_len);
+        update_put_u16(file, 0U); /* extra */
+        update_put_u16(file, 0U); /* comment */
+        update_put_u16(file, 0U); /* disk */
+        update_put_u16(file, 0U); /* internal attributes */
+        update_put_u32(file, 0U); /* external attributes */
+        update_put_u32(file, offset[i]);
+        (void)fwrite(members[i].name, 1U, name_len, file);
+    }
+    const long end_at = ftell(file);
+    if (end_at < 0) {
+        fclose(file);
+        return false;
+    }
+    update_put_u32(file, 0x06054B50U);
+    update_put_u16(file, 0U);
+    update_put_u16(file, 0U);
+    update_put_u16(file, (uint16_t)count);
+    update_put_u16(file, (uint16_t)count);
+    update_put_u32(file, (uint32_t)(end_at - central_at));
+    update_put_u32(file, (uint32_t)central_at);
+    update_put_u16(file, 0U); /* no comment, which is what tells the record from a coincidence */
+    const bool ok = ferror(file) == 0;
+    return fclose(file) == 0 && ok;
+}
+
+/*
+ * The committed board manifest, saying how long *this* zip's image is.
+ *
+ * The same rewrite tests/support/uf2_fixture.c makes to `numBlocks`, for the same reason: the
+ * document is the one upstream published apart from the single field a shorter image makes
+ * untrue, so what the parser is read against is still real bytes.
+ */
+static char *update_manifest_for(size_t image_len, size_t *out_len) {
+    /* The uf2's length in the real release, and distinct from the other three files' - a
+       second occurrence would mean this is rewriting something else and is refused below. */
+    static const char k_bytes[] = "1467392";
+    const size_t key_len = sizeof k_bytes - 1U;
+    size_t len = 0U;
+    char *const text = mesh_test_data_read("t114_2.7.26.mt.json", &len);
+    if (text == NULL) {
+        return NULL;
+    }
+    char *const at = strstr(text, k_bytes);
+    if (at == NULL || strstr(at + 1, k_bytes) != NULL) {
+        free(text);
+        return NULL;
+    }
+    char replacement[24];
+    const int written = snprintf(replacement, sizeof replacement, "%zu", image_len);
+    if (written <= 0) {
+        free(text);
+        return NULL;
+    }
+    const size_t head = (size_t)(at - text);
+    const size_t tail = len - head - key_len;
+    char *const out = malloc(head + (size_t)written + tail + 1U);
+    if (out == NULL) {
+        free(text);
+        return NULL;
+    }
+    memcpy(out, text, head);
+    memcpy(out + head, replacement, (size_t)written);
+    memcpy(out + head + (size_t)written, at + key_len, tail);
+    out[head + (size_t)written + tail] = '\0';
+    free(text);
+    *out_len = head + (size_t)written + tail;
+    return out;
+}
+
+/* Stages that zip in `dir` and returns whether both members went in. */
+static bool update_stage_zip(const char *dir) {
+    size_t image_len = 0U;
+    uint8_t *const image = mesh_test_uf2_whole(2U, &image_len);
+    if (image == NULL) {
+        return false;
+    }
+    size_t manifest_len = 0U;
+    char *const manifest = update_manifest_for(image_len, &manifest_len);
+    if (manifest == NULL) {
+        free(image);
+        return false;
+    }
+    /* Under the platform directory, which is where the 2.8.0 zips keep their members and the
+       shape that makes the reader's basename match load-bearing. */
+    const struct update_member members[2] = {
+        {"nrf52840/firmware-heltec-mesh-node-t114-2.7.26.54e0d8d.mt.json",
+         (const uint8_t *)manifest, (uint32_t)manifest_len},
+        {"nrf52840/firmware-heltec-mesh-node-t114-2.7.26.54e0d8d.uf2", image, (uint32_t)image_len},
+    };
+    char path[512];
+    snprintf(path, sizeof path, "%s/firmware.zip", dir);
+    const bool written = update_write_zip(path, members, 2U);
+    free(manifest);
+    free(image);
+    return written;
+}
+
+/* The fake that serves it: one file, by range, with the release document for the one request
+   that carries no range at all. */
+static bool update_install_whole_curl(const char *dir) {
+    char path[512];
+    snprintf(path, sizeof path, "%s/curl", dir);
+    FILE *const file = fopen(path, "w");
+    if (file == NULL) {
+        return false;
+    }
+    fprintf(file,
+            "#!/bin/sh\n"
+            "ZIP='%s/firmware.zip'\n"
+            "DATA='%s'\n"
+            "head=0; out=''; range=''\n"
+            "while [ $# -gt 0 ]; do\n"
+            "  case \"$1\" in\n"
+            "    -fsSLI) head=1 ;;\n"
+            "    -o) shift; out=\"$1\" ;;\n"
+            "    -H) shift; case \"$1\" in 'Range: bytes='*) range=\"${1#Range: bytes=}\" ;; "
+            "esac ;;\n"
+            "  esac\n"
+            "  shift\n"
+            "done\n"
+            "if [ \"$head\" -eq 1 ]; then\n"
+            "  size=$(wc -c < \"$ZIP\" | tr -d ' ')\n"
+            /* The 302 with its own content-length first, because that is what a release URL
+               really answers with and taking the first match would call every zip empty. */
+            "  printf 'HTTP/2 302 \\r\\ncontent-length: 0\\r\\n\\r\\n'\n"
+            "  printf 'HTTP/2 200 \\r\\naccept-ranges: bytes\\r\\ncontent-length: %%s\\r\\n\\r\\n' "
+            "\"$size\"\n"
+            "  exit 0\n"
+            "fi\n"
+            "if [ -z \"$range\" ]; then\n"
+            "  cat \"$DATA/firmware_release_2.7.26.json\"\n"
+            "  exit 0\n"
+            "fi\n"
+            "first=\"${range%%%%-*}\"; last=\"${range##*-}\"\n"
+            "count=$((last - first + 1))\n"
+            "tail -c \"+$((first + 1))\" \"$ZIP\" | head -c \"$count\" > \"$out\"\n"
+            "exit 0\n",
+            dir, MESH_TEST_DATA_DIR);
+    const bool executable = fchmod(fileno(file), 0755) == 0;
+    fclose(file);
+    return executable;
+}
+
 struct update_harness {
     char dir[64];
     char *saved_path;
@@ -175,13 +420,21 @@ struct update_harness {
     bool update_up;
 };
 
-static bool update_harness_up(struct update_harness *harness) {
+/*
+ * Up with one fake CDN or the other: `whole` picks the zip this file writes, which is the one
+ * a case can follow to the end, and the default is the window-serving fake that stops at the
+ * image on purpose.
+ */
+static bool update_harness_start(struct update_harness *harness, bool whole) {
     memset(harness, 0, sizeof *harness);
     snprintf(harness->dir, sizeof harness->dir, "%s", "/tmp/meshclient_fwup_XXXXXX");
     if (mkdtemp(harness->dir) == NULL) {
         return false;
     }
-    if (!update_install_curl(harness->dir)) {
+    if (whole && !update_stage_zip(harness->dir)) {
+        return false;
+    }
+    if (!(whole ? update_install_whole_curl(harness->dir) : update_install_curl(harness->dir))) {
         return false;
     }
     const char *const old_path = getenv("PATH");
@@ -205,6 +458,14 @@ static bool update_harness_up(struct update_harness *harness) {
     return mesh_firmware_update_available(&harness->update);
 }
 
+static bool update_harness_up(struct update_harness *harness) {
+    return update_harness_start(harness, false);
+}
+
+static bool update_harness_up_whole(struct update_harness *harness) {
+    return update_harness_start(harness, true);
+}
+
 static void update_harness_down(struct update_harness *harness) {
     if (harness->update_up) {
         mesh_firmware_update_shutdown(&harness->update);
@@ -222,7 +483,7 @@ static void update_harness_down(struct update_harness *harness) {
     }
     static const char *const k_files[] = {
         "curl",        "firmware.window", "firmware.central", "firmware.header",
-        "firmware.gz", "firmware.image"};
+        "firmware.gz", "firmware.image",  "firmware.zip"};
     char path[512];
     for (size_t i = 0; i < sizeof k_files / sizeof k_files[0]; ++i) {
         snprintf(path, sizeof path, "%s/%s", harness->dir, k_files[i]);
@@ -237,6 +498,20 @@ static bool update_settle(struct update_harness *harness, const struct update_pr
         mesh_firmware_update_tick(&harness->update, (uint64_t)turn * 100U);
     }
     return probe->calls > 0U;
+}
+
+/* The same turns, for a case that is waiting for a rung rather than for the end: a job that
+   reports first has stopped somewhere it was not supposed to and the loop gives up with it. */
+static bool update_settle_at(struct update_harness *harness, const struct update_probe *probe,
+                             enum mesh_firmware_update_state state) {
+    for (int turn = 0; turn < 900 && probe->calls == 0U; ++turn) {
+        (void)mesh_event_loop_run(&harness->loop, 10);
+        mesh_firmware_update_tick(&harness->update, (uint64_t)turn * 100U);
+        if (harness->update.state == state) {
+            return true;
+        }
+    }
+    return false;
 }
 
 /* ---- the cases ------------------------------------------------------------------------------- */
@@ -555,5 +830,79 @@ MESH_TEST_CASE(firmware_update_knows_when_it_can_go_back, unit) {
     MESH_TEST_FAIL_IF(mesh_firmware_update_can_resume(&update),
                       "and there has to be something to fetch");
     mesh_firmware_update_shutdown(&update);
+    record_success(test_name);
+}
+
+/*
+ * The image lands and the job goes on to the radio, which is the rung every other case here
+ * stops short of.
+ *
+ * The whole chain runs: the release document names the platform, the zip's directory is read
+ * out of its tail, the board manifest is inflated and says which file is the image, the image
+ * is fetched and validated as a UF2 for this family, and only then is the radio asked for
+ * anything. What is pinned at the end is the handover: `arm_usb` called exactly once, the
+ * ladder on ARMING, and the antenna given back - because ARMING is where a BLE job needs the
+ * link that the download was holding.
+ *
+ * The regression underneath it is one line of mesh_firmware_update_tick(). The fetch finishes
+ * inside that tick - the inflater is reaped there - and its completion moves the ladder to
+ * READY from under the case that is still running, which then described the fetch again and
+ * wrote "resolving" back over it. Nothing ever left: READY is the only state that starts a
+ * handover and it only ever gets a tick of its own. On the device that was a progress row that
+ * said `resolving` for as long as you cared to watch it, with the image already staged.
+ */
+MESH_TEST_CASE(firmware_update_carries_the_image_into_the_handover, unit) {
+    struct update_harness harness;
+    struct update_probe probe;
+    const char *failure = NULL;
+    memset(&probe, 0, sizeof probe);
+    /* The radio never went away on this bus, so it is ready the moment the image is. */
+    probe.radio_ready = true;
+    if (!update_harness_up_whole(&harness)) {
+        failure = "the harness should come up with a zip to serve";
+        goto cleanup;
+    }
+    struct mesh_firmware_update_hooks hooks = update_hooks(&probe);
+    const struct mesh_firmware_board board = update_t114_board();
+    const struct mesh_firmware_release release = update_release();
+    if (mesh_firmware_update_start(&harness.update, &board, &release, "2-1:1.1", &hooks,
+                                   update_probe_done, &probe) != 0) {
+        failure = "the press should start";
+        goto cleanup;
+    }
+    if (!update_settle_at(&harness, &probe, MESH_FIRMWARE_UPDATE_ARMING)) {
+        /* Either it reported early - a real failure, and `detail` says which - or it is still
+           going round on a rung it should have left, which is the bug this case exists for. */
+        failure = probe.calls > 0U ? "the download should not have failed"
+                                   : "a staged image should reach the radio, not sit on a rung";
+        goto cleanup;
+    }
+    if (probe.armed_usb != 1U) {
+        failure = "the handover asks the radio for DFU exactly once";
+        goto cleanup;
+    }
+    if (probe.armed_ble != 0U) {
+        failure = "and asks over the bus the board is on";
+        goto cleanup;
+    }
+    if (probe.calls != 0U) {
+        failure = "an install that is under way has not reported yet";
+        goto cleanup;
+    }
+    /* The download is over, so the antenna is free - and the radio is held now instead, which
+       is the swap the two questions exist to express. */
+    if (mesh_firmware_update_holds_the_antenna(&harness.update)) {
+        failure = "a staged image gives the antenna back";
+        goto cleanup;
+    }
+    if (!mesh_firmware_update_holds_the_radio(&harness.update)) {
+        failure = "and an armed radio is held until the write finishes";
+        goto cleanup;
+    }
+    mesh_firmware_update_cancel(&harness.update);
+
+cleanup:
+    update_harness_down(&harness);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
