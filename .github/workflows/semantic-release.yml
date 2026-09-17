@@ -202,12 +202,21 @@ jobs:
         env:
           # Which of release.config.mjs's branches this run is. semantic-release takes the
           # branch from one place and one place only - env-ci reads GITHUB_REF and nothing else
-          # (env-ci/services/github.js) - so a prerelease dispatched on `main` has to say so
-          # here, or it would be read as a stable release of `main` and publish one. The step
-          # above has already pointed that branch at this commit, so the two agree; for a
-          # stable release, and for a push that arrived on `beta`, this is the ref the run
-          # already had.
-          GITHUB_REF: ${{ env.RELEASE_CHANNEL == 'stable' && github.ref || format('refs/heads/{0}', env.RELEASE_CHANNEL) }}
+          # (env-ci/services/github.js) - so a prerelease dispatched on `main` has to say so,
+          # or it would be read as a stable release of `main` and publish one. The step above
+          # has already pointed that branch at this commit, so the two agree; for a stable
+          # release, and for a push that arrived on `beta`, this is the ref the run already had.
+          #
+          # It is spelled RELEASE_REF here and assigned to GITHUB_REF on the `run:` line below,
+          # rather than named GITHUB_REF in this block, because a step's `env:` cannot override
+          # a GITHUB_-prefixed variable: the runner sets those itself, after this block, so the
+          # value here is silently discarded. A beta dispatch on 2026-09-17 read its branch as
+          # `main` and published v2.71.0 as a *stable* release - while release.config.mjs, which
+          # reads RELEASE_CHANNEL and not GITHUB_REF, correctly dropped the write-back plugins,
+          # so that release carried no version bump, no CHANGELOG entry and no pak.json. A shell
+          # assignment on the command line is applied when the process is spawned, which is
+          # after the runner is done, and is the only form that reaches semantic-release.
+          RELEASE_REF: ${{ env.RELEASE_CHANNEL == 'stable' && github.ref || format('refs/heads/{0}', env.RELEASE_CHANNEL) }}
           # The API identity: the release, its assets, and the comments the GitHub plugin
           # posts. The ruleset guards the branch and not the releases, so this stays the scoped
           # per-run token - and the release goes on being published by github-actions[bot], as
@@ -228,4 +237,4 @@ jobs:
           GIT_AUTHOR_EMAIL: semantic-release-bot@users.noreply.github.com
           GIT_COMMITTER_NAME: semantic-release-bot
           GIT_COMMITTER_EMAIL: semantic-release-bot@users.noreply.github.com
-        run: npx semantic-release
+        run: GITHUB_REF="${RELEASE_REF}" npx semantic-release
