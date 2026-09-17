@@ -482,6 +482,9 @@ struct mesh_bluez_mock_state {
     unsigned services_resolved_timeouts;
     unsigned connect_polls;
     unsigned connected_polls;
+    /* Whether a scan is up, for config.connect_needs_the_scan. Starts false: a mock that has
+       never been told to scan has nothing that could have been dropped by stopping one. */
+    bool scanning;
     unsigned write_calls;
     unsigned pair_polls;
     /* Addresses the mock has bonded, so a device reads back Paired the way BlueZ would once
@@ -559,6 +562,7 @@ static void mesh_bluez_mock_reset_counters(void) {
     g_mock_state.services_resolved_timeouts = 0U;
     g_mock_state.connect_polls = 0U;
     g_mock_state.connected_polls = 0U;
+    g_mock_state.scanning = false;
     g_mock_state.write_calls = 0U;
     g_mock_state.pair_polls = 0U;
     memset(g_mock_state.paired_addresses, 0, sizeof(g_mock_state.paired_addresses));
@@ -1440,11 +1444,17 @@ static int mock_adapter_method(const char *method) {
         if (g_mock_state.config.start_discovery_calls != NULL) {
             ++*g_mock_state.config.start_discovery_calls;
         }
+        if (g_mock_state.config.start_discovery_result == 0) {
+            g_mock_state.scanning = true;
+        }
         return g_mock_state.config.start_discovery_result;
     }
     if (strcmp(method, "StopDiscovery") == 0) {
         if (g_mock_state.config.stop_discovery_calls != NULL) {
             ++*g_mock_state.config.stop_discovery_calls;
+        }
+        if (g_mock_state.config.stop_discovery_result == 0) {
+            g_mock_state.scanning = false;
         }
         return g_mock_state.config.stop_discovery_result;
     }
@@ -1523,7 +1533,12 @@ int mesh_bluez_client_connect_begin(struct mesh_bluez_client *client, const char
         g_mock_state.connect_polls = 0U;
         client->connect_state = 1;
         client->connect_serial = 1U;
-        client->connect_result = g_mock_state.config.connect_result;
+        /* The object went with the scan. bluetoothd answers UnknownObject, which the error
+           mapping turns into -ENOENT, and it arrives on the poll like any other reply. */
+        client->connect_result =
+            g_mock_state.config.connect_needs_the_scan && !g_mock_state.scanning
+                ? -ENOENT
+                : g_mock_state.config.connect_result;
         return 0;
     }
 

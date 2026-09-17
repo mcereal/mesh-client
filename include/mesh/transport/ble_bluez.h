@@ -153,6 +153,14 @@ struct mesh_bluez_mock_config {
     unsigned *start_discovery_calls;
     unsigned *stop_discovery_calls;
     int connect_result;
+    /*
+     * Models a device object that lives only as long as the scan that found it: once
+     * StopDiscovery has reached the mock, Connect answers -ENOENT the way bluetoothd answers
+     * UnknownObject for a path it has just dropped. Off by default, because a bonded radio's
+     * object does outlive its scan - it is an OTA loader, whose address this adapter has never
+     * seen before, that does not.
+     */
+    bool connect_needs_the_scan;
     int disconnect_result;
     int pair_result;
     int remove_device_result;

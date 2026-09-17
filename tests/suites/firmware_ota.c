@@ -76,7 +76,7 @@ static void rig_done(void *userdata, const struct mesh_firmware_ota *ota) {
     ((struct fw_rig *)userdata)->done_calls += 1U;
 }
 
-static bool rig_open(struct fw_rig *rig, uint16_t chip) {
+static bool rig_open_ex(struct fw_rig *rig, uint16_t chip, bool loader_dies_with_the_scan) {
     memset(rig, 0, sizeof *rig);
     g_interval_calls = 0U;
     g_interval_address[0] = '\0';
@@ -97,6 +97,7 @@ static bool rig_open(struct fw_rig *rig, uint16_t chip) {
     rig->mock.write_hook_userdata = &rig->loader;
     rig->mock.start_discovery_calls = &rig->start_discovery_calls;
     rig->mock.stop_discovery_calls = &rig->stop_discovery_calls;
+    rig->mock.connect_needs_the_scan = loader_dies_with_the_scan;
     mesh_bluez_client_mock_enable(&rig->mock);
     if (mesh_bluez_client_init(&rig->client) != 0) {
         return false;
@@ -122,6 +123,9 @@ static bool rig_open(struct fw_rig *rig, uint16_t chip) {
     rig->now = 5000U;
     return written;
 }
+
+/* The ordinary rig: bluetoothd keeps the loader's object whatever the scan does. */
+static bool rig_open(struct fw_rig *rig, uint16_t chip) { return rig_open_ex(rig, chip, false); }
 
 static void rig_close(struct fw_rig *rig) {
     mesh_firmware_ota_cancel(&rig->ota);
@@ -437,6 +441,49 @@ MESH_TEST_CASE(firmware_ota_loader_refusal_is_final, unit) {
                               "the same bytes would get the same answer");
     MESH_TEST_FAIL_IF_CLEANUP(!mesh_firmware_ota_radio_in_loader(&rig.ota), rig_close(&rig),
                               "and the radio is still in it");
+    rig_close(&rig);
+    record_success(test_name);
+}
+
+/*
+ * The loader is connected to before the scan that found it is stopped.
+ *
+ * A bonded radio's device object outlives its discovery, so src/transport/ble/ble_transport.c
+ * stops the scan and then connects - the connection wants the radio to itself. A loader's
+ * object does not: its address is the radio's plus one, which this adapter has never seen, so
+ * bluetoothd holds it for the discovery that produced it and can drop it when that ends.
+ *
+ * On a Brick on 2026-09-17 that read as: GetManagedObjects listed the loader's path,
+ * StopDiscovery went out, and Connect on that path answered UnknownObject five milliseconds
+ * later. The next attempt re-scanned and won the race, so the install finished - a race is what
+ * it is, and `connect_needs_the_scan` is that race with the timing taken out of it, so the
+ * order is what the case is actually about.
+ *
+ * Deliberately asserted as **no retry at all** rather than as a completed install: three
+ * attempts of "scan, stop, connect" all lose, so the old order fails this outright, and an
+ * install that merely finished would also have passed while spending an attempt to do it.
+ */
+MESH_TEST_CASE(firmware_ota_connects_before_it_drops_the_scan, unit) {
+    struct fw_rig rig;
+    MESH_TEST_FAIL_IF_CLEANUP(!rig_open_ex(&rig, MESH_ESP_CHIP_ESP32_S3, true), rig_close(&rig),
+                              "the rig should open");
+    const struct mesh_firmware_ota_params params = rig_params(&rig, true);
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_firmware_ota_start(&rig.ota, &params) != 0, rig_close(&rig),
+                              "the install should start");
+    mesh_firmware_ota_radio_said(&rig.ota, "Rebooting to BLE OTA");
+    rig.devices[1].rssi = -61;
+    rig_run(&rig, MESH_FIRMWARE_OTA_RESTARTING, 600000U);
+
+    MESH_TEST_FAIL_IF_CLEANUP(rig.ota.state != MESH_FIRMWARE_OTA_RESTARTING, rig_close(&rig),
+                              "a loader whose object dies with the scan is still connectable");
+    MESH_TEST_FAIL_IF_CLEANUP(rig.ota.attempts != 0U, rig_close(&rig),
+                              "and takes the image on the first attempt, without a retry");
+    MESH_TEST_FAIL_IF_CLEANUP(!rig.loader.finished_ok || rig.loader.received != RIG_IMAGE_LEN,
+                              rig_close(&rig), "every byte of it");
+    /* The scan still comes down - after the connection rather than before it, which is the whole
+       of the change. A transfer sharing the radio with a discovery is the thing being avoided. */
+    MESH_TEST_FAIL_IF_CLEANUP(rig.stop_discovery_calls < 1U, rig_close(&rig),
+                              "the scan is down for the transfer");
     rig_close(&rig);
     record_success(test_name);
 }
