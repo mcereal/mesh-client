@@ -491,9 +491,18 @@ void mesh_firmware_update_tick(struct mesh_firmware_update *update, uint64_t now
     case MESH_FIRMWARE_UPDATE_RESOLVING:
     case MESH_FIRMWARE_UPDATE_DOWNLOADING: {
         mesh_firmware_fetch_tick(&update->image, now_ms);
-        /* The two documents and the image are three steps of one fetch and only the last has a
-           bar; the ladder says which of the two sentences is true right now. */
-        if (mesh_firmware_update_busy(update)) {
+        /*
+         * The two documents and the image are three steps of one fetch and only the last has a
+         * bar; the ladder says which of the two sentences is true right now.
+         *
+         * Only while the fetch is still running, and that is the whole guard rather than a
+         * nicety. The tick above is what finishes a fetch - the inflater is reaped there - and
+         * finishing calls back into update_image_done(), which has already moved the ladder on
+         * to "waiting for radio". Describing the fetch again after that puts "resolving" back
+         * over it, and the ladder never leaves: MESH_FIRMWARE_UPDATE_READY is the only case
+         * that starts the handover and it only ever gets a tick of its own.
+         */
+        if (mesh_firmware_fetch_busy(&update->image)) {
             const enum mesh_firmware_update_state next =
                 update->image.state == MESH_FIRMWARE_FETCH_DOWNLOADING
                     ? MESH_FIRMWARE_UPDATE_DOWNLOADING

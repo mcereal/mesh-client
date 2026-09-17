@@ -53,6 +53,16 @@ void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *action);
  */
 void mesh_app_firmware_update_tick(struct mesh_app *app, uint64_t now);
 
+/*
+ * The five callbacks the install press hands to src/core/firmware/firmware_update.c.
+ *
+ * Built here rather than at the press so the contracts between the two modules are somewhere a
+ * suite can reach: both arms answer "0 or -errno" over a session that answers "how many did you
+ * queue", and an arm that returned the count was the whole of an install that armed a radio and
+ * then reported that the radio had refused.
+ */
+struct mesh_firmware_update_hooks mesh_app_firmware_hooks(struct mesh_app *app);
+
 /* ---- app_mqtt.c ------------------------------------------------------------------------- */
 
 /*
