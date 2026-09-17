@@ -392,6 +392,31 @@ endforeach()
 set(NANOPB_GENERATED_SOURCES)
 set(NANOPB_GENERATED_HEADERS)
 
+# Where nanopb_generator.py is allowed to build its copy of nanopb_pb2.py, and the reason this
+# is set at all.
+#
+# The generator needs a python-protobuf build of nanopb.proto, which upstream does not commit.
+# Left alone it generates one and caches it *in the submodule*, at
+# third_party/nanopb/generator/proto/nanopb_pb2.py. One command below per entry in
+# MESH_PROTO_NAMES, all independent, so ninja starts them together - and on a tree where that
+# cache does not exist yet, they all try to create it at the same path at once. A generator that
+# imports the file mid-write gets a truncated module rather than an error, and dies on the first
+# attribute it reads:
+#
+#   AttributeError: module 'proto.nanopb_pb2' has no attribute 'IS_8'
+#
+# Reproduced 8 times out of 8 by deleting the cache and running the fifteen invocations
+# concurrently; 0 out of 8 with this set. It needs a fresh checkout to bite, which is every CI
+# run and almost no local one - so it reads as an unrelated flake in whatever pull request it
+# lands on.
+#
+# NANOPB_PB2_TEMP_DIR is upstream's switch for exactly this: it leaves the *read* of an existing
+# cache alone and only stops the shared write, so each invocation that has to build the module
+# builds its own private copy under this directory instead. Measured at no cost either way -
+# 0.4s for all fifteen, cached or fresh - because the builds overlap.
+set(NANOPB_PB2_TEMP_DIR ${CMAKE_BINARY_DIR}/nanopb-pb2)
+file(MAKE_DIRECTORY ${NANOPB_PB2_TEMP_DIR})
+
 foreach(PROTO_FILE ${MESH_PROTO_FILES})
     get_filename_component(PROTO_BASENAME ${PROTO_FILE} NAME_WE)
     get_filename_component(PROTO_DIR ${PROTO_FILE} DIRECTORY)
@@ -409,7 +434,9 @@ foreach(PROTO_FILE ${MESH_PROTO_FILES})
     add_custom_command(
         OUTPUT ${GENERATED_C} ${GENERATED_H}
         COMMAND ${CMAKE_COMMAND} -E make_directory ${GENERATED_DIR}
-        COMMAND ${NANOPB_GENERATOR_COMMAND}
+        COMMAND ${CMAKE_COMMAND} -E env
+            NANOPB_PB2_TEMP_DIR=${NANOPB_PB2_TEMP_DIR}
+            ${NANOPB_GENERATOR_COMMAND}
             -D ${NANOPB_GENERATED_DIR}
             -I ${MESH_PROTO_ROOT}
             -I ${MESH_PROTO_ROOT}/meshtastic
