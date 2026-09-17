@@ -576,7 +576,7 @@ uint8_t mesh_ui_signal_level(float snr);
 /* Parts one composition may have. It is MESH_UI_SERIES_COLORS (include/mesh/ui/theme.h) counted
    from the other side of the seam this file keeps with the theme - what a part *is* is layout's
    half, and what colour it takes is the theme's - so the two are stated separately and held
-   equal where they meet, by the _Static_assert in fb_widgets.c. Four is the number of
+   equal where they meet, by the static assertion in fb_widgets_meter.c. Four is the number of
    categorical fills the panel's lightness range can hold apart; see that file. */
 #define MESH_UI_PROPORTION_PARTS 4U
 

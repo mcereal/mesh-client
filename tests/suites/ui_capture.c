@@ -4426,8 +4426,8 @@ static uint32_t settings_text_column(const uint8_t *frame, uint32_t width, uint3
  * Every row of a settings section starts its words in one column, whatever height the row is.
  *
  * The leading slot is declared for a whole list or for none of it, and that rule is stated twice
- * in fb_widgets.c - once on FB_LEADING_ICON ("reserved whether or not this row filled it") and
- * once on the empty slot that exists for nothing else. The geometry had been breaking it since
+ * in fb_widgets_list.h - once on FB_LEADING_ICON ("reserved whether or not this row filled it")
+ * and once on the empty slot that exists for nothing else. The geometry had been breaking it since
  * the settings screen gained a row two steps tall: the gutter was measured off the row's own
  * fill height rather than off the list's step, so a section that mixed a slider in with its
  * neighbours drew that row's label, its value and its track a step further right than the rows

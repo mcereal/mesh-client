@@ -161,7 +161,7 @@ publish and read back when that node's detail screen is opened. See
 | MQTT proxy | `src/proto/mqtt_packet.c` (the wire format), `src/proto/mqtt_topic.c` (where a mesh lives on a broker), `src/core/net/mqtt_proxy.c` (one broker connection), `src/core/net/tls_client.c` (Mbed TLS on the loop), `src/app/app_mqtt.c` (whether to hold one at all) |
 | Radio firmware | `src/core/firmware/` - `firmware*.c`, `uf2.c`, `esp_image.c`, `src/transport/*/{usb_msc,ble_ota,ble_hci}.c` - the *other* binary |
 | UI | `src/ui/` - see the group map below; **`fb` is the device UI** |
-| UI components | `src/ui/layout.c` (top level: every group measures), `src/ui/backends/fb_widgets.c` - cell-measured line builder, scroll window, cards, lists, meters, charts |
+| UI components | `src/ui/layout.c` (top level: every group measures), `src/ui/backends/fb_widgets_*.c` - one file per group of components (button, chrome, list, item, bubble, card, control, meter, overlay); `fb_widgets.h` is the umbrella |
 | Tables the UI reads | `src/ui/tables/` - `actions.c` (button verbs), `status.c` (card verbs), `help.c`, `devices.c`, `nodes.c`, `delivery.c`, `trust.c`, `chrome.c`, `trend.c`, `duration.c`, `units.c` (metric/imperial lengths) |
 | Themes & fonts | `src/ui/theme/theme.c`, `font*.c`, `icon*.c` - palette by role, shape scale, metrics |
 | Strings | `src/i18n/strings.c`, `include/mesh/i18n/catalog.def` |

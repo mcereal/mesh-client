@@ -7,7 +7,7 @@
  * fb.c was 1700 lines spanning layers that stack cleanly:
  *
  *   fb_draw.c     pixels, glyphs, rows, the palette and the page geometry
- *   fb_widgets.c  the components screens are assembled from (fb_widgets.h)
+ *   fb_widgets_*  the components screens are assembled from (fb_widgets.h is the umbrella)
  *   fb_screens.c  one renderer per screen, drawn out of a snapshot
  *   fb.c          opening /dev/fb0, the page flip, the backend vtable
  *
@@ -15,8 +15,9 @@
  * fb_widgets.h is the component set above that. Neither is public - include/mesh/ui/backends/fb.h
  * is - and nothing here should be reached for outside src/ui/backends/.
  *
- * Only fb_draw.c's own primitives live here. Anything that composes several of them into a
- * thing with a name - a button, a list, a field row - belongs in fb_widgets.h.
+ * Only fb_draw.c's own primitives live here, plus the geometry every layer above states in -
+ * a rect, a row box, a layout. Anything that composes several of them into a thing with a
+ * name - a button, a list, a field row - belongs in a fb_widgets_*.h instead.
  *
  * No colour, margin or glyph size is spelled out below this comment. They come from the theme
  * on the state (include/mesh/ui/theme.h) through the accessors on it, which is what lets one
@@ -307,6 +308,12 @@ int fb_edge(const struct mesh_ui_backend_fb_state *state);
  * not room around text, so it tracks the body margin rather than the glyph scale.
  */
 int fb_rail_gutter(const struct mesh_ui_backend_fb_state *state);
+
+/* A box in pixels. The geometry vocabulary every layer above shares: a component is handed
+   one, or measures one, and fb_draw.c's primitives take it apart again. */
+struct fb_rect {
+    int x, y, w, h;
+};
 
 /*
  * Where a list's rows stand, horizontally. The one answer, asked by everything that draws one.

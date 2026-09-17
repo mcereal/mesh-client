@@ -11,7 +11,7 @@
  *
  * What this module is not: a decoder, an image writer, or anything that knows what the bytes
  * mean. It turns a byte string into a square of light and dark modules and stops there. The
- * drawing is the backend's (src/ui/backends/fb_widgets.c) and the URL is
+ * drawing is the backend's (src/ui/backends/fb_widgets_overlay.c) and the URL is
  * src/proto/channel_url.c's.
  *
  * Only byte mode is implemented. The alphanumeric and numeric modes pack denser, and would pay
