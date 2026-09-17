@@ -442,6 +442,116 @@ MESH_TEST_CASE(mqtt_session_subscribes_where_the_firmware_would_have, unit) {
     record_success(test_name);
 }
 
+/*
+ * Two channels, one topic, one subscription.
+ *
+ * `mesh_mqtt_channel_id()` falls back to the LoRa preset name for a channel with no name of its
+ * own, so the usual unnamed primary and an unnamed secondary both derive "LongFast" - and the
+ * topic is built from that id, which makes the second filter the first filter again. This is
+ * not hypothetical: it is what a stock radio with a spare default channel carries, and the
+ * proxy refused the repeat with -EEXIST while the log still counted it, claiming one more
+ * subscription than was ever made.
+ *
+ * Counting distinct filters here rather than filtering the duplicate at the far end is what
+ * keeps the number the caller reports and the number the proxy holds the same number.
+ */
+MESH_TEST_CASE(mqtt_session_subscribes_once_to_a_repeated_channel, unit) {
+    struct mesh_session session;
+    mesh_session_init(&session);
+
+    if (!feed_mqtt_root(&session, "msh/US") ||
+        !mesh_test_feed_lora(&session, meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST, true) ||
+        !mesh_test_feed_channel(&session, 0U, "", true) || /* unnamed primary   -> LongFast */
+        !mesh_test_feed_channel(&session, 1U, "", true) || /* unnamed secondary -> LongFast */
+        !mesh_test_feed_channel(&session, 2U, "private", true)) {
+        record_failure(test_name, "the config sync should be accepted");
+        return;
+    }
+
+    char filters[8][64];
+    const size_t count = collect_filters(&session, filters, 8U);
+
+    /* Three, not four: LongFast once, private, then PKI. */
+    if (count != 3U) {
+        record_failure(test_name, "a repeated channel id should be one subscription");
+        return;
+    }
+    if (strcmp(filters[0], "msh/US/2/e/LongFast/+") != 0) {
+        record_failure(test_name, "the first of the two should be the one kept");
+        return;
+    }
+    if (strcmp(filters[1], "msh/US/2/e/private/+") != 0) {
+        record_failure(test_name, "a later distinct channel must not be skipped with the repeat");
+        return;
+    }
+    if (strcmp(filters[2], "msh/US/2/e/PKI/+") != 0) {
+        record_failure(test_name, "PKI still comes last, once");
+        return;
+    }
+    record_success(test_name);
+}
+
+/*
+ * The same collision by the other route: a channel named after the preset, beside an unnamed one
+ * that derives the preset's name. Different fields on the radio, identical topic - so the rule
+ * has to be about the derived id rather than about the name being empty.
+ */
+MESH_TEST_CASE(mqtt_session_subscribes_once_when_a_name_matches_the_preset, unit) {
+    struct mesh_session session;
+    mesh_session_init(&session);
+
+    if (!feed_mqtt_root(&session, "msh/US") ||
+        !mesh_test_feed_lora(&session, meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST, true) ||
+        !mesh_test_feed_channel(&session, 0U, "LongFast", true) ||
+        !mesh_test_feed_channel(&session, 1U, "", true)) {
+        record_failure(test_name, "the config sync should be accepted");
+        return;
+    }
+
+    char filters[8][64];
+    const size_t count = collect_filters(&session, filters, 8U);
+    if (count != 2U || strcmp(filters[0], "msh/US/2/e/LongFast/+") != 0 ||
+        strcmp(filters[1], "msh/US/2/e/PKI/+") != 0) {
+        record_failure(test_name, "a name equal to the preset name is the same subscription");
+        return;
+    }
+    record_success(test_name);
+}
+
+/*
+ * A repeat must not swallow the channel behind it. The duplicate is skipped without being
+ * counted, so every index up to the count still answers - an off-by-one here would end the
+ * caller's walk early and silently drop the last real channel.
+ */
+MESH_TEST_CASE(mqtt_session_keeps_indices_contiguous_past_a_repeat, unit) {
+    struct mesh_session session;
+    mesh_session_init(&session);
+
+    if (!feed_mqtt_root(&session, "msh") ||
+        !mesh_test_feed_lora(&session, meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST, true) ||
+        !mesh_test_feed_channel(&session, 0U, "alpha", true) ||
+        !mesh_test_feed_channel(&session, 1U, "alpha", true) ||
+        !mesh_test_feed_channel(&session, 2U, "beta", true) ||
+        !mesh_test_feed_channel(&session, 3U, "alpha", true) ||
+        !mesh_test_feed_channel(&session, 4U, "gamma", true)) {
+        record_failure(test_name, "the config sync should be accepted");
+        return;
+    }
+
+    char filters[8][64];
+    const size_t count = collect_filters(&session, filters, 8U);
+    if (count != 4U) {
+        record_failure(test_name, "three distinct channels and PKI");
+        return;
+    }
+    if (strcmp(filters[0], "msh/2/e/alpha/+") != 0 || strcmp(filters[1], "msh/2/e/beta/+") != 0 ||
+        strcmp(filters[2], "msh/2/e/gamma/+") != 0 || strcmp(filters[3], "msh/2/e/PKI/+") != 0) {
+        record_failure(test_name, "the distinct channels should keep their slot order");
+        return;
+    }
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(mqtt_session_subscribes_to_nothing_without_downlink, unit) {
     struct mesh_session session;
     mesh_session_init(&session);

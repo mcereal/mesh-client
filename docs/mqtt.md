@@ -52,13 +52,22 @@ That makes topic derivation a compatibility surface rather than a design. Every 
 match what the firmware would have produced, character for character:
 
 ```
-<root>/2/e/<channel>/+        one per downlink-enabled channel
+<root>/2/e/<channel>/+        one per downlink-enabled channel, deduplicated
 <root>/2/e/PKI/+              once, if any channel downlinks at all
 ```
 
 `<root>` is `MQTTConfig.root` or `msh`. `<channel>` is the channel's name, or — for the unnamed
 default primary, which is most of them — the name of the modem preset. `+` rather than `#`
 because the one level left open is the gateway node id, which is what the firmware asks for.
+
+**Two channels can be one topic.** Because an unnamed channel derives the preset's name, a radio
+carrying the usual unnamed primary *and* an unnamed secondary derives `LongFast` twice, as does
+one with a channel named after its own preset. The second is not a second subscription, so
+`mesh_session_mqtt_filter()` enumerates distinct ids and skips the repeat without counting it.
+Deduplicating at the far end instead is what the client used to do by accident: the proxy
+refused the repeat with `-EEXIST` and the log went on claiming one more subscription than had
+ever been made. `mqtt_session_subscribes_once_to_a_repeated_channel` and the two cases beside it
+hold the rule, including that the channel *behind* a repeat is still reached.
 
 The failure mode if any of this is wrong is the reason it is pinned by tests: a filter that is
 merely *sensible* subscribes to a topic nobody publishes on, and the mesh publishes fine and
