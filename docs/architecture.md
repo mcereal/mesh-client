@@ -246,6 +246,10 @@ For **our own** sends the echo is the only source of it, so the dedup branch in
 `mesh_message_ingest` copies the encryption state as well as the timestamps. All four fields —
 kind, padlock, `reply_id`, reaction flag — are written to the node cache on their own `msg_meta[]`
 key; a reaction reloaded without its flag is a bare emoji bubble that also bumps the unread count.
+The `Routing_Error` behind a failed delivery rides the same key as a fifth field, which the loader
+takes or does without: an archive file holds records from every build that ever ran on the card,
+and one written before the field existed reads back with no reason — which is what the bubble
+already draws as the bare word.
 
 ### Traceroute
 

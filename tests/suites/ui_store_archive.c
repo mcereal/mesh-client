@@ -1056,7 +1056,7 @@ MESH_TEST_CASE(ui_archive_follows_a_delivery_state, unit) {
 
     /* Now the mesh answers. */
     sent.ack = MESH_MESSAGE_ACK_FAILED;
-    sent.ack_error = 5U;
+    sent.ack_error = (uint8_t)meshtastic_Routing_Error_MAX_RETRANSMIT;
     archive_list_of(&list, &sent, 1U);
     if (mesh_ui_archive_append(&archive, &list) != 1) {
         failure = "a message whose delivery state moved is worth writing again";
@@ -1078,13 +1078,16 @@ MESH_TEST_CASE(ui_archive_follows_a_delivery_state, unit) {
         goto cleanup;
     }
     /*
-     * `ack_error` is deliberately not asserted: neither format on the card carries it - msg[]
-     * writes the ack and not the reason behind it, in the archive and in the handshake cache
-     * alike - so a failure restored from either reads as failed with the generic word rather
-     * than with its Routing error. That is what fb_thread_row_build() falls back to, and it
-     * predates this file; what matters here is that the bubble reads as failed at all, because
-     * the resend the transcript offers is gated on exactly that.
+     * And the reason with it. This used to be the other way round - msg_meta[] carried what a
+     * message *is* and not why its delivery ended, in the archive and in the handshake cache
+     * alike - so a failure restored from either read as failed with the generic word that
+     * fb_thread_row_build() falls back to when there is no reason to give. "It did not arrive"
+     * is already the mark in the corner; the reason is the part worth keeping.
      */
+    if (window.entries[0].ack_error != (uint8_t)meshtastic_Routing_Error_MAX_RETRANSMIT) {
+        failure = "a failed message keeps the reason it failed across a restart";
+        goto cleanup;
+    }
 
 cleanup:
     archive_close(&archive, dir);
