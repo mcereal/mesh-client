@@ -229,6 +229,10 @@ if sanitizer_runtime_missing; then
 fi
 pkg-config --exists dbus-1 2>/dev/null || report_missing "libdbus-1-dev"
 python3 -c 'import google.protobuf' >/dev/null 2>&1 || report_missing "python protobuf"
+# Fatal rather than a note: without these the Mbed TLS build cannot generate its sources, so
+# CMake does not get as far as configuring. A pip install that failed above lands here too.
+python3 -c 'import jinja2, jsonschema' >/dev/null 2>&1 \
+    || report_missing "python jinja2/jsonschema (Mbed TLS generated sources)"
 if git submodule status --recursive 2>/dev/null | grep '^[-+]' >/dev/null; then
     report_missing "git submodules"
 fi
