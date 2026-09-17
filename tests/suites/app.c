@@ -1510,6 +1510,128 @@ cleanup:
 }
 
 /*
+ * The arm that told the install it had been refused, having just armed the radio.
+ *
+ * The two modules either side of this hook count in different units. A session answers "how
+ * many admin requests did I queue", so a verb that went out is 1; the install's hook answers
+ * "0, or -errno", so 1 is a refusal. The USB arm handed the count straight across, which meant
+ * every successful DFU request was read as the radio turning it down: the job stopped at
+ * "waiting for radio -> failed" one second after the image was staged, the client said the
+ * radio would not take the request, and the T114 - which had taken it - sat in its bootloader
+ * with nothing on the way. The BLE arm next to it had always translated, which is the asymmetry
+ * this case exists to stop coming back.
+ *
+ * Both halves are asserted, because the return alone is green against a hook that answered 0
+ * by queueing nothing at all - which is the same install stopped one rung further on.
+ */
+MESH_TEST_CASE(app_firmware_arm_reports_a_queued_verb_as_armed, unit) {
+    const char *failure = NULL;
+    int pair[2] = {-1, -1};
+    bool app_ready = false;
+    struct mesh_app app;
+    memset(&app, 0, sizeof app);
+
+    MESH_TEST_FAIL_IF(socketpair(AF_UNIX, SOCK_STREAM, 0, pair) != 0, "socketpair failed");
+    (void)fcntl(pair[0], F_SETFL, O_NONBLOCK);
+    (void)fcntl(pair[1], F_SETFL, O_NONBLOCK);
+
+    struct mesh_bluez_mock_config mock_config = {.adapter_path = "/org/bluez/hci0"};
+    mesh_bluez_client_mock_enable(&mock_config);
+
+    const struct mesh_serial_device_info ports[] = {mesh_test_serial_device()};
+    struct mesh_serial_usb_mock_config serial_mock;
+    memset(&serial_mock, 0, sizeof serial_mock);
+    serial_mock.devices = ports;
+    serial_mock.device_count = 1U;
+    serial_mock.bound_path = "/dev/ttyUSB0";
+    serial_mock.open_fd = pair[0];
+    mesh_serial_usb_mock_enable(&serial_mock);
+
+    char home_dir[APP_TEST_HOME_CAP];
+    if (!app_test_home(home_dir, sizeof home_dir, "armusb")) {
+        failure = "mkdtemp failed";
+        goto cleanup;
+    }
+
+    struct mesh_app_config config = mesh_app_config_default();
+    config.run_mode = MESH_APP_RUN_FOREGROUND;
+    if (mesh_app_init(&app, &config) != 0) {
+        failure = "app init failed";
+        goto cleanup;
+    }
+    app_ready = true;
+
+    if (mesh_transport_registry_start_all(&app.transport_registry, &app.config, &app.loop) < 0) {
+        failure = "transport start failed";
+        goto cleanup;
+    }
+    mesh_serial_transport_refresh_devices(mesh_serial_transport());
+    mesh_app_autoconnect(&app);
+    mesh_test_serial_sleep_ms(150);
+    mesh_transport_registry_tick(&app.transport_registry);
+    if (mesh_app_connected_identifier() == NULL) {
+        failure = "the USB port should be the connected radio";
+        goto cleanup;
+    }
+    /*
+     * The refusal first, while the handshake has no my_info to address a verb to: with nothing
+     * to queue on the hook owes the install an errno rather than a zero it would act on.
+     */
+    const struct mesh_firmware_update_hooks hooks = mesh_app_firmware_hooks(&app);
+    if (hooks.arm_usb == NULL || hooks.userdata != &app) {
+        failure = "the press hands over an arm and the app behind it";
+        goto cleanup;
+    }
+    if (hooks.arm_usb(hooks.userdata) >= 0) {
+        failure = "an arm with nothing to address should fail, and say so as -errno";
+        goto cleanup;
+    }
+
+    /* An admin verb needs somewhere to be addressed, which is what my_info is for. */
+    meshtastic_FromRadio my_info = meshtastic_FromRadio_init_default;
+    my_info.which_payload_variant = meshtastic_FromRadio_my_info_tag;
+    my_info.my_info.my_node_num = 0x0BADCAFEU;
+    if (!mesh_test_session_feed_from_radio(&app.session, &my_info)) {
+        failure = "the session should take my_info";
+        goto cleanup;
+    }
+
+    /*
+     * And now the arm that works. This is the call that queues the verb - the session answers
+     * it with the count, 1 - so it is the one that returned 1 into an install that reads any
+     * non-zero as "the radio would not take it".
+     */
+    const size_t before = app.session.settings.queue_len;
+    if (hooks.arm_usb(hooks.userdata) != 0) {
+        failure = "an arm that queued the verb is an arm that worked";
+        goto cleanup;
+    }
+    /* And it queued: a hook that answered 0 by doing nothing would be the same bug the other
+       way round, with a radio that never hears the verb and an install that waits for a
+       bootloader until it times out. */
+    if (app.session.settings.queue_len <= before) {
+        failure = "and the verb it reported is on the queue";
+        goto cleanup;
+    }
+
+cleanup:
+    if (app_ready) {
+        mesh_app_shutdown(&app);
+    }
+    mesh_bluez_client_mock_disable();
+    mesh_serial_usb_mock_disable();
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    if (pair[0] >= 0) {
+        close(pair[0]);
+    }
+    if (pair[1] >= 0) {
+        close(pair[1]);
+    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
  * A BLE connect can return 0 and still fail seconds later, when BlueZ finishes service discovery
  * and StartNotify is rejected because the node was never paired. That used to leave the UI stuck
  * on "connecting" with the reason only in the log.

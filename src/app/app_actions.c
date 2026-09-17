@@ -60,9 +60,17 @@ static int mesh_app_firmware_interval(int hci_dev, const char *address) {
     return mesh_ble_hci_request_interval(hci_dev, address, &mesh_ble_hci_ota_params);
 }
 
+/*
+ * Both arms answer the session's question - "how many did you queue" - and the install's hook
+ * answers its own: 0, or -errno. So both of them translate, and the translation is not a
+ * tidying. A queued verb counts 1, which the install reads as a refusal: it says the radio
+ * would not take the request, stops, and leaves the radio it really did arm sitting in a
+ * bootloader with nothing on its way to it.
+ */
 static int mesh_app_firmware_arm_usb(void *userdata) {
     struct mesh_app *const app = (struct mesh_app *)userdata;
-    return mesh_session_radio_action(&app->session, MESH_ADMIN_ENTER_DFU_MODE);
+    const int queued = mesh_session_radio_action(&app->session, MESH_ADMIN_ENTER_DFU_MODE);
+    return queued < 0 ? queued : 0;
 }
 
 static int mesh_app_firmware_arm_ble(void *userdata, const uint8_t sha256[32]) {
@@ -155,6 +163,22 @@ static void mesh_app_firmware_release_link(void *userdata) {
     mesh_log_info("ui", "Stopping transports for the firmware install");
     mesh_transport_registry_stop_all(&app->transport_registry);
     app->firmware_transports_stopped = true;
+}
+
+/*
+ * The five of them together: what the press hands over, and what a suite can hold to the
+ * contracts above without standing an install up around them.
+ */
+struct mesh_firmware_update_hooks mesh_app_firmware_hooks(struct mesh_app *app) {
+    const struct mesh_firmware_update_hooks hooks = {
+        .arm_usb = mesh_app_firmware_arm_usb,
+        .arm_ble = mesh_app_firmware_arm_ble,
+        .radio_ready = mesh_app_firmware_radio_ready,
+        .release_link = mesh_app_firmware_release_link,
+        .request_interval = mesh_app_firmware_interval,
+        .userdata = app,
+    };
+    return hooks;
 }
 
 static void mesh_app_firmware_update_done(void *userdata,
@@ -1648,14 +1672,7 @@ static void on_install_radio_firmware(struct mesh_app *app, const struct mesh_ui
      */
     const struct mesh_client_notification *const seen = mesh_session_notification(&app->session);
     app->firmware_notification_seq = seen != NULL ? seen->seq : 0U;
-    const struct mesh_firmware_update_hooks hooks = {
-        .arm_usb = mesh_app_firmware_arm_usb,
-        .arm_ble = mesh_app_firmware_arm_ble,
-        .radio_ready = mesh_app_firmware_radio_ready,
-        .release_link = mesh_app_firmware_release_link,
-        .request_interval = mesh_app_firmware_interval,
-        .userdata = app,
-    };
+    const struct mesh_firmware_update_hooks hooks = mesh_app_firmware_hooks(app);
     const int result = mesh_firmware_update_start(
         &app->firmware_update, board, &app->firmware.release, where != NULL ? where : "", &hooks,
         mesh_app_firmware_update_done, app);
