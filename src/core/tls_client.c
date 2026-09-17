@@ -68,8 +68,6 @@ const char *mesh_tls_client_error(const struct mesh_tls_client *tls) {
 
 #else /* MESHCLIENT_HAVE_TLS */
 
-#include <mbedtls/ctr_drbg.h>
-#include <mbedtls/entropy.h>
 #include <mbedtls/error.h>
 /* For the MBEDTLS_ERR_NET_* codes only. `MBEDTLS_NET_C` is off - the socket layer this header
    declares is the blocking one this project cannot use - but those constants are the documented
@@ -96,15 +94,18 @@ struct mesh_tls_state {
     mbedtls_ssl_context ssl;
     mbedtls_ssl_config conf;
     mbedtls_x509_crt ca;
-    mbedtls_entropy_context entropy;
-    mbedtls_ctr_drbg_context drbg;
     bool handshaked;
 };
 
 /*
- * PSA has to be initialised once before the first handshake - TLS 1.3 is built on it in 3.x -
- * and it is a process-wide thing rather than a per-session one. A static flag is the whole
- * synchronisation this needs: there is one thread and there is not going to be another.
+ * PSA has to be initialised once before the first handshake - in 4.x every primitive and the
+ * RNG behind the handshake are PSA - and it is a process-wide thing rather than a per-session
+ * one. A static flag is the whole synchronisation this needs: there is one thread and there is
+ * not going to be another.
+ *
+ * This is also where the connection can stall: seeding the PSA RNG reads the entropy source,
+ * and on the Brick that file has to be /dev/urandom or the loop blocks. third_party/
+ * mbedtls-config/mesh_psa_crypto_config.h is where that is set, and why.
  */
 static bool tls_psa_ready = false;
 
@@ -209,8 +210,6 @@ static void tls_release(struct mesh_tls_client *tls) {
     mbedtls_ssl_free(&state->ssl);
     mbedtls_ssl_config_free(&state->conf);
     mbedtls_x509_crt_free(&state->ca);
-    mbedtls_ctr_drbg_free(&state->drbg);
-    mbedtls_entropy_free(&state->entropy);
     free(state);
     tls->state = NULL;
 }
@@ -246,8 +245,6 @@ int mesh_tls_client_start(struct mesh_tls_client *tls, int fd, const char *hostn
     mbedtls_ssl_init(&state->ssl);
     mbedtls_ssl_config_init(&state->conf);
     mbedtls_x509_crt_init(&state->ca);
-    mbedtls_entropy_init(&state->entropy);
-    mbedtls_ctr_drbg_init(&state->drbg);
 
     if (!tls_psa_ready) {
         const psa_status_t psa = psa_crypto_init();
@@ -259,18 +256,7 @@ int mesh_tls_client_start(struct mesh_tls_client *tls, int fd, const char *hostn
         tls_psa_ready = true;
     }
 
-    /* The personalisation string only has to be distinct from other users of the same entropy
-       source; it is not a secret and is not required to be unique per session. */
-    static const unsigned char personalisation[] = "meshclient-mqtt";
-    int rc = mbedtls_ctr_drbg_seed(&state->drbg, mbedtls_entropy_func, &state->entropy,
-                                   personalisation, sizeof personalisation - 1U);
-    if (rc != 0) {
-        tls_record_error(tls, rc, "no entropy");
-        tls_release(tls);
-        return -EIO;
-    }
-
-    rc = mbedtls_x509_crt_parse_file(&state->ca, ca_bundle);
+    int rc = mbedtls_x509_crt_parse_file(&state->ca, ca_bundle);
     /*
      * A positive return is the count of certificates that failed to parse while others
      * succeeded, which a real-world bundle does routinely - expired roots, formats this build
@@ -297,7 +283,8 @@ int mesh_tls_client_start(struct mesh_tls_client *tls, int fd, const char *hostn
 
     mbedtls_ssl_conf_authmode(&state->conf, MBEDTLS_SSL_VERIFY_REQUIRED);
     mbedtls_ssl_conf_ca_chain(&state->conf, &state->ca, NULL);
-    mbedtls_ssl_conf_rng(&state->conf, mbedtls_ctr_drbg_random, &state->drbg);
+    /* No `mbedtls_ssl_conf_rng()`: 4.x draws randomness from PSA, which psa_crypto_init() above
+       has already seeded. There is no per-session DRBG to hand it any more. */
 
     rc = mbedtls_ssl_setup(&state->ssl, &state->conf);
     if (rc != 0) {

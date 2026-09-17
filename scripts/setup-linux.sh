@@ -190,6 +190,21 @@ else
         || say "pip install failed"
 fi
 
+# Mbed TLS 4.x generates error.c, the SSL debug helpers and the PSA driver wrappers during the
+# build rather than committing them, so these are needed to configure at all - not just to
+# regenerate something. A 3.x checkout did not need them.
+echo "==> Python jinja2 + jsonschema (Mbed TLS generated sources)"
+if python3 -c 'import jinja2, jsonschema' >/dev/null 2>&1; then
+    say "jinja2 $(python3 -c 'import jinja2; print(jinja2.__version__)')"
+elif [ "$CHECK_ONLY" -eq 1 ]; then
+    say "missing: python jinja2/jsonschema (the TLS build will fail to generate sources)"
+else
+    say "installing via pip"
+    python3 -m pip install --no-cache-dir --break-system-packages -q jinja2 jsonschema \
+        || python3 -m pip install --no-cache-dir -q jinja2 jsonschema \
+        || say "pip install failed"
+fi
+
 # Re-check from scratch so the verdict reflects reality after any installs above, rather than
 # the state we started with.
 echo

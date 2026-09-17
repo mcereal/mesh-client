@@ -51,8 +51,6 @@ struct fake_broker {
 #ifdef MESHCLIENT_HAVE_TLS
 #include <mbedtls/platform.h>
 
-#include <mbedtls/ctr_drbg.h>
-#include <mbedtls/entropy.h>
 #include <mbedtls/net_sockets.h>
 #include <mbedtls/pk.h>
 #include <mbedtls/ssl.h>
@@ -118,8 +116,6 @@ struct broker_tls {
     mbedtls_ssl_config conf;
     mbedtls_x509_crt cert;
     mbedtls_pk_context key;
-    mbedtls_entropy_context entropy;
-    mbedtls_ctr_drbg_context drbg;
     bool handshaked;
 };
 
@@ -159,15 +155,10 @@ static bool broker_tls_start(struct fake_broker *broker) {
     mbedtls_ssl_config_init(&sec->conf);
     mbedtls_x509_crt_init(&sec->cert);
     mbedtls_pk_init(&sec->key);
-    mbedtls_entropy_init(&sec->entropy);
-    mbedtls_ctr_drbg_init(&sec->drbg);
 
+    /* Seeds the PSA RNG that both ends of this handshake draw from; 4.x has no per-session
+       DRBG to stand up beside it. */
     if (psa_crypto_init() != PSA_SUCCESS) {
-        return false;
-    }
-    static const unsigned char seed[] = "meshclient-test-broker";
-    if (mbedtls_ctr_drbg_seed(&sec->drbg, mbedtls_entropy_func, &sec->entropy, seed,
-                              sizeof seed - 1U) != 0) {
         return false;
     }
     /* The lengths include the terminator: mbedtls_x509_crt_parse() requires it for PEM. */
@@ -176,15 +167,13 @@ static bool broker_tls_start(struct fake_broker *broker) {
         return false;
     }
     if (mbedtls_pk_parse_key(&sec->key, (const unsigned char *)broker_key_pem,
-                             sizeof broker_key_pem, NULL, 0U, mbedtls_ctr_drbg_random,
-                             &sec->drbg) != 0) {
+                             sizeof broker_key_pem, NULL, 0U) != 0) {
         return false;
     }
     if (mbedtls_ssl_config_defaults(&sec->conf, MBEDTLS_SSL_IS_SERVER, MBEDTLS_SSL_TRANSPORT_STREAM,
                                     MBEDTLS_SSL_PRESET_DEFAULT) != 0) {
         return false;
     }
-    mbedtls_ssl_conf_rng(&sec->conf, mbedtls_ctr_drbg_random, &sec->drbg);
     /* No client certificate is asked for: what is under test is the client checking the
      *server*, which is the direction a broker connection actually depends on. */
     mbedtls_ssl_conf_authmode(&sec->conf, MBEDTLS_SSL_VERIFY_NONE);
@@ -208,8 +197,6 @@ static void broker_tls_stop(struct fake_broker *broker) {
     mbedtls_ssl_config_free(&sec->conf);
     mbedtls_x509_crt_free(&sec->cert);
     mbedtls_pk_free(&sec->key);
-    mbedtls_ctr_drbg_free(&sec->drbg);
-    mbedtls_entropy_free(&sec->entropy);
     free(sec);
     broker->sec = NULL;
 }
@@ -1369,11 +1356,11 @@ cleanup:
  * The entropy file mbedtls would open, which must never be the blocking one.
  *
  * This is a configuration assertion rather than a behavioural test, and it is here because the
- * behaviour cannot be reached from a test at all: entropy_poll.c opens a file only when
- * `HAVE_GETRANDOM` was not detected at compile time, and it *is* detected in the container this
- * suite runs in. The device build is the one that takes the file path - which is how a hang that
- * freezes the whole client got past a green suite and a green CI and was found by a person
- * holding the handheld.
+ * behaviour cannot be reached from a test at all: the library falls back to opening a file only
+ * when a dedicated system call was unavailable at compile time, and one *is* available in the
+ * container this suite runs in. The device build is the one that takes the file path - which is
+ * how a hang that freezes the whole client got past a green suite and a green CI and was found
+ * by a person holding the handheld.
  *
  * What went wrong is worth stating in one line: upstream's default is `/dev/random`, that device
  * blocks until the kernel's entropy *estimate* recovers, and a Brick refills it at a crawl. The
@@ -1381,7 +1368,9 @@ cleanup:
  * reading buttons - including the one that quits it.
  *
  * So what is pinned is the only thing that can be pinned from here: that this build asks for the
- * device that does not block. See third_party/mbedtls-config/mesh_mbedtls_config.h.
+ * device that does not block. Since Mbed TLS 4.x that setting is on the crypto side of the
+ * split - third_party/mbedtls-config/mesh_psa_crypto_config.h - and the seeding it governs is
+ * `psa_crypto_init()`'s rather than a DRBG this code seeds itself.
  */
 MESH_TEST_CASE(mqtt_proxy_never_seeds_from_the_blocking_random_device, unit) {
     if (strcmp(mbedtls_platform_dev_random, "/dev/urandom") != 0) {

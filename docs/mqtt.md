@@ -25,7 +25,8 @@ place. Nothing about it needs a phone any more.
 | `src/core/session.c` | the two hooks: the radio's message out, the broker's message back |
 | `src/core/app_mqtt.c` | the decision: whether to be connected, to what, with which subscriptions |
 | `include/mesh/ui/store_mqtt.h` | what the Status screen is told about it |
-| `third_party/mbedtls-config/mesh_mbedtls_config.h` | what this build of Mbed TLS is and is not |
+| `third_party/mbedtls-config/mesh_mbedtls_config.h` | what this build of Mbed TLS is and is not (TLS and X.509) |
+| `third_party/mbedtls-config/mesh_psa_crypto_config.h` | the same, for the crypto half 4.x split out |
 
 The codec/client split is the same one `stream_framing.c` and `stream_link.c` already have: the
 format is a pure function over bytes, testable against hand-written packets with no broker in
@@ -280,24 +281,36 @@ somebody else arrived at. Two modules working it out separately is two answers t
 
 ### Mbed TLS is a submodule, and a trimmed one
 
-`third_party/mbedtls`, pinned to a 3.6 LTS tag. `git submodule update --init --recursive` is
+`third_party/mbedtls`, pinned to a 4.1 LTS tag. `git submodule update --init --recursive` is
 required — without it the build still works and says so, and `mesh_tls_available()` reports
 false, which makes MQTT over TLS the one thing that build cannot do.
 
-`third_party/mbedtls-config/mesh_mbedtls_config.h` is a `MBEDTLS_USER_CONFIG_FILE`: it is
-included *after* the library's own config and **subtracts** from it. That direction is
-deliberate. A hand-written replacement config starts from nothing and has to enumerate every
-primitive a handshake might need, and the failure mode of getting that list wrong is not a build
-error — it is a client that works against the broker the author tested and fails against somebody
-else's with a cipher suite mismatch nobody can read.
+**Mbed TLS 4.x is two projects.** TLS and X.509 are the outer one; every primitive, the PSA API
+and the RNG live in the `tf-psa-crypto` submodule nested inside it. That is why the config is a
+pair — `mesh_mbedtls_config.h` is the `MBEDTLS_USER_CONFIG_FILE`, `mesh_psa_crypto_config.h` is
+the `TF_PSA_CRYPTO_USER_CONFIG_FILE` — and why the link line names `tfpsacrypto` where 3.x named
+`mbedcrypto`. Both files are included *after* the library's own config and **subtract** from it.
+That direction is deliberate. A hand-written replacement config starts from nothing and has to
+enumerate every primitive a handshake might need, and the failure mode of getting that list wrong
+is not a build error — it is a client that works against the broker the author tested and fails
+against somebody else's with a cipher suite mismatch nobody can read.
 
-Removed: DTLS, pre-shared-key and static key exchanges, the library's own blocking socket and
-timer, its self-tests, 3DES/Camellia/ARIA, and the sub-256-bit, Koblitz and Brainpool curves.
+Removed: DTLS, the pre-shared-key exchanges, the library's own blocking socket and timer, its
+self-tests, Camellia/ARIA, and the Koblitz and Brainpool curves. Several things this used to
+remove by hand are simply gone from 4.x's default and no longer appear in either file — 3DES, the
+key exchanges without forward secrecy, and the sub-256-bit NIST curves.
+
 Kept, against the instinct to trim: `MBEDTLS_ERROR_C`, because `mbedtls_strerror()` is what turns
 a handshake failure into a sentence and `-0x2700` on a handheld is not an answer; and
 `MBEDTLS_SSL_SRV_C`, because it is what lets `tests/suites/mqtt_proxy.c` stand a real broker on a
 loopback socket and complete a real handshake against it, with no network and no `openssl` in the
 container.
+
+**4.x generates sources at build time.** `error.c`, the SSL debug helpers and the PSA driver
+wrappers are not committed to the submodule the way 3.6's were, so the build runs upstream's
+generators and needs Python with `jinja2` and `jsonschema` to configure at all. `make setup`,
+`docker/Dockerfile` and CI all install them; a checkout that predates this will fail at the
+generate step rather than the compile.
 
 If a handshake ever fails on a named group, the curve list in that file is the first place to
 look.
