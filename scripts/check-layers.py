@@ -10,7 +10,7 @@ check that does, and check-strings.py is its sibling.
 An area is the directory under src/ or include/mesh/, so src/transport/ble/bluez_client.c and
 include/mesh/transport/transport.h are both `transport`. ALLOWED lists, per area, the areas it
 may include from; including from its own area is always fine, and so is a relative include of a
-file beside it. An area missing from ALLOWED may include nothing but itself.
+file beside it. Both `"mesh/..."` and `<mesh/...>` are read, because both compile. An area missing from ALLOWED may include nothing but itself.
 
 The direction that matters most is `core` not seeing `ui`: the session, the message log and the
 admin queue answer to a radio, not to a screen, and the moment one of them reads a store record
@@ -53,7 +53,11 @@ ALLOWED = {
     "main": {"utils", "core", "ui", "transport", "proto", "geo", "i18n", "map", "app"},
 }
 
-INCLUDE = re.compile(r'^\s*#\s*include\s+"mesh/([a-z0-9_]+)/')
+# Both spellings. include/ is a PUBLIC include directory on meshclient_core, so
+# `#include <mesh/ui/store.h>` compiles exactly as the quoted form does - and a check that
+# only reads one of them is one a change of quote character walks past. Nothing in the tree
+# uses the angle-bracket form today; that is the reason to match it now rather than later.
+INCLUDE = re.compile(r'^\s*#\s*include\s+["<]mesh/([a-z0-9_]+)/')
 
 
 def area_of(path):
