@@ -186,7 +186,17 @@ add_library(meshclient_core
     src/ui/backends/fb_widgets_list.c
     src/ui/backends/fb_widgets_meter.c
     src/ui/backends/fb_widgets_overlay.c
-    src/ui/backends/fb_screens.c
+    src/ui/backends/fb_screens_chart.c
+    src/ui/backends/fb_screens_code.c
+    src/ui/backends/fb_screens_compose.c
+    src/ui/backends/fb_screens_devices.c
+    src/ui/backends/fb_screens_frame.c
+    src/ui/backends/fb_screens_messages.c
+    src/ui/backends/fb_screens_nodes.c
+    src/ui/backends/fb_screens_overlays.c
+    src/ui/backends/fb_screens_settings.c
+    src/ui/backends/fb_screens_status.c
+    src/ui/backends/fb_screens_waypoints.c
     src/ui/theme/font.c
     src/ui/theme/font5x7.c
     src/ui/theme/font_ui.c

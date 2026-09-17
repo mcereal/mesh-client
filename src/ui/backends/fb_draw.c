@@ -5,7 +5,7 @@
  *
  * Everything above this file measures in cells rather than bytes: a name is four *characters*
  * wide whether it is "Andy" or one emoji, so fb_cols()/fb_fit()/fb_width() are the only
- * legitimate way to ask how much fits. A strlen() or a "%-12s" up in fb_screens.c is a bug.
+ * legitimate way to ask how much fits. A strlen() or a "%-12s" up in a screen is a bug.
  */
 
 #include "fb_internal.h"

@@ -3,11 +3,11 @@
 /*
  * The map, drawn.
  *
- * A file of its own rather than a renderer in fb_screens.c, and that is not a size decision: it
- * is the one screen in the client that is not a list. Everything in fb_screens.c describes rows
- * and hands them to a component; this places things at coordinates, because that is what a map
- * is. Keeping it apart is what stops "a screen renderer never computes a pixel" - which is true
- * of every other screen in that file - from becoming a rule with an exception buried in it.
+ * A file outside the fb_screens_* set rather than one of them, and that is not a filing
+ * decision: it is the one screen in the client that is not a list. Every one of those describes
+ * rows and hands them to a component; this places things at coordinates, because that is what a
+ * map is. Keeping it apart is what stops "a screen renderer never computes a pixel" - which is
+ * true of every other screen - from becoming a rule with an exception buried in it.
  *
  * What it still does not do is decide anything. Which markers exist is src/ui/views/map.c, where
  * the viewport is looking is the nav, which marker is selected is mesh_ui_map_selected(), and every

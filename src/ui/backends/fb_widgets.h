@@ -8,7 +8,7 @@
  *
  *   fb_draw.c     pixels, glyphs, the theme lookups, page geometry   "how to put ink down"
  *   fb_widgets_*  buttons, chips, list rows, field rows, rules       "what things look like"
- *   fb_screens.c  one renderer per screen                            "what is on this screen"
+ *   fb_screens_*  one renderer per screen, one file each             "what is on this screen"
  *
  * A screen renderer should read as a description of its content: what the list holds, what
  * each row says, which rows are actions. If it is computing a pixel coordinate, a scroll

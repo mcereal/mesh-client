@@ -262,12 +262,38 @@ walks cells rather than bytes, which is how a node named with one emoji renders.
 |---|---|---|
 | `fb_draw.c` | ink | pixels, glyphs, theme lookups, cell metrics |
 | `fb_widgets_*.c` | components | every component below (`fb_widgets.h` is the umbrella header) |
-| `fb_screens.c` | screens | one renderer per screen, and nothing else |
+| `fb_screens_*.c` | screens | one renderer per screen, one file each (see below) |
 | `fb.c` | device | `/dev/fb0`, the page flip, the backend vtable |
 
 **A screen renderer should read as a description of its content** — what the list holds, what
 each row says, which rows are actions. If it is computing a pixel coordinate, a scroll offset or
 a padding width, that belongs in a component instead.
+
+### One file per screen
+
+`fb_screens.c` was 4891 lines, so a screen is a file:
+
+| File | What is on it |
+|---|---|
+| `fb_screens_frame.c` | the chrome around every screen, and the branch that picks one |
+| `fb_screens_messages.c` | the conversations, and one of them open as a transcript |
+| `fb_screens_compose.c` | the four sheets that put a message together: reactions, compose, the picker, the keyboard |
+| `fb_screens_nodes.c` | the roster, and one node's detail |
+| `fb_screens_waypoints.c` | the places, and one of them open |
+| `fb_screens_devices.c` | every radio this client can see, and the row for typing an address |
+| `fb_screens_status.c` | the link, the radio and the mesh, as three cards |
+| `fb_screens_settings.c` | the sections, and one section's rows |
+| `fb_screens_overlays.c` | help, a confirm, the key-verification sheet |
+| `fb_screens_code.c` | the two QR sheets: this radio's channels, this radio's contact |
+| `fb_screens_chart.c` | one chart, opened from the Status cards and from a node's detail |
+
+`fb_map.c` is the twelfth and stands apart for a reason of its own — it is the one screen that
+places things at coordinates rather than describing rows, so it is not held to the rule above.
+
+The renderers the frame calls are declared in `fb_screens_internal.h`, along with the five places
+one screen reaches another: what a device is called, the one-line quote of a message, the airtime
+thresholds, a node's chart and the detail under it. Everything else in these files is `static`,
+and the header is not part of `fb_widgets.h` — nothing outside `fb_screens_*.c` includes it.
 
 The list is the component that earns the most. Every screen is the same shape:
 
