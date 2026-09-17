@@ -650,6 +650,153 @@ MESH_TEST_CASE(ui_store_messages, unit) {
     record_success(test_name);
 }
 
+/*
+ * A failed message keeps its reason across a restart.
+ *
+ * `ack` was on the card and `ack_error` was not, so a message that came back FAILED came back
+ * with a Routing_Error of NONE - and the note under the bubble, which reads the reason when
+ * there is one and the bare word when there is not, quietly fell from "No route" to "Failed"
+ * at every launch. The reason is the whole of what a failed message has to say: "it did not
+ * arrive" is already the mark in the corner.
+ *
+ * Both files on the card are covered by this, because both write a record through
+ * mesh_ui_store_write_message().
+ */
+MESH_TEST_CASE(ui_store_cache_keeps_a_failure_reason, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+
+    struct mesh_ui_message_list list;
+    memset(&list, 0, sizeof(list));
+    list.count = 2U;
+    list.entries[0].packet_id = 41U;
+    list.entries[0].peer = 0x1234U;
+    list.entries[0].direction = MESH_MESSAGE_OUTBOUND;
+    list.entries[0].ack = MESH_MESSAGE_ACK_FAILED;
+    /* The common one: the packet went out and nothing acked it. */
+    list.entries[0].ack_error = (uint8_t)meshtastic_Routing_Error_MAX_RETRANSMIT;
+    snprintf(list.entries[0].text, sizeof(list.entries[0].text), "are you there");
+    /* And a delivered one beside it, so the field is shown to be carried rather than assumed. */
+    list.entries[1].packet_id = 42U;
+    list.entries[1].peer = 0x1234U;
+    list.entries[1].direction = MESH_MESSAGE_OUTBOUND;
+    list.entries[1].ack = MESH_MESSAGE_ACK_DELIVERED;
+    snprintf(list.entries[1].text, sizeof(list.entries[1].text), "yes");
+    mesh_ui_store_set_messages(&store, &list);
+
+    char cache_path[] = "/tmp/mesh_ui_ack_reasonXXXXXX";
+    const int fd = mkstemp(cache_path);
+    if (fd < 0) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "mkstemp failed");
+        return;
+    }
+    close(fd);
+
+    const char *failure = NULL;
+    struct mesh_ui_store reloaded;
+    bool reloaded_open = false;
+
+    if (mesh_ui_store_save(&store, cache_path) != 0) {
+        failure = "save failed";
+        goto cleanup;
+    }
+    if (mesh_ui_store_init(&reloaded) != 0) {
+        failure = "reload init failed";
+        goto cleanup;
+    }
+    reloaded_open = true;
+    if (mesh_ui_store_load(&reloaded, cache_path) != 0) {
+        failure = "load failed";
+        goto cleanup;
+    }
+    if (reloaded.messages.count != 2U) {
+        failure = "both messages should come back off the card";
+        goto cleanup;
+    }
+    if (reloaded.messages.entries[0].ack != MESH_MESSAGE_ACK_FAILED) {
+        failure = "a failed message comes back failed";
+        goto cleanup;
+    }
+    if (reloaded.messages.entries[0].ack_error !=
+        (uint8_t)meshtastic_Routing_Error_MAX_RETRANSMIT) {
+        failure = "a failed message comes back with the reason it failed";
+        goto cleanup;
+    }
+    if (reloaded.messages.entries[1].ack_error != 0U) {
+        failure = "a delivered message has no reason to carry";
+        goto cleanup;
+    }
+
+cleanup:
+    if (reloaded_open) {
+        mesh_ui_store_shutdown(&reloaded);
+    }
+    unlink(cache_path);
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * A msg_meta[] line from a build that did not keep the reason still reads.
+ *
+ * The archive holds records written by every build that ever ran on the card, so the loader
+ * takes four fields or five - the shape read[] already grew into when it gained its mute. The
+ * older record keeps a reason of 0, which is what the bubble reads as "no reason to give".
+ */
+MESH_TEST_CASE(ui_store_cache_reads_a_meta_line_without_a_reason, unit) {
+    char cache_path[] = "/tmp/mesh_ui_ack_legacyXXXXXX";
+    const int fd = mkstemp(cache_path);
+    MESH_TEST_FAIL_IF(fd < 0, "mkstemp failed");
+    close(fd);
+
+    FILE *file = fopen(cache_path, "w");
+    if (file == NULL) {
+        unlink(cache_path);
+        record_failure(test_name, "could not write the fixture cache");
+        return;
+    }
+    fputs("messages=1,0\n", file);
+    /* packet_id, peer, rx_time, channel, direction, ack, broadcast */
+    fputs("msg[0]=41,4660,0,0,1,3,0\n", file);
+    /* kind, pki, reply_id, is_reaction - four fields, as it was written before the fifth. */
+    fputs("msg_meta[0]=0,0,0,1\n", file);
+    fputs("msg_text[0]=are you there\n", file);
+    fclose(file);
+
+    struct mesh_ui_store store;
+    if (mesh_ui_store_init(&store) != 0) {
+        unlink(cache_path);
+        record_failure(test_name, "store init failed");
+        return;
+    }
+
+    const char *failure = NULL;
+    if (mesh_ui_store_load(&store, cache_path) != 0) {
+        failure = "load failed";
+        goto cleanup;
+    }
+    if (store.messages.count != 1U) {
+        failure = "the record should still load";
+        goto cleanup;
+    }
+    if (!store.messages.entries[0].is_reaction) {
+        failure = "the four fields that are there still have to be read";
+        goto cleanup;
+    }
+    if (store.messages.entries[0].ack_error != 0U) {
+        failure = "a record with no reason on it carries none";
+        goto cleanup;
+    }
+
+cleanup:
+    unlink(cache_path);
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
 /* Regression for the cache-erasure bug: the transport's log starts empty on every run, so a
    publish that ignored the restored history would blank the store and the next save would
    erase the conversation permanently. */

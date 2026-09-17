@@ -236,10 +236,18 @@ void mesh_ui_store_write_message(FILE *file, uint32_t index,
 
        Losing this line is not cosmetic. A reaction reloaded without `is_reaction` is a
        bubble containing a bare emoji that also bumps the unread count - which is precisely
-       the behaviour reading Data.emoji was meant to end, returning at every restart. */
-    mesh_ui_store_write_row(file, MESH_UI_STORE_KEY_MSG_META, index, "%u,%u,%u,%u",
+       the behaviour reading Data.emoji was meant to end, returning at every restart.
+
+       `ack_error` rides here rather than on msg[] for that same reason, and it is the line's
+       one field that is allowed to be absent: the loader takes four fields or five, so a
+       record written before it existed still reads. Without it a message that failed came
+       back carrying FAILED and no reason, and the note under the bubble fell from "No route"
+       to the bare word - the transcript forgetting, at every launch, the one thing a failed
+       message is worth keeping. */
+    mesh_ui_store_write_row(file, MESH_UI_STORE_KEY_MSG_META, index, "%u,%u,%u,%u,%u",
                             (unsigned)message->kind, message->pki_encrypted ? 1U : 0U,
-                            message->reply_id, message->is_reaction ? 1U : 0U);
+                            message->reply_id, message->is_reaction ? 1U : 0U,
+                            (unsigned)message->ack_error);
 
     mesh_ui_store_write_row_text(file, MESH_UI_STORE_KEY_MSG_NAME, index, message->peer_name);
     /* The relay's name, written only when there is one - it is absent from most messages on
@@ -953,19 +961,25 @@ static void load_message_meta(struct mesh_ui_message *message, const char *value
     bool pki = false;
     uint32_t reply_id = 0U;
     bool is_reaction = false;
+    uint8_t ack_error = 0U;
     const struct mesh_ui_store_field fields[] = {
-        MESH_UI_STORE_FIELD(&kind),
-        MESH_UI_STORE_FIELD(&pki),
-        MESH_UI_STORE_FIELD(&reply_id),
-        MESH_UI_STORE_FIELD(&is_reaction),
+        MESH_UI_STORE_FIELD(&kind),      MESH_UI_STORE_FIELD(&pki),
+        MESH_UI_STORE_FIELD(&reply_id),  MESH_UI_STORE_FIELD(&is_reaction),
+        MESH_UI_STORE_FIELD(&ack_error),
     };
-    if (!cache_fields(value, fields, MESH_ARRAY_LEN(fields))) {
+    /* Four fields is a record written before the failure reason was kept, five is one written
+       since - the shape load_read_mark() takes for the mute it grew, and the rule an archive
+       file needs rather than merely deserves: it holds records from every build that ever ran
+       on this card. `ack_error` keeps its 0 for the older ones, which is what the bubble
+       already reads as "no reason to give". */
+    if (mesh_ui_store_fields_read(value, fields, MESH_ARRAY_LEN(fields)) < 4U) {
         return;
     }
     message->kind = kind;
     message->pki_encrypted = pki;
     message->reply_id = reply_id;
     message->is_reaction = is_reaction;
+    message->ack_error = ack_error;
 }
 
 static void load_message_name(struct mesh_ui_message *message, const char *value) {
