@@ -357,15 +357,11 @@ static const struct mesh_ui_band node_pm25_band = {.warn = MESH_UI_PM25_ELEVATED
 static const struct mesh_ui_scale node_snr_scale = {MESH_UI_SNR_FLOOR, MESH_UI_SNR_CEILING};
 static const struct mesh_ui_band node_snr_band = {.warn = MESH_UI_SNR_FAIR,
                                                   .bad = MESH_UI_SNR_POOR};
-
-/*
- * An SNR in whole decibels, rounded rather than truncated.
- *
- * A cast alone truncates toward zero, which on a negative reading always moves it *up* - so a
- * link at -7.6 dB would be banded as though it were at -7, and the one direction a signal bar
- * must not err in is optimism.
- */
-static int32_t snr_db(float snr) { return (int32_t)(snr < 0.0f ? snr - 0.5f : snr + 0.5f); }
+/* Received strength's own ends and its own thresholds, which are deliberately not the ratio's
+   scaled - see MESH_UI_RSSI_FAIR for why the two readings are banded on different questions. */
+static const struct mesh_ui_scale node_rssi_scale = {MESH_UI_RSSI_FLOOR, MESH_UI_RSSI_CEILING};
+static const struct mesh_ui_band node_rssi_band = {.warn = MESH_UI_RSSI_FAIR,
+                                                   .bad = MESH_UI_RSSI_POOR};
 
 /*
  * The fourth way a fact gets onto this screen, and it is a modifier on the other three rather
@@ -679,8 +675,10 @@ static void node_rows_signal(struct node_rows *rows, const struct mesh_ui_node_s
          * figure above stays either way: it is true, it is just not always about what the label
          * says, and that is the difference between printing it and drawing it.
          */
-        if (mesh_ui_node_signal_heard(node)) {
-            rows_gauge(rows, snr_db(node->snr), node_snr_scale, &node_snr_band);
+        const bool heard = mesh_ui_node_signal_heard(node);
+        if (heard) {
+            rows_gauge(rows, mesh_ui_snr_db(node->snr), node_snr_scale, &node_snr_band);
+            rows_trend(rows, MESH_UI_HISTORY_SNR);
         }
         /* Beside it rather than instead of it: SNR is how far above the noise the packet was
            and RSSI is how loud it was, and a link can be good on one and poor on the other. */
@@ -688,13 +686,28 @@ static void node_rows_signal(struct node_rows *rows, const struct mesh_ui_node_s
             /* Only this radio can measure an RSSI, so a node now reaching us over MQTT keeps
                the reading from the last packet we heard ourselves. Saying when that was is what
                stops the row reading as a description of the packet that just arrived. */
-            if (node->rssi_time != 0U && node->last_heard > node->rssi_time) {
+            const bool aged = node->rssi_time != 0U && node->last_heard > node->rssi_time;
+            if (aged) {
                 char measured[24];
                 mesh_ui_format_age(node->rssi_time, now, measured, sizeof measured);
                 rows_info(rows, MESH_STR_NODE_RSSI, MESH_STR_NODE_VAL_RSSI_AGED, (int)node->rx_rssi,
                           measured);
             } else {
                 rows_info(rows, MESH_STR_NODE_RSSI, MESH_STR_NODE_VAL_RSSI, (int)node->rx_rssi);
+            }
+            /*
+             * And where that sits between a link about to stop arriving and a node on the same
+             * bench, on the SNR row's terms exactly: the figure is printed either way and it is
+             * only *drawn* when it describes this node's own last packet. A reading the row has
+             * already had to date-stamp is one the bar beside it would be claiming as current.
+             *
+             * dBm has ends nobody has memorised, which is the whole test for a meter - see
+             * MESH_UI_NODE_ROW_METER. A reader who knows -95 is worse than -70 still does not
+             * know how much of the link is left at either.
+             */
+            if (heard && !aged) {
+                rows_gauge(rows, (int32_t)node->rx_rssi, node_rssi_scale, &node_rssi_band);
+                rows_trend(rows, MESH_UI_HISTORY_RSSI);
             }
         }
         if (node->has_hops_away) {

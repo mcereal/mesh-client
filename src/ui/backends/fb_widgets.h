@@ -996,6 +996,20 @@ struct fb_chart_line {
     const char *value;
 };
 
+/*
+ * One reading, as the chart's other face draws it.
+ *
+ * `when` is how long before the newest reading in the window it was taken, and `value` is what it
+ * said - both already words, because this component does not know what either is measured in. It
+ * is deliberately not a timestamp: the series are stamped with a monotonic clock that counts from
+ * boot and the device has no RTC, so a column of wall times would be the one thing on this screen
+ * with nothing behind it. See struct mesh_ui_trend_reading.
+ */
+struct fb_chart_reading {
+    const char *when;
+    const char *value;
+};
+
 struct fb_chart {
     /* Everything: the plot, the words down its side and the two lines of chrome under it. The
        caller hands over a body and this divides it, which is the one place in this component set
@@ -1054,6 +1068,32 @@ struct fb_chart {
      * sentence about the picture and this file does not hold sentences.
      */
     enum mesh_str_id empty;
+    /*
+     * The same window as a list of figures rather than as a plot, newest first - the chart's
+     * other face, and what Y turns it into on a node's chart.
+     *
+     * A plot answers "which way is this going" and cannot answer "what exactly did it say": two
+     * dozen readings across a plot 900 cells wide can be read to about a percent, which is fine
+     * for a direction and useless for a number somebody is writing down. So the same window is
+     * offered both ways, and it is one component rather than two screens because everything
+     * around it is shared - the app bar, the span strip, the room they leave, and the fact that
+     * both are *the readings in this span*. A second renderer would be a second opinion about
+     * which readings those are.
+     *
+     * Both columns arrive worded. This knows where a row goes and has no idea what a decibel is,
+     * which is the same division `top` and `bottom` are on one field up.
+     *
+     * NULL, or a count of zero, draws the plot. There is no mode flag: a chart handed rows draws
+     * rows, which is one thing to get right instead of two that must agree.
+     */
+    const struct fb_chart_reading *readings;
+    uint32_t reading_count;
+    /*
+     * The line under them, saying what the left-hand column is measured from - the caption the
+     * plot spends on its span. A list of durations with nothing saying what they are durations
+     * *of* is the one way this face can be read as a clock, which it is not: a Brick has no RTC.
+     */
+    const char *readings_note;
 };
 
 /*
@@ -1065,6 +1105,22 @@ struct fb_chart {
  */
 int fb_chart_min_height(const struct mesh_ui_backend_fb_state *state,
                         const struct fb_layout *layout);
+
+/*
+ * How many reading rows would fit, for a screen that has to cut its window before it can hand
+ * the rows over.
+ *
+ * The measure-then-draw split the note list is on (fb_list_note_steps()), and it exists for the
+ * same reason: only this file knows what the span strip and the caption leave, and only the
+ * screen knows which readings there are. It is also what the nav is told as `page_rows`, so the
+ * window the reader scrolls and the window drawn are one number.
+ *
+ * `rect` and `spans` are the chart's own, so the two calls measure the same room. Zero when
+ * there is not enough of it - the same answer fb_draw_chart() gives by drawing nothing.
+ */
+uint32_t fb_chart_reading_rows(const struct mesh_ui_backend_fb_state *state,
+                               const struct fb_layout *layout, const struct fb_rect *rect,
+                               const struct fb_segmented *spans);
 
 /* Draws the frame, the threshold rules, the lines and the legend. Const state, like the
    sparkline and the composition: there is nothing here to animate. */

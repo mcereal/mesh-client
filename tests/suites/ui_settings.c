@@ -2205,10 +2205,20 @@ MESH_TEST_CASE(node_detail_row_budget, unit) {
     node.last_heard = 1750000000U;
     node.snr = 3.25f;
     node.has_user = true;
+    /*
+     * Heard straight off the air, which is the *larger* of the two signal groups rather than the
+     * more interesting one: a directly-heard node is the only kind that earns a bar under its
+     * SNR and under its received strength, and a relayed one loses both. The routing rows do not
+     * depend on the hop count - they are emitted on has_route - so this keeps them.
+     */
     node.has_hops_away = true;
-    node.hops_away = 3U;
-    /* Heard through somebody, and routed rather than flooded: both routing rows present, which
-       is what the budget has to hold. */
+    node.hops_away = 0U;
+    node.has_rssi = true;
+    node.rx_rssi = -96;
+    node.rssi_time = node.last_heard;
+    /* Routed rather than flooded: both routing rows present, which is what the budget has to
+       hold. The relay byte is not this node's own, so it names a relay rather than reading
+       "direct" - one row either way. */
     node.has_route = true;
     node.relay_node = 0x11U;
     node.next_hop = 0x22U;

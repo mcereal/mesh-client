@@ -1,0 +1,102 @@
+# The two readings that are about the link rather than about the node.
+#
+# node-trend.scene shows the chart opened over a *sensor* reading - what the box in the field is
+# measuring. This is the other half of the same screen: what the client measured about the box.
+#
+# Every other trend on a node comes off a Telemetry packet the node chose to send. These two are
+# taken by the radio in your hand, off the header of whatever arrived, which is why they answer
+# the question somebody standing outside with an antenna is actually asking - not "what is it
+# reporting" but "is this link getting better or worse as I walk".
+#
+# The scene is arranged around the rule that makes them safe to draw at all: a ratio is only
+# this node's own when the packet crossed the air to us directly. `signal` sets that, and a node
+# reached through a relay or over a bridge has neither bar nor line - the figure stays on the
+# row, because it is true, it is just not about what the label says.
+
+scene demo
+scale 4
+delay 220
+
+# ---- open the node first ----------------------------------------------------------------------
+#
+# The Nodes list has three rows before its first node - the filter row, the sort row and the Map
+# (MESH_UI_NODES_LEAD_ROWS) - so Echo Repeater is seeds[5] and row 8, exactly as node-trend.scene
+# counts it.
+#
+# It is opened *before* the packets arrive, and that ordering is the point rather than a
+# convenience. The list is ranked by last heard, and an arrival is the freshest thing there is -
+# so every press of `signal` below would move this node up the list under the cursor. The detail
+# does not care: it is remembered by node id rather than by row, which is the whole reason it is
+# (see `node_detail_node` on struct mesh_ui_nav). A scene that counted rows afterwards would be
+# counting a list that had reordered itself seven times.
+tab nodes
+key down 8
+key a
+hold 400
+
+# ---- a walk away from the repeater -----------------------------------------------------------
+#
+# Seven packets, each one a little further out: the ratio falls through the amber threshold and
+# the strength falls with it. They move together here, which is the ordinary case and not the
+# only one - a loud band with a loud noise floor is a fine RSSI and a dead link, which is the
+# whole reason the two are banded on different questions and drawn on two axes.
+signal ECHO -2 -71
+hold 220
+signal ECHO -4 -78
+hold 220
+signal ECHO -6 -84
+hold 220
+signal ECHO -8 -89
+hold 220
+signal ECHO -11 -97
+hold 220
+signal ECHO -13 -104
+hold 220
+signal ECHO -15 -110
+hold 400
+
+# ---- the rows, and then the pictures ---------------------------------------------------------
+#
+# Right steps by *group* rather than by row, which is both how this screen is meant to be crossed
+# and what keeps the scene from breaking the next time a reading is added: two presses is
+# Actions, Identity, Signal however many rows those turn out to be. It lands on the group's first
+# stop, which is the SNR row - because a fact is not a stop, and the ratio is the first thing in
+# the group that A does anything to.
+#
+# The bar under each reading is what earns it that press, and it is there only because the packet
+# came straight from the node - the same condition the trend behind it was kept on.
+key right 2
+hold 1200
+key a
+hold 2600
+
+# ---- the figures behind it ---------------------------------------------------------------------
+#
+# Y is the same window said exactly rather than drawn. A plot answers "which way is this going"
+# and cannot answer "what did it say at the third one" - two dozen readings across nine hundred
+# cells can be read to about a percent, which is fine for a direction and useless for a number
+# somebody is writing down.
+#
+# The left-hand column is how long before the newest reading each one was taken, and the sub-second
+# durations here are the harness rather than the client: this walk is seven packets inside two
+# seconds of capture, where a real one is seven packets over an afternoon. The caption says what
+# the column is measured from, because it is not a clock - the Brick has no RTC.
+key y
+hold 2600
+
+# ---- and the other one ------------------------------------------------------------------------
+#
+# B lands back on the row the chart was opened from rather than on the list, because a chart is a
+# level of the detail. One row on is received strength, and it is its own place rather than a
+# second line on the first: dB and dBm are two verticals, and a plot carries one.
+#
+# It opens as a *list* rather than as a plot, which is the one thing about Y that is not obvious:
+# the face is a preference that outlives the screen, the way the span is, rather than a place.
+key b
+key down 1
+key a
+hold 2600
+key y
+hold 1400
+key b
+hold 700

@@ -162,6 +162,11 @@ struct mesh_ui_node_summary {
     char short_name[5];
     uint32_t last_heard;
     float snr;
+    /* When that ratio was measured, which is not always `last_heard`; see the session's twin for
+       the two ways they come apart. 0 for a node this run has heard no ratio from - including
+       every node restored from the card, whose reading came back without the moment it was
+       taken. It is what the signal trend is keyed on. */
+    uint32_t snr_time;
     /* How loud the last directly-heard packet was, as opposed to how far above the noise; see
        the session's declaration. `rssi_time` is when it was measured, which is not always
        `last_heard` - a node relayed over MQTT keeps its last RF reading, and the stamp is what

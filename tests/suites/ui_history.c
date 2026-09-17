@@ -815,6 +815,65 @@ MESH_TEST_CASE(history_evicts_a_node_with_all_of_its_readings, unit) {
     record_success(test_name);
 }
 
+/*
+ * A series handed back to the pool arrives at its next node empty.
+ *
+ * A node's trends are entries taken from a pool the whole table shares rather than fields on its
+ * slot, so an eviction now *recycles* a series rather than overwriting one in place. The node
+ * that gave it back and the node that takes it are two different nodes, and any reading left in
+ * it would be drawn under the second one's name - on a screen whose whole subject is what the
+ * client watched happen.
+ */
+MESH_TEST_CASE(history_hands_a_freed_series_back_empty, unit) {
+    struct mesh_ui_history history;
+    mesh_ui_history_reset(&history);
+
+    /* One node with a trend worth several readings, then every other slot spoken for once - so
+       the node with the most to lose is also the least recently heard. */
+    for (uint32_t i = 0U; i < 5U; ++i) {
+        mesh_ui_history_note_battery(&history, 1000U + i * 100U, 0x100U, (uint8_t)(90U - i));
+    }
+    for (uint32_t i = 1U; i < MESH_UI_HISTORY_NODES; ++i) {
+        mesh_ui_history_note_battery(&history, 2000U + i, 0x100U + i, 50U);
+    }
+    /* The thirteenth node takes that slot, and with it the pool entry those five readings are
+       sitting in. */
+    mesh_ui_history_note_battery(&history, 9000U, 0xBEEFU, 42U);
+    mesh_ui_history_note_battery(&history, 9100U, 0xBEEFU, 41U);
+
+    const struct mesh_ui_series *taken =
+        mesh_ui_history_series(&history, 0xBEEFU, MESH_UI_HISTORY_BATTERY);
+    MESH_TEST_FAIL_IF(taken == NULL, "the arriving node should have taken a series");
+    MESH_TEST_FAIL_IF(taken->count != 2U,
+                      "it should hold its own two readings and none of its predecessor's");
+    MESH_TEST_FAIL_IF(mesh_ui_history_series(&history, 0x100U, MESH_UI_HISTORY_BATTERY) != NULL,
+                      "and the evicted node should keep nothing");
+
+    /*
+     * And the invariant underneath that: no two nodes are looking at one entry.
+     *
+     * The failure a pool can have that a table of fields could not. An entry handed out twice
+     * reads correctly for as long as only one of its holders is reporting - both nodes show a
+     * trend, both trends look like trends - and what it actually is is two nodes' readings
+     * interleaved on one axis under whichever name the reader opened.
+     */
+    const struct mesh_ui_series *seen[MESH_UI_HISTORY_NODES];
+    uint32_t count = 0U;
+    for (uint32_t i = 1U; i < MESH_UI_HISTORY_NODES; ++i) {
+        const struct mesh_ui_series *series =
+            mesh_ui_history_series(&history, 0x100U + i, MESH_UI_HISTORY_BATTERY);
+        if (series == NULL) {
+            continue;
+        }
+        for (uint32_t j = 0U; j < count; ++j) {
+            MESH_TEST_FAIL_IF(seen[j] == series, "two nodes share one series");
+        }
+        MESH_TEST_FAIL_IF(series == taken, "a live node shares the arriving node's series");
+        seen[count++] = series;
+    }
+    record_success(test_name);
+}
+
 /* A reading off the air becomes an integer exactly once, and a temperature's guard cannot be the
    percentage's: zero is the middle of this domain rather than the bottom of it. */
 MESH_TEST_CASE(history_temperature_survives_the_wire, unit) {
@@ -829,6 +888,100 @@ MESH_TEST_CASE(history_temperature_survives_the_wire, unit) {
     const float nan_reading = 0.0f / 0.0f;
     MESH_TEST_FAIL_IF(mesh_ui_temperature_decidegrees(nan_reading) != MESH_UI_TEMPERATURE_FLOOR,
                       "a NaN is not a reading and must not sail through the bounds");
+    record_success(test_name);
+}
+
+/* The SNR the bar is banded on and the SNR the line is drawn from are one conversion, so the
+   trend cannot disagree with the figure at the end of it. A reading that is not a number answers
+   as the floor rather than as zero: zero dB is a good link. */
+MESH_TEST_CASE(history_snr_survives_the_wire, unit) {
+    MESH_TEST_FAIL_IF(mesh_ui_snr_db(3.25f) != 3, "whole decibels, rounded");
+    MESH_TEST_FAIL_IF(mesh_ui_snr_db(-7.6f) != -8,
+                      "a negative rounds away from zero: a bar must not err optimistic");
+    MESH_TEST_FAIL_IF(mesh_ui_snr_db(0.0f) != 0, "zero is a reading");
+    MESH_TEST_FAIL_IF(mesh_ui_snr_db(-22.0f) != -22,
+                      "a link below the drawn floor is a fact, not a fault, and passes through");
+    const float nan_reading = 0.0f / 0.0f;
+    MESH_TEST_FAIL_IF(mesh_ui_snr_db(nan_reading) != MESH_UI_SNR_FLOOR,
+                      "a NaN answers as the floor rather than as a good link");
+    record_success(test_name);
+}
+
+/* Both readings of one packet land under one stamp, and a radio that reports no received
+   strength keeps no series for one rather than a line at the top of the scale. */
+MESH_TEST_CASE(history_keeps_a_nodes_signal, unit) {
+    struct mesh_ui_history history;
+    mesh_ui_history_reset(&history);
+
+    mesh_ui_history_note_signal(&history, 1000U, 0x4242U, -8, true, -96);
+    mesh_ui_history_note_signal(&history, 2000U, 0x4242U, -6, true, -91);
+    mesh_ui_history_note_signal(&history, 3000U, 0x9999U, 4, false, 0);
+    mesh_ui_history_note_signal(&history, 4000U, 0x9999U, 5, false, 0);
+
+    const struct mesh_ui_series *snr =
+        mesh_ui_history_series(&history, 0x4242U, MESH_UI_HISTORY_SNR);
+    const struct mesh_ui_series *rssi =
+        mesh_ui_history_series(&history, 0x4242U, MESH_UI_HISTORY_RSSI);
+    MESH_TEST_FAIL_IF(snr == NULL || snr->count != 2U, "both ratios should be kept");
+    MESH_TEST_FAIL_IF(rssi == NULL || rssi->count != 2U, "and both strengths");
+    MESH_TEST_FAIL_IF(mesh_ui_series_newest(snr)->value != -6, "in whole decibels");
+    MESH_TEST_FAIL_IF(mesh_ui_series_newest(rssi)->value != -91, "and whole dBm");
+    MESH_TEST_FAIL_IF(mesh_ui_series_newest(snr)->time != mesh_ui_series_newest(rssi)->time,
+                      "two measurements of one packet are one moment");
+
+    MESH_TEST_FAIL_IF(mesh_ui_history_series(&history, 0x9999U, MESH_UI_HISTORY_SNR) == NULL,
+                      "a radio reporting no strength still has a ratio");
+    MESH_TEST_FAIL_IF(mesh_ui_history_series(&history, 0x9999U, MESH_UI_HISTORY_RSSI) != NULL,
+                      "a strength nobody measured is not a reading of zero");
+    record_success(test_name);
+}
+
+/*
+ * The pool runs out before the node table does, and what it costs is the same thing a full node
+ * table costs: the least recently heard node, with every series it held.
+ *
+ * Twelve nodes reporting five readings each want sixty entries and there are forty-eight, which
+ * is the shape the pool was written for - a budget nothing can exhaust is the fixed table again.
+ * What must not happen is the node being pushed to losing its own trend to make room for itself.
+ */
+MESH_TEST_CASE(history_evicts_a_node_when_the_series_pool_fills, unit) {
+    struct mesh_ui_history history;
+    mesh_ui_history_reset(&history);
+
+    /* Every slot, every reading, oldest first - so the first node is the one with least claim on
+       the pool by the time the last one is asking for entries. */
+    for (uint32_t i = 0U; i < MESH_UI_HISTORY_NODES; ++i) {
+        const uint32_t node_id = 0x100U + i;
+        for (uint32_t report = 0U; report < 2U; ++report) {
+            const uint32_t at = 1000U + i * 100U + report * 10U;
+            mesh_ui_history_note_battery(&history, at, node_id, (uint8_t)(80U - report));
+            mesh_ui_history_note_environment(&history, at, node_id, true, 200 + (int32_t)report,
+                                             true, 500);
+            mesh_ui_history_note_signal(&history, at, node_id, -5, true, -90);
+        }
+    }
+
+    /* The last node asked for entries last, so whatever the pool had left is what it got - and
+       whatever it got, it kept. */
+    const uint32_t last = 0x100U + MESH_UI_HISTORY_NODES - 1U;
+    MESH_TEST_FAIL_IF(mesh_ui_history_series(&history, last, MESH_UI_HISTORY_BATTERY) == NULL,
+                      "the node being pushed to must not be evicted to make room for itself");
+    MESH_TEST_FAIL_IF(mesh_ui_history_series(&history, last, MESH_UI_HISTORY_SNR) == NULL,
+                      "nor lose the reading that ran the pool down");
+
+    /* And the pool is genuinely full rather than quietly oversized: somebody went. */
+    uint32_t kept = 0U;
+    for (uint32_t i = 0U; i < MESH_UI_HISTORY_NODES; ++i) {
+        for (uint32_t reading = 1U; reading < (uint32_t)MESH_UI_HISTORY_READING_COUNT; ++reading) {
+            if (mesh_ui_history_series(&history, 0x100U + i,
+                                       (enum mesh_ui_history_reading)reading) != NULL) {
+                ++kept;
+            }
+        }
+    }
+    MESH_TEST_FAIL_IF(kept > MESH_UI_HISTORY_SERIES, "more series are held than the pool has");
+    MESH_TEST_FAIL_IF(kept == MESH_UI_HISTORY_NODES * 5U,
+                      "this case is meant to exhaust the pool; it no longer does");
     record_success(test_name);
 }
 
@@ -866,6 +1019,170 @@ MESH_TEST_CASE(store_records_node_environment_on_its_own_schedule, unit) {
     mesh_ui_store_set_handshake(&store, &handshake);
     MESH_TEST_FAIL_IF(temp->count != 2U, "a fresh environment report should be a reading");
     MESH_TEST_FAIL_IF(mesh_ui_series_newest(temp)->value != 221, "in tenths, as the row draws it");
+
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
+/*
+ * The store's own push for the two link readings, and every way it must not fire.
+ *
+ * A trend is the one thing on a node's screen that turns a number into evidence, so the whole of
+ * this case is about which numbers are allowed to become one.
+ *
+ * The key is the *measurement* rather than the arrival, and the two are genuinely different
+ * events - `snr_time` exists because they are. A packet landing is `last_heard`; a ratio being
+ * taken is `snr_time`, stamped where the session stores the reading. Keyed on the arrival, this
+ * push had both failures below.
+ */
+MESH_TEST_CASE(store_records_signal_only_from_a_packet_it_heard_itself, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init should succeed");
+
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.roster_owner = 0xAAAAU;
+    handshake.node_count = 1U;
+    struct mesh_ui_node_summary *node = &handshake.nodes[0];
+    node->node_id = 0x4242U;
+    node->last_heard = 1750000000U;
+    node->snr = -6.4f;
+    node->snr_time = node->last_heard;
+    node->has_hops_away = true;
+    node->hops_away = 0U;
+    node->has_rssi = true;
+    node->rx_rssi = -96;
+    node->rssi_time = node->last_heard;
+
+    mesh_ui_store_tick(&store, 1000U);
+    mesh_ui_store_set_handshake(&store, &handshake);
+
+    /* The same reading, one packet later - a node sitting still measures the same ratio every
+       time, so a push keyed on the value changing would drop this. */
+    node->last_heard = 1750000060U;
+    node->snr_time = node->last_heard;
+    node->rssi_time = node->last_heard;
+    mesh_ui_store_tick(&store, 2000U);
+    mesh_ui_store_set_handshake(&store, &handshake);
+
+    const struct mesh_ui_series *snr =
+        mesh_ui_history_series(&store.history, 0x4242U, MESH_UI_HISTORY_SNR);
+    const struct mesh_ui_series *rssi =
+        mesh_ui_history_series(&store.history, 0x4242U, MESH_UI_HISTORY_RSSI);
+    MESH_TEST_FAIL_IF(snr == NULL || snr->count != 2U,
+                      "an unchanged reading on a new measurement is still a new reading");
+    MESH_TEST_FAIL_IF(rssi == NULL || rssi->count != 2U, "and so is its strength");
+    MESH_TEST_FAIL_IF(mesh_ui_series_newest(snr)->value != -6,
+                      "whole decibels, rounded away from zero");
+
+    /* A publish with nothing new on it is not a third measurement. */
+    mesh_ui_store_tick(&store, 3000U);
+    mesh_ui_store_set_handshake(&store, &handshake);
+    MESH_TEST_FAIL_IF(snr->count != 2U, "a republished roster is not an arrival");
+
+    /*
+     * A packet whose rx_snr is exactly 0.0 - the firmware's "no measurement".
+     *
+     * mesh_session_apply_packet() declines to store it, so `last_heard` advances while `snr` and
+     * `snr_time` stay describing the packet before it. Keyed on the arrival, this appended that
+     * previous reading as a fresh one: a number about a different packet, drawn as evidence.
+     */
+    node->last_heard = 1750000120U;
+    mesh_ui_store_tick(&store, 4000U);
+    mesh_ui_store_set_handshake(&store, &handshake);
+    MESH_TEST_FAIL_IF(snr->count != 2U,
+                      "a packet carrying no ratio must not re-append the last one");
+
+    /*
+     * And the other direction: two packets inside one epoch second.
+     *
+     * `heard` is seconds, so the second arrival moves neither `last_heard` nor `snr_time` while
+     * the ratio itself moves. Keyed on the stamp alone that measurement was dropped, which is
+     * why the value is tested beside it.
+     */
+    node->snr = -9.2f;
+    mesh_ui_store_tick(&store, 5000U);
+    mesh_ui_store_set_handshake(&store, &handshake);
+    MESH_TEST_FAIL_IF(snr->count != 3U, "a second measurement inside one second is still one");
+    MESH_TEST_FAIL_IF(mesh_ui_series_newest(snr)->value != -9, "and it is the reading taken");
+    /* The strength rides it, because it shares the stamp: that is the pair coming off one
+       packet, which is what this history keeps them as. */
+    MESH_TEST_FAIL_IF(rssi->count != 3U, "the strength beside it is the same packet's");
+
+    /* Now the same node, reached over a bridge. The reading is still true and is still drawn on
+       the row; what it is no longer about is this node's own link. */
+    node->last_heard = 1750000180U;
+    node->snr = -7.0f;
+    node->snr_time = node->last_heard;
+    node->rssi_time = node->last_heard;
+    node->via_mqtt = true;
+    mesh_ui_store_tick(&store, 6000U);
+    mesh_ui_store_set_handshake(&store, &handshake);
+    MESH_TEST_FAIL_IF(snr->count != 3U, "a packet that crossed no air is not a measurement of it");
+
+    /* And through a relay, which is the relay's ratio rather than this node's. */
+    node->via_mqtt = false;
+    node->hops_away = 2U;
+    node->last_heard = 1750000240U;
+    node->snr = -7.5f;
+    node->snr_time = node->last_heard;
+    node->rssi_time = node->last_heard;
+    mesh_ui_store_tick(&store, 7000U);
+    mesh_ui_store_set_handshake(&store, &handshake);
+    MESH_TEST_FAIL_IF(snr->count != 3U, "a relayed packet describes the relay");
+
+    /* Direct again, but the strength is older than the ratio - the two did not come off one
+       packet, and this history keeps them as a pair or not at all. */
+    node->hops_away = 0U;
+    node->last_heard = 1750000300U;
+    node->snr = -6.0f;
+    node->snr_time = node->last_heard;
+    mesh_ui_store_tick(&store, 8000U);
+    mesh_ui_store_set_handshake(&store, &handshake);
+    MESH_TEST_FAIL_IF(snr->count != 4U, "a direct packet is a ratio again");
+    MESH_TEST_FAIL_IF(rssi->count != 3U, "but a strength from another packet is not a new one");
+
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
+/*
+ * A node restored from the card contributes nothing until a packet is actually heard.
+ *
+ * The cache brings a node's SNR back with it and cannot bring back the moment it was taken, so
+ * `snr_time` restores as 0. Keyed on the arrival, the first publish after a launch stamped every
+ * cached reading with "now" - a figure measured at an unknown past time, placed on the trend at
+ * the present. A stamp of 0 is the honest answer and pushes nothing.
+ */
+MESH_TEST_CASE(store_records_no_signal_for_a_node_off_the_card, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init should succeed");
+
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.roster_owner = 0xAAAAU;
+    handshake.node_count = 1U;
+    struct mesh_ui_node_summary *node = &handshake.nodes[0];
+    node->node_id = 0x4242U;
+    node->last_heard = 1750000000U;
+    node->snr = -6.4f;
+    node->has_hops_away = true;
+    node->hops_away = 0U;
+    /* No snr_time: the reading came off the card, the measurement did not. */
+
+    mesh_ui_store_tick(&store, 1000U);
+    mesh_ui_store_set_handshake(&store, &handshake);
+    MESH_TEST_FAIL_IF(mesh_ui_history_series(&store.history, 0x4242U, MESH_UI_HISTORY_SNR) != NULL,
+                      "a cached reading is not a measurement this run took");
+
+    /* And the first real packet starts the trend. */
+    node->last_heard = 1750000060U;
+    node->snr_time = node->last_heard;
+    mesh_ui_store_tick(&store, 2000U);
+    mesh_ui_store_set_handshake(&store, &handshake);
+    const struct mesh_ui_series *snr =
+        mesh_ui_history_series(&store.history, 0x4242U, MESH_UI_HISTORY_SNR);
+    MESH_TEST_FAIL_IF(snr == NULL || snr->count != 1U, "a heard packet is a reading");
 
     mesh_ui_store_shutdown(&store);
     record_success(test_name);

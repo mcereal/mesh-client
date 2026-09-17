@@ -5100,6 +5100,143 @@ static bool fb_chart_bins(const struct mesh_ui_backend_fb_state *state, const st
     return drawn;
 }
 
+/*
+ * What the span strip takes off the top of a chart's body, and how wide it is.
+ *
+ * Off the top before anything else is measured, and measured against what *would be left* rather
+ * than against what there was: a strip drawn and then found to have taken the plot's room is a
+ * control floating over nothing, which is the clipped chart this component refuses one level up.
+ * The content wins the room.
+ *
+ * Its own function because both faces of the chart start here and must start identically. A
+ * readings list that measured the strip differently from the plot would place its first row over
+ * the control the reader is pressing - and only on the panels where the arithmetic happened to
+ * differ, which is the kind of wrong that ships.
+ *
+ * Above the plot rather than below it, which is Material's placement for a filter over a view and
+ * is also the only one that reads correctly here: the strip says what the picture is of, and the
+ * lines under it say what came out. Put underneath, the control would be the third line of a
+ * caption. Centred, because it is about the whole horizontal rather than either end of it.
+ */
+static int fb_chart_strip(const struct mesh_ui_backend_fb_state *state,
+                          const struct fb_layout *layout, const struct fb_rect *rect,
+                          const struct fb_segmented *spans, int *out_width) {
+    *out_width = 0;
+    if (spans == NULL) {
+        return 0;
+    }
+    const int scale = layout->small;
+    const int strip = fb_segmented_height(state, scale);
+    const int width = fb_segmented_width(state, spans, scale);
+    const int gap = fb_gutter(state);
+    if (strip <= 0 || width <= 0 || width > rect->w ||
+        rect->h - (strip + gap) < fb_chart_min_height(state, layout)) {
+        return 0;
+    }
+    *out_width = width;
+    return strip + gap;
+}
+
+uint32_t fb_chart_reading_rows(const struct mesh_ui_backend_fb_state *state,
+                               const struct fb_layout *layout, const struct fb_rect *rect,
+                               const struct fb_segmented *spans) {
+    if (state == NULL || layout == NULL || rect == NULL || rect->w <= 0 || rect->h <= 0) {
+        return 0U;
+    }
+    /* The plot's own floor, so the two faces appear and disappear together: a panel too small to
+       draw a chart in is one the reader would land on by pressing Y and find blank. */
+    if (rect->h < fb_chart_min_height(state, layout)) {
+        return 0U;
+    }
+    int width = 0;
+    struct fb_rect body = *rect;
+    body.h -= fb_chart_strip(state, layout, rect, spans, &width);
+    /* One line kept back for the caption, on the terms the plot keeps two: a column of durations
+       with nothing saying what they are measured from can be read as a clock. */
+    const int rows = (body.h - layout->line) / layout->line;
+    return rows > 0 ? (uint32_t)rows : 0U;
+}
+
+/*
+ * The readings, as two columns down the body.
+ *
+ * Right-aligned, both of them, which is the one layout decision here and is the table's whole
+ * job: these are figures to be *compared down the column*, and a left-aligned "-8 dB" under a
+ * "-110 dBm" puts the digits that differ in different places. The durations are right-aligned
+ * against the value column's left edge for the same reason.
+ *
+ * The newest row is the one every other row is measured from, so it says so rather than "0s" -
+ * a zero there is a duration the reader has to work out is not a reading.
+ */
+static void fb_draw_chart_readings(const struct mesh_ui_backend_fb_state *state,
+                                   const struct fb_layout *layout, const struct fb_chart *chart,
+                                   const struct fb_rect *body) {
+    const int scale = state->scale;
+    const int adv = fb_char_adv(state, scale);
+    const struct mesh_ui_rgb ground = fb_color(state, MESH_UI_COLOR_BG);
+    const struct mesh_ui_rgb ink = fb_color(state, MESH_UI_COLOR_TEXT);
+    const struct mesh_ui_rgb dim = fb_color(state, MESH_UI_COLOR_TEXT_DIM);
+
+    /*
+     * Both columns are measured from their content and the pair is centred as a block.
+     *
+     * Centred rather than set against either edge, because that is what the rest of this screen
+     * does - the span strip above is centred and so is the caption under the plot - and because a
+     * table is not a list: there are no rows to line up with, only two columns of figures with
+     * the whole panel around them. Pushed to one edge it reads as the remains of a layout that
+     * was going to have something else in it.
+     *
+     * The columns themselves are right-aligned, which is the one decision here that is about the
+     * content: these are figures to be compared *down* the column, and a left-aligned "-8 dB"
+     * under a "-110 dBm" puts the digits that differ in different places. A cell of air between
+     * them, which is the gap a list row leaves between its label and its value.
+     */
+    size_t when_cells = 0U;
+    size_t value_cells = 0U;
+    for (uint32_t i = 0U; i < chart->reading_count; ++i) {
+        const struct fb_chart_reading *row = &chart->readings[i];
+        const size_t when = row->when != NULL ? mesh_ui_text_cells(row->when) : 0U;
+        const size_t value = row->value != NULL ? mesh_ui_text_cells(row->value) : 0U;
+        if (when > when_cells) {
+            when_cells = when;
+        }
+        if (value > value_cells) {
+            value_cells = value;
+        }
+    }
+    const int block = (int)(when_cells + 1U + value_cells) * adv;
+    const int left = body->x + (body->w > block ? (body->w - block) / 2 : 0);
+    const int values_x = left + (int)(when_cells + 1U) * adv;
+
+    int y = body->y;
+    for (uint32_t i = 0U; i < chart->reading_count; ++i) {
+        const struct fb_chart_reading *row = &chart->readings[i];
+        if (row->value != NULL) {
+            const int x = values_x + (int)(value_cells - mesh_ui_text_cells(row->value)) * adv;
+            fb_draw_text(state, x, y, row->value, scale, ink, ground);
+        }
+        if (row->when != NULL) {
+            const int x = left + (int)(when_cells - mesh_ui_text_cells(row->when)) * adv;
+            fb_draw_text(state, x, y, row->when, scale, dim, ground);
+        }
+        y += layout->line;
+    }
+
+    /*
+     * And the caption, under the last row rather than at the foot of the body.
+     *
+     * It annotates the left-hand column, so it belongs next to it: the plot's own caption is
+     * under the plot because the plot fills the body, and a list that has not filled it would
+     * leave the same line stranded half a panel below the thing it is about.
+     */
+    if (chart->readings_note != NULL) {
+        const int small = fb_char_adv(state, layout->small);
+        const int width = (int)mesh_ui_text_cells(chart->readings_note) * small;
+        fb_draw_text(state, body->x + (body->w > width ? (body->w - width) / 2 : 0), y,
+                     chart->readings_note, layout->small, dim, ground);
+    }
+}
+
 void fb_draw_chart(const struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
                    const struct fb_chart *chart) {
     if (chart == NULL || chart->rect.w <= 0 || chart->rect.h <= 0) {
@@ -5126,23 +5263,24 @@ void fb_draw_chart(const struct mesh_ui_backend_fb_state *state, const struct fb
      * horizontal rather than about either end of it.
      */
     struct fb_rect body = chart->rect;
-    if (chart->spans != NULL) {
+    int strip_width = 0;
+    const int strip_takes = fb_chart_strip(state, layout, &chart->rect, chart->spans, &strip_width);
+    if (strip_takes > 0) {
         const int strip = fb_segmented_height(state, scale);
-        const int width = fb_segmented_width(state, chart->spans, scale);
-        const int gap = fb_gutter(state);
-        /* Measured against what would be left before it is drawn, never after: a strip drawn and
-           then found to have taken the plot's room is a control floating over nothing, which is
-           the clipped chart this component refuses one level up. The picture wins the room. */
-        if (strip > 0 && width > 0 && width <= body.w &&
-            body.h - (strip + gap) >= fb_chart_min_height(state, layout)) {
-            const struct fb_rect box = {
-                .x = body.x + (body.w - width) / 2, .y = body.y, .w = width, .h = strip};
-            /* Selected, always: it is the only control on the screen and the d-pad always reaches
-               it - see `spans`. Its ground is the body's, because that is what is behind it. */
-            fb_draw_segmented(state, &box, chart->spans, true, MESH_UI_COLOR_BG, scale);
-            body.y += strip + gap;
-            body.h -= strip + gap;
-        }
+        const struct fb_rect box = {
+            .x = body.x + (body.w - strip_width) / 2, .y = body.y, .w = strip_width, .h = strip};
+        /* Selected, always: it is the only control on the screen and the d-pad always reaches
+           it - see `spans`. Its ground is the body's, because that is what is behind it. */
+        fb_draw_segmented(state, &box, chart->spans, true, MESH_UI_COLOR_BG, scale);
+        body.y += strip_takes;
+        body.h -= strip_takes;
+    }
+
+    /* The other face, once the strip has taken its room and before the plot claims any: the same
+       window said exactly rather than drawn - see `readings`. */
+    if (chart->readings != NULL && chart->reading_count > 0U) {
+        fb_draw_chart_readings(state, layout, chart, &body);
+        return;
     }
 
     /*

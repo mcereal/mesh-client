@@ -680,6 +680,26 @@ int32_t mesh_ui_temperature_decidegrees(float celsius) {
     return celsius >= 0.0f ? (int32_t)(celsius * 10.0f + 0.5f) : (int32_t)(celsius * 10.0f - 0.5f);
 }
 
+int32_t mesh_ui_snr_db(float snr) {
+    /*
+     * The temperature's guard rather than the percentage's, and for its reason: an SNR's domain
+     * runs through zero and mostly below it, so "not above zero" would erase every reading this
+     * one is actually about. A value satisfying neither of a pair of bounds no LoRa link can be
+     * at is a NaN or a wild float, and neither is a decibel.
+     *
+     * It answers as the floor rather than as zero. Zero dB is a *good* link and is also the
+     * session layer's own "no measurement", so a reading nobody can parse coming back as one
+     * would draw three of four rungs against a node that said nothing - the one direction a
+     * signal figure must not err in is optimism. The bounds are wide on purpose: a real reading
+     * below MESH_UI_SNR_FLOOR is a link about to stop arriving and is a fact, not a fault, so it
+     * passes through exactly and is clamped where it is drawn.
+     */
+    if (!(snr > -1000.0f) || !(snr < 1000.0f)) {
+        return MESH_UI_SNR_FLOOR;
+    }
+    return snr >= 0.0f ? (int32_t)(snr + 0.5f) : (int32_t)(snr - 0.5f);
+}
+
 uint8_t mesh_ui_signal_level(float snr) {
     /*
      * A ladder of `>=` walked from the top, so a NaN - which compares false against everything

@@ -338,6 +338,26 @@ struct mesh_node_summary {
     uint32_t last_heard;
     float snr;
     /*
+     * When that ratio was measured, on the same terms as `rssi_time` below and for a sharper
+     * version of its reason.
+     *
+     * `last_heard` is when a *packet* arrived, and the two come apart in both directions.
+     * mesh_session_apply_packet() declines to store an `rx_snr` of exactly 0.0 - that is the
+     * firmware's "no measurement" - so a packet carrying one advances `last_heard` and leaves
+     * `snr` describing the packet before it; and a NodeDB replay assigns an SNR the radio
+     * measured at some unknown past time. A reader that took `last_heard` for the ratio's age
+     * would date both to the wrong moment.
+     *
+     * 0 means this run has heard no packet that carried one, which is what a roster restored
+     * from the card holds: the reading came back with it, the moment it was taken did not.
+     *
+     * It is what the client's signal trend is keyed on, and that is why it had to exist. A
+     * trend is the one thing on a node's screen that turns a number into evidence, so a sample
+     * appended because a packet arrived - rather than because a ratio was measured - is the
+     * previous packet's reading drawn as this one's.
+     */
+    uint32_t snr_time;
+    /*
      * Signal strength of the last packet this radio heard from the node *directly*. SNR says
      * how far above the noise it was; RSSI says how loud it was, and the two answer different
      * questions - a strong signal in a noisy band and a weak one in a quiet band both give a

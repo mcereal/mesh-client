@@ -781,6 +781,10 @@ static void mesh_session_touch_node_from_packet(struct mesh_session *session,
     }
     if (packet->rx_snr != 0.0f) {
         summary->snr = packet->rx_snr;
+        /* Stamped where it is stored, so the two move together. A packet whose rx_snr is the
+           firmware's "no measurement" leaves both alone rather than dating the reading before
+           it to the arrival that did not carry one - see `snr_time`. */
+        summary->snr_time = heard;
     }
     /* A packet that reached us over MQTT was not heard by this radio at all, so whatever RSSI
        rides along with it describes somebody else's antenna. The reading is stamped rather

@@ -160,6 +160,81 @@ static bool series_high(const struct mesh_ui_series *const *series, uint32_t cou
     return any;
 }
 
+/*
+ * The window one series' readings are listed over: mesh_ui_trend_frame()'s cut, without the
+ * domain - a list has no vertical to contract.
+ *
+ * A single reading is a window of no width, which mesh_ui_series_window() declines and this
+ * accepts. That is the one place the list and the plot part company, and it parts in the
+ * direction that costs nothing: a picture with one point is a frame around nothing, and a table
+ * with one row is a reading somebody took.
+ */
+static bool trend_reading_window(const struct mesh_ui_series *series, uint8_t span,
+                                 uint32_t *out_from, uint32_t *out_to) {
+    if (series == NULL || series->count == 0U) {
+        return false;
+    }
+    const struct mesh_ui_series *one[1] = {series};
+    uint32_t from = 0U;
+    uint32_t to = 0U;
+    if (!mesh_ui_series_window(one, 1U, &from, &to)) {
+        const struct mesh_ui_sample *only = mesh_ui_series_newest(series);
+        if (only == NULL) {
+            return false;
+        }
+        from = only->time;
+        to = only->time;
+    }
+    const uint32_t ms = mesh_ui_trend_span_ms(span);
+    if (ms > 0U && (to - from) > ms) {
+        from = to - ms;
+    }
+    *out_from = from;
+    *out_to = to;
+    return true;
+}
+
+uint32_t mesh_ui_trend_readings(const struct mesh_ui_series *series, uint8_t span) {
+    uint32_t from = 0U;
+    uint32_t to = 0U;
+    if (!trend_reading_window(series, span, &from, &to)) {
+        return 0U;
+    }
+    uint32_t count = 0U;
+    for (uint32_t i = 0U; i < series->count; ++i) {
+        const struct mesh_ui_sample *sample = mesh_ui_series_at(series, i);
+        if (sample != NULL && sample->time >= from && sample->time <= to) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+bool mesh_ui_trend_reading_at(const struct mesh_ui_series *series, uint8_t span, uint32_t index,
+                              struct mesh_ui_trend_reading *out) {
+    uint32_t from = 0U;
+    uint32_t to = 0U;
+    if (out == NULL || !trend_reading_window(series, span, &from, &to)) {
+        return false;
+    }
+    /* Walked from the newest end, because that is how the rows are numbered - see the header. */
+    uint32_t seen = 0U;
+    for (uint32_t i = series->count; i > 0U; --i) {
+        const struct mesh_ui_sample *sample = mesh_ui_series_at(series, i - 1U);
+        if (sample == NULL || sample->time < from || sample->time > to) {
+            continue;
+        }
+        if (seen++ != index) {
+            continue;
+        }
+        out->time = sample->time;
+        out->before_ms = to - sample->time;
+        out->value = sample->value;
+        return true;
+    }
+    return false;
+}
+
 bool mesh_ui_trend_frame(const struct mesh_ui_series *const *series, uint32_t count,
                          struct mesh_ui_scale domain, uint8_t span, struct mesh_ui_trend *out) {
     uint32_t from = 0U;

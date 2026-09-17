@@ -35,17 +35,25 @@ extern "C" {
  * Every row every node can produce, all at once. rows_next() drops silently past this, so it
  * has to be an upper bound rather than a guess: the arithmetic is 36 action rows (the group's
  * own heading and thirteen actions, plus a traced route of up to ten stops in each direction
- * with its two headings and its stamp), 12 identity, 7 signal, and then one group per kind of
- * reading - 7 device metrics, 7 position, 9 environment, 5 power, 7 air quality, 5 health, 6
- * host - which comes to 101 for a node that reports everything at the end of a ten-hop trace -
- * plus the two neighbour groups: 12 for the list the node reported (heading, ten out-edges -
- * upstream's own cap - and the stamp) and 12 for the nodes that report hearing it (heading, ten
- * rows and the line saying how many were left out), making 125.
+ * with its two headings and its stamp), 12 identity, 11 signal (its heading, the two routing
+ * rows, and a bar under each of the two readings that describe the link), and then one group
+ * per kind of reading - 7 device metrics, 7 position, 9 environment, 5 power, 7 air quality, 5
+ * health, 6 host - plus the two neighbour groups: 12 for the list the node reported (heading,
+ * ten out-edges - upstream's own cap - and the stamp) and 12 for the nodes that report hearing
+ * it (heading, ten rows and the line saying how many were left out). That comes to 129 by hand
+ * and the worst case anybody can build is 127; a bound stated loosely is the right way for this
+ * one to be wrong.
  *
- * Rounded up for headroom, and pinned by node_detail_row_budget in the ui_settings suite so a
- * new group cannot quietly push the last one off the screen.
+ * **The worst case is a node heard straight off the air, not a distant one.** The two bars in
+ * the signal group are drawn only when the readings are this node's own link
+ * (mesh_ui_node_signal_heard()), so a node three hops away has a *shorter* screen than one in
+ * the room - which is the opposite of the intuition a budget gets checked against, and is why
+ * node_detail_row_budget in the ui_settings suite builds the near node rather than the far one.
+ *
+ * Rounded up for headroom, and pinned by that test so a new group cannot quietly push the last
+ * one off the screen.
  */
-#define MESH_UI_NODE_ITEMS_MAX 128U
+#define MESH_UI_NODE_ITEMS_MAX 144U
 
 /*
  * How many "Heard by" rows the node detail draws. Upstream's ten-entry cap is on what one node

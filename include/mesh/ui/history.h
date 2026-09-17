@@ -54,6 +54,33 @@ extern "C" {
 #define MESH_UI_HISTORY_NODES 12U
 
 /*
+ * Series kept at once, across every node and every reading - the pool a node's trends are
+ * drawn from.
+ *
+ * It exists because the readings worth watching stopped being three. Held as named fields on a
+ * node's slot, every reading cost every node whether that node reports it or not: a mesh of
+ * twelve where three have thermometers still carried nine unused temperature series and nine
+ * unused humidity ones, and each of those is a quarter of a kilobyte inside a snapshot that is
+ * copied whole on every publish. Five readings that way would have been sixty series, most of
+ * them zeroes.
+ *
+ * So a slot names the series it has and the rest are not spent. Forty-eight is more than the
+ * readings a real mesh produces - every node's battery, a few sensors' air, and the signal of
+ * the nodes actually heard over the air - and it is deliberately below twelve nodes times every
+ * reading, because a budget nothing can exhaust is not a budget, it is the fixed table again
+ * with extra arithmetic.
+ *
+ * What runs out first is still the node table, and that matters: a series is only ever taken
+ * *by* a node, so the pool emptying is handled the way a full node table is - the least recently
+ * heard node goes, and every series it held comes back at once. See mesh_ui_history_series().
+ */
+#define MESH_UI_HISTORY_SERIES 48U
+
+/* A slot's reading that has no series: nothing has been kept for it, and nothing is spent on
+   it. Not 0, which is a real pool index. */
+#define MESH_UI_HISTORY_NO_SERIES 0xFFU
+
+/*
  * How often each source's readings actually arrive, and how long a silence has to be before a
  * line breaks rather than sloping across it.
  *
@@ -111,18 +138,36 @@ enum mesh_ui_history_reading {
     MESH_UI_HISTORY_BATTERY,     /* whole percent, as the wire carries it */
     MESH_UI_HISTORY_TEMPERATURE, /* tenths of a degree Celsius */
     MESH_UI_HISTORY_HUMIDITY,    /* permille, as mesh_ui_percent_permille() leaves a percentage */
+    /*
+     * The link itself: whole decibels as mesh_ui_snr_db() leaves the wire's float, and whole dBm
+     * as the wire already carries it.
+     *
+     * Whole units rather than the tenths a temperature is kept in, and that is not a shortcut -
+     * it is the rule that a series is measured in the units of the row it hangs on. The bar
+     * under the SNR row is banded in whole decibels (MESH_UI_SNR_FAIR and its neighbours) and
+     * the chart is drawn on that row's own scale, so a series in tenths would be a line placed
+     * against a domain ten times too small. An SNR is measured off one packet anyway, which is
+     * error bars wide enough that a tenth of a decibel is precision the reading does not have.
+     */
+    MESH_UI_HISTORY_SNR,
+    MESH_UI_HISTORY_RSSI,
     MESH_UI_HISTORY_READING_COUNT
 };
 
 /*
- * One node's slot, and every trend kept for it.
+ * One node's slot: which pool entry holds each of its trends.
  *
- * The three series share a slot rather than having tables of their own, and that is a statement
- * about what a slot *is*: it is a node somebody is watching, not a reading. A sensor node
- * reports its battery and its air in the same telemetry, so splitting them would be two
- * evictions racing over one node - and a node whose temperature survived while its battery was
- * evicted would draw half a screen of trend and half a screen of nothing, for no reason the
- * reader could see.
+ * The series are still the *node's* rather than a table of their own, and that is a statement
+ * about what a slot is: it is a node somebody is watching, not a reading. A sensor node reports
+ * its battery and its air in the same telemetry, so splitting them would be two evictions racing
+ * over one node - and a node whose temperature survived while its battery was evicted would draw
+ * half a screen of trend and half a screen of nothing, for no reason the reader could see. They
+ * are named by index rather than held inline so that a reading this node does not report costs
+ * it nothing; the eviction rule is unchanged, and a slot going takes every series with it.
+ *
+ * Indexed by `enum mesh_ui_history_reading`, NONE's own entry included and never used - the
+ * wasted byte buys an array a caller can subscript with the value it is already holding, rather
+ * than a mapping that would be a second opinion about which readings exist.
  *
  * `seen` is still one stamp for the slot, so any reading arriving keeps the whole node fresh.
  * That is the right way round: what the eviction is protecting is the node being looked at.
@@ -130,9 +175,7 @@ enum mesh_ui_history_reading {
 struct mesh_ui_history_node {
     uint32_t node_id; /* 0 for a free slot */
     uint32_t seen;    /* the clock at the last push, so the least recent slot can be evicted */
-    struct mesh_ui_series battery;
-    struct mesh_ui_series temperature;
-    struct mesh_ui_series humidity;
+    uint8_t series[MESH_UI_HISTORY_READING_COUNT]; /* pool index, or MESH_UI_HISTORY_NO_SERIES */
 };
 
 /*
@@ -169,6 +212,16 @@ struct mesh_ui_history {
     uint32_t metrics_airtime_at;
     bool has_metrics_airtime;
     struct mesh_ui_history_node nodes[MESH_UI_HISTORY_NODES];
+    /*
+     * The series themselves, handed out to the slots above.
+     *
+     * Which entries are in use is deliberately not recorded here: it is read off the slots, which
+     * are the only things that can hold one. A `used` flag beside this would be the same fact
+     * written twice, and the run where the two disagreed would be a node drawing another node's
+     * temperature - the failure this whole module is arranged to make impossible. Taking an entry
+     * happens once per node per reading, so what it costs is a scan nobody is waiting on.
+     */
+    struct mesh_ui_series pool[MESH_UI_HISTORY_SERIES];
     /*
      * What the caller's clock has to be shifted by to land on this history's own timeline, and
      * the shift a resumed history has not worked out yet.
@@ -245,6 +298,32 @@ void mesh_ui_history_note_environment(struct mesh_ui_history *history, uint32_t 
                                       uint32_t node_id, bool has_temperature,
                                       int32_t temperature_decidegrees, bool has_humidity,
                                       int32_t humidity_permille);
+
+/*
+ * How this node's last packet reached us, for the two readings that are about the link rather
+ * than about the node: its signal-to-noise ratio in whole decibels, and how loud it was in dBm.
+ *
+ * One call for the pair, for mesh_ui_history_note_environment()'s reason - they are two
+ * measurements of one packet, and two series stamped a publish apart would draw one arrival as
+ * two. `has_rssi` is the flag that keeps that honest when only half of it is there: not every
+ * radio reports a received strength, and pushing a zero for the one it did not measure would
+ * draw a line at the loudest reading the scale has.
+ *
+ * **Both readings have to be about this node's own link, and that is the caller's to establish**
+ * - mesh_ui_node_signal_heard() is the one answer to it. A packet that reached us through a
+ * relay carries the *relay's* SNR, and one that came over somebody's MQTT bridge crossed no air
+ * at all; either is a true number about something else, and a number about something else is
+ * exactly what a trend makes look like evidence. The node detail draws the bar under these two
+ * rows on the same condition, so the picture and the line it opens into are one claim.
+ *
+ * The cadence is the one thing here that is not a schedule. A node's telemetry arrives on a
+ * timer; its packets arrive when it has something to say, which on a quiet mesh is a NodeInfo
+ * every few minutes and on a busy one is constant. The gap the series breaks at is still the
+ * node gap, which is the right length for the question it is answering - four missed telemetry
+ * reports and a node that has gone quiet for two hours are the same silence to look at.
+ */
+void mesh_ui_history_note_signal(struct mesh_ui_history *history, uint32_t now_ms, uint32_t node_id,
+                                 int32_t snr_db, bool has_rssi, int32_t rssi_dbm);
 
 /*
  * Whether the radio's airtime has been reported enough to chart: two readings on different ticks

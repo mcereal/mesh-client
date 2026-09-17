@@ -5,6 +5,7 @@
 #include "framework/mesh_test.h"
 #include "support/ui_fixture.h"
 
+#include "mesh/ui/actions.h"
 #include "mesh/ui/history.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/node_detail.h"
@@ -104,6 +105,166 @@ MESH_TEST_CASE(ui_nav_node_trend_opens_from_its_row, unit) {
  * this node". The map gets away with answering zero because it parks the list position in
  * node_list_cursor; a chart parks nothing, because the cursor it stands on is the detail's own.
  */
+/*
+ * Y turns a node's chart into the readings behind it, and Up and Down move through them.
+ *
+ * Three things in one case because they are one gesture: the press exists, the scroll it enables
+ * does something, and the scroll is held to what there is - and a toggle that flipped a flag
+ * nothing scrolled would pass two of those separately while being useless.
+ *
+ * The clamp is the half that cannot be tested by pressing. It runs on the publish after the
+ * press, against the readings in the span and the body rows the backend last reported, so a
+ * scroll pushed past the end comes back rather than leaving the list drawing off the bottom of a
+ * window it was never in.
+ */
+MESH_TEST_CASE(ui_nav_node_trend_lists_its_readings, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.has_my_info = true;
+    handshake.my_info.node_num = 0x1000U;
+    handshake.node_count = 1U;
+    handshake.nodes[0].node_id = 0x2000U;
+    handshake.nodes[0].environment.valid = true;
+    handshake.nodes[0].environment.has_temperature = true;
+
+    /* Eight readings, so there is more of the list than the four body rows below pretend to
+       hold - a list that fits has nothing to scroll and would pass this by doing nothing. */
+    for (uint32_t i = 0U; i < 8U; ++i) {
+        handshake.nodes[0].environment.temperature = 20.0f + (float)i;
+        mesh_ui_store_tick(&store, 1000U + i * 1000U);
+        mesh_ui_store_set_handshake(&store, &handshake);
+    }
+    /* What the backend would have said its body holds. The clamp reads it, so without it the
+       list can be scrolled anywhere - see `trend_scroll`. */
+    mesh_ui_store_set_page_rows(&store, 4U);
+
+    struct mesh_ui_nav nav;
+    mesh_ui_nav_init(&nav);
+    nav.screen = MESH_UI_SCREEN_NODES;
+    nav.node_detail_open = true;
+    nav.node_detail_node = 0x2000U;
+    nav.node_trend = MESH_UI_HISTORY_TEMPERATURE;
+
+    const char *failure = NULL;
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+
+    if (nav.trend_table) {
+        failure = "a chart opens as a picture";
+        goto cleanup;
+    }
+    /* Up and Down do nothing while the picture is up, and are still swallowed rather than
+       reaching the rows underneath. */
+    (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_DOWN, &action);
+    if (nav.trend_scroll != 0U) {
+        failure = "a picture has nothing to scroll";
+        goto cleanup;
+    }
+
+    (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_Y, &action);
+    if (!nav.trend_table) {
+        failure = "Y should turn the chart into its readings";
+        goto cleanup;
+    }
+    if (action.type != MESH_UI_ACTION_NONE) {
+        failure = "listing the readings asks the radio for nothing";
+        goto cleanup;
+    }
+
+    (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_DOWN, &action);
+    (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_DOWN, &action);
+    if (nav.trend_scroll != 2U) {
+        failure = "Down should move the window over the readings";
+        goto cleanup;
+    }
+    (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_UP, &action);
+    if (nav.trend_scroll != 1U) {
+        failure = "and Up should move it back";
+        goto cleanup;
+    }
+
+    /* Past the end, then clamped: eight readings in a window of four leaves four to scroll. */
+    for (uint32_t i = 0U; i < 20U; ++i) {
+        (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_DOWN, &action);
+    }
+    (void)mesh_ui_nav_clamp(&nav, &store);
+    if (nav.trend_scroll != 4U) {
+        failure = "the scroll should be held to the readings there are";
+        goto cleanup;
+    }
+
+    /* And the span picker resets it, because a different span is a different set of rows. */
+    (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_LEFT, &action);
+    if (nav.trend_scroll != 0U) {
+        failure = "picking another span should put the list back at its newest reading";
+        goto cleanup;
+    }
+
+    /*
+     * And the bar names both, which is the other half of the rule: a keycap that does something
+     * has to be in the table, and one that does not must not be. The scroll is the interesting
+     * half - it is named against the readings and the body rows together, so a list that fits is
+     * a gesture the bar stays quiet about.
+     */
+    {
+        struct mesh_ui_snapshot *snapshot = calloc(1U, sizeof *snapshot);
+        if (snapshot == NULL) {
+            failure = "snapshot allocation failed";
+            goto cleanup;
+        }
+        snapshot->nav = nav;
+        snapshot->nav.trend_table = true;
+        snapshot->handshake = handshake;
+        snapshot->handshake_valid = true;
+        snapshot->history = store.history;
+        snapshot->page_rows = 4U;
+        struct mesh_ui_action_bar bar;
+        bool named_y = false;
+        bool named_scroll = false;
+        mesh_ui_actions_for(snapshot, &bar);
+        for (size_t i = 0U; i < bar.count; ++i) {
+            named_y = named_y || bar.items[i].button == MESH_UI_BUTTON_Y;
+            named_scroll = named_scroll || bar.items[i].button == MESH_UI_BUTTON_UP_DOWN;
+        }
+        /* Eight readings in a body of four: more than fits, so both presses are real. */
+        const bool overflowed = named_y && named_scroll;
+
+        /* And a body with room for all of them, where the scroll is not. */
+        snapshot->page_rows = 32U;
+        named_scroll = false;
+        mesh_ui_actions_for(snapshot, &bar);
+        for (size_t i = 0U; i < bar.count; ++i) {
+            named_scroll = named_scroll || bar.items[i].button == MESH_UI_BUTTON_UP_DOWN;
+        }
+        const bool quiet = !named_scroll;
+        free(snapshot);
+        if (!overflowed) {
+            failure = "the bar should name Y, and the scroll while the list overflows";
+            goto cleanup;
+        }
+        if (!quiet) {
+            failure = "a list that fits has nothing to scroll and must not be offered one";
+            goto cleanup;
+        }
+    }
+
+    /* Y again is the picture, and closing the chart leaves no scroll behind for the next one. */
+    nav.trend_scroll = 3U;
+    (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_Y, &action);
+    if (nav.trend_table || nav.trend_scroll != 0U) {
+        failure = "Y should turn it back, and take the position with it";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(ui_nav_node_trend_keeps_the_row_it_was_opened_from, unit) {
     struct mesh_ui_store store;
     MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");

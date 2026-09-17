@@ -348,6 +348,22 @@ int32_t mesh_ui_percent_permille(float percent);
 int32_t mesh_ui_temperature_decidegrees(float celsius);
 
 /*
+ * A signal-to-noise ratio the radio reports as a float, as the whole decibels the bands above
+ * are stated in.
+ *
+ * The third of these, and here rather than beside the one screen that used to do it for the
+ * reason the other two are here: three things now turn this float into that integer - the bar
+ * under the reading, the trend the client keeps of it, and the chart drawn from that trend - and
+ * a reading that rounded one way for the bar and another for the line would draw a trend that
+ * disagrees with the figure at the end of it.
+ *
+ * Rounded away from zero rather than truncated. A cast alone truncates toward zero, which on a
+ * negative reading always moves it *up* - so a link at -7.6 dB would be banded as though it were
+ * at -7, and the one direction a signal bar must not err in is optimism.
+ */
+int32_t mesh_ui_snr_db(float snr);
+
+/*
  * Where a LoRa link's signal-to-noise ratio changes meaning, in dB.
  *
  * Whole numbers rather than floats so that a threshold band can be stated in the same terms,
@@ -368,6 +384,27 @@ int32_t mesh_ui_temperature_decidegrees(float celsius);
    spreading factor, and a link so strong that more of it would not mean anything. */
 #define MESH_UI_SNR_FLOOR (-20)
 #define MESH_UI_SNR_CEILING 10
+
+/*
+ * Where received strength changes meaning, in dBm, and the two ends it is drawn between.
+ *
+ * Stated separately from the SNR ladder above rather than derived from it, because the two
+ * readings answer different questions and a band that treated them alike would be wrong in the
+ * direction that matters. SNR decides whether a packet *decodes* - LoRa demodulates below the
+ * noise floor, so a loud band with a loud noise floor is a fine RSSI and a dead link, which is
+ * why mesh_ui_signal_level() counts its rungs off SNR and not off this. What RSSI says is how
+ * much *room* the link has: how far the far end is from the point where nothing would arrive at
+ * all, which is the question a reader asking whether to move the antenna is actually asking.
+ *
+ * So the thresholds are headroom rather than a verdict. The SX127x and SX126x parts these
+ * radios are built on bottom out around -130 dBm at the widest spreading factor, and a node on
+ * the same bench reads around -30; -115 is close enough to the floor that a little more distance
+ * or a little more noise ends the link, and -100 is where there has stopped being much margin.
+ */
+#define MESH_UI_RSSI_FAIR (-100)
+#define MESH_UI_RSSI_POOR (-115)
+#define MESH_UI_RSSI_FLOOR (-130)
+#define MESH_UI_RSSI_CEILING (-30)
 
 /* Rungs a signal indicator has. Four is what a handset shows, and it is about the most a
    staircase two cells wide can still be counted at a glance. */

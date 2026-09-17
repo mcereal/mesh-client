@@ -8,6 +8,10 @@
 #include "mesh/utils/text.h"
 
 #include "mesh/core/message.h"
+/* For mesh_ui_node_signal_heard(): whether a node's SNR is a measurement of its own link. A
+   question about a node summary rather than about the screen the header is named for, and the
+   one answer to it - the trend kept here and the bar drawn there must not decide it apart. */
+#include "mesh/ui/node_detail.h"
 #include "mesh/ui/settings.h"
 
 #include <errno.h>
@@ -372,6 +376,53 @@ static void mesh_ui_store_note_roster(struct mesh_ui_store *store,
                 mesh_ui_temperature_decidegrees(node->environment.temperature),
                 node->environment.has_humidity,
                 mesh_ui_percent_permille(node->environment.relative_humidity));
+        }
+
+        /*
+         * And how the packet itself arrived, which is the one thing here that is not telemetry.
+         *
+         * Keyed on the *measurement* rather than on the arrival, which is the distinction this
+         * push got wrong first time round. `last_heard` says a packet landed, and a packet
+         * landing is not the same event as a ratio being taken - they come apart in both
+         * directions, and each direction costs a different kind of wrong:
+         *
+         *   - An `rx_snr` of exactly 0.0 is the firmware's "no measurement", so the session
+         *     declines to store it (mesh_session_apply_packet()) while still advancing
+         *     `last_heard`. Keyed on the arrival, this appended the *previous* packet's ratio as
+         *     a fresh reading - a number about a different packet, drawn as evidence, which is
+         *     the one thing this whole screen is arranged to prevent.
+         *   - Two packets inside one epoch second leave `last_heard` where it was while the
+         *     ratio moves, so the second measurement was dropped.
+         *
+         * `snr_time` is the stamp that tells them apart, set where the reading is stored. The
+         * value is tested beside it because the stamp has only second resolution: a second
+         * reading inside one second is a new measurement, and a stamp alone cannot see it.
+         *
+         * A stamp of 0 is a node this run has measured nothing from - every node restored from
+         * the card is one, its reading having come back without the moment it was taken - and it
+         * pushes nothing rather than dating a cached figure to now.
+         *
+         * Gated on mesh_ui_node_signal_heard(), which is the rest of what makes this honest: an
+         * SNR from a relayed packet describes the relay and a node reached over MQTT crossed no
+         * air at all. Both are true numbers about something else, and the node detail refuses to
+         * draw a bar on either for the same reason - so the row and the trend behind it are one
+         * claim rather than two that agree until one of them is changed.
+         *
+         * The RSSI rides the same measurement rather than carrying a staleness test of its own.
+         * Both stamps are the packet's arrival where the session stored them, so `rssi_time ==
+         * snr_time` is exactly "these two came off one packet" - which is the pair this history
+         * keeps under one stamp. An RSSI that arrived with no ratio beside it is not recorded,
+         * and that is the right way round: the alternative is a lone reading stamped with a
+         * moment nothing else on the row shares.
+         */
+        const bool measured =
+            node->snr_time != 0U &&
+            (was == NULL || was->snr_time != node->snr_time || was->snr != node->snr);
+        if (measured && mesh_ui_node_signal_heard(node)) {
+            const bool rssi_now = node->has_rssi && node->rssi_time == node->snr_time;
+            mesh_ui_history_note_signal(&store->history, (uint32_t)store->now_ms, node->node_id,
+                                        mesh_ui_snr_db(node->snr), rssi_now,
+                                        (int32_t)node->rx_rssi);
         }
     }
 }
@@ -1283,6 +1334,9 @@ bool mesh_ui_store_consume_updates(struct mesh_ui_store *store, struct mesh_ui_s
     snapshot->traceroute = store->traceroute;
     snapshot->verification = store->verification;
     snapshot->history = store->history;
+    /* What the backend last said its body holds, for the one thing on the other side of the seam
+       that needs it: the action bar deciding whether a list of readings can be scrolled. */
+    snapshot->page_rows = store->page_rows;
     snapshot->mqtt = store->mqtt;
 
     memcpy(snapshot->transport_status, store->transport_status, sizeof snapshot->transport_status);

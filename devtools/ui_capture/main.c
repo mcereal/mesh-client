@@ -1046,6 +1046,24 @@ static char *uicap_tail(char *rest) {
     return rest;
 }
 
+/*
+ * The same, for a reading that lives below zero: a signal-to-noise ratio and a received
+ * strength, which are negative almost everywhere a mesh is actually used.
+ *
+ * Its own parser rather than a sign bolted onto the unsigned one, because the bound is the whole
+ * point of that function - it is a typo guard - and a guard written as "or negative, sometimes"
+ * stops guarding anything.
+ */
+static int uicap_signed(const char *text, const char *what) {
+    char *end = NULL;
+    const long value = strtol(text, &end, 10);
+    if (end == text || *end != '\0' || value < -600000L || value > 600000L) {
+        fprintf(stderr, "uicap: %s: '%s' is not a number I can use\n", what, text);
+        exit(1);
+    }
+    return (int)value;
+}
+
 static unsigned uicap_number(const char *text, const char *what) {
     char *end = NULL;
     const unsigned long value = strtoul(text, &end, 10);
@@ -1616,6 +1634,88 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
             if (humidity != NULL) {
                 node->environment.has_humidity = true;
                 node->environment.relative_humidity = (float)uicap_number(humidity, "environment");
+            }
+            matched = true;
+        }
+        if (!matched) {
+            fprintf(stderr, "uicap: line %u: no node in the scene called '%s'\n", line_number,
+                    name);
+            exit(1);
+        }
+        mesh_ui_store_set_handshake(&cap->store, &handshake);
+        uicap_emit(cap);
+        return;
+    }
+
+    /*
+     * One packet heard from a node: how far above the noise it was, and optionally how loud.
+     *
+     * Its own verb rather than an argument to `environment`, and for a sharper version of that
+     * verb's reason: these two are not telemetry at all. They are measured off the packet header
+     * by the radio in your hand, and what says a new one arrived is `last_heard` moving rather
+     * than any reading changing - a node sitting still reports the same ratio every time. So the
+     * verb bumps the clock, which is the whole of what an arrival is.
+     *
+     * It also sets the two flags that make the reading this node's own: zero hops and no bridge.
+     * The client refuses to draw a bar or keep a trend on anything else, so a scene that left
+     * them alone would be a scene that produces no picture and no hint as to why.
+     */
+    if (strcmp(command, "signal") == 0) {
+        char *name = uicap_word(&rest);
+        char *snr = uicap_word(&rest);
+        char *rssi = uicap_word(&rest);
+        if (name == NULL || snr == NULL) {
+            fprintf(stderr,
+                    "uicap: line %u: 'signal' needs a short name, an SNR in dB and an optional "
+                    "RSSI in dBm\n",
+                    line_number);
+            exit(1);
+        }
+        uicap_start(cap);
+        struct mesh_ui_handshake_state handshake = cap->store.handshake;
+        bool matched = false;
+        for (uint32_t i = 0; i < handshake.node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
+            struct mesh_ui_node_summary *node = &handshake.nodes[i];
+            if (strcmp(node->short_name, name) != 0) {
+                continue;
+            }
+            node->snr = (float)uicap_signed(snr, "signal");
+            node->via_mqtt = false;
+            node->has_hops_away = true;
+            node->hops_away = 0U;
+            /*
+             * An eighth of the distance to the clock, and never less than a second.
+             *
+             * Both ends of that matter. The store keys an arrival on `last_heard` having changed,
+             * so a stamp that stood still is a packet it does not record; and
+             * mesh_ui_format_age() answers "unknown" for a stamp ahead of the clock, so a fixed
+             * bump that overshot would freshen the trend while the row above it stopped saying
+             * when. Closing on the present rather than stepping toward it satisfies both, and
+             * reads the way a scene means it: each packet is more recent than the last.
+             *
+             * An eighth rather than a half because of how many readings a series holds. Halving,
+             * a node seeded two hours back is at the clock inside thirteen pushes and every
+             * packet after that is dropped as a repeat - a scene that silently stops recording
+             * half way through, and a list that is mysteriously short. An eighth still has room
+             * to move after two dozen, which is MESH_UI_SERIES_MAX.
+             *
+             * A node already at the clock cannot be freshened, and that is the honest answer
+             * rather than a gap: nothing is more recent than now.
+             */
+            const uint32_t heard_now = mesh_time_wall_s();
+            const uint32_t behind =
+                node->last_heard < heard_now ? heard_now - node->last_heard : 0U;
+            if (behind > 0U) {
+                node->last_heard += behind / 8U > 0U ? behind / 8U : 1U;
+            }
+            /* And when the ratio was taken, which is what the client's signal trend is keyed on
+               rather than the arrival - see `snr_time`. A scene that moved only `last_heard`
+               would draw the rows and record nothing behind them. */
+            node->snr_time = node->last_heard;
+            if (rssi != NULL) {
+                node->has_rssi = true;
+                node->rx_rssi = (int16_t)uicap_signed(rssi, "signal");
+                node->rssi_time = node->last_heard;
             }
             matched = true;
         }

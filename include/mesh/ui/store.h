@@ -120,6 +120,22 @@ struct mesh_ui_snapshot {
        asked for one. Not persisted: see mesh/ui/store_mqtt.h. */
     struct mesh_ui_mqtt_state mqtt;
     mesh_ui_update_flags update_flags;
+    /*
+     * How many body rows the backend's last paged list had room for - see `page_rows` on struct
+     * mesh_ui_store, which is where it is told and what this is a copy of.
+     *
+     * Published because the action bar now needs it: a node chart listing its readings names Up
+     * and Down only once there are more readings than fit, and the bar is built from a snapshot.
+     * The setter still publishes nothing, so this is what the *last* publish saw - which makes
+     * the hint at most one frame late on a panel that has just changed size, and 0 before the
+     * first paged list has been drawn. Both answer "do not name the gesture", which is the safe
+     * direction: a keycap named over nothing is the thing this table exists to prevent.
+     *
+     * It cannot oscillate, which is the question a fact about the panel feeding the bar has to
+     * answer. Naming a gesture can only cost the body a line, and fewer rows can only make
+     * "more readings than fit" more true - so the condition moves in one direction and settles.
+     */
+    uint32_t page_rows;
 };
 
 struct mesh_ui_store {
@@ -315,7 +331,8 @@ void mesh_ui_store_tick(struct mesh_ui_store *store, uint64_t now_ms);
    client that starts with no devices and no handshake would never paint a first frame. */
 void mesh_ui_store_request_refresh(struct mesh_ui_store *store);
 
-/* See `page_rows` on struct mesh_ui_store. Changes nothing on screen, so publishes nothing. */
+/* See `page_rows` on struct mesh_ui_store. Publishes nothing: it is read by the next snapshot
+   rather than by this frame, and every reader of it treats "not said yet" as "do not act". */
 void mesh_ui_store_set_page_rows(struct mesh_ui_store *store, uint32_t rows);
 
 /*

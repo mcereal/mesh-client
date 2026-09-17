@@ -125,8 +125,15 @@ MESH_STR_ENTRY(ACTION_CANCEL,             "cancel")
 MESH_STR_ENTRY(ACTION_MOVE,               "move")
 /* What SELECT does: open the explanation of the screen the user is on (docs/help.md). */
 MESH_STR_ENTRY(ACTION_HELP,               "help")
-/* The d-pad on the help screen, where there is nothing to choose - the rows are paragraphs, so
-   the cursor moves the text rather than a selection. A different verb from "move" on purpose. */
+/*
+ * The d-pad where there is nothing to choose, so the cursor moves the text rather than a
+ * selection. A different verb from "move" on purpose.
+ *
+ * Two screens: the help screen, whose rows are paragraphs, and the readings behind a node's
+ * chart, whose rows are facts. Neither has a press on a row, which is the whole of what makes
+ * this the right word for both - and it is one row rather than two because they are the same
+ * gesture doing the same thing, not two screens that happen to agree.
+ */
 MESH_STR_ENTRY(ACTION_SCROLL,             "scroll")
 /* The shoulder buttons inside a long picker: ten rows at a time rather than one. */
 MESH_STR_ENTRY(ACTION_JUMP,               "jump 10")
@@ -194,6 +201,19 @@ MESH_STR_ENTRY(ACTION_TREND,              "trend")
 /* The chart's span picker, on the d-pad's Left and Right. The one screen in the client where
    those two are not the tab switch - the shoulders still are, which is what pays for it. */
 MESH_STR_ENTRY(ACTION_SPAN,               "span")
+/*
+ * Y on a node's chart, which turns the plot into the readings behind it and back.
+ *
+ * Two words rather than one toggle word, because a keycap hint names *what the press does* and a
+ * toggle that said "readings" over a screen already showing them would be the label describing
+ * the state instead. Which one the bar carries is which face is up.
+ *
+ * "readings" rather than "values" or "log": what the list holds is the same readings the plot is
+ * drawn from, said exactly rather than approximately, and the word is already the one this
+ * client uses for them everywhere else.
+ */
+MESH_STR_ENTRY(ACTION_READINGS,           "readings")
+MESH_STR_ENTRY(ACTION_CHART,              "chart")
 /* Walk the node detail's groups with the d-pad's Left and Right, a card at a time. The second
    screen where those two are not the tab switch, and it is bought the same way: the shoulders
    still are. "groups" rather than "cards" because a card is how the fb backend draws one - a
@@ -778,6 +798,14 @@ MESH_STR_ENTRY(TREND_SPAN_ALL,            "All")
    because a single reading is a level rather than a trend and two either side of a silence are
    two samples and no line - and all three are the same thing to look at. */
 MESH_STR_ENTRY(TREND_EMPTY,               "Not enough readings in this span")
+/* The readings list, which is the plot's other face. The caption says what the left-hand column
+   is measured from, because it is not the clock: a Brick has no RTC and the series are stamped
+   with a monotonic one, so "ago" would be the one claim on this screen with nothing behind it -
+   see struct mesh_ui_trend_reading. */
+MESH_STR_ENTRY(TREND_READINGS_FROM,       "before the newest reading")
+/* A row of it: how long before that reading it was taken. The newest row is the reading it is
+   measured from, so it says so rather than "0s". */
+MESH_STR_ENTRY(TREND_READINGS_NEWEST,     "newest")
 /* Where a line has got to, in the legend under the plot, when the reading is a temperature. The
    percentages reuse the Status card's own "%.1f%%" so the chart and the card the reader came from
    round the same figure the same way; a temperature has no such twin, because the node row that
@@ -795,11 +823,22 @@ MESH_STR_ENTRY(TREND_VALUE_CELSIUS,       "%.1f C")
 MESH_STR_ENTRY(NODE_TREND_BATTERY,        "Battery")
 MESH_STR_ENTRY(NODE_TREND_TEMPERATURE,    "Temperature")
 MESH_STR_ENTRY(NODE_TREND_HUMIDITY,       "Humidity")
+/* The two about the link rather than about the node. Spelled out rather than left as the
+   acronyms the rows carry: a row sits under a "Signal" heading in a column two dozen cells wide
+   and has that context, while a chart title is the only thing on its line. */
+MESH_STR_ENTRY(NODE_TREND_SNR,            "Signal-to-noise")
+MESH_STR_ENTRY(NODE_TREND_RSSI,           "Received strength")
 /* The two ends of the vertical when the reading is a temperature: whole degrees Celsius, because
    an axis end is read rather than measured and the tenths the series is kept in would be four
    cells of precision nobody is asking the axis for. Untranslated unit letter, as the region
    codes and the modem presets are - "C" is the symbol rather than a word. */
 MESH_STR_ENTRY(NODE_TREND_AXIS_CELSIUS,   "%dC")
+/* And when it is one of the two signal readings. Both ends are whole units for the reason the
+   temperature's are, and both are signed: an axis that clamped a negative end to zero would put
+   every LoRa link ever measured against a floor of nothing. Untranslated units again - "dB" and
+   "dBm" are symbols, not words. */
+MESH_STR_ENTRY(NODE_TREND_AXIS_DB,        "%d dB")
+MESH_STR_ENTRY(NODE_TREND_AXIS_DBM,       "%d dBm")
 
 /* ---- a node's detail screen ------------------------------------------------------------------ */
 
@@ -1558,6 +1597,10 @@ MESH_STR_ENTRY(HELP_LABEL_NODE_CHART_GAPS, "Gaps and rules")
 MESH_STR_ENTRY(HELP_LABEL_NODE_CHART_SPAN, "Choosing how far back")
 MESH_STR_ENTRY(HELP_NOTE_NODE_CHART_GAPS, "The faint rules are where the reading troubles the node reporting it, not the weather. A break is a stretch it said nothing, not a zero. Nothing here survives a restart: it is what this client saw.")
 MESH_STR_ENTRY(HELP_NOTE_NODE_CHART_SPAN, "Left and Right pick how much of the record is on the picture, ending at the newest reading. A node reports every half hour by default, so the shorter spans hold only a reading or two.")
+/* And the other face. Two things it has to say and neither is obvious from the screen: that the
+   press exists, and that the left-hand column is not a clock. */
+MESH_STR_ENTRY(HELP_LABEL_NODE_CHART_READINGS, "Reading the figures")
+MESH_STR_ENTRY(HELP_NOTE_NODE_CHART_READINGS, "Y lists the same readings as exact figures instead of drawing them, newest first; Up and Down move through them. The left column is how long before the newest reading each was taken, not a clock time.")
 
 
 /* ---- settings: field labels ------------------------------------------------------------------- */

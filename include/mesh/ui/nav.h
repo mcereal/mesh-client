@@ -501,6 +501,37 @@ struct mesh_ui_nav {
      */
     uint8_t trend_span;
     /*
+     * A node's chart is showing its readings as a list rather than as a plot, and how far down
+     * that list the window has been scrolled.
+     *
+     * Two faces of one screen rather than a screen of its own, which is what makes Y the press
+     * and B still the way out: the reader is looking at the same reading over the same window,
+     * and what changes is whether they are reading a direction or a figure. A level of its own
+     * would have meant backing out of the list into the plot and out of the plot into the row,
+     * which is two presses to leave one thing.
+     *
+     * `trend_table` sits beside `trend_span` and is the same kind of field: not *where the reader
+     * is* - every other field on this struct is one per tab, so that each tab keeps its place -
+     * but how they like a chart read. So it survives the chart being closed and reopened, and is
+     * deliberately not persisted, for the reason the span is not: the readings it lists do not
+     * survive a restart either.
+     *
+     * `trend_scroll` is a place, and is reset whenever the list is opened or the span changes -
+     * a span is a different set of readings, and holding a row number across that would land the
+     * reader somewhere they did not choose. It is the *top* row rather than a cursor, because
+     * nothing in this list is pressable: there is no row to highlight, only a window to move.
+     * Held in range by mesh_ui_nav_clamp() against the readings actually in the span and the body
+     * rows the backend last reported - see `page_rows` on struct mesh_ui_store.
+     *
+     * **The airtime chart has neither.** Six hours at a reading a minute is 360 rows nobody will
+     * scroll, and it is binned into columns precisely because reading by reading is the wrong
+     * grain for it - see the readings section of mesh/ui/trend.h. The fields are on the nav
+     * rather than per-tab all the same, because there is one chart screen and one set of things
+     * a chart can be doing.
+     */
+    bool trend_table;
+    uint32_t trend_scroll;
+    /*
      * Waypoints tab: a place's detail is open (cursor[WAYPOINTS] indexes its rows) rather than
      * the list, whose position is parked in waypoint_list_cursor meanwhile. The same two-level
      * shape as Nodes, Messages and Settings.
