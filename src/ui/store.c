@@ -8,6 +8,10 @@
 #include "mesh/utils/text.h"
 
 #include "mesh/core/message.h"
+/* For mesh_ui_node_signal_heard(): whether a node's SNR is a measurement of its own link. A
+   question about a node summary rather than about the screen the header is named for, and the
+   one answer to it - the trend kept here and the bar drawn there must not decide it apart. */
+#include "mesh/ui/node_detail.h"
 #include "mesh/ui/settings.h"
 
 #include <errno.h>
@@ -372,6 +376,36 @@ static void mesh_ui_store_note_roster(struct mesh_ui_store *store,
                 mesh_ui_temperature_decidegrees(node->environment.temperature),
                 node->environment.has_humidity,
                 mesh_ui_percent_permille(node->environment.relative_humidity));
+        }
+
+        /*
+         * And how the packet itself arrived, which is the one thing here that is not telemetry.
+         *
+         * Keyed on `last_heard` rather than on a struct having changed, because that is the only
+         * field that says a *packet* landed: two arrivals from a node that has not moved carry
+         * the same SNR and the same RSSI, and a comparison of the readings would read the second
+         * one as a repeat of the first and drop it. A silent node's trend is then a line that
+         * stops while the node is still being heard from perfectly well.
+         *
+         * Gated on mesh_ui_node_signal_heard(), which is the whole of what makes this honest:
+         * an SNR from a relayed packet describes the relay and a node reached over MQTT crossed
+         * no air at all. Both are true numbers about something else, and the node detail refuses
+         * to draw a bar on either for the same reason - so the row and the trend behind it are
+         * one claim rather than two that agree until one of them is changed.
+         *
+         * The RSSI carries its own test on top. Only this radio can measure one, so a node now
+         * arriving over a bridge keeps the reading from the last packet we heard ourselves; the
+         * detail says so by ageing the row, and what a trend has to do instead is not push it
+         * again. `rssi_time` behind `last_heard` is exactly that condition.
+         */
+        const bool heard_now =
+            node->last_heard != 0U && (was == NULL || was->last_heard != node->last_heard);
+        if (heard_now && mesh_ui_node_signal_heard(node)) {
+            const bool rssi_now =
+                node->has_rssi && !(node->rssi_time != 0U && node->last_heard > node->rssi_time);
+            mesh_ui_history_note_signal(&store->history, (uint32_t)store->now_ms, node->node_id,
+                                        mesh_ui_snr_db(node->snr), rssi_now,
+                                        (int32_t)node->rx_rssi);
         }
     }
 }

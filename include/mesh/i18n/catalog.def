@@ -795,11 +795,22 @@ MESH_STR_ENTRY(TREND_VALUE_CELSIUS,       "%.1f C")
 MESH_STR_ENTRY(NODE_TREND_BATTERY,        "Battery")
 MESH_STR_ENTRY(NODE_TREND_TEMPERATURE,    "Temperature")
 MESH_STR_ENTRY(NODE_TREND_HUMIDITY,       "Humidity")
+/* The two about the link rather than about the node. Spelled out rather than left as the
+   acronyms the rows carry: a row sits under a "Signal" heading in a column two dozen cells wide
+   and has that context, while a chart title is the only thing on its line. */
+MESH_STR_ENTRY(NODE_TREND_SNR,            "Signal-to-noise")
+MESH_STR_ENTRY(NODE_TREND_RSSI,           "Received strength")
 /* The two ends of the vertical when the reading is a temperature: whole degrees Celsius, because
    an axis end is read rather than measured and the tenths the series is kept in would be four
    cells of precision nobody is asking the axis for. Untranslated unit letter, as the region
    codes and the modem presets are - "C" is the symbol rather than a word. */
 MESH_STR_ENTRY(NODE_TREND_AXIS_CELSIUS,   "%dC")
+/* And when it is one of the two signal readings. Both ends are whole units for the reason the
+   temperature's are, and both are signed: an axis that clamped a negative end to zero would put
+   every LoRa link ever measured against a floor of nothing. Untranslated units again - "dB" and
+   "dBm" are symbols, not words. */
+MESH_STR_ENTRY(NODE_TREND_AXIS_DB,        "%d dB")
+MESH_STR_ENTRY(NODE_TREND_AXIS_DBM,       "%d dBm")
 
 /* ---- a node's detail screen ------------------------------------------------------------------ */
 

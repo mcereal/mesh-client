@@ -4254,6 +4254,15 @@ enum fb_chart_axis {
     FB_CHART_AXIS_PERMILLE, /* a share of something, kept in permille, read as whole percent */
     FB_CHART_AXIS_PERCENT,  /* already whole percent, which is all the wire carries for a battery */
     FB_CHART_AXIS_CELSIUS,  /* tenths of a degree, read as whole ones */
+    /*
+     * The two signal readings, already in whole units and signed throughout.
+     *
+     * Their own kinds rather than the percent one, because that one ends `(unsigned)(value > 0 ?
+     * value : 0)` - a clamp that is right for a share of something and would draw every decibel
+     * a LoRa link has ever been measured at as a zero.
+     */
+    FB_CHART_AXIS_DECIBEL, /* dB: a signal-to-noise ratio */
+    FB_CHART_AXIS_DBM,     /* dBm: how loud the packet was */
 };
 
 /*
@@ -4267,6 +4276,14 @@ static void fb_chart_reading(uint8_t axis, int32_t value, char *out, size_t len)
     switch ((enum fb_chart_axis)axis) {
     case FB_CHART_AXIS_CELSIUS:
         mesh_str_format(out, len, MESH_STR_TREND_VALUE_CELSIUS, (double)value / 10.0);
+        return;
+    /* The same words as the axis ends, because these two are kept in the units they are read in:
+       there is no tenth to spend on the legend that the axis was not already showing. */
+    case FB_CHART_AXIS_DECIBEL:
+        mesh_str_format(out, len, MESH_STR_NODE_TREND_AXIS_DB, value);
+        return;
+    case FB_CHART_AXIS_DBM:
+        mesh_str_format(out, len, MESH_STR_NODE_TREND_AXIS_DBM, value);
         return;
     case FB_CHART_AXIS_PERMILLE:
         /* The Status card's own format, so the chart and the card round one figure one way. */
@@ -4286,6 +4303,12 @@ static void fb_chart_axis_end(uint8_t axis, int32_t value, char *out, size_t len
     switch ((enum fb_chart_axis)axis) {
     case FB_CHART_AXIS_CELSIUS:
         mesh_str_format(out, len, MESH_STR_NODE_TREND_AXIS_CELSIUS, value / 10);
+        return;
+    case FB_CHART_AXIS_DECIBEL:
+        mesh_str_format(out, len, MESH_STR_NODE_TREND_AXIS_DB, value);
+        return;
+    case FB_CHART_AXIS_DBM:
+        mesh_str_format(out, len, MESH_STR_NODE_TREND_AXIS_DBM, value);
         return;
     case FB_CHART_AXIS_PERMILLE:
         /* Rounded rather than truncated: the ladder's rungs are whole percents of the domain, so
@@ -4535,6 +4558,14 @@ static void fb_render_node_trend(struct mesh_ui_backend_fb_state *state,
         break;
     case MESH_UI_HISTORY_HUMIDITY:
         title = MESH_STR_NODE_TREND_HUMIDITY;
+        break;
+    case MESH_UI_HISTORY_SNR:
+        title = MESH_STR_NODE_TREND_SNR;
+        axis = FB_CHART_AXIS_DECIBEL;
+        break;
+    case MESH_UI_HISTORY_RSSI:
+        title = MESH_STR_NODE_TREND_RSSI;
+        axis = FB_CHART_AXIS_DBM;
         break;
     case MESH_UI_HISTORY_BATTERY:
     case MESH_UI_HISTORY_NONE:

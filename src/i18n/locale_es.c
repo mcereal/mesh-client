@@ -350,13 +350,18 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_HELP_LABEL_TREND_MARKS] = "Columnas y líneas",
     [MESH_STR_HELP_LABEL_TREND_SPAN] = "Elegir cuánto tiempo atrás",
 
-    /* A node's own chart. The three titles are the reading's name rather than a sentence about
-       it, exactly as the row labels further down are - and the axis keeps its bare "C", which is
-       a symbol rather than a word and is left alone here for the reason the region codes are. */
+    /* A node's own chart. The titles are the reading's name rather than a sentence about it,
+       exactly as the row labels further down are - and the axes keep their bare "C", "dB" and
+       "dBm", which are symbols rather than words and are left alone here for the reason the
+       region codes are. */
     [MESH_STR_NODE_TREND_BATTERY] = "Batería",
     [MESH_STR_NODE_TREND_TEMPERATURE] = "Temperatura",
     [MESH_STR_NODE_TREND_HUMIDITY] = "Humedad",
+    [MESH_STR_NODE_TREND_SNR] = "Relación señal/ruido",
+    [MESH_STR_NODE_TREND_RSSI] = "Potencia recibida",
     [MESH_STR_NODE_TREND_AXIS_CELSIUS] = "%dC",
+    [MESH_STR_NODE_TREND_AXIS_DB] = "%d dB",
+    [MESH_STR_NODE_TREND_AXIS_DBM] = "%d dBm",
     [MESH_STR_HELP_SUBJECT_NODE_CHART] = "Tendencia de este nodo",
     [MESH_STR_HELP_NOTE_SHARE] =
         "Todo lo necesario para unirse a los canales de esta radio, en un enlace. Apunta la cámara "

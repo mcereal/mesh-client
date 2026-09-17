@@ -138,6 +138,19 @@ enum mesh_ui_history_reading {
     MESH_UI_HISTORY_BATTERY,     /* whole percent, as the wire carries it */
     MESH_UI_HISTORY_TEMPERATURE, /* tenths of a degree Celsius */
     MESH_UI_HISTORY_HUMIDITY,    /* permille, as mesh_ui_percent_permille() leaves a percentage */
+    /*
+     * The link itself: whole decibels as mesh_ui_snr_db() leaves the wire's float, and whole dBm
+     * as the wire already carries it.
+     *
+     * Whole units rather than the tenths a temperature is kept in, and that is not a shortcut -
+     * it is the rule that a series is measured in the units of the row it hangs on. The bar
+     * under the SNR row is banded in whole decibels (MESH_UI_SNR_FAIR and its neighbours) and
+     * the chart is drawn on that row's own scale, so a series in tenths would be a line placed
+     * against a domain ten times too small. An SNR is measured off one packet anyway, which is
+     * error bars wide enough that a tenth of a decibel is precision the reading does not have.
+     */
+    MESH_UI_HISTORY_SNR,
+    MESH_UI_HISTORY_RSSI,
     MESH_UI_HISTORY_READING_COUNT
 };
 
@@ -285,6 +298,32 @@ void mesh_ui_history_note_environment(struct mesh_ui_history *history, uint32_t 
                                       uint32_t node_id, bool has_temperature,
                                       int32_t temperature_decidegrees, bool has_humidity,
                                       int32_t humidity_permille);
+
+/*
+ * How this node's last packet reached us, for the two readings that are about the link rather
+ * than about the node: its signal-to-noise ratio in whole decibels, and how loud it was in dBm.
+ *
+ * One call for the pair, for mesh_ui_history_note_environment()'s reason - they are two
+ * measurements of one packet, and two series stamped a publish apart would draw one arrival as
+ * two. `has_rssi` is the flag that keeps that honest when only half of it is there: not every
+ * radio reports a received strength, and pushing a zero for the one it did not measure would
+ * draw a line at the loudest reading the scale has.
+ *
+ * **Both readings have to be about this node's own link, and that is the caller's to establish**
+ * - mesh_ui_node_signal_heard() is the one answer to it. A packet that reached us through a
+ * relay carries the *relay's* SNR, and one that came over somebody's MQTT bridge crossed no air
+ * at all; either is a true number about something else, and a number about something else is
+ * exactly what a trend makes look like evidence. The node detail draws the bar under these two
+ * rows on the same condition, so the picture and the line it opens into are one claim.
+ *
+ * The cadence is the one thing here that is not a schedule. A node's telemetry arrives on a
+ * timer; its packets arrive when it has something to say, which on a quiet mesh is a NodeInfo
+ * every few minutes and on a busy one is constant. The gap the series breaks at is still the
+ * node gap, which is the right length for the question it is answering - four missed telemetry
+ * reports and a node that has gone quiet for two hours are the same silence to look at.
+ */
+void mesh_ui_history_note_signal(struct mesh_ui_history *history, uint32_t now_ms, uint32_t node_id,
+                                 int32_t snr_db, bool has_rssi, int32_t rssi_dbm);
 
 /*
  * Whether the radio's airtime has been reported enough to chart: two readings on different ticks

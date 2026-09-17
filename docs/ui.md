@@ -688,6 +688,7 @@ a frame (`key ... 3` emits three). Worked examples are in `devtools/ui_capture/s
 | `link up\|down` | attach or drop the radio, leaving the roster and config alone |
 | `offradio NAME\|all` | mark nodes the radio's NodeDB no longer carries |
 | `battery NAME PCT`, `environment NAME C [HUM]` | one telemetry report each, one reading at a time |
+| `signal NAME SNR [RSSI]` | one packet heard straight off the air: dB, dBm, and the clock moved half-way to now |
 | `nofix` | take our own radio's fix away |
 | `verified NAME`, `verify waiting\|show\|enter\|compare\|off NAME` | the key-verification bit, and the sheet |
 | `pin NAME` | pin that node |

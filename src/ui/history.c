@@ -431,6 +431,30 @@ void mesh_ui_history_note_environment(struct mesh_ui_history *history, uint32_t 
     }
 }
 
+void mesh_ui_history_note_signal(struct mesh_ui_history *history, uint32_t now_ms, uint32_t node_id,
+                                 int32_t snr_db, bool has_rssi, int32_t rssi_dbm) {
+    if (history == NULL || node_id == 0U) {
+        return;
+    }
+    const uint32_t stamp = mesh_ui_history_stamp(history, now_ms);
+    struct mesh_ui_history_node *slot = mesh_ui_history_slot(history, node_id);
+    slot->seen = stamp;
+    /* Both under one stamp, so the pair is one packet. There is no break to arm on a radio that
+       reports no RSSI: an absent reading is exactly the silence `gap_ms` was written for, and a
+       series that never gets one simply never exists. */
+    struct mesh_ui_series *snr = mesh_ui_history_series_for(history, slot, MESH_UI_HISTORY_SNR);
+    if (snr != NULL) {
+        mesh_ui_series_push(snr, stamp, snr_db);
+    }
+    if (has_rssi) {
+        struct mesh_ui_series *rssi =
+            mesh_ui_history_series_for(history, slot, MESH_UI_HISTORY_RSSI);
+        if (rssi != NULL) {
+            mesh_ui_series_push(rssi, stamp, rssi_dbm);
+        }
+    }
+}
+
 const struct mesh_ui_series *mesh_ui_history_series(const struct mesh_ui_history *history,
                                                     uint32_t node_id,
                                                     enum mesh_ui_history_reading reading) {
