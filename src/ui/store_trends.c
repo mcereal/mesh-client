@@ -184,9 +184,20 @@ static uint32_t trend_reader_finish(struct trend_reader *reader) {
     return n;
 }
 
-/* A record's value, read through the field list that is the format's other half. A reading the
-   enum does not name is a line from a build that keeps one this one does not, or a hand edit;
-   either way it is skipped rather than pushed onto a series it cannot belong to. */
+/*
+ * A record's value, read through the field list that is the format's other half.
+ *
+ * Only the four fields are checked here, and a reading this build has no name for is *kept*.
+ * That is store_keys.def's forward-compatibility rule applied to a format where skipping a line
+ * costs more than the line: every delta is measured from the record above, so a record dropped
+ * on the way in takes its elapsed interval with it and pulls everything after it earlier - which
+ * is a real silence redrawn as a connected line. Kept, its interval stays in the chain, and a
+ * compaction writes it back for the build that does know what it is.
+ *
+ * Which reading it is stays the restore's question, asked at the one place a record becomes a
+ * sample. A line whose fields do not parse at all is the other case and is dropped, because a
+ * torn line has no interval to contribute either.
+ */
 static bool trend_read_value(const char *value, struct trend_record *out) {
     memset(out, 0, sizeof *out);
     const struct mesh_ui_store_field fields[] = {
@@ -195,12 +206,14 @@ static bool trend_read_value(const char *value, struct trend_record *out) {
         MESH_UI_STORE_FIELD(&out->value),
         MESH_UI_STORE_FIELD(&out->gap),
     };
-    if (mesh_ui_store_fields_read(value, fields, MESH_ARRAY_LEN(fields)) !=
-        MESH_ARRAY_LEN(fields)) {
-        return false;
-    }
-    return out->reading > (uint8_t)MESH_UI_HISTORY_NONE &&
-           out->reading < (uint8_t)MESH_UI_HISTORY_READING_COUNT;
+    return mesh_ui_store_fields_read(value, fields, MESH_ARRAY_LEN(fields)) ==
+           MESH_ARRAY_LEN(fields);
+}
+
+/* Whether this build has a series to put the record on. */
+static bool trend_reading_known(uint8_t reading) {
+    return reading > (uint8_t)MESH_UI_HISTORY_NONE &&
+           reading < (uint8_t)MESH_UI_HISTORY_READING_COUNT;
 }
 
 /*
@@ -437,9 +450,28 @@ int mesh_ui_trends_append(struct mesh_ui_trends *trends, const struct mesh_ui_hi
            stamp against the high-water mark says there is nothing to write far more cheaply than
            five series of two dozen samples each would. */
         uint32_t newest = 0U;
-        if (state->written && (!mesh_ui_history_node_newest(history, node_id, &newest) ||
-                               newest <= state->written_at)) {
-            continue;
+        const bool held = mesh_ui_history_node_newest(history, node_id, &newest);
+        if (state->written) {
+            if (!held) {
+                continue;
+            }
+            if (newest < state->written_at) {
+                /*
+                 * The clock went backwards, which on a uint32 of milliseconds is the wrap 41 days
+                 * of running reaches (MESH_UI_HISTORY_EPOCH_MS). mesh_ui_series_push() has
+                 * already emptied what it holds, so this node's trend is a fresh start - and a
+                 * high-water mark left up near the top of the range would read every reading
+                 * after the wrap as one already written, and quietly stop persisting the node
+                 * for the rest of the run.
+                 *
+                 * So the chain starts again, which also writes the seam: how much time the wrap
+                 * covered is precisely what a wrapped clock cannot say.
+                 */
+                state->written = false;
+                state->written_at = 0U;
+            } else if (newest == state->written_at) {
+                continue;
+            }
         }
 
         struct trend_pending pending[MESH_UI_TRENDS_BATCH_MAX];
@@ -475,12 +507,26 @@ int mesh_ui_trends_append(struct mesh_ui_trends *trends, const struct mesh_ui_hi
         const bool resumed =
             !state->written && fstat(fileno(file), &before) == 0 && before.st_size > 0;
 
+        /*
+         * The chain moves on a copy, and the copy reaches `state` only once the records are on
+         * the card.
+         *
+         * Advancing as each record is written would mean a card that filled, or was pulled,
+         * between the last fputs and the fclose left every attempted reading marked as written -
+         * so the next publish would filter them out and the file would be missing samples the
+         * history had. That matters more here than it would elsewhere, because a restore
+         * *replaces* the live trend with the log: the gap would not merely fail to be saved, it
+         * would be read back over the readings that were still in RAM. archive_remember() makes
+         * the same statement for the same reason.
+         */
+        bool chain_open = state->written;
+        uint32_t chain_at = state->written_at;
         uint32_t records = 0U;
         for (uint32_t j = 0U; j < count; ++j) {
             struct trend_record record = {
                 .reading = pending[j].reading, .value = pending[j].value, .gap = pending[j].gap};
-            if (state->written) {
-                record.delta = pending[j].time - state->written_at;
+            if (chain_open) {
+                record.delta = pending[j].time - chain_at;
             } else {
                 /* How long the client was not running is unknowable on a Brick, so the seam is
                    the shortest silence that is already a break - and the record says so itself
@@ -489,8 +535,8 @@ int mesh_ui_trends_append(struct mesh_ui_trends *trends, const struct mesh_ui_hi
                 record.gap = record.gap || resumed;
             }
             trend_write_record(file, &record);
-            state->written = true;
-            state->written_at = pending[j].time;
+            chain_open = true;
+            chain_at = pending[j].time;
             ++records;
         }
         /* And the size the cap is measured against, off the same handle and before it is let go
@@ -505,9 +551,12 @@ int mesh_ui_trends_append(struct mesh_ui_trends *trends, const struct mesh_ui_hi
             result = -errno;
         }
         if (result != 0) {
+            /* `state` is untouched, so these readings are written again on the next publish. */
             mesh_log_warn("ui", "Could not append to trend log %s: %d", path, result);
             continue;
         }
+        state->written = chain_open;
+        state->written_at = chain_at;
         written += (int)records;
         if (size > (off_t)MESH_UI_TRENDS_FILE_MAX_BYTES) {
             trends_compact(path);
@@ -576,11 +625,19 @@ int mesh_ui_trends_restore(struct mesh_ui_trends *trends, uint32_t node_id,
     }
 
     mesh_ui_history_restore_node_reset(history, node_id);
+    uint32_t restored = 0U;
     for (uint32_t i = first; i < count; ++i) {
+        /* A reading a newer build keeps and this one does not. Its interval is already in the
+           times above, which is the whole reason the reader held on to it; what it has no series
+           to go on is the value. */
+        if (!trend_reading_known(records[i].reading)) {
+            continue;
+        }
         const uint32_t behind = span - (uint32_t)(times[i] - times[first]);
         mesh_ui_history_restore_node(history, node_id,
                                      (enum mesh_ui_history_reading)records[i].reading,
                                      end_ms - behind, records[i].value, records[i].gap);
+        ++restored;
     }
     if (!continuous) {
         mesh_ui_history_resume_node(history, node_id);
@@ -599,7 +656,7 @@ int mesh_ui_trends_restore(struct mesh_ui_trends *trends, uint32_t node_id,
         state->written = true;
         state->written_at = end_ms;
     }
-    return (int)(count - first);
+    return (int)restored;
 }
 
 int mesh_ui_trends_forget(struct mesh_ui_trends *trends) {

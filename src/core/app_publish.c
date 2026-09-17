@@ -738,7 +738,15 @@ static void mesh_app_publish_trends(struct mesh_app *app) {
     (void)mesh_ui_trends_append(&app->ui_trends, &app->ui_store.history);
 
     const struct mesh_ui_nav *nav = &app->ui_store.nav;
-    const uint32_t open = nav->node_detail_open ? nav->node_detail_node : 0U;
+    /*
+     * The screen is checked as well as the flag, which is the rule nav.c states where it takes a
+     * press: `node_detail_open` says where the Nodes tab is *standing*, not what the reader is
+     * looking at, and a shoulder walks off the tab with the detail still open behind it. Without
+     * the screen, a node whose slot was evicted while the reader was on another tab would come
+     * back to a detail this still thinks is loaded, and so to a trend that is no longer there.
+     */
+    const uint32_t open =
+        (nav->screen == MESH_UI_SCREEN_NODES && nav->node_detail_open) ? nav->node_detail_node : 0U;
     /*
      * Asked of the node rather than of a flag, so leaving a detail screen and coming back to the
      * same node is not a re-read, and moving to another node is. A read that failed is not

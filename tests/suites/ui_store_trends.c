@@ -473,6 +473,109 @@ cleanup:
 }
 
 /*
+ * A reading this build has no name for still holds its place in the chain.
+ *
+ * The forward-compatibility case, and it costs more here than it would in the cache: every delta
+ * is measured from the record above, so a record dropped on the way in takes its elapsed interval
+ * with it and pulls everything after it earlier. The file below spends a whole node gap on a
+ * reading this build does not keep - drop it and the two batteries either side are a minute
+ * apart and drawn as one line, which is a two-hour silence claimed as evidence.
+ */
+MESH_TEST_CASE(ui_trends_keep_an_unknown_reading_in_the_chain, unit) {
+    const char *failure = NULL;
+    struct mesh_ui_trends trends;
+    char dir[64];
+    char path[128];
+    MESH_TEST_FAIL_IF(!trends_open(&trends, dir, sizeof dir), "could not open a trend log");
+    snprintf(path, sizeof path, "%s/n00000abc.trend", dir);
+
+    /* Written by hand, because what is being tested is a record no build here can produce: a
+       reading id past the end of this enum, as a newer client would have written. */
+    FILE *file = fopen(path, "w");
+    if (file == NULL) {
+        failure = "could not write a log by hand";
+        goto cleanup;
+    }
+    fprintf(file, "trend=%u,0,50,0\n", (unsigned)MESH_UI_HISTORY_BATTERY);
+    fprintf(file, "trend=%u,%u,5,0\n", (unsigned)MESH_UI_HISTORY_READING_COUNT + 7U,
+            (unsigned)MESH_UI_HISTORY_NODE_GAP_MS);
+    fprintf(file, "trend=%u,60000,49,0\n", (unsigned)MESH_UI_HISTORY_BATTERY);
+    fclose(file);
+
+    struct mesh_ui_history history;
+    trends_history(&history);
+    /* Two restored, not three: the third record is kept by the reader and has no series here. */
+    if (mesh_ui_trends_restore(&trends, 0xABCU, &history, 5000U) != 2) {
+        failure = "only the readings this build knows should be restored";
+        goto cleanup;
+    }
+    const int32_t levels[] = {50, 49};
+    if (!trends_values(&history, 0xABCU, MESH_UI_HISTORY_BATTERY, levels, 2U)) {
+        failure = "the readings this build knows should come back as they were";
+        goto cleanup;
+    }
+    if (!mesh_ui_series_starts_segment(
+            mesh_ui_history_series(&history, 0xABCU, MESH_UI_HISTORY_BATTERY), 1U)) {
+        failure = "the interval an unknown record spent must stay in the chain";
+        goto cleanup;
+    }
+
+cleanup:
+    (void)mesh_test_remove_tree(dir);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * A clock that wraps starts a new chain rather than stopping the log.
+ *
+ * The history's timeline is a uint32 of milliseconds shifted up by MESH_UI_HISTORY_EPOCH_MS, so
+ * 41 days of continuous running reaches the end of it. mesh_ui_series_push() handles that by
+ * emptying what it holds - the readings are still true and when they were taken is not - but a
+ * writer whose high-water mark stayed up near the top of the range would read every reading
+ * after the wrap as one it had already written, and go quiet for the rest of the run.
+ */
+MESH_TEST_CASE(ui_trends_survive_a_clock_that_wraps, unit) {
+    const char *failure = NULL;
+    struct mesh_ui_trends trends;
+    char dir[64];
+    MESH_TEST_FAIL_IF(!trends_open(&trends, dir, sizeof dir), "could not open a trend log");
+
+    struct mesh_ui_history history;
+    trends_history(&history);
+    /* A caller's clock chosen so that the history's own stamp lands just under the top. */
+    const uint32_t before_wrap = 0xFFFFFFFFU - MESH_UI_HISTORY_EPOCH_MS - 120000U;
+    mesh_ui_history_note_battery(&history, before_wrap, 0xD00DU, 60U);
+    if (mesh_ui_trends_append(&trends, &history) != 1) {
+        failure = "the reading before the wrap should have been written";
+        goto cleanup;
+    }
+
+    /* And one just past it: the stamp wraps, so the series is emptied and starts again low. */
+    const uint32_t after_wrap = before_wrap + 240000U;
+    mesh_ui_history_note_battery(&history, after_wrap, 0xD00DU, 59U);
+    if (trends_count(&history, 0xD00DU, MESH_UI_HISTORY_BATTERY) != 1U) {
+        failure = "a wrapped clock should have emptied the series it holds";
+        goto cleanup;
+    }
+    if (mesh_ui_trends_append(&trends, &history) != 1) {
+        failure = "a reading after the wrap must still reach the card";
+        goto cleanup;
+    }
+    /* And the one after that, so the log is not merely unstuck for a single reading. */
+    mesh_ui_history_note_battery(&history, after_wrap + 60000U, 0xD00DU, 58U);
+    if (mesh_ui_trends_append(&trends, &history) != 1) {
+        failure = "the log should keep writing once the chain has started again";
+        goto cleanup;
+    }
+
+cleanup:
+    (void)mesh_test_remove_tree(dir);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
  * A different radio is a different mesh, so the logs go with it.
  *
  * Node numbers are the mesh's rather than the radio's, and two meshes can hand out the same one -
