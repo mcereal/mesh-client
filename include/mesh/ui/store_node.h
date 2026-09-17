@@ -249,16 +249,51 @@ struct mesh_ui_traceroute_hop {
  * the target onto the ends, so the renderer only walks a list - the same division the node
  * summary follows, and the only place that knows a route's shape.
  *
- * Not persisted: a route is true for about as long as the mesh holds still.
+ * One record is one *attempt*: the store holds the attempt in flight, and the log below holds
+ * the routes that were measured. A route is true for about as long as the mesh holds still,
+ * which is why `completed` is part of the record and why every screen that draws a path draws
+ * its age underneath - not a reason to forget it, any more than a position fix is.
  */
 struct mesh_ui_traceroute {
     uint8_t state; /* enum mesh_traceroute_state, carried as a byte */
     uint32_t target;
-    uint32_t completed; /* our clock when the reply landed; 0 while pending */
+    uint32_t completed; /* the wall clock when the reply landed; 0 while pending */
     uint8_t forward_count;
     struct mesh_ui_traceroute_hop forward[MESH_UI_TRACEROUTE_MAX_HOPS];
     uint8_t back_count;
     struct mesh_ui_traceroute_hop back[MESH_UI_TRACEROUTE_MAX_HOPS];
+};
+
+/*
+ * How many measured routes are kept. Eight nodes' worth of route is about four kilobytes, which
+ * is what the number is: a trace is a press somebody made deliberately, and tracing a ninth node
+ * is a long way past the handful anyone keeps an eye on.
+ */
+#define MESH_UI_TRACEROUTE_LOG_MAX 8U
+
+/*
+ * Every route this client has measured and not yet forgotten, newest first, one entry per
+ * target.
+ *
+ * The one slot above answers "what is the trace doing"; this answers "what is the route to that
+ * node", and they are different questions with different lifetimes. Until the log existed they
+ * were one field, so tracing a second node erased the first one's route and a restart erased
+ * both - a measurement the user waited a minute for, thrown away by the next press.
+ *
+ * Only a finished trace is recorded, so an entry is always MESH_TRACEROUTE_DONE, and a second
+ * trace of the same node replaces that node's entry rather than adding one. Persisted in the
+ * handshake cache; see include/mesh/ui/store_keys.def and docs/ui.md.
+ */
+struct mesh_ui_traceroute_log {
+    uint8_t count;
+    struct mesh_ui_traceroute entries[MESH_UI_TRACEROUTE_LOG_MAX];
+    /*
+     * Bumped every time an entry is recorded, and deliberately not written to the card: it is
+     * how the app tells "this publish measured a route" from "this publish saw the same log
+     * again", which is the same question the read state's own revision answers there. A count
+     * cannot answer it - the eighth trace and the ninth both leave the count at eight.
+     */
+    uint32_t revision;
 };
 
 /*

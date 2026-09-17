@@ -3659,8 +3659,8 @@ MESH_TEST_CASE(ui_capture_node_detail_cards_survive_the_cursor, unit) {
         struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
         const uint32_t count = mesh_ui_node_detail_build(
             node, hs->has_my_info && node != NULL && node->node_id == hs->my_info.node_num, 0U,
-            &snapshot.traceroute, false, hs, &snapshot.history, false, items,
-            MESH_UI_NODE_ITEMS_MAX);
+            mesh_ui_snapshot_traceroute_view(&snapshot, node != NULL ? node->node_id : 0U), false,
+            hs, &snapshot.history, false, items, MESH_UI_NODE_ITEMS_MAX);
         struct mesh_ui_node_span span = {0};
         const bool on_card =
             mesh_ui_node_detail_span(items, count, mesh_ui_capture_page_rows(capture),

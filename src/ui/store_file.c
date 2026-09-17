@@ -31,6 +31,9 @@
 
 #include "store_internal.h"
 
+/* For MESH_TRACEROUTE_DONE: a logged route is a finished one, which is the whole of what this
+   file has to say about the state a record loads with. */
+#include "mesh/core/session.h"
 #include "mesh/geo/coords.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store_fields.h"
@@ -310,6 +313,45 @@ static void mesh_ui_store_save_history(FILE *file, const struct mesh_ui_history 
     }
 }
 
+/*
+ * The routes this client has measured, hop by hop.
+ *
+ * Small enough to ride the cache rather than earn a file of its own: eight routes of ten stops
+ * is a few hundred lines in the worst case and a dozen in the ordinary one, against a roster of
+ * 128 nodes that is already rewritten whole on every save.
+ *
+ * `completed` is written as it stands because it is a *wall* clock - mesh_session_wall_clock(),
+ * the radio's time - so unlike the airtime trend beside it there is nothing to convert into an
+ * age: the stamp still means what it meant, and a run that never learns the time draws the age
+ * as unknown exactly as it would have in the run that measured it.
+ */
+static void mesh_ui_store_save_traceroutes(FILE *file, const struct mesh_ui_traceroute_log *log) {
+    if (file == NULL || log == NULL) {
+        return;
+    }
+    for (uint32_t i = 0U; i < log->count && i < MESH_UI_TRACEROUTE_LOG_MAX; ++i) {
+        const struct mesh_ui_traceroute *trace = &log->entries[i];
+        if (trace->target == 0U || trace->forward_count == 0U) {
+            continue;
+        }
+        mesh_ui_store_write_row(file, MESH_UI_STORE_KEY_TRACE, i, "%u,%u", trace->target,
+                                trace->completed);
+        for (uint32_t direction = 0U; direction < 2U; ++direction) {
+            const struct mesh_ui_traceroute_hop *path =
+                direction == 0U ? trace->forward : trace->back;
+            const uint8_t count = direction == 0U ? trace->forward_count : trace->back_count;
+            for (uint8_t hop = 0U; hop < count && hop < MESH_UI_TRACEROUTE_MAX_HOPS; ++hop) {
+                const uint32_t slot = direction * MESH_UI_TRACEROUTE_MAX_HOPS + hop;
+                mesh_ui_store_write_slot(file, MESH_UI_STORE_KEY_TRACE_HOP, i, slot, "%u,%u,%d",
+                                         path[hop].node_id, path[hop].has_snr ? 1U : 0U,
+                                         (int)path[hop].snr_quarter_db);
+                mesh_ui_store_write_slot_text(file, MESH_UI_STORE_KEY_TRACE_HOP_NAME, i, slot,
+                                              path[hop].name);
+            }
+        }
+    }
+}
+
 int mesh_ui_store_save(const struct mesh_ui_store *store, const char *path) {
     if (store == NULL || path == NULL || path[0] == '\0') {
         return -EINVAL;
@@ -328,6 +370,7 @@ int mesh_ui_store_save(const struct mesh_ui_store *store, const char *path) {
     mesh_ui_store_save_messages(file, &store->messages);
     mesh_ui_store_save_read_state(file, &store->read_state);
     mesh_ui_store_save_history(file, &store->history);
+    mesh_ui_store_save_traceroutes(file, &store->traceroutes);
 
     int result = ferror(file) ? -EIO : 0;
     if (fclose(file) != 0) {
@@ -373,6 +416,10 @@ struct mesh_ui_store_cache {
 
     struct mesh_ui_store_cached_airtime airtime[MESH_UI_HISTORY_AIRTIME_MAX];
     uint32_t airtime_loaded;
+
+    /* The routes, in the order the file carries them, which is the order they were measured in:
+       the log writes newest first and the loader fills the same slots. */
+    struct mesh_ui_traceroute_log traceroutes;
 };
 
 /*
@@ -392,6 +439,11 @@ static struct mesh_ui_channel *cache_channel(struct mesh_ui_store_cache *cache, 
 
 static struct mesh_ui_message *cache_message(struct mesh_ui_store_cache *cache, uint32_t index) {
     return index < MESH_UI_MAX_MESSAGES ? &cache->messages.entries[index] : NULL;
+}
+
+static struct mesh_ui_traceroute *cache_traceroute(struct mesh_ui_store_cache *cache,
+                                                   uint32_t index) {
+    return index < MESH_UI_TRACEROUTE_LOG_MAX ? &cache->traceroutes.entries[index] : NULL;
 }
 
 /*
@@ -1027,6 +1079,87 @@ static void load_airtime(struct mesh_ui_store_cache *cache, uint32_t index, cons
     }
 }
 
+/*
+ * The line that opens a route. Everything else about the record arrives on the two slot keys
+ * below, and the state is not on the file at all: only a finished trace is ever logged, so a
+ * record that loads is a measured route by definition.
+ */
+static void load_traceroute(struct mesh_ui_store_cache *cache, uint32_t index, const char *value) {
+    struct mesh_ui_traceroute *trace = cache_traceroute(cache, index);
+    if (trace == NULL) {
+        return;
+    }
+    uint32_t target = 0U;
+    uint32_t completed = 0U;
+    const struct mesh_ui_store_field fields[] = {
+        MESH_UI_STORE_FIELD(&target),
+        MESH_UI_STORE_FIELD(&completed),
+    };
+    if (!cache_fields(value, fields, MESH_ARRAY_LEN(fields)) || target == 0U) {
+        return;
+    }
+    memset(trace, 0, sizeof *trace);
+    trace->state = MESH_TRACEROUTE_DONE;
+    trace->target = target;
+    trace->completed = completed;
+    if (index + 1U > cache->traceroutes.count) {
+        cache->traceroutes.count = (uint8_t)(index + 1U);
+    }
+}
+
+/* The stop a `trace_hop[i.n]` or `trace_name[i.n]` names, or NULL when the file names one past
+   the end of either path - or one in a record no trace[] line opened, which is not half a
+   route, the same rule a stray neighbour entry is held to. */
+static struct mesh_ui_traceroute_hop *cache_traceroute_hop(struct mesh_ui_store_cache *cache,
+                                                           uint32_t index, uint32_t slot) {
+    struct mesh_ui_traceroute *trace = cache_traceroute(cache, index);
+    if (trace == NULL || trace->target == 0U || slot >= 2U * MESH_UI_TRACEROUTE_MAX_HOPS) {
+        return NULL;
+    }
+    const bool back = slot >= MESH_UI_TRACEROUTE_MAX_HOPS;
+    const uint8_t at = (uint8_t)(back ? slot - MESH_UI_TRACEROUTE_MAX_HOPS : slot);
+    /* The counts are re-derived here rather than read off the trace[] line, the way a neighbour
+       list's count is: a truncated or hand-edited file then leaves a route as long as the stops
+       it actually carries rather than one claiming stops that are not there. */
+    uint8_t *count = back ? &trace->back_count : &trace->forward_count;
+    if (at + 1U > *count) {
+        *count = (uint8_t)(at + 1U);
+    }
+    return back ? &trace->back[at] : &trace->forward[at];
+}
+
+static void load_traceroute_hop(struct mesh_ui_store_cache *cache, uint32_t index, uint32_t slot,
+                                const char *value) {
+    uint32_t node_id = 0U;
+    bool has_snr = false;
+    int16_t snr = 0;
+    const struct mesh_ui_store_field fields[] = {
+        MESH_UI_STORE_FIELD(&node_id),
+        MESH_UI_STORE_FIELD(&has_snr),
+        MESH_UI_STORE_FIELD(&snr),
+    };
+    /* Read a field wider than it is written and bounded here, because the reading is an int8_t
+       and store_fields.h has no i8: a value that does not fit is a hop that does not load. */
+    if (!cache_fields(value, fields, MESH_ARRAY_LEN(fields)) || snr < INT8_MIN || snr > INT8_MAX) {
+        return;
+    }
+    struct mesh_ui_traceroute_hop *hop = cache_traceroute_hop(cache, index, slot);
+    if (hop == NULL) {
+        return;
+    }
+    hop->node_id = node_id;
+    hop->has_snr = has_snr;
+    hop->snr_quarter_db = (int8_t)snr;
+}
+
+static void load_traceroute_hop_name(struct mesh_ui_store_cache *cache, uint32_t index,
+                                     uint32_t slot, const char *value) {
+    struct mesh_ui_traceroute_hop *hop = cache_traceroute_hop(cache, index, slot);
+    if (hop != NULL) {
+        cache_text(hop->name, sizeof hop->name, value);
+    }
+}
+
 /* One line: a key, an index or two, and a value. Everything the format knows how to do is one
    case of this switch, which is why it has no `default` - see the note at the top of the file. */
 static void load_line(struct mesh_ui_store_cache *cache, const char *key, char *value) {
@@ -1151,6 +1284,16 @@ static void load_line(struct mesh_ui_store_cache *cache, const char *key, char *
         load_airtime(cache, index, value);
         break;
 
+    case MESH_UI_STORE_KEY_TRACE:
+        load_traceroute(cache, index, value);
+        break;
+    case MESH_UI_STORE_KEY_TRACE_HOP:
+        load_traceroute_hop(cache, index, slot, value);
+        break;
+    case MESH_UI_STORE_KEY_TRACE_HOP_NAME:
+        load_traceroute_hop_name(cache, index, slot, value);
+        break;
+
     /* Written every save and read by nobody, on purpose: both are counts, and the loader
        re-derives each from the rows that actually load so a truncated or hand-edited file
        cannot leave a list claiming rows that are not there. */
@@ -1244,6 +1387,11 @@ static void commit(struct mesh_ui_store *store, struct mesh_ui_store_cache *cach
     store->read_state = cache->read_state;
 
     restore_airtime(&store->history, cache);
+
+    /* Straight across: a route is the one thing in this file that needs no fitting to a clock,
+       because its stamp is the radio's rather than ours. The revision stays at zero - what was
+       just loaded *is* what the card holds, so nothing here is worth writing back. */
+    store->traceroutes = cache->traceroutes;
 
     mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_HANDSHAKE | MESH_UI_UPDATE_MESSAGES);
 }

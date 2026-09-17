@@ -73,6 +73,9 @@
 #include "mesh/core/firmware.h"
 #include "mesh/core/firmware_update.h"
 #include "mesh/core/message.h"
+/* For MESH_TRACEROUTE_DONE: the demo scene seeds measured routes, and a route the client kept
+   is a finished one. */
+#include "mesh/core/session.h"
 #include "mesh/core/store_forward.h"
 #include "mesh/core/updater.h"
 #include "mesh/i18n/strings.h"
@@ -161,6 +164,19 @@ struct uicap_message_seed {
  * ages and signal, and a message log that crosses a day boundary and a long silence so the
  * transcript's separators have something to separate.
  */
+/* A hop's name as the app would have resolved it when the reply landed: the roster's long name,
+   and the node's id when the roster has never heard of it. */
+static void uicap_route_hop_name(const struct mesh_ui_handshake_state *handshake, uint32_t node_id,
+                                 char *out, size_t out_len) {
+    for (uint32_t i = 0U; i < handshake->node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
+        if (handshake->nodes[i].node_id == node_id && handshake->nodes[i].long_name[0] != '\0') {
+            snprintf(out, out_len, "%s", handshake->nodes[i].long_name);
+            return;
+        }
+    }
+    snprintf(out, out_len, "!%08x", node_id);
+}
+
 static void uicap_scene_demo(struct uicap *cap) {
     /* The last of these is the radio that is not here: BlueZ holds its bond and lists it with
        every other node, and it has no signal reading to draw because nothing has heard it. It
@@ -518,6 +534,61 @@ static void uicap_scene_demo(struct uicap *cap) {
     snprintf(handshake.channels[1].name, sizeof handshake.channels[1].name, "%s", "Trail");
     handshake.channels[1].psk_len = 16U;
     mesh_ui_store_set_handshake(&cap->store, &handshake);
+
+    /*
+     * Two routes this radio has measured, because the client keeps one per node and the
+     * interesting half of that is the *older* one: before the traceroute log existed, tracing
+     * Golf Cabin took Echo Repeater's path off the screen and a restart took both. Traced in
+     * that order here, so the scene's live slot holds Golf and Echo's route comes back out of
+     * the log - exactly the state a Brick is in after a restart.
+     *
+     * The paths agree with the roster above: Echo is three hops away through Alfa and Charlie,
+     * Golf is two through Alfa. A demo whose route contradicted its own hop counts would be
+     * showing a screen the client cannot produce.
+     */
+    static const struct uicap_route_seed {
+        uint32_t target;
+        uint32_t measured_ago;
+        uint8_t count;
+        uint32_t path[MESH_UI_TRACEROUTE_MAX_HOPS];
+        int8_t snr[MESH_UI_TRACEROUTE_MAX_HOPS];
+    } routes[] = {
+        {0x8F21B008U,
+         1800U,
+         4U,
+         {0x43A1C0DEU, 0x8F21B004U, 0x8F21B006U, 0x8F21B008U},
+         {0, 34, 16, 27}},
+        {0x8F21B00AU, 240U, 3U, {0x43A1C0DEU, 0x8F21B004U, 0x8F21B00AU}, {0, 34, 10}},
+    };
+    for (size_t r = 0U; r < sizeof routes / sizeof routes[0]; ++r) {
+        struct mesh_ui_traceroute trace;
+        memset(&trace, 0, sizeof trace);
+        trace.state = MESH_TRACEROUTE_DONE;
+        trace.target = routes[r].target;
+        trace.completed = now - routes[r].measured_ago;
+        trace.forward_count = routes[r].count;
+        trace.back_count = routes[r].count;
+        for (uint8_t hop = 0U; hop < routes[r].count; ++hop) {
+            /* The way back is the way out reversed, which is the ordinary result: a mesh that
+               routed the reply differently is a case for a test rather than for the picture
+               everybody looks at. The readings reverse with it - the link into the *i*th stop
+               coming back is the link into the *count - i*th stop going out, because it is the
+               same pair of radios - so the two cards read as one route rather than as two. */
+            const uint8_t mirror = (uint8_t)(routes[r].count - 1U - hop);
+            trace.forward[hop].node_id = routes[r].path[hop];
+            trace.back[hop].node_id = routes[r].path[mirror];
+            /* The first stop of a path is the sender: nothing carried the packet to it. */
+            trace.forward[hop].has_snr = hop > 0U;
+            trace.forward[hop].snr_quarter_db = routes[r].snr[hop];
+            trace.back[hop].has_snr = hop > 0U;
+            trace.back[hop].snr_quarter_db = hop > 0U ? routes[r].snr[routes[r].count - hop] : 0;
+            uicap_route_hop_name(&handshake, trace.forward[hop].node_id, trace.forward[hop].name,
+                                 sizeof trace.forward[hop].name);
+            uicap_route_hop_name(&handshake, trace.back[hop].node_id, trace.back[hop].name,
+                                 sizeof trace.back[hop].name);
+        }
+        mesh_ui_store_set_traceroute(&cap->store, &trace);
+    }
 
     static const struct uicap_message_seed log[] = {
         {0x8F21B004U, "ALFA", "", "Heading up the ridge, back before dark", 93000U, 0U, true, false,

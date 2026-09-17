@@ -7,6 +7,9 @@
 #include "support/ui_fixture.h"
 
 #include "mesh/core/message.h"
+/* For enum mesh_traceroute_state: the UI's traceroute carries it as a byte, and a fixture has
+   to say which state it is building. */
+#include "mesh/core/session.h"
 #include "mesh/ui/history.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/store.h"
@@ -937,6 +940,273 @@ cleanup:
 }
 
 /*
+ * A finished trace, in the shape the app hands one to the store: us at the front going out, the
+ * target at the front coming back, one reading per link into a stop.
+ */
+static struct mesh_ui_traceroute traceroute_done(uint32_t target, uint32_t completed) {
+    struct mesh_ui_traceroute trace;
+    memset(&trace, 0, sizeof trace);
+    trace.state = MESH_TRACEROUTE_DONE;
+    trace.target = target;
+    trace.completed = completed;
+    trace.forward_count = 2U;
+    trace.forward[0].node_id = 0x0001U;
+    snprintf(trace.forward[0].name, sizeof trace.forward[0].name, "US");
+    trace.forward[1].node_id = target;
+    trace.forward[1].has_snr = true;
+    trace.forward[1].snr_quarter_db = 22;
+    snprintf(trace.forward[1].name, sizeof trace.forward[1].name, "T%04x", (unsigned)target);
+    return trace;
+}
+
+/*
+ * One entry per node, newest first, and only for a trace that measured something.
+ *
+ * The behaviour this is here for is the one the log was added for: tracing a second node used to
+ * erase the first node's route, because the store held exactly one and the next trace overwrote
+ * it. A re-trace still replaces that node's own entry - there is only ever one current route to
+ * a node - and the cap evicts the least recently traced.
+ */
+MESH_TEST_CASE(ui_store_traceroute_log_keeps_one_route_per_node, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    const char *failure = NULL;
+
+    const struct mesh_ui_traceroute first = traceroute_done(0x1111U, 1750000000U);
+    const struct mesh_ui_traceroute second = traceroute_done(0x2222U, 1750000100U);
+    mesh_ui_store_set_traceroute(&store, &first);
+    mesh_ui_store_set_traceroute(&store, &second);
+
+    if (store.traceroutes.count != 2U) {
+        failure = "tracing a second node should not forget the first";
+        goto cleanup;
+    }
+    if (mesh_ui_store_traceroute_view(&store, 0x1111U) == NULL) {
+        failure = "the first node's route should still be there";
+        goto cleanup;
+    }
+
+    /* The same record again, publish after publish, is the state the session sits in until the
+       next trace is sent; it must not stack up as a second entry. */
+    mesh_ui_store_set_traceroute(&store, &second);
+    if (store.traceroutes.count != 2U) {
+        failure = "the same result published twice is one route";
+        goto cleanup;
+    }
+
+    const struct mesh_ui_traceroute again = traceroute_done(0x1111U, 1750000200U);
+    mesh_ui_store_set_traceroute(&store, &again);
+    const struct mesh_ui_traceroute *held = mesh_ui_store_traceroute_view(&store, 0x1111U);
+    if (store.traceroutes.count != 2U || held == NULL || held->completed != 1750000200U) {
+        failure = "re-tracing a node should replace that node's route, not add one";
+        goto cleanup;
+    }
+
+    /* A trace in flight has measured nothing, so there is nothing to write down; the route that
+       node already had must survive being re-traced until the reply lands. */
+    struct mesh_ui_traceroute pending;
+    memset(&pending, 0, sizeof pending);
+    pending.state = MESH_TRACEROUTE_PENDING;
+    pending.target = 0x3333U;
+    mesh_ui_store_set_traceroute(&store, &pending);
+    if (store.traceroutes.count != 2U) {
+        failure = "a trace in flight has measured nothing to remember";
+        goto cleanup;
+    }
+
+    for (uint32_t i = 0U; i < MESH_UI_TRACEROUTE_LOG_MAX; ++i) {
+        const struct mesh_ui_traceroute filler = traceroute_done(0x4000U + i, 1750001000U + i);
+        mesh_ui_store_set_traceroute(&store, &filler);
+    }
+    if (store.traceroutes.count != MESH_UI_TRACEROUTE_LOG_MAX) {
+        failure = "the log is capped at MESH_UI_TRACEROUTE_LOG_MAX routes";
+        goto cleanup;
+    }
+    if (mesh_ui_store_traceroute_view(&store, 0x1111U) != NULL) {
+        failure = "the least recently traced node is the one evicted";
+        goto cleanup;
+    }
+    if (mesh_ui_store_traceroute_view(&store, 0x4000U + MESH_UI_TRACEROUTE_LOG_MAX - 1U) == NULL) {
+        failure = "the newest route should be in the log";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * Which of the two records a screen is handed, and why there are two.
+ *
+ * The one slot says what the *trace* is doing and the log says what the *route* is, so a screen
+ * asking about a node gets the attempt while it is that node's attempt - running, timed out -
+ * and the last measurement otherwise. Reading the slot directly is what used to make a second
+ * node's detail describe itself with the first node's trace.
+ */
+MESH_TEST_CASE(ui_store_traceroute_view_answers_for_the_node_asked_about, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    const char *failure = NULL;
+
+    const struct mesh_ui_traceroute measured = traceroute_done(0x1111U, 1750000000U);
+    mesh_ui_store_set_traceroute(&store, &measured);
+
+    struct mesh_ui_traceroute pending;
+    memset(&pending, 0, sizeof pending);
+    pending.state = MESH_TRACEROUTE_PENDING;
+    pending.target = 0x2222U;
+    mesh_ui_store_set_traceroute(&store, &pending);
+
+    const struct mesh_ui_traceroute *running = mesh_ui_store_traceroute_view(&store, 0x2222U);
+    if (running == NULL || running->state != MESH_TRACEROUTE_PENDING) {
+        failure = "the node being traced should see the trace in flight";
+        goto cleanup;
+    }
+    const struct mesh_ui_traceroute *other = mesh_ui_store_traceroute_view(&store, 0x1111U);
+    if (other == NULL || other->state != MESH_TRACEROUTE_DONE || other->target != 0x1111U) {
+        failure = "a node with a measured route keeps it while another node is traced";
+        goto cleanup;
+    }
+    if (mesh_ui_store_traceroute_view(&store, 0x9999U) != NULL) {
+        failure = "a node nothing has been traced to has no route";
+        goto cleanup;
+    }
+    if (mesh_ui_store_traceroute_view(&store, 0U) != NULL) {
+        failure = "node 0 is not a node";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/* Every path in the log starts at *us*, so the measurements belong to the radio that made them -
+   the same reason the trend history is dropped on a swap. */
+MESH_TEST_CASE(ui_store_traceroute_log_forgets_on_a_radio_swap, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    const char *failure = NULL;
+
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.roster_owner = 0x0001U;
+    handshake.node_count = 1U;
+    handshake.nodes[0].node_id = 0x1111U;
+    mesh_ui_store_set_handshake(&store, &handshake);
+
+    const struct mesh_ui_traceroute measured = traceroute_done(0x1111U, 1750000000U);
+    mesh_ui_store_set_traceroute(&store, &measured);
+    if (mesh_ui_store_traceroute_view(&store, 0x1111U) == NULL) {
+        failure = "the route should be logged before the swap";
+        goto cleanup;
+    }
+
+    handshake.roster_owner = 0x0002U;
+    mesh_ui_store_set_handshake(&store, &handshake);
+    if (store.traceroutes.count != 0U || mesh_ui_store_traceroute_view(&store, 0x1111U) != NULL) {
+        failure = "a different radio is a different vantage; the routes go with it";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * A route on the card, hop for hop.
+ *
+ * The round-trip test above proves every key survives a reload by comparing two saves byte for
+ * byte; this says what the bytes mean - that a stop keeps the name it was written with, that
+ * "no reading" is not a reading of zero, and that the way back is a path of its own rather than
+ * more of the way out.
+ */
+MESH_TEST_CASE(ui_store_traceroute_log_survives_the_cache, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+
+    struct mesh_ui_traceroute trace = traceroute_done(0x2222U, 1750000500U);
+    /* A name off the air, carrying both characters the escape exists for. */
+    snprintf(trace.forward[1].name, sizeof trace.forward[1].name, "A=B\nC");
+    trace.back_count = 2U;
+    trace.back[0].node_id = 0x2222U;
+    snprintf(trace.back[0].name, sizeof trace.back[0].name, "FAR");
+    trace.back[1].node_id = 0x0001U;
+    trace.back[1].has_snr = true;
+    trace.back[1].snr_quarter_db = -128; /* the firmware's "this link was not measured" */
+    snprintf(trace.back[1].name, sizeof trace.back[1].name, "US");
+    mesh_ui_store_set_traceroute(&store, &trace);
+
+    char path[] = "/tmp/mesh_ui_trace_XXXXXX";
+    const int fd = mkstemp(path);
+    if (fd < 0) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "mkstemp failed");
+        return;
+    }
+    close(fd);
+
+    const char *failure = NULL;
+    struct mesh_ui_store reloaded;
+    bool reloaded_open = false;
+
+    if (mesh_ui_store_save(&store, path) != 0) {
+        failure = "save failed";
+        goto cleanup;
+    }
+    if (mesh_ui_store_init(&reloaded) != 0) {
+        failure = "reload init failed";
+        goto cleanup;
+    }
+    reloaded_open = true;
+    if (mesh_ui_store_load(&reloaded, path) != 0) {
+        failure = "load failed";
+        goto cleanup;
+    }
+
+    const struct mesh_ui_traceroute *back = mesh_ui_store_traceroute_view(&reloaded, 0x2222U);
+    if (back == NULL) {
+        failure = "the route did not come back off the card";
+        goto cleanup;
+    }
+    if (back->state != MESH_TRACEROUTE_DONE || back->completed != 1750000500U) {
+        failure = "a route read back is a measured route, stamped when it was measured";
+        goto cleanup;
+    }
+    if (back->forward_count != 2U || back->back_count != 2U) {
+        failure = "both paths should come back at the length they were written";
+        goto cleanup;
+    }
+    if (strcmp(back->forward[1].name, "A=B\nC") != 0 || back->forward[1].node_id != 0x2222U ||
+        !back->forward[1].has_snr || back->forward[1].snr_quarter_db != 22) {
+        failure = "a stop keeps its name and the reading of the link into it";
+        goto cleanup;
+    }
+    if (back->forward[0].has_snr) {
+        failure = "the first stop is the sender and has no incoming link";
+        goto cleanup;
+    }
+    if (strcmp(back->back[0].name, "FAR") != 0 || back->back[1].snr_quarter_db != -128) {
+        failure = "the way back is a path of its own, unmeasured links and all";
+        goto cleanup;
+    }
+
+cleanup:
+    if (reloaded_open) {
+        mesh_ui_store_shutdown(&reloaded);
+    }
+    unlink(path);
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
  * Every cache key is written, and every cache key is read.
  *
  * The cache format used to be spelled twice - once as a printf literal in the writer, once as a
@@ -1111,6 +1381,18 @@ MESH_TEST_CASE(ui_store_cache_keys_round_trip, unit) {
 
     mesh_ui_history_restore_airtime(&store.history, 0U, 10, 5, false);
     mesh_ui_history_restore_airtime(&store.history, 1000U, 20, 7, true);
+
+    /* Two measured routes, so the log's row key and both of its slot keys are on the file - and
+       a hop named with the two characters the escape exists for, since a hop's name comes off
+       the air exactly as a node's does. */
+    struct mesh_ui_traceroute trace = traceroute_done(0x1111U, 1750000400U);
+    snprintf(trace.forward[1].name, sizeof trace.forward[1].name, "hop=one\ntwo");
+    trace.back_count = 2U;
+    trace.back[0] = trace.forward[1];
+    trace.back[1] = trace.forward[0];
+    mesh_ui_store_set_traceroute(&store, &trace);
+    const struct mesh_ui_traceroute other = traceroute_done(0x2222U, 1750000500U);
+    mesh_ui_store_set_traceroute(&store, &other);
 
     char first_path[] = "/tmp/mesh_ui_keys_aXXXXXX";
     char second_path[] = "/tmp/mesh_ui_keys_bXXXXXX";

@@ -8,6 +8,9 @@
 #include "mesh/utils/text.h"
 
 #include "mesh/core/message.h"
+/* For enum mesh_traceroute_state, which the UI's traceroute carries as a byte: telling a trace
+   in flight from a route already measured is the one question this file asks of it. */
+#include "mesh/core/session.h"
 /* For mesh_ui_node_signal_heard(): whether a node's SNR is a measurement of its own link. A
    question about a node summary rather than about the screen the header is named for, and the
    one answer to it - the trend kept here and the bar drawn there must not decide it apart. */
@@ -323,6 +326,11 @@ static void mesh_ui_store_note_roster(struct mesh_ui_store *store,
         store->handshake.roster_owner != 0U && next->roster_owner != store->handshake.roster_owner;
     if (swapped) {
         mesh_ui_history_forget(&store->history);
+        /* Every path starts at *us*, so a route belongs to the radio that measured it as
+           squarely as a trend does - the slot the attempt is in as much as the log, since a
+           trace that was in flight was in flight over the link we have just put down. */
+        memset(&store->traceroute, 0, sizeof store->traceroute);
+        memset(&store->traceroutes, 0, sizeof store->traceroutes);
     }
     const uint32_t count = next->node_count < MESH_UI_MAX_HANDSHAKE_NODES
                                ? next->node_count
@@ -538,6 +546,78 @@ void mesh_ui_store_set_settings(struct mesh_ui_store *store,
     mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_SETTINGS);
 }
 
+/*
+ * One measured route into the log, newest first.
+ *
+ * A second trace of a node replaces that node's entry rather than adding one, because what the
+ * log answers is "what is the route to that node" and there is only ever one current answer.
+ * The move to the front is what makes the cap mean the eight most recently *traced* nodes
+ * rather than the first eight ever traced.
+ */
+static void mesh_ui_traceroute_log_record(struct mesh_ui_traceroute_log *log,
+                                          const struct mesh_ui_traceroute *trace) {
+    uint8_t at = log->count;
+    for (uint8_t i = 0U; i < log->count; ++i) {
+        if (log->entries[i].target == trace->target) {
+            at = i;
+            break;
+        }
+    }
+    /* Everything above the slot being reused - or above the oldest entry, when the log is full
+       and nothing here is this node - shuffles down to leave room at the front. */
+    if (at >= MESH_UI_TRACEROUTE_LOG_MAX) {
+        at = MESH_UI_TRACEROUTE_LOG_MAX - 1U;
+    } else if (at == log->count && log->count < MESH_UI_TRACEROUTE_LOG_MAX) {
+        log->count++;
+    }
+    for (uint8_t i = at; i > 0U; --i) {
+        log->entries[i] = log->entries[i - 1U];
+    }
+    log->entries[0] = *trace;
+    log->revision++;
+}
+
+static const struct mesh_ui_traceroute *
+mesh_ui_traceroute_log_find(const struct mesh_ui_traceroute_log *log, uint32_t node_id) {
+    for (uint8_t i = 0U; i < log->count && i < MESH_UI_TRACEROUTE_LOG_MAX; ++i) {
+        if (log->entries[i].target == node_id) {
+            return &log->entries[i];
+        }
+    }
+    return NULL;
+}
+
+static const struct mesh_ui_traceroute *
+mesh_ui_pick_traceroute(const struct mesh_ui_traceroute *live,
+                        const struct mesh_ui_traceroute_log *log, uint32_t node_id) {
+    if (node_id == 0U) {
+        return NULL;
+    }
+    /* The attempt wins while it is this node's, whatever it has to say: a trace that is running
+       or that timed out is news, and the row that reports it is the same row the route hangs
+       under. When it lands it is recorded below and the two agree. */
+    if (live->state != MESH_TRACEROUTE_IDLE && live->target == node_id) {
+        return live;
+    }
+    return mesh_ui_traceroute_log_find(log, node_id);
+}
+
+const struct mesh_ui_traceroute *mesh_ui_store_traceroute_view(const struct mesh_ui_store *store,
+                                                               uint32_t node_id) {
+    if (store == NULL) {
+        return NULL;
+    }
+    return mesh_ui_pick_traceroute(&store->traceroute, &store->traceroutes, node_id);
+}
+
+const struct mesh_ui_traceroute *
+mesh_ui_snapshot_traceroute_view(const struct mesh_ui_snapshot *snapshot, uint32_t node_id) {
+    if (snapshot == NULL) {
+        return NULL;
+    }
+    return mesh_ui_pick_traceroute(&snapshot->traceroute, &snapshot->traceroutes, node_id);
+}
+
 void mesh_ui_store_set_traceroute(struct mesh_ui_store *store,
                                   const struct mesh_ui_traceroute *traceroute) {
     if (store == NULL) {
@@ -551,6 +631,15 @@ void mesh_ui_store_set_traceroute(struct mesh_ui_store *store,
     }
     if (memcmp(&store->traceroute, &next, sizeof next) == 0) {
         return;
+    }
+    /*
+     * A finished trace is the one thing here worth keeping, so it is written down before the
+     * slot moves on. The guard is the record rather than the state alone: the session keeps its
+     * result until the next trace is sent, so this call arrives with the same DONE record on
+     * every publish, and the memcmp above is what makes recording it once mean once.
+     */
+    if (next.state == MESH_TRACEROUTE_DONE && next.target != 0U && next.forward_count > 0U) {
+        mesh_ui_traceroute_log_record(&store->traceroutes, &next);
     }
     store->traceroute = next;
     mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_TRACEROUTE);
@@ -1332,6 +1421,7 @@ bool mesh_ui_store_consume_updates(struct mesh_ui_store *store, struct mesh_ui_s
     snapshot->read_state = store->read_state;
     snapshot->settings = store->settings;
     snapshot->traceroute = store->traceroute;
+    snapshot->traceroutes = store->traceroutes;
     snapshot->verification = store->verification;
     snapshot->history = store->history;
     /* What the backend last said its body holds, for the one thing on the other side of the seam

@@ -52,7 +52,7 @@ There are three files on the card and they answer different questions.
 
 | | `…prefs.handshake` | `…prefs.messages/` | `…prefs.trends/` |
 |---|---|---|---|
-| What | the roster, channels, read marks, airtime trend, and the newest 64 messages | one append-only log per conversation | one append-only log per node |
+| What | the roster, channels, read marks, airtime trend, measured routes, and the newest 64 messages | one append-only log per conversation | one append-only log per node |
 | Shape | one file, rewritten whole every save | a file per conversation, appended to | a file per node, appended to |
 | Keys | `include/mesh/ui/store_keys.def` | the same message records, over `store_internal.h` | one `trend` record, off the same table |
 | Read | at launch, all of it | when a conversation is opened, one file | when a node's detail is opened, one file |
@@ -153,6 +153,34 @@ Deleting has to reach every copy or the next publish undoes it: the transport's 
 history the app restored at startup, the store (both lists), and the card. `on_delete_message()`
 and `on_delete_conversation()` in `src/core/app_actions.c` are where that is spelled out, which
 is why both are app actions rather than something the store does on a key press.
+
+### The traceroute log
+
+A trace is a press somebody made deliberately and then waited up to a minute for, and until the
+log existed the client kept exactly one: tracing a second node erased the first one's path, and
+a restart erased both. `struct mesh_ui_traceroute_log` holds the last route measured to each of
+`MESH_UI_TRACEROUTE_LOG_MAX` (8) nodes, and every screen asks
+`mesh_ui_store_traceroute_view()` for the node it is drawing rather than reaching for the store's
+own slot — which is the same rule the transcript's window follows one section up, for the same
+reason: the one slot answers a different question, and reading it directly is how a second node's
+detail came to describe itself with the first node's trace.
+
+- **The slot is the trace, the log is the route.** Only a finished trace is recorded, so an entry
+  is always a measured path; the slot is what says *running* or *timed out*, and the view hands
+  that back while the trace is this node's. Re-tracing a node replaces that node's entry — there
+  is only ever one current route to a node — and the cap evicts the least recently traced.
+- **It rides the cache rather than a file of its own**, and the arithmetic is why: eight routes of
+  at most ten stops is a few hundred lines in the worst case and a dozen in the ordinary one,
+  against a roster of 128 nodes the same file already rewrites on every save. The keys are
+  `trace[i]`, `trace_hop[i.n]` and `trace_name[i.n]`; a hop's name is written rather than
+  re-resolved on load, for the reason `msg_relay[]` is.
+- **A route's stamp is the radio's wall clock**, not ours, so unlike the trend log there is
+  nothing to convert on the way out — the number still means what it meant, and the group closes
+  with how old it is. A route is true for about as long as the mesh holds still, which is an
+  argument for saying when it was measured rather than for throwing it away: the same terms a
+  position fix is kept on.
+- **Every path starts at us**, so a radio swap drops the log and the slot with it, exactly as it
+  drops the trends above.
 
 ## Input
 

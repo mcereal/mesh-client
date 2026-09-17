@@ -97,6 +97,8 @@ void mesh_ui_store_write_slot(FILE *file, enum mesh_ui_store_key key, uint32_t i
 void mesh_ui_store_write_text(FILE *file, enum mesh_ui_store_key key, const char *text);
 void mesh_ui_store_write_row_text(FILE *file, enum mesh_ui_store_key key, uint32_t index,
                                   const char *text);
+void mesh_ui_store_write_slot_text(FILE *file, enum mesh_ui_store_key key, uint32_t index,
+                                   uint32_t slot, const char *text);
 
 /*
  * The mirror of that escape, in place.

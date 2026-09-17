@@ -577,8 +577,10 @@ uint32_t mesh_ui_nav_row_count(const struct mesh_ui_nav *nav, const struct mesh_
          */
         const struct mesh_ui_node_summary *node =
             mesh_ui_node_detail_find(&store->handshake, nav->node_detail_node);
-        return mesh_ui_node_detail_count(node, mesh_ui_nav_node_is_self(store, node),
-                                         &store->traceroute, &store->handshake);
+        return mesh_ui_node_detail_count(
+            node, mesh_ui_nav_node_is_self(store, node),
+            node != NULL ? mesh_ui_store_traceroute_view(store, node->node_id) : NULL,
+            &store->handshake);
     }
     case MESH_UI_SCREEN_WAYPOINTS:
         return mesh_ui_nav_waypoint_row_count(nav, store);
@@ -693,9 +695,11 @@ bool mesh_ui_nav_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_store *stor
             mesh_ui_node_detail_find(&store->handshake, nav->node_detail_node);
         struct mesh_ui_node_item row;
         memset(&row, 0, sizeof row);
-        if (!mesh_ui_node_detail_trend_row(charted, mesh_ui_nav_node_is_self(store, charted),
-                                           &store->traceroute, &store->handshake, &store->history,
-                                           (enum mesh_ui_history_reading)nav->node_trend, &row)) {
+        if (!mesh_ui_node_detail_trend_row(
+                charted, mesh_ui_nav_node_is_self(store, charted),
+                charted != NULL ? mesh_ui_store_traceroute_view(store, charted->node_id) : NULL,
+                &store->handshake, &store->history, (enum mesh_ui_history_reading)nav->node_trend,
+                &row)) {
             nav->node_trend = MESH_UI_HISTORY_NONE;
             nav->trend_scroll = 0U;
             moved = true;
@@ -878,8 +882,9 @@ static bool mesh_ui_nav_row_is_heading(const struct mesh_ui_nav *nav,
            only thing this reads - the same two arguments mesh_ui_node_detail_trend_at() passes
            nothing for, and for the same reason. */
         const uint32_t count = mesh_ui_node_detail_build(
-            node, mesh_ui_nav_node_is_self(store, node), 0U, &store->traceroute, false,
-            &store->handshake, NULL, false, items, MESH_UI_NODE_ITEMS_MAX);
+            node, mesh_ui_nav_node_is_self(store, node), 0U,
+            mesh_ui_store_traceroute_view(store, node->node_id), false, &store->handshake, NULL,
+            false, items, MESH_UI_NODE_ITEMS_MAX);
         return row < count && items[row].kind == MESH_UI_NODE_ROW_HEADING;
     }
     if (nav->screen == MESH_UI_SCREEN_SETTINGS &&
@@ -1006,8 +1011,9 @@ static uint32_t mesh_ui_nav_heading_map(const struct mesh_ui_nav *nav,
         }
         struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
         const uint32_t count = mesh_ui_node_detail_build(
-            node, mesh_ui_nav_node_is_self(store, node), 0U, &store->traceroute, false,
-            &store->handshake, NULL, false, items, MESH_UI_NODE_ITEMS_MAX);
+            node, mesh_ui_nav_node_is_self(store, node), 0U,
+            mesh_ui_store_traceroute_view(store, node->node_id), false, &store->handshake, NULL,
+            false, items, MESH_UI_NODE_ITEMS_MAX);
         const uint32_t rows = count < max ? count : max;
         for (uint32_t r = 0; r < rows; ++r) {
             out[r] = items[r].kind == MESH_UI_NODE_ROW_HEADING;
@@ -1424,9 +1430,10 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
         }
         struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
         const uint32_t count = mesh_ui_node_detail_build(
-            node, mesh_ui_nav_node_is_self(store, node), 0U, &store->traceroute,
-            nav->node_remove_armed, &store->handshake, &store->history,
-            mesh_ui_units_imperial(store->settings.units), items, MESH_UI_NODE_ITEMS_MAX);
+            node, mesh_ui_nav_node_is_self(store, node), 0U,
+            mesh_ui_store_traceroute_view(store, node->node_id), nav->node_remove_armed,
+            &store->handshake, &store->history, mesh_ui_units_imperial(store->settings.units),
+            items, MESH_UI_NODE_ITEMS_MAX);
         /*
          * A meter row carrying a trend opens that trend as a chart, and it is taken ahead of the
          * action-row guard below because it is the one press on this screen that is not an
@@ -2108,11 +2115,12 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
             const int delta = key == MESH_UI_KEY_RIGHT || key == MESH_UI_KEY_DOWN ? +1 : -1;
             const uint32_t next =
                 key == MESH_UI_KEY_LEFT || key == MESH_UI_KEY_RIGHT
-                    ? mesh_ui_node_detail_group_step(node, is_self, &store->traceroute,
-                                                     &store->handshake, &store->history,
-                                                     store->page_rows, row, delta)
-                    : mesh_ui_node_detail_step(node, is_self, &store->traceroute, &store->handshake,
-                                               &store->history, store->page_rows, row, delta);
+                    ? mesh_ui_node_detail_group_step(
+                          node, is_self, mesh_ui_store_traceroute_view(store, node->node_id),
+                          &store->handshake, &store->history, store->page_rows, row, delta)
+                    : mesh_ui_node_detail_step(
+                          node, is_self, mesh_ui_store_traceroute_view(store, node->node_id),
+                          &store->handshake, &store->history, store->page_rows, row, delta);
             if (next == row) {
                 /* No group that way. The press is still spent rather than falling through to
                    the tabs: Left at the top of the first card meaning "leave the node" would be
