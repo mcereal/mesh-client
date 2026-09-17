@@ -52,13 +52,22 @@ That makes topic derivation a compatibility surface rather than a design. Every 
 match what the firmware would have produced, character for character:
 
 ```
-<root>/2/e/<channel>/+        one per downlink-enabled channel
+<root>/2/e/<channel>/+        one per downlink-enabled channel, deduplicated
 <root>/2/e/PKI/+              once, if any channel downlinks at all
 ```
 
 `<root>` is `MQTTConfig.root` or `msh`. `<channel>` is the channel's name, or — for the unnamed
 default primary, which is most of them — the name of the modem preset. `+` rather than `#`
 because the one level left open is the gateway node id, which is what the firmware asks for.
+
+**Two channels can be one topic.** Because an unnamed channel derives the preset's name, a radio
+carrying the usual unnamed primary *and* an unnamed secondary derives `LongFast` twice, as does
+one with a channel named after its own preset. The second is not a second subscription, so
+`mesh_session_mqtt_filter()` enumerates distinct ids and skips the repeat without counting it.
+Deduplicating at the far end instead is what the client used to do by accident: the proxy
+refused the repeat with `-EEXIST` and the log went on claiming one more subscription than had
+ever been made. `mqtt_session_subscribes_once_to_a_repeated_channel` and the two cases beside it
+hold the rule, including that the channel *behind* a repeat is still reached.
 
 The failure mode if any of this is wrong is the reason it is pinned by tests: a filter that is
 merely *sensible* subscribes to a topic nobody publishes on, and the mesh publishes fine and
@@ -260,6 +269,22 @@ the way up. Two things about that are easy to get wrong and are handled delibera
   descriptor is empty, epoll has nothing to report, and a reader that stops after one call waits
   forever on data it already has. The proxy bounds its read loop so a busy broker cannot starve
   the UI, and sets `more_to_read` when it stops early so the next tick comes back.
+- **A session ticket is not a failure and is not `-EAGAIN` either.** TLS 1.3 sends its tickets
+  *after* the handshake, so they arrive on the application stream and `mbedtls_ssl_read()`
+  reports one by returning `MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET`. Treating that as an
+  error drops every healthy connection — which is what happened against `mqtt.meshtastic.org`
+  once Mbed TLS moved to 4.1, since 4.x enables TLS 1.3 and session tickets by default.
+  Answering it with `-EAGAIN` is the other tempting fix and fails the same way as the bullet
+  above: the broker's CONNACK usually shares the flight with the ticket, so it is already inside
+  the session with an empty socket underneath. `mesh_tls_client_read()` retries the read instead.
+  `mqtt_proxy_reads_past_a_session_ticket` holds this, and the fixture broker issues real tickets
+  so the handshake tests exercise the post-handshake path at all — an Mbed TLS server with no
+  ticket callback configured sends none, which is why a real handshake under test still missed it.
+  That retry is bounded by `MESH_TLS_TICKETS_PER_READ`, because `MQTT_READS_PER_TURN` counts
+  calls *into* `tls_client.c` and cannot bound work that never returns from one; hitting the cap
+  hands back `-EAGAIN` with `more_to_read` set, and the proxy resumes on its own next turn, in
+  `GREETING` as well as `READY`. Mbed TLS reports at most one ticket per read in practice, so the
+  cap is defensive rather than exercised — `mqtt_proxy_survives_a_run_of_tickets` says so.
 
 ### Certificates are always verified
 

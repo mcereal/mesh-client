@@ -540,6 +540,16 @@ static void mqtt_read_ready(struct mesh_mqtt_proxy *proxy) {
         const int got =
             mqtt_raw_read(proxy, proxy->in + proxy->in_len, sizeof proxy->in - proxy->in_len);
         if (got == -EAGAIN) {
+            /*
+             * Not an empty socket: the session gave the loop back part-way through work of its
+             * own, which today means a run of tickets long enough to hit its budget. Waiting for
+             * a readiness event here would be waiting for one that may never come, so this takes
+             * the same way back as a spent read budget does.
+             */
+            if (proxy->tls.state != NULL && proxy->tls.more_to_read) {
+                proxy->more_to_read = true;
+                return;
+            }
             /* Which way it is blocked, remembered rather than assumed: a TLS read that stopped
                because it has something to send is woken by EPOLLOUT, and mqtt_fd_callback()
                reads the flag to know that a writable socket means *this* rather than the write
@@ -1050,17 +1060,22 @@ void mesh_mqtt_proxy_tick(struct mesh_mqtt_proxy *proxy, uint64_t now_ms) {
         return;
     }
 
-    if (proxy->state != MESH_MQTT_PROXY_READY) {
-        return;
+    /*
+     * Data already decrypted inside the TLS session, or a read budget that ran out. epoll has
+     * nothing left to report in the first case, so this is the only thing that comes back.
+     *
+     * GREETING as well as READY, because the CONNACK is read by that same function: a session
+     * that stopped early on its way to one - on a run of tickets, say - has the answer sitting
+     * inside it with an empty socket underneath, and gating this on READY alone would leave it
+     * there until the deadline and then retry into the same place forever.
+     */
+    if (proxy->more_to_read &&
+        (proxy->state == MESH_MQTT_PROXY_GREETING || proxy->state == MESH_MQTT_PROXY_READY)) {
+        mqtt_read_ready(proxy);
     }
 
-    /* Data already decrypted inside the TLS session, or a read budget that ran out. epoll has
-       nothing left to report in the first case, so this is the only thing that comes back. */
-    if (proxy->more_to_read) {
-        mqtt_read_ready(proxy);
-        if (proxy->state != MESH_MQTT_PROXY_READY) {
-            return;
-        }
+    if (proxy->state != MESH_MQTT_PROXY_READY) {
+        return;
     }
 
     /* The broker has said nothing for long enough that the connection is not there any more.

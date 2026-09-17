@@ -1618,6 +1618,37 @@ int mesh_session_send_mqtt_proxy(struct mesh_session *session, const char *topic
     return mesh_session_send_raw(session, buffer, stream.bytes_written, 0U);
 }
 
+/*
+ * Whether an earlier downlinking channel already derives this same id.
+ *
+ * Two slots collide more easily than they look. `mesh_mqtt_channel_id()` falls back to the LoRa
+ * preset name for a channel with no name of its own, so a radio carrying the usual unnamed
+ * primary plus an unnamed secondary derives "LongFast" twice - and a channel named after the
+ * preset collides with an unnamed one the same way. The topic is built from that id, so the
+ * second one is not a second subscription: it is the first one again.
+ *
+ * Scanning the slots before this one, rather than remembering ids across calls, is what keeps
+ * this an enumerator - the caller walks indices and this function holds nothing between them.
+ * Eight slots makes the quadratic shape free.
+ */
+static bool mesh_session_mqtt_id_seen(const struct mesh_radio_settings *radio,
+                                      const meshtastic_Config_LoRaConfig *lora, size_t slot,
+                                      const char *id) {
+    for (size_t prior = 0U; prior < slot; ++prior) {
+        if (!radio->has_channel[prior]) {
+            continue;
+        }
+        const meshtastic_Channel *channel = &radio->channels[prior];
+        if (!channel->has_settings || !channel->settings.downlink_enabled) {
+            continue;
+        }
+        if (strcmp(mesh_mqtt_channel_id(channel->settings.name, lora), id) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 int mesh_session_mqtt_filter(const struct mesh_session *session, size_t index, char *out,
                              size_t cap) {
     if (session == NULL || out == NULL || cap == 0U) {
@@ -1660,9 +1691,19 @@ int mesh_session_mqtt_filter(const struct mesh_session *session, size_t index, c
         if (!channel->has_settings || !channel->settings.downlink_enabled) {
             continue;
         }
+        /*
+         * A duplicate is skipped without counting, so the indices stay contiguous and `seen`
+         * ends up being the number of *distinct* subscriptions. That is the number the caller
+         * reports and the number the proxy actually holds; counting the duplicate instead left
+         * the log claiming one more subscription than was ever made, and handed the proxy a
+         * filter it correctly refused as -EEXIST.
+         */
+        const char *id = mesh_mqtt_channel_id(channel->settings.name, lora);
+        if (mesh_session_mqtt_id_seen(radio, lora, slot, id)) {
+            continue;
+        }
         if (seen == index) {
-            return mesh_mqtt_subscribe_filter(out, cap, root,
-                                              mesh_mqtt_channel_id(channel->settings.name, lora));
+            return mesh_mqtt_subscribe_filter(out, cap, root, id);
         }
         seen++;
     }

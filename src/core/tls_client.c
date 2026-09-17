@@ -83,6 +83,16 @@ const char *mesh_tls_client_error(const struct mesh_tls_client *tls) {
 #include <unistd.h>
 
 /*
+ * How many session tickets one read() may consume before giving the loop back.
+ *
+ * The same reasoning as `MQTT_READS_PER_TURN`, one level down and for the same single event
+ * loop: that bound counts calls into this file and cannot see a call that does not return. A
+ * real broker sends one ticket, so this is never reached in practice - it is here so that a peer
+ * which streams them cannot hold the UI instead.
+ */
+#define MESH_TLS_TICKETS_PER_READ 8U
+
+/*
  * Everything Mbed TLS needs for one session, on the heap.
  *
  * Heap rather than inline in `struct mesh_tls_client` so that mqtt_proxy.h - and therefore
@@ -350,7 +360,45 @@ int mesh_tls_client_read(struct mesh_tls_client *tls, uint8_t *out, size_t cap) 
     if (tls == NULL || tls->state == NULL || out == NULL || cap == 0U) {
         return -EINVAL;
     }
-    const int rc = mbedtls_ssl_read(&tls->state->ssl, out, cap);
+    /*
+     * TLS 1.3 sends its session tickets *after* the handshake, so a read on a 1.3 session can
+     * land on one at any point. Mbed TLS reports that by returning rather than by swallowing it,
+     * and it is not a failure: the ticket record is consumed, nothing was decrypted for the
+     * caller, and the stream continues on the next read.
+     *
+     * It cannot be answered with -EAGAIN either. Application data is often already sitting in
+     * the session behind the ticket - a broker's CONNACK arrives in the same flight as often as
+     * not - and the socket is empty by then, so epoll has nothing left to report and the
+     * connection parks forever on bytes it has already received. Retrying here is the rule this
+     * header states for callers, applied one level down.
+     *
+     * The retry is bounded, though, because this runs on the one event loop. Each turn consumes
+     * a record and the socket is non-blocking, so a well-behaved peer ends this at WANT_READ
+     * within a turn or two - a real broker sends one ticket. A peer that streams them faster
+     * than they are decrypted would otherwise keep this function from returning, and nothing
+     * above could stop it: `MQTT_READS_PER_TURN` bounds calls *to* here, not the work inside
+     * one. So a run this long gives the loop back with `more_to_read` set instead, which is the
+     * proxy's own way of saying the same thing one level up.
+     *
+     * The code is marked experimental in ssl.h, hence the guard.
+     */
+    tls->more_to_read = false;
+    int rc;
+    unsigned tickets = 0U;
+    for (;;) {
+        rc = mbedtls_ssl_read(&tls->state->ssl, out, cap);
+#ifdef MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET
+        if (rc == MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET) {
+            if (++tickets < MESH_TLS_TICKETS_PER_READ) {
+                continue;
+            }
+            tls->wants_write = false;
+            tls->more_to_read = true;
+            return -EAGAIN;
+        }
+#endif
+        break;
+    }
     if (rc > 0) {
         tls->wants_write = false;
         return rc;

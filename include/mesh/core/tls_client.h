@@ -49,6 +49,14 @@ struct mesh_tls_client {
      * forever on a socket that will never become ready in the direction being watched.
      */
     bool wants_write;
+    /*
+     * Set when read() gave the loop back with work still inside the session rather than because
+     * the socket was empty - today, a run of session tickets long enough to hit its budget. The
+     * descriptor may well have nothing to report, so a caller that waits for epoll after this
+     * waits forever; it has to come back of its own accord, the way the MQTT proxy's own
+     * `more_to_read` does. Cleared at the top of every read.
+     */
+    bool more_to_read;
     char error[160];
 };
 
@@ -88,6 +96,10 @@ int mesh_tls_client_handshake(struct mesh_tls_client *tls);
  * plaintext, and the leftovers live inside the session rather than in the socket - so the
  * descriptor is empty, epoll has nothing to report, and a reader that stops after one call waits
  * forever on data it has already received. This is the classic way TLS on an event loop hangs.
+ *
+ * **A -EAGAIN with `more_to_read` set is not an empty socket** and must not be answered by
+ * waiting for one. It means this stopped early to give the loop back, and the caller has to
+ * call again on its next turn.
  */
 int mesh_tls_client_read(struct mesh_tls_client *tls, uint8_t *out, size_t cap);
 
