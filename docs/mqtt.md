@@ -280,6 +280,11 @@ the way up. Two things about that are easy to get wrong and are handled delibera
   `mqtt_proxy_reads_past_a_session_ticket` holds this, and the fixture broker issues real tickets
   so the handshake tests exercise the post-handshake path at all — an Mbed TLS server with no
   ticket callback configured sends none, which is why a real handshake under test still missed it.
+  That retry is bounded by `MESH_TLS_TICKETS_PER_READ`, because `MQTT_READS_PER_TURN` counts
+  calls *into* `tls_client.c` and cannot bound work that never returns from one; hitting the cap
+  hands back `-EAGAIN` with `more_to_read` set, and the proxy resumes on its own next turn, in
+  `GREETING` as well as `READY`. Mbed TLS reports at most one ticket per read in practice, so the
+  cap is defensive rather than exercised — `mqtt_proxy_survives_a_run_of_tickets` says so.
 
 ### Certificates are always verified
 

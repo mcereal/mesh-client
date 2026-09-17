@@ -1376,6 +1376,86 @@ cleanup:
 }
 
 /*
+ * A long run of tickets still ends in a working connection.
+ *
+ * Twelve rather than the three above, because the retry is bounded: `MESH_TLS_TICKETS_PER_READ`
+ * caps how many one read may consume before handing back -EAGAIN with `more_to_read` set, so
+ * that a peer streaming tickets cannot hold the one event loop inside a single call. The proxy
+ * then comes round on its own next turn rather than waiting for a readiness event that is not
+ * coming - and in GREETING as well as READY, since the CONNACK shares the flight with the
+ * tickets.
+ *
+ * **What this case does not prove.** Mbed TLS reports at most one ticket per `mbedtls_ssl_read()`
+ * here, even with a dozen of them already in the socket, so the loop never iterates twice and
+ * the cap is not reached - verified by counting them. The bound and the resume beneath it are
+ * therefore defensive rather than exercised, and this case covers only the part that can be
+ * driven: a dozen tickets do not cost the connection. Reproducing the cap needs a peer that
+ * packs several ticket records into one flight, which this in-process fixture cannot do because
+ * its server emits one per pump.
+ */
+MESH_TEST_CASE(mqtt_proxy_survives_a_run_of_tickets, unit) {
+    struct proxy_probe probe;
+    if (!probe_start(&probe)) {
+        record_failure(test_name, "the harness did not start");
+        return;
+    }
+    probe.broker.tls = true;
+    probe.broker.tickets = 12U;
+
+    char bundle[128];
+    snprintf(bundle, sizeof bundle, "/tmp/meshclient-test-run-ca-%u.pem", (unsigned)getpid());
+    if (!write_pem(bundle, broker_cert_pem)) {
+        record_failure(test_name, "could not write the CA bundle");
+        goto cleanup;
+    }
+    mesh_mqtt_proxy_set_ca_bundle(&probe.proxy, bundle);
+
+    struct mesh_mqtt_proxy_config config;
+    probe_config(&config, probe.broker.port);
+    config.tls_enabled = true;
+    if (mesh_mqtt_proxy_start(&probe.proxy, &config, probe_on_message, NULL, &probe,
+                              probe.now_ms) != 0) {
+        record_failure(test_name, "the proxy did not start");
+        goto cleanup;
+    }
+
+    struct mesh_mqtt_header header;
+    const uint8_t *body = NULL;
+    if (!probe_until_packet(&probe, &header, &body, 400U) || header.type != MESH_MQTT_CONNECT) {
+        record_failure(test_name, "the CONNECT should arrive through the TLS session");
+        goto cleanup;
+    }
+    broker_connack(&probe.broker, MESH_MQTT_CONNACK_ACCEPTED);
+    if (!probe_until_state(&probe, MESH_MQTT_PROXY_READY, 400U)) {
+        record_failure(test_name, "a dozen tickets should not stop the proxy connecting");
+        goto cleanup;
+    }
+
+    uint8_t inbound[128];
+    static const uint8_t reply[] = {0x11U, 0x22U};
+    const int len = mesh_mqtt_encode_publish(inbound, sizeof inbound, "msh/2/e/run/!f", reply,
+                                             sizeof reply, false);
+    if (len < 0) {
+        record_failure(test_name, "the fixture could not build a PUBLISH");
+        goto cleanup;
+    }
+    broker_send(&probe.broker, inbound, (size_t)len);
+    for (unsigned turn = 0U; turn < 400U && probe.messages == 0U; ++turn) {
+        probe_turn(&probe, 10U);
+    }
+    if (probe.messages != 1U || probe.last_payload_len != sizeof reply ||
+        memcmp(probe.last_payload, reply, sizeof reply) != 0) {
+        record_failure(test_name, "the stream should carry on after the tickets");
+        goto cleanup;
+    }
+    record_success(test_name);
+
+cleanup:
+    (void)remove(bundle);
+    probe_stop(&probe);
+}
+
+/*
  * The other half, and the one that matters: a certificate the bundle does not vouch for is
  * refused.
  *
