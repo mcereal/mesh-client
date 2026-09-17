@@ -49,6 +49,17 @@ enum mesh_ui_store_key_kind mesh_ui_store_key_kind(enum mesh_ui_store_key key) {
     return key_in_range(key) ? k_keys[key].kind : MESH_UI_STORE_KEY_KIND_PLAIN;
 }
 
+bool mesh_ui_store_key_in_cache(enum mesh_ui_store_key key) {
+    switch (key) {
+    /* The trend log's own record. Everything else in the table is the cache's, and a new key
+       that is not belongs here rather than in a comment nobody reads twice. */
+    case MESH_UI_STORE_KEY_TREND:
+        return false;
+    default:
+        return key_in_range(key);
+    }
+}
+
 /*
  * One unsigned number, and where it stopped.
  *

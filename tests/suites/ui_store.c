@@ -1166,6 +1166,12 @@ MESH_TEST_CASE(ui_store_cache_keys_round_trip, unit) {
             failure = detail;
             goto cleanup;
         }
+        /* A key one of the other files on the card writes. The table is shared - the archive
+           writes the msg[] records the cache writes too - but the trend log's record has no
+           place in a cache, so this is what "every key is written and read" means now. */
+        if (!mesh_ui_store_key_in_cache(key)) {
+            continue;
+        }
         char needle[96];
         snprintf(needle, sizeof needle, "\n%s%c", name,
                  mesh_ui_store_key_kind(key) == MESH_UI_STORE_KEY_KIND_PLAIN ? '=' : '[');

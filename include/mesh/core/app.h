@@ -17,6 +17,7 @@
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
 #include "mesh/ui/store_archive.h"
+#include "mesh/ui/store_trends.h"
 #include "mesh/ui/theme.h"
 
 #include <stdint.h>
@@ -115,6 +116,16 @@ struct mesh_app {
      * says what is new, and the nav that says which conversation the reader has open.
      */
     struct mesh_ui_archive ui_archive;
+    /*
+     * And the trend log beside it, on the same terms: what it is for is in
+     * mesh/ui/store_trends.h, and what it is *here* for is that the app is the only thing that
+     * sees both halves - the history the store has just been filled with, and the nav that says
+     * which node's detail the reader has open.
+     */
+    struct mesh_ui_trends ui_trends;
+    /* The node whose trend was last read off the card, so the read happens when the reader moves
+       rather than on every publish. 0 when no detail screen is open. */
+    uint32_t ui_trend_node;
     bool ui_preferences_dirty;
     bool ui_handshake_cache_dirty;
     bool ui_cache_timer_armed;

@@ -714,6 +714,59 @@ static void mesh_app_publish_thread(struct mesh_app *app, bool messages_changed)
     mesh_ui_store_set_thread(&app->ui_store, &window);
 }
 
+/*
+ * The card's half of what the client has been watching: this publish's readings out, and one
+ * node's saved trend back in when the reader opens its detail screen.
+ *
+ * The same split as the transcript next door, for the same reason. The write is the cheap half
+ * and runs every publish, because a reading that reached disk only at a clean exit would be a
+ * reading that usually did not - `deploy-stop` sends SIGKILL and a battery can be pulled. The
+ * read is the expensive half and runs when the reader moves, because only one node's trend is
+ * ever drawn and the file has not changed in between.
+ *
+ * The read *replaces* what the history holds for that node rather than folding into it, which is
+ * exactly what the write above makes safe: the log already holds this run's readings, so there
+ * is nothing in the slot the card does not have. mesh/ui/store_trends.h has the rest of it.
+ */
+static void mesh_app_publish_trends(struct mesh_app *app) {
+    /* A swap takes the files with it, because a node number means something different on the
+       other radio's mesh - the store's history is dropped for the same reason and at the same
+       moment. Whatever was restored from the old radio's log goes with them. */
+    if (mesh_ui_trends_note_radio(&app->ui_trends, app->ui_store.handshake.roster_owner)) {
+        app->ui_trend_node = 0U;
+    }
+    (void)mesh_ui_trends_append(&app->ui_trends, &app->ui_store.history);
+
+    const struct mesh_ui_nav *nav = &app->ui_store.nav;
+    /*
+     * The screen is checked as well as the flag, which is the rule nav.c states where it takes a
+     * press: `node_detail_open` says where the Nodes tab is *standing*, not what the reader is
+     * looking at, and a shoulder walks off the tab with the detail still open behind it. Without
+     * the screen, a node whose slot was evicted while the reader was on another tab would come
+     * back to a detail this still thinks is loaded, and so to a trend that is no longer there.
+     */
+    const uint32_t open =
+        (nav->screen == MESH_UI_SCREEN_NODES && nav->node_detail_open) ? nav->node_detail_node : 0U;
+    /*
+     * Asked of the node rather than of a flag, so leaving a detail screen and coming back to the
+     * same node is not a re-read, and moving to another node is. A read that failed is not
+     * retried on every publish either: the reader has moved on by the time it would matter, and
+     * the live history is what the screen falls back to.
+     */
+    if (open == app->ui_trend_node) {
+        return;
+    }
+    app->ui_trend_node = open;
+    if (open == 0U) {
+        return;
+    }
+    const int restored = mesh_ui_trends_restore(&app->ui_trends, open, &app->ui_store.history,
+                                                (uint32_t)app->ui_store.now_ms);
+    if (restored < 0) {
+        mesh_log_debug("app", "Could not read the trend log for this node: %d", restored);
+    }
+}
+
 static void mesh_app_publish_messages(struct mesh_app *app,
                                       const struct mesh_handshake_status *status) {
     const struct mesh_message_log *log = mesh_session_messages(&app->session);
@@ -2549,6 +2602,10 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
      * test inside, which is the one that knows whether either reason applies.
      */
     mesh_app_publish_thread(app, message_view_changed);
+    /* Unconditional for the same reason, and with its own test inside for the same reason: the
+       readings this publish brought are worth writing whatever else moved, and opening a node's
+       detail is a press that changes no reading at all. */
+    mesh_app_publish_trends(app);
     /* The names on a waypoint row come out of the roster, so a NodeInfo arriving changes what
        this publishes even when the book itself has not moved - which is why the handshake is
        part of the test and not just the book. */
