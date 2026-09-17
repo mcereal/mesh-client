@@ -815,6 +815,65 @@ MESH_TEST_CASE(history_evicts_a_node_with_all_of_its_readings, unit) {
     record_success(test_name);
 }
 
+/*
+ * A series handed back to the pool arrives at its next node empty.
+ *
+ * A node's trends are entries taken from a pool the whole table shares rather than fields on its
+ * slot, so an eviction now *recycles* a series rather than overwriting one in place. The node
+ * that gave it back and the node that takes it are two different nodes, and any reading left in
+ * it would be drawn under the second one's name - on a screen whose whole subject is what the
+ * client watched happen.
+ */
+MESH_TEST_CASE(history_hands_a_freed_series_back_empty, unit) {
+    struct mesh_ui_history history;
+    mesh_ui_history_reset(&history);
+
+    /* One node with a trend worth several readings, then every other slot spoken for once - so
+       the node with the most to lose is also the least recently heard. */
+    for (uint32_t i = 0U; i < 5U; ++i) {
+        mesh_ui_history_note_battery(&history, 1000U + i * 100U, 0x100U, (uint8_t)(90U - i));
+    }
+    for (uint32_t i = 1U; i < MESH_UI_HISTORY_NODES; ++i) {
+        mesh_ui_history_note_battery(&history, 2000U + i, 0x100U + i, 50U);
+    }
+    /* The thirteenth node takes that slot, and with it the pool entry those five readings are
+       sitting in. */
+    mesh_ui_history_note_battery(&history, 9000U, 0xBEEFU, 42U);
+    mesh_ui_history_note_battery(&history, 9100U, 0xBEEFU, 41U);
+
+    const struct mesh_ui_series *taken =
+        mesh_ui_history_series(&history, 0xBEEFU, MESH_UI_HISTORY_BATTERY);
+    MESH_TEST_FAIL_IF(taken == NULL, "the arriving node should have taken a series");
+    MESH_TEST_FAIL_IF(taken->count != 2U,
+                      "it should hold its own two readings and none of its predecessor's");
+    MESH_TEST_FAIL_IF(mesh_ui_history_series(&history, 0x100U, MESH_UI_HISTORY_BATTERY) != NULL,
+                      "and the evicted node should keep nothing");
+
+    /*
+     * And the invariant underneath that: no two nodes are looking at one entry.
+     *
+     * The failure a pool can have that a table of fields could not. An entry handed out twice
+     * reads correctly for as long as only one of its holders is reporting - both nodes show a
+     * trend, both trends look like trends - and what it actually is is two nodes' readings
+     * interleaved on one axis under whichever name the reader opened.
+     */
+    const struct mesh_ui_series *seen[MESH_UI_HISTORY_NODES];
+    uint32_t count = 0U;
+    for (uint32_t i = 1U; i < MESH_UI_HISTORY_NODES; ++i) {
+        const struct mesh_ui_series *series =
+            mesh_ui_history_series(&history, 0x100U + i, MESH_UI_HISTORY_BATTERY);
+        if (series == NULL) {
+            continue;
+        }
+        for (uint32_t j = 0U; j < count; ++j) {
+            MESH_TEST_FAIL_IF(seen[j] == series, "two nodes share one series");
+        }
+        MESH_TEST_FAIL_IF(series == taken, "a live node shares the arriving node's series");
+        seen[count++] = series;
+    }
+    record_success(test_name);
+}
+
 /* A reading off the air becomes an integer exactly once, and a temperature's guard cannot be the
    percentage's: zero is the middle of this domain rather than the bottom of it. */
 MESH_TEST_CASE(history_temperature_survives_the_wire, unit) {

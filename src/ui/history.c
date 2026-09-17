@@ -2,13 +2,146 @@
 
 #include <string.h>
 
-/* Every series a slot holds, emptied and told the node gap. One function because a reading
-   added to the struct and forgotten here is a series with a gap of 0, which never breaks - so
-   the first thing it would draw is a line straight across whatever silence came before it. */
-static void mesh_ui_history_clear_node(struct mesh_ui_history_node *slot) {
-    mesh_ui_series_reset(&slot->battery, MESH_UI_HISTORY_NODE_GAP_MS);
-    mesh_ui_series_reset(&slot->temperature, MESH_UI_HISTORY_NODE_GAP_MS);
-    mesh_ui_series_reset(&slot->humidity, MESH_UI_HISTORY_NODE_GAP_MS);
+/*
+ * Whether any slot holds pool entry `index`.
+ *
+ * Read off the slots rather than tracked beside the pool, for the reason stated on the pool
+ * itself: a `used` flag would be this fact written a second time, and the two disagreeing is a
+ * series handed to a node that another node is still drawing from. Every slot is scanned, free
+ * ones included - a free slot holds MESH_UI_HISTORY_NO_SERIES throughout, so it protects
+ * nothing, and not special-casing it means a stale index protects its entry instead of being
+ * silently handed out twice.
+ */
+static bool mesh_ui_history_pool_held(const struct mesh_ui_history *history, uint8_t index) {
+    for (uint32_t i = 0U; i < MESH_UI_HISTORY_NODES; ++i) {
+        const struct mesh_ui_history_node *slot = &history->nodes[i];
+        for (uint32_t reading = 0U; reading < MESH_UI_HISTORY_READING_COUNT; ++reading) {
+            if (slot->series[reading] == index) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+/*
+ * An entry nothing holds, emptied and told the node gap, or NO_SERIES when the pool is full.
+ *
+ * The gap is stated here because this is the one place a series begins its life: a series
+ * reached any other way already has one, and an entry handed out with a gap of 0 never breaks -
+ * so the first thing it would draw is a line straight across whatever silence came before it.
+ */
+static uint8_t mesh_ui_history_pool_take(struct mesh_ui_history *history) {
+    for (uint32_t i = 0U; i < MESH_UI_HISTORY_SERIES; ++i) {
+        if (!mesh_ui_history_pool_held(history, (uint8_t)i)) {
+            mesh_ui_series_reset(&history->pool[i], MESH_UI_HISTORY_NODE_GAP_MS);
+            return (uint8_t)i;
+        }
+    }
+    return MESH_UI_HISTORY_NO_SERIES;
+}
+
+/* Every series a slot holds, given back. Emptied on the way out as well as on the way in, so
+   that an entry nothing references carries no readings at all - a snapshot is copied whole, and
+   a freed series still holding a node's temperature would travel with every frame. */
+static void mesh_ui_history_clear_node(struct mesh_ui_history *history,
+                                       struct mesh_ui_history_node *slot) {
+    for (uint32_t reading = 0U; reading < MESH_UI_HISTORY_READING_COUNT; ++reading) {
+        const uint8_t at = slot->series[reading];
+        slot->series[reading] = MESH_UI_HISTORY_NO_SERIES;
+        if (at < MESH_UI_HISTORY_SERIES) {
+            mesh_ui_series_reset(&history->pool[at], MESH_UI_HISTORY_NODE_GAP_MS);
+        }
+    }
+}
+
+/*
+ * The least recently heard slot that is not `keep`, or NULL when there is no other.
+ *
+ * What the pool running out costs, and it is deliberately the same thing a full node table
+ * costs: the node nobody has heard from in longest goes, with every series it held. `keep` is
+ * the node whose reading is arriving right now, which is the one node an eviction must never
+ * choose - it is by definition the most recently heard, and taking it would empty the trend
+ * being pushed to in order to make room for it.
+ */
+static struct mesh_ui_history_node *
+mesh_ui_history_oldest_other(struct mesh_ui_history *history,
+                             const struct mesh_ui_history_node *keep) {
+    struct mesh_ui_history_node *oldest = NULL;
+    for (uint32_t i = 0U; i < MESH_UI_HISTORY_NODES; ++i) {
+        struct mesh_ui_history_node *slot = &history->nodes[i];
+        if (slot == keep || slot->node_id == 0U) {
+            continue;
+        }
+        if (oldest == NULL || slot->seen < oldest->seen) {
+            oldest = slot;
+        }
+    }
+    return oldest;
+}
+
+/* Whether `reading` names a series at all. NONE and the count are the two values that reach
+   here and mean "no reading"; anything outside the enum is a caller with a stale byte. */
+static bool mesh_ui_history_reading_valid(enum mesh_ui_history_reading reading) {
+    return reading > MESH_UI_HISTORY_NONE && reading < MESH_UI_HISTORY_READING_COUNT;
+}
+
+/*
+ * The pool entry this slot already holds for `reading`, or NO_SERIES - without taking one.
+ *
+ * An index rather than a pointer, so that the one lookup serves both the pushes and the const
+ * accessor at the bottom of this file: the caller holds the history it is entitled to and
+ * subscripts the pool itself, and neither of them has to cast a const away to share this.
+ *
+ * Three callers want the "without taking one" half: the accessor, a discontinuity in a trend
+ * nothing has been watching - which is not a thing to start watching - and the taker below,
+ * which asks before it allocates.
+ */
+static uint8_t mesh_ui_history_held(const struct mesh_ui_history_node *slot,
+                                    enum mesh_ui_history_reading reading) {
+    if (slot == NULL || !mesh_ui_history_reading_valid(reading)) {
+        return MESH_UI_HISTORY_NO_SERIES;
+    }
+    const uint8_t at = slot->series[reading];
+    /* NO_SERIES and anything else out of range answer the same way, which is the point of the
+       bound: a slot naming an entry the pool does not have is not a series to push onto. */
+    return at < MESH_UI_HISTORY_SERIES ? at : MESH_UI_HISTORY_NO_SERIES;
+}
+
+/*
+ * The series this slot keeps `reading` in, taking one from the pool if it has none.
+ *
+ * NULL only when there is genuinely nowhere to put the reading: the pool is full and this node
+ * is the only one in the table, so the eviction that would make room would have to empty the
+ * trend being pushed to. Every other exhaustion costs the least recently heard node, which is
+ * the rule the node table itself has always been on.
+ */
+static struct mesh_ui_series *mesh_ui_history_series_for(struct mesh_ui_history *history,
+                                                         struct mesh_ui_history_node *slot,
+                                                         enum mesh_ui_history_reading reading) {
+    const uint8_t held = mesh_ui_history_held(slot, reading);
+    if (held != MESH_UI_HISTORY_NO_SERIES) {
+        return &history->pool[held];
+    }
+    if (slot == NULL || !mesh_ui_history_reading_valid(reading)) {
+        return NULL;
+    }
+    uint8_t taken = mesh_ui_history_pool_take(history);
+    if (taken == MESH_UI_HISTORY_NO_SERIES) {
+        struct mesh_ui_history_node *evicted = mesh_ui_history_oldest_other(history, slot);
+        if (evicted == NULL) {
+            return NULL;
+        }
+        mesh_ui_history_clear_node(history, evicted);
+        evicted->node_id = 0U;
+        evicted->seen = 0U;
+        taken = mesh_ui_history_pool_take(history);
+        if (taken == MESH_UI_HISTORY_NO_SERIES) {
+            return NULL;
+        }
+    }
+    slot->series[reading] = taken;
+    return &history->pool[taken];
 }
 
 /*
@@ -34,8 +167,15 @@ void mesh_ui_history_reset(struct mesh_ui_history *history) {
         return;
     }
     memset(history, 0, sizeof *history);
+    /* A zeroed slot names pool entry 0 for every reading, which is a real entry - so the table
+       is emptied *after* the memset rather than by it. */
     for (uint32_t i = 0U; i < MESH_UI_HISTORY_NODES; ++i) {
-        mesh_ui_history_clear_node(&history->nodes[i]);
+        for (uint32_t reading = 0U; reading < MESH_UI_HISTORY_READING_COUNT; ++reading) {
+            history->nodes[i].series[reading] = MESH_UI_HISTORY_NO_SERIES;
+        }
+    }
+    for (uint32_t i = 0U; i < MESH_UI_HISTORY_SERIES; ++i) {
+        mesh_ui_series_reset(&history->pool[i], MESH_UI_HISTORY_NODE_GAP_MS);
     }
 }
 
@@ -182,8 +322,8 @@ static struct mesh_ui_history_node *mesh_ui_history_slot(struct mesh_ui_history 
         oldest->node_id = node_id;
         /* Every series, not the one the caller is about to push: the slot is being handed to a
            different node, and a temperature left behind by the node evicted out of it would be
-           drawn under the arriving node's name. */
-        mesh_ui_history_clear_node(oldest);
+           drawn under the arriving node's name. The entries go back to the pool with it. */
+        mesh_ui_history_clear_node(history, oldest);
     }
     return oldest;
 }
@@ -213,16 +353,21 @@ void mesh_ui_history_note_battery(struct mesh_ui_history *history, uint32_t now_
      */
     if (battery_level > 100U) {
         struct mesh_ui_history_node *known = mesh_ui_history_find(history, node_id);
-        if (known != NULL && known->battery.count > 0U) {
+        const uint8_t at = mesh_ui_history_held(known, MESH_UI_HISTORY_BATTERY);
+        if (at != MESH_UI_HISTORY_NO_SERIES && history->pool[at].count > 0U) {
             known->seen = mesh_ui_history_stamp(history, now_ms);
-            mesh_ui_series_break(&known->battery);
+            mesh_ui_series_break(&history->pool[at]);
         }
         return;
     }
     const uint32_t stamp = mesh_ui_history_stamp(history, now_ms);
     struct mesh_ui_history_node *slot = mesh_ui_history_slot(history, node_id);
     slot->seen = stamp;
-    mesh_ui_series_push(&slot->battery, stamp, (int32_t)battery_level);
+    struct mesh_ui_series *battery =
+        mesh_ui_history_series_for(history, slot, MESH_UI_HISTORY_BATTERY);
+    if (battery != NULL) {
+        mesh_ui_series_push(battery, stamp, (int32_t)battery_level);
+    }
 }
 
 bool mesh_ui_history_has_airtime(const struct mesh_ui_history *history) {
@@ -271,10 +416,18 @@ void mesh_ui_history_note_environment(struct mesh_ui_history *history, uint32_t 
      * external-power case, which arrives *punctually* and so is invisible to the clock.
      */
     if (has_temperature) {
-        mesh_ui_series_push(&slot->temperature, stamp, temperature_decidegrees);
+        struct mesh_ui_series *series =
+            mesh_ui_history_series_for(history, slot, MESH_UI_HISTORY_TEMPERATURE);
+        if (series != NULL) {
+            mesh_ui_series_push(series, stamp, temperature_decidegrees);
+        }
     }
     if (has_humidity) {
-        mesh_ui_series_push(&slot->humidity, stamp, humidity_permille);
+        struct mesh_ui_series *series =
+            mesh_ui_history_series_for(history, slot, MESH_UI_HISTORY_HUMIDITY);
+        if (series != NULL) {
+            mesh_ui_series_push(series, stamp, humidity_permille);
+        }
     }
 }
 
@@ -289,22 +442,13 @@ const struct mesh_ui_series *mesh_ui_history_series(const struct mesh_ui_history
         if (slot->node_id != node_id) {
             continue;
         }
-        const struct mesh_ui_series *series = NULL;
-        switch (reading) {
-        case MESH_UI_HISTORY_BATTERY:
-            series = &slot->battery;
-            break;
-        case MESH_UI_HISTORY_TEMPERATURE:
-            series = &slot->temperature;
-            break;
-        case MESH_UI_HISTORY_HUMIDITY:
-            series = &slot->humidity;
-            break;
-        case MESH_UI_HISTORY_NONE:
-        case MESH_UI_HISTORY_READING_COUNT:
-        default:
+        /* The same lookup the writers use, which is the whole of what a reading resolving to a
+           series means now - there is no switch here to fall out of step with the pushes. */
+        const uint8_t at = mesh_ui_history_held(slot, reading);
+        if (at == MESH_UI_HISTORY_NO_SERIES) {
             return NULL;
         }
+        const struct mesh_ui_series *series = &history->pool[at];
         /*
          * An empty series is the same answer as no slot at all: nothing has been kept. Whether
          * what *is* kept can be drawn is a further question and deliberately not this one - the
