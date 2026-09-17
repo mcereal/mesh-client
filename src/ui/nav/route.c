@@ -238,7 +238,7 @@ void mesh_ui_route_under_help(const struct mesh_ui_nav *nav, struct mesh_ui_rout
     }
     /*
      * The verification sheet, last so it is the place when it and a confirm are both up - the
-     * same order nav.c hands it the keys in and fb_screens.c draws it in.
+     * same order nav.c hands it the keys in and fb_screens_frame.c draws it in.
      *
      * Its own level rather than a second flavour of CONFIRM, even though both are a panel with
      * two answers on it: a confirm is raised by the press underneath it and slides in over that

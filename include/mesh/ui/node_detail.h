@@ -150,7 +150,7 @@ struct mesh_ui_node_item {
      * The symbol in the row's leading slot, or MESH_UI_ICON_NONE.
      *
      * Here rather than in the renderer for the reason settings.c's k_section_icons[] is there
-     * and not in fb_screens.c: what a row is *about* is a property of the row, and a backend
+     * and not in fb_screens_nodes.c: what a row is *about* is a property of the row, and a backend
      * that decided by switching on `action` would be a second table to keep in step with this
      * one. A row with nothing to say leaves it unset and the slot still holds its width, which
      * is what stops a list whose icons are optional from starting its text in two columns -

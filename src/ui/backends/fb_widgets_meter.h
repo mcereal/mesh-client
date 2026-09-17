@@ -527,7 +527,7 @@ struct fb_chart {
      * what those labels *mean* is include/mesh/ui/trend.h's business. It is inside the chart
      * rather than beside it because the two are one statement - a picture and the words saying
      * how much of the record is on it - and a caller placing the strip itself would be a caller
-     * computing coordinates, which is the thing fb_screens.c does not do.
+     * computing coordinates, which is the thing a screen renderer does not do.
      *
      * It is drawn selected, always. There is no cursor on this screen to move onto it: it is the
      * only control here, Left and Right always reach it, and a control that drew unfocused while

@@ -124,7 +124,7 @@ int fb_chip_width(const struct mesh_ui_backend_fb_state *state, enum mesh_ui_ico
  * A row of chips laid out left to right, one of them active, sized to the room it is given.
  *
  * fb_draw_chip()'s own comment predicted this: a tab strip, a filter row and a segmented
- * control are one shape. The strip was written out inside fb_screens.c for the tab bar's sake
+ * control are one shape. The strip was written out in the screens layer for the tab bar's sake
  * and was private to it, so a filter row on Nodes - All / Direct / Favourites - would have had
  * to re-derive the measuring loop, which is the exact duplication fb_chip_width() was added to
  * prevent. It is a component now, and the navigation bar below is its first caller.

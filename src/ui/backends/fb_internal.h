@@ -8,7 +8,8 @@
  *
  *   fb_draw.c     pixels, glyphs, rows, the palette and the page geometry
  *   fb_widgets_*  the components screens are assembled from (fb_widgets.h is the umbrella)
- *   fb_screens.c  one renderer per screen, drawn out of a snapshot
+ *   fb_screens_*  one renderer per screen, drawn out of a snapshot (fb_screens_frame.c
+ *                 draws the chrome and dispatches between them)
  *   fb.c          opening /dev/fb0, the page flip, the backend vtable
  *
  * Calls only ever go downward, so this header is the drawing toolkit the layers above use, and
@@ -551,7 +552,7 @@ bool fb_basemap_pending(const struct mesh_ui_backend_fb_state *state);
    once per frame by fb_render_snapshot(), before anything is drawn. */
 void fb_basemap_frame_begin(struct mesh_ui_backend_fb_state *state);
 
-/* ---- fb_screens.c ------------------------------------------------------------------------ */
+/* ---- fb_screens_frame.c ------------------------------------------------------------------ */
 
 /* Draws one whole frame: chrome, then whichever screen the snapshot says is up. */
 void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,

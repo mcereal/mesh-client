@@ -144,7 +144,7 @@ void fb_draw_banner(const struct mesh_ui_backend_fb_state *state, struct fb_layo
  *
  * It owns the whole bottom bar - the surface, the rule above it, the keycaps and the status
  * line - for the same reason the card owns its own inset: a screen that placed the status line
- * itself would be back to computing a y coordinate in fb_screens.c.
+ * itself would be back to computing a y coordinate in a screen renderer.
  */
 
 struct fb_action_bar {

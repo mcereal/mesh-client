@@ -223,7 +223,7 @@ void fb_draw_segmented(const struct mesh_ui_backend_fb_state *state, const struc
  * The on-screen keyboard drew this by hand: the outline, the fill inside it, the corner radius,
  * where the caret goes, which tail of an overlong draft to show, and the right edge the counter
  * is aligned against. That is a container's geometry written out in a screen renderer, which is
- * the one thing fb_screens.c is not supposed to contain - and it was the last of it.
+ * the one thing a screen renderer is not supposed to contain - and it was the last of it.
  *
  * There is one field on screen at a time and it is always the thing being edited, so there is
  * no unfocused state to draw: a text field here is a *focused* text field, which is why it has
