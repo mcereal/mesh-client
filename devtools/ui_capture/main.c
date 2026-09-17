@@ -1708,6 +1708,10 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
             if (behind > 0U) {
                 node->last_heard += behind / 8U > 0U ? behind / 8U : 1U;
             }
+            /* And when the ratio was taken, which is what the client's signal trend is keyed on
+               rather than the arrival - see `snr_time`. A scene that moved only `last_heard`
+               would draw the rows and record nothing behind them. */
+            node->snr_time = node->last_heard;
             if (rssi != NULL) {
                 node->has_rssi = true;
                 node->rx_rssi = (int16_t)uicap_signed(rssi, "signal");

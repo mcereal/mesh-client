@@ -1025,18 +1025,15 @@ MESH_TEST_CASE(store_records_node_environment_on_its_own_schedule, unit) {
 }
 
 /*
- * The store's own push for the two link readings, and both halves of what makes it honest.
+ * The store's own push for the two link readings, and every way it must not fire.
  *
- * A trend is the one thing on this screen that turns a number into evidence, so a number about
- * something else must never reach one: an SNR off a relayed packet describes the relay, and a
- * node arriving over somebody's MQTT bridge crossed no air at all. The node detail refuses to
- * draw a bar on either, and this is the same refusal one layer down - asked through the same
- * mesh_ui_node_signal_heard(), so the two cannot come apart.
+ * A trend is the one thing on a node's screen that turns a number into evidence, so the whole of
+ * this case is about which numbers are allowed to become one.
  *
- * And the key: a packet arriving is `last_heard` moving, not a reading changing. A node sitting
- * still reports the same SNR every time, and a push keyed on the value would read the second
- * arrival as a repeat of the first - a trend that stops while the node is still being heard
- * perfectly well.
+ * The key is the *measurement* rather than the arrival, and the two are genuinely different
+ * events - `snr_time` exists because they are. A packet landing is `last_heard`; a ratio being
+ * taken is `snr_time`, stamped where the session stores the reading. Keyed on the arrival, this
+ * push had both failures below.
  */
 MESH_TEST_CASE(store_records_signal_only_from_a_packet_it_heard_itself, unit) {
     struct mesh_ui_store store;
@@ -1050,6 +1047,7 @@ MESH_TEST_CASE(store_records_signal_only_from_a_packet_it_heard_itself, unit) {
     node->node_id = 0x4242U;
     node->last_heard = 1750000000U;
     node->snr = -6.4f;
+    node->snr_time = node->last_heard;
     node->has_hops_away = true;
     node->hops_away = 0U;
     node->has_rssi = true;
@@ -1059,8 +1057,10 @@ MESH_TEST_CASE(store_records_signal_only_from_a_packet_it_heard_itself, unit) {
     mesh_ui_store_tick(&store, 1000U);
     mesh_ui_store_set_handshake(&store, &handshake);
 
-    /* The same reading, one packet later. */
+    /* The same reading, one packet later - a node sitting still measures the same ratio every
+       time, so a push keyed on the value changing would drop this. */
     node->last_heard = 1750000060U;
+    node->snr_time = node->last_heard;
     node->rssi_time = node->last_heard;
     mesh_ui_store_tick(&store, 2000U);
     mesh_ui_store_set_handshake(&store, &handshake);
@@ -1070,42 +1070,119 @@ MESH_TEST_CASE(store_records_signal_only_from_a_packet_it_heard_itself, unit) {
     const struct mesh_ui_series *rssi =
         mesh_ui_history_series(&store.history, 0x4242U, MESH_UI_HISTORY_RSSI);
     MESH_TEST_FAIL_IF(snr == NULL || snr->count != 2U,
-                      "an unchanged reading on a new packet is still a new reading");
+                      "an unchanged reading on a new measurement is still a new reading");
     MESH_TEST_FAIL_IF(rssi == NULL || rssi->count != 2U, "and so is its strength");
     MESH_TEST_FAIL_IF(mesh_ui_series_newest(snr)->value != -6,
                       "whole decibels, rounded away from zero");
 
-    /* A publish with nothing new on it is not a third packet. */
+    /* A publish with nothing new on it is not a third measurement. */
     mesh_ui_store_tick(&store, 3000U);
     mesh_ui_store_set_handshake(&store, &handshake);
     MESH_TEST_FAIL_IF(snr->count != 2U, "a republished roster is not an arrival");
 
-    /* Now the same node, reached over a bridge. The reading is still true and is still drawn on
-       the row; what it is no longer about is this node's own link. */
+    /*
+     * A packet whose rx_snr is exactly 0.0 - the firmware's "no measurement".
+     *
+     * mesh_session_apply_packet() declines to store it, so `last_heard` advances while `snr` and
+     * `snr_time` stay describing the packet before it. Keyed on the arrival, this appended that
+     * previous reading as a fresh one: a number about a different packet, drawn as evidence.
+     */
     node->last_heard = 1750000120U;
-    node->rssi_time = node->last_heard;
-    node->via_mqtt = true;
     mesh_ui_store_tick(&store, 4000U);
     mesh_ui_store_set_handshake(&store, &handshake);
-    MESH_TEST_FAIL_IF(snr->count != 2U, "a packet that crossed no air is not a measurement of it");
+    MESH_TEST_FAIL_IF(snr->count != 2U,
+                      "a packet carrying no ratio must not re-append the last one");
+
+    /*
+     * And the other direction: two packets inside one epoch second.
+     *
+     * `heard` is seconds, so the second arrival moves neither `last_heard` nor `snr_time` while
+     * the ratio itself moves. Keyed on the stamp alone that measurement was dropped, which is
+     * why the value is tested beside it.
+     */
+    node->snr = -9.2f;
+    mesh_ui_store_tick(&store, 5000U);
+    mesh_ui_store_set_handshake(&store, &handshake);
+    MESH_TEST_FAIL_IF(snr->count != 3U, "a second measurement inside one second is still one");
+    MESH_TEST_FAIL_IF(mesh_ui_series_newest(snr)->value != -9, "and it is the reading taken");
+    /* The strength rides it, because it shares the stamp: that is the pair coming off one
+       packet, which is what this history keeps them as. */
+    MESH_TEST_FAIL_IF(rssi->count != 3U, "the strength beside it is the same packet's");
+
+    /* Now the same node, reached over a bridge. The reading is still true and is still drawn on
+       the row; what it is no longer about is this node's own link. */
+    node->last_heard = 1750000180U;
+    node->snr = -7.0f;
+    node->snr_time = node->last_heard;
+    node->rssi_time = node->last_heard;
+    node->via_mqtt = true;
+    mesh_ui_store_tick(&store, 6000U);
+    mesh_ui_store_set_handshake(&store, &handshake);
+    MESH_TEST_FAIL_IF(snr->count != 3U, "a packet that crossed no air is not a measurement of it");
 
     /* And through a relay, which is the relay's ratio rather than this node's. */
     node->via_mqtt = false;
     node->hops_away = 2U;
-    node->last_heard = 1750000180U;
-    node->rssi_time = node->last_heard;
-    mesh_ui_store_tick(&store, 5000U);
-    mesh_ui_store_set_handshake(&store, &handshake);
-    MESH_TEST_FAIL_IF(snr->count != 2U, "a relayed packet describes the relay");
-
-    /* Direct again, but the strength is older than the packet - the row date-stamps it for
-       exactly this reason, and a trend must not push it a second time. */
-    node->hops_away = 0U;
     node->last_heard = 1750000240U;
-    mesh_ui_store_tick(&store, 6000U);
+    node->snr = -7.5f;
+    node->snr_time = node->last_heard;
+    node->rssi_time = node->last_heard;
+    mesh_ui_store_tick(&store, 7000U);
     mesh_ui_store_set_handshake(&store, &handshake);
-    MESH_TEST_FAIL_IF(snr->count != 3U, "a direct packet is a ratio again");
-    MESH_TEST_FAIL_IF(rssi->count != 2U, "but a strength the row had to age is not a new one");
+    MESH_TEST_FAIL_IF(snr->count != 3U, "a relayed packet describes the relay");
+
+    /* Direct again, but the strength is older than the ratio - the two did not come off one
+       packet, and this history keeps them as a pair or not at all. */
+    node->hops_away = 0U;
+    node->last_heard = 1750000300U;
+    node->snr = -6.0f;
+    node->snr_time = node->last_heard;
+    mesh_ui_store_tick(&store, 8000U);
+    mesh_ui_store_set_handshake(&store, &handshake);
+    MESH_TEST_FAIL_IF(snr->count != 4U, "a direct packet is a ratio again");
+    MESH_TEST_FAIL_IF(rssi->count != 3U, "but a strength from another packet is not a new one");
+
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
+/*
+ * A node restored from the card contributes nothing until a packet is actually heard.
+ *
+ * The cache brings a node's SNR back with it and cannot bring back the moment it was taken, so
+ * `snr_time` restores as 0. Keyed on the arrival, the first publish after a launch stamped every
+ * cached reading with "now" - a figure measured at an unknown past time, placed on the trend at
+ * the present. A stamp of 0 is the honest answer and pushes nothing.
+ */
+MESH_TEST_CASE(store_records_no_signal_for_a_node_off_the_card, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init should succeed");
+
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.roster_owner = 0xAAAAU;
+    handshake.node_count = 1U;
+    struct mesh_ui_node_summary *node = &handshake.nodes[0];
+    node->node_id = 0x4242U;
+    node->last_heard = 1750000000U;
+    node->snr = -6.4f;
+    node->has_hops_away = true;
+    node->hops_away = 0U;
+    /* No snr_time: the reading came off the card, the measurement did not. */
+
+    mesh_ui_store_tick(&store, 1000U);
+    mesh_ui_store_set_handshake(&store, &handshake);
+    MESH_TEST_FAIL_IF(mesh_ui_history_series(&store.history, 0x4242U, MESH_UI_HISTORY_SNR) != NULL,
+                      "a cached reading is not a measurement this run took");
+
+    /* And the first real packet starts the trend. */
+    node->last_heard = 1750000060U;
+    node->snr_time = node->last_heard;
+    mesh_ui_store_tick(&store, 2000U);
+    mesh_ui_store_set_handshake(&store, &handshake);
+    const struct mesh_ui_series *snr =
+        mesh_ui_history_series(&store.history, 0x4242U, MESH_UI_HISTORY_SNR);
+    MESH_TEST_FAIL_IF(snr == NULL || snr->count != 1U, "a heard packet is a reading");
 
     mesh_ui_store_shutdown(&store);
     record_success(test_name);

@@ -381,28 +381,45 @@ static void mesh_ui_store_note_roster(struct mesh_ui_store *store,
         /*
          * And how the packet itself arrived, which is the one thing here that is not telemetry.
          *
-         * Keyed on `last_heard` rather than on a struct having changed, because that is the only
-         * field that says a *packet* landed: two arrivals from a node that has not moved carry
-         * the same SNR and the same RSSI, and a comparison of the readings would read the second
-         * one as a repeat of the first and drop it. A silent node's trend is then a line that
-         * stops while the node is still being heard from perfectly well.
+         * Keyed on the *measurement* rather than on the arrival, which is the distinction this
+         * push got wrong first time round. `last_heard` says a packet landed, and a packet
+         * landing is not the same event as a ratio being taken - they come apart in both
+         * directions, and each direction costs a different kind of wrong:
          *
-         * Gated on mesh_ui_node_signal_heard(), which is the whole of what makes this honest:
-         * an SNR from a relayed packet describes the relay and a node reached over MQTT crossed
-         * no air at all. Both are true numbers about something else, and the node detail refuses
-         * to draw a bar on either for the same reason - so the row and the trend behind it are
-         * one claim rather than two that agree until one of them is changed.
+         *   - An `rx_snr` of exactly 0.0 is the firmware's "no measurement", so the session
+         *     declines to store it (mesh_session_apply_packet()) while still advancing
+         *     `last_heard`. Keyed on the arrival, this appended the *previous* packet's ratio as
+         *     a fresh reading - a number about a different packet, drawn as evidence, which is
+         *     the one thing this whole screen is arranged to prevent.
+         *   - Two packets inside one epoch second leave `last_heard` where it was while the
+         *     ratio moves, so the second measurement was dropped.
          *
-         * The RSSI carries its own test on top. Only this radio can measure one, so a node now
-         * arriving over a bridge keeps the reading from the last packet we heard ourselves; the
-         * detail says so by ageing the row, and what a trend has to do instead is not push it
-         * again. `rssi_time` behind `last_heard` is exactly that condition.
+         * `snr_time` is the stamp that tells them apart, set where the reading is stored. The
+         * value is tested beside it because the stamp has only second resolution: a second
+         * reading inside one second is a new measurement, and a stamp alone cannot see it.
+         *
+         * A stamp of 0 is a node this run has measured nothing from - every node restored from
+         * the card is one, its reading having come back without the moment it was taken - and it
+         * pushes nothing rather than dating a cached figure to now.
+         *
+         * Gated on mesh_ui_node_signal_heard(), which is the rest of what makes this honest: an
+         * SNR from a relayed packet describes the relay and a node reached over MQTT crossed no
+         * air at all. Both are true numbers about something else, and the node detail refuses to
+         * draw a bar on either for the same reason - so the row and the trend behind it are one
+         * claim rather than two that agree until one of them is changed.
+         *
+         * The RSSI rides the same measurement rather than carrying a staleness test of its own.
+         * Both stamps are the packet's arrival where the session stored them, so `rssi_time ==
+         * snr_time` is exactly "these two came off one packet" - which is the pair this history
+         * keeps under one stamp. An RSSI that arrived with no ratio beside it is not recorded,
+         * and that is the right way round: the alternative is a lone reading stamped with a
+         * moment nothing else on the row shares.
          */
-        const bool heard_now =
-            node->last_heard != 0U && (was == NULL || was->last_heard != node->last_heard);
-        if (heard_now && mesh_ui_node_signal_heard(node)) {
-            const bool rssi_now =
-                node->has_rssi && !(node->rssi_time != 0U && node->last_heard > node->rssi_time);
+        const bool measured =
+            node->snr_time != 0U &&
+            (was == NULL || was->snr_time != node->snr_time || was->snr != node->snr);
+        if (measured && mesh_ui_node_signal_heard(node)) {
+            const bool rssi_now = node->has_rssi && node->rssi_time == node->snr_time;
             mesh_ui_history_note_signal(&store->history, (uint32_t)store->now_ms, node->node_id,
                                         mesh_ui_snr_db(node->snr), rssi_now,
                                         (int32_t)node->rx_rssi);

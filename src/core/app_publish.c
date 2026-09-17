@@ -378,6 +378,7 @@ static void mesh_app_restore_node(const struct mesh_ui_node_summary *src,
     dst->in_nodedb = src->in_nodedb;
     dst->last_heard = src->last_heard;
     dst->snr = src->snr;
+    dst->snr_time = src->snr_time;
     dst->has_rssi = src->has_rssi;
     dst->rx_rssi = src->rx_rssi;
     dst->rssi_time = src->rssi_time;
@@ -2416,6 +2417,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
             snprintf(dst->short_name, sizeof(dst->short_name), "%s", src->short_name);
             dst->last_heard = src->last_heard;
             dst->snr = src->snr;
+            dst->snr_time = src->snr_time;
             dst->has_rssi = src->has_rssi;
             dst->rx_rssi = src->rx_rssi;
             dst->rssi_time = src->rssi_time;
