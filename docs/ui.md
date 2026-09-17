@@ -261,7 +261,7 @@ walks cells rather than bytes, which is how a node named with one emoji renders.
 | File | Layer | What belongs there |
 |---|---|---|
 | `fb_draw.c` | ink | pixels, glyphs, theme lookups, cell metrics |
-| `fb_widgets.c` | components | every component below (`fb_widgets.h`) |
+| `fb_widgets_*.c` | components | every component below (`fb_widgets.h` is the umbrella header) |
 | `fb_screens.c` | screens | one renderer per screen, and nothing else |
 | `fb.c` | device | `/dev/fb0`, the page flip, the backend vtable |
 
@@ -305,8 +305,26 @@ would land on. The window now ends a **look-ahead** past the cursor —
 
 ### The components
 
-All in `fb_widgets.c`, all taking a family/tone/shape rather than a colour. The header is the
+One file per group, all taking a family/tone/shape rather than a colour. The headers are the
 reference; what follows is the map.
+
+| Group | What is in it |
+|---|---|
+| `fb_widgets_button` | the button, the chip, a strip of chips, the badge — the shapes sized to their own label |
+| `fb_widgets_chrome` | the app bar and its trail, the navigation bar, the action bar, the banner, the progress bar, the empty state, the hairline |
+| `fb_widgets_list` | the list window, the card surfaces and rail under it, the subheader, the note row, the disc |
+| `fb_widgets_item` | one row and its slots, and the conversation cell |
+| `fb_widgets_bubble` | the transcript: a message, and the separator between two of them |
+| `fb_widgets_card` | a card, built row by row and then drawn |
+| `fb_widgets_control` | the switch, the checkbox and radio, the segmented button, the text field |
+| `fb_widgets_meter` | the meter, the slider, the signal staircase, the sparkline, the proportion bar, the chart |
+| `fb_widgets_overlay` | the dialog, the snackbar, the QR code |
+
+Calls between them run one way — `button` is the leaf everything else reaches for — so a group's
+header names only the groups above it. The two exceptions to one-header-per-group are
+`fb_widgets.h`, which includes all nine for a caller that wants the lot, and
+`fb_widgets_list_internal.h`, the six answers the list window and the row it draws both need.
+
 
 | Component | What it is |
 |---|---|

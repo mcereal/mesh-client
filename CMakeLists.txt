@@ -177,7 +177,15 @@ add_library(meshclient_core
     src/ui/backends/fb_capture.c
     src/ui/backends/fb_draw.c
     src/ui/backends/fb_map.c
-    src/ui/backends/fb_widgets.c
+    src/ui/backends/fb_widgets_bubble.c
+    src/ui/backends/fb_widgets_button.c
+    src/ui/backends/fb_widgets_card.c
+    src/ui/backends/fb_widgets_chrome.c
+    src/ui/backends/fb_widgets_control.c
+    src/ui/backends/fb_widgets_item.c
+    src/ui/backends/fb_widgets_list.c
+    src/ui/backends/fb_widgets_meter.c
+    src/ui/backends/fb_widgets_overlay.c
     src/ui/backends/fb_screens.c
     src/ui/theme/font.c
     src/ui/theme/font5x7.c
