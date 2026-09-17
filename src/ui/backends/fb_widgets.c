@@ -979,6 +979,14 @@ static uint8_t fb_list_card_of(const struct fb_list *list, uint32_t index) {
     return list->cards[index];
 }
 
+/* Whether item `index` stands on a card at all. The two panel sentinels differ only in what the
+   card above may spend into the step (see FB_LIST_PANEL_ROW); to everything else - the ground a
+   row is drawn against, the run walk, the leading slot - they are the same answer. */
+static bool fb_list_on_card(const struct fb_list *list, uint32_t index) {
+    const uint8_t card = fb_list_card_of(list, index);
+    return card != FB_LIST_NO_CARD && card != FB_LIST_PANEL_ROW;
+}
+
 /* Whether this list draws its groups as cards at all, which is a question about the list and
    not about one row of it - see fb_list_subheader_icon(), where a heading stands *between* two
    cards and so has a card list's ground under it either way. */
@@ -1017,8 +1025,7 @@ static int fb_list_card_pad(const struct mesh_ui_backend_fb_state *state) {
 }
 
 enum mesh_ui_color fb_list_ground(const struct fb_list *list, uint32_t index) {
-    return fb_list_card_of(list, index) == FB_LIST_NO_CARD ? MESH_UI_COLOR_BG
-                                                           : MESH_UI_COLOR_SURFACE;
+    return fb_list_on_card(list, index) ? MESH_UI_COLOR_SURFACE : MESH_UI_COLOR_BG;
 }
 
 uint32_t fb_list_row_height(const struct fb_list *list, uint32_t index) {
@@ -1098,7 +1105,7 @@ static void fb_list_cards(const struct mesh_ui_backend_fb_state *state, struct f
             height += (int)mesh_ui_list_item_height(&list->model, run) * list->line;
             run++;
         }
-        if (card == FB_LIST_NO_CARD) {
+        if (!fb_list_on_card(list, i)) {
             top += height;
             i = run;
             continue;
@@ -1133,10 +1140,22 @@ static void fb_list_cards(const struct mesh_ui_backend_fb_state *state, struct f
         }
         int box_bottom = top + height;
         if (!cut_bottom) {
-            /* Into the step the group's next heading stands in, which is where the break between
-               two cards comes from - never past the body, or the bottom card of a list that
-               filled its window would put its edge through the action bar. */
-            box_bottom += pad;
+            /*
+             * Into the step the group's next heading stands in, which is where the break between
+             * two cards comes from - never past the body, or the bottom card of a list that
+             * filled its window would put its edge through the action bar.
+             *
+             * A step that is a full row gets the hairline and not the inset. The inset is what a
+             * heading can absorb and a row cannot: a row is a line advance with a glyph cell in
+             * it and a leading disc nearly as tall as the step, so a card padding into it lands
+             * its edge on the disc's crown. The hairline still has to go *somewhere* outside the
+             * last card row's own fill, which is the same reason box_top spends one upward - a
+             * hairline inside a row box is a hairline that row's highlight paints out, and the
+             * card then reads as open at the bottom on precisely the row being pointed at. So it
+             * is spent downward here exactly as it is spent upward there, and the row below
+             * gives that hairline back out of its own box - see fb_item_measure().
+             */
+            box_bottom += (fb_list_card_of(list, run) == FB_LIST_PANEL_ROW) ? edge : pad;
             const int floor_y = list->track_y + list->track_h;
             if (box_bottom > floor_y) {
                 box_bottom = floor_y;
@@ -1587,6 +1606,8 @@ struct fb_item_geom {
     int text_x, text_right;
     int content_x;    /* where the row's content starts, before any leading slot is reserved */
     int lead_size;    /* the leading slot's side: one width per list, never per row */
+    int lead_disc;    /* what may actually be drawn in it, once the cards either side have theirs */
+    int lead_y;       /* and where: its own answer, because a shrunken disc is centred not seated */
     int marker_x;     /* a plain row's marker cell; only meaningful when the row reserved one */
     size_t cols;      /* text columns between the leading slot and the trailing edge */
     int bar_y, bar_h; /* a stacked meter's track; bar_h of 0 is a row that has none */
@@ -1594,7 +1615,8 @@ struct fb_item_geom {
 
 static struct fb_item_geom fb_item_measure(const struct mesh_ui_backend_fb_state *state,
                                            const struct fb_list *list,
-                                           const struct fb_list_item *item, uint32_t rows) {
+                                           const struct fb_list_item *item, uint32_t index,
+                                           uint32_t rows) {
     const int scale = state->scale;
     const int adv = fb_char_adv(state, scale);
     const struct fb_row_box box = fb_row_box(state);
@@ -1656,6 +1678,53 @@ static struct fb_item_geom fb_item_measure(const struct mesh_ui_backend_fb_state
      */
     g.lead_size =
         item->leading.kind == FB_LEADING_TONAL_SLOT ? list->line - scale : g.fill_h - scale;
+    /*
+     * A row on the panel gives back the hairline each card beside it spends into its step, and
+     * what may actually be *drawn* in its leading slot follows from what is left.
+     *
+     * A card's edge is drawn outside its own rows' boxes so that no row's highlight can paint it
+     * out (fb_list_cards()), and where the card's neighbour is a full row rather than a heading,
+     * that "outside" is inside *this* row's box. Left there it is the same bug from either side
+     * of one hairline: selecting this row paints over the card's edge and its corners, and
+     * selecting the card's last row paints over the other one. So the box stops short of both,
+     * which costs the row two pixels of fill it was not using and nothing else - the baseline
+     * does not move and a glyph's cell sits inside what is left.
+     *
+     * The slot is the gutter and the gutter may not move: it is what puts every row's words in
+     * one column, which is the whole of what the slot is for. `lead_size` is therefore measured
+     * before any of this, and only the disc drawn in it gives way - centred in the slot, so the
+     * room a card took comes off the disc and never off the column.
+     *
+     * A pixel of clearance at each end where a card is adjacent, because a disc laid against a
+     * card's hairline reads as attached to that card rather than standing between two, which is
+     * what the row is. It costs the disc two pixels at the Brick's own glyph scale, and those
+     * two are the step at which fb_draw_avatar() drops its symbol a scale - which is a real cost
+     * and the right way round: a smaller mark on a row that is a button under a form, against a
+     * card that looks broken.
+     */
+    if (fb_list_has_cards(list) && !fb_list_on_card(list, index)) {
+        const int edge = fb_edge(state);
+        const bool card_above = index > 0U && fb_list_on_card(list, index - 1U);
+        const bool card_below = fb_list_on_card(list, index + 1U);
+        if (card_above) {
+            g.fill_top += edge;
+            g.fill_h -= edge;
+        }
+        if (card_below) {
+            g.fill_h -= edge;
+        }
+        const int band_top = g.fill_top + (card_above ? 1 : 0);
+        const int band = g.fill_top + g.fill_h - (card_below ? 1 : 0) - band_top;
+        g.lead_disc = g.lead_size > band ? (band > 0 ? band : 0) : g.lead_size;
+        /* Centred in what is left, so the room the cards took is ground at both ends of the disc
+           rather than all of it at one. */
+        g.lead_y = band_top + (band - g.lead_disc) / 2;
+    } else {
+        g.lead_disc = g.lead_size;
+        /* A hairline inside the top of the row's box, which is where a glyph's own ink sits and
+           so what keeps a disc reading as part of the line beside it. */
+        g.lead_y = g.fill_top + fb_space(state, MESH_UI_SPACE_XS);
+    }
     g.content_x = box.text_x;
     g.text_x = g.content_x;
     if (item->leading.kind == FB_LEADING_AVATAR || item->leading.kind == FB_LEADING_TONAL ||
@@ -2189,7 +2258,7 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
     const int scale = state->scale;
     const bool selected = fb_list_is_cursor(list, index);
     const uint32_t rows = fb_list_row_height(list, index);
-    const struct fb_item_geom g = fb_item_measure(state, list, item, rows);
+    const struct fb_item_geom g = fb_item_measure(state, list, item, index, rows);
 
     if (selected) {
         const int radius = fb_radius(state, MESH_UI_SHAPE_SM);
@@ -2238,8 +2307,10 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
     if (item->leading.kind == FB_LEADING_AVATAR || item->leading.kind == FB_LEADING_TONAL) {
         /* The slot the measure reserved, and not a second opinion about it: a disc drawn to any
            other size either leaves a gap its list's other rows do not have or runs under the
-           words. See fb_item_measure(). */
-        const int size = g.lead_size;
+           words. Centred in the slot where the measure had to make it smaller than one, so the
+           room a card took comes off the disc and never off the column. See fb_item_measure(). */
+        const int size = g.lead_disc;
+        const int lead_x = g.content_x + (g.lead_size - size) / 2;
         /*
          * Which pair the disc wears, and the tonal one reads it off the row's tone exactly as
          * the accent bar below does - the row says once what it means and the disc is one of
@@ -2272,8 +2343,8 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
                                            : mesh_ui_theme_avatar(state->theme, item->leading.tint),
                                        fb_color(state, MESH_UI_COLOR_BG)};
         }
-        fb_draw_avatar(state, g.content_x, g.fill_top + fb_space(state, MESH_UI_SPACE_XS), size,
-                       item->leading.label, item->leading.icon, disc);
+        fb_draw_avatar(state, lead_x, g.lead_y, size, item->leading.label, item->leading.icon,
+                       disc);
     } else if (item->leading.kind == FB_LEADING_ICON) {
         fb_draw_icon(state, g.content_x, g.head_y, item->leading.icon, scale, head_ink, ground);
     }

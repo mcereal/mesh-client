@@ -3666,7 +3666,10 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                         }
                         const bool verb = mesh_ui_settings_item_is_verb(&items[g]);
                         if (verb) {
-                            cards[g] = FB_LIST_NO_CARD;
+                            /* On the panel, and a full row rather than a break: the card above
+                               closes at the step boundary instead of spending its padding into
+                               this row's disc. See FB_LIST_PANEL_ROW. */
+                            cards[g] = FB_LIST_PANEL_ROW;
                             run_open = false;
                             continue;
                         }
