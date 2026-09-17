@@ -6,8 +6,10 @@
  * What this is for and the three decisions behind its format are in
  * include/mesh/ui/store_trends.h; this file is the mechanics. It sits beside store_archive.c in
  * the store group and is deliberately its mirror - the same open-write-close append, the same
- * compaction off one stat(), the same rewrite through a temporary - over a record that is four
- * numbers instead of five lines.
+ * compaction off one size check, the same rewrite through a temporary - over a record that is
+ * four numbers instead of five lines. The one place it is not the archive's twin is that every
+ * question it asks the filesystem is asked of an open descriptor rather than of a path, because
+ * a file here is opened for append and then measured; see mesh_ui_trends_append().
  *
  * Every entry point tolerates a disabled log - one whose directory could not be made - and
  * reports success for it. A Brick with a full or read-only card is still a client, and what
@@ -259,11 +261,17 @@ static void trend_write_record(FILE *file, const struct trend_record *record) {
 }
 
 /*
- * Cuts a node's file back to its newest records when it has outgrown the cap.
+ * Cuts a node's file back to its newest records.
  *
- * Checked on append off the file's size, which is one stat() rather than a read: the read only
- * happens on the append that actually trips the threshold, which for a node reporting every half
- * hour is once every few weeks.
+ * Called only when the append has just established that the file is over the cap, and it is the
+ * append that asks - off an fstat() on the handle it wrote through, not a stat() on the name.
+ * The difference is not tidiness: a size read off the path and then acted on by reopening it is
+ * a check on one file and a write to whatever wears that name a moment later, which is the
+ * time-of-check race CodeQL names. Nothing here asks the filesystem a question about a path and
+ * then acts on the answer; the read below simply opens what is there.
+ *
+ * The read only happens on the append that actually trips the threshold, which for a node
+ * reporting every half hour is once every few weeks.
  *
  * Through a temporary and a rename, as the archive's rewrite is and unlike the cache's: what is
  * here is history nothing else holds, so an interrupted rewrite has to leave the old file rather
@@ -274,11 +282,6 @@ static void trend_write_record(FILE *file, const struct trend_record *record) {
  * *starts*, not what it says.
  */
 static void trends_compact(const char *path) {
-    struct stat info;
-    if (stat(path, &info) != 0 || info.st_size <= (off_t)MESH_UI_TRENDS_FILE_MAX_BYTES) {
-        return;
-    }
-
     struct trend_record keep[MESH_UI_TRENDS_MAX_RECORDS];
     uint32_t count = 0U;
     if (trends_read_file(path, keep, MESH_UI_TRENDS_MAX_RECORDS, &count) != 0 || count == 0U) {
@@ -449,16 +452,29 @@ int mesh_ui_trends_append(struct mesh_ui_trends *trends, const struct mesh_ui_hi
         if (!trends_path(trends, node_id, path, sizeof path)) {
             continue;
         }
-        /* Asked before the open, because opening for append is what creates it: a file that was
-           already there is one an earlier run wrote, and the first record of this run has to
-           carry the seam rather than a measurement. */
-        const bool resumed = !state->written && access(path, F_OK) == 0;
-
         FILE *file = fopen(path, "a");
         if (file == NULL) {
             mesh_log_warn("ui", "Could not append to trend log %s: %d", path, -errno);
             continue;
         }
+        /*
+         * Whether an earlier run already wrote this file, asked of the descriptor rather than of
+         * the path.
+         *
+         * The question is "is the record I am about to write the first in this file", and the
+         * answer has to be about the file this handle holds: an access() or a stat() on the name
+         * beforehand is a check on one file and an append to whatever wears that name a moment
+         * later. Opening first and measuring what was opened has no such gap, and it answers
+         * more precisely besides - a file left empty by an open that got no further is a file
+         * with nothing to continue, which the name could not have told us.
+         *
+         * A file with something in it means the run that wrote it has ended, so the first record
+         * of this one carries the seam rather than a measurement.
+         */
+        struct stat before;
+        const bool resumed =
+            !state->written && fstat(fileno(file), &before) == 0 && before.st_size > 0;
+
         uint32_t records = 0U;
         for (uint32_t j = 0U; j < count; ++j) {
             struct trend_record record = {
@@ -477,7 +493,14 @@ int mesh_ui_trends_append(struct mesh_ui_trends *trends, const struct mesh_ui_hi
             state->written_at = pending[j].time;
             ++records;
         }
+        /* And the size the cap is measured against, off the same handle and before it is let go
+           - for the reason the question above is asked that way. */
         int result = ferror(file) ? -EIO : 0;
+        struct stat after;
+        off_t size = 0;
+        if (result == 0 && fflush(file) == 0 && fstat(fileno(file), &after) == 0) {
+            size = after.st_size;
+        }
         if (fclose(file) != 0) {
             result = -errno;
         }
@@ -486,7 +509,9 @@ int mesh_ui_trends_append(struct mesh_ui_trends *trends, const struct mesh_ui_hi
             continue;
         }
         written += (int)records;
-        trends_compact(path);
+        if (size > (off_t)MESH_UI_TRENDS_FILE_MAX_BYTES) {
+            trends_compact(path);
+        }
     }
 
     return written;

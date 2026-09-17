@@ -262,6 +262,79 @@ cleanup:
 }
 
 /*
+ * A run that appends to a file it did not open puts the seam in the file.
+ *
+ * The append path's half of the restart, and the one a restore never reaches: a node heard in
+ * this run before anybody opened its detail screen has its reading written straight onto an
+ * earlier run's chain. How long the client was not running is unmeasurable, so that first record
+ * carries the gap and says it continues nothing - and the question behind it is asked of the
+ * open descriptor's size rather than of the path, so an empty file left by an open that got no
+ * further reads as a file with nothing to continue.
+ */
+MESH_TEST_CASE(ui_trends_append_writes_the_restart_seam, unit) {
+    const char *failure = NULL;
+    struct mesh_ui_trends first;
+    char dir[64];
+    MESH_TEST_FAIL_IF(!trends_open(&first, dir, sizeof dir), "could not open a trend log");
+
+    struct mesh_ui_history one;
+    trends_history(&one);
+    const uint32_t old_clock = 4U * 60U * 60U * 1000U;
+    for (uint32_t i = 0U; i < 2U; ++i) {
+        mesh_ui_history_note_battery(&one, old_clock + i * MESH_UI_HISTORY_NODE_REPORT_MS, 0x321U,
+                                     (uint8_t)(40U + i));
+        (void)mesh_ui_trends_append(&first, &one);
+    }
+
+    /* A second run that hears from the node and writes, with nothing having opened its detail. */
+    struct mesh_ui_trends second;
+    struct mesh_ui_history two;
+    if (mesh_ui_trends_init(&second, dir) != 0) {
+        failure = "the second run could not open the same directory";
+        goto cleanup;
+    }
+    trends_history(&two);
+    mesh_ui_history_note_battery(&two, 20U * 1000U, 0x321U, 30U);
+    if (mesh_ui_trends_append(&second, &two) != 1) {
+        failure = "the second run's reading should have been written";
+        goto cleanup;
+    }
+
+    /* A third run reads all three back and finds the seam where the client was not running. */
+    struct mesh_ui_trends third;
+    struct mesh_ui_history three;
+    if (mesh_ui_trends_init(&third, dir) != 0) {
+        failure = "the third run could not open the same directory";
+        goto cleanup;
+    }
+    trends_history(&three);
+    if (mesh_ui_trends_restore(&third, 0x321U, &three, 5000U) != 3) {
+        failure = "both runs' readings should come back";
+        goto cleanup;
+    }
+    const int32_t levels[] = {40, 41, 30};
+    if (!trends_values(&three, 0x321U, MESH_UI_HISTORY_BATTERY, levels, 3U)) {
+        failure = "the readings should come back in the order they were written";
+        goto cleanup;
+    }
+    const struct mesh_ui_series *series =
+        mesh_ui_history_series(&three, 0x321U, MESH_UI_HISTORY_BATTERY);
+    if (mesh_ui_series_starts_segment(series, 1U)) {
+        failure = "two readings inside one run should still be one line";
+        goto cleanup;
+    }
+    if (!mesh_ui_series_starts_segment(series, 2U)) {
+        failure = "the first reading of a later run must not continue the run before it";
+        goto cleanup;
+    }
+
+cleanup:
+    (void)mesh_test_remove_tree(dir);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
  * A reading below zero comes back below zero, and the pair that arrived together comes back
  * together.
  *
