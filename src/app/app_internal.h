@@ -12,12 +12,12 @@
  * (app_mqtt.c), which is the one job here that reads the radio's configuration and answers with
  * a socket.
  *
- * Nothing here is part of the client's public surface - that is include/mesh/core/app.h. These
+ * Nothing here is part of the client's public surface - that is include/mesh/app/app.h. These
  * declarations exist because C has no unit smaller than a translation unit: they would all be
  * `static` if the files were still one.
  */
 
-#include "mesh/core/app.h"
+#include "mesh/app/app.h"
 
 #include <stdint.h>
 

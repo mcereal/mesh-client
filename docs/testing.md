@@ -21,8 +21,10 @@ make test                                                    # debug build + cte
 ./build/debug/tests/meshclient_core_tests --suite ui_nav
 ```
 
-Four CTest entries are not in the suite binary: `meshclient_hardcoded_strings` runs
-`scripts/check-strings.py` (see [`i18n.md`](i18n.md)), `meshclient_vendored_files` re-checks
+Five CTest entries are not in the suite binary: `meshclient_hardcoded_strings` runs
+`scripts/check-strings.py` (see [`i18n.md`](i18n.md)), `meshclient_layering` runs
+`scripts/check-layers.py`, which fails on an `#include` that crosses a layer the wrong way (see
+[`architecture.md`](architecture.md#layers)), `meshclient_vendored_files` re-checks
 vendored code against the digest its own README states, `meshclient_frames_codec` round-trips the
 GIF encoder in `scripts/frames.py` through an independent decoder, and `meshclient_bluez_bus`
 starts a private bus with a fake GATT service when `dbus-run-session` is installed. None of them

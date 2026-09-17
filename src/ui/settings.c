@@ -5,7 +5,7 @@
  *
  * One designated-initialiser table (k_fields) is the single description of every editable field -
  * its label, its section, how it steps, what its values are called. Adding a setting is adding a
- * row there plus a case in src/core/app_settings.c; nothing else in the client should be
+ * row there plus a case in src/app/app_settings.c; nothing else in the client should be
  * switching on a field id.
  */
 

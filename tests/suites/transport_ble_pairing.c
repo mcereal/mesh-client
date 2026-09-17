@@ -5,7 +5,7 @@
 #include "framework/mesh_test.h"
 #include "support/ble_fixture.h"
 
-#include "mesh/core/app.h"
+#include "mesh/app/app.h"
 #include "mesh/transport/ble.h"
 
 #include <errno.h>

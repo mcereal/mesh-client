@@ -4,7 +4,7 @@
 
 #include "framework/mesh_test.h"
 
-#include "mesh/core/app.h"
+#include "mesh/app/app.h"
 #include "mesh/core/updater.h"
 #include "mesh/ui/preferences.h"
 #include "mesh/ui/store_device.h"

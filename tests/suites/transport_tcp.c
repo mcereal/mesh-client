@@ -6,7 +6,7 @@
 #include "support/proto_fixture.h"
 #include "support/serial_fixture.h"
 
-#include "mesh/core/app.h"
+#include "mesh/app/app.h"
 #include "mesh/core/config.h"
 #include "mesh/core/event_loop.h"
 #include "mesh/core/session.h"

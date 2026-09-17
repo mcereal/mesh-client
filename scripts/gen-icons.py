@@ -7,7 +7,7 @@ the generated file, so the build stays dependency-free and CI never reaches the 
     python3 -m venv .venv && .venv/bin/pip install fonttools pillow
     curl -sSLo MaterialSymbolsRounded.ttf 'https://raw.githubusercontent.com/google/\
 material-design-icons/master/variablefont/MaterialSymbolsRounded%5BFILL%2CGRAD%2Copsz%2Cwght%5D.ttf'
-    .venv/bin/python scripts/gen-icons.py MaterialSymbolsRounded.ttf src/ui/icon_glyphs.c
+    .venv/bin/python scripts/gen-icons.py MaterialSymbolsRounded.ttf src/ui/generated/icon_glyphs.c
 
 The icons and their glyph names come from include/mesh/ui/icons.def, which is also what builds
 `enum mesh_ui_icon` - so the enum and the sprites are generated from one list and cannot drift.

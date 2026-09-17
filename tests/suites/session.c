@@ -6,7 +6,7 @@
 #include "support/proto_fixture.h"
 #include "support/session_fixture.h"
 
-#include "mesh/core/app.h"
+#include "mesh/app/app.h"
 #include "mesh/core/message.h"
 #include "mesh/core/session.h"
 #include "mesh/ui/store_node.h"

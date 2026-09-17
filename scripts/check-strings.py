@@ -49,9 +49,9 @@ CHECKED = [
     "src/ui/backends/fb_screens.c",
     "src/ui/backends/fb_widgets.c",
     "src/ui/input.c",
-    "src/core/app_actions.c",
-    "src/core/app_publish.c",
-    "src/core/app_settings.c",
+    "src/app/app_actions.c",
+    "src/app/app_publish.c",
+    "src/app/app_settings.c",
 ]
 
 # Literals that are not prose even though they read like it, each with the reason it stays.
@@ -188,6 +188,19 @@ def findings(path):
 
 
 def main():
+    # CHECKED is a list of paths, so it rots silently the moment a file is renamed or moved into
+    # a subdirectory - and a check that has quietly stopped reading a renderer is worse than one
+    # that fails. Say which path went missing rather than raising FileNotFoundError at the reader.
+    missing = [name for name in CHECKED if not (ROOT / name).is_file()]
+    if missing:
+        for name in missing:
+            print(f"{name}: listed in CHECKED but not on disk", file=sys.stderr)
+        print(
+            f"\n{len(missing)} file(s) in CHECKED have moved or been deleted. Update the list in "
+            "this script; a renderer missing from it is a renderer nobody is checking.",
+            file=sys.stderr,
+        )
+        return 1
     problems = [problem for path in CHECKED for problem in findings(path)]
     for problem in problems:
         print(problem, file=sys.stderr)

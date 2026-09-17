@@ -235,7 +235,7 @@ struct mesh_app {
     /*
      * One MQTT broker connection, held on behalf of whichever radio is attached and asking for
      * it. Everything about it - whether to be connected, to what, with which subscriptions - is
-     * derived from the radio's own MQTTConfig every loop turn; see src/core/app_mqtt.c.
+     * derived from the radio's own MQTTConfig every loop turn; see src/app/app_mqtt.c.
      */
     struct mesh_mqtt_proxy mqtt;
     /* What it was last told to do; see struct mesh_app_mqtt_plan. */

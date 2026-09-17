@@ -29,7 +29,8 @@ make fuzz                                 # libFuzzer over the two decoders that
 ```
 
 Run `make test` before every push. It is the suite CI runs, plus `scripts/check-strings.py`,
-which fails on a prose literal in a renderer.
+which fails on a prose literal in a renderer, and `scripts/check-layers.py`, which fails on an
+include that crosses a layer the wrong way.
 
 The build types live in `CMakePresets.json` - generator (Ninja), build type, and
 `CMAKE_EXPORT_COMPILE_COMMANDS`, which is what `.clangd` reads out of `build/debug`. The scripts
@@ -108,6 +109,18 @@ evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 `include/mesh/` mirrors `src/` one-for-one, so a header sits in the directory named after the
 source file that defines it.
 
+**The directory under `src/` is a layer, and `scripts/check-layers.py` holds the direction.** The
+allowed edges are the table in that script; the one worth knowing is that **`core` never includes
+`ui`**. The session, the message log and the admin queue answer to a radio, not to a screen, and
+the moment one of them reads a store record the client can no longer be driven headless.
+`src/app/` is the composition root - it owns one of everything and is the single layer allowed to
+see every other, because assembling them is what it is for. A new directory under `src/` needs an
+entry in that script's `ALLOWED` before it will compile clean.
+
+`src/ui/generated/` is the three glyph tables `scripts/gen-{emoji,icons,font}.py` write - 42k
+lines, a third of the tree, and none of it read by a human. It is out of `src/ui/` so that a
+count of this codebase is a count of what somebody wrote.
+
 The one group that is several headers to one source is the UI store: `src/ui/store.c` defines
 what `store.h` and its seven subject headers (`store_device.h`, `store_node.h`,
 `store_channel.h`, `store_handshake.h`, `store_message.h`, `store_mqtt.h`,
@@ -135,9 +148,9 @@ publish and read back when that node's detail screen is opened. See
 | Key trust | `src/core/key_verification.c` - the out-of-band ceremony behind the padlock; `add_contact` lives in `radio_settings.c` |
 | Channel sharing | `src/proto/channel_url.c` (the `meshtastic.org/e/#` link), `src/core/channel_share.c` (the radio's table either way), `src/utils/qr.c` (the code), `src/ui/channel_share.c` (what the two screens say) |
 | Contact sharing | `src/proto/contact_url.c` (the `meshtastic.org/v/#` link), `src/core/contact_share.c` (this radio's record out, a stranger's in), `src/ui/contact_share.c` (what the two screens say); the wrapper both links share is `src/proto/link_url.h` |
-| App glue | `src/core/app*.c` - lifecycle/link, `_actions`, `_publish`, `_settings` |
+| App glue | `src/app/*.c` - the composition root: lifecycle/link, `_actions`, `_publish`, `_settings` |
 | Self-update | `src/core/updater.c`, `version.c`, `fetch.c` |
-| MQTT proxy | `src/proto/mqtt_packet.c` (the wire format), `src/proto/mqtt_topic.c` (where a mesh lives on a broker), `src/core/mqtt_proxy.c` (one broker connection), `src/core/tls_client.c` (Mbed TLS on the loop), `src/core/app_mqtt.c` (whether to hold one at all) |
+| MQTT proxy | `src/proto/mqtt_packet.c` (the wire format), `src/proto/mqtt_topic.c` (where a mesh lives on a broker), `src/core/mqtt_proxy.c` (one broker connection), `src/core/tls_client.c` (Mbed TLS on the loop), `src/app/app_mqtt.c` (whether to hold one at all) |
 | Radio firmware | `src/core/firmware*.c`, `uf2.c`, `esp_image.c`, `src/transport/*/{usb_msc,ble_ota,ble_hci}.c` - the *other* binary |
 | UI | `src/ui/` - store/controller (records in `include/mesh/ui/store_*.h`), `store_file.c` the cache on the card, `store_archive.c` the per-conversation transcript and `store_trends.c` the per-node trend log beside it, `nav*.c`, `settings*.c`, `layout.c`, `backends/{fb*,cli,stub}.c`; **`fb` is the device UI** |
 | UI components | `src/ui/layout.c`, `src/ui/backends/fb_widgets.c` - cell-measured line builder, scroll window, cards, lists, meters, charts |
@@ -149,7 +162,7 @@ publish and read back when that node's detail screen is opened. See
 | Shared utils | `src/utils/` - `text`, `time`, `env`, `json`, `log`, `sha256`, `array` |
 | Dev tools | `devtools/`, `scripts/` - UI capture, map packs, codegen |
 
-Five subsystems are split across several files sharing one `*_internal.h` (`src/core/app_internal.h`,
+Five subsystems are split across several files sharing one `*_internal.h` (`src/app/app_internal.h`,
 `src/ui/nav_internal.h`, `src/ui/settings_internal.h`, `src/ui/store_internal.h`,
 `src/ui/backends/fb_internal.h`). Those are **not** public API: they declare only what would still
 be `static` if the group were one file, and nothing outside the group should include one.

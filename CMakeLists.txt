@@ -65,11 +65,11 @@ if(MESHCLIENT_ENABLE_UBSAN)
 endif()
 
 add_library(meshclient_core
-    src/core/app.c
-    src/core/app_actions.c
-    src/core/app_mqtt.c
-    src/core/app_publish.c
-    src/core/app_settings.c
+    src/app/app.c
+    src/app/app_actions.c
+    src/app/app_mqtt.c
+    src/app/app_publish.c
+    src/app/app_settings.c
     src/core/channel_share.c
     src/core/contact_share.c
     src/core/config.c
@@ -182,12 +182,12 @@ add_library(meshclient_core
     src/ui/font.c
     src/ui/font5x7.c
     src/ui/font_ui.c
-    src/ui/font_ui_glyphs.c
+    src/ui/generated/font_ui_glyphs.c
     src/ui/theme.c
     src/ui/emoji.c
-    src/ui/emoji_glyphs.c
+    src/ui/generated/emoji_glyphs.c
     src/ui/icon.c
-    src/ui/icon_glyphs.c
+    src/ui/generated/icon_glyphs.c
     src/ui/preferences.c
     src/ui/layout.c
     src/ui/trend.c

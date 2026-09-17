@@ -122,6 +122,13 @@ add_test(NAME meshclient_hardcoded_strings
          COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/check-strings.py)
 set_tests_properties(meshclient_hardcoded_strings PROPERTIES LABELS "unit")
 
+# Every source here compiles into one library, so nothing but a rule stops src/geo from reaching
+# into src/ui. check-layers.py is that rule: it holds the direction docs/architecture.md
+# describes, and names the one edge that matters - core never sees ui.
+add_test(NAME meshclient_layering
+         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/check-layers.py)
+set_tests_properties(meshclient_layering PROPERTIES LABELS "unit")
+
 # A vendored third-party file is upstream's, not ours. third_party/wuffs/wuffs-v0.4.c is 3.6 MB
 # of generated C that no review will ever read, so an edit in place is invisible - and a fix
 # that lives only here is a fix nobody upstream knows about. check-vendor.py re-checks it against
