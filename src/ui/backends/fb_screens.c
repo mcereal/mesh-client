@@ -3717,22 +3717,8 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
      */
     const bool rows_lead_with_icon = !section_open || mesh_ui_settings_section_icons_rows(section);
     /*
-     * Whether anything in this section draws a disc, and so whether every row owes the gutter.
-     *
-     * The leading slot is declared for a whole list or for none of it - the rule stated at the
-     * top of this function - and a verb declares it by drawing a tonal disc. A section that
-     * mixes verbs with fields therefore owes that width on its *fields* too, or its text begins
-     * in two columns: About is four rows and drew "Language" and "Theme" past a disc while
-     * "Version" and "Updates" started at the panel's padding.
-     *
-     * That was true before the cards and stayed true under them. Splitting a mixed group into a
-     * card of fields and floated verbs did not align the two columns, it moved the seam between
-     * them onto a card edge, where it read as a card that had lost its indent. The slot is what
-     * actually fixes it; see FB_LEADING_TONAL_SLOT.
-     */
-    bool section_has_verb = false;
-    /*
-     * And whether it has a value column, which is what decides where a *verb's* value is written.
+     * Whether the section has a value column at all, which is what decides where a *verb's* own
+     * value is written.
      *
      * A section is settings with presses among them or it is a list of presses, and the two want
      * the value in different places. Radio actions is the second: eleven verbs, no field, nothing
@@ -3741,11 +3727,12 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
      *
      * About and About radio are the first, and there the trailing edge is the wrong column. Both
      * screens are mostly read: a stack of facts with their values at the column every other
-     * settings row puts one in, and one or two verbs among them - Language, Theme, the firmware
-     * channel - whose value is a value in exactly the same sense. Sent to the trailing slot they
-     * came out alone against the right-hand edge, so a four-row screen read its values in two
-     * columns with nothing to tell the reader which row belonged to which. A row joins the
-     * column its neighbours are in.
+     * settings row puts one in. A verb standing among them with something to state - and the
+     * rows that do are the ones whose value is a *consequence* rather than a setting, since a
+     * press that merely steps its own value is not a verb at all - would otherwise come out
+     * alone against the right-hand edge, leaving the screen reading its values in two columns
+     * with nothing to say which row belonged to which. A row joins the column its neighbours
+     * are in.
      *
      * A withdrawn verb's reason is not a value and keeps the trailing slot either way - see the
      * verb branch below.
@@ -3756,13 +3743,36 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
             if (items[r].kind == MESH_UI_SETTING_HEADING) {
                 continue;
             }
-            if (mesh_ui_settings_item_is_verb(&items[r])) {
-                section_has_verb = true;
-            } else {
+            if (!mesh_ui_settings_item_is_verb(&items[r])) {
                 section_has_field = true;
             }
         }
     }
+    /*
+     * What a row that draws no symbol of its own puts at its leading edge - and the rule behind
+     * it: **every open section reserves the leading slot, whether or not anything fills it.**
+     *
+     * The slot is declared for a whole list or for none of it - the rule stated at the top of
+     * this function - and this is that rule taken one level out, from the list to the tab. It
+     * used to be asked per section, off whether the section held a verb, and the answer was
+     * right for every screen and wrong for the set of them: Position reserves the gutter because
+     * of one press below the fold and Radio UI, which is the same list of fields with no press
+     * in it, does not - so walking between the two moves every word about two cells sideways for
+     * a reason nothing on either screen shows. Device and User did it a third way again, by
+     * having no cards at all to indent inside.
+     *
+     * So the width is spent unconditionally. It costs the label column the disc's gutter on the
+     * sections that have no verb, which is the price of the Settings tab having one text column -
+     * and the reader who would notice those cells is the reader who was noticing the jump.
+     * ui_capture_every_section_starts_in_the_same_column holds it.
+     *
+     * Not the two lists of *subjects*, which fill their own narrower icon slot on every row and
+     * are answered by `rows_lead_with_icon` above: the section list and Modules are lists of
+     * things to open rather than of settings, and neither has ever mixed the two.
+     */
+    const struct fb_leading leading_slot = section_open
+                                               ? (struct fb_leading){.kind = FB_LEADING_TONAL_SLOT}
+                                               : (struct fb_leading){.kind = FB_LEADING_NONE};
     /*
      * Which rows carry a slider, measured here and handed to the model before the first row is
      * placed - the node detail's arrangement, and the rule step 9 left behind: the screen
@@ -3801,15 +3811,13 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                  * disc further in is the two-column seam the slot exists to close, with the
                  * label of a card sitting outside the column it names - LoRa's "Advanced" and
                  * Position's "Sent with a position" are the two that showed it. So a heading
-                 * with no symbol takes the empty slot in a section that reserves one, and
-                 * nothing at all in a section that does not.
+                 * with no symbol takes the empty slot, on the same terms its rows do.
                  */
                 fb_list_subheader_icon(
                     state, &list, i, item.label,
                     item.icon != MESH_UI_ICON_NONE
                         ? (struct fb_leading){.kind = FB_LEADING_TONAL, .icon = item.icon}
-                    : section_has_verb ? (struct fb_leading){.kind = FB_LEADING_TONAL_SLOT}
-                                       : (struct fb_leading){.kind = FB_LEADING_NONE});
+                        : leading_slot);
                 continue;
             }
             /*
@@ -3826,9 +3834,18 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
              */
             const enum mesh_ui_icon marker = item.conflict ? MESH_UI_ICON_WARNING
                                              : item.dirty  ? MESH_UI_ICON_UNSAVED
+                                             /* A is what steps this one, where a field steps on
+                                                Left and Right. The gutter is where a row says
+                                                how it is changed, so the two runes go in it
+                                                together - and it is what keeps a row that
+                                                cycles from reading as a fact now that the
+                                                leading disc belongs to verbs alone. */
+                                             : item.cycle                       ? MESH_UI_ICON_SWAP
                                              : item.field != MESH_UI_FIELD_NONE ? MESH_UI_ICON_EDIT
                                                                                 : MESH_UI_ICON_NONE;
-            const bool opens = (item.kind == MESH_UI_SETTING_ACTION);
+            /* The rows of this kind that open a list - a channel slot, a module - as against
+               the ones that step a value where they stand. A chevron promises a screen. */
+            const bool opens = (item.kind == MESH_UI_SETTING_ACTION) && !item.cycle;
             const enum mesh_ui_tone tone = item.conflict ? MESH_UI_TONE_WARNING
                                            : item.dirty  ? MESH_UI_TONE_STRONG
                                                          : MESH_UI_TONE_NORMAL;
@@ -3838,11 +3855,16 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
             const struct fb_leading leading =
                 rows_lead_with_icon
                     ? (struct fb_leading){.kind = FB_LEADING_ICON, .icon = item.icon}
-                : section_has_verb
-                    /* A field in a section that also holds verbs owes the disc's gutter, so its
-                       words start in the verbs' column rather than a slot to the left of them. */
-                    ? (struct fb_leading){.kind = FB_LEADING_TONAL_SLOT}
-                    : (struct fb_leading){.kind = FB_LEADING_NONE};
+                    : leading_slot;
+            /*
+             * Which of this row's two tiers recedes, asked of the model rather than of the
+             * kind - see mesh_ui_settings_item_is_fact(). A reading puts the question in the
+             * quiet tier and keeps the row's ink for the answer; a control does the opposite,
+             * because there the label is what the reader is choosing. It is the node detail's
+             * rule, and asking it here is what stopped the two screens drawing the same row two
+             * ways: About radio's fourteen readings were at full strength beside a node's.
+             */
+            const bool fact = mesh_ui_settings_item_is_fact(&item);
             /*
              * A verb, drawn as one: the symbol in a tonal disc at the leading edge, the label
              * across the row, and nothing in a value column - which is where "press A" used to
@@ -3985,6 +4007,7 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                     .leading = leading,
                     .label = item.label,
                     .label_cols = label_cols,
+                    .label_quiet = fact,
                     .marker_icon = marker,
                     .value = item.value,
                     .tone = tone,
@@ -4015,6 +4038,11 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                     .leading = leading,
                     .label = item.label,
                     .label_cols = label_cols,
+                    /* A switch or a box the radio decides and this client only reports is a
+                       reading like any other, and its words recede with them - which is what
+                       keeps "Screen lock" in the same tier as the "Language" above it on Radio
+                       UI's second card, where all three are things set somewhere else. */
+                    .label_quiet = fact,
                     .marker_icon = marker,
                     .tone = tone,
                     .trailing = {.kind = FB_TRAILING_CHECKBOX, .sel = &sel},
@@ -4035,6 +4063,7 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                     .leading = leading,
                     .label = item.label,
                     .label_cols = label_cols,
+                    .label_quiet = fact,
                     .marker_icon = marker,
                     .tone = tone,
                     .trailing = {.kind = FB_TRAILING_SWITCH, .sw = &sw},
@@ -4075,6 +4104,7 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                     .leading = leading,
                     .label = item.label,
                     .label_cols = label_cols,
+                    .label_quiet = fact,
                     .marker_icon = marker,
                     /* The figure stays. The track says how far along, the word says how long,
                        and neither is the other's caption - a slider with no reading is a
@@ -4133,6 +4163,7 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                 .leading = leading,
                 .label = item.label,
                 .label_cols = label_cols,
+                .label_quiet = fact,
                 .marker_icon = marker,
                 .value = item.value,
                 .tone = tone,

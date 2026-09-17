@@ -344,6 +344,35 @@ it is a card with none — so the words went back to the ordinary ink, the colou
 discs, and the handful of facts that are *states* became shapes as well as inks. A state said in
 ink alone is a state said to whoever can tell those two inks apart.
 
+### A stated fact and a control are two tiers, not one
+
+A row that is a label and a value is one of two things, and which one decides where the emphasis
+goes:
+
+- **A stated fact** — "Firmware", "Node number", "Latitude", "Sync". The label is the *question*
+  and repeats down a column the reader is scanning for the **answers**, so the label takes the
+  quiet tier (`MESH_UI_TONE_DIM`) and the value keeps the row's own ink.
+- **A control** — a setting, a verb, a row that opens a list. The label is what the reader is
+  *choosing* and the value is merely where it currently stands, so the label leads and the row
+  draws in one ink.
+
+`fb_list_item()` takes `label_quiet` per row because a settings section mixes the two; the card
+component states it, because nothing a card draws is a control (a card's verbs are buttons beside
+its heading, not rows) and a flag would be a question with one answer.
+
+Which of the two a settings row is, is `mesh_ui_settings_item_is_fact()`'s answer: not a verb,
+not a cycle, no field behind it, and not one of the `ACTION` rows that open a list — that last
+clause is what keeps a channel slot and a module row out of it, since neither is a verb and
+quietening them would recede the one tier that is the name of the thing being opened.
+`ui_settings_a_fact_is_a_row_nothing_changes` walks every section and checks the five shapes
+separately, because an expression there would be the test restating the predicate.
+
+This started on the node detail, which is a hundred and twenty facts and read as a block of text
+with no way into it until the two tiers were separated — and then stayed there, so the same
+reading drew two ways depending on the screen it was on. About radio's fourteen readings were at
+full strength beside a node's; the Status tab's cards pasted label and value into one string and
+drew the result in one colour. Both answer the question now.
+
 ### A settings row that is a verb
 
 `MESH_UI_SETTING_ACTION` is a row that *does* something, and it is drawn as one rather than as a
@@ -355,6 +384,16 @@ reads all three:
 | what is it about | `mesh_ui_settings_action_icon()` — the symbol in the leading disc |
 | what does it cost | `mesh_ui_settings_action_tone()` — `NORMAL`, `WARNING` or `ERROR` |
 | is it a verb at all | `mesh_ui_settings_item_is_verb()` |
+| does the press just step its own value | `mesh_ui_settings_action_is_cycle()` |
+
+The last one is what keeps the first honest. Five presses change nothing but the row they stand
+on — the language, the theme, this client's update channel and its dev-updates switch, and the
+radio's firmware channel — and a row whose value column *is* the setting is a setting, whatever
+key steps it. So they are built with `cycle` set and `verb` clear: no disc, a place among the
+fields rather than floated off the card with the presses, and the swap rune in the marker gutter
+where a field has the pencil. The nav is untouched — it reads the kind and the action in
+`number`, never `verb` — which is the point of the flag saying what the row *is* rather than
+what the press does.
 
 The third exists because the kind is doing two jobs. A Modules row and a channel slot are
 `ACTION` too — the nav answers all three with A, which is what the kind is for there — so the
@@ -449,14 +488,26 @@ out of a step and a step is a row. Standing the verbs on the panel spends the pa
 non-card step, which is what a heading already is — and it reads as the better answer anyway,
 since a verb under a group of fields is the thing that *applies* them.
 
-A *symbol* is still per row and per card on those terms — "every verb has one and no setting
-has one" (`ui_settings_row_icons_are_all_or_nothing`). The **gutter** is not: it is per section.
+A *symbol* is per row and per card on those terms — "every verb has one and no setting has one"
+(`ui_settings_row_icons_are_all_or_nothing`, `ui_settings_a_disc_marks_a_press_that_acts`). The
+**gutter** is neither: it is one width for the whole tab.
+
 A list that indents only the rows carrying something starts its text in two columns, and the
 cards were hiding that rather than fixing it — About is four ungrouped rows, two of them verbs,
 and drawing the verbs past a disc while the fields began at the panel's padding put the seam on
-a card edge instead of removing it. So a section holding any verb reserves the disc's width on
-its fields too, with `FB_LEADING_TONAL_SLOT`: the gutter, promised to a row that has nothing to
-put in it.
+a card edge instead of removing it. That is why `FB_LEADING_TONAL_SLOT` exists: the gutter,
+promised to a row that has nothing to put in it.
+
+Reserving it *per section* fixed each screen and left the set of them wrong. The condition was
+"does this section hold a verb", so Position reserved the width because of one press below the
+fold and Radio UI — the same list of fields with no press in it — did not, and walking between
+the two moved every word about two cells sideways for a reason nothing on either screen showed.
+Device did it a third way by having no cards at all to indent inside. **So every open section
+reserves the slot, whether or not anything fills it.** It costs the label column the disc's
+width on the sections that have no verb, which is the price of the tab having one text column;
+`ui_capture_every_section_starts_in_the_same_column` holds it, against the four shapes that used
+to disagree. The two lists of *subjects* — the section list and Modules — are outside it: both
+fill their own narrower icon slot on every row, and neither has ever mixed the two.
 
 **A card's edge lives outside both the boxes it separates.** A card in a list takes its bottom
 padding out of the step below it, which is where the break between two cards comes from — and

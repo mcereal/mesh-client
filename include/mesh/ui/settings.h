@@ -751,6 +751,20 @@ bool mesh_ui_settings_action_needs_confirm(enum mesh_ui_settings_action action);
  * about what a chevron promises, and the one that is wrong is the one the user acts on.
  */
 bool mesh_ui_settings_action_opens(enum mesh_ui_settings_action action);
+/*
+ * True for the presses that step the row's own value rather than doing anything: the language,
+ * the theme, this client's update channel and its dev-updates switch, and the radio's firmware
+ * channel.
+ *
+ * A table rather than a reading of the row, for the reason the icons and the tones are one.
+ * "Has a value in its value column" would catch the forget rows, whose figure is the size of
+ * what the press costs; "opens nothing" would catch the two checks, which send a request and
+ * redraw when the answer lands. Neither is the question. The question is whether pressing A
+ * leaves the reader on the same row with a different setting on it, and only these five do.
+ *
+ * See struct mesh_ui_settings_item::cycle for what the answer is spent on.
+ */
+bool mesh_ui_settings_action_is_cycle(enum mesh_ui_settings_action action);
 /* True for the two that install firmware on the radio. They are a radio action in every sense
    that matters and in none that this client's plumbing recognises: nothing goes through the
    admin queue that the app does not send itself, and what comes back is a bus rather than a
@@ -826,6 +840,14 @@ struct mesh_ui_settings_item {
      * observation: a leading slot is reserved for a whole list, so a list whose rows disagreed
      * would start its words in two different columns. mesh_ui_settings_section_icons_rows()
      * answers it for a caller, and a test holds every section to it.
+     *
+     * **The disc marks a press that acts, and nothing else.** That is the rule the leading slot
+     * answers to now, and `cycle` below is what it cost to state: a row that merely holds a
+     * value is a setting whatever key steps it, so Language, Theme and the two update channels
+     * carry no symbol and stand in the field column with their neighbours. Before that the slot
+     * was spent on any row the nav would answer - which put a disc on two of About's four rows
+     * and on two of About radio's fourteen, and left both screens with an icon column that
+     * started and stopped down the page.
      */
     enum mesh_ui_icon icon;
     /*
@@ -847,6 +869,28 @@ struct mesh_ui_settings_item {
      * mesh_ui_settings_item_is_verb() just below for why it is not the kind itself.
      */
     bool verb;
+    /*
+     * A is what steps this row's own value: it is a setting wearing MESH_UI_SETTING_ACTION's
+     * clothes, not a verb.
+     *
+     * Five rows say it - Language, Theme, the client's update channel, the dev-updates switch
+     * and the radio's firmware channel - and what they have in common is the thing the reader
+     * sees: the value column holds the setting itself, and the press moves it to the next one.
+     * A forget row's "21 nodes" is the opposite case and stays a verb, because that figure is
+     * the size of what the press *costs* rather than what the row is set to.
+     *
+     * Why the distinction is on the row rather than left to a renderer: three things read it
+     * and all three would otherwise be guessing from the kind. The leading slot is a disc for a
+     * verb and empty here. The card split floats a group's verbs onto the panel and keeps its
+     * settings on the card, and these belong with the settings - which is what stopped About
+     * radio alternating card, bare row, card down the whole screen. And the marker gutter says
+     * how a row is changed, so where a field takes the pencil this takes the swap rune: without
+     * it, dropping the disc would leave a pressable row looking exactly like a fact.
+     *
+     * Set by item_action_named() off mesh_ui_settings_action_is_cycle(), so the five are named
+     * once, in the table beside the icons and the tones.
+     */
+    bool cycle;
 };
 
 /*
@@ -864,6 +908,24 @@ struct mesh_ui_settings_item {
  * against the radio's table. Worth untangling one day; not on the way past.
  */
 bool mesh_ui_settings_item_is_verb(const struct mesh_ui_settings_item *item);
+
+/*
+ * Whether this row is a *stated fact* - something read off the radio or off this client, with
+ * no press and no edit that changes it.
+ *
+ * The question a renderer asks to decide which of a row's two tiers recedes. On a fact the
+ * label is the question ("Firmware", "Node number") and repeats down a column the reader is
+ * scanning for the *answers*, so the label goes quiet and the value keeps the row's ink; on a
+ * control the label is what the reader is choosing and the value is merely where it stands, so
+ * the label leads. That is the split the node detail has drawn since it grew cards, and it is
+ * asked here so that the settings sections - which are two thirds facts, and drew every one of
+ * them at full strength - answer it the same way rather than by screen.
+ *
+ * "No press and no edit" is the whole of it: not a verb, not a cycle, no field behind it, and
+ * not one of the ACTION rows that open a list (a channel slot, a module). A heading is not a
+ * row of this kind at all - it names the card rather than standing on it.
+ */
+bool mesh_ui_settings_item_is_fact(const struct mesh_ui_settings_item *item);
 
 /*
  * How many groups a built section actually has: maximal runs of non-heading rows, counting only
