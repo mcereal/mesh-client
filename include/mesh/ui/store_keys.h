@@ -52,6 +52,20 @@ const char *mesh_ui_store_key_name(enum mesh_ui_store_key key);
 enum mesh_ui_store_key_kind mesh_ui_store_key_kind(enum mesh_ui_store_key key);
 
 /*
+ * Whether this key is one the handshake cache writes.
+ *
+ * Almost all of them are, and the table above reads as though all of them were - which is the
+ * point of stating the exceptions in one function rather than in a comment on each. A key here
+ * may belong to one of the other files that share this format: the trend log writes `trend` and
+ * the cache never does. See include/mesh/ui/store_keys.def.
+ *
+ * Two callers, and they ask it for the same reason from opposite sides: the cache's loader,
+ * whose switch has no `default` and so has to say something about every key, and the
+ * round-trip test, which walks this enum holding every key to being written and read back.
+ */
+bool mesh_ui_store_key_in_cache(enum mesh_ui_store_key key);
+
+/*
  * Read a key off a cache line.
  *
  * `key` is the text left of the '=', already unescaped. On a row or slot key the indices are

@@ -1156,6 +1156,10 @@ static void load_line(struct mesh_ui_store_cache *cache, const char *key, char *
        cannot leave a list claiming rows that are not there. */
     case MESH_UI_STORE_KEY_READ_MARKS:
     case MESH_UI_STORE_KEY_AIRTIME_COUNT:
+    /* Not this file's at all: a node's trend log next door writes it and store_trends.c reads
+       it. mesh_ui_store_key_in_cache() is where that is said once; the case is here because the
+       switch has no `default` and every key in the table has to be answered. */
+    case MESH_UI_STORE_KEY_TREND:
     /* A line this build has no key for: a cache from a newer client, or one edited by hand.
        Skipped, which is what makes the format forward-compatible. */
     case MESH_UI_STORE_KEY_NONE:
@@ -1190,8 +1194,13 @@ static void restore_airtime(struct mesh_ui_history *history,
     }
     for (uint32_t i = 0U; i < cache->airtime_loaded; ++i) {
         const struct mesh_ui_store_cached_airtime *sample = &cache->airtime[i];
-        mesh_ui_history_restore_airtime(history, span_ms - sample->age_ms, sample->utilization,
-                                        sample->tx, sample->gap);
+        /* Above MESH_UI_HISTORY_EPOCH_MS rather than from zero: the timeline the rest of this
+           run rides is fitted to these samples, and a node's trend read off the card later is
+           placed *behind* the live clock, so the clock cannot start at the bottom of its range.
+           Nothing here reads a stamp as anything but a difference, so the shift is free. */
+        mesh_ui_history_restore_airtime(history,
+                                        MESH_UI_HISTORY_EPOCH_MS + span_ms - sample->age_ms,
+                                        sample->utilization, sample->tx, sample->gap);
     }
     mesh_ui_history_resume(history, MESH_UI_HISTORY_RADIO_GAP_MS);
 }

@@ -779,6 +779,21 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
         } else {
             mesh_log_warn("app", "Message archive path truncated; disabling the transcript");
         }
+
+        /* And the trend log, in a directory of its own beside both. Its failure is the same
+           shrug: a client that cannot remember what a node's battery has been doing is still a
+           client, and the live trend comes from the history either way. */
+        char trends_dir[sizeof app->ui_preferences_path + 16];
+        const int trends_written =
+            snprintf(trends_dir, sizeof trends_dir, "%s.trends", app->ui_preferences_path);
+        if (trends_written > 0 && trends_written < (int)sizeof trends_dir) {
+            const int trends_result = mesh_ui_trends_init(&app->ui_trends, trends_dir);
+            if (trends_result < 0) {
+                mesh_log_warn("app", "Trend log unavailable: %d", trends_result);
+            }
+        } else {
+            mesh_log_warn("app", "Trend log path truncated; disabling node trends");
+        }
     }
 
     result = mesh_ui_store_init(&app->ui_store);
@@ -810,6 +825,17 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
     if (seeded > 0) {
         mesh_log_info("app", "Seeded the message archive with %d restored message(s)", seeded);
     }
+    /*
+     * The radio the trend logs on the card are about, off the cache rather than off a link that
+     * has not been made yet.
+     *
+     * Without it a client relaunched against a *different* radio would read the previous one's
+     * trends back for any node number the two meshes happen to share - the exact thing
+     * mesh_ui_history_forget() exists to prevent, arriving by the one route the store cannot
+     * see, because from the store's side both runs start from nothing.
+     */
+    (void)mesh_ui_trends_note_radio(&app->ui_trends, app->ui_store.handshake.roster_owner);
+
     /* Restored read marks are already on disk; only later ones need a save. */
     app->ui_read_state_revision = app->ui_store.read_state.revision;
 

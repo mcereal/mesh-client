@@ -146,6 +146,7 @@ add_library(meshclient_core
     src/ui/store_fields.c
     src/ui/store_file.c
     src/ui/store_keys.c
+    src/ui/store_trends.c
     src/ui/history.c
     src/ui/controller.c
     src/ui/input.c

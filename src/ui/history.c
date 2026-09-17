@@ -149,10 +149,9 @@ static struct mesh_ui_series *mesh_ui_history_series_for(struct mesh_ui_history 
  *
  * Resolves a pending resume on the way through: the first reading after a restore is the one
  * that says what the offset is, because it is the first time both clocks are in hand at once.
- * Every note_* goes through this, node readings included - a restore only ever brings the
- * radio's pair back, but one history is one timeline, and a node series stamped with the raw
- * clock while the airtime pair carried the shift would put two readings taken together minutes
- * apart on the same axis.
+ * Every note_* goes through this, node readings included - one history is one timeline, and a
+ * node series stamped with the raw clock while the airtime pair carried the shift would put two
+ * readings taken together minutes apart on the same axis.
  */
 static uint32_t mesh_ui_history_stamp(struct mesh_ui_history *history, uint32_t now_ms) {
     if (history->resume_pending) {
@@ -162,11 +161,25 @@ static uint32_t mesh_ui_history_stamp(struct mesh_ui_history *history, uint32_t 
     return now_ms + history->clock_offset_ms;
 }
 
+uint32_t mesh_ui_history_stamp_now(const struct mesh_ui_history *history, uint32_t now_ms) {
+    if (history == NULL) {
+        return now_ms;
+    }
+    /* A resume that has not been spent yet *is* the answer: the next reading lands on the target
+       whatever the caller's clock says, which is the whole of what a pending resume means. */
+    return history->resume_pending ? history->resume_target_ms : now_ms + history->clock_offset_ms;
+}
+
 void mesh_ui_history_reset(struct mesh_ui_history *history) {
     if (history == NULL) {
         return;
     }
     memset(history, 0, sizeof *history);
+    /* The timeline starts a week and a day above the caller's clock rather than on it, so that a
+       restore has room to place saved readings behind the live one. See
+       MESH_UI_HISTORY_EPOCH_MS - everything here is read as a difference, so where the zero sits
+       is free. */
+    history->clock_offset_ms = MESH_UI_HISTORY_EPOCH_MS;
     /* A zeroed slot names pool entry 0 for every reading, which is a real entry - so the table
        is emptied *after* the memset rather than by it. */
     for (uint32_t i = 0U; i < MESH_UI_HISTORY_NODES; ++i) {
@@ -483,4 +496,97 @@ const struct mesh_ui_series *mesh_ui_history_series(const struct mesh_ui_history
         return series->count > 0U ? series : NULL;
     }
     return NULL;
+}
+
+/* ---- putting a node's trend back ------------------------------------------------------------ */
+
+bool mesh_ui_history_node_newest(const struct mesh_ui_history *history, uint32_t node_id,
+                                 uint32_t *out_time) {
+    if (history == NULL || node_id == 0U) {
+        return false;
+    }
+    for (uint32_t i = 0U; i < MESH_UI_HISTORY_NODES; ++i) {
+        const struct mesh_ui_history_node *slot = &history->nodes[i];
+        if (slot->node_id != node_id) {
+            continue;
+        }
+        uint32_t newest = 0U;
+        bool any = false;
+        for (uint32_t reading = 0U; reading < MESH_UI_HISTORY_READING_COUNT; ++reading) {
+            const uint8_t at = mesh_ui_history_held(slot, (enum mesh_ui_history_reading)reading);
+            if (at == MESH_UI_HISTORY_NO_SERIES) {
+                continue;
+            }
+            const struct mesh_ui_sample *sample = mesh_ui_series_newest(&history->pool[at]);
+            if (sample == NULL) {
+                continue;
+            }
+            /* A plain comparison, because one node's readings are one timeline: they are all
+               stamped by mesh_ui_history_stamp() and so all move the same way. */
+            if (!any || sample->time > newest) {
+                newest = sample->time;
+                any = true;
+            }
+        }
+        if (any && out_time != NULL) {
+            *out_time = newest;
+        }
+        return any;
+    }
+    return false;
+}
+
+void mesh_ui_history_restore_node_reset(struct mesh_ui_history *history, uint32_t node_id) {
+    if (history == NULL || node_id == 0U) {
+        return;
+    }
+    /* Through the same taker a reading arriving uses, so a node with no slot gets one on the
+       table's own terms - the least recently heard goes, exactly as it would have if this
+       node's next report had arrived over the air instead of off the card. */
+    struct mesh_ui_history_node *slot = mesh_ui_history_slot(history, node_id);
+    mesh_ui_history_clear_node(history, slot);
+}
+
+void mesh_ui_history_restore_node(struct mesh_ui_history *history, uint32_t node_id,
+                                  enum mesh_ui_history_reading reading, uint32_t time_ms,
+                                  int32_t value, bool gap) {
+    if (history == NULL || node_id == 0U) {
+        return;
+    }
+    struct mesh_ui_history_node *slot = mesh_ui_history_slot(history, node_id);
+    struct mesh_ui_series *series = mesh_ui_history_series_for(history, slot, reading);
+    if (series == NULL) {
+        return;
+    }
+    /* A break inside the restored window is part of what was watched - a node that spent a night
+       on mains, say - so it is put back with the reading that carried it rather than recomputed,
+       exactly as mesh_ui_history_restore_airtime() does. */
+    if (gap) {
+        mesh_ui_series_break(series);
+    }
+    mesh_ui_series_push(series, time_ms, value);
+    /* The slot is as fresh as the newest thing in it, so a node whose trend was just read off the
+       card is not the one the next eviction takes. */
+    if (slot->seen < time_ms) {
+        slot->seen = time_ms;
+    }
+}
+
+void mesh_ui_history_resume_node(struct mesh_ui_history *history, uint32_t node_id) {
+    if (history == NULL || node_id == 0U) {
+        return;
+    }
+    struct mesh_ui_history_node *slot = mesh_ui_history_find(history, node_id);
+    if (slot == NULL) {
+        return;
+    }
+    /* Every reading of this node, because the seam is about the *node* - the client stopped
+       watching all of it at once, and a temperature that sloped across the silence while the
+       battery beside it broke would be two answers to one question. */
+    for (uint32_t reading = 0U; reading < MESH_UI_HISTORY_READING_COUNT; ++reading) {
+        const uint8_t at = mesh_ui_history_held(slot, (enum mesh_ui_history_reading)reading);
+        if (at != MESH_UI_HISTORY_NO_SERIES) {
+            mesh_ui_series_break(&history->pool[at]);
+        }
+    }
 }

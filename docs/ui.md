@@ -48,15 +48,15 @@ buys is the other kind of reader — `trust.h` wants a node, `devices.h` wants a
 
 ## What the client remembers
 
-There are two files on the card and they answer different questions.
+There are three files on the card and they answer different questions.
 
-| | `…prefs.handshake` | `…prefs.messages/` |
-|---|---|---|
-| What | the roster, channels, read marks, airtime trend, and the newest 64 messages | one append-only log per conversation |
-| Shape | one file, rewritten whole every save | a file per conversation, appended to |
-| Keys | `include/mesh/ui/store_keys.def` | the same message records, over `store_internal.h` |
-| Read | at launch, all of it | when a conversation is opened, one file |
-| Code | `src/ui/store_file.c` | `src/ui/store_archive.c` |
+| | `…prefs.handshake` | `…prefs.messages/` | `…prefs.trends/` |
+|---|---|---|---|
+| What | the roster, channels, read marks, airtime trend, and the newest 64 messages | one append-only log per conversation | one append-only log per node |
+| Shape | one file, rewritten whole every save | a file per conversation, appended to | a file per node, appended to |
+| Keys | `include/mesh/ui/store_keys.def` | the same message records, over `store_internal.h` | one `trend` record, off the same table |
+| Read | at launch, all of it | when a conversation is opened, one file | when a node's detail is opened, one file |
+| Code | `src/ui/store_file.c` | `src/ui/store_archive.c` | `src/ui/store_trends.c` |
 
 The cache is what makes a Brick with no radio in range open on a roster. The archive is what
 makes a conversation go back further than the radio does, and the two numbers behind that are
@@ -108,6 +108,46 @@ arrives, with the reader folding the later record onto the earlier one. Without 
 that had failed would read as still in flight after a restart — and the transcript offers a
 resend on nothing but a `FAILED` one. (The Routing error *behind* a failure is not persisted by
 either format; a restored failure reads with the generic word, as it always has.)
+
+### The trend log
+
+`struct mesh_ui_history` is what the client has *watched* — the sparkline on a node detail row
+and the chart behind it — and until the log existed the whole of it died at exit except the
+radio's own airtime pair, which rides the cache because that file is rewritten whole anyway and
+six hours of one-minute readings fits in it. Twelve nodes' worth of half-hourly readings does
+not, and rewriting them every time a read mark moved would be the wrong shape twice over.
+
+So the log is the archive's shape applied to a different record, and everything interesting
+about it follows from one fact: **a reading's time is not a time.** Every stamp in the history
+is the client's own monotonic clock, which counts from boot, and a Brick has no RTC to write
+down instead. The cache gets away with it by writing *ages* relative to its newest sample — it
+can, because it rewrites the file. An append cannot, so a record carries the time since the
+record *above* it and the reader adds them up:
+
+- **A run's first record carries the seam rather than a measurement.** How long the client was
+  not running is the one thing nothing on the device can measure, so it writes
+  `MESH_UI_HISTORY_NODE_GAP_MS` — the shortest silence that is already a break — and marks the
+  record as continuing nothing. That is `mesh_ui_history_resume()`'s rule for the radio's pair,
+  written into the format instead of into a call.
+- **Every reading of one node shares one chain**, so a battery and the temperature beside it come
+  back on one timeline. The SNR and RSSI rows need that: they are two measurements of one packet
+  and are drawn against one axis.
+- **The reader bounds the span**, because deltas accumulate and a `uint32` of milliseconds is
+  seven weeks. It keeps the newest `MESH_UI_TRENDS_MAX_RECORDS` and drops whatever is more than
+  `MESH_UI_TRENDS_SPAN_MAX_MS` behind the last of them — which costs nothing real, since a series
+  holds two dozen samples and a week of them is a reading every seven hours.
+
+The read **replaces** what the history holds for that node rather than folding into it, and that
+is what `mesh_ui_trends_append()` running on every publish makes safe: the log already holds this
+session's readings, so there is nothing in the slot the card does not have. It is also why the
+history's clock starts at `MESH_UI_HISTORY_EPOCH_MS` rather than at zero — a restore places saved
+readings *behind* the live stamp, and a live stamp thirty seconds into a run has nowhere to put a
+day of them.
+
+A different radio takes the whole directory with it. Node numbers are the mesh's rather than the
+radio's, so a trend carried across a swap would draw one node's battery as another's — the same
+reason `mesh_ui_history_forget()` exists, noticed here off the roster owner and seeded from the
+cache at startup so that a *relaunch* against a different radio is the same event as a swap.
 
 Deleting has to reach every copy or the next publish undoes it: the transport's ring, the
 history the app restored at startup, the store (both lists), and the card. `on_delete_message()`

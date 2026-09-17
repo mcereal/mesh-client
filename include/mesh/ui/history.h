@@ -19,13 +19,15 @@
  *     number of nodes. Not every reading, not every node: session.c decodes six telemetry
  *     variants and a general store of everything the mesh ever said is a database, so what
  *     earns a slot here is a reading some screen has somewhere to draw it.
- *   - **The radio's pair is persisted and a node's trends are not.** A trend is what we
- *     *watched*, so a resumed one must not put a line over a period nothing observed - but that
- *     is an argument for drawing the seam as a seam, not for throwing the readings away, and
- *     mesh_ui_history_resume() is what lifts the pen over it. The radio's pair earns the cache
- *     because six hours of it is what the chart is for, and starting empty threw that away on
- *     every relaunch. A node's readings keep the old rule for now and have the same problem on a
- *     half-hour cadence.
+ *   - **Everything here is persisted, and the two halves are kept in different files.** A trend
+ *     is what we *watched*, so a resumed one must not put a line over a period nothing observed -
+ *     but that is an argument for drawing the seam as a seam, not for throwing the readings away,
+ *     and mesh_ui_history_resume() is what lifts the pen over it. The radio's pair rides the
+ *     handshake cache, because six hours of it is what the chart is for and the cache is
+ *     rewritten whole on every save. A node's readings are a per-node append-only log
+ *     (include/mesh/ui/store_trends.h), read back into the slot below when that node's detail
+ *     screen is opened - twelve nodes' worth of half-hourly readings is not something a file
+ *     rewritten every save should be carrying, and only one node's is ever drawn.
  *   - **Nothing here knows what a node is.** The store walks the roster and hands over
  *     readings; this holds series and decides which ones are worth a slot. That is what lets
  *     store.h include this rather than the other way round, and it is the same seam
@@ -107,6 +109,24 @@ extern "C" {
 
 #define MESH_UI_HISTORY_RADIO_GAP_MS (3U * MESH_UI_HISTORY_RADIO_REPORT_MS)
 #define MESH_UI_HISTORY_NODE_GAP_MS (4U * MESH_UI_HISTORY_NODE_REPORT_MS)
+
+/*
+ * Where this history's clock starts, so that a reading restored from the card has somewhere to
+ * go *before* the first live one.
+ *
+ * The timeline below is the client's own and is only ever read as differences, so its zero is
+ * free to be anywhere - and it cannot be at zero. A restore places saved readings behind the
+ * live clock (mesh_ui_history_stamp_now()), and the live clock a few seconds into a run is a
+ * few seconds: a day of saved readings placed behind it would wrap under, and a time that
+ * wrapped under reads as a time far in the *future*, which is a series drawn backwards.
+ *
+ * Eight days, against the seven a node's log is allowed to span (MESH_UI_TRENDS_SPAN_MAX_MS),
+ * so the widest restore still lands above zero with the better part of a day to spare. What it
+ * costs is at the other end: a uint32 of milliseconds is 49 days, so the client now has 41 of
+ * them of continuous running before the clock wraps rather than 49. A wrap empties a series
+ * either way - see mesh_ui_series_push() - and a Brick is a handheld.
+ */
+#define MESH_UI_HISTORY_EPOCH_MS (8U * 24U * 60U * 60U * 1000U)
 
 /*
  * Readings of the radio's airtime kept: six hours at the one-minute cadence, which is the widest
@@ -390,6 +410,50 @@ void mesh_ui_history_restore_airtime(struct mesh_ui_history *history, uint32_t t
  * pen lifted over it say the same thing whichever rule a reader believes.
  */
 void mesh_ui_history_resume(struct mesh_ui_history *history, uint32_t seam_ms);
+
+/*
+ * Where a reading arriving at `now_ms` would land on this history's own timeline.
+ *
+ * The const half of mesh_ui_history_stamp(): it answers the same question without resolving a
+ * pending resume, because the caller asking is not a reading arriving. A node restore asks it
+ * to find out how far behind the live clock it may place what it read off the card, which is
+ * the one thing about the timeline that nothing outside this file could work out - the offset
+ * is private and the resume may not have been spent yet.
+ */
+uint32_t mesh_ui_history_stamp_now(const struct mesh_ui_history *history, uint32_t now_ms);
+
+/*
+ * The newest moment anything has been recorded about this node, across every reading it holds.
+ *
+ * False when the node has no slot or nothing in it. The readings are one node's, so they are
+ * one timeline, which is what makes a single answer meaningful - a restore uses it to lay the
+ * card's copy of this node's trend down so that its last record sits exactly where this run
+ * already has one, rather than drawing a seam where nothing was interrupted.
+ */
+bool mesh_ui_history_node_newest(const struct mesh_ui_history *history, uint32_t node_id,
+                                 uint32_t *out_time);
+
+/*
+ * The three calls a node restore is made of: what this node holds is dropped, saved readings go
+ * back one at a time at times on this history's *own* timeline, and the seam is armed.
+ *
+ * The same shape as mesh_ui_history_restore_airtime() and for the same reasons, with one
+ * difference that is the whole of why the first call exists. The airtime is restored into an
+ * empty history at launch; a node's trend is restored into a running one, when its detail screen
+ * is opened, and by then the slot may already hold readings this run took. A restore is
+ * therefore a replacement rather than an addition: the log on the card holds everything this run
+ * has pushed as well (store_trends.c appends on every publish), so keeping both would draw every
+ * reading of this session twice.
+ *
+ * Call reset once, then restore oldest first, then resume once - and resume only when the
+ * restored readings do *not* run up to what this run already had, because that is the case
+ * where how long ago they were taken is unknowable. See mesh_ui_trends_restore().
+ */
+void mesh_ui_history_restore_node_reset(struct mesh_ui_history *history, uint32_t node_id);
+void mesh_ui_history_restore_node(struct mesh_ui_history *history, uint32_t node_id,
+                                  enum mesh_ui_history_reading reading, uint32_t time_ms,
+                                  int32_t value, bool gap);
+void mesh_ui_history_resume_node(struct mesh_ui_history *history, uint32_t node_id);
 
 #ifdef __cplusplus
 }

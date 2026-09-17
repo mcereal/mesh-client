@@ -113,7 +113,12 @@ struct mesh_ui_snapshot {
     /*
      * What the client has watched happen, as opposed to everything above, which is what is true
      * now. The one part of a snapshot that is not a copy of what the radio last said - see
-     * include/mesh/ui/history.h. Not persisted, for the reason stated there.
+     * include/mesh/ui/history.h.
+     *
+     * Persisted in two halves and by neither of the store's own calls: the radio's airtime pair
+     * rides the handshake cache (store_file.c), and a node's readings are a per-node log the app
+     * writes on every publish and reads back when that node's detail screen is opened
+     * (mesh/ui/store_trends.h).
      */
     struct mesh_ui_history history;
     /* The broker connection held for the attached radio, or a zeroed record when no radio has
