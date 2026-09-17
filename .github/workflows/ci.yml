@@ -37,7 +37,7 @@ jobs:
       - name: Install Python packages for nanopb generator
         run: |
           python3 -m pip install --user --upgrade pip setuptools wheel
-          python3 -m pip install --user protobuf grpcio-tools
+          python3 -m pip install --user protobuf grpcio-tools jinja2 jsonschema
 
       - name: Select compiler
         run: |
@@ -102,7 +102,7 @@ jobs:
       - name: Install Python packages for nanopb generator
         run: |
           python3 -m pip install --user --upgrade pip setuptools wheel
-          python3 -m pip install --user protobuf grpcio-tools
+          python3 -m pip install --user protobuf grpcio-tools jinja2 jsonschema
 
       # actions/cache restores as the runner user, and /opt is root's.
       - name: Prepare the toolchain directory
@@ -160,7 +160,7 @@ jobs:
       - name: Install Python packages for nanopb generator
         run: |
           python3 -m pip install --user --upgrade pip setuptools wheel
-          python3 -m pip install --user protobuf grpcio-tools
+          python3 -m pip install --user protobuf grpcio-tools jinja2 jsonschema
 
       # clang for the sanitizer runtimes, and a build root of its own so the sanitized tree
       # never shares a CMake cache with an ordinary Debug configure.
@@ -196,7 +196,7 @@ jobs:
       - name: Install Python packages for nanopb generator
         run: |
           python3 -m pip install --user --upgrade pip setuptools wheel
-          python3 -m pip install --user protobuf grpcio-tools
+          python3 -m pip install --user protobuf grpcio-tools jinja2 jsonschema
 
       - name: Run the harnesses over their seed corpus
         env:

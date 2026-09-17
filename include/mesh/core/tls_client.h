@@ -20,8 +20,9 @@ extern "C" {
  *
  * So this is Mbed TLS (third_party/mbedtls, a pinned submodule) driven through BIO callbacks
  * over a non-blocking socket, reporting `-EAGAIN` all the way up rather than waiting. The
- * library is configured by third_party/mbedtls-config/mesh_mbedtls_config.h, which says what was
- * taken out of it and why.
+ * library is configured by the pair of files in third_party/mbedtls-config/, which say what was
+ * taken out of it and why - `mesh_mbedtls_config.h` for TLS and X.509, `mesh_psa_crypto_config.h`
+ * for everything cryptographic, because 4.x is two projects.
  *
  * **Certificates are always verified.** There is no insecure mode and no argument that turns one
  * on. The Brick has no system certificate store, which is what makes it tempting - but a broker

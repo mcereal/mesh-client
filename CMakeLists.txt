@@ -323,26 +323,31 @@ if(EXISTS ${PROJECT_SOURCE_DIR}/third_party/mbedtls/CMakeLists.txt)
     set(ENABLE_TESTING OFF CACHE BOOL "" FORCE)
     set(ENABLE_PROGRAMS OFF CACHE BOOL "" FORCE)
     set(MBEDTLS_FATAL_WARNINGS OFF CACHE BOOL "" FORCE)
-    set(GEN_FILES OFF CACHE BOOL "" FORCE)
+    # 4.x generates error.c, the SSL debug helpers and the PSA driver wrappers at build time;
+    # unlike 3.6 they are not committed to the submodule. Needs Python with jinja2 - see
+    # scripts/setup.sh and docker/.
+    set(GEN_FILES ON CACHE BOOL "" FORCE)
     set(DISABLE_PACKAGE_CONFIG_AND_INSTALL ON CACHE BOOL "" FORCE)
     set(USE_STATIC_MBEDTLS_LIBRARY ON CACHE BOOL "" FORCE)
     set(USE_SHARED_MBEDTLS_LIBRARY OFF CACHE BOOL "" FORCE)
 
+    # Where this build's two config files live. Mbed TLS 4.x is two projects - TLS/X.509 here,
+    # everything cryptographic in the vendored tf-psa-crypto - and each reads its own user config
+    # file. The library applies both to its own targets as PUBLIC compile definitions, so unlike
+    # 3.x there is nothing to set by hand afterwards and no include directory to add: the value
+    # is the full path the generated `#include` uses.
+    set(MBEDTLS_USER_CONFIG_FILE
+        ${PROJECT_SOURCE_DIR}/third_party/mbedtls-config/mesh_mbedtls_config.h
+        CACHE FILEPATH "" FORCE)
+    set(TF_PSA_CRYPTO_USER_CONFIG_FILE
+        ${PROJECT_SOURCE_DIR}/third_party/mbedtls-config/mesh_psa_crypto_config.h
+        CACHE FILEPATH "" FORCE)
+
     add_subdirectory(third_party/mbedtls EXCLUDE_FROM_ALL)
 
-    # What this build of the library is, and is not. The header subtracts from Mbed TLS's own
-    # default config rather than replacing it; it says why at length. It is applied to the
-    # library's targets - not to meshclient_core - because it has to be in effect while the
-    # library itself compiles, or its headers and its objects disagree about what is enabled.
-    foreach(MBEDTLS_TARGET mbedtls mbedx509 mbedcrypto)
-        target_compile_definitions(${MBEDTLS_TARGET}
-            PUBLIC MBEDTLS_USER_CONFIG_FILE="mesh_mbedtls_config.h")
-        target_include_directories(${MBEDTLS_TARGET}
-            PUBLIC ${PROJECT_SOURCE_DIR}/third_party/mbedtls-config)
-    endforeach()
-
     target_compile_definitions(meshclient_core PUBLIC MESHCLIENT_HAVE_TLS)
-    target_link_libraries(meshclient_core PUBLIC mbedtls mbedx509 mbedcrypto)
+    # `tfpsacrypto` is 4.x's name for what 3.x called `mbedcrypto`.
+    target_link_libraries(meshclient_core PUBLIC mbedtls mbedx509 tfpsacrypto)
 else()
     message(STATUS
         "third_party/mbedtls is missing: building without TLS, so MQTT will be plaintext only. "
