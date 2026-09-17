@@ -2925,6 +2925,218 @@ MESH_TEST_CASE(ui_settings_every_section_has_an_icon, unit) {
 }
 
 /*
+ * The leading disc marks a press that *acts*, and a row that merely holds a value never carries
+ * one - whatever key steps it.
+ *
+ * The rule the whole leading slot answers to, asserted where it is decided rather than where it
+ * is drawn. Five presses step their own row's value (the language, the theme, this client's
+ * update channel and its dev-updates switch, and the radio's firmware channel) and they used to
+ * be verbs for no better reason than that the nav answers them with A. That put a disc on two of
+ * About's four rows and on two of About radio's fourteen, and left both screens with an icon
+ * column that started and stopped down the page - which is the complaint this is the fix for.
+ *
+ * Three claims, and the third is the one that would otherwise go quietly:
+ *
+ *   - a cycle row is not a verb, carries no symbol, and states its value. Without the value the
+ *     row would be inert on the screen and the press invisible.
+ *   - it is still an ACTION with its action in `number`, so the nav reaches it exactly as
+ *     before. `verb` says what the row *is*; it was never what the press reads.
+ *   - the walk actually met some. A predicate nothing answers true is a rule holding nothing,
+ *     and the earlier version of this case passed against an About with no theme row because
+ *     the client info it was given had never named a theme.
+ */
+MESH_TEST_CASE(ui_settings_a_disc_marks_a_press_that_acts, unit) {
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_metadata = true;
+    /* About's own two cycles need the client to have named a language and a theme, and the
+       update channel needs an updater. The firmware channel needs a fetcher on About radio. */
+    snprintf(settings.client.version, sizeof settings.client.version, "%s", "1.12.0");
+    snprintf(settings.client.language_name, sizeof settings.client.language_name, "%s", "English");
+    snprintf(settings.client.theme_name, sizeof settings.client.theme_name, "%s", "Dark");
+    snprintf(settings.client.update_channel, sizeof settings.client.update_channel, "%s", "stable");
+    settings.client.update_supported = true;
+    settings.client.update_state = (uint8_t)MESH_UPDATE_IDLE;
+    settings.fw_supported = true;
+    snprintf(settings.fw_channel, sizeof settings.fw_channel, "%s", "stable");
+
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.has_my_info = true;
+    handshake.channel_count = 1U;
+
+    char message[192];
+    uint32_t cycles = 0U;
+    uint32_t verbs = 0U;
+    for (int i = 0; i < (int)MESH_UI_SETTINGS_SECTION_COUNT; ++i) {
+        const enum mesh_ui_settings_section section = (enum mesh_ui_settings_section)i;
+        const uint32_t count = mesh_ui_settings_item_count(&settings, &handshake, section,
+                                                           MESH_UI_SETTINGS_NO_CHANNEL);
+        for (uint32_t row = 0; row < count; ++row) {
+            struct mesh_ui_settings_item item;
+            if (!mesh_ui_settings_item(&settings, &handshake, NULL, 0U, section,
+                                       MESH_UI_SETTINGS_NO_CHANNEL, row, &item)) {
+                break;
+            }
+            if (item.kind != MESH_UI_SETTING_ACTION && item.kind != MESH_UI_SETTING_ACTION_OFF) {
+                /* Not a row built from the action table at all - a channel slot and a module row
+                   are ACTION and carry a slot or a section in `number`, which is why the two
+                   kinds above are what this walk reads and `cycle` is what it trusts. */
+                continue;
+            }
+            if (!item.cycle) {
+                verbs += mesh_ui_settings_item_is_verb(&item) ? 1U : 0U;
+                continue;
+            }
+            cycles++;
+            if (mesh_ui_settings_item_is_verb(&item)) {
+                snprintf(message, sizeof message, "\"%s\" steps its own value and is still a verb",
+                         item.label);
+                record_failure(test_name, message);
+                return;
+            }
+            if (mesh_ui_icon_is_valid(item.icon)) {
+                snprintf(message, sizeof message, "\"%s\" steps its own value and carries a disc",
+                         item.label);
+                record_failure(test_name, message);
+                return;
+            }
+            if (item.value[0] == '\0') {
+                snprintf(message, sizeof message,
+                         "\"%s\" steps its own value and does not say what it is", item.label);
+                record_failure(test_name, message);
+                return;
+            }
+            if (!mesh_ui_settings_action_is_cycle((enum mesh_ui_settings_action)item.number)) {
+                snprintf(message, sizeof message,
+                         "\"%s\" says it cycles and its action in `number` does not", item.label);
+                record_failure(test_name, message);
+                return;
+            }
+        }
+    }
+
+    if (cycles < 3U || verbs == 0U) {
+        snprintf(message, sizeof message,
+                 "the walk found %u rows that cycle and %u verbs - it needs both to be saying "
+                 "anything",
+                 cycles, verbs);
+        record_failure(test_name, message);
+        return;
+    }
+    record_success(test_name);
+}
+
+/*
+ * A row the reader cannot change is a stated fact, and one they can is not.
+ *
+ * mesh_ui_settings_item_is_fact() is what a renderer asks to decide which of a row's two tiers
+ * recedes, and the two ways it can be wrong are both a screen that lies about itself: a reading
+ * drawn as a control reads as something to press, and a control drawn as a reading reads as
+ * greyed out. The second is the one that bit - the two locks on Radio UI and the "Can shut down"
+ * pair on About radio are switches the radio decides, and they sat at full strength beside a
+ * "Language" row that is exactly as fixed.
+ *
+ * The ACTION exclusion is the claim worth a case of its own: a channel slot and a module row
+ * have no field and are not verbs, so `verb` alone would read both as facts and quieten the one
+ * tier that is the name of the thing the press opens.
+ */
+MESH_TEST_CASE(ui_settings_a_fact_is_a_row_nothing_changes, unit) {
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_metadata = true;
+    settings.has_channels = true;
+    settings.channels_settled = true;
+    settings.channels[0].present = true;
+    settings.channels[0].index = 0U;
+    settings.channels[0].role = 1U;
+    snprintf(settings.channels[0].name, sizeof settings.channels[0].name, "%s", "LongFast");
+    settings.has_ui_config = true;
+    settings.has_lora = true;
+    settings.has_position = true;
+    snprintf(settings.client.version, sizeof settings.client.version, "%s", "1.12.0");
+    snprintf(settings.client.theme_name, sizeof settings.client.theme_name, "%s", "Dark");
+
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.has_my_info = true;
+    handshake.channel_count = 1U;
+
+    char message[192];
+    /* One counter per shape, so a walk that never met one of them is a walk that asserted
+       nothing about it - which is how the ACTION clause would go quietly. */
+    uint32_t readings = 0U;
+    uint32_t fields = 0U;
+    uint32_t verbs = 0U;
+    uint32_t opens = 0U;
+    uint32_t cycles = 0U;
+    for (int i = 0; i < (int)MESH_UI_SETTINGS_SECTION_COUNT; ++i) {
+        const enum mesh_ui_settings_section section = (enum mesh_ui_settings_section)i;
+        const uint32_t count = mesh_ui_settings_item_count(&settings, &handshake, section,
+                                                           MESH_UI_SETTINGS_NO_CHANNEL);
+        for (uint32_t row = 0; row < count; ++row) {
+            struct mesh_ui_settings_item item;
+            if (!mesh_ui_settings_item(&settings, &handshake, NULL, 0U, section,
+                                       MESH_UI_SETTINGS_NO_CHANNEL, row, &item)) {
+                break;
+            }
+            const bool fact = mesh_ui_settings_item_is_fact(&item);
+            /*
+             * What this row's shape says it should be, decided one shape at a time. Written as
+             * five separate claims rather than as one expression on purpose: an expression would
+             * be this case re-stating the predicate it is checking, and would agree with it
+             * however the predicate changed.
+             */
+            bool expected = false;
+            uint32_t *counter = NULL;
+            if (item.kind == MESH_UI_SETTING_HEADING) {
+                /* Names the card rather than standing on it. */
+                expected = false;
+                counter = NULL;
+            } else if (mesh_ui_settings_item_is_verb(&item)) {
+                expected = false; /* something happens when it is pressed */
+                counter = &verbs;
+            } else if (item.cycle) {
+                expected = false; /* A steps its own value */
+                counter = &cycles;
+            } else if (item.kind == MESH_UI_SETTING_ACTION) {
+                expected = false; /* a channel slot or a module: the press opens a list */
+                counter = &opens;
+            } else if (item.field != MESH_UI_FIELD_NONE) {
+                expected = false; /* Left and Right edit it */
+                counter = &fields;
+            } else {
+                expected = true; /* read off the radio or off this client, and that is all */
+                counter = &readings;
+            }
+            if (fact != expected) {
+                snprintf(message, sizeof message,
+                         "\"%s\" in section %s reads as %s and its shape says %s", item.label,
+                         mesh_ui_settings_section_name(section), fact ? "a fact" : "a control",
+                         expected ? "a fact" : "a control");
+                record_failure(test_name, message);
+                return;
+            }
+            if (counter != NULL) {
+                (*counter)++;
+            }
+        }
+    }
+
+    if (readings == 0U || fields == 0U || verbs == 0U || opens == 0U || cycles == 0U) {
+        snprintf(message, sizeof message,
+                 "the walk met %u readings, %u fields, %u verbs, %u rows that open and %u that "
+                 "cycle - it has to meet all five to be saying anything",
+                 readings, fields, verbs, opens, cycles);
+        record_failure(test_name, message);
+        return;
+    }
+    record_success(test_name);
+}
+
+/*
  * The invariant struct mesh_ui_settings_item's `icon` is documented with: which rows carry a
  * symbol, which is what the renderer measures its leading slot from.
  *

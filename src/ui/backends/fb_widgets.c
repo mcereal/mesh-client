@@ -3388,6 +3388,41 @@ int fb_card_height(const struct mesh_ui_backend_fb_state *state, const struct fb
     return fb_card_box_height(&m, layout, card, whole);
 }
 
+/*
+ * A card row's label column, drawn, and the x its answer starts at.
+ *
+ * The quiet tier of the two a stated fact has, and every row of every card here is one: what
+ * the link is doing, what the mesh has heard, what the radio last said about itself. The label
+ * is the question and repeats down a column the reader is scanning for the *answers*, so it
+ * recedes and the row's own tone stays on the value - a link that is up is a green reading, and
+ * "Sync" in green said nothing "Sync" did not. Composed into one string and drawn in one colour
+ * the two were typographically identical, which is what made a card of them read as a block of
+ * text with no way into it: the node detail's complaint, one component over, fixed its way.
+ *
+ * Stated here rather than asked of the caller because a card is not a list. fb_list_item() takes
+ * `label_quiet` per row because a settings section mixes readings with controls; nothing a card
+ * draws is a control - the verbs a card offers are buttons beside its heading, not rows - so a
+ * flag here would be a question with one answer.
+ *
+ * One cell between the column and what follows it, which is the space the composed line carried,
+ * so nothing moves sideways. A row with no label at all keeps the whole width and is the caller
+ * saying the bar is the row; see fb_card_meter().
+ */
+static int fb_card_row_label(struct mesh_ui_backend_fb_state *state,
+                             const struct fb_card_metrics *m, int y, const struct fb_card_row *row,
+                             struct mesh_ui_rgb ground) {
+    if (row->label[0] == '\0') {
+        return m->content_x;
+    }
+    struct mesh_ui_line line;
+    mesh_ui_line_reset(&line);
+    mesh_ui_line_column(&line, row->label, m->label_cols);
+    mesh_ui_line_fit(&line, m->cols);
+    fb_draw_text(state, m->content_x, y, mesh_ui_line_text(&line), state->scale,
+                 fb_tone_color(state, MESH_UI_TONE_DIM), ground);
+    return m->content_x + (int)(m->label_cols + 1U) * fb_char_adv(state, state->scale);
+}
+
 /* One row of content, drawn at `y` and returning the rows it used. `max_lines` of 0 means the
    row's own count; anything else is the budget a clipped note has been given. */
 static uint32_t fb_draw_card_row(struct mesh_ui_backend_fb_state *state,
@@ -3423,16 +3458,7 @@ static uint32_t fb_draw_card_row(struct mesh_ui_backend_fb_state *state,
          * keeps a card of rows evenly spaced whether or not one of them is a bar.
          */
         const int adv = fb_char_adv(state, state->scale);
-        int bar_x = m->content_x;
-        if (row->label[0] != '\0') {
-            struct mesh_ui_line line;
-            mesh_ui_line_reset(&line);
-            mesh_ui_line_column(&line, row->label, m->label_cols);
-            mesh_ui_line_fit(&line, m->cols);
-            fb_draw_text(state, m->content_x, y, mesh_ui_line_text(&line), state->scale, color,
-                         ground);
-            bar_x = m->content_x + (int)(m->label_cols + 1U) * adv;
-        }
+        const int bar_x = fb_card_row_label(state, m, y, row, ground);
         const int bar_right = m->content_x + (int)m->cols * adv;
         const int height = fb_meter_thickness(state, state->scale);
         if (bar_right - bar_x > 0) {
@@ -3457,16 +3483,7 @@ static uint32_t fb_draw_card_row(struct mesh_ui_backend_fb_state *state,
         /* The meter row's own layout, because a composition is a bar and a card that placed its
            two kinds of bar differently would be reporting a difference that is not there. */
         const int adv = fb_char_adv(state, state->scale);
-        int bar_x = m->content_x;
-        if (row->label[0] != '\0') {
-            struct mesh_ui_line line;
-            mesh_ui_line_reset(&line);
-            mesh_ui_line_column(&line, row->label, m->label_cols);
-            mesh_ui_line_fit(&line, m->cols);
-            fb_draw_text(state, m->content_x, y, mesh_ui_line_text(&line), state->scale, color,
-                         ground);
-            bar_x = m->content_x + (int)(m->label_cols + 1U) * adv;
-        }
+        const int bar_x = fb_card_row_label(state, m, y, row, ground);
         const int bar_right = m->content_x + (int)m->cols * adv;
         const int height = fb_proportion_thickness(state, state->scale);
         if (bar_right - bar_x > 0) {
@@ -3488,12 +3505,17 @@ static uint32_t fb_draw_card_row(struct mesh_ui_backend_fb_state *state,
         return 1U;
     }
 
-    struct mesh_ui_line line;
-    mesh_ui_line_reset(&line);
-    mesh_ui_line_column(&line, row->label, m->label_cols);
-    mesh_ui_line_printf(&line, " %s", row->value);
-    mesh_ui_line_fit(&line, m->cols);
-    fb_draw_text(state, m->content_x, y, mesh_ui_line_text(&line), state->scale, color, ground);
+    const int value_x = fb_card_row_label(state, m, y, row, ground);
+    /* A card whose label column has eaten the whole width has no room left to answer in, and
+       says nothing rather than spilling past the panel. */
+    const size_t taken = (size_t)((value_x - m->content_x) / fb_char_adv(state, state->scale));
+    if (taken < m->cols) {
+        struct mesh_ui_line line;
+        mesh_ui_line_reset(&line);
+        mesh_ui_line_printf(&line, "%s", row->value);
+        mesh_ui_line_fit(&line, m->cols - taken);
+        fb_draw_text(state, value_x, y, mesh_ui_line_text(&line), state->scale, color, ground);
+    }
     return 1U;
 }
 

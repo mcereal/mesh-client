@@ -4285,6 +4285,144 @@ MESH_TEST_CASE(ui_capture_a_verb_keeps_the_ordinary_ink, unit) {
 }
 
 /*
+ * The column a settings section writes its rows in, measured off a rendered frame.
+ *
+ * Two cases want this and they ask it of different things - one of the rows of one section,
+ * one of several sections against each other - so it is measured once here rather than twice
+ * in two slightly different sweeps. It hands back the bands it found as well as the column
+ * they agreed on, because the first case is about the rows that did *not* agree.
+ *
+ * Returns `width` when there was nothing readable, which is a failure for either caller.
+ */
+static uint32_t settings_text_column(const uint8_t *frame, uint32_t width, uint32_t height,
+                                     size_t stride, const struct mesh_ui_theme *theme, int scale,
+                                     uint32_t *out_lefts, uint32_t max_lefts, uint32_t *out_bands,
+                                     uint32_t *out_agreed) {
+    /*
+     * A row's content is whatever is not furniture, rather than one ink.
+     *
+     * Asking for MESH_UI_COLOR_TEXT exactly finds only the solid core of a glyph, and at the
+     * small scales a stroke is two pixels wide and blended the whole way through - so the
+     * leftmost "text" pixel came back somewhere in the middle of a word, differently on every
+     * row. What the four colours below have in common is that they are the only things drawn
+     * flat: the ground, a card's surface and its hairline, and the cursor's fill. Everything
+     * else on these rows - a word, a blend at the edge of one, a slider's track - is content,
+     * and content starts where the column starts.
+     */
+    const struct mesh_ui_rgb furniture[] = {
+        mesh_ui_theme_color(theme, MESH_UI_COLOR_BG),
+        mesh_ui_theme_color(theme, MESH_UI_COLOR_SURFACE),
+        mesh_ui_theme_color(theme, MESH_UI_COLOR_SURFACE_SEL),
+        mesh_ui_theme_color(theme, MESH_UI_COLOR_OUTLINE),
+    };
+    /* From the panel's own margin: a card in a list is drawn wider than the rows standing in
+       it, so its left edge and its corners are outside every column this is about. */
+    const uint32_t left_edge = (uint32_t)theme->metrics.margin;
+    /*
+     * And only as far right as the label column, which is where the question is settled
+     * anyway - and what keeps the scroll rail out of it. The rail is a bar down the whole body
+     * on the one side, so a scan that ran to the panel's edge found content on every scanline,
+     * never saw a blank one, and read the entire section as a single row.
+     */
+    const uint32_t right_edge = settings_label_right(theme, width, scale);
+    /* The suite's own estimate of the two bars, the one
+       ui_capture_settings_marks_both_halves_of_an_unsaved_row() uses. */
+    const uint32_t body_top = height / 8U;
+    const uint32_t body_bottom = height - height / 8U;
+    /* A glyph's left bearing is the only thing two rows of the same column may differ by. The
+       failure this is about is a whole step - nine of these - so the allowance can be generous
+       and still catch it. */
+    const uint32_t bearing = (uint32_t)(3 * scale);
+    uint32_t band_left = width;
+    uint32_t band_rows = 0U;
+    uint32_t bands = 0U;
+    for (uint32_t y = body_top; y <= body_bottom; ++y) {
+        const uint8_t *row = frame + (size_t)y * stride;
+        /*
+         * Where this scanline's own ground begins, which is where the search for content
+         * starts. A card is drawn wider than the rows standing in it and its edge is a hairline
+         * blended against the panel, so a scan that began at the margin found that blend on
+         * every scanline the card covers and reported the card's left edge as if it were a
+         * word. Starting at the card's own surface steps over its edge without anything here
+         * having to know how thick one is; a scanline with no card on it - a heading in the
+         * break between two, a verb floated onto the panel - has none to find and starts at the
+         * margin.
+         */
+        uint32_t start = left_edge;
+        for (uint32_t x = left_edge; x < right_edge; ++x) {
+            const uint8_t *p = row + (size_t)x * 4U;
+            if ((p[0] == furniture[1].b && p[1] == furniture[1].g && p[2] == furniture[1].r) ||
+                (p[0] == furniture[2].b && p[1] == furniture[2].g && p[2] == furniture[2].r)) {
+                start = x;
+                break;
+            }
+        }
+        uint32_t left = width;
+        for (uint32_t x = start; x < right_edge && left == width; ++x) {
+            const uint8_t *p = row + (size_t)x * 4U;
+            bool flat = false;
+            for (size_t f = 0U; f < sizeof furniture / sizeof furniture[0]; ++f) {
+                flat = flat ||
+                       (p[0] == furniture[f].b && p[1] == furniture[f].g && p[2] == furniture[f].r);
+            }
+            if (!flat) {
+                left = x;
+            }
+        }
+        if (left < band_left) {
+            band_left = left;
+        }
+        if (left != width) {
+            band_rows++;
+            continue;
+        }
+        /*
+         * A blank scanline closes the band above it: one row of words, measured at its
+         * leftmost.
+         *
+         * A band has to be as tall as a letter to be one. A card's hairline is a scanline or
+         * two of blend against the ground, and it runs the width of the card rather than of the
+         * column - so counted as a row it reports the card's own left edge and nothing about
+         * where any word starts.
+         */
+        const uint32_t tall = band_rows >= (uint32_t)(2 * scale);
+        band_rows = 0U;
+        if (band_left == width || !tall) {
+            band_left = width;
+            continue;
+        }
+        if (bands < max_lefts) {
+            out_lefts[bands++] = band_left;
+        }
+        band_left = width;
+    }
+
+    /*
+     * The column the section is written in: the one the most rows agree on.
+     *
+     * Taken from the rows rather than derived here, because deriving it would be this test
+     * re-stating the arithmetic it is meant to be checking.
+     */
+    uint32_t column = width;
+    uint32_t agreed = 0U;
+    for (uint32_t a = 0U; a < bands; ++a) {
+        uint32_t near = 0U;
+        for (uint32_t b = 0U; b < bands; ++b) {
+            const uint32_t hi = out_lefts[a] > out_lefts[b] ? out_lefts[a] : out_lefts[b];
+            const uint32_t lo = out_lefts[a] > out_lefts[b] ? out_lefts[b] : out_lefts[a];
+            near += (hi - lo <= bearing) ? 1U : 0U;
+        }
+        if (near > agreed) {
+            agreed = near;
+            column = out_lefts[a];
+        }
+    }
+    *out_bands = bands;
+    *out_agreed = agreed;
+    return column;
+}
+
+/*
  * Every row of a settings section starts its words in one column, whatever height the row is.
  *
  * The leading slot is declared for a whole list or for none of it, and that rule is stated twice
@@ -4346,132 +4484,13 @@ MESH_TEST_CASE(ui_capture_a_section_starts_every_row_in_one_column, unit) {
             }
 
             if (failure == NULL) {
-                /*
-                 * A row's content is whatever is not furniture, rather than one ink.
-                 *
-                 * Asking for MESH_UI_COLOR_TEXT exactly finds only the solid core of a glyph,
-                 * and at the small scales a stroke is two pixels wide and blended the whole way
-                 * through - so the leftmost "text" pixel came back somewhere in the middle of a
-                 * word, differently on every row. What the four colours below have in common is
-                 * that they are the only things drawn flat: the ground, a card's surface and its
-                 * hairline, and the cursor's fill. Everything else on these rows - a word, a
-                 * blend at the edge of one, a slider's track - is content, and content starts
-                 * where the column starts.
-                 */
-                const struct mesh_ui_rgb furniture[] = {
-                    mesh_ui_theme_color(theme, MESH_UI_COLOR_BG),
-                    mesh_ui_theme_color(theme, MESH_UI_COLOR_SURFACE),
-                    mesh_ui_theme_color(theme, MESH_UI_COLOR_SURFACE_SEL),
-                    mesh_ui_theme_color(theme, MESH_UI_COLOR_OUTLINE),
-                };
-                /* From the panel's own margin: a card in a list is drawn wider than the rows
-                   standing in it, so its left edge and its corners are outside every column
-                   this is about. */
-                const uint32_t left_edge = (uint32_t)theme->metrics.margin;
-                /*
-                 * And only as far right as the label column, which is where the question is
-                 * settled anyway - and what keeps the scroll rail out of it. The rail is a bar
-                 * down the whole body on the one side, so a scan that ran to the panel's edge
-                 * found content on every scanline, never saw a blank one, and read the entire
-                 * section as a single row.
-                 */
-                const uint32_t right_edge = settings_label_right(theme, width, scale);
-                /* The suite's own estimate of the two bars, the one
-                   ui_capture_settings_marks_both_halves_of_an_unsaved_row() uses. */
-                const uint32_t body_top = height / 8U;
-                const uint32_t body_bottom = height - height / 8U;
-                /* A glyph's left bearing is the only thing two rows of the same column may
-                   differ by. The failure this is about is a whole step - nine of these - so the
-                   allowance can be generous and still catch it. */
-                const uint32_t bearing = (uint32_t)(3 * scale);
-                uint32_t band_left = width;
-                uint32_t band_rows = 0U;
                 uint32_t lefts[64];
                 uint32_t bands = 0U;
-                for (uint32_t y = body_top; y <= body_bottom; ++y) {
-                    const uint8_t *row = frame + (size_t)y * stride;
-                    /*
-                     * Where this scanline's own ground begins, which is where the search for
-                     * content starts. A card is drawn wider than the rows standing in it and its
-                     * edge is a hairline blended against the panel, so a scan that began at the
-                     * margin found that blend on every scanline the card covers and reported the
-                     * card's left edge as if it were a word. Starting at the card's own surface
-                     * steps over its edge without anything here having to know how thick one is;
-                     * a scanline with no card on it - a heading in the break between two, a verb
-                     * floated onto the panel - has none to find and starts at the margin.
-                     */
-                    uint32_t start = left_edge;
-                    for (uint32_t x = left_edge; x < right_edge; ++x) {
-                        const uint8_t *p = row + (size_t)x * 4U;
-                        if ((p[0] == furniture[1].b && p[1] == furniture[1].g &&
-                             p[2] == furniture[1].r) ||
-                            (p[0] == furniture[2].b && p[1] == furniture[2].g &&
-                             p[2] == furniture[2].r)) {
-                            start = x;
-                            break;
-                        }
-                    }
-                    uint32_t left = width;
-                    for (uint32_t x = start; x < right_edge && left == width; ++x) {
-                        const uint8_t *p = row + (size_t)x * 4U;
-                        bool flat = false;
-                        for (size_t f = 0U; f < sizeof furniture / sizeof furniture[0]; ++f) {
-                            flat = flat || (p[0] == furniture[f].b && p[1] == furniture[f].g &&
-                                            p[2] == furniture[f].r);
-                        }
-                        if (!flat) {
-                            left = x;
-                        }
-                    }
-                    if (left < band_left) {
-                        band_left = left;
-                    }
-                    if (left != width) {
-                        band_rows++;
-                        continue;
-                    }
-                    /*
-                     * A blank scanline closes the band above it: one row of words, measured at
-                     * its leftmost.
-                     *
-                     * A band has to be as tall as a letter to be one. A card's hairline is a
-                     * scanline or two of blend against the ground, and it runs the width of the
-                     * card rather than of the column - so counted as a row it reports the card's
-                     * own left edge and nothing about where any word starts.
-                     */
-                    const uint32_t tall = band_rows >= (uint32_t)(2 * scale);
-                    band_rows = 0U;
-                    if (band_left == width || !tall) {
-                        band_left = width;
-                        continue;
-                    }
-                    if (bands < (uint32_t)(sizeof lefts / sizeof lefts[0])) {
-                        lefts[bands++] = band_left;
-                    }
-                    band_left = width;
-                }
-                /*
-                 * The column the section is written in: the one the most rows agree on.
-                 *
-                 * Taken from the rows rather than derived here, because deriving it would be
-                 * this test re-stating the arithmetic it is meant to be checking - and because
-                 * the answer is not a constant: a section that holds a verb reserves the disc's
-                 * width on its fields too, and one that holds none does not.
-                 */
-                uint32_t column = 0U;
                 uint32_t agreed = 0U;
-                for (uint32_t a = 0U; a < bands; ++a) {
-                    uint32_t near = 0U;
-                    for (uint32_t b = 0U; b < bands; ++b) {
-                        const uint32_t hi = lefts[a] > lefts[b] ? lefts[a] : lefts[b];
-                        const uint32_t lo = lefts[a] > lefts[b] ? lefts[b] : lefts[a];
-                        near += (hi - lo <= bearing) ? 1U : 0U;
-                    }
-                    if (near > agreed) {
-                        agreed = near;
-                        column = lefts[a];
-                    }
-                }
+                const uint32_t bearing = (uint32_t)(3 * scale);
+                const uint32_t column = settings_text_column(
+                    frame, width, height, stride, theme, scale, lefts,
+                    (uint32_t)(sizeof lefts / sizeof lefts[0]), &bands, &agreed);
                 /*
                  * Nothing may start to the *right* of it, and that is the whole assertion.
                  *
@@ -4501,6 +4520,129 @@ MESH_TEST_CASE(ui_capture_a_section_starts_every_row_in_one_column, unit) {
             }
             free(frame);
             mesh_ui_store_shutdown(&store);
+        }
+    }
+
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * And every *section* writes in the same column as every other, which is the rule one level out.
+ *
+ * The case above holds one list to one column; this holds the tab to one. The two used to be
+ * different questions, and the answer to the second was "it depends": the leading slot was
+ * reserved off whether the section happened to hold a verb, so Position - which has the fixed
+ * position pair below the fold - indented every row past a disc's width and Radio UI, which is
+ * the same list of fields with no press in it, did not. Walking between them the words moved
+ * about two cells sideways for a reason nothing on either screen showed, and Device did it a
+ * third way by having no cards at all to indent inside.
+ *
+ * Four sections, chosen to be the four shapes that used to disagree: one that holds a verb
+ * *and* fields (Position), one that holds only fields and draws cards (Radio UI), one that
+ * holds only fields and draws none (Device), and About radio, which is mostly readings with a
+ * press floated among them. A section list is deliberately not among them - the root and
+ * Modules are lists of subjects that fill a narrower icon slot on every row, which is a
+ * different list and says so.
+ *
+ * Measured rather than compared against a constant, for the reason the case above measures: a
+ * number written here would be this test restating the arithmetic under it, and would go stale
+ * the first time a margin moved.
+ */
+MESH_TEST_CASE(ui_capture_every_section_starts_in_the_same_column, unit) {
+    static const enum mesh_ui_settings_section k_sections[] = {
+        MESH_UI_SETTINGS_POSITION,
+        MESH_UI_SETTINGS_RADIO_UI,
+        MESH_UI_SETTINGS_DEVICE,
+        MESH_UI_SETTINGS_RADIO,
+    };
+    const char *failure = NULL;
+    static char detail[256];
+
+    for (size_t t = 0; t < mesh_ui_theme_count() && failure == NULL; ++t) {
+        const struct mesh_ui_theme *theme = mesh_ui_theme_at(t);
+        for (int scale = MESH_UI_SCALE_MIN; scale <= MESH_UI_SCALE_MAX && failure == NULL;
+             ++scale) {
+            const uint32_t bearing = (uint32_t)(3 * scale);
+            uint32_t columns[sizeof k_sections / sizeof k_sections[0]];
+            size_t measured = 0U;
+
+            for (size_t i = 0; i < sizeof k_sections / sizeof k_sections[0] && failure == NULL;
+                 ++i) {
+                struct mesh_ui_store store;
+                if (mesh_ui_store_init(&store) != 0) {
+                    failure = "store init failed";
+                    break;
+                }
+                mesh_test_nav_populate(&store);
+                /* Everything these four read, answered at once - a section the radio has not
+                   spoken for draws one sentence and no rows, and a sentence is not a column. */
+                struct mesh_ui_settings settings = store.settings;
+                settings.loaded = true;
+                settings.has_metadata = true;
+                settings.has_position = true;
+                settings.has_device = true;
+                settings.has_display = true;
+                settings.gps_mode = 1U;
+                settings.position_broadcast_secs = 900U;
+                settings.gps_update_interval = 120U;
+                settings.has_ui_config = true;
+                settings.ui_brightness = 153U;
+                settings.ui_screen_timeout = 60U;
+                settings.fw_supported = true;
+                snprintf(settings.firmware_version, sizeof settings.firmware_version, "%s",
+                         "2.7.6");
+                snprintf(settings.fw_channel, sizeof settings.fw_channel, "%s", "stable");
+                mesh_ui_store_set_settings(&store, &settings);
+
+                uint8_t *frame = NULL;
+                uint32_t width = 0U;
+                uint32_t height = 0U;
+                size_t stride = 0U;
+                if (!mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS) ||
+                    !mesh_test_settings_open(&store, k_sections[i])) {
+                    snprintf(detail, sizeof detail, "section %u could not be opened",
+                             (unsigned)k_sections[i]);
+                    failure = detail;
+                } else {
+                    frame = capture_frame(&store, theme, scale, &width, &height, &stride);
+                    if (frame == NULL) {
+                        failure = "capture failed";
+                    }
+                }
+                if (failure == NULL) {
+                    uint32_t lefts[64];
+                    uint32_t bands = 0U;
+                    uint32_t agreed = 0U;
+                    const uint32_t column = settings_text_column(
+                        frame, width, height, stride, theme, scale, lefts,
+                        (uint32_t)(sizeof lefts / sizeof lefts[0]), &bands, &agreed);
+                    if (bands < 3U || agreed < 2U) {
+                        snprintf(detail, sizeof detail,
+                                 "only %u rows of section %u were readable at glyph scale %d - "
+                                 "there is nothing here to compare",
+                                 bands, (unsigned)k_sections[i], scale);
+                        failure = detail;
+                    } else {
+                        columns[measured++] = column;
+                    }
+                }
+                free(frame);
+                mesh_ui_store_shutdown(&store);
+            }
+
+            for (size_t i = 1U; i < measured && failure == NULL; ++i) {
+                const uint32_t hi = columns[i] > columns[0] ? columns[i] : columns[0];
+                const uint32_t lo = columns[i] > columns[0] ? columns[0] : columns[i];
+                if (hi - lo > bearing) {
+                    snprintf(detail, sizeof detail,
+                             "section %u is written at x=%u where section %u is written at x=%u, "
+                             "on theme %s at glyph scale %d - the Settings tab has one column",
+                             (unsigned)k_sections[i], columns[i], (unsigned)k_sections[0],
+                             columns[0], theme->name, scale);
+                    failure = detail;
+                }
+            }
         }
     }
 
@@ -4639,6 +4781,32 @@ MESH_TEST_CASE(ui_capture_a_floated_row_clears_the_cards_around_it, unit) {
                                 const struct mesh_ui_rgb fill = mesh_ui_theme_family(
                                     theme, (enum mesh_ui_family)f, MESH_UI_SLOT_CONTAINER);
                                 if (p[0] != fill.b || p[1] != fill.g || p[2] != fill.r) {
+                                    continue;
+                                }
+                                /*
+                                 * And that it is a *filled shape* rather than one pixel of a
+                                 * glyph's edge that happens to land on the same colour.
+                                 *
+                                 * A family's container fill is a mid tone, and antialiasing
+                                 * text against a card's surface walks through mid tones: on the
+                                 * High contrast theme the tertiary container is the exact grey
+                                 * a descender's last row comes out at, so "Syslog" on the
+                                 * bottom row of a card read here as a disc touching that card's
+                                 * edge. A disc is a dozen scanlines tall and its crown has the
+                                 * next one under it, so the pixel above or below is the same
+                                 * fill; a glyph's edge has ink on one side and ground on the
+                                 * other. The check is the shape, which is what the sweep meant
+                                 * all along - it had simply never met a row whose descenders
+                                 * sat one scanline off an edge.
+                                 */
+                                const uint8_t *up = ny > 0U ? band - stride + (size_t)x * 4U : NULL;
+                                const uint8_t *down =
+                                    ny + 1U < height ? band + stride + (size_t)x * 4U : NULL;
+                                const bool solid = (up != NULL && up[0] == fill.b &&
+                                                    up[1] == fill.g && up[2] == fill.r) ||
+                                                   (down != NULL && down[0] == fill.b &&
+                                                    down[1] == fill.g && down[2] == fill.r);
+                                if (!solid) {
                                     continue;
                                 }
                                 snprintf(detail, sizeof detail,

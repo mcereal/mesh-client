@@ -294,6 +294,18 @@ bool mesh_ui_settings_item_is_verb(const struct mesh_ui_settings_item *item) {
     return item != NULL && item->verb;
 }
 
+bool mesh_ui_settings_item_is_fact(const struct mesh_ui_settings_item *item) {
+    if (item == NULL || item->kind == MESH_UI_SETTING_HEADING) {
+        return false;
+    }
+    /* Nothing the reader can press and nothing they can step. The ACTION test is what keeps a
+       channel slot and a module row out of it: both are rows that open a list, and neither is
+       a verb, so `verb` alone would read them as facts and quieten the one tier that is the
+       name of the thing being opened. */
+    return !item->verb && !item->cycle && item->field == MESH_UI_FIELD_NONE &&
+           item->kind != MESH_UI_SETTING_ACTION;
+}
+
 uint32_t mesh_ui_settings_section_groups(const struct mesh_ui_settings_item *items,
                                          uint32_t count) {
     if (items == NULL) {
@@ -2420,6 +2432,25 @@ bool mesh_ui_settings_action_opens(enum mesh_ui_settings_action action) {
            action == MESH_UI_SETTINGS_ACTION_IMPORT_CHANNELS ||
            action == MESH_UI_SETTINGS_ACTION_SHARE_CONTACT ||
            action == MESH_UI_SETTINGS_ACTION_IMPORT_CONTACT;
+}
+
+/*
+ * The presses that step the row's own value rather than doing anything. See the note in
+ * settings.h for what the answer is spent on, and struct mesh_ui_settings_item::cycle for what
+ * it makes the row.
+ *
+ * Spelled out rather than derived, on the terms mesh_ui_settings_action_is_radio() is. "Has a
+ * value in its value column" would take in the forget rows, whose figure is the size of what
+ * the press costs; "opens nothing" would take in the two checks, which send a request and
+ * redraw when the answer lands. The question is whether pressing A leaves the reader on the
+ * same row with a different setting on it, and only these five do.
+ */
+bool mesh_ui_settings_action_is_cycle(enum mesh_ui_settings_action action) {
+    return action == MESH_UI_SETTINGS_ACTION_CYCLE_LANGUAGE ||
+           action == MESH_UI_SETTINGS_ACTION_CYCLE_THEME ||
+           action == MESH_UI_SETTINGS_ACTION_CYCLE_UPDATE_CHANNEL ||
+           action == MESH_UI_SETTINGS_ACTION_TOGGLE_DEV_UPDATES ||
+           action == MESH_UI_SETTINGS_ACTION_CYCLE_FIRMWARE_CHANNEL;
 }
 
 /* The two firmware installs, which are one press with two sheets in front of it. Asked as a

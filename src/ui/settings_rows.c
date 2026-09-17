@@ -454,13 +454,24 @@ static void item_key(struct item_list *list, enum mesh_str_id label, const uint8
 static void item_action_named(struct item_list *list, const char *label, const char *value,
                               enum mesh_ui_settings_action action) {
     struct mesh_ui_settings_item *item = item_add_named(list, label, MESH_UI_SETTING_ACTION);
-    if (item != NULL) {
-        mesh_str_copy(item->value, sizeof item->value, value);
-        item->number = (uint32_t)action;
-        item->icon = mesh_ui_settings_action_icon(action);
-        item->tone = mesh_ui_settings_action_tone(action);
-        item->verb = true;
+    if (item == NULL) {
+        return;
     }
+    mesh_str_copy(item->value, sizeof item->value, value);
+    item->number = (uint32_t)action;
+    item->tone = mesh_ui_settings_action_tone(action);
+    /*
+     * A press that steps this row's own value is not a verb, and the whole of what that costs
+     * is here: no disc, and the row keeps its place among the fields instead of being floated
+     * off the card with the presses. The nav is untouched - A still reaches the same action -
+     * because what changed is what the row *is*, not what the press does.
+     */
+    if (mesh_ui_settings_action_is_cycle(action)) {
+        item->cycle = true;
+        return;
+    }
+    item->icon = mesh_ui_settings_action_icon(action);
+    item->verb = true;
 }
 
 /*
