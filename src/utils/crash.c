@@ -375,7 +375,7 @@ static void crash_report(int fd, int signal_number, const siginfo_t *info, void 
      * It opened by claiming the file held "no message text, no node names, no coordinates and no
      * channel keys". Three quarters of that was wrong, and wrong in the direction that matters:
      * the log tail below is the client's ordinary log, and the ordinary log says "Sent \"%s\" to
-     * %s" (src/core/app_actions.c), names channels and waypoints, and prints a fixed position as
+     * %s" (src/app/app_actions.c), names channels and waypoints, and prints a fixed position as
      * the two numbers the user typed. A reader who attached the file *because the file told them
      * it was safe* would have published exactly what it promised was absent.
      *

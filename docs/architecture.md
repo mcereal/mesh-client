@@ -12,6 +12,42 @@ link (transport) -> mesh_session -> mesh_app -> UI store -> controller -> backen
 evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_ui_action
 ```
 
+## Layers
+
+The directory under `src/` is a layer, and the arrows above are its rules. Everything compiles
+into one library (`meshclient_core`), so the linker has no opinion about direction — nothing but
+a convention stops `src/geo` from reaching into `src/ui`. `scripts/check-layers.py` is that
+convention made into a test: it reads every `#include "mesh/<area>/..."` and checks it against a
+table of allowed edges, and `make test` runs it.
+
+```
+app          the composition root: one of everything, wired together
+ |
+ +-- ui      store, nav, backends            -- reads core's types to draw them
+ +-- core    session, admin queue, messaging -- answers to a radio, never to a screen
+ +-- transport  BLE, serial, TCP             -- carries frames for a session
+ +-- map     tiles and the viewport
+ +-- proto   wire formats
+ +-- geo     projection and geometry          (leaf)
+ +-- i18n    the string catalog               (leaf)
+ +-- utils   text, time, log, json, sha256    (leaf)
+```
+
+**`core` does not include `ui`.** That is the edge the check exists for. The session, the message
+log and the admin queue answer to a radio, and the moment one of them reads a store record the
+client can no longer be driven headless — which is what the CLI backend and most of the test
+suite depend on. Publishing is a one-way copy in the other direction, and `src/app/app_publish.c`
+is the only thing that does it.
+
+`app` is the exception and is meant to be: it embeds a `struct mesh_ui_store`, a
+`struct mesh_session` and a transport registry *by value* in one `struct mesh_app`, so it needs
+the complete type of each. That is why it is its own directory rather than part of `core` — a
+composition root that sees everything is not a layering violation, but a composition root hiding
+inside a layer is.
+
+Adding a directory under `src/` means adding a row to `ALLOWED` in that script, with the areas it
+may include from and why. An edge with no reason written next to it is one to delete.
+
 Allwinner A133P, 1 GB RAM, WiFi and Bluetooth. Constrained enough that the binary stays small
 and brings no runtime with it — C plus nanopb, no SDL, no interpreter. Pak conventions the code
 depends on: a pak is `/Tools/tg5040/<Name>.pak/` with a `launch.sh`; logs go to
@@ -404,7 +440,7 @@ The state machine is ten values rather than a bool because each is a different t
 user: "no router answered" and "the router never replied" are the same silence from two different
 places, and only one is worth pressing again. Nothing about it is persisted.
 
-## `src/core/app*.c`
+## `src/app/*.c`
 
 Four files around one `struct mesh_app`, with `app_internal.h` as the seam: `app.c` owns the
 loop, the links and the process lifecycle; `app_actions.c` is the `mesh_ui_action` dispatch;

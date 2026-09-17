@@ -151,7 +151,7 @@ cache at startup so that a *relaunch* against a different radio is the same even
 
 Deleting has to reach every copy or the next publish undoes it: the transport's ring, the
 history the app restored at startup, the store (both lists), and the card. `on_delete_message()`
-and `on_delete_conversation()` in `src/core/app_actions.c` are where that is spelled out, which
+and `on_delete_conversation()` in `src/app/app_actions.c` are where that is spelled out, which
 is why both are app actions rather than something the store does on a key press.
 
 ### The traceroute log
@@ -635,8 +635,8 @@ and tinted at draw time, so changing a colour does not regenerate them.
 |---|---|
 | `src/ui/font_ui.c` | `"ui"`, JetBrains Mono, the default face — generated |
 | `src/ui/font5x7.c` | `"5x7"`, the pixel face. ASCII plus composed accented Latin |
-| `src/ui/emoji.c` + `emoji_glyphs.c` | emoji, generated |
-| `src/ui/icon.c` + `icon_glyphs.c` | the icon set; `icons.def` is the table |
+| `src/ui/emoji.c` + `generated/emoji_glyphs.c` | emoji, generated |
+| `src/ui/icon.c` + `generated/icon_glyphs.c` | the icon set; `icons.def` is the table |
 
 `scripts/gen-{emoji,icons,font,locale}.py` are **not part of the build** — run them by hand and
 commit the result.

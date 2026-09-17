@@ -26,7 +26,7 @@
  *   - An icon nothing draws does not belong here. The sprites are generated data, and an id
  *     with no call site is a kilobyte of rodata that no theme, screen or test can see.
  *
- * Adding one is: a line here, then `python3 scripts/gen-icons.py <font> src/ui/icon_glyphs.c`
+ * Adding one is: a line here, then `python3 scripts/gen-icons.py <font> src/ui/generated/icon_glyphs.c`
  * (see the script's header for the font), then commit the regenerated data with it.
  */
 

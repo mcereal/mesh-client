@@ -8,7 +8,7 @@ has, and for the same reasons.
     python3 -m venv .venv && .venv/bin/pip install fonttools pillow
     curl -sSLo JetBrainsMono-Regular.ttf 'https://raw.githubusercontent.com/JetBrains/\
 JetBrainsMono/master/fonts/ttf/JetBrainsMono-Regular.ttf'
-    .venv/bin/python scripts/gen-font.py JetBrainsMono-Regular.ttf src/ui/font_ui_glyphs.c
+    .venv/bin/python scripts/gen-font.py JetBrainsMono-Regular.ttf src/ui/generated/font_ui_glyphs.c
     make format   # the table is emitted twelve values a line and clang-format repacks it
 
 

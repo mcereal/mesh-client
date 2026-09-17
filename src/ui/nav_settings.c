@@ -5,7 +5,7 @@
  *
  * Edits accumulate in the nav struct rather than going to the radio a field at a time, because
  * the firmware replaces a config section whole - so a section is edited locally and saved in one
- * write (built over in src/core/app_settings.c). An edit that puts the radio's own value back is
+ * write (built over in src/app/app_settings.c). An edit that puts the radio's own value back is
  * dropped rather than recorded, which is what keeps "toggle it twice" from queueing a write.
  */
 

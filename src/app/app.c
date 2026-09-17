@@ -904,7 +904,7 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
 
     /* The MQTT proxy, which borrows the same bundle for the same reason and is otherwise driven
        entirely by what the radio asks for. Nothing connects here: the decision is re-derived on
-       every loop turn from the radio's own configuration. See src/core/app_mqtt.c. */
+       every loop turn from the radio's own configuration. See src/app/app_mqtt.c. */
     mesh_app_mqtt_init(app);
 
     /* Optional canned.txt next to the preferences file replaces the built-in quick replies. */

@@ -16,7 +16,7 @@
  * functions cannot show.
  */
 
-#include "../../src/core/app_internal.h"
+#include "../../src/app/app_internal.h"
 #include "framework/mesh_test.h"
 #include "support/mqtt_fixture.h"
 #include "support/session_fixture.h"

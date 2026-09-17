@@ -7,7 +7,7 @@ the generated file, so the build stays dependency-free and CI never reaches the 
     python3 -m venv .venv && .venv/bin/pip install fonttools pillow
     curl -sSLo NotoColorEmoji.ttf \
         https://github.com/googlefonts/noto-emoji/raw/main/fonts/NotoColorEmoji.ttf
-    .venv/bin/python scripts/gen-emoji.py NotoColorEmoji.ttf src/ui/emoji_glyphs.c
+    .venv/bin/python scripts/gen-emoji.py NotoColorEmoji.ttf src/ui/generated/emoji_glyphs.c
 
 Noto Color Emoji is under the SIL Open Font License; licenses/OFL-NotoColorEmoji.txt travels
 with the generated data.

@@ -23,7 +23,7 @@ place. Nothing about it needs a phone any more.
 | `src/core/tls_client.c` | Mbed TLS over a non-blocking descriptor |
 | `src/proto/mqtt_topic.c` | where a mesh lives on a broker, matched to the firmware |
 | `src/core/session.c` | the two hooks: the radio's message out, the broker's message back |
-| `src/core/app_mqtt.c` | the decision: whether to be connected, to what, with which subscriptions |
+| `src/app/app_mqtt.c` | the decision: whether to be connected, to what, with which subscriptions |
 | `include/mesh/ui/store_mqtt.h` | what the Status screen is told about it |
 | `third_party/mbedtls-config/mesh_mbedtls_config.h` | what this build of Mbed TLS is and is not (TLS and X.509) |
 | `third_party/mbedtls-config/mesh_psa_crypto_config.h` | the same, for the crypto half 4.x split out |
@@ -105,7 +105,7 @@ other end.
 
 ## The client decides nothing it can read off the radio
 
-`src/core/app_mqtt.c` re-derives the whole arrangement from `MQTTConfig` on every loop turn:
+`src/app/app_mqtt.c` re-derives the whole arrangement from `MQTTConfig` on every loop turn:
 whether to be connected, to what, and with which subscriptions. There is no client-side broker
 setting and there should not be one — the radio is the origin, it decides where its mesh is
 published, and a client with its own idea of the broker would be publishing this mesh somewhere

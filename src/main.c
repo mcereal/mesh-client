@@ -1,6 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 
-#include "mesh/core/app.h"
+#include "mesh/app/app.h"
 #include "mesh/core/config.h"
 #include "mesh/core/firmware_fetch.h"
 #include "mesh/core/firmware_install.h"

@@ -12,7 +12,7 @@
  *
  * Everything here is generated. scripts/gen-font.py rasterises the face at the exact cell the
  * device draws - so on the Brick a glyph is blitted 1:1 and resampled only when a theme asks
- * for another scale - and writes src/ui/font_ui_glyphs.c, which is committed. The build
+ * for another scale - and writes src/ui/generated/font_ui_glyphs.c, which is committed. The build
  * rasterises nothing and never reaches the network, the same arrangement the icon set has.
  *
  * The cell is 5x8 at scale 1 against 5x7's 5x7, and the gaps are one and one against one and

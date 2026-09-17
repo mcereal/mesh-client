@@ -2,7 +2,7 @@
 
 /* App glue: auto-connect policy, link routing, and settings writes built from UI state. */
 
-#include "../../src/core/app_internal.h"
+#include "../../src/app/app_internal.h"
 #include "framework/mesh_test.h"
 #include "support/proto_fixture.h"
 #include "support/serial_fixture.h"
@@ -10,7 +10,7 @@
 #include <poll.h>
 #include <sys/timerfd.h>
 
-#include "mesh/core/app.h"
+#include "mesh/app/app.h"
 #include "mesh/core/config.h"
 #include "mesh/core/message.h"
 #include "mesh/core/radio_settings.h"
