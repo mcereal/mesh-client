@@ -164,6 +164,9 @@ struct mesh_bluez_mock_config {
     int disconnect_result;
     int pair_result;
     int remove_device_result;
+    /* Bumped every time RemoveDevice reaches the client, so a test can tell a bond that was
+       dropped from one that was merely not reached for. */
+    unsigned *remove_device_calls;
     /* Pair reply polls that stay pending before the mock completes with pair_result. */
     unsigned pair_pending_polls;
     /* When set, the mock raises a RequestPasskey the way BlueZ would once Pair is sent, so a

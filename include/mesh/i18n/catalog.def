@@ -3045,6 +3045,13 @@ MESH_STR_ENTRY(FW_UPDATE_ERR_CANCELLED,   "cancelled")
 MESH_STR_ENTRY(FW_INSTALL,                "Install firmware")
 MESH_STR_ENTRY(TOAST_INSTALLING_FIRMWARE, "Installing %s on the radio...")
 MESH_STR_ENTRY(TOAST_FIRMWARE_INSTALLED,  "The radio is running %s")
+/*
+ * The update worked and the radio has to be paired with again, which is a sentence about
+ * the update rather than about Bluetooth: an ESP32 rotates its BLE keys when its firmware
+ * changes, so the bond on this side is a key the radio no longer has. What to press is
+ * left to LINK_NEEDS_PAIRING, which the next connect raises and which already says it.
+ */
+MESH_STR_ENTRY(TOAST_FIRMWARE_REPAIR,     "%s installed; the radio needs pairing again")
 MESH_STR_ENTRY(TOAST_FIRMWARE_FAILED,     "Firmware install failed: %s")
 /*
  * The banner, which exists for one state and one bus: the radio is in its ESP32 update loader,

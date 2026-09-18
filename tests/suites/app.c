@@ -1510,19 +1510,140 @@ cleanup:
 }
 
 /*
- * A turn of the loop is short while a handover has the radio.
+ * A radio that does not come back after its own update has its bond dropped for it.
  *
- * mesh_event_loop_run() bounds the whole call rather than each wait, and returns early only when
- * epoll falls idle - which it does not during an install, because the progress bar re-arms a
- * 33 ms frame timer for as long as it is drawn. So the turn costs its full deadline, and the BLE
- * transfer is one 512-byte chunk per ACK per tick: a second a chunk is 74 minutes for a 2.2 MB
- * image over a link that does it in two. Measured on a Brick writing 2.8.0 to a Heltec V3.
+ * Installing firmware is the one thing this client does that changes a radio's half of a BLE
+ * bond, and on an ESP32 it does: after 2.8.0.47db0e3 a Heltec V3 refused every connect with
+ * le-connection-abort-by-local, because the LTK here was one the radio no longer had. Nothing
+ * in the link layer says so - BlueZ reports the device Paired, since our half is intact - so
+ * mesh_ble_do_connect() takes the bonded branch at ble_transport.c and the client can only
+ * answer "connect failed". Forgetting the node by hand is the way out, and expecting a user to
+ * work that out from two words is the bug.
  *
- * The states are walked rather than one of them sampled, because the answer has to follow
- * "holds the radio" and not a single rung: arming, waiting, writing and restarting all keep the
- * bus, and a transfer that got its short turn only in WRITING would go back to one-second ticks
- * for the retry that re-sends it.
+ * Both directions are the case, because dropping the bond every time is the other bug: an
+ * upgrade whose keys survived would charge a PIN nobody needed to type.
  */
+MESH_TEST_CASE(app_drops_a_bond_its_own_update_invalidated, unit) {
+    const char *failure = NULL;
+    bool app_ready = false;
+    unsigned removed = 0U;
+    struct mesh_app app;
+    memset(&app, 0, sizeof app);
+
+    struct mesh_bluez_mock_config mock_config = {.adapter_path = "/org/bluez/hci0",
+                                                 .remove_device_calls = &removed};
+    mesh_bluez_client_mock_enable(&mock_config);
+
+    char home_dir[APP_TEST_HOME_CAP];
+    if (!app_test_home(home_dir, sizeof home_dir, "bondwatch")) {
+        failure = "mkdtemp failed";
+        goto cleanup;
+    }
+    struct mesh_app_config config = mesh_app_config_default();
+    config.run_mode = MESH_APP_RUN_FOREGROUND;
+    if (mesh_app_init(&app, &config) != 0) {
+        failure = "app init failed";
+        goto cleanup;
+    }
+    app_ready = true;
+    /* The bond lives on the adapter, so the transport has to be up for one to be dropped. */
+    if (mesh_transport_registry_start_all(&app.transport_registry, &app.config, &app.loop) < 0) {
+        failure = "transport start failed";
+        goto cleanup;
+    }
+
+    struct mesh_firmware_update update;
+    memset(&update, 0, sizeof update);
+    update.path = MESH_FIRMWARE_PATH_BLE;
+    snprintf(update.where, sizeof update.where, "%s", "9C:13:9E:9D:0A:D9");
+
+    /* Nothing is watched until an install finishes. */
+    if (mesh_app_firmware_settle_bond(&app, NULL, 1000U)) {
+        failure = "a client that has flashed nothing drops no bonds";
+        goto cleanup;
+    }
+
+    /* A cable leaves no bond behind, so the USB path is not watched at all. */
+    struct mesh_firmware_update over_usb = update;
+    over_usb.path = MESH_FIRMWARE_PATH_USB;
+    mesh_app_firmware_watch_bond(&app, &over_usb, 1000U);
+    if (app.firmware_bond_watch[0] != '\0') {
+        failure = "a serial radio has no bond to lose";
+        goto cleanup;
+    }
+
+    /*
+     * And the wiring: a *finished* install arms it, rather than the watch only working when
+     * something calls it by hand. This is the install's own completion, the one
+     * mesh_firmware_update_start() is handed.
+     */
+    struct mesh_firmware_update finished = update;
+    finished.state = MESH_FIRMWARE_UPDATE_DONE;
+    snprintf(finished.release.version, sizeof finished.release.version, "%s", "2.8.0.47db0e3");
+    mesh_app_firmware_update_done(&app, &finished);
+    if (app.firmware_bond_watch[0] == '\0') {
+        failure = "a finished BLE install watches the radio it flashed";
+        goto cleanup;
+    }
+    /* A failed one does not: the radio is running what it was, and its bond with it. */
+    app.firmware_bond_watch[0] = '\0';
+    struct mesh_firmware_update refused = finished;
+    refused.state = MESH_FIRMWARE_UPDATE_FAILED;
+    mesh_app_firmware_update_done(&app, &refused);
+    if (app.firmware_bond_watch[0] != '\0') {
+        failure = "an install that failed changed no firmware and no keys";
+        goto cleanup;
+    }
+    mesh_app_firmware_update_done(&app, &finished);
+    if (mesh_app_firmware_settle_bond(&app, "9C:13:9E:9D:0A:D9", 2000U)) {
+        failure = "a radio back on the link kept its bond";
+        goto cleanup;
+    }
+    if (app.firmware_bond_watch[0] != '\0' || removed != 0U) {
+        failure = "and the watch ends without touching it";
+        goto cleanup;
+    }
+
+    /* The radio that did not come back: silent past the grace, bond dropped once. */
+    mesh_app_firmware_watch_bond(&app, &update, 1000U);
+    if (mesh_app_firmware_settle_bond(&app, NULL, 2000U)) {
+        failure = "the grace is a grace, not an instant verdict";
+        goto cleanup;
+    }
+    if (removed != 0U) {
+        failure = "and nothing is dropped inside it";
+        goto cleanup;
+    }
+    /* Another radio answering in the meantime is not this one answering. */
+    if (mesh_app_firmware_settle_bond(&app, "F8:5B:1B:A5:99:C9", 3000U) || removed != 0U) {
+        failure = "a different radio on the link says nothing about this one's bond";
+        goto cleanup;
+    }
+    if (!mesh_app_firmware_settle_bond(&app, NULL, 1000U + 60000U)) {
+        failure = "a radio that never came back has a bond this client can see is dead";
+        goto cleanup;
+    }
+    if (removed != 1U) {
+        failure = "which is dropped, so the next connect pairs instead of failing";
+        goto cleanup;
+    }
+    /* Once. A watch left armed would drop the bond the user is in the middle of making. */
+    if (app.firmware_bond_watch[0] != '\0' ||
+        mesh_app_firmware_settle_bond(&app, NULL, 1000U + 120000U) || removed != 1U) {
+        failure = "and dropped once, not on every turn after";
+        goto cleanup;
+    }
+
+cleanup:
+    if (app_ready) {
+        mesh_app_shutdown(&app);
+    }
+    mesh_bluez_client_mock_disable();
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(app_takes_short_turns_while_a_handover_has_the_radio, unit) {
     struct mesh_app app;
     memset(&app, 0, sizeof app);

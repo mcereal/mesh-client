@@ -181,8 +181,95 @@ struct mesh_firmware_update_hooks mesh_app_firmware_hooks(struct mesh_app *app) 
     return hooks;
 }
 
-static void mesh_app_firmware_update_done(void *userdata,
-                                          const struct mesh_firmware_update *update) {
+/*
+ * A radio we have just reflashed has to prove its bond still works.
+ *
+ * This client is the only thing that changes a radio's own half of a BLE bond, and on an ESP32
+ * a firmware change rotates its keys: after 2.8.0.47db0e3 a Heltec V3 answered every connect
+ * with le-connection-abort-by-local, because the LTK on this side was one the radio no longer
+ * had. Nothing in the link layer can say so. BlueZ reports the device Paired - our half of the
+ * bond is intact and on disk - so mesh_ble_do_connect() takes the bonded branch, the encryption
+ * it sets up is refused, and the only sentence the client has left is "connect failed". The way
+ * out is to forget the node and pair again, which is not something a user can be expected to
+ * derive from those two words.
+ *
+ * So the install arms a watch instead of an answer. A radio that comes back inside it kept its
+ * bond and nothing happens - dropping every bond after every update would charge a PIN to the
+ * upgrades that did not need one. A radio that does not come back has a bond this client can
+ * see is dead, and dropping it is what turns the dead end into LINK_NEEDS_PAIRING, which says
+ * which button to press.
+ *
+ * USB is deliberately not watched. A serial radio has no bond to lose, and the same reflash
+ * over a cable leaves nothing behind to go stale.
+ */
+#define MESH_APP_FIRMWARE_BOND_GRACE_MS 60000U
+
+void mesh_app_firmware_watch_bond(struct mesh_app *app, const struct mesh_firmware_update *update,
+                                  uint64_t now) {
+    if (app == NULL || update == NULL || update->path != MESH_FIRMWARE_PATH_BLE) {
+        return;
+    }
+    /* The OTA's own answer where it has one: it derives the radio's address from the loader's
+       when a job was resumed against a board already in a loader, and that is the case where
+       the press never knew which radio this was. */
+    const char *const address =
+        update->ble.radio_address[0] != '\0' ? update->ble.radio_address : update->where;
+    if (address[0] == '\0') {
+        return;
+    }
+    mesh_str_copy(app->firmware_bond_watch, sizeof app->firmware_bond_watch, address);
+    app->firmware_bond_watch_until_ms = now + MESH_APP_FIRMWARE_BOND_GRACE_MS;
+    mesh_log_info("ui", "Watching %s for %u s to see whether its bond survived the update", address,
+                  (unsigned)(MESH_APP_FIRMWARE_BOND_GRACE_MS / 1000U));
+}
+
+/* One turn of that watch. Returns true when it dropped a bond, which is only ever once. */
+bool mesh_app_firmware_settle_bond(struct mesh_app *app, const char *connected, uint64_t now) {
+    if (app == NULL || app->firmware_bond_watch[0] == '\0') {
+        return false;
+    }
+    /* Back on the link, so the bond outlived the firmware that shared it. Handed in rather than
+       read from mesh_app_connected_identifier() here: what this answers is a question about two
+       addresses and a clock, and taking them as arguments is what lets a suite ask it. */
+    if (connected != NULL && strcasecmp(connected, app->firmware_bond_watch) == 0) {
+        mesh_log_info("ui", "%s came back after its update; its bond is intact",
+                      app->firmware_bond_watch);
+        app->firmware_bond_watch[0] = '\0';
+        app->firmware_bond_watch_until_ms = 0U;
+        return false;
+    }
+    if (now < app->firmware_bond_watch_until_ms) {
+        return false;
+    }
+
+    char address[sizeof app->firmware_bond_watch];
+    mesh_str_copy(address, sizeof address, app->firmware_bond_watch);
+    app->firmware_bond_watch[0] = '\0';
+    app->firmware_bond_watch_until_ms = 0U;
+
+    struct mesh_transport *const ble = mesh_ble_transport();
+    if (ble == NULL) {
+        return false;
+    }
+    const int dropped = mesh_ble_transport_forget(ble, address);
+    if (dropped < 0) {
+        /* Nothing to forget is the ordinary way this lands: a bond BlueZ had already given up
+           on, or an adapter that went away with the install. Either way the next connect will
+           pair, which is the state this was trying to reach. */
+        mesh_log_info("ui", "%s did not come back and had no bond to drop (%d)", address, dropped);
+        return false;
+    }
+    /* Deliberately *not* dropped from the preferred devices, unlike the Devices tab's Forget.
+       That press means "stop reaching for this radio"; this one means "reach for it, but pair
+       first" - it is the radio the user just spent minutes updating. */
+    mesh_log_warn("ui",
+                  "%s did not come back after its update; dropped the stale bond so it can "
+                  "be paired with again",
+                  address);
+    return true;
+}
+
+void mesh_app_firmware_update_done(void *userdata, const struct mesh_firmware_update *update) {
     struct mesh_app *const app = (struct mesh_app *)userdata;
     const uint64_t now = mesh_time_monotonic_ms();
     char toast[MESH_UI_NAV_TOAST_MAX];
@@ -206,6 +293,7 @@ static void mesh_app_firmware_update_done(void *userdata,
          * check would compare against anyway.
          */
         mesh_firmware_forget(&app->firmware);
+        mesh_app_firmware_watch_bond(app, update, now);
     } else {
         /* The radio's own words where it supplied any, our name for the category where not.
            Untranslated either way, like a log line. */
@@ -240,6 +328,12 @@ void mesh_app_firmware_update_tick(struct mesh_app *app, uint64_t now) {
         }
     }
     mesh_firmware_update_tick(&app->firmware_update, now);
+    if (mesh_app_firmware_settle_bond(app, mesh_app_connected_identifier(), now)) {
+        char toast[MESH_UI_NAV_TOAST_MAX];
+        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_FIRMWARE_REPAIR,
+                        app->firmware_update.release.version);
+        mesh_ui_store_post_toast(&app->ui_store, now, toast);
+    }
 }
 
 /* ---- one handler per press ----------------------------------------------------------------- */

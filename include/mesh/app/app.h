@@ -99,6 +99,23 @@ struct mesh_app {
        second one should be restarted. */
     bool firmware_transports_stopped;
     /*
+     * A radio this client has just written firmware to, and how long to give it to come back
+     * before its bond is treated as dead. Empty when nothing is being watched.
+     *
+     * Installing firmware is the one thing that changes a radio's own half of a BLE bond, and
+     * an ESP32 upgrade really does rotate its keys: after 2.8.0.47db0e3 a Heltec V3's stored
+     * LTK no longer matched and every connect ended le-connection-abort-by-local. BlueZ still
+     * reports the device Paired, because the bond file is ours and ours is intact, so
+     * mesh_ble_do_connect() takes the bonded branch and the client can only say "connect
+     * failed" - a dead end whose only exit is knowing to forget the node by hand.
+     *
+     * Watched rather than dropped outright at the end of the install, because the bond does not
+     * always die: a radio that comes back on its own has a bond worth keeping, and throwing it
+     * away would cost a PIN nobody needed to type. The reconnect is the test.
+     */
+    char firmware_bond_watch[64];
+    uint64_t firmware_bond_watch_until_ms;
+    /*
      * The look the UI is drawn with. Resolved once at start-up from MESHCLIENT_THEME, then the
      * saved preference, then the default, and published in the client info on every frame -
      * which is how a switch reaches the framebuffer without anything pushing at the backend.

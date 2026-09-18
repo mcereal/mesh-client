@@ -1797,6 +1797,9 @@ int mesh_bluez_client_remove_device(struct mesh_bluez_client *client, const char
         return -EINVAL;
     }
     if (g_mock_state.enabled) {
+        if (g_mock_state.config.remove_device_calls != NULL) {
+            ++*g_mock_state.config.remove_device_calls;
+        }
         return g_mock_state.config.remove_device_result;
     }
 
