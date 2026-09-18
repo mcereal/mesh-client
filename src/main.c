@@ -346,7 +346,10 @@ static void cli_firmware_index(void *userdata, const struct mesh_fetch_result *r
         run->finished = true;
         return;
     }
-    printf("Newest stable: %s\n", run->release.version);
+    /* The channel by name, not the word "stable": this is the line somebody reads back when
+       working out why a loader refused an image, and a label naming a channel the release
+       did not come from is worse than no label. */
+    printf("Newest %s: %s\n", mesh_firmware_channel_name(run->channel), run->release.version);
     run->resolved = true;
     if (mesh_firmware_fetch_start(&run->fetch, run->fetcher, run->target, run->release.version,
                                   run->release.manifest_url, "", run->staging, cli_firmware_done,
