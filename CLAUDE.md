@@ -261,8 +261,8 @@ The few that bite soonest:
   hand; the release workflow rewrites that line.
 - **`launch.sh` and the pak's CA bundle do not ship through self-update.** Only the bare binary
   does, so treat both as a compatibility boundary.
-- **`scripts/gen-{emoji,icons,font,locale}.py` are not part of the build.** Run by hand, commit
-  the result.
+- **`scripts/gen-{emoji,icons,font,locale,ca-roots}.py` are not part of the build.** Run by hand,
+  commit the result.
 - **`devtools/` is not `Tools/`** - macOS filesystems are case-insensitive.
 
 ## Protobufs

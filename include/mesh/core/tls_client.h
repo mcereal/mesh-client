@@ -27,8 +27,9 @@ extern "C" {
  * **Certificates are always verified.** There is no insecure mode and no argument that turns one
  * on. The Brick has no system certificate store, which is what makes it tempting - but a broker
  * connection carries the mesh's traffic to somebody else's server, and an unauthenticated one is
- * a connection to whoever answered. `mesh_fetch_resolve_ca_bundle()` already finds the bundle
- * the pak ships; this takes the path it worked out.
+ * a connection to whoever answered. Nor is the missing store a reason to go without: Mozilla's
+ * roots are compiled in (include/mesh/core/ca_roots.h), so there is always something to check
+ * against.
  *
  * A build without the submodule compiles this to a stub that reports itself unavailable and
  * refuses to start, the same way the BLE transport compiles out without D-Bus headers. Nothing
@@ -64,6 +65,14 @@ struct mesh_tls_client {
 bool mesh_tls_available(void);
 
 /*
+ * The bundle file somebody asked for in place of the built-in roots - `SSL_CERT_FILE`, the
+ * variable OpenSSL and curl already honour - or NULL for none. For a broker behind a private CA,
+ * and deliberately nothing more clever: a path that is set is used, readable or not, so that a
+ * typo fails naming the file rather than falling back and failing somewhere less obvious.
+ */
+const char *mesh_tls_ca_override(void);
+
+/*
  * Begins a session on `fd`, which must already be open, non-blocking and connected (or
  * connecting - the first handshake flight will simply block until it is).
  *
@@ -71,8 +80,9 @@ bool mesh_tls_available(void);
  * the name the user typed rather than the address it resolved to: a certificate is issued for a
  * name, and checking one against an IP address fails for every broker on the internet.
  *
- * `ca_bundle` is a PEM file. A missing or unreadable one is a hard failure, not a fallback to
- * trusting everything - see above. Returns 0, -ENOTSUP without Mbed TLS, -EINVAL for bad
+ * `ca_bundle` is a PEM file to verify against instead of the built-in roots, or NULL/"" for the
+ * built-in roots. A named file that is missing or holds nothing usable is a hard failure, never a
+ * fallback - see mesh_tls_ca_override(). Returns 0, -ENOTSUP without Mbed TLS, -EINVAL for bad
  * arguments, or -EIO when the library or the bundle would not initialise, with error() set.
  */
 int mesh_tls_client_start(struct mesh_tls_client *tls, int fd, const char *hostname,

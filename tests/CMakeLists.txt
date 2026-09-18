@@ -27,6 +27,7 @@ set(MESHCLIENT_TEST_SUPPORT
 set(MESHCLIENT_TEST_SUITES
     suites/app.c
     suites/ble_ota.c
+    suites/ca_roots.c
     suites/channel_share.c
     suites/contact_share.c
     suites/core_basics.c
@@ -138,6 +139,12 @@ set_tests_properties(meshclient_layering PROPERTIES LABELS "unit")
 add_test(NAME meshclient_vendored_files
          COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/check-vendor.py)
 set_tests_properties(meshclient_vendored_files PROPERTIES LABELS "unit")
+
+# The roots compiled into the binary and the bundle the pak ships for curl are one list in two
+# forms. A refresh of one without the other is two answers to "is this certificate trusted".
+add_test(NAME meshclient_ca_roots_current
+         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/gen-ca-roots.py --check)
+set_tests_properties(meshclient_ca_roots_current PROPERTIES LABELS "unit")
 
 # scripts/frames.py hand-rolls GIF's variable-width LZW, and the one thing that is easy to get
 # subtly wrong there - when the code width grows - produces a file that still opens and shows

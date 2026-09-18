@@ -177,8 +177,10 @@ for a picture of the real panel.
 The pak ships Mozilla's CA roots at `certs/certificates.crt`, from
 [curl.se/ca](https://curl.se/ca/cacert.pem). The Brick has no system CA store, so without it the
 in-app updater cannot verify github.com. Refresh it by re-downloading that file into
-`Tools/tg5040/MeshClient.pak/certs/certificates.crt` and committing the result. It is not
-delivered by self-update, so a client installed before it existed needs one pak reinstall.
+`Tools/tg5040/MeshClient.pak/certs/certificates.crt`, running `scripts/gen-ca-roots.py` to
+compile the same roots into the binary (which is what MQTT over TLS verifies against), and
+committing both. The pak's file is not delivered by self-update, so a client installed before it
+existed needs one pak reinstall; the compiled-in copy is.
 
 ## Contributing
 

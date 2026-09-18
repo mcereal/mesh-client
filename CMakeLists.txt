@@ -385,6 +385,9 @@ if(EXISTS ${PROJECT_SOURCE_DIR}/third_party/mbedtls/CMakeLists.txt)
     add_subdirectory(third_party/mbedtls EXCLUDE_FROM_ALL)
 
     target_compile_definitions(meshclient_core PUBLIC MESHCLIENT_HAVE_TLS)
+    # Mozilla's roots, written by scripts/gen-ca-roots.py. Only with TLS: without it there is
+    # nothing to verify, and 126 KB of certificates would be carried for nobody.
+    target_sources(meshclient_core PRIVATE src/core/generated/ca_roots.c)
     # `tfpsacrypto` is 4.x's name for what 3.x called `mbedcrypto`.
     target_link_libraries(meshclient_core PUBLIC mbedtls mbedx509 tfpsacrypto)
 else()
