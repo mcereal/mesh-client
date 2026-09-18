@@ -309,6 +309,15 @@ struct cli_firmware_fetch {
     struct mesh_fetch *fetcher;
     struct mesh_firmware_fetch fetch;
     struct mesh_firmware_release release;
+    /*
+     * Which channel's newest release to take, from the client's own setting rather than fixed
+     * here. It was fixed here, at stable, and what that cost is the recovery this command is
+     * for: a radio armed from the HUD on an alpha build holds that image's hash in NVS, so the
+     * stable image this fetched was refused with "Hash Rejected (NVS Mismatch)" and the only
+     * documented way to finish the install could not finish it. Seen on a Heltec V3 stuck in
+     * its loader on 2026-09-17.
+     */
+    enum mesh_firmware_channel channel;
     const char *target;
     const char *staging;
     bool resolved;
@@ -325,8 +334,7 @@ static void cli_firmware_done(void *userdata, const struct mesh_firmware_fetch *
 static void cli_firmware_index(void *userdata, const struct mesh_fetch_result *result) {
     struct cli_firmware_fetch *const run = (struct cli_firmware_fetch *)userdata;
     if (result->outcome != MESH_FETCH_OK || result->body == NULL ||
-        !mesh_firmware_release_parse(result->body, result->len, MESH_FIRMWARE_CHANNEL_STABLE,
-                                     &run->release)) {
+        !mesh_firmware_release_parse(result->body, result->len, run->channel, &run->release)) {
         fprintf(stderr, "Could not read the release index.\n");
         run->finished = true;
         return;
@@ -362,6 +370,7 @@ static int fetch_radio_firmware(struct mesh_app *app, struct cli_firmware_fetch 
     /* The updater's fetcher, because it is the one that already found the pak's CA bundle -
        the Brick has no system store, so without it every HTTPS request exits 60. */
     run->fetcher = &app->updater.fetch;
+    run->channel = app->firmware.channel;
     run->target = target;
     run->staging = staging;
 
@@ -369,7 +378,8 @@ static int fetch_radio_firmware(struct mesh_app *app, struct cli_firmware_fetch 
         fprintf(stderr, "No curl or wget on this device; nothing can be fetched.\n");
         return -ENOTSUP;
     }
-    printf("Fetching firmware for %s into %s\n", target, staging);
+    printf("Fetching firmware for %s (%s) into %s\n", target,
+           mesh_firmware_channel_name(run->channel), staging);
 
     struct mesh_fetch_request request;
     memset(&request, 0, sizeof request);
@@ -953,9 +963,10 @@ static void print_usage(const char *program) {
             "      --channel N           Channel index for --send-text (default: 0)\n"
             "      --ack                 Request delivery confirmation and wait for it\n"
             "                            (direct messages only; the mesh never acks broadcasts)\n"
-            "      --fetch-firmware TARGET  Download the newest stable firmware image for a\n"
-            "                            build target (heltec-mesh-node-t114), verify it and\n"
-            "                            leave it staged. No radio is touched\n"
+            "      --fetch-firmware TARGET  Download the newest firmware image on the\n"
+            "                            configured channel for a build target\n"
+            "                            (heltec-mesh-node-t114), verify it and leave it\n"
+            "                            staged. No radio is touched\n"
             "      --install-firmware TARGET  Fetch that image and install it. An nRF52 or\n"
             "                            RP2040 goes over USB (DFU request, bootloader, blocks);\n"
             "                            an ESP32 over Bluetooth (OTA request, loader, stream),\n"
