@@ -42,6 +42,7 @@ set(MESHCLIENT_TEST_SUITES
     suites/i18n.c
     suites/json.c
     suites/key_trust.c
+    suites/log_file.c
     suites/map.c
     suites/map_pack.c
     suites/tile_cache.c

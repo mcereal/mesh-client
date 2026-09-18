@@ -41,6 +41,14 @@ These run over WiFi/SSH or USB, whichever is available. The pak lives at
 `/mnt/SDCARD/Tools/tg5040/MeshClient.pak`, its `$HOME` at
 `/mnt/SDCARD/.userdata/tg5040/MeshClient/`.
 
+`launch.sh` runs the client at `info`. It used to hardcode `debug`, where the BLE scan alone wrote
+a line per visible radio per second into a file nothing trimmed. `MESHCLIENT_LOG_LEVEL` in the
+client's environment raises it again - the launcher reads it the same way it reads
+`MESHCLIENT_UI_BACKEND`. NextUI execs the pak itself, so nothing on the host side passes it
+through: set it in the launcher on the card, or export it in a `make deploy-shell` session and run
+the pak from there. The client trims the log itself at startup once it has passed 512 KB - see
+[`cli.md`](cli.md) for what it keeps and why it rewrites the file rather than rotating it.
+
 A run that only prints keeps its output and exit status on the host:
 
 ```bash

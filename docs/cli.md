@@ -143,6 +143,8 @@ from 2 s to 60 s; only an established link clears it. The USB and BLE preference
 | `MESHCLIENT_KEY_REPEAT_MS` | gap between repeats, 10–2000, default 90, halving after eight rows |
 | `MESHCLIENT_UPDATE_REPO`, `_ASSET` | where the self-updater looks |
 | `MESHCLIENT_UPDATE_ALLOW_DEV` | let a `-dev` build install what it finds |
+| `MESHCLIENT_LOG_LEVEL` | the level `launch.sh` starts the client at; `info` unless set. The pak used to hardcode `debug`, which is what made the log on the card grow the way it did |
+| `MESHCLIENT_LOG_FILE` | the log the client cuts back at startup, when it is not the one derived from `HOME` |
 | `MESHCLIENT_LATENCY_TRACE` | same as `--trace-latency`; see [`performance.md`](performance.md) |
 
 Boolean knobs read `1`/`true`/`yes`/`on` and `0`/`false`/`no`/`off`, case-insensitively. Anything
@@ -151,6 +153,15 @@ else warns and leaves the default. Build-time only: `MESHCLIENT_RELEASE_BUILD`,
 
 Logs stream to `stderr`, and on device to `/.userdata/tg5040/logs/MeshClient.txt` via `launch.sh`.
 State lives under `$HOME/.meshclient/` (`ui_prefs`, `ui_prefs.handshake`, `canned.txt`).
+
+**The log on the card is bounded, and the client is what bounds it.** `launch.sh` appends to that
+file on every run and nothing ever cut it back, so it grew for the life of the install. At startup
+the client now trims it to its newest 128 KB once it has passed 512 KB - in place, keeping the
+file's inode, because `tee` is holding it open and appending to it by the time `main()` runs. The
+path is worked out from `HOME` rather than passed in, which is what makes an install that only ever
+self-updates the binary get the same treatment: `launch.sh` does not ship through self-update.
+A single very long session is still free to grow past the cap; what the cap bounds is the
+accumulation across runs. `MESHCLIENT_LOG_FILE` names the file when it is somewhere else.
 
 ## On-device controls
 

@@ -12,6 +12,7 @@
 #include "mesh/transport/ble.h"
 #include "mesh/transport/ble_bluez.h"
 #include "mesh/transport/transport.h"
+#include "mesh/utils/log.h"
 
 #include <pb_decode.h>
 
@@ -954,5 +955,107 @@ MESH_TEST_CASE(ble_transport_enumeration_yields_to_the_link, unit) {
 cleanup:
     mesh_test_ble_rig_close(&rig);
     MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * Runs one device refresh with stderr diverted into a file, and answers how many of the lines it
+ * wrote mention `needle`.
+ *
+ * The behaviour under test is what the log is *told*, so the log is what the case has to read.
+ * stderr is unbuffered, but it is flushed either side of the swap anyway: a line left in a buffer
+ * across the dup2 would be counted against the wrong refresh, which is the one way this could
+ * pass while the guard did nothing.
+ */
+static int ble_refresh_counting_log_lines(struct mesh_transport *ble, const char *needle) {
+    char captured_path[] = "/tmp/mesh_ble_rosterXXXXXX";
+    const int captured = mkstemp(captured_path);
+    if (captured < 0) {
+        return -1;
+    }
+    fflush(stderr);
+    const int saved = dup(STDERR_FILENO);
+    if (saved < 0 || dup2(captured, STDERR_FILENO) < 0) {
+        if (saved >= 0) {
+            (void)close(saved);
+        }
+        (void)close(captured);
+        (void)unlink(captured_path);
+        return -1;
+    }
+
+    (void)mesh_ble_transport_refresh_devices(ble);
+
+    fflush(stderr);
+    (void)dup2(saved, STDERR_FILENO);
+    (void)close(saved);
+    (void)close(captured);
+
+    FILE *file = fopen(captured_path, "re");
+    if (file == NULL) {
+        (void)unlink(captured_path);
+        return -1;
+    }
+    int hits = 0;
+    char line[512];
+    while (fgets(line, (int)sizeof line, file) != NULL) {
+        if (strstr(line, needle) != NULL) {
+            ++hits;
+        }
+    }
+    (void)fclose(file);
+    (void)unlink(captured_path);
+    return hits;
+}
+
+/*
+ * The roster is logged when it changes and not once a second for the length of the session.
+ *
+ * This enumeration runs from the tick for as long as the client is looking for a radio, so an
+ * unguarded line per device per second was the largest single thing in the log on the card - and
+ * all of it the same list restated. RSSI is deliberately outside what counts as a change: it moves
+ * on almost every read, so counting it would put the per-second repetition straight back.
+ */
+MESH_TEST_CASE(ble_roster_is_logged_on_change_not_on_every_refresh, unit) {
+    struct mesh_test_ble_rig rig;
+    mesh_test_ble_rig_init(&rig, "AA:BB:CC:DD:EE:01", "Radio One", -55);
+    MESH_TEST_FAIL_IF(!mesh_test_ble_rig_add_device(&rig, "AA:BB:CC:DD:EE:02", "Radio Two", -70),
+                      "could not add a second advertiser");
+    MESH_TEST_FAIL_IF(mesh_test_ble_rig_start(&rig) != 0, "the BLE transport did not start");
+
+    const enum mesh_log_level saved_level = mesh_log_get_level();
+    mesh_log_set_level(MESH_LOG_LEVEL_DEBUG);
+
+    /* Starting the transport enumerated once and announced what it found, so the roster has
+       already been logged by the time this case gets a look in - which is what makes the next
+       refresh the interesting one rather than the first. */
+    const int unchanged = ble_refresh_counting_log_lines(rig.ble, "AA:BB:CC:DD:EE:01");
+
+    /* Only the reading that drifts has moved, which is not news either. */
+    rig.devices[0].rssi = -61;
+    const int rssi_only = ble_refresh_counting_log_lines(rig.ble, "AA:BB:CC:DD:EE:01");
+
+    /* A device saying something different about itself is. */
+    snprintf(rig.devices[0].name, sizeof rig.devices[0].name, "Radio One Renamed");
+    const int renamed = ble_refresh_counting_log_lines(rig.ble, "AA:BB:CC:DD:EE:01");
+
+    /* So is one leaving. */
+    rig.device_count = 1U;
+    rig.mock.device_count = 1U;
+    mesh_test_ble_rig_reload(&rig);
+    const int departed = ble_refresh_counting_log_lines(rig.ble, "AA:BB:CC:DD:EE:01");
+    /* And having been logged, it goes quiet again rather than repeating from then on. */
+    const int settled = ble_refresh_counting_log_lines(rig.ble, "AA:BB:CC:DD:EE:01");
+
+    mesh_log_set_level(saved_level);
+    mesh_test_ble_rig_close(&rig);
+
+    MESH_TEST_FAIL_IF(unchanged < 0 || rssi_only < 0 || renamed < 0 || departed < 0 || settled < 0,
+                      "could not capture the log around a refresh");
+    MESH_TEST_FAIL_IF(unchanged != 0, "an unchanged roster was logged again");
+    MESH_TEST_FAIL_IF(rssi_only != 0, "a drifting RSSI alone was logged as a roster change");
+    MESH_TEST_FAIL_IF(renamed != 1, "a renamed device was not logged");
+    MESH_TEST_FAIL_IF(departed != 1, "a device leaving did not re-log the roster");
+    MESH_TEST_FAIL_IF(settled != 0, "the roster kept being logged after the change that caused it");
     record_success(test_name);
 }
