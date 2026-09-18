@@ -69,16 +69,23 @@ output is exercised anywhere but on a Brick.
 
 ## What CI runs
 
-Four jobs on every pull request ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)):
+Five jobs on every pull request ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)):
 
 | Job | What it proves |
 |---|---|
 | `Build and test` | `make test` on ubuntu-24.04 under gcc *and* clang, then `make release && make package` |
 | `Cross build (tg5040)` | the pak builds for the device, aarch64 and statically linked. Uploads the zip, so a pull request can be sideloaded without building it. It is GCC 14.3 (musl) at `-Os`, which derives bounds the host build does not — `-Wformat-truncation` fires here and nowhere else |
+| `Linux CLI` | the desktop and server download builds: x86-64, musl, static, with BlueZ still in it. Same script the release calls, for the same reason the cross build runs here — a release is the wrong place to find out |
 | `Sanitizers` | the same suite under ASan and UBSan, clang, with `-fno-sanitize-recover=undefined` so a diagnostic fails the run |
 | `Fuzz` | the deterministic pass below |
 
 Nothing gates on formatting: the tree is normalised with clang-format 18 and host versions vary.
+
+A sixth runs on a schedule rather than on a pull request
+([`.github/workflows/fuzz.yml`](../.github/workflows/fuzz.yml)): the hunt described below, ten
+minutes per target every Monday, one job per target, over a corpus cached between runs so the
+coverage compounds instead of starting from the seeds each week. `workflow_dispatch` runs it on
+demand, with the seconds per target as an input.
 
 ## Fuzzing
 
@@ -95,10 +102,14 @@ a wire, but each is two parsers stacked (forgiving base64, then nanopb over the 
 string a stranger wrote and somebody typed in, and what comes out is written to a radio.
 
 ```bash
-make fuzz                       # what CI runs: seeds, then 20k fixed-seed runs
+make fuzz                       # what a pull request runs: seeds, then 20k fixed-seed runs
 make fuzz ARGS="--time 600"     # an actual hunt, ten minutes per target
 make docker-fuzz                # the same on macOS
 ```
+
+The hunt is also the Monday job above, so running it by hand is for when the parser or the
+decode paths in the diff are the reason to — the scheduled one covers the rest. The difference
+that matters is the seed: the pull request pass pins the mutator, and the hunt does not.
 
 **Memory safety is not the oracle for the session.** The counted arrays a decoded packet lands
 in — the 256-node roster, the 8-slot channel table, the message ring — live *inside*

@@ -136,6 +136,45 @@ jobs:
             dist/meshclient-tg5040-aarch64
           if-no-files-found: error
 
+  # The desktop and server download, on every pull request, for the reason the job above it
+  # exists: a release is the wrong place to discover that something no longer builds against
+  # musl. This one is cheap enough not to need the toolchain cache that job has - musl-gcc comes
+  # from apt and the static libdbus builds in well under a minute - so it is a plain run of the
+  # script the release calls, which is also what makes it a test of that script rather than of a
+  # copy of it.
+  linux-cli:
+    name: Linux CLI (static x86-64, musl)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build meson pkg-config protobuf-compiler python3 python3-pip musl-tools wget file
+
+      - name: Install Python packages for nanopb generator
+        run: |
+          python3 -m pip install --user --upgrade pip setuptools wheel
+          python3 -m pip install --user protobuf grpcio-tools jinja2 jsonschema
+
+      # Asserts the binary is static and still has BlueZ in it before publishing anything; see
+      # scripts/linux-cli-build.sh.
+      - name: Build the CLI
+        run: ./scripts/linux-cli-build.sh
+
+      - name: Upload CLI artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: meshclient-linux-x86_64
+          path: |
+            dist/meshclient-linux-x86_64
+            dist/meshclient-linux-x86_64.sha256
+          if-no-files-found: error
+
   # The suite again, under AddressSanitizer and UndefinedBehaviorSanitizer. Both options have
   # existed in CMakeLists.txt all along and nothing but a person remembering to type them ever
   # turned them on - on a C17 client whose inputs arrive off the air from radios we do not

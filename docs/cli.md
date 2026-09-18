@@ -2,6 +2,22 @@
 
 `meshclient --help` is authoritative; this page adds the behaviour behind the flags.
 
+## Getting the binary
+
+On a handheld it is already there — the pak is this binary plus a `launch.sh`. On an x86-64
+desktop or server, each release carries `meshclient-linux-x86_64` (+ `.sha256`): static against
+musl, so it needs no libdbus, no Python and no matching glibc on the target, only a Linux
+kernel. On ARM, build it there with `make linux-cli` (needs `musl-tools`) — a release publishes
+no general-purpose ARM CLI, and `meshclient-tg5040-aarch64` is the handheld's build rather than
+one. See [`scripts/linux-cli-build.sh`](../scripts/linux-cli-build.sh).
+
+Two things a desktop gets that the device does not. **BLE still goes through BlueZ over D-Bus**,
+so `--list-devices` finds nothing without a running `dbus-daemon` and a `bluetoothd`; the binary
+looks for the system bus at `/run/dbus/system_bus_socket` and honours `DBUS_SYSTEM_BUS_ADDRESS`
+if it is somewhere else. And **the CA bundle is the distribution's**, found under `/etc/ssl`,
+rather than the copy the pak ships — which is why anything HTTPS (firmware downloads, the MQTT
+proxy's TLS) works on a desktop with no configuration at all.
+
 ## Modes
 
 Without `--foreground` the client does a single poll and exits — that is what `--status`,

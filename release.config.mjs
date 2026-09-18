@@ -129,6 +129,19 @@ export default {
             path: "dist/meshclient-tg5040-aarch64.sha256",
             label: "meshclient-tg5040-aarch64.sha256",
           },
+          // The desktop and server download: the CLI, static, for the machine the release was
+          // cut on. Named for the runner's architecture, which is x86-64 on ubuntu-24.04 - a
+          // release cut somewhere else publishes the pak and the device binary as usual and
+          // logs this one as unreadable, which is the right trade for an extra convenience
+          // asset. See scripts/linux-cli-build.sh.
+          {
+            path: "dist/meshclient-linux-x86_64",
+            label: "meshclient-linux-x86_64",
+          },
+          {
+            path: "dist/meshclient-linux-x86_64.sha256",
+            label: "meshclient-linux-x86_64.sha256",
+          },
         ],
       },
     ],

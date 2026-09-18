@@ -122,5 +122,17 @@ chmod +x "dist/${ASSET_NAME}"
 ( cd dist && sha256sum MeshClient.pak.zip > MeshClient.pak.zip.sha256 )
 ( cd dist && sha256sum "${ASSET_NAME}" > "${ASSET_NAME}.sha256" )
 
+# And the third asset: the same client built for the machine a release is cut on, which is what
+# somebody running it on a laptop, a server or a Pi downloads. It is a separate build rather
+# than a rename of the one above - a different architecture and a different libc - and it is
+# built here rather than in a workflow step for the reason the whole of this script is: the
+# version has been rewritten by now, and a build that runs before that carries the previous
+# release's number. See scripts/linux-cli-build.sh.
+#
+# Non-fatal: the pak is what this project ships, and a musl toolchain missing from the runner
+# should cost the release its desktop download rather than the release itself.
+MESHCLIENT_VERSION_OVERRIDE="${VERSION}" ./scripts/linux-cli-build.sh ||
+    echo "Could not build the Linux CLI binary for ${VERSION}; continuing." >&2
+
 echo "Release ${VERSION} built:"
 ls -l dist/

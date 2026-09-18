@@ -1,0 +1,117 @@
+name: Fuzz
+
+# The hunt, as opposed to the regression.
+#
+# ci.yml already runs scripts/fuzz.sh on every pull request: every seed once, then a fixed
+# number of mutations from a fixed seed. That is deliberately deterministic, so a red there is a
+# bug in the diff rather than a fuzzer that got lucky - and the price of pinning the mutator is
+# that it explores the same ground every time, forever. Nothing was running the other half, the
+# one scripts/fuzz.sh documents as `--time 600` and leaves to somebody remembering to type it.
+#
+# So: once a week, unpinned, ten minutes per target, on a corpus that is kept.
+#
+# Keeping the corpus is the point rather than a saving. libFuzzer writes each input that reached
+# new coverage back into the corpus directory, so a run that starts from last week's corpus
+# starts from every interesting input every previous run found - the coverage compounds, and a
+# path twenty mutations deep is reachable in a way it never is from seeds alone. Throwing the
+# corpus away each week would make this eight fresh ten-minute runs in perpetuity, which is
+# roughly the pull request job again with a different seed.
+#
+# A finding fails the job, which emails the owner as a failed scheduled run does, and the
+# crashing input is uploaded because it *is* the reproducer:
+#   ./build/fuzz/debug/devtools/meshclient_fuzz_<target> <the artifact>
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: 'Seconds per target'
+        type: string
+        default: '600'
+
+permissions:
+  contents: read
+
+jobs:
+  # One job per target rather than one job over all eight. Three reasons, in order: the eight
+  # run at once, so ten minutes each is ten minutes of wall clock and not eighty; a red job
+  # names the target in the run list without anybody opening a log; and each target builds only
+  # its own harness, because scripts/fuzz.sh takes target names.
+  hunt:
+    name: ${{ matrix.target }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - stream_framing
+          - session
+          - firmware_catalog
+          - zip
+          - uf2
+          - channel_url
+          - contact_url
+          - mqtt_packet
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          # libclang-rt-18-dev carries libFuzzer and the sanitizer runtimes; Ubuntu's clang
+          # package does not pull it in, and the link fails looking for libclang_rt.fuzzer.
+          sudo apt-get install -y build-essential clang llvm libclang-rt-18-dev cmake ninja-build pkg-config libdbus-1-dev protobuf-compiler python3 python3-pip
+
+      - name: Install Python packages for nanopb generator
+        run: |
+          python3 -m pip install --user --upgrade pip setuptools wheel
+          python3 -m pip install --user protobuf grpcio-tools jinja2 jsonschema
+
+      # A cache entry is immutable once written, so the rolling-corpus idiom is a key nothing
+      # will hit (the run id) plus a restore-key prefix that finds the newest previous one. The
+      # miss on the way in is expected and is what makes the save on the way out a new entry.
+      #
+      # build/fuzz/corpus is outside build/fuzz/debug, which scripts/fuzz.sh may delete when the
+      # generator changes under it, so restoring this does not resurrect a stale build tree. The
+      # seed writer mkdir()s with EEXIST tolerated and writes seeds by name, so a restored
+      # corpus is added to rather than replaced.
+      - name: Restore the corpus
+        id: corpus
+        uses: actions/cache/restore@v4
+        with:
+          path: build/fuzz/corpus/${{ matrix.target }}
+          key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+          restore-keys: |
+            fuzz-corpus-${{ matrix.target }}-
+
+      # SECONDS_PER_TARGET reaches the shell as an environment variable rather than as a
+      # `${{ }}` inside the run line: a dispatch input is text somebody typed, and interpolating
+      # it into the script is how that text becomes another command. It is empty for the cron,
+      # which has no inputs at all, so the default lives here too.
+      - name: Hunt
+        env:
+          CC: clang
+          SECONDS_PER_TARGET: ${{ inputs.seconds }}
+          TARGET: ${{ matrix.target }}
+        run: ./scripts/fuzz.sh --time "${SECONDS_PER_TARGET:-600}" "${TARGET}"
+
+      # Saved even when the run found something: the corpus that reached the crash is worth more
+      # than the one that did not, and the next run re-runs it as a regression on the way past.
+      - name: Save the corpus
+        if: always() && steps.corpus.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: build/fuzz/corpus/${{ matrix.target }}
+          key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+
+      - name: Upload findings
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-findings-${{ matrix.target }}
+          path: build/fuzz/findings
+          if-no-files-found: ignore

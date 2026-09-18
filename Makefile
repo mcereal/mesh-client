@@ -10,7 +10,7 @@ export BUILD_ROOT
 DOCKER := ./scripts/docker.sh
 
 .PHONY: help setup debug release relwithdebinfo build test package proto clean distclean run format fuzz \
-        ui-capture screenshots demo-pack \
+        ui-capture screenshots demo-pack linux-cli \
         ship ship-beta ship-rc \
         docker-image docker-cross-image docker-shell docker-debug docker-test docker-run docker-pak \
         docker-clean docker-ui-capture docker-screenshots docker-fuzz \
@@ -25,6 +25,7 @@ help:
 	@echo "  make test           - Run unit tests against the Debug build"
 	@echo "  make run            - Run the Debug binary in the foreground"
 	@echo "  make package        - Produce dist/MeshClient.pak.zip from a Release build"
+	@echo "  make linux-cli      - Static Linux CLI binary into dist/ (desktops, servers, a Pi)"
 	@echo "  make proto          - Regenerate nanopb sources from proto/meshtastic"
 	@echo "  make format         - clang-format all tracked .c/.h files"
 	@echo "  make ui-capture     - Render a UI scene to a GIF without a device (ARGS=\"scene -o out.gif\")"
@@ -85,6 +86,11 @@ test: debug
 
 package: release
 	./scripts/package.sh release
+
+# The CLI as a download rather than as the thing under the handheld UI. Its own build tree
+# and its own toolchain (musl, static), so it shares no CMake cache with `make release`.
+linux-cli:
+	./scripts/linux-cli-build.sh
 
 proto: debug
 	cmake --build $(BUILD_ROOT)/debug --target nanopb_codegen

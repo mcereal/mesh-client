@@ -257,6 +257,23 @@ else()
         MESHCLIENT_VERSION="${MESHCLIENT_VERSION_FULL}-dev")
 endif()
 
+# Which release asset this build replaces itself with. src/core/update/updater.c defaults to the
+# handheld's, because the device is the build self-update was written for - and that default is
+# only right for a binary published under that name. A release carries more than one now, so a
+# build published as something else has to say which is *its* asset: the alternative is a
+# desktop client that checks for an update, finds one, and atomically installs an aarch64
+# handheld binary over itself. The current process survives that; the next launch does not.
+#
+# Empty means the updater's own default, which keeps every existing build - the pak, and any
+# configure that does not name this - exactly as it was. MESHCLIENT_UPDATE_ASSET in the
+# environment still overrides both at runtime.
+set(MESHCLIENT_UPDATE_ASSET "" CACHE STRING
+    "Release asset this build self-updates from; empty means the updater's own default")
+if(MESHCLIENT_UPDATE_ASSET)
+    target_compile_definitions(meshclient_core PUBLIC
+        MESHCLIENT_UPDATE_ASSET="${MESHCLIENT_UPDATE_ASSET}")
+endif()
+
 target_link_libraries(meshclient_core PRIVATE meshclient_options)
 
 # Wuffs, for the map's PNG decoder. See third_party/wuffs/README.md for what it is and why it is
