@@ -130,7 +130,13 @@ static inline void mesh_log_error(const char *component, const char *fmt, ...) {
  * does not ship through self-update and the bare binary does, so a launcher that has never heard
  * of any of this still gets its log bounded on the next update.
  *
- * False when there is no `HOME` to derive from, leaving `out` empty.
+ * **`HOME` must have that exact shape for anything to be derived.** The derivation is two
+ * components of guesswork, and on an ordinary host it lands somewhere real: `HOME=/srv/users/alice`
+ * would name `/srv/users/logs/alice.txt` and the cap would then cut back a file the client has
+ * nothing to do with. So the `.userdata/<platform>/<pak>` shape is required, and the override
+ * above - which is somebody saying where their log is - is not subject to it.
+ *
+ * False when there is no `HOME`, or it is not a pak's userdata directory, leaving `out` empty.
  */
 bool mesh_log_file_default_path(char *out, size_t out_len);
 

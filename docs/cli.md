@@ -159,7 +159,10 @@ file on every run and nothing ever cut it back, so it grew for the life of the i
 the client now trims it to its newest 128 KB once it has passed 512 KB - in place, keeping the
 file's inode, because `tee` is holding it open and appending to it by the time `main()` runs. The
 path is worked out from `HOME` rather than passed in, which is what makes an install that only ever
-self-updates the binary get the same treatment: `launch.sh` does not ship through self-update.
+self-updates the binary get the same treatment: `launch.sh` does not ship through self-update. That
+derivation only fires when `HOME` has the launcher's `.userdata/<platform>/<pak>` shape - off device
+it would otherwise name some unrelated `<parent>/logs/<name>.txt` and trim a file the client does
+not own.
 A single very long session is still free to grow past the cap; what the cap bounds is the
 accumulation across runs. `MESHCLIENT_LOG_FILE` names the file when it is somewhere else.
 

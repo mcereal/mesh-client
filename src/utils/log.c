@@ -148,6 +148,15 @@ void mesh_log_message_v(enum mesh_log_level level, const char *component, const 
    own readahead does not already. */
 #define LOG_FILE_CHUNK 4096U
 
+/* The start of the path component that ends at `end`, where `end` indexes its trailing '/'. */
+static size_t log_file_component_start(const char *path, size_t end) {
+    size_t at = end;
+    while (at > 0U && path[at - 1U] != '/') {
+        at--;
+    }
+    return at;
+}
+
 bool mesh_log_file_default_path(char *out, size_t out_len) {
     if (out == NULL || out_len == 0U) {
         return false;
@@ -189,6 +198,29 @@ bool mesh_log_file_default_path(char *out, size_t out_len) {
     const char *name = home + split;
     const size_t name_len = home_len - split;
     if (name_len == 0U) {
+        return false;
+    }
+
+    /*
+     * And it has to actually *be* the launcher's directory, not merely have two components.
+     *
+     * Without this the derivation fires on every ordinary host too: `HOME=/srv/users/alice` names
+     * `/srv/users/logs/alice.txt`, and if a file happens to be sitting there this would cut back
+     * somebody else's. Requiring the `.userdata/<platform>/<pak>` shape that `launch.sh` builds
+     * keeps a guess at the path from ever reaching a file the client does not own. Anyone whose
+     * log is somewhere else says so with MESHCLIENT_LOG_FILE, which is checked above and is not
+     * subject to this.
+     */
+    const size_t platform_end = split - 1U;
+    const size_t platform_start = log_file_component_start(home, platform_end);
+    if (platform_start == 0U || platform_start == platform_end) {
+        return false;
+    }
+    static const char userdata[] = ".userdata";
+    const size_t userdata_end = platform_start - 1U;
+    const size_t userdata_start = log_file_component_start(home, userdata_end);
+    if (userdata_end - userdata_start != sizeof userdata - 1U ||
+        strncmp(home + userdata_start, userdata, sizeof userdata - 1U) != 0) {
         return false;
     }
 

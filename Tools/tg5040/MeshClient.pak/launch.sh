@@ -58,8 +58,9 @@ case "$STATUS" in
     '' | *[!0-9]*) STATUS=1 ;;
 esac
 
-# Appended, not just printed: the launch banner above goes into the log, so the line saying how
-# the run ended belongs in the same file. On stdout alone it was the one half nobody could read.
-printf '[%s] MeshClient exited with status %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$STATUS" \
-    >>"$LOG_FILE"
+# Both, not either: the launch banner above goes into the log, so the line saying how the run
+# ended belongs in the same file - and a headless run started from the host reads that line on
+# stdout, where it has always been. Appending instead of printing took it off the terminal.
+printf '[%s] MeshClient exited with status %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$STATUS" |
+    tee -a "$LOG_FILE"
 exit "$STATUS"

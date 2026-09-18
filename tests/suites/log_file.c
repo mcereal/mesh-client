@@ -317,6 +317,70 @@ MESH_TEST_CASE(log_file_path_is_derived_from_home, unit) {
     record_success(test_name);
 }
 
+/*
+ * A HOME that is not the launcher's userdata directory derives nothing at all.
+ *
+ * The derivation is two components of guesswork - the log is HOME's parent plus `logs/` plus
+ * HOME's own name - and on an ordinary host that names a real place: `HOME=/srv/users/alice`
+ * gives `/srv/users/logs/alice.txt`. Deriving it there and then compacting it would cut back a
+ * file the client has nothing to do with, so the shape `launch.sh` builds is required before the
+ * path is offered at all.
+ */
+MESH_TEST_CASE(log_file_path_refuses_a_home_that_is_not_the_pak_userdata_dir, unit) {
+    char *const saved_home = getenv("HOME");
+    char home_copy[256] = {0};
+    if (saved_home != NULL) {
+        snprintf(home_copy, sizeof home_copy, "%s", saved_home);
+    }
+    (void)unsetenv("MESHCLIENT_LOG_FILE");
+
+    /* Each of these has the two components the derivation needs and is still not a pak's
+       userdata directory. */
+    static const char *const strangers[] = {
+        "/srv/users/alice",                       /* the reviewer's case: a real host layout */
+        "/home/user",                             /* a developer box */
+        "/mnt/SDCARD/userdata/tg5040/MeshClient", /* userdata, but not the dot-directory */
+        "/mnt/SDCARD/.userdata/MeshClient",       /* no platform component between them */
+        "/tmp",                                   /* one component */
+    };
+
+    bool derived_any = false;
+    const char *offender = NULL;
+    for (size_t i = 0; i < sizeof strangers / sizeof strangers[0]; ++i) {
+        (void)setenv("HOME", strangers[i], 1);
+        char path[MESH_LOG_FILE_PATH_MAX];
+        if (mesh_log_file_default_path(path, sizeof path)) {
+            derived_any = true;
+            offender = strangers[i];
+            break;
+        }
+    }
+
+    /* The device layout still works, so the guard is a shape check and not a refusal to derive. */
+    (void)setenv("HOME", "/mnt/SDCARD/.userdata/tg5040/MeshClient", 1);
+    char device[MESH_LOG_FILE_PATH_MAX];
+    const bool device_ok = mesh_log_file_default_path(device, sizeof device) &&
+                           strcmp(device, "/mnt/SDCARD/.userdata/tg5040/logs/MeshClient.txt") == 0;
+
+    /* And an explicit override is not subject to the shape at all. */
+    (void)setenv("HOME", "/home/user", 1);
+    (void)setenv("MESHCLIENT_LOG_FILE", "/tmp/anywhere.txt", 1);
+    char override[MESH_LOG_FILE_PATH_MAX];
+    const bool override_ok = mesh_log_file_default_path(override, sizeof override) &&
+                             strcmp(override, "/tmp/anywhere.txt") == 0;
+
+    (void)unsetenv("MESHCLIENT_LOG_FILE");
+    if (home_copy[0] != '\0') {
+        (void)setenv("HOME", home_copy, 1);
+    }
+
+    MESH_TEST_FAIL_IF(derived_any && offender != NULL,
+                      "a HOME outside the pak's userdata directory still derived a log path");
+    MESH_TEST_FAIL_IF(!device_ok, "the real device layout stopped deriving its log");
+    MESH_TEST_FAIL_IF(!override_ok, "MESHCLIENT_LOG_FILE was made subject to the HOME shape");
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(log_file_path_override_wins, unit) {
     char *const saved_home = getenv("HOME");
     char home_copy[256] = {0};
