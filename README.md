@@ -56,7 +56,7 @@ meshclient --send-text "on my way" --dest '!433d1a2c' --ack  # direct message, w
 
 Controls, flags and environment variables are in [`docs/cli.md`](docs/cli.md).
 
-## On a desktop, a server or a Pi
+## On a desktop or a server
 
 No handheld needed for any of the above: the client's core has no framebuffer under it, so BLE,
 serial and TCP, the admin settings, the MQTT proxy and the firmware flasher all run headless.
@@ -70,9 +70,11 @@ sha256sum -c meshclient-linux-x86_64.sha256
 chmod +x meshclient-linux-x86_64 && ./meshclient-linux-x86_64 --status
 ```
 
-`meshclient-tg5040-aarch64` in the same release is the handheld's binary, which the in-app
-updater downloads; it is the same client built for the device. Build the desktop one yourself
-with `make linux-cli` (needs `musl-tools`).
+**x86-64 only, as a download.** On an ARM machine — a Raspberry Pi, an ARM server — build it
+there instead with `make linux-cli` (needs `musl-tools`), which produces the same static binary
+as `meshclient-linux-aarch64`. The other ARM binary in a release, `meshclient-tg5040-aarch64`,
+is the *handheld's*: same client, built for the device, and what the in-app updater downloads.
+It is not a general ARM CLI and a Pi will not run it.
 
 ## Building
 

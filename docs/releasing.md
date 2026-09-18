@@ -46,13 +46,20 @@ since the last tag, not anything about your working tree.
    `MeshClient.pak.zip` (+ `.sha256`) for a fresh install, `meshclient-tg5040-aarch64`
    (+ `.sha256`), the bare static binary the in-app updater downloads, and
    `meshclient-linux-x86_64` (+ `.sha256`), the same client built static against musl for a
-   desktop, a server or a Pi.
+   desktop or a server.
 
 The three builds are three toolchains, not one binary renamed: the pak and the device binary are
 the aarch64 cross build, and the Linux one is [`scripts/linux-cli-build.sh`](../scripts/linux-cli-build.sh)
-on the runner's own architecture. That last one is a convenience asset and is built
-non-fatally — a runner without `musl-tools` costs the release its desktop download and nothing
-else. Nothing self-updates from it.
+on the runner's own architecture — x86-64, so a release publishes no general-purpose ARM CLI and
+a Pi builds its own. That last asset is a convenience and is built non-fatally: a runner without
+`musl-tools` costs the release its desktop download and nothing else.
+
+**Each build self-updates from its own asset**, and that is a `-D` rather than a default.
+`src/core/update/updater.c` defaults `MESHCLIENT_UPDATE_ASSET` to the handheld's binary, which
+is only right for the build published under that name; `linux-cli-build.sh` passes
+`-DMESHCLIENT_UPDATE_ASSET=meshclient-linux-<arch>` and asserts the name survived into the
+binary. Leave it out of a *new* published build and that build installs the handheld's aarch64
+binary over itself the first time somebody updates it.
 
 The updater verifies against the `digest` GitHub reports for the asset, not the `.sha256` file.
 **Renaming or dropping the binary asset breaks self-update for every installed client** — keep

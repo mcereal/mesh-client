@@ -4,11 +4,12 @@
 
 ## Getting the binary
 
-On a handheld it is already there — the pak is this binary plus a `launch.sh`. Everywhere else,
-each release carries `meshclient-linux-x86_64` (+ `.sha256`): static against musl, so it needs no
-libdbus, no Python and no matching glibc on the target, only a Linux kernel. `make linux-cli`
-builds the same thing locally and needs `musl-tools`; see
-[`scripts/linux-cli-build.sh`](../scripts/linux-cli-build.sh).
+On a handheld it is already there — the pak is this binary plus a `launch.sh`. On an x86-64
+desktop or server, each release carries `meshclient-linux-x86_64` (+ `.sha256`): static against
+musl, so it needs no libdbus, no Python and no matching glibc on the target, only a Linux
+kernel. On ARM, build it there with `make linux-cli` (needs `musl-tools`) — a release publishes
+no general-purpose ARM CLI, and `meshclient-tg5040-aarch64` is the handheld's build rather than
+one. See [`scripts/linux-cli-build.sh`](../scripts/linux-cli-build.sh).
 
 Two things a desktop gets that the device does not. **BLE still goes through BlueZ over D-Bus**,
 so `--list-devices` finds nothing without a running `dbus-daemon` and a `bluetoothd`; the binary

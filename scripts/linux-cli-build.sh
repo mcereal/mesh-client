@@ -6,7 +6,7 @@
 # `src/core` never includes `src/ui`, so the session, the transports, the admin queue and the
 # firmware flasher already run with no framebuffer under them - that is what `--status`,
 # `--send-text` and `--install-firmware` are. What was missing was a way to *get* that as
-# something a person can run on a laptop or a Pi: the only published binary was
+# something a person can run on a laptop or a server: the only published binary was
 # meshclient-tg5040-aarch64, which is the in-app updater's payload and reads as a handheld file.
 #
 # Static against musl for the same reason the device build is: the result depends on a kernel
@@ -126,6 +126,11 @@ CMAKE_ARGS=(
     -DPython3_EXECUTABLE="${SYSTEM_PYTHON}"
     -DBUILD_TESTING=OFF
     -DMESHCLIENT_RELEASE_BUILD=ON
+    # The asset this binary is published as, and therefore the one it may replace itself with.
+    # Without it the updater's default applies, which is the handheld's aarch64 binary: a
+    # desktop client would check for an update, find one, and install a binary for another
+    # architecture over itself. RELEASE_BUILD=ON is what arms that, so the two belong together.
+    -DMESHCLIENT_UPDATE_ASSET="${ASSET_NAME}"
 )
 if [[ -n "${MESHCLIENT_VERSION_OVERRIDE:-}" ]]; then
     CMAKE_ARGS+=(-DMESHCLIENT_VERSION_OVERRIDE="${MESHCLIENT_VERSION_OVERRIDE}")
@@ -140,7 +145,7 @@ cmake --build "${BUILD_DIR}" --target meshclient
 # ---------------------------------------------------------------------------
 BINARY="${BUILD_DIR}/meshclient"
 
-# `grep -c` rather than `grep -q` on both of these, for the reason scripts/release-build.sh
+# `grep -c` rather than `grep -q` on each of these, for the reason scripts/release-build.sh
 # gives at its own version check: under `set -o pipefail` a -q grep exits at the first match,
 # the process feeding it takes SIGPIPE, and the pipeline reports 141 - so the check fails on
 # every build, the good ones included.
@@ -158,6 +163,14 @@ fi
 # not take would publish a working binary that simply has no Bluetooth in it.
 if [[ "$(strings "${BINARY}" | grep -c "org\.bluez" || true)" -eq 0 ]]; then
     echo "${BINARY} has no BlueZ in it; the static libdbus step did not take." >&2
+    exit 1
+fi
+
+# And that the updater points at this build's own asset rather than the handheld's. A -D that
+# does not reach the compile is silent - the #ifndef in updater.c simply keeps its default - and
+# what it costs is a desktop client installing an aarch64 binary over itself.
+if [[ "$(strings "${BINARY}" | grep -cF -- "${ASSET_NAME}" || true)" -eq 0 ]]; then
+    echo "${BINARY} does not name ${ASSET_NAME} as its update asset." >&2
     exit 1
 fi
 
