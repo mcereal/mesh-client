@@ -1976,6 +1976,73 @@ MESH_TEST_CASE(fb_emoji_keycap_fills_its_key, unit) {
 }
 
 /*
+ * A sprite wider than the column map still draws.
+ *
+ * The bound on that map used to sit above the block path, which has no use for it - so a panel
+ * with room for a key wider than FB_EMOJI_BOX_MAX (the capture tool renders up to 4096 square)
+ * drew every emoji keycap as nothing at all, the selected one as a bare fill. Nothing on the
+ * Brick reaches that size, which is exactly why it needs a test rather than an eye.
+ *
+ * The oversized box is the one this asserts, not the panel: a box the primitive is handed is a
+ * box it draws, whatever a caller's arithmetic made of it.
+ */
+MESH_TEST_CASE(fb_emoji_box_draws_past_the_column_map, unit) {
+    uint8_t page[320U * 320U * 4U];
+    struct mesh_ui_backend_fb_state state = {0};
+    state.fb_ptr = page;
+    state.fb_size = sizeof page;
+    state.var.xres = 320U;
+    state.var.yres = 320U;
+    state.var.bits_per_pixel = 32U;
+    state.fix.line_length = 320U * 4U;
+    state.bytes_per_pixel = 4U;
+    fb_state_set_theme(&state, mesh_ui_theme_default(), 4);
+
+    const uint32_t grinning = 0x1F600U;
+    uint16_t sprite = 0;
+    const char *failure = NULL;
+    if (mesh_emoji_match(&grinning, 1U, &sprite) == 0U) {
+        failure = "the build has no sprite for U+1F600";
+    }
+
+    /* The bound itself, one over it, and a size well past it that is not a whole multiple -
+       which is the combination the old guard dropped. */
+    const int boxes[] = {FB_EMOJI_BOX_MAX, FB_EMOJI_BOX_MAX + 1, FB_EMOJI_BOX_MAX + 7};
+    const struct mesh_ui_rgb ground = fb_color(&state, MESH_UI_COLOR_BG);
+    for (size_t i = 0; i < sizeof boxes / sizeof boxes[0] && failure == NULL; ++i) {
+        const int box = boxes[i];
+        fb_clear(&state, ground);
+        fb_draw_emoji_box(&state, 10, 10, box, sprite);
+
+        bool drew = false;
+        bool escaped = false;
+        for (uint32_t row = 0U; row < state.var.yres; ++row) {
+            const uint8_t *line = page + (size_t)row * state.fix.line_length;
+            for (uint32_t col = 0U; col < state.var.xres; ++col) {
+                const uint8_t *pixel = &line[(size_t)col * 4U];
+                if (pixel[0] == ground.b && pixel[1] == ground.g && pixel[2] == ground.r) {
+                    continue;
+                }
+                drew = true;
+                if ((int)row < 10 || (int)row >= 10 + box || (int)col < 10 ||
+                    (int)col >= 10 + box) {
+                    escaped = true;
+                }
+            }
+        }
+        if (!drew) {
+            failure = "a box wider than the column map drew nothing";
+        } else if (escaped) {
+            failure = "a box wider than the column map drew outside itself";
+        }
+    }
+
+    fb_glyph_cache_free(&state);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
  * Every source pixel the same size, or none of the snapping is worth doing.
  *
  * fb_emoji_box_fit() is what keeps a five-times upscale from landing as a mix of five- and

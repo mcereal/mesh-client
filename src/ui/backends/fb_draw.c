@@ -896,14 +896,8 @@ int fb_emoji_box_fit(int box) {
  */
 void fb_draw_emoji_box(const struct mesh_ui_backend_fb_state *state, int x, int top, int box,
                        uint16_t sprite) {
-    /* Nearest-neighbour source column per destination column. Identical for every row, so the
-       division runs once per column instead of once per pixel. */
-    int sx_map[FB_EMOJI_BOX_MAX];
-    if (box <= 0 || box > (int)(sizeof sx_map / sizeof sx_map[0])) {
+    if (box <= 0) {
         return;
-    }
-    for (int dx = 0; dx < box; ++dx) {
-        sx_map[dx] = dx * MESH_EMOJI_SIZE / box;
     }
 
     const uint8_t *pixels = fb_emoji_pixels(sprite);
@@ -919,9 +913,18 @@ void fb_draw_emoji_box(const struct mesh_ui_backend_fb_state *state, int x, int 
      * second renderer: at a keycap's size that one would compare a palette index per
      * destination pixel, and a page of forty sprites at five times each is a quarter of a
      * million of them for a grid that redraws on every press.
+     *
+     * It is also where a box too wide for the general path's column map lands, snapped to the
+     * whole multiple inside it and centred in what was asked for. The alternative was the bug
+     * this replaced: the bound sat above this path although this path has no use for the map,
+     * so on a panel with room for a key over FB_EMOJI_BOX_MAX across - which the capture tool
+     * will render - every emoji keycap drew nothing at all and the selected one drew a bare
+     * fill. A cap costing a shift of at most fifteen pixels at that size is one nobody sees.
      */
-    if (box % MESH_EMOJI_SIZE == 0) {
-        const int block = box / MESH_EMOJI_SIZE;
+    const int drawn = box > FB_EMOJI_BOX_MAX ? fb_emoji_box_fit(box) : box;
+    if (drawn % MESH_EMOJI_SIZE == 0) {
+        const int block = drawn / MESH_EMOJI_SIZE;
+        const int inset = (box - drawn) / 2;
         for (int sy = 0; sy < MESH_EMOJI_SIZE; ++sy) {
             const uint8_t *src_row = &pixels[sy * MESH_EMOJI_SIZE];
             int sx = 0;
@@ -932,13 +935,24 @@ void fb_draw_emoji_box(const struct mesh_ui_backend_fb_state *state, int x, int 
                     ++end;
                 }
                 if (opaque[index]) {
-                    fb_fill_packed(state, x + sx * block, top + sy * block, (end - sx) * block,
-                                   block, palette[index]);
+                    fb_fill_packed(state, x + inset + sx * block, top + inset + sy * block,
+                                   (end - sx) * block, block, palette[index]);
                 }
                 sx = end;
             }
         }
         return;
+    }
+
+    /* Nearest-neighbour source column per destination column. Identical for every row, so the
+       division runs once per column instead of once per pixel. Anything wider than the map has
+       already been drawn above, so this is only ever a text cell's worth. */
+    int sx_map[FB_EMOJI_BOX_MAX];
+    if (box > (int)(sizeof sx_map / sizeof sx_map[0])) {
+        return;
+    }
+    for (int dx = 0; dx < box; ++dx) {
+        sx_map[dx] = dx * MESH_EMOJI_SIZE / box;
     }
 
     /* Emoji are mostly flat fills, so coalescing equal-index neighbours into one span turns
