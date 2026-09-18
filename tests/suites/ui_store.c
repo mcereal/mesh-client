@@ -17,6 +17,7 @@
 #include "mesh/ui/store_keys.h"
 
 #include <errno.h>
+#include <fcntl.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -1963,6 +1964,25 @@ MESH_TEST_CASE(ui_store_cache_value_out_of_range_line, unit) {
 }
 
 /*
+ * A file's size, taken from an open descriptor rather than from its name.
+ *
+ * stat() on a path and then acting on that same path is two lookups of a name that something
+ * else may have moved in between - the race CodeQL's cpp/toctou-race-condition names, and a
+ * real one under /tmp, which anybody can write to. One open, one fstat of what that open
+ * actually got, is the whole fix. -1 when the file cannot be opened.
+ */
+static long cache_file_size(const char *path) {
+    const int fd = open(path, O_RDONLY | O_CLOEXEC);
+    if (fd < 0) {
+        return -1;
+    }
+    struct stat info;
+    const int measured = fstat(fd, &info);
+    close(fd);
+    return measured == 0 ? (long)info.st_size : -1;
+}
+
+/*
  * The roster is the one thing in the cache nothing else can rebuild, so a save that fails must
  * leave the last good one where it was.
  *
@@ -2006,17 +2026,17 @@ MESH_TEST_CASE(ui_store_cache_survives_a_failed_save, unit) {
         record_failure(test_name, "first save failed");
         return;
     }
-    /* The temporary is the save's own business and must not outlive it. */
-    if (access(temp_path, F_OK) == 0) {
-        unlink(temp_path);
+    /* The temporary is the save's own business and must not outlive it. Removed rather than
+       asked about: unlink() succeeding *is* the answer, and needs no second look at the name. */
+    if (unlink(temp_path) == 0) {
         unlink(cache_path);
         mesh_ui_store_shutdown(&store);
         record_failure(test_name, "the save left its temporary behind");
         return;
     }
 
-    struct stat before;
-    if (stat(cache_path, &before) != 0 || before.st_size <= 0) {
+    const long before = cache_file_size(cache_path);
+    if (before <= 0) {
         unlink(cache_path);
         mesh_ui_store_shutdown(&store);
         record_failure(test_name, "the first save wrote nothing");
@@ -2038,8 +2058,7 @@ MESH_TEST_CASE(ui_store_cache_survives_a_failed_save, unit) {
     mesh_ui_store_set_handshake(&store, &handshake);
 
     const int failed = mesh_ui_store_save(&store, cache_path);
-    struct stat after;
-    const bool intact = stat(cache_path, &after) == 0 && after.st_size == before.st_size;
+    const bool intact = cache_file_size(cache_path) == before;
     rmdir(temp_path);
     mesh_ui_store_shutdown(&store);
 
@@ -2113,12 +2132,22 @@ MESH_TEST_CASE(ui_store_cache_truncated_roster_has_no_holes, unit) {
         return;
     }
 
-    /* Cut where the third node's first line begins: two whole nodes, and a header still
-       claiming five. */
-    FILE *file = fopen(cache_path, "r");
-    if (file == NULL) {
+    /*
+     * Cut where the third node's first line begins: two whole nodes, and a header still claiming
+     * five. Read and cut through one descriptor rather than by name twice - see
+     * cache_file_size() for why a second lookup of a /tmp path is worth avoiding.
+     */
+    const int fd_rw = open(cache_path, O_RDWR | O_CLOEXEC);
+    if (fd_rw < 0) {
         unlink(cache_path);
         record_failure(test_name, "could not reopen the cache");
+        return;
+    }
+    FILE *file = fdopen(fd_rw, "r");
+    if (file == NULL) {
+        close(fd_rw);
+        unlink(cache_path);
+        record_failure(test_name, "could not read the cache back");
         return;
     }
     long cut = -1;
@@ -2131,15 +2160,11 @@ MESH_TEST_CASE(ui_store_cache_truncated_roster_has_no_holes, unit) {
         }
         at += (long)strlen(line);
     }
-    fclose(file);
-    if (cut <= 0) {
+    const bool cut_made = cut > 0 && ftruncate(fd_rw, (off_t)cut) == 0;
+    fclose(file); /* takes fd_rw with it */
+    if (!cut_made) {
         unlink(cache_path);
-        record_failure(test_name, "the saved cache has no third node to cut at");
-        return;
-    }
-    if (truncate(cache_path, cut) != 0) {
-        unlink(cache_path);
-        record_failure(test_name, "truncate failed");
+        record_failure(test_name, "the saved cache could not be cut at its third node");
         return;
     }
 
