@@ -340,13 +340,20 @@ bool mesh_ui_nav_confirm_key(struct mesh_ui_nav *nav, enum mesh_ui_key key,
                 const enum mesh_ui_settings_action confirmed =
                     (enum mesh_ui_settings_action)nav->confirm_action;
                 mesh_ui_nav_fill_settings_action(nav, confirmed, action);
-                /* The one confirmed row that takes itself off the screen: a cleared slot is an
-                   empty one, and an empty slot is not offered the press. So the cursor is put
-                   back on a row that will still be there, the way the press that leaves remote
-                   administration does - and the edits go with it, because the rows they were
-                   typed into are the ones being erased. */
+                /*
+                 * The one confirmed row that takes itself off the screen: a cleared slot is an
+                 * empty one, and an empty slot is not offered the press. So the cursor is put
+                 * back on a row that will still be there, the way the press that leaves remote
+                 * administration does.
+                 *
+                 * The cursor and *only* the cursor. Dropping the pending edits here as well
+                 * would be this layer deciding an outcome it does not know yet: whether the
+                 * write was queued at all is the app's answer, and mesh_app_save_settings()
+                 * consumes the edits on a positive result and otherwise says "edits kept". A
+                 * clear confirmed with no link would have erased nothing and thrown away the
+                 * user's typing anyway.
+                 */
                 if (confirmed == MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL) {
-                    mesh_ui_nav_edits_clear(nav);
                     nav->cursor[MESH_UI_SCREEN_SETTINGS] = 0U;
                 }
             } else {

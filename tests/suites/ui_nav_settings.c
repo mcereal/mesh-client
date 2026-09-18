@@ -702,9 +702,15 @@ MESH_TEST_CASE(ui_nav_clear_channel, unit) {
         failure = "confirming should emit a save of that slot carrying the clearing verb";
         goto cleanup;
     }
-    if (action.edit_count != 0U || store.nav.settings_edit_count != 0U ||
+    /* The write carries no edits - it is on its way to erasing the rows they were typed into -
+       but the nav still *holds* them, because whether anything was queued is the app's answer.
+       mesh_app_save_settings() consumes them on a positive result and otherwise keeps them and
+       says so; dropping them here would lose the user's typing on a clear confirmed with no
+       link, which erased nothing. The cursor moves either way: it was standing on a row that
+       does not survive a successful clear. */
+    if (action.edit_count != 0U || store.nav.settings_edit_count != 1U ||
         store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != 0U) {
-        failure = "clearing should drop the pending edits and the cursor that stood on the verb";
+        failure = "clearing should carry no edits, keep the nav's, and move the cursor";
         goto cleanup;
     }
 
@@ -735,6 +741,119 @@ MESH_TEST_CASE(ui_nav_clear_channel, unit) {
 cleanup:
     mesh_ui_store_shutdown(&store);
     MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * Which disabled slots still offer the clearing verb.
+ *
+ * The interesting case is the one the obvious predicate gets wrong: a slot whose role, name and
+ * key all read empty but which is still carrying something the clear would erase. Each of the
+ * five below is reachable - saving the MQTT and module rows sets four of them on a slot that is
+ * already disabled, and `id` is the firmware's own hash, left behind by anything that emptied
+ * the name and key without clearing the slot. A row withheld there is the one press that would
+ * tidy it up being the press that is missing.
+ *
+ * Walked field by field rather than asserted once, so a field added to a channel and forgotten
+ * here fails on that field by name.
+ */
+MESH_TEST_CASE(ui_settings_clear_row_follows_every_cleared_field, unit) {
+    struct mesh_ui_settings settings;
+    char message[160];
+
+    /* Truly empty: role disabled and every field at its zero. Nothing to clear, no row. */
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_channels = true;
+    settings.channels_settled = true;
+    settings.channels[0].present = true;
+    settings.channels[0].role = 1U; /* a primary, so slot 1 is an ordinary secondary slot */
+    settings.channels[1].present = true;
+    settings.channels[1].index = 1U;
+    const struct mesh_ui_settings empty = settings;
+
+    bool found = false;
+    uint32_t count = mesh_ui_settings_item_count(&settings, NULL, MESH_UI_SETTINGS_CHANNELS, 1U);
+    for (uint32_t row = 0; row < count; ++row) {
+        struct mesh_ui_settings_item item;
+        if (mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_CHANNELS, 1U, row,
+                                  &item) &&
+            item.kind == MESH_UI_SETTING_ACTION &&
+            item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL) {
+            found = true;
+        }
+    }
+    MESH_TEST_FAIL_IF(found, "an empty slot should not offer a press that would change nothing");
+
+    /* And now one field at a time, each on an otherwise-empty disabled slot. */
+    for (unsigned field = 0; field < 7U; ++field) {
+        settings = empty;
+        struct mesh_ui_channel_detail *slot = &settings.channels[1];
+        const char *name = NULL;
+        switch (field) {
+        case 0:
+            slot->role = 2U;
+            name = "role";
+            break;
+        case 1:
+            snprintf(slot->name, sizeof slot->name, "%s", "Team");
+            name = "name";
+            break;
+        case 2:
+            slot->psk_len = 16U;
+            name = "key";
+            break;
+        case 3:
+            slot->id = 77U;
+            name = "id";
+            break;
+        case 4:
+            slot->uplink_enabled = true;
+            name = "uplink";
+            break;
+        case 5:
+            slot->downlink_enabled = true;
+            name = "downlink";
+            break;
+        default:
+            slot->position_precision = 13U;
+            name = "position precision";
+            break;
+        }
+        found = false;
+        count = mesh_ui_settings_item_count(&settings, NULL, MESH_UI_SETTINGS_CHANNELS, 1U);
+        for (uint32_t row = 0; row < count; ++row) {
+            struct mesh_ui_settings_item item;
+            if (mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_CHANNELS, 1U, row,
+                                      &item) &&
+                item.kind == MESH_UI_SETTING_ACTION &&
+                item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL) {
+                found = true;
+            }
+        }
+        if (!found) {
+            snprintf(message, sizeof message,
+                     "a disabled slot still holding a %s should offer the clearing verb", name);
+            record_failure(test_name, message);
+            return;
+        }
+    }
+
+    /* Muted is the seventh and is its own case: a bool on the same submessage as the sixth. */
+    settings = empty;
+    settings.channels[1].is_muted = true;
+    found = false;
+    count = mesh_ui_settings_item_count(&settings, NULL, MESH_UI_SETTINGS_CHANNELS, 1U);
+    for (uint32_t row = 0; row < count; ++row) {
+        struct mesh_ui_settings_item item;
+        if (mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_CHANNELS, 1U, row,
+                                  &item) &&
+            item.kind == MESH_UI_SETTING_ACTION &&
+            item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL) {
+            found = true;
+        }
+    }
+    MESH_TEST_FAIL_IF(!found, "a disabled slot left muted should offer the clearing verb");
     record_success(test_name);
 }
 

@@ -66,6 +66,11 @@ struct mesh_ui_channel_detail {
     char name[MESH_UI_CHANNEL_NAME_MAX];
     uint8_t psk[MESH_UI_PSK_MAX];
     uint8_t psk_len;
+    /* ChannelSettings.id, which has no row and never will: it is the channel's hash and the
+       firmware's to set. Carried anyway because this record is what set_channel writes back,
+       and because it is the one thing a slot can still be holding when every row above reads
+       empty - which is exactly the question "is there anything here to clear?" has to ask. */
+    uint32_t id;
     bool uplink_enabled;
     bool downlink_enabled;
     uint32_t position_precision;
