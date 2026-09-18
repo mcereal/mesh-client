@@ -615,8 +615,8 @@ static void mesh_tcp_tick(struct mesh_transport *transport) {
 
     const uint64_t now = mesh_time_monotonic_ms();
 
-    /* The resolver's own deadline and its reap, for the reason mesh_fetch_tick() is called every
-       turn: the fd callback sees the answer, but the child is only ever collected here. */
+    /* The resolver's own deadline and its reap, every turn: the fd callback sees the answer, but
+       the child is only ever collected here. */
     mesh_resolve_tick(&state->resolve, now);
 
     if (state->link_state == MESH_TCP_LINK_RESOLVING) {

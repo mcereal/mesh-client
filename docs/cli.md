@@ -14,9 +14,8 @@ one. See [`scripts/linux-cli-build.sh`](../scripts/linux-cli-build.sh).
 Two things a desktop gets that the device does not. **BLE still goes through BlueZ over D-Bus**,
 so `--list-devices` finds nothing without a running `dbus-daemon` and a `bluetoothd`; the binary
 looks for the system bus at `/run/dbus/system_bus_socket` and honours `DBUS_SYSTEM_BUS_ADDRESS`
-if it is somewhere else. And **the CA bundle is the distribution's**, found under `/etc/ssl`,
-rather than the copy the pak ships — which is why anything HTTPS (firmware downloads, the MQTT
-proxy's TLS) works on a desktop with no configuration at all.
+if it is somewhere else. HTTPS needs nothing from the host: the binary verifies against the CA
+roots compiled into it, and `SSL_CERT_FILE` names a bundle to use instead.
 
 ## Modes
 

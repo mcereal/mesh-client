@@ -5,6 +5,7 @@
 #include "mesh/i18n/strings.h"
 
 #include "mesh/core/event_loop.h"
+#include "mesh/core/tls_client.h"
 #include "mesh/core/version.h"
 #include "mesh/utils/env.h"
 #include "mesh/utils/log.h"
@@ -12,7 +13,6 @@
 
 #include <errno.h>
 #include <fcntl.h>
-#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -29,7 +29,7 @@
 #endif
 
 /* A release check is a few KB over HTTPS; a download is ~1 MB over whatever WiFi the Brick
-   has. Both are generous, and both exist so a stalled child cannot wedge the About screen. */
+   has. Both are generous, and both exist so a stalled server cannot wedge the About screen. */
 #define MESH_UPDATE_CHECK_TIMEOUT_MS 30000U
 #define MESH_UPDATE_DOWNLOAD_TIMEOUT_MS 300000U
 /* Refuse an asset that is not plausibly our binary before spending the download on it. */
@@ -125,8 +125,8 @@ static void updater_forget_release(struct mesh_updater *updater) {
 }
 
 /* Drops whatever the last check concluded, because the question it answered has changed. An
-   updater still sitting at IDLE keeps init()'s `message` - "no curl or wget on this device" is
-   a fact about the install, not a stale result. */
+   updater still sitting at IDLE keeps init()'s `message` - "this build has no TLS" is a
+   fact about the install, not a stale result. */
 static void updater_invalidate_check(struct mesh_updater *updater, const char *why);
 
 static void updater_set(struct mesh_updater *updater, enum mesh_update_state state,
@@ -402,7 +402,7 @@ bool mesh_updater_parse_release(const char *json, const char *repo, const char *
  *
  * The binary lives at <pak>/bin/shared/meshclient, so the root is three directories up; a build
  * running from anywhere else simply finds nothing, which is what every caller here wants. Used
- * for both the CA bundle we ship and the pak.json the store reads.
+ * for the pak.json the store reads.
  */
 static bool updater_pak_file(const char *install_path, const char *relative, char *out,
                              size_t out_len) {
@@ -433,32 +433,14 @@ static bool updater_pak_file(const char *install_path, const char *relative, cha
 }
 
 /*
- * Point the fetcher at the CA bundle this pak ships.
- *
- * The Brick has no system CA store - no /etc/ssl at all - so without one every HTTPS request
- * fails; mesh_fetch_resolve_ca_bundle() explains why `--insecure` is not the way out and what
- * it falls back to. Only the pak half is ours: where the bundle sits is a fact about how this
- * binary was installed, and the fetcher has no business knowing it.
- */
-static void updater_resolve_ca_bundle(struct mesh_updater *updater) {
-    char shipped[MESH_UPDATE_PATH_MAX];
-    if (!updater_pak_file(updater->install_path, "certs/certificates.crt", shipped,
-                          sizeof shipped)) {
-        shipped[0] = '\0';
-    }
-    mesh_fetch_resolve_ca_bundle(&updater->fetch, shipped);
-}
-
-/*
  * The one line the About screen shows when a fetch did not come back with a document.
  *
- * curl's 60 is specifically "peer certificate cannot be authenticated", which on a device with
- * no CA store is the only thing that will ever happen and which "exit 60" tells nobody how to
- * fix. The bundle ships in the pak and not through self-update, so the answer really is to
- * reinstall the pak.
+ * Told apart by what the reader would do next: a certificate that did not verify is not fixed
+ * by trying again, and a network that was not there usually is. The detail - which host, which
+ * TLS error, which errno - only fits in the log.
  *
- * `what` names the catalog entry for the phase that failed - a check or a download - so the
- * sentence is one string rather than a verb glued onto a template.
+ * `what` names the catalog entry for the phase that failed - a check or a download - and takes
+ * the HTTP status, so the sentence is one string rather than a verb glued onto a template.
  */
 static void updater_fetch_failed(struct mesh_updater *updater,
                                  const struct mesh_fetch_result *result, enum mesh_str_id what) {
@@ -467,28 +449,31 @@ static void updater_fetch_failed(struct mesh_updater *updater,
     case MESH_FETCH_TOO_LARGE:
         snprintf(message, sizeof message, "%s", mesh_str(MESH_STR_UPDATE_RESPONSE_TOO_LARGE));
         break;
-    case MESH_FETCH_READ_FAILED:
-        snprintf(message, sizeof message, "%s", mesh_str(MESH_STR_UPDATE_READ_FAILED));
+    case MESH_FETCH_NETWORK:
+        snprintf(message, sizeof message, "%s", mesh_str(MESH_STR_UPDATE_UNREACHABLE));
+        break;
+    case MESH_FETCH_TLS:
+        snprintf(message, sizeof message, "%s", mesh_str(MESH_STR_UPDATE_TLS_UNVERIFIED));
+        break;
+    case MESH_FETCH_FILE:
+        snprintf(message, sizeof message, "%s", mesh_str(MESH_STR_UPDATE_WRITE_FAILED));
         break;
     case MESH_FETCH_TIMED_OUT:
-        mesh_log_warn("update", "%s timed out in state %s", mesh_fetch_tool(&updater->fetch),
-                      mesh_update_state_name(updater->state));
         snprintf(message, sizeof message, "%s", mesh_str(MESH_STR_UPDATE_TIMED_OUT));
         break;
-    case MESH_FETCH_EXITED:
+    case MESH_FETCH_HTTP_STATUS:
+        mesh_str_format(message, sizeof message, what, result->status);
+        break;
+    case MESH_FETCH_PROTOCOL:
     case MESH_FETCH_OK:
     case MESH_FETCH_OUTCOME_COUNT:
     default:
-        if (strcmp(mesh_fetch_tool(&updater->fetch), "curl") == 0 && result->status == 60) {
-            snprintf(message, sizeof message, "%s",
-                     mesh_str(updater->fetch.ca_bundle[0] != '\0' ? MESH_STR_UPDATE_TLS_UNVERIFIED
-                                                                  : MESH_STR_UPDATE_NO_CA_BUNDLE));
-        } else {
-            mesh_str_format(message, sizeof message, what, mesh_fetch_tool(&updater->fetch),
-                            result->status);
-        }
+        snprintf(message, sizeof message, "%s", mesh_str(MESH_STR_UPDATE_BAD_REPLY));
         break;
     }
+    mesh_log_warn("update", "Fetch failed in state %s: %s (%s)",
+                  mesh_update_state_name(updater->state), mesh_fetch_outcome_name(result->outcome),
+                  result->detail);
     updater_set(updater, MESH_UPDATE_FAILED, message);
 }
 
@@ -517,16 +502,12 @@ int mesh_updater_init(struct mesh_updater *updater, struct mesh_event_loop *loop
         updater->install_path[0] = '\0';
     }
 
-    /* Needs install_path, so it has to come after the readlink above. */
-    updater_resolve_ca_bundle(updater);
-
     updater->allow_dev_from_env =
         mesh_env_bool("MESHCLIENT_UPDATE_ALLOW_DEV", "dev updates", false);
     updater->allow_dev = updater->allow_dev_from_env;
 
-    if (updater->fetch.tool == NULL) {
-        snprintf(updater->message, sizeof updater->message, "%s",
-                 mesh_str(MESH_STR_UPDATE_NO_FETCHER));
+    if (!mesh_tls_available()) {
+        snprintf(updater->message, sizeof updater->message, "%s", mesh_str(MESH_STR_UPDATE_NO_TLS));
     } else if (!mesh_version_is_release() && !updater->allow_dev) {
         /* Say the consequence, not just the fact: the old wording ("Development build") sat
            next to a check that would go on to name a newer release it had no intention of
@@ -537,15 +518,13 @@ int mesh_updater_init(struct mesh_updater *updater, struct mesh_event_loop *loop
         snprintf(updater->message, sizeof updater->message, "%s",
                  mesh_str(MESH_STR_UPDATE_DEV_ENABLED));
     }
+    const char *const ca_override = mesh_tls_ca_override();
     mesh_log_info(
-        "update",
-        "Updater ready: fetcher=%s binary=%s version=%s channel=%s allow_dev=%s "
-        "cacert=%s",
-        mesh_fetch_tool(&updater->fetch),
+        "update", "Updater ready: tls=%s binary=%s version=%s channel=%s allow_dev=%s cacert=%s",
+        mesh_tls_available() ? "yes" : "no",
         updater->install_path[0] != '\0' ? updater->install_path : "unknown", mesh_version_string(),
         mesh_update_channel_name(mesh_updater_effective_channel(updater)),
-        updater->allow_dev ? "yes" : "no",
-        updater->fetch.ca_bundle[0] != '\0' ? updater->fetch.ca_bundle : "(fetcher default)");
+        updater->allow_dev ? "yes" : "no", ca_override != NULL ? ca_override : "built-in");
     return 0;
 }
 
@@ -598,7 +577,7 @@ bool mesh_updater_set_allow_dev(struct mesh_updater *updater, bool allow) {
     return true;
 }
 
-/* The fetcher calls these once each, from the loop, when its child is gone. */
+/* The fetcher calls these once each, from the loop, when its request is over. */
 static void updater_on_check_done(void *userdata, const struct mesh_fetch_result *result);
 static void updater_on_download_done(void *userdata, const struct mesh_fetch_result *result);
 
@@ -629,12 +608,9 @@ int mesh_updater_check(struct mesh_updater *updater, uint64_t now_ms) {
         snprintf(url, sizeof url, "https://api.github.com/repos/%s/releases/latest",
                  mesh_updater_repo());
     }
-    char agent_header[80];
-    snprintf(agent_header, sizeof agent_header, "User-Agent: meshclient/%s", mesh_version_string());
-
     const struct mesh_fetch_request request = {
         .url = url,
-        .headers = {"Accept: application/vnd.github+json", agent_header},
+        .headers = {"Accept: application/vnd.github+json"},
         .timeout_ms = MESH_UPDATE_CHECK_TIMEOUT_MS,
         .response_max = MESH_UPDATE_RESPONSE_MAX,
         .on_done = updater_on_check_done,
@@ -655,7 +631,7 @@ static void updater_on_check_done(void *userdata, const struct mesh_fetch_result
         return;
     }
     if (result->outcome != MESH_FETCH_OK) {
-        updater_fetch_failed(updater, result, MESH_STR_UPDATE_CHECK_EXIT);
+        updater_fetch_failed(updater, result, MESH_STR_UPDATE_CHECK_HTTP);
         return;
     }
     if (result->body == NULL) {
@@ -846,7 +822,7 @@ static void updater_on_download_done(void *userdata, const struct mesh_fetch_res
         return;
     }
     if (result->outcome != MESH_FETCH_OK) {
-        updater_fetch_failed(updater, result, MESH_STR_UPDATE_DOWNLOAD_EXIT);
+        updater_fetch_failed(updater, result, MESH_STR_UPDATE_DOWNLOAD_HTTP);
         (void)unlink(updater->staged_path);
         return;
     }
@@ -909,10 +885,10 @@ static void updater_on_download_done(void *userdata, const struct mesh_fetch_res
  *
  * The whole of the byte-progress mechanism, and it is four lines because the download's
  * destination is a file this process named - see `downloaded` in the header for why that is the
- * answer rather than reading curl's own meter.
+ * answer rather than a counter threaded through the fetcher.
  *
- * A missing file is not an error: between the fork and the fetcher's first write there is a
- * moment with nothing there, and the honest reading for that moment is zero. The revision is
+ * A missing file is not an error: until the reply's head has arrived there is
+ * nothing there, and the honest reading for that moment is zero. The revision is
  * bumped only on a change, so a stalled download does not republish a snapshot every turn.
  */
 static void updater_sample_download(struct mesh_updater *updater) {
@@ -951,13 +927,12 @@ void mesh_updater_tick(struct mesh_updater *updater, uint64_t now_ms) {
     if (updater == NULL || !mesh_fetch_busy(&updater->fetch)) {
         return;
     }
-    /* Before the child is reaped below, not after: the last sample of a download that has just
-       finished is the one that puts the bar at the end, and a tick that reaped first would
-       leave it stopped at whatever the second-to-last turn saw. */
+    /* The bar. A download that finishes does so on the read path, not here, and moves the
+       state on - so there is no last sample to take after it. */
     if (updater->state == MESH_UPDATE_DOWNLOADING) {
         updater_sample_download(updater);
     }
-    /* Reaps a finished child and enforces the deadline; either can land in one of the two
-       completions above, which is where a timed-out download unlinks its staging file. */
+    /* Enforces the deadline, which lands in one of the two completions above - which is where a
+       timed-out download unlinks its staging file. */
     mesh_fetch_tick(&updater->fetch, now_ms);
 }

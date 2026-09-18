@@ -8,8 +8,7 @@
  * starts threads - so a name typed on the Devices tab would be seconds of frozen UI. That is why
  * the TCP link took a numeric address and nothing else for as long as it did.
  *
- * The way out is the shape `src/core/net/fetch.c` already uses for HTTPS, and this is that shape
- * with the tool taken out: fork, let the child block, read the answer back through the event loop.
+ * The way out: fork, let the child block, read the answer back through the event loop.
  * The child does not exec. There is nothing to exec - `getent` is not on the Brick and busybox's
  * `nslookup` prints a different thing every version - and the resolver we want is the one this
  * binary is already linked against.
@@ -131,7 +130,7 @@ int mesh_resolve_start(struct mesh_resolve *resolve, const char *host, uint16_t 
 /*
  * Enforces the deadline and reaps a finished child. Call every loop turn.
  *
- * Both halves matter, for the reason mesh_fetch_tick() gives: the fd callback sees EOF, but a
+ * Both halves matter: the fd callback sees EOF, but a
  * child that wrote its answer and has not yet been reaped is only ever finished here.
  */
 void mesh_resolve_tick(struct mesh_resolve *resolve, uint64_t now_ms);

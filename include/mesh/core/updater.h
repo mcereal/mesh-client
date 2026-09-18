@@ -5,11 +5,9 @@
  * carries (mesh/version.h), and if it is newer download the release's `meshclient` asset,
  * verify it against the digest the API reported, and swap it over the running binary.
  *
- * How it talks to the network. There is no TLS in this process - the release build is a static
- * musl binary whose only dependency is libdbus - so the updater forks the device's own curl
- * (falling back to wget) and reads its stdout through the event loop, the same shape
- * src/ui/backends/minui.c already uses for minui-list. No threads, one child at a time, and
- * every step is a state the About screen can name.
+ * How it talks to the network: mesh/core/fetch.h, an HTTPS client on the event loop over the
+ * TLS session the MQTT proxy uses, verifying against roots compiled into the binary. No threads,
+ * no child process, one request at a time, and every step is a state the About screen can name.
  *
  * What makes downloading an executable safe here is not the transport but the digest: the
  * release metadata is read from api.github.com, the asset URL is checked against that release's
@@ -125,17 +123,10 @@ struct mesh_updater {
      * Bytes of the asset that have landed, sampled from the staged file rather than read out of
      * the fetcher.
      *
-     * This is what makes a progress bar possible at all with a forked curl, and it is worth
-     * writing down because the obvious answer is worse. curl reports progress on *stderr*, as a
-     * meter drawn for a terminal - not a number, redrawn with carriage returns, in a format
-     * that is curl's to change and that wget does not share. Parsing it would mean a second
-     * pipe, a second reader on the loop, and two scrapers for two fetchers.
-     *
-     * But the download is not going to a pipe: it is going to a file we named, and the release
-     * metadata already told us how big that file will be when it is done. So the fraction is
-     * stat() on staged_path over asset_size, which is one syscall, needs nothing from the
-     * fetcher, and is identical for curl and wget. The transport being opaque turns out not to
-     * matter, because the *destination* is ours.
+     * The download is going to a file we named, and the release metadata already told us how
+     * big that file will be when it is done. So the fraction is stat() on staged_path over
+     * asset_size, which is one syscall and needs nothing from the fetcher - the destination is
+     * ours, so the transport has nothing to report.
      *
      * Sampled in mesh_updater_tick(), so its resolution is however often the event loop turns -
      * a second when nothing else is happening, and every frame while the bar beside it is
@@ -147,32 +138,27 @@ struct mesh_updater {
     char install_path[MESH_UPDATE_PATH_MAX];
     /* Room for install_path plus the ".update" suffix, so staging can never truncate. */
     char staged_path[MESH_UPDATE_PATH_MAX + 16U];
-    /*
-     * The one child this module ever runs, and everything about talking to it: which fetcher
-     * the device has, the CA bundle it is pointed at, the pipe, the deadline and the reply.
-     * Shared with the radio-firmware side (mesh/core/fetch.h), which needs the same shape for
-     * the same reason - there is no TLS in this process.
-     */
+    /* The one request this module ever has in flight. The radio-firmware side has its own. */
     struct mesh_fetch fetch;
     /* Bumped whenever anything above changes, so app.c can publish without diffing. */
     uint32_t revision;
 };
 
-/* `loop` may be NULL, in which case the updater reports itself unavailable. Probes for a
-   fetcher on PATH. Returns 0, or -errno. */
+/* `loop` may be NULL, in which case the updater reports itself unavailable. Returns 0, or
+   -errno. */
 int mesh_updater_init(struct mesh_updater *updater, struct mesh_event_loop *loop);
 void mesh_updater_shutdown(struct mesh_updater *updater);
 
-/* True when a fetcher was found and the running binary's path is known, i.e. when check and
+/* True when this build has TLS and the running binary's path is known, i.e. when check and
    install can do anything at all. */
 bool mesh_updater_available(const struct mesh_updater *updater);
 
-/* Starts a check. No-op while a child is running. Returns 0, or -errno. */
+/* Starts a check. No-op while a request is running. Returns 0, or -errno. */
 int mesh_updater_check(struct mesh_updater *updater, uint64_t now_ms);
 /* Downloads and installs the release the last check found. Only valid in AVAILABLE. */
 int mesh_updater_install(struct mesh_updater *updater, uint64_t now_ms);
 
-/* Enforces the per-step timeout and reaps a finished child. Call every loop turn. */
+/* Enforces the per-step timeout and keeps the fetch moving. Call every loop turn. */
 void mesh_updater_tick(struct mesh_updater *updater, uint64_t now_ms);
 
 /*
@@ -199,7 +185,7 @@ enum mesh_update_channel mesh_updater_effective_channel(const struct mesh_update
 /*
  * Selects the channel and forgets whatever the last check found, dropping back to IDLE so the
  * About screen asks for a fresh check rather than offering a release from the other channel.
- * No-op while a child is running (a download must not have its asset pulled out from under
+ * No-op while a request is running (a download must not have its asset pulled out from under
  * it); returns true when the channel actually changed.
  */
 bool mesh_updater_set_channel(struct mesh_updater *updater, enum mesh_update_channel channel);
@@ -208,7 +194,7 @@ bool mesh_updater_set_channel(struct mesh_updater *updater, enum mesh_update_cha
  * Lets a build that is not an official release install what it finds, or stops it again.
  * Forgets the last check the same way a channel change does: "1.16.0, not installing" and
  * "1.16.0 available" are different answers to the same question, and only one of them is
- * true at a time. No-op while a child is running, or when nothing changes; returns true when
+ * true at a time. No-op while a request is running, or when nothing changes; returns true when
  * the setting actually moved.
  */
 bool mesh_updater_set_allow_dev(struct mesh_updater *updater, bool allow);
@@ -223,7 +209,7 @@ bool mesh_updater_can_install(const struct mesh_updater *updater);
  * must stay down.
  *
  * The Brick's Wi-Fi and its Bluetooth are one Xradio part behind one antenna, and a Meshtastic
- * node negotiates a 1000 ms supervision timeout, so a couple of megabytes of curl is enough to
+ * node negotiates a 1000 ms supervision timeout, so a couple of megabytes of download is enough to
  * take the radio away for longer than the link survives. This was measured: an install pressed
  * over a live link produced the first FromRadio failure 36 ms later and then four minutes of
  * reconnects. Auto-connect reads this rather than being told to stop, so a download that fails

@@ -4,9 +4,9 @@
  * The radio-firmware check, end to end: two documents, one press, and the refusal that comes
  * out of the pair.
  *
- * Driven by a stand-in curl on PATH that serves the captured fixtures in tests/data/, the same
- * trick the updater suite uses - which means the whole check runs through the real fetcher,
- * the real fork, the real event loop and the real parsers, with only the network replaced.
+ * Driven by an HTTPS server on loopback that serves the captured fixtures in tests/data/
+ * (support/https_fixture.h) - so the whole check runs through the real fetcher, a real TLS
+ * session, the real event loop and the real parsers, with only the far end replaced.
  */
 
 #include "framework/mesh_test.h"
@@ -60,13 +60,32 @@ MESH_TEST_CASE(firmware_starts_idle_and_needs_a_fetcher, unit) {
     record_success(test_name);
 }
 
-/*
- * A stand-in curl that serves the captured documents by URL, and a scratch directory holding
- * it. Every case below shares the shape, so it is one helper rather than four copies.
- */
+#ifdef MESHCLIENT_HAVE_TLS
+
+#include "support/https_fixture.h"
+
+/* The captured documents by URL, and nothing at all for anything else. In the fixture's child. */
+static void firmware_serve(void *userdata, const struct https_fixture_request *request,
+                           struct https_fixture_conn *conn) {
+    (void)userdata;
+    char path[512];
+    if (strcmp(request->target, "/hardware") == 0) {
+        snprintf(path, sizeof path, "%s/device_hardware.json", MESH_TEST_DATA_DIR);
+        https_fixture_reply_file(conn, request, path);
+    } else if (strcmp(request->target, "/list") == 0) {
+        snprintf(path, sizeof path, "%s/firmware_list.json", MESH_TEST_DATA_DIR);
+        https_fixture_reply_file(conn, request, path);
+    } else if (strcmp(request->target, "/broken") == 0) {
+        https_fixture_reply(conn, 200, NULL, "not a document", 14U);
+    } else {
+        https_fixture_reply(conn, 404, NULL, NULL, 0U);
+    }
+}
+
+/* The server, the loop and the module. Every case below shares the shape, so it is one helper
+   rather than four copies. */
 struct firmware_harness {
-    char dir[64];
-    char *saved_path;
+    struct https_fixture server;
     struct mesh_event_loop loop;
     struct mesh_firmware firmware;
     bool loop_up;
@@ -75,41 +94,9 @@ struct firmware_harness {
 
 static bool firmware_harness_up(struct firmware_harness *harness) {
     memset(harness, 0, sizeof *harness);
-    snprintf(harness->dir, sizeof harness->dir, "%s", "/tmp/meshclient_fw_XXXXXX");
-    if (mkdtemp(harness->dir) == NULL) {
+    if (!https_fixture_start(&harness->server, firmware_serve, NULL)) {
         return false;
     }
-    char curl_path[128];
-    snprintf(curl_path, sizeof curl_path, "%s/curl", harness->dir);
-    FILE *script = fopen(curl_path, "w");
-    if (script == NULL) {
-        return false;
-    }
-    /* The URLs below are what the module asks for once the environment has redirected it; the
-       script answers with the matching fixture, and with nothing at all for anything else. */
-    fprintf(script,
-            "#!/bin/sh\n"
-            "for a in \"$@\"; do url=\"$a\"; done\n"
-            "case \"$url\" in\n"
-            "  *hardware) exec cat '%s/device_hardware.json' ;;\n"
-            "  *list) exec cat '%s/firmware_list.json' ;;\n"
-            "  *broken) printf 'not a document' ; exit 0 ;;\n"
-            "esac\n"
-            "exit 7\n",
-            MESH_TEST_DATA_DIR, MESH_TEST_DATA_DIR);
-    /* On the descriptor, not the path - see fetch.c's copy of this helper for why. */
-    const bool executable = fchmod(fileno(script), 0755) == 0;
-    fclose(script);
-    if (!executable) {
-        return false;
-    }
-
-    const char *const old_path = getenv("PATH");
-    harness->saved_path = old_path != NULL ? strdup(old_path) : strdup("");
-    char new_path[1024];
-    snprintf(new_path, sizeof new_path, "%s:%s", harness->dir,
-             old_path != NULL ? old_path : "/usr/bin");
-    setenv("PATH", new_path, 1);
     setenv("MESHCLIENT_FIRMWARE_HARDWARE_URL", "https://example.invalid/hardware", 1);
     setenv("MESHCLIENT_FIRMWARE_LIST_URL", "https://example.invalid/list", 1);
 
@@ -121,6 +108,7 @@ static bool firmware_harness_up(struct firmware_harness *harness) {
         return false;
     }
     harness->firmware_up = true;
+    https_fixture_attach(&harness->server, &harness->firmware.fetch);
     return mesh_firmware_available(&harness->firmware);
 }
 
@@ -133,20 +121,11 @@ static void firmware_harness_down(struct firmware_harness *harness) {
     }
     unsetenv("MESHCLIENT_FIRMWARE_HARDWARE_URL");
     unsetenv("MESHCLIENT_FIRMWARE_LIST_URL");
-    if (harness->saved_path != NULL) {
-        setenv("PATH", harness->saved_path, 1);
-        free(harness->saved_path);
-    }
-    if (harness->dir[0] != '\0') {
-        char curl_path[128];
-        snprintf(curl_path, sizeof curl_path, "%s/curl", harness->dir);
-        unlink(curl_path);
-        rmdir(harness->dir);
-    }
+    https_fixture_stop(&harness->server);
 }
 
-/* Pumps the loop until the check stops running. Both documents are child processes, so the
-   test has to turn the loop for either of them to land. */
+/* Pumps the loop until the check stops running. Both documents arrive through the loop, so the
+   test has to turn it for either of them to land. */
 static bool firmware_settle(struct firmware_harness *harness) {
     for (int turn = 0; turn < 600; ++turn) {
         if (harness->firmware.state != MESH_FIRMWARE_IDENTIFYING &&
@@ -520,3 +499,5 @@ cleanup:
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
+
+#endif /* MESHCLIENT_HAVE_TLS */

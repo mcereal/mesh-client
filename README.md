@@ -143,7 +143,7 @@ With the Brick on WiFi and the SSH Server pak installed, skip the SD card: set `
 | `scripts/` | build/package automation, `docker.sh`, `cross-build.sh`, device deploy, frame encoding |
 | `devtools/` | host-only development tools; today the off-screen UI capture harness |
 | `docker/` | `Dockerfile` (`dev` and `cross` stages) and the cross toolchain bootstrap |
-| `Tools/tg5040/MeshClient.pak/` | pak scaffold: `launch.sh` and the updater's CA bundle |
+| `Tools/tg5040/MeshClient.pak/` | pak scaffold: `launch.sh` |
 | `proto/meshtastic/`, `third_party/nanopb/`, `third_party/mbedtls/` | upstream protobufs, nanopb and Mbed TLS (submodules) |
 | `docs/` | architecture, transports, UI, CLI, device and release documentation |
 
@@ -174,13 +174,10 @@ ships, at the panel's own 1024x768, so they are the frames the device would draw
 after a UI change with that one command rather than by hand; `make deploy-shot` is still there
 for a picture of the real panel.
 
-The pak ships Mozilla's CA roots at `certs/certificates.crt`, from
-[curl.se/ca](https://curl.se/ca/cacert.pem). The Brick has no system CA store, so without it the
-in-app updater cannot verify github.com. Refresh it by re-downloading that file into
-`Tools/tg5040/MeshClient.pak/certs/certificates.crt`, running `scripts/gen-ca-roots.py` to
-compile the same roots into the binary (which is what MQTT over TLS verifies against), and
-committing both. The pak's file is not delivered by self-update, so a client installed before it
-existed needs one pak reinstall; the compiled-in copy is.
+Mozilla's CA roots are compiled into the binary, from `third_party/mozilla-ca/cacert.pem`
+([curl.se/ca](https://curl.se/ca/cacert.pem)). The Brick has no system CA store, and a file in the
+pak would not be delivered by self-update, so the roots travel with the binary instead. Refresh
+them by re-downloading that file, running `scripts/gen-ca-roots.py`, and committing both.
 
 ## Contributing
 

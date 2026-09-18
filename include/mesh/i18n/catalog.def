@@ -2909,8 +2909,8 @@ MESH_STR_ENTRY(UPDATE_CHANNEL_STABLE,     "Stable")
 MESH_STR_ENTRY(UPDATE_CHANNEL_PRERELEASE, "Prerelease")
 MESH_STR_ENTRY(UPDATE_CHANNEL_AUTO_PRE,   "Automatic (prerelease)")
 MESH_STR_ENTRY(UPDATE_CHANNEL_AUTO_STABLE,"Automatic (stable)")
-/* Messages. "curl", "wget", "GitHub" and "pak" are names and stay as they are. */
-MESH_STR_ENTRY(UPDATE_NO_FETCHER,         "No curl or wget on this device")
+/* Messages. "GitHub", "TLS", "HTTP" and "pak" are names and stay as they are. */
+MESH_STR_ENTRY(UPDATE_NO_TLS,             "This build has no TLS")
 MESH_STR_ENTRY(UPDATE_DEV_DISABLED,       "Dev build; updates disabled")
 MESH_STR_ENTRY(UPDATE_DEV_ENABLED,        "Dev build; updates enabled")
 MESH_STR_ENTRY(UPDATE_CHANNEL_CHANGED,    "Channel changed; check again")
@@ -2928,7 +2928,9 @@ MESH_STR_ENTRY(UPDATE_AVAILABLE,          "%s available (running %s)")
 MESH_STR_ENTRY(UPDATE_DOWNLOAD_START_FAIL,"Could not start the download")
 MESH_STR_ENTRY(UPDATE_DOWNLOADING,        "Downloading %s")
 MESH_STR_ENTRY(UPDATE_RESPONSE_TOO_LARGE, "Response too large")
-MESH_STR_ENTRY(UPDATE_READ_FAILED,        "Read from downloader failed")
+MESH_STR_ENTRY(UPDATE_UNREACHABLE,        "Could not reach GitHub")
+MESH_STR_ENTRY(UPDATE_BAD_REPLY,          "Unexpected reply from GitHub")
+MESH_STR_ENTRY(UPDATE_WRITE_FAILED,       "Could not save the download")
 MESH_STR_ENTRY(UPDATE_VERIFYING,          "Verifying download")
 MESH_STR_ENTRY(UPDATE_FILE_MISSING,       "Downloaded file is missing")
 MESH_STR_ENTRY(UPDATE_FILE_WRONG_SIZE,    "Downloaded file is the wrong size")
@@ -2939,12 +2941,10 @@ MESH_STR_ENTRY(UPDATE_CHMOD_FAILED,       "Could not make the update executable"
 MESH_STR_ENTRY(UPDATE_INSTALL_FAILED,     "Install failed: %s")
 MESH_STR_ENTRY(UPDATE_INSTALLED,          "%s installed - relaunch to run it")
 MESH_STR_ENTRY(UPDATE_TIMED_OUT,          "Timed out talking to GitHub")
-/* The TLS failures are worth telling apart: one is a bad certificate, the other is a pak
-   installed without its CA bundle, and only the second is fixed by reinstalling. */
 MESH_STR_ENTRY(UPDATE_TLS_UNVERIFIED,     "Could not verify GitHub's certificate")
-MESH_STR_ENTRY(UPDATE_NO_CA_BUNDLE,       "No CA certificates; reinstall the pak")
-MESH_STR_ENTRY(UPDATE_CHECK_EXIT,         "Check failed (%s exit %d)")
-MESH_STR_ENTRY(UPDATE_DOWNLOAD_EXIT,      "Download failed (%s exit %d)")
+/* The HTTP status GitHub answered with - 404, 503. */
+MESH_STR_ENTRY(UPDATE_CHECK_HTTP,         "Check failed (HTTP %d)")
+MESH_STR_ENTRY(UPDATE_DOWNLOAD_HTTP,      "Download failed (HTTP %d)")
 
 /* ---- the radio's firmware ------------------------------------------------------------------ */
 
@@ -2958,7 +2958,7 @@ MESH_STR_ENTRY(UPDATE_DOWNLOAD_EXIT,      "Download failed (%s exit %d)")
  * reason spelled as prose comes out as "connect it by USB to updat", which reads as a bug. The
  * long form of any of these belongs in a toast or the log, where a sentence has room.
  *
- * "Meshtastic" is a name and stays as it is. So do version strings, build targets and "curl",
+ * "Meshtastic" is a name and stays as it is. So do version strings, build targets and "HTTP",
  * which are identifiers rather than words.
  */
 MESH_STR_ENTRY(FW_STATE_IDLE,             "not checked")
@@ -2974,10 +2974,10 @@ MESH_STR_ENTRY(FW_NO_RADIO,               "no radio")
 MESH_STR_ENTRY(FW_HARDWARE_UNREADABLE,    "hardware list failed")
 MESH_STR_ENTRY(FW_INDEX_UNREADABLE,       "firmware list failed")
 MESH_STR_ENTRY(FW_TIMED_OUT,              "timed out")
-/* The fetcher's own name and the code it stopped with. Both identifiers. */
-MESH_STR_ENTRY(FW_CHECK_EXIT,             "%s exit %d")
+/* The HTTP status the server answered with. "HTTP" is an identifier. */
+MESH_STR_ENTRY(FW_CHECK_HTTP,             "HTTP %d")
 MESH_STR_ENTRY(FW_TLS_UNVERIFIED,         "server not verified")
-MESH_STR_ENTRY(FW_NO_CA_BUNDLE,           "no CA certificates")
+MESH_STR_ENTRY(FW_UNREACHABLE,            "unreachable")
 /*
  * Why the client cannot install what it just found. Each is a row rather than a silence: a
  * radio behaving oddly is often a radio on old firmware, and the answer to "why can I not fix

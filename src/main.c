@@ -299,7 +299,7 @@ static void list_all_devices(struct mesh_app *app) {
  * the image the manifest describes" - is not a thing a unit test can prove. The suite runs the
  * same chain against committed bytes through a fake CDN; this runs it against GitHub, from the
  * device, over the antenna the client will really use, which is where the range refusals and
- * the CA bundle actually live. It writes nothing to a radio and never will:
+ * the certificate chains actually live. It writes nothing to a radio and never will:
  * that is phase 3, and it starts from the file this leaves behind.
  *
  * The board is named by its build target rather than resolved from a connected radio, because
@@ -370,15 +370,14 @@ static int fetch_radio_firmware(struct mesh_app *app, struct cli_firmware_fetch 
         return -EINVAL;
     }
     memset(run, 0, sizeof *run);
-    /* The updater's fetcher, because it is the one that already found the pak's CA bundle -
-       the Brick has no system store, so without it every HTTPS request exits 60. */
+    /* The updater's fetcher: it is idle, since nothing else runs in this mode. */
     run->fetcher = &app->updater.fetch;
     run->channel = app->firmware.channel;
     run->target = target;
     run->staging = staging;
 
     if (!mesh_fetch_available(run->fetcher)) {
-        fprintf(stderr, "No curl or wget on this device; nothing can be fetched.\n");
+        fprintf(stderr, "This build has no TLS; nothing can be fetched.\n");
         return -ENOTSUP;
     }
     printf("Fetching firmware for %s (%s) into %s\n", target,

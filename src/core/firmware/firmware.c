@@ -163,38 +163,35 @@ static void firmware_fetch_failed(struct mesh_firmware *firmware,
                                   const struct mesh_fetch_result *result, enum mesh_str_id what) {
     char message[MESH_FIRMWARE_MESSAGE_MAX];
     switch (result->outcome) {
-    case MESH_FETCH_TOO_LARGE:
-    case MESH_FETCH_READ_FAILED:
-        /* Which document, not which pipe: a reply past the cap and a pipe that failed are one
-           answer to the reader - the list did not arrive - and `what` already says which list. */
-        mesh_str_copy(message, sizeof message, mesh_str(what));
-        break;
     case MESH_FETCH_TIMED_OUT:
         mesh_str_copy(message, sizeof message, mesh_str(MESH_STR_FW_TIMED_OUT));
         break;
-    case MESH_FETCH_EXITED:
+    case MESH_FETCH_NETWORK:
+        mesh_str_copy(message, sizeof message, mesh_str(MESH_STR_FW_UNREACHABLE));
+        break;
+    case MESH_FETCH_TLS:
+        mesh_str_copy(message, sizeof message, mesh_str(MESH_STR_FW_TLS_UNVERIFIED));
+        break;
+    case MESH_FETCH_HTTP_STATUS:
+        mesh_str_format(message, sizeof message, MESH_STR_FW_CHECK_HTTP, result->status);
+        break;
+    case MESH_FETCH_TOO_LARGE:
+    case MESH_FETCH_PROTOCOL:
+    case MESH_FETCH_FILE:
     case MESH_FETCH_OK:
     case MESH_FETCH_OUTCOME_COUNT:
     default:
-        if (strcmp(mesh_fetch_tool(&firmware->fetch), "curl") == 0 && result->status == 60) {
-            /* Exit 60 is "peer certificate cannot be authenticated", which on a device with no
-               CA store at all is the only thing that will ever happen - and the bundle ships in
-               the pak rather than through self-update, so the answer is to reinstall it. Which
-               of the two it is only fits in the log; the row gets the short form. */
-            mesh_str_copy(message, sizeof message,
-                          mesh_str(firmware->fetch.ca_bundle[0] != '\0'
-                                       ? MESH_STR_FW_TLS_UNVERIFIED
-                                       : MESH_STR_FW_NO_CA_BUNDLE));
-        } else {
-            mesh_str_format(message, sizeof message, MESH_STR_FW_CHECK_EXIT,
-                            mesh_fetch_tool(&firmware->fetch), result->status);
-        }
+        /* Which document, not what was wrong with it: a reply past the cap and a reply that was
+           not HTTP are one answer to the reader - the list did not arrive - and `what` already
+           says which list. */
+        mesh_str_copy(message, sizeof message, mesh_str(what));
         break;
     }
     /* The whole of it in the log, where a sentence has room: the row gets the short form above,
-       and which outcome it was is the part that only ever helps somebody reading a log. */
-    mesh_log_warn("firmware", "%s failed: %s (%s exit %d)", mesh_str(what), message,
-                  mesh_fetch_tool(&firmware->fetch), result->status);
+       and which host and which error it was is the part that only ever helps somebody reading a
+       log. */
+    mesh_log_warn("firmware", "%s failed: %s (%s: %s)", mesh_str(what), message,
+                  mesh_fetch_outcome_name(result->outcome), result->detail);
     firmware_set(firmware, MESH_FIRMWARE_FAILED, message);
 }
 
@@ -307,13 +304,6 @@ void mesh_firmware_shutdown(struct mesh_firmware *firmware) {
         return;
     }
     mesh_fetch_shutdown(&firmware->fetch);
-}
-
-void mesh_firmware_use_ca_bundle(struct mesh_firmware *firmware, const char *path) {
-    if (firmware == NULL) {
-        return;
-    }
-    mesh_fetch_set_ca_bundle(&firmware->fetch, path);
 }
 
 bool mesh_firmware_available(const struct mesh_firmware *firmware) {

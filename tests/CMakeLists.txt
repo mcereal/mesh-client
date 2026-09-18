@@ -15,6 +15,7 @@ set(MESHCLIENT_TEST_SUPPORT
     support/ble_ota_fixture.c
     support/data_fixture.c
     support/fs_fixture.c
+    support/https_fixture.c
     support/map_fixture.c
     support/mqtt_fixture.c
     support/proto_fixture.c

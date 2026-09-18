@@ -158,7 +158,7 @@ publish and read back when that node's detail screen is opened. See
 | Channel sharing | `src/proto/channel_url.c` (the `meshtastic.org/e/#` link), `src/core/session/channel_share.c` (the radio's table either way), `src/utils/qr.c` (the code), `src/ui/views/channel_share.c` (what the two screens say) |
 | Contact sharing | `src/proto/contact_url.c` (the `meshtastic.org/v/#` link), `src/core/session/contact_share.c` (this radio's record out, a stranger's in), `src/ui/views/contact_share.c` (what the two screens say); the wrapper both links share is `src/proto/link_url.h` |
 | App glue | `src/app/*.c` - the composition root: lifecycle/link, `_actions`, `_publish`, `_settings` |
-| Self-update | `src/core/update/updater.c`, `version.c`, `fetch.c` |
+| Self-update | `src/core/update/updater.c`, `version.c`; HTTPS is `src/core/net/fetch.c` over `src/proto/http.c` |
 | MQTT proxy | `src/proto/mqtt_packet.c` (the wire format), `src/proto/mqtt_topic.c` (where a mesh lives on a broker), `src/core/net/mqtt_proxy.c` (one broker connection), `src/core/net/tls_client.c` (Mbed TLS on the loop), `src/app/app_mqtt.c` (whether to hold one at all) |
 | Radio firmware | `src/core/firmware/` - `firmware*.c`, `uf2.c`, `esp_image.c`, `src/transport/*/{usb_msc,ble_ota,ble_hci}.c` - the *other* binary |
 | UI | `src/ui/` - see the group map below; **`fb` is the device UI** |
@@ -259,8 +259,8 @@ The few that bite soonest:
   the guard (`MESHCLIENT_UPDATE_ALLOW_DEV=1`).
 - **Do not edit `project(meshclient VERSION x.y.z ...)`** in `CMakeLists.txt`, or bump versions by
   hand; the release workflow rewrites that line.
-- **`launch.sh` and the pak's CA bundle do not ship through self-update.** Only the bare binary
-  does, so treat both as a compatibility boundary.
+- **`launch.sh` does not ship through self-update.** Only the bare binary does, so treat it as a
+  compatibility boundary - which is why the CA roots are compiled in rather than shipped beside it.
 - **`scripts/gen-{emoji,icons,font,locale,ca-roots}.py` are not part of the build.** Run by hand,
   commit the result.
 - **`devtools/` is not `Tools/`** - macOS filesystems are case-insensitive.

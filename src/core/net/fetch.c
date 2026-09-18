@@ -3,494 +3,696 @@
 #include "mesh/core/fetch.h"
 
 #include "mesh/core/event_loop.h"
+#include "mesh/core/tls_client.h"
+#include "mesh/core/version.h"
+#include "mesh/proto/http.h"
+#include "mesh/utils/log.h"
+#include "mesh/utils/text.h"
 
 #include <errno.h>
 #include <fcntl.h>
-#include <signal.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/epoll.h>
-#include <sys/wait.h>
+#include <sys/socket.h>
 #include <unistd.h>
 
 /*
- * How long the fetcher is allowed to take, against how long we are.
+ * How much one turn of the loop reads before giving it back.
  *
- * Both numbers exist and they must not be equal: when the transfer is what went wrong we want
- * curl to say so and exit, because "curl exited 28" names the step that failed, while our own
- * deadline firing means we killed a child that might have been about to succeed. So the tool
- * is given nine tenths of the request's timeout and our deadline is the backstop behind it.
+ * A download is megabytes arriving as fast as the network allows, and every byte of it is
+ * decrypted and written on the thread the UI draws on. Reading until the socket is empty would
+ * hold the loop for as long as the sender stays ahead of us, which on a fast link is the whole
+ * download. Level-triggered epoll brings us straight back to whatever is left.
  *
- * The two tools do not mean quite the same thing by their number - curl's --max-time is the
- * whole transfer, wget's -T is a per-read timeout - and that difference is older than this
- * file. Neither is a promise; the backstop is.
+ * The read size is one TLS record's worth of plaintext, which is what makes stopping safe: each
+ * read takes a whole record out of the session, so what is left is in the socket - where epoll
+ * can see it - rather than inside Mbed TLS, where it cannot.
  */
-#define MESH_FETCH_TOOL_SHARE_NUM 9U
-#define MESH_FETCH_TOOL_SHARE_DEN 10U
+#define FETCH_READ_CHUNK 16384U
+#define FETCH_READS_PER_TURN 8U
 
-/* Enough for the fixed flags, an optional CA bundle, the headers, an output path and the URL. */
-#define MESH_FETCH_ARGV_MAX (12U + (MESH_FETCH_HEADERS_MAX * 2U))
+/* The request line and Host, plus every header the caller may add. */
+#define FETCH_REQUEST_MAX                                                                          \
+    (MESH_HTTP_URL_MAX + MESH_HTTP_HOST_MAX + 128U +                                               \
+     (MESH_FETCH_HEADERS_MAX + 1U) * (MESH_FETCH_HEADER_MAX + 2U))
 
-static bool have_executable(const char *name) {
-    const char *path = getenv("PATH");
-    if (path == NULL || path[0] == '\0') {
-        path = "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
-    }
-    while (*path != '\0') {
-        const char *colon = strchr(path, ':');
-        const size_t len = colon != NULL ? (size_t)(colon - path) : strlen(path);
-        if (len > 0U && len < 200U) {
-            char candidate[256];
-            snprintf(candidate, sizeof candidate, "%.*s/%s", (int)len, path, name);
-            if (access(candidate, X_OK) == 0) {
-                return true;
-            }
+#define FETCH_DEFAULT_TIMEOUT_MS 30000U
+
+enum fetch_phase {
+    FETCH_RESOLVING = 0,
+    FETCH_CONNECTING,
+    FETCH_HANDSHAKE,
+    FETCH_SENDING,
+    FETCH_RECEIVING,
+};
+
+struct mesh_fetch_conn {
+    /* ---- the request, copied: a caller's strings need not outlive start() */
+    enum mesh_fetch_method method;
+    char headers[MESH_FETCH_HEADERS_MAX + 1U][MESH_FETCH_HEADER_MAX];
+    size_t header_count;
+    bool ranged;
+    char output_path[MESH_FETCH_PATH_MAX];
+    size_t response_max;
+    uint64_t deadline_ms;
+    mesh_fetch_done_fn on_done;
+    void *userdata;
+
+    /* ---- the hop in flight */
+    struct mesh_http_url url;
+    unsigned redirects;
+    enum fetch_phase phase;
+    int fd;
+    bool fd_registered;
+    struct mesh_tls_client tls;
+    char request[FETCH_REQUEST_MAX];
+    size_t request_len;
+    size_t request_sent;
+    struct mesh_http_response response;
+    bool head_seen;
+    /* A TLS read stopped with work still inside the session; tick() comes back for it. */
+    bool more_to_read;
+
+    /* ---- where the body goes */
+    int out_fd;
+    char *body;
+    size_t body_len;
+
+    /* Room for a path and an errno, or a host and a TLS error. */
+    char detail[MESH_FETCH_PATH_MAX + 96U];
+    uint8_t buffer[FETCH_READ_CHUNK];
+};
+
+static void fetch_drop_socket(struct mesh_fetch *fetch, struct mesh_fetch_conn *conn) {
+    mesh_resolve_cancel(&fetch->resolve);
+    mesh_tls_client_stop(&conn->tls);
+    if (conn->fd >= 0) {
+        if (conn->fd_registered && fetch->loop != NULL) {
+            (void)mesh_event_loop_remove_fd(fetch->loop, conn->fd);
         }
-        if (colon == NULL) {
-            break;
-        }
-        path = colon + 1;
+        close(conn->fd);
     }
-    return false;
+    conn->fd = -1;
+    conn->fd_registered = false;
+    conn->more_to_read = false;
 }
 
-/*
- * Drops the pipe but keeps the pid. Once the child has closed stdout there is nothing more to
- * read, and leaving the fd registered would be actively harmful: epoll reports EOF/HUP on
- * every wait, so mesh_event_loop_run() would never see a zero-event timeout, never return, and
- * never let mesh_fetch_tick() enforce the deadline - a child that closed stdout without
- * exiting would spin the loop and freeze the UI. The response buffer is left alone; the reap
- * still has to hand it over.
- */
-static void fetch_release_fd(struct mesh_fetch *fetch) {
-    if (fetch->child_fd < 0) {
-        return;
+static void fetch_free(struct mesh_fetch *fetch, struct mesh_fetch_conn *conn) {
+    fetch_drop_socket(fetch, conn);
+    if (conn->out_fd >= 0) {
+        close(conn->out_fd);
     }
-    if (fetch->loop != NULL) {
-        (void)mesh_event_loop_remove_fd(fetch->loop, fetch->child_fd);
-    }
-    close(fetch->child_fd);
-    fetch->child_fd = -1;
-}
-
-/* Everything about the request in flight, gone. Does not call the callback. */
-static void fetch_discard(struct mesh_fetch *fetch) {
-    fetch_release_fd(fetch);
-    if (fetch->child > 0) {
-        int status = 0;
-        if (waitpid(fetch->child, &status, WNOHANG) == 0) {
-            kill(fetch->child, SIGKILL);
-            (void)waitpid(fetch->child, &status, 0);
-        }
-        fetch->child = -1;
-    }
-    free(fetch->response);
-    fetch->response = NULL;
-    fetch->response_len = 0U;
-    fetch->on_done = NULL;
-    fetch->userdata = NULL;
-    fetch->failure = MESH_FETCH_OK;
+    free(conn->body);
+    free(conn);
 }
 
 /*
  * Hands the outcome to whoever asked for it, exactly once.
  *
- * The order here is the re-entrancy rule: everything is lifted off the fetcher and the fetcher
- * is left idle *before* the callback runs, so a caller that starts its next request from
- * inside the completion is starting one against a clean fetcher. The body is freed after the
- * call, off a local pointer, so that second request allocating its own buffer cannot be
- * confused with this one's.
+ * The order here is the re-entrancy rule: the request is lifted off the fetcher and the socket
+ * closed *before* the callback runs, so a caller that starts its next request from inside the
+ * completion is starting one against an idle fetcher. The body and the detail live in the lifted
+ * request, which is freed after the call.
  */
-static void fetch_complete(struct mesh_fetch *fetch, enum mesh_fetch_outcome outcome, int status) {
-    char *const body = fetch->response;
-    const size_t len = fetch->response_len;
-    const mesh_fetch_done_fn done = fetch->on_done;
-    void *const userdata = fetch->userdata;
-
-    fetch_release_fd(fetch);
-    fetch->child = -1;
-    fetch->response = NULL;
-    fetch->response_len = 0U;
-    fetch->on_done = NULL;
-    fetch->userdata = NULL;
-    fetch->failure = MESH_FETCH_OK;
-
-    if (done != NULL) {
-        const struct mesh_fetch_result result = {
-            .outcome = outcome,
-            .status = status,
-            .body = body,
-            .len = len,
-        };
-        done(userdata, &result);
+static void fetch_complete(struct mesh_fetch *fetch, enum mesh_fetch_outcome outcome) {
+    struct mesh_fetch_conn *const conn = fetch->conn;
+    if (conn == NULL) {
+        return;
     }
-    free(body);
+    fetch->conn = NULL;
+    fetch_drop_socket(fetch, conn);
+    if (conn->out_fd >= 0) {
+        const int closed = close(conn->out_fd);
+        conn->out_fd = -1;
+        if (closed != 0 && outcome == MESH_FETCH_OK) {
+            outcome = MESH_FETCH_FILE;
+            snprintf(conn->detail, sizeof conn->detail, "closing %s: %s", conn->output_path,
+                     strerror(errno));
+        }
+    }
+    if (outcome != MESH_FETCH_OK) {
+        free(conn->body);
+        conn->body = NULL;
+        conn->body_len = 0U;
+    }
+
+    const struct mesh_fetch_result result = {
+        .outcome = outcome,
+        .status = mesh_http_response_head_done(&conn->response) ? conn->response.status : 0,
+        .body = conn->body,
+        .len = conn->body_len,
+        .detail = conn->detail,
+    };
+    if (conn->on_done != NULL) {
+        conn->on_done(conn->userdata, &result);
+    }
+    fetch_free(fetch, conn);
 }
 
-/* Appends whatever the child has written, capped so a runaway reply cannot grow without
-   bound. Returns false when the cap is hit. */
-static bool fetch_absorb(struct mesh_fetch *fetch, const char *bytes, size_t len) {
-    if (fetch->response_len + len + 1U > fetch->response_max) {
+static void fetch_fail(struct mesh_fetch *fetch, enum mesh_fetch_outcome outcome,
+                       const char *format, ...) __attribute__((format(printf, 3, 4)));
+
+static void fetch_fail(struct mesh_fetch *fetch, enum mesh_fetch_outcome outcome,
+                       const char *format, ...) {
+    struct mesh_fetch_conn *const conn = fetch->conn;
+    if (conn == NULL) {
+        return;
+    }
+    va_list args;
+    va_start(args, format);
+    vsnprintf(conn->detail, sizeof conn->detail, format, args);
+    va_end(args);
+    fetch_complete(fetch, outcome);
+}
+
+/* ---- the body --------------------------------------------------------------------------- */
+
+/* Appends to the captured reply, capped so a runaway one cannot grow without bound. */
+static bool fetch_capture(struct mesh_fetch_conn *conn, const uint8_t *bytes, size_t len) {
+    if (len > conn->response_max || conn->body_len + len + 1U > conn->response_max) {
         return false;
     }
-    char *grown = realloc(fetch->response, fetch->response_len + len + 1U);
+    char *grown = realloc(conn->body, conn->body_len + len + 1U);
     if (grown == NULL) {
         return false;
     }
-    memcpy(grown + fetch->response_len, bytes, len);
-    fetch->response_len += len;
-    grown[fetch->response_len] = '\0';
-    fetch->response = grown;
+    memcpy(grown + conn->body_len, bytes, len);
+    conn->body_len += len;
+    grown[conn->body_len] = '\0';
+    conn->body = grown;
+    return true;
+}
+
+/* One slice of body, to wherever it goes. False once the request has been completed. */
+static bool fetch_sink(struct mesh_fetch *fetch, const uint8_t *bytes, size_t len) {
+    struct mesh_fetch_conn *const conn = fetch->conn;
+    if (conn->out_fd < 0) {
+        if (!fetch_capture(conn, bytes, len)) {
+            fetch_fail(fetch, MESH_FETCH_TOO_LARGE, "reply passed %zu bytes", conn->response_max);
+            return false;
+        }
+        return true;
+    }
+    while (len > 0U) {
+        const ssize_t wrote = write(conn->out_fd, bytes, len);
+        if (wrote < 0 && errno == EINTR) {
+            continue;
+        }
+        if (wrote <= 0) {
+            fetch_fail(fetch, MESH_FETCH_FILE, "writing %s: %s", conn->output_path,
+                       wrote < 0 ? strerror(errno) : "short write");
+            return false;
+        }
+        bytes += wrote;
+        len -= (size_t)wrote;
+    }
+    return true;
+}
+
+/* The reply is whole. A HEAD's answer is its head, which the codec has kept. */
+static void fetch_finish(struct mesh_fetch *fetch) {
+    struct mesh_fetch_conn *const conn = fetch->conn;
+    if (conn->method == MESH_FETCH_HEAD &&
+        !fetch_capture(conn, (const uint8_t *)conn->response.head, conn->response.head_len)) {
+        fetch_fail(fetch, MESH_FETCH_TOO_LARGE, "head passed %zu bytes", conn->response_max);
+        return;
+    }
+    fetch_complete(fetch, MESH_FETCH_OK);
+}
+
+/* ---- one hop ---------------------------------------------------------------------------- */
+
+static void fetch_hop(struct mesh_fetch *fetch);
+
+static void fetch_arm(struct mesh_fetch *fetch, struct mesh_fetch_conn *conn, bool write) {
+    if (fetch->loop != NULL && conn->fd_registered) {
+        (void)mesh_event_loop_update_fd(fetch->loop, conn->fd,
+                                        write ? (uint32_t)EPOLLOUT : (uint32_t)EPOLLIN);
+    }
+}
+
+/*
+ * The head is in. Decides what the rest of the reply is for: a redirect is followed and its body
+ * never read, a failure is reported without reading one either, and a 2xx opens the file its body
+ * goes to. False once the request has been completed or has moved on to another hop.
+ */
+static bool fetch_on_head(struct mesh_fetch *fetch) {
+    struct mesh_fetch_conn *const conn = fetch->conn;
+    const int status = conn->response.status;
+
+    if (status == 301 || status == 302 || status == 303 || status == 307 || status == 308) {
+        const char *value = NULL;
+        size_t len = 0U;
+        if (!mesh_http_response_header(&conn->response, "location", &value, &len)) {
+            fetch_fail(fetch, MESH_FETCH_HTTP_STATUS, "%d with no Location", status);
+            return false;
+        }
+        if (conn->redirects >= MESH_FETCH_REDIRECTS_MAX) {
+            fetch_fail(fetch, MESH_FETCH_PROTOCOL, "more than %u redirects",
+                       MESH_FETCH_REDIRECTS_MAX);
+            return false;
+        }
+        char location[MESH_HTTP_URL_MAX];
+        struct mesh_http_url next;
+        if (len >= sizeof location) {
+            fetch_fail(fetch, MESH_FETCH_PROTOCOL, "a %zu-byte Location", len);
+            return false;
+        }
+        memcpy(location, value, len);
+        location[len] = '\0';
+        if (!mesh_http_url_resolve(&conn->url, location, &next)) {
+            fetch_fail(fetch, MESH_FETCH_PROTOCOL, "unusable Location %.96s", location);
+            return false;
+        }
+        if (!next.tls) {
+            fetch_fail(fetch, MESH_FETCH_PROTOCOL, "redirect off https to %.96s", next.host);
+            return false;
+        }
+        mesh_log_debug("fetch", "%d from %s to %s", status, conn->url.host, next.host);
+        fetch_drop_socket(fetch, conn);
+        conn->url = next;
+        conn->redirects++;
+        fetch_hop(fetch);
+        return false;
+    }
+    if (status < 200 || status > 299) {
+        fetch_fail(fetch, MESH_FETCH_HTTP_STATUS, "HTTP %d from %s", status, conn->url.host);
+        return false;
+    }
+    if (conn->ranged && status != 206) {
+        fetch_fail(fetch, MESH_FETCH_PROTOCOL, "range ignored: %d from %s", status, conn->url.host);
+        return false;
+    }
+    if (conn->output_path[0] != '\0' && conn->method == MESH_FETCH_GET) {
+        conn->out_fd = open(conn->output_path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+        if (conn->out_fd < 0) {
+            fetch_fail(fetch, MESH_FETCH_FILE, "opening %s: %s", conn->output_path,
+                       strerror(errno));
+            return false;
+        }
+    }
     return true;
 }
 
 /*
- * Reads whatever is buffered without blocking. Returns false when there will never be more -
- * EOF, or a failure that has already recorded itself in `failure` for the reap to report.
+ * The connection ended. Whether that finishes the reply is the codec's call, with one thing only
+ * this side knows: whether the end was a TLS close_notify. A body framed by the close is only
+ * whole if the server said so - a cut connection looks exactly like the end of one otherwise.
  */
-static bool fetch_drain(struct mesh_fetch *fetch) {
-    if (fetch->child_fd < 0) {
-        return false;
+static void fetch_on_close(struct mesh_fetch *fetch, int rc) {
+    struct mesh_fetch_conn *const conn = fetch->conn;
+    const bool clean = rc == -ENOTCONN;
+    if (!mesh_http_response_head_done(&conn->response)) {
+        fetch_fail(fetch, MESH_FETCH_NETWORK, "%s closed before replying: %s", conn->url.host,
+                   clean ? "close_notify" : mesh_tls_client_error(&conn->tls));
+        return;
     }
-    for (;;) {
-        char buffer[4096];
-        const ssize_t got = read(fetch->child_fd, buffer, sizeof buffer);
-        if (got > 0) {
-            if (!fetch_absorb(fetch, buffer, (size_t)got)) {
-                fetch->failure = MESH_FETCH_TOO_LARGE;
-                return false;
-            }
-            continue;
-        }
-        if (got == 0) {
+    if (conn->response.framing == MESH_HTTP_FRAMING_UNTIL_CLOSE && !clean) {
+        fetch_fail(fetch, MESH_FETCH_NETWORK, "%s dropped an unframed body after %llu bytes",
+                   conn->url.host, (unsigned long long)conn->response.body_received);
+        return;
+    }
+    if (!mesh_http_response_finish(&conn->response)) {
+        fetch_fail(fetch, MESH_FETCH_NETWORK, "%s cut the body short after %llu bytes",
+                   conn->url.host, (unsigned long long)conn->response.body_received);
+        return;
+    }
+    fetch_finish(fetch);
+}
+
+/* Feeds one read's worth through the codec. False once the request has been completed or has
+   moved on to another hop. */
+static bool fetch_feed(struct mesh_fetch *fetch, const uint8_t *in, size_t len) {
+    struct mesh_fetch_conn *const conn = fetch->conn;
+    size_t at = 0U;
+    while (at < len) {
+        const uint8_t *body = NULL;
+        size_t body_len = 0U;
+        const size_t used =
+            mesh_http_response_feed(&conn->response, in + at, len - at, &body, &body_len);
+        at += used;
+        if (mesh_http_response_failed(&conn->response)) {
+            fetch_fail(fetch, MESH_FETCH_PROTOCOL, "bad reply from %s: %s", conn->url.host,
+                       mesh_http_error_name(conn->response.error));
             return false;
         }
-        if (errno == EINTR) {
-            continue;
+        if (!conn->head_seen && mesh_http_response_head_done(&conn->response)) {
+            conn->head_seen = true;
+            if (!fetch_on_head(fetch)) {
+                return false;
+            }
         }
-        if (errno == EAGAIN || errno == EWOULDBLOCK) {
-            return true;
+        if (body_len > 0U && !fetch_sink(fetch, body, body_len)) {
+            return false;
         }
-        fetch->failure = MESH_FETCH_READ_FAILED;
-        return false;
+        if (mesh_http_response_done(&conn->response)) {
+            /* Whatever follows is not part of this reply, and with `Connection: close` there
+               should be nothing. */
+            fetch_finish(fetch);
+            return false;
+        }
+        if (used == 0U) {
+            break;
+        }
     }
+    return true;
 }
 
-/*
- * Finishes the request if the child has actually exited. Deliberately never blocks in waitpid:
- * this runs from the event loop, which is the same thread the UI draws on, and a child that
- * closed stdout without exiting would otherwise stall the whole client past the point where
- * the deadline in tick() could rescue it.
- *
- * Everything buffered is drained before dispatching, because the exit and the EOF are separate
- * events and either can be seen first: reaping without draining would hand a caller a
- * truncated reply and let it decide the document was broken.
- */
-static void fetch_try_finish(struct mesh_fetch *fetch) {
-    if (fetch->child <= 0) {
-        return;
-    }
-    if (!fetch_drain(fetch)) {
-        /* EOF, or a failure that ends the read either way. The pipe is finished with. */
-        fetch_release_fd(fetch);
-    }
-
-    int status = 0;
-    if (waitpid(fetch->child, &status, WNOHANG) != fetch->child) {
-        /*
-         * A drain that gave up is not a reason to wait for the exit: the child is writing into
-         * a pipe nobody is reading and the caller's answer is already known.
-         */
-        if (fetch->failure != MESH_FETCH_OK) {
-            const enum mesh_fetch_outcome why = fetch->failure;
-            kill(fetch->child, SIGKILL);
-            (void)waitpid(fetch->child, &status, 0);
-            fetch->child = -1;
-            fetch_complete(fetch, why, -1);
+static void fetch_receive(struct mesh_fetch *fetch) {
+    struct mesh_fetch_conn *const conn = fetch->conn;
+    conn->more_to_read = false;
+    for (unsigned i = 0U; i < FETCH_READS_PER_TURN; ++i) {
+        const int rc = mesh_tls_client_read(&conn->tls, conn->buffer, sizeof conn->buffer);
+        if (rc == -EAGAIN) {
+            conn->more_to_read = conn->tls.more_to_read;
+            fetch_arm(fetch, conn, conn->tls.wants_write);
+            return;
         }
-        return;
+        if (rc < 0) {
+            fetch_on_close(fetch, rc);
+            return;
+        }
+        if (!fetch_feed(fetch, conn->buffer, (size_t)rc)) {
+            return;
+        }
     }
-    fetch->child = -1;
-
-    const int exit_status = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
-    if (fetch->failure != MESH_FETCH_OK) {
-        fetch_complete(fetch, fetch->failure, exit_status);
-    } else if (exit_status != 0) {
-        fetch_complete(fetch, MESH_FETCH_EXITED, exit_status);
-    } else {
-        fetch_complete(fetch, MESH_FETCH_OK, 0);
-    }
+    /* Budget spent. The rest is in the socket and epoll will say so on the next turn. */
+    fetch_arm(fetch, conn, false);
 }
 
-static int fetch_on_child_output(int fd, uint32_t events, void *userdata) {
+static void fetch_send(struct mesh_fetch *fetch) {
+    struct mesh_fetch_conn *const conn = fetch->conn;
+    while (conn->request_sent < conn->request_len) {
+        const int rc =
+            mesh_tls_client_write(&conn->tls, (const uint8_t *)conn->request + conn->request_sent,
+                                  conn->request_len - conn->request_sent);
+        if (rc == -EAGAIN) {
+            fetch_arm(fetch, conn, conn->tls.wants_write);
+            return;
+        }
+        if (rc < 0) {
+            fetch_fail(fetch, MESH_FETCH_NETWORK, "sending to %s: %s", conn->url.host,
+                       mesh_tls_client_error(&conn->tls));
+            return;
+        }
+        conn->request_sent += (size_t)rc;
+    }
+    conn->phase = FETCH_RECEIVING;
+    fetch_receive(fetch);
+}
+
+static void fetch_handshake(struct mesh_fetch *fetch) {
+    struct mesh_fetch_conn *const conn = fetch->conn;
+    const int rc = mesh_tls_client_handshake(&conn->tls);
+    if (rc == -EAGAIN) {
+        fetch_arm(fetch, conn, conn->tls.wants_write);
+        return;
+    }
+    if (rc < 0) {
+        fetch_fail(fetch, MESH_FETCH_TLS, "%s: %s", conn->url.host,
+                   mesh_tls_client_error(&conn->tls));
+        return;
+    }
+
+    const char *lines[MESH_FETCH_HEADERS_MAX + 1U];
+    for (size_t i = 0U; i < conn->header_count; ++i) {
+        lines[i] = conn->headers[i];
+    }
+    const int len =
+        mesh_http_request_format(conn->request, sizeof conn->request,
+                                 conn->method == MESH_FETCH_HEAD ? MESH_HTTP_HEAD : MESH_HTTP_GET,
+                                 &conn->url, lines, conn->header_count);
+    if (len < 0) {
+        fetch_fail(fetch, MESH_FETCH_PROTOCOL, "request to %s does not fit", conn->url.host);
+        return;
+    }
+    conn->request_len = (size_t)len;
+    conn->request_sent = 0U;
+    mesh_http_response_init(&conn->response, conn->method == MESH_FETCH_HEAD);
+    conn->head_seen = false;
+    conn->phase = FETCH_SENDING;
+    fetch_send(fetch);
+}
+
+/* The TCP connect finished, one way or the other. */
+static void fetch_connected(struct mesh_fetch *fetch) {
+    struct mesh_fetch_conn *const conn = fetch->conn;
+    int error = 0;
+    socklen_t error_len = (socklen_t)sizeof error;
+    if (getsockopt(conn->fd, SOL_SOCKET, SO_ERROR, &error, &error_len) < 0) {
+        error = errno;
+    }
+    if (error != 0) {
+        fetch_fail(fetch, MESH_FETCH_NETWORK, "connecting to %s: %s", conn->url.host,
+                   strerror(error));
+        return;
+    }
+    /* Checked against the URL's host, not the address it resolved to: a certificate is issued
+       for a name. The override is read per request, so a test can set it around one. */
+    const int started =
+        mesh_tls_client_start(&conn->tls, conn->fd, conn->url.host, mesh_tls_ca_override());
+    if (started < 0) {
+        fetch_fail(fetch, MESH_FETCH_TLS, "%s: %s", conn->url.host,
+                   mesh_tls_client_error(&conn->tls));
+        return;
+    }
+    conn->phase = FETCH_HANDSHAKE;
+    fetch_handshake(fetch);
+}
+
+static int fetch_on_fd(int fd, uint32_t events, void *userdata) {
     (void)fd;
-    struct mesh_fetch *fetch = (struct mesh_fetch *)userdata;
-    if (fetch == NULL) {
+    struct mesh_fetch *const fetch = (struct mesh_fetch *)userdata;
+    if (fetch == NULL || fetch->conn == NULL || fetch->conn->fd < 0) {
         return 0;
     }
-    /* EOF or a hangup means the child has closed stdout; either way, drain and see whether it
-       has exited. try_finish() is a no-op until it has, so nothing here can block. */
-    if (fetch_drain(fetch) && (events & (EPOLLHUP | EPOLLERR)) == 0U) {
-        return 0;
+    switch (fetch->conn->phase) {
+    case FETCH_CONNECTING:
+        /* EPOLLERR here is the ordinary refusal, and getsockopt() is what names it. */
+        if ((events & (uint32_t)(EPOLLOUT | EPOLLERR | EPOLLHUP)) != 0U) {
+            fetch_connected(fetch);
+        }
+        break;
+    case FETCH_HANDSHAKE:
+        fetch_handshake(fetch);
+        break;
+    case FETCH_SENDING:
+        fetch_send(fetch);
+        break;
+    case FETCH_RECEIVING:
+        fetch_receive(fetch);
+        break;
+    case FETCH_RESOLVING:
+    default:
+        break;
     }
-    fetch_try_finish(fetch);
     return 0;
 }
 
-/* Forks `argv` with its stdout on a pipe registered with the event loop. */
-static int fetch_spawn(struct mesh_fetch *fetch, char *const argv[], uint64_t now_ms,
-                       uint32_t timeout_ms, bool capture_stderr) {
-    int fds[2];
-    if (pipe(fds) < 0) {
-        return -errno;
+/* Opens the socket and starts the connect. False, with the request completed, when it could
+   not even begin. */
+static void fetch_open(struct mesh_fetch *fetch, const struct sockaddr_storage *address,
+                       socklen_t address_len) {
+    struct mesh_fetch_conn *const conn = fetch->conn;
+    const int fd = socket(address->ss_family, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+    if (fd < 0) {
+        fetch_fail(fetch, MESH_FETCH_NETWORK, "socket: %s", strerror(errno));
+        return;
     }
-
-    const pid_t pid = fork();
-    if (pid < 0) {
-        const int err = -errno;
-        close(fds[0]);
-        close(fds[1]);
-        return err;
+    if (connect(fd, (const struct sockaddr *)address, address_len) < 0 && errno != EINPROGRESS) {
+        const int error = errno;
+        close(fd);
+        fetch_fail(fetch, MESH_FETCH_NETWORK, "connecting to %s: %s", conn->url.host,
+                   strerror(error));
+        return;
     }
-    if (pid == 0) {
-        /* Child: stdout to the pipe, stderr to the log's fate (inherited), stdin closed. */
-        close(fds[0]);
-        if (dup2(fds[1], STDOUT_FILENO) < 0) {
-            _exit(127);
-        }
-        /*
-         * A HEAD takes stderr too, because the two tools disagree about where headers go:
-         * curl -I writes them to stdout and wget -S writes them to stderr. Only for a HEAD -
-         * on a GET this would fold curl's progress and diagnostics into the document.
-         */
-        if (capture_stderr && dup2(fds[1], STDERR_FILENO) < 0) {
-            _exit(127);
-        }
-        close(fds[1]);
-        const int devnull = open("/dev/null", O_RDONLY | O_CLOEXEC);
-        if (devnull >= 0) {
-            (void)dup2(devnull, STDIN_FILENO);
-            close(devnull);
-        }
-        execvp(argv[0], argv);
-        _exit(127);
+    conn->fd = fd;
+    if (mesh_event_loop_add_fd(fetch->loop, fd, (uint32_t)(EPOLLIN | EPOLLOUT), fetch_on_fd,
+                               fetch) < 0) {
+        fetch_fail(fetch, MESH_FETCH_NETWORK, "no room on the loop for %s", conn->url.host);
+        return;
     }
-
-    close(fds[1]);
-    if (fcntl(fds[0], F_SETFL, O_NONBLOCK) < 0) {
-        const int err = -errno;
-        close(fds[0]);
-        kill(pid, SIGKILL);
-        (void)waitpid(pid, NULL, 0);
-        return err;
-    }
-
-    fetch->child = pid;
-    fetch->child_fd = fds[0];
-    fetch->deadline_ms = now_ms + timeout_ms;
-    if (fetch->loop != NULL) {
-        const int added =
-            mesh_event_loop_add_fd(fetch->loop, fds[0], EPOLLIN, fetch_on_child_output, fetch);
-        if (added != 0) {
-            fetch_discard(fetch);
-            return added;
-        }
-    }
-    return 0;
+    conn->fd_registered = true;
+    conn->phase = FETCH_CONNECTING;
 }
+
+static void fetch_on_resolved(void *userdata, const struct mesh_resolve_result *result) {
+    struct mesh_fetch *const fetch = (struct mesh_fetch *)userdata;
+    if (fetch->conn == NULL || fetch->conn->phase != FETCH_RESOLVING) {
+        return;
+    }
+    if (result->outcome != MESH_RESOLVE_OK) {
+        fetch_fail(fetch, MESH_FETCH_NETWORK, "could not resolve %s (%s)", fetch->conn->url.host,
+                   result->outcome == MESH_RESOLVE_NOT_FOUND   ? "no such name"
+                   : result->outcome == MESH_RESOLVE_TIMED_OUT ? "timed out"
+                                                               : "lookup failed");
+        return;
+    }
+    fetch_open(fetch, &result->address, result->address_len);
+}
+
+/* One hop: from the current URL to a connecting socket, by way of a lookup when it is a name. */
+static void fetch_hop(struct mesh_fetch *fetch) {
+    struct mesh_fetch_conn *const conn = fetch->conn;
+    conn->phase = FETCH_RESOLVING;
+    conn->head_seen = false;
+    mesh_http_response_init(&conn->response, conn->method == MESH_FETCH_HEAD);
+
+    const char *const host = fetch->connect_host[0] != '\0' ? fetch->connect_host : conn->url.host;
+    const uint16_t port = fetch->connect_host[0] != '\0' ? fetch->connect_port : conn->url.port;
+    struct sockaddr_storage address;
+    socklen_t address_len = 0;
+    if (mesh_resolve_literal(host, port, &address, &address_len)) {
+        fetch_open(fetch, &address, address_len);
+        return;
+    }
+    const int started =
+        mesh_resolve_start(&fetch->resolve, host, port, fetch_on_resolved, fetch, fetch->now_ms);
+    if (started < 0) {
+        fetch_fail(fetch, MESH_FETCH_NETWORK, "could not start a lookup for %s: %s", host,
+                   strerror(-started));
+    }
+}
+
+/* ---- the API ---------------------------------------------------------------------------- */
 
 int mesh_fetch_init(struct mesh_fetch *fetch, struct mesh_event_loop *loop) {
     if (fetch == NULL) {
         return -EINVAL;
     }
     memset(fetch, 0, sizeof *fetch);
-    fetch->child = -1;
-    fetch->child_fd = -1;
     fetch->loop = loop;
-
-    if (have_executable("curl")) {
-        fetch->tool = "curl";
-    } else if (have_executable("wget")) {
-        fetch->tool = "wget";
-    } else {
-        fetch->tool = NULL;
-    }
-    return 0;
+    return mesh_resolve_init(&fetch->resolve, loop);
 }
 
 void mesh_fetch_shutdown(struct mesh_fetch *fetch) {
     if (fetch == NULL) {
         return;
     }
-    fetch_discard(fetch);
+    mesh_fetch_cancel(fetch);
+    mesh_resolve_shutdown(&fetch->resolve);
 }
 
 bool mesh_fetch_available(const struct mesh_fetch *fetch) {
-    return fetch != NULL && fetch->tool != NULL && fetch->loop != NULL;
+    return fetch != NULL && fetch->loop != NULL && mesh_tls_available();
 }
 
-bool mesh_fetch_busy(const struct mesh_fetch *fetch) { return fetch != NULL && fetch->child > 0; }
-
-const char *mesh_fetch_tool(const struct mesh_fetch *fetch) {
-    if (fetch == NULL || fetch->tool == NULL) {
-        return "fetcher";
-    }
-    return fetch->tool;
+bool mesh_fetch_busy(const struct mesh_fetch *fetch) {
+    return fetch != NULL && fetch->conn != NULL;
 }
 
-void mesh_fetch_resolve_ca_bundle(struct mesh_fetch *fetch, const char *shipped) {
+void mesh_fetch_connect_to(struct mesh_fetch *fetch, const char *host, uint16_t port) {
     if (fetch == NULL) {
         return;
     }
-    fetch->ca_bundle[0] = '\0';
-
-    static const char *const k_env[] = {"SSL_CERT_FILE", "CURL_CA_BUNDLE"};
-    for (size_t i = 0; i < sizeof k_env / sizeof k_env[0]; ++i) {
-        const char *const value = getenv(k_env[i]);
-        if (value != NULL && value[0] != '\0' && access(value, R_OK) == 0) {
-            snprintf(fetch->ca_bundle, sizeof fetch->ca_bundle, "%s", value);
-            return;
-        }
+    if (host == NULL || !mesh_str_copy(fetch->connect_host, sizeof fetch->connect_host, host)) {
+        fetch->connect_host[0] = '\0';
     }
-
-    if (shipped != NULL && shipped[0] != '\0' && access(shipped, R_OK) == 0) {
-        snprintf(fetch->ca_bundle, sizeof fetch->ca_bundle, "%s", shipped);
-        return;
-    }
-
-    static const char *const k_system[] = {
-        "/etc/ssl/certs/ca-certificates.crt", /* Debian, Ubuntu, Alpine, Arch */
-        "/etc/pki/tls/certs/ca-bundle.crt",   /* Fedora, RHEL */
-        "/etc/ssl/cert.pem",                  /* BSD, and Alpine's compatibility link */
-        "/etc/ssl/certs/ca-bundle.crt",
-    };
-    for (size_t i = 0; i < sizeof k_system / sizeof k_system[0]; ++i) {
-        if (access(k_system[i], R_OK) == 0) {
-            snprintf(fetch->ca_bundle, sizeof fetch->ca_bundle, "%s", k_system[i]);
-            return;
-        }
-    }
+    fetch->connect_port = port;
 }
 
-void mesh_fetch_set_ca_bundle(struct mesh_fetch *fetch, const char *path) {
-    if (fetch == NULL) {
-        return;
+/* Case-blind prefix test for a header line's name. */
+static bool fetch_header_is(const char *line, const char *name) {
+    const size_t len = strlen(name);
+    for (size_t i = 0U; i < len; ++i) {
+        char c = line[i];
+        if (c >= 'A' && c <= 'Z') {
+            c = (char)(c - 'A' + 'a');
+        }
+        if (c != name[i]) {
+            return false;
+        }
     }
-    snprintf(fetch->ca_bundle, sizeof fetch->ca_bundle, "%s", path != NULL ? path : "");
+    return true;
 }
 
 int mesh_fetch_start(struct mesh_fetch *fetch, const struct mesh_fetch_request *request,
                      uint64_t now_ms) {
-    if (fetch == NULL || request == NULL || request->url == NULL || request->url[0] == '\0' ||
-        request->on_done == NULL) {
+    if (fetch == NULL || request == NULL || request->url == NULL || request->on_done == NULL) {
         return -EINVAL;
     }
     if (!mesh_fetch_available(fetch)) {
         return -ENOTSUP;
     }
-    if (fetch->child > 0) {
+    if (fetch->conn != NULL) {
         return -EBUSY;
     }
-    /* A previous request's buffer, if a caller cancelled without going through us. */
-    fetch_discard(fetch);
 
-    const uint32_t timeout_ms = request->timeout_ms > 0U ? request->timeout_ms : 30000U;
-    unsigned long tool_seconds =
-        (unsigned long)timeout_ms * MESH_FETCH_TOOL_SHARE_NUM / (MESH_FETCH_TOOL_SHARE_DEN * 1000U);
-    if (tool_seconds < 1UL) {
-        tool_seconds = 1UL;
+    struct mesh_fetch_conn *const conn = calloc(1U, sizeof *conn);
+    if (conn == NULL) {
+        return -ENOMEM;
     }
-    char seconds[16];
-    snprintf(seconds, sizeof seconds, "%lu", tool_seconds);
-
-    /* Long-option forms for wget, which takes its bundle and its headers glued to the flag. */
-    char ca_option[MESH_FETCH_PATH_MAX + 24U];
-    snprintf(ca_option, sizeof ca_option, "--ca-certificate=%s", fetch->ca_bundle);
-    char header_options[MESH_FETCH_HEADERS_MAX][256];
-
-    char *argv[MESH_FETCH_ARGV_MAX];
-    size_t argc = 0U;
-    const bool curl = strcmp(fetch->tool, "curl") == 0;
-    const bool head = request->method == MESH_FETCH_HEAD;
-    if (curl) {
-        argv[argc++] = (char *)"curl";
-        argv[argc++] = head ? (char *)"-fsSLI" : (char *)"-fsSL";
-        argv[argc++] = (char *)"--max-time";
-        argv[argc++] = seconds;
-        if (fetch->ca_bundle[0] != '\0') {
-            argv[argc++] = (char *)"--cacert";
-            argv[argc++] = fetch->ca_bundle;
-        }
-        for (size_t i = 0; i < MESH_FETCH_HEADERS_MAX && request->headers[i] != NULL; ++i) {
-            argv[argc++] = (char *)"-H";
-            argv[argc++] = (char *)request->headers[i];
-        }
-        /* A HEAD's whole reply is its headers, so it is always captured rather than written
-           to whatever file the caller had in mind for a body. */
-        if (request->output_path != NULL && !head) {
-            argv[argc++] = (char *)"-o";
-            argv[argc++] = (char *)request->output_path;
-        }
-    } else {
-        argv[argc++] = (char *)"wget";
-        argv[argc++] = (char *)"-q";
-        argv[argc++] = (char *)"-T";
-        argv[argc++] = seconds;
-        if (fetch->ca_bundle[0] != '\0') {
-            argv[argc++] = ca_option;
-        }
-        for (size_t i = 0; i < MESH_FETCH_HEADERS_MAX && request->headers[i] != NULL; ++i) {
-            snprintf(header_options[i], sizeof header_options[i], "--header=%s",
-                     request->headers[i]);
-            argv[argc++] = header_options[i];
-        }
-        if (head) {
-            argv[argc++] = (char *)"--spider";
-            argv[argc++] = (char *)"-S";
-        }
-        argv[argc++] = (char *)"-O";
-        /* wget has no "write to stdout" default: capturing means asking for `-` by name. */
-        argv[argc++] =
-            request->output_path != NULL && !head ? (char *)request->output_path : (char *)"-";
+    conn->fd = -1;
+    conn->out_fd = -1;
+    if (!mesh_http_url_parse(request->url, &conn->url) || !conn->url.tls) {
+        free(conn);
+        return -EINVAL;
     }
-    argv[argc++] = (char *)request->url;
-    argv[argc] = NULL;
-
-    fetch->response_max =
+    bool agent = false;
+    for (size_t i = 0U; i < MESH_FETCH_HEADERS_MAX && request->headers[i] != NULL; ++i) {
+        if (!mesh_str_copy(conn->headers[conn->header_count], MESH_FETCH_HEADER_MAX,
+                           request->headers[i])) {
+            free(conn);
+            return -EINVAL;
+        }
+        agent = agent || fetch_header_is(request->headers[i], "user-agent:");
+        conn->ranged = conn->ranged || fetch_header_is(request->headers[i], "range:");
+        conn->header_count++;
+    }
+    if (!agent) {
+        snprintf(conn->headers[conn->header_count++], MESH_FETCH_HEADER_MAX,
+                 "User-Agent: meshclient/%s", mesh_version_string());
+    }
+    if (request->output_path != NULL &&
+        !mesh_str_copy(conn->output_path, sizeof conn->output_path, request->output_path)) {
+        free(conn);
+        return -EINVAL;
+    }
+    conn->method = request->method;
+    conn->response_max =
         request->response_max > 0U ? request->response_max : MESH_FETCH_RESPONSE_MAX;
-    fetch->on_done = request->on_done;
-    fetch->userdata = request->userdata;
-    fetch->failure = MESH_FETCH_OK;
+    conn->deadline_ms =
+        now_ms + (request->timeout_ms > 0U ? request->timeout_ms : FETCH_DEFAULT_TIMEOUT_MS);
+    conn->on_done = request->on_done;
+    conn->userdata = request->userdata;
 
-    const int result = fetch_spawn(fetch, argv, now_ms, timeout_ms, head);
-    if (result != 0) {
-        /* Nothing was spawned, so nothing may be reported: leave the fetcher idle and let the
-           caller turn the errno into whatever its own screen says. */
-        fetch->on_done = NULL;
-        fetch->userdata = NULL;
-        return result;
+    fetch->now_ms = now_ms;
+    fetch->conn = conn;
+    /*
+     * The first hop can fail before anything is waited on - no socket, no room on the loop - and
+     * that is reported through the callback like any other failure. So the callback is held back
+     * until this returns: a caller is promised it never runs from inside start().
+     */
+    conn->on_done = NULL;
+    fetch_hop(fetch);
+    if (fetch->conn == NULL) {
+        /* Already completed, silently. Say why the way start() says anything: with an errno. */
+        return -EIO;
     }
+    fetch->conn->on_done = request->on_done;
     return 0;
 }
 
 void mesh_fetch_tick(struct mesh_fetch *fetch, uint64_t now_ms) {
-    if (fetch == NULL || fetch->child <= 0) {
+    if (fetch == NULL) {
         return;
     }
-    /* A child that exited without closing stdout, or whose EOF the loop did not deliver, is
-       finished here. Drains first, exactly as the fd callback does. */
-    fetch_try_finish(fetch);
-    if (fetch->child <= 0) {
+    fetch->now_ms = now_ms;
+    mesh_resolve_tick(&fetch->resolve, now_ms);
+    struct mesh_fetch_conn *const conn = fetch->conn;
+    if (conn == NULL) {
         return;
     }
-    if (now_ms >= fetch->deadline_ms) {
-        /* Deliberately silent: the caller knows which step this was and says so itself. */
-        fetch_release_fd(fetch);
-        kill(fetch->child, SIGKILL);
-        (void)waitpid(fetch->child, NULL, 0);
-        fetch->child = -1;
-        fetch_complete(fetch, MESH_FETCH_TIMED_OUT, -1);
+    if (now_ms >= conn->deadline_ms) {
+        /* The caller knows which step this was and says so itself. */
+        fetch_fail(fetch, MESH_FETCH_TIMED_OUT, "%s did not finish in time", conn->url.host);
+        return;
+    }
+    if (conn->more_to_read && conn->phase == FETCH_RECEIVING) {
+        fetch_receive(fetch);
     }
 }
 
@@ -502,31 +704,11 @@ bool mesh_fetch_content_length(const char *headers, size_t len, uint64_t *out) {
     static const char k_key[] = "content-length:";
     const size_t key_len = sizeof k_key - 1U;
 
-    bool found = false;
-    uint64_t value = 0U;
-    /*
-     * Every line of every hop, taking the last match rather than the first. Both tools follow
-     * redirects and print the headers of each; a GitHub release URL is a 302 to the CDN and
-     * the 302 says `content-length: 0`, so first-match reports every release zip as empty.
-     */
     for (size_t at = 0U; at + key_len <= length; ++at) {
         if (at != 0U && headers[at - 1U] != '\n') {
             continue;
         }
-        /* Case-insensitive: curl prints HTTP/2 headers lowercase and wget prints what the
-           server sent, which for HTTP/1.1 is `Content-Length`. */
-        size_t i = 0U;
-        while (i < key_len) {
-            char c = headers[at + i];
-            if (c >= 'A' && c <= 'Z') {
-                c = (char)(c - 'A' + 'a');
-            }
-            if (c != k_key[i]) {
-                break;
-            }
-            i++;
-        }
-        if (i != key_len) {
+        if (!fetch_header_is(headers + at, k_key)) {
             continue;
         }
         size_t digit = at + key_len;
@@ -534,33 +716,51 @@ bool mesh_fetch_content_length(const char *headers, size_t len, uint64_t *out) {
             digit++;
         }
         if (digit >= length || headers[digit] < '0' || headers[digit] > '9') {
-            continue;
+            return false;
         }
         uint64_t parsed = 0U;
-        bool overflow = false;
         while (digit < length && headers[digit] >= '0' && headers[digit] <= '9') {
             if (parsed > (UINT64_MAX - 9U) / 10U) {
-                overflow = true;
-                break;
+                return false;
             }
             parsed = parsed * 10U + (uint64_t)(headers[digit] - '0');
             digit++;
         }
-        if (overflow) {
-            continue;
-        }
-        value = parsed;
-        found = true;
+        *out = parsed;
+        return true;
     }
-    if (found) {
-        *out = value;
-    }
-    return found;
+    return false;
 }
 
 void mesh_fetch_cancel(struct mesh_fetch *fetch) {
-    if (fetch == NULL) {
+    if (fetch == NULL || fetch->conn == NULL) {
         return;
     }
-    fetch_discard(fetch);
+    struct mesh_fetch_conn *const conn = fetch->conn;
+    fetch->conn = NULL;
+    fetch_free(fetch, conn);
+}
+
+const char *mesh_fetch_outcome_name(enum mesh_fetch_outcome outcome) {
+    switch (outcome) {
+    case MESH_FETCH_OK:
+        return "ok";
+    case MESH_FETCH_HTTP_STATUS:
+        return "http status";
+    case MESH_FETCH_TOO_LARGE:
+        return "too large";
+    case MESH_FETCH_NETWORK:
+        return "network";
+    case MESH_FETCH_TLS:
+        return "tls";
+    case MESH_FETCH_PROTOCOL:
+        return "protocol";
+    case MESH_FETCH_FILE:
+        return "file";
+    case MESH_FETCH_TIMED_OUT:
+        return "timed out";
+    case MESH_FETCH_OUTCOME_COUNT:
+    default:
+        return "unknown";
+    }
 }

@@ -193,7 +193,7 @@ static enum mesh_resolve_outcome resolve_outcome_of(const struct resolve_record 
  * Hands the outcome over, exactly once.
  *
  * Everything is lifted off the resolver and the resolver left idle *before* the callback runs,
- * the same re-entrancy rule fetch_complete() keeps: a caller that starts its next lookup from
+ * the same re-entrancy rule fetch.c's completion keeps: a caller that starts its next lookup from
  * inside this one's completion is starting it against a clean resolver.
  */
 static void resolve_complete(struct mesh_resolve *resolve, enum mesh_resolve_outcome outcome) {

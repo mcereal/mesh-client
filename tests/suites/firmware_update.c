@@ -10,10 +10,10 @@
  * the refusals that happen before anything starts, how a sub-module's failure is folded into the
  * one a row shows, and the antenna/radio split that the BLE path's reconnect depends on.
  *
- * The fake CDN is the firmware_download suite's, one directory over: a shell script called
- * `curl` on PATH that serves ranges out of the committed 2.7.26 fixtures the way the real CDN
- * serves them out of a 46 MB zip. What it deliberately cannot serve is a whole `.uf2` - at half
- * a megabyte that is not a fixture - so every case here that gets as far as the image gets a
+ * The fake CDN is the firmware_download suite's, one directory over: an HTTPS server on loopback
+ * (support/https_fixture.h) that serves ranges out of the committed 2.7.26 fixtures the way the
+ * real CDN serves them out of a 46 MB zip. What it deliberately cannot serve is a whole `.uf2` - at
+ * half a megabyte that is not a fixture - so every case here that gets as far as the image gets a
  * refusal out of it, which is exactly what makes the folding worth pinning: "the bytes did not
  * arrive" and "the bytes are for another board" must not be the same row.
  */
@@ -42,6 +42,10 @@
 #define ZIP_SIZE "46259773"
 #define TAIL_BASE 46194237
 #define MEMBER_BASE 2540989
+
+#ifdef MESHCLIENT_HAVE_TLS
+
+#include "support/https_fixture.h"
 
 /* ---- the boards a case installs onto --------------------------------------------------------- */
 
@@ -117,62 +121,10 @@ static struct mesh_firmware_update_hooks update_hooks(struct update_probe *probe
     return hooks;
 }
 
-/*
- * The fake CDN, and the one thing it does differently from the download suite's: a request for
- * a member that is not one of the two committed windows exits non-zero rather than serving
- * something plausible. A download that "succeeded" with the wrong bytes is the failure mode
- * this whole feature exists to avoid, so the fake must not be able to fake it.
- */
-static bool update_install_curl(const char *dir) {
-    char path[512];
-    snprintf(path, sizeof path, "%s/curl", dir);
-    FILE *const file = fopen(path, "w");
-    if (file == NULL) {
-        return false;
-    }
-    fprintf(file,
-            "#!/bin/sh\n"
-            "DATA='%s'\n"
-            "head=0; out=''; range=''\n"
-            "while [ $# -gt 0 ]; do\n"
-            "  case \"$1\" in\n"
-            "    -fsSLI) head=1 ;;\n"
-            "    -o) shift; out=\"$1\" ;;\n"
-            "    -H) shift; case \"$1\" in 'Range: bytes='*) range=\"${1#Range: bytes=}\" ;; "
-            "esac ;;\n"
-            "  esac\n"
-            "  shift\n"
-            "done\n"
-            "if [ \"$head\" -eq 1 ]; then\n"
-            "  printf 'HTTP/2 302 \\r\\ncontent-length: 0\\r\\n\\r\\n'\n"
-            "  printf 'HTTP/2 200 \\r\\naccept-ranges: bytes\\r\\ncontent-length: %s\\r\\n\\r\\n'\n"
-            "  exit 0\n"
-            "fi\n"
-            "if [ -z \"$range\" ]; then\n"
-            "  cat \"$DATA/firmware_release_2.7.26.json\"\n"
-            "  exit 0\n"
-            "fi\n"
-            "first=\"${range%%%%-*}\"; last=\"${range##*-}\"\n"
-            "count=$((last - first + 1))\n"
-            "if [ \"$first\" -ge %d ]; then\n"
-            "  file=\"$DATA/zip_tail_nrf52840_2.7.26.bin\"; off=$((first - %d))\n"
-            "elif [ \"$first\" -ge %d ]; then\n"
-            "  file=\"$DATA/zip_member_t114_mt_json_2.7.26.bin\"; off=$((first - %d))\n"
-            "else\n"
-            "  exit 4\n"
-            "fi\n"
-            "tail -c \"+$((off + 1))\" \"$file\" | head -c \"$count\" > \"$out\"\n"
-            "exit 0\n",
-            MESH_TEST_DATA_DIR, ZIP_SIZE, TAIL_BASE, TAIL_BASE, MEMBER_BASE, MEMBER_BASE);
-    const bool executable = fchmod(fileno(file), 0755) == 0;
-    fclose(file);
-    return executable;
-}
-
 /* ---- a zip of our own, for the one case that goes all the way through --------------------- */
 
 /*
- * The fake above serves two windows of a real release zip and deliberately cannot serve an
+ * The fake below serves two windows of a real release zip and deliberately cannot serve an
  * image, so every case built on it ends in a refusal - and a ladder nobody has ever climbed to
  * the top of is a ladder whose top rung can be broken for a release without anything noticing.
  * It was: a fetch that finished *inside* mesh_firmware_update_tick() had its own completion
@@ -365,55 +317,80 @@ static bool update_stage_zip(const char *dir) {
     return written;
 }
 
-/* The fake that serves it: one file, by range, with the release document for the one request
-   that carries no range at all. */
-static bool update_install_whole_curl(const char *dir) {
-    char path[512];
-    snprintf(path, sizeof path, "%s/curl", dir);
-    FILE *const file = fopen(path, "w");
+/* Reads `count` bytes at `offset` of `path` into `out`. Returns how many it could. */
+static size_t update_slice(const char *path, uint64_t offset, uint64_t count, char *out) {
+    FILE *const file = fopen(path, "rb");
     if (file == NULL) {
-        return false;
+        return 0U;
     }
-    fprintf(file,
-            "#!/bin/sh\n"
-            "ZIP='%s/firmware.zip'\n"
-            "DATA='%s'\n"
-            "head=0; out=''; range=''\n"
-            "while [ $# -gt 0 ]; do\n"
-            "  case \"$1\" in\n"
-            "    -fsSLI) head=1 ;;\n"
-            "    -o) shift; out=\"$1\" ;;\n"
-            "    -H) shift; case \"$1\" in 'Range: bytes='*) range=\"${1#Range: bytes=}\" ;; "
-            "esac ;;\n"
-            "  esac\n"
-            "  shift\n"
-            "done\n"
-            "if [ \"$head\" -eq 1 ]; then\n"
-            "  size=$(wc -c < \"$ZIP\" | tr -d ' ')\n"
-            /* The 302 with its own content-length first, because that is what a release URL
-               really answers with and taking the first match would call every zip empty. */
-            "  printf 'HTTP/2 302 \\r\\ncontent-length: 0\\r\\n\\r\\n'\n"
-            "  printf 'HTTP/2 200 \\r\\naccept-ranges: bytes\\r\\ncontent-length: %%s\\r\\n\\r\\n' "
-            "\"$size\"\n"
-            "  exit 0\n"
-            "fi\n"
-            "if [ -z \"$range\" ]; then\n"
-            "  cat \"$DATA/firmware_release_2.7.26.json\"\n"
-            "  exit 0\n"
-            "fi\n"
-            "first=\"${range%%%%-*}\"; last=\"${range##*-}\"\n"
-            "count=$((last - first + 1))\n"
-            "tail -c \"+$((first + 1))\" \"$ZIP\" | head -c \"$count\" > \"$out\"\n"
-            "exit 0\n",
-            dir, MESH_TEST_DATA_DIR);
-    const bool executable = fchmod(fileno(file), 0755) == 0;
+    size_t got = 0U;
+    if (fseek(file, (long)offset, SEEK_SET) == 0) {
+        got = fread(out, 1U, (size_t)count, file);
+    }
     fclose(file);
-    return executable;
+    return got;
+}
+
+struct update_cdn {
+    /* Serve the zip this file writes, rather than the two windows of the real one. */
+    bool whole;
+    char dir[64];
+};
+
+/*
+ * The fake CDN, in the fixture's child. With `whole` it serves the zip update_stage_zip() wrote;
+ * without, the two committed windows of the real one - and the one thing it does differently
+ * from the download suite's: a range that is not in either window is refused rather than served
+ * as something plausible. A download that "succeeded" with the wrong bytes is the failure mode
+ * this whole feature exists to avoid, so the fake must not be able to fake it.
+ */
+static void update_serve(void *userdata, const struct https_fixture_request *request,
+                         struct https_fixture_conn *conn) {
+    const struct update_cdn *const cdn = (const struct update_cdn *)userdata;
+    char zip[512];
+    snprintf(zip, sizeof zip, "%s/firmware.zip", cdn->dir);
+    const size_t target_len = strlen(request->target);
+    if (target_len > 5U && strcmp(request->target + target_len - 5U, ".json") == 0) {
+        char path[512];
+        snprintf(path, sizeof path, "%s/firmware_release_2.7.26.json", MESH_TEST_DATA_DIR);
+        https_fixture_reply_file(conn, request, path);
+        return;
+    }
+    if (cdn->whole) {
+        https_fixture_reply_file(conn, request, zip);
+        return;
+    }
+    if (strcmp(request->method, "HEAD") == 0) {
+        https_fixture_printf(conn, "HTTP/1.1 200 OK\r\nAccept-Ranges: bytes\r\n"
+                                   "Content-Length: " ZIP_SIZE "\r\n\r\n");
+        return;
+    }
+    static char body[1024U * 1024U];
+    const uint64_t first = request->first;
+    const uint64_t count = request->last - first + 1U;
+    size_t got = 0U;
+    char path[512];
+    if (request->ranged && count <= sizeof body && first >= TAIL_BASE) {
+        snprintf(path, sizeof path, "%s/zip_tail_nrf52840_2.7.26.bin", MESH_TEST_DATA_DIR);
+        got = update_slice(path, first - TAIL_BASE, count, body);
+    } else if (request->ranged && count <= sizeof body && first >= MEMBER_BASE) {
+        snprintf(path, sizeof path, "%s/zip_member_t114_mt_json_2.7.26.bin", MESH_TEST_DATA_DIR);
+        got = update_slice(path, first - MEMBER_BASE, count, body);
+    }
+    if (got == 0U) {
+        https_fixture_reply(conn, 416, NULL, NULL, 0U);
+        return;
+    }
+    char range[96];
+    snprintf(range, sizeof range, "Content-Range: bytes %llu-%llu/" ZIP_SIZE "\r\n",
+             (unsigned long long)first, (unsigned long long)(first + got - 1U));
+    https_fixture_reply(conn, 206, range, body, got);
 }
 
 struct update_harness {
     char dir[64];
-    char *saved_path;
+    struct update_cdn cdn;
+    struct https_fixture server;
     struct mesh_event_loop loop;
     struct mesh_firmware_update update;
     bool loop_up;
@@ -434,15 +411,11 @@ static bool update_harness_start(struct update_harness *harness, bool whole) {
     if (whole && !update_stage_zip(harness->dir)) {
         return false;
     }
-    if (!(whole ? update_install_whole_curl(harness->dir) : update_install_curl(harness->dir))) {
+    harness->cdn.whole = whole;
+    snprintf(harness->cdn.dir, sizeof harness->cdn.dir, "%s", harness->dir);
+    if (!https_fixture_start(&harness->server, update_serve, &harness->cdn)) {
         return false;
     }
-    const char *const old_path = getenv("PATH");
-    harness->saved_path = old_path != NULL ? strdup(old_path) : strdup("");
-    char new_path[1024];
-    snprintf(new_path, sizeof new_path, "%s:%s", harness->dir,
-             old_path != NULL ? old_path : "/usr/bin");
-    setenv("PATH", new_path, 1);
     /* The image is staged in the scratch directory rather than /tmp, so a case cleans up after
        itself and two running side by side cannot collide. */
     setenv("MESHCLIENT_FIRMWARE_STAGING", harness->dir, 1);
@@ -455,6 +428,7 @@ static bool update_harness_start(struct update_harness *harness, bool whole) {
         return false;
     }
     harness->update_up = true;
+    https_fixture_attach(&harness->server, &harness->update.fetch);
     return mesh_firmware_update_available(&harness->update);
 }
 
@@ -474,20 +448,12 @@ static void update_harness_down(struct update_harness *harness) {
         mesh_event_loop_shutdown(&harness->loop);
     }
     unsetenv("MESHCLIENT_FIRMWARE_STAGING");
-    if (harness->saved_path != NULL) {
-        setenv("PATH", harness->saved_path, 1);
-        free(harness->saved_path);
-    }
+    https_fixture_stop(&harness->server);
     if (harness->dir[0] == '\0') {
         return;
     }
-    static const char *const k_files[] = {"curl",
-                                          "firmware.window",
-                                          "firmware.central",
-                                          "firmware.header",
-                                          "firmware.member",
-                                          "firmware.image",
-                                          "firmware.zip"};
+    static const char *const k_files[] = {"firmware.window", "firmware.central", "firmware.header",
+                                          "firmware.member", "firmware.image",   "firmware.zip"};
     char path[512];
     for (size_t i = 0; i < sizeof k_files / sizeof k_files[0]; ++i) {
         snprintf(path, sizeof path, "%s/%s", harness->dir, k_files[i]);
@@ -520,6 +486,8 @@ static bool update_settle_at(struct update_harness *harness, const struct update
 
 /* ---- the cases ------------------------------------------------------------------------------- */
 
+#endif /* MESHCLIENT_HAVE_TLS */
+
 /*
  * Every state and every error has a word, and the two ladders are total.
  *
@@ -550,6 +518,8 @@ MESH_TEST_CASE(firmware_update_names_every_state, unit) {
                       "and everything between is");
     record_success(test_name);
 }
+
+#ifdef MESHCLIENT_HAVE_TLS
 
 /*
  * The refusals that happen before a byte moves, and the promise that comes with them: nothing
@@ -910,3 +880,5 @@ cleanup:
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
+
+#endif /* MESHCLIENT_HAVE_TLS */

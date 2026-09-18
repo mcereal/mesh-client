@@ -514,7 +514,7 @@ static void actions_settings(const struct mesh_ui_nav *nav, const struct mesh_ui
      * Both halves are now asked rather than listed. Whether anything steps is a fact about the
      * field table; whether anything is a verb is a fact about the rows as built, which is what
      * makes it the same answer as the row itself - About radio's install press appears only
-     * once a check has found something, and a device with no curl draws no verb here at all.
+     * once a check has found something, and a build with no TLS draws no verb here at all.
      * That was already the condition this arm tested by hand, spelled as `fw_supported`.
      *
      * A is named here and left off an editable section below for the same reason in both

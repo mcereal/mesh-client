@@ -878,7 +878,7 @@ static bool build_radio_firmware_running(const struct mesh_ui_settings *s, struc
  */
 static void build_radio_firmware(const struct mesh_ui_settings *s, struct item_list *list) {
     if (!s->fw_supported) {
-        /* No curl and no wget. Said once rather than offering a press that cannot run. */
+        /* A build with no TLS. Said once rather than offering a press that cannot run. */
         item_str(list, MESH_STR_FW_LATEST, MESH_UI_SETTING_INFO,
                  MESH_STR_ABOUT_UPDATES_UNAVAILABLE);
         return;

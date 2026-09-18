@@ -35,7 +35,7 @@ static const char k_release_json[] =
     "]}";
 
 /* Runs the loop until `updater` leaves `from`, or the budget runs out. Returns true if it
-   moved: every step is driven by a child process, so the test has to pump the loop. */
+   moved: every step arrives through the event loop, so the test has to pump it. */
 static bool updater_wait_past(struct mesh_event_loop *loop, struct mesh_updater *updater,
                               enum mesh_update_state from) {
     for (int i = 0; i < 200 && updater->state == from; ++i) {
@@ -335,77 +335,73 @@ MESH_TEST_CASE(updater_lifecycle, unit) {
     record_success(test_name);
 }
 
+#ifdef MESHCLIENT_HAVE_TLS
+
+#include "support/https_fixture.h"
+
+/* What the fake GitHub serves, named by path so a case can rewrite a file between requests. */
+struct updater_github {
+    char json[256];
+    char payload[256];
+    char gate[256];
+    size_t half;
+};
+
 /*
- * The whole update path with a fake `curl` on PATH: fork, drain its stdout through the event
- * loop, parse the release, download, verify the checksum and rename the binary into place.
+ * GitHub, in the fixture's child: the API answers with the release document, the release asset
+ * URL is a 302 to another host the way github.com's really is, and that host serves the binary.
  *
- * Worth doing for real rather than mocking the pieces, because the bugs this path attracts are
- * in the seams - a child reaped before its output was drained, a blocking waitpid in the
- * loop's own thread - and none of those show up when the fetch is stubbed out.
+ * The binary arrives in two pieces with the test holding a gate between them, which is what
+ * makes the progress meter testable rather than raced. Byte progress is read by stat()ing the
+ * file the fetcher is writing (see `downloaded` in updater.h), so a transfer that stops half way
+ * is precisely a download the UI has to be able to report a fraction of - and a fixed first
+ * piece makes that fraction an exact number rather than whatever the scheduler allowed.
  */
-/*
- * The CA bundle the fetcher is pointed at.
- *
- * Worth pinning because getting it wrong is invisible until it is on hardware: the Brick has no
- * system CA store, so a build that resolves nothing here fails every check with curl exit 60 and
- * self-update simply never works. The environment override is the one branch a test can drive
- * deterministically - the pak lookup needs the binary to live in a pak, and the system paths
- * differ per distro - and it is also the branch that documents the precedence.
- */
-MESH_TEST_CASE(updater_ca_bundle, unit) {
-    char bundle_path[] = "/tmp/meshclient_ca_XXXXXX";
-    const int fd = mkstemp(bundle_path);
-    if (fd < 0) {
-        record_failure(test_name, "could not create a stand-in CA bundle");
+static void updater_serve(void *userdata, const struct https_fixture_request *request,
+                          struct https_fixture_conn *conn) {
+    const struct updater_github *const github = (const struct updater_github *)userdata;
+    if (strcmp(request->host, "api.github.com") == 0) {
+        https_fixture_reply_file(conn, request, github->json);
         return;
     }
-    (void)!write(fd, "# not a real bundle\n", 20U);
-    close(fd);
-
-    struct mesh_event_loop loop;
-    if (mesh_event_loop_init(&loop) != 0) {
-        unlink(bundle_path);
-        record_failure(test_name, "event loop init failed");
+    if (strcmp(request->host, "github.com") == 0) {
+        https_fixture_reply(
+            conn, 302, "Location: https://objects.githubusercontent.com/asset?sig=x\r\n", NULL, 0U);
         return;
     }
-
-    /* SSL_CERT_FILE wins over everything: whatever the host has in /etc/ssl, an operator who
-       names a bundle gets that bundle. */
-    setenv("SSL_CERT_FILE", bundle_path, 1);
-    struct mesh_updater updater;
-    mesh_updater_init(&updater, &loop);
-    const bool honoured = strcmp(updater.fetch.ca_bundle, bundle_path) == 0;
-    mesh_updater_shutdown(&updater);
-    unsetenv("SSL_CERT_FILE");
-    if (!honoured) {
-        mesh_event_loop_shutdown(&loop);
-        unlink(bundle_path);
-        record_failure(test_name, "SSL_CERT_FILE should be the bundle the fetcher is given");
+    if (strcmp(request->host, "objects.githubusercontent.com") != 0) {
+        https_fixture_reply(conn, 404, NULL, NULL, 0U);
         return;
     }
-
-    /* A path that does not exist is ignored rather than passed to curl, which would turn a
-       stale environment variable into a failed update with a confusing message. */
-    setenv("CURL_CA_BUNDLE", "/nonexistent/meshclient/ca.crt", 1);
-    mesh_updater_init(&updater, &loop);
-    const bool ignored = strcmp(updater.fetch.ca_bundle, "/nonexistent/meshclient/ca.crt") != 0;
-    mesh_updater_shutdown(&updater);
-    unsetenv("CURL_CA_BUNDLE");
-    mesh_event_loop_shutdown(&loop);
-    unlink(bundle_path);
-    if (!ignored) {
-        record_failure(test_name, "an unreadable CA bundle should not be used");
-        return;
+    char payload[256];
+    FILE *file = fopen(github->payload, "rb");
+    const size_t len = file != NULL ? fread(payload, 1U, sizeof payload, file) : 0U;
+    if (file != NULL) {
+        fclose(file);
     }
-
-    record_success(test_name);
+    https_fixture_printf(conn, "HTTP/1.1 200 OK\r\nContent-Length: %zu\r\n\r\n", len);
+    https_fixture_send(conn, payload, github->half);
+    const struct timespec pause = {.tv_sec = 0, .tv_nsec = 20000000L};
+    while (access(github->gate, F_OK) != 0) {
+        (void)nanosleep(&pause, NULL);
+    }
+    https_fixture_send(conn, payload + github->half, len - github->half);
 }
 
+/*
+ * The whole update path against a real HTTPS server: the check, the redirect to the asset's
+ * host, the download streamed to disk, the checksum and the rename into place.
+ *
+ * Worth doing for real rather than mocking the pieces, because the bugs this path attracts are
+ * in the seams - a reply read short, a completion that lands while the loop is somewhere else -
+ * and none of those show up when the fetch is stubbed out.
+ */
 MESH_TEST_CASE(updater_fetch_and_install, unit) {
     char dir[] = "/tmp/meshclient_update_XXXXXX";
     MESH_TEST_FAIL_IF(mkdtemp(dir) == NULL, "could not create a temporary directory");
     const char *failure = NULL;
-    char *saved_path = NULL;
+    struct https_fixture server;
+    memset(&server, 0, sizeof server);
     struct mesh_event_loop loop;
     struct mesh_updater updater;
     bool loop_up = false;
@@ -413,21 +409,19 @@ MESH_TEST_CASE(updater_fetch_and_install, unit) {
 
     char payload_path[256];
     char json_path[256];
-    char curl_path[256];
     char install_path[256];
     char bin_dir[256];
     char shared_dir[256];
     char pak_json_path[256];
     snprintf(payload_path, sizeof payload_path, "%s/payload", dir);
     snprintf(json_path, sizeof json_path, "%s/release.json", dir);
-    snprintf(curl_path, sizeof curl_path, "%s/curl", dir);
     /* The pak layout, because the install stamps the pak.json two directories above the
        binary and would find nothing in a flat one. */
     snprintf(bin_dir, sizeof bin_dir, "%s/bin", dir);
     snprintf(shared_dir, sizeof shared_dir, "%s/bin/shared", dir);
     snprintf(install_path, sizeof install_path, "%s/bin/shared/meshclient", dir);
     snprintf(pak_json_path, sizeof pak_json_path, "%s/pak.json", dir);
-    /* The gate the fake curl waits on before finishing its download - see the script below. */
+    /* The gate the server waits on before finishing its download - see updater_serve(). */
     char gate_path[256];
     snprintf(gate_path, sizeof gate_path, "%s/finish-download", dir);
     MESH_TEST_FAIL_IF(mkdir(bin_dir, 0755) != 0 || mkdir(shared_dir, 0755) != 0,
@@ -474,48 +468,15 @@ MESH_TEST_CASE(updater_fetch_and_install, unit) {
             sizeof k_payload - 1U, digest_hex);
     fclose(json);
 
-    /*
-     * A stand-in for curl: with -o it "downloads" the payload, otherwise it prints the release
-     * metadata on stdout, which is exactly the shape the real one is invoked in.
-     *
-     * The download half arrives in two pieces with the test holding the gate between them, and
-     * that is what makes the progress meter testable rather than raced. Byte progress is read
-     * by stat()ing the file the fetcher is writing (see `downloaded` in updater.h), so a
-     * fetcher that stops half way is precisely a download the UI has to be able to report a
-     * fraction of - and a fixed first piece makes that fraction an exact number rather than
-     * whatever the scheduler happened to allow.
-     */
-    FILE *script = fopen(curl_path, "w");
-    if (script == NULL) {
-        failure = "could not write the fake curl";
+    static struct updater_github github;
+    snprintf(github.json, sizeof github.json, "%s", json_path);
+    snprintf(github.payload, sizeof github.payload, "%s", payload_path);
+    snprintf(github.gate, sizeof github.gate, "%s", gate_path);
+    github.half = k_payload_half;
+    if (!https_fixture_start(&server, updater_serve, &github)) {
+        failure = "could not stand up the fake GitHub";
         goto cleanup;
     }
-    fprintf(script,
-            "#!/bin/sh\n"
-            "out=''\n"
-            "prev=''\n"
-            "for a in \"$@\"; do\n"
-            "  if [ \"$prev\" = '-o' ]; then out=\"$a\"; fi\n"
-            "  prev=\"$a\"\n"
-            "done\n"
-            "if [ -z \"$out\" ]; then cat '%s'; exit 0; fi\n"
-            "head -c %u '%s' > \"$out\"\n"
-            "while [ ! -f '%s' ]; do sleep 0.02; done\n"
-            "cp '%s' \"$out\"\n",
-            json_path, (unsigned)k_payload_half, payload_path, gate_path, payload_path);
-    /* On the descriptor, not the path - see fetch.c's copy of this helper for why. */
-    const bool executable = fchmod(fileno(script), 0755) == 0;
-    fclose(script);
-    if (!executable) {
-        failure = "could not make the fake curl executable";
-        goto cleanup;
-    }
-
-    const char *old_path = getenv("PATH");
-    saved_path = old_path != NULL ? strdup(old_path) : NULL;
-    char new_path[1024];
-    snprintf(new_path, sizeof new_path, "%s:%s", dir, old_path != NULL ? old_path : "/usr/bin");
-    setenv("PATH", new_path, 1);
 
     if (mesh_event_loop_init(&loop) != 0) {
         failure = "event loop init failed";
@@ -527,10 +488,7 @@ MESH_TEST_CASE(updater_fetch_and_install, unit) {
         goto cleanup;
     }
     updater_up = true;
-    if (updater.fetch.tool == NULL || strcmp(updater.fetch.tool, "curl") != 0) {
-        failure = "the fake curl should have been picked up from PATH";
-        goto cleanup;
-    }
+    https_fixture_attach(&server, &updater.fetch);
 
     /* Never let the install rename over the running test binary. */
     snprintf(updater.install_path, sizeof updater.install_path, "%s", install_path);
@@ -568,7 +526,7 @@ MESH_TEST_CASE(updater_fetch_and_install, unit) {
     }
 
     /*
-     * The progress meter's data, which is the whole reason a forked fetcher can have one.
+     * The progress meter's data, read off the file the download is going into.
      *
      * Nothing has been written yet, and a download with a size to divide by is a *known* zero
      * rather than an unknown - the distinction the About screen draws as an empty bar rather
@@ -580,7 +538,7 @@ MESH_TEST_CASE(updater_fetch_and_install, unit) {
         goto cleanup;
     }
 
-    /* The fetcher has written its first piece and is waiting on the gate, so the reading is
+    /* The server has sent its first piece and is waiting on the gate, so the reading is
        exactly that piece over the asset's size and stays there until the test lets go. */
     for (int i = 0; i < 200 && updater.downloaded == 0U; ++i) {
         mesh_event_loop_run(&loop, 10);
@@ -721,13 +679,9 @@ cleanup:
     if (loop_up) {
         mesh_event_loop_shutdown(&loop);
     }
-    if (saved_path != NULL) {
-        setenv("PATH", saved_path, 1);
-        free(saved_path);
-    }
+    https_fixture_stop(&server);
     unlink(payload_path);
     unlink(json_path);
-    unlink(curl_path);
     unlink(gate_path);
     unlink(install_path);
     unlink(pak_json_path);
@@ -738,48 +692,36 @@ cleanup:
     record_success(test_name);
 }
 
+/* Answers the handshake and then nothing at all, the way a server behind a dead proxy does. */
+static void updater_serve_nothing(void *userdata, const struct https_fixture_request *request,
+                                  struct https_fixture_conn *conn) {
+    (void)userdata;
+    (void)request;
+    (void)conn;
+    sleep(120);
+}
+
 /*
- * A downloader that closes stdout but keeps running must not wedge the client.
+ * A server that takes the request and never answers must not wedge the client.
  *
- * The trap: once the child closes its stdout, epoll reports EOF/HUP on that fd on every wait,
- * so mesh_event_loop_run() never sees a zero-event timeout and never returns - which means
- * mesh_updater_tick() never runs and the timeout that is supposed to kill the child never
- * fires. The whole UI is single-threaded, so that is a freeze, not a slow update. The fd is
- * therefore dropped at EOF while the pid is kept for polling.
+ * The deadline is the updater's own and it is checked on the tick, so a reply that never comes
+ * cannot hold the About screen at "checking" - and the connection is let go with it rather than
+ * left open for the next check to trip over. The clock is walked forward so the timeout is
+ * reached in a handful of turns rather than in real time.
  */
-MESH_TEST_CASE(updater_child_outlives_stdout, unit) {
-    char dir[] = "/tmp/meshclient_hang_XXXXXX";
-    MESH_TEST_FAIL_IF(mkdtemp(dir) == NULL, "could not create a temporary directory");
+MESH_TEST_CASE(updater_gives_up_on_a_silent_server, unit) {
     const char *failure = NULL;
-    char *saved_path = NULL;
+    struct https_fixture server;
+    memset(&server, 0, sizeof server);
     struct mesh_event_loop loop;
     struct mesh_updater updater;
     bool loop_up = false;
     bool updater_up = false;
 
-    char curl_path[256];
-    snprintf(curl_path, sizeof curl_path, "%s/curl", dir);
-    FILE *script = fopen(curl_path, "w");
-    if (script == NULL) {
-        failure = "could not write the fake curl";
+    if (!https_fixture_start(&server, updater_serve_nothing, NULL)) {
+        failure = "could not stand up the server";
         goto cleanup;
     }
-    /* Closes stdout immediately, then lingers well past the test's budget. */
-    fprintf(script, "#!/bin/sh\nexec >&-\nsleep 120\n");
-    /* On the descriptor, not the path - see fetch.c's copy of this helper for why. */
-    const bool executable = fchmod(fileno(script), 0755) == 0;
-    fclose(script);
-    if (!executable) {
-        failure = "could not make the fake curl executable";
-        goto cleanup;
-    }
-
-    const char *old_path = getenv("PATH");
-    saved_path = old_path != NULL ? strdup(old_path) : NULL;
-    char new_path[1024];
-    snprintf(new_path, sizeof new_path, "%s:%s", dir, old_path != NULL ? old_path : "/usr/bin");
-    setenv("PATH", new_path, 1);
-
     if (mesh_event_loop_init(&loop) != 0) {
         failure = "event loop init failed";
         goto cleanup;
@@ -790,27 +732,24 @@ MESH_TEST_CASE(updater_child_outlives_stdout, unit) {
         goto cleanup;
     }
     updater_up = true;
+    https_fixture_attach(&server, &updater.fetch);
+    /* Never let anything rename over the running test binary. */
+    snprintf(updater.install_path, sizeof updater.install_path, "%s", "/nonexistent/meshclient");
     if (mesh_updater_check(&updater, 0U) != 0) {
         failure = "check should start";
         goto cleanup;
     }
 
-    /*
-     * Each turn must return promptly. Before the fix mesh_event_loop_run() spun forever inside
-     * its own loop and this never came back at all; the deadline is walked forward so the
-     * timeout can be reached in a handful of turns rather than in real time.
-     */
     for (int i = 0; i < 20 && updater.state == MESH_UPDATE_CHECKING; ++i) {
         mesh_event_loop_run(&loop, 10);
         mesh_updater_tick(&updater, (uint64_t)i * 5000U);
     }
     if (updater.state != MESH_UPDATE_FAILED) {
-        failure = "a child that closed stdout without exiting should hit the timeout";
+        failure = "a server that never answers should hit the timeout";
         goto cleanup;
     }
-    /* And the child is gone rather than left behind holding the staging file. */
-    if (updater.fetch.child > 0 || updater.fetch.child_fd >= 0) {
-        failure = "the timed-out child should have been reaped and its pipe closed";
+    if (mesh_fetch_busy(&updater.fetch)) {
+        failure = "the timed-out request should have let its connection go";
         goto cleanup;
     }
 
@@ -821,15 +760,12 @@ cleanup:
     if (loop_up) {
         mesh_event_loop_shutdown(&loop);
     }
-    if (saved_path != NULL) {
-        setenv("PATH", saved_path, 1);
-        free(saved_path);
-    }
-    unlink(curl_path);
-    rmdir(dir);
+    https_fixture_stop(&server);
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
+
+#endif /* MESHCLIENT_HAVE_TLS */
 
 /*
  * A build that was not stamped by the release script must never look like a release, whatever

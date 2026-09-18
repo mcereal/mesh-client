@@ -916,11 +916,8 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
     }
 
     /* The radio's firmware, on its own fetcher because the two are separate presses that must
-       be able to fail separately. It borrows the updater's CA bundle rather than looking for
-       one again: where the pak keeps it is a fact about this install, and two answers to that
-       is two answers that can disagree. Never fatal, for the same reason as above. */
+       be able to fail separately. Never fatal, for the same reason as above. */
     (void)mesh_firmware_init(&app->firmware, &app->loop);
-    mesh_firmware_use_ca_bundle(&app->firmware, app->updater.fetch.ca_bundle);
     /* After init, which zeroes the struct. A prefs file written before the setting existed
        reads as stable, so this is a no-op for anyone who has never picked. */
     (void)mesh_firmware_set_channel(
@@ -928,14 +925,13 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
 
     /* Installing it, on a third fetcher. The check and the install are one press each and
        either can be pressed while the other is in flight - a check that took the download's
-       child out from under it would be this client stopping mid-image because somebody asked a
-       question. Same CA bundle, for the same reason. */
+       connection out from under it would be this client stopping mid-image because somebody
+       asked a question. */
     (void)mesh_firmware_update_init(&app->firmware_update, &app->loop);
-    mesh_firmware_update_use_ca_bundle(&app->firmware_update, app->updater.fetch.ca_bundle);
 
-    /* The MQTT proxy, which borrows the same bundle for the same reason and is otherwise driven
-       entirely by what the radio asks for. Nothing connects here: the decision is re-derived on
-       every loop turn from the radio's own configuration. See src/app/app_mqtt.c. */
+    /* The MQTT proxy, which is driven entirely by what the radio asks for. Nothing connects here:
+       the decision is re-derived on every loop turn from the radio's own configuration. See
+       src/app/app_mqtt.c. */
     mesh_app_mqtt_init(app);
 
     /* Optional canned.txt next to the preferences file replaces the built-in quick replies. */
@@ -1113,14 +1109,14 @@ int mesh_app_run(struct mesh_app *app) {
         mesh_event_loop_run(&app->loop, 0);
         while (true) {
             mesh_transport_registry_tick(&app->transport_registry);
-            /* The updater's child is watched by the event loop; this only enforces its
-               timeout and reaps a child whose exit the loop did not see. */
+            /* The updater's connection is watched by the event loop; this enforces its timeout
+               and resumes a read that gave the loop back early. */
             mesh_updater_tick(&app->updater, mesh_time_monotonic_ms());
             mesh_firmware_tick(&app->firmware, mesh_time_monotonic_ms());
             /* One antenna: a download and a link cannot both have it, and the link is the one
                that loses - a Meshtastic node ends the connection after a second of silence,
-               while curl only takes longer. Derived here rather than done at the install press
-               so every route into a download releases it, and paired with the auto-connect
+               while a download only takes longer. Derived here rather than done at the install
+               press so every route into a download releases it, and paired with the auto-connect
                guard above so nothing brings it back mid-download. */
             if (mesh_updater_holds_the_radio(&app->updater)) {
                 mesh_app_release_other_link(NULL);

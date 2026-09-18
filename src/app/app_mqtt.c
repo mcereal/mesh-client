@@ -341,11 +341,7 @@ void mesh_app_mqtt_init(struct mesh_app *app) {
         mesh_log_info("app", "MQTT client proxy disabled by MESHCLIENT_MQTT_PROXY");
     }
     (void)mesh_mqtt_proxy_init(&app->mqtt, &app->loop);
-    /*
-     * The built-in roots, unless somebody named a bundle. Not the one the updater resolved: that
-     * is the pak's file, which is for curl and is only as new as the pak, where the compiled-in
-     * roots are as new as this binary. See include/mesh/core/ca_roots.h.
-     */
+    /* The built-in roots, unless somebody named a bundle. See include/mesh/core/ca_roots.h. */
     mesh_mqtt_proxy_set_ca_bundle(&app->mqtt, mesh_tls_ca_override());
 }
 

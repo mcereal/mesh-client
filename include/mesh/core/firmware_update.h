@@ -27,7 +27,7 @@
  * the image is staged and verified and we are waiting for the radio to answer again.
  *
  * **It owns its own fetcher and, on the BLE path, its own D-Bus connection.** The fetcher
- * because a check and a download are two presses that must not take each other's child; the
+ * because a check and a download are two presses that must not take each other's connection; the
  * D-Bus connection for the reason firmware_ota.h gives - `dbus_bus_get()` hands every caller
  * one shared connection and whoever pops a message off it has taken it from everybody else, so
  * an install on the shared one would eat the transport's replies while that transport was still
@@ -162,7 +162,8 @@ typedef void (*mesh_firmware_update_done_fn)(void *userdata,
 
 struct mesh_firmware_update {
     struct mesh_event_loop *loop; /* borrowed; may be NULL */
-    /* Its own, so a check running next door cannot take the child out from under a download. */
+    /* Its own, so a check running next door cannot take the connection out from under a download.
+     */
     struct mesh_fetch fetch;
 
     enum mesh_firmware_update_state state;
@@ -220,10 +221,6 @@ struct mesh_firmware_update {
    -errno. */
 int mesh_firmware_update_init(struct mesh_firmware_update *update, struct mesh_event_loop *loop);
 void mesh_firmware_update_shutdown(struct mesh_firmware_update *update);
-
-/* The CA bundle to verify with, resolved once per process by whoever found it - the Brick has
-   no system store, so without it every HTTPS request exits 60. */
-void mesh_firmware_update_use_ca_bundle(struct mesh_firmware_update *update, const char *path);
 
 /* True when a fetcher was found, i.e. when a press could do anything at all. */
 bool mesh_firmware_update_available(const struct mesh_firmware_update *update);

@@ -4,8 +4,8 @@
  * What the *radio's* firmware situation is: which board this is, what it is running, what the
  * newest release is, and whether this client could install it from where it is standing.
  *
- * The client's own self-update is next door in updater.h and this borrows its shape - one child at
- * a time through the event loop, one state per thing a row can name - because they are the same
+ * The client's own self-update is next door in updater.h and this borrows its shape - one request
+ * at a time through the event loop, one state per thing a row can name - because they are the same
  * problem twice. What they are not is the same feature: this one changes a different computer, over
  * a bus, and getting it wrong there is somebody's radio rather than a relaunch.
  *
@@ -137,14 +137,6 @@ struct mesh_firmware {
 int mesh_firmware_init(struct mesh_firmware *firmware, struct mesh_event_loop *loop);
 void mesh_firmware_shutdown(struct mesh_firmware *firmware);
 
-/*
- * The CA bundle to verify with. Resolved once per process by whoever found it - on the Brick
- * that is the pak's own, because the device has no system store - and handed here rather than
- * looked up again: where the bundle is is a fact about how this binary was installed, and two
- * modules answering it separately is two answers that can disagree.
- */
-void mesh_firmware_use_ca_bundle(struct mesh_firmware *firmware, const char *path);
-
 /* True when a fetcher was found, i.e. when a check could do anything at all. */
 bool mesh_firmware_available(const struct mesh_firmware *firmware);
 /* True while a document is in flight. */
@@ -173,7 +165,7 @@ void mesh_firmware_set_bus(struct mesh_firmware *firmware, enum mesh_firmware_pa
 int mesh_firmware_check(struct mesh_firmware *firmware, uint32_t hw_model, const char *running,
                         uint64_t now_ms);
 
-/* Enforces the per-document timeout and reaps a finished child. Call every loop turn. */
+/* Enforces the per-document timeout and keeps the fetch moving. Call every loop turn. */
 void mesh_firmware_tick(struct mesh_firmware *firmware, uint64_t now_ms);
 
 /*

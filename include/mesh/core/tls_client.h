@@ -11,12 +11,10 @@ extern "C" {
 /*
  * A TLS client session over a descriptor somebody else owns.
  *
- * There is one of these in the whole binary and it exists for one reason: MQTT over TLS. Every
- * *other* thing this client fetches over HTTPS is a forked curl (src/core/net/fetch.c), because a
- * fetch is a request and a reply and a child process is a fine way to do one. A broker
- * connection is not - it is a long-lived, bidirectional stream that has to sit on the same epoll
- * loop as everything else and be readable and writable between UI frames. There is nothing to
- * fork and nowhere to block.
+ * Two things use it: a broker connection (mqtt_proxy.c) and an HTTPS request (fetch.c). Both have
+ * to sit on the same epoll loop as everything else and be readable and writable between UI
+ * frames - a broker connection because it is long-lived and bidirectional, a download because it
+ * is megabytes arriving while the screen still has to draw. There is nowhere to block.
  *
  * So this is Mbed TLS (third_party/mbedtls, a pinned submodule) driven through BIO callbacks
  * over a non-blocking socket, reporting `-EAGAIN` all the way up rather than waiting. The
@@ -127,7 +125,8 @@ int mesh_tls_client_write(struct mesh_tls_client *tls, const uint8_t *data, size
  *
  * No close_notify is sent. It would be one more write that can block on a socket the caller is
  * about to close anyway, and the thing it protects against - a truncation attack on a stream
- * whose end is meaningful - does not apply to MQTT, where every message carries its own length.
+ * whose end is meaningful - is the *peer's* to worry about: MQTT messages carry their own
+ * length, and fetch.c sends one request and reads the server's close_notify, not its own.
  */
 void mesh_tls_client_stop(struct mesh_tls_client *tls);
 

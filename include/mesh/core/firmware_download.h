@@ -28,7 +28,7 @@
  *
  * **The radio link must be down for the duration.** The Brick's Wi-Fi and its Bluetooth are
  * one part behind one antenna, which is why mesh_updater_holds_the_radio() exists; a couple of
- * megabytes of curl was measured to break a live BLE link 36 ms in. This module does not take
+ * megabytes of download was measured to break a live BLE link 36 ms in. This module does not take
  * that hold itself - it has no idea a radio exists - so its caller does, exactly as the
  * self-updater's does.
  */
@@ -67,7 +67,7 @@ enum mesh_firmware_download_state {
    because two of them mean "try again" and the rest do not. */
 enum mesh_firmware_download_error {
     MESH_FIRMWARE_DOWNLOAD_ERROR_NONE = 0,
-    /* The device has neither curl nor wget, or there is no loop to read one through. */
+    /* This build has no TLS, or there is no loop to run a request on. */
     MESH_FIRMWARE_DOWNLOAD_ERROR_UNAVAILABLE,
     /* A step's fetch failed, timed out or exited non-zero. Retryable. */
     MESH_FIRMWARE_DOWNLOAD_ERROR_NETWORK,
@@ -100,7 +100,7 @@ typedef void (*mesh_firmware_download_done_fn)(void *userdata,
 
 struct mesh_firmware_download {
     /* Borrowed. The caller owns the fetcher and may not use it while a download is running:
-       one child at a time is the fetcher's rule, not this module's. */
+       one request at a time is the fetcher's rule, not this module's. */
     struct mesh_fetch *fetch;
 
     enum mesh_firmware_download_state state;
@@ -170,7 +170,7 @@ bool mesh_firmware_download_busy(const struct mesh_firmware_download *download);
  * Measured against the **compressed** size from the central directory, because what is landing
  * is the zip member; dividing by the uncompressed size would stop the bar at 35% and call it
  * done. It is a stat() on a file this process named, which is the same trick the self-updater
- * uses and the reason neither of them has to scrape curl's terminal meter.
+ * uses and the reason neither of them needs a byte counter out of the fetcher.
  */
 unsigned mesh_firmware_download_progress(const struct mesh_firmware_download *download);
 

@@ -688,12 +688,14 @@ only a consequence of one of them, and neither is a thing a test could pin.
   push trigger, because a prerelease reaches only a client that asked for one.
 - **Do not edit `project(meshclient VERSION x.y.z ...)`** in `CMakeLists.txt` or bump it by hand;
   the release workflow rewrites that line with `sed`.
-- **`launch.sh` and the pak's CA bundle do not ship through self-update.** Only the bare binary
-  does. Changing either forces a pak reinstall, so treat them as a compatibility boundary.
+- **`launch.sh` does not ship through self-update.** Only the bare binary does. Changing it
+  forces a pak reinstall, so treat it as a compatibility boundary. That is why the CA roots are
+  compiled into the binary rather than shipped beside it.
 - **`scripts/gen-emoji.py` is not part of the build.** Run it by hand and commit the result.
   The same goes for `scripts/gen-icons.py`, which rasterises the icon set out of Material
-  Symbols, for `scripts/gen-font.py`, which rasterises the `ui` face out of JetBrains Mono, and
-  for `scripts/gen-locale.py`, which turns the string catalog into a translation template or a
-  locale skeleton.
+  Symbols, for `scripts/gen-font.py`, which rasterises the `ui` face out of JetBrains Mono, for
+  `scripts/gen-locale.py`, which turns the string catalog into a translation template or a
+  locale skeleton, and for `scripts/gen-ca-roots.py`, which compiles
+  `third_party/mozilla-ca/cacert.pem` into the root table.
 - **`devtools/` is not `Tools/`.** `Tools/` holds the device-facing pak assets, and macOS
   filesystems are case-insensitive by default, so a `tools/` directory would collide with it.

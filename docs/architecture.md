@@ -63,7 +63,7 @@ depends on: a pak is `/Tools/tg5040/<Name>.pak/` with a `launch.sh`; logs go to
 ## `src/core/runtime/event_loop.c`
 
 An epoll loop over a fixed table of 32 fd sources: D-Bus watches, the timerfd discovery refresh,
-the UI store eventfd, the serial tty, the updater's curl child stdout. **No threads anywhere. Do
+the UI store eventfd, the serial tty, a fetch's socket. **No threads anywhere. Do
 not add them.**
 
 ### Blocking work, and the two ways out of it
@@ -72,15 +72,15 @@ Nothing may block the loop, and two things a client has to do are blocking by na
 
 **A name lookup forks.** `getaddrinfo()` blocks, POSIX offers no non-blocking form, and
 `getaddrinfo_a()` starts threads. `src/core/net/resolve.c` forks a child that blocks in it and writes
-one fixed-size record back through a pipe the loop owns — `src/core/net/fetch.c`'s shape with the
-tool taken out. An address literal costs no child at all. See
+one fixed-size record back through a pipe the loop owns. The child does not exec, so it is no
+program the device has to have. An address literal costs no child at all. See
 [`docs/transport.md`](transport.md#a-name-costs-a-fork).
 
 **TLS does not.** `src/core/net/tls_client.c` drives Mbed TLS through BIO callbacks over a
-non-blocking socket, reporting `-EAGAIN` back out to the loop rather than waiting. It exists for
-MQTT and only for MQTT: a broker connection is long-lived and bidirectional, so there is nothing
-to fork and nowhere for a child to put the result. Everything else HTTPS is still a forked curl.
-See [`docs/mqtt.md`](mqtt.md).
+non-blocking socket, reporting `-EAGAIN` back out to the loop rather than waiting. Two things sit
+on it: the MQTT proxy's broker connection, and `src/core/net/fetch.c`, which is every HTTPS request
+the client makes - HTTP/1.1 from the codec in `src/proto/http.c` over that session. See
+[`docs/mqtt.md`](mqtt.md#tls) and the updater section below.
 
 ## `src/core/session/session.c` — the Meshtastic conversation
 
@@ -474,23 +474,31 @@ connect, and counts the attempt against the backoff.
 `mesh_version_compare()` is SemVer precedence including prerelease ordering, so a `dev` build
 never offers to "update" itself to a release.
 
-The updater has **no TLS of its own**: it forks the device's `curl` (then `wget`) and reads its
-stdout through the event loop, because the release build is static musl with libdbus as its only
-dependency. One child at a time, states strictly sequential.
+The updater fetches in-process: `src/core/net/fetch.c` resolves, connects, does the TLS
+handshake and speaks HTTP/1.1 on the event loop, one request at a time, states strictly
+sequential. It needs no program on the device. The firmware check and the firmware download each
+have their own fetcher on the same code.
 
-That is the rule for a *fetch* — a request and a reply, which a child process does well — and it
-has exactly one exception, for the one connection that is not a fetch. See
-[`docs/mqtt.md`](mqtt.md#tls).
+What the fetcher decides, and why:
 
-**It has to bring its own CA bundle.** The Brick has no system CA store at all, so a bare `curl`
-fails every HTTPS request with exit 60. The pak ships Mozilla's roots at `certs/certificates.crt`
-and `updater_resolve_ca_bundle()` picks one: `SSL_CERT_FILE`/`CURL_CA_BUNDLE`, then ours, then
-the usual distro paths. Exit 60 maps to "No CA certificates; reinstall the pak".
+- **https only, verified against the compiled-in roots** (`include/mesh/core/ca_roots.h`), or
+  against `SSL_CERT_FILE` when it is set. The Brick has no system CA store, and a bundle in the pak
+  would not ship through self-update; in the binary, the roots are as new as the release.
+- **Redirects are followed, up to `MESH_FETCH_REDIRECTS_MAX`, and never off https.** A release
+  asset is a 302 from github.com to its CDN. Every header goes to every hop, a `Range` included.
+- **A range request must be answered `206`.** A server that ignores the range sends the whole
+  file, and a caller that asked for 64 KB of a 46 MB zip is owed a failure rather than the zip.
+- **A body framed by the close is whole only after a TLS close_notify.** Without one, a cut
+  connection looks exactly like the end of the body. Content-Length and chunked bodies carry
+  their own end and do not need it.
+- **One deadline for the whole request**, lookups and hops included, and a read budget per loop
+  turn so megabytes arriving on a fast link cannot hold the loop the UI draws on.
+- **A download streams to its file only once a 2xx has arrived**, so a 404's error page never
+  lands where the binary was expected.
 
-**Byte progress comes from the file, not from the fetcher.** curl's meter goes to stderr in a
-format `wget` does not share, so it would mean a second pipe and two scrapers. The download is
-going to `staged_path`, a file this process named, and the metadata already said how large it
-will be — so the fraction is `stat()` over `asset_size`, identical for both fetchers.
+**Byte progress comes from the file, not from the fetcher.** The download is going to
+`staged_path`, a file this process named, and the metadata already said how large it will be —
+so the fraction is `stat()` over `asset_size`, which needs nothing from the transport.
 `mesh_updater_progress()` returns **false** for a step with no length at all, which the About
 screen draws as an indeterminate bar rather than a zero.
 

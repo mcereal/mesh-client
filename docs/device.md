@@ -88,12 +88,8 @@ quit and relaunch.
 
 What it needs:
 
-- **WiFi**, and either `curl` or `wget`. NextUI ships a downloader for its Pak Store, so this is
-  normally there.
-- **The CA bundle in the pak** (`certs/certificates.crt`), for curl. The Brick has no system CA
-  store. It ships in the pak rather than through self-update, so a client installed before this
-  existed needs one pak reinstall. `SSL_CERT_FILE` or `CURL_CA_BUNDLE` override it. MQTT over TLS
-  does not use it: the binary carries its own copy of the same roots.
+- **WiFi.** Nothing else on the device: the client does its own HTTPS and carries its own CA
+  roots. `SSL_CERT_FILE` names a bundle to verify against instead.
 - **A release build.** Anything you build yourself reports `<version>-dev` and is never offered an
   update, which is what stops a `make brick` deploy being replaced by whatever is on GitHub.
 

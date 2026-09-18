@@ -97,7 +97,7 @@ struct mesh_ui_client_info {
        (stable)"). A name rather than the enum for the same reason the state is a byte: the
        backends and the nav never include the updater. */
     char update_channel[MESH_UI_CLIENT_TEXT_MAX];
-    /* False when the device has no curl or wget, or the running binary could not be located:
+    /* False when the build has no TLS, or the running binary could not be located:
        the About section then shows why instead of an update row that cannot work. */
     bool update_supported;
     /* A check or a download is in flight, so the action row reads as busy and a second press
