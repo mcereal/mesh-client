@@ -428,19 +428,51 @@ MESH_TEST_CASE(ui_nav_channel_edit, unit) {
         failure = "the import row should be an action row that is not a channel slot";
         goto cleanup;
     }
-    /* An empty slot opens with the same rows, role Disabled: that is how a channel is added.
-       The count is taken from a slot that is in use rather than written down, because what this
-       asserts is that the two are the same list - a row added to a channel is added to both. */
+    /* An empty slot opens with the same settings rows, role Disabled: that is how a channel is
+       added. The count is taken from a slot that is in use rather than written down, because
+       what this asserts is that the two are the same list of fields - a field added to a
+       channel is added to both.
+
+       They differ by exactly one row, and only at the foot: "Clear this slot" is offered on the
+       slot that has something to clear and withheld from the one that does not, which is the
+       action table's rule about a press that would do nothing. Asserted as a difference of one
+       rather than as two written-down numbers, so a seventh field added to a channel still has
+       to appear on both. */
     const uint32_t channel_rows =
         mesh_ui_settings_item_count(&store.settings, NULL, MESH_UI_SETTINGS_CHANNELS, 1U);
-    if (channel_rows < 6U ||
+    if (channel_rows < 7U ||
         mesh_ui_settings_item_count(&store.settings, NULL, MESH_UI_SETTINGS_CHANNELS, 2U) !=
-            channel_rows ||
+            channel_rows - 1U ||
         !mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_CHANNELS, 2U, 1U,
                                &item) ||
         item.field != MESH_UI_FIELD_CHANNEL_ROLE || item.number != 0U) {
         failure = "an empty slot should open with an editable Disabled role";
         goto cleanup;
+    }
+    /* And that one row is the clearing verb, last, on the slot that is in use. An empty slot's
+       last row is the muted toggle: nothing on it offers the press. */
+    if (!mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_CHANNELS, 1U,
+                               channel_rows - 1U, &item) ||
+        item.kind != MESH_UI_SETTING_ACTION || !mesh_ui_settings_item_is_verb(&item) ||
+        item.number != (uint32_t)MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL ||
+        !mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_CHANNELS, 2U,
+                               channel_rows - 2U, &item) ||
+        item.field != MESH_UI_FIELD_CHANNEL_MUTED) {
+        failure = "a slot in use should end in the clearing verb and an empty one should not";
+        goto cleanup;
+    }
+    /* Nor is it offered on the primary, whose role is not offered either: a radio with no
+       primary is off its own mesh, and this is the press that would get it there. */
+    for (uint32_t row = 0U;
+         row < mesh_ui_settings_item_count(&store.settings, NULL, MESH_UI_SETTINGS_CHANNELS, 0U);
+         ++row) {
+        if (mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_CHANNELS, 0U,
+                                  row, &item) &&
+            item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL &&
+            item.kind == MESH_UI_SETTING_ACTION) {
+            failure = "the primary slot should not offer the clearing verb";
+            goto cleanup;
+        }
     }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
@@ -583,6 +615,245 @@ MESH_TEST_CASE(ui_nav_channel_edit, unit) {
 cleanup:
     mesh_ui_store_shutdown(&store);
     MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * "Clear this slot", end to end: the press raises the question, the answer is a write, and what
+ * the write says is that the slot is to be emptied rather than saved.
+ *
+ * The three claims the shape rests on, each a way it could have been wrong. A verb this
+ * destructive reaching the radio on the press that selected it would be the trap the confirm
+ * table exists to prevent. Leaving as a RADIO_ACTION would send it to the admin verb table,
+ * which has no entry for it, and the press would vanish. And carrying the pending edits would
+ * put a name onto the air on the way to erasing that name - so the answer drops them, along
+ * with the cursor, which was standing on a row that is about to stop existing.
+ */
+MESH_TEST_CASE(ui_nav_clear_channel, unit) {
+    const char *failure = NULL;
+
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_channels = true;
+    settings.channels_settled = true;
+    settings.channels[0].present = true;
+    settings.channels[0].role = 1U;
+    settings.channels[0].psk_len = 1U;
+    settings.channels[0].psk[0] = 1U;
+    settings.channels[1].present = true;
+    settings.channels[1].index = 1U;
+    settings.channels[1].role = 2U;
+    snprintf(settings.channels[1].name, sizeof settings.channels[1].name, "%s", "Team");
+    settings.channels[1].psk_len = 16U;
+    mesh_ui_store_set_settings(&store, &settings);
+
+    struct mesh_ui_action action;
+    (void)mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS);
+    mesh_test_settings_open(&store, MESH_UI_SETTINGS_CHANNELS);
+    /* Into slot 1, then down onto the last row - the verb. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    const uint32_t rows = mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS);
+    if (store.nav.settings_channel != 1U || rows < 7U) {
+        failure = "A should open the slot with the clearing verb under its rows";
+        goto cleanup;
+    }
+    for (uint32_t i = 0; i + 1U < rows; ++i) {
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    }
+    /* The row under the cursor, asked of the public item list rather than of the nav's own
+       `settings_current` - that one is declared in nav_internal.h, which is the group's private
+       header and not something a suite may reach into. */
+    struct mesh_ui_settings_item item;
+    if (!mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_CHANNELS, 1U,
+                               store.nav.cursor[MESH_UI_SCREEN_SETTINGS], &item) ||
+        item.kind != MESH_UI_SETTING_ACTION ||
+        item.number != (uint32_t)MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL) {
+        failure = "the cursor should reach the clearing verb";
+        goto cleanup;
+    }
+
+    /* An edit in hand, so the answer can be seen to drop it. */
+    struct mesh_ui_action edit_action;
+    memset(&edit_action, 0, sizeof edit_action);
+    store.nav.settings_edit_count = 1U;
+    store.nav.settings_edits[0].field = MESH_UI_FIELD_CHANNEL_NAME;
+    snprintf(store.nav.settings_edits[0].text, sizeof store.nav.settings_edits[0].text, "%s",
+             "Renamed");
+
+    /* A asks rather than acts, and the question opens on Cancel. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (!store.nav.confirm_open || store.nav.confirm_cursor != 1U ||
+        store.nav.confirm_action != (uint8_t)MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL ||
+        action.type != MESH_UI_ACTION_NONE) {
+        failure = "A on the clearing verb should open the question on Cancel";
+        goto cleanup;
+    }
+    /* Onto the verb and answer. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (store.nav.confirm_open || action.type != MESH_UI_ACTION_SAVE_SETTINGS ||
+        action.section != MESH_UI_SETTINGS_CHANNELS || action.channel != 1U ||
+        action.number != (uint32_t)MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL) {
+        failure = "confirming should emit a save of that slot carrying the clearing verb";
+        goto cleanup;
+    }
+    /* The write carries no edits - it is on its way to erasing the rows they were typed into -
+       but the nav still *holds* them, because whether anything was queued is the app's answer.
+       mesh_app_save_settings() consumes them on a positive result and otherwise keeps them and
+       says so; dropping them here would lose the user's typing on a clear confirmed with no
+       link, which erased nothing. The cursor moves either way: it was standing on a row that
+       does not survive a successful clear. */
+    if (action.edit_count != 0U || store.nav.settings_edit_count != 1U ||
+        store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != 0U) {
+        failure = "clearing should carry no edits, keep the nav's, and move the cursor";
+        goto cleanup;
+    }
+
+    /* And the sheet names the slot rather than asking about "the channel": eight of them are
+       one press away from each other. */
+    char text[96];
+    mesh_ui_settings_confirm_title(MESH_UI_SETTINGS_CHANNELS, 1U,
+                                   MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL, text, sizeof text);
+    if (strcmp(text, "Clear channel 1?") != 0 ||
+        strcmp(mesh_ui_settings_confirm_accept(MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL),
+               "Clear the slot") != 0) {
+        failure = "the sheet should name the slot and what answering it does";
+        goto cleanup;
+    }
+    /* Its body is its own rather than the Channels section's save text, which promises a
+       reconnect and says nothing about a key. */
+    char body[256];
+    char save_body[256];
+    mesh_ui_settings_confirm_text(MESH_UI_SETTINGS_CHANNELS, MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL,
+                                  body, sizeof body);
+    mesh_ui_settings_confirm_text(MESH_UI_SETTINGS_CHANNELS, MESH_UI_SETTINGS_ACTION_NONE,
+                                  save_body, sizeof save_body);
+    if (body[0] == '\0' || strcmp(body, save_body) == 0) {
+        failure = "clearing a slot should not borrow the save sheet's words";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * Which disabled slots still offer the clearing verb.
+ *
+ * The interesting case is the one the obvious predicate gets wrong: a slot whose role, name and
+ * key all read empty but which is still carrying something the clear would erase. Each of the
+ * five below is reachable - saving the MQTT and module rows sets four of them on a slot that is
+ * already disabled, and `id` is the firmware's own hash, left behind by anything that emptied
+ * the name and key without clearing the slot. A row withheld there is the one press that would
+ * tidy it up being the press that is missing.
+ *
+ * Walked field by field rather than asserted once, so a field added to a channel and forgotten
+ * here fails on that field by name.
+ */
+MESH_TEST_CASE(ui_settings_clear_row_follows_every_cleared_field, unit) {
+    struct mesh_ui_settings settings;
+    char message[160];
+
+    /* Truly empty: role disabled and every field at its zero. Nothing to clear, no row. */
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_channels = true;
+    settings.channels_settled = true;
+    settings.channels[0].present = true;
+    settings.channels[0].role = 1U; /* a primary, so slot 1 is an ordinary secondary slot */
+    settings.channels[1].present = true;
+    settings.channels[1].index = 1U;
+    const struct mesh_ui_settings empty = settings;
+
+    bool found = false;
+    uint32_t count = mesh_ui_settings_item_count(&settings, NULL, MESH_UI_SETTINGS_CHANNELS, 1U);
+    for (uint32_t row = 0; row < count; ++row) {
+        struct mesh_ui_settings_item item;
+        if (mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_CHANNELS, 1U, row,
+                                  &item) &&
+            item.kind == MESH_UI_SETTING_ACTION &&
+            item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL) {
+            found = true;
+        }
+    }
+    MESH_TEST_FAIL_IF(found, "an empty slot should not offer a press that would change nothing");
+
+    /* And now one field at a time, each on an otherwise-empty disabled slot. */
+    for (unsigned field = 0; field < 7U; ++field) {
+        settings = empty;
+        struct mesh_ui_channel_detail *slot = &settings.channels[1];
+        const char *name = NULL;
+        switch (field) {
+        case 0:
+            slot->role = 2U;
+            name = "role";
+            break;
+        case 1:
+            snprintf(slot->name, sizeof slot->name, "%s", "Team");
+            name = "name";
+            break;
+        case 2:
+            slot->psk_len = 16U;
+            name = "key";
+            break;
+        case 3:
+            slot->id = 77U;
+            name = "id";
+            break;
+        case 4:
+            slot->uplink_enabled = true;
+            name = "uplink";
+            break;
+        case 5:
+            slot->downlink_enabled = true;
+            name = "downlink";
+            break;
+        default:
+            slot->position_precision = 13U;
+            name = "position precision";
+            break;
+        }
+        found = false;
+        count = mesh_ui_settings_item_count(&settings, NULL, MESH_UI_SETTINGS_CHANNELS, 1U);
+        for (uint32_t row = 0; row < count; ++row) {
+            struct mesh_ui_settings_item item;
+            if (mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_CHANNELS, 1U, row,
+                                      &item) &&
+                item.kind == MESH_UI_SETTING_ACTION &&
+                item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL) {
+                found = true;
+            }
+        }
+        if (!found) {
+            snprintf(message, sizeof message,
+                     "a disabled slot still holding a %s should offer the clearing verb", name);
+            record_failure(test_name, message);
+            return;
+        }
+    }
+
+    /* Muted is the seventh and is its own case: a bool on the same submessage as the sixth. */
+    settings = empty;
+    settings.channels[1].is_muted = true;
+    found = false;
+    count = mesh_ui_settings_item_count(&settings, NULL, MESH_UI_SETTINGS_CHANNELS, 1U);
+    for (uint32_t row = 0; row < count; ++row) {
+        struct mesh_ui_settings_item item;
+        if (mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_CHANNELS, 1U, row,
+                                  &item) &&
+            item.kind == MESH_UI_SETTING_ACTION &&
+            item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL) {
+            found = true;
+        }
+    }
+    MESH_TEST_FAIL_IF(!found, "a disabled slot left muted should offer the clearing verb");
     record_success(test_name);
 }
 

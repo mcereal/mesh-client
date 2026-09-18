@@ -2140,6 +2140,9 @@ MESH_STR_ENTRY(CHANNELS_KEY_ODD,          "odd key")
  * word to keep in the share screen's text: what the reader does is point a phone at the panel,
  * and the QR code is the only part of this that needs no explanation at all.
  */
+/* The last row of one channel's own list. "Clear" rather than "Delete": the slot does not go
+   away - the table is eight fixed slots - so what the press empties is what is in it. */
+MESH_STR_ENTRY(CHANNELS_CLEAR_ROW,        "Clear this slot")
 MESH_STR_ENTRY(CHANNELS_SHARE_ROW,        "Share these channels")
 MESH_STR_ENTRY(CHANNELS_IMPORT_ROW,       "Add from a link")
 MESH_STR_ENTRY(SHARE_TITLE,               "Share channels")
@@ -2356,6 +2359,7 @@ MESH_STR_ENTRY(CONFIRM_TITLE_RM_BACKUP,   "Delete the backup?")
 MESH_STR_ENTRY(CONFIRM_TITLE_HAM_MODE,    "Switch to ham mode?")
 MESH_STR_ENTRY(CONFIRM_TITLE_FW_USB,      "Update the radio over USB?")
 MESH_STR_ENTRY(CONFIRM_TITLE_FW_BLE,      "Update the radio over Bluetooth?")
+MESH_STR_ENTRY(CONFIRM_TITLE_CLEAR_CHAN,  "Clear channel %u?")
 MESH_STR_ENTRY(CONFIRM_TITLE_SAVE_CHANNEL,"Save channel %u?")
 MESH_STR_ENTRY(CONFIRM_TITLE_SAVE,        "Save %s?")
 
@@ -2364,6 +2368,7 @@ MESH_STR_ENTRY(CONFIRM_TITLE_SAVE,        "Save %s?")
 MESH_STR_ENTRY(CONFIRM_ACCEPT_REBOOT,     "Reboot now")
 MESH_STR_ENTRY(CONFIRM_ACCEPT_SHUTDOWN,   "Shut down now")
 MESH_STR_ENTRY(CONFIRM_ACCEPT_RESET_DB,   "Reset the node database")
+MESH_STR_ENTRY(CONFIRM_ACCEPT_CLEAR_CHAN, "Clear the slot")
 MESH_STR_ENTRY(CONFIRM_ACCEPT_FORGET_OFF, "Forget them")
 MESH_STR_ENTRY(CONFIRM_ACCEPT_FORGET_ALL, "Forget them all")
 MESH_STR_ENTRY(CONFIRM_ACCEPT_FACTORY_CFG,"Factory reset config")
@@ -2402,6 +2407,7 @@ MESH_STR_ENTRY(CONFIRM_TEXT_REMOTE,       " This goes to %.20s over the mesh, no
 MESH_STR_ENTRY(CONFIRM_TEXT_REBOOT,       "The radio restarts in a few seconds. The link drops with it and auto-connect brings it back; anything sent to this node meanwhile is lost.")
 MESH_STR_ENTRY(CONFIRM_TEXT_SHUTDOWN,     "The radio powers off in a few seconds and nothing here can wake it again: that takes its own button. Everything it has stored survives.")
 MESH_STR_ENTRY(CONFIRM_TEXT_RESET_DB,     "The radio forgets every node it heard, favorites excepted. Names come back as each speaks again. The Brick's own list stays; the row below clears it.")
+MESH_STR_ENTRY(CONFIRM_TEXT_CLEAR_CHAN,   "The name, key and MQTT settings are erased and the role goes to Disabled. A key with no copy elsewhere is gone for good.")
 MESH_STR_ENTRY(CONFIRM_TEXT_FORGET_OFF,   "Drops the nodes this Brick remembers and the radio no longer carries - the ones the Nodes tab marks \"off radio\". Pins and ourselves stay.")
 MESH_STR_ENTRY(CONFIRM_TEXT_FORGET_ALL,   "Empties this Brick's node list, ourselves and pins excepted. The radio's database is untouched; the list fills again on the next connect.")
 MESH_STR_ENTRY(CONFIRM_TEXT_FACTORY_CFG,  "Every setting returns to its factory default, the Bluetooth bond excepted. Channels and keys go too: the node leaves your mesh until set up again.")

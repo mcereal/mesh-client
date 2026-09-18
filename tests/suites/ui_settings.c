@@ -1232,6 +1232,7 @@ MESH_TEST_CASE(ui_settings_confirm_fits, unit) {
         /* Not a Radio actions row, and in the list anyway: the sheet is one component and its
            four lines are the constraint every caller of it has, wherever the row lives. */
         MESH_UI_SETTINGS_ACTION_SET_HAM_MODE,
+        MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL,
     };
     for (size_t i = 0; i < sizeof actions / sizeof actions[0]; ++i) {
         char text[256];

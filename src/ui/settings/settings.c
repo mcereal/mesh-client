@@ -192,6 +192,9 @@ static const enum mesh_ui_icon k_action_icons[MESH_UI_SETTINGS_ACTION_COUNT] = {
        typed in. */
     [MESH_UI_SETTINGS_ACTION_SHARE_CHANNELS] = MESH_UI_ICON_SHARE,
     [MESH_UI_SETTINGS_ACTION_IMPORT_CHANNELS] = MESH_UI_ICON_IMPORT,
+    /* Emptying a slot, which is the same sentence about a store that the node rows wear this
+       symbol for - one channel rather than a database of them. */
+    [MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL] = MESH_UI_ICON_DELETE,
     [MESH_UI_SETTINGS_ACTION_SHARE_CONTACT] = MESH_UI_ICON_SHARE,
     [MESH_UI_SETTINGS_ACTION_IMPORT_CONTACT] = MESH_UI_ICON_IMPORT,
 
@@ -276,6 +279,10 @@ static const enum mesh_ui_tone k_action_tones[MESH_UI_SETTINGS_ACTION_COUNT] = {
        which is every channel the reader is on. */
     [MESH_UI_SETTINGS_ACTION_SHARE_CHANNELS] = MESH_UI_TONE_NORMAL,
     [MESH_UI_SETTINGS_ACTION_IMPORT_CHANNELS] = MESH_UI_TONE_WARNING,
+    /* Red where the import above it is only amber, and the difference is what a key is. An
+       import overwrites the table with one the reader is holding a link to; this erases a key
+       and there may be no other copy of it anywhere. Nothing in this client brings it back. */
+    [MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL] = MESH_UI_TONE_ERROR,
     [MESH_UI_SETTINGS_ACTION_SHARE_CONTACT] = MESH_UI_TONE_NORMAL,
     [MESH_UI_SETTINGS_ACTION_IMPORT_CONTACT] = MESH_UI_TONE_NORMAL,
 
@@ -2405,6 +2412,7 @@ bool mesh_ui_settings_action_needs_confirm(enum mesh_ui_settings_action action) 
            action == MESH_UI_SETTINGS_ACTION_RESTORE_CONFIG ||
            action == MESH_UI_SETTINGS_ACTION_REMOVE_BACKUP ||
            action == MESH_UI_SETTINGS_ACTION_SET_HAM_MODE ||
+           action == MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL ||
            mesh_ui_settings_action_is_install_firmware(action) ||
            mesh_ui_settings_action_is_forget(action);
 }
@@ -2529,6 +2537,12 @@ void mesh_ui_settings_confirm_title(enum mesh_ui_settings_section section, uint8
     case MESH_UI_SETTINGS_ACTION_SET_HAM_MODE:
         snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TITLE_HAM_MODE));
         return;
+    /* The one verb in this switch that names a slot, which is why it is here rather than above:
+       a sheet that asked "clear the channel?" over a list of eight would be asking about
+       whichever one the reader had in mind. */
+    case MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL:
+        mesh_str_format(out, out_len, MESH_STR_CONFIRM_TITLE_CLEAR_CHAN, (unsigned)channel);
+        return;
     default:
         break;
     }
@@ -2568,6 +2582,10 @@ const char *mesh_ui_settings_confirm_accept(enum mesh_ui_settings_action action)
         return mesh_str(MESH_STR_CONFIRM_ACCEPT_FW_BLE);
     case MESH_UI_SETTINGS_ACTION_SET_HAM_MODE:
         return mesh_str(MESH_STR_CONFIRM_ACCEPT_HAM_MODE);
+    /* "Clear the slot", not "Save": what stands behind this sheet is a write like any other,
+       but agreeing to a save is not what the reader is being asked. */
+    case MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL:
+        return mesh_str(MESH_STR_CONFIRM_ACCEPT_CLEAR_CHAN);
     /* "Join", not "Import": what the user is agreeing to is being on somebody else's mesh, and
        the word for the file operation says nothing about that. */
     case MESH_UI_SETTINGS_ACTION_IMPORT_CHANNELS:
@@ -2658,6 +2676,12 @@ void mesh_ui_settings_confirm_text(enum mesh_ui_settings_section section,
        radio is on, because amateur rules require the encryption it turns off. */
     case MESH_UI_SETTINGS_ACTION_SET_HAM_MODE:
         snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TEXT_HAM_MODE));
+        return;
+    /* Answered here rather than by the Channels arm below, which is a save's sheet and says
+       the link may drop. That is true of this write too and is not what the reader needs from
+       it: the link comes back and the key does not. */
+    case MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL:
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TEXT_CLEAR_CHAN));
         return;
     default:
         break;

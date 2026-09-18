@@ -1618,6 +1618,7 @@ static void mesh_app_flatten_settings(const struct mesh_radio_settings *src,
             }
             memcpy(detail->psk, channel->settings.psk.bytes, psk_len);
             detail->psk_len = (uint8_t)psk_len;
+            detail->id = channel->settings.id;
             detail->uplink_enabled = channel->settings.uplink_enabled;
             detail->downlink_enabled = channel->settings.downlink_enabled;
             detail->position_precision = channel->settings.has_module_settings

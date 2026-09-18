@@ -332,7 +332,11 @@ void mesh_app_flatten_traceroute(const struct mesh_handshake_status *status,
 /* Builds the admin write for a MESH_UI_ACTION_SAVE_SETTINGS: the radio's own copy of the
    section with the action's edits applied, since the firmware replaces sections whole.
    -ENOENT when the radio has not sent that section yet, -ENOTSUP for a section that is still
-   read-only. Exposed for tests. */
+   read-only.
+
+   `action->number` picks which write the section means, on the terms the confirm sheet reads it
+   on: MESH_UI_SETTINGS_ACTION_NONE is the ordinary save, and MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL
+   in the Channels section empties `action->channel` instead of editing it. Exposed for tests. */
 struct mesh_radio_settings;
 struct mesh_admin_request;
 int mesh_app_build_settings_write(const struct mesh_radio_settings *radio,

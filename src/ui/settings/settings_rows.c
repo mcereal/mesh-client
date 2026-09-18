@@ -1448,6 +1448,28 @@ static void build_channel(const struct mesh_ui_settings *s, uint8_t slot, struct
     item_field(list, MESH_UI_FIELD_CHANNEL_DOWNLINK, channel->downlink_enabled ? 1U : 0U, NULL);
     item_field(list, MESH_UI_FIELD_CHANNEL_POSITION, channel->position_precision, NULL);
     item_field(list, MESH_UI_FIELD_CHANNEL_MUTED, channel->is_muted ? 1U : 0U, NULL);
+    /*
+     * Emptying the slot, under the rows that describe it and offered only where it would do
+     * something.
+     *
+     * Not on the primary, for the reason its role is not offered either: there is one of it and
+     * a radio without it is off its own mesh. Not on a slot that is already empty, because a
+     * verb that changes nothing is the thing the action table exists to prevent.
+     *
+     * "Empty" is asked of every field the write resets, and it has to be: the obvious three -
+     * role, name, key - leave a disabled slot carrying a position precision, a mute, an MQTT
+     * flag or an `id` reading as nothing to clear, so the one row that would erase them is the
+     * row withheld. Those states are reachable: saving the MQTT and module rows on a disabled
+     * slot sets them, and a slot disabled elsewhere with no name and no key still holds the id
+     * the firmware gave it. The test to keep the two in step is the predicate *being* the
+     * field list - a field added to a channel is added here.
+     */
+    if (channel->role != 1U &&
+        (channel->role != 0U || channel->name[0] != '\0' || channel->psk_len != 0U ||
+         channel->id != 0U || channel->uplink_enabled || channel->downlink_enabled ||
+         channel->position_precision != 0U || channel->is_muted)) {
+        item_verb(list, MESH_STR_CHANNELS_CLEAR_ROW, MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL);
+    }
 }
 
 int mesh_ui_settings_channel_at_row(const struct mesh_ui_settings *settings,
