@@ -1545,8 +1545,7 @@ MESH_TEST_CASE(mqtt_proxy_verifies_against_built_in_roots_without_a_bundle, unit
         goto cleanup;
     }
     const char *error = mesh_mqtt_proxy_last_error(&probe.proxy);
-    if (strstr(error, "no certificate bundle") != NULL ||
-        strstr(error, "built-in certificates") != NULL) {
+    if (strstr(error, "no certificate bundle") != NULL || strstr(error, "built-in root") != NULL) {
         record_failure(test_name, "the refusal should be the certificate's, not a missing bundle");
         goto cleanup;
     }

@@ -146,27 +146,26 @@ static bool tls_load_roots(struct mesh_tls_client *tls) {
         return true;
     }
     mbedtls_x509_crt_init(&tls_roots);
-    size_t loaded = 0U;
     for (size_t i = 0U; i < mesh_ca_root_count; ++i) {
         const int rc = mbedtls_x509_crt_parse_der_nocopy(&tls_roots, mesh_ca_roots[i].der,
                                                          mesh_ca_roots[i].len);
         if (rc != 0) {
-            /* One root this build cannot read is one CA it cannot reach, not a reason to reach
-               none - the same allowance a PEM bundle gets below. */
-            char detail[96];
+            /*
+             * All or nothing, and nothing is not remembered. Every root parses in this build -
+             * `ca_roots_all_parse` fails otherwise - so a failure here is the device, not the
+             * table: an allocation that did not succeed. Keeping the roots that did load would
+             * make whatever chains to the rest unverifiable for the life of the process; dropping
+             * them and failing this one connection lets the next attempt load the whole set.
+             */
+            char detail[64];
             mbedtls_strerror(rc, detail, sizeof detail);
-            mesh_log_warn("tls", "built-in root \"%s\" did not parse: %s", mesh_ca_roots[i].name,
-                          detail);
-            continue;
+            (void)snprintf(tls->error, sizeof tls->error, "could not load built-in root %.48s: %s",
+                           mesh_ca_roots[i].name, detail);
+            mbedtls_x509_crt_free(&tls_roots);
+            return false;
         }
-        loaded++;
     }
-    if (loaded == 0U) {
-        mbedtls_x509_crt_free(&tls_roots);
-        mesh_str_copy(tls->error, sizeof tls->error, "no usable built-in certificates");
-        return false;
-    }
-    mesh_log_debug("tls", "%zu of %zu built-in roots loaded", loaded, mesh_ca_root_count);
+    mesh_log_debug("tls", "%zu built-in roots loaded", mesh_ca_root_count);
     tls_roots_ready = true;
     return true;
 }
