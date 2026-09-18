@@ -168,9 +168,10 @@ struct mesh_app {
     uint64_t autoconnect_tcp_retry_at_ms;
     bool autoconnect_disabled;
     bool autoconnect_waiting_logged;
-    /* Set while a link is up, so the wait after it drops is the long one: the radio we were
-       just on is rebooting from a settings write far more often than it has left the room.
-       See MESH_APP_AUTOCONNECT_KNOWN_GRACE_MS. */
+    /* Set while the link that is up is the preferred node's, over the air, so the wait after it
+       drops is the long one: the radio we were just on is rebooting from a settings write far
+       more often than it has left the room. A cable, a network host or another radio of ours
+       leaves it clear. See mesh_app_preferred_ble_link_up(). */
     bool autoconnect_after_link;
     /* Set by an explicit disconnect from the Devices tab and cleared by the next explicit
        connect. Without it auto-connect would take the radio straight back and there would be

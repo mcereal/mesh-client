@@ -11,10 +11,14 @@
 #include "mesh/core/event_loop.h"
 #include "mesh/core/session.h"
 #include "mesh/proto/stream_framing.h"
+#include "mesh/transport/ble.h"
+#include "mesh/transport/ble_bluez.h"
 #include "mesh/transport/tcp.h"
 #include "mesh/transport/transport.h"
+#include "mesh/ui/preferences.h"
 #include "mesh/ui/store_device.h"
 #include "mesh/ui/store_message.h"
+#include "mesh/utils/time.h"
 
 #include <pb_decode.h>
 
@@ -1098,6 +1102,157 @@ cleanup:
     }
     tcp_test_radio_close(&radio);
     if (home_made) {
+        rmdir(home_dir);
+    }
+}
+
+/*
+ * A network link ending is not the Bluetooth radio rebooting.
+ *
+ * Auto-connect waits half a minute for the preferred node after a drop, rather than the five
+ * seconds another radio of ours in earshot normally costs it, because the commonest way a link
+ * ends is a settings write rebooting that radio. A cable or a host says nothing about whether
+ * the radio over the air is on its way back, and arming that wait for every transport left a
+ * client that had once been on a host sitting through half a minute of "connecting..." before
+ * it would take the radio in the room. app_autoconnect_holds_the_slot_for_a_rebooting_radio is
+ * the same rule from the other side.
+ */
+MESH_TEST_CASE(tcp_link_leaves_the_bluetooth_grace_short, unit) {
+    struct tcp_test_radio radio;
+    tcp_test_radio_init(&radio);
+    struct mesh_app app;
+    memset(&app, 0, sizeof app);
+    const char *failure = NULL;
+    bool app_ready = false;
+    bool mock_enabled = false;
+    char home_dir[] = "/tmp/mesh_tcp_graceXXXXXX";
+    bool home_made = false;
+
+    /* The preferred radio is the one left at home - an rssi of 0 is a bond with nothing
+       advertising behind it - and the other is in earshot and ours, so it is what the short
+       grace hands the slot to. */
+    struct mesh_bluez_device_info mock_devices[] = {
+        {.address = "AA:BB:CC:DD:EE:07", .name = "NodeSeven", .rssi = 0, .paired = true},
+        {.address = "AA:BB:CC:DD:EE:06", .name = "NodeSix", .rssi = -70, .paired = true},
+    };
+    struct mesh_bluez_mock_config mock_config = {
+        .adapter_path = "/org/bluez/hci0",
+        .devices = mock_devices,
+        .device_count = 2U,
+    };
+
+    if (!tcp_test_radio_listen(&radio)) {
+        record_failure(test_name, "could not listen on the loopback");
+        goto cleanup;
+    }
+    if (mkdtemp(home_dir) == NULL) {
+        record_failure(test_name, "mkdtemp failed");
+        goto cleanup;
+    }
+    home_made = true;
+    setenv("HOME", home_dir, 1);
+    setenv("MESHCLIENT_UI_BACKEND", "stub", 1);
+    unsetenv("MESHCLIENT_AUTOCONNECT");
+    mesh_bluez_client_mock_enable(&mock_config);
+    mock_enabled = true;
+
+    struct mesh_app_config config = mesh_app_config_default();
+    config.run_mode = MESH_APP_RUN_FOREGROUND;
+    config.enable_ble = true;
+    config.enable_serial = false;
+    config.enable_tcp = true;
+    snprintf(config.preferred_ble_device, sizeof config.preferred_ble_device, "%s",
+             mock_devices[0].address);
+
+    if (mesh_app_init(&app, &config) != 0) {
+        failure = "app init failed";
+        goto cleanup;
+    }
+    app_ready = true;
+    if (mesh_transport_registry_start_all(&app.transport_registry, &app.config, &app.loop) < 0) {
+        failure = "transport start failed";
+        goto cleanup;
+    }
+
+    struct mesh_transport *ble = mesh_ble_transport();
+    mesh_ble_transport_refresh_devices(ble);
+    (void)mesh_ui_preferences_note_device(&app.ui_preferences, mock_devices[1].address,
+                                          (uint8_t)MESH_UI_DEVICE_BLE);
+
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    action.type = MESH_UI_ACTION_CONNECT;
+    action.kind = (uint8_t)MESH_UI_DEVICE_TCP;
+    snprintf(action.identifier, sizeof action.identifier, "%s", radio.target);
+    app.ui_controller.on_action(app.ui_controller.action_userdata, &action);
+
+    struct mesh_transport *tcp = mesh_tcp_transport();
+    if (mesh_tcp_transport_connected_target(tcp) == NULL) {
+        (void)mesh_event_loop_run(&app.loop, 200);
+    }
+    if (mesh_tcp_transport_connected_target(tcp) == NULL) {
+        failure = "the press should have reached the network transport";
+        goto cleanup;
+    }
+    if (!tcp_test_radio_accept(&radio)) {
+        failure = "the listener did not see the connection";
+        goto cleanup;
+    }
+
+    /* The turn that arms the long wait for a Bluetooth link must not arm it for this one. */
+    app.autoconnect_retry_at_ms = 0U;
+    mesh_app_autoconnect(&app);
+    if (app.autoconnect_after_link) {
+        failure = "a network link should not lengthen the wait for a radio";
+        goto cleanup;
+    }
+
+    (void)mesh_tcp_transport_disconnect(tcp);
+    if (mesh_tcp_transport_connected_target(tcp) != NULL) {
+        failure = "the link should be down before auto-connect is asked what to do next";
+        goto cleanup;
+    }
+
+    /*
+     * With the network arm held off, so the turn reaches the Bluetooth one: auto-connect goes
+     * back to the host the press chose first, which tcp_connect_routes_to_the_network_transport
+     * already holds. Ten seconds is past the short grace and well inside the long one, so which
+     * of the two applies is the whole of what the next turn answers.
+     */
+    const uint64_t now = mesh_time_monotonic_ms();
+    app.autoconnect_tcp_retry_at_ms = now + 60000U;
+    app.autoconnect_started_ms = now - 10000U;
+    app.autoconnect_retry_at_ms = 0U;
+    mesh_app_autoconnect(&app);
+    const char *connected = mesh_ble_transport_connected_address(ble);
+    if (connected == NULL || strcmp(connected, mock_devices[1].address) != 0) {
+        failure = "the radio in earshot should be taken once the short grace is spent";
+        goto cleanup;
+    }
+    (void)mesh_ble_transport_disconnect(ble);
+
+    record_success(test_name);
+
+cleanup:
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    }
+    if (app_ready) {
+        mesh_app_shutdown(&app);
+    }
+    if (mock_enabled) {
+        mesh_bluez_client_mock_disable();
+    }
+    tcp_test_radio_close(&radio);
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    if (home_made) {
+        char path[256];
+        snprintf(path, sizeof path, "%s/.meshclient/ui_prefs.handshake", home_dir);
+        unlink(path);
+        snprintf(path, sizeof path, "%s/.meshclient/ui_prefs", home_dir);
+        unlink(path);
+        snprintf(path, sizeof path, "%s/.meshclient", home_dir);
+        rmdir(path);
         rmdir(home_dir);
     }
 }
