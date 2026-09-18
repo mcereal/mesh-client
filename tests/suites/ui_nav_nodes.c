@@ -490,6 +490,85 @@ MESH_TEST_CASE(ui_nav_node_trend_closes_when_it_empties, unit) {
 /* The Nodes tab's pin: X from either level, and the detail's own row. The nav sends the state
    it wants rather than a bare toggle, so a press that races a NodeInfo cannot cancel itself. */
 /*
+ * The sheet of verbs takes the presses it owns and no others.
+ *
+ * It is the one screen in this tab whose handler is reached before the tab routing, so it is the
+ * one that can swallow a keycap the action bar is still naming. It did: a blanket return over
+ * every key left "L/R tabs" on the bar with the shoulders dead under it, which is exactly the
+ * keycap-that-does-nothing that src/ui/tables/actions.c exists to prevent.
+ *
+ * So the four presses it does not own are pinned here beside the two it does. X and Y are in that
+ * list because they reach the node by id and go on meaning pin and write from inside the sheet -
+ * the bar not naming them is about the rows below being the same two verbs, not about the presses
+ * being off.
+ */
+MESH_TEST_CASE(ui_nav_node_actions_lets_the_other_presses_through, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    const char *failure = NULL;
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+
+    /* Onto a node that is not us, in to its detail, and in again to its verbs. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    for (uint32_t step = 0; step < MESH_UI_NODES_LEAD_ROWS + 1U; ++step) {
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (!store.nav.node_detail_open || !store.nav.node_actions_open) {
+        failure = "two presses of A should reach the node's verbs";
+        goto cleanup;
+    }
+    const uint32_t node_id = store.nav.node_detail_node;
+
+    /* SELECT explains this screen, which is the topic keyed on its own route. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_SELECT, &action);
+    if (!store.nav.help_open) {
+        failure = "SELECT should open the sheet's help, as the bar says it does";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    if (store.nav.help_open || !store.nav.node_actions_open) {
+        failure = "B should close the help and leave the sheet where it was";
+        goto cleanup;
+    }
+
+    /* X and Y still reach the node, which they find by id rather than by the cursor - so the
+       sheet's own cursor standing on some other verb changes nothing about them. */
+    memset(&action, 0, sizeof action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    memset(&action, 0, sizeof action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    if (action.type != MESH_UI_ACTION_TOGGLE_FAVORITE || action.dest != node_id) {
+        failure = "X on the sheet should still pin the node the sheet is about";
+        goto cleanup;
+    }
+
+    /* And the shoulders change tab, which is the press the bar names last and the one a blanket
+       return took away. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_R1, &action);
+    if (store.nav.screen == MESH_UI_SCREEN_NODES) {
+        failure = "a shoulder should still change tab from inside the sheet";
+        goto cleanup;
+    }
+    /* And the tab is left as it was found, so coming back lands on the verbs rather than on the
+       list - the same thing an open detail or an open map does. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_L1, &action);
+    if (store.nav.screen != MESH_UI_SCREEN_NODES || !store.nav.node_actions_open) {
+        failure = "coming back to the tab should land on the sheet it was left on";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
  * Left and Right walk the detail's groups, a card at a time.
  *
  * The screen this is on is the longest list in the client - a repeater reporting everything is a

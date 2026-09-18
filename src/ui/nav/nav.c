@@ -2076,8 +2076,23 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
      * Its own screen is checked with the flag, as every level of this tab is: the flag says
      * where the Nodes tab is standing rather than what is on the panel, and a shoulder walks off
      * the tab with the sheet still open behind it.
+     *
+     * And only the presses the sheet *owns* are taken - the d-pad, which walks its rows, and the
+     * two buttons that run a verb and leave. Everything else falls through to the handling every
+     * other screen gets, which is the detail's arrangement one level down rather than a new one:
+     * the shoulders change tab, SELECT opens this screen's help, and X and Y reach the node by
+     * id (they read `node_detail_open`, which is still set under here) so they go on meaning pin
+     * and write.
+     *
+     * Taken as a blanket return instead, this swallowed the shoulders while the bar went on
+     * naming "L/R tabs" - the keycap-that-does-nothing that the action table exists to prevent,
+     * introduced by the one screen whose handler claimed every key. The bar does not name X or Y
+     * here, which is a different thing and deliberate: pin and message are *rows* on this panel,
+     * so the shortcut is redundant rather than absent.
      */
-    if (nav->node_actions_open && nav->screen == MESH_UI_SCREEN_NODES) {
+    if (nav->node_actions_open && nav->screen == MESH_UI_SCREEN_NODES &&
+        (key == MESH_UI_KEY_UP || key == MESH_UI_KEY_DOWN || key == MESH_UI_KEY_LEFT ||
+         key == MESH_UI_KEY_RIGHT || key == MESH_UI_KEY_A || key == MESH_UI_KEY_B)) {
         return mesh_ui_nav_node_actions_key(nav, store, key, out_action) || changed;
     }
 
