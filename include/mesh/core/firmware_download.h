@@ -84,7 +84,8 @@ enum mesh_firmware_download_error {
     /* The zip is fine and does not contain that file. This release does not build for this
        board - a real answer, and not the same row as any of the above. */
     MESH_FIRMWARE_DOWNLOAD_ERROR_NO_MEMBER,
-    /* Compressed with something that is neither deflate nor store. */
+    /* Compressed with something that is neither deflate nor store, or claiming to be bigger
+       than any radio's flash - which is refused before a byte of it is fetched. */
     MESH_FIRMWARE_DOWNLOAD_ERROR_UNSUPPORTED,
     /* Not a deflate stream, or not the length and CRC the directory described. The bytes
        arrived and they are not the bytes that were promised. Retryable, once. */

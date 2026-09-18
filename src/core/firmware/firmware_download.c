@@ -19,6 +19,15 @@
 #define DOWNLOAD_STEP_TIMEOUT_MS 20000U
 #define DOWNLOAD_MEMBER_TIMEOUT_MS 120000U
 
+/*
+ * The most a member may claim to be, in or out of the zip. Both sizes come from a directory
+ * somebody else served, and the uncompressed one is what is allocated and inflated into on the
+ * loop - so an unbounded claim is a malloc that overcommit lets succeed and an inflate that
+ * stalls the client until the kernel kills it. No supported radio has more than 16 MB of flash,
+ * so no image can be bigger; twice that is headroom for a board that does, not for a real image.
+ */
+#define DOWNLOAD_MEMBER_MAX (32U * 1024U * 1024U)
+
 /* The intermediates. Named rather than made unique because a download is one at a time and a
    leftover from a run that died is a file the next run overwrites rather than trips over. */
 #define DOWNLOAD_FILE_WINDOW "firmware.window"
@@ -295,6 +304,14 @@ static void download_read_directory(struct mesh_firmware_download *download, con
         /* Both come from the central directory, so zero here is not the 2.8.0 local-header
            case - it is a member with nothing in it, which no image ever is. */
         download_fail(download, MESH_FIRMWARE_DOWNLOAD_ERROR_NO_MEMBER);
+        return;
+    }
+    if (download->entry.compressed_size > DOWNLOAD_MEMBER_MAX ||
+        download->entry.uncompressed_size > DOWNLOAD_MEMBER_MAX) {
+        mesh_log_error("firmware", "%s claims %u bytes in the zip and %u out; refusing it",
+                       download->entry.name, (unsigned)download->entry.compressed_size,
+                       (unsigned)download->entry.uncompressed_size);
+        download_fail(download, MESH_FIRMWARE_DOWNLOAD_ERROR_UNSUPPORTED);
         return;
     }
     download->located = true;

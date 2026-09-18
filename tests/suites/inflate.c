@@ -52,7 +52,8 @@ MESH_TEST_CASE(inflate_reads_a_real_zip_member, unit) {
     MESH_TEST_FAIL_IF(produced != MEMBER_INFLATED, "to the length the directory promised");
     MESH_TEST_FAIL_IF(!hashed || crc != MEMBER_CRC, "and the CRC the directory carried");
     MESH_TEST_FAIL_IF(out[0] != '{', "and what falls out is the manifest's JSON");
-    MESH_TEST_FAIL_IF(too_long != MESH_INFLATE_TOO_LONG, "a stream longer than the room is TOO_LONG");
+    MESH_TEST_FAIL_IF(too_long != MESH_INFLATE_TOO_LONG,
+                      "a stream longer than the room is TOO_LONG");
     MESH_TEST_FAIL_IF(short_produced != sizeof short_out, "having filled all of the room it had");
     MESH_TEST_FAIL_IF(cut != MESH_INFLATE_CORRUPT, "a truncated member is CORRUPT");
     record_success(test_name);
