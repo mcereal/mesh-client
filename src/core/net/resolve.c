@@ -27,8 +27,11 @@
  */
 struct resolve_record {
     int32_t error; /* the getaddrinfo() return, 0 on success */
-    uint32_t address_len;
-    struct sockaddr_storage address;
+    uint32_t count;
+    struct {
+        uint32_t len;
+        struct sockaddr_storage address;
+    } addresses[MESH_RESOLVE_ADDRESSES_MAX];
 };
 
 _Static_assert(sizeof(struct resolve_record) <= sizeof(((struct mesh_resolve *)0)->record),
@@ -87,6 +90,46 @@ static void resolve_write_record(int fd, const struct resolve_record *record) {
 }
 
 /*
+ * The first answers, alternating families from the first answer's (RFC 8305 section 4), with the
+ * port already in each - getaddrinfo() filled that from the service, which is why nothing here
+ * pokes at sin_port.
+ *
+ * Alternating rather than in order because order is where a broken family hides: a host with an
+ * IPv6 address and no IPv6 route gets every AAAA first, and a list that is four of those is a
+ * list with nothing to fall back to.
+ */
+static void resolve_pick(const struct addrinfo *results, struct resolve_record *record) {
+    const struct addrinfo *const first = results;
+    bool taken[64] = {false};
+    int family = first != NULL ? first->ai_family : AF_UNSPEC;
+    while (record->count < MESH_RESOLVE_ADDRESSES_MAX) {
+        /* The next unused answer in `family`, or failing that in any family. */
+        const struct addrinfo *pick = NULL;
+        size_t pick_at = 0U;
+        for (int pass = 0; pass < 2 && pick == NULL; ++pass) {
+            size_t at = 0U;
+            for (const struct addrinfo *r = results; r != NULL && at < 64U; r = r->ai_next, ++at) {
+                if (!taken[at] && r->ai_addr != NULL && r->ai_addrlen > 0U &&
+                    (size_t)r->ai_addrlen <= sizeof record->addresses[0].address &&
+                    (pass == 1 || r->ai_family == family)) {
+                    pick = r;
+                    pick_at = at;
+                    break;
+                }
+            }
+        }
+        if (pick == NULL) {
+            return;
+        }
+        taken[pick_at] = true;
+        record->addresses[record->count].len = (uint32_t)pick->ai_addrlen;
+        memcpy(&record->addresses[record->count].address, pick->ai_addr, (size_t)pick->ai_addrlen);
+        record->count++;
+        family = pick->ai_family == AF_INET6 ? AF_INET : AF_INET6;
+    }
+}
+
+/*
  * The whole of the child.
  *
  * This forks without exec'ing, so the child inherits everything the client has open - the epoll
@@ -115,12 +158,8 @@ static void resolve_child(const char *host, uint16_t port, int fd) {
 
     struct addrinfo *results = NULL;
     record.error = getaddrinfo(host, service, &hints, &results);
-    if (record.error == 0 && results != NULL && results->ai_addr != NULL &&
-        results->ai_addrlen > 0U && (size_t)results->ai_addrlen <= sizeof record.address) {
-        /* The first answer, with the port already in it - getaddrinfo() filled that from
-           `service`, which is why nothing here pokes at sin_port. */
-        record.address_len = (uint32_t)results->ai_addrlen;
-        memcpy(&record.address, results->ai_addr, (size_t)results->ai_addrlen);
+    if (record.error == 0) {
+        resolve_pick(results, &record);
     }
     if (results != NULL) {
         freeaddrinfo(results);
@@ -176,7 +215,7 @@ static void resolve_discard(struct mesh_resolve *resolve) {
  */
 static enum mesh_resolve_outcome resolve_outcome_of(const struct resolve_record *record) {
     if (record->error == 0) {
-        return record->address_len > 0U ? MESH_RESOLVE_OK : MESH_RESOLVE_NOT_FOUND;
+        return record->count > 0U ? MESH_RESOLVE_OK : MESH_RESOLVE_NOT_FOUND;
     }
     if (record->error == EAI_NONAME) {
         return MESH_RESOLVE_NOT_FOUND;
@@ -193,7 +232,7 @@ static enum mesh_resolve_outcome resolve_outcome_of(const struct resolve_record 
  * Hands the outcome over, exactly once.
  *
  * Everything is lifted off the resolver and the resolver left idle *before* the callback runs,
- * the same re-entrancy rule fetch_complete() keeps: a caller that starts its next lookup from
+ * the same re-entrancy rule fetch.c's completion keeps: a caller that starts its next lookup from
  * inside this one's completion is starting it against a clean resolver.
  */
 static void resolve_complete(struct mesh_resolve *resolve, enum mesh_resolve_outcome outcome) {
@@ -206,8 +245,15 @@ static void resolve_complete(struct mesh_resolve *resolve, enum mesh_resolve_out
         memcpy(&record, resolve->record, sizeof record);
         result.error = (int)record.error;
         if (outcome == MESH_RESOLVE_OK) {
-            result.address = record.address;
-            result.address_len = (socklen_t)record.address_len;
+            for (uint32_t i = 0U; i < record.count && i < MESH_RESOLVE_ADDRESSES_MAX; ++i) {
+                result.addresses[i].address = record.addresses[i].address;
+                result.addresses[i].len = (socklen_t)record.addresses[i].len;
+                result.address_count++;
+            }
+            if (result.address_count > 0U) {
+                result.address = result.addresses[0].address;
+                result.address_len = result.addresses[0].len;
+            }
         }
     }
 

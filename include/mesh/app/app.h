@@ -66,9 +66,9 @@ struct mesh_app {
     struct mesh_ui_message_list ui_messages_cached;
     struct mesh_ui_input ui_input;
     struct mesh_signals signals;
-    /* Self-update: forks the device's curl/wget through the event loop above. Its state is
-       flattened into the UI's client info on every publish, so the About section renders it
-       without the UI ever seeing a child process. */
+    /* Self-update: HTTPS through the event loop above. Its state is flattened into the UI's
+       client info on every publish, so the About section renders it without the UI ever seeing
+       a connection. */
     struct mesh_updater updater;
     /*
      * The *radio's* firmware, which is a different binary on a different computer: what board this

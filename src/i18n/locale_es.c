@@ -1569,7 +1569,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_UPDATE_CHANNEL_PRERELEASE] = "Previa",
     [MESH_STR_UPDATE_CHANNEL_AUTO_PRE] = "Automático (previa)",
     [MESH_STR_UPDATE_CHANNEL_AUTO_STABLE] = "Automático (estable)",
-    [MESH_STR_UPDATE_NO_FETCHER] = "No hay curl ni wget en este equipo",
+    [MESH_STR_UPDATE_NO_TLS] = "Esta compilación no tiene TLS",
     [MESH_STR_UPDATE_DEV_DISABLED] = "Versión de desarrollo; actualizaciones desactivadas",
     [MESH_STR_UPDATE_DEV_ENABLED] = "Versión de desarrollo; actualizaciones activadas",
     [MESH_STR_UPDATE_CHANNEL_CHANGED] = "Canal cambiado; busca de nuevo",
@@ -1586,7 +1586,9 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_UPDATE_DOWNLOAD_START_FAIL] = "No se pudo iniciar la descarga",
     [MESH_STR_UPDATE_DOWNLOADING] = "Descargando %s",
     [MESH_STR_UPDATE_RESPONSE_TOO_LARGE] = "Respuesta demasiado grande",
-    [MESH_STR_UPDATE_READ_FAILED] = "Falló la lectura del descargador",
+    [MESH_STR_UPDATE_UNREACHABLE] = "No se pudo conectar con GitHub",
+    [MESH_STR_UPDATE_BAD_REPLY] = "Respuesta inesperada de GitHub",
+    [MESH_STR_UPDATE_WRITE_FAILED] = "No se pudo guardar la descarga",
     [MESH_STR_UPDATE_VERIFYING] = "Verificando descarga",
     [MESH_STR_UPDATE_FILE_MISSING] = "Falta el archivo descargado",
     [MESH_STR_UPDATE_FILE_WRONG_SIZE] = "El archivo descargado tiene un tamaño incorrecto",
@@ -1597,13 +1599,12 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_UPDATE_INSTALLED] = "%s instalado; vuelve a abrir para usarlo",
     [MESH_STR_UPDATE_TIMED_OUT] = "Tiempo agotado al conectar con GitHub",
     [MESH_STR_UPDATE_TLS_UNVERIFIED] = "No se pudo verificar el certificado de GitHub",
-    [MESH_STR_UPDATE_NO_CA_BUNDLE] = "Sin certificados CA; reinstala el pak",
-    [MESH_STR_UPDATE_CHECK_EXIT] = "Falló la comprobación (%s terminó con %d)",
-    [MESH_STR_UPDATE_DOWNLOAD_EXIT] = "Falló la descarga (%s terminó con %d)",
+    [MESH_STR_UPDATE_CHECK_HTTP] = "Falló la comprobación (HTTP %d)",
+    [MESH_STR_UPDATE_DOWNLOAD_HTTP] = "Falló la descarga (HTTP %d)",
 
     /* El firmware de la radio, no el del cliente. Todo esto va en la columna de valores, que
        tiene unas dos docenas de celdas: han de ser cortos. "Meshtastic", las versiones, los
-       nombres de placa y "curl" son identificadores y no se traducen. */
+       nombres de placa y "HTTP" son identificadores y no se traducen. */
     [MESH_STR_FW_STATE_IDLE] = "sin comprobar",
     [MESH_STR_FW_STATE_IDENTIFYING] = "identificando",
     [MESH_STR_FW_STATE_CHECKING] = "comprobando",
@@ -1614,9 +1615,9 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_FW_HARDWARE_UNREADABLE] = "falló lista hardware",
     [MESH_STR_FW_INDEX_UNREADABLE] = "falló lista firmware",
     [MESH_STR_FW_TIMED_OUT] = "tiempo agotado",
-    [MESH_STR_FW_CHECK_EXIT] = "%s terminó con %d",
+    [MESH_STR_FW_CHECK_HTTP] = "HTTP %d",
     [MESH_STR_FW_TLS_UNVERIFIED] = "servidor sin verificar",
-    [MESH_STR_FW_NO_CA_BUNDLE] = "sin certificados CA",
+    [MESH_STR_FW_UNREACHABLE] = "inaccesible",
     [MESH_STR_FW_BLOCK_UNKNOWN_BOARD] = "placa no listada",
     [MESH_STR_FW_BLOCK_AMBIGUOUS] = "varias placas encajan",
     [MESH_STR_FW_BLOCK_UNSUPPORTED] = "ya no se compila",

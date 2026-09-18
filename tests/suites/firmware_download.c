@@ -3,9 +3,9 @@
 /*
  * The whole of phase 2, end to end, against the bytes GitHub actually serves.
  *
- * A shell script called `curl` goes on PATH - the shape the fetch and updater suites next door
- * already use - and it serves ranges out of two fixtures the way the CDN serves them out of
- * one 46 MB zip: a HEAD that answers with two hops' worth of headers, the tail window at
+ * An HTTPS server on loopback (support/https_fixture.h) serves ranges out of two fixtures the
+ * way the CDN serves them out of one 46 MB zip: a 302 from the release host to the CDN, a HEAD
+ * whose length is the file's rather than the redirect's, the tail window at
  * 46,194,237, the local header at 2,540,989 and the member's deflated bytes at 2,541,100. Every
  * one of those offsets is where that release really keeps them.
  *
@@ -41,6 +41,10 @@
 #ifndef MESH_TEST_DATA_DIR
 #define MESH_TEST_DATA_DIR "tests/data"
 #endif
+
+#ifdef MESHCLIENT_HAVE_TLS
+
+#include "support/https_fixture.h"
 
 /* The 2.7.26 nrf52840 zip, and where the two fixtures sit inside it. */
 #define ZIP_SIZE "46259773"
@@ -80,67 +84,91 @@ enum download_cdn {
    and the uncompressed size is 24 bytes into a record. */
 #define TAIL_T114_MANIFEST_SIZE_FIELD 50024
 
-/*
- * The fake CDN.
- *
- * It answers a HEAD with the headers of *both* hops, because a GitHub release URL is a 302 to
- * the CDN and the 302 carries `content-length: 0` - which is the trap
- * mesh_fetch_content_length() takes the last match to avoid, and a fake that answered with one
- * clean header block would not test it.
- */
-static bool download_install_curl(const char *dir, enum download_cdn cdn) {
+/* Reads `count` bytes at `offset` of a fixture into `out`. Returns how many it could. */
+static size_t download_slice(const char *name, uint64_t offset, uint64_t count, char *out) {
     char path[512];
-    snprintf(path, sizeof path, "%s/curl", dir);
-    FILE *const file = fopen(path, "w");
+    snprintf(path, sizeof path, "%s/%s", MESH_TEST_DATA_DIR, name);
+    FILE *const file = fopen(path, "rb");
     if (file == NULL) {
+        return 0U;
+    }
+    size_t got = 0U;
+    if (fseek(file, (long)offset, SEEK_SET) == 0) {
+        got = fread(out, 1U, (size_t)count, file);
+    }
+    fclose(file);
+    return got;
+}
+
+/*
+ * The fake CDN, in the fixture's child. `userdata` is the enum download_cdn it behaves as.
+ *
+ * Every zip URL answers 302 to a second host, the way a GitHub release asset does - and the 302
+ * carries `content-length: 0`, so a HEAD that reported the first hop's length would measure
+ * every zip as empty.
+ */
+static void download_serve(void *userdata, const struct https_fixture_request *request,
+                           struct https_fixture_conn *conn) {
+    const enum download_cdn cdn = *(const enum download_cdn *)userdata;
+    const size_t target_len = strlen(request->target);
+    if (target_len > 5U && strcmp(request->target + target_len - 5U, ".json") == 0) {
+        /* The release's own manifest, which is fetched whole. */
+        char path[512];
+        snprintf(path, sizeof path, "%s/firmware_release_2.7.26.json", MESH_TEST_DATA_DIR);
+        https_fixture_reply_file(conn, request, path);
+        return;
+    }
+    if (strcmp(request->host, "objects.githubusercontent.com") != 0) {
+        https_fixture_reply(conn, 302, "Location: https://objects.githubusercontent.com/zip\r\n",
+                            NULL, 0U);
+        return;
+    }
+    if (strcmp(request->method, "HEAD") == 0) {
+        https_fixture_printf(conn, "HTTP/1.1 200 OK\r\nAccept-Ranges: bytes\r\n"
+                                   "Content-Length: " ZIP_SIZE "\r\n\r\n");
+        return;
+    }
+    if (!request->ranged) {
+        https_fixture_reply(conn, 403, NULL, NULL, 0U);
+        return;
+    }
+    const uint64_t first = request->first;
+    const uint64_t count = request->last - first + 1U;
+    static char body[1024U * 1024U];
+    size_t got = 0U;
+    if (count <= sizeof body && first >= TAIL_BASE) {
+        got = download_slice("zip_tail_nrf52840_2.7.26.bin", first - TAIL_BASE, count, body);
+        if (cdn == CDN_OVERSIZED_MEMBER && first == TAIL_BASE &&
+            got >= TAIL_T114_MANIFEST_SIZE_FIELD + 4U) {
+            memcpy(body + TAIL_T114_MANIFEST_SIZE_FIELD, "\x00\x00\x00\x80", 4U);
+        }
+    } else if (count <= sizeof body && first >= MEMBER_BASE) {
+        got =
+            download_slice("zip_member_t114_mt_json_2.7.26.bin", first - MEMBER_BASE, count, body);
+        if (cdn == CDN_CORRUPT_MEMBER && first - MEMBER_BASE == 111U && got > 200U) {
+            body[200] = '\0';
+        }
+    } else {
+        https_fixture_reply(conn, 416, NULL, NULL, 0U);
+        return;
+    }
+    char range[96];
+    snprintf(range, sizeof range, "Content-Range: bytes %llu-%llu/" ZIP_SIZE "\r\n",
+             (unsigned long long)first, (unsigned long long)(first + got - 1U));
+    https_fixture_reply(conn, 206, range, body, got);
+}
+
+/* Stands the fake CDN up as `cdn`, and points `fetch` at it. */
+static bool download_serve_as(struct https_fixture *server, enum download_cdn cdn,
+                              struct mesh_fetch *fetch) {
+    static enum download_cdn mode;
+    mode = cdn;
+    https_fixture_stop(server);
+    if (!https_fixture_start(server, download_serve, &mode)) {
         return false;
     }
-    fprintf(
-        file,
-        "#!/bin/sh\n"
-        "DATA='%s'\n"
-        "head=0; out=''; range=''\n"
-        "while [ $# -gt 0 ]; do\n"
-        "  case \"$1\" in\n"
-        "    -fsSLI) head=1 ;;\n"
-        "    -o) shift; out=\"$1\" ;;\n"
-        "    -H) shift; case \"$1\" in 'Range: bytes='*) range=\"${1#Range: bytes=}\" ;; esac ;;\n"
-        "  esac\n"
-        "  shift\n"
-        "done\n"
-        "if [ \"$head\" -eq 1 ]; then\n"
-        "  printf 'HTTP/2 302 \\r\\ncontent-length: 0\\r\\n\\r\\n'\n"
-        "  printf 'HTTP/2 200 \\r\\naccept-ranges: bytes\\r\\ncontent-length: %s\\r\\n\\r\\n'\n"
-        "  exit 0\n"
-        "fi\n"
-        /* No range and not a HEAD is the release's own manifest, which is fetched whole. */
-        "if [ -z \"$range\" ]; then\n"
-        "  cat \"$DATA/firmware_release_2.7.26.json\"\n"
-        "  exit 0\n"
-        "fi\n"
-        "first=\"${range%%%%-*}\"; last=\"${range##*-}\"\n"
-        "count=$((last - first + 1))\n"
-        "if [ \"$first\" -ge %d ]; then\n"
-        "  file=\"$DATA/zip_tail_nrf52840_2.7.26.bin\"; off=$((first - %d))\n"
-        "elif [ \"$first\" -ge %d ]; then\n"
-        "  file=\"$DATA/zip_member_t114_mt_json_2.7.26.bin\"; off=$((first - %d))\n"
-        "else\n"
-        "  exit 4\n"
-        "fi\n"
-        "tail -c \"+$((off + 1))\" \"$file\" | head -c \"$count\" > \"$out\"\n"
-        "if [ %d -eq 1 ] && [ \"$off\" -eq 111 ]; then\n"
-        "  printf '\\000' | dd of=\"$out\" bs=1 seek=200 conv=notrunc 2>/dev/null\n"
-        "fi\n"
-        "if [ %d -eq 1 ] && [ \"$first\" -eq %d ]; then\n"
-        "  printf '\\000\\000\\000\\200' | dd of=\"$out\" bs=1 seek=%d conv=notrunc 2>/dev/null\n"
-        "fi\n"
-        "exit 0\n",
-        MESH_TEST_DATA_DIR, ZIP_SIZE, TAIL_BASE, TAIL_BASE, MEMBER_BASE, MEMBER_BASE,
-        cdn == CDN_CORRUPT_MEMBER ? 1 : 0, cdn == CDN_OVERSIZED_MEMBER ? 1 : 0, TAIL_BASE,
-        TAIL_T114_MANIFEST_SIZE_FIELD);
-    const bool executable = fchmod(fileno(file), 0755) == 0;
-    fclose(file);
-    return executable;
+    https_fixture_attach(server, fetch);
+    return true;
 }
 
 static bool download_wait(struct mesh_event_loop *loop, struct mesh_fetch *fetch,
@@ -177,12 +205,8 @@ static bool fetch_wait_done(struct mesh_event_loop *loop, struct mesh_fetch *fet
 
 /* Removes the staged files and the temporary directory, whatever the case did. */
 static void download_clean_dir(const char *dir) {
-    static const char *const k_files[] = {"curl",
-                                          "firmware.window",
-                                          "firmware.central",
-                                          "firmware.header",
-                                          "firmware.member",
-                                          "firmware.image"};
+    static const char *const k_files[] = {"firmware.window", "firmware.central", "firmware.header",
+                                          "firmware.member", "firmware.image"};
     char path[512];
     for (size_t i = 0; i < sizeof k_files / sizeof k_files[0]; ++i) {
         snprintf(path, sizeof path, "%s/%s", dir, k_files[i]);
@@ -204,35 +228,28 @@ MESH_TEST_CASE(firmware_download_fetches_a_member_end_to_end, unit) {
     MESH_TEST_FAIL_IF(mkdtemp(dir) == NULL, "could not create a temporary directory");
 
     const char *failure = NULL;
-    char *saved_path = NULL;
+    struct https_fixture server;
+    memset(&server, 0, sizeof server);
     struct mesh_event_loop loop;
     struct mesh_fetch fetch;
     struct mesh_firmware_download download;
     bool loop_up = false;
     bool fetch_up = false;
 
-    if (!download_install_curl(dir, CDN_HONEST)) {
-        failure = "could not install the fake CDN";
-        goto cleanup;
-    }
-    {
-        const char *const old_path = getenv("PATH");
-        saved_path = strdup(old_path != NULL ? old_path : "");
-        char next[2048];
-        snprintf(next, sizeof next, "%s:%s", dir, old_path != NULL ? old_path : "/usr/bin");
-        setenv("PATH", next, 1);
-    }
     if (mesh_event_loop_init(&loop) != 0) {
         failure = "event loop init failed";
         goto cleanup;
     }
     loop_up = true;
-    if (mesh_fetch_init(&fetch, &loop) != 0 || fetch.tool == NULL ||
-        strcmp(fetch.tool, "curl") != 0) {
-        failure = "the fake curl should have been picked up from PATH";
+    if (mesh_fetch_init(&fetch, &loop) != 0) {
+        failure = "fetch init failed";
         goto cleanup;
     }
     fetch_up = true;
+    if (!download_serve_as(&server, CDN_HONEST, &fetch)) {
+        failure = "could not stand up the fake CDN";
+        goto cleanup;
+    }
 
     struct download_probe probe;
     memset(&probe, 0, sizeof probe);
@@ -324,10 +341,7 @@ cleanup:
     if (loop_up) {
         mesh_event_loop_shutdown(&loop);
     }
-    if (saved_path != NULL) {
-        setenv("PATH", saved_path, 1);
-        free(saved_path);
-    }
+    https_fixture_stop(&server);
     download_clean_dir(dir);
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
@@ -346,24 +360,14 @@ MESH_TEST_CASE(firmware_download_tells_a_missing_member_from_a_broken_one, unit)
     MESH_TEST_FAIL_IF(mkdtemp(dir) == NULL, "could not create a temporary directory");
 
     const char *failure = NULL;
-    char *saved_path = NULL;
+    struct https_fixture server;
+    memset(&server, 0, sizeof server);
     struct mesh_event_loop loop;
     struct mesh_fetch fetch;
     struct mesh_firmware_download download;
     bool loop_up = false;
     bool fetch_up = false;
 
-    if (!download_install_curl(dir, CDN_HONEST)) {
-        failure = "could not install the fake CDN";
-        goto cleanup;
-    }
-    {
-        const char *const old_path = getenv("PATH");
-        saved_path = strdup(old_path != NULL ? old_path : "");
-        char next[2048];
-        snprintf(next, sizeof next, "%s:%s", dir, old_path != NULL ? old_path : "/usr/bin");
-        setenv("PATH", next, 1);
-    }
     if (mesh_event_loop_init(&loop) != 0) {
         failure = "event loop init failed";
         goto cleanup;
@@ -374,6 +378,10 @@ MESH_TEST_CASE(firmware_download_tells_a_missing_member_from_a_broken_one, unit)
         goto cleanup;
     }
     fetch_up = true;
+    if (!download_serve_as(&server, CDN_HONEST, &fetch)) {
+        failure = "could not stand up the fake CDN";
+        goto cleanup;
+    }
 
     /* A real board that this release's nrf52840 zip does not carry: the walk succeeds and
        finds nothing, which is not the same as the walk failing. */
@@ -398,8 +406,8 @@ MESH_TEST_CASE(firmware_download_tells_a_missing_member_from_a_broken_one, unit)
 
     /* Now the same fetch with one byte of the member's payload flipped. Everything up to the
        inflate, and the inflate is what catches it. */
-    if (!download_install_curl(dir, CDN_CORRUPT_MEMBER)) {
-        failure = "could not install the corrupting CDN";
+    if (!download_serve_as(&server, CDN_CORRUPT_MEMBER, &fetch)) {
+        failure = "could not stand up the corrupting CDN";
         goto cleanup;
     }
     memset(&probe, 0, sizeof probe);
@@ -431,8 +439,8 @@ MESH_TEST_CASE(firmware_download_tells_a_missing_member_from_a_broken_one, unit)
 
     /* A directory claiming the manifest inflates to 2 GiB. The size is what gets allocated and
        inflated into on the loop, so it is refused before the member is even fetched. */
-    if (!download_install_curl(dir, CDN_OVERSIZED_MEMBER)) {
-        failure = "could not install the oversizing CDN";
+    if (!download_serve_as(&server, CDN_OVERSIZED_MEMBER, &fetch)) {
+        failure = "could not stand up the oversizing CDN";
         goto cleanup;
     }
     memset(&probe, 0, sizeof probe);
@@ -463,16 +471,15 @@ cleanup:
     if (loop_up) {
         mesh_event_loop_shutdown(&loop);
     }
-    if (saved_path != NULL) {
-        setenv("PATH", saved_path, 1);
-        free(saved_path);
-    }
+    https_fixture_stop(&server);
     download_clean_dir(dir);
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
 
-/* The arguments that are refused before anything is spawned. */
+#endif /* MESHCLIENT_HAVE_TLS */
+
+/* The arguments that are refused before anything is started. */
 MESH_TEST_CASE(firmware_download_refuses_what_it_cannot_do, unit) {
     struct mesh_fetch fetch;
     MESH_TEST_FAIL_IF(mesh_fetch_init(&fetch, NULL) != 0, "a loopless fetcher should init");
@@ -499,6 +506,8 @@ MESH_TEST_CASE(firmware_download_refuses_what_it_cannot_do, unit) {
     record_success(test_name);
 }
 
+#ifdef MESHCLIENT_HAVE_TLS
+
 /*
  * The orchestration, over the same fake CDN: a target and a release become a zip URL and a
  * member name, and the two documents that decide them are read in order.
@@ -513,7 +522,8 @@ MESH_TEST_CASE(firmware_fetch_resolves_a_target_to_a_zip_and_a_member, unit) {
     MESH_TEST_FAIL_IF(mkdtemp(dir) == NULL, "could not create a temporary directory");
 
     const char *failure = NULL;
-    char *saved_path = NULL;
+    struct https_fixture server;
+    memset(&server, 0, sizeof server);
     struct mesh_event_loop loop;
     struct mesh_fetch fetcher;
     struct mesh_firmware_fetch fetch;
@@ -521,17 +531,6 @@ MESH_TEST_CASE(firmware_fetch_resolves_a_target_to_a_zip_and_a_member, unit) {
     bool loop_up = false;
     bool fetch_up = false;
 
-    if (!download_install_curl(dir, CDN_HONEST)) {
-        failure = "could not install the fake CDN";
-        goto cleanup;
-    }
-    {
-        const char *const old_path = getenv("PATH");
-        saved_path = strdup(old_path != NULL ? old_path : "");
-        char next[2048];
-        snprintf(next, sizeof next, "%s:%s", dir, old_path != NULL ? old_path : "/usr/bin");
-        setenv("PATH", next, 1);
-    }
     if (mesh_event_loop_init(&loop) != 0) {
         failure = "event loop init failed";
         goto cleanup;
@@ -542,6 +541,10 @@ MESH_TEST_CASE(firmware_fetch_resolves_a_target_to_a_zip_and_a_member, unit) {
         goto cleanup;
     }
     fetch_up = true;
+    if (!download_serve_as(&server, CDN_HONEST, &fetcher)) {
+        failure = "could not stand up the fake CDN";
+        goto cleanup;
+    }
 
     /*
      * The T114 with an ESP32-S3 expectation. Everything resolves - the release manifest names
@@ -613,11 +616,10 @@ cleanup:
     if (loop_up) {
         mesh_event_loop_shutdown(&loop);
     }
-    if (saved_path != NULL) {
-        setenv("PATH", saved_path, 1);
-        free(saved_path);
-    }
+    https_fixture_stop(&server);
     download_clean_dir(dir);
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
+
+#endif /* MESHCLIENT_HAVE_TLS */

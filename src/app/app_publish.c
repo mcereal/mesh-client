@@ -1082,7 +1082,7 @@ enum mesh_firmware_path mesh_app_firmware_bus(void) {
 /*
  * The radio's firmware situation, flattened onto the settings snapshot - the same trick
  * flatten_client_info() plays for the client's own updater, and for the same reason: store.h
- * has no business seeing a module that forks child processes.
+ * has no business seeing a module that talks to the network.
  *
  * Not part of the cached half above, because none of it comes out of mesh_radio_settings: a
  * check finishing changes these rows while the radio's own configuration has not moved.

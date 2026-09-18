@@ -251,11 +251,11 @@ a framed protocol gets that the reader has drifted.
 
 ## TLS
 
-`src/core/net/tls_client.c` is the one place this process does TLS itself. Everything else it fetches
-over HTTPS is a forked curl (`src/core/net/fetch.c`), because a fetch is a request and a reply and a
-child process is a fine way to do one. A broker connection is not: it is long-lived,
-bidirectional, and has to be readable and writable between UI frames on the same epoll loop as
-everything else. There is nothing to fork and nowhere to block.
+`src/core/net/tls_client.c` is where this process does TLS: the broker connection here, and every
+HTTPS request through `src/core/net/fetch.c`. A broker connection is long-lived and
+bidirectional, and a download is megabytes arriving while the screen still has to draw, so both
+have to be readable and writable between UI frames on the same epoll loop as everything else.
+There is nowhere to block.
 
 So Mbed TLS is driven through BIO callbacks over a non-blocking socket, reporting `-EAGAIN` all
 the way up. Two things about that are easy to get wrong and are handled deliberately:
@@ -303,8 +303,9 @@ connection, and shared by every session after it.
 is set and unusable fails naming the path rather than falling back
 (`mqtt_proxy_names_a_missing_bundle`).
 
-Refreshing the roots is `scripts/gen-ca-roots.py` after re-downloading the pak's
-`certs/certificates.crt`; `make test` fails while the two disagree.
+Refreshing the roots is re-downloading `third_party/mozilla-ca/cacert.pem` from
+[curl.se/ca](https://curl.se/ca/cacert.pem) and running `scripts/gen-ca-roots.py`; `make test`
+fails while the two disagree.
 
 ### Mbed TLS is a submodule, and a trimmed one
 

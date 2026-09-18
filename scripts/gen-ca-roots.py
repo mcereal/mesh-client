@@ -4,18 +4,18 @@
 This is not part of the build. Run it by hand when the bundle is refreshed and commit the
 generated file, so the build stays dependency-free and CI never reaches the network:
 
-    curl -sSLo Tools/tg5040/MeshClient.pak/certs/certificates.crt https://curl.se/ca/cacert.pem
+    curl -sSLo third_party/mozilla-ca/cacert.pem https://curl.se/ca/cacert.pem
     python3 scripts/gen-ca-roots.py
 
 `--check` regenerates in memory and fails if the committed table no longer matches the bundle,
-which is what `make test` runs: the pak's file is what curl verifies against and the table is what
-Mbed TLS verifies against, and the two answering differently would be two clients in one binary.
+which is what `make test` runs: a bundle refreshed without regenerating would be a review that
+reads one set of roots and a binary that trusts another.
 
 Why the roots are in the binary at all: the Brick has no system certificate store, and a file in
-the pak does not ship through self-update - so an install keeps whatever roots its original pak
-carried, for as long as it is updated in place. The day a CA that GitHub or a broker chains to is
-rotated out of that file, the connection that fails is the one the fix would arrive over. Compiled
-in, the roots are refreshed by every release.
+the pak does not ship through self-update - so an install would keep whatever roots its original
+pak carried, for as long as it is updated in place. The day a CA that GitHub or a broker chains to
+is rotated out of that file, the connection that fails is the one the fix would arrive over.
+Compiled in, the roots are refreshed by every release, and the pak carries no bundle at all.
 
 DER rather than PEM: it is what Mbed TLS parses without a copy (`mbedtls_x509_crt_parse_der_nocopy`
 keeps pointers into the table instead of duplicating it on the heap), and it is a third smaller.
@@ -28,7 +28,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_INPUT = ROOT / "Tools/tg5040/MeshClient.pak/certs/certificates.crt"
+DEFAULT_INPUT = ROOT / "third_party/mozilla-ca/cacert.pem"
 DEFAULT_OUTPUT = ROOT / "src/core/generated/ca_roots.c"
 
 BLOCK = re.compile(

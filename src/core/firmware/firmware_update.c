@@ -392,13 +392,6 @@ void mesh_firmware_update_shutdown(struct mesh_firmware_update *update) {
     mesh_fetch_shutdown(&update->fetch);
 }
 
-void mesh_firmware_update_use_ca_bundle(struct mesh_firmware_update *update, const char *path) {
-    if (update == NULL) {
-        return;
-    }
-    mesh_fetch_set_ca_bundle(&update->fetch, path);
-}
-
 bool mesh_firmware_update_available(const struct mesh_firmware_update *update) {
     return update != NULL && mesh_fetch_available(&update->fetch);
 }

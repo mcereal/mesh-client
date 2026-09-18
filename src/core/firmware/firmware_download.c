@@ -382,7 +382,7 @@ static void download_on_fetch(void *userdata, const struct mesh_fetch_result *re
 
 static void download_step_inflate(struct mesh_firmware_download *download) {
     /* The work is the next tick's, so the done callback arrives from the tick exactly as it did
-       when the inflate was a child being reaped there - see mesh_firmware_update_tick(). */
+       when the inflate was a child process reaped there - see mesh_firmware_update_tick(). */
     download->state = MESH_FIRMWARE_DOWNLOAD_INFLATING;
     download->inflate_pending = true;
 }
@@ -422,9 +422,10 @@ static void download_inflate(struct mesh_firmware_download *download) {
     if (len != (size_t)download->entry.compressed_size) {
         /*
          * Not a staging failure and not a corrupt member: the bytes the directory promised did
-         * not all arrive. curl exits 0 on a reply that is short but consistent with its own
-         * Content-Length, so this is the only place a truncated member is caught - and it is
-         * the network's fault, which means the answer is "try again" rather than "give up".
+         * not all arrive. The fetcher holds a reply to its own Content-Length, and a server
+         * that answered the range with a shorter one than asked for is consistent with itself,
+         * so this is the only place that is caught - and it is the network's fault, which means
+         * the answer is "try again" rather than "give up".
          */
         mesh_log_error("firmware", "The member arrived %zu bytes long, not %u", len,
                        (unsigned)download->entry.compressed_size);

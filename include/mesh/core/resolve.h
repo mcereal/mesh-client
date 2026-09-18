@@ -8,8 +8,7 @@
  * starts threads - so a name typed on the Devices tab would be seconds of frozen UI. That is why
  * the TCP link took a numeric address and nothing else for as long as it did.
  *
- * The way out is the shape `src/core/net/fetch.c` already uses for HTTPS, and this is that shape
- * with the tool taken out: fork, let the child block, read the answer back through the event loop.
+ * The way out: fork, let the child block, read the answer back through the event loop.
  * The child does not exec. There is nothing to exec - `getent` is not on the Brick and busybox's
  * `nslookup` prints a different thing every version - and the resolver we want is the one this
  * binary is already linked against.
@@ -39,6 +38,13 @@ struct mesh_event_loop;
 /* How long a lookup is given before the child is killed and the outcome is TIMED_OUT. A DNS
    server that is there answers in milliseconds; one that is not is what this is for. */
 #define MESH_RESOLVE_TIMEOUT_MS 5000U
+/* How many of getaddrinfo()'s answers come back. See mesh_resolve_result.addresses. */
+#define MESH_RESOLVE_ADDRESSES_MAX 4U
+
+struct mesh_resolve_address {
+    struct sockaddr_storage address; /* the port already set */
+    socklen_t len;
+};
 
 /* How a finished lookup ended. Each of these is a different sentence on a screen, which is why
    "there is no such name" is not folded in with "the resolver did not work". */
@@ -65,13 +71,22 @@ struct mesh_resolve_result {
     /*
      * The address, with the port already set, valid only when the outcome is OK.
      *
-     * **The first one `getaddrinfo()` returned**, not a list. A caller here is connecting to a
-     * radio on the local network or to a broker, and neither is a case where walking a second
-     * A record is what fixes a failed connect - a retry goes back through the whole attempt,
-     * name included, which is also how it picks up a DHCP lease that moved.
+     * **The first one `getaddrinfo()` returned.** The TCP link and the MQTT proxy connect to
+     * this and nothing else: a radio on the local network or a broker is not a case where
+     * walking a second A record is what fixes a failed connect - a retry goes back through the
+     * whole attempt, name included, which is also how it picks up a DHCP lease that moved.
      */
     struct sockaddr_storage address;
     socklen_t address_len;
+    /*
+     * The first few answers, `address` among them, **alternating families** starting with the
+     * first answer's (RFC 8305 section 4). For fetch.c, which tries the next when one will not
+     * connect: a CDN host has several addresses, and a network with an IPv6 address and no IPv6
+     * route answers every AAAA first. Alternating is what keeps a broken family from being
+     * every address on the list.
+     */
+    struct mesh_resolve_address addresses[MESH_RESOLVE_ADDRESSES_MAX];
+    size_t address_count;
 };
 
 /* Called once per started lookup, from the event loop, when the child is gone. */
@@ -86,7 +101,7 @@ struct mesh_resolve {
     uint64_t deadline_ms;
 
     /* The child writes one fixed-size record; this is how much of it has arrived. */
-    uint8_t record[sizeof(struct sockaddr_storage) + 8U];
+    uint8_t record[(sizeof(struct sockaddr_storage) + 8U) * MESH_RESOLVE_ADDRESSES_MAX + 8U];
     size_t record_len;
     /* Set by a read that gave up, so the reap reports why rather than the exit status. */
     enum mesh_resolve_outcome failure;
@@ -131,7 +146,7 @@ int mesh_resolve_start(struct mesh_resolve *resolve, const char *host, uint16_t 
 /*
  * Enforces the deadline and reaps a finished child. Call every loop turn.
  *
- * Both halves matter, for the reason mesh_fetch_tick() gives: the fd callback sees EOF, but a
+ * Both halves matter: the fd callback sees EOF, but a
  * child that wrote its answer and has not yet been reaped is only ever finished here.
  */
 void mesh_resolve_tick(struct mesh_resolve *resolve, uint64_t now_ms);
