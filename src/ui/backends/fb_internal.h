@@ -458,6 +458,33 @@ int fb_icon_drawn(const struct mesh_ui_backend_fb_state *state, int scale);
 void fb_draw_icon(const struct mesh_ui_backend_fb_state *state, int x, int y,
                   enum mesh_ui_icon icon, int scale, struct mesh_ui_rgb ink,
                   struct mesh_ui_rgb ground);
+
+/*
+ * The largest square fb_draw_emoji_box() will draw a sprite in.
+ *
+ * A sprite inside a line of text is one cell and is bounded by the glyph scale; a keycap on
+ * the keyboard's emoji layer is sized to the *key* instead, which on the Brick's panel is four
+ * times that and on a wider one more. The bound is what the per-column map inside is sized
+ * for, and it is generous rather than tight - the cost of the slack is a few hundred bytes of
+ * stack for the length of one call.
+ */
+#define FB_EMOJI_BOX_MAX 192
+
+/*
+ * One emoji sprite, filling a square `box` pixels on a side with its top-left at (x, top).
+ *
+ * The primitive under the emoji cells fb_draw_text() lays into a line, exposed because a
+ * keycap is the one place a sprite is sized to the box it sits in rather than to the text
+ * around it. An emoji takes no ink and no ground: it carries its own colours and draws only
+ * its opaque pixels, so whatever the caller has already filled shows through the margin.
+ */
+void fb_draw_emoji_box(const struct mesh_ui_backend_fb_state *state, int x, int top, int box,
+                       uint16_t sprite);
+
+/* The box to ask fb_draw_emoji_box() for when there is `box` pixels of room: the whole multiple
+   of the sprite's own grid that fits, so every source pixel lands on a square of the same size
+   rather than on a mix of two. Returns small boxes - a text cell - unchanged. */
+int fb_emoji_box_fit(int box);
 int fb_draw_wrapped(const struct mesh_ui_backend_fb_state *state, int y, const char *text,
                     size_t cols, int max_lines, struct mesh_ui_rgb color,
                     struct mesh_ui_rgb ground);

@@ -84,6 +84,21 @@ struct fb_button {
      */
     enum mesh_ui_color ground;
     int scale; /* glyph multiplier for the label */
+    /*
+     * Draw a label that is one emoji and nothing else as the button's *face*: at the size of
+     * the box rather than at the glyph scale, centred in it.
+     *
+     * A sprite is not a letter. A letter in a large key is still read at the text size, next to
+     * all the other text on the screen; an emoji in a large key is the only thing the key says,
+     * and drawn at a text cell it is a 20 px thumbnail of a picture - which is what the
+     * keyboard's emoji layer was, forty of them a panel that could not be told apart without
+     * leaning in. The glyph scale cannot answer this on its own: it tops out at
+     * MESH_UI_SCALE_MAX and the key is several times a cell.
+     *
+     * Ignored unless the label really is a single emoji cell, so a key carrying a letter, an
+     * icon or a word is unaffected and this can be set for a grid whose layers are a mix.
+     */
+    bool emoji_face;
 };
 
 void fb_draw_button(const struct mesh_ui_backend_fb_state *state, const struct fb_button *button);
