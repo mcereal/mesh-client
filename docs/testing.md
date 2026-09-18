@@ -81,6 +81,12 @@ Five jobs on every pull request ([`.github/workflows/ci.yml`](../.github/workflo
 
 Nothing gates on formatting: the tree is normalised with clang-format 18 and host versions vary.
 
+A sixth runs on a schedule rather than on a pull request
+([`.github/workflows/fuzz.yml`](../.github/workflows/fuzz.yml)): the hunt described below, ten
+minutes per target every Monday, one job per target, over a corpus cached between runs so the
+coverage compounds instead of starting from the seeds each week. `workflow_dispatch` runs it on
+demand, with the seconds per target as an input.
+
 ## Fuzzing
 
 A harness per reader in `devtools/fuzz/`, over the places bytes we did not write enter the
@@ -96,10 +102,14 @@ a wire, but each is two parsers stacked (forgiving base64, then nanopb over the 
 string a stranger wrote and somebody typed in, and what comes out is written to a radio.
 
 ```bash
-make fuzz                       # what CI runs: seeds, then 20k fixed-seed runs
+make fuzz                       # what a pull request runs: seeds, then 20k fixed-seed runs
 make fuzz ARGS="--time 600"     # an actual hunt, ten minutes per target
 make docker-fuzz                # the same on macOS
 ```
+
+The hunt is also the Monday job above, so running it by hand is for when the parser or the
+decode paths in the diff are the reason to — the scheduled one covers the rest. The difference
+that matters is the seed: the pull request pass pins the mutator, and the hunt does not.
 
 **Memory safety is not the oracle for the session.** The counted arrays a decoded packet lands
 in — the 256-node roster, the 8-slot channel table, the message ring — live *inside*
