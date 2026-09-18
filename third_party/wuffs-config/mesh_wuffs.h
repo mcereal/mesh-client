@@ -1,14 +1,19 @@
-#ifndef MESH_MAP_WUFFS_PNG_H
-#define MESH_MAP_WUFFS_PNG_H
+#ifndef MESH_WUFFS_H
+#define MESH_WUFFS_H
 
 /*
- * Wuffs, cut down to what decoding a PNG needs.
+ * Wuffs, cut down to the two things this client decodes: a PNG, for the map, and a raw deflate
+ * stream, for a firmware image out of a release zip.
  *
  * The vendored file carries some thirty codecs - JPEG, GIF, BMP, WEBP, CBOR, JSON and the rest -
  * and this is what keeps every one of them out of the binary. WUFFS_CONFIG__MODULES turns the
  * file's default "compile everything" off, and the modules named below are the PNG decoder and
  * exactly its dependencies: zlib for the image data, deflate under that, and the two checksums
  * the two of them verify with.
+ *
+ * The firmware inflate (src/utils/inflate.c) costs nothing on this list. A zip member is bare
+ * deflate checked by a CRC32, and both are already here because PNG needs them - which is what
+ * let the client stop forking the device's `gzip` without adding a module.
  *
  * BASE is named by its *sub-modules* rather than whole, and that is worth 31 KiB of the pak.
  * Wuffs splits it seven ways and PNG reaches three: CORE, INTERFACES, and PIXCONV for the
@@ -23,14 +28,17 @@
  * or not it is called. That is a fact about the pak's build rather than about Wuffs, and it is the
  * same fact that makes this decoder cost three times what the standalone measurement predicted.
  *
- * wuffs_png.c includes this with WUFFS_IMPLEMENTATION defined and is the one translation unit
- * that holds the code; everything else that includes it sees declarations only. That is the
+ * src/utils/wuffs.c includes this with WUFFS_IMPLEMENTATION defined and is the one translation
+ * unit that holds the code; everything else that includes it sees declarations only. That is the
  * single-file-library convention, and it is also what lets the implementation be compiled
  * without this project's warning flags while our own code keeps them.
  *
- * Nothing outside src/map includes this. The client's decoder is one function in
- * mesh/map/tile_image.h, which is a seam rather than a wrapper: it names a pixel format, a
- * bounded work buffer and a tile-sized destination, none of which are Wuffs' vocabulary.
+ * It sits here, beside the vendored file, rather than in either of the areas that use it, for
+ * the same reason third_party/mbedtls-config/ does: it is configuration of somebody else's
+ * library. Two files include it, and each is a seam rather than a wrapper -
+ * mesh/map/tile_image.h names a pixel format, a bounded work buffer and a tile-sized
+ * destination, and mesh/utils/inflate.h names a buffer in and a buffer out. Neither says
+ * anything in Wuffs' vocabulary, and nothing else in the tree should include this.
  */
 
 #define WUFFS_CONFIG__MODULES
@@ -45,4 +53,4 @@
 
 #include "wuffs-v0.4.c"
 
-#endif /* MESH_MAP_WUFFS_PNG_H */
+#endif /* MESH_WUFFS_H */

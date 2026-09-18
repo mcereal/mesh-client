@@ -12,8 +12,8 @@
  * The member fetched is the T114's `.mt.json` rather than its `.uf2`, because at 486 bytes it
  * is a fixture and at 517,956 it is not - and it exercises exactly the same four steps. What
  * comes out the far end is parsed by the manifest reader, so the case proves the chain rather
- * than the plumbing: range read, place the data, wrap it in a gzip envelope, inflate it, check
- * the CRC the central directory carried, and read the document that falls out.
+ * than the plumbing: range read, place the data, inflate it, check the length and CRC the
+ * central directory carried, and read the document that falls out.
  *
  * The orchestration above it - firmware_fetch.c, which turns a target and a release into that
  * URL and that member name - is tested here too rather than in a suite of its own, because it
@@ -67,6 +67,19 @@ static void download_record(void *userdata, const struct mesh_firmware_download 
     (void)mesh_firmware_download_image_path(download, probe->image, sizeof probe->image);
 }
 
+/* What the fake CDN does to the bytes it serves. */
+enum download_cdn {
+    CDN_HONEST,
+    /* One byte of the T114 manifest's payload zeroed: the member arrives and is wrong. */
+    CDN_CORRUPT_MEMBER,
+    /* That member's uncompressed size in the central directory rewritten to 2 GiB. */
+    CDN_OVERSIZED_MEMBER,
+};
+
+/* Where that size field sits in the tail window: the member's central record starts at 50,000,
+   and the uncompressed size is 24 bytes into a record. */
+#define TAIL_T114_MANIFEST_SIZE_FIELD 50024
+
 /*
  * The fake CDN.
  *
@@ -75,7 +88,7 @@ static void download_record(void *userdata, const struct mesh_firmware_download 
  * mesh_fetch_content_length() takes the last match to avoid, and a fake that answered with one
  * clean header block would not test it.
  */
-static bool download_install_curl(const char *dir, bool corrupt) {
+static bool download_install_curl(const char *dir, enum download_cdn cdn) {
     char path[512];
     snprintf(path, sizeof path, "%s/curl", dir);
     FILE *const file = fopen(path, "w");
@@ -118,9 +131,13 @@ static bool download_install_curl(const char *dir, bool corrupt) {
         "if [ %d -eq 1 ] && [ \"$off\" -eq 111 ]; then\n"
         "  printf '\\000' | dd of=\"$out\" bs=1 seek=200 conv=notrunc 2>/dev/null\n"
         "fi\n"
+        "if [ %d -eq 1 ] && [ \"$first\" -eq %d ]; then\n"
+        "  printf '\\000\\000\\000\\200' | dd of=\"$out\" bs=1 seek=%d conv=notrunc 2>/dev/null\n"
+        "fi\n"
         "exit 0\n",
         MESH_TEST_DATA_DIR, ZIP_SIZE, TAIL_BASE, TAIL_BASE, MEMBER_BASE, MEMBER_BASE,
-        corrupt ? 1 : 0);
+        cdn == CDN_CORRUPT_MEMBER ? 1 : 0, cdn == CDN_OVERSIZED_MEMBER ? 1 : 0, TAIL_BASE,
+        TAIL_T114_MANIFEST_SIZE_FIELD);
     const bool executable = fchmod(fileno(file), 0755) == 0;
     fclose(file);
     return executable;
@@ -160,9 +177,12 @@ static bool fetch_wait_done(struct mesh_event_loop *loop, struct mesh_fetch *fet
 
 /* Removes the staged files and the temporary directory, whatever the case did. */
 static void download_clean_dir(const char *dir) {
-    static const char *const k_files[] = {
-        "curl",        "firmware.window", "firmware.central", "firmware.header",
-        "firmware.gz", "firmware.image"};
+    static const char *const k_files[] = {"curl",
+                                          "firmware.window",
+                                          "firmware.central",
+                                          "firmware.header",
+                                          "firmware.member",
+                                          "firmware.image"};
     char path[512];
     for (size_t i = 0; i < sizeof k_files / sizeof k_files[0]; ++i) {
         snprintf(path, sizeof path, "%s/%s", dir, k_files[i]);
@@ -176,8 +196,8 @@ static void download_clean_dir(const char *dir) {
  *
  * The assertions at the end are the point of the whole phase: the file on disk is the length
  * the central directory promised, and its contents are the document the manifest reader knows
- * how to read. Nothing checked the CRC explicitly - `gzip` did, on the way past, which is why
- * the envelope is the verification rather than a way of avoiding a dependency.
+ * how to read. The CRC and the length are checked on the way past, by the inflate, which is why
+ * there is no separate verify step to test.
  */
 MESH_TEST_CASE(firmware_download_fetches_a_member_end_to_end, unit) {
     char dir[] = "/tmp/meshclient_fwdl_XXXXXX";
@@ -191,7 +211,7 @@ MESH_TEST_CASE(firmware_download_fetches_a_member_end_to_end, unit) {
     bool loop_up = false;
     bool fetch_up = false;
 
-    if (!download_install_curl(dir, false)) {
+    if (!download_install_curl(dir, CDN_HONEST)) {
         failure = "could not install the fake CDN";
         goto cleanup;
     }
@@ -285,9 +305,9 @@ MESH_TEST_CASE(firmware_download_fetches_a_member_end_to_end, unit) {
     {
         char stale[512];
         struct stat info;
-        snprintf(stale, sizeof stale, "%s/firmware.gz", dir);
+        snprintf(stale, sizeof stale, "%s/firmware.member", dir);
         if (stat(stale, &info) == 0) {
-            failure = "the envelope should have been cleaned up";
+            failure = "the member should have been cleaned up";
             goto cleanup;
         }
         snprintf(stale, sizeof stale, "%s/firmware.window", dir);
@@ -314,11 +334,12 @@ cleanup:
 }
 
 /*
- * A release that does not build for this board, and a member that did not survive the trip.
+ * A release that does not build for this board, a member that did not survive the trip, and
+ * one whose directory claims more than any radio could hold.
  *
- * Two refusals that must not be one row. "This release has no file for your radio" is an
- * answer about the release; `gzip: crc error` is an answer about the network, and the second
- * is worth retrying where the first is not.
+ * Refusals that must not be one row. "This release has no file for your radio" is an
+ * answer about the release; a CRC that does not match is an answer about the network, and the
+ * second is worth retrying where the first is not.
  */
 MESH_TEST_CASE(firmware_download_tells_a_missing_member_from_a_broken_one, unit) {
     char dir[] = "/tmp/meshclient_fwdl_XXXXXX";
@@ -332,7 +353,7 @@ MESH_TEST_CASE(firmware_download_tells_a_missing_member_from_a_broken_one, unit)
     bool loop_up = false;
     bool fetch_up = false;
 
-    if (!download_install_curl(dir, false)) {
+    if (!download_install_curl(dir, CDN_HONEST)) {
         failure = "could not install the fake CDN";
         goto cleanup;
     }
@@ -376,8 +397,8 @@ MESH_TEST_CASE(firmware_download_tells_a_missing_member_from_a_broken_one, unit)
     }
 
     /* Now the same fetch with one byte of the member's payload flipped. Everything up to the
-       inflate succeeds; the CRC in the envelope is what catches it. */
-    if (!download_install_curl(dir, true)) {
+       inflate, and the inflate is what catches it. */
+    if (!download_install_curl(dir, CDN_CORRUPT_MEMBER)) {
         failure = "could not install the corrupting CDN";
         goto cleanup;
     }
@@ -406,6 +427,33 @@ MESH_TEST_CASE(firmware_download_tells_a_missing_member_from_a_broken_one, unit)
             failure = "a failed download leaves no image behind";
             goto cleanup;
         }
+    }
+
+    /* A directory claiming the manifest inflates to 2 GiB. The size is what gets allocated and
+       inflated into on the loop, so it is refused before the member is even fetched. */
+    if (!download_install_curl(dir, CDN_OVERSIZED_MEMBER)) {
+        failure = "could not install the oversizing CDN";
+        goto cleanup;
+    }
+    memset(&probe, 0, sizeof probe);
+    memset(&download, 0, sizeof download);
+    if (mesh_firmware_download_start(&download, &fetch, "https://example.invalid/zip",
+                                     T114_MANIFEST, dir, download_record, &probe) != 0) {
+        failure = "the third download should start";
+        goto cleanup;
+    }
+    if (!download_wait(&loop, &fetch, &download, &probe)) {
+        failure = "it should have finished as well";
+        goto cleanup;
+    }
+    if (probe.state != MESH_FIRMWARE_DOWNLOAD_FAILED ||
+        probe.error != MESH_FIRMWARE_DOWNLOAD_ERROR_UNSUPPORTED) {
+        failure = "a member bigger than any radio's flash is refused, not allocated";
+        goto cleanup;
+    }
+    if (download.located) {
+        failure = "and refused off the directory, before its header or bytes were fetched";
+        goto cleanup;
     }
 
 cleanup:
@@ -473,7 +521,7 @@ MESH_TEST_CASE(firmware_fetch_resolves_a_target_to_a_zip_and_a_member, unit) {
     bool loop_up = false;
     bool fetch_up = false;
 
-    if (!download_install_curl(dir, false)) {
+    if (!download_install_curl(dir, CDN_HONEST)) {
         failure = "could not install the fake CDN";
         goto cleanup;
     }

@@ -674,7 +674,7 @@ only a consequence of one of them, and neither is a thing a test could pin.
   Do not "gentle" the kill, and never `kill $(pidof nextui.elf)` in a device shell.
 - **The pak is built without `--gc-sections`, so a third-party module ships whole.**
   `scripts/cross-build.sh` uses plain `-Os` with no `-ffunction-sections`, so any code compiled
-  into an object file is code that ships. It is why `src/map/wuffs_png.h` names Wuffs' BASE
+  into an object file is code that ships. It is why `third_party/wuffs-config/mesh_wuffs.h` names Wuffs' BASE
   **sub-modules** rather than BASE, and why the decoder costs 335 KB where the spike's probe -
   which did collect sections - predicted 106 KB. Read a size measurement's build flags before
   believing it about this binary.

@@ -298,8 +298,8 @@ static void list_all_devices(struct mesh_app *app) {
  * It exists because phase 2's promise - "0.5 MB fetched, it matches the CRC, and it inflates to
  * the image the manifest describes" - is not a thing a unit test can prove. The suite runs the
  * same chain against committed bytes through a fake CDN; this runs it against GitHub, from the
- * device, over the antenna the client will really use, which is where the range refusals, the
- * CA bundle and the busybox gzip actually live. It writes nothing to a radio and never will:
+ * device, over the antenna the client will really use, which is where the range refusals and
+ * the CA bundle actually live. It writes nothing to a radio and never will:
  * that is phase 3, and it starts from the file this leaves behind.
  *
  * The board is named by its build target rather than resolved from a connected radio, because

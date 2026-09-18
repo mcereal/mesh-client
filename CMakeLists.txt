@@ -119,19 +119,20 @@ add_library(meshclient_core
     src/map/tile_cache.c
     src/map/tile_image.c
     src/map/viewport.c
-    src/map/wuffs_png.c
     src/i18n/strings.c
     src/i18n/locale_es.c
     src/utils/base64.c
     src/utils/crash.c
     src/utils/env.c
     src/utils/file.c
+    src/utils/inflate.c
     src/utils/json.c
     src/utils/log.c
     src/utils/qr.c
     src/utils/sha256.c
     src/utils/text.c
     src/utils/time.c
+    src/utils/wuffs.c
     src/utils/zip.c
     src/ui/tables/actions.c
     src/ui/views/channel_share.c
@@ -276,17 +277,20 @@ endif()
 
 target_link_libraries(meshclient_core PRIVATE meshclient_options)
 
-# Wuffs, for the map's PNG decoder. See third_party/wuffs/README.md for what it is and why it is
-# a vendored file rather than a submodule; src/map/wuffs_png.h is what keeps the thirty codecs
-# this client does not want out of the binary.
+# Wuffs, for the map's PNG decoder and the firmware download's inflate. See
+# third_party/wuffs/README.md for what it is and why it is a vendored file rather than a
+# submodule; third_party/wuffs-config/mesh_wuffs.h is what keeps the thirty codecs this client
+# does not want out of the binary.
 #
-# Only src/map/wuffs_png.c compiles it, and it is the one source in the tree built without this
+# Only src/utils/wuffs.c compiles it, and it is the one source in the tree built without this
 # project's warning flags: 3.6 MB of generated C has no business answering to -Wconversion, and
 # -w after the target's options is what turns them off for that file alone. Sanitizers are
 # deliberately *not* turned off with them - a decoder is exactly what they are for, and one that
 # claims to be memory-safe by construction is exactly the claim worth checking.
-target_include_directories(meshclient_core PRIVATE ${PROJECT_SOURCE_DIR}/third_party/wuffs)
-set_source_files_properties(src/map/wuffs_png.c PROPERTIES COMPILE_OPTIONS "-w")
+target_include_directories(meshclient_core PRIVATE
+    ${PROJECT_SOURCE_DIR}/third_party/wuffs
+    ${PROJECT_SOURCE_DIR}/third_party/wuffs-config)
+set_source_files_properties(src/utils/wuffs.c PROPERTIES COMPILE_OPTIONS "-w")
 
 find_package(Threads REQUIRED)
 find_package(PkgConfig)

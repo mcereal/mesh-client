@@ -66,8 +66,8 @@ then all 486 bytes of its deflated payload. It is the T114's `.mt.json` rather t
 because at 486 bytes it is a fixture and at 517,956 it is not, and it exercises exactly the same
 four steps. `tests/suites/firmware_download.c` serves it — and the tail window above it — at the
 offsets the real zip keeps them at, so the whole chain runs against real bytes: range read, place
-the data, wrap it in a gzip envelope, inflate it, check the CRC the central directory carried,
-and read the document that falls out.
+the data, inflate it, check the length and CRC the central directory carried, and read the
+document that falls out.
 
 **`t114_2.7.26.uf2` is four blocks of 2,866** — the first two and the last two of the real
 image, cut and otherwise untouched, so 2 KB instead of 1.4 MB. Keeping both ends rather than a

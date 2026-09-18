@@ -496,7 +496,7 @@ void mesh_firmware_update_tick(struct mesh_firmware_update *update, uint64_t now
          * bar; the ladder says which of the two sentences is true right now.
          *
          * Only while the fetch is still running, and that is the whole guard rather than a
-         * nicety. The tick above is what finishes a fetch - the inflater is reaped there - and
+         * nicety. The tick above is what finishes a fetch - the inflate runs there - and
          * finishing calls back into update_image_done(), which has already moved the ladder on
          * to "waiting for radio". Describing the fetch again after that puts "resolving" back
          * over it, and the ladder never leaves: MESH_FIRMWARE_UPDATE_READY is the only case

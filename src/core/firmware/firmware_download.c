@@ -2,37 +2,39 @@
 
 #include "mesh/core/firmware_download.h"
 
+#include "mesh/utils/inflate.h"
 #include "mesh/utils/log.h"
 #include "mesh/utils/text.h"
 #include "mesh/utils/time.h"
 
 #include <errno.h>
-#include <fcntl.h>
-#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
-#include <sys/wait.h>
 #include <unistd.h>
 
 /* Per-step deadlines. The member is half a megabyte over a handheld's Wi-Fi and was measured
    at 1.8-3.0 s on a Brick; the rest are a few kilobytes each and a round trip. */
 #define DOWNLOAD_STEP_TIMEOUT_MS 20000U
 #define DOWNLOAD_MEMBER_TIMEOUT_MS 120000U
-/* busybox gzip inflated 1.4 MB in 0.03 s on the device. This is the backstop, not the budget. */
-#define DOWNLOAD_INFLATE_TIMEOUT_MS 30000U
+
+/*
+ * The most a member may claim to be, in or out of the zip. Both sizes come from a directory
+ * somebody else served, and the uncompressed one is what is allocated and inflated into on the
+ * loop - so an unbounded claim is a malloc that overcommit lets succeed and an inflate that
+ * stalls the client until the kernel kills it. No supported radio has more than 16 MB of flash,
+ * so no image can be bigger; twice that is headroom for a board that does, not for a real image.
+ */
+#define DOWNLOAD_MEMBER_MAX (32U * 1024U * 1024U)
 
 /* The intermediates. Named rather than made unique because a download is one at a time and a
    leftover from a run that died is a file the next run overwrites rather than trips over. */
 #define DOWNLOAD_FILE_WINDOW "firmware.window"
 #define DOWNLOAD_FILE_CENTRAL "firmware.central"
 #define DOWNLOAD_FILE_HEADER "firmware.header"
-#define DOWNLOAD_FILE_ENVELOPE "firmware.gz"
+#define DOWNLOAD_FILE_MEMBER "firmware.member"
 #define DOWNLOAD_FILE_IMAGE "firmware.image"
-
-/* A deflate stored block may carry this much, and the length field is what limits it. */
-#define DOWNLOAD_STORED_BLOCK_MAX 65535U
 
 static void download_step_window(struct mesh_firmware_download *download);
 static void download_step_central(struct mesh_firmware_download *download);
@@ -61,7 +63,7 @@ static void download_clean(const struct mesh_firmware_download *download) {
     download_remove(download, DOWNLOAD_FILE_WINDOW);
     download_remove(download, DOWNLOAD_FILE_CENTRAL);
     download_remove(download, DOWNLOAD_FILE_HEADER);
-    download_remove(download, DOWNLOAD_FILE_ENVELOPE);
+    download_remove(download, DOWNLOAD_FILE_MEMBER);
 }
 
 /* Reads a staged file whole. The largest is the member at ~0.5 MB, against ~700 MB free, and
@@ -208,7 +210,7 @@ static void download_step_header(struct mesh_firmware_download *download) {
 
 static void download_step_member(struct mesh_firmware_download *download) {
     download->state = MESH_FIRMWARE_DOWNLOAD_FETCHING;
-    if (!download_range(download, DOWNLOAD_FILE_ENVELOPE, download->data_offset,
+    if (!download_range(download, DOWNLOAD_FILE_MEMBER, download->data_offset,
                         download->data_offset + download->entry.compressed_size - 1U,
                         DOWNLOAD_MEMBER_TIMEOUT_MS)) {
         download_fail(download, MESH_FIRMWARE_DOWNLOAD_ERROR_STAGING);
@@ -304,6 +306,14 @@ static void download_read_directory(struct mesh_firmware_download *download, con
         download_fail(download, MESH_FIRMWARE_DOWNLOAD_ERROR_NO_MEMBER);
         return;
     }
+    if (download->entry.compressed_size > DOWNLOAD_MEMBER_MAX ||
+        download->entry.uncompressed_size > DOWNLOAD_MEMBER_MAX) {
+        mesh_log_error("firmware", "%s claims %u bytes in the zip and %u out; refusing it",
+                       download->entry.name, (unsigned)download->entry.compressed_size,
+                       (unsigned)download->entry.uncompressed_size);
+        download_fail(download, MESH_FIRMWARE_DOWNLOAD_ERROR_UNSUPPORTED);
+        return;
+    }
     download->located = true;
     mesh_log_info("firmware", "%s is %u bytes in the zip, %u out", download->entry.name,
                   (unsigned)download->entry.compressed_size,
@@ -368,34 +378,46 @@ static void download_on_fetch(void *userdata, const struct mesh_fetch_result *re
     }
 }
 
-/* ---- the gzip envelope --------------------------------------------------------------------*/
+/* ---- the inflate --------------------------------------------------------------------------*/
 
-static void download_put_u32(FILE *file, uint32_t value) {
-    const uint8_t bytes[4] = {(uint8_t)(value & 0xFFU), (uint8_t)((value >> 8) & 0xFFU),
-                              (uint8_t)((value >> 16) & 0xFFU), (uint8_t)((value >> 24) & 0xFFU)};
-    (void)fwrite(bytes, 1U, sizeof bytes, file);
+static void download_step_inflate(struct mesh_firmware_download *download) {
+    /* The work is the next tick's, so the done callback arrives from the tick exactly as it did
+       when the inflate was a child being reaped there - see mesh_firmware_update_tick(). */
+    download->state = MESH_FIRMWARE_DOWNLOAD_INFLATING;
+    download->inflate_pending = true;
+}
+
+static bool download_write_image(const struct mesh_firmware_download *download,
+                                 const uint8_t *bytes, size_t len) {
+    char path[MESH_FETCH_PATH_MAX];
+    if (!download_path(download, DOWNLOAD_FILE_IMAGE, path, sizeof path)) {
+        return false;
+    }
+    FILE *const file = fopen(path, "wb");
+    if (file == NULL) {
+        return false;
+    }
+    const bool written = fwrite(bytes, 1U, len, file) == len;
+    return fclose(file) == 0 && written;
 }
 
 /*
- * Wraps the member in a gzip envelope, in place.
+ * The member, inflated in memory and checked against the central directory.
  *
- * Ten bytes of header in front and eight behind - the CRC32 and the uncompressed size, both
- * from the **central** directory - around a raw deflate stream that is already on disk. The
- * envelope is written by reading the member back and writing it out again rather than by
- * seeking, because the member is what curl wrote and there is no room in front of it.
+ * The length and the CRC32 the directory carried are the download's integrity check: there is
+ * no separate verify step because this *is* one. Both come from the **central** directory,
+ * never the local header, which at 2.8.0 says zero for all three - see mesh/utils/zip.h.
  *
- * A **stored** member is wrapped a second time, in deflate's own stored-block framing, so that
- * it reaches `gzip` as a deflate stream like any other. That is worth the twenty lines: it is
- * what keeps the CRC check on one path instead of two, and the alternative - refusing a stored
- * member - would be a feature that stops working the day upstream stops compressing an image
- * that does not compress.
+ * A stored member takes the same check with the inflate skipped, so there is one path to the
+ * CRC rather than two, and a release that stops compressing an image that does not compress
+ * still downloads.
  */
-static bool download_envelope(struct mesh_firmware_download *download, bool *out_short) {
-    *out_short = false;
+static void download_inflate(struct mesh_firmware_download *download) {
     size_t len = 0U;
-    uint8_t *const member = download_read(download, DOWNLOAD_FILE_ENVELOPE, &len);
+    uint8_t *const member = download_read(download, DOWNLOAD_FILE_MEMBER, &len);
     if (member == NULL) {
-        return false;
+        download_fail(download, MESH_FIRMWARE_DOWNLOAD_ERROR_STAGING);
+        return;
     }
     if (len != (size_t)download->entry.compressed_size) {
         /*
@@ -407,116 +429,58 @@ static bool download_envelope(struct mesh_firmware_download *download, bool *out
         mesh_log_error("firmware", "The member arrived %zu bytes long, not %u", len,
                        (unsigned)download->entry.compressed_size);
         free(member);
-        *out_short = true;
-        return false;
-    }
-    char path[MESH_FETCH_PATH_MAX];
-    if (!download_path(download, DOWNLOAD_FILE_ENVELOPE, path, sizeof path)) {
-        free(member);
-        return false;
-    }
-    FILE *const file = fopen(path, "wb");
-    if (file == NULL) {
-        free(member);
-        return false;
+        download_fail(download, MESH_FIRMWARE_DOWNLOAD_ERROR_NETWORK);
+        return;
     }
 
-    /* Magic, deflate, no flags, no mtime, no extra flags, and an unknown OS. */
-    static const uint8_t k_header[10] = {0x1FU, 0x8BU, 0x08U, 0x00U, 0x00U,
-                                         0x00U, 0x00U, 0x00U, 0x00U, 0xFFU};
-    (void)fwrite(k_header, 1U, sizeof k_header, file);
-
+    const size_t want = (size_t)download->entry.uncompressed_size;
+    uint8_t *image = member;
+    size_t produced = len;
     if (download->entry.method == MESH_ZIP_METHOD_DEFLATE) {
-        (void)fwrite(member, 1U, len, file);
-    } else {
-        size_t at = 0U;
-        do {
-            const size_t chunk =
-                len - at > DOWNLOAD_STORED_BLOCK_MAX ? DOWNLOAD_STORED_BLOCK_MAX : len - at;
-            const bool final = at + chunk >= len;
-            const uint8_t block[5] = {(uint8_t)(final ? 0x01U : 0x00U), (uint8_t)(chunk & 0xFFU),
-                                      (uint8_t)((chunk >> 8) & 0xFFU), (uint8_t)(~chunk & 0xFFU),
-                                      (uint8_t)((~chunk >> 8) & 0xFFU)};
-            (void)fwrite(block, 1U, sizeof block, file);
-            (void)fwrite(member + at, 1U, chunk, file);
-            at += chunk;
-        } while (at < len);
-    }
-
-    download_put_u32(file, download->entry.crc32);
-    download_put_u32(file, download->entry.uncompressed_size);
-    const bool ok = ferror(file) == 0;
-    free(member);
-    return fclose(file) == 0 && ok;
-}
-
-static void download_step_inflate(struct mesh_firmware_download *download) {
-    download->state = MESH_FIRMWARE_DOWNLOAD_INFLATING;
-    bool arrived_short = false;
-    if (!download_envelope(download, &arrived_short)) {
-        download_fail(download, arrived_short ? MESH_FIRMWARE_DOWNLOAD_ERROR_NETWORK
-                                              : MESH_FIRMWARE_DOWNLOAD_ERROR_STAGING);
-        return;
-    }
-    char envelope[MESH_FETCH_PATH_MAX];
-    char image[MESH_FETCH_PATH_MAX];
-    if (!download_path(download, DOWNLOAD_FILE_ENVELOPE, envelope, sizeof envelope) ||
-        !download_path(download, DOWNLOAD_FILE_IMAGE, image, sizeof image)) {
-        download_fail(download, MESH_FIRMWARE_DOWNLOAD_ERROR_STAGING);
-        return;
-    }
-
-    const pid_t pid = fork();
-    if (pid < 0) {
-        download_fail(download, MESH_FIRMWARE_DOWNLOAD_ERROR_STAGING);
-        return;
-    }
-    if (pid == 0) {
-        /*
-         * Both ends are files, so there is no pipe to feed and nothing here can deadlock -
-         * which is the whole reason the envelope is staged rather than streamed. The client's
-         * one loop keeps drawing while this runs.
-         */
-        const int in = open(envelope, O_RDONLY | O_CLOEXEC);
-        const int out = open(image, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
-        if (in < 0 || out < 0 || dup2(in, STDIN_FILENO) < 0 || dup2(out, STDOUT_FILENO) < 0) {
-            _exit(127);
+        image = malloc(want);
+        if (image == NULL) {
+            free(member);
+            download_fail(download, MESH_FIRMWARE_DOWNLOAD_ERROR_STAGING);
+            return;
         }
-        close(in);
-        close(out);
-        execlp("gzip", "gzip", "-dc", (char *)NULL);
-        /* busybox names the same applet three ways and a system without gzip may still have
-           one of the others. */
-        execlp("gunzip", "gunzip", "-c", (char *)NULL);
-        _exit(127);
+        const enum mesh_inflate_result inflated = mesh_inflate(member, len, image, want, &produced);
+        free(member);
+        if (inflated == MESH_INFLATE_NO_MEMORY) {
+            free(image);
+            download_fail(download, MESH_FIRMWARE_DOWNLOAD_ERROR_STAGING);
+            return;
+        }
+        if (inflated != MESH_INFLATE_OK) {
+            mesh_log_error("firmware", "The member is not a deflate stream that fits %zu bytes",
+                           want);
+            free(image);
+            download_fail(download, MESH_FIRMWARE_DOWNLOAD_ERROR_INFLATE);
+            return;
+        }
     }
-    download->inflater = pid;
-    download->inflate_deadline_ms = mesh_time_monotonic_ms() + DOWNLOAD_INFLATE_TIMEOUT_MS;
-}
 
-static void download_reaped(struct mesh_firmware_download *download, int status) {
-    download->inflater = -1;
-    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
-        /*
-         * `gzip: crc error` and `gzip: incorrect length` both land here, and both mean the
-         * bytes arrived and are not the bytes the central directory described. Which is the
-         * download's integrity check: there is no separate verify step because the inflate
-         * *is* one.
-         */
-        mesh_log_error("firmware", "The inflate refused the member (status %d)", status);
+    uint32_t crc = 0U;
+    if (!mesh_crc32(image, produced, &crc)) {
+        free(image);
+        download_fail(download, MESH_FIRMWARE_DOWNLOAD_ERROR_STAGING);
+        return;
+    }
+    if (produced != want || crc != download->entry.crc32) {
+        /* The bytes arrived and they are not the bytes the central directory described. */
+        mesh_log_error("firmware", "The image is %zu bytes with CRC %08x, not %zu with %08x",
+                       produced, (unsigned)crc, want, (unsigned)download->entry.crc32);
+        free(image);
         download_fail(download, MESH_FIRMWARE_DOWNLOAD_ERROR_INFLATE);
         return;
     }
-    const uint64_t size = download_file_size(download, DOWNLOAD_FILE_IMAGE);
-    if (size != (uint64_t)download->entry.uncompressed_size) {
-        /* Belt and braces: gzip already checks ISIZE, and a gzip that did not would leave a
-           file the caller would go on to write to a radio. */
-        mesh_log_error("firmware", "The image inflated to %llu bytes, not %u",
-                       (unsigned long long)size, (unsigned)download->entry.uncompressed_size);
-        download_fail(download, MESH_FIRMWARE_DOWNLOAD_ERROR_INFLATE);
+
+    const bool written = download_write_image(download, image, produced);
+    free(image);
+    if (!written) {
+        download_fail(download, MESH_FIRMWARE_DOWNLOAD_ERROR_STAGING);
         return;
     }
-    mesh_log_info("firmware", "Staged %llu bytes of firmware", (unsigned long long)size);
+    mesh_log_info("firmware", "Staged %zu bytes of firmware", produced);
     download_finish(download, MESH_FIRMWARE_DOWNLOAD_READY, MESH_FIRMWARE_DOWNLOAD_ERROR_NONE);
 }
 
@@ -541,7 +505,6 @@ int mesh_firmware_download_start(struct mesh_firmware_download *download, struct
 
     memset(download, 0, sizeof *download);
     download->fetch = fetch;
-    download->inflater = -1;
     mesh_str_copy(download->zip_url, sizeof download->zip_url, zip_url);
     mesh_str_copy(download->member, sizeof download->member, member);
     mesh_str_copy(download->staging, sizeof download->staging, staging_dir);
@@ -570,32 +533,12 @@ int mesh_firmware_download_start(struct mesh_firmware_download *download, struct
 }
 
 void mesh_firmware_download_tick(struct mesh_firmware_download *download, uint64_t now_ms) {
-    /*
-     * `<= 0`, not `< 0`, and the difference is not pedantry: a caller's ordinary way of using
-     * this struct is to zero it and start it, and an app that ticks all its modules will tick
-     * this one before anything has been started. That leaves `inflater` at 0 - which is not a
-     * pid, but which `kill()` reads as **the whole process group**, so a `< 0` test here sends
-     * SIGKILL to the client and everything it spawned. It took a test that ticked before
-     * starting to find it, and what it looked like was the test runner being killed.
-     */
-    if (download == NULL || download->inflater <= 0) {
+    (void)now_ms;
+    if (download == NULL || !download->inflate_pending) {
         return;
     }
-    if (now_ms >= download->inflate_deadline_ms) {
-        (void)kill(download->inflater, SIGKILL);
-        (void)waitpid(download->inflater, NULL, 0);
-        download->inflater = -1;
-        download_fail(download, MESH_FIRMWARE_DOWNLOAD_ERROR_INFLATE);
-        return;
-    }
-    int status = 0;
-    const pid_t reaped = waitpid(download->inflater, &status, WNOHANG);
-    if (reaped == download->inflater) {
-        download_reaped(download, status);
-    } else if (reaped < 0) {
-        download->inflater = -1;
-        download_fail(download, MESH_FIRMWARE_DOWNLOAD_ERROR_INFLATE);
-    }
+    download->inflate_pending = false;
+    download_inflate(download);
 }
 
 void mesh_firmware_download_cancel(struct mesh_firmware_download *download) {
@@ -605,11 +548,7 @@ void mesh_firmware_download_cancel(struct mesh_firmware_download *download) {
     if (download->fetch != NULL) {
         mesh_fetch_cancel(download->fetch);
     }
-    if (download->inflater > 0) {
-        (void)kill(download->inflater, SIGKILL);
-        (void)waitpid(download->inflater, NULL, 0);
-        download->inflater = -1;
-    }
+    download->inflate_pending = false;
     download_clean(download);
     download_remove(download, DOWNLOAD_FILE_IMAGE);
     download->on_done = NULL;
@@ -644,7 +583,7 @@ unsigned mesh_firmware_download_progress(const struct mesh_firmware_download *do
         download->entry.compressed_size == 0U) {
         return 0U;
     }
-    const uint64_t landed = download_file_size(download, DOWNLOAD_FILE_ENVELOPE);
+    const uint64_t landed = download_file_size(download, DOWNLOAD_FILE_MEMBER);
     if (landed >= (uint64_t)download->entry.compressed_size) {
         return 100U;
     }
