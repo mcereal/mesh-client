@@ -93,9 +93,11 @@ A harness per reader in `devtools/fuzz/`, over the places bytes we did not write
 client. Off the air: `stream_framing` (`mesh_stream_parser_push()` — the serial link, where the
 radio interleaves its text log with framed protobufs on one port) and `session`
 (`mesh_session_handle_from_radio()`). Off the network: `firmware_catalog`, `zip` and `uf2`, which
-are what a downloaded firmware image arrives as, and `mqtt_packet`, which is the only one whose
-far end is a machine on the internet rather than something on the end of a cable — a public
-broker carries whatever every other mesh pointed at it published. And off a *person* —
+are what a downloaded firmware image arrives as, `mqtt_packet`, whose far end is a machine on
+the internet rather than something on the end of a cable — a public broker carries whatever
+every other mesh pointed at it published — and `http` (`src/proto/http.c`), the reply to every
+HTTPS fetch. That one checks that parsing a reply in one read and in split reads agree on every
+byte, and that no `Location` a server sends can add a line to the request that follows it. And off a *person* —
 `channel_url` and
 `contact_url`, the two Meshtastic links, which are the odd ones out: nothing they parse came over
 a wire, but each is two parsers stacked (forgiving base64, then nanopb over the result) reading a
