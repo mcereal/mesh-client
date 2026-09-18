@@ -22,6 +22,7 @@
 #include "mesh/core/session.h"
 #include "mesh/proto/channel_url.h"
 #include "mesh/proto/contact_url.h"
+#include "mesh/proto/http.h"
 #include "mesh/proto/mqtt_packet.h"
 #include "mesh/proto/stream_framing.h"
 
@@ -668,6 +669,52 @@ static void write_mqtt_seeds(void) {
     }
 }
 
+/* ------------------------------------------------------------------ http seeds */
+
+/* One reply, behind the harness's two mode bytes: bit 0 of the first is HEAD, the second is the
+   read size. */
+static void write_http_seed(const char *name, bool head, uint8_t step, const char *reply) {
+    uint8_t buffer[2048];
+    const size_t len = strlen(reply);
+    if (len + 2U > sizeof buffer) {
+        return;
+    }
+    buffer[0] = head ? 1U : 0U;
+    buffer[1] = step;
+    memcpy(buffer + 2, reply, len);
+    write_seed("http", name, buffer, len + 2U);
+}
+
+/*
+ * The replies the fetcher actually gets: a GitHub API answer, the redirect a release download
+ * starts with, the CDN's HEAD and range answers, a chunked body with extensions and trailers,
+ * and a reply with no framing at all. Each shape the parser has a phase for is here once.
+ */
+static void write_http_seeds(void) {
+    write_http_seed("length", false, 7U,
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\n"
+                    "Content-Length: 17\r\nETag: W/\"abc\"\r\n\r\n{\"tag_name\":\"v1\"}");
+    write_http_seed("redirect", false, 13U,
+                    "HTTP/1.1 302 Found\r\nLocation: https://release-assets.githubusercontent.com/"
+                    "github-production-release-asset/1?sp=r&sv=2018&sig=abc%2Bdef\r\n"
+                    "Content-Length: 0\r\n\r\n");
+    write_http_seed("relative_redirect", false, 3U,
+                    "HTTP/1.1 301 Moved Permanently\r\nLocation: ../v2/b.bin?y=2\r\n"
+                    "Content-Length: 0\r\n\r\n");
+    write_http_seed("head", true, 64U,
+                    "HTTP/1.1 200 OK\r\nContent-Length: 1048576\r\nAccept-Ranges: bytes\r\n\r\n");
+    write_http_seed(
+        "range", false, 5U,
+        "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 1048566-1048575/1048576\r\n"
+        "Content-Length: 10\r\n\r\nPK\x05\x06zzzzzz");
+    write_http_seed("chunked", false, 2U,
+                    "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+                    "5\r\nhello\r\n7;ext=1\r\n, world\r\n0\r\nX-Trailer: 1\r\n\r\n");
+    write_http_seed("interim", false, 11U,
+                    "HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok");
+    write_http_seed("until_close", false, 1U, "HTTP/1.0 200 OK\nServer: x\n\nall of it");
+}
+
 int main(int argc, char **argv) {
     if (argc != 2) {
         fprintf(stderr, "usage: %s <directory>\n", argv[0]);
@@ -711,6 +758,10 @@ int main(int argc, char **argv) {
     if (mkdir(path, 0755) != 0 && errno != EEXIST) {
         die(path);
     }
+    snprintf(path, sizeof path, "%s/http", g_dir);
+    if (mkdir(path, 0755) != 0 && errno != EEXIST) {
+        die(path);
+    }
 
     write_session_seeds();
     write_framing_seeds();
@@ -720,6 +771,7 @@ int main(int argc, char **argv) {
     write_channel_url_seeds();
     write_contact_url_seeds();
     write_mqtt_seeds();
+    write_http_seeds();
     printf("wrote %u seeds under %s\n", g_written, g_dir);
     return 0;
 }

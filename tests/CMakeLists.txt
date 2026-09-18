@@ -40,6 +40,7 @@ set(MESHCLIENT_TEST_SUITES
     suites/firmware_ota.c
     suites/firmware_update.c
     suites/geo.c
+    suites/http.c
     suites/i18n.c
     suites/inflate.c
     suites/json.c

@@ -53,6 +53,7 @@ jobs:
           - channel_url
           - contact_url
           - mqtt_packet
+          - http
     steps:
       - name: Checkout
         uses: actions/checkout@v7
