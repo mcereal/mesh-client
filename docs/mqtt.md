@@ -288,21 +288,23 @@ the way up. Two things about that are easy to get wrong and are handled delibera
 
 ### Certificates are always verified
 
-There is no insecure mode and no argument that turns one on. A missing CA bundle is a refusal,
-not a downgrade — `mqtt_proxy_will_not_do_tls_without_a_bundle` holds that line, and
-`mqtt_proxy_refuses_an_unknown_certificate` holds the other half, because a client that trusts
-everything passes a "TLS works" test just as well as one that does not.
+There is no insecure mode and no argument that turns one on, and no state with nothing to verify
+against: Mozilla's roots are compiled into the binary (`include/mesh/core/ca_roots.h`), so the
+Brick having no `/etc/ssl` does not matter. `mqtt_proxy_verifies_against_built_in_roots_without_a_bundle`
+holds that line, and `mqtt_proxy_refuses_an_unknown_certificate` holds the other half, because a
+client that trusts everything passes a "TLS works" test just as well as one that does not.
 
-The bundle is **not** resolved here. `mesh_fetch_resolve_ca_bundle()` already works it out — an
-environment override, then the bundle shipped inside our own pak, then the system locations,
-because the Brick has no `/etc/ssl` at all — and `mesh_mqtt_proxy_set_ca_bundle()` takes the path
-somebody else arrived at. Two modules working it out separately is two answers that can disagree.
+**The roots ship with the binary**, which is the point of compiling them in: a file in the pak
+does not ship through self-update, so an install updated in place would keep its first pak's roots
+until a rotation on the far end broke the connection. The roots are parsed once, on the first TLS
+connection, and shared by every session after it.
 
-> **The pak's CA bundle does not ship through self-update.** Only the bare binary does, so a
-> self-updated client keeps whatever bundle its original pak carried. A certificate rotation on
-> the far end then starts failing with nothing on screen to connect it to, which is why the
-> failure names the bundle rather than saying "TLS failed". Treat it as a compatibility boundary,
-> the same as `launch.sh`.
+`SSL_CERT_FILE` names a bundle to use *instead* — for a broker behind a private CA. A path that
+is set and unusable fails naming the path rather than falling back
+(`mqtt_proxy_names_a_missing_bundle`).
+
+Refreshing the roots is `scripts/gen-ca-roots.py` after re-downloading the pak's
+`certs/certificates.crt`; `make test` fails while the two disagree.
 
 ### Mbed TLS is a submodule, and a trimmed one
 

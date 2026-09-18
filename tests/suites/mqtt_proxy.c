@@ -1511,13 +1511,15 @@ cleanup:
 }
 
 /*
- * A bundle that is missing is a refusal, not a downgrade.
+ * No bundle named is the built-in roots, not an absence of roots.
  *
- * The Brick has no system certificate store, so "no bundle" is a state this reaches in the
- * field rather than a theoretical one - which is exactly why it must not be the state in which
- * verification quietly stops happening.
+ * The Brick has no system certificate store, so "nothing configured" is the state every device
+ * starts in - which is exactly why it must not be one in which verification quietly stops. The
+ * fixture's certificate is self-signed and in no public root set, so a client that checks it
+ * against Mozilla's roots refuses it, and says so as a verification failure rather than as a
+ * missing bundle: there always is one.
  */
-MESH_TEST_CASE(mqtt_proxy_will_not_do_tls_without_a_bundle, unit) {
+MESH_TEST_CASE(mqtt_proxy_verifies_against_built_in_roots_without_a_bundle, unit) {
     struct proxy_probe probe;
     if (!probe_start(&probe)) {
         record_failure(test_name, "the harness did not start");
@@ -1535,11 +1537,60 @@ MESH_TEST_CASE(mqtt_proxy_will_not_do_tls_without_a_bundle, unit) {
         goto cleanup;
     }
     if (!probe_until_state(&probe, MESH_MQTT_PROXY_WAITING, 400U)) {
-        record_failure(test_name, "TLS with no bundle should end the attempt");
+        record_failure(test_name, "a certificate no built-in root signed should end the attempt");
         goto cleanup;
     }
     if (mesh_mqtt_proxy_is_ready(&probe.proxy)) {
-        record_failure(test_name, "TLS with no bundle must not connect");
+        record_failure(test_name, "a certificate no built-in root signed must not connect");
+        goto cleanup;
+    }
+    const char *error = mesh_mqtt_proxy_last_error(&probe.proxy);
+    if (strstr(error, "no certificate bundle") != NULL ||
+        strstr(error, "built-in certificates") != NULL) {
+        record_failure(test_name, "the refusal should be the certificate's, not a missing bundle");
+        goto cleanup;
+    }
+    record_success(test_name);
+
+cleanup:
+    probe_stop(&probe);
+}
+
+/*
+ * A bundle that was named and is not there fails naming it, rather than falling back.
+ *
+ * Falling back to the built-in roots would be no less safe - but for a broker behind a private
+ * CA it turns a typo in SSL_CERT_FILE into "certificate not trusted", which sends whoever is
+ * debugging it after the broker instead of after the path.
+ */
+MESH_TEST_CASE(mqtt_proxy_names_a_missing_bundle, unit) {
+    struct proxy_probe probe;
+    if (!probe_start(&probe)) {
+        record_failure(test_name, "the harness did not start");
+        return;
+    }
+    probe.broker.tls = true;
+    static const char k_missing[] = "/nonexistent/meshclient/ca.pem";
+    mesh_mqtt_proxy_set_ca_bundle(&probe.proxy, k_missing);
+
+    struct mesh_mqtt_proxy_config config;
+    probe_config(&config, probe.broker.port);
+    config.tls_enabled = true;
+    if (mesh_mqtt_proxy_start(&probe.proxy, &config, probe_on_message, NULL, &probe,
+                              probe.now_ms) != 0) {
+        record_failure(test_name, "the proxy did not start");
+        goto cleanup;
+    }
+    if (!probe_until_state(&probe, MESH_MQTT_PROXY_WAITING, 400U)) {
+        record_failure(test_name, "a missing bundle should end the attempt");
+        goto cleanup;
+    }
+    if (mesh_mqtt_proxy_is_ready(&probe.proxy)) {
+        record_failure(test_name, "a missing bundle must not connect");
+        goto cleanup;
+    }
+    if (strstr(mesh_mqtt_proxy_last_error(&probe.proxy), k_missing) == NULL) {
+        record_failure(test_name, "the refusal should name the bundle that was asked for");
         goto cleanup;
     }
     record_success(test_name);

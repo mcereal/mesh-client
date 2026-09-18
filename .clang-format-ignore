@@ -2,3 +2,5 @@
 # literal each; reformatting them is slow and would only churn the diff. The whole directory
 # rather than a file per line, so a fourth generated table is covered the day it lands.
 src/ui/generated/*
+# scripts/gen-ca-roots.py, for the same reason.
+src/core/generated/*

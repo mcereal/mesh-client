@@ -184,7 +184,7 @@ struct mesh_mqtt_proxy {
     /* Only started when config.tls_enabled; a plaintext connection never touches it, and
        `tls.state` being non-NULL is what every read and write branches on. */
     struct mesh_tls_client tls;
-    /* Resolved by somebody else and handed over; see mesh_mqtt_proxy_set_ca_bundle(). */
+    /* Empty for the built-in roots; see mesh_mqtt_proxy_set_ca_bundle(). */
     char ca_bundle[256];
 
     uint8_t in[MESH_MQTT_PACKET_MAX];
@@ -270,13 +270,9 @@ int mesh_mqtt_proxy_init(struct mesh_mqtt_proxy *proxy, struct mesh_event_loop *
 void mesh_mqtt_proxy_shutdown(struct mesh_mqtt_proxy *proxy);
 
 /*
- * The CA bundle every TLS connection verifies against.
- *
- * Takes a path somebody else resolved rather than resolving its own:
- * `mesh_fetch_resolve_ca_bundle()` already works this out - an environment override, then the
- * bundle shipped inside our own pak, then the system locations - and the answer is a fact about how
- * this binary was installed. Two modules working it out separately is two answers that can
- * disagree. Ignored without TLS.
+ * A CA bundle file to verify against in place of the built-in roots, or NULL for the built-in
+ * roots - which is what every connection uses unless somebody asked otherwise; see
+ * mesh_tls_ca_override(). Ignored without TLS.
  */
 void mesh_mqtt_proxy_set_ca_bundle(struct mesh_mqtt_proxy *proxy, const char *path);
 

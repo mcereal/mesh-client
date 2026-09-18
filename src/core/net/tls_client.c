@@ -2,12 +2,19 @@
 
 #include "mesh/core/tls_client.h"
 
+#include "mesh/core/ca_roots.h"
 #include "mesh/utils/log.h"
 #include "mesh/utils/text.h"
 
 #include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+
+const char *mesh_tls_ca_override(void) {
+    const char *const path = getenv("SSL_CERT_FILE");
+    return path != NULL && path[0] != '\0' ? path : NULL;
+}
 
 #ifndef MESHCLIENT_HAVE_TLS
 
@@ -77,7 +84,6 @@ const char *mesh_tls_client_error(const struct mesh_tls_client *tls) {
 #include <mbedtls/x509_crt.h>
 #include <psa/crypto.h>
 
-#include <stdlib.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -103,6 +109,7 @@ const char *mesh_tls_client_error(const struct mesh_tls_client *tls) {
 struct mesh_tls_state {
     mbedtls_ssl_context ssl;
     mbedtls_ssl_config conf;
+    /* Only filled when the caller named a bundle file; the compiled-in roots are shared. */
     mbedtls_x509_crt ca;
     bool handshaked;
 };
@@ -118,6 +125,51 @@ struct mesh_tls_state {
  * mbedtls-config/mesh_psa_crypto_config.h is where that is set, and why.
  */
 static bool tls_psa_ready = false;
+
+/*
+ * The compiled-in roots, parsed once and kept for the life of the process.
+ *
+ * Parsed on the first connection that needs them rather than at startup, so a client that never
+ * speaks TLS never pays for them. Once, rather than per session, because the chain is read-only
+ * once built - Mbed TLS only ever walks it - and 121 roots are a noticeable parse to repeat on
+ * every reconnect of a broker that keeps dropping. Never freed: it lives exactly as long as
+ * anything that could want it, and a static holding it is reachable, not leaked.
+ *
+ * `_nocopy`, so each certificate points into the table in .rodata instead of duplicating it on
+ * the heap; the table is static for the same lifetime, which is the whole of that API's contract.
+ */
+static mbedtls_x509_crt tls_roots;
+static bool tls_roots_ready = false;
+
+static bool tls_load_roots(struct mesh_tls_client *tls) {
+    if (tls_roots_ready) {
+        return true;
+    }
+    mbedtls_x509_crt_init(&tls_roots);
+    size_t loaded = 0U;
+    for (size_t i = 0U; i < mesh_ca_root_count; ++i) {
+        const int rc = mbedtls_x509_crt_parse_der_nocopy(&tls_roots, mesh_ca_roots[i].der,
+                                                         mesh_ca_roots[i].len);
+        if (rc != 0) {
+            /* One root this build cannot read is one CA it cannot reach, not a reason to reach
+               none - the same allowance a PEM bundle gets below. */
+            char detail[96];
+            mbedtls_strerror(rc, detail, sizeof detail);
+            mesh_log_warn("tls", "built-in root \"%s\" did not parse: %s", mesh_ca_roots[i].name,
+                          detail);
+            continue;
+        }
+        loaded++;
+    }
+    if (loaded == 0U) {
+        mbedtls_x509_crt_free(&tls_roots);
+        mesh_str_copy(tls->error, sizeof tls->error, "no usable built-in certificates");
+        return false;
+    }
+    mesh_log_debug("tls", "%zu of %zu built-in roots loaded", loaded, mesh_ca_root_count);
+    tls_roots_ready = true;
+    return true;
+}
 
 /* Mbed TLS's own sentence for a negative code, which is the entire reason MBEDTLS_ERROR_C is
    left enabled: "X509 - Certificate verification failed" is an answer and -0x2700 is not. */
@@ -229,18 +281,6 @@ int mesh_tls_client_start(struct mesh_tls_client *tls, int fd, const char *hostn
     if (tls == NULL || fd < 0 || hostname == NULL || hostname[0] == '\0') {
         return -EINVAL;
     }
-    /*
-     * No bundle is a refusal, not a downgrade. Everything about this connection - who the broker
-     * is, whether the mesh's traffic is going where the user thinks - rests on checking a
-     * certificate against something, and a session that skipped the check would look identical
-     * on every screen this client has.
-     */
-    if (ca_bundle == NULL || ca_bundle[0] == '\0') {
-        memset(tls, 0, sizeof *tls);
-        tls->fd = -1;
-        mesh_str_copy(tls->error, sizeof tls->error, "no certificate bundle");
-        return -EIO;
-    }
 
     memset(tls, 0, sizeof *tls);
     tls->fd = fd;
@@ -266,21 +306,40 @@ int mesh_tls_client_start(struct mesh_tls_client *tls, int fd, const char *hostn
         tls_psa_ready = true;
     }
 
-    int rc = mbedtls_x509_crt_parse_file(&state->ca, ca_bundle);
     /*
-     * A positive return is the count of certificates that failed to parse while others
-     * succeeded, which a real-world bundle does routinely - expired roots, formats this build
-     * was not configured for. That is fine as long as something loaded. Zero certificates is
-     * not: it is a file that exists and verifies nothing, which would fail every handshake with
-     * "certificate verification failed" and send whoever is debugging it after the broker.
+     * Which roots the peer is checked against. There is always an answer - the compiled-in set -
+     * so there is no state in which a session starts without one and verification quietly stops.
      */
-    if (rc < 0 || state->ca.version == 0) {
-        (void)snprintf(tls->error, sizeof tls->error, "no usable certificates in %.80s", ca_bundle);
-        tls_release(tls);
-        return -EIO;
-    }
-    if (rc > 0) {
-        mesh_log_debug("tls", "%d certificate(s) in %s did not parse", rc, ca_bundle);
+    mbedtls_x509_crt *roots = &tls_roots;
+    int rc = 0;
+    if (ca_bundle == NULL || ca_bundle[0] == '\0') {
+        if (!tls_load_roots(tls)) {
+            tls_release(tls);
+            return -EIO;
+        }
+    } else {
+        /*
+         * A named file replaces the built-in roots rather than adding to them: whoever named it
+         * wants a private CA honoured, and very likely only that one. And a file that is missing
+         * or empty is a failure that names it, not a quiet fall back to the built-in set - a
+         * broker behind a private CA would otherwise fail with "certificate not trusted" and
+         * send whoever is debugging it after the broker rather than the path.
+         *
+         * A positive return is the count of certificates that failed to parse while others
+         * succeeded, which a real-world bundle does routinely - expired roots, formats this build
+         * was not configured for. That is fine as long as something loaded.
+         */
+        rc = mbedtls_x509_crt_parse_file(&state->ca, ca_bundle);
+        if (rc < 0 || state->ca.version == 0) {
+            (void)snprintf(tls->error, sizeof tls->error, "no usable certificates in %.80s",
+                           ca_bundle);
+            tls_release(tls);
+            return -EIO;
+        }
+        if (rc > 0) {
+            mesh_log_debug("tls", "%d certificate(s) in %s did not parse", rc, ca_bundle);
+        }
+        roots = &state->ca;
     }
 
     rc = mbedtls_ssl_config_defaults(&state->conf, MBEDTLS_SSL_IS_CLIENT,
@@ -292,7 +351,7 @@ int mesh_tls_client_start(struct mesh_tls_client *tls, int fd, const char *hostn
     }
 
     mbedtls_ssl_conf_authmode(&state->conf, MBEDTLS_SSL_VERIFY_REQUIRED);
-    mbedtls_ssl_conf_ca_chain(&state->conf, &state->ca, NULL);
+    mbedtls_ssl_conf_ca_chain(&state->conf, roots, NULL);
     /* No `mbedtls_ssl_conf_rng()`: 4.x draws randomness from PSA, which psa_crypto_init() above
        has already seeded. There is no per-session DRBG to hand it any more. */
 

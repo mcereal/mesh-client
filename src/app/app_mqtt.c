@@ -21,6 +21,7 @@
 
 #include "mesh/core/mqtt_proxy.h"
 #include "mesh/core/session.h"
+#include "mesh/core/tls_client.h"
 #include "mesh/ui/store_mqtt.h"
 #include "mesh/utils/env.h"
 #include "mesh/utils/log.h"
@@ -341,12 +342,11 @@ void mesh_app_mqtt_init(struct mesh_app *app) {
     }
     (void)mesh_mqtt_proxy_init(&app->mqtt, &app->loop);
     /*
-     * The bundle the updater already resolved, rather than a second search of the same
-     * locations. The Brick ships one inside the pak because it has no system CA store at all,
-     * and where it sits is a fact about how this binary was installed - two modules working that
-     * out separately is two answers that can disagree. See mesh_fetch_resolve_ca_bundle().
+     * The built-in roots, unless somebody named a bundle. Not the one the updater resolved: that
+     * is the pak's file, which is for curl and is only as new as the pak, where the compiled-in
+     * roots are as new as this binary. See include/mesh/core/ca_roots.h.
      */
-    mesh_mqtt_proxy_set_ca_bundle(&app->mqtt, app->updater.fetch.ca_bundle);
+    mesh_mqtt_proxy_set_ca_bundle(&app->mqtt, mesh_tls_ca_override());
 }
 
 void mesh_app_mqtt_shutdown(struct mesh_app *app) {
