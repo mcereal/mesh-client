@@ -609,6 +609,9 @@ void mesh_session_attach(struct mesh_session *session, mesh_session_send_fn send
 /* Link down: drops the send path and resets the handshake and settings. Messages survive. */
 void mesh_session_detach(struct mesh_session *session);
 bool mesh_session_attached(const struct mesh_session *session);
+/* The link is up but the radio on it has stopped answering (MESH_RADIO_SETTINGS_LOCAL_GIVE_UP).
+   The transport drops the link when this turns true; the detach that follows clears it. */
+bool mesh_session_link_silent(const struct mesh_session *session);
 
 /* Sends want_config_id with a fresh nonce and resets the handshake state for the reply.
    Returns 0, -ENOTCONN without a link, or the send error. */

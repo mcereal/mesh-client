@@ -300,6 +300,11 @@ static void mesh_ble_tick(struct mesh_transport *transport) {
         mesh_ble_sync_discovery(state);
         if (state->link_state == MESH_BLE_LINK_CONNECTED) {
             mesh_session_tick(state->session, now);
+            /* BlueZ can hold a link up with nothing answering on the other end of it; the
+               admin queue is what notices, and dropping it is what lets auto-connect try. */
+            if (mesh_session_link_silent(state->session)) {
+                mesh_ble_reset_link(state, "radio stopped answering");
+            }
         }
         /* Fallback for the eventfd wake, and the path that services delayed retries. */
         if (state->drain_pending && now >= state->drain_retry_at_ms) {

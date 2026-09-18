@@ -338,8 +338,36 @@ void mesh_app_note_connected_device(struct mesh_app *app, const char *identifier
  * node is at home and is never going to answer, and half a minute of "connecting..." is the
  * whole of what that wait buys. Long enough that a node which is merely slow to advertise still
  * wins its slot, short enough that being wrong about it costs a few seconds.
+ *
+ * Only at launch, though. After a link to the *preferred* node drops, the long grace applies
+ * whoever else is in range: the usual reason is a settings write, which reboots the radio, and
+ * a Heltec V4 saving its owner was not advertising again five seconds later. With the short wait
+ * there, the second radio on the desk took the slot and every screen after it was that radio's,
+ * including the save the user thought they were making to the first one. The cost is a radio
+ * that really has gone - carried out of range mid-session - holding the slot for half a minute.
  */
 #define MESH_APP_AUTOCONNECT_KNOWN_GRACE_MS 5000U
+
+/*
+ * Whether the link that is up is the preferred node's, over the air - the only one whose
+ * ending earns the long wait above.
+ *
+ * A cable or a network host says nothing about whether the radio we reach for over Bluetooth is
+ * rebooting, so neither arms it; nor does a second radio of ours we happen to be on, because
+ * that one we can go back to in five seconds. Asked on every turn the link is up rather than
+ * once, so the answer is the current link's when it ends.
+ *
+ * Against the address, because that is what the preference holds while a link is up: a name
+ * from --preferred-device or the environment is rewritten to the address actually reached by
+ * mesh_app_note_connected_device(), which the publish turn calls for every BLE link.
+ */
+static bool mesh_app_preferred_ble_link_up(const struct mesh_app *app, struct mesh_transport *ble) {
+    if (app->config.preferred_ble_device[0] == '\0') {
+        return false;
+    }
+    const char *const address = mesh_ble_transport_connected_address(ble);
+    return address != NULL && strcasecmp(address, app->config.preferred_ble_device) == 0;
+}
 
 /* Exponential backoff, shared by the two ways a connect can fail: the errno connect() handed
    back, and the failure that only surfaces later from tick(). Returns the delay it scheduled. */
@@ -393,6 +421,7 @@ void mesh_app_autoconnect(struct mesh_app *app) {
         app->autoconnect_started_ms = 0U;
         app->autoconnect_tcp_retry_at_ms = 0U;
         app->autoconnect_waiting_logged = false;
+        app->autoconnect_after_link = mesh_app_preferred_ble_link_up(app, ble);
     }
     if (ble == NULL || link_up || mesh_app_link_connecting()) {
         return;
@@ -562,8 +591,9 @@ void mesh_app_autoconnect(struct mesh_app *app) {
         }
 
         if (preferred[0] != '\0') {
-            const uint64_t grace = known != NULL ? MESH_APP_AUTOCONNECT_KNOWN_GRACE_MS
-                                                 : MESH_APP_AUTOCONNECT_PREFERRED_GRACE_MS;
+            const uint64_t grace = known != NULL && !app->autoconnect_after_link
+                                       ? MESH_APP_AUTOCONNECT_KNOWN_GRACE_MS
+                                       : MESH_APP_AUTOCONNECT_PREFERRED_GRACE_MS;
             if (now - app->autoconnect_started_ms < grace) {
                 if (!app->autoconnect_waiting_logged) {
                     mesh_log_info("app", "Preferred device '%s' not in range yet; waiting",
@@ -680,6 +710,7 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
     app->autoconnect_retry_at_ms = 0U;
     app->autoconnect_failures = 0U;
     app->autoconnect_waiting_logged = false;
+    app->autoconnect_after_link = false;
     app->ui_link_was_connected = false;
     app->ui_report_link_error = false;
     app->autoconnect_disabled = !mesh_env_bool("MESHCLIENT_AUTOCONNECT", "auto-connect", true);

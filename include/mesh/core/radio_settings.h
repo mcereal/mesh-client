@@ -245,10 +245,25 @@ bool mesh_admin_request_is_action(enum mesh_admin_request_kind kind);
  * somewhere with a better path. Any reply at all resets the count, which is what keeps a mesh
  * that is merely slow from being mistaken for one that is not there.
  *
- * Local requests are deliberately not counted: a radio on the end of a GATT link that stops
- * answering is a link that is about to drop, which the transport reports for itself.
+ * Local requests have their own count, below.
  */
 #define MESH_RADIO_SETTINGS_REMOTE_GIVE_UP 3U
+/*
+ * How many *local* requests in a row may go unanswered, with nothing else heard from the radio
+ * in between, before the queue is dropped and the link is called dead.
+ *
+ * A radio on the end of a live link answers a local request in well under a second, so a run
+ * of silences is a link that has stopped carrying anything - and the transport does not always
+ * notice: a GATT link can stay up in BlueZ while the radio on the other end has hung, browned
+ * out or wedged its notifications, and a refresh against it was forty five-second timeouts in a
+ * row with the tab busy the whole time. Calling it dead hands the radio to auto-connect.
+ *
+ * One more than the extra fetches, because those are the four verbs an older firmware does not
+ * know and answers with nothing at all - they sit together in a refresh, and a radio that is
+ * merely old must not be mistaken for one that is gone. Anything heard from the radio in the
+ * meantime resets the count too (mesh_radio_settings_note_heard()).
+ */
+#define MESH_RADIO_SETTINGS_LOCAL_GIVE_UP (MESH_RADIO_SETTINGS_EXTRA_FETCHES + 1U)
 /* Floor on a clock we are willing to push at a radio: 2025-01-01T00:00:00Z. A Brick whose RTC
    has been lost reads back somewhere near the epoch, and a node with no time at all is better
    off than a node confidently set to 1970. */
@@ -393,6 +408,13 @@ struct mesh_radio_settings {
     /* Consecutive unanswered *remote* requests, against MESH_RADIO_SETTINGS_REMOTE_GIVE_UP.
        Reset by any admin reply. */
     unsigned remote_silence;
+    /* Consecutive unanswered *local* requests with nothing heard from the radio between them,
+       against MESH_RADIO_SETTINGS_LOCAL_GIVE_UP. */
+    unsigned local_silence;
+    /* Set when local_silence reaches the give-up count: the link is up but nothing is on the
+       other end of it. The transport reads it through mesh_session_link_silent() and drops the
+       link; the reset that follows clears it. */
+    bool link_silent;
 
     /* Write outcomes, counted so the app can announce each one once. */
     uint32_t writes_sent;
@@ -680,6 +702,9 @@ void mesh_radio_settings_mark_sent(struct mesh_radio_settings *settings, uint32_
                                    uint64_t now_ms);
 /* True while a reply is awaited. */
 bool mesh_radio_settings_busy(const struct mesh_radio_settings *settings);
+/* Something arrived from the radio on the end of the link, so it is still there: the local
+   silence count starts again. Called for every FromRadio, not only admin replies. */
+void mesh_radio_settings_note_heard(struct mesh_radio_settings *settings);
 
 /* Human names for the enums the Settings tab shows; "?" / a numeric fallback when unknown. */
 const char *mesh_radio_role_name(uint32_t role);

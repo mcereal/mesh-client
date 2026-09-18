@@ -423,6 +423,10 @@ cleanup:
  * node show up were armed once at launch, it would be long expired by then - and the second
  * radio on the desk, being in range and known, would take the slot the rebooting one was about
  * to reclaim. Switching radios by hand has to restart it for the same reason.
+ *
+ * The link here is to a radio that is not the preferred node, so how long that window runs for
+ * is still the short grace: which of the two a drop earns is
+ * app_autoconnect_holds_the_slot_for_a_rebooting_radio's half of this.
  */
 MESH_TEST_CASE(app_autoconnect_grace_survives_a_reconnect, unit) {
     const char *failure = NULL;
@@ -469,12 +473,13 @@ MESH_TEST_CASE(app_autoconnect_grace_survives_a_reconnect, unit) {
     (void)mesh_ui_preferences_note_device(&app.ui_preferences, mock_devices[1].address,
                                           (uint8_t)MESH_UI_DEVICE_BLE);
 
-    /* Past the grace, the radio of ours that is in earshot wins. */
-    app.autoconnect_started_ms = test_now_ms() - 60000U;
+    /* At launch the short grace applies: ten seconds is past it, and the radio of ours that is
+       in earshot wins. */
+    app.autoconnect_started_ms = test_now_ms() - 10000U;
     app.autoconnect_retry_at_ms = 0U;
     mesh_app_autoconnect(&app);
     if (mesh_ble_transport_connected_address(ble) == NULL) {
-        failure = "expected a link to the node that answered";
+        failure = "at launch the known radio should win after the short grace";
         goto cleanup;
     }
 
@@ -499,11 +504,152 @@ MESH_TEST_CASE(app_autoconnect_grace_survives_a_reconnect, unit) {
         goto cleanup;
     }
 
+    /* The link that dropped was not the preferred node's, so the short grace is still what a
+       radio of ours in earshot waits out: ten seconds past it, it takes the slot. */
+    app.autoconnect_started_ms = test_now_ms() - 10000U;
+    app.autoconnect_retry_at_ms = 0U;
+    mesh_app_autoconnect(&app);
+    if (mesh_ble_transport_connected_address(ble) == NULL) {
+        failure = "a drop of somebody else's link should not lengthen the wait";
+        goto cleanup;
+    }
+    if (mesh_ble_transport_disconnect(ble) != 0) {
+        failure = "disconnect failed";
+        goto cleanup;
+    }
+
     /* Choosing a radio by hand restarts it too: the window is this node's, not the last one's. */
     app.autoconnect_started_ms = test_now_ms() - 60000U;
     mesh_app_note_connected_device(&app, mock_devices[0].address, (uint8_t)MESH_UI_DEVICE_BLE);
     if (app.autoconnect_started_ms != 0U) {
         failure = "a switch to another radio should restart the grace period";
+        goto cleanup;
+    }
+
+cleanup:
+    if (app_ready) {
+        mesh_app_shutdown(&app);
+    }
+    mesh_bluez_client_mock_disable();
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    {
+        char path[256];
+        snprintf(path, sizeof path, "%s/.meshclient/ui_prefs.handshake", home_dir);
+        unlink(path);
+        snprintf(path, sizeof path, "%s/.meshclient/ui_prefs", home_dir);
+        unlink(path);
+        snprintf(path, sizeof path, "%s/.meshclient", home_dir);
+        rmdir(path);
+        rmdir(home_dir);
+    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * The slot is still the rebooting radio's when it comes back.
+ *
+ * A settings write reboots the radio, which is the commonest way a link ends: the node stops
+ * advertising for anything up to half a minute. On device the second radio on the desk was in
+ * earshot throughout, and with the short grace it took the slot - so the screens after the save,
+ * including the next write, were the wrong radio's. Only the preferred node's own link earns
+ * that wait: a cable, a network host or another radio of ours leaves the short one in place,
+ * which app_autoconnect_grace_survives_a_reconnect and tcp_link_leaves_the_bluetooth_grace_short
+ * hold from the other side.
+ */
+MESH_TEST_CASE(app_autoconnect_holds_the_slot_for_a_rebooting_radio, unit) {
+    const char *failure = NULL;
+
+    struct mesh_bluez_device_info mock_devices[] = {
+        {.address = "AA:BB:CC:DD:EE:07", .name = "NodeSeven", .rssi = -40, .paired = true},
+        {.address = "AA:BB:CC:DD:EE:06", .name = "NodeSix", .rssi = -70, .paired = true},
+    };
+
+    struct mesh_bluez_mock_config mock_config = {
+        .adapter_path = "/org/bluez/hci0",
+        .devices = mock_devices,
+        .device_count = 2U,
+    };
+    mesh_bluez_client_mock_enable(&mock_config);
+
+    char home_dir[APP_TEST_HOME_CAP];
+    if (!app_test_home(home_dir, sizeof home_dir, "reboot")) {
+        mesh_bluez_client_mock_disable();
+        record_failure(test_name, "mkdtemp failed");
+        return;
+    }
+
+    struct mesh_app_config config = mesh_app_config_default();
+    config.run_mode = MESH_APP_RUN_FOREGROUND;
+    config.enable_serial = false;
+    /* The address rather than the name, because that is what the preference holds the moment a
+       link is up: mesh_app_note_connected_device() rewrites it to the node actually reached. */
+    snprintf(config.preferred_ble_device, sizeof config.preferred_ble_device, "%s",
+             mock_devices[0].address);
+
+    struct mesh_app app;
+    memset(&app, 0, sizeof app);
+    bool app_ready = false;
+    if (mesh_app_init(&app, &config) != 0) {
+        failure = "app init failed";
+        goto cleanup;
+    }
+    app_ready = true;
+
+    struct mesh_transport *ble = mesh_ble_transport();
+    if (mesh_transport_registry_start_all(&app.transport_registry, &app.config, &app.loop) < 0) {
+        failure = "transport start failed";
+        goto cleanup;
+    }
+    mesh_ble_transport_refresh_devices(ble);
+    /* The other radio is one of ours, so it is what the short grace would hand the slot to. */
+    (void)mesh_ui_preferences_note_device(&app.ui_preferences, mock_devices[1].address,
+                                          (uint8_t)MESH_UI_DEVICE_BLE);
+
+    /* The preferred node is in range, so no wait is involved in taking it. */
+    app.autoconnect_retry_at_ms = 0U;
+    mesh_app_autoconnect(&app);
+    const char *connected = mesh_ble_transport_connected_address(ble);
+    if (connected == NULL || strcmp(connected, mock_devices[0].address) != 0) {
+        failure = "expected a link to the preferred node";
+        goto cleanup;
+    }
+
+    /* A turn with that link up is what arms the long wait for whatever follows it. */
+    app.autoconnect_retry_at_ms = 0U;
+    mesh_app_autoconnect(&app);
+    if (!app.autoconnect_after_link) {
+        failure = "the preferred node's link should arm the long wait";
+        goto cleanup;
+    }
+
+    /* Then the save lands: the radio reboots, the link goes and it stops advertising. */
+    if (mesh_ble_transport_disconnect(ble) != 0) {
+        failure = "disconnect failed";
+        goto cleanup;
+    }
+    mock_devices[0].rssi = 0; /* the 0 a node that is no longer heard leaves behind */
+    mesh_ble_transport_refresh_devices(ble);
+
+    app.autoconnect_started_ms = test_now_ms() - 10000U;
+    app.autoconnect_retry_at_ms = 0U;
+    mesh_app_autoconnect(&app);
+    if (mesh_ble_transport_connected_address(ble) != NULL) {
+        failure = "the other radio must not take the slot five seconds into a reboot";
+        goto cleanup;
+    }
+
+    /* Half a minute is the whole of that wait: a radio that really has gone yields the slot. */
+    app.autoconnect_started_ms = test_now_ms() - 60000U;
+    app.autoconnect_retry_at_ms = 0U;
+    mesh_app_autoconnect(&app);
+    connected = mesh_ble_transport_connected_address(ble);
+    if (connected == NULL || strcmp(connected, mock_devices[1].address) != 0) {
+        failure = "past the long grace the radio in earshot should be taken";
+        goto cleanup;
+    }
+    if (mesh_ble_transport_disconnect(ble) != 0) {
+        failure = "disconnect failed";
         goto cleanup;
     }
 

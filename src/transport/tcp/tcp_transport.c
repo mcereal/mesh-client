@@ -654,6 +654,9 @@ static void mesh_tcp_tick(struct mesh_transport *transport) {
     }
 
     mesh_session_tick(state->session, now);
+    if (mesh_session_link_silent(state->session)) {
+        mesh_tcp_reset_link(state, "radio stopped answering");
+    }
 }
 
 static int mesh_tcp_start(struct mesh_transport *transport, const struct mesh_app_config *config,
