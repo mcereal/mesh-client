@@ -42,9 +42,17 @@ since the last tag, not anything about your working tree.
    reads it.)
 2. **`pak.json`** — `version` (which the Pak Store requires to match the tag) and this version's
    `changelog` entry. Both skipped for prereleases.
-3. **`CHANGELOG.md`**, the git tag, and a GitHub release carrying four assets:
-   `MeshClient.pak.zip` (+ `.sha256`) for a fresh install, and `meshclient-tg5040-aarch64`
-   (+ `.sha256`), the bare static binary the in-app updater downloads.
+3. **`CHANGELOG.md`**, the git tag, and a GitHub release carrying six assets:
+   `MeshClient.pak.zip` (+ `.sha256`) for a fresh install, `meshclient-tg5040-aarch64`
+   (+ `.sha256`), the bare static binary the in-app updater downloads, and
+   `meshclient-linux-x86_64` (+ `.sha256`), the same client built static against musl for a
+   desktop, a server or a Pi.
+
+The three builds are three toolchains, not one binary renamed: the pak and the device binary are
+the aarch64 cross build, and the Linux one is [`scripts/linux-cli-build.sh`](../scripts/linux-cli-build.sh)
+on the runner's own architecture. That last one is a convenience asset and is built
+non-fatally — a runner without `musl-tools` costs the release its desktop download and nothing
+else. Nothing self-updates from it.
 
 The updater verifies against the `digest` GitHub reports for the asset, not the `.sha256` file.
 **Renaming or dropping the binary asset breaks self-update for every installed client** — keep

@@ -69,12 +69,13 @@ output is exercised anywhere but on a Brick.
 
 ## What CI runs
 
-Four jobs on every pull request ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)):
+Five jobs on every pull request ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)):
 
 | Job | What it proves |
 |---|---|
 | `Build and test` | `make test` on ubuntu-24.04 under gcc *and* clang, then `make release && make package` |
 | `Cross build (tg5040)` | the pak builds for the device, aarch64 and statically linked. Uploads the zip, so a pull request can be sideloaded without building it. It is GCC 14.3 (musl) at `-Os`, which derives bounds the host build does not — `-Wformat-truncation` fires here and nowhere else |
+| `Linux CLI` | the desktop and server download builds: x86-64, musl, static, with BlueZ still in it. Same script the release calls, for the same reason the cross build runs here — a release is the wrong place to find out |
 | `Sanitizers` | the same suite under ASan and UBSan, clang, with `-fno-sanitize-recover=undefined` so a diagnostic fails the run |
 | `Fuzz` | the deterministic pass below |
 

@@ -25,6 +25,7 @@ cmake --preset debug                      # the same configure, for an editor or
 make format                               # clang-format all tracked .c/.h (needs clang-format 18)
 make proto                                # regenerate nanopb sources
 make release && make package              # release binary + dist/MeshClient.pak.zip
+make linux-cli                            # the static Linux CLI download (musl; needs musl-tools)
 make fuzz                                 # libFuzzer over the two decoders that read the air
 ```
 
