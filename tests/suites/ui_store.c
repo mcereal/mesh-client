@@ -21,6 +21,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 MESH_TEST_CASE(ui_store_basic, unit) {
@@ -1958,5 +1959,208 @@ MESH_TEST_CASE(ui_store_cache_value_out_of_range_line, unit) {
     }
 
     mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
+/*
+ * The roster is the one thing in the cache nothing else can rebuild, so a save that fails must
+ * leave the last good one where it was.
+ *
+ * The case this stands for is a handheld switched off mid-write. That cannot be staged here, so
+ * the failure is staged at the other end of the same code path - the temporary cannot be opened
+ * - and what is checked is the property that matters either way: the file the next launch reads
+ * is the previous save, whole, rather than the empty one fopen(path, "w") used to leave behind.
+ */
+MESH_TEST_CASE(ui_store_cache_survives_a_failed_save, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.has_my_info = true;
+    handshake.my_info.node_num = 0x1234U;
+    handshake.roster_owner = 0x1234U;
+    handshake.node_count = 3U;
+    for (uint32_t i = 0; i < handshake.node_count; ++i) {
+        handshake.nodes[i].node_id = 0x2000U + i;
+        handshake.nodes[i].last_heard = 100U + i;
+        snprintf(handshake.nodes[i].short_name, sizeof handshake.nodes[i].short_name, "N%02u", i);
+    }
+    mesh_ui_store_set_handshake(&store, &handshake);
+
+    char cache_path[] = "/tmp/mesh_ui_atomicXXXXXX";
+    int fd = mkstemp(cache_path);
+    if (fd < 0) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "mkstemp failed");
+        return;
+    }
+    close(fd);
+
+    char temp_path[sizeof cache_path + 8];
+    snprintf(temp_path, sizeof temp_path, "%s.tmp", cache_path);
+
+    if (mesh_ui_store_save(&store, cache_path) != 0) {
+        unlink(cache_path);
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "first save failed");
+        return;
+    }
+    /* The temporary is the save's own business and must not outlive it. */
+    if (access(temp_path, F_OK) == 0) {
+        unlink(temp_path);
+        unlink(cache_path);
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "the save left its temporary behind");
+        return;
+    }
+
+    struct stat before;
+    if (stat(cache_path, &before) != 0 || before.st_size <= 0) {
+        unlink(cache_path);
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "the first save wrote nothing");
+        return;
+    }
+
+    /* A directory where the temporary wants to be: fopen() cannot open it, so the save fails
+       before a byte of it is written - the point in the sequence a power cut lands on. */
+    if (mkdir(temp_path, 0700) != 0) {
+        unlink(cache_path);
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "could not block the temporary");
+        return;
+    }
+
+    /* A second roster, so a save that did land would be visible in what loads back. */
+    handshake.node_count = 1U;
+    handshake.nodes[0].node_id = 0x9999U;
+    mesh_ui_store_set_handshake(&store, &handshake);
+
+    const int failed = mesh_ui_store_save(&store, cache_path);
+    struct stat after;
+    const bool intact = stat(cache_path, &after) == 0 && after.st_size == before.st_size;
+    rmdir(temp_path);
+    mesh_ui_store_shutdown(&store);
+
+    if (failed >= 0) {
+        unlink(cache_path);
+        record_failure(test_name, "a save that could not be written reported success");
+        return;
+    }
+    if (!intact) {
+        unlink(cache_path);
+        record_failure(test_name, "a failed save damaged the cache it was replacing");
+        return;
+    }
+
+    if (mesh_ui_store_init(&store) != 0) {
+        unlink(cache_path);
+        record_failure(test_name, "store reinit failed");
+        return;
+    }
+    const int loaded = mesh_ui_store_load(&store, cache_path);
+    const uint32_t count = store.handshake.node_count;
+    const uint32_t first = store.handshake.nodes[0].node_id;
+    const bool valid = store.handshake_valid;
+    mesh_ui_store_shutdown(&store);
+    unlink(cache_path);
+
+    MESH_TEST_FAIL_IF(loaded != 0, "reload failed");
+    MESH_TEST_FAIL_IF(!valid, "the cache the failed save left is not readable");
+    MESH_TEST_FAIL_IF(count != 3U, "the roster the failed save left is not the one it started as");
+    MESH_TEST_FAIL_IF(first != 0x2000U, "the roster came back as the save that never landed");
+    record_success(test_name);
+}
+
+/*
+ * A cache cut short mid-roster is a shorter roster, not one with holes.
+ *
+ * `handshake_nodes` is written before the rows it counts, so a file from a build that wrote
+ * itself in place - or one truncated by a full card - claims more nodes than it carries. Those
+ * rows load as node id 0 and draw as blank lines under a count that disagrees with them.
+ */
+MESH_TEST_CASE(ui_store_cache_truncated_roster_has_no_holes, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.has_my_info = true;
+    handshake.my_info.node_num = 0x1234U;
+    handshake.roster_owner = 0x1234U;
+    handshake.node_count = 5U;
+    for (uint32_t i = 0; i < handshake.node_count; ++i) {
+        handshake.nodes[i].node_id = 0x3000U + i;
+        snprintf(handshake.nodes[i].short_name, sizeof handshake.nodes[i].short_name, "N%02u", i);
+    }
+    mesh_ui_store_set_handshake(&store, &handshake);
+
+    char cache_path[] = "/tmp/mesh_ui_truncXXXXXX";
+    int fd = mkstemp(cache_path);
+    if (fd < 0) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "mkstemp failed");
+        return;
+    }
+    close(fd);
+
+    const int saved = mesh_ui_store_save(&store, cache_path);
+    mesh_ui_store_shutdown(&store);
+    if (saved != 0) {
+        unlink(cache_path);
+        record_failure(test_name, "save failed");
+        return;
+    }
+
+    /* Cut where the third node's first line begins: two whole nodes, and a header still
+       claiming five. */
+    FILE *file = fopen(cache_path, "r");
+    if (file == NULL) {
+        unlink(cache_path);
+        record_failure(test_name, "could not reopen the cache");
+        return;
+    }
+    long cut = -1;
+    long at = 0;
+    char line[1280];
+    while (fgets(line, sizeof line, file) != NULL) {
+        if (strncmp(line, "node[2]=", (int)(sizeof "node[2]=") - 1) == 0) {
+            cut = at;
+            break;
+        }
+        at += (long)strlen(line);
+    }
+    fclose(file);
+    if (cut <= 0) {
+        unlink(cache_path);
+        record_failure(test_name, "the saved cache has no third node to cut at");
+        return;
+    }
+    if (truncate(cache_path, cut) != 0) {
+        unlink(cache_path);
+        record_failure(test_name, "truncate failed");
+        return;
+    }
+
+    if (mesh_ui_store_init(&store) != 0) {
+        unlink(cache_path);
+        record_failure(test_name, "store reinit failed");
+        return;
+    }
+    const int loaded = mesh_ui_store_load(&store, cache_path);
+    const uint32_t count = store.handshake.node_count;
+    uint32_t holes = 0U;
+    for (uint32_t i = 0; i < count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
+        if (store.handshake.nodes[i].node_id == 0U) {
+            ++holes;
+        }
+    }
+    mesh_ui_store_shutdown(&store);
+    unlink(cache_path);
+
+    MESH_TEST_FAIL_IF(loaded != 0, "load failed");
+    MESH_TEST_FAIL_IF(count != 2U, "the roster kept the header's count over the rows it had");
+    MESH_TEST_FAIL_IF(holes != 0U, "the roster came back with blank rows in it");
     record_success(test_name);
 }

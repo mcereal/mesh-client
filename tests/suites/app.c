@@ -2833,7 +2833,14 @@ MESH_TEST_CASE(app_cache_batches_and_retries_persistence, unit) {
         failure = "timer must persist and clear the dirty batch";
         goto cleanup;
     }
-    snprintf(app->ui_handshake_cache_path, sizeof app->ui_handshake_cache_path, "/dev/full");
+    /*
+     * A path that cannot be written, to check that a failed save keeps the batch rather than
+     * dropping it. It names a file *under* /dev/full rather than /dev/full itself: the cache is
+     * written through a `.tmp` beside it and renamed, so a device that accepts an open and
+     * refuses the bytes no longer stands in for a card that cannot take the file at all. Every
+     * open under a non-directory fails with ENOTDIR, whoever is running the suite.
+     */
+    snprintf(app->ui_handshake_cache_path, sizeof app->ui_handshake_cache_path, "/dev/full/cache");
     app->ui_handshake_cache_dirty = true;
     mesh_app_publish_ui_state(app);
     timerfd_settime(app->ui_cache_timer_fd, 0, &expire, NULL);
@@ -2841,7 +2848,7 @@ MESH_TEST_CASE(app_cache_batches_and_retries_persistence, unit) {
     (void)poll(&ready_fd, 1, 1000);
     mesh_event_loop_run(&app->loop, 0);
     if (!app->ui_handshake_cache_dirty || !app->ui_cache_timer_armed) {
-        failure = "a failed stdio flush must retain dirty state and schedule another batch";
+        failure = "a save that could not be written must stay dirty and schedule another batch";
         goto cleanup;
     }
     snprintf(app->ui_handshake_cache_path, sizeof app->ui_handshake_cache_path, "%s", path);

@@ -365,10 +365,11 @@ static int archive_read_file(const char *path, struct mesh_ui_message *entries, 
 /*
  * Replaces a conversation's file with `messages`, through a temporary beside it.
  *
- * The handshake cache is written straight over itself, and this is not, because the two lose
- * different things when a write is interrupted: the cache is a snapshot the next publish
- * rebuilds, and this is history nothing else holds. A rename() on the same directory is atomic,
- * so the file a reader opens is either the old transcript or the new one.
+ * A rename() on the same directory is atomic, so the file a reader opens is either the old
+ * transcript or the new one. The handshake cache next door is written the same way now, and for
+ * the same reason: the argument that it was only "a snapshot the next publish rebuilds" held
+ * for every section of it except the roster, which is the one record of the nodes a radio has
+ * evicted and which no publish can rebuild.
  */
 static int archive_rewrite(const char *path, const struct mesh_ui_message *messages,
                            uint32_t count) {
