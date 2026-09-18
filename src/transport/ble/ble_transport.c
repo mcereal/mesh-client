@@ -10,6 +10,7 @@
 #include "mesh/transport/ble_bluez.h"
 #include "mesh/utils/array.h"
 #include "mesh/utils/env.h"
+#include "mesh/utils/text.h"
 #include "mesh/utils/time.h"
 
 #include <errno.h>
@@ -79,6 +80,16 @@ struct mesh_ble_outbound_packet {
     uint8_t data[MESH_BLE_MAX_PACKET_SIZE];
 };
 
+/* One remembered roster entry: what mesh_ble_reload_devices() treats as news about a device.
+   The address and name are sized to match mesh_bluez_device_info's, since they are copies of
+   those fields and a shorter buffer here would compare a truncation against a full string. */
+struct mesh_ble_logged_device {
+    char address[32];
+    char name[64];
+    bool paired;
+    bool in_range;
+};
+
 struct mesh_ble_transport_state {
     enum mesh_ble_state state;
     bool client_initialised;
@@ -87,6 +98,11 @@ struct mesh_ble_transport_state {
     struct mesh_bluez_client bluez;
     struct mesh_bluez_device_info devices[16];
     size_t device_count;
+    /* What the log was last told, so a restated roster is not restated again. Only the fields
+       mesh_ble_reload_devices() counts as a change, which is why it is not a second
+       mesh_bluez_device_info: the reading that drifts is exactly what is left out. */
+    struct mesh_ble_logged_device logged[16];
+    size_t logged_count;
     int refresh_timer_fd;
     int drain_wake_fd; /* eventfd: continue a FromRadio drain on the next loop turn */
     uint64_t last_refresh_ms;
@@ -617,6 +633,7 @@ static void mesh_ble_demote(struct mesh_ble_transport_state *state) {
     state->discovery_active = false;
     state->adapter_path[0] = '\0';
     state->device_count = 0U;
+    state->logged_count = 0U;
     state->state = MESH_BLE_STATE_WAITING_FOR_BLUEZ;
     /* The first attempt to come back happens on the next loop turn rather than a poll later:
        BlueZ restarting is exactly the case where it may already be back. */
@@ -638,6 +655,7 @@ static int mesh_ble_start(struct mesh_transport *transport, const struct mesh_ap
     state->discovery_active = false;
     state->adapter_path[0] = '\0';
     state->device_count = 0;
+    state->logged_count = 0U;
     state->refresh_timer_fd = -1;
     state->drain_wake_fd = -1;
     state->last_refresh_ms = 0U;
@@ -756,6 +774,7 @@ static void mesh_ble_stop(struct mesh_transport *transport) {
     state->discovery_active = false;
     state->adapter_path[0] = '\0';
     state->device_count = 0;
+    state->logged_count = 0U;
     state->link_state = MESH_BLE_LINK_DISCONNECTED;
     state->connected_address[0] = '\0';
     state->connected_device_path[0] = '\0';
@@ -878,6 +897,12 @@ const struct mesh_bluez_device_info *mesh_ble_transport_devices(struct mesh_tran
     return state->devices;
 }
 
+/* The remembered roster is indexed by the live one's count, so a `logged` array shorter than
+   `devices` would be written past its end the first time sixteen radios were in the room. */
+_Static_assert(MESH_ARRAY_LEN(((struct mesh_ble_transport_state *)0)->logged) >=
+                   MESH_ARRAY_LEN(((struct mesh_ble_transport_state *)0)->devices),
+               "the logged roster must hold as many devices as the enumeration can find");
+
 static size_t mesh_ble_reload_devices(struct mesh_ble_transport_state *state) {
     if (state == NULL) {
         return 0U;
@@ -887,6 +912,7 @@ static size_t mesh_ble_reload_devices(struct mesh_ble_transport_state *state) {
        found through a bus name that is now gone. */
     if (state->state != MESH_BLE_STATE_READY) {
         state->device_count = 0U;
+        state->logged_count = 0U;
         return 0U;
     }
 
@@ -896,6 +922,7 @@ static size_t mesh_ble_reload_devices(struct mesh_ble_transport_state *state) {
     if (list_result < 0) {
         mesh_log_debug("ble", "Device enumeration failed: %s", strerror(-list_result));
         state->device_count = 0;
+        state->logged_count = 0U;
         return 0U;
     }
 
@@ -903,10 +930,46 @@ static size_t mesh_ble_reload_devices(struct mesh_ble_transport_state *state) {
         mesh_log_info("ble", "Discovered %zu meshtastic device(s)", device_count);
     }
     state->device_count = device_count;
-    for (size_t i = 0; i < state->device_count; ++i) {
-        mesh_log_debug("ble", "  %s (%s) RSSI=%d", state->devices[i].name,
-                       state->devices[i].address, (int)state->devices[i].rssi);
+
+    /*
+     * The per-device lines are the *changes* to the roster, not its current contents.
+     *
+     * This runs from the tick, throttled to once a second, for as long as the client is looking
+     * for a radio - so an unguarded loop here wrote one line per visible device per second for
+     * the length of the session. At the `debug` level `launch.sh` used to hardcode that was the
+     * single largest thing in the log on the card, and all of it the same list restated.
+     *
+     * RSSI is deliberately not part of what counts as a change: it moves on almost every read,
+     * so comparing it would re-log the roster every second and put this straight back where it
+     * started. What is worth a line is a device arriving, leaving, or changing what it says
+     * about itself - so the address, the name and the two flags are compared, and the reading
+     * that drifts is only ever printed alongside one of those.
+     */
+    bool roster_changed = device_count != state->logged_count;
+    for (size_t i = 0; !roster_changed && i < device_count; ++i) {
+        const struct mesh_bluez_device_info *now = &state->devices[i];
+        const struct mesh_ble_logged_device *before = &state->logged[i];
+        roster_changed = strcmp(now->address, before->address) != 0 ||
+                         strcmp(now->name, before->name) != 0 || now->paired != before->paired ||
+                         now->in_range != before->in_range;
     }
+
+    if (roster_changed) {
+        for (size_t i = 0; i < device_count; ++i) {
+            mesh_log_debug("ble", "  %s (%s) RSSI=%d", state->devices[i].name,
+                           state->devices[i].address, (int)state->devices[i].rssi);
+        }
+        for (size_t i = 0; i < device_count; ++i) {
+            mesh_str_copy(state->logged[i].address, sizeof state->logged[i].address,
+                          state->devices[i].address);
+            mesh_str_copy(state->logged[i].name, sizeof state->logged[i].name,
+                          state->devices[i].name);
+            state->logged[i].paired = state->devices[i].paired;
+            state->logged[i].in_range = state->devices[i].in_range;
+        }
+        state->logged_count = device_count;
+    }
+
     return state->device_count;
 }
 

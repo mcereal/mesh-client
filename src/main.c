@@ -1170,6 +1170,12 @@ int main(int argc, char **argv) {
         return describe_map_pack(map_pack_path) < 0 ? EXIT_FAILURE : EXIT_SUCCESS;
     }
 
+    /* Before the client does anything, and after --log-level has been read: the log on the card
+       is an append that no previous run ever cut back, so the run that inherits an oversized one
+       is the run that trims it. It is `launch.sh` that owns the file, which is exactly why this
+       is here rather than there - the launcher does not ship through self-update and this does. */
+    mesh_log_file_compact_default();
+
     struct mesh_app app;
     int result = mesh_app_init(&app, &config);
     if (result < 0) {
