@@ -1604,6 +1604,87 @@ MESH_TEST_CASE(app_drops_a_bond_its_own_update_invalidated, unit) {
         goto cleanup;
     }
 
+    /*
+     * A different radio holding the link is not a verdict on this one.
+     *
+     * mesh_app_autoconnect() returns early whenever a link is up - one radio at a time - so a
+     * serial node plugged in after the update means BLE is never reached for, and the watched
+     * address could not match however long this waited. Expiring against that would drop a bond
+     * nothing had found fault with. The clock has to wait for the bus to be free.
+     */
+    mesh_app_firmware_watch_bond(&app, &update, 1000U);
+    if (mesh_app_firmware_settle_bond(&app, "/dev/ttyUSB0", 1000U + 600000U) || removed != 0U) {
+        failure = "another radio on the link is not this radio failing to come back";
+        goto cleanup;
+    }
+    if (app.firmware_bond_watch[0] == '\0') {
+        failure = "and the watch is still pending, not settled by the wrong radio";
+        goto cleanup;
+    }
+    /* And once that link goes, the grace starts from there rather than from the install. */
+    if (mesh_app_firmware_settle_bond(&app, NULL, 1000U + 600000U + 30000U) || removed != 0U) {
+        failure = "the grace runs from when the bus was free, not from the install";
+        goto cleanup;
+    }
+    if (!mesh_app_firmware_settle_bond(&app, NULL, 1000U + 600000U + 61000U) || removed != 1U) {
+        failure = "and then a radio that never came back loses its bond";
+        goto cleanup;
+    }
+    removed = 0U;
+
+    /*
+     * A removal that failed for a reason that can pass keeps the watch.
+     *
+     * An adapter still coming back from the install answers NotReady, and an adapter that is
+     * away has not lost the bond it persisted - so giving up on one would leave the stale key
+     * in place and the reconnects failing, which is the state this exists to end.
+     */
+    mock_config.remove_device_result = -ENOTCONN;
+    mesh_bluez_client_mock_enable(&mock_config);
+    mesh_app_firmware_watch_bond(&app, &update, 1000U);
+    if (mesh_app_firmware_settle_bond(&app, NULL, 1000U + 61000U)) {
+        failure = "a removal that did not happen is not a bond dropped";
+        goto cleanup;
+    }
+    /* The counter is attempts that reached the adapter, so this says the removal was really
+       tried rather than skipped on the way to being retried. */
+    if (removed != 1U) {
+        failure = "a removal that failed is still a removal that was attempted";
+        goto cleanup;
+    }
+    if (app.firmware_bond_watch[0] == '\0') {
+        failure = "and the watch survives it, so the removal is tried again";
+        goto cleanup;
+    }
+    /* Once the adapter is back, the retry lands. */
+    removed = 0U;
+    mock_config.remove_device_result = 0;
+    mesh_bluez_client_mock_enable(&mock_config);
+    if (!mesh_app_firmware_settle_bond(&app, NULL, 1000U + 61000U + 6000U) || removed != 1U) {
+        failure = "the retry drops the bond once the adapter answers";
+        goto cleanup;
+    }
+    removed = 0U;
+
+    /*
+     * And a bond that is already gone settles rather than retrying for ever: DoesNotExist is
+     * the state this was trying to reach, not a failure to reach it.
+     */
+    mock_config.remove_device_result = -ENOENT;
+    mesh_bluez_client_mock_enable(&mock_config);
+    mesh_app_firmware_watch_bond(&app, &update, 1000U);
+    if (mesh_app_firmware_settle_bond(&app, NULL, 1000U + 61000U)) {
+        failure = "a bond that was already gone is not one this dropped";
+        goto cleanup;
+    }
+    if (app.firmware_bond_watch[0] != '\0') {
+        failure = "but it is settled, not retried for ever";
+        goto cleanup;
+    }
+    mock_config.remove_device_result = 0;
+    mesh_bluez_client_mock_enable(&mock_config);
+    removed = 0U;
+
     /* The radio that did not come back: silent past the grace, bond dropped once. */
     mesh_app_firmware_watch_bond(&app, &update, 1000U);
     if (mesh_app_firmware_settle_bond(&app, NULL, 2000U)) {
@@ -1612,11 +1693,6 @@ MESH_TEST_CASE(app_drops_a_bond_its_own_update_invalidated, unit) {
     }
     if (removed != 0U) {
         failure = "and nothing is dropped inside it";
-        goto cleanup;
-    }
-    /* Another radio answering in the meantime is not this one answering. */
-    if (mesh_app_firmware_settle_bond(&app, "F8:5B:1B:A5:99:C9", 3000U) || removed != 0U) {
-        failure = "a different radio on the link says nothing about this one's bond";
         goto cleanup;
     }
     if (!mesh_app_firmware_settle_bond(&app, NULL, 1000U + 60000U)) {

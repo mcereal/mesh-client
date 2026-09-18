@@ -203,6 +203,8 @@ struct mesh_firmware_update_hooks mesh_app_firmware_hooks(struct mesh_app *app) 
  * over a cable leaves nothing behind to go stale.
  */
 #define MESH_APP_FIRMWARE_BOND_GRACE_MS 60000U
+/* How long to leave a removal that failed for a reason that can pass before trying it again. */
+#define MESH_APP_FIRMWARE_BOND_RETRY_MS 5000U
 
 void mesh_app_firmware_watch_bond(struct mesh_app *app, const struct mesh_firmware_update *update,
                                   uint64_t now) {
@@ -238,35 +240,59 @@ bool mesh_app_firmware_settle_bond(struct mesh_app *app, const char *connected, 
         app->firmware_bond_watch_until_ms = 0U;
         return false;
     }
+    /*
+     * Some *other* radio is on the link, so this bond has not been tested and the clock has no
+     * business running.
+     *
+     * mesh_app_autoconnect() returns early whenever a link is up - one radio at a time - so a
+     * serial node plugged in after the update, or a TCP target that answered, means BLE is never
+     * reached for and the watched address could not match however long this waited. Expiring
+     * against that would throw away a bond nothing had found fault with, and charge a PIN for
+     * it. Re-armed rather than merely held, so the radio gets a whole grace from the moment the
+     * bus is free to try it.
+     */
+    if (connected != NULL) {
+        app->firmware_bond_watch_until_ms = now + MESH_APP_FIRMWARE_BOND_GRACE_MS;
+        return false;
+    }
     if (now < app->firmware_bond_watch_until_ms) {
         return false;
     }
 
-    char address[sizeof app->firmware_bond_watch];
-    mesh_str_copy(address, sizeof address, app->firmware_bond_watch);
+    struct mesh_transport *const ble = mesh_ble_transport();
+    const int dropped =
+        ble != NULL ? mesh_ble_transport_forget(ble, app->firmware_bond_watch) : -ENODEV;
+    /*
+     * -ENOENT is bluetoothd's DoesNotExist, which is the state this was trying to reach: no bond
+     * on that address any more. Anything else can pass - an adapter still coming back from the
+     * install, a transport between its stop and its start - and an adapter that is away has not
+     * lost the bond it persisted, so clearing the watch on one would leave the stale key in
+     * place and the reconnects failing, which is what this exists to end. Retried instead, on a
+     * slow cadence, because the watch is only ever armed by an install that has just finished.
+     */
+    if (dropped < 0 && dropped != -ENOENT) {
+        app->firmware_bond_watch_until_ms = now + MESH_APP_FIRMWARE_BOND_RETRY_MS;
+        mesh_log_info("ui", "Could not drop %s's bond yet (%d); retrying", app->firmware_bond_watch,
+                      dropped);
+        return false;
+    }
+
+    const bool removed = dropped == 0;
+    if (removed) {
+        /* Deliberately *not* dropped from the preferred devices, unlike the Devices tab's
+           Forget. That press means "stop reaching for this radio"; this one means "reach for it,
+           but pair first" - it is the radio the user just spent minutes updating. */
+        mesh_log_warn("ui",
+                      "%s did not come back after its update; dropped the stale bond so it can "
+                      "be paired with again",
+                      app->firmware_bond_watch);
+    } else {
+        mesh_log_info("ui", "%s did not come back and had no bond left to drop",
+                      app->firmware_bond_watch);
+    }
     app->firmware_bond_watch[0] = '\0';
     app->firmware_bond_watch_until_ms = 0U;
-
-    struct mesh_transport *const ble = mesh_ble_transport();
-    if (ble == NULL) {
-        return false;
-    }
-    const int dropped = mesh_ble_transport_forget(ble, address);
-    if (dropped < 0) {
-        /* Nothing to forget is the ordinary way this lands: a bond BlueZ had already given up
-           on, or an adapter that went away with the install. Either way the next connect will
-           pair, which is the state this was trying to reach. */
-        mesh_log_info("ui", "%s did not come back and had no bond to drop (%d)", address, dropped);
-        return false;
-    }
-    /* Deliberately *not* dropped from the preferred devices, unlike the Devices tab's Forget.
-       That press means "stop reaching for this radio"; this one means "reach for it, but pair
-       first" - it is the radio the user just spent minutes updating. */
-    mesh_log_warn("ui",
-                  "%s did not come back after its update; dropped the stale bond so it can "
-                  "be paired with again",
-                  address);
-    return true;
+    return removed;
 }
 
 void mesh_app_firmware_update_done(void *userdata, const struct mesh_firmware_update *update) {
