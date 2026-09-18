@@ -864,39 +864,96 @@ static const uint8_t *fb_emoji_pixels(uint16_t sprite) {
 }
 
 /*
- * Draw one emoji sprite into the cell.
+ * The box to actually draw a sprite in, given the room for one.
  *
- * The sprite is square and the cell is five by seven, so it is drawn at the cell's width and
- * centred vertically - one font row of padding above and below, which puts it on the same
- * optical line as the capitals beside it. Sampling is nearest-neighbour from the stored 16x16:
- * the cell is 15 px at the tab scale and 20 px at the body scale, so this is a small upscale
- * of pixel art, and anything smoother would need to blend against a background this function
- * cannot see (rows under the cursor are filled a different colour).
+ * Nearest neighbour divides evenly or it does not: at 81 px a 16 px sprite lands as a mix of
+ * five- and six-pixel blocks, and on a face that is one eye a pixel wider than the other. At 80
+ * every source pixel is the same 5x5 square, which reads as pixel art rather than as a
+ * distortion - so a sprite with room to spare is drawn at the whole multiple that fits and the
+ * leftover goes to the margin, where nothing is drawn anyway.
  *
- * Emoji ignore `color`. They carry their own, which is the point of having them: the red of a
+ * Only once there is a multiple worth snapping to. Inside a line of text the box is a text cell
+ * - 20 px at the body scale - and rounding that down to 16 would spend a fifth of the glyph to
+ * tidy up an unevenness nothing can see at that size.
+ */
+int fb_emoji_box_fit(int box) {
+    if (box < 2 * MESH_EMOJI_SIZE) {
+        return box;
+    }
+    return box - box % MESH_EMOJI_SIZE;
+}
+
+/*
+ * Draw one emoji sprite into a square `box` pixels on a side, top-left at (x, y).
+ *
+ * Sampling is nearest-neighbour from the stored 16x16, and anything smoother would need to
+ * blend against a background this function cannot see (rows under the cursor are filled a
+ * different colour). In a text cell that is a small upscale of pixel art - 15 px at the tab
+ * scale, 20 px at the body scale - and the staircase is invisible on fills this flat.
+ *
+ * Emoji carry no ink colour and take none. Their own is the point of having them: the red of a
  * flag and the yellow of a lightning bolt are most of what makes one recognisable at 20 px.
  */
-static void fb_draw_emoji(const struct mesh_ui_backend_fb_state *state, int x, int y,
-                          uint16_t sprite, int scale) {
-    /* The box is the full character advance rather than the glyph's five columns: at the
-       advance an emoji stands as tall as the capitals beside it, and the sprites carry their
-       own transparent margin, so neighbours still separate. */
-    const int box = fb_char_adv(state, scale);
-    const int top = y + ((int)fb_font(state)->height * scale - box) / 2;
-
-    /* Nearest-neighbour source column per destination column. Identical for every row, so the
-       division runs once per column instead of once per pixel. */
-    int sx_map[(MESH_UI_GLYPH_MAX_WIDTH + 1) * MESH_UI_SCALE_MAX];
-    if (box <= 0 || box > (int)(sizeof sx_map / sizeof sx_map[0])) {
+void fb_draw_emoji_box(const struct mesh_ui_backend_fb_state *state, int x, int top, int box,
+                       uint16_t sprite) {
+    if (box <= 0) {
         return;
-    }
-    for (int dx = 0; dx < box; ++dx) {
-        sx_map[dx] = dx * MESH_EMOJI_SIZE / box;
     }
 
     const uint8_t *pixels = fb_emoji_pixels(sprite);
     const bool *opaque = NULL;
     const uint32_t *palette = fb_emoji_palette(state, &opaque);
+
+    /*
+     * A whole multiple - what fb_emoji_box_fit() hands back, so every keycap - is walked in
+     * *source* pixels rather than destination ones: each one is a square block, so a run of
+     * equal neighbours is one rectangle however large the block is.
+     *
+     * Same pixels as the general path below, which is why this is a fast path rather than a
+     * second renderer: at a keycap's size that one would compare a palette index per
+     * destination pixel, and a page of forty sprites at five times each is a quarter of a
+     * million of them for a grid that redraws on every press.
+     *
+     * It is also where a box too wide for the general path's column map lands, snapped to the
+     * whole multiple inside it and centred in what was asked for. The alternative was the bug
+     * this replaced: the bound sat above this path although this path has no use for the map,
+     * so on a panel with room for a key over FB_EMOJI_BOX_MAX across - which the capture tool
+     * will render - every emoji keycap drew nothing at all and the selected one drew a bare
+     * fill. A cap costing a shift of at most fifteen pixels at that size is one nobody sees.
+     */
+    const int drawn = box > FB_EMOJI_BOX_MAX ? fb_emoji_box_fit(box) : box;
+    if (drawn % MESH_EMOJI_SIZE == 0) {
+        const int block = drawn / MESH_EMOJI_SIZE;
+        const int inset = (box - drawn) / 2;
+        for (int sy = 0; sy < MESH_EMOJI_SIZE; ++sy) {
+            const uint8_t *src_row = &pixels[sy * MESH_EMOJI_SIZE];
+            int sx = 0;
+            while (sx < MESH_EMOJI_SIZE) {
+                const uint8_t index = src_row[sx];
+                int end = sx + 1;
+                while (end < MESH_EMOJI_SIZE && src_row[end] == index) {
+                    ++end;
+                }
+                if (opaque[index]) {
+                    fb_fill_packed(state, x + inset + sx * block, top + inset + sy * block,
+                                   (end - sx) * block, block, palette[index]);
+                }
+                sx = end;
+            }
+        }
+        return;
+    }
+
+    /* Nearest-neighbour source column per destination column. Identical for every row, so the
+       division runs once per column instead of once per pixel. Anything wider than the map has
+       already been drawn above, so this is only ever a text cell's worth. */
+    int sx_map[FB_EMOJI_BOX_MAX];
+    if (box > (int)(sizeof sx_map / sizeof sx_map[0])) {
+        return;
+    }
+    for (int dx = 0; dx < box; ++dx) {
+        sx_map[dx] = dx * MESH_EMOJI_SIZE / box;
+    }
 
     /* Emoji are mostly flat fills, so coalescing equal-index neighbours into one span turns
        most rows into a handful of writes. */
@@ -915,6 +972,20 @@ static void fb_draw_emoji(const struct mesh_ui_backend_fb_state *state, int x, i
             dx = end;
         }
     }
+}
+
+/*
+ * The same sprite as one cell of a line of text.
+ *
+ * The box is the full character advance rather than the glyph's five columns: at the advance
+ * an emoji stands as tall as the capitals beside it, and the sprites carry their own
+ * transparent margin, so neighbours still separate. Centred in the line's height puts it on
+ * the same optical line as those capitals - one font row of padding above and below.
+ */
+static void fb_draw_emoji(const struct mesh_ui_backend_fb_state *state, int x, int y,
+                          uint16_t sprite, int scale) {
+    const int box = fb_char_adv(state, scale);
+    fb_draw_emoji_box(state, x, y + ((int)fb_font(state)->height * scale - box) / 2, box, sprite);
 }
 
 /* An icon occupies exactly one text cell, which is what lets a screen put one in a line's

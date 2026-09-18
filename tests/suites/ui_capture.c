@@ -19,6 +19,7 @@
 #include "mesh/i18n/strings.h"
 #include "mesh/map/viewport.h"
 #include "mesh/ui/backends/fb_capture.h"
+#include "mesh/ui/emoji.h"
 #include "mesh/ui/font.h"
 #include "mesh/ui/history.h"
 #include "mesh/ui/map.h"
@@ -1869,6 +1870,200 @@ MESH_TEST_CASE(fb_glyph_cache_matches_uncached_colors_and_scales, unit) {
     }
     state.glyph_cache = cache;
     fb_glyph_cache_free(&state);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * A keycap carrying one emoji draws it at the key's size, and one carrying anything else does
+ * not.
+ *
+ * The emoji layer of the on-screen keyboard used to draw its forty cells through the ordinary
+ * text path, which sizes an emoji like a letter: a 20 px thumbnail of a picture, in a key five
+ * times that across, and the layer could not be read without leaning into the panel. The rule
+ * that replaced it is the one asserted here - a label that is a single sprite is the key's
+ * *face* and is sized to the box - and it is asserted as an extent rather than as a pixel
+ * because how a sprite fills its own square is the emoji font's business, not this client's.
+ *
+ * The second half is what keeps the first from being a blanket rule: the same flag over a
+ * letter, a word or an icon has to change nothing, because the four keyboard layers are one
+ * grid described once and three of them are text.
+ */
+MESH_TEST_CASE(fb_emoji_keycap_fills_its_key, unit) {
+    uint8_t page[256U * 128U * 4U];
+    struct mesh_ui_backend_fb_state state = {0};
+    state.fb_ptr = page;
+    state.fb_size = sizeof page;
+    state.var.xres = 256U;
+    state.var.yres = 128U;
+    state.var.bits_per_pixel = 32U;
+    state.fix.line_length = 256U * 4U;
+    state.bytes_per_pixel = 4U;
+    fb_state_set_theme(&state, mesh_ui_theme_default(), 4);
+
+    const struct mesh_ui_rgb ground = fb_color(&state, MESH_UI_COLOR_BG);
+    const struct fb_rect key = {.x = 20, .y = 10, .w = 120, .h = 100};
+    const int cell = fb_char_adv(&state, 4);
+    const char *failure = NULL;
+
+    /* An extent per pass: the drawn ink's bounding box, which for a sprite on a key that lays
+       down no fill of its own is the sprite and nothing else. */
+    int width[2] = {0, 0};
+    int height[2] = {0, 0};
+    for (unsigned pass = 0; pass < 2U && failure == NULL; ++pass) {
+        fb_clear(&state, ground);
+        const struct fb_button button = {
+            .rect = key,
+            .label = "\U0001F600",
+            .variant = FB_BUTTON_TEXT,
+            .shape = MESH_UI_SHAPE_SM,
+            .idle_tone = MESH_UI_TONE_NORMAL,
+            .scale = 4,
+            .emoji_face = (pass == 0U),
+        };
+        fb_draw_button(&state, &button);
+
+        int left = (int)state.var.xres;
+        int right = -1;
+        int top = (int)state.var.yres;
+        int bottom = -1;
+        for (uint32_t row = 0U; row < state.var.yres; ++row) {
+            const uint8_t *line = page + (size_t)row * state.fix.line_length;
+            for (uint32_t col = 0U; col < state.var.xres; ++col) {
+                const uint8_t *pixel = &line[(size_t)col * 4U];
+                if (pixel[0] == ground.b && pixel[1] == ground.g && pixel[2] == ground.r) {
+                    continue;
+                }
+                if ((int)col < left) {
+                    left = (int)col;
+                }
+                if ((int)col > right) {
+                    right = (int)col;
+                }
+                if ((int)row < top) {
+                    top = (int)row;
+                }
+                if ((int)row > bottom) {
+                    bottom = (int)row;
+                }
+            }
+        }
+        if (right < 0 || bottom < 0) {
+            failure = "the keycap drew nothing at all";
+            break;
+        }
+        if (left < key.x || right >= key.x + key.w || top < key.y || bottom >= key.y + key.h) {
+            failure = "the keycap drew outside its own key";
+            break;
+        }
+        width[pass] = right - left + 1;
+        height[pass] = bottom - top + 1;
+    }
+
+    /* Half the key is the floor rather than the whole of it: a sprite carries its own
+       transparent margin, and a grinning face does not reach the corners of its square. What
+       fails here is the regression - a face drawn at a text cell, which is a fifth of this. */
+    if (failure == NULL && (width[0] < key.w / 2 || height[0] < key.h / 2)) {
+        failure = "an emoji keycap must be sized to its key, not to a text cell";
+    }
+    if (failure == NULL && (width[1] > cell || height[1] > cell)) {
+        failure = "a keycap that is not asking for a sprite face must stay one text cell";
+    }
+
+    fb_glyph_cache_free(&state);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * A sprite wider than the column map still draws.
+ *
+ * The bound on that map used to sit above the block path, which has no use for it - so a panel
+ * with room for a key wider than FB_EMOJI_BOX_MAX (the capture tool renders up to 4096 square)
+ * drew every emoji keycap as nothing at all, the selected one as a bare fill. Nothing on the
+ * Brick reaches that size, which is exactly why it needs a test rather than an eye.
+ *
+ * The oversized box is the one this asserts, not the panel: a box the primitive is handed is a
+ * box it draws, whatever a caller's arithmetic made of it.
+ */
+MESH_TEST_CASE(fb_emoji_box_draws_past_the_column_map, unit) {
+    uint8_t page[320U * 320U * 4U];
+    struct mesh_ui_backend_fb_state state = {0};
+    state.fb_ptr = page;
+    state.fb_size = sizeof page;
+    state.var.xres = 320U;
+    state.var.yres = 320U;
+    state.var.bits_per_pixel = 32U;
+    state.fix.line_length = 320U * 4U;
+    state.bytes_per_pixel = 4U;
+    fb_state_set_theme(&state, mesh_ui_theme_default(), 4);
+
+    const uint32_t grinning = 0x1F600U;
+    uint16_t sprite = 0;
+    const char *failure = NULL;
+    if (mesh_emoji_match(&grinning, 1U, &sprite) == 0U) {
+        failure = "the build has no sprite for U+1F600";
+    }
+
+    /* The bound itself, one over it, and a size well past it that is not a whole multiple -
+       which is the combination the old guard dropped. */
+    const int boxes[] = {FB_EMOJI_BOX_MAX, FB_EMOJI_BOX_MAX + 1, FB_EMOJI_BOX_MAX + 7};
+    const struct mesh_ui_rgb ground = fb_color(&state, MESH_UI_COLOR_BG);
+    for (size_t i = 0; i < sizeof boxes / sizeof boxes[0] && failure == NULL; ++i) {
+        const int box = boxes[i];
+        fb_clear(&state, ground);
+        fb_draw_emoji_box(&state, 10, 10, box, sprite);
+
+        bool drew = false;
+        bool escaped = false;
+        for (uint32_t row = 0U; row < state.var.yres; ++row) {
+            const uint8_t *line = page + (size_t)row * state.fix.line_length;
+            for (uint32_t col = 0U; col < state.var.xres; ++col) {
+                const uint8_t *pixel = &line[(size_t)col * 4U];
+                if (pixel[0] == ground.b && pixel[1] == ground.g && pixel[2] == ground.r) {
+                    continue;
+                }
+                drew = true;
+                if ((int)row < 10 || (int)row >= 10 + box || (int)col < 10 ||
+                    (int)col >= 10 + box) {
+                    escaped = true;
+                }
+            }
+        }
+        if (!drew) {
+            failure = "a box wider than the column map drew nothing";
+        } else if (escaped) {
+            failure = "a box wider than the column map drew outside itself";
+        }
+    }
+
+    fb_glyph_cache_free(&state);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * Every source pixel the same size, or none of the snapping is worth doing.
+ *
+ * fb_emoji_box_fit() is what keeps a five-times upscale from landing as a mix of five- and
+ * six-pixel blocks - one eye a pixel wider than the other - and it is also what lets
+ * fb_draw_emoji_box() take its block path, which draws the identical pixels for a fraction of
+ * the comparisons. Both properties are the same one arithmetic fact.
+ */
+MESH_TEST_CASE(fb_emoji_box_fit_snaps_to_whole_blocks, unit) {
+    const char *failure = NULL;
+    for (int box = 1; box <= 8 * MESH_EMOJI_SIZE && failure == NULL; ++box) {
+        const int fit = fb_emoji_box_fit(box);
+        if (fit > box || fit <= 0) {
+            failure = "a fitted box must be positive and never larger than the room for it";
+        } else if (box >= 2 * MESH_EMOJI_SIZE && fit % MESH_EMOJI_SIZE != 0) {
+            failure = "a box with room for whole blocks must be a whole number of them";
+        } else if (box >= 2 * MESH_EMOJI_SIZE && box - fit >= MESH_EMOJI_SIZE) {
+            failure = "snapping must cost less than a whole block";
+        } else if (box < 2 * MESH_EMOJI_SIZE && fit != box) {
+            failure = "a box the size of a text cell must be left alone";
+        }
+    }
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }

@@ -257,8 +257,25 @@ Two invariants hold the tables, because neither is visible in a rendered frame:
 
 The emoji layer is `k_kb_emoji`, written as `\U` escapes so a patch tool cannot mangle it, and
 every cell is asserted to be a single glyph this build has a sprite for
-(`kb_emoji_cells_are_drawable`). Nothing new is needed to draw them: `fb_draw_text()` already
-walks cells rather than bytes, which is how a node named with one emoji renders.
+(`kb_emoji_cells_are_drawable`).
+
+**A keycap that is one emoji is drawn at the key's size, not at the text scale.** It went through
+`fb_draw_text()` at first, which sizes an emoji like the letter beside it — correct in a node's
+name and wrong on a key five times that across, where forty 20 px thumbnails a panel could not be
+told apart. `fb_button`'s `emoji_face` is the rule: a label that is a single sprite and nothing
+else becomes the key's face, centred and sized to the box by `fb_draw_emoji_box()`. It is ignored
+over a letter, a word or an icon, so the four layers are still one grid described once
+(`fb_emoji_keycap_fills_its_key`). The box is snapped to a whole multiple of the sprite's own
+16 px grid first (`fb_emoji_box_fit`), which is both what keeps the upscale even — otherwise one
+eye lands a pixel wider than the other — and what lets the draw walk source pixels instead of
+destination ones, a quarter of a million comparisons a frame less on a page of forty.
+
+**The grid takes the body it is given.** Five rows at one text line each left a third of the panel
+blank under keys a twentieth of it tall; they now grow to fill the room between the draft and the
+footer, capped at their own width — past square a keycap reads as a bar — and floored at what the
+row cost before, so a small panel or a large glyph scale lays out exactly as it always did. The
+keycap's text grows with the key, never below the body scale and never past twice it. The slack
+the cap leaves over goes *above* the grid: a keyboard sits at the bottom of what it is given.
 
 ## The framebuffer backend
 

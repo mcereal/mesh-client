@@ -55,6 +55,25 @@ static struct fb_button_paint fb_button_paint(const struct mesh_ui_backend_fb_st
     }
 }
 
+/*
+ * The sprite a button draws as its whole face, when it has one.
+ *
+ * "One emoji and nothing else" is the test, not "starts with an emoji": a label with anything
+ * after the sprite is a line of text that happens to open with a picture, and it is measured
+ * and centred as text like any other.
+ */
+static bool fb_button_face_sprite(const struct fb_button *button, uint16_t *sprite) {
+    if (!button->emoji_face || mesh_ui_icon_is_valid(button->icon) || button->label == NULL) {
+        return false;
+    }
+    const struct mesh_ui_text_cell cell = mesh_ui_text_cell_next(button->label);
+    if (!cell.is_emoji || button->label[cell.bytes] != '\0') {
+        return false;
+    }
+    *sprite = cell.sprite;
+    return true;
+}
+
 /* What a button's content occupies: its icon, the gap after it, and its label - all in cells
    except that gap, which is half of one. */
 static int fb_button_content_w(const struct mesh_ui_backend_fb_state *state,
@@ -77,6 +96,17 @@ void fb_draw_button(const struct mesh_ui_backend_fb_state *state, const struct f
     const bool has_label = button->label != NULL && button->label[0] != '\0';
     const bool has_icon = mesh_ui_icon_is_valid(button->icon);
     if (!has_label && !has_icon) {
+        return;
+    }
+
+    /* Square and centred, inset by the padding a key already leaves around its label, so the
+       sprite stops short of the fill's rounded corners on the smaller of the two axes. */
+    uint16_t face = 0;
+    if (fb_button_face_sprite(button, &face)) {
+        const int shorter = button->rect.w < button->rect.h ? button->rect.w : button->rect.h;
+        const int box = fb_emoji_box_fit(shorter - 2 * fb_space(state, MESH_UI_SPACE_MD));
+        fb_draw_emoji_box(state, button->rect.x + (button->rect.w - box) / 2,
+                          button->rect.y + (button->rect.h - box) / 2, box, face);
         return;
     }
 

@@ -297,13 +297,68 @@ void fb_render_keyboard(const struct mesh_ui_backend_fb_state *state,
     const int margin = fb_margin(state);
     const int grid_w = (int)state->var.xres - 2 * margin;
     const int cell_w = grid_w / (int)MESH_UI_KB_COLS;
-    const int cell_h = line + fb_space(state, MESH_UI_SPACE_MD);
+
+    /*
+     * A key is as tall as the body has room for, not as tall as one line of text.
+     *
+     * The five rows used to cost a text line each and stop, which left a third of the panel
+     * blank under a keyboard whose keys were a tenth of the panel wide and a twentieth of it
+     * tall. Nothing on this screen wanted that space - the draft above is two lines by design -
+     * and the keys are the one thing on the client aimed at with a d-pad rather than read, so
+     * the space is theirs. The cap is the key's own width: past square a keycap stops looking
+     * like a key, and the row of characters starts reading as a column of bars.
+     *
+     * The floor is what the row cost before, so a shorter body - a smaller panel, a larger
+     * glyph scale, the passkey prompt's two-line heading - lays the grid out exactly as it
+     * always did rather than crushing it.
+     */
+    const int kb_rows = (int)MESH_UI_KB_CHAR_ROWS + 1; /* the action row is the fifth */
+    const int floor_h = line + fb_space(state, MESH_UI_SPACE_MD);
+    int cell_h = (layout->footer_y - y) / kb_rows;
+    if (cell_h > cell_w) {
+        cell_h = cell_w;
+    }
+    if (cell_h < floor_h) {
+        cell_h = floor_h;
+    }
+
+    /* Whatever the cap leaves over goes above the grid rather than below it: a keyboard sits at
+       the bottom of what it is given, here as on every other device, and the slack under the
+       draft reads as the gap over a keyboard rather than as a keyboard that stopped short. When
+       there is no slack - and when the floor means the grid is taller than the room, which is a
+       small panel at a large glyph scale - it starts where the draft left off, as before. */
+    if (layout->footer_y - kb_rows * cell_h > y) {
+        y = layout->footer_y - kb_rows * cell_h;
+    }
+
+    /*
+     * And the keycap's text grows with it, up to what the glyph scale can express.
+     *
+     * A letter is legible at the body scale, so this is not the emoji layer's problem over
+     * again - but a 24 px "q" adrift in a 99 px key reads as a key with nothing on it, and the
+     * scale a keycap wants is simply the tallest line the key has room for. Derived from what
+     * one step costs rather than stepped up in a loop.
+     *
+     * Clamped at three points: never below the body scale, never past the largest multiplier
+     * the glyph cache is sized for, and never more than twice the text it is typing - a reader
+     * who has asked for small text has asked for it, and a keycap three times the draft under
+     * it would be the screen arguing with them. At the device's own scale it is
+     * MESH_UI_SCALE_MAX that bites rather than the multiplier.
+     */
+    const int step = fb_line_adv(state, 1);
+    int key_scale = step > 0 ? (cell_h - 2 * fb_space(state, MESH_UI_SPACE_MD)) / step : scale;
+    const int key_scale_max = scale * 2 < MESH_UI_SCALE_MAX ? scale * 2 : MESH_UI_SCALE_MAX;
+    if (key_scale < scale) {
+        key_scale = scale;
+    }
+    if (key_scale > key_scale_max) {
+        key_scale = key_scale_max;
+    }
     for (unsigned row = 0; row < MESH_UI_KB_CHAR_ROWS; ++row) {
         for (unsigned col = 0; col < MESH_UI_KB_COLS; ++col) {
             /* The cell rather than the character: three of the four layers are one ASCII byte
-               and the fourth is an emoji, and fb_draw_text() already walks cells rather than
-               bytes - so a keycap carrying four bytes of UTF-8 draws as the one sprite it is,
-               by the same path a node named with one does. */
+               and the fourth is an emoji, which is four of them and one keycap. What the button
+               does with either is its own business - see `emoji_face` below. */
             char scratch[MESH_UI_KB_CELL_MAX];
             const char *const key = mesh_ui_kb_cell(nav, row, col, scratch);
             const struct fb_button button = {
@@ -316,7 +371,10 @@ void fb_render_keyboard(const struct mesh_ui_backend_fb_state *state,
                 .variant = FB_BUTTON_TEXT,
                 .shape = MESH_UI_SHAPE_SM,
                 .idle_tone = MESH_UI_TONE_NORMAL,
-                .scale = scale,
+                .scale = key_scale,
+                /* Only the emoji layer's cells are sprites, and the button ignores this for
+                   the three that are not - so the grid is described once for all four. */
+                .emoji_face = true,
             };
             fb_draw_button(state, &button);
         }
@@ -354,7 +412,7 @@ void fb_render_keyboard(const struct mesh_ui_backend_fb_state *state,
             .variant = FB_BUTTON_FILLED,
             .shape = MESH_UI_SHAPE_SM,
             .idle_tone = MESH_UI_TONE_NORMAL,
-            .scale = scale,
+            .scale = key_scale,
         };
         fb_draw_button(state, &button);
     }
