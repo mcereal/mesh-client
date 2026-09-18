@@ -250,25 +250,38 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
-    /* Row 0 of the detail is the actions group's heading, which is not a row the cursor may
-       stand on - so opening a node lands on the message row under it. */
+    /* Row 0 of the detail is the row that opens the node's verbs, and it is a row the cursor
+       may stand on - so opening a node lands on it rather than one under it. */
     if (!store.nav.node_detail_open || store.nav.node_detail_node != 0x3000U ||
         store.nav.node_list_cursor != last_node_row ||
-        store.nav.cursor[MESH_UI_SCREEN_NODES] != 1U) {
+        store.nav.cursor[MESH_UI_SCREEN_NODES] != 0U) {
         failure = "A on a node should open that node's detail";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (!store.nav.node_actions_open || store.nav.node_actions_cursor != 0U) {
+        failure = "the detail's first row should open the node's verbs, at the top of them";
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
     if (store.nav.screen != MESH_UI_SCREEN_MESSAGES || !store.nav.thread_open ||
         store.nav.compose_open || store.nav.target_node != 0x3000U ||
         strcmp(store.nav.target_name, "BRVO") != 0) {
-        failure = "the detail's first row should open its conversation, not compose";
+        failure = "the sheet's first verb should open its conversation, not compose";
         goto cleanup;
     }
     /* Y goes one step further and opens the keyboard over it, from either level: the hint on
        both screens says "write", and writing is typing. */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);     /* back to the list */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action); /* Nodes, detail still open */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action); /* Nodes, as we left it */
+    /* Which is the sheet of verbs, still open behind the conversation the last press opened.
+       Y is not named there - "write" is a row on that screen - so this leaves it first, which is
+       what the reader pressing Y from a node's detail has done too. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    if (store.nav.node_actions_open || !store.nav.node_detail_open) {
+        failure = "B on the sheet should land back on the detail, not on the list";
+        goto cleanup;
+    }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
     if (store.nav.screen != MESH_UI_SCREEN_MESSAGES || !store.nav.thread_open ||
         !store.nav.keyboard_open || store.nav.compose_open || store.nav.target_node != 0x3000U) {
@@ -471,6 +484,7 @@ MESH_TEST_CASE(ui_nav_conversation_isolation, unit) {
        again, and the list comes back where it was rather than on the node just visited. */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action); /* open the detail */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action); /* its "Actions" row */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action); /* "Message this node" */
     if (!store.nav.thread_open || store.nav.target_node != 0x3000U ||
         store.nav.screen != MESH_UI_SCREEN_MESSAGES) {

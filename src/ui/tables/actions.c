@@ -199,11 +199,6 @@ static void actions_trend(const struct mesh_ui_snapshot *snapshot, struct mesh_u
 
 static void actions_nodes(const struct mesh_ui_nav *nav, const struct mesh_ui_snapshot *snapshot,
                           struct mesh_ui_action_bar *bar) {
-    if (nav->node_remove_armed) {
-        bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_CONFIRM_REMOVE);
-        bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_CANCEL);
-        return;
-    }
     if (nav->node_detail_open) {
         /*
          * A chart of one of this node's readings, over the detail - and the Status tab's chart
@@ -214,6 +209,35 @@ static void actions_nodes(const struct mesh_ui_nav *nav, const struct mesh_ui_sn
          */
         if (nav->node_trend != MESH_UI_HISTORY_NONE) {
             actions_trend(snapshot, bar);
+            return;
+        }
+        /*
+         * The sheet of verbs, over the detail - and under the chart above it, which is
+         * fb_render_snapshot()'s order and so this file's.
+         *
+         * Every row of it is a press, which is what makes its bar the short one: A is named
+         * unconditionally because there is no row here it means nothing on - the opposite of the
+         * detail below, where two rows in three are facts. Left and Right are not named because
+         * the sheet has no groups to walk and swallows them; X and Y are not named because pin
+         * and message are rows *on this screen*, so naming them would spend two slots on the
+         * second way of doing a thing the panel is already offering.
+         */
+        if (nav->node_actions_open) {
+            /*
+             * Armed, the bar says one thing rather than four - the rule the three armings on
+             * other tabs follow. B is "cancel" rather than "back" because standing the row down
+             * is what the press does first; that it also leaves the sheet is the ordinary
+             * meaning of B and does not need naming twice.
+             */
+            if (nav->node_remove_armed) {
+                bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_CONFIRM_REMOVE);
+                bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_CANCEL);
+                return;
+            }
+            bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_SELECT);
+            bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
+            bar_add_help(snapshot, bar);
+            bar_add_tabs(bar);
             return;
         }
         /*

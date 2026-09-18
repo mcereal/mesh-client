@@ -35,6 +35,95 @@
  * in the chevron a settings row that opens something ends in, for the same reason - it is the
  * only thing on the screen A does anything to.
  */
+/*
+ * What a node is called on a screen about it: its long name, its short name, or the "!0a1b2c3d"
+ * form the phone apps fall back to when a node has sent no User at all.
+ *
+ * Asked by the detail's app bar and by the sheet's trail. One answer rather than two, because
+ * the trail names the screen the sheet is *inside* and a second spelling of it would be a
+ * breadcrumb that disagreed with the bar it leads back to.
+ */
+static void fb_node_title(const struct mesh_ui_node_summary *node, char *out, size_t out_len) {
+    const char *name = node->long_name[0] != '\0'    ? node->long_name
+                       : node->short_name[0] != '\0' ? node->short_name
+                                                     : NULL;
+    if (name != NULL) {
+        mesh_str_copy(out, out_len, name);
+        return;
+    }
+    mesh_str_format(out, out_len, MESH_STR_NODE_VAL_USER_ID_HEX, node->node_id);
+}
+
+/*
+ * One verb, drawn.
+ *
+ * Shared by the two screens that hold verbs - the detail's single row that opens the sheet, and
+ * every row of the sheet itself - because they are the same row. A sheet whose verbs were drawn
+ * by a second copy of this would be a second opinion about what a destructive row looks like,
+ * which is the drift node_detail.c's `tone` and `icon` fields exist to prevent one layer down.
+ */
+static void fb_node_action_row(struct mesh_ui_backend_fb_state *state, struct fb_list *list,
+                               uint32_t index, const struct mesh_ui_node_item *item,
+                               uint32_t node_id) {
+    /*
+     * What the row is about, on its leading edge, and what it costs, in its ink - both
+     * read off the item rather than decided here, which is the whole of why
+     * node_detail.c grew the two tables. A boolean says its state with the switch the
+     * settings rows use instead of spelling "Yes" into the value column; everything
+     * else keeps the chevron that means "this row does something".
+     */
+    /*
+     * Keyed on the node and the verb, never on the row.
+     *
+     * The animation table is twelve slots reused by least-recently-touched, so an id is
+     * a claim that two draws are the *same control* - which a row index is not. Closing
+     * a pinned node and opening an unpinned one lands the second node's pin row on the
+     * first node's slot at the same `i`, so its knob starts where the other node's was
+     * and slides across on the frame the screen opens: a control announcing a change
+     * nobody made. A traceroute completing under an open detail does it the other way,
+     * inserting rows and moving the mute and ignore switches onto each other's slots.
+     *
+     * The verb is unique within the frame - a node offers each of the three at most
+     * once - and the node is what makes two nodes' switches different controls, which
+     * is the pair `struct fb_switch` asks for. The id is folded rather than truncated
+     * so two node numbers agreeing in their low bits are not one control; it sits above
+     * everything the settings fields and this screen's meters can reach.
+     */
+    const uint32_t node_key = (node_id ^ (node_id >> 20)) & 0x000FFFFFU;
+    struct fb_switch sw = {
+        .id = 0x05000000U | ((uint32_t)item->action << 20) | node_key,
+        .family = item->tone == (uint8_t)MESH_UI_TONE_WARNING ? MESH_UI_FAMILY_WARNING
+                                                              : MESH_UI_FAMILY_PRIMARY,
+        .on = item->on,
+    };
+    /*
+     * The disc rather than a bare icon, and it is what took the accent off the words.
+     *
+     * Every verb here used to draw in the primary, so a card of eleven of them was a
+     * wall of one colour with the destructive row somewhere in it. The colour is still
+     * on the row - it is what a verb is about, and the eye finds "Remove" by its red
+     * long before it reads the word - but it is in a container at the leading edge,
+     * where Material puts it and where it does not compete with the label beside it.
+     * Which family the disc wears is the row's own tone, read by the component; see
+     * FB_LEADING_TONAL.
+     */
+    const struct fb_list_item row = {
+        .leading = {.kind = FB_LEADING_TONAL, .icon = (enum mesh_ui_icon)item->icon},
+        .text = item->label,
+        .tone = (enum mesh_ui_tone)item->tone,
+        .trailing = item->toggle ? (struct fb_trailing){.kind = FB_TRAILING_SWITCH, .sw = &sw}
+                                 : (struct fb_trailing){.kind = FB_TRAILING_ICON,
+                                                        .icon = MESH_UI_ICON_CHEVRON},
+        /* A row whose press cannot be walked back gets the leading bar as well as the
+           ink, in its own tone - the accent edge is drawn in the row's family, so the
+           one row on the screen that deletes something is the one row marked in red on
+           both of its edges. */
+        .label_plain = true,
+        .accent_edge = item->tone == (uint8_t)MESH_UI_TONE_ERROR,
+    };
+    fb_list_item(state, list, index, &row);
+}
+
 /* Mutable state, as every screen drawing a fb_list_item is: an item may carry a control
    that animates, and where such a control has got to is kept on the backend. */
 void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
@@ -51,15 +140,7 @@ void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
 
     const bool is_self = hs->has_my_info && node->node_id == hs->my_info.node_num;
     char title[96];
-    const char *name = node->long_name[0] != '\0'    ? node->long_name
-                       : node->short_name[0] != '\0' ? node->short_name
-                                                     : NULL;
-    if (name != NULL) {
-        mesh_str_copy(title, sizeof title, name);
-    } else {
-        /* A node with no User is named after its node number, exactly as the phone apps do. */
-        mesh_str_format(title, sizeof title, MESH_STR_NODE_VAL_USER_ID_HEX, node->node_id);
-    }
+    fb_node_title(node, title, sizeof title);
     /*
      * "Nodes > %s" was a breadcrumb inside a translated string, and the "Nodes >" half of it
      * was the navigation bar's job all along: the tab is up there, selected, three rows above.
@@ -96,9 +177,9 @@ void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
     const uint32_t count = mesh_ui_node_detail_build(
         node, is_self, mesh_time_wall_s(),
-        mesh_ui_snapshot_traceroute_view(snapshot, node->node_id), nav->node_remove_armed,
-        &snapshot->handshake, &snapshot->history, mesh_ui_units_imperial(snapshot->settings.units),
-        items, MESH_UI_NODE_ITEMS_MAX);
+        mesh_ui_snapshot_traceroute_view(snapshot, node->node_id), &snapshot->handshake,
+        &snapshot->history, mesh_ui_units_imperial(snapshot->settings.units), items,
+        MESH_UI_NODE_ITEMS_MAX);
     if (count == 0U) {
         fb_draw_empty(state, layout, MESH_UI_ICON_NODES, mesh_str(MESH_STR_NODES_DETAIL_EMPTY));
         return;
@@ -137,11 +218,25 @@ void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
      * are a dozen at the very most, so the counter cannot reach it.
      */
     uint8_t cards[MESH_UI_NODE_ITEMS_MAX];
-    uint8_t card = FB_LIST_NO_CARD;
+    /*
+     * Starting at 0 rather than at FB_LIST_NO_CARD, which is what gives the row above the first
+     * heading a surface to stand on. That row is the one that opens the node's verbs, and it is
+     * deliberately unheaded - a heading names a group the reader can skip past and this is one
+     * row - so without this it would be the only thing on a card screen drawn on the bare panel,
+     * and the only row whose highlight had no edge around it.
+     *
+     * Every heading then steps the ordinal unconditionally, which is what keeps that leading card
+     * and the first headed one apart: two adjacent rows carrying the same ordinal are one card, so
+     * a heading that left the counter alone would have drawn the Actions row and the Identity rows
+     * as a single surface with a title through the middle of it. A node with no verbs to offer
+     * leaves ordinal 0 unused, and an ordinal nothing carries costs nothing - what makes a card is
+     * the rows that name it.
+     */
+    uint8_t card = 0U;
     for (uint32_t r = 0; r < count; ++r) {
         heights[r] = mesh_ui_node_item_steps(&items[r]);
         if (items[r].kind == MESH_UI_NODE_ROW_HEADING) {
-            card = (uint8_t)(card == FB_LIST_NO_CARD ? 0U : card + 1U);
+            card = (uint8_t)(card + 1U);
             cards[r] = FB_LIST_NO_CARD;
             continue;
         }
@@ -203,64 +298,7 @@ void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
                                    (struct fb_leading){.kind = FB_LEADING_TONAL,
                                                        .icon = (enum mesh_ui_icon)item->icon});
         } else if (item->kind == MESH_UI_NODE_ROW_ACTION) {
-            /*
-             * What the row is about, on its leading edge, and what it costs, in its ink - both
-             * read off the item rather than decided here, which is the whole of why
-             * node_detail.c grew the two tables. A boolean says its state with the switch the
-             * settings rows use instead of spelling "Yes" into the value column; everything
-             * else keeps the chevron that means "this row does something".
-             */
-            /*
-             * Keyed on the node and the verb, never on the row.
-             *
-             * The animation table is twelve slots reused by least-recently-touched, so an id is
-             * a claim that two draws are the *same control* - which a row index is not. Closing
-             * a pinned node and opening an unpinned one lands the second node's pin row on the
-             * first node's slot at the same `i`, so its knob starts where the other node's was
-             * and slides across on the frame the screen opens: a control announcing a change
-             * nobody made. A traceroute completing under an open detail does it the other way,
-             * inserting rows and moving the mute and ignore switches onto each other's slots.
-             *
-             * The verb is unique within the frame - a node offers each of the three at most
-             * once - and the node is what makes two nodes' switches different controls, which
-             * is the pair `struct fb_switch` asks for. The id is folded rather than truncated
-             * so two node numbers agreeing in their low bits are not one control; it sits above
-             * everything the settings fields and this screen's meters can reach.
-             */
-            const uint32_t node_key = (node->node_id ^ (node->node_id >> 20)) & 0x000FFFFFU;
-            struct fb_switch sw = {
-                .id = 0x05000000U | ((uint32_t)item->action << 20) | node_key,
-                .family = item->tone == (uint8_t)MESH_UI_TONE_WARNING ? MESH_UI_FAMILY_WARNING
-                                                                      : MESH_UI_FAMILY_PRIMARY,
-                .on = item->on,
-            };
-            /*
-             * The disc rather than a bare icon, and it is what took the accent off the words.
-             *
-             * Every verb here used to draw in the primary, so a card of eleven of them was a
-             * wall of one colour with the destructive row somewhere in it. The colour is still
-             * on the row - it is what a verb is about, and the eye finds "Remove" by its red
-             * long before it reads the word - but it is in a container at the leading edge,
-             * where Material puts it and where it does not compete with the label beside it.
-             * Which family the disc wears is the row's own tone, read by the component; see
-             * FB_LEADING_TONAL.
-             */
-            const struct fb_list_item row = {
-                .leading = {.kind = FB_LEADING_TONAL, .icon = (enum mesh_ui_icon)item->icon},
-                .text = item->label,
-                .tone = (enum mesh_ui_tone)item->tone,
-                .trailing = item->toggle
-                                ? (struct fb_trailing){.kind = FB_TRAILING_SWITCH, .sw = &sw}
-                                : (struct fb_trailing){.kind = FB_TRAILING_ICON,
-                                                       .icon = MESH_UI_ICON_CHEVRON},
-                /* A row whose press cannot be walked back gets the leading bar as well as the
-                   ink, in its own tone - the accent edge is drawn in the row's family, so the
-                   one row on the screen that deletes something is the one row marked in red on
-                   both of its edges. */
-                .label_plain = true,
-                .accent_edge = item->tone == (uint8_t)MESH_UI_TONE_ERROR,
-            };
-            fb_list_item(state, &list, i, &row);
+            fb_node_action_row(state, &list, i, item, node->node_id);
         } else if (item->kind == MESH_UI_NODE_ROW_METER) {
             /*
              * The figure and, beside it, where that figure sits between its own two ends - which
@@ -348,6 +386,72 @@ void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
     }
 }
 
+/*
+ * A node's verbs, over its detail.
+ *
+ * The screen the detail used to open with. Thirteen rows of it led the node's own list, so a
+ * reader who pressed A on a node to find out what it *was* met a full panel of verbs, with
+ * "Remove from radio" on screen above the battery level - and every fact about the node below
+ * the fold. The verbs are the same rows drawn by the same call (fb_node_action_row); what
+ * changed is that they are a press away rather than in front of everything.
+ *
+ * One card and no headings, which is why this measures nothing the detail has to: every row is
+ * one step, every row stands on the same surface, and the group walking, the paging and the
+ * card-of-facts focus are all answers to a hundred rows of mixed kinds that this screen does not
+ * have. What it keeps is the app bar's trail - the node's name over "Actions" - which is the
+ * Settings tab's shape for a level inside a level and says whose verbs these are without
+ * spending a row on it.
+ */
+void fb_render_node_actions(struct mesh_ui_backend_fb_state *state,
+                            const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
+    const struct mesh_ui_nav *nav = &snapshot->nav;
+    const struct mesh_ui_handshake_state *hs = &snapshot->handshake;
+    const struct mesh_ui_node_summary *node = mesh_ui_node_detail_find(hs, nav->node_detail_node);
+    if (node == NULL) {
+        /* The node left the roster under the open sheet; the nav closes both levels on the next
+           publish. Until then this says what the detail says in the same case. */
+        fb_draw_app_bar(state, layout,
+                        &(const struct fb_app_bar){.title = mesh_str(MESH_STR_TAB_NODES)});
+        fb_draw_empty(state, layout, MESH_UI_ICON_NODES, mesh_str(MESH_STR_NODES_GONE));
+        return;
+    }
+
+    char name[96];
+    fb_node_title(node, name, sizeof name);
+    fb_draw_app_bar(state, layout,
+                    &(const struct fb_app_bar){.trail = {name},
+                                               .trail_count = 1U,
+                                               .title = mesh_str(MESH_STR_NODE_HEAD_ACTIONS)});
+
+    struct mesh_ui_node_item items[MESH_UI_NODE_ACTIONS_MAX];
+    const uint32_t count =
+        mesh_ui_node_actions_build(node, hs->has_my_info && node->node_id == hs->my_info.node_num,
+                                   mesh_ui_snapshot_traceroute_view(snapshot, node->node_id),
+                                   nav->node_remove_armed, items, MESH_UI_NODE_ACTIONS_MAX);
+    if (count == 0U) {
+        fb_draw_empty(state, layout, MESH_UI_ICON_ACTIONS, mesh_str(MESH_STR_NODES_DETAIL_EMPTY));
+        return;
+    }
+
+    uint8_t heights[MESH_UI_NODE_ACTIONS_MAX];
+    uint8_t cards[MESH_UI_NODE_ACTIONS_MAX];
+    for (uint32_t r = 0; r < count; ++r) {
+        heights[r] = 1U;
+        cards[r] = 0U; /* one card, so one ordinal - see the detail's derivation for why */
+    }
+    const uint32_t cursor =
+        nav->node_actions_cursor < count ? nav->node_actions_cursor : count - 1U;
+    /* The cursor is a row here and never a card, so the span is the row itself: a verb is a
+       control and gets the row highlight, which is the `card` half of the detail's span being
+       false for exactly the rows this screen is made of. */
+    struct fb_list list =
+        fb_list_begin_focus(layout, count, cursor, heights, cards, cursor, cursor, false);
+    uint32_t i;
+    while (fb_list_next(&list, &i)) {
+        fb_node_action_row(state, &list, i, &items[i], node->node_id);
+    }
+}
+
 void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
                      const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
@@ -356,6 +460,12 @@ void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
            checked rather than a flag because it *is* the flag: MESH_UI_HISTORY_NONE is closed. */
         if (nav->node_trend != MESH_UI_HISTORY_NONE) {
             fb_render_node_trend(state, snapshot, layout);
+        } else if (nav->node_actions_open) {
+            /* The verbs, over the detail. Below the chart rather than above it because the two
+               cannot both be up - a chart opens from a reading and the sheet from the one action
+               row - so the order states which is the deeper level rather than resolving a race:
+               the chart is opened *through* the detail's own rows, the sheet replaces them. */
+            fb_render_node_actions(state, snapshot, layout);
         } else {
             fb_render_node_detail(state, snapshot, layout);
         }

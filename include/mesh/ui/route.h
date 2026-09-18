@@ -48,20 +48,21 @@ extern "C" {
  * The order is not a hierarchy - `depth` is - it is just a list.
  */
 enum mesh_ui_route_level {
-    MESH_UI_ROUTE_LIST = 0, /* the tab's own list: conversations, nodes, devices, sections */
-    MESH_UI_ROUTE_THREAD,   /* one conversation, or the all-traffic transcript */
-    MESH_UI_ROUTE_MAP,      /* the map over the node list */
-    MESH_UI_ROUTE_NODE,     /* one node's detail */
-    MESH_UI_ROUTE_WAYPOINT, /* one shared place's detail */
-    MESH_UI_ROUTE_TREND,    /* a chart: airtime over the Status cards, a reading over a node */
-    MESH_UI_ROUTE_SECTION,  /* one settings section, including the Modules and Channels lists */
-    MESH_UI_ROUTE_CHANNEL,  /* one channel slot inside the Channels section */
-    MESH_UI_ROUTE_COMPOSE,  /* the compose sheet over a thread */
-    MESH_UI_ROUTE_PICKER,   /* the send-to picker */
-    MESH_UI_ROUTE_KEYBOARD, /* free text: a message, a setting, a pairing PIN */
-    MESH_UI_ROUTE_CONFIRM,  /* the confirmation dialog */
-    MESH_UI_ROUTE_REACTION, /* the tapback picker over one message */
-    MESH_UI_ROUTE_HELP,     /* what this screen is for, over the screen it explains */
+    MESH_UI_ROUTE_LIST = 0,     /* the tab's own list: conversations, nodes, devices, sections */
+    MESH_UI_ROUTE_THREAD,       /* one conversation, or the all-traffic transcript */
+    MESH_UI_ROUTE_MAP,          /* the map over the node list */
+    MESH_UI_ROUTE_NODE,         /* one node's detail */
+    MESH_UI_ROUTE_NODE_ACTIONS, /* that node's verbs, over its detail */
+    MESH_UI_ROUTE_WAYPOINT,     /* one shared place's detail */
+    MESH_UI_ROUTE_TREND,        /* a chart: airtime over the Status cards, a reading over a node */
+    MESH_UI_ROUTE_SECTION,      /* one settings section, including the Modules and Channels lists */
+    MESH_UI_ROUTE_CHANNEL,      /* one channel slot inside the Channels section */
+    MESH_UI_ROUTE_COMPOSE,      /* the compose sheet over a thread */
+    MESH_UI_ROUTE_PICKER,       /* the send-to picker */
+    MESH_UI_ROUTE_KEYBOARD,     /* free text: a message, a setting, a pairing PIN */
+    MESH_UI_ROUTE_CONFIRM,      /* the confirmation dialog */
+    MESH_UI_ROUTE_REACTION,     /* the tapback picker over one message */
+    MESH_UI_ROUTE_HELP,         /* what this screen is for, over the screen it explains */
     /* The key-verification sheet. The same shape as the confirm dialog and not the same place:
        a confirm is raised by the press underneath it, and this arrives because a radio asked
        something, from any screen, at any time. */

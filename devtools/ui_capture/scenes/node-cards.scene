@@ -5,15 +5,15 @@
 # says instead is said by a fill and an edge, and there are three things about doing that in a
 # *scrolling* list that a still of the top of the screen cannot show. So this walks down.
 #
-# Each card is now headed by its symbol in a disc, and a card of verbs carries one per row while
-# a card of facts carries none - the leading slot answered per card rather than per screen, which
-# is what node-states.scene is about. Watch that every row of a card starts its words in one
-# column even so.
+# Each card is now headed by its symbol in a disc, and the leading slot is answered per card
+# rather than per screen: the one row that carries a symbol is the Actions row at the top, a card
+# of its own above the first heading, and the cards of facts under it carry none. Watch that every
+# row of a card starts its words in one column even so. The verbs that row opens are their own
+# screen - node-actions.scene.
 #
-# Row 0 of the Nodes list is the Map, so a node's row is its index in the demo roster plus one -
-# Echo Repeater is seeds[5] and row 6. It is the node worth opening here because it reports
-# nearly everything: actions, identity, signal, an environment reading with a bar under it, a
-# two-channel power monitor and both neighbour groups, which is six cards and a cut one.
+# Echo Repeater is the node worth opening here because it reports nearly everything: a traced
+# route in both directions, identity, signal, an environment reading with a bar under it, a
+# two-channel power monitor and both neighbour groups, which is seven cards and a cut one.
 
 scene demo
 tab nodes
@@ -24,10 +24,9 @@ key down 8
 key a
 hold 1200
 
-# The cursor on the first verb's switch, which is the one control that lays a ground of its own.
-# It has to lay the *card's* rather than the panel's, or it punches a black hole in the card on
-# precisely the row being pointed at.
-key down 1
+# One card in. The cursor on a card of facts focuses the whole card rather than a row - a fact is
+# not a control - which is the ring rather than the fill.
+key right
 hold 1200
 
 # Down through the groups. What to watch is the card the window is cutting: it keeps square

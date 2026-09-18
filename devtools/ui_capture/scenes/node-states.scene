@@ -13,10 +13,11 @@
 # than reading: a filled capsule for a state worth reporting, an outlined one for the state a
 # thing is normally in.
 #
-# Row 0 of the Nodes list is the Map, so a node's row is its index in the demo roster plus one.
-# Delta Camp is seeds[4] and row 6 after the roster re-ranks by last_heard; it is the node worth
-# opening because it arrived over MQTT rather than over the air, which is the one fact on the
-# Signal card that quietly invalidates the three above it.
+# The two marks are now on two screens - the discs on the node's verbs, the capsules on its
+# detail - which is what this walks through.
+#
+# Delta Camp is the node worth opening because it arrived over MQTT rather than over the air,
+# which is the one fact on the Signal card that quietly invalidates the three above it.
 
 scene demo
 clock 2026-01-15 12:00
@@ -29,14 +30,17 @@ key down 7
 key a
 hold 1400
 
-# The card of verbs. Discs down the leading edge, ordinary ink in the words, and the two rows
-# that are not ordinary - ignore in the warning family, remove in the error family - saying so in
-# both places at once.
-key down 3
+# In to the verbs. Discs down the leading edge, ordinary ink in the words, and the two rows that
+# are not ordinary - ignore in the warning family, remove in the error family - saying so in both
+# places at once.
+key a
 hold 1000
+key down 6
+hold 1400
 
-# Identity, and the row the whole screen is qualified by: a key this node proved in person, as a
-# filled capsule rather than as a green word.
+# Back out to the detail, and on to Identity: the row the whole screen is qualified by, a key
+# this node proved in person, as a filled capsule rather than as a green word.
+key b
 key right
 hold 1600
 

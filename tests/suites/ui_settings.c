@@ -1354,32 +1354,43 @@ MESH_TEST_CASE(ui_node_detail_items, unit) {
     node.snr = -4.5f;
 
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
-    uint32_t count = mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, false, NULL, NULL,
-                                               false, items, MESH_UI_NODE_ITEMS_MAX);
+    uint32_t count = mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, NULL, NULL, false,
+                                               items, MESH_UI_NODE_ITEMS_MAX);
     MESH_TEST_FAIL_IF(count != mesh_ui_node_detail_count(&node, false, NULL, NULL),
                       "the count the nav walks disagrees with the built list");
-    /* The actions group names itself, so row 0 is its heading and the message row is the first
-       thing under it - which is also the first row the nav's cursor may stand on. */
-    MESH_TEST_FAIL_IF(count < 2U || items[0].kind != MESH_UI_NODE_ROW_HEADING ||
-                          strcmp(items[0].label, "Actions") != 0,
-                      "the actions group should open the screen with its own heading");
-    MESH_TEST_FAIL_IF(items[1].kind != MESH_UI_NODE_ROW_ACTION ||
-                          items[1].action != MESH_UI_NODE_ACTION_MESSAGE,
-                      "the message action should be the first row under the actions heading");
-    /* Every action row says what it is with a symbol and how much it costs with its ink - the
-       two tables in node_detail.c, checked here so a verb added without an entry in either is a
-       failure rather than a blank gutter nobody notices. */
-    for (uint32_t i = 0; i < count; ++i) {
-        if (items[i].kind != MESH_UI_NODE_ROW_ACTION) {
-            continue;
-        }
-        MESH_TEST_FAIL_IF(items[i].icon == MESH_UI_ICON_NONE,
+    /* The verbs are a screen of their own, so what the detail leads with is the one row that
+       opens them - and it is a row the nav's cursor may stand on, not a heading. */
+    MESH_TEST_FAIL_IF(count < 2U || items[0].kind != MESH_UI_NODE_ROW_ACTION ||
+                          items[0].action != MESH_UI_NODE_ACTION_OPEN_ACTIONS,
+                      "the detail should open with the row that opens the node's verbs");
+    MESH_TEST_FAIL_IF(strcmp(items[0].label, "Actions") != 0,
+                      "and that row wears the name the group it replaced carried");
+    for (uint32_t i = 1U; i < count; ++i) {
+        MESH_TEST_FAIL_IF(items[i].kind == MESH_UI_NODE_ROW_ACTION,
+                          "no verb but that one belongs on the detail any more");
+    }
+
+    /* And the verbs themselves, off the sheet. Every action row says what it is with a symbol
+       and how much it costs with its ink - the two tables in node_detail.c, checked here so a
+       verb added without an entry in either is a failure rather than a blank gutter nobody
+       notices. */
+    struct mesh_ui_node_item verbs[MESH_UI_NODE_ACTIONS_MAX];
+    const uint32_t verb_count =
+        mesh_ui_node_actions_build(&node, false, NULL, false, verbs, MESH_UI_NODE_ACTIONS_MAX);
+    MESH_TEST_FAIL_IF(verb_count != mesh_ui_node_actions_count(&node, false, NULL),
+                      "the count the nav walks disagrees with the built sheet");
+    MESH_TEST_FAIL_IF(verb_count == 0U || verbs[0].action != MESH_UI_NODE_ACTION_MESSAGE,
+                      "the message action should be the first verb on the sheet");
+    for (uint32_t i = 0; i < verb_count; ++i) {
+        MESH_TEST_FAIL_IF(verbs[i].kind != MESH_UI_NODE_ROW_ACTION,
+                          "the sheet is verbs and nothing else - no headings, no facts");
+        MESH_TEST_FAIL_IF(verbs[i].icon == MESH_UI_ICON_NONE,
                           "every action row should name an icon");
-        if (items[i].action == MESH_UI_NODE_ACTION_REMOVE) {
-            MESH_TEST_FAIL_IF(items[i].tone != MESH_UI_TONE_ERROR,
+        if (verbs[i].action == MESH_UI_NODE_ACTION_REMOVE) {
+            MESH_TEST_FAIL_IF(verbs[i].tone != MESH_UI_TONE_ERROR,
                               "removing a node should be drawn in the error family");
-        } else if (items[i].action == MESH_UI_NODE_ACTION_IGNORE) {
-            MESH_TEST_FAIL_IF(items[i].tone != MESH_UI_TONE_WARNING,
+        } else if (verbs[i].action == MESH_UI_NODE_ACTION_IGNORE) {
+            MESH_TEST_FAIL_IF(verbs[i].tone != MESH_UI_TONE_WARNING,
                               "ignoring a node should be drawn in the warning family");
         } else {
             /* And everything else is the ordinary ink, which is the half of that statement the
@@ -1387,16 +1398,16 @@ MESH_TEST_CASE(ui_node_detail_items, unit) {
                a card with none - and the two rows above cannot be the exception if they are not
                the exception. The accent is on these rows still, in the disc at the leading edge
                (FB_LEADING_TONAL), which is a colour the words are not competing with. */
-            MESH_TEST_FAIL_IF(items[i].tone != MESH_UI_TONE_NORMAL,
+            MESH_TEST_FAIL_IF(verbs[i].tone != MESH_UI_TONE_NORMAL,
                               "an ordinary verb should draw in the ordinary ink");
         }
         /* The three flags are controls rather than errands, and each carries its state as a
            field as well as in the words a text backend prints. */
-        const bool boolean = items[i].action == MESH_UI_NODE_ACTION_FAVORITE ||
-                             items[i].action == MESH_UI_NODE_ACTION_MUTE ||
-                             items[i].action == MESH_UI_NODE_ACTION_IGNORE;
-        MESH_TEST_FAIL_IF(items[i].toggle != boolean, "only the flag rows should be toggles");
-        MESH_TEST_FAIL_IF(boolean && items[i].value[0] == '\0',
+        const bool boolean = verbs[i].action == MESH_UI_NODE_ACTION_FAVORITE ||
+                             verbs[i].action == MESH_UI_NODE_ACTION_MUTE ||
+                             verbs[i].action == MESH_UI_NODE_ACTION_IGNORE;
+        MESH_TEST_FAIL_IF(verbs[i].toggle != boolean, "only the flag rows should be toggles");
+        MESH_TEST_FAIL_IF(boolean && verbs[i].value[0] == '\0',
                           "a toggle row should still say its state in words");
     }
 
@@ -1422,7 +1433,7 @@ MESH_TEST_CASE(ui_node_detail_items, unit) {
     /* Our own node cannot be messaged and its SNR against itself means nothing. */
     const uint32_t self_count = mesh_ui_node_detail_count(&node, true, NULL, NULL);
     struct mesh_ui_node_item self_items[MESH_UI_NODE_ITEMS_MAX];
-    mesh_ui_node_detail_build(&node, true, 1750000600U, NULL, false, NULL, NULL, false, self_items,
+    mesh_ui_node_detail_build(&node, true, 1750000600U, NULL, NULL, NULL, false, self_items,
                               MESH_UI_NODE_ITEMS_MAX);
     for (uint32_t i = 0; i < self_count; ++i) {
         if (self_items[i].kind == MESH_UI_NODE_ROW_ACTION ||
@@ -1431,6 +1442,11 @@ MESH_TEST_CASE(ui_node_detail_items, unit) {
             return;
         }
     }
+    /* Not even the row that opens the sheet: a node with no verbs has no sheet, and a row that
+       opened an empty screen is the press-that-does-nothing this client's tables exist to
+       prevent. This node has reported no position yet, which is what leaves it with none. */
+    MESH_TEST_FAIL_IF(mesh_ui_node_actions_count(&node, true, NULL) != 0U,
+                      "our own node with no fix should offer no verbs at all");
 
     /* With readings, each section appears and each value is formatted for the screen. */
     node.metrics.valid = true;
@@ -1444,8 +1460,8 @@ MESH_TEST_CASE(ui_node_detail_items, unit) {
     node.environment.has_temperature = true;
     node.environment.temperature = 20.0f;
 
-    count = mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, false, NULL, NULL, false,
-                                      items, MESH_UI_NODE_ITEMS_MAX);
+    count = mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, NULL, NULL, false, items,
+                                      MESH_UI_NODE_ITEMS_MAX);
     bool battery_ok = false;
     bool latitude_ok = false;
     bool temperature_ok = false;
@@ -1505,8 +1521,8 @@ MESH_TEST_CASE(node_detail_states_are_chips, unit) {
     node.public_key_len = 32U;
 
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
-    uint32_t count = mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, false, NULL, NULL,
-                                               false, items, MESH_UI_NODE_ITEMS_MAX);
+    uint32_t count = mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, NULL, NULL, false,
+                                               items, MESH_UI_NODE_ITEMS_MAX);
 
     bool trust_chip = false;
     bool via_chip = false;
@@ -1541,8 +1557,8 @@ MESH_TEST_CASE(node_detail_states_are_chips, unit) {
        capsule is filled from the family rather than merely outlined. */
     node.via_mqtt = true;
     node.in_nodedb = false;
-    count = mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, false, NULL, NULL, false,
-                                      items, MESH_UI_NODE_ITEMS_MAX);
+    count = mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, NULL, NULL, false, items,
+                                      MESH_UI_NODE_ITEMS_MAX);
     bool mqtt_ok = false;
     bool nodedb_ok = false;
     for (uint32_t i = 0; i < count; ++i) {
@@ -1578,8 +1594,8 @@ MESH_TEST_CASE(ui_node_detail_position_honesty, unit) {
     node.position.time = 1750000000U;
     node.position.received = 1750000500U;
     node.position.precision_bits = 16U;
-    uint32_t count = mesh_ui_node_detail_build(&node, false, now, NULL, false, NULL, NULL, false,
-                                               items, MESH_UI_NODE_ITEMS_MAX);
+    uint32_t count = mesh_ui_node_detail_build(&node, false, now, NULL, NULL, NULL, false, items,
+                                               MESH_UI_NODE_ITEMS_MAX);
     bool fix_ok = false;
     bool precision_ok = false;
     bool heard_row_present = false;
@@ -1607,7 +1623,7 @@ MESH_TEST_CASE(ui_node_detail_position_honesty, unit) {
      */
     node.position.time = 0U;
     node.position.received = 1750000300U;
-    count = mesh_ui_node_detail_build(&node, false, now, NULL, false, NULL, NULL, false, items,
+    count = mesh_ui_node_detail_build(&node, false, now, NULL, NULL, NULL, false, items,
                                       MESH_UI_NODE_ITEMS_MAX);
     bool heard_ok = false;
     bool fix_row_present = false;
@@ -1626,7 +1642,7 @@ MESH_TEST_CASE(ui_node_detail_position_honesty, unit) {
     /* A fix restored from a cache written before arrival times existed knows neither, and
        says so rather than picking one. */
     node.position.received = 0U;
-    count = mesh_ui_node_detail_build(&node, false, now, NULL, false, NULL, NULL, false, items,
+    count = mesh_ui_node_detail_build(&node, false, now, NULL, NULL, NULL, false, items,
                                       MESH_UI_NODE_ITEMS_MAX);
     bool unknown_ok = false;
     for (uint32_t i = 0; i < count; ++i) {
@@ -1638,7 +1654,7 @@ MESH_TEST_CASE(ui_node_detail_position_honesty, unit) {
 
     /* precision_bits 0 is "the node never said", not "off": no row rather than a claim. */
     node.position.precision_bits = 0U;
-    count = mesh_ui_node_detail_build(&node, false, now, NULL, false, NULL, NULL, false, items,
+    count = mesh_ui_node_detail_build(&node, false, now, NULL, NULL, NULL, false, items,
                                       MESH_UI_NODE_ITEMS_MAX);
     for (uint32_t i = 0; i < count; ++i) {
         MESH_TEST_FAIL_IF(strcmp(items[i].label, "Precision") == 0,
@@ -2337,9 +2353,8 @@ MESH_TEST_CASE(node_detail_row_budget, unit) {
     node = roster.nodes[0];
 
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
-    const uint32_t count =
-        mesh_ui_node_detail_build(&node, false, 1750000600U, &trace, true, &roster, NULL, false,
-                                  items, MESH_UI_NODE_ITEMS_MAX);
+    const uint32_t count = mesh_ui_node_detail_build(&node, false, 1750000600U, &trace, &roster,
+                                                     NULL, false, items, MESH_UI_NODE_ITEMS_MAX);
     MESH_TEST_FAIL_IF(count >= MESH_UI_NODE_ITEMS_MAX,
                       "a node reporting everything fills the row budget; raise it");
     MESH_TEST_FAIL_IF(count != mesh_ui_node_detail_count(&node, false, &trace, &roster),
@@ -2396,7 +2411,7 @@ MESH_TEST_CASE(node_detail_row_budget, unit) {
     memset(&bare, 0, sizeof bare);
     bare.node_id = 0x6002U;
     const uint32_t bare_count = mesh_ui_node_detail_build(
-        &bare, false, 1750000600U, NULL, false, NULL, NULL, false, items, MESH_UI_NODE_ITEMS_MAX);
+        &bare, false, 1750000600U, NULL, NULL, NULL, false, items, MESH_UI_NODE_ITEMS_MAX);
     for (uint32_t i = 0; i < bare_count; ++i) {
         MESH_TEST_FAIL_IF(
             strcmp(items[i].label, "Power") == 0 || strcmp(items[i].label, "Air quality") == 0 ||
@@ -2439,8 +2454,8 @@ MESH_TEST_CASE(node_detail_listener_count, unit) {
 
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
     const uint32_t count =
-        mesh_ui_node_detail_build(&roster.nodes[0], false, 1750000600U, NULL, false, &roster, NULL,
-                                  false, items, MESH_UI_NODE_ITEMS_MAX);
+        mesh_ui_node_detail_build(&roster.nodes[0], false, 1750000600U, NULL, &roster, NULL, false,
+                                  items, MESH_UI_NODE_ITEMS_MAX);
     MESH_TEST_FAIL_IF(count >= MESH_UI_NODE_ITEMS_MAX, "the row budget was filled");
 
     /* Counted from the heading onwards rather than by label shape: "Last heard" and "Load" are
@@ -2475,8 +2490,8 @@ MESH_TEST_CASE(node_detail_listener_count, unit) {
     /* And with the rows exactly filled there is nothing left over to announce. */
     roster.node_count = 1U + MESH_UI_NODE_MAX_LISTENERS;
     const uint32_t exact =
-        mesh_ui_node_detail_build(&roster.nodes[0], false, 1750000600U, NULL, false, &roster, NULL,
-                                  false, items, MESH_UI_NODE_ITEMS_MAX);
+        mesh_ui_node_detail_build(&roster.nodes[0], false, 1750000600U, NULL, &roster, NULL, false,
+                                  items, MESH_UI_NODE_ITEMS_MAX);
     for (uint32_t i = 0; i < exact; ++i) {
         MESH_TEST_FAIL_IF(strcmp(items[i].label, "and more") == 0,
                           "a full but untruncated list should not claim a remainder");
@@ -2502,8 +2517,8 @@ MESH_TEST_CASE(node_detail_rssi_is_stamped, unit) {
     node.rssi_time = 1750000000U;
 
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
-    uint32_t count = mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, false, NULL, NULL,
-                                               false, items, MESH_UI_NODE_ITEMS_MAX);
+    uint32_t count = mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, NULL, NULL, false,
+                                               items, MESH_UI_NODE_ITEMS_MAX);
     bool plain = false;
     for (uint32_t i = 0; i < count; ++i) {
         if (strcmp(items[i].label, "RSSI") == 0 && strcmp(items[i].value, "-97 dBm") == 0) {
@@ -2515,8 +2530,8 @@ MESH_TEST_CASE(node_detail_rssi_is_stamped, unit) {
     /* Now the node turns up over MQTT: last_heard moves on, the reading does not. */
     node.last_heard = 1750000500U;
     node.via_mqtt = true;
-    count = mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, false, NULL, NULL, false,
-                                      items, MESH_UI_NODE_ITEMS_MAX);
+    count = mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, NULL, NULL, false, items,
+                                      MESH_UI_NODE_ITEMS_MAX);
     bool stamped = false;
     for (uint32_t i = 0; i < count; ++i) {
         if (strcmp(items[i].label, "RSSI") == 0) {
@@ -2567,8 +2582,8 @@ MESH_TEST_CASE(node_detail_routing_rows, unit) {
     char hop[MESH_UI_NODE_VALUE_MAX];
 
     /* Nothing heard: neither row exists. */
-    uint32_t count = mesh_ui_node_detail_build(&node, false, 1750000060U, NULL, false, &roster,
-                                               NULL, false, items, MESH_UI_NODE_ITEMS_MAX);
+    uint32_t count = mesh_ui_node_detail_build(&node, false, 1750000060U, NULL, &roster, NULL,
+                                               false, items, MESH_UI_NODE_ITEMS_MAX);
     for (uint32_t i = 0; i < count; ++i) {
         MESH_TEST_FAIL_IF(strcmp(items[i].label, "Relayed by") == 0 ||
                               strcmp(items[i].label, "Next hop") == 0,
@@ -2581,8 +2596,8 @@ MESH_TEST_CASE(node_detail_routing_rows, unit) {
     node.next_hop = 0U;
     relay[0] = '\0';
     hop[0] = '\0';
-    count = mesh_ui_node_detail_build(&node, false, 1750000060U, NULL, false, &roster, NULL, false,
-                                      items, MESH_UI_NODE_ITEMS_MAX);
+    count = mesh_ui_node_detail_build(&node, false, 1750000060U, NULL, &roster, NULL, false, items,
+                                      MESH_UI_NODE_ITEMS_MAX);
     for (uint32_t i = 0; i < count; ++i) {
         if (strcmp(items[i].label, "Relayed by") == 0) {
             snprintf(relay, sizeof relay, "%s", items[i].value);
@@ -2601,8 +2616,8 @@ MESH_TEST_CASE(node_detail_routing_rows, unit) {
     node.next_hop = 0x01U;
     relay[0] = '\0';
     hop[0] = '\0';
-    count = mesh_ui_node_detail_build(&node, false, 1750000060U, NULL, false, &roster, NULL, false,
-                                      items, MESH_UI_NODE_ITEMS_MAX);
+    count = mesh_ui_node_detail_build(&node, false, 1750000060U, NULL, &roster, NULL, false, items,
+                                      MESH_UI_NODE_ITEMS_MAX);
     for (uint32_t i = 0; i < count; ++i) {
         if (strcmp(items[i].label, "Relayed by") == 0) {
             snprintf(relay, sizeof relay, "%s", items[i].value);
@@ -2616,8 +2631,8 @@ MESH_TEST_CASE(node_detail_routing_rows, unit) {
     /* And the node named as its own relay, which is the firmware saying nothing carried it. */
     node.relay_node = 0x01U; /* the subject's own last byte */
     relay[0] = '\0';
-    count = mesh_ui_node_detail_build(&node, false, 1750000060U, NULL, false, &roster, NULL, false,
-                                      items, MESH_UI_NODE_ITEMS_MAX);
+    count = mesh_ui_node_detail_build(&node, false, 1750000060U, NULL, &roster, NULL, false, items,
+                                      MESH_UI_NODE_ITEMS_MAX);
     for (uint32_t i = 0; i < count; ++i) {
         if (strcmp(items[i].label, "Relayed by") == 0) {
             snprintf(relay, sizeof relay, "%s", items[i].value);
@@ -2634,8 +2649,8 @@ MESH_TEST_CASE(node_detail_routing_rows, unit) {
     node.has_hops_away = true;
     node.hops_away = 2U;
     relay[0] = '\0';
-    count = mesh_ui_node_detail_build(&node, false, 1750000060U, NULL, false, &roster, NULL, false,
-                                      items, MESH_UI_NODE_ITEMS_MAX);
+    count = mesh_ui_node_detail_build(&node, false, 1750000060U, NULL, &roster, NULL, false, items,
+                                      MESH_UI_NODE_ITEMS_MAX);
     for (uint32_t i = 0; i < count; ++i) {
         if (strcmp(items[i].label, "Relayed by") == 0) {
             snprintf(relay, sizeof relay, "%s", items[i].value);
@@ -2647,8 +2662,8 @@ MESH_TEST_CASE(node_detail_routing_rows, unit) {
     /* Zero hops is the firmware saying direct rather than declining to, so the row may. */
     node.hops_away = 0U;
     relay[0] = '\0';
-    count = mesh_ui_node_detail_build(&node, false, 1750000060U, NULL, false, &roster, NULL, false,
-                                      items, MESH_UI_NODE_ITEMS_MAX);
+    count = mesh_ui_node_detail_build(&node, false, 1750000060U, NULL, &roster, NULL, false, items,
+                                      MESH_UI_NODE_ITEMS_MAX);
     for (uint32_t i = 0; i < count; ++i) {
         if (strcmp(items[i].label, "Relayed by") == 0) {
             snprintf(relay, sizeof relay, "%s", items[i].value);
@@ -2667,8 +2682,8 @@ MESH_TEST_CASE(node_detail_routing_rows, unit) {
     node.relay_node = 0x55U;
     node.relay_ambiguous = true;
     relay[0] = '\0';
-    count = mesh_ui_node_detail_build(&node, false, 1750000060U, NULL, false, &roster, NULL, false,
-                                      items, MESH_UI_NODE_ITEMS_MAX);
+    count = mesh_ui_node_detail_build(&node, false, 1750000060U, NULL, &roster, NULL, false, items,
+                                      MESH_UI_NODE_ITEMS_MAX);
     for (uint32_t i = 0; i < count; ++i) {
         if (strcmp(items[i].label, "Relayed by") == 0) {
             snprintf(relay, sizeof relay, "%s", items[i].value);
@@ -2682,8 +2697,8 @@ MESH_TEST_CASE(node_detail_routing_rows, unit) {
     node.next_hop = 0x55U;
     node.next_hop_ambiguous = true;
     hop[0] = '\0';
-    count = mesh_ui_node_detail_build(&node, false, 1750000060U, NULL, false, &roster, NULL, false,
-                                      items, MESH_UI_NODE_ITEMS_MAX);
+    count = mesh_ui_node_detail_build(&node, false, 1750000060U, NULL, &roster, NULL, false, items,
+                                      MESH_UI_NODE_ITEMS_MAX);
     for (uint32_t i = 0; i < count; ++i) {
         if (strcmp(items[i].label, "Next hop") == 0) {
             snprintf(hop, sizeof hop, "%s", items[i].value);
@@ -3942,8 +3957,8 @@ MESH_TEST_CASE(node_detail_groups_are_unbroken_runs, unit) {
     }
 
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
-    const uint32_t count = mesh_ui_node_detail_build(&node, false, 1750000600U, &trace, false, NULL,
-                                                     NULL, false, items, MESH_UI_NODE_ITEMS_MAX);
+    const uint32_t count = mesh_ui_node_detail_build(&node, false, 1750000600U, &trace, NULL, NULL,
+                                                     false, items, MESH_UI_NODE_ITEMS_MAX);
     MESH_TEST_FAIL_IF(count == 0U, "a node with a trace and a fix should produce rows");
 
     /*
@@ -4582,8 +4597,8 @@ MESH_TEST_CASE(ui_settings_node_detail_offers_remote_admin_with_a_key, unit) {
     snprintf(node.short_name, sizeof node.short_name, "RPTR");
 
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
-    uint32_t count = mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, false, NULL, NULL,
-                                               false, items, MESH_UI_NODE_ITEMS_MAX);
+    uint32_t count = mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, NULL, NULL, false,
+                                               items, MESH_UI_NODE_ITEMS_MAX);
     for (uint32_t i = 0; i < count; ++i) {
         MESH_TEST_FAIL_IF(items[i].action == (uint8_t)MESH_UI_NODE_ACTION_ADMIN,
                           "a node with no key cannot be sent an admin request at all");
@@ -4591,25 +4606,28 @@ MESH_TEST_CASE(ui_settings_node_detail_offers_remote_admin_with_a_key, unit) {
 
     node.public_key_len = 32U;
     node.public_key[0] = 0xA0U;
-    count = mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, false, NULL, NULL, false,
-                                      items, MESH_UI_NODE_ITEMS_MAX);
-    uint32_t at = count;
-    for (uint32_t i = 0; i < count; ++i) {
-        if (items[i].action == (uint8_t)MESH_UI_NODE_ACTION_ADMIN) {
+    /* On the sheet of verbs rather than on the detail: the row is a press, and the presses are
+       a screen of their own now. */
+    struct mesh_ui_node_item verbs[MESH_UI_NODE_ACTIONS_MAX];
+    uint32_t verb_count =
+        mesh_ui_node_actions_build(&node, false, NULL, false, verbs, MESH_UI_NODE_ACTIONS_MAX);
+    uint32_t at = verb_count;
+    for (uint32_t i = 0; i < verb_count; ++i) {
+        if (verbs[i].action == (uint8_t)MESH_UI_NODE_ACTION_ADMIN) {
             at = i;
         }
     }
-    MESH_TEST_FAIL_IF(at == count, "a node we hold a key for can be configured over the mesh");
-    MESH_TEST_FAIL_IF(items[at].tone != (uint8_t)MESH_UI_TONE_WARNING,
+    MESH_TEST_FAIL_IF(at == verb_count, "a node we hold a key for can be configured over the mesh");
+    MESH_TEST_FAIL_IF(verbs[at].tone != (uint8_t)MESH_UI_TONE_WARNING,
                       "it is the one row here that changes what every other screen means, so it "
                       "says so before it is pressed");
 
     /* Never against our own node: the radio on the end of the link is not administered over the
        air, and the row would be the way out of remote admin offered as the way in. */
-    count = mesh_ui_node_detail_build(&node, true, 1750000600U, NULL, false, NULL, NULL, false,
-                                      items, MESH_UI_NODE_ITEMS_MAX);
-    for (uint32_t i = 0; i < count; ++i) {
-        MESH_TEST_FAIL_IF(items[i].action == (uint8_t)MESH_UI_NODE_ACTION_ADMIN,
+    verb_count =
+        mesh_ui_node_actions_build(&node, true, NULL, false, verbs, MESH_UI_NODE_ACTIONS_MAX);
+    for (uint32_t i = 0; i < verb_count; ++i) {
+        MESH_TEST_FAIL_IF(verbs[i].action == (uint8_t)MESH_UI_NODE_ACTION_ADMIN,
                           "our own radio is not configured over the mesh");
     }
     record_success(test_name);

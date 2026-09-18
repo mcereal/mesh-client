@@ -37,6 +37,12 @@ static uint8_t route_screen_depth(const struct mesh_ui_nav *nav) {
         if (nav->node_detail_open) {
             depth++;
         }
+        /* And the sheet of verbs over it, which is a level for the same three things a depth
+           buys everywhere: the slide, the back arrow and the B keycap. It counts only under an
+           open detail, like the chart below it and for the same reason. */
+        if (nav->node_detail_open && nav->node_actions_open) {
+            depth++;
+        }
         /* And a fourth, when one of the detail's readings has been opened as a chart. It only
            counts under an open detail: the reading outlives a change of tab the way map_open
            does, so on its own it says where this tab is standing rather than what is drawn. */
@@ -104,6 +110,12 @@ static void route_screen_place(const struct mesh_ui_nav *nav, struct mesh_ui_rou
            it. A chart of one of the node's readings is the highest of the tab's four levels. */
         if (nav->node_detail_open) {
             out->subject = nav->node_detail_node;
+            if (nav->node_actions_open) {
+                /* The node in `subject` and nothing in `slot`: there is one sheet per node, so
+                   the node is the whole of what makes two of these different places. */
+                out->level = MESH_UI_ROUTE_NODE_ACTIONS;
+                return;
+            }
             if (nav->node_trend != 0U) {
                 /*
                  * The reading goes in `slot`, which is what makes a node's temperature and its
@@ -344,14 +356,23 @@ static const char *const k_screen_names[MESH_UI_SCREEN_COUNT] = {
 };
 
 static const char *const k_level_names[MESH_UI_ROUTE_COUNT] = {
-    [MESH_UI_ROUTE_LIST] = "list",         [MESH_UI_ROUTE_THREAD] = "thread",
-    [MESH_UI_ROUTE_MAP] = "map",           [MESH_UI_ROUTE_NODE] = "node",
-    [MESH_UI_ROUTE_WAYPOINT] = "waypoint", [MESH_UI_ROUTE_TREND] = "trend",
-    [MESH_UI_ROUTE_SECTION] = "section",   [MESH_UI_ROUTE_CHANNEL] = "channel",
-    [MESH_UI_ROUTE_COMPOSE] = "compose",   [MESH_UI_ROUTE_PICKER] = "picker",
-    [MESH_UI_ROUTE_KEYBOARD] = "keyboard", [MESH_UI_ROUTE_CONFIRM] = "confirm",
-    [MESH_UI_ROUTE_REACTION] = "reaction", [MESH_UI_ROUTE_HELP] = "help",
-    [MESH_UI_ROUTE_VERIFY] = "verify",     [MESH_UI_ROUTE_SHARE] = "share",
+    [MESH_UI_ROUTE_LIST] = "list",
+    [MESH_UI_ROUTE_THREAD] = "thread",
+    [MESH_UI_ROUTE_MAP] = "map",
+    [MESH_UI_ROUTE_NODE] = "node",
+    [MESH_UI_ROUTE_NODE_ACTIONS] = "node-actions",
+    [MESH_UI_ROUTE_WAYPOINT] = "waypoint",
+    [MESH_UI_ROUTE_TREND] = "trend",
+    [MESH_UI_ROUTE_SECTION] = "section",
+    [MESH_UI_ROUTE_CHANNEL] = "channel",
+    [MESH_UI_ROUTE_COMPOSE] = "compose",
+    [MESH_UI_ROUTE_PICKER] = "picker",
+    [MESH_UI_ROUTE_KEYBOARD] = "keyboard",
+    [MESH_UI_ROUTE_CONFIRM] = "confirm",
+    [MESH_UI_ROUTE_REACTION] = "reaction",
+    [MESH_UI_ROUTE_HELP] = "help",
+    [MESH_UI_ROUTE_VERIFY] = "verify",
+    [MESH_UI_ROUTE_SHARE] = "share",
     [MESH_UI_ROUTE_CONTACT] = "contact",
 };
 

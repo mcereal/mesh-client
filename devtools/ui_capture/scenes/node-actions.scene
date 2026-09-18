@@ -1,0 +1,61 @@
+# A node's verbs, which used to be the top of its detail.
+#
+# The screen this replaced opened with thirteen of them: a full panel of actions above the first
+# fact about the node, with "Remove from radio" on screen before its battery level, and every
+# reading below the fold. So a reader who pressed A on a node to find out *what it was* got a
+# menu instead - which is the one thing a detail screen is not.
+#
+# What to watch is the trade this makes. The detail now opens on the node - one row at the top
+# that says "Actions", and Identity and Signal in view under it - and the verbs are one press
+# further in, on a screen that says whose they are in its own app bar. Every row there is a
+# press, which is why its action bar is three keycaps rather than seven: there is no row on it
+# that A means nothing on.
+#
+# The Nodes list has three rows before its first node - the filter row, the sort row and the
+# Map (MESH_UI_NODES_LEAD_ROWS) - so a node's row is its index in the demo roster plus three.
+# Alfa Ridge is seeds[1] and row 4; it reports enough to fill the first screen with facts.
+
+scene demo
+clock 2026-01-15 12:00
+tab nodes
+key down 4
+
+# The detail, as it opens. The cursor starts on the Actions row - a card of its own above the
+# first heading, which is the one row on this screen that is a control rather than a report.
+key a
+hold 1600
+
+# Past it, to show what the change bought: Identity and Signal are both on the first screenful
+# now, and the cursor on a card of facts takes the focus ring rather than a row highlight.
+key right
+hold 1400
+key right
+hold 1400
+
+# Back to the top, and in.
+key left
+key left
+key a
+hold 1600
+
+# Down the verbs. The discs keep their families - the accent for an ordinary verb, the warning
+# family for ignore, the error family for remove - and the labels stay one colour, which is the
+# half of this the old card of eleven accented rows could not say.
+key down 6
+hold 1200
+key down 2
+hold 1600
+
+# The remove row arms rather than acting, and the bar drops to two keycaps while it is armed:
+# an armed bar says one thing, not four.
+key a
+hold 1800
+
+# Anything but A stands it down again.
+key up
+hold 1200
+
+# And B lands back on the detail, on the row this was opened from rather than at the top of a
+# hundred-row screen.
+key b
+hold 1600

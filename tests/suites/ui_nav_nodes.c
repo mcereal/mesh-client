@@ -62,8 +62,8 @@ MESH_TEST_CASE(ui_nav_node_trend_opens_from_its_row, unit) {
     /* Find the temperature row the way the nav does, then stand on it. */
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
     const uint32_t count =
-        mesh_ui_node_detail_build(&handshake.nodes[0], false, 0U, NULL, false, &handshake,
-                                  &store.history, false, items, MESH_UI_NODE_ITEMS_MAX);
+        mesh_ui_node_detail_build(&handshake.nodes[0], false, 0U, NULL, &handshake, &store.history,
+                                  false, items, MESH_UI_NODE_ITEMS_MAX);
     uint32_t row = count;
     for (uint32_t i = 0U; i < count; ++i) {
         if (items[i].trend_reading == MESH_UI_HISTORY_TEMPERATURE) {
@@ -293,8 +293,8 @@ MESH_TEST_CASE(ui_nav_node_trend_keeps_the_row_it_was_opened_from, unit) {
 
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
     const uint32_t count =
-        mesh_ui_node_detail_build(&handshake.nodes[0], false, 0U, NULL, false, &handshake,
-                                  &store.history, false, items, MESH_UI_NODE_ITEMS_MAX);
+        mesh_ui_node_detail_build(&handshake.nodes[0], false, 0U, NULL, &handshake, &store.history,
+                                  false, items, MESH_UI_NODE_ITEMS_MAX);
     uint32_t row = count;
     for (uint32_t i = 0U; i < count; ++i) {
         if (items[i].trend_reading == MESH_UI_HISTORY_TEMPERATURE) {
@@ -490,6 +490,85 @@ MESH_TEST_CASE(ui_nav_node_trend_closes_when_it_empties, unit) {
 /* The Nodes tab's pin: X from either level, and the detail's own row. The nav sends the state
    it wants rather than a bare toggle, so a press that races a NodeInfo cannot cancel itself. */
 /*
+ * The sheet of verbs takes the presses it owns and no others.
+ *
+ * It is the one screen in this tab whose handler is reached before the tab routing, so it is the
+ * one that can swallow a keycap the action bar is still naming. It did: a blanket return over
+ * every key left "L/R tabs" on the bar with the shoulders dead under it, which is exactly the
+ * keycap-that-does-nothing that src/ui/tables/actions.c exists to prevent.
+ *
+ * So the four presses it does not own are pinned here beside the two it does. X and Y are in that
+ * list because they reach the node by id and go on meaning pin and write from inside the sheet -
+ * the bar not naming them is about the rows below being the same two verbs, not about the presses
+ * being off.
+ */
+MESH_TEST_CASE(ui_nav_node_actions_lets_the_other_presses_through, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    const char *failure = NULL;
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+
+    /* Onto a node that is not us, in to its detail, and in again to its verbs. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    for (uint32_t step = 0; step < MESH_UI_NODES_LEAD_ROWS + 1U; ++step) {
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (!store.nav.node_detail_open || !store.nav.node_actions_open) {
+        failure = "two presses of A should reach the node's verbs";
+        goto cleanup;
+    }
+    const uint32_t node_id = store.nav.node_detail_node;
+
+    /* SELECT explains this screen, which is the topic keyed on its own route. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_SELECT, &action);
+    if (!store.nav.help_open) {
+        failure = "SELECT should open the sheet's help, as the bar says it does";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    if (store.nav.help_open || !store.nav.node_actions_open) {
+        failure = "B should close the help and leave the sheet where it was";
+        goto cleanup;
+    }
+
+    /* X and Y still reach the node, which they find by id rather than by the cursor - so the
+       sheet's own cursor standing on some other verb changes nothing about them. */
+    memset(&action, 0, sizeof action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    memset(&action, 0, sizeof action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    if (action.type != MESH_UI_ACTION_TOGGLE_FAVORITE || action.dest != node_id) {
+        failure = "X on the sheet should still pin the node the sheet is about";
+        goto cleanup;
+    }
+
+    /* And the shoulders change tab, which is the press the bar names last and the one a blanket
+       return took away. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_R1, &action);
+    if (store.nav.screen == MESH_UI_SCREEN_NODES) {
+        failure = "a shoulder should still change tab from inside the sheet";
+        goto cleanup;
+    }
+    /* And the tab is left as it was found, so coming back lands on the verbs rather than on the
+       list - the same thing an open detail or an open map does. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_L1, &action);
+    if (store.nav.screen != MESH_UI_SCREEN_NODES || !store.nav.node_actions_open) {
+        failure = "coming back to the tab should land on the sheet it was left on";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
  * Left and Right walk the detail's groups, a card at a time.
  *
  * The screen this is on is the longest list in the client - a repeater reporting everything is a
@@ -513,14 +592,24 @@ MESH_TEST_CASE(ui_nav_node_detail_walks_its_groups, unit) {
     handshake.my_info.node_num = 0x1000U;
     handshake.node_count = 1U;
     handshake.nodes[0].node_id = 0x2000U;
-    /* Enough reported for a third and fourth group beyond the actions: the environment and the
-       device metrics are separate Telemetry variants and separate cards. */
+    /* Enough reported for a third and fourth group beyond the one the actions row stands in:
+       the environment and the device metrics are separate Telemetry variants and separate cards.
+       Two environment readings rather than one, and reported twice, so that card ends up holding
+       two presses - which is what the last case here needs and what the card of verbs used to be
+       the only source of. */
     handshake.nodes[0].environment.valid = true;
     handshake.nodes[0].environment.has_temperature = true;
     handshake.nodes[0].environment.temperature = 21.0f;
+    handshake.nodes[0].environment.has_humidity = true;
+    handshake.nodes[0].environment.relative_humidity = 54.0f;
     handshake.nodes[0].metrics.valid = true;
     handshake.nodes[0].metrics.has_battery = true;
     handshake.nodes[0].metrics.battery_level = 82U;
+    mesh_ui_store_tick(&store, 1000U);
+    mesh_ui_store_set_handshake(&store, &handshake);
+    handshake.nodes[0].environment.temperature = 23.0f;
+    handshake.nodes[0].environment.relative_humidity = 57.0f;
+    mesh_ui_store_tick(&store, 2000U);
     mesh_ui_store_set_handshake(&store, &handshake);
 
     struct mesh_ui_nav nav;
@@ -531,7 +620,7 @@ MESH_TEST_CASE(ui_nav_node_detail_walks_its_groups, unit) {
 
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
     const uint32_t count =
-        mesh_ui_node_detail_build(&handshake.nodes[0], false, 0U, NULL, false, &handshake, NULL,
+        mesh_ui_node_detail_build(&handshake.nodes[0], false, 0U, NULL, &handshake, &store.history,
                                   false, items, MESH_UI_NODE_ITEMS_MAX);
     /* Where opening the detail leaves the cursor: the first row that is not a group title. */
     for (uint32_t i = 0U; i < count; ++i) {
@@ -540,7 +629,12 @@ MESH_TEST_CASE(ui_nav_node_detail_walks_its_groups, unit) {
             break;
         }
     }
-    uint32_t groups = 0U;
+    /* Headings plus one, because the screen opens with a group that has none: the row that opens
+       the node's verbs stands above the first heading, and a run of rows before any heading is a
+       group exactly as a run after one is. Counted rather than assumed so that a heading arriving
+       over that row - or the row going away - is a failure here rather than an off-by-one in the
+       walk below. */
+    uint32_t groups = items[0].kind == MESH_UI_NODE_ROW_HEADING ? 0U : 1U;
     for (uint32_t i = 0U; i < count; ++i) {
         if (items[i].kind == MESH_UI_NODE_ROW_HEADING) {
             groups += 1U;
@@ -564,6 +658,8 @@ MESH_TEST_CASE(ui_nav_node_detail_walks_its_groups, unit) {
                           "the cursor may not land on a group title");
         MESH_TEST_FAIL_IF(at == 0U || items[at - 1U].kind != MESH_UI_NODE_ROW_HEADING,
                           "the landing should be the first row under a heading");
+        MESH_TEST_FAIL_IF(items[at].kind == MESH_UI_NODE_ROW_ACTION,
+                          "and no group but the first holds a verb any more");
         MESH_TEST_FAIL_IF(nav.screen != MESH_UI_SCREEN_NODES, "the press should not change tab");
         seen[visited++] = at;
     }
@@ -589,8 +685,13 @@ MESH_TEST_CASE(ui_nav_node_detail_walks_its_groups, unit) {
     MESH_TEST_FAIL_IF(nav.screen != MESH_UI_SCREEN_NODES,
                       "and must not fall through to the tab switch");
 
-    /* And Left from inside a group is "the top of this one" before it is "the one before" -
-       asked of the actions, the group whose every row is a stop of its own. */
+    /* And Left from inside a group is "the top of this one" before it is "the one before".
+     *
+     * Asked of the environment card, which is the group with two stops in it now that the verbs
+     * are a screen of their own: its temperature and its humidity have both been watched, so each
+     * is a press and Down moves between them without leaving the card. */
+    while (mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_RIGHT, &action)) {
+    }
     const uint32_t top = nav.cursor[MESH_UI_SCREEN_NODES];
     (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_DOWN, &action);
     MESH_TEST_FAIL_IF(nav.cursor[MESH_UI_SCREEN_NODES] == top, "Down should move within a group");
@@ -663,8 +764,8 @@ MESH_TEST_CASE(ui_nav_node_detail_walks_its_stops, unit) {
     const struct mesh_ui_node_summary *held = mesh_ui_node_detail_find(&store.handshake, 0x2000U);
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
     const uint32_t count = mesh_ui_node_detail_build(
-        held, false, 0U, mesh_ui_store_traceroute_view(&store, held->node_id), false,
-        &store.handshake, &store.history, false, items, MESH_UI_NODE_ITEMS_MAX);
+        held, false, 0U, mesh_ui_store_traceroute_view(&store, held->node_id), &store.handshake,
+        &store.history, false, items, MESH_UI_NODE_ITEMS_MAX);
     MESH_TEST_FAIL_IF(count == 0U, "the node should produce rows");
     uint8_t heights[MESH_UI_NODE_ITEMS_MAX];
     for (uint32_t i = 0U; i < count; ++i) {
@@ -802,8 +903,8 @@ MESH_TEST_CASE(ui_node_detail_press_matches_the_row, unit) {
 
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
     const uint32_t count =
-        mesh_ui_node_detail_build(&handshake.nodes[0], false, 0U, NULL, false, &handshake,
-                                  &store.history, false, items, MESH_UI_NODE_ITEMS_MAX);
+        mesh_ui_node_detail_build(&handshake.nodes[0], false, 0U, NULL, &handshake, &store.history,
+                                  false, items, MESH_UI_NODE_ITEMS_MAX);
     MESH_TEST_FAIL_IF(count == 0U, "the node should produce rows");
 
     uint32_t facts = 0U;
@@ -853,8 +954,8 @@ static bool detail_draws_a_route(const struct mesh_ui_store *store,
                                  const struct mesh_ui_node_summary *node) {
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
     const uint32_t count = mesh_ui_node_detail_build(
-        node, false, 0U, mesh_ui_store_traceroute_view(store, node->node_id), false,
-        &store->handshake, NULL, false, items, MESH_UI_NODE_ITEMS_MAX);
+        node, false, 0U, mesh_ui_store_traceroute_view(store, node->node_id), &store->handshake,
+        NULL, false, items, MESH_UI_NODE_ITEMS_MAX);
     for (uint32_t i = 0U; i < count; ++i) {
         if (items[i].kind == MESH_UI_NODE_ROW_HEADING &&
             strcmp(items[i].label, mesh_str(MESH_STR_NODE_HEAD_ROUTE_OUT)) == 0) {
@@ -984,17 +1085,22 @@ MESH_TEST_CASE(ui_nav_node_favorite, unit) {
         return;
     }
 
-    /* And the detail's own row does the same thing, wherever it happens to sit. */
+    /* And the sheet's own row does the same thing, wherever it happens to sit. */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action); /* open the detail */
     if (!store.nav.node_detail_open) {
         mesh_ui_store_shutdown(&store);
         record_failure(test_name, "A should open the detail");
         return;
     }
-    struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
-    const uint32_t count =
-        mesh_ui_node_detail_build(&store.handshake.nodes[1], false, 0U, NULL, false,
-                                  &store.handshake, NULL, false, items, MESH_UI_NODE_ITEMS_MAX);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action); /* and its "Actions" row */
+    if (!store.nav.node_actions_open) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "the detail's first row should open the node's verbs");
+        return;
+    }
+    struct mesh_ui_node_item items[MESH_UI_NODE_ACTIONS_MAX];
+    const uint32_t count = mesh_ui_node_actions_build(&store.handshake.nodes[1], false, NULL, false,
+                                                      items, MESH_UI_NODE_ACTIONS_MAX);
     uint32_t favorite_row = count;
     for (uint32_t i = 0; i < count; ++i) {
         if (items[i].action == MESH_UI_NODE_ACTION_FAVORITE) {
@@ -1003,12 +1109,12 @@ MESH_TEST_CASE(ui_nav_node_favorite, unit) {
     }
     if (favorite_row >= count || strcmp(items[favorite_row].value, "yes") != 0) {
         mesh_ui_store_shutdown(&store);
-        record_failure(test_name, "the detail should carry a pin row showing the current state");
+        record_failure(test_name, "the sheet should carry a pin row showing the current state");
         return;
     }
-    /* Walk to it rather than counting presses from 0: the cursor opens on the first row it may
-       stand on, which is the row *under* the actions group's heading. */
-    while (store.nav.cursor[MESH_UI_SCREEN_NODES] < favorite_row &&
+    /* Walk to it rather than counting presses from 0, which is the habit rather than a need
+       here: every row of this screen is a stop, so the two happen to agree. */
+    while (store.nav.node_actions_cursor < favorite_row &&
            mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action)) {
     }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
@@ -1359,9 +1465,15 @@ MESH_TEST_CASE(ui_nav_node_mute_remove, unit) {
         goto cleanup;
     }
 
-    struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
-    uint32_t count = mesh_ui_node_detail_build(node, false, 0U, NULL, false, &store.handshake, NULL,
-                                               false, items, MESH_UI_NODE_ITEMS_MAX);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (!store.nav.node_actions_open) {
+        failure = "the detail's first row should open the node's verbs";
+        goto cleanup;
+    }
+
+    struct mesh_ui_node_item items[MESH_UI_NODE_ACTIONS_MAX];
+    uint32_t count =
+        mesh_ui_node_actions_build(node, false, NULL, false, items, MESH_UI_NODE_ACTIONS_MAX);
     uint32_t mute_row = count;
     uint32_t remove_row = count;
     for (uint32_t i = 0; i < count; ++i) {
@@ -1374,18 +1486,17 @@ MESH_TEST_CASE(ui_nav_node_mute_remove, unit) {
     }
     if (mute_row >= count || remove_row >= count || remove_row < mute_row ||
         strcmp(items[remove_row].value, "press A") != 0) {
-        failure = "the detail should end with mute and then remove";
+        failure = "the sheet should carry mute and then remove";
         goto cleanup;
     }
     /* The armed spelling is the only thing the flag changes. */
-    (void)mesh_ui_node_detail_build(node, false, 0U, NULL, true, &store.handshake, NULL, false,
-                                    items, MESH_UI_NODE_ITEMS_MAX);
+    (void)mesh_ui_node_actions_build(node, false, NULL, true, items, MESH_UI_NODE_ACTIONS_MAX);
     if (strcmp(items[remove_row].value, "A again to remove") != 0) {
         failure = "arming should change what the remove row says";
         goto cleanup;
     }
 
-    while (store.nav.cursor[MESH_UI_SCREEN_NODES] < mute_row &&
+    while (store.nav.node_actions_cursor < mute_row &&
            mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action)) {
     }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);

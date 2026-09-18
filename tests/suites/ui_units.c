@@ -353,9 +353,8 @@ MESH_TEST_CASE(ui_units_node_detail_lengths_follow_the_setting, unit) {
     for (int pass = 0; pass < 2; ++pass) {
         const bool imperial = pass == 1;
         struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
-        const uint32_t count =
-            mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, false, NULL, NULL, imperial,
-                                      items, MESH_UI_NODE_ITEMS_MAX);
+        const uint32_t count = mesh_ui_node_detail_build(
+            &node, false, 1750000600U, NULL, NULL, NULL, imperial, items, MESH_UI_NODE_ITEMS_MAX);
         MESH_TEST_FAIL_IF(count == 0U, "a node with a fix should have rows");
 
         bool altitude_ok = false;

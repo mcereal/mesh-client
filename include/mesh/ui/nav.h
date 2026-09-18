@@ -364,6 +364,27 @@ struct mesh_ui_nav {
     uint32_t node_detail_node; /* the open node's id: the list is re-ranked under us */
     uint32_t node_list_cursor;
     /*
+     * Nodes tab: the node's verbs, over its detail.
+     *
+     * A level rather than an overlay, on the terms the share sheet one tab over is on: it is
+     * raised by a row, it leaves by B, and what it draws is a list of its own with a cursor of
+     * its own. The cursor is separate from cursor[NODES] for the reason node_list_cursor is
+     * separate from it too - the detail's place has to survive going in and coming back, or a
+     * reader who opened the verbs from halfway down a node returns to the top of it.
+     *
+     * Why the verbs are a screen at all is in include/mesh/ui/node_detail.h, on the action that
+     * opens them: the detail used to lead with thirteen of them and a reader who pressed A on a
+     * node to see what it was met a menu instead.
+     *
+     * It is a row index here and not the `enum mesh_ui_node_action` the reading and the node are
+     * held as elsewhere, and that is safe for the reason those are not: this list is rebuilt from
+     * one node's own state and nothing re-ranks it under the reader. What *can* change it is a
+     * verb's own gate - a key arriving adds three rows - so the cursor is clamped on every frame
+     * like every other list's, rather than trusted across a publish.
+     */
+    bool node_actions_open;
+    uint32_t node_actions_cursor;
+    /*
      * Nodes tab: which of the roster the list is showing - `enum mesh_ui_node_filter`, stepped
      * by A on the list's own first row.
      *

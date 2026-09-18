@@ -3560,7 +3560,6 @@ MESH_TEST_CASE(ui_capture_node_detail_cards_survive_the_cursor, unit) {
     (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
     MESH_TEST_FAIL_IF_CLEANUP(!store.nav.node_detail_open, mesh_ui_store_shutdown(&store),
                               "A should open the node detail");
-
     struct mesh_ui_snapshot snapshot;
     memset(&snapshot, 0, sizeof snapshot);
     mesh_ui_store_request_refresh(&store);
@@ -3659,8 +3658,8 @@ MESH_TEST_CASE(ui_capture_node_detail_cards_survive_the_cursor, unit) {
         struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
         const uint32_t count = mesh_ui_node_detail_build(
             node, hs->has_my_info && node != NULL && node->node_id == hs->my_info.node_num, 0U,
-            mesh_ui_snapshot_traceroute_view(&snapshot, node != NULL ? node->node_id : 0U), false,
-            hs, &snapshot.history, false, items, MESH_UI_NODE_ITEMS_MAX);
+            mesh_ui_snapshot_traceroute_view(&snapshot, node != NULL ? node->node_id : 0U), hs,
+            &snapshot.history, false, items, MESH_UI_NODE_ITEMS_MAX);
         struct mesh_ui_node_span span = {0};
         const bool on_card =
             mesh_ui_node_detail_span(items, count, mesh_ui_capture_page_rows(capture),
@@ -3772,6 +3771,11 @@ MESH_TEST_CASE(ui_capture_node_detail_verbs_wear_their_colour_in_a_disc, unit) {
     (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
     MESH_TEST_FAIL_IF_CLEANUP(!store.nav.node_detail_open, mesh_ui_store_shutdown(&store),
                               "A should open the node detail");
+    /* And again, onto the sheet the verbs live on. The detail below it holds exactly one of
+       them - the row this press came out of - so it is the wrong screen to ask this of. */
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(!store.nav.node_actions_open, mesh_ui_store_shutdown(&store),
+                              "the detail's first row should open the node's verbs");
 
     struct mesh_ui_snapshot snapshot;
     memset(&snapshot, 0, sizeof snapshot);
@@ -3780,10 +3784,11 @@ MESH_TEST_CASE(ui_capture_node_detail_verbs_wear_their_colour_in_a_disc, unit) {
                               mesh_ui_store_shutdown(&store), "no snapshot to render");
 
     /*
-     * Walked onto the destructive row, because a card of verbs is taller than this panel and the
-     * one that is not the default is near the bottom of it. Found by building the rows rather
-     * than by counting presses: which verbs a node offers depends on what it has reported, so a
-     * fixed number of downs is a test that passes while pointing at the wrong row.
+     * Walked onto the destructive row, because a card of verbs is taller than this panel at the
+     * larger glyph scales and the one that is not the default is near the bottom of it. Found by
+     * building the rows rather than by counting presses: which verbs a node offers depends on
+     * what it has reported, so a fixed number of downs is a test that passes while pointing at
+     * the wrong row.
      */
     const struct mesh_ui_node_summary *node =
         mesh_ui_node_detail_find(&snapshot.handshake, snapshot.nav.node_detail_node);
@@ -3795,10 +3800,9 @@ MESH_TEST_CASE(ui_capture_node_detail_verbs_wear_their_colour_in_a_disc, unit) {
                                   node->node_id == snapshot.handshake.my_info.node_num,
                               mesh_ui_store_shutdown(&store),
                               "the walk landed on our own node rather than on somebody else's");
-    struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
+    struct mesh_ui_node_item items[MESH_UI_NODE_ACTIONS_MAX];
     const uint32_t count =
-        mesh_ui_node_detail_build(node, false, 0U, NULL, false, &snapshot.handshake, NULL, false,
-                                  items, MESH_UI_NODE_ITEMS_MAX);
+        mesh_ui_node_actions_build(node, false, NULL, false, items, MESH_UI_NODE_ACTIONS_MAX);
     uint32_t remove_row = count;
     for (uint32_t i = 0; i < count; ++i) {
         if (items[i].action == (uint8_t)MESH_UI_NODE_ACTION_REMOVE) {
@@ -3832,7 +3836,7 @@ MESH_TEST_CASE(ui_capture_node_detail_verbs_wear_their_colour_in_a_disc, unit) {
          */
         mesh_ui_store_set_page_rows(&store, mesh_ui_capture_page_rows(capture));
         for (uint32_t guard = 0U; guard <= count; ++guard) {
-            if (snapshot.nav.cursor[MESH_UI_SCREEN_NODES] >= remove_row) {
+            if (snapshot.nav.node_actions_cursor >= remove_row) {
                 break;
             }
             (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
@@ -3861,10 +3865,12 @@ MESH_TEST_CASE(ui_capture_node_detail_verbs_wear_their_colour_in_a_disc, unit) {
         const uint32_t danger =
             bands_of(capture, pixels, width, height, stride, MESH_UI_COLOR_ERROR, min_run);
         /* Four, because one of the accent's bands is the navigation bar's own tab pill and the
-           card this is about holds several verbs plus the disc on its heading. */
+           card this is about holds several verbs. The sheet carries no heading - its app bar
+           names it - so the disc that used to be counted with them is gone, and four still
+           clears the verbs by a wide margin. */
         if (accent < 4U || danger < 1U) {
             snprintf(detail, sizeof detail,
-                     "the node detail's verbs draw no tonal disc (%u accent bands, %u destructive, "
+                     "the node's verbs draw no tonal disc (%u accent bands, %u destructive, "
                      "at glyph scale %d)",
                      accent, danger, scale);
             failure = detail;

@@ -1421,6 +1421,7 @@ MESH_STR_ENTRY(SETTINGS_NOTE_UI_CLOCKFACE,                "Whether the radio dra
 MESH_STR_ENTRY(HELP_SUBJECT_THREAD,       "Conversation")
 MESH_STR_ENTRY(HELP_SUBJECT_REACTION,     "Tapbacks")
 MESH_STR_ENTRY(HELP_SUBJECT_NODE,         "Node")
+MESH_STR_ENTRY(HELP_SUBJECT_NODE_ACTIONS, "What you can do")
 MESH_STR_ENTRY(HELP_SUBJECT_WAYPOINT,     "Place")
 MESH_STR_ENTRY(HELP_SUBJECT_MAP,          "Map")
 MESH_STR_ENTRY(HELP_SUBJECT_SHARE,        "Sharing channels")
@@ -1483,6 +1484,11 @@ MESH_STR_ENTRY(HELP_NOTE_NODE_TREND,      "A reading over time, drawn against th
    of the rows, which leaves the reader to discover the presses by trying them. */
 MESH_STR_ENTRY(HELP_LABEL_NODE_GROUPS,    "Getting around")
 MESH_STR_ENTRY(HELP_NOTE_NODE_GROUPS,     "The rows are grouped into cards. Up and Down stop on each row A acts on and on each card of facts; Left and Right jump a card at a time. A is named only where it does something.")
+/* The row that opens the verbs, which are no longer on this screen. First of the paragraphs
+   about presses, because it is the only press on the detail that leads anywhere the reader
+   cannot see from it. */
+MESH_STR_ENTRY(HELP_LABEL_NODE_ACTIONS,   "Acting on this node")
+MESH_STR_ENTRY(HELP_NOTE_NODE_ACTIONS,    "The top row opens everything this client can do to the node: write to it, pin it, ask it for a reading, trace the route to it, or drop it. X pins and Y writes from here without opening it.")
 MESH_STR_ENTRY(HELP_LABEL_NODE_VERBS,     "Mute, ignore, remove")
 MESH_STR_ENTRY(HELP_NOTE_NODE_VERBS,      "Mute stops this node raising notices here and on the radio. Ignore has the radio drop its packets before we ever see them. Remove drops it from the NodeDB; it returns if the node speaks again.")
 /* What the padlock in a conversation means, and the row that changes it. Two paragraphs because
