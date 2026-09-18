@@ -61,9 +61,10 @@ bool mesh_http_url_parse(const char *url, struct mesh_http_url *out);
 
 /*
  * Resolves a `Location` against the URL that answered with it. Absolute (`https://...`),
- * scheme-relative (`//host/...`), absolute-path (`/...`) and relative (`name`) references are
- * all understood; dot segments are passed through for the server to resolve rather than
- * normalised here. False on the same grounds as mesh_http_url_parse().
+ * scheme-relative (`//host/...`), absolute-path (`/...`), relative (`name`), query-only (`?q`)
+ * and fragment-only (`#f`) references are all understood; dot segments are passed through for the
+ * server to resolve rather than normalised here. False on the same grounds as
+ * mesh_http_url_parse().
  */
 bool mesh_http_url_resolve(const struct mesh_http_url *base, const char *location,
                            struct mesh_http_url *out);

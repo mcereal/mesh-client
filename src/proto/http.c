@@ -229,6 +229,11 @@ bool mesh_http_url_resolve(const struct mesh_http_url *base, const char *locatio
     }
 
     *out = *base;
+    /* Only a fragment: the same resource, path and query both kept (RFC 3986 5.2.2). The
+       fragment never goes on the wire, so there is nothing of it to keep. */
+    if (location[0] == '#') {
+        return true;
+    }
     if (location[0] == '/') {
         return http_url_set_target(out, location);
     }

@@ -198,6 +198,11 @@ MESH_TEST_CASE(http_url_resolves_a_location, unit) {
                           strcmp(out.target, "/o/r/releases/download/v1/a.bin?y=2") != 0,
                       "a query-only reference keeps the whole path");
 
+    MESH_TEST_FAIL_IF(!mesh_http_url_resolve(&base, "#part", &out) ||
+                          strcmp(out.host, "github.com") != 0 ||
+                          strcmp(out.target, "/o/r/releases/download/v1/a.bin?x=1") != 0,
+                      "a fragment-only reference is the base, path and query both");
+
     MESH_TEST_FAIL_IF(mesh_http_url_resolve(&base, "ftp://example.org/x", &out),
                       "a redirect to another scheme is refused");
     MESH_TEST_FAIL_IF(mesh_http_url_resolve(&base, "/a\r\nX-Evil: 1", &out),
