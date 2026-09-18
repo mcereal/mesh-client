@@ -33,16 +33,16 @@ extern "C" {
 #define MESH_UI_NODE_VALUE_MAX 48U
 /*
  * Every row every node can produce, all at once. rows_next() drops silently past this, so it
- * has to be an upper bound rather than a guess: the arithmetic is 36 action rows (the group's
- * own heading and thirteen actions, plus a traced route of up to ten stops in each direction
- * with its two headings and its stamp), 12 identity, 11 signal (its heading, the two routing
- * rows, and a bar under each of the two readings that describe the link), and then one group
- * per kind of reading - 7 device metrics, 7 position, 9 environment, 5 power, 7 air quality, 5
- * health, 6 host - plus the two neighbour groups: 12 for the list the node reported (heading,
- * ten out-edges - upstream's own cap - and the stamp) and 12 for the nodes that report hearing
- * it (heading, ten rows and the line saying how many were left out). That comes to 129 by hand
- * and the worst case anybody can build is 127; a bound stated loosely is the right way for this
- * one to be wrong.
+ * has to be an upper bound rather than a guess: the arithmetic is 1 for the row that opens the
+ * actions sheet, a traced route of up to ten stops in each direction with its two headings and
+ * its stamp (23), 12 identity, 11 signal (its heading, the two routing rows, and a bar under
+ * each of the two readings that describe the link), and then one group per kind of reading - 7
+ * device metrics, 7 position, 9 environment, 5 power, 7 air quality, 5 health, 6 host - plus
+ * the two neighbour groups: 12 for the list the node reported (heading, ten out-edges -
+ * upstream's own cap - and the stamp) and 12 for the nodes that report hearing it (heading, ten
+ * rows and the line saying how many were left out). That comes to 117 by hand and the worst
+ * case anybody can build is under it; a bound stated loosely is the right way for this one to
+ * be wrong.
  *
  * **The worst case is a node heard straight off the air, not a distant one.** The two bars in
  * the signal group are drawn only when the readings are this node's own link
@@ -50,10 +50,21 @@ extern "C" {
  * the room - which is the opposite of the intuition a budget gets checked against, and is why
  * node_detail_row_budget in the ui_settings suite builds the near node rather than the far one.
  *
- * Rounded up for headroom, and pinned by that test so a new group cannot quietly push the last
- * one off the screen.
+ * The thirteen verbs this used to have to hold are not in it any more: they are a screen of
+ * their own now (mesh_ui_node_actions_build()), and the bound is kept where it was rather than
+ * trimmed to the new total because headroom is what it is for. Pinned by that test so a new
+ * group cannot quietly push the last one off the screen.
  */
 #define MESH_UI_NODE_ITEMS_MAX 144U
+
+/*
+ * And every row the actions sheet can produce: its heading and the thirteen verbs under it.
+ *
+ * Its own bound rather than a share of the one above, because the two screens are now built
+ * separately and a sheet sized by the detail's budget would be a hundred and forty-four
+ * item-sized slots on the stack to hold fourteen rows. Rounded up for the same headroom.
+ */
+#define MESH_UI_NODE_ACTIONS_MAX 20U
 
 /*
  * How many "Heard by" rows the node detail draws. Upstream's ten-entry cap is on what one node
@@ -88,6 +99,21 @@ enum mesh_ui_node_row_kind {
 
 enum mesh_ui_node_action {
     MESH_UI_NODE_ACTION_NONE = 0,
+    /*
+     * Open the sheet the rest of this enum is drawn on.
+     *
+     * The one verb of the detail screen itself, and the reason the others are not on it. This
+     * screen used to *open* with the thirteen below - a full panel of verbs before a single
+     * fact about the node, with "Remove from radio" visible above its battery level - so a
+     * reader who opened a node to see what it was got a menu instead. A detail screen's first
+     * screenful is the thing it is a detail of; the verbs are what a reader goes looking for,
+     * and one row is what going looking should cost.
+     *
+     * It is an ACTION row like any other rather than a kind of its own, because it is one: A
+     * does something on it, the action bar names the press from the same field every other row
+     * is read through, and the sheet it raises is drawn from rows of this same shape.
+     */
+    MESH_UI_NODE_ACTION_OPEN_ACTIONS,
     MESH_UI_NODE_ACTION_MESSAGE,      /* open this node's conversation */
     MESH_UI_NODE_ACTION_FAVORITE,     /* pin or unpin the node in the radio's NodeDB */
     MESH_UI_NODE_ACTION_TRACEROUTE,   /* ask the mesh which way it reaches this node */
@@ -276,10 +302,6 @@ enum mesh_ui_node_press {
  * it is a trace of *this* node, so opening a different node after a trace shows that node's
  * own state rather than somebody else's route.
  *
- * `remove_armed` is the nav's "the next press really does it" state for the remove row, which
- * is the one row here whose consequence the user cannot walk back from - the node leaves the
- * list and takes its own row with it. It only changes what that row's value column says.
- *
  * `roster` is the whole node list and may be NULL, in which case the neighbour rows are left
  * out. Three of this screen's groups need it rather than just this node: a neighbour is a bare
  * node number on the wire and has to be resolved to a name, "who hears this node" is not
@@ -301,7 +323,7 @@ enum mesh_ui_node_press {
  */
 uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool is_self,
                                    uint32_t now, const struct mesh_ui_traceroute *trace,
-                                   bool remove_armed, const struct mesh_ui_handshake_state *roster,
+                                   const struct mesh_ui_handshake_state *roster,
                                    const struct mesh_ui_history *history, bool imperial,
                                    struct mesh_ui_node_item *out, uint32_t capacity);
 
@@ -350,6 +372,33 @@ bool mesh_ui_node_detail_trend_row(const struct mesh_ui_node_summary *node, bool
                                    const struct mesh_ui_history *history,
                                    enum mesh_ui_history_reading reading,
                                    struct mesh_ui_node_item *out);
+
+/*
+ * Fills `out` with the node's *verbs* - the sheet the detail's one action row raises - and
+ * returns how many were written (at most `capacity`).
+ *
+ * The same rows in the same shape the detail is built from, because they are the same rows: a
+ * sheet of verbs is a card of verbs that stopped sharing a scroll with a hundred facts. So the
+ * renderer that draws a card of actions draws this, the nav walks it with the helpers it
+ * already has, and the press dispatch is one switch rather than two that drift.
+ *
+ * `is_self` drops the verbs that make no sense against our own node, which is nearly all of
+ * them - what is left is the pair a fix makes possible. A node with neither is a node with no
+ * sheet, and mesh_ui_node_detail_build() then emits no row to open one: a screen a press opens
+ * onto nothing is worse than a press that was never offered.
+ *
+ * `trace` and `remove_armed` mean exactly what they mean to mesh_ui_node_detail_build() - the
+ * traceroute verb states what this node's trace is doing, and the remove row says whether the
+ * next press is the one that does it. The trace's measured *path* is not here: that is a report
+ * and it stays on the detail, which is the group rule this split was already holding.
+ */
+uint32_t mesh_ui_node_actions_build(const struct mesh_ui_node_summary *node, bool is_self,
+                                    const struct mesh_ui_traceroute *trace, bool remove_armed,
+                                    struct mesh_ui_node_item *out, uint32_t capacity);
+
+/* Verbs the node would offer. Zero is a node with no sheet - see the builder above. */
+uint32_t mesh_ui_node_actions_count(const struct mesh_ui_node_summary *node, bool is_self,
+                                    const struct mesh_ui_traceroute *trace);
 
 /* Rows the node would produce. The nav needs nothing else from this module. */
 uint32_t mesh_ui_node_detail_count(const struct mesh_ui_node_summary *node, bool is_self,

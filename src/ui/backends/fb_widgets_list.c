@@ -301,13 +301,21 @@ static void fb_list_cards(const struct mesh_ui_backend_fb_state *state, struct f
          * The hairline is spent outward at the top, exactly as it is at the sides and for the
          * same reason: the first row of a card is a row the cursor can stand on, and a fill
          * drawn to the card's own rectangle lands on the edge and paints it out - so the card
-         * reads as open at the top on precisely the row being pointed at. It never climbs past
-         * the body, where the rows themselves start.
+         * reads as open at the top on precisely the row being pointed at.
+         *
+         * The ceiling is the first row's own top *less that hairline*, which is the correction
+         * rather than the rule. Clamped to where the rows start, a card whose first row is the
+         * body's first row - a list that opens on a card rather than on a heading, which is what
+         * a node's verbs are - could not spend the hairline at all, and lost its top edge under
+         * the cursor on the row it opens with: precisely the failure this whole paragraph is
+         * about, reached from the one direction the clamp did not cover. The room is there to
+         * spend: fb_draw_app_bar() leaves a space and a gutter between the bar and body_y, and
+         * an edge is one or two pixels of it.
          */
         int box_top = top;
         if (!cut_top) {
             box_top -= edge;
-            const int ceiling = list->track_y - state->scale;
+            const int ceiling = list->track_y - state->scale - edge;
             if (box_top < ceiling) {
                 box_top = ceiling;
             }

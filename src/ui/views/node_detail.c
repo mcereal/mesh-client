@@ -100,6 +100,9 @@ static void rows_heading(struct node_rows *rows, enum mesh_str_id label, enum me
  */
 static const enum mesh_ui_icon k_action_icons[] = {
     [MESH_UI_NODE_ACTION_NONE] = MESH_UI_ICON_NONE,
+    /* The group's own symbol, which is what the heading over these verbs used to carry: the row
+       that opens them is the card they were on, so it wears what named them. */
+    [MESH_UI_NODE_ACTION_OPEN_ACTIONS] = MESH_UI_ICON_ACTIONS,
     [MESH_UI_NODE_ACTION_MESSAGE] = MESH_UI_ICON_MESSAGES,
     [MESH_UI_NODE_ACTION_FAVORITE] = MESH_UI_ICON_PINNED,
     /* A traced route is the chain of links that reaches the node, which is what LINK says on
@@ -1229,38 +1232,39 @@ static void node_rows_route_path(struct node_rows *rows, const struct mesh_ui_no
     rows_text(rows, MESH_STR_NODE_MEASURED, age);
 }
 
-uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool is_self,
-                                   uint32_t now, const struct mesh_ui_traceroute *trace,
-                                   bool remove_armed, const struct mesh_ui_handshake_state *roster,
-                                   const struct mesh_ui_history *history, bool imperial,
-                                   struct mesh_ui_node_item *out, uint32_t capacity) {
+/*
+ * Every verb this node offers, as its own screen.
+ *
+ * These thirteen rows used to open the node's detail - a full panel of them above the first
+ * fact, so a reader who pressed A on a node to find out what it *was* met a menu, with "Remove
+ * from radio" on screen before the battery level. They are the same rows in the same shape, one
+ * press further in, and the detail keeps one row (MESH_UI_NODE_ACTION_OPEN_ACTIONS) that opens
+ * them.
+ *
+ * What is *not* here is the traced route the traceroute verb produces. That is a report and it
+ * belongs among the reports, which is the rule node_rows_route_path() already stated from the
+ * other side: a group is one unbroken run, and a measured path between two verbs is a group
+ * interrupting a group. The verb is here; what it measured is on the detail.
+ */
+uint32_t mesh_ui_node_actions_build(const struct mesh_ui_node_summary *node, bool is_self,
+                                    const struct mesh_ui_traceroute *trace, bool remove_armed,
+                                    struct mesh_ui_node_item *out, uint32_t capacity) {
     if (node == NULL) {
         return 0U;
     }
 
     struct node_rows rows = {
         .items = out,
-        .capacity = (out == NULL) ? MESH_UI_NODE_ITEMS_MAX : capacity,
+        .capacity = (out == NULL) ? MESH_UI_NODE_ACTIONS_MAX : capacity,
         .count = 0U,
-        .history = history,
+        /* No history and no units: a verb is a press rather than a reading, so neither of the
+           two things that word a *fact* on the detail has anything to say about one. */
+        .history = NULL,
         .node_id = node->node_id,
-        .imperial = imperial,
+        .imperial = false,
     };
 
-    /*
-     * The actions lead: opening a node from the Nodes tab used to go straight to its
-     * conversation, so the first thing under the cursor still gets you there.
-     *
-     * Under a heading of their own since, which is the smaller half of the same point. Every
-     * other group on this screen names itself and this one did not, so eleven verbs simply
-     * *began* the screen and the first thing the eye met was a wall of them with no word saying
-     * what they had in common - and the "Identity" heading four rows down then read as the
-     * first heading rather than the second. A heading costs one row and is what turns the block
-     * into a group the reader can skip past.
-     */
-    const uint32_t actions_at = rows.count;
     if (!is_self) {
-        rows_heading(&rows, MESH_STR_NODE_HEAD_ACTIONS, MESH_UI_ICON_ACTIONS);
         rows_action(&rows, MESH_STR_NODE_ACT_MESSAGE, NULL, MESH_UI_NODE_ACTION_MESSAGE);
         /* Pinning our own node would be meaningless - it already ranks above everything. */
         rows_toggle(&rows, MESH_STR_NODE_ACT_PIN, node->is_favorite, MESH_UI_NODE_ACTION_FAVORITE);
@@ -1345,14 +1349,6 @@ uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool
      * offering a place that is nowhere.
      */
     if (node->position.valid) {
-        /* Our own node reaches here having emitted none of the block above, so the group's
-           heading has not been written yet and these two rows would open the screen ungrouped -
-           which is the state the heading was added to remove. Asking where the group started
-           rather than re-testing `is_self` keeps the two conditions from drifting: what decides
-           is whether anything is under the heading, which is what a heading is about. */
-        if (rows.count == actions_at) {
-            rows_heading(&rows, MESH_STR_NODE_HEAD_ACTIONS, MESH_UI_ICON_ACTIONS);
-        }
         /* Looking at it, and keeping it: the two things a fix is good for, and both gated on
            there being one. A "show on map" row over a node with no position would open a map
            aimed at nowhere. */
@@ -1361,19 +1357,54 @@ uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool
         rows_action(&rows, MESH_STR_NODE_ACT_WAYPOINT, mesh_str(MESH_STR_COMMON_PRESS_A),
                     MESH_UI_NODE_ACTION_WAYPOINT);
     }
+
+    return rows.count;
+}
+
+uint32_t mesh_ui_node_actions_count(const struct mesh_ui_node_summary *node, bool is_self,
+                                    const struct mesh_ui_traceroute *trace) {
+    /* Built to be counted, exactly as mesh_ui_node_detail_count() is and for its reason: which
+       verbs exist depends on what the node has - a key, a fix, a place in the radio's list - so
+       there is no arithmetic from a node to a number. `remove_armed` changes a row's value and
+       never whether it is there, so this passes false and cannot disagree with the build. */
+    return mesh_ui_node_actions_build(node, is_self, trace, false, NULL, 0U);
+}
+
+uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool is_self,
+                                   uint32_t now, const struct mesh_ui_traceroute *trace,
+                                   const struct mesh_ui_handshake_state *roster,
+                                   const struct mesh_ui_history *history, bool imperial,
+                                   struct mesh_ui_node_item *out, uint32_t capacity) {
+    if (node == NULL) {
+        return 0U;
+    }
+
+    struct node_rows rows = {
+        .items = out,
+        .capacity = (out == NULL) ? MESH_UI_NODE_ITEMS_MAX : capacity,
+        .count = 0U,
+        .history = history,
+        .node_id = node->node_id,
+        .imperial = imperial,
+    };
+
     /*
-     * The traced route, after every verb rather than beside the one that starts it.
+     * The one verb of the detail itself: the row that opens every other one.
      *
-     * It reads as the first of the report groups, which is what it is - a measurement, like the
-     * readings under it, rather than something to press. Beside its verb it was a group in the
-     * middle of the action block, and the rows after it went on being actions under a "Route
-     * back" heading: harmless-looking in a flat list and a card whose heading lies about its
-     * contents once the groups are drawn as cards. Every group on this screen is now one
-     * unbroken run.
+     * Offered only when there is a sheet behind it. Our own node has no use for eleven of the
+     * thirteen and none at all for the two that are left unless it has reported a fix, so the
+     * question is asked of the builder rather than re-derived here - a row that opened an empty
+     * screen would be this client's own version of the keycap-that-does-nothing that the action
+     * bar table exists to prevent, and re-testing `is_self` and `position.valid` here is how the
+     * two copies would come to disagree the first time a verb changed its gate.
      *
-     * Still gated on `is_self` with the block above: the verb is not offered for our own node,
-     * so a trace targeting it is a trace nothing here could have started.
+     * No heading over it. A heading names a group the reader can skip past and this is one row;
+     * what the row is about is in the row, and the sheet it opens says "Actions" in its own bar.
      */
+    if (mesh_ui_node_actions_count(node, is_self, trace) > 0U) {
+        rows_action(&rows, MESH_STR_NODE_HEAD_ACTIONS, mesh_str(MESH_STR_COMMON_PRESS_A),
+                    MESH_UI_NODE_ACTION_OPEN_ACTIONS);
+    }
     /*
      * The traced route, after every verb rather than beside the one that starts it.
      *
@@ -1384,8 +1415,9 @@ uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool
      * contents once the groups are drawn as cards. Every group on this screen is now one
      * unbroken run, which is what node_detail_groups_are_unbroken_runs pins.
      *
-     * Still gated on `is_self` with the action block: the verb is not offered for our own node,
-     * so a trace targeting it is a trace nothing here could have started.
+     * Still gated on `is_self` with the verb that starts it, which now lives a screen away: the
+     * trace is not offered against our own node, so one targeting it is a trace nothing here
+     * could have started.
      */
     if (!is_self) {
         node_rows_route_path(&rows, node, trace, now);
@@ -1425,8 +1457,8 @@ mesh_ui_node_detail_trend_at(const struct mesh_ui_node_summary *node, bool is_se
      * which is the only thing that could move a reading to a different index.
      */
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
-    const uint32_t count = mesh_ui_node_detail_build(node, is_self, 0U, trace, false, roster,
-                                                     history, false, items, MESH_UI_NODE_ITEMS_MAX);
+    const uint32_t count = mesh_ui_node_detail_build(node, is_self, 0U, trace, roster, history,
+                                                     false, items, MESH_UI_NODE_ITEMS_MAX);
     if (row >= count) {
         return MESH_UI_HISTORY_NONE;
     }
@@ -1443,8 +1475,8 @@ bool mesh_ui_node_detail_trend_row(const struct mesh_ui_node_summary *node, bool
         return false;
     }
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
-    const uint32_t count = mesh_ui_node_detail_build(node, is_self, 0U, trace, false, roster,
-                                                     history, false, items, MESH_UI_NODE_ITEMS_MAX);
+    const uint32_t count = mesh_ui_node_detail_build(node, is_self, 0U, trace, roster, history,
+                                                     false, items, MESH_UI_NODE_ITEMS_MAX);
     for (uint32_t i = 0U; i < count; ++i) {
         if (items[i].trend == NULL || items[i].trend_reading != (uint8_t)reading) {
             continue;
@@ -1467,8 +1499,8 @@ enum mesh_ui_node_press mesh_ui_node_detail_press_at(const struct mesh_ui_node_s
         return MESH_UI_NODE_PRESS_NONE;
     }
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
-    const uint32_t count = mesh_ui_node_detail_build(node, is_self, 0U, trace, false, roster,
-                                                     history, false, items, MESH_UI_NODE_ITEMS_MAX);
+    const uint32_t count = mesh_ui_node_detail_build(node, is_self, 0U, trace, roster, history,
+                                                     false, items, MESH_UI_NODE_ITEMS_MAX);
     if (row >= count) {
         return MESH_UI_NODE_PRESS_NONE;
     }
@@ -1641,8 +1673,8 @@ uint32_t mesh_ui_node_detail_step(const struct mesh_ui_node_summary *node, bool 
         return row;
     }
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
-    const uint32_t count = mesh_ui_node_detail_build(node, is_self, 0U, trace, false, roster,
-                                                     history, false, items, MESH_UI_NODE_ITEMS_MAX);
+    const uint32_t count = mesh_ui_node_detail_build(node, is_self, 0U, trace, roster, history,
+                                                     false, items, MESH_UI_NODE_ITEMS_MAX);
     if (row >= count) {
         return row;
     }
@@ -1671,8 +1703,8 @@ uint32_t mesh_ui_node_detail_group_step(const struct mesh_ui_node_summary *node,
         return row;
     }
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
-    const uint32_t count = mesh_ui_node_detail_build(node, is_self, 0U, trace, false, roster,
-                                                     history, false, items, MESH_UI_NODE_ITEMS_MAX);
+    const uint32_t count = mesh_ui_node_detail_build(node, is_self, 0U, trace, roster, history,
+                                                     false, items, MESH_UI_NODE_ITEMS_MAX);
     if (row >= count) {
         return row;
     }
@@ -1735,8 +1767,7 @@ bool mesh_ui_node_detail_span(const struct mesh_ui_node_item *items, uint32_t co
 uint32_t mesh_ui_node_detail_count(const struct mesh_ui_node_summary *node, bool is_self,
                                    const struct mesh_ui_traceroute *trace,
                                    const struct mesh_ui_handshake_state *roster) {
-    return mesh_ui_node_detail_build(node, is_self, 0U, trace, false, roster, NULL, false, NULL,
-                                     0U);
+    return mesh_ui_node_detail_build(node, is_self, 0U, trace, roster, NULL, false, NULL, 0U);
 }
 
 static uint32_t node_list_count(const struct mesh_ui_handshake_state *handshake) {

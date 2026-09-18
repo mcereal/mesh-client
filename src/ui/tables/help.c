@@ -106,9 +106,28 @@ static const struct mesh_ui_help_entry k_help_map[] = {
 static const struct mesh_ui_help_entry k_help_node[] = {
     {MESH_STR_NONE, MESH_STR_HELP_NOTE_NODE},
     {MESH_STR_HELP_LABEL_NODE_GROUPS, MESH_STR_HELP_NOTE_NODE_GROUPS},
+    /* Where the verbs went, and the two that did not have to go anywhere. It is here rather than
+       among the readings because it is the only press on this screen that leads somewhere the
+       reader cannot see from it; the verbs' own paragraphs are on that screen, with them. */
+    {MESH_STR_HELP_LABEL_NODE_ACTIONS, MESH_STR_HELP_NOTE_NODE_ACTIONS},
+    {MESH_STR_HELP_LABEL_NODE_SIGNAL, MESH_STR_HELP_NOTE_NODE_SIGNAL},
+    {MESH_STR_HELP_LABEL_NODE_FIX, MESH_STR_HELP_NOTE_NODE_FIX},
+    {MESH_STR_HELP_LABEL_NODE_TREND, MESH_STR_HELP_NOTE_NODE_TREND},
+    {MESH_STR_HELP_LABEL_NODE_NEIGHBOURS, MESH_STR_HELP_NOTE_NODE_NEIGHBOURS},
+};
+
+/*
+ * The node's verbs, which used to be the top of its detail and are now a screen.
+ *
+ * The paragraphs are the detail's own, moved rather than rewritten: they explain three verbs
+ * that read as one thing, a key most readers have never had to think about, and the one row that
+ * changes what every other screen means. What decides which of them are here is where the row
+ * they are about is drawn, which is the rule the whole of this table is keyed on.
+ */
+static const struct mesh_ui_help_entry k_help_node_actions[] = {
     {MESH_STR_HELP_LABEL_NODE_VERBS, MESH_STR_HELP_NOTE_NODE_VERBS},
-    /* Above the readings rather than among them, because it is the one paragraph on this screen
-       that explains something drawn on a *different* screen: the padlock in the transcript. The
+    /* The padlock paragraph is the one entry here about something drawn on a *different* screen:
+       the mark in the transcript. It follows the row that changes it, which is on this one. The
        verification sheet itself has no topic, for the reason the confirm dialog has none - a
        panel asking the user a question is not a place to open an explanation over. */
     {MESH_STR_HELP_LABEL_NODE_KEY, MESH_STR_HELP_NOTE_NODE_KEY},
@@ -117,10 +136,6 @@ static const struct mesh_ui_help_entry k_help_node[] = {
        the row runs on: an admin request to a remote node is sealed to it, which is why the row
        is not offered for a node we hold none for. */
     {MESH_STR_HELP_LABEL_NODE_ADMIN, MESH_STR_HELP_NOTE_NODE_ADMIN},
-    {MESH_STR_HELP_LABEL_NODE_SIGNAL, MESH_STR_HELP_NOTE_NODE_SIGNAL},
-    {MESH_STR_HELP_LABEL_NODE_FIX, MESH_STR_HELP_NOTE_NODE_FIX},
-    {MESH_STR_HELP_LABEL_NODE_TREND, MESH_STR_HELP_NOTE_NODE_TREND},
-    {MESH_STR_HELP_LABEL_NODE_NEIGHBOURS, MESH_STR_HELP_NOTE_NODE_NEIGHBOURS},
 };
 
 static const struct mesh_ui_help_entry k_help_waypoints[] = {
@@ -261,6 +276,11 @@ static const struct help_feature k_help_features[] = {
        first thing its help has to say. */
     HELP_FEATURE(MESH_UI_SCREEN_NODES, MESH_UI_ROUTE_MAP, MESH_STR_HELP_SUBJECT_MAP, k_help_map),
     HELP_FEATURE(MESH_UI_SCREEN_NODES, MESH_UI_ROUTE_NODE, MESH_STR_HELP_SUBJECT_NODE, k_help_node),
+    /* The verbs over that detail. Its own feature rather than the detail's help one level in,
+       for the map's reason two rows up: it is not the same screen with more of it. Every row is
+       a press here and none of them is on the screen underneath. */
+    HELP_FEATURE(MESH_UI_SCREEN_NODES, MESH_UI_ROUTE_NODE_ACTIONS,
+                 MESH_STR_HELP_SUBJECT_NODE_ACTIONS, k_help_node_actions),
     /* And the chart one of that detail's readings opens. Keyed on the route like every other
        entry here, which is what got it the right help without the press that opens it having to
        say anything: MESH_UI_ROUTE_TREND under the Nodes tab is this, and under the Status tab is

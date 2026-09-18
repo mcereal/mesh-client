@@ -876,20 +876,27 @@ MESH_TEST_CASE(key_trust_node_detail_offers_the_key_rows, unit) {
         node->key_verified = cases[i].verified;
         node->in_nodedb = cases[i].in_nodedb;
 
-        const uint32_t count = mesh_ui_node_detail_build(
-            node, false, 0U, NULL, false, &handshake, NULL, false, items, MESH_UI_NODE_ITEMS_MAX);
+        /* Two builds, because the two halves of this question are now two screens: what the key
+         *is* is a fact on the detail, and what can be done about it is a verb on the sheet. */
+        const uint32_t count = mesh_ui_node_detail_build(node, false, 0U, NULL, &handshake, NULL,
+                                                         false, items, MESH_UI_NODE_ITEMS_MAX);
+        struct mesh_ui_node_item verbs[MESH_UI_NODE_ACTIONS_MAX];
+        const uint32_t verb_count =
+            mesh_ui_node_actions_build(node, false, NULL, false, verbs, MESH_UI_NODE_ACTIONS_MAX);
 
         bool saw_verify = false;
         bool saw_add = false;
         bool saw_state = false;
-        for (uint32_t row = 0; row < count; ++row) {
-            const struct mesh_ui_node_item *item = &items[row];
-            if (item->action == (uint8_t)MESH_UI_NODE_ACTION_VERIFY_KEY) {
+        for (uint32_t row = 0; row < verb_count; ++row) {
+            if (verbs[row].action == (uint8_t)MESH_UI_NODE_ACTION_VERIFY_KEY) {
                 saw_verify = true;
             }
-            if (item->action == (uint8_t)MESH_UI_NODE_ACTION_ADD_CONTACT) {
+            if (verbs[row].action == (uint8_t)MESH_UI_NODE_ACTION_ADD_CONTACT) {
                 saw_add = true;
             }
+        }
+        for (uint32_t row = 0; row < count; ++row) {
+            const struct mesh_ui_node_item *item = &items[row];
             if (item->kind == (uint8_t)MESH_UI_NODE_ROW_INFO &&
                 strcmp(item->value, mesh_str(cases[i].expect_state)) == 0) {
                 saw_state = true;

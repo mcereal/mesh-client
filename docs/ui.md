@@ -284,7 +284,7 @@ a padding width, that belongs in a component instead.
 | `fb_screens_frame.c` | the chrome around every screen, and the branch that picks one |
 | `fb_screens_messages.c` | the conversations, and one of them open as a transcript |
 | `fb_screens_compose.c` | the four sheets that put a message together: reactions, compose, the picker, the keyboard |
-| `fb_screens_nodes.c` | the roster, and one node's detail |
+| `fb_screens_nodes.c` | the roster, one node's detail, and that node's verbs over it |
 | `fb_screens_waypoints.c` | the places, and one of them open |
 | `fb_screens_devices.c` | every radio this client can see, and the row for typing an address |
 | `fb_screens_status.c` | the link, the radio and the mesh, as three cards |
@@ -425,7 +425,40 @@ answer rather than three fields a caller has to keep in step:
 The node detail is what this was written for. Eleven verbs in the accent is not eleven emphases,
 it is a card with none — so the words went back to the ordinary ink, the colour went into the
 discs, and the handful of facts that are *states* became shapes as well as inks. A state said in
-ink alone is a state said to whoever can tell those two inks apart.
+ink alone is a state said to whoever can tell those two inks apart. The verbs have since moved
+off that screen (below), and the discs went with them.
+
+### The node detail opens on the node, not on a menu
+
+A node's detail used to lead with its verbs: thirteen action rows under an "Actions" heading, which
+is a full panel of them before the first fact about the node. "Remove from radio" was on screen
+above its battery level, Identity began below the fold, and a reader who pressed A on a node to
+find out *what it was* met a menu.
+
+So the verbs are a screen — `mesh_ui_node_actions_build()`, drawn by `fb_render_node_actions()`,
+raised by the one `MESH_UI_NODE_ACTION_OPEN_ACTIONS` row the detail keeps at its top and left by B.
+It is the shape the share sheet one tab over is already on: a level of the tab, with a list and a
+cursor of its own (`node_actions_open`, `node_actions_cursor`), raised by a row rather than by a
+question the radio asked. The detail's cursor is parked meanwhile, so B lands back on the row that
+opened it.
+
+Three things fall out of the split and are worth knowing:
+
+- **The two builders emit the same `struct mesh_ui_node_item`**, and the renderer draws an action
+  row through one function (`fb_node_action_row`) on both screens. A sheet with its own idea of
+  what a destructive row looks like would be the drift the row's `tone` and `icon` fields exist to
+  prevent one layer down.
+- **The press dispatch is one switch** (`mesh_ui_nav_node_action_run()`), over the *item* rather
+  than over a row index, because the two callers reach it with different cursors.
+- **`X pin` and `Y write` stay on the detail.** They are the two verbs worth a keycap, which is the
+  same division a phone makes between the actions in a top app bar and the ones in its overflow.
+  Neither is named on the sheet, where both are rows.
+
+The detail's own row is a card of one above the first heading, and that is what made
+`fb_list_card_of()`'s top hairline a bug rather than a limitation: a card whose first row is the
+body's first row had nowhere to spend its top edge and lost it under the cursor on the row it opens
+with. The ceiling in `fb_widgets_list.c` is now that row's top *less the hairline*, which is room
+the app bar already leaves.
 
 ### A stated fact and a control are two tiers, not one
 

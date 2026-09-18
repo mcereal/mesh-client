@@ -274,12 +274,21 @@ MESH_TEST_CASE(actions_arm_before_they_destroy, unit) {
     MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_SHOULDERS) != MESH_STR_NONE,
                       "an armed bar should say one thing, not four");
 
+    /* On the sheet of verbs, because that is the only screen the remove row is on - the detail
+       under it carries one action and it is the row that opens this. A bar asked about an arming
+       that could not be true there would be describing a press nobody can make. */
     actions_snapshot(&snapshot);
     snapshot.nav.screen = MESH_UI_SCREEN_NODES;
+    snapshot.nav.node_detail_open = true;
+    snapshot.nav.node_actions_open = true;
     snapshot.nav.node_remove_armed = true;
     mesh_ui_actions_for(&snapshot, &bar);
     MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_A) != MESH_STR_ACTION_CONFIRM_REMOVE,
                       "an armed node removal should say so");
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_B) != MESH_STR_ACTION_CANCEL,
+                      "an armed action should offer the way out of it");
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_SHOULDERS) != MESH_STR_NONE,
+                      "an armed bar should say one thing, not four");
 
     actions_snapshot(&snapshot);
     snapshot.nav.screen = MESH_UI_SCREEN_DEVICES;
@@ -585,7 +594,7 @@ MESH_TEST_CASE(actions_node_detail_reads_this_nodes_route, unit) {
     /* The row the chart hangs on, found in the list the screen actually draws. */
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
     const uint32_t count = mesh_ui_node_detail_build(
-        node, false, 0U, mesh_ui_snapshot_traceroute_view(&snapshot, node->node_id), false,
+        node, false, 0U, mesh_ui_snapshot_traceroute_view(&snapshot, node->node_id),
         &snapshot.handshake, &snapshot.history, false, items, MESH_UI_NODE_ITEMS_MAX);
     uint32_t row = count;
     for (uint32_t i = 0U; i < count; ++i) {

@@ -1059,7 +1059,7 @@ MESH_TEST_CASE(map_opens_a_marker_and_comes_back_to_the_map, unit) {
         const struct mesh_ui_node_summary *opened =
             mesh_ui_node_detail_find(&store.handshake, store.nav.node_detail_node);
         const uint32_t rowc = mesh_ui_node_detail_build(
-            opened, false, 0U, mesh_ui_store_traceroute_view(&store, opened->node_id), false,
+            opened, false, 0U, mesh_ui_store_traceroute_view(&store, opened->node_id),
             &store.handshake, NULL, false, rows, MESH_UI_NODE_ITEMS_MAX);
         const uint32_t at = store.nav.cursor[MESH_UI_SCREEN_NODES];
         MESH_TEST_FAIL_IF(at >= rowc || rows[at].kind == MESH_UI_NODE_ROW_HEADING,

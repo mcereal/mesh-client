@@ -221,6 +221,11 @@ static bool mesh_ui_nav_close_node_detail(struct mesh_ui_nav *nav) {
     nav->node_detail_open = false;
     nav->node_detail_node = 0U;
     nav->node_remove_armed = false;
+    /* The sheet of verbs is a level *of* the detail, so it closes with it - the chart's reason
+       one field down, and the same bug if it were left set: the next node opened would land
+       straight on the last node's verbs. */
+    nav->node_actions_open = false;
+    nav->node_actions_cursor = 0U;
     /* The chart is a level *of* the detail, so it cannot outlive it. Left set, it would be the
        map's `map_open` bug one screen along: the next node opened would land straight on a chart
        of whichever reading the last one was showing. */
@@ -878,13 +883,13 @@ static bool mesh_ui_nav_row_is_heading(const struct mesh_ui_nav *nav,
             return false;
         }
         struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
-        /* No clock and no arming: neither adds or removes a row, and a row's *existence* is the
-           only thing this reads - the same two arguments mesh_ui_node_detail_trend_at() passes
-           nothing for, and for the same reason. */
+        /* No clock: the wall time formats ages into values and adds no row, and a row's
+           *existence* is the only thing this reads - the same argument
+           mesh_ui_node_detail_trend_at() passes nothing for, and for the same reason. */
         const uint32_t count = mesh_ui_node_detail_build(
             node, mesh_ui_nav_node_is_self(store, node), 0U,
-            mesh_ui_store_traceroute_view(store, node->node_id), false, &store->handshake, NULL,
-            false, items, MESH_UI_NODE_ITEMS_MAX);
+            mesh_ui_store_traceroute_view(store, node->node_id), &store->handshake, NULL, false,
+            items, MESH_UI_NODE_ITEMS_MAX);
         return row < count && items[row].kind == MESH_UI_NODE_ROW_HEADING;
     }
     if (nav->screen == MESH_UI_SCREEN_SETTINGS &&
@@ -1012,8 +1017,8 @@ static uint32_t mesh_ui_nav_heading_map(const struct mesh_ui_nav *nav,
         struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
         const uint32_t count = mesh_ui_node_detail_build(
             node, mesh_ui_nav_node_is_self(store, node), 0U,
-            mesh_ui_store_traceroute_view(store, node->node_id), false, &store->handshake, NULL,
-            false, items, MESH_UI_NODE_ITEMS_MAX);
+            mesh_ui_store_traceroute_view(store, node->node_id), &store->handshake, NULL, false,
+            items, MESH_UI_NODE_ITEMS_MAX);
         const uint32_t rows = count < max ? count : max;
         for (uint32_t r = 0; r < rows; ++r) {
             out[r] = items[r].kind == MESH_UI_NODE_ROW_HEADING;
@@ -1335,6 +1340,200 @@ static bool mesh_ui_nav_compose_key(struct mesh_ui_nav *nav, enum mesh_ui_key ke
     }
 }
 
+/*
+ * One verb of a node's sheet, run.
+ *
+ * Its own function because the press that reaches it is no longer the press that built the row:
+ * the verbs are a screen of their own (mesh_ui_node_actions_build()) with a cursor of its own,
+ * and the detail below them keeps a single row that opens it. Written as a switch over the
+ * *item* rather than over a row index for that reason - what the caller has is a row, and
+ * neither caller should have to agree with the other about what number it was.
+ *
+ * Returns whether the frame changed by itself. Most of these do not: a verb that asks the radio
+ * for something redraws when the answer lands, which is a frame this press cannot predict.
+ */
+static bool mesh_ui_nav_node_action_run(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                                        const struct mesh_ui_node_summary *node,
+                                        const struct mesh_ui_node_item *item,
+                                        struct mesh_ui_action *action) {
+    (void)store;
+    if (item->action == MESH_UI_NODE_ACTION_MESSAGE) {
+        mesh_ui_nav_open_thread(nav, store, node->node_id, 0U, NULL);
+        return true;
+    }
+    if (item->action == MESH_UI_NODE_ACTION_FAVORITE) {
+        mesh_ui_nav_fill_favorite(action, node);
+        return false; /* the row redraws when the app flips the flag */
+    }
+    if (item->action == MESH_UI_NODE_ACTION_TRACEROUTE) {
+        if (action != NULL) {
+            action->type = MESH_UI_ACTION_TRACEROUTE;
+            action->dest = node->node_id;
+        }
+        return false; /* the rows redraw when the app publishes the trace */
+    }
+    if (item->action == MESH_UI_NODE_ACTION_REQUEST_INFO ||
+        item->action == MESH_UI_NODE_ACTION_REQUEST_POSITION ||
+        item->action == MESH_UI_NODE_ACTION_REQUEST_TELEMETRY) {
+        if (action != NULL) {
+            action->type = item->action == MESH_UI_NODE_ACTION_REQUEST_POSITION
+                               ? MESH_UI_ACTION_REQUEST_POSITION
+                               : (item->action == MESH_UI_NODE_ACTION_REQUEST_TELEMETRY
+                                      ? MESH_UI_ACTION_REQUEST_TELEMETRY
+                                      : MESH_UI_ACTION_REQUEST_NODE_INFO);
+            action->dest = node->node_id;
+        }
+        return false; /* the row redraws if and when the node answers */
+    }
+    if (item->action == MESH_UI_NODE_ACTION_IGNORE) {
+        if (action != NULL) {
+            /* The wanted state, not a bare "toggle": a press that races an incoming
+               NodeInfo must not cancel itself out, same as the pin. */
+            action->type = MESH_UI_ACTION_TOGGLE_IGNORE;
+            action->dest = node->node_id;
+            action->number = node->is_ignored ? 0U : 1U;
+        }
+        return false; /* the row redraws when the app flips the flag */
+    }
+    if (item->action == MESH_UI_NODE_ACTION_MUTE) {
+        if (action != NULL) {
+            /* No wanted state to send: toggle_muted_node is all the firmware offers. */
+            action->type = MESH_UI_ACTION_TOGGLE_MUTE;
+            action->dest = node->node_id;
+        }
+        return false; /* the row redraws when the app flips the flag */
+    }
+    if (item->action == MESH_UI_NODE_ACTION_SHOW_ON_MAP) {
+        /*
+         * The map, aimed at this node, opened *under* the detail rather than over it: the
+         * detail closes and the map is what is left, so B from the map goes on to the node
+         * list. Leaving the detail open over its own map would make B land back on the row
+         * that had just been pressed, which is a loop rather than a way out.
+         */
+        const uint32_t focus = node->node_id;
+        mesh_ui_nav_close_node_detail(nav);
+        mesh_ui_nav_open_map(nav, store, focus);
+        return true;
+    }
+    if (item->action == MESH_UI_NODE_ACTION_WAYPOINT) {
+        /* Straight into naming it. The coordinate is not carried - the keyboard remembers
+           whose fix to use and the app reads it from the roster when the name is done, so
+           a node that moves while the user is typing is saved where it ends up. */
+        mesh_ui_nav_open_waypoint_keyboard(nav, node->node_id);
+        return true;
+    }
+    if (item->action == MESH_UI_NODE_ACTION_ADMIN) {
+        /*
+         * The press both asks and goes: the app points the admin queue at this node, and the
+         * detail closes behind us onto the Settings tab, which is the thing that has just
+         * changed meaning.
+         *
+         * Opened *under* the detail for the reason the map row gives - leaving the card up
+         * over its own consequence would make B land back on the row that was pressed. The
+         * tab lands on its section list rather than in a section, because which section
+         * somebody wants of a radio they have just reached is not a guess this row can make.
+         */
+        if (action != NULL) {
+            action->type = MESH_UI_ACTION_SET_ADMIN_TARGET;
+            action->dest = node->node_id;
+        }
+        mesh_ui_nav_close_node_detail(nav);
+        nav->screen = MESH_UI_SCREEN_SETTINGS;
+        nav->settings_parent = MESH_UI_SETTINGS_NO_SECTION;
+        nav->settings_section = MESH_UI_SETTINGS_NO_SECTION;
+        nav->cursor[MESH_UI_SCREEN_SETTINGS] = nav->settings_list_cursor;
+        return true;
+    }
+    if (item->action == MESH_UI_NODE_ACTION_ADD_CONTACT ||
+        item->action == MESH_UI_NODE_ACTION_VERIFY_KEY) {
+        if (action != NULL) {
+            action->type = item->action == MESH_UI_NODE_ACTION_ADD_CONTACT
+                               ? MESH_UI_ACTION_ADD_CONTACT
+                               : MESH_UI_ACTION_VERIFY_KEY;
+            action->dest = node->node_id;
+        }
+        /* Neither redraws anything here. An add-contact is settled by the node's next
+           NodeInfo, and a verification by the sheet the app opens when the radio asks
+           something - which is a frame this press cannot predict. */
+        return false;
+    }
+    if (item->action == MESH_UI_NODE_ACTION_REMOVE) {
+        if (!nav->node_remove_armed) {
+            nav->node_remove_armed = true; /* the row now says "A again to remove" */
+            return true;
+        }
+        nav->node_remove_armed = false;
+        if (action != NULL) {
+            action->type = MESH_UI_ACTION_REMOVE_NODE;
+            action->dest = node->node_id;
+        }
+        /* The detail closes on the next clamp, when the node is gone from the list. */
+        return false;
+    }
+    return false;
+}
+
+/*
+ * The sheet of verbs, over the node it is about.
+ *
+ * A level of the Nodes tab with a list and a cursor of its own, handled here rather than through
+ * mesh_ui_nav_move_cursor() for the reason the compose sheet is: the cursor it walks is not
+ * cursor[NODES], which is parked on the detail underneath so that B lands the reader back on the
+ * row they pressed rather than at the top of a hundred-row screen.
+ *
+ * Up and Down only. Left and Right walk the detail's cards and there are no cards here, so they
+ * are swallowed rather than falling through to the tab strip - a sheet the d-pad could walk off
+ * sideways would be the one screen in the client where a nested level changes tab.
+ */
+static bool mesh_ui_nav_node_actions_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                                         enum mesh_ui_key key, struct mesh_ui_action *action) {
+    const struct mesh_ui_node_summary *node =
+        mesh_ui_node_detail_find(&store->handshake, nav->node_detail_node);
+    if (node == NULL) {
+        /* The node left the roster under the open sheet. The clamp closes both levels on the
+           next publish; until then there is nothing here to press. */
+        return false;
+    }
+    struct mesh_ui_node_item verbs[MESH_UI_NODE_ACTIONS_MAX];
+    const uint32_t count =
+        mesh_ui_node_actions_build(node, mesh_ui_nav_node_is_self(store, node),
+                                   mesh_ui_store_traceroute_view(store, node->node_id),
+                                   nav->node_remove_armed, verbs, MESH_UI_NODE_ACTIONS_MAX);
+    if (count == 0U) {
+        return false;
+    }
+    if (nav->node_actions_cursor >= count) {
+        nav->node_actions_cursor = count - 1U;
+    }
+    switch (key) {
+    case MESH_UI_KEY_UP:
+        if (nav->node_actions_cursor == 0U) {
+            return false;
+        }
+        nav->node_actions_cursor--;
+        return true;
+    case MESH_UI_KEY_DOWN:
+        if (nav->node_actions_cursor + 1U >= count) {
+            return false;
+        }
+        nav->node_actions_cursor++;
+        return true;
+    case MESH_UI_KEY_LEFT:
+    case MESH_UI_KEY_RIGHT:
+        return false;
+    case MESH_UI_KEY_A:
+        return mesh_ui_nav_node_action_run(nav, store, node, &verbs[nav->node_actions_cursor],
+                                           action);
+    case MESH_UI_KEY_B:
+        /* Back onto the detail, at the row that opened this - which is where cursor[NODES] has
+           been sitting all along. */
+        nav->node_actions_open = false;
+        return true;
+    default:
+        return false;
+    }
+}
+
 static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                                 struct mesh_ui_action *action) {
     const uint32_t rows = mesh_ui_nav_row_count(nav, store, nav->screen);
@@ -1431,9 +1630,8 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
         struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
         const uint32_t count = mesh_ui_node_detail_build(
             node, mesh_ui_nav_node_is_self(store, node), 0U,
-            mesh_ui_store_traceroute_view(store, node->node_id), nav->node_remove_armed,
-            &store->handshake, &store->history, mesh_ui_units_imperial(store->settings.units),
-            items, MESH_UI_NODE_ITEMS_MAX);
+            mesh_ui_store_traceroute_view(store, node->node_id), &store->handshake, &store->history,
+            mesh_ui_units_imperial(store->settings.units), items, MESH_UI_NODE_ITEMS_MAX);
         /*
          * A meter row carrying a trend opens that trend as a chart, and it is taken ahead of the
          * action-row guard below because it is the one press on this screen that is not an
@@ -1453,118 +1651,14 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
         if (cursor >= count || items[cursor].kind != MESH_UI_NODE_ROW_ACTION) {
             return false;
         }
-        if (items[cursor].action == MESH_UI_NODE_ACTION_MESSAGE) {
-            mesh_ui_nav_open_thread(nav, store, node->node_id, 0U, NULL);
+        if (items[cursor].action == MESH_UI_NODE_ACTION_OPEN_ACTIONS) {
+            /* The sheet, opening at its top. The cursor is reset rather than remembered: the
+               verbs are about the node under them, so carrying a place across from the last
+               node opened would land this one's cursor on whichever row the other's had - and
+               the rows are not even the same list, since a key or a fix adds some. */
+            nav->node_actions_open = true;
+            nav->node_actions_cursor = 0U;
             return true;
-        }
-        if (items[cursor].action == MESH_UI_NODE_ACTION_FAVORITE) {
-            mesh_ui_nav_fill_favorite(action, node);
-            return false; /* the row redraws when the app flips the flag */
-        }
-        if (items[cursor].action == MESH_UI_NODE_ACTION_TRACEROUTE) {
-            if (action != NULL) {
-                action->type = MESH_UI_ACTION_TRACEROUTE;
-                action->dest = node->node_id;
-            }
-            return false; /* the rows redraw when the app publishes the trace */
-        }
-        if (items[cursor].action == MESH_UI_NODE_ACTION_REQUEST_INFO ||
-            items[cursor].action == MESH_UI_NODE_ACTION_REQUEST_POSITION ||
-            items[cursor].action == MESH_UI_NODE_ACTION_REQUEST_TELEMETRY) {
-            if (action != NULL) {
-                action->type = items[cursor].action == MESH_UI_NODE_ACTION_REQUEST_POSITION
-                                   ? MESH_UI_ACTION_REQUEST_POSITION
-                                   : (items[cursor].action == MESH_UI_NODE_ACTION_REQUEST_TELEMETRY
-                                          ? MESH_UI_ACTION_REQUEST_TELEMETRY
-                                          : MESH_UI_ACTION_REQUEST_NODE_INFO);
-                action->dest = node->node_id;
-            }
-            return false; /* the row redraws if and when the node answers */
-        }
-        if (items[cursor].action == MESH_UI_NODE_ACTION_IGNORE) {
-            if (action != NULL) {
-                /* The wanted state, not a bare "toggle": a press that races an incoming
-                   NodeInfo must not cancel itself out, same as the pin. */
-                action->type = MESH_UI_ACTION_TOGGLE_IGNORE;
-                action->dest = node->node_id;
-                action->number = node->is_ignored ? 0U : 1U;
-            }
-            return false; /* the row redraws when the app flips the flag */
-        }
-        if (items[cursor].action == MESH_UI_NODE_ACTION_MUTE) {
-            if (action != NULL) {
-                /* No wanted state to send: toggle_muted_node is all the firmware offers. */
-                action->type = MESH_UI_ACTION_TOGGLE_MUTE;
-                action->dest = node->node_id;
-            }
-            return false; /* the row redraws when the app flips the flag */
-        }
-        if (items[cursor].action == MESH_UI_NODE_ACTION_SHOW_ON_MAP) {
-            /*
-             * The map, aimed at this node, opened *under* the detail rather than over it: the
-             * detail closes and the map is what is left, so B from the map goes on to the node
-             * list. Leaving the detail open over its own map would make B land back on the row
-             * that had just been pressed, which is a loop rather than a way out.
-             */
-            const uint32_t focus = node->node_id;
-            mesh_ui_nav_close_node_detail(nav);
-            mesh_ui_nav_open_map(nav, store, focus);
-            return true;
-        }
-        if (items[cursor].action == MESH_UI_NODE_ACTION_WAYPOINT) {
-            /* Straight into naming it. The coordinate is not carried - the keyboard remembers
-               whose fix to use and the app reads it from the roster when the name is done, so
-               a node that moves while the user is typing is saved where it ends up. */
-            mesh_ui_nav_open_waypoint_keyboard(nav, node->node_id);
-            return true;
-        }
-        if (items[cursor].action == MESH_UI_NODE_ACTION_ADMIN) {
-            /*
-             * The press both asks and goes: the app points the admin queue at this node, and the
-             * detail closes behind us onto the Settings tab, which is the thing that has just
-             * changed meaning.
-             *
-             * Opened *under* the detail for the reason the map row gives - leaving the card up
-             * over its own consequence would make B land back on the row that was pressed. The
-             * tab lands on its section list rather than in a section, because which section
-             * somebody wants of a radio they have just reached is not a guess this row can make.
-             */
-            if (action != NULL) {
-                action->type = MESH_UI_ACTION_SET_ADMIN_TARGET;
-                action->dest = node->node_id;
-            }
-            mesh_ui_nav_close_node_detail(nav);
-            nav->screen = MESH_UI_SCREEN_SETTINGS;
-            nav->settings_parent = MESH_UI_SETTINGS_NO_SECTION;
-            nav->settings_section = MESH_UI_SETTINGS_NO_SECTION;
-            nav->cursor[MESH_UI_SCREEN_SETTINGS] = nav->settings_list_cursor;
-            return true;
-        }
-        if (items[cursor].action == MESH_UI_NODE_ACTION_ADD_CONTACT ||
-            items[cursor].action == MESH_UI_NODE_ACTION_VERIFY_KEY) {
-            if (action != NULL) {
-                action->type = items[cursor].action == MESH_UI_NODE_ACTION_ADD_CONTACT
-                                   ? MESH_UI_ACTION_ADD_CONTACT
-                                   : MESH_UI_ACTION_VERIFY_KEY;
-                action->dest = node->node_id;
-            }
-            /* Neither redraws anything here. An add-contact is settled by the node's next
-               NodeInfo, and a verification by the sheet the app opens when the radio asks
-               something - which is a frame this press cannot predict. */
-            return false;
-        }
-        if (items[cursor].action == MESH_UI_NODE_ACTION_REMOVE) {
-            if (!nav->node_remove_armed) {
-                nav->node_remove_armed = true; /* the row now says "A again to remove" */
-                return true;
-            }
-            nav->node_remove_armed = false;
-            if (action != NULL) {
-                action->type = MESH_UI_ACTION_REMOVE_NODE;
-                action->dest = node->node_id;
-            }
-            /* The detail closes on the next clamp, when the node is gone from the list. */
-            return false;
         }
         return false;
     }
@@ -1960,7 +2054,7 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
        the cursor off it is enough to stand it down, so the arming cannot outlive the row the
        user was looking at. */
     if (nav->node_remove_armed &&
-        (key != MESH_UI_KEY_A || nav->screen != MESH_UI_SCREEN_NODES || !nav->node_detail_open)) {
+        (key != MESH_UI_KEY_A || nav->screen != MESH_UI_SCREEN_NODES || !nav->node_actions_open)) {
         nav->node_remove_armed = false;
         changed = true;
     }
@@ -1972,6 +2066,21 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
         nav->waypoint_delete_armed = false;
         changed = true;
     }
+    /*
+     * The node's verbs, over its detail and under every overlay above.
+     *
+     * Below the arming stand-downs deliberately: the remove row is on this sheet now, and a
+     * handler that returned before them would leave "A again to remove" armed while the reader
+     * walked the cursor away from it.
+     *
+     * Its own screen is checked with the flag, as every level of this tab is: the flag says
+     * where the Nodes tab is standing rather than what is on the panel, and a shoulder walks off
+     * the tab with the sheet still open behind it.
+     */
+    if (nav->node_actions_open && nav->screen == MESH_UI_SCREEN_NODES) {
+        return mesh_ui_nav_node_actions_key(nav, store, key, out_action) || changed;
+    }
+
     /* The retry, which is the opposite arrangement: the thing a second press of the same key
        must not do is happen again. Anything else re-arms it, including the cursor move that
        walks onto another failed bubble - so a deliberate second press costs one other press

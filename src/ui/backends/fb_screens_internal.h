@@ -16,6 +16,7 @@
  *   fb_thread_quote()      one message in a line, in a bubble and in the reaction sheet's heading
  *   fb_air_band            the airtime thresholds, on the Status card's bar and its chart
  *   fb_render_node_trend() a node's chart, opened from its detail
+ *   fb_render_node_actions() that node's verbs, over its detail
  *   fb_render_node_detail() that detail, drawn again by the chart when its reading has gone
  *
  * Every renderer takes the same two things - an immutable snapshot and the layout the chrome
@@ -74,6 +75,13 @@ void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
  */
 void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
                            const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout);
+
+/*
+ * That node's verbs, over its detail - the screen the detail used to open with. See
+ * include/mesh/ui/node_detail.h on MESH_UI_NODE_ACTION_OPEN_ACTIONS for why they moved.
+ */
+void fb_render_node_actions(struct mesh_ui_backend_fb_state *state,
+                            const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout);
 
 /*
  * One of that node's readings over time, drawn over its detail.
