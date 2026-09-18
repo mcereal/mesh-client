@@ -998,6 +998,52 @@ void mesh_app_shutdown(struct mesh_app *app) {
     mesh_event_loop_shutdown(&app->loop);
 }
 
+/*
+ * How long one turn of the foreground loop may spend in the event loop.
+ *
+ * The ordinary answer is the configured idle timeout, and the short one is for a handover that
+ * is moving bytes. mesh_event_loop_run() bounds the *whole call* rather than each wait, and it
+ * only returns early when epoll falls idle - which during an install it never does, because the
+ * progress bar being drawn re-arms a 33 ms frame timer for as long as it is on the screen. So a
+ * turn costs the full second, and the BLE transfer, which is strictly one chunk per ACK per
+ * tick, moves 512 bytes in that second: a 2.2 MB image took 74 minutes on a link that does it
+ * in two.
+ *
+ * Shortening the turn rather than draining inside the tick keeps the property the deadline was
+ * added for - see the comment over mesh_event_loop_run(), where a self-rearming fd starving the
+ * periodic work is exactly what went wrong before. A shorter bound starves nothing; it hands
+ * control back sooner, and everything else on the loop is serviced on the way past.
+ *
+ * 20 ms is the number the CLI already pumps this same install at - see the loop around
+ * mesh_firmware_ota_tick() in install_radio_firmware_ble(), src/main.c - so this is the HUD
+ * catching up with the path that was always fast rather than a figure picked here. It is about
+ * the link: a write and its notification are two connection intervals, and the install asks for
+ * 7.5 ms ones, so a turn much shorter only spends wake-ups finding the same chunk in flight.
+ */
+#define MESH_APP_TRANSFER_TURN_MS 20
+
+int mesh_app_turn_ms(const struct mesh_app *app) {
+    if (app == NULL) {
+        return 0;
+    }
+    const int configured = app->config.idle_timeout_ms;
+    if (!mesh_firmware_update_holds_the_radio(&app->firmware_update)) {
+        return configured;
+    }
+    /* Never *longer* than the caller asked for: 0 is already the shortest turn there is and
+       stays the drain-and-return it means everywhere else. */
+    if (configured == 0) {
+        return 0;
+    }
+    /* Negative is "wait for an fd and keep going", which mesh_event_loop_run() has no deadline
+       to break out of - the one configuration where the transfer needs the bound imposed rather
+       than lowered. */
+    if (configured < 0) {
+        return MESH_APP_TRANSFER_TURN_MS;
+    }
+    return configured < MESH_APP_TRANSFER_TURN_MS ? configured : MESH_APP_TRANSFER_TURN_MS;
+}
+
 int mesh_app_run(struct mesh_app *app) {
     if (app == NULL) {
         return -EINVAL;
@@ -1075,7 +1121,7 @@ int mesh_app_run(struct mesh_app *app) {
             (void)mesh_app_report_link_errors(app);
             mesh_app_autoconnect(app);
             mesh_app_publish_ui_state(app);
-            result = mesh_event_loop_run(&app->loop, app->config.idle_timeout_ms);
+            result = mesh_event_loop_run(&app->loop, mesh_app_turn_ms(app));
             if (result < 0) {
                 break;
             }

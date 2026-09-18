@@ -63,6 +63,15 @@ void mesh_app_firmware_update_tick(struct mesh_app *app, uint64_t now);
  */
 struct mesh_firmware_update_hooks mesh_app_firmware_hooks(struct mesh_app *app);
 
+/*
+ * How long the next turn of the foreground loop may wait, in ms.
+ *
+ * The configured idle timeout, or a short turn while a firmware handover has the radio - see the
+ * comment over MESH_APP_TRANSFER_TURN_MS for why a transfer that is one chunk per tick cannot
+ * live with a one-second tick.
+ */
+int mesh_app_turn_ms(const struct mesh_app *app);
+
 /* ---- app_mqtt.c ------------------------------------------------------------------------- */
 
 /*

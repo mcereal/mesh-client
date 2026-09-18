@@ -1510,6 +1510,80 @@ cleanup:
 }
 
 /*
+ * A turn of the loop is short while a handover has the radio.
+ *
+ * mesh_event_loop_run() bounds the whole call rather than each wait, and returns early only when
+ * epoll falls idle - which it does not during an install, because the progress bar re-arms a
+ * 33 ms frame timer for as long as it is drawn. So the turn costs its full deadline, and the BLE
+ * transfer is one 512-byte chunk per ACK per tick: a second a chunk is 74 minutes for a 2.2 MB
+ * image over a link that does it in two. Measured on a Brick writing 2.8.0 to a Heltec V3.
+ *
+ * The states are walked rather than one of them sampled, because the answer has to follow
+ * "holds the radio" and not a single rung: arming, waiting, writing and restarting all keep the
+ * bus, and a transfer that got its short turn only in WRITING would go back to one-second ticks
+ * for the retry that re-sends it.
+ */
+MESH_TEST_CASE(app_takes_short_turns_while_a_handover_has_the_radio, unit) {
+    struct mesh_app app;
+    memset(&app, 0, sizeof app);
+    app.config = mesh_app_config_default();
+
+    MESH_TEST_FAIL_IF(mesh_app_turn_ms(NULL) != 0, "no app is no wait at all");
+    MESH_TEST_FAIL_IF(app.config.idle_timeout_ms != 1000,
+                      "the default turn is the configured idle timeout");
+    MESH_TEST_FAIL_IF(mesh_app_turn_ms(&app) != app.config.idle_timeout_ms,
+                      "an idle client waits the timeout it was configured with");
+
+    /* Every rung that holds the radio, on the bus that pays for a slow tick. */
+    static const enum mesh_firmware_install_state k_usb[] = {
+        MESH_FIRMWARE_INSTALL_ARMING, MESH_FIRMWARE_INSTALL_WAITING, MESH_FIRMWARE_INSTALL_WRITING,
+        MESH_FIRMWARE_INSTALL_RESTARTING};
+    for (size_t i = 0; i < sizeof k_usb / sizeof k_usb[0]; ++i) {
+        app.firmware_update.usb.state = k_usb[i];
+        MESH_TEST_FAIL_IF(!mesh_firmware_update_holds_the_radio(&app.firmware_update),
+                          "every one of these holds the radio");
+        MESH_TEST_FAIL_IF(mesh_app_turn_ms(&app) >= app.config.idle_timeout_ms,
+                          "and a turn while it does is shorter than an idle one");
+    }
+    app.firmware_update.usb.state = MESH_FIRMWARE_INSTALL_IDLE;
+
+    static const enum mesh_firmware_ota_state k_ble[] = {
+        MESH_FIRMWARE_OTA_ARMING, MESH_FIRMWARE_OTA_WAITING, MESH_FIRMWARE_OTA_CONNECTING,
+        MESH_FIRMWARE_OTA_SENDING, MESH_FIRMWARE_OTA_RESTARTING};
+    for (size_t i = 0; i < sizeof k_ble / sizeof k_ble[0]; ++i) {
+        app.firmware_update.ble.state = k_ble[i];
+        MESH_TEST_FAIL_IF(!mesh_firmware_update_holds_the_radio(&app.firmware_update),
+                          "the same on the bus the transfer runs on");
+        MESH_TEST_FAIL_IF(mesh_app_turn_ms(&app) >= app.config.idle_timeout_ms,
+                          "which is the one that was taking 74 minutes");
+    }
+
+    /* The chunk has to fit in the turn or the turn buys nothing: at 512 bytes an ACK, anything
+       near a second is the bug this case is about. */
+    app.firmware_update.ble.state = MESH_FIRMWARE_OTA_SENDING;
+    MESH_TEST_FAIL_IF(mesh_app_turn_ms(&app) > 50,
+                      "a transfer turn is a link round trip, not a tick");
+
+    /* And it is a ceiling rather than a setting: a client already asking for faster turns than
+       the transfer needs keeps its own, and 0 stays the drain-and-return it means elsewhere. */
+    app.config.idle_timeout_ms = 5;
+    MESH_TEST_FAIL_IF(mesh_app_turn_ms(&app) != 5, "a shorter configured turn is left alone");
+    app.config.idle_timeout_ms = 0;
+    MESH_TEST_FAIL_IF(mesh_app_turn_ms(&app) != 0, "and a zero turn still drains and returns");
+    /* The other direction: an unbounded wait has no deadline to come back from, so a transfer
+       is the one case where the bound is imposed rather than lowered. */
+    app.config.idle_timeout_ms = -1;
+    MESH_TEST_FAIL_IF(mesh_app_turn_ms(&app) <= 0 || mesh_app_turn_ms(&app) > 50,
+                      "an unbounded turn is bounded while a transfer needs the tick");
+
+    app.firmware_update.ble.state = MESH_FIRMWARE_OTA_IDLE;
+    app.config.idle_timeout_ms = 1000;
+    MESH_TEST_FAIL_IF(mesh_app_turn_ms(&app) != 1000,
+                      "and the turn goes back to the idle one when the job lets go");
+    record_success(test_name);
+}
+
+/*
  * The arm that told the install it had been refused, having just armed the radio.
  *
  * The two modules either side of this hook count in different units. A session answers "how
