@@ -665,8 +665,13 @@ MESH_TEST_CASE(ui_nav_clear_channel, unit) {
     for (uint32_t i = 0; i + 1U < rows; ++i) {
         mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
     }
+    /* The row under the cursor, asked of the public item list rather than of the nav's own
+       `settings_current` - that one is declared in nav_internal.h, which is the group's private
+       header and not something a suite may reach into. */
     struct mesh_ui_settings_item item;
-    if (!mesh_ui_nav_settings_current(&store.nav, &store, true, &item) ||
+    if (!mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_CHANNELS, 1U,
+                               store.nav.cursor[MESH_UI_SCREEN_SETTINGS], &item) ||
+        item.kind != MESH_UI_SETTING_ACTION ||
         item.number != (uint32_t)MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL) {
         failure = "the cursor should reach the clearing verb";
         goto cleanup;
