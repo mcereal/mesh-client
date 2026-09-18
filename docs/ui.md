@@ -466,11 +466,10 @@ reads all three:
 The last one is what keeps the first honest. Five presses change nothing but the row they stand
 on — the language, the theme, this client's update channel and its dev-updates switch, and the
 radio's firmware channel — and a row whose value column *is* the setting is a setting, whatever
-key steps it. So they are built with `cycle` set and `verb` clear: no disc, a place among the
-fields rather than floated off the card with the presses, and the swap rune in the marker gutter
-where a field has the pencil. The nav is untouched — it reads the kind and the action in
-`number`, never `verb` — which is the point of the flag saying what the row *is* rather than
-what the press does.
+key steps it. So they are built with `cycle` set and `verb` clear: no disc, and the swap rune in
+the marker gutter where a field has the pencil. The nav is untouched — it reads the kind and the
+action in `number`, never `verb` — which is the point of the flag saying what the row *is* rather
+than what the press does.
 
 The third exists because the kind is doing two jobs. A Modules row and a channel slot are
 `ACTION` too — the nav answers all three with A, which is what the kind is for there — so the
@@ -544,30 +543,33 @@ promised the jump. `help_does_not_offer_a_key_that_does_nothing` checks the equi
 the behaviour rather than against the predicate, in that state as well as the ordinary one.
 
 Groups and cards are the same number rather than merely close, which is what lets the model
-answer for the renderer: every group holding a row leaves at least one card behind. A group that
-is all verbs is one card; a group that is not floats its verbs onto the panel but keeps its
-fields, and "not all verbs" means it has a field to keep.
+answer for the renderer: **a group is one card whatever is in it**, verbs included, so every
+group holding a row leaves exactly one card behind.
 
-One kind of row stands on the panel instead, and the leading slot is what forces it. A card of
-verbs indents every row past a disc and a card of settings starts at the card's own padding, so
-a card holding both would begin its words in two columns — exactly what the slot's
-all-or-nothing rule exists to prevent, and visible the moment a section puts a press under a
-group of fields. **So a group that is not all verbs puts its verbs on the panel, under its
-card.** LoRa's "Ham mode" is the case: three values on a card, then the switch that applies them
-below it.
+It had a second shape once, and the leading slot is what forced it: a card of verbs indented
+every row past a disc and a card of settings started at the card's own padding, so a card holding
+both began its words in two columns. A group that was not *all* verbs therefore carded its fields
+and stood its verbs on the bare panel underneath — which meant one verb drew two ways depending
+on what else happened to be in its group. LoRa's "Switch to ham mode" and About radio's "Check
+for firmware" were unboxed rows between two cards, while Radio actions, the one section that is
+nothing but verbs, drew the same widget as a card row.
 
-Giving that run a card of its own does not work, and the reason is worth knowing before trying
-it. `fb_list_cards()` spends a card's bottom padding *into the step the next group's heading
-stands in* — that step is where the break between two cards comes from. Two card runs with no
-step between them have nowhere to take the break from: the second is painted over the first's
-padding, its bottom edge and its corners. No arithmetic fixes it, because the gap has to come
-out of a step and a step is a row. Standing the verbs on the panel spends the padding against a
-non-card step, which is what a heading already is — and it reads as the better answer anyway,
-since a verb under a group of fields is the thing that *applies* them.
+The premise stopped being true when the slot was made unconditional (below): every row of every
+open section reserves it now, and `fb_item_measure()` gives `FB_LEADING_TONAL` and
+`FB_LEADING_TONAL_SLOT` one gutter deliberately, so a list can mix the two. A verb's disc lands
+in the gutter its neighbours were already holding open and the labels line up down the card. It
+reads better as well as simpler: a verb under a group of fields is the thing that *applies* them,
+and a button belongs on the form it commits rather than adrift below it.
 
-A *symbol* is per row and per card on those terms — "every verb has one and no setting has one"
-(`ui_settings_row_icons_are_all_or_nothing`, `ui_settings_a_disc_marks_a_press_that_acts`). The
-**gutter** is neither: it is one width for the whole tab.
+A *symbol* is per row on those terms — "every verb has one and no setting has one"
+(`ui_settings_row_icons_are_all_or_nothing`, `ui_settings_a_disc_marks_a_press_that_acts`), and
+**a heading never has one**. A symbol on a heading is a card *header*, out at the card's own edge
+where its rows begin two cells further in; it was optional per heading, so the tab divided into
+the eight groups whose subject happened to own a rune — five of them Radio actions' — and the
+thirty that had to say nothing. That made one section announce its groups in a shape no other
+section used. A settings section is a list of fields and a list has one kind of subheader; the
+node detail and Status are card screens and keep theirs. The **gutter** is neither per row nor
+per card: it is one width for the whole tab.
 
 A list that indents only the rows carrying something starts its text in two columns, and the
 cards were hiding that rather than fixing it — About is four ungrouped rows, two of them verbs,
@@ -587,27 +589,25 @@ to disagree. The two lists of *subjects* — the section list and Modules — ar
 fill their own narrower icon slot on every row, and neither has ever mixed the two.
 
 **A card's edge lives outside both the boxes it separates.** A card in a list takes its bottom
-padding out of the step below it, which is where the break between two cards comes from — and
-that is right for the step a *heading* stands in, because a heading is drawn small and centres
-itself in whatever is left. A floated verb cannot give the room up: it is a line advance with a
-glyph cell in it and a leading disc nearly as tall as the step, so the card's hairline came down
-across the disc's crown. About radio is the case — two floated verbs, each under a card — and
-Position's fixed-position pair is the other.
+padding out of the step below it, which is where the break between two cards comes from — and a
+*heading* is the only step it is ever taken out of, because a heading is drawn small and centres
+itself in whatever is left. A full row cannot give the room up: it is a line advance with a glyph
+cell in it and, where it leads with a disc, a disc nearly as tall as the step, so a card padding
+into one would land its hairline across the disc's crown. Since a group is one card whatever is
+in it, the step below a card is a heading or it is the end of the list, and there is no second
+sentinel to say which — `FB_LIST_NO_CARD` is the only one.
 
-So a screen says which kind of panel row it has (`FB_LIST_PANEL_ROW`), and a card followed by one
-spends the **hairline** into its step rather than the whole inset. The hairline still has to go
-somewhere, and outside is the only place: an edge drawn inside a row's box is an edge that row's
-highlight paints out, which is why `box_top` already spends one upward. So the card spends one
-downward on the same terms, and the floated row gives it back out of its own box at each end a
-card is adjacent — neither highlight can then reach an edge. The disc is sized to what is left
-and centred in the slot, so the room comes off the disc and never off the column. The clearance
-either end is one pixel and is written as one: it is the least that can be seen, and it costs the
-disc the two pixels at which `fb_draw_avatar()` drops its symbol a glyph scale — a smaller mark on
-a row that is a button under a form, against a card that looks broken.
+The hairline still has to go somewhere, and outside is the only place: an edge drawn inside a
+row's box is an edge that row's highlight paints out, which is why `box_top` spends one upward.
+The heading in the break gives that hairline back out of its own box at each end a card is
+adjacent, so neither highlight can reach an edge, and what is drawn in the heading's slot is
+sized to what is left and centred in it — the room comes off the mark and never off the column.
+The clearance either end is one pixel and is written as one: it is the least that can be seen.
 
-`ui_capture_a_floated_row_clears_the_cards_around_it` holds all three readings of that one
-hairline, on the frame rather than on the arithmetic, and it walks the cursor because two of them
-only appear under a highlight. Nothing tonal may stand on a scanline a card's edge owns or the one
+`ui_capture_a_verbs_disc_clears_its_cards_edges` holds that on the frame rather than on the
+arithmetic, and it walks the cursor because two of the three readings only appear under a
+highlight. A verb is now the one card row whose slot is *filled*, so the first and last rows of a
+card are the case to watch. Nothing tonal may stand on a scanline a card's edge owns or the one
 either side of it (*purity*), and the number of edges may not depend on where the cursor is
 (*presence*) — a highlight laid over an edge does not corrupt that scanline, it removes it, so
 only the second assertion can see it.

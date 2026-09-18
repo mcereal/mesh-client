@@ -13,8 +13,9 @@
 #   - The red is spent twice on the whole screen. Everything in this section costs something, so
 #     "destructive" is the baseline rather than the exception, and what the colour marks is where
 #     there is no way back - the two factory resets. A reboot is amber: nothing is lost, you wait.
-#   - A group is a card, and its heading stands in the break with the card's symbol beside it.
-#     Neither costs a row.
+#   - A group is a card, and its heading stands plainly in the break above it. Neither costs a
+#     row, and the heading is the same one every other section draws - a card header with a disc
+#     out at the card's edge is the node detail's shape, not a field list's.
 #   - A withdrawn verb keeps its place, its symbol and its column, and says why on the trailing
 #     edge. A section whose length changes when the radio drops moves the cursor out from under
 #     whoever was reading it.
@@ -56,9 +57,10 @@ link up
 hold 1200
 
 # The other end of the change: a section that is mostly fields, with its presses at the foot.
-# LoRa's "Ham mode" group is three values and then the switch that applies them, and those are
-# two cards - a card of settings starts its words at the card's own padding and a card of verbs
-# starts them past a disc, so a card holding both would begin in two columns.
+# LoRa's "Ham mode" group is three values and then the switch that applies them, and it is one
+# card - a group is one card whatever is in it. The leading slot is reserved for every row of
+# every open section, so the switch's disc lands in the gutter its neighbours were already
+# holding open and the labels line up down the card.
 key b
 hold 800
 key down 6

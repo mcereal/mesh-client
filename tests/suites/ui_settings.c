@@ -3199,9 +3199,26 @@ MESH_TEST_CASE(ui_settings_row_icons_are_all_or_nothing, unit) {
                 }
                 continue;
             }
-            /* A heading's symbol is the card's header rather than one of its rows' - it stands
-               in the break above them - so it is outside the slot this rule is about. */
+            /*
+             * A heading carries no symbol at all, in any section, and that is a rule of its own
+             * rather than an exemption from this one.
+             *
+             * A symbol on a heading is drawn as a card *header* - the disc out at the card's own
+             * edge, where the card's rows begin two cells further in, past the slot this case is
+             * about. Eight of the tab's headings used to take one and thirty did not, five of the
+             * eight in Radio actions, so that section announced its groups in a shape no other
+             * section used. The node detail and Status keep their card headers and are card
+             * screens; a settings section is a list of fields, and a list has one subheader.
+             */
             if (item.kind == MESH_UI_SETTING_HEADING) {
+                if (has_icon) {
+                    snprintf(message, sizeof message,
+                             "%s row %u is a heading with a symbol - the Settings tab heads every "
+                             "group the same way",
+                             mesh_ui_settings_section_name(section), row);
+                    record_failure(test_name, message);
+                    return;
+                }
                 continue;
             }
             if (has_icon != declared) {

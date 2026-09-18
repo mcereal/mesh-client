@@ -4344,9 +4344,9 @@ static uint32_t settings_text_column(const uint8_t *frame, uint32_t width, uint3
          * blended against the panel, so a scan that began at the margin found that blend on
          * every scanline the card covers and reported the card's left edge as if it were a
          * word. Starting at the card's own surface steps over its edge without anything here
-         * having to know how thick one is; a scanline with no card on it - a heading in the
-         * break between two, a verb floated onto the panel - has none to find and starts at the
-         * margin.
+         * having to know how thick one is; a scanline with no card on it - a heading, in the
+         * break between the card that ended and the one it opens - has none to find and starts
+         * at the margin.
          */
         uint32_t start = left_edge;
         for (uint32_t x = left_edge; x < right_edge; ++x) {
@@ -4541,7 +4541,7 @@ MESH_TEST_CASE(ui_capture_a_section_starts_every_row_in_one_column, unit) {
  * Four sections, chosen to be the four shapes that used to disagree: one that holds a verb
  * *and* fields (Position), one that holds only fields and draws cards (Radio UI), one that
  * holds only fields and draws none (Device), and About radio, which is mostly readings with a
- * press floated among them. A section list is deliberately not among them - the root and
+ * press among them. A section list is deliberately not among them - the root and
  * Modules are lists of subjects that fill a narrower icon slot on every row, which is a
  * different list and says so.
  *
@@ -4651,18 +4651,20 @@ MESH_TEST_CASE(ui_capture_every_section_starts_in_the_same_column, unit) {
 }
 
 /*
- * A card's edges survive the row floated under it, and the cursor standing on either.
+ * A verb's disc clears the edges of the card it stands on, and the cursor standing anywhere on
+ * that card takes none of them off the frame.
  *
- * A settings group that is not all verbs floats its verbs onto the panel under its card, and a
- * floated verb is a full row: a line advance with a glyph cell in it and a leading disc nearly
- * as tall as the step. Three things can go wrong where such a row meets a card, and they are
- * three readings of one hairline that has to live outside *both* boxes it separates:
+ * A settings group is one card whatever is in it, verbs included, so a verb is now a card row
+ * like any other - and it is the one card row whose leading slot is *filled*: a tonal disc
+ * nearly as tall as the step, where a field puts a pencil the size of a glyph. That makes the
+ * first and last rows of a card the case to watch, because a card's hairline is drawn outside
+ * its own rows' boxes (fb_list_cards()) and a disc drawn to the full slot would meet it there.
+ * Three readings of one hairline, and they are the three ways this goes wrong:
  *
- *   - the card pads into the row's step, and its edge comes down across the disc's crown;
- *   - the hairline is left inside the card's own last row, and that row's highlight paints it
- *     out - the card reads as open at the bottom on the row above the verb;
- *   - the hairline is left inside the floated row's box, and that row's highlight paints it out
- *     instead.
+ *   - the disc's crown reaches the edge above it, so the two read as one mark;
+ *   - the hairline is left inside the card's own first or last row, and that row's highlight
+ *     paints it out - the card reads as open on precisely the row being pointed at;
+ *   - the card pads into a step it cannot pad into and lands its edge across the disc.
  *
  * Two assertions, because no one of them catches all three. **Purity**: nothing filled from a
  * tonal family - which is what a disc is filled from - may stand on a scanline a card's edge
@@ -4673,16 +4675,20 @@ MESH_TEST_CASE(ui_capture_every_section_starts_in_the_same_column, unit) {
  * for edges simply finds one fewer. The first version of this case looked only at row 0 and
  * passed against exactly that.
  *
+ * About radio is the fixture because it is the section that mixes the two hardest: fourteen
+ * facts and two verbs among them, so the discs land in the middle of a card of readings rather
+ * than in a column of their own. It is also the shape that used to be drawn a third way - the
+ * verbs stood on the bare panel under the card holding the fields - and a case that still passes
+ * here would have caught that change breaking either edge it moved.
+ *
  * The walk stops short of the window, so every frame shows the same cards and the counts are
  * comparable, and it starts one row down. The very first row of the body is a case of its own
  * and not this one: fb_list_cards() spends a card's top hairline upward, and the first card has
  * nowhere above it to spend into, so the ceiling clamps the hairline back inside the row and the
  * cursor there covers it. That is the body's edge, deliberate, and it would read here as an edge
- * the cursor removed. What is left is the neighbourhood this case is about - the last fact on a
- * card, the floated firmware channel under it, the one-row card under that, and the second
- * floated verb under that.
+ * the cursor removed.
  */
-MESH_TEST_CASE(ui_capture_a_floated_row_clears_the_cards_around_it, unit) {
+MESH_TEST_CASE(ui_capture_a_verbs_disc_clears_its_cards_edges, unit) {
     const char *failure = NULL;
     static char detail[256];
 
@@ -4698,10 +4704,10 @@ MESH_TEST_CASE(ui_capture_a_floated_row_clears_the_cards_around_it, unit) {
             mesh_test_nav_populate(&store);
             /*
              * A radio that has answered for itself. `fw_supported` is what puts the firmware
-             * pair - the floated verbs this case is about - on the panel at all; without it the
-             * whole group collapses to one fact, and an earlier version of this case passed
-             * against a broken renderer for exactly that reason. The connection gives the
-             * section its second group, and so its cards.
+             * pair - the verbs this case is about - on the screen at all; without it the whole
+             * group collapses to one fact, and an earlier version of this case passed against a
+             * broken renderer for exactly that reason. The connection gives the section its
+             * second group, and so its cards.
              */
             struct mesh_ui_settings settings = store.settings;
             settings.loaded = true;
@@ -4850,7 +4856,7 @@ MESH_TEST_CASE(ui_capture_a_floated_row_clears_the_cards_around_it, unit) {
             if (failure == NULL && discs == 0U) {
                 snprintf(detail, sizeof detail,
                          "About radio drew no tonal disc at glyph scale %d on theme %s - there is "
-                         "no floated verb here to clear anything",
+                         "no verb here to clear anything",
                          scale, theme->name);
                 failure = detail;
             }

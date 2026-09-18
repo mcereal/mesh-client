@@ -865,6 +865,13 @@ struct mesh_ui_settings_item {
      * was spent on any row the nav would answer - which put a disc on two of About's four rows
      * and on two of About radio's fourteen, and left both screens with an icon column that
      * started and stopped down the page.
+     *
+     * **A heading never carries one**, which is the same rule one row over. A symbol on a
+     * heading is a card *header*, out at the card's own edge where its rows begin two cells
+     * further in, and it was optional per heading - so the tab divided into the eight groups
+     * whose subject happened to own a rune and the thirty that had to say nothing, five of the
+     * eight in Radio actions. A settings section is a list of fields and a list has one kind of
+     * subheader; the node detail and Status are card screens and keep theirs.
      */
     enum mesh_ui_icon icon;
     /*
@@ -957,11 +964,10 @@ bool mesh_ui_settings_item_is_fact(const struct mesh_ui_settings_item *item);
  * is the help advertising a key that does nothing, the thing the action bar keeps a single table
  * to avoid.
  *
- * Groups rather than cards, and the two are the same number rather than merely close: every
- * group holding a row leaves at least one card behind. A group that is all verbs is one card; a
- * group that is not floats its verbs onto the panel but keeps its fields, and "not all verbs"
- * means it has a field to keep. Counting groups is therefore what the renderer was already
- * counting, and it is a question the model can answer without knowing a card exists.
+ * Groups rather than cards, and the two are the same number rather than merely close: a group is
+ * one card whatever is in it, verbs included, so every group holding a row leaves exactly one
+ * card behind. Counting groups is therefore what the renderer was already counting, and it is a
+ * question the model can answer without knowing a card exists.
  */
 uint32_t mesh_ui_settings_section_groups(const struct mesh_ui_settings_item *items, uint32_t count);
 
