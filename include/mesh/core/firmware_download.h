@@ -20,13 +20,11 @@
  *   4. the member    ~0.5 MB, deflated.
  *
  * Then the inflate, and the inflate is also where the download's integrity check comes from.
- * The client links libdbus and libm and nothing else, so there is no zlib here; the member is
- * wrapped in a gzip envelope - ten bytes in front, the CRC32 and the uncompressed size from
- * the central directory behind - and handed to the device's own `gzip -dc`, which inflates it
- * *and checks both*. Measured on a Brick against a real member: busybox 1.27.2 inflated 1.4 MB
- * in 0.03 s, answered `gzip: crc error` to a truncated member and `gzip: incorrect length` to
- * a wrong size. So the envelope is not a way of avoiding a dependency that happens to verify -
- * it is the verification, and both of its failure modes are known to fire.
+ * The member is raw deflate, inflated in memory by the Wuffs decoder the map's PNGs already use
+ * (mesh/utils/inflate.h), and what comes out must be the length and the CRC32 the central
+ * directory promised. There is no separate verify step: a truncated member, a flipped byte and a
+ * wrong size all fail here, as ERROR_INFLATE. Nothing is forked - this used to wrap the member in
+ * a gzip envelope for the device's own `gzip -dc`, which is one program fewer the pak now needs.
  *
  * **The radio link must be down for the duration.** The Brick's Wi-Fi and its Bluetooth are
  * one part behind one antenna, which is why mesh_updater_holds_the_radio() exists; a couple of
@@ -41,7 +39,6 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <sys/types.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -89,8 +86,8 @@ enum mesh_firmware_download_error {
     MESH_FIRMWARE_DOWNLOAD_ERROR_NO_MEMBER,
     /* Compressed with something that is neither deflate nor store. */
     MESH_FIRMWARE_DOWNLOAD_ERROR_UNSUPPORTED,
-    /* `gzip -dc` refused it: `crc error`, or `incorrect length`. The bytes arrived and they
-       are not the bytes the directory described. Retryable, once. */
+    /* Not a deflate stream, or not the length and CRC the directory described. The bytes
+       arrived and they are not the bytes that were promised. Retryable, once. */
     MESH_FIRMWARE_DOWNLOAD_ERROR_INFLATE,
     MESH_FIRMWARE_DOWNLOAD_ERROR_COUNT,
 };
@@ -129,15 +126,8 @@ struct mesh_firmware_download {
     bool located;
     uint64_t data_offset;
 
-    /*
-     * The child doing the inflate, or not a pid. Reaped by mesh_firmware_download_tick().
-     *
-     * "Not a pid" is anything <= 0 rather than -1 alone, because a zeroed struct is how this is
-     * meant to be started and 0 is what a zeroed struct holds - and kill(0, ...) is the whole
-     * process group, not a no-op.
-     */
-    pid_t inflater;
-    uint64_t inflate_deadline_ms;
+    /* The member has landed and the next mesh_firmware_download_tick() inflates it. */
+    bool inflate_pending;
 
     /* Stable for the duration of a request, because the fetcher holds pointers to them. */
     char active_path[MESH_FETCH_PATH_MAX];
@@ -160,13 +150,13 @@ int mesh_firmware_download_start(struct mesh_firmware_download *download, struct
                                  mesh_firmware_download_done_fn on_done, void *userdata);
 
 /*
- * Drives the deadline on the inflate and reaps it. Call every loop turn, beside
- * mesh_fetch_tick() - the fetch half of this drives itself off that, and the child that
- * inflates is ours rather than the fetcher's.
+ * Runs the inflate once the member has landed, and so is where a download that got that far
+ * finishes. Call every loop turn, beside mesh_fetch_tick() - the fetch half of this drives
+ * itself off that, and the inflate is ours rather than the fetcher's.
  */
 void mesh_firmware_download_tick(struct mesh_firmware_download *download, uint64_t now_ms);
 
-/* Kills anything in flight, removes the staged intermediates and does not report an outcome.
+/* Stops anything in flight, removes the staged intermediates and does not report an outcome.
    For a caller that has decided the answer itself - a cancelled press, a shutdown. */
 void mesh_firmware_download_cancel(struct mesh_firmware_download *download);
 

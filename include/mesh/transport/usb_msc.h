@@ -28,7 +28,7 @@
  *   - A full-speed USB link moves about 113 KB/s and the flash program hides entirely behind
  *     it, so 1.4 MB takes 13 seconds however it is chunked. That is too long to block the one
  *     loop the UI draws on, which is why the write is a forked child reporting through a pipe -
- *     the same shape `fetch.c` and the inflate in `firmware_download.c` already have.
+ *     the same shape `fetch.c` already has.
  *
  * The image is passed as **bytes rather than a path**, and that is the mount shadow again: by
  * the time the drive is writable the file the image was staged into may be underneath a

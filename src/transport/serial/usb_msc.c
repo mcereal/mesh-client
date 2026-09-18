@@ -566,8 +566,8 @@ void mesh_usb_msc_write_tick(struct mesh_usb_msc_write *write, uint64_t now_ms) 
     }
     /*
      * `<= 0`, not `< 0`: a zeroed struct holds 0 where a pid goes, and kill() reads 0 as the whole
-     * process group. The download's inflate learned this the expensive way, and this is the second
-     * child with the same shape.
+     * process group. The download's inflate learned this the expensive way, back when it was a
+     * forked `gzip` with the same shape.
      */
     if (write->child <= 0) {
         return;

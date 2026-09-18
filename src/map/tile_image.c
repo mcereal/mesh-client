@@ -1,13 +1,14 @@
 #include "mesh/map/tile_image.h"
 
-#include "wuffs_png.h"
+#include "mesh_wuffs.h"
 
 #include <errno.h>
 #include <stddef.h>
 #include <string.h>
 
 /*
- * The PNG decoder, and the only file in the client that includes Wuffs.
+ * The PNG decoder. One of the two files in the client that include Wuffs; src/utils/inflate.c
+ * is the other.
  *
  * Wuffs allocates nothing and has no opinion about where its state lives: the caller hands it a
  * struct and a scratch buffer and it uses those and nothing else. So the whole of what decoding

@@ -12,8 +12,8 @@
  * The member fetched is the T114's `.mt.json` rather than its `.uf2`, because at 486 bytes it
  * is a fixture and at 517,956 it is not - and it exercises exactly the same four steps. What
  * comes out the far end is parsed by the manifest reader, so the case proves the chain rather
- * than the plumbing: range read, place the data, wrap it in a gzip envelope, inflate it, check
- * the CRC the central directory carried, and read the document that falls out.
+ * than the plumbing: range read, place the data, inflate it, check the length and CRC the
+ * central directory carried, and read the document that falls out.
  *
  * The orchestration above it - firmware_fetch.c, which turns a target and a release into that
  * URL and that member name - is tested here too rather than in a suite of its own, because it
@@ -160,9 +160,12 @@ static bool fetch_wait_done(struct mesh_event_loop *loop, struct mesh_fetch *fet
 
 /* Removes the staged files and the temporary directory, whatever the case did. */
 static void download_clean_dir(const char *dir) {
-    static const char *const k_files[] = {
-        "curl",        "firmware.window", "firmware.central", "firmware.header",
-        "firmware.gz", "firmware.image"};
+    static const char *const k_files[] = {"curl",
+                                          "firmware.window",
+                                          "firmware.central",
+                                          "firmware.header",
+                                          "firmware.member",
+                                          "firmware.image"};
     char path[512];
     for (size_t i = 0; i < sizeof k_files / sizeof k_files[0]; ++i) {
         snprintf(path, sizeof path, "%s/%s", dir, k_files[i]);
@@ -176,8 +179,8 @@ static void download_clean_dir(const char *dir) {
  *
  * The assertions at the end are the point of the whole phase: the file on disk is the length
  * the central directory promised, and its contents are the document the manifest reader knows
- * how to read. Nothing checked the CRC explicitly - `gzip` did, on the way past, which is why
- * the envelope is the verification rather than a way of avoiding a dependency.
+ * how to read. The CRC and the length are checked on the way past, by the inflate, which is why
+ * there is no separate verify step to test.
  */
 MESH_TEST_CASE(firmware_download_fetches_a_member_end_to_end, unit) {
     char dir[] = "/tmp/meshclient_fwdl_XXXXXX";
@@ -285,9 +288,9 @@ MESH_TEST_CASE(firmware_download_fetches_a_member_end_to_end, unit) {
     {
         char stale[512];
         struct stat info;
-        snprintf(stale, sizeof stale, "%s/firmware.gz", dir);
+        snprintf(stale, sizeof stale, "%s/firmware.member", dir);
         if (stat(stale, &info) == 0) {
-            failure = "the envelope should have been cleaned up";
+            failure = "the member should have been cleaned up";
             goto cleanup;
         }
         snprintf(stale, sizeof stale, "%s/firmware.window", dir);
@@ -317,8 +320,8 @@ cleanup:
  * A release that does not build for this board, and a member that did not survive the trip.
  *
  * Two refusals that must not be one row. "This release has no file for your radio" is an
- * answer about the release; `gzip: crc error` is an answer about the network, and the second
- * is worth retrying where the first is not.
+ * answer about the release; a CRC that does not match is an answer about the network, and the
+ * second is worth retrying where the first is not.
  */
 MESH_TEST_CASE(firmware_download_tells_a_missing_member_from_a_broken_one, unit) {
     char dir[] = "/tmp/meshclient_fwdl_XXXXXX";
@@ -376,7 +379,7 @@ MESH_TEST_CASE(firmware_download_tells_a_missing_member_from_a_broken_one, unit)
     }
 
     /* Now the same fetch with one byte of the member's payload flipped. Everything up to the
-       inflate succeeds; the CRC in the envelope is what catches it. */
+       inflate, and the inflate is what catches it. */
     if (!download_install_curl(dir, true)) {
         failure = "could not install the corrupting CDN";
         goto cleanup;

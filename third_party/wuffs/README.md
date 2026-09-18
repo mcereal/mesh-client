@@ -1,8 +1,10 @@
 # Wuffs
 
 [Wuffs](https://github.com/google/wuffs) is a language that compiles to C, and this is the
-single C file its authors publish as the distribution form of the library. The client uses one
-thing out of it: the PNG decoder that turns a map tile into pixels.
+single C file its authors publish as the distribution form of the library. The client uses two
+things out of it: the PNG decoder that turns a map tile into pixels, and the raw deflate decoder
+and CRC32 underneath it, which inflate a firmware image out of a release zip
+(`src/utils/inflate.c`).
 
 | | |
 |---|---|
@@ -32,12 +34,12 @@ knows about and nobody here can find again. Fixes go upstream and come back as a
 1. Pick the revision and download that file.
 2. Put the new digest, revision and version in the table above.
 3. `make test` - `check-vendor` fails until the two agree.
-4. Re-read `src/map/wuffs_png.h`: the module list there is what keeps the other thirty codecs
+4. Re-read `third_party/wuffs-config/mesh_wuffs.h`: the module list there is what keeps the other thirty codecs
    out of the binary, and upstream occasionally splits a module.
 
 ## What is compiled in
 
-Not all of it. `src/map/wuffs_png.h` sets `WUFFS_CONFIG__MODULES` and then names ADLER32,
+Not all of it. `third_party/wuffs-config/mesh_wuffs.h` sets `WUFFS_CONFIG__MODULES` and then names ADLER32,
 CRC32, DEFLATE, ZLIB, PNG and three of BASE's seven sub-modules, so the JPEG, GIF, BMP, WEBP,
 CBOR and JSON decoders in this file are never compiled - checked by symbol count, not assumed:
 the built object carries 56 `wuffs_png__` symbols and zero from any of the other twelve codecs.

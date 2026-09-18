@@ -481,9 +481,13 @@ static void update_harness_down(struct update_harness *harness) {
     if (harness->dir[0] == '\0') {
         return;
     }
-    static const char *const k_files[] = {
-        "curl",        "firmware.window", "firmware.central", "firmware.header",
-        "firmware.gz", "firmware.image",  "firmware.zip"};
+    static const char *const k_files[] = {"curl",
+                                          "firmware.window",
+                                          "firmware.central",
+                                          "firmware.header",
+                                          "firmware.member",
+                                          "firmware.image",
+                                          "firmware.zip"};
     char path[512];
     for (size_t i = 0; i < sizeof k_files / sizeof k_files[0]; ++i) {
         snprintf(path, sizeof path, "%s/%s", harness->dir, k_files[i]);
@@ -845,7 +849,7 @@ MESH_TEST_CASE(firmware_update_knows_when_it_can_go_back, unit) {
  * link that the download was holding.
  *
  * The regression underneath it is one line of mesh_firmware_update_tick(). The fetch finishes
- * inside that tick - the inflater is reaped there - and its completion moves the ladder to
+ * inside that tick - the inflate runs there - and its completion moves the ladder to
  * READY from under the case that is still running, which then described the fetch again and
  * wrote "resolving" back over it. Nothing ever left: READY is the only state that starts a
  * handover and it only ever gets a tick of its own. On the device that was a progress row that
