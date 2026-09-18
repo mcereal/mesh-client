@@ -160,6 +160,10 @@ bool mesh_session_attached(const struct mesh_session *session) {
     return session != NULL && session->send != NULL;
 }
 
+bool mesh_session_link_silent(const struct mesh_session *session) {
+    return session != NULL && session->send != NULL && session->settings.link_silent;
+}
+
 static int mesh_session_send_raw(struct mesh_session *session, const uint8_t *packet, size_t len,
                                  uint32_t packet_id) {
     if (session == NULL || packet == NULL || len == 0U) {
@@ -1380,6 +1384,9 @@ void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t 
         mesh_log_warn("session", "Failed to decode FromRadio: %s", PB_GET_ERROR(&stream));
         return;
     }
+    /* Any frame at all is the radio still being there, which is what the admin queue's local
+       silence count is asking. */
+    mesh_radio_settings_note_heard(&session->settings);
 
     struct mesh_handshake_status *handshake = &session->handshake;
     switch (message.which_payload_variant) {

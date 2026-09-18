@@ -400,6 +400,9 @@ static void mesh_serial_tick(struct mesh_transport *transport) {
             mesh_serial_reset_link(state, "write failed");
         } else {
             mesh_session_tick(state->session, now);
+            if (mesh_session_link_silent(state->session)) {
+                mesh_serial_reset_link(state, "radio stopped answering");
+            }
         }
     }
 

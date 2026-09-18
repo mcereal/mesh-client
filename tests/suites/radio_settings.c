@@ -1726,6 +1726,116 @@ MESH_TEST_CASE(radio_settings_remote_admin_gives_up_on_silence, unit) {
     record_success(test_name);
 }
 
+/* Sends the next queued request and lets it time out on the local deadline. */
+static bool test_local_timeout(struct mesh_radio_settings *settings, uint64_t *now, uint32_t id) {
+    struct mesh_admin_request next;
+    if (!mesh_radio_settings_next_request(settings, *now, &next)) {
+        return false;
+    }
+    mesh_radio_settings_mark_sent(settings, id, *now);
+    *now += MESH_RADIO_SETTINGS_REPLY_TIMEOUT_MS + 1U;
+    return true;
+}
+
+/*
+ * The radio on the end of the link going quiet is a dead link, not a slow one.
+ *
+ * On device a BLE link stayed up in BlueZ for four minutes with nothing answering, and a
+ * refresh ground through forty five-second timeouts with the tab busy throughout. The give-up
+ * count is one more than the verbs an older firmware answers with nothing, so a radio that is
+ * merely old never trips it.
+ */
+MESH_TEST_CASE(radio_settings_local_silence_calls_the_link_dead, unit) {
+    struct mesh_radio_settings settings;
+    mesh_radio_settings_reset(&settings);
+    MESH_TEST_FAIL_IF(mesh_radio_settings_queue_all(&settings) <= MESH_RADIO_SETTINGS_LOCAL_GIVE_UP,
+                      "a refresh is many more requests than the give-up count");
+
+    uint64_t now = 1000U;
+    uint32_t id = 100U;
+    for (unsigned i = 0; i + 1U < MESH_RADIO_SETTINGS_LOCAL_GIVE_UP; ++i) {
+        MESH_TEST_FAIL_IF(!test_local_timeout(&settings, &now, id++), "queue handing out");
+    }
+    MESH_TEST_FAIL_IF(!test_local_timeout(&settings, &now, id++), "the last request goes out");
+    struct mesh_admin_request next;
+    MESH_TEST_FAIL_IF(settings.link_silent, "one short of the count is an old firmware, not a "
+                                            "dead link");
+    MESH_TEST_FAIL_IF(mesh_radio_settings_next_request(&settings, now, &next),
+                      "the timeout that reaches the count hands nothing more out");
+    MESH_TEST_FAIL_IF(!settings.link_silent, "and calls the link dead");
+    MESH_TEST_FAIL_IF(settings.queue_len != 0U, "with the rest of the queue dropped");
+
+    /* The reset the transport's drop brings clears it. */
+    mesh_radio_settings_reset(&settings);
+    MESH_TEST_FAIL_IF(settings.link_silent || settings.local_silence != 0U, "reset clears it");
+    record_success(test_name);
+}
+
+/* Anything heard from the radio between the silences means it is still there. */
+MESH_TEST_CASE(radio_settings_local_silence_resets_on_any_frame, unit) {
+    struct mesh_radio_settings settings;
+    mesh_radio_settings_reset(&settings);
+    (void)mesh_radio_settings_queue_all(&settings);
+
+    uint64_t now = 1000U;
+    uint32_t id = 200U;
+    for (unsigned round = 0; round < 3U; ++round) {
+        for (unsigned i = 0; i + 1U < MESH_RADIO_SETTINGS_LOCAL_GIVE_UP; ++i) {
+            MESH_TEST_FAIL_IF(!test_local_timeout(&settings, &now, id++), "queue handing out");
+        }
+        mesh_radio_settings_note_heard(&settings);
+    }
+    struct mesh_admin_request next;
+    MESH_TEST_FAIL_IF(!mesh_radio_settings_next_request(&settings, now, &next) ||
+                          settings.link_silent,
+                      "a radio still sending frames is not a dead link");
+
+    /* Remote silences are the mesh's, counted against the remote give-up, never this one. */
+    mesh_radio_settings_reset(&settings);
+    MESH_TEST_FAIL_IF(mesh_radio_settings_set_admin_dest(&settings, 0x7001U, k_remote_key,
+                                                         sizeof k_remote_key) != 0,
+                      "retarget");
+    (void)mesh_radio_settings_queue_all(&settings);
+    now = 1000U;
+    for (unsigned i = 0; i < MESH_RADIO_SETTINGS_REMOTE_GIVE_UP; ++i) {
+        MESH_TEST_FAIL_IF(!mesh_radio_settings_next_request(&settings, now, &next), "remote");
+        mesh_radio_settings_mark_sent(&settings, id++, now);
+        now += MESH_RADIO_SETTINGS_REMOTE_REPLY_TIMEOUT_MS + 1U;
+    }
+    (void)mesh_radio_settings_next_request(&settings, now, &next);
+    MESH_TEST_FAIL_IF(settings.link_silent || settings.local_silence != 0U,
+                      "a silent remote node says nothing about the link");
+    record_success(test_name);
+}
+
+/* The session is what the transport asks, and a frame through it is what resets the count. */
+MESH_TEST_CASE(session_link_silent_follows_the_admin_queue, unit) {
+    struct mesh_session session;
+    mesh_session_init(&session);
+    MESH_TEST_FAIL_IF(mesh_session_link_silent(&session), "a fresh session is not silent");
+
+    session.settings.link_silent = true;
+    MESH_TEST_FAIL_IF(mesh_session_link_silent(&session), "no link, nothing to drop");
+
+    struct mesh_test_trace_capture capture;
+    memset(&capture, 0, sizeof capture);
+    mesh_session_attach(&session, mesh_test_trace_capture_fn, &capture);
+    session.settings.link_silent = true;
+    MESH_TEST_FAIL_IF(!mesh_session_link_silent(&session), "attached and silent");
+
+    session.settings.local_silence = MESH_RADIO_SETTINGS_LOCAL_GIVE_UP - 1U;
+    meshtastic_FromRadio frame = meshtastic_FromRadio_init_default;
+    frame.which_payload_variant = meshtastic_FromRadio_my_info_tag;
+    frame.my_info.my_node_num = 0x1111U;
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &frame), "feed");
+    MESH_TEST_FAIL_IF(session.settings.local_silence != 0U, "any frame resets the count");
+
+    mesh_session_detach(&session);
+    MESH_TEST_FAIL_IF(mesh_session_link_silent(&session) || session.settings.link_silent,
+                      "the drop clears it");
+    record_success(test_name);
+}
+
 /*
  * A reply to a request that went somewhere else brings back a passkey and nothing more.
  *

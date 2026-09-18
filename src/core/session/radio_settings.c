@@ -67,6 +67,8 @@ void mesh_radio_settings_reset_session(struct mesh_radio_settings *settings) {
     settings->pending_dest = 0U;
     settings->timeouts = 0U;
     settings->remote_silence = 0U;
+    settings->local_silence = 0U;
+    settings->link_silent = false;
 
     /* Counted so the app can announce each outcome once, which makes them facts about the link
        that reported them rather than about the radio. */
@@ -470,6 +472,7 @@ static bool mesh_radio_settings_finish_pending(struct mesh_radio_settings *setti
     /* Something answered, so the mesh is carrying our admin traffic: the give-up count starts
        again. A Routing rejection counts - it is still the far end talking to us. */
     settings->remote_silence = 0U;
+    settings->local_silence = 0U;
     return true;
 }
 
@@ -1556,6 +1559,12 @@ bool mesh_radio_settings_busy(const struct mesh_radio_settings *settings) {
     return settings != NULL && settings->pending_request_id != 0U;
 }
 
+void mesh_radio_settings_note_heard(struct mesh_radio_settings *settings) {
+    if (settings != NULL) {
+        settings->local_silence = 0U;
+    }
+}
+
 bool mesh_radio_settings_next_request(struct mesh_radio_settings *settings, uint64_t now_ms,
                                       struct mesh_admin_request *out) {
     if (settings == NULL || out == NULL) {
@@ -1576,11 +1585,14 @@ bool mesh_radio_settings_next_request(struct mesh_radio_settings *settings, uint
         settings->timeouts += 1U;
         if (settings->pending_dest != 0U) {
             settings->remote_silence += 1U;
+        } else {
+            settings->local_silence += 1U;
         }
         if (settings->pending_is_write) {
             mesh_radio_settings_record_write_result(settings, MESH_RADIO_SETTINGS_WRITE_TIMEOUT);
         }
         const bool give_up = settings->remote_silence >= MESH_RADIO_SETTINGS_REMOTE_GIVE_UP;
+        const bool link_silent = settings->local_silence >= MESH_RADIO_SETTINGS_LOCAL_GIVE_UP;
         settings->pending_request_id = 0U;
         settings->pending_sent_at_ms = 0U;
         settings->pending_is_write = false;
@@ -1601,6 +1613,20 @@ bool mesh_radio_settings_next_request(struct mesh_radio_settings *settings, uint
             settings->queue_head = 0U;
             settings->queue_len = 0U;
             settings->remote_silence = 0U;
+            return false;
+        }
+        /* The radio we are attached to, not one across the mesh: nothing left in the queue can
+           be answered either, and the link is handed back for the transport to drop. */
+        if (link_silent) {
+            mesh_log_warn("admin",
+                          "The radio has not answered %u admin requests and sent nothing else; "
+                          "calling the link dead",
+                          MESH_RADIO_SETTINGS_LOCAL_GIVE_UP);
+            memset(settings->queue, 0, sizeof settings->queue);
+            settings->queue_head = 0U;
+            settings->queue_len = 0U;
+            settings->local_silence = 0U;
+            settings->link_silent = true;
             return false;
         }
     }
