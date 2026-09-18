@@ -45,6 +45,13 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
+
+/* Room for the cache path plus the `.tmp` the save writes beside it. Comfortably above the 256
+   struct mesh_app gives the path itself, so the guard below is a bound rather than a limit
+   anything real runs into; it is here rather than shared because the save is the only caller
+   that has to name a second file next to the one it was handed. */
+#define MESH_UI_STORE_TEMP_PATH_MAX 1024
 
 /* ---- saving -------------------------------------------------------------------------------- */
 
@@ -360,12 +367,34 @@ static void mesh_ui_store_save_traceroutes(FILE *file, const struct mesh_ui_trac
     }
 }
 
+/*
+ * Through a temporary beside it, then rename(), exactly as the archive and the trend log are
+ * written - and for the reason those two gave for not doing it here.
+ *
+ * The old argument was that this file is "a snapshot the next publish rebuilds". That is true
+ * of every section but one. The roster is the record of nodes the *radio* no longer carries -
+ * a NodeDB that evicts, or one a factory reset emptied - and no publish can rebuild it, because
+ * the only place those nodes still exist is this file (mesh_app_seed_nodes_from_cache()). So an
+ * interrupted save cost the client the one thing in here nothing else holds.
+ *
+ * And it was interrupted easily. The save runs every two seconds for as long as anything is
+ * moving, fopen(path, "w") empties the file before the first byte is written, and the handheld
+ * at the far end is switched off with a button. A cut anywhere in that window left a truncated
+ * cache; a cut near the start of it left an empty one, which reads back as handshake_valid=0 -
+ * the whole roster, gone, from a radio that was only ever doing what its NodeDB does.
+ */
 int mesh_ui_store_save(const struct mesh_ui_store *store, const char *path) {
     if (store == NULL || path == NULL || path[0] == '\0') {
         return -EINVAL;
     }
 
-    FILE *file = fopen(path, "w");
+    char temp[MESH_UI_STORE_TEMP_PATH_MAX];
+    const int named = snprintf(temp, sizeof temp, "%s.tmp", path);
+    if (named <= 0 || named >= (int)sizeof temp) {
+        return -ENAMETOOLONG;
+    }
+
+    FILE *file = fopen(temp, "w");
     if (file == NULL) {
         return -errno;
     }
@@ -381,10 +410,34 @@ int mesh_ui_store_save(const struct mesh_ui_store *store, const char *path) {
     mesh_ui_store_save_traceroutes(file, &store->traceroutes);
 
     int result = ferror(file) ? -EIO : 0;
-    if (fclose(file) != 0) {
+    /*
+     * Flushed and on the card before the rename, not just handed to the kernel. A rename is
+     * atomic against the *directory*, which on its own only promises that a reader sees one
+     * name or the other - on the FAT volume a Brick keeps its userdata on, a rename that landed
+     * ahead of the data would publish the new name over blocks that are still the old file's,
+     * or zeros. This is the one place that ordering is worth a stall, because it is the one
+     * file here that cannot be rebuilt.
+     */
+    if (result == 0 && fflush(file) != 0) {
         result = -errno;
     }
-    return result;
+    if (result == 0 && fsync(fileno(file)) != 0) {
+        result = -errno;
+    }
+    if (fclose(file) != 0 && result == 0) {
+        result = -errno;
+    }
+    if (result != 0) {
+        (void)unlink(temp);
+        return result;
+    }
+
+    if (rename(temp, path) != 0) {
+        result = -errno;
+        (void)unlink(temp);
+        return result;
+    }
+    return 0;
 }
 
 /* ---- loading ------------------------------------------------------------------------------- */
@@ -1364,7 +1417,20 @@ static void restore_airtime(struct mesh_ui_history *history,
 
 /* What the file collected, made into the store the first frame draws from. */
 static void commit(struct mesh_ui_store *store, struct mesh_ui_store_cache *cache) {
+    /*
+     * The header's count, but never more rows than actually arrived - the rule read_marks[] has
+     * always followed, for the reason given beside it in store_keys.def.
+     *
+     * `handshake_nodes` is written before the rows it counts, so a file cut short between the
+     * two claims a roster it does not have, and the difference lands in the published list as
+     * rows with a node id of 0: blank lines on the Nodes screen, and a count above them that
+     * disagrees with what the reader can see. A truncated cache should be a shorter roster,
+     * not a roster with holes in it.
+     */
     uint32_t node_count = cache->nodes_claimed_set ? cache->nodes_claimed : cache->nodes_loaded;
+    if (cache->nodes_claimed_set && node_count > cache->nodes_loaded) {
+        node_count = cache->nodes_loaded;
+    }
     if (node_count > MESH_UI_MAX_HANDSHAKE_NODES) {
         node_count = MESH_UI_MAX_HANDSHAKE_NODES;
     }
@@ -1386,8 +1452,12 @@ static void commit(struct mesh_ui_store *store, struct mesh_ui_store_cache *cach
         store->handshake_valid = false;
     }
 
+    /* Clamped to the rows that arrived, for the reason the roster above is. */
     uint32_t message_count =
         cache->messages_claimed_set ? cache->messages_claimed : cache->messages_loaded;
+    if (cache->messages_claimed_set && message_count > cache->messages_loaded) {
+        message_count = cache->messages_loaded;
+    }
     if (message_count > MESH_UI_MAX_MESSAGES) {
         message_count = MESH_UI_MAX_MESSAGES;
     }

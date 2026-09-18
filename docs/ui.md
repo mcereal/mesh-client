@@ -58,14 +58,20 @@ There are three files on the card and they answer different questions.
 | | `…prefs.handshake` | `…prefs.messages/` | `…prefs.trends/` |
 |---|---|---|---|
 | What | the roster, channels, read marks, airtime trend, measured routes, and the newest 64 messages | one append-only log per conversation | one append-only log per node |
-| Shape | one file, rewritten whole every save | a file per conversation, appended to | a file per node, appended to |
+| Shape | one file, rewritten whole every save through a temporary and renamed over | a file per conversation, appended to | a file per node, appended to |
 | Keys | `include/mesh/ui/store_keys.def` | the same message records, over `store_internal.h` | one `trend` record, off the same table |
 | Read | at launch, all of it | when a conversation is opened, one file | when a node's detail is opened, one file |
 | Code | `src/ui/store/store_file.c` | `src/ui/store/store_archive.c` | `src/ui/store/store_trends.c` |
 
-The cache is what makes a Brick with no radio in range open on a roster. The archive is what
-makes a conversation go back further than the radio does, and the two numbers behind that are
-worth stating plainly:
+The cache is what makes a Brick with no radio in range open on a roster. All three are written
+through a temporary and renamed into place, which for the cache matters more than its "rebuilt
+on the next publish" shape suggests: **the roster is the one section nothing can rebuild.** It
+is the record of the nodes the *radio* no longer carries - a NodeDB that evicted them, or one a
+factory reset emptied - and `mesh_app_seed_nodes_from_cache()` hands it back to the session at
+launch. A save cut off midway used to leave an empty file, which reads back as no roster at all.
+
+The archive is what makes a conversation go back further than the radio does, and the two
+numbers behind that are worth stating plainly:
 
 - **`MESH_UI_MAX_MESSAGES` (64) is the transport ring**, shared by every conversation at once.
   The conversation list and the all-traffic screen are derived from that one flat list, and it
