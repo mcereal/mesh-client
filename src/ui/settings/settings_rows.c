@@ -139,32 +139,28 @@ static void item_meter(struct item_list *list, enum mesh_str_id label, const cha
     item->number = permille;
 }
 
-/* A group title. No value, no field, nothing happens when A lands on it. Headings are emitted
-   unconditionally - never behind the group's own Enabled toggle - so an edit can never change
-   the row count under the cursor. */
+/*
+ * A group title. No value, no field, nothing happens when A lands on it. Headings are emitted
+ * unconditionally - never behind the group's own Enabled toggle - so an edit can never change
+ * the row count under the cursor.
+ *
+ * **Every heading in this tab is this one**, and that is the rule rather than what the callers
+ * happen to do. There was a second builder that hung a symbol on the heading, drawn by the fb
+ * backend as a card *header* - the disc out at the card's own edge, where a plain heading's
+ * words begin two cells further in, past the leading slot every row of an open section reserves.
+ * Eight headings took it and thirty did not, and five of the eight were Radio actions, so that
+ * one section announced its groups in a shape no other section used: walking LoRa -> Radio
+ * actions moved the heading sideways and gave it a disc for a reason nothing on either screen
+ * showed. The node detail and Status keep their card headers, and they are card screens; a
+ * settings section is a list of fields, and a list has one kind of subheader.
+ *
+ * Optional-per-heading was what made the split invisible to write and visible to read: a group
+ * whose subject has no honest symbol - "Sent with a position" is a sentence about ten bits - had
+ * to say nothing, so the sections divided into the ones whose subjects happened to own a rune
+ * and the ones that did not. `ui_settings_row_icons_are_all_or_nothing` holds it.
+ */
 static void item_heading(struct item_list *list, enum mesh_str_id label) {
     item_add(list, label, MESH_UI_SETTING_HEADING);
-}
-
-/*
- * A heading that also names what its group is about.
- *
- * A backend drawing the section as a column of cards puts this in the card's *header* - the
- * disc beside the title, in the break above the rows - which is the one slot on that shape a
- * plain heading leaves empty. It is the node detail's arrangement and it is the same argument
- * fb_widgets.h makes there: a heading is not one of the rows, so a symbol on it is not the
- * two-column start the leading slot's rule is about.
- *
- * Optional per heading rather than required, deliberately. MESH_UI_ICON_NONE draws the heading
- * exactly as it always has, so a group whose subject has no honest symbol says nothing instead
- * of reaching for an approximate one - and a flat backend is unaffected either way.
- */
-static void item_heading_icon(struct item_list *list, enum mesh_str_id label,
-                              enum mesh_ui_icon icon) {
-    struct mesh_ui_settings_item *item = item_add(list, label, MESH_UI_SETTING_HEADING);
-    if (item != NULL) {
-        item->icon = icon;
-    }
 }
 
 /* "30s", "5m", "2h"; `zero` says what 0 means for this field ("off", "default"). */
@@ -992,7 +988,7 @@ static void build_radio(const struct mesh_ui_settings *s, const struct mesh_ui_h
      * section exactly as it was.
      */
     if (s->admin_dest != 0U) {
-        item_heading_icon(list, MESH_STR_RADIO_ADMIN_REMOTE_HEAD, MESH_UI_ICON_LINK);
+        item_heading(list, MESH_STR_RADIO_ADMIN_REMOTE_HEAD);
         item_text(list, MESH_STR_RADIO_ADMIN_REMOTE_NODE, MESH_UI_SETTING_INFO, s->admin_dest_name);
         item_verb(list, MESH_STR_RADIO_ADMIN_REMOTE_RETURN, MESH_UI_SETTINGS_ACTION_ADMIN_LOCAL);
     }
@@ -1904,7 +1900,7 @@ static void build_telemetry(const struct mesh_ui_settings *s, struct item_list *
     item_field(list, MESH_UI_FIELD_TELEMETRY_AIR_INTERVAL, s->air_quality_interval, NULL);
     item_field(list, MESH_UI_FIELD_TELEMETRY_AIR_SCREEN, s->air_quality_screen_enabled ? 1U : 0U,
                NULL);
-    item_heading_icon(list, MESH_STR_HEAD_POWER, MESH_UI_ICON_POWER);
+    item_heading(list, MESH_STR_HEAD_POWER);
     item_field(list, MESH_UI_FIELD_TELEMETRY_POWER, s->power_measurement_enabled ? 1U : 0U, NULL);
     item_field(list, MESH_UI_FIELD_TELEMETRY_POWER_INTERVAL, s->power_update_interval, NULL);
     item_field(list, MESH_UI_FIELD_TELEMETRY_POWER_SCREEN, s->power_screen_enabled ? 1U : 0U, NULL);
@@ -2182,11 +2178,11 @@ static void build_actions(const struct mesh_ui_settings *s,
      * here that is not one of those.
      */
     if (s->admin_dest != 0U) {
-        item_heading_icon(list, MESH_STR_RADIO_ADMIN_REMOTE_HEAD, MESH_UI_ICON_LINK);
+        item_heading(list, MESH_STR_RADIO_ADMIN_REMOTE_HEAD);
         item_text(list, MESH_STR_RADIO_ADMIN_REMOTE_NODE, MESH_UI_SETTING_INFO, s->admin_dest_name);
     }
 
-    item_heading_icon(list, MESH_STR_HEAD_POWER, MESH_UI_ICON_ACTIONS);
+    item_heading(list, MESH_STR_HEAD_POWER);
     item_radio_action(list, MESH_STR_ACTION_REBOOT, MESH_UI_SETTINGS_ACTION_REBOOT, connected);
     /* DeviceMetadata says whether the hardware can cut its own power; on a board that cannot,
        the request is simply ignored, so the row says so rather than lying about what A does.
@@ -2198,14 +2194,14 @@ static void build_actions(const struct mesh_ui_settings *s,
         item_radio_action(list, MESH_STR_ACTION_SHUTDOWN, MESH_UI_SETTINGS_ACTION_SHUTDOWN,
                           connected);
     }
-    item_heading_icon(list, MESH_STR_HEAD_NODES_RADIO, MESH_UI_ICON_RADIO);
+    item_heading(list, MESH_STR_HEAD_NODES_RADIO);
     item_radio_action(list, MESH_STR_ACTION_RESET_NODEDB, MESH_UI_SETTINGS_ACTION_RESET_NODEDB,
                       connected);
 
     /* Both numbers are what the press would remove, not what is cached or stale: a forget
        keeps our own record and every pin, so a roster of eighty nodes that are all pinned has
        nothing to drop and both rows say so. */
-    item_heading_icon(list, MESH_STR_HEAD_NODES_CACHED, MESH_UI_ICON_NODES);
+    item_heading(list, MESH_STR_HEAD_NODES_CACHED);
     forget_row(list, MESH_STR_ACTION_FORGET_OFF_RADIO,
                handshake != NULL ? handshake->nodes_forgettable_off_radio : 0U,
                MESH_UI_SETTINGS_ACTION_FORGET_OFF_RADIO_NODES);
@@ -2215,7 +2211,7 @@ static void build_actions(const struct mesh_ui_settings *s,
 
     /* Before the factory resets, which is the order the whole section runs in: least to most
        destructive, and a backup is the thing you want to have pressed before the row below. */
-    item_heading_icon(list, MESH_STR_HEAD_BACKUP, MESH_UI_ICON_BACKUP);
+    item_heading(list, MESH_STR_HEAD_BACKUP);
     item_radio_action(list, MESH_STR_ACTION_BACKUP_CONFIG, MESH_UI_SETTINGS_ACTION_BACKUP_CONFIG,
                       connected);
     item_radio_action(list, MESH_STR_ACTION_RESTORE_CONFIG, MESH_UI_SETTINGS_ACTION_RESTORE_CONFIG,
@@ -2223,7 +2219,7 @@ static void build_actions(const struct mesh_ui_settings *s,
     item_radio_action(list, MESH_STR_ACTION_REMOVE_BACKUP, MESH_UI_SETTINGS_ACTION_REMOVE_BACKUP,
                       connected);
 
-    item_heading_icon(list, MESH_STR_HEAD_FACTORY_RESET, MESH_UI_ICON_FACTORY);
+    item_heading(list, MESH_STR_HEAD_FACTORY_RESET);
     item_radio_action(list, MESH_STR_ACTION_FACTORY_CONFIG,
                       MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG, connected);
     item_radio_action(list, MESH_STR_ACTION_FACTORY_DEVICE,

@@ -109,28 +109,24 @@ static struct fb_item_geom fb_item_measure(const struct mesh_ui_backend_fb_state
     g.lead_size =
         item->leading.kind == FB_LEADING_TONAL_SLOT ? list->line - scale : g.fill_h - scale;
     /*
-     * A row on the panel gives back the hairline each card beside it spends into its step, and
-     * what may actually be *drawn* in its leading slot follows from what is left.
+     * A step on the panel gives back the hairline each card beside it spends into it, and what
+     * may actually be *drawn* in its leading slot follows from what is left.
      *
      * A card's edge is drawn outside its own rows' boxes so that no row's highlight can paint it
-     * out (fb_list_cards()), and where the card's neighbour is a full row rather than a heading,
-     * that "outside" is inside *this* row's box. Left there it is the same bug from either side
-     * of one hairline: selecting this row paints over the card's edge and its corners, and
-     * selecting the card's last row paints over the other one. So the box stops short of both,
-     * which costs the row two pixels of fill it was not using and nothing else - the baseline
-     * does not move and a glyph's cell sits inside what is left.
+     * out (fb_list_cards()), and that "outside" is inside *this* step's box. Left there it is the
+     * same bug from either side of one hairline: a highlight on this step paints over the card's
+     * edge and its corners, and selecting the card's last row paints over the other one. So the
+     * box stops short of both, which costs two pixels of fill that were not being used and
+     * nothing else - the baseline does not move and a glyph's cell sits inside what is left.
      *
      * The slot is the gutter and the gutter may not move: it is what puts every row's words in
      * one column, which is the whole of what the slot is for. `lead_size` is therefore measured
-     * before any of this, and only the disc drawn in it gives way - centred in the slot, so the
-     * room a card took comes off the disc and never off the column.
+     * before any of this, and only what is drawn in it gives way - centred in the slot, so the
+     * room a card took comes off the mark and never off the column.
      *
-     * A pixel of clearance at each end where a card is adjacent, because a disc laid against a
+     * A pixel of clearance at each end where a card is adjacent, because a mark laid against a
      * card's hairline reads as attached to that card rather than standing between two, which is
-     * what the row is. It costs the disc two pixels at the Brick's own glyph scale, and those
-     * two are the step at which fb_draw_avatar() drops its symbol a scale - which is a real cost
-     * and the right way round: a smaller mark on a row that is a button under a form, against a
-     * card that looks broken.
+     * what a heading is.
      */
     if (fb_list_has_cards(list) && !fb_list_on_card(list, index)) {
         const int edge = fb_edge(state);
@@ -161,8 +157,9 @@ static struct fb_item_geom fb_item_measure(const struct mesh_ui_backend_fb_state
         item->leading.kind == FB_LEADING_TONAL_SLOT) {
         /* One measurement for all three. A tonal container is an avatar that happens to be
            filled from a family rather than from a hash, and a gutter that differed between them
-           would be a list unable to mix the two - which the node detail does, one card of verbs
-           at a time. The empty slot measures with them for the same reason it exists: it is this
+           would be a list unable to mix the two - which the node detail does a card at a time and
+           a settings section does within one card, where a verb stands among the fields it
+           applies. The empty slot measures with them for the same reason it exists: it is this
            gutter, promised to a row that has nothing to put in it. */
         g.text_x = g.content_x + g.lead_size + adv / 2;
     } else if (item->leading.kind == FB_LEADING_ICON) {

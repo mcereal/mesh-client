@@ -157,12 +157,10 @@ static uint8_t fb_list_card_of(const struct fb_list *list, uint32_t index) {
     return list->cards[index];
 }
 
-/* Whether item `index` stands on a card at all. The two panel sentinels differ only in what the
-   card above may spend into the step (see FB_LIST_PANEL_ROW); to everything else - the ground a
-   row is drawn against, the run walk, the leading slot - they are the same answer. */
+/* Whether item `index` stands on a card at all - the ground a row is drawn against, where the
+   run walk breaks, and whether the leading slot gives the cards beside it their hairline back. */
 bool fb_list_on_card(const struct fb_list *list, uint32_t index) {
-    const uint8_t card = fb_list_card_of(list, index);
-    return card != FB_LIST_NO_CARD && card != FB_LIST_PANEL_ROW;
+    return fb_list_card_of(list, index) != FB_LIST_NO_CARD;
 }
 
 /* Whether this list draws its groups as cards at all, which is a question about the list and
@@ -321,17 +319,15 @@ static void fb_list_cards(const struct mesh_ui_backend_fb_state *state, struct f
              * two cards comes from - never past the body, or the bottom card of a list that
              * filled its window would put its edge through the action bar.
              *
-             * A step that is a full row gets the hairline and not the inset. The inset is what a
-             * heading can absorb and a row cannot: a row is a line advance with a glyph cell in
-             * it and a leading disc nearly as tall as the step, so a card padding into it lands
-             * its edge on the disc's crown. The hairline still has to go *somewhere* outside the
-             * last card row's own fill, which is the same reason box_top spends one upward - a
-             * hairline inside a row box is a hairline that row's highlight paints out, and the
-             * card then reads as open at the bottom on precisely the row being pointed at. So it
-             * is spent downward here exactly as it is spent upward there, and the row below
-             * gives that hairline back out of its own box - see fb_item_measure().
+             * A heading is the only step a card is ever padded into, and that is what makes the
+             * inset safe to spend whole: a heading is drawn small and centres itself in whatever
+             * room is left, where a full row is a line advance with a glyph cell in it and a
+             * leading disc nearly as tall as the step, so a card padding into one would land its
+             * edge on the disc's crown. Nothing hands this function a card followed straight by a
+             * panel row any more - a settings group is one card whatever is in it, verbs
+             * included - so the step below a card is a heading or it is the end of the list.
              */
-            box_bottom += (fb_list_card_of(list, run) == FB_LIST_PANEL_ROW) ? edge : pad;
+            box_bottom += pad;
             const int floor_y = list->track_y + list->track_h;
             if (box_bottom > floor_y) {
                 box_bottom = floor_y;

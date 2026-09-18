@@ -131,27 +131,15 @@ struct fb_list fb_list_begin_rows(const struct fb_layout *layout, uint32_t count
  * the ui_nav_nodes suite are untouched by it.
  */
 
-/* An item standing on the panel rather than on a card. The whole array, for a list with no
-   grouping - which is every list that passes no array at all. */
+/* An item standing on the panel rather than on a card: a group's heading, in the break between
+   the card that ended and the one it opens. The whole array, for a list with no grouping - which
+   is every list that passes no array at all.
+
+   The only sentinel, and that is worth stating because there used to be a second. A settings
+   group that mixed fields and verbs stood its verbs on the bare panel under the card holding its
+   fields, which needed a step the card above could *not* pad into; a group is one card whatever
+   is in it now, so the step below a card is a heading or it is the end of the list. */
 #define FB_LIST_NO_CARD 0xFFU
-/*
- * The same thing, for a step that is a *full row* rather than a break.
- *
- * Both stand on the panel and neither is drawn on a surface, so everything that asks "is this
- * row on a card" treats them alike. What differs is what the card above may do with the step,
- * and it is the difference between a heading and a verb: a heading is drawn small and centres
- * itself in whatever room is left, so a card can spend its bottom padding into that step and
- * take the break from it. A row cannot give that room up. It is a line advance tall with a
- * glyph cell inside it and, where it leads with a disc, a disc nearly as tall as the step - so
- * a card spending into it lands its hairline on the disc's crown and its corner under the
- * cursor's own highlight, which is the settings sections that float a verb under a group of
- * fields (About radio's firmware pair, LoRa's "Ham mode", Position's fixed-position pair).
- *
- * So a screen says which it is, and fb_list_cards() closes the card above at the step boundary
- * where this one follows. The break is then the row itself, which is the better statement
- * anyway: a verb under a group of fields is the thing that *applies* them.
- */
-#define FB_LIST_PANEL_ROW 0xFEU
 
 /*
  * Rows that are not all the same height: `heights` is one row count per item, and it is

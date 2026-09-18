@@ -180,8 +180,7 @@ void fb_render_settings(struct mesh_ui_backend_fb_state *state,
     /* Label column: a fixed width so values line up, capped for narrow scales. */
     const size_t label_cols = fb_field_label_cols(state, layout, 0U);
     /*
-     * Which card each row stands on, and whether that card is a card of verbs - measured here,
-     * in one pass, before anything is placed.
+     * Which card each row stands on - measured here, in one pass, before anything is placed.
      *
      * This is the node detail's arrangement arriving on the screen it was always going to be
      * wanted on. A heading opens a card and everything under it belongs to that card until the
@@ -194,12 +193,9 @@ void fb_render_settings(struct mesh_ui_backend_fb_state *state,
      * is the right answer rather than a gap: a card is what says "these rows belong together",
      * and a list with one group has nothing to say it about.
      *
-     * The leading slot is decided per card, which is the same rule the node detail follows and
-     * for the same reason. A slot is declared for a whole list or for none of it, because a list
-     * that indents only the rows carrying a symbol starts its text in two columns - and on a
-     * column of cards the run of rows that rule is about is the card, not the screen. Two shapes
-     * and nothing between them: a card of verbs, where every row leads with a disc, and a card
-     * of settings, whose rows start at the card's own padding.
+     * The leading slot is declared for the whole screen rather than per card, which is what lets
+     * a card hold fields and verbs together: see `leading_slot` below, and the assignment's own
+     * note for what the per-card version used to cost.
      */
     uint8_t cards[MESH_UI_SETTINGS_ITEMS_MAX];
     bool any_cards = false;
@@ -212,86 +208,39 @@ void fb_render_settings(struct mesh_ui_backend_fb_state *state,
          * a group too, an unnamed one, exactly as the block at the top of a phone's settings
          * page is a card before any label appears.
          *
-         * One kind of row stands on the panel instead, and the leading slot is what forces it.
-         * A card of verbs indents every row past a disc and a card of settings starts at the
-         * card's own padding, so a card holding both would begin its words in two columns -
-         * the exact failure the slot's all-or-nothing rule exists to prevent, and one that is
-         * visible the moment a section puts a press under a group of fields: LoRa's "Ham mode"
-         * is three values and then the switch that applies them.
+         * **A group is one card whatever is in it**, verbs included, and that is the whole of
+         * the assignment now. It used to have a second shape: a group that was not *all* verbs
+         * carded its fields and stood its verbs on the bare panel underneath, so LoRa's "Switch
+         * to ham mode" and About radio's "Check for firmware" drew as unboxed rows between two
+         * cards while Radio actions - the one section that is nothing but verbs - drew the same
+         * widget as a card row. One verb, two pictures, chosen by what else happened to be in
+         * the group.
          *
-         * **So a group that is not all verbs puts its verbs on the panel, under its card.**
+         * What forced that split was the leading slot: a card of verbs indented every row past
+         * a disc and a card of settings started at the card's own padding, so a card holding
+         * both began its words in two columns. That is no longer true and has not been since
+         * the slot was made unconditional - `leading_slot` below is FB_LEADING_TONAL_SLOT for
+         * every row of every open section, and fb_item_measure() gives FB_LEADING_TONAL and
+         * FB_LEADING_TONAL_SLOT one gutter deliberately, so that a list can mix the two. A
+         * verb's disc now lands in the gutter its neighbours were already reserving, and the
+         * labels line up down the card. `ui_capture_a_section_starts_every_row_in_one_column`
+         * is what holds that, and it was passing over the float for the same reason.
          *
-         * The alternative was to give that run a card of its own, and it cannot be done here:
-         * fb_list_cards() spends a card's bottom padding *into the step the next group's
-         * heading stands in*, which is where the break between two cards comes from. Two card
-         * runs with no step between them have nowhere to take that break from - the second is
-         * painted over the first's padding, its bottom edge and its corners - and no arithmetic
-         * fixes it, because the gap has to come out of a step and a step is a row. Standing the
-         * verbs on the panel spends the card's padding against a non-card step, which is exactly
-         * what a heading already is.
-         *
-         * It reads as the better answer rather than merely the available one: a verb under a
-         * group of fields is the thing that *applies* them, which is a button under a form
-         * rather than one more row in it. A group that is nothing but verbs is a different
-         * shape - there the card is the verbs - and it keeps its card.
+         * It reads better as well as simpler: a verb under a group of fields is the thing that
+         * *applies* them, and a button belongs on the form it commits rather than adrift below
+         * it. The card is what says the two are one subject.
          */
         uint8_t card = 0U;
-        uint32_t group_start = 0U;
-        bool group_all_verbs = true;
-        bool group_has_rows = false;
         any_cards = true;
-        for (uint32_t r = 0; r <= count; ++r) {
-            const bool boundary = (r == count) || items[r].kind == MESH_UI_SETTING_HEADING;
-            if (boundary) {
-                /*
-                 * The group that just ended, placed now that what is in it is known. A group of
-                 * verbs is one card; any other group cards its settings and floats its verbs,
-                 * with a fresh ordinal per run so that two runs separated by a float are two
-                 * cards rather than one the painter believes the window cut in half.
-                 */
-                if (group_has_rows && !group_all_verbs) {
-                    bool run_verbs = false;
-                    bool run_open = false;
-                    for (uint32_t g = group_start; g < r; ++g) {
-                        if (items[g].kind == MESH_UI_SETTING_HEADING) {
-                            continue;
-                        }
-                        const bool verb = mesh_ui_settings_item_is_verb(&items[g]);
-                        if (verb) {
-                            /* On the panel, and a full row rather than a break: the card above
-                               closes at the step boundary instead of spending its padding into
-                               this row's disc. See FB_LIST_PANEL_ROW. */
-                            cards[g] = FB_LIST_PANEL_ROW;
-                            run_open = false;
-                            continue;
-                        }
-                        if (!run_open || run_verbs) {
-                            card = (uint8_t)(card + 1U);
-                        }
-                        cards[g] = card;
-                        run_verbs = verb;
-                        run_open = true;
-                    }
-                }
-                if (r == count) {
-                    break;
-                }
+        for (uint32_t r = 0; r < count; ++r) {
+            if (items[r].kind == MESH_UI_SETTING_HEADING) {
                 /* The heading stands on no card, in the break between the one that ended and the
                    one it opens - which is where the column gets the only air it has, and why the
                    grouping costs no rows. See the card-list note in fb_widgets.h. */
                 cards[r] = FB_LIST_NO_CARD;
                 card = (uint8_t)(card + 1U);
-                group_start = r + 1U;
-                group_all_verbs = true;
-                group_has_rows = false;
                 continue;
             }
-            group_has_rows = true;
-            if (!mesh_ui_settings_item_is_verb(&items[r])) {
-                group_all_verbs = false;
-            }
-            /* Provisional: right for a group that turns out to be all verbs, and rewritten
-               above for one that does not. */
             cards[r] = card;
         }
     }
@@ -390,26 +339,24 @@ void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                the same row the node detail draws, so the two screens stay identical. */
             if (item.kind == MESH_UI_SETTING_HEADING) {
                 /*
-                 * The card's own symbol, from the group rather than from here, in the disc that
-                 * makes this line a card *header* rather than a label floating over a panel.
+                 * Plain, and the leading slot under it - which is what every heading in this tab
+                 * draws, without exception.
                  *
-                 * Optional per heading, unlike the node detail's, because a settings group's
-                 * subject is not always a thing this client has a rune for - "Sent with a
-                 * position" is a sentence about ten bits.
+                 * A heading may carry no symbol here, and that is the rule rather than a gap in
+                 * the model. A disc on a heading is a card *header*, which is the node detail's
+                 * shape and Status's, and on a list of fields it puts the label of a card outside
+                 * the column the card's own rows begin in. Eight of the tab's thirty-eight
+                 * headings used to take one - five of them Radio actions' - so that section
+                 * announced its groups in a shape no other section used. See item_heading() in
+                 * settings_rows.c for the whole of the argument; there is nothing to branch on
+                 * here any more.
                  *
-                 * It still owes the gutter, though, on exactly the terms its rows do: the
-                 * leading slot is declared for a whole list or for none of it, and a heading is
-                 * a row of the list. One left at the panel's own margin over rows that begin a
-                 * disc further in is the two-column seam the slot exists to close, with the
-                 * label of a card sitting outside the column it names - LoRa's "Advanced" and
-                 * Position's "Sent with a position" are the two that showed it. So a heading
-                 * with no symbol takes the empty slot, on the same terms its rows do.
+                 * It still owes the gutter: the leading slot is declared for a whole list or for
+                 * none of it, and a heading is a row of the list. One left at the panel's own
+                 * margin over rows that begin a disc further in is the two-column seam the slot
+                 * exists to close.
                  */
-                fb_list_subheader_icon(
-                    state, &list, i, item.label,
-                    item.icon != MESH_UI_ICON_NONE
-                        ? (struct fb_leading){.kind = FB_LEADING_TONAL, .icon = item.icon}
-                        : leading_slot);
+                fb_list_subheader_icon(state, &list, i, item.label, leading_slot);
                 continue;
             }
             /*
