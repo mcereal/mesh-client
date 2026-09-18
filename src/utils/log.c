@@ -5,6 +5,7 @@
 #include "mesh/utils/crash.h"
 
 #include <errno.h>
+#include <fcntl.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -142,9 +143,9 @@ void mesh_log_message_v(enum mesh_log_level level, const char *component, const 
 
 /* ---- the file on the card ------------------------------------------------------------------- */
 
-/* One pass's worth of copying. Small on purpose: this runs twice over at most
-   MESH_LOG_FILE_KEEP_BYTES, at startup, and a bigger buffer would buy nothing a card's own
-   readahead does not already. */
+/* One step of the scan and of the shift. Small on purpose: together they cover at most
+   MESH_LOG_FILE_KEEP_BYTES once each, at startup, and a bigger buffer would buy nothing a card's
+   own readahead does not already. */
 #define LOG_FILE_CHUNK 4096U
 
 bool mesh_log_file_default_path(char *out, size_t out_len) {
@@ -200,16 +201,76 @@ bool mesh_log_file_default_path(char *out, size_t out_len) {
     return true;
 }
 
-/* Copies from `from`'s current position to the end of `into`, in LOG_FILE_CHUNK bites. */
-static int log_file_copy_rest(FILE *from, FILE *into) {
+/*
+ * Steps forward from `from` to just past the next newline, and answers where that is.
+ *
+ * Reads through the same descriptor the rest of the compaction uses, so the scan cannot land on
+ * a different file from the one that was measured. -1 when there is no newline left, which means
+ * a single line longer than the whole retained window.
+ */
+static off_t log_file_line_start(int fd, off_t from, off_t size) {
     char chunk[LOG_FILE_CHUNK];
-    size_t read_bytes;
-    while ((read_bytes = fread(chunk, 1U, sizeof chunk, from)) > 0U) {
-        if (fwrite(chunk, 1U, read_bytes, into) != read_bytes) {
-            return -EIO;
+    off_t at = from;
+    while (at < size) {
+        const off_t remaining = size - at;
+        size_t want = sizeof chunk;
+        if ((off_t)want > remaining) {
+            want = (size_t)remaining;
         }
+        const ssize_t got = pread(fd, chunk, want, at);
+        if (got <= 0) {
+            return -1;
+        }
+        for (ssize_t i = 0; i < got; ++i) {
+            if (chunk[i] == '\n') {
+                return at + i + 1;
+            }
+        }
+        at += got;
     }
-    return ferror(from) ? -EIO : 0;
+    return -1;
+}
+
+/*
+ * Shifts [`from`, `size`) down to the front of `fd` and cuts the file to what was moved.
+ *
+ * A read-then-write walk down the same descriptor rather than a copy through a second file: the
+ * destination is always behind the source, so a forward walk never reads a byte it has already
+ * overwritten. Returns the file's new length, or -errno.
+ */
+static off_t log_file_shift_to_front(int fd, off_t from, off_t size) {
+    char chunk[LOG_FILE_CHUNK];
+    off_t read_at = from;
+    off_t write_at = 0;
+    while (read_at < size) {
+        const off_t remaining = size - read_at;
+        size_t want = sizeof chunk;
+        if ((off_t)want > remaining) {
+            want = (size_t)remaining;
+        }
+        const ssize_t got = pread(fd, chunk, want, read_at);
+        if (got < 0) {
+            return (off_t)-errno;
+        }
+        if (got == 0) {
+            break; /* someone truncated it underneath us; what moved is what there is */
+        }
+        ssize_t put_total = 0;
+        while (put_total < got) {
+            const ssize_t put =
+                pwrite(fd, chunk + put_total, (size_t)(got - put_total), write_at + put_total);
+            if (put <= 0) {
+                return (off_t)-errno;
+            }
+            put_total += put;
+        }
+        read_at += got;
+        write_at += got;
+    }
+    if (ftruncate(fd, write_at) != 0) {
+        return (off_t)-errno;
+    }
+    return write_at;
 }
 
 long mesh_log_file_compact(const char *path) {
@@ -217,105 +278,62 @@ long mesh_log_file_compact(const char *path) {
         return -EINVAL;
     }
 
-    struct stat info;
-    if (stat(path, &info) != 0) {
+    /*
+     * The name is resolved once, here, and everything after this works on the descriptor.
+     *
+     * It used to stat() the path and then open it twice more by name, which CodeQL reported as a
+     * time-of-check/time-of-use race and was right to: the size and the file type that decide
+     * whether to truncate anything were established against a name, and it is the *file* that
+     * then gets truncated. One open() and an fstat() on its descriptor close that gap, and the
+     * rewrite below never names the file again - which also makes keeping tee's inode structural
+     * rather than something the code merely happens to do.
+     */
+    const int fd = open(path, O_RDWR | O_CLOEXEC);
+    if (fd < 0) {
         /* Not there is not a failure: see the header on why a derived path that was never a log
            has to be a no-op rather than an error. */
         return errno == ENOENT ? 0L : -errno;
     }
-    if (!S_ISREG(info.st_mode)) {
-        return 0L;
-    }
-    if (info.st_size <= (off_t)MESH_LOG_FILE_MAX_BYTES) {
-        return 0L;
-    }
 
-    char scratch[MESH_LOG_FILE_PATH_MAX];
-    const int scratch_written = snprintf(scratch, sizeof scratch, "%s.compact", path);
-    if (scratch_written < 0 || (size_t)scratch_written >= sizeof scratch) {
-        return -ENAMETOOLONG;
-    }
-
-    FILE *source = fopen(path, "r");
-    if (source == NULL) {
-        return -errno;
-    }
-    if (fseeko(source, info.st_size - (off_t)MESH_LOG_FILE_KEEP_BYTES, SEEK_SET) != 0) {
+    struct stat info;
+    if (fstat(fd, &info) != 0) {
         const int failed = -errno;
-        (void)fclose(source);
+        (void)close(fd);
         return failed;
     }
-    /* Landing mid-line is the ordinary case, since the cut is a byte count. Discarding the
-       remainder of that line is what keeps the file from starting mid-sentence; end-of-file here
-       would mean a single line longer than the whole retained tail, and then there is nothing
-       worth keeping. */
-    int discard;
-    while ((discard = fgetc(source)) != '\n' && discard != EOF) {
-        /* stepping to the line boundary */
-    }
-    if (discard == EOF) {
-        (void)fclose(source);
+    if (!S_ISREG(info.st_mode) || info.st_size <= (off_t)MESH_LOG_FILE_MAX_BYTES) {
+        (void)close(fd);
         return 0L;
     }
+
+    /* The cut is a byte count, so it lands mid-line in the ordinary case; the remainder of that
+       line is dropped so the file never opens on half a sentence. */
+    const off_t resume =
+        log_file_line_start(fd, info.st_size - (off_t)MESH_LOG_FILE_KEEP_BYTES, info.st_size);
     /*
-     * Nothing after that boundary means the newline just stepped over was the file's last byte -
-     * a single line longer than the whole retained window. Emptying the file is the one outcome
-     * worse than leaving it oversized: the line that made it oversized is also the only thing in
-     * it worth reading, so the cap yields rather than throwing the log away.
+     * No newline in the retained window, or nothing after the one there was, means a single line
+     * longer than the whole window. Emptying the file is the one outcome worse than leaving it
+     * oversized: that line is also the only thing in it worth reading, so the cap yields rather
+     * than throwing the log away.
      */
-    const off_t resume = ftello(source);
     if (resume < 0 || resume >= info.st_size) {
-        (void)fclose(source);
+        (void)close(fd);
         return 0L;
     }
 
-    FILE *tail = fopen(scratch, "w");
-    if (tail == NULL) {
-        const int failed = -errno;
-        (void)fclose(source);
-        return failed;
+    /*
+     * Anything `tee` appends between the fstat above and the ftruncate inside here is past
+     * `info.st_size` and is dropped with the rest of the old file. At startup that is nothing -
+     * the launch banner is already in the file and the client has barely logged - and a couple of
+     * lines is the price of the trim happening at all. The previous shape lost strictly more: it
+     * truncated the file to zero before writing the tail back.
+     */
+    const off_t shifted = log_file_shift_to_front(fd, resume, info.st_size);
+    (void)close(fd);
+    if (shifted < 0) {
+        return (long)shifted;
     }
-    int result = log_file_copy_rest(source, tail);
-    (void)fclose(source);
-    if (result == 0 && fclose(tail) != 0) {
-        result = -errno;
-    } else if (result != 0) {
-        (void)fclose(tail);
-    }
-    if (result != 0) {
-        (void)unlink(scratch);
-        return result;
-    }
-
-    /* The original is reopened rather than replaced, which is the point: `tee` is holding this
-       inode and appending to it. "w" truncates it to nothing and the tail goes back in at the
-       front, so tee's next O_APPEND write lands after it. */
-    tail = fopen(scratch, "r");
-    if (tail == NULL) {
-        const int failed = -errno;
-        (void)unlink(scratch);
-        return failed;
-    }
-    FILE *live = fopen(path, "w");
-    if (live == NULL) {
-        const int failed = -errno;
-        (void)fclose(tail);
-        (void)unlink(scratch);
-        return failed;
-    }
-    result = log_file_copy_rest(tail, live);
-    (void)fclose(tail);
-    if (fclose(live) != 0 && result == 0) {
-        result = -errno;
-    }
-    (void)unlink(scratch);
-    if (result != 0) {
-        return result;
-    }
-
-    struct stat after;
-    const off_t now = stat(path, &after) == 0 ? after.st_size : 0;
-    return (long)(info.st_size - now);
+    return (long)(info.st_size - shifted);
 }
 
 void mesh_log_file_compact_default(void) {

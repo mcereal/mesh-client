@@ -95,6 +95,12 @@ static inline void mesh_log_error(const char *component, const char *fmt, ...) {
  * is what keeps `tee` correct instead - it appends with `O_APPEND`, so its next write positions
  * itself at the new, shorter end and nothing is lost and nothing is written into a hole.
  *
+ * The rewrite opens the path once and works on that descriptor from then on: the tail is shifted
+ * down the file itself and the file is cut to what moved. Nothing temporary is written beside the
+ * log, and the size that decides whether to truncate is read from the same descriptor that gets
+ * truncated - measuring one file by name and then truncating whatever the name points at later is
+ * the race CodeQL reports, and keeping tee's inode stops being luck once the name is out of it.
+ *
  * Startup is the only moment this runs. A single session is left to grow, which is the trade:
  * what made the file unbounded was accumulating across every run since the card was written, and
  * mid-run truncation would be cutting the file underneath a `tee` that is actively writing a

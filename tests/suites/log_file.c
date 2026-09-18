@@ -163,7 +163,8 @@ MESH_TEST_CASE(log_file_keeps_the_inode_so_an_open_writer_follows, unit) {
     const long reclaimed = mesh_log_file_compact(path);
     struct stat after;
     const bool restatted = stat(path, &after) == 0;
-    /* The scratch file the rewrite goes through must not be left behind. */
+    /* The rewrite works down one descriptor and writes nothing beside the log. This guards the
+       earlier shape - a copy through `<path>.compact` - from coming back unnoticed. */
     char scratch[320];
     snprintf(scratch, sizeof scratch, "%s.compact", path);
     const bool scratch_gone = access(scratch, F_OK) != 0;
@@ -174,7 +175,7 @@ MESH_TEST_CASE(log_file_keeps_the_inode_so_an_open_writer_follows, unit) {
     MESH_TEST_FAIL_IF(before.st_ino != after.st_ino,
                       "the compaction replaced the inode, so an open tee would follow the wrong "
                       "file");
-    MESH_TEST_FAIL_IF(!scratch_gone, "the compaction left its scratch file on the card");
+    MESH_TEST_FAIL_IF(!scratch_gone, "the compaction left a stray file beside the log");
     record_success(test_name);
 }
 
@@ -247,6 +248,34 @@ MESH_TEST_CASE(log_file_one_enormous_line_is_left_alone, unit) {
 
     MESH_TEST_FAIL_IF(reclaimed != 0L, "a log with no line boundary reported work it cannot do");
     MESH_TEST_FAIL_IF(after != written, "a log with no line boundary was truncated anyway");
+    record_success(test_name);
+}
+
+/*
+ * A log path that is not an ordinary file is left exactly as it is.
+ *
+ * What this pins is the outcome, not which check produces it. A fifo reports `st_size` 0, so the
+ * cap turns it away before the S_ISREG guard is reached, and a directory cannot be opened O_RDWR
+ * at all - so S_ISREG is defence in depth here rather than the thing under test, and removing it
+ * does not fail this case. The case is still worth its lines: the compaction truncates whatever
+ * descriptor it opened, and "the log is a fifo" must not end in a replaced or emptied node.
+ */
+MESH_TEST_CASE(log_file_refuses_anything_but_a_regular_file, unit) {
+    char dir[] = "/tmp/mesh_log_fifoXXXXXX";
+    MESH_TEST_FAIL_IF(!log_file_tempdir(dir), "mkdtemp failed");
+
+    char path[256];
+    snprintf(path, sizeof path, "%s/MeshClient.txt", dir);
+    const bool made = mkfifo(path, 0600) == 0;
+
+    const long reclaimed = made ? mesh_log_file_compact(path) : -1L;
+    struct stat info;
+    const bool still_a_fifo = stat(path, &info) == 0 && S_ISFIFO(info.st_mode);
+    mesh_test_remove_tree(dir);
+
+    MESH_TEST_FAIL_IF(!made, "could not create a fifo to stand in for a non-regular log");
+    MESH_TEST_FAIL_IF(reclaimed != 0L, "a non-regular file was treated as a log to cut back");
+    MESH_TEST_FAIL_IF(!still_a_fifo, "the compaction replaced a non-regular file");
     record_success(test_name);
 }
 
