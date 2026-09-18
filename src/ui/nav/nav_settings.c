@@ -277,6 +277,23 @@ void mesh_ui_nav_fill_settings_action(const struct mesh_ui_nav *nav,
         snprintf(action->text, sizeof action->text, "%s", nav->contact_url);
         return;
     }
+    /*
+     * Emptying a channel slot, which is a SET_CHANNEL and so travels as a save rather than as a
+     * radio action: `channel` names the slot and `number` says this is the clearing sort, and
+     * mesh_app_build_settings_write() answers both. Everything a save gets - the "Saving
+     * channel n" toast, the ack or rejection tracked against it, the read-back - it gets too.
+     *
+     * No edits. Anything pending on this slot was typed into rows the write is about to erase,
+     * so carrying them would mean sending a name on the way to clearing the name.
+     */
+    if (which == MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL) {
+        action->type = MESH_UI_ACTION_SAVE_SETTINGS;
+        action->section = nav->settings_section;
+        action->channel = nav->settings_channel;
+        action->number = (uint32_t)which;
+        action->edit_count = 0U;
+        return;
+    }
     if (mesh_ui_settings_action_is_forget(which)) {
         action->type = MESH_UI_ACTION_FORGET_NODES;
         action->section = nav->settings_section;
@@ -320,8 +337,18 @@ bool mesh_ui_nav_confirm_key(struct mesh_ui_nav *nav, enum mesh_ui_key key,
                keeps no state and so has no edits to carry - a radio one, or one of the two
                that ask this client to forget cached nodes. */
             if (nav->confirm_action != (uint8_t)MESH_UI_SETTINGS_ACTION_NONE) {
-                mesh_ui_nav_fill_settings_action(
-                    nav, (enum mesh_ui_settings_action)nav->confirm_action, action);
+                const enum mesh_ui_settings_action confirmed =
+                    (enum mesh_ui_settings_action)nav->confirm_action;
+                mesh_ui_nav_fill_settings_action(nav, confirmed, action);
+                /* The one confirmed row that takes itself off the screen: a cleared slot is an
+                   empty one, and an empty slot is not offered the press. So the cursor is put
+                   back on a row that will still be there, the way the press that leaves remote
+                   administration does - and the edits go with it, because the rows they were
+                   typed into are the ones being erased. */
+                if (confirmed == MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL) {
+                    mesh_ui_nav_edits_clear(nav);
+                    nav->cursor[MESH_UI_SCREEN_SETTINGS] = 0U;
+                }
             } else {
                 mesh_ui_nav_fill_save(nav, action);
             }

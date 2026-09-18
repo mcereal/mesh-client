@@ -1448,6 +1448,20 @@ static void build_channel(const struct mesh_ui_settings *s, uint8_t slot, struct
     item_field(list, MESH_UI_FIELD_CHANNEL_DOWNLINK, channel->downlink_enabled ? 1U : 0U, NULL);
     item_field(list, MESH_UI_FIELD_CHANNEL_POSITION, channel->position_precision, NULL);
     item_field(list, MESH_UI_FIELD_CHANNEL_MUTED, channel->is_muted ? 1U : 0U, NULL);
+    /*
+     * Emptying the slot, under the rows that describe it and offered only where it would do
+     * something.
+     *
+     * Not on the primary, for the reason its role is not offered either: there is one of it and
+     * a radio without it is off its own mesh. Not on a slot that is already empty, because a
+     * verb that changes nothing is the thing the action table exists to prevent - and "empty"
+     * has to be asked of all three, since a disabled slot holding a name and a key is exactly
+     * the state this row is here for.
+     */
+    if (channel->role != 1U &&
+        (channel->role != 0U || channel->name[0] != '\0' || channel->psk_len != 0U)) {
+        item_verb(list, MESH_STR_CHANNELS_CLEAR_ROW, MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL);
+    }
 }
 
 int mesh_ui_settings_channel_at_row(const struct mesh_ui_settings *settings,

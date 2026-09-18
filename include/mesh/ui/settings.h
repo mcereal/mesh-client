@@ -662,6 +662,23 @@ enum mesh_ui_settings_action {
     MESH_UI_SETTINGS_ACTION_SHARE_CHANNELS,
     MESH_UI_SETTINGS_ACTION_IMPORT_CHANNELS,
     /*
+     * At the foot of one channel's rows: empty the slot, rather than only stop listening to it.
+     *
+     * The table is eight fixed slots and the wire has no verb for removing one, so "delete a
+     * channel" is a write like any other - and setting Role to Disabled, which is the obvious
+     * way to reach it, leaves the name and the key sitting in the slot. That is the right
+     * default for a channel being turned off for the afternoon and the wrong one for a key
+     * being got rid of, and a role row that silently wiped a key to spare the difference would
+     * be a worse surprise than either.
+     *
+     * So this is the second press rather than a change to the first: role, name, key and both
+     * module settings go at once, and the sheet says what is lost. Not a radio action - what
+     * goes out is a SET_CHANNEL, so it travels as a save of that slot with this verb in
+     * `number` (see mesh_app_build_settings_write) and collects the same toast, the same ack
+     * tracking and the same read-back a save does.
+     */
+    MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL,
+    /*
      * Contact sharing, at the foot of the User list: this radio's own identity as a link, and
      * somebody else's typed in.
      *

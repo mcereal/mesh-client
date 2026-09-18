@@ -1086,6 +1086,96 @@ MESH_TEST_CASE(app_channel_write_build, unit) {
     record_success(test_name);
 }
 
+/*
+ * "Clear this slot": the write that empties a channel rather than editing it.
+ *
+ * The claim worth holding is that it starts from nothing rather than from the radio's copy.
+ * Disabling a channel through its Role row leaves the name and the key in the slot - that is
+ * what this verb exists to be the second press for - so a clear built as "the radio's channel
+ * with the role changed" would be the bug wearing the fix's name. Every field of the
+ * ChannelSettings goes, `id` and the two MQTT flags included: this client has no row for `id`
+ * at all, so carrying it is exactly how a field nobody can see survives a press meant to erase
+ * everything.
+ *
+ * The edits are set and deliberately not honoured for the same reason: a name typed a moment
+ * before the press is on its way to being erased, and sending it first would put a name the
+ * reader is deleting onto the air.
+ */
+MESH_TEST_CASE(app_channel_clear_write_build, unit) {
+    struct mesh_radio_settings radio;
+    mesh_radio_settings_reset(&radio);
+    meshtastic_Channel channel = meshtastic_Channel_init_default;
+    channel.index = 1;
+    channel.role = meshtastic_Channel_Role_SECONDARY;
+    channel.has_settings = true;
+    snprintf(channel.settings.name, sizeof channel.settings.name, "%s", "Hikers");
+    channel.settings.psk.size = 16U;
+    for (unsigned i = 0; i < 16U; ++i) {
+        channel.settings.psk.bytes[i] = (uint8_t)(0xA0U + i);
+    }
+    channel.settings.id = 77U;
+    channel.settings.uplink_enabled = true;
+    channel.settings.downlink_enabled = true;
+    channel.settings.has_module_settings = true;
+    channel.settings.module_settings.position_precision = 16U;
+    channel.settings.module_settings.is_muted = true;
+    mesh_radio_settings_apply_channel(&radio, &channel);
+
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    action.type = MESH_UI_ACTION_SAVE_SETTINGS;
+    action.section = MESH_UI_SETTINGS_CHANNELS;
+    action.channel = 1U;
+    action.number = (uint32_t)MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL;
+    action.edit_count = 1U;
+    action.edits[0].field = MESH_UI_FIELD_CHANNEL_NAME;
+    snprintf(action.edits[0].text, sizeof action.edits[0].text, "%s", "Renamed");
+
+    struct mesh_admin_request write;
+    MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+                          write.kind != MESH_ADMIN_SET_CHANNEL || write.type != 1U ||
+                          write.payload.channel.index != 1 ||
+                          write.payload.channel.role != meshtastic_Channel_Role_DISABLED ||
+                          !write.payload.channel.has_settings,
+                      "clearing a slot should be a SET_CHANNEL that disables it");
+    MESH_TEST_FAIL_IF(write.payload.channel.settings.name[0] != '\0' ||
+                          write.payload.channel.settings.psk.size != 0U ||
+                          write.payload.channel.settings.id != 0U ||
+                          write.payload.channel.settings.uplink_enabled ||
+                          write.payload.channel.settings.downlink_enabled ||
+                          write.payload.channel.settings.has_module_settings ||
+                          write.payload.channel.settings.module_settings.position_precision != 0U ||
+                          write.payload.channel.settings.module_settings.is_muted,
+                      "clearing a slot should leave nothing of the channel behind");
+    /* Not merely a size of 0 with the old key still in the buffer: the bytes go too, so nothing
+       downstream can read past the length and find a key that was supposed to be gone. */
+    bool any_key_byte = false;
+    for (unsigned i = 0; i < sizeof write.payload.channel.settings.psk.bytes; ++i) {
+        if (write.payload.channel.settings.psk.bytes[i] != 0U) {
+            any_key_byte = true;
+        }
+    }
+    MESH_TEST_FAIL_IF(any_key_byte, "a cleared slot should carry no key bytes at all");
+
+    /* The verb is answered per slot, not per section: a slot the radio never sent is refused
+       exactly as a save of it is, rather than clearing something that is not there. */
+    action.channel = 3U;
+    MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != -ENOENT,
+                      "a slot the radio never sent cannot be cleared");
+
+    /* And an ordinary save of the same slot is untouched by any of it: the verb travels in
+       `number`, so a save - which carries MESH_UI_SETTINGS_ACTION_NONE - still edits. */
+    action.channel = 1U;
+    action.number = (uint32_t)MESH_UI_SETTINGS_ACTION_NONE;
+    MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+                          write.payload.channel.role != meshtastic_Channel_Role_SECONDARY ||
+                          strcmp(write.payload.channel.settings.name, "Renamed") != 0 ||
+                          write.payload.channel.settings.psk.size != 16U ||
+                          write.payload.channel.settings.id != 77U,
+                      "a plain save of the same slot should still carry the radio's copy");
+    record_success(test_name);
+}
+
 /* LoRa and Security rows, and the writes built from them. */
 MESH_TEST_CASE(app_lora_security_write_build, unit) {
     struct mesh_radio_settings radio;

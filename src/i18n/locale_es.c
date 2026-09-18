@@ -1051,6 +1051,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_CHANNELS_KEY_AES128] = "AES-128",
     [MESH_STR_CHANNELS_KEY_AES256] = "AES-256",
     [MESH_STR_CHANNELS_KEY_ODD] = "clave inusual",
+    [MESH_STR_CHANNELS_CLEAR_ROW] = "Vaciar esta ranura",
     [MESH_STR_CHANNELS_SHARE_ROW] = "Compartir estos canales",
     [MESH_STR_CHANNELS_IMPORT_ROW] = "Añadir desde un enlace",
     [MESH_STR_SHARE_TITLE] = "Compartir canales",
@@ -1194,11 +1195,13 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_CONFIRM_TITLE_HAM_MODE] = "¿Pasar a modo ham?",
     [MESH_STR_CONFIRM_TITLE_FW_USB] = "¿Actualizar la radio por USB?",
     [MESH_STR_CONFIRM_TITLE_FW_BLE] = "¿Actualizar la radio por Bluetooth?",
+    [MESH_STR_CONFIRM_TITLE_CLEAR_CHAN] = "¿Vaciar el canal %u?",
     [MESH_STR_CONFIRM_TITLE_SAVE_CHANNEL] = "¿Guardar canal %u?",
     [MESH_STR_CONFIRM_TITLE_SAVE] = "¿Guardar %s?",
     [MESH_STR_CONFIRM_ACCEPT_REBOOT] = "Reiniciar ahora",
     [MESH_STR_CONFIRM_ACCEPT_SHUTDOWN] = "Apagar ahora",
     [MESH_STR_CONFIRM_ACCEPT_RESET_DB] = "Restablecer la base de nodos",
+    [MESH_STR_CONFIRM_ACCEPT_CLEAR_CHAN] = "Vaciar la ranura",
     [MESH_STR_CONFIRM_ACCEPT_FORGET_OFF] = "Olvidarlos",
     [MESH_STR_CONFIRM_ACCEPT_FORGET_ALL] = "Olvidarlos todos",
     [MESH_STR_CONFIRM_ACCEPT_FACTORY_CFG] = "Restablecer ajustes de fábrica",
@@ -1223,6 +1226,9 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_CONFIRM_TEXT_RESET_DB] =
         "La radio olvida todos los nodos recibidos, salvo los favoritos. Los nombres vuelven "
         "cuando transmiten de nuevo. La lista del Brick se conserva; la fila de abajo la borra.",
+    [MESH_STR_CONFIRM_TEXT_CLEAR_CHAN] =
+        "Se borran el nombre, la clave y los ajustes MQTT, y el rol pasa a Desactivado. Una "
+        "clave sin copia en otro sitio se pierde para siempre.",
     [MESH_STR_CONFIRM_TEXT_FORGET_OFF] =
         "Quita los nodos que este Brick recuerda y la radio ya no guarda: los marcados como "
         "\"fuera de radio\" en Nodos. Se conservan los fijados y nuestro nodo.",

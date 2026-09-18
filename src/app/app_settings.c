@@ -1112,6 +1112,27 @@ int mesh_app_build_settings_write(const struct mesh_radio_settings *radio,
             out->payload.channel = radio->channels[action->channel];
             out->payload.channel.index = (int8_t)action->channel;
             out->payload.channel.has_settings = true;
+            /*
+             * "Clear this slot", which is a write of the same shape with nothing carried over.
+             *
+             * Assembled whole and returned here rather than expressed as edits, for the reason
+             * the canned list is: what goes out is not the radio's channel with three fields
+             * changed but an empty one, and every field of ChannelSettings is meant to go -
+             * `id` and the two MQTT flags included. Starting from the radio's copy the way a
+             * save does would carry whichever of them this client has no row for.
+             *
+             * DISABLED plus a zeroed ChannelSettings is what the phone apps write for an unused
+             * slot, so a table this leaves behind is one they read as the same eight slots we
+             * do. Returning early is what keeps the edit loop below off it: a name typed a
+             * moment ago is not something to send on the way to clearing the name.
+             */
+            if ((enum mesh_ui_settings_action)action->number ==
+                MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL) {
+                out->payload.channel.role = meshtastic_Channel_Role_DISABLED;
+                out->payload.channel.settings =
+                    (meshtastic_ChannelSettings)meshtastic_ChannelSettings_init_default;
+                return 0;
+            }
             break;
         default:
             return -ENOTSUP;
