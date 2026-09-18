@@ -86,8 +86,12 @@ struct mesh_fetch_conn {
     uint8_t buffer[FETCH_READ_CHUNK];
 };
 
+/*
+ * Closes the hop's connection. Not its lookup: the resolver belongs to the fetcher, not to the
+ * request, and a request freed after its completion ran may be freed *under* the next one - which
+ * the completion started, and whose lookup is the one in the resolver now.
+ */
 static void fetch_drop_socket(struct mesh_fetch *fetch, struct mesh_fetch_conn *conn) {
-    mesh_resolve_cancel(&fetch->resolve);
     mesh_tls_client_stop(&conn->tls);
     if (conn->fd >= 0) {
         if (conn->fd_registered && fetch->loop != NULL) {
@@ -123,6 +127,8 @@ static void fetch_complete(struct mesh_fetch *fetch, enum mesh_fetch_outcome out
         return;
     }
     fetch->conn = NULL;
+    /* Before the callback, which may start a lookup of its own. */
+    mesh_resolve_cancel(&fetch->resolve);
     fetch_drop_socket(fetch, conn);
     if (conn->out_fd >= 0) {
         const int closed = close(conn->out_fd);
@@ -738,6 +744,7 @@ void mesh_fetch_cancel(struct mesh_fetch *fetch) {
     }
     struct mesh_fetch_conn *const conn = fetch->conn;
     fetch->conn = NULL;
+    mesh_resolve_cancel(&fetch->resolve);
     fetch_free(fetch, conn);
 }
 

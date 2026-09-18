@@ -469,7 +469,15 @@ cleanup:
     }
 }
 
-/* A reply past its cap is abandoned, and the completion that says so can start the next. */
+/*
+ * A reply past its cap is abandoned, and the completion that says so can start the next.
+ *
+ * Both by name rather than by address, so both go through the resolver: the first request is
+ * freed after its completion has run, and freeing it once cancelled the lookup the completion
+ * had just started - found on the Brick, where the firmware index's completion starts the
+ * manifest's fetch. `127.1` is a name to inet_pton() and an address to getaddrinfo(), which is
+ * what puts a lookup in the path without needing DNS.
+ */
 MESH_TEST_CASE(fetch_caps_a_reply_and_chains_the_next, unit) {
     struct fetch_harness h;
     const char *failure = NULL;
@@ -477,6 +485,7 @@ MESH_TEST_CASE(fetch_caps_a_reply_and_chains_the_next, unit) {
         failure = "the harness did not start";
         goto cleanup;
     }
+    mesh_fetch_connect_to(&h.fetch, "127.1", h.server.port);
     h.probe.chain_url = "https://api.github.com/doc";
     const struct mesh_fetch_request big = {
         .url = "https://api.github.com/big",
