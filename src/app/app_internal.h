@@ -63,6 +63,35 @@ void mesh_app_firmware_update_tick(struct mesh_app *app, uint64_t now);
  */
 struct mesh_firmware_update_hooks mesh_app_firmware_hooks(struct mesh_app *app);
 
+/*
+ * How long the next turn of the foreground loop may wait, in ms.
+ *
+ * The configured idle timeout, or a short turn while a firmware handover has the radio - see the
+ * comment over MESH_APP_TRANSFER_TURN_MS for why a transfer that is one chunk per tick cannot
+ * live with a one-second tick.
+ */
+int mesh_app_turn_ms(const struct mesh_app *app);
+
+/*
+ * Whether the radio this client just reflashed still has a usable bond.
+ *
+ * Armed by a finished BLE install and settled from the tick: a radio that reconnects inside the
+ * grace kept its bond, and one that does not has a bond the firmware change invalidated, which
+ * is dropped so the next connect pairs instead of failing with nothing to act on. `settle`
+ * returns true on the turn it drops one, which is the turn worth saying so on.
+ */
+void mesh_app_firmware_watch_bond(struct mesh_app *app, const struct mesh_firmware_update *update,
+                                  uint64_t now);
+
+/*
+ * What a finished install does next: hands the transports back, says how it went, drops the
+ * check's now-stale answer, and arms the bond watch above. Installed as the update's on_done,
+ * and reachable here for the same reason mesh_app_firmware_hooks() is - it is the seam between
+ * the install and everything it has to put back, and a suite cannot get at it through a press.
+ */
+void mesh_app_firmware_update_done(void *userdata, const struct mesh_firmware_update *update);
+bool mesh_app_firmware_settle_bond(struct mesh_app *app, const char *connected, uint64_t now);
+
 /* ---- app_mqtt.c ------------------------------------------------------------------------- */
 
 /*

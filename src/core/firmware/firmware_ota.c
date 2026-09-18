@@ -302,7 +302,6 @@ ota_pick_loader(struct mesh_firmware_ota *ota, const struct mesh_bluez_device_in
 
 static void ota_begin_connect(struct mesh_firmware_ota *ota,
                               const struct mesh_bluez_device_info *loader, uint64_t now_ms) {
-    ota_discovery(ota, false);
     ota->loader_seen = true;
     mesh_str_copy(ota->loader_address, sizeof ota->loader_address, loader->address);
     ota_device_path(ota->adapter_path, ota->loader_address, ota->loader_path,
@@ -320,11 +319,29 @@ static void ota_begin_connect(struct mesh_firmware_ota *ota,
     ota->deadline_ms = now_ms + OTA_CONNECT_TIMEOUT_MS;
     ota->next_poll_ms = now_ms;
     ota->connected = false;
+    /*
+     * Connect first and stop the scan after it, which is the opposite of what the transport
+     * next door does and is not an oversight either place.
+     *
+     * A bonded radio's device object outlives the scan that found it, so ble_transport.c stops
+     * first and hands the radio to the connection. A loader's does not: its address is one this
+     * adapter has never seen - the radio's, plus one - so bluetoothd holds it only for as long
+     * as the discovery that produced it, and ending that discovery can take the object with it.
+     *
+     * Observed on a Brick, 2026-09-17: GetManagedObjects listed
+     * /org/bluez/hci0/dev_9C_13_9E_9D_0A_DA, StopDiscovery went out, and Connect on that exact
+     * path came back org.freedesktop.DBus.Error.UnknownObject five milliseconds later. The
+     * attempt below it re-scanned and won the race, so the install finished - which is what a
+     * race looks like from the outside, and why this was worth ordering rather than retrying.
+     */
     const int result = mesh_bluez_client_connect_begin(ota->client, ota->loader_path);
     if (result < 0) {
         mesh_log_warn("firmware", "Connect to the loader would not start: %d", result);
+        /* The scan stays up for the retry, which is about to want it. */
         ota_retry(ota, MESH_FIRMWARE_OTA_ERROR_CONNECT, now_ms);
+        return;
     }
+    ota_discovery(ota, false);
 }
 
 static void ota_tick_waiting(struct mesh_firmware_ota *ota, uint64_t now_ms) {

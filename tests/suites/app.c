@@ -1510,6 +1510,277 @@ cleanup:
 }
 
 /*
+ * A radio that does not come back after its own update has its bond dropped for it.
+ *
+ * Installing firmware is the one thing this client does that changes a radio's half of a BLE
+ * bond, and on an ESP32 it does: after 2.8.0.47db0e3 a Heltec V3 refused every connect with
+ * le-connection-abort-by-local, because the LTK here was one the radio no longer had. Nothing
+ * in the link layer says so - BlueZ reports the device Paired, since our half is intact - so
+ * mesh_ble_do_connect() takes the bonded branch at ble_transport.c and the client can only
+ * answer "connect failed". Forgetting the node by hand is the way out, and expecting a user to
+ * work that out from two words is the bug.
+ *
+ * Both directions are the case, because dropping the bond every time is the other bug: an
+ * upgrade whose keys survived would charge a PIN nobody needed to type.
+ */
+MESH_TEST_CASE(app_drops_a_bond_its_own_update_invalidated, unit) {
+    const char *failure = NULL;
+    bool app_ready = false;
+    unsigned removed = 0U;
+    struct mesh_app app;
+    memset(&app, 0, sizeof app);
+
+    struct mesh_bluez_mock_config mock_config = {.adapter_path = "/org/bluez/hci0",
+                                                 .remove_device_calls = &removed};
+    mesh_bluez_client_mock_enable(&mock_config);
+
+    char home_dir[APP_TEST_HOME_CAP];
+    if (!app_test_home(home_dir, sizeof home_dir, "bondwatch")) {
+        failure = "mkdtemp failed";
+        goto cleanup;
+    }
+    struct mesh_app_config config = mesh_app_config_default();
+    config.run_mode = MESH_APP_RUN_FOREGROUND;
+    if (mesh_app_init(&app, &config) != 0) {
+        failure = "app init failed";
+        goto cleanup;
+    }
+    app_ready = true;
+    /* The bond lives on the adapter, so the transport has to be up for one to be dropped. */
+    if (mesh_transport_registry_start_all(&app.transport_registry, &app.config, &app.loop) < 0) {
+        failure = "transport start failed";
+        goto cleanup;
+    }
+
+    struct mesh_firmware_update update;
+    memset(&update, 0, sizeof update);
+    update.path = MESH_FIRMWARE_PATH_BLE;
+    snprintf(update.where, sizeof update.where, "%s", "9C:13:9E:9D:0A:D9");
+
+    /* Nothing is watched until an install finishes. */
+    if (mesh_app_firmware_settle_bond(&app, NULL, 1000U)) {
+        failure = "a client that has flashed nothing drops no bonds";
+        goto cleanup;
+    }
+
+    /* A cable leaves no bond behind, so the USB path is not watched at all. */
+    struct mesh_firmware_update over_usb = update;
+    over_usb.path = MESH_FIRMWARE_PATH_USB;
+    mesh_app_firmware_watch_bond(&app, &over_usb, 1000U);
+    if (app.firmware_bond_watch[0] != '\0') {
+        failure = "a serial radio has no bond to lose";
+        goto cleanup;
+    }
+
+    /*
+     * And the wiring: a *finished* install arms it, rather than the watch only working when
+     * something calls it by hand. This is the install's own completion, the one
+     * mesh_firmware_update_start() is handed.
+     */
+    struct mesh_firmware_update finished = update;
+    finished.state = MESH_FIRMWARE_UPDATE_DONE;
+    snprintf(finished.release.version, sizeof finished.release.version, "%s", "2.8.0.47db0e3");
+    mesh_app_firmware_update_done(&app, &finished);
+    if (app.firmware_bond_watch[0] == '\0') {
+        failure = "a finished BLE install watches the radio it flashed";
+        goto cleanup;
+    }
+    /* A failed one does not: the radio is running what it was, and its bond with it. */
+    app.firmware_bond_watch[0] = '\0';
+    struct mesh_firmware_update refused = finished;
+    refused.state = MESH_FIRMWARE_UPDATE_FAILED;
+    mesh_app_firmware_update_done(&app, &refused);
+    if (app.firmware_bond_watch[0] != '\0') {
+        failure = "an install that failed changed no firmware and no keys";
+        goto cleanup;
+    }
+    mesh_app_firmware_update_done(&app, &finished);
+    if (mesh_app_firmware_settle_bond(&app, "9C:13:9E:9D:0A:D9", 2000U)) {
+        failure = "a radio back on the link kept its bond";
+        goto cleanup;
+    }
+    if (app.firmware_bond_watch[0] != '\0' || removed != 0U) {
+        failure = "and the watch ends without touching it";
+        goto cleanup;
+    }
+
+    /*
+     * A different radio holding the link is not a verdict on this one.
+     *
+     * mesh_app_autoconnect() returns early whenever a link is up - one radio at a time - so a
+     * serial node plugged in after the update means BLE is never reached for, and the watched
+     * address could not match however long this waited. Expiring against that would drop a bond
+     * nothing had found fault with. The clock has to wait for the bus to be free.
+     */
+    mesh_app_firmware_watch_bond(&app, &update, 1000U);
+    if (mesh_app_firmware_settle_bond(&app, "/dev/ttyUSB0", 1000U + 600000U) || removed != 0U) {
+        failure = "another radio on the link is not this radio failing to come back";
+        goto cleanup;
+    }
+    if (app.firmware_bond_watch[0] == '\0') {
+        failure = "and the watch is still pending, not settled by the wrong radio";
+        goto cleanup;
+    }
+    /* And once that link goes, the grace starts from there rather than from the install. */
+    if (mesh_app_firmware_settle_bond(&app, NULL, 1000U + 600000U + 30000U) || removed != 0U) {
+        failure = "the grace runs from when the bus was free, not from the install";
+        goto cleanup;
+    }
+    if (!mesh_app_firmware_settle_bond(&app, NULL, 1000U + 600000U + 61000U) || removed != 1U) {
+        failure = "and then a radio that never came back loses its bond";
+        goto cleanup;
+    }
+    removed = 0U;
+
+    /*
+     * A removal that failed for a reason that can pass keeps the watch.
+     *
+     * An adapter still coming back from the install answers NotReady, and an adapter that is
+     * away has not lost the bond it persisted - so giving up on one would leave the stale key
+     * in place and the reconnects failing, which is the state this exists to end.
+     */
+    mock_config.remove_device_result = -ENOTCONN;
+    mesh_bluez_client_mock_enable(&mock_config);
+    mesh_app_firmware_watch_bond(&app, &update, 1000U);
+    if (mesh_app_firmware_settle_bond(&app, NULL, 1000U + 61000U)) {
+        failure = "a removal that did not happen is not a bond dropped";
+        goto cleanup;
+    }
+    /* The counter is attempts that reached the adapter, so this says the removal was really
+       tried rather than skipped on the way to being retried. */
+    if (removed != 1U) {
+        failure = "a removal that failed is still a removal that was attempted";
+        goto cleanup;
+    }
+    if (app.firmware_bond_watch[0] == '\0') {
+        failure = "and the watch survives it, so the removal is tried again";
+        goto cleanup;
+    }
+    /* Once the adapter is back, the retry lands. */
+    removed = 0U;
+    mock_config.remove_device_result = 0;
+    mesh_bluez_client_mock_enable(&mock_config);
+    if (!mesh_app_firmware_settle_bond(&app, NULL, 1000U + 61000U + 6000U) || removed != 1U) {
+        failure = "the retry drops the bond once the adapter answers";
+        goto cleanup;
+    }
+    removed = 0U;
+
+    /*
+     * And a bond that is already gone settles rather than retrying for ever: DoesNotExist is
+     * the state this was trying to reach, not a failure to reach it.
+     */
+    mock_config.remove_device_result = -ENOENT;
+    mesh_bluez_client_mock_enable(&mock_config);
+    mesh_app_firmware_watch_bond(&app, &update, 1000U);
+    if (mesh_app_firmware_settle_bond(&app, NULL, 1000U + 61000U)) {
+        failure = "a bond that was already gone is not one this dropped";
+        goto cleanup;
+    }
+    if (app.firmware_bond_watch[0] != '\0') {
+        failure = "but it is settled, not retried for ever";
+        goto cleanup;
+    }
+    mock_config.remove_device_result = 0;
+    mesh_bluez_client_mock_enable(&mock_config);
+    removed = 0U;
+
+    /* The radio that did not come back: silent past the grace, bond dropped once. */
+    mesh_app_firmware_watch_bond(&app, &update, 1000U);
+    if (mesh_app_firmware_settle_bond(&app, NULL, 2000U)) {
+        failure = "the grace is a grace, not an instant verdict";
+        goto cleanup;
+    }
+    if (removed != 0U) {
+        failure = "and nothing is dropped inside it";
+        goto cleanup;
+    }
+    if (!mesh_app_firmware_settle_bond(&app, NULL, 1000U + 60000U)) {
+        failure = "a radio that never came back has a bond this client can see is dead";
+        goto cleanup;
+    }
+    if (removed != 1U) {
+        failure = "which is dropped, so the next connect pairs instead of failing";
+        goto cleanup;
+    }
+    /* Once. A watch left armed would drop the bond the user is in the middle of making. */
+    if (app.firmware_bond_watch[0] != '\0' ||
+        mesh_app_firmware_settle_bond(&app, NULL, 1000U + 120000U) || removed != 1U) {
+        failure = "and dropped once, not on every turn after";
+        goto cleanup;
+    }
+
+cleanup:
+    if (app_ready) {
+        mesh_app_shutdown(&app);
+    }
+    mesh_bluez_client_mock_disable();
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(app_takes_short_turns_while_a_handover_has_the_radio, unit) {
+    struct mesh_app app;
+    memset(&app, 0, sizeof app);
+    app.config = mesh_app_config_default();
+
+    MESH_TEST_FAIL_IF(mesh_app_turn_ms(NULL) != 0, "no app is no wait at all");
+    MESH_TEST_FAIL_IF(app.config.idle_timeout_ms != 1000,
+                      "the default turn is the configured idle timeout");
+    MESH_TEST_FAIL_IF(mesh_app_turn_ms(&app) != app.config.idle_timeout_ms,
+                      "an idle client waits the timeout it was configured with");
+
+    /* Every rung that holds the radio, on the bus that pays for a slow tick. */
+    static const enum mesh_firmware_install_state k_usb[] = {
+        MESH_FIRMWARE_INSTALL_ARMING, MESH_FIRMWARE_INSTALL_WAITING, MESH_FIRMWARE_INSTALL_WRITING,
+        MESH_FIRMWARE_INSTALL_RESTARTING};
+    for (size_t i = 0; i < sizeof k_usb / sizeof k_usb[0]; ++i) {
+        app.firmware_update.usb.state = k_usb[i];
+        MESH_TEST_FAIL_IF(!mesh_firmware_update_holds_the_radio(&app.firmware_update),
+                          "every one of these holds the radio");
+        MESH_TEST_FAIL_IF(mesh_app_turn_ms(&app) >= app.config.idle_timeout_ms,
+                          "and a turn while it does is shorter than an idle one");
+    }
+    app.firmware_update.usb.state = MESH_FIRMWARE_INSTALL_IDLE;
+
+    static const enum mesh_firmware_ota_state k_ble[] = {
+        MESH_FIRMWARE_OTA_ARMING, MESH_FIRMWARE_OTA_WAITING, MESH_FIRMWARE_OTA_CONNECTING,
+        MESH_FIRMWARE_OTA_SENDING, MESH_FIRMWARE_OTA_RESTARTING};
+    for (size_t i = 0; i < sizeof k_ble / sizeof k_ble[0]; ++i) {
+        app.firmware_update.ble.state = k_ble[i];
+        MESH_TEST_FAIL_IF(!mesh_firmware_update_holds_the_radio(&app.firmware_update),
+                          "the same on the bus the transfer runs on");
+        MESH_TEST_FAIL_IF(mesh_app_turn_ms(&app) >= app.config.idle_timeout_ms,
+                          "which is the one that was taking 74 minutes");
+    }
+
+    /* The chunk has to fit in the turn or the turn buys nothing: at 512 bytes an ACK, anything
+       near a second is the bug this case is about. */
+    app.firmware_update.ble.state = MESH_FIRMWARE_OTA_SENDING;
+    MESH_TEST_FAIL_IF(mesh_app_turn_ms(&app) > 50,
+                      "a transfer turn is a link round trip, not a tick");
+
+    /* And it is a ceiling rather than a setting: a client already asking for faster turns than
+       the transfer needs keeps its own, and 0 stays the drain-and-return it means elsewhere. */
+    app.config.idle_timeout_ms = 5;
+    MESH_TEST_FAIL_IF(mesh_app_turn_ms(&app) != 5, "a shorter configured turn is left alone");
+    app.config.idle_timeout_ms = 0;
+    MESH_TEST_FAIL_IF(mesh_app_turn_ms(&app) != 0, "and a zero turn still drains and returns");
+    /* The other direction: an unbounded wait has no deadline to come back from, so a transfer
+       is the one case where the bound is imposed rather than lowered. */
+    app.config.idle_timeout_ms = -1;
+    MESH_TEST_FAIL_IF(mesh_app_turn_ms(&app) <= 0 || mesh_app_turn_ms(&app) > 50,
+                      "an unbounded turn is bounded while a transfer needs the tick");
+
+    app.firmware_update.ble.state = MESH_FIRMWARE_OTA_IDLE;
+    app.config.idle_timeout_ms = 1000;
+    MESH_TEST_FAIL_IF(mesh_app_turn_ms(&app) != 1000,
+                      "and the turn goes back to the idle one when the job lets go");
+    record_success(test_name);
+}
+
+/*
  * The arm that told the install it had been refused, having just armed the radio.
  *
  * The two modules either side of this hook count in different units. A session answers "how

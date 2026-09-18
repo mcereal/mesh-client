@@ -1645,6 +1645,9 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_FW_INSTALL] = "Instalar firmware",
     [MESH_STR_TOAST_INSTALLING_FIRMWARE] = "Instalando %s en la radio...",
     [MESH_STR_TOAST_FIRMWARE_INSTALLED] = "La radio está ejecutando %s",
+    /* "vinculación" is the word MESH_STR_LINK_NEEDS_PAIRING uses for a bond, and that is the
+       message this one hands the reader on to. */
+    [MESH_STR_TOAST_FIRMWARE_REPAIR] = "%s instalado; la radio requiere vinculación otra vez",
     [MESH_STR_TOAST_FIRMWARE_FAILED] = "Falló la instalación del firmware: %s",
     [MESH_STR_BANNER_RADIO_IN_LOADER] = "La radio está en modo de actualización",
     [MESH_STR_BANNER_RADIO_IN_LOADER_HINT] =
