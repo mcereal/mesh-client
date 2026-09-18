@@ -168,6 +168,10 @@ struct mesh_app {
     uint64_t autoconnect_tcp_retry_at_ms;
     bool autoconnect_disabled;
     bool autoconnect_waiting_logged;
+    /* Set while a link is up, so the wait after it drops is the long one: the radio we were
+       just on is rebooting from a settings write far more often than it has left the room.
+       See MESH_APP_AUTOCONNECT_KNOWN_GRACE_MS. */
+    bool autoconnect_after_link;
     /* Set by an explicit disconnect from the Devices tab and cleared by the next explicit
        connect. Without it auto-connect would take the radio straight back and there would be
        no way to stand the link down at all. Session-only: a restart connects as usual. */

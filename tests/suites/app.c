@@ -469,12 +469,13 @@ MESH_TEST_CASE(app_autoconnect_grace_survives_a_reconnect, unit) {
     (void)mesh_ui_preferences_note_device(&app.ui_preferences, mock_devices[1].address,
                                           (uint8_t)MESH_UI_DEVICE_BLE);
 
-    /* Past the grace, the radio of ours that is in earshot wins. */
-    app.autoconnect_started_ms = test_now_ms() - 60000U;
+    /* At launch the short grace applies: ten seconds is past it, and the radio of ours that is
+       in earshot wins. */
+    app.autoconnect_started_ms = test_now_ms() - 10000U;
     app.autoconnect_retry_at_ms = 0U;
     mesh_app_autoconnect(&app);
     if (mesh_ble_transport_connected_address(ble) == NULL) {
-        failure = "expected a link to the node that answered";
+        failure = "at launch the known radio should win after the short grace";
         goto cleanup;
     }
 
@@ -496,6 +497,29 @@ MESH_TEST_CASE(app_autoconnect_grace_survives_a_reconnect, unit) {
     mesh_app_autoconnect(&app);
     if (mesh_ble_transport_connected_address(ble) != NULL) {
         failure = "the grace period should hold the turn after a drop";
+        goto cleanup;
+    }
+
+    /* And holds it for the long grace, not the short one, though a radio of ours is in range:
+       the preferred node rebooting from a settings write is not back five seconds later. */
+    app.autoconnect_started_ms = test_now_ms() - 10000U;
+    app.autoconnect_retry_at_ms = 0U;
+    mesh_app_autoconnect(&app);
+    if (mesh_ble_transport_connected_address(ble) != NULL) {
+        failure = "after a drop the other radio must not take the slot after five seconds";
+        goto cleanup;
+    }
+
+    /* A preferred node that has really gone still yields, once the long grace is spent. */
+    app.autoconnect_started_ms = test_now_ms() - 60000U;
+    app.autoconnect_retry_at_ms = 0U;
+    mesh_app_autoconnect(&app);
+    if (mesh_ble_transport_connected_address(ble) == NULL) {
+        failure = "past the long grace the radio in range should be taken";
+        goto cleanup;
+    }
+    if (mesh_ble_transport_disconnect(ble) != 0) {
+        failure = "disconnect failed";
         goto cleanup;
     }
 
