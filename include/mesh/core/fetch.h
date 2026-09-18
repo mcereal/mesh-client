@@ -141,8 +141,12 @@ struct mesh_fetch {
     /* The loop's clock as of the last start() or tick(), for the lookups a redirect starts. */
     uint64_t now_ms;
     /* See mesh_fetch_connect_to(). Empty for the address a URL's host resolves to. */
-    char connect_host[64];
+    char connect_host[192];
     uint16_t connect_port;
+    /* The address family the last connection succeeded in, tried first next time; AF_UNSPEC (0)
+       until one has. On a network whose IPv6 is broken this is what stops every request paying
+       for the discovery. */
+    int preferred_family;
 };
 
 /*
@@ -160,10 +164,15 @@ bool mesh_fetch_available(const struct mesh_fetch *fetch);
 bool mesh_fetch_busy(const struct mesh_fetch *fetch);
 
 /*
- * Every connection goes to `host`:`port` - a numeric address - instead of wherever a URL's host
- * resolves, the way curl's `--connect-to` does. The URL's host is still what is sent as SNI and
- * `Host`, and what the certificate is checked against, so nothing about verification changes.
- * For tests, which stand a server on loopback and point real URLs at it. NULL puts it back.
+ * Every connection goes to `host`:`port` instead of wherever a URL's host resolves, the way
+ * curl's `--resolve` does: `host` is a numeric address, or several comma-separated and tried in
+ * order, or a name that is looked up. The URL's host is still what is sent as SNI and `Host`, and
+ * what the certificate is checked against, so nothing about verification changes. For tests,
+ * which stand a server on loopback and point real URLs at it. NULL puts it back.
+ *
+ * Without it, a host's addresses are tried in turn: the next on a refusal, or when one has not
+ * answered in a few seconds, so one unreachable address - or a whole family - is not the end of
+ * the request.
  */
 void mesh_fetch_connect_to(struct mesh_fetch *fetch, const char *host, uint16_t port);
 

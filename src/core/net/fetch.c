@@ -40,6 +40,13 @@
      (MESH_FETCH_HEADERS_MAX + 1U) * (MESH_FETCH_HEADER_MAX + 2U))
 
 #define FETCH_DEFAULT_TIMEOUT_MS 30000U
+/*
+ * How long one address gets to accept a connection before the next is tried. A refusal moves on
+ * at once; this is for the address that never answers at all - an IPv6 address with no IPv6
+ * route behind it - which would otherwise spend the whole request's deadline on one SYN. A
+ * connect over the Brick's WiFi to a CDN takes well under a second.
+ */
+#define FETCH_CONNECT_ATTEMPT_MS 3000U
 
 enum fetch_phase {
     FETCH_RESOLVING = 0,
@@ -65,6 +72,11 @@ struct mesh_fetch_conn {
     struct mesh_http_url url;
     unsigned redirects;
     enum fetch_phase phase;
+    /* Where the hop's host is, and which of them to try next. */
+    struct mesh_resolve_address addresses[MESH_RESOLVE_ADDRESSES_MAX];
+    size_t address_count;
+    size_t address_next;
+    uint64_t attempt_deadline_ms;
     int fd;
     bool fd_registered;
     struct mesh_tls_client tls;
@@ -232,6 +244,7 @@ static void fetch_finish(struct mesh_fetch *fetch) {
 /* ---- one hop ---------------------------------------------------------------------------- */
 
 static void fetch_hop(struct mesh_fetch *fetch);
+static void fetch_try_next(struct mesh_fetch *fetch);
 
 static void fetch_arm(struct mesh_fetch *fetch, struct mesh_fetch_conn *conn, bool write) {
     if (fetch->loop != NULL && conn->fd_registered) {
@@ -452,10 +465,14 @@ static void fetch_connected(struct mesh_fetch *fetch) {
         error = errno;
     }
     if (error != 0) {
-        fetch_fail(fetch, MESH_FETCH_NETWORK, "connecting to %s: %s", conn->url.host,
-                   strerror(error));
+        snprintf(conn->detail, sizeof conn->detail, "connecting to %s: %s", conn->url.host,
+                 strerror(error));
+        fetch_drop_socket(fetch, conn);
+        fetch_try_next(fetch);
         return;
     }
+    /* This family works on this network; the next hop and the next request try it first. */
+    fetch->preferred_family = conn->addresses[conn->address_next - 1U].address.ss_family;
     /* Checked against the URL's host, not the address it resolved to: a certificate is issued
        for a name. The override is read per request, so a test can set it around one. */
     const int started =
@@ -498,46 +515,101 @@ static int fetch_on_fd(int fd, uint32_t events, void *userdata) {
     return 0;
 }
 
-/* Opens the socket and starts the connect. False, with the request completed, when it could
+/* Starts connecting to the next address. False, with conn->detail saying why, when it could
    not even begin. */
-static void fetch_open(struct mesh_fetch *fetch, const struct sockaddr_storage *address,
-                       socklen_t address_len) {
+static bool fetch_open(struct mesh_fetch *fetch, const struct mesh_resolve_address *address) {
     struct mesh_fetch_conn *const conn = fetch->conn;
-    const int fd = socket(address->ss_family, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+    const int fd =
+        socket(address->address.ss_family, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
     if (fd < 0) {
-        fetch_fail(fetch, MESH_FETCH_NETWORK, "socket: %s", strerror(errno));
-        return;
+        snprintf(conn->detail, sizeof conn->detail, "socket: %s", strerror(errno));
+        return false;
     }
-    if (connect(fd, (const struct sockaddr *)address, address_len) < 0 && errno != EINPROGRESS) {
-        const int error = errno;
+    if (connect(fd, (const struct sockaddr *)&address->address, address->len) < 0 &&
+        errno != EINPROGRESS) {
+        snprintf(conn->detail, sizeof conn->detail, "connecting to %s: %s", conn->url.host,
+                 strerror(errno));
         close(fd);
-        fetch_fail(fetch, MESH_FETCH_NETWORK, "connecting to %s: %s", conn->url.host,
-                   strerror(error));
-        return;
+        return false;
     }
     conn->fd = fd;
     if (mesh_event_loop_add_fd(fetch->loop, fd, (uint32_t)(EPOLLIN | EPOLLOUT), fetch_on_fd,
                                fetch) < 0) {
-        fetch_fail(fetch, MESH_FETCH_NETWORK, "no room on the loop for %s", conn->url.host);
-        return;
+        snprintf(conn->detail, sizeof conn->detail, "no room on the loop for %s", conn->url.host);
+        fetch_drop_socket(fetch, conn);
+        return false;
     }
     conn->fd_registered = true;
     conn->phase = FETCH_CONNECTING;
+    conn->attempt_deadline_ms = fetch->now_ms + FETCH_CONNECT_ATTEMPT_MS;
+    return true;
+}
+
+/*
+ * Connects to the next address the host has, or fails the request once there are none left -
+ * with the last address's reason, which is the one a log reader can act on.
+ */
+static void fetch_try_next(struct mesh_fetch *fetch) {
+    struct mesh_fetch_conn *const conn = fetch->conn;
+    while (conn->address_next < conn->address_count) {
+        const struct mesh_resolve_address *const address = &conn->addresses[conn->address_next++];
+        if (fetch_open(fetch, address)) {
+            return;
+        }
+    }
+    fetch_complete(fetch, MESH_FETCH_NETWORK);
+}
+
+/* The family that last connected goes first; the rest keep the resolver's order. */
+static void fetch_prefer_family(struct mesh_fetch *fetch, struct mesh_fetch_conn *conn) {
+    for (size_t i = 1U; i < conn->address_count; ++i) {
+        if (conn->addresses[i].address.ss_family == fetch->preferred_family &&
+            conn->addresses[0].address.ss_family != fetch->preferred_family) {
+            const struct mesh_resolve_address preferred = conn->addresses[i];
+            memmove(&conn->addresses[1], &conn->addresses[0], i * sizeof conn->addresses[0]);
+            conn->addresses[0] = preferred;
+            return;
+        }
+    }
 }
 
 static void fetch_on_resolved(void *userdata, const struct mesh_resolve_result *result) {
     struct mesh_fetch *const fetch = (struct mesh_fetch *)userdata;
-    if (fetch->conn == NULL || fetch->conn->phase != FETCH_RESOLVING) {
+    struct mesh_fetch_conn *const conn = fetch->conn;
+    if (conn == NULL || conn->phase != FETCH_RESOLVING) {
         return;
     }
-    if (result->outcome != MESH_RESOLVE_OK) {
-        fetch_fail(fetch, MESH_FETCH_NETWORK, "could not resolve %s (%s)", fetch->conn->url.host,
+    if (result->outcome != MESH_RESOLVE_OK || result->address_count == 0U) {
+        fetch_fail(fetch, MESH_FETCH_NETWORK, "could not resolve %s (%s)", conn->url.host,
                    result->outcome == MESH_RESOLVE_NOT_FOUND   ? "no such name"
                    : result->outcome == MESH_RESOLVE_TIMED_OUT ? "timed out"
                                                                : "lookup failed");
         return;
     }
-    fetch_open(fetch, &result->address, result->address_len);
+    conn->address_count = result->address_count;
+    memcpy(conn->addresses, result->addresses, result->address_count * sizeof conn->addresses[0]);
+    fetch_prefer_family(fetch, conn);
+    fetch_try_next(fetch);
+}
+
+/*
+ * The addresses mesh_fetch_connect_to() named, each a numeric address, comma-separated the way
+ * curl's --resolve takes them. False when one does not parse.
+ */
+static bool fetch_connect_to_list(const struct mesh_fetch *fetch, struct mesh_fetch_conn *conn) {
+    char list[sizeof fetch->connect_host];
+    memcpy(list, fetch->connect_host, sizeof list);
+    char *save = NULL;
+    for (char *host = strtok_r(list, ",", &save);
+         host != NULL && conn->address_count < MESH_RESOLVE_ADDRESSES_MAX;
+         host = strtok_r(NULL, ",", &save)) {
+        struct mesh_resolve_address *const address = &conn->addresses[conn->address_count];
+        if (!mesh_resolve_literal(host, fetch->connect_port, &address->address, &address->len)) {
+            return false;
+        }
+        conn->address_count++;
+    }
+    return conn->address_count > 0U;
 }
 
 /* One hop: from the current URL to a connecting socket, by way of a lookup when it is a name. */
@@ -545,20 +617,36 @@ static void fetch_hop(struct mesh_fetch *fetch) {
     struct mesh_fetch_conn *const conn = fetch->conn;
     conn->phase = FETCH_RESOLVING;
     conn->head_seen = false;
+    conn->address_count = 0U;
+    conn->address_next = 0U;
     mesh_http_response_init(&conn->response, conn->method == MESH_FETCH_HEAD);
 
-    const char *const host = fetch->connect_host[0] != '\0' ? fetch->connect_host : conn->url.host;
-    const uint16_t port = fetch->connect_host[0] != '\0' ? fetch->connect_port : conn->url.port;
-    struct sockaddr_storage address;
-    socklen_t address_len = 0;
-    if (mesh_resolve_literal(host, port, &address, &address_len)) {
-        fetch_open(fetch, &address, address_len);
+    if (fetch->connect_host[0] != '\0') {
+        if (!fetch_connect_to_list(fetch, conn)) {
+            /* Not an address list: a name, looked up like any other. */
+            conn->address_count = 0U;
+            const int started =
+                mesh_resolve_start(&fetch->resolve, fetch->connect_host, fetch->connect_port,
+                                   fetch_on_resolved, fetch, fetch->now_ms);
+            if (started < 0) {
+                fetch_fail(fetch, MESH_FETCH_NETWORK, "could not start a lookup for %s: %s",
+                           fetch->connect_host, strerror(-started));
+            }
+            return;
+        }
+        fetch_try_next(fetch);
         return;
     }
-    const int started =
-        mesh_resolve_start(&fetch->resolve, host, port, fetch_on_resolved, fetch, fetch->now_ms);
+    struct mesh_resolve_address *const address = &conn->addresses[0];
+    if (mesh_resolve_literal(conn->url.host, conn->url.port, &address->address, &address->len)) {
+        conn->address_count = 1U;
+        fetch_try_next(fetch);
+        return;
+    }
+    const int started = mesh_resolve_start(&fetch->resolve, conn->url.host, conn->url.port,
+                                           fetch_on_resolved, fetch, fetch->now_ms);
     if (started < 0) {
-        fetch_fail(fetch, MESH_FETCH_NETWORK, "could not start a lookup for %s: %s", host,
+        fetch_fail(fetch, MESH_FETCH_NETWORK, "could not start a lookup for %s: %s", conn->url.host,
                    strerror(-started));
     }
 }
@@ -695,6 +783,13 @@ void mesh_fetch_tick(struct mesh_fetch *fetch, uint64_t now_ms) {
     if (now_ms >= conn->deadline_ms) {
         /* The caller knows which step this was and says so itself. */
         fetch_fail(fetch, MESH_FETCH_TIMED_OUT, "%s did not finish in time", conn->url.host);
+        return;
+    }
+    if (conn->phase == FETCH_CONNECTING && now_ms >= conn->attempt_deadline_ms) {
+        snprintf(conn->detail, sizeof conn->detail, "connecting to %s: no answer in %u ms",
+                 conn->url.host, FETCH_CONNECT_ATTEMPT_MS);
+        fetch_drop_socket(fetch, conn);
+        fetch_try_next(fetch);
         return;
     }
     if (conn->more_to_read && conn->phase == FETCH_RECEIVING) {

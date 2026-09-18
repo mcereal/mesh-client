@@ -47,6 +47,7 @@ MESH_TEST_CASE(fetch_refuses_what_it_cannot_start, unit) {
 #include "support/https_fixture.h"
 
 #include <stdlib.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -539,6 +540,59 @@ MESH_TEST_CASE(fetch_verifies_the_server, unit) {
                                                       .userdata = &h.probe},
                          0U) != -EINVAL) {
         failure = "a plain http URL should be refused at start";
+        goto cleanup;
+    }
+
+cleanup:
+    harness_stop(&h);
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
+}
+
+/*
+ * A host's addresses are tried in turn, so one that will not take a connection is not the end of
+ * the request. The first is refused outright - 127.0.0.2 is loopback with nothing listening - and
+ * the second is TEST-NET-1, which never answers at all and is given up on by the clock; the third
+ * is the server. A dual-stack network with no IPv6 route is the case this is for: every AAAA
+ * comes first and every one of them is the second kind.
+ */
+MESH_TEST_CASE(fetch_tries_the_next_address, unit) {
+    struct fetch_harness h;
+    const char *failure = NULL;
+    if (!harness_start(&h)) {
+        failure = "the harness did not start";
+        goto cleanup;
+    }
+    mesh_fetch_connect_to(&h.fetch, "127.0.0.2,192.0.2.1,127.0.0.1", h.server.port);
+    const struct mesh_fetch_request doc = {
+        .url = "https://api.github.com/doc",
+        .timeout_ms = 60000U,
+        .on_done = probe_record,
+        .userdata = &h.probe,
+    };
+    if (mesh_fetch_start(&h.fetch, &doc, 0U) != 0) {
+        failure = "the request should start";
+        goto cleanup;
+    }
+    /* Past each address's allowance in turn, and well inside the request's own. */
+    uint64_t now = 0U;
+    for (int turn = 0; turn < 600 && h.probe.calls == 0U; ++turn) {
+        (void)mesh_event_loop_run(&h.loop, 10);
+        if (turn % 20 == 19) {
+            now += 4000U;
+        }
+        mesh_fetch_tick(&h.fetch, now);
+    }
+    if (h.probe.calls != 1U || h.probe.outcome[0] != MESH_FETCH_OK ||
+        strcmp(h.probe.body[0], k_document) != 0) {
+        failure = "the address that answers should be reached past the two that do not";
+        goto cleanup;
+    }
+    if (h.fetch.preferred_family != AF_INET) {
+        failure = "the family that connected should be remembered";
         goto cleanup;
     }
 
