@@ -376,7 +376,10 @@ static void fb_map_draw_attribution(const struct mesh_ui_backend_fb_state *state
         return;
     }
     const int pad = fb_space_at(state, MESH_UI_SPACE_SM, scale);
-    const int width = (int)fb_width(attribution) * fb_char_adv(state, scale);
+    /* Measured, not counted: the credit is right-aligned against the body's far edge, so a
+       width taken as a cell count times the nominal advance puts a proportional run either
+       over the edge or short of it. */
+    const int width = inkcell_fb_text_width(state, attribution, scale);
     const int height = (int)fb_font(state)->height * scale;
     const int x = body->x + body->w - pad - width;
     const int y = body->y + body->h - pad - height;
@@ -1012,7 +1015,9 @@ void fb_render_map(struct mesh_ui_backend_fb_state *state, const struct mesh_ui_
         const struct fb_map_box label = {
             .x = cx + radius + fb_space_at(state, MESH_UI_SPACE_XS, scale),
             .y = cy - text_h / 2,
-            .w = (int)fb_width(marker->label) * fb_char_adv(state, scale),
+            /* Measured: this width is what the bounds check below drops the label on, and what
+               the plate behind it is sized to. */
+            .w = inkcell_fb_text_width(state, marker->label, scale),
             .h = text_h,
         };
         if (label.x + label.w >= body.x + body.w) {
