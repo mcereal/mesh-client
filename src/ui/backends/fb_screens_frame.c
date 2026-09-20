@@ -153,25 +153,6 @@ void fb_render_cache_free(struct mesh_ui_backend_fb_state *state) {
     state->render_cache = NULL;
 }
 
-void fb_animation_damage(struct mesh_ui_backend_fb_state *state, int x, int y, int w, int h) {
-    struct fb_damage_rect *r = &state->animation_damage;
-    if (w <= 0 || h <= 0)
-        return;
-    if (!r->valid) {
-        *r =
-            (struct fb_damage_rect){.x = x, .y = y, .right = x + w, .bottom = y + h, .valid = true};
-    } else {
-        if (x < r->x)
-            r->x = x;
-        if (y < r->y)
-            r->y = y;
-        if (x + w > r->right)
-            r->right = x + w;
-        if (y + h > r->bottom)
-            r->bottom = y + h;
-    }
-}
-
 static void fb_render_begin(struct mesh_ui_backend_fb_state *state,
                             const struct mesh_ui_snapshot *snapshot) {
     state->clip_active = false;

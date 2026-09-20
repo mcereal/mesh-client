@@ -649,80 +649,7 @@ cleanup:
 }
 
 /*
- * Every cell of every layer carries a character, which is the one thing the grid cannot check
- * for itself.
- *
- * The renderer draws a key per column whatever the layer's row holds, and the cursor walks all
- * ten of them - so a row written one character short is a blank keycap that A does nothing to,
- * which is precisely the press src/ui/tables/actions.c exists to make unexpressible, arriving
- * through a table nothing was reading. The symbols layer's third row shipped that way: nine symbols
- * in a ten-cell row, with the tenth key drawn empty on the one layer a reader goes looking for
- * punctuation on.
- *
- * A row too *long* for the grid is the compiler's job now - the table is a fixed-width array -
- * so what is left to check here is the short one, and this is what checks it. Printability goes
- * with it: a control byte in that table would draw as a box on the device and go on the air as
- * itself.
- */
-MESH_TEST_CASE(kb_layers_fill_the_grid, unit) {
-    for (unsigned layer = 0U; layer < MESH_UI_KB_ASCII_LAYERS; ++layer) {
-        for (unsigned row = 0U; row < MESH_UI_KB_CHAR_ROWS; ++row) {
-            for (unsigned col = 0U; col < MESH_UI_KB_COLS; ++col) {
-                const char ch = mesh_ui_kb_char((enum mesh_ui_kb_layer)layer, row, col);
-                char message[96];
-                snprintf(message, sizeof message, "layer %u row %u column %u draws no key", layer,
-                         row, col);
-                MESH_TEST_FAIL_IF(ch < '!' || ch > '~', message);
-            }
-        }
-    }
-    /* And the grid ends where the constants say it does, so the guard above is the whole of it
-       rather than the part of it a wider table would have left unwalked. */
-    MESH_TEST_FAIL_IF(mesh_ui_kb_char(MESH_UI_KB_SYMBOLS, MESH_UI_KB_CHAR_ROWS, 0U) != '\0',
-                      "a row past the character grid should be empty");
-    MESH_TEST_FAIL_IF(mesh_ui_kb_char(MESH_UI_KB_SYMBOLS, 0U, MESH_UI_KB_COLS) != '\0',
-                      "a column past the grid should be empty");
-    record_success(test_name);
-}
-
-/*
- * Every printable ASCII character can be typed on some layer.
- *
- * The grid being full says no key is blank; it says nothing about a character being *absent*,
- * and that is the failure a user actually meets - they go looking for one, walk all four rows
- * of all three layers, and give up. It happened with `/`, which was on the symbols layer the
- * whole time, wedged between a backslash and a pipe where nobody thought to look.
- *
- * The check cannot find a character that is merely hard to find, so this is the floor under it:
- * a rearrangement may move anything anywhere, and may not drop it on the way. Space counts and
- * is not on the grid - it is the action row's own key - so it is added here rather than
- * excluded, because "can be typed" is the question and the answer is yes.
- */
-MESH_TEST_CASE(kb_reaches_every_printable_character, unit) {
-    bool seen[128] = {false};
-    seen[(unsigned char)' '] = true; /* MESH_UI_KB_ACTION_SPACE, and Y */
-
-    for (unsigned layer = 0U; layer < MESH_UI_KB_ASCII_LAYERS; ++layer) {
-        for (unsigned row = 0U; row < MESH_UI_KB_CHAR_ROWS; ++row) {
-            for (unsigned col = 0U; col < MESH_UI_KB_COLS; ++col) {
-                const char ch = mesh_ui_kb_char((enum mesh_ui_kb_layer)layer, row, col);
-                if (ch > 0) {
-                    seen[(unsigned char)ch] = true;
-                }
-            }
-        }
-    }
-
-    for (unsigned char ch = ' '; ch <= '~'; ++ch) {
-        char message[80];
-        snprintf(message, sizeof message, "'%c' cannot be typed on any layer", (char)ch);
-        MESH_TEST_FAIL_IF(!seen[ch], message);
-    }
-    record_success(test_name);
-}
-
-/*
- * Every cell of the emoji layer is a glyph this build can draw.
+ * Every cell of this client's emoji pages is a glyph this build can draw.
  *
  * The table is written as code points rather than pasted in, which keeps a patch tool from
  * mangling it and puts the other failure in its place: a code point nobody checked against the
@@ -730,90 +657,27 @@ MESH_TEST_CASE(kb_reaches_every_printable_character, unit) {
  * client may well render fine - so the keyboard is the only place it looks broken, and only on
  * the device.
  *
- * The length is checked with it. mesh_emoji_match() is greedy, so a cell holding two glyphs
- * would match the first and pass a test that only asked whether it matched; a cell is one key
- * and one key is one glyph.
+ * The check itself is inkcell's, which is where it has to live: the glyph tables are inkcell's,
+ * so this client walking its own cells against them was a test reaching down a layer to read
+ * data it does not own. What is left here is the assertion - these pages, this build - because
+ * the pages are the half inkcell deliberately does not carry.
  */
 MESH_TEST_CASE(kb_emoji_cells_are_drawable, unit) {
     struct mesh_ui_nav nav;
     memset(&nav, 0, sizeof nav);
-    nav.kb_layer = (uint8_t)MESH_UI_KB_EMOJI;
+    const struct inkcell_keyboard_layout layout = mesh_ui_nav_kb_layout(&nav);
 
-    for (unsigned page = 0U; page < MESH_UI_KB_EMOJI_PAGES; ++page) {
-        nav.kb_emoji_page = (uint8_t)page;
-        for (unsigned row = 0U; row < MESH_UI_KB_CHAR_ROWS; ++row) {
-            for (unsigned col = 0U; col < MESH_UI_KB_COLS; ++col) {
-                char scratch[MESH_UI_KB_CELL_MAX];
-                const char *const cell = mesh_ui_kb_cell(&nav, row, col, scratch);
-                char message[112];
-                snprintf(message, sizeof message, "emoji page %u row %u column %u draws no key",
-                         page, row, col);
-                MESH_TEST_FAIL_IF(cell[0] == '\0', message);
-
-                uint32_t codepoints[8];
-                size_t count = 0U;
-                size_t offset = 0U;
-                while (cell[offset] != '\0' && count < MESH_ARRAY_LEN(codepoints)) {
-                    uint32_t codepoint = 0U;
-                    const size_t used = mesh_text_utf8_next(&cell[offset], &codepoint);
-                    if (used == 0U) {
-                        break;
-                    }
-                    codepoints[count++] = codepoint;
-                    offset += used;
-                }
-                snprintf(message, sizeof message, "emoji page %u row %u column %u is not UTF-8",
-                         page, row, col);
-                MESH_TEST_FAIL_IF(count == 0U || cell[offset] != '\0', message);
-
-                uint16_t sprite = 0U;
-                const size_t matched = mesh_emoji_match(codepoints, count, &sprite);
-                snprintf(message, sizeof message,
-                         "emoji page %u row %u column %u has no sprite in this build", page, row,
-                         col);
-                MESH_TEST_FAIL_IF(matched == 0U, message);
-                snprintf(message, sizeof message, "emoji page %u row %u column %u is %zu glyphs",
-                         page, row, col, count / (matched > 0U ? matched : 1U));
-                MESH_TEST_FAIL_IF(matched != count, message);
-            }
-        }
-    }
-    record_success(test_name);
-}
-
-/*
- * The panel ring, which the layer key and both shoulders walk: abc, ABC, symbols, then one page
- * of emoji at a time, and round.
- *
- * One ring rather than a layer ring with a page ring inside it, so the assertion worth making
- * is that stepping back from the first panel lands on the *last page of emoji* rather than on
- * the last layer with whatever page was left over from before.
- */
-MESH_TEST_CASE(kb_panel_ring_is_one_ring, unit) {
-    struct mesh_ui_nav nav;
-    memset(&nav, 0, sizeof nav);
-
-    for (unsigned step = 1U; step < MESH_UI_KB_PANELS; ++step) {
-        mesh_ui_nav_kb_panel_step(&nav, 1);
-        const unsigned want_layer =
-            step < MESH_UI_KB_ASCII_LAYERS ? step : (unsigned)MESH_UI_KB_EMOJI;
-        const unsigned want_page =
-            step < MESH_UI_KB_ASCII_LAYERS ? 0U : step - MESH_UI_KB_ASCII_LAYERS;
-        char message[96];
-        snprintf(message, sizeof message, "step %u should be layer %u page %u", step, want_layer,
-                 want_page);
-        MESH_TEST_FAIL_IF(nav.kb_layer != want_layer || nav.kb_emoji_page != want_page, message);
-    }
-
-    mesh_ui_nav_kb_panel_step(&nav, 1);
-    MESH_TEST_FAIL_IF(nav.kb_layer != MESH_UI_KB_LOWER || nav.kb_emoji_page != 0U,
-                      "the ring should come back round to the lower layer");
-
-    /* And backwards from there, which is the step C's own modulo gets wrong. */
-    mesh_ui_nav_kb_panel_step(&nav, -1);
-    MESH_TEST_FAIL_IF(nav.kb_layer != MESH_UI_KB_EMOJI ||
-                          nav.kb_emoji_page != MESH_UI_KB_EMOJI_PAGES - 1U,
-                      "stepping back from the first panel should land on the last emoji page");
+    uint32_t page = 0U;
+    uint32_t cell = 0U;
+    char message[112];
+    snprintf(message, sizeof message, "emoji page %u cell %u is not one drawable glyph", page,
+             cell);
+    const bool drawable = inkcell_keyboard_layout_drawable(&layout, &page, &cell);
+    /* Written after the call as well as before it, so the message names the offender rather
+       than the first cell of the first page. */
+    snprintf(message, sizeof message, "emoji page %u cell %u is not one drawable glyph", page,
+             cell);
+    MESH_TEST_FAIL_IF(!drawable, message);
     record_success(test_name);
 }
 
@@ -847,12 +711,12 @@ MESH_TEST_CASE(kb_face_buttons_follow_the_pad, unit) {
        layer key had, now on a button that says "shift" on the bar. */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_R2, &action);
-    if (store.nav.kb_layer != MESH_UI_KB_UPPER) {
+    if (store.nav.kb.layer != INKCELL_KB_UPPER) {
         failure = "R2 should shift";
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
-    if (strcmp(store.nav.draft, "Q") != 0 || store.nav.kb_layer != MESH_UI_KB_LOWER) {
+    if (strcmp(store.nav.draft, "Q") != 0 || store.nav.kb.layer != INKCELL_KB_LOWER) {
         failure = "shift should apply to one character and then fall back";
         goto cleanup;
     }
@@ -860,7 +724,7 @@ MESH_TEST_CASE(kb_face_buttons_follow_the_pad, unit) {
        now get rid of without typing one. */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_L2, &action);
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_L2, &action);
-    if (store.nav.kb_layer != MESH_UI_KB_LOWER) {
+    if (store.nav.kb.layer != INKCELL_KB_LOWER) {
         failure = "a second shift should disarm the first";
         goto cleanup;
     }
@@ -1017,14 +881,14 @@ MESH_TEST_CASE(ui_nav_channels_and_keyboard, unit) {
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
-    if (!store.nav.keyboard_open || !store.nav.compose_open || store.nav.kb_row != 0U ||
-        store.nav.kb_col != 0U) {
+    if (!store.nav.keyboard_open || !store.nav.compose_open || store.nav.kb.row != 0U ||
+        store.nav.kb.col != 0U) {
         failure = "A on the draft row should open the keyboard at the top-left";
         goto cleanup;
     }
     /* LEFT/RIGHT move within the grid while the keyboard is open, never switch tabs. */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action);
-    if (store.nav.kb_col != MESH_UI_KB_COLS - 1U || store.nav.screen != MESH_UI_SCREEN_MESSAGES) {
+    if (store.nav.kb.col != INKCELL_KB_COLS - 1U || store.nav.screen != MESH_UI_SCREEN_MESSAGES) {
         failure = "LEFT should wrap to the last column";
         goto cleanup;
     }
@@ -1036,7 +900,7 @@ MESH_TEST_CASE(ui_nav_channels_and_keyboard, unit) {
     }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_L2, &action); /* shift */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);  /* H */
-    if (strcmp(store.nav.draft, "H") != 0 || store.nav.kb_layer != MESH_UI_KB_LOWER) {
+    if (strcmp(store.nav.draft, "H") != 0 || store.nav.kb.layer != INKCELL_KB_LOWER) {
         failure = "shift should apply to one character";
         goto cleanup;
     }
@@ -1068,7 +932,7 @@ MESH_TEST_CASE(ui_nav_channels_and_keyboard, unit) {
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);    /* '1' */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action); /* col 9 */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);   /* wraps to the action row */
-    if (store.nav.kb_row != MESH_UI_KB_CHAR_ROWS || store.nav.kb_col != MESH_UI_KB_ACTIONS - 1U) {
+    if (store.nav.kb.row != INKCELL_KB_CHAR_ROWS || store.nav.kb.col != INKCELL_KB_ACTIONS - 1U) {
         failure = "column should map onto the action row";
         goto cleanup;
     }

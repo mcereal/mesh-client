@@ -152,8 +152,8 @@ MESH_TEST_CASE(devices_network_row_types_an_address, unit) {
 
     /* Typed the way a user would have to; the draft is what Done reads. */
     snprintf(store.nav.draft, sizeof store.nav.draft, "10.0.0.7:4403");
-    store.nav.kb_row = MESH_UI_KB_CHAR_ROWS;
-    store.nav.kb_col = (uint8_t)MESH_UI_KB_ACTION_SEND;
+    store.nav.kb.row = INKCELL_KB_CHAR_ROWS;
+    store.nav.kb.col = (uint8_t)INKCELL_KB_ACTION_SUBMIT;
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
 
     const bool ok = (action.type == MESH_UI_ACTION_CONNECT) &&
@@ -213,8 +213,8 @@ MESH_TEST_CASE(devices_network_row_clears_to_forget, unit) {
     }
 
     store.nav.draft[0] = '\0';
-    store.nav.kb_row = MESH_UI_KB_CHAR_ROWS;
-    store.nav.kb_col = (uint8_t)MESH_UI_KB_ACTION_SEND;
+    store.nav.kb.row = INKCELL_KB_CHAR_ROWS;
+    store.nav.kb.col = (uint8_t)INKCELL_KB_ACTION_SUBMIT;
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
 
     const bool ok = (action.type == MESH_UI_ACTION_FORGET) &&

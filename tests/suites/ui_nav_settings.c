@@ -310,9 +310,12 @@ MESH_TEST_CASE(ui_nav_settings_edit, unit) {
     mesh_test_settings_open(&store, MESH_UI_SETTINGS_USER);
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    /* The word on the submit key is this client's to name and the grid's to draw, so it is
+       asked for the way the renderer asks: off the layout the nav builds for the job. */
+    const struct inkcell_keyboard_layout kb_layout = mesh_ui_nav_kb_layout(&store.nav);
     if (!store.nav.keyboard_open || store.nav.keyboard_field != MESH_UI_FIELD_USER_SHORT_NAME ||
         strcmp(store.nav.draft, "OLDN") != 0 || strcmp(store.nav.draft_saved, "half typed") != 0 ||
-        strcmp(mesh_ui_kb_action_label(&store.nav, MESH_UI_KB_ACTION_SEND), "done") != 0) {
+        strcmp(mesh_str((enum mesh_str_id)kb_layout.submit_label), "done") != 0) {
         failure = "A on a text row should open the keyboard for it";
         goto cleanup;
     }
@@ -340,8 +343,8 @@ MESH_TEST_CASE(ui_nav_settings_edit, unit) {
         failure = "the keyboard should preload the pending edit";
         goto cleanup;
     }
-    store.nav.kb_row = MESH_UI_KB_CHAR_ROWS;
-    store.nav.kb_col = MESH_UI_KB_ACTION_CANCEL;
+    store.nav.kb.row = INKCELL_KB_CHAR_ROWS;
+    store.nav.kb.col = INKCELL_KB_ACTION_CANCEL;
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
     if (store.nav.keyboard_open || store.nav.settings_edit_count != 1U ||
         strcmp(store.nav.draft, "half typed") != 0) {

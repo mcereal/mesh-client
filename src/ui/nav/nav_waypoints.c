@@ -51,11 +51,10 @@ void mesh_ui_nav_open_waypoint_keyboard(struct mesh_ui_nav *nav, uint32_t source
     nav->keyboard_field = MESH_UI_FIELD_NONE;
     nav->keyboard_open = true;
     nav->compose_open = false;
-    nav->kb_row = 0U;
-    nav->kb_col = 0U;
+    inkcell_keyboard_reset(&nav->kb);
     /* Upper case first: a place is a proper noun far more often than a message is a sentence,
        and the layer falls back to lower after the first letter the way a phone's does. */
-    nav->kb_layer = MESH_UI_KB_UPPER;
+    nav->kb.layer = (uint8_t)INKCELL_KB_UPPER;
     nav->screen = MESH_UI_SCREEN_WAYPOINTS;
 }
 

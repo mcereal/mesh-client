@@ -518,21 +518,14 @@ MESH_STR_ENTRY(PAIRING_CONFIRM,           "Does %s show this?")
 MESH_STR_ENTRY(PAIRING_SHOWN_ON,          "PIN shown on %s")
 MESH_STR_ENTRY(PAIRING_NODE_FALLBACK,     "the node")
 
-/* Keyboard keys. The three letter rows are the layout itself and are not translated here;
-   these are the named keys along the bottom. KEY_LAYER_* are what the layer key shows for the
-   panel it would switch *to*, walking the ring abc, ABC, symbols, then a page of emoji at a
-   time. The last two are a face and an ellipsis rather than words for the same reason the
-   layer names are the layers: they are drawn, not read, and a translation of ":)" is ":)". */
-MESH_STR_ENTRY(KEY_LAYER_UPPER,           "ABC")
-MESH_STR_ENTRY(KEY_LAYER_SYMBOLS,         "#+=")
-MESH_STR_ENTRY(KEY_LAYER_LOWER,           "abc")
-MESH_STR_ENTRY(KEY_LAYER_EMOJI,           ":)")
-MESH_STR_ENTRY(KEY_LAYER_EMOJI_MORE,      ":)>")
-MESH_STR_ENTRY(KEY_SPACE,                 "space")
-MESH_STR_ENTRY(KEY_DELETE,                "del")
+/* The submit key, and only the submit key. The other eight the grid draws - the layer names,
+   space, delete, cancel - moved to inkcell's catalog with the grid itself: space is space in
+   every program that has a keyboard. This one is not, and its absence from that catalog is the
+   rule doing its job: it says "send" over a message and "done" over a settings field, and the
+   difference is about what this client is *for*. mesh_ui_nav_kb_layout() hands whichever of
+   the two down as the layout's `submit_label`. */
 MESH_STR_ENTRY(KEY_DONE,                  "done")
 MESH_STR_ENTRY(KEY_SEND,                  "send")
-MESH_STR_ENTRY(KEY_CANCEL,                "cancel")
 
 /* ---- canned messages ------------------------------------------------------------------------ */
 

@@ -1309,8 +1309,8 @@ MESH_TEST_CASE(ui_nav_passkey_prompt, unit) {
     const char *pin = "632090";
     for (const char *c = pin; *c != '\0'; ++c) {
         const uint8_t col = (uint8_t)((*c == '0') ? 9 : (*c - '1'));
-        store.nav.kb_row = 0U;
-        store.nav.kb_col = col;
+        store.nav.kb.row = 0U;
+        store.nav.kb.col = col;
         mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
     }
     if (strcmp(store.nav.draft, pin) != 0) {
@@ -1340,8 +1340,8 @@ MESH_TEST_CASE(ui_nav_passkey_prompt, unit) {
        pairing failure the user cannot see the cause of. */
     mesh_ui_store_open_passkey_prompt(&store, "NodePin", 0U, false);
     for (int i = 0; i < 8; ++i) {
-        store.nav.kb_row = 0U;
-        store.nav.kb_col = 0U; /* "1" */
+        store.nav.kb.row = 0U;
+        store.nav.kb.col = 0U; /* "1" */
         mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
     }
     if (strcmp(store.nav.draft, "111111") != 0) {

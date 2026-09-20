@@ -10,6 +10,7 @@
 #include <stdint.h>
 
 #include "inkcell/ui/key.h"
+#include "inkcell/ui/keyboard.h"
 
 #include "mesh/inkcell_compat.h"
 
@@ -150,51 +151,13 @@ struct mesh_ui_setting_edit {
     char text[MESH_UI_SETTING_TEXT_MAX];
 };
 
-/* On-screen keyboard geometry: four rows of ten characters and a row of five actions. */
-#define MESH_UI_KB_COLS 10U
-#define MESH_UI_KB_CHAR_ROWS 4U
-#define MESH_UI_KB_ROWS (MESH_UI_KB_CHAR_ROWS + 1U)
-#define MESH_UI_KB_ACTIONS 5U
-
-enum mesh_ui_kb_layer {
-    MESH_UI_KB_LOWER = 0,
-    MESH_UI_KB_UPPER,
-    MESH_UI_KB_SYMBOLS,
-    /*
-     * The one layer whose cells are not ASCII. It is pages rather than a single grid - forty
-     * keys is what the grid holds and a useful set is several times that - so `kb_emoji_page`
-     * says which forty are showing, and the layer and the page are stepped as one ring by
-     * mesh_ui_nav_kb_panel_step(). See MESH_UI_KB_EMOJI_PAGES.
-     */
-    MESH_UI_KB_EMOJI,
-    MESH_UI_KB_LAYER_COUNT,
-};
-
-/* The layers whose cells are one ASCII character: everything before the emoji one. */
-#define MESH_UI_KB_ASCII_LAYERS ((unsigned)MESH_UI_KB_EMOJI)
-
-/* Pages of forty in the emoji layer. The table is in src/ui/nav/nav_keyboard.c and every cell of
-   it is asserted to be an emoji this build can actually draw - kb_emoji_cells_are_drawable. */
-#define MESH_UI_KB_EMOJI_PAGES 3U
-
 /*
- * The panels the layer key and the shoulders walk: the three ASCII layers, then one per page of
- * emoji. One ring rather than a layer ring with a page ring inside it, because two rings is two
- * things to learn about a grid whose whole job is to be obvious.
+ * The on-screen keyboard's grid, its panel ring and its edits moved to inkcell
+ * (inkcell/ui/keyboard.h): none of it was ever about Meshtastic, and the second client built on
+ * this toolkit started by copying it. What stayed here is the half with the radio in it - which
+ * job the keyboard was opened for, what the text is worth when it is finished, and what it goes
+ * back to. See mesh_ui_nav_kb_layout() below for the seam.
  */
-#define MESH_UI_KB_PANELS ((unsigned)MESH_UI_KB_EMOJI + MESH_UI_KB_EMOJI_PAGES)
-
-/* The most bytes one keycap's text can take, with its NUL: the longest emoji in the table is a
-   ZWJ sequence, and a cell holds one of those. */
-#define MESH_UI_KB_CELL_MAX 32U
-
-enum mesh_ui_kb_action {
-    MESH_UI_KB_ACTION_LAYER = 0, /* step the panel ring: abc, ABC, symbols, emoji pages */
-    MESH_UI_KB_ACTION_SPACE,
-    MESH_UI_KB_ACTION_DELETE,
-    MESH_UI_KB_ACTION_SEND,
-    MESH_UI_KB_ACTION_CANCEL,
-};
 
 /* What opens over the thread once the picker has named one. The picker itself does not care
    which; it is the key that opened it that decides - A wants the quick replies, Y wants to
@@ -333,10 +296,9 @@ struct mesh_ui_nav {
     uint8_t picker_follow; /* enum mesh_ui_picker_follow */
     /* Free-text entry. */
     bool keyboard_open;
-    uint8_t kb_row;
-    uint8_t kb_col;
-    uint8_t kb_layer;      /* enum mesh_ui_kb_layer */
-    uint8_t kb_emoji_page; /* which forty, while kb_layer is MESH_UI_KB_EMOJI */
+    /* Where the cursor is in the grid and which panel is showing. Four bytes and no pointer, so
+       it travels in the snapshot with everything else here. */
+    struct inkcell_keyboard kb;
     char draft[MESH_UI_DRAFT_MAX];
     /* Nodes tab: a node's detail is open (cursor[NODES] indexes its rows) rather than the node
        list, whose position is parked in node_list_cursor meanwhile. The same two-level shape
@@ -1159,38 +1121,30 @@ uint32_t mesh_ui_nav_reaction_row_count(void);
    icon instead of a glyph, and the action bar asks it to name A. */
 bool mesh_ui_nav_reaction_row_is_delete(uint32_t index);
 
-/* Keyboard legend for the backends. Character rows return the glyph at that cell (a NUL for an
-   unused cell); the action row is described by mesh_ui_kb_action_label(). ASCII layers only -
-   the emoji layer answers MESH_UI_KB_CELL_MAX bytes rather than a char, so ask
-   mesh_ui_kb_cell() instead unless the ASCII is the point. */
-char mesh_ui_kb_char(enum mesh_ui_kb_layer layer, unsigned row, unsigned col);
-
 /*
- * What is written on the keycap at that cell, as UTF-8: one ASCII character on three of the
- * layers and an emoji on the fourth.
+ * The grid this client's keyboard is: the emoji pages, the word on the submit key, and the cap
+ * the append is held to.
  *
- * `scratch` is where a one-character cell is spelled, so the answer is a string either way and
- * a caller never has to know which layer it is on; the emoji layer answers with the table's own
- * pointer and leaves the buffer alone. Never NULL, and "" for a cell outside the grid.
+ * Built per call rather than kept, because two of the three change with the job the keyboard
+ * was opened for and a copy on the nav would be a second answer to go stale. It is a const
+ * description over tables that outlive any nav, so the value returned may be handed straight to
+ * inkcell_keyboard_key() or to the renderer.
  */
-const char *mesh_ui_kb_cell(const struct mesh_ui_nav *nav, unsigned row, unsigned col,
-                            char scratch[MESH_UI_KB_CELL_MAX]);
+struct inkcell_keyboard_layout mesh_ui_nav_kb_layout(const struct mesh_ui_nav *nav);
 
 /*
- * Step the panel ring by `delta` panels, wrapping: abc, ABC, symbols, then one panel per page
- * of emoji. What the grid's layer key does, and what the shoulders do.
- */
-void mesh_ui_nav_kb_panel_step(struct mesh_ui_nav *nav, int delta);
-
-/*
- * Shift: one capital, then back to lower case, the way a phone's does - and back to lower case
- * at once when it was already armed, so a press that was a mistake is undone by a second.
+ * The submit key finishes rather than sends.
  *
- * It lands on MESH_UI_KB_LOWER from anywhere, the symbols and emoji layers included, because a
- * shift key that did nothing on two of four panels would be the keycap this client refuses.
+ * One predicate for the word and the symbol, which is the point of it being here: "Send" only
+ * when something goes to a person. A settings field is finished, a waypoint's name is finished
+ * - the place is shared by the app afterwards, not by this key - and so is a link, which is
+ * brought up rather than put on the air. A security number is the sharpest case: it goes to the
+ * radio in the user's hand, and a send arrow over six digits the whole ceremony depends on
+ * staying off the mesh teaches exactly the wrong thing. The word and the icon were two copies
+ * of this list and the icon's copy was missing that line.
  */
-void mesh_ui_nav_kb_shift(struct mesh_ui_nav *nav);
-const char *mesh_ui_kb_action_label(const struct mesh_ui_nav *nav, enum mesh_ui_kb_action action);
+bool mesh_ui_nav_kb_submit_finishes(const struct mesh_ui_nav *nav);
+
 /*
  * The most bytes the draft may hold, whichever job the keyboard is doing: the message limit, a
  * settings field's own cap, a waypoint's name, a passkey's six digits, or a network address.

@@ -130,10 +130,7 @@ void mesh_ui_nav_open_keyboard(struct mesh_ui_nav *nav) {
        the user was reading rather than to whatever they mean to write about. */
     nav->reply_to = 0U;
     nav->keyboard_open = true;
-    nav->kb_row = 0U;
-    nav->kb_col = 0U;
-    nav->kb_layer = MESH_UI_KB_LOWER;
-    nav->kb_emoji_page = 0U;
+    inkcell_keyboard_reset(&nav->kb);
 }
 
 /* B out of a thread. Returns false when the conversation list is already showing. */
@@ -2554,10 +2551,9 @@ bool mesh_ui_nav_open_passkey(struct mesh_ui_nav *nav, const char *label, uint32
         nav->draft[0] = '\0';
     }
     nav->keyboard_open = true;
-    nav->kb_row = 0U; /* the digit row */
-    nav->kb_col = 0U;
-    nav->kb_layer = MESH_UI_KB_LOWER;
-    nav->kb_emoji_page = 0U;
+    /* The cursor on the digit row, which is where reset leaves it: the top-left cell of the
+       lower-case layer is "1", and a prompt for six digits opens on one. */
+    inkcell_keyboard_reset(&nav->kb);
     return true;
 }
 
@@ -2638,10 +2634,9 @@ bool mesh_ui_nav_open_verify_number(struct mesh_ui_nav *nav) {
     nav->keyboard_verify = true;
     nav->draft[0] = '\0';
     nav->keyboard_open = true;
-    nav->kb_row = 0U; /* the digit row */
-    nav->kb_col = 0U;
-    nav->kb_layer = MESH_UI_KB_LOWER;
-    nav->kb_emoji_page = 0U;
+    /* The cursor on the digit row, which is where reset leaves it: the top-left cell of the
+       lower-case layer is "1", and a prompt for six digits opens on one. */
+    inkcell_keyboard_reset(&nav->kb);
     return true;
 }
 

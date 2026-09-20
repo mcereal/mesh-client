@@ -15,25 +15,6 @@
 #include <string.h>
 
 /*
- * The caps.
- *
- * The table itself is not here, and that is the point. What is printed beside a button and
- * which evdev code that button reports are one fact about one piece of plastic, so they are
- * stated in one row of one table - src/ui/input/input_profile.c - rather than in two files that a
- * port has to remember to correct together. This module asks; it does not hold an opinion.
- *
- * MESH_UI_BUTTON_QUIT is the exception, for the reason it always was: MESHCLIENT_QUIT_KEYS can
- * move it to a key whose name nobody knows, so the module that parsed that variable is the one
- * that can say what to draw on it.
- */
-const char *mesh_ui_button_cap(enum mesh_ui_button button) {
-    if (button == MESH_UI_BUTTON_QUIT) {
-        return mesh_ui_input_quit_cap();
-    }
-    return mesh_ui_input_profile_cap(mesh_ui_input_profile_from_env(), button);
-}
-
-/*
  * Building a bar.
  *
  * Every table below is written out in full rather than composed from a common tail, even
