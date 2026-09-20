@@ -226,56 +226,63 @@ the store one per event-loop turn and the store coalesces its repaints.
 
 ### The on-screen keyboard
 
-One grid, opened for seven unrelated jobs (a message, a settings field, a waypoint's name, a
-network address, a channel link, a contact link, and the PIN and security-number prompts that can
-arrive on top of any of them). `src/ui/nav/nav_keyboard.c` owns all of it;
-`mesh_ui_nav_keyboard_close()` is where "give the user back what they were doing" lives.
+**The grid is inkcell's and the jobs are this client's**, and that is the whole of how to read
+this section. `inkcell/ui/keyboard.h` is the model - where the cursor is, which panel is showing,
+what a press does to a buffer - and `inkcell_fb_draw_keyboard()` is the drawing. None of it was
+ever about Meshtastic, and the second client built on the toolkit started by copying it.
+
+What stayed here is `src/ui/nav/nav_keyboard.c`: the seven unrelated jobs one grid is opened for
+(a message, a settings field, a waypoint's name, a network address, a channel link, a contact
+link, and the PIN and security-number prompts that can arrive on top of any of them), what the
+text is worth when it is finished, and `mesh_ui_nav_keyboard_close()`, which is where "give the
+user back what they were doing" lives.
+
+The seam is two functions. `mesh_ui_nav_kb_layout()` builds the `struct
+inkcell_keyboard_layout` for whichever job is open - this client's emoji pages, the word on the
+submit key, and the cap `mesh_ui_nav_draft_cap()` holds the append to - and
+`mesh_ui_nav_kb_submit_finishes()` is the one predicate behind that word and the symbol over it.
+One predicate rather than two copies of a list, because the two copies disagreed: the word said
+"done" on the key-verification prompt and the symbol was a send arrow, over six digits the whole
+ceremony depends on never reaching the mesh.
 
 **The pad is used the way a console keyboard uses it.** A types, **X** is the backspace, **B**
 leaves, **Y** is a space, START sends or finishes. That is not a preference: B goes back on every
 other screen in the client, and a keyboard whose backspace is that button is one people stumble
-over on every draft rather than once. B keeps the draft — the grid's own ✕ key is what discards —
+over on every draft rather than once. B keeps the draft - the grid's own ✕ key is what discards -
 and on the two prompts a radio raised it stands the ceremony down, because leaving a question
-somebody is waiting on *is* answering it.
+somebody is waiting on *is* answering it. `inkcell_keyboard_key()` tells those two presses apart
+as `DISMISS` and `CANCEL` so that this client does not have to work out which one it was.
 
-**The layers are a ring of panels, not a layer with pages inside it.** `abc`, `ABC`, symbols, then
-one page of forty emoji at a time. `mesh_ui_nav_kb_panel_step()` walks it, and three things drive
-it: the grid's bottom-left key, `L1`/`R1`, and nothing else. `L2`/`R2` are the shift, which is one
-capital and then back — and lands on the lower layer from any panel, so it is never a key that
-does nothing. `kb_panel_ring_is_one_ring`.
+**The layers are a ring of panels, not a layer with pages inside it.** `abc`, `ABC`, symbols,
+then one page of forty emoji at a time. The grid's bottom-left key and `L1`/`R1` walk it and
+nothing else does; `L2`/`R2` are the shift, which is one capital and then back. The ring, the
+tables behind it and the invariants that hold them - every cell carries a key, every printable
+ASCII character is reachable on some layer - are inkcell's now, and so are the tests that say so
+(`tests/suites/ui_keyboard.c` in that tree).
 
-Two invariants hold the tables, because neither is visible in a rendered frame:
-
-- **Every cell carries a key** (`kb_layers_fill_the_grid`) — the grid draws a keycap per column
-  whatever the row holds, so a row written short is a blank key the cursor stops on and A does
-  nothing to.
-- **Every printable ASCII character is reachable** (`kb_reaches_every_printable_character`) — a
-  full grid says nothing about a character being *absent*, which is the failure a user actually
-  meets. It happened with `/`: present the whole time, wedged between a backslash and a pipe where
-  nobody thought to look. The symbols layer is now arranged by errand rather than by code point,
-  and the check is the floor under any future rearrangement.
-
-The emoji layer is `k_kb_emoji`, written as `\U` escapes so a patch tool cannot mangle it, and
-every cell is asserted to be a single glyph this build has a sprite for
-(`kb_emoji_cells_are_drawable`).
+The emoji pages are not: a set chosen for a radio on a hillside is the wrong set for a music
+player, so the toolkit carries none and each application hands over its own. This client's are
+`k_kb_emoji` in `nav_keyboard.c`, written as `\U` escapes so a patch tool cannot mangle them, and
+every cell is asserted to be a single glyph this build has a sprite for. That check is
+`inkcell_keyboard_layout_drawable()` - the glyph tables are inkcell's, so walking them from here
+was a test reaching down a layer to read data it does not own - and `kb_emoji_cells_are_drawable`
+is this client asking it of these pages.
 
 **A keycap that is one emoji is drawn at the key's size, not at the text scale.** It went through
-`fb_draw_text()` at first, which sizes an emoji like the letter beside it — correct in a node's
+`fb_draw_text()` at first, which sizes an emoji like the letter beside it - correct in a node's
 name and wrong on a key five times that across, where forty 20 px thumbnails a panel could not be
-told apart. `fb_button`'s `emoji_face` is the rule: a label that is a single sprite and nothing
-else becomes the key's face, centred and sized to the box by `fb_draw_emoji_box()`. It is ignored
-over a letter, a word or an icon, so the four layers are still one grid described once
-(`fb_emoji_keycap_fills_its_key`). The box is snapped to a whole multiple of the sprite's own
-16 px grid first (`fb_emoji_box_fit`), which is both what keeps the upscale even — otherwise one
-eye lands a pixel wider than the other — and what lets the draw walk source pixels instead of
-destination ones, a quarter of a million comparisons a frame less on a page of forty.
+told apart. The button's `emoji_face` is the rule: a label that is a single sprite and nothing
+else becomes the key's face, centred and sized to the box. It is ignored over a letter, a word or
+an icon, so the four layers are still one grid described once (`fb_emoji_keycap_fills_its_key`).
 
 **The grid takes the body it is given.** Five rows at one text line each left a third of the panel
-blank under keys a twentieth of it tall; they now grow to fill the room between the draft and the
-footer, capped at their own width — past square a keycap reads as a bar — and floored at what the
+blank under keys a twentieth of it tall; they grow to fill the room between the draft and the
+footer, capped at their own width - past square a keycap reads as a bar - and floored at what the
 row cost before, so a small panel or a large glyph scale lays out exactly as it always did. The
 keycap's text grows with the key, never below the body scale and never past twice it. The slack
-the cap leaves over goes *above* the grid: a keyboard sits at the bottom of what it is given.
+the cap leaves over goes *above* the grid: a keyboard sits at the bottom of what it is given. All
+of that arithmetic is `inkcell_fb_draw_keyboard()`, which is what this screen hands a row and a
+cursor and gets a grid back for.
 
 ## The framebuffer backend
 

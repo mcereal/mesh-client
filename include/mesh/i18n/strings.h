@@ -77,7 +77,7 @@ enum {
 #define mesh_str_id inkcell_str_id
 
 /*
- * The fifteen ids that moved to inkcell, under the names this tree already used.
+ * The twenty-three ids that moved to inkcell, under the names this tree already used.
  *
  * Bridged rather than rewritten for the reason everything in inkcell_compat.h is, and these are
  * the ones that could not be generated with the rest: MESH_STR_* is still a live prefix - it is
@@ -99,6 +99,16 @@ enum {
 #define MESH_STR_TREND_SPAN_ALL INKCELL_STR_TREND_SPAN_ALL
 #define MESH_STR_HINT_QUIT_MENU INKCELL_STR_HINT_QUIT_MENU
 #define MESH_STR_HINT_QUIT_KEY_CODE INKCELL_STR_HINT_QUIT_KEY_CODE
+/* The keyboard's own keycaps, which went with the grid. The submit key did not - see
+   KEY_DONE and KEY_SEND, which are still this client's. */
+#define MESH_STR_KEY_LAYER_UPPER INKCELL_STR_KEY_LAYER_UPPER
+#define MESH_STR_KEY_LAYER_SYMBOLS INKCELL_STR_KEY_LAYER_SYMBOLS
+#define MESH_STR_KEY_LAYER_LOWER INKCELL_STR_KEY_LAYER_LOWER
+#define MESH_STR_KEY_LAYER_EMOJI INKCELL_STR_KEY_LAYER_EMOJI
+#define MESH_STR_KEY_LAYER_EMOJI_MORE INKCELL_STR_KEY_LAYER_EMOJI_MORE
+#define MESH_STR_KEY_SPACE INKCELL_STR_KEY_SPACE
+#define MESH_STR_KEY_DELETE INKCELL_STR_KEY_DELETE
+#define MESH_STR_KEY_CANCEL INKCELL_STR_KEY_CANCEL
 
 /* The plural machinery is inkcell's; the count is about the mechanism, not about either
    catalog, so it keeps its old name here. */

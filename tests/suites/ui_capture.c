@@ -1284,6 +1284,31 @@ static uint32_t rgb_key(struct mesh_ui_rgb rgb) {
     return (uint32_t)rgb.b | ((uint32_t)rgb.g << 8) | ((uint32_t)rgb.r << 16);
 }
 
+/*
+ * A pixel on an anti-aliased edge between two colours.
+ *
+ * inkcell draws a rounded shape by blending its own colour into whatever it is over, so the
+ * pixels along a curve are neither colour and every one of them fails an equality test. That is
+ * what the containment cases below started reporting the day the toolkit's shapes gained
+ * anti-aliasing: a dialog panel's corner, a bubble's corner and a card's edge are each a short
+ * run of blends, and not one of them is something that escaped anything.
+ *
+ * Channel-wise between, inclusive, which is what a blend of two colours is - and what a control
+ * that really did land outside its panel is not, because it is drawn in a colour the theme
+ * validated as distinct from both of these.
+ */
+static bool pixel_between(const uint8_t *pixel, struct mesh_ui_rgb a, struct mesh_ui_rgb b) {
+    const uint8_t got[3] = {pixel[2], pixel[1], pixel[0]};
+    const uint8_t lo[3] = {a.r < b.r ? a.r : b.r, a.g < b.g ? a.g : b.g, a.b < b.b ? a.b : b.b};
+    const uint8_t hi[3] = {a.r > b.r ? a.r : b.r, a.g > b.g ? a.g : b.g, a.b > b.b ? a.b : b.b};
+    for (unsigned c = 0U; c < 3U; ++c) {
+        if (got[c] < lo[c] || got[c] > hi[c]) {
+            return false;
+        }
+    }
+    return true;
+}
+
 /* Rows the dialog's raised panel covers, found by its fill rather than by re-deriving the
    layout here - a test that computed the panel's geometry itself would agree with a broken
    renderer. */
@@ -1521,13 +1546,19 @@ MESH_TEST_CASE(ui_capture_dialog_actions_stay_inside_the_panel, unit) {
             /* Anything drawn to the left of the panel, on the rows the panel covers, escaped
                it - the clipped cancel button landed exactly here. The panel's own edge is laid
                down just outside its fill and is not an escape. */
-            const uint32_t outline = rgb_key(mesh_ui_theme_color(theme, MESH_UI_COLOR_OUTLINE));
+            const struct mesh_ui_rgb bg_rgb = mesh_ui_theme_color(theme, MESH_UI_COLOR_BG);
+            const struct mesh_ui_rgb outline_rgb =
+                mesh_ui_theme_color(theme, MESH_UI_COLOR_OUTLINE);
+            const uint32_t outline = rgb_key(outline_rgb);
             size_t escaped = 0U;
             for (uint32_t y = top; y <= bottom && left > 0U; ++y) {
                 const uint8_t *row = pixels + (size_t)y * stride;
                 for (uint32_t x = 0; x < left; ++x) {
-                    const uint32_t key = pixel_key(row + (size_t)x * 4U);
-                    if (key != bg && key != outline) {
+                    const uint8_t *px = row + (size_t)x * 4U;
+                    const uint32_t key = pixel_key(px);
+                    /* The edge as it turns through a corner is a blend of itself and the ground
+                       it is over - see pixel_between(). It is still the panel's own edge. */
+                    if (key != bg && key != outline && !pixel_between(px, bg_rgb, outline_rgb)) {
                         ++escaped;
                     }
                 }
@@ -2309,10 +2340,32 @@ MESH_TEST_CASE(ui_capture_bubble_contains_its_own_ink, unit) {
                         MESH_UI_SLOT_CONTAINER,
                         selected ? MESH_UI_STATE_SELECTED : MESH_UI_STATE_REST);
                     const uint32_t fill = rgb_key(paint.fill);
-                    const uint32_t bg = rgb_key(mesh_ui_theme_color(theme, MESH_UI_COLOR_BG));
+                    const struct mesh_ui_rgb bg_rgb = mesh_ui_theme_color(theme, MESH_UI_COLOR_BG);
+                    const uint32_t bg = rgb_key(bg_rgb);
 
-                    size_t escaped = 0U;
-                    uint32_t rows = 0U;
+                    /*
+                     * The bubble's span on every row first, then the containment check against
+                     * it - two passes rather than one, because a row's own span is not the
+                     * whole of what the bubble reaches on that row.
+                     *
+                     * The accent bar is laid along the *outside* of the fill, and "outside" at
+                     * a corner points diagonally: where the edge is turning, the bar on the row
+                     * above reaches further across than this row's fill does, and a check that
+                     * measured only this row would read the bar's own corner as ink that
+                     * escaped. So a row is allowed the widest of itself and its two
+                     * neighbours, which is what "along the edge, including where it turns"
+                     * means in pixels.
+                     */
+                    uint32_t *row_left = calloc(height, sizeof *row_left);
+                    uint32_t *row_right = calloc(height, sizeof *row_right);
+                    if (row_left == NULL || row_right == NULL) {
+                        free(row_left);
+                        free(row_right);
+                        mesh_ui_capture_close(capture);
+                        capture = NULL;
+                        failure = "row span allocation failed";
+                        break;
+                    }
                     for (uint32_t y = 0; y < height; ++y) {
                         const uint8_t *row = pixels + (size_t)y * stride;
                         uint32_t left = width, right = 0U;
@@ -2325,27 +2378,54 @@ MESH_TEST_CASE(ui_capture_bubble_contains_its_own_ink, unit) {
                             }
                             right = x;
                         }
+                        row_left[y] = left;
+                        row_right[y] = right;
+                    }
+
+                    size_t escaped = 0U;
+                    uint32_t rows = 0U;
+                    for (uint32_t y = 0; y < height; ++y) {
+                        const uint8_t *row = pixels + (size_t)y * stride;
+                        uint32_t left = row_left[y];
+                        uint32_t right = row_right[y];
                         /* A row the bubble does not cover, or covers only in a corner's
                            stepping - neither says anything about containment. */
                         if (left >= right || right - left < (uint32_t)(4 * scale)) {
                             continue;
                         }
                         rows += 1U;
+                        for (uint32_t n = (y > 0U ? y - 1U : 0U); n <= y + 1U && n < height; ++n) {
+                            if (row_left[n] < row_right[n]) {
+                                if (row_left[n] < left) {
+                                    left = row_left[n];
+                                }
+                                if (row_right[n] > right) {
+                                    right = row_right[n];
+                                }
+                            }
+                        }
                         /* The cursor's accent is laid under the fill and shows on the outer
-                           edge only, by exactly one scale - so that much either side is the
-                           bubble too, not something that escaped it. */
-                        const uint32_t bar = selected ? (uint32_t)scale : 0U;
+                           edge only, by one scale - so that much either side is the bubble too,
+                           not something that escaped it. Plus the one pixel the bar's own
+                           anti-aliased edge takes, which is the bar fading into the ground
+                           rather than anything of the bubble's reaching past it. */
+                        const uint32_t bar = selected ? (uint32_t)scale + 1U : 0U;
                         left = left > bar ? left - bar : 0U;
                         right += bar;
                         for (uint32_t x = 0; x < width; ++x) {
                             if (x >= left && x <= right) {
                                 continue;
                             }
-                            if (pixel_key(row + (size_t)x * 4U) != bg) {
+                            const uint8_t *px = row + (size_t)x * 4U;
+                            /* The corner the fill is curving through is a blend of the fill and
+                               the ground - the bubble's own edge, not ink that left it. */
+                            if (pixel_key(px) != bg && !pixel_between(px, bg_rgb, paint.fill)) {
                                 ++escaped;
                             }
                         }
                     }
+                    free(row_left);
+                    free(row_right);
                     mesh_ui_capture_close(capture);
                     capture = NULL;
 
@@ -3540,9 +3620,17 @@ MESH_TEST_CASE(ui_capture_nav_bar_badges_unread_messages, unit) {
     size_t stride = 0U;
     const uint8_t *pixels = mesh_ui_capture_pixels(capture, &width, &height, &stride);
 
-    /* Wide enough that a glyph stroke cannot produce it - the capsule's top scanline runs its
-       whole width - and narrow enough for a single figure at the smallest scale a theme picks. */
-    const unsigned capsule = 20U;
+    /*
+     * Wide enough that a glyph stroke cannot produce it, and narrow enough for a single figure
+     * at the smallest scale a theme picks.
+     *
+     * A run of the colour itself rather than of the capsule, which is not the same number: the
+     * pill is drawn anti-aliased, so each of its scanlines fades into the strip at both ends
+     * and the solid part of the widest one is a couple of pixels short of the shape. This was
+     * twenty and the shape is twenty-one, which left the check passing on the strength of the
+     * two pixels a smoother edge then spent. A stroke at this scale is four.
+     */
+    const unsigned capsule = 12U;
     /* The tab strip and nothing below it. It is the first thing the frame draws and it is one
        chrome line tall, so an eighth of the panel is generous and still well clear of the body. */
     const uint32_t strip = height / 8U;
@@ -3604,6 +3692,73 @@ MESH_TEST_CASE(ui_capture_nav_bar_badges_unread_messages, unit) {
  * scale and they do not all come off it at the same rate.
  */
 /*
+ * A pixel of a card's hairline edge, as the edge is actually drawn.
+ *
+ * The rule is a hairline and inkcell anti-aliases it into whatever is on either side of it, so
+ * on a given row there may be no pixel of the outline colour itself anywhere - only the blend
+ * running up to it and back down. An edge asked for by equality is an edge this reads as absent.
+ *
+ * The two fills are named out rather than measured, and that is the one thing this cannot do
+ * without: a cursor row's fill is a state layer of the text colour over the surface, which
+ * lands *between* the ground and the rule on every channel in every theme. Admitted by the
+ * blend test it would answer this question with the very thing the question is about.
+ */
+static bool pixel_is_card_edge(const struct mesh_ui_capture *capture, const uint8_t *pixel) {
+    if (pixel_is_role(capture, pixel, MESH_UI_COLOR_OUTLINE)) {
+        return true;
+    }
+    /*
+     * The three colours the blend test below would otherwise swallow, named out rather than
+     * measured. The ground is an endpoint of the range and so matches it trivially; the card's
+     * fill and a cursor row's fill both sit between the ground and the rule on every channel in
+     * every theme - a cursor row because it is a state layer of the text colour over the
+     * surface. Any of them admitted, this answers "the card's edge" with the things the edge is
+     * drawn between.
+     */
+    if (pixel_is_role(capture, pixel, MESH_UI_COLOR_BG) ||
+        pixel_is_role(capture, pixel, MESH_UI_COLOR_SURFACE_SEL) ||
+        pixel_is_role(capture, pixel, MESH_UI_COLOR_SURFACE)) {
+        return false;
+    }
+    const struct mesh_ui_theme *theme = mesh_ui_capture_theme(capture);
+    const struct mesh_ui_rgb outline = mesh_ui_theme_color(theme, MESH_UI_COLOR_OUTLINE);
+    return pixel_between(pixel, outline, mesh_ui_theme_color(theme, MESH_UI_COLOR_BG)) ||
+           pixel_between(pixel, outline, mesh_ui_theme_color(theme, MESH_UI_COLOR_SURFACE));
+}
+
+/*
+ * A pixel that belongs to a card's own furniture: the ground, the card, a cursor row, the rule
+ * between them, or an anti-aliased step between any two of those.
+ *
+ * The blends are the whole reason this is a function. A rounded card is drawn by blending each
+ * of these into the one behind it, so a row through a corner is mostly steps and only partly
+ * colours - and a check that named four colours and rejected everything else read every one of
+ * those steps as a heading drawn through the card's edge.
+ */
+static bool pixel_is_one_of(const struct mesh_ui_capture *capture, const uint8_t *pixel,
+                            const enum mesh_ui_color *roles, size_t count) {
+    const struct mesh_ui_theme *theme = mesh_ui_capture_theme(capture);
+    for (size_t i = 0U; i < count; ++i) {
+        if (pixel_is_role(capture, pixel, roles[i])) {
+            return true;
+        }
+        for (size_t j = i + 1U; j < count; ++j) {
+            if (pixel_between(pixel, mesh_ui_theme_color(theme, roles[i]),
+                              mesh_ui_theme_color(theme, roles[j]))) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+static bool pixel_is_card_furniture(const struct mesh_ui_capture *capture, const uint8_t *pixel) {
+    static const enum mesh_ui_color k_roles[] = {MESH_UI_COLOR_OUTLINE, MESH_UI_COLOR_SURFACE,
+                                                 MESH_UI_COLOR_SURFACE_SEL, MESH_UI_COLOR_BG};
+    return pixel_is_one_of(capture, pixel, k_roles, sizeof k_roles / sizeof k_roles[0]);
+}
+
+/*
  * A group's heading is drawn after the cards, so anything of it that lands on a card's edge
  * paints through the edge - and the scale it happens at is the one nobody renders.
  *
@@ -3633,16 +3788,14 @@ static const char *card_edges_carry_no_ink(const struct mesh_ui_capture *capture
             }
         }
         /* A card runs nearly the whole panel, so its edge rows are the only ones that can be
-           mostly outline. Nothing else on the frame draws a rule in that role. */
+           mostly outline. Nothing else on the frame draws a rule in that role - and the colour
+           itself rather than pixel_is_card_edge() picks the row, because the blends that
+           function also accepts are what the tab strip's own fills are made of. */
         if (edge * 5U < right * 3U) {
             continue;
         }
         for (uint32_t x = 0U; x < right; ++x) {
-            const uint8_t *px = row + (size_t)x * 4U;
-            if (pixel_is_role(capture, px, MESH_UI_COLOR_OUTLINE) ||
-                pixel_is_role(capture, px, MESH_UI_COLOR_SURFACE) ||
-                pixel_is_role(capture, px, MESH_UI_COLOR_SURFACE_SEL) ||
-                pixel_is_role(capture, px, MESH_UI_COLOR_BG)) {
+            if (pixel_is_card_furniture(capture, row + (size_t)x * 4U)) {
                 continue;
             }
             (void)scale;
@@ -3777,6 +3930,33 @@ static const char *rail_clears_the_cards(const struct mesh_ui_capture *capture,
                 card_right = (int)x;
             }
         }
+        /*
+         * And the tail of the card's own anti-aliased edge, which is where the card really
+         * ends: the last pixel of the outline *colour* - or of the focus ring's - is somewhere
+         * inside the hairline rather than at its outer face, so a gutter measured from there is
+         * measured from inside the card and comes back two pixels short of what the layout
+         * left.
+         *
+         * The tail is whatever fades from that last colour into the ground, walked forward from
+         * it one pixel at a time. Adjacency is what makes this safe: it can only ever be this
+         * shape's own fade-out, because the rail on the far side of the gutter has clear ground
+         * between it and anything here.
+         */
+        /* The card's own colours and the ring's, and the steps between any two of them: that is
+           what the edge fading out is made of and it is all this may absorb. It stops at the
+           first pixel of clear ground, so the rail on the far side of the gutter is out of
+           reach whatever it is drawn in. */
+        static const enum mesh_ui_color k_card[] = {MESH_UI_COLOR_OUTLINE, MESH_UI_COLOR_SURFACE,
+                                                    MESH_UI_COLOR_SURFACE_SEL,
+                                                    MESH_UI_COLOR_PRIMARY, MESH_UI_COLOR_BG};
+        while (card_right >= 0 && (uint32_t)card_right + 1U < width) {
+            const uint8_t *next = row + (size_t)(card_right + 1) * 4U;
+            if (pixel_is_background(capture, next) ||
+                !pixel_is_one_of(capture, next, k_card, sizeof k_card / sizeof k_card[0])) {
+                break;
+            }
+            card_right += 1;
+        }
         /* A row with no card on it - a group's heading, the chrome above and below the body -
            has nothing for the rail to be too close to. */
         if (card_right < 0) {
@@ -3861,10 +4041,10 @@ static const char *cursor_stays_inside_its_card(const struct mesh_ui_capture *ca
         bool left = false;
         bool right = false;
         for (uint32_t x = 0U; x < first; ++x) {
-            left = left || pixel_is_role(capture, row + (size_t)x * 4U, MESH_UI_COLOR_OUTLINE);
+            left = left || pixel_is_card_edge(capture, row + (size_t)x * 4U);
         }
         for (uint32_t x = last + 1U; x < width; ++x) {
-            right = right || pixel_is_role(capture, row + (size_t)x * 4U, MESH_UI_COLOR_OUTLINE);
+            right = right || pixel_is_card_edge(capture, row + (size_t)x * 4U);
         }
         if (!left || !right) {
             return "the cursor fill painted out the card's edge on its own row";

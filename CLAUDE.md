@@ -109,9 +109,10 @@ evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 
 **The UI toolkit is [inkcell](https://github.com/mcereal/inkcell), a submodule at
 `third_party/inkcell`.** The theme, the fonts and glyph tables, the layout arithmetic, the
-framebuffer backend and its components, and the evdev input layer live there - none of them was
-ever about Meshtastic. What is here is the half that knows what a node, a channel and a waypoint
-are: the store, the nav, the settings model, the screen renderers, the tables.
+framebuffer backend and its components, the evdev input layer and the on-screen keyboard's grid
+live there - none of them was ever about Meshtastic. What is here is the half that knows what a
+node, a channel and a waypoint are: the store, the nav, the settings model, the screen
+renderers, the tables.
 
 inkcell never reaches into this client. Four things are pushed down instead, all from
 `src/app/app.c` and `src/ui/backends/fb_app.c`:
@@ -119,7 +120,7 @@ inkcell never reaches into this client. Four things are pushed down instead, all
 | What | How |
 |---|---|
 | The knobs | `inkcell_env_set_prefix("MESHCLIENT")` - inkcell reads `THEME` as `MESHCLIENT_THEME` |
-| The words | `mesh_i18n_register()` - inkcell's 15 ids and this client's ~880 as one table |
+| The words | `mesh_i18n_register()` - inkcell's 23 ids and this client's ~870 as one table |
 | The loop | `struct inkcell_input_host` over `mesh_event_loop` - inkcell owns no loop |
 | The frame | `struct inkcell_fb_app` - inkcell calls up into `fb_app.c` once a frame |
 
@@ -176,6 +177,7 @@ publish and read back when that node's detail screen is opened. See
 | Admin protocol | `src/core/session/radio_settings.c` - `AdminMessage` get/set queue, passkeys, NodeDB verbs |
 | Messaging | `src/core/session/message.c`, `store_forward.c`, `waypoint.c` |
 | Key trust | `src/core/session/key_verification.c` - the out-of-band ceremony behind the padlock; `add_contact` lives in `radio_settings.c` |
+| Keyboard | the grid, the ring and the edits are inkcell's (`inkcell/ui/keyboard.h`); `src/ui/nav/nav_keyboard.c` is the seven jobs it is opened for and this client's emoji pages |
 | Channel sharing | `src/proto/channel_url.c` (the `meshtastic.org/e/#` link), `src/core/session/channel_share.c` (the radio's table either way), `src/utils/qr.c` (the code), `src/ui/views/channel_share.c` (what the two screens say) |
 | Contact sharing | `src/proto/contact_url.c` (the `meshtastic.org/v/#` link), `src/core/session/contact_share.c` (this radio's record out, a stranger's in), `src/ui/views/contact_share.c` (what the two screens say); the wrapper both links share is `src/proto/link_url.h` |
 | App glue | `src/app/*.c` - the composition root: lifecycle/link, `_actions`, `_publish`, `_settings` |

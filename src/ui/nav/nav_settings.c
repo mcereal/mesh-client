@@ -117,10 +117,7 @@ static void mesh_ui_nav_open_field_keyboard(struct mesh_ui_nav *nav,
     snprintf(nav->draft, sizeof nav->draft, "%s", item->text);
     nav->keyboard_field = (uint8_t)item->field;
     nav->keyboard_open = true;
-    nav->kb_row = 0U;
-    nav->kb_col = 0U;
-    nav->kb_layer = MESH_UI_KB_LOWER;
-    nav->kb_emoji_page = 0U;
+    inkcell_keyboard_reset(&nav->kb);
 }
 
 /* A, Left or Right on a row of an open section. Toggles flip, enums cycle, numbers step
