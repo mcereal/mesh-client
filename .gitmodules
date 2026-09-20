@@ -17,4 +17,8 @@
 [submodule "third_party/inkcell"]
 	path = third_party/inkcell
 	url = https://github.com/mcereal/inkcell
-	branch = claude/inkcell-ui-extraction-okueq7
+	# The UI toolkit this client is built out of, and the one submodule here that is ours: a
+	# change to it is usually a change made for this client, so the branch to follow is its
+	# trunk. Ordinary `git submodule update` ignores this line - the pinned SHA is what checks
+	# out - and only `--remote` and Dependabot read it.
+	branch = main
