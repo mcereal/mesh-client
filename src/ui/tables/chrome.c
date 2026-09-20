@@ -1,4 +1,5 @@
 #include "mesh/ui/chrome.h"
+#include "mesh/ui/actions.h"
 
 #include "mesh/core/firmware_update.h"
 #include "mesh/core/updater.h"

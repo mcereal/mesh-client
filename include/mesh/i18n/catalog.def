@@ -37,12 +37,9 @@
  * Keeping the empty string at 0 means that reads as nothing rather than as whichever entry
  * happened to be written first.
  */
-MESH_STR_ENTRY(NONE,                      "")
-
 /* The stand-in for a value the client cannot name: an enum the radio sent that this build
    does not know, a timestamp in the future. Short on purpose - it shares a row with real
    values and must not widen it. */
-MESH_STR_ENTRY(COMMON_UNKNOWN_SHORT,      "?")
 MESH_STR_ENTRY(COMMON_UNKNOWN,            "unknown")
 MESH_STR_ENTRY(COMMON_NONE,               "none")
 MESH_STR_ENTRY(COMMON_ON,                 "on")
@@ -60,11 +57,6 @@ MESH_STR_ENTRY(COMMON_PRESS_A,            "press A")
 
 /* Compact ages, drawn in the corner of a list row where there is room for about six cells.
    The letters are unit abbreviations: seconds, minutes, hours, days. */
-MESH_STR_ENTRY(TIME_NOW,                  "now")
-MESH_STR_ENTRY(TIME_SECONDS_SHORT,        "%us")
-MESH_STR_ENTRY(TIME_MINUTES_SHORT,        "%um")
-MESH_STR_ENTRY(TIME_HOURS_SHORT,          "%uh")
-MESH_STR_ENTRY(TIME_DAYS_SHORT,           "%ud")
 /* Two-part durations, for an uptime or a gap that deserves more than one unit. */
 MESH_STR_ENTRY(TIME_DAYS_HOURS,           "%ud %uh")
 MESH_STR_ENTRY(TIME_HOURS_MINUTES,        "%uh %um")
@@ -250,9 +242,6 @@ MESH_STR_ENTRY(ACTION_CONFIRM_DISCARD,    "confirm discard")
  * form is what MESHCLIENT_QUIT_KEYS leaves us able to say when somebody has rebound quitting to
  * a key whose name we do not know.
  */
-MESH_STR_ENTRY(HINT_QUIT_MENU,            "Press MENU to quit")
-MESH_STR_ENTRY(HINT_QUIT_KEY_CODE,        "Quit: key code %u")
-
 /* ---- the header ---------------------------------------------------------------------------- */
 
 /* The transport has not said anything yet: the very first frame after launch. */
@@ -504,9 +493,6 @@ MESH_STR_ENTRY(NODES_ROW_SNR,             "%.1fdB %s")
 
 /* A list title with its row count: "Nodes (12)", and "(+3 older)" when the ring has dropped
    messages the count cannot show. */
-MESH_STR_ENTRY(LIST_TITLE_COUNT,          "%s (%u)")
-MESH_STR_ENTRY(LIST_TITLE_COUNT_OLDER,    "%s (%u, +%u older)")
-
 /* Who a message is being written to, and whether that is a channel or one node. */
 MESH_STR_ENTRY(COMPOSE_TO,                "To: %s")
 MESH_STR_ENTRY(COMPOSE_TO_KIND,           "To: %s%s")
@@ -788,10 +774,6 @@ MESH_STR_ENTRY(TREND_AXIS_PERCENT,        "%u%%")
  * Left as unit letters for the reason the region codes are: "15m" is a duration written the way
  * every clock writes it, and a locale that wants its own may translate these four.
  */
-MESH_STR_ENTRY(TREND_SPAN_15M,            "15m")
-MESH_STR_ENTRY(TREND_SPAN_1H,             "1h")
-MESH_STR_ENTRY(TREND_SPAN_6H,             "6h")
-MESH_STR_ENTRY(TREND_SPAN_ALL,            "All")
 /* What a plot with no line in it says, in the middle of its own frame. Not an error: the reader
    narrowed the span past the last two readings, and the picture saying so is what tells them the
    press worked and that widening it again is the way back. "Not enough" rather than "none",

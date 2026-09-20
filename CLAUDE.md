@@ -18,7 +18,7 @@ provisions the prerequisites and the plain targets work directly.
 `.claude/hooks/session-start.sh` runs that setup automatically for remote sessions.
 
 ```bash
-git submodule update --init --recursive   # nanopb + protobufs (required), Mbed TLS (TLS)
+git submodule update --init --recursive   # inkcell + nanopb + protobufs (required), Mbed TLS (TLS)
 make test                                 # Debug build + ctest - the default verify step
 make debug                                # Debug build only
 cmake --preset debug                      # the same configure, for an editor or a bare shell
@@ -107,6 +107,27 @@ link (transport) -> mesh_session -> mesh_app -> UI store -> controller -> backen
 evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_ui_action
 ```
 
+**The UI toolkit is [inkcell](https://github.com/mcereal/inkcell), a submodule at
+`third_party/inkcell`.** The theme, the fonts and glyph tables, the layout arithmetic, the
+framebuffer backend and its components, and the evdev input layer live there - none of them was
+ever about Meshtastic. What is here is the half that knows what a node, a channel and a waypoint
+are: the store, the nav, the settings model, the screen renderers, the tables.
+
+inkcell never reaches into this client. Four things are pushed down instead, all from
+`src/app/app.c` and `src/ui/backends/fb_app.c`:
+
+| What | How |
+|---|---|
+| The knobs | `inkcell_env_set_prefix("MESHCLIENT")` - inkcell reads `THEME` as `MESHCLIENT_THEME` |
+| The words | `mesh_i18n_register()` - inkcell's 15 ids and this client's ~880 as one table |
+| The loop | `struct inkcell_input_host` over `mesh_event_loop` - inkcell owns no loop |
+| The frame | `struct inkcell_fb_app` - inkcell calls up into `fb_app.c` once a frame |
+
+**`include/mesh/inkcell_compat.h` is temporary.** It bridges ~850 old `mesh_ui_*` names to their
+`inkcell_*` spellings so that moving the files did not have to rewrite every call site in the
+same commit. Nothing new should use a name in it; write the inkcell name, and take lines out of
+the list as a layer stops needing them.
+
 **`include/mesh/<area>/` is an area's public surface and is flat; `src/<area>/` subdivides by
 group.** So `store.h` is included as `mesh/ui/store.h` no matter which group under `src/ui/` its
 source is filed in - how the sources are filed is not part of the interface, and moving one
@@ -162,10 +183,12 @@ publish and read back when that node's detail screen is opened. See
 | MQTT proxy | `src/proto/mqtt_packet.c` (the wire format), `src/proto/mqtt_topic.c` (where a mesh lives on a broker), `src/core/net/mqtt_proxy.c` (one broker connection), `src/core/net/tls_client.c` (Mbed TLS on the loop), `src/app/app_mqtt.c` (whether to hold one at all) |
 | Radio firmware | `src/core/firmware/` - `firmware*.c`, `uf2.c`, `esp_image.c`, `src/transport/*/{usb_msc,ble_ota,ble_hci}.c` - the *other* binary |
 | UI | `src/ui/` - see the group map below; **`fb` is the device UI** |
-| UI components | `src/ui/layout.c` (top level: every group measures), `src/ui/backends/fb_widgets_*.c` - one file per group of components (button, chrome, list, item, bubble, card, control, meter, overlay); `fb_widgets.h` is the umbrella |
-| Tables the UI reads | `src/ui/tables/` - `actions.c` (button verbs), `status.c` (card verbs), `help.c`, `devices.c`, `nodes.c`, `delivery.c`, `trust.c`, `chrome.c`, `trend.c`, `duration.c`, `units.c` (metric/imperial lengths) |
-| Themes & fonts | `src/ui/theme/theme.c`, `font*.c`, `icon*.c` - palette by role, shape scale, metrics |
-| Strings | `src/i18n/strings.c`, `include/mesh/i18n/catalog.def` |
+| UI toolkit | `third_party/inkcell/` - theme, fonts, glyphs, layout, widgets, the fb backend, input |
+| UI components | inkcell's `include/inkcell/ui/widgets/*.h` (button, chrome, list, item, bubble, card, control, meter, overlay); `inkcell/ui/widgets.h` is the umbrella, `inkcell/ui/fb_draw.h` the toolkit under it |
+| This client behind the frame | `src/ui/backends/fb_app.c` - the renderer inkcell calls, the move it cannot work out, the theme it is told |
+| Tables the UI reads | `src/ui/tables/` - `actions.c` (button verbs), `status.c` (card verbs), `help.c`, `devices.c`, `nodes.c`, `delivery.c`, `trust.c`, `chrome.c`, `trend.c` (the airtime chart; the frame around it is inkcell's), `duration.c`, `units.c` (metric/imperial lengths) |
+| Themes & fonts | inkcell's `src/theme/` - palette by role, shape scale, metrics |
+| Strings | `src/i18n/strings.c` registers the catalog; the list is `include/mesh/i18n/catalog.def`, continuing inkcell's 15 |
 | Geography & map | `src/geo/` (the only directory that includes `<math.h>`), `src/map/`, `src/ui/views/map.c`, `src/ui/nav/nav_map.c`, `src/ui/backends/fb_map.c` |
 | Crash reports | `src/utils/crash.c` - local only, deliberately not a service |
 | Shared utils | `src/utils/` - `text`, `time`, `env`, `json`, `log`, `sha256`, `array` |

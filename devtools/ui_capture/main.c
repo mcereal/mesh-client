@@ -82,6 +82,7 @@
 #include "mesh/ui/backends/fb_capture.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/route.h"
+#include "mesh/utils/env.h"
 /* For the flag rows' masks: the fixture sets position_flags and the field table is what says
    which bit each row is, so the scene is filmed against the same answer the screen draws. */
 #include "mesh/proto/channel_url.h"
@@ -3050,6 +3051,15 @@ static void uicap_usage(void) {
 }
 
 int main(int argc, char **argv) {
+    /*
+     * The same two statements src/app/app.c opens with, and this tool needs them for the same
+     * reason: inkcell reads its environment under a prefix the application sets, and answers for
+     * a word out of the catalog the application registered. Skipped, every MESH_STR_* id here is
+     * past the end of inkcell's own fifteen and every label on every captured frame comes back
+     * empty - which is a picture of nothing that looks a great deal like a picture of a bug.
+     */
+    inkcell_env_set_prefix("MESHCLIENT");
+    mesh_i18n_register();
     mesh_i18n_init();
     struct uicap cap;
     memset(&cap, 0, sizeof cap);

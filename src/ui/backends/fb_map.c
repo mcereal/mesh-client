@@ -14,6 +14,7 @@
  * colour, radius and margin comes from the theme. This file is placement and ink.
  */
 
+#include "fb_internal.h"
 #include "fb_widgets.h"
 
 #include "mesh/geo/coords.h"
@@ -530,7 +531,7 @@ static void fb_map_draw_selection(const struct mesh_ui_backend_fb_state *state,
 #define FB_BASEMAP_TILE_STRIDE ((size_t)MESH_MAP_TILE_SIZE * (size_t)MESH_MAP_TILE_PIXEL_BYTES)
 
 bool fb_basemap_pending(const struct mesh_ui_backend_fb_state *state) {
-    return state != NULL && state->basemap != NULL && state->basemap->pending;
+    return state != NULL && fb_app_of(state)->basemap != NULL && fb_app_of(state)->basemap->pending;
 }
 
 /*
@@ -543,17 +544,17 @@ bool fb_basemap_pending(const struct mesh_ui_backend_fb_state *state) {
  * the battery, and is invisible because every one of those frames is correct.
  */
 void fb_basemap_frame_begin(struct mesh_ui_backend_fb_state *state) {
-    if (state != NULL && state->basemap != NULL) {
-        state->basemap->pending = false;
+    if (state != NULL && fb_app_of(state)->basemap != NULL) {
+        fb_app_of(state)->basemap->pending = false;
     }
 }
 
 void fb_basemap_close(struct mesh_ui_backend_fb_state *state) {
-    if (state == NULL || state->basemap == NULL) {
+    if (state == NULL || fb_app_of(state)->basemap == NULL) {
         return;
     }
-    struct fb_basemap *const basemap = state->basemap;
-    state->basemap = NULL;
+    struct fb_basemap *const basemap = fb_app_of(state)->basemap;
+    fb_app_of(state)->basemap = NULL;
     mesh_map_tile_cache_deinit(&basemap->cache);
     mesh_map_source_close(&basemap->source);
     free(basemap->encoded);
@@ -589,7 +590,7 @@ int fb_basemap_open(struct mesh_ui_backend_fb_state *state, const char *path) {
     }
 
     basemap->open = true;
-    state->basemap = basemap;
+    fb_app_of(state)->basemap = basemap;
     mesh_log_info("ui", "Map pack %s: %s, %u tiles, zoom %u-%u, holding up to %zu KiB of them",
                   path, basemap->source.info.name[0] != '\0' ? basemap->source.info.name : path,
                   basemap->source.info.tiles, (unsigned)basemap->source.info.min_zoom,
@@ -662,7 +663,7 @@ void fb_basemap_open_default(struct mesh_ui_backend_fb_state *state) {
 static bool fb_map_draw_basemap(struct mesh_ui_backend_fb_state *state,
                                 const struct mesh_map_viewport *viewport,
                                 const struct fb_map_box *body) {
-    struct fb_basemap *const basemap = state->basemap;
+    struct fb_basemap *const basemap = fb_app_of(state)->basemap;
     if (basemap == NULL || !basemap->open) {
         return false;
     }
@@ -1041,7 +1042,8 @@ void fb_render_map(struct mesh_ui_backend_fb_state *state, const struct mesh_ui_
     fb_map_draw_crosshair(state, &body, on_something);
     fb_map_draw_scale(state, &viewport, &body, snapshot->settings.units == 1U, basemap, scale);
     if (basemap) {
-        fb_map_draw_attribution(state, &body, state->basemap->source.info.attribution, scale);
+        fb_map_draw_attribution(state, &body, fb_app_of(state)->basemap->source.info.attribution,
+                                scale);
     }
     fb_map_clip_pop(state, &clip);
 

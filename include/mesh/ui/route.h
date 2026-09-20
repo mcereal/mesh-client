@@ -35,6 +35,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "inkcell/ui/fb_draw.h"
+
+#include "mesh/inkcell_compat.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -100,11 +104,9 @@ struct mesh_ui_route {
 };
 
 /* Which way a move between two places went. */
-enum mesh_ui_transition {
-    MESH_UI_TRANSITION_NONE = 0, /* the same place: nothing moved */
-    MESH_UI_TRANSITION_FORWARD,  /* further in, or rightwards along the tabs */
-    MESH_UI_TRANSITION_BACK,     /* back out, or leftwards along the tabs */
-};
+/* enum mesh_ui_transition moved to inkcell (inkcell/ui/fb_draw.h): how a screen travels is a
+   property of the look. What counts as "further in" is still this client's question, which is
+   what mesh_ui_route_move() below answers. */
 
 /* Reads the place this nav is showing. Never fails; a NULL nav yields the Messages list, which
    is where mesh_ui_nav_init() leaves one. */

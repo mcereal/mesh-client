@@ -669,8 +669,8 @@ static int mesh_ble_start(struct mesh_transport *transport, const struct mesh_ap
     /* Read once rather than per turn. It is a knob because the right value follows the
        auto-connect retry, which is the app's to choose, and because a bench needs to be able to
        turn the hold off outright. */
-    state->scan_resume_grace_ms = (uint64_t)mesh_env_int(
-        "MESHCLIENT_SCAN_RESUME_GRACE_MS", 0, 60000, (long)MESH_BLE_SCAN_RESUME_GRACE_MS);
+    state->scan_resume_grace_ms = (uint64_t)mesh_env_int("SCAN_RESUME_GRACE_MS", 0, 60000,
+                                                         (long)MESH_BLE_SCAN_RESUME_GRACE_MS);
     state->waiting_reason[0] = '\0';
     state->drain_retry_at_ms = 0U;
     state->drain_failures = 0U;

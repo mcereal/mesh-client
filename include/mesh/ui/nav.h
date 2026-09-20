@@ -9,37 +9,19 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "inkcell/ui/key.h"
+
+#include "mesh/inkcell_compat.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 struct mesh_ui_store;
 
-/*
- * Logical buttons. Backends and the input layer translate from whatever the hardware reports
- * (evdev codes on the Brick, keyboard keys on a host) so the navigation model never sees a
- * keycode. The names follow the Brick's face buttons: A confirms, B backs out.
- */
-enum mesh_ui_key {
-    MESH_UI_KEY_NONE = 0,
-    MESH_UI_KEY_UP,
-    MESH_UI_KEY_DOWN,
-    MESH_UI_KEY_LEFT,
-    MESH_UI_KEY_RIGHT,
-    MESH_UI_KEY_A,
-    MESH_UI_KEY_B,
-    MESH_UI_KEY_X,
-    MESH_UI_KEY_Y,
-    MESH_UI_KEY_L1,
-    MESH_UI_KEY_R1,
-    /* The triggers. Analogue on the wire - the Brick reports them as ABS_Z/ABS_RZ rather than
-       as buttons, and src/ui/input/input.c is where that becomes a press - but digital in the hand,
-       and logical keys like any other once they get here. */
-    MESH_UI_KEY_L2,
-    MESH_UI_KEY_R2,
-    MESH_UI_KEY_START,
-    MESH_UI_KEY_SELECT,
-};
+/* Logical buttons moved to inkcell (inkcell/ui/key.h): which physical button reports which
+   press is a fact about a piece of plastic, and the navigation model never sees a keycode
+   either way. The MESH_UI_KEY_* names are bridged in inkcell_compat.h. */
 
 /* Tabs, in the order LEFT/RIGHT (and L1/R1) walk them. Compose is not one: it is an overlay
    over the open conversation, so it can never be reached with a stale destination. */

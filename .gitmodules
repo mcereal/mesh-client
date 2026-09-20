@@ -14,3 +14,7 @@
 	# the commits are the security and bug fixes. Ordinary `git submodule update` ignores it:
 	# the pinned SHA is what checks out, and only `--remote` follows the branch.
 	branch = mbedtls-4.1
+[submodule "third_party/inkcell"]
+	path = third_party/inkcell
+	url = https://github.com/mcereal/inkcell
+	branch = claude/inkcell-ui-extraction-okueq7

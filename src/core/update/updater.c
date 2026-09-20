@@ -502,8 +502,7 @@ int mesh_updater_init(struct mesh_updater *updater, struct mesh_event_loop *loop
         updater->install_path[0] = '\0';
     }
 
-    updater->allow_dev_from_env =
-        mesh_env_bool("MESHCLIENT_UPDATE_ALLOW_DEV", "dev updates", false);
+    updater->allow_dev_from_env = mesh_env_bool("UPDATE_ALLOW_DEV", "dev updates", false);
     updater->allow_dev = updater->allow_dev_from_env;
 
     if (!mesh_tls_available()) {

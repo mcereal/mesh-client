@@ -1,6 +1,11 @@
 #ifndef MESH_UI_BACKENDS_FB_SCREENS_INTERNAL_H
 #define MESH_UI_BACKENDS_FB_SCREENS_INTERNAL_H
 
+/* The screens are drawn with this client's half of the backend - the app context, the basemap,
+   the snapshot - over inkcell's toolkit, which fb_internal.h pulls in. It used to arrive by way
+   of fb_widgets.h; now that the components are a library's, the path has to be said. */
+#include "fb_internal.h"
+
 /*
  * The screens, as the frame that dispatches between them sees them.
  *

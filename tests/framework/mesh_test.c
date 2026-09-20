@@ -2,6 +2,9 @@
 
 #include "framework/mesh_test.h"
 
+#include "mesh/i18n/strings.h"
+#include "mesh/utils/env.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -197,6 +200,16 @@ static void print_usage(void) {
 }
 
 int main(int argc, char **argv) {
+    /*
+     * The same two statements src/app/app.c opens with, and for the same reason: inkcell reads
+     * its environment under a prefix the application sets, and answers for a word out of the
+     * catalog the application registered. A test binary that skipped these would be reading
+     * INKCELL_LANG and drawing with inkcell's own fifteen strings, which is neither what the
+     * client does nor what any case here is written against.
+     */
+    inkcell_env_set_prefix("MESHCLIENT");
+    mesh_i18n_register();
+
     struct test_options options = {
         .category = NULL,
         .name_filter = NULL,

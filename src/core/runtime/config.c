@@ -34,10 +34,14 @@ static void lowercase(char *buffer) {
     }
 }
 
-/* MESHCLIENT_DISABLE_<X>: truthy turns the transport off, so the flag is the negation of the
-   `enable_*` field it lands in. */
-static void apply_disable_override(const char *env_name, const char *label, bool *enabled) {
-    *enabled = !mesh_env_bool(env_name, label, !*enabled);
+/* DISABLE_<X>, under the application's environment prefix: truthy turns the transport off, so
+   the flag is the negation of the `enable_*` field it lands in.
+
+   `suffix` is a suffix, not a whole name - mesh_env_bool() puts MESHCLIENT_ on the front. It is
+   named for that, because passing the whole name reads perfectly well, compiles, and asks for
+   MESHCLIENT_MESHCLIENT_DISABLE_BLE. */
+static void apply_disable_override(const char *suffix, const char *label, bool *enabled) {
+    *enabled = !mesh_env_bool(suffix, label, !*enabled);
 }
 
 void mesh_app_config_apply_env_overrides(struct mesh_app_config *config) {
@@ -60,11 +64,11 @@ void mesh_app_config_apply_env_overrides(struct mesh_app_config *config) {
     }
 
     config->idle_timeout_ms =
-        (int)mesh_env_int("MESHCLIENT_IDLE_TIMEOUT_MS", INT_MIN, INT_MAX, config->idle_timeout_ms);
+        (int)mesh_env_int("IDLE_TIMEOUT_MS", INT_MIN, INT_MAX, config->idle_timeout_ms);
 
-    apply_disable_override("MESHCLIENT_DISABLE_BLE", "BLE", &config->enable_ble);
-    apply_disable_override("MESHCLIENT_DISABLE_SERIAL", "serial", &config->enable_serial);
-    apply_disable_override("MESHCLIENT_DISABLE_TCP", "network", &config->enable_tcp);
+    apply_disable_override("DISABLE_BLE", "BLE", &config->enable_ble);
+    apply_disable_override("DISABLE_SERIAL", "serial", &config->enable_serial);
+    apply_disable_override("DISABLE_TCP", "network", &config->enable_tcp);
 
     const char *preferred_env = getenv("MESHCLIENT_PREFERRED_BLE_DEVICE");
     if (preferred_env != NULL) {

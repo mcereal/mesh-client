@@ -2,37 +2,39 @@
 #define MESH_I18N_STRINGS_H
 
 /*
- * Every word the user reads, in one place.
+ * Every word this client shows, continuing inkcell's.
  *
- * A screen never spells out a sentence. It names a *string id* - MESH_STR_TAB_NODES,
- * MESH_STR_TOAST_NOT_CONNECTED - and this module answers with the text for the locale in
- * force, exactly the way src/ui/theme/theme.c answers a colour role. That is what makes a language
- * switch total rather than a hunt: the renderers hold no opinion about English, so there is
- * nowhere for an untranslated sentence to hide.
+ * The mechanism moved to inkcell - the catalog macros, the locale registry, the plural rules,
+ * the format-string validation. What is here is this client's half of the *content*: the ids
+ * start where inkcell's fifteen leave off, and mesh_i18n_register() hands both halves over as
+ * one table.
  *
- * The catalog is include/mesh/i18n/catalog.def, one line per string. Adding a string is adding
- * a line there; the enum, the English table and the translation template all come off the same
- * list, so they cannot drift apart.
- *
- * A locale is a table of the same length with NULL where it has nothing to say, and NULL falls
- * back to English. A half-finished translation therefore ships and reads as a mixture rather
- * than as blanks, which is the state every translation is in for a while.
+ * A screen still never spells out a sentence. It names a string id - MESH_STR_TAB_NODES,
+ * MESH_STR_TOAST_NOT_CONNECTED - and inkcell_str() answers with the text for the locale in
+ * force. The catalog is include/mesh/i18n/catalog.def, one line per string, and adding a string
+ * is still adding a line there.
  *
  * What is deliberately *not* here:
  *
- *   - Log lines. mesh_log() output is for whoever is reading `deploy-logs`, and a bug report
- *     in a language the maintainer cannot read is worse than no bug report.
+ *   - Log lines. mesh_log() output is for whoever is reading `deploy-logs`, and a bug report in
+ *     a language the maintainer cannot read is worse than no bug report.
  *   - Names shared with the rest of Meshtastic: region codes ("EU 868"), hardware models
  *     ("Heltec V3"), modem presets ("Long Range - Fast"), device roles ("Router"). A setting
  *     read off the Brick has to be recognisable in the phone app and back, so those stay in
- *     src/core/session/radio_settings.c untranslated, for the same reason a channel key is shown as
- *     base64.
+ *     src/core/session/radio_settings.c untranslated, for the same reason a channel key is
+ *     shown as base64.
  *   - Protocol, path, environment and config text. Nobody reads it as prose.
- *   - src/main.c's --help and the cli/stub backends, which are the headless developer
- *     surfaces and never reach the device screen.
+ *   - src/main.c's --help and the cli/stub backends, which are the headless developer surfaces
+ *     and never reach the device screen.
+ *   - The fifteen words inkcell itself prints - "now", "15m", the elapsed-time forms, the list
+ *     count. Those are the toolkit's, and their old MESH_STR_ names are bridged below.
  *
  * See docs/i18n.md.
  */
+
+#include "inkcell/i18n/strings.h"
+
+#include "mesh/inkcell_compat.h"
 
 #include <stdarg.h>
 #include <stdbool.h>
@@ -44,13 +46,25 @@ extern "C" {
 #endif
 
 /*
- * The ids, generated from the catalog.
+ * This client's ids, continuing inkcell's.
  *
- * A plural entry occupies two consecutive ids - _ONE and _OTHER - because the id *is* the
- * table index, and mesh_str_plural() picks between them by the locale's rule rather than by
- * `n == 1`, which is an English rule and not even that in every sentence.
+ * **Anonymous, and `enum mesh_str_id` is inkcell's own type.** There is one index space here -
+ * an id *is* a table index into the one array mesh_i18n_register() hands over - and a second
+ * enum type over it makes every one of the ~900 call sites an implicit conversion between two
+ * enum types, which is 214 warnings under clang and a legitimate complaint: nothing says the
+ * two agree. Declaring the ids as constants of inkcell's type says that they do.
+ *
+ * The base is an enumerator rather than an `= INKCELL_STR_COUNT` on the first entry, because
+ * the first entry is whatever happens to be at the top of the catalog and a renumbering should
+ * not depend on which line that is. An enumerator with no entry of its own takes the value
+ * before the first real one, so MESH_STR__BASE is one less than where the catalog starts.
+ *
+ * A plural entry occupies two consecutive ids - _ONE and _OTHER - because the id is the index,
+ * and inkcell_str_plural() picks between them by the locale's rule rather than by `n == 1`,
+ * which is an English rule and not even that in every sentence.
  */
-enum mesh_str_id {
+enum {
+    MESH_STR__BASE = INKCELL_STR_COUNT - 1,
 #define MESH_STR_ENTRY(id, text) MESH_STR_##id,
 #define MESH_STR_PLURAL_ENTRY(id, one, other) MESH_STR_##id##_ONE, MESH_STR_##id##_OTHER,
 #include "mesh/i18n/catalog.def"
@@ -59,96 +73,47 @@ enum mesh_str_id {
     MESH_STR_COUNT
 };
 
-/* How many forms a plural entry has. Two covers English and the languages that count like it;
-   Polish, Russian and Arabic need three to six, and widening them is this constant, the
-   MESH_STR_PLURAL_ENTRY macro above, and nothing else. See docs/i18n.md. */
-#define MESH_STR_PLURAL_FORMS 2
+/* The type an id is held in. One enum for one index space - see the note above. */
+#define mesh_str_id inkcell_str_id
 
 /*
- * One language.
+ * The fifteen ids that moved to inkcell, under the names this tree already used.
  *
- * `table` is MESH_STR_COUNT entries; a NULL entry means "not translated yet" and resolves to
- * English. English itself has a NULL table, because it *is* the fallback.
+ * Bridged rather than rewritten for the reason everything in inkcell_compat.h is, and these are
+ * the ones that could not be generated with the rest: MESH_STR_* is still a live prefix - it is
+ * what the 880 ids above are called - so a blanket rule would have rewritten this client's own
+ * catalog along with the toolkit's.
  */
-struct mesh_i18n_locale {
-    const char *id;   /* what MESHCLIENT_LANG and the Settings row match, e.g. "en" */
-    const char *name; /* what the Settings row shows, in that language */
-    const char *const *table;
-    /* Which plural form (0 .. MESH_STR_PLURAL_FORMS-1) `n` takes. NULL means the English rule,
-       which is "one for 1, other for everything else including 0". */
-    uint8_t (*plural_form)(uint32_t n);
-};
+#define MESH_STR_NONE INKCELL_STR_NONE
+#define MESH_STR_COMMON_UNKNOWN_SHORT INKCELL_STR_COMMON_UNKNOWN_SHORT
+#define MESH_STR_TIME_NOW INKCELL_STR_TIME_NOW
+#define MESH_STR_TIME_SECONDS_SHORT INKCELL_STR_TIME_SECONDS_SHORT
+#define MESH_STR_TIME_MINUTES_SHORT INKCELL_STR_TIME_MINUTES_SHORT
+#define MESH_STR_TIME_HOURS_SHORT INKCELL_STR_TIME_HOURS_SHORT
+#define MESH_STR_TIME_DAYS_SHORT INKCELL_STR_TIME_DAYS_SHORT
+#define MESH_STR_LIST_TITLE_COUNT INKCELL_STR_LIST_TITLE_COUNT
+#define MESH_STR_LIST_TITLE_COUNT_OLDER INKCELL_STR_LIST_TITLE_COUNT_OLDER
+#define MESH_STR_TREND_SPAN_15M INKCELL_STR_TREND_SPAN_15M
+#define MESH_STR_TREND_SPAN_1H INKCELL_STR_TREND_SPAN_1H
+#define MESH_STR_TREND_SPAN_6H INKCELL_STR_TREND_SPAN_6H
+#define MESH_STR_TREND_SPAN_ALL INKCELL_STR_TREND_SPAN_ALL
+#define MESH_STR_HINT_QUIT_MENU INKCELL_STR_HINT_QUIT_MENU
+#define MESH_STR_HINT_QUIT_KEY_CODE INKCELL_STR_HINT_QUIT_KEY_CODE
 
-/* The text for `id` in the current locale, never NULL: an untranslated entry falls back to
-   English and an out-of-range id to the empty string. The pointer is to static storage and
-   stays valid until the locale changes. */
-const char *mesh_str(enum mesh_str_id id);
-
-/* The text for `id` in `locale` specifically, with the same guarantees. */
-const char *mesh_str_in(const struct mesh_i18n_locale *locale, enum mesh_str_id id);
-
-/* The form of a plural entry that `count` takes. `one_form` is the _ONE id; the locale's rule
-   picks the offset from it. */
-const char *mesh_str_plural(enum mesh_str_id one_form, uint32_t count);
+/* The plural machinery is inkcell's; the count is about the mechanism, not about either
+   catalog, so it keeps its old name here. */
+#define MESH_STR_PLURAL_FORMS INKCELL_STR_PLURAL_FORMS
 
 /*
- * snprintf() with a catalog entry as the format.
+ * Hands this client's catalog to inkcell. Call once, before mesh_i18n_init().
  *
- * Catalog entries carry their own %-specifiers - "Sent to %s" is one string, not "Sent to "
- * plus a name, because a language that puts the verb last cannot translate the halves. That
- * makes the format non-literal, which -Wformat=2 rightly objects to at every call site, so the
- * objection is answered once here instead of everywhere: this is the only place in the client
- * that formats a string it did not write, and mesh_i18n_validate() is what checks a
- * translation did not change the specifiers out from under a caller.
- *
- * Returns what snprintf() would, and always NUL-terminates when out_len > 0.
+ * Idempotent, so a test that re-registers is not a leak or a double free: the tables are static
+ * and what this installs is a pointer to one structure.
  */
-int mesh_str_format(char *out, size_t out_len, enum mesh_str_id id, ...);
-int mesh_str_vformat(char *out, size_t out_len, enum mesh_str_id id, va_list args);
+void mesh_i18n_register(void);
 
-/* The same, choosing the plural form for `count` first. `count` is not passed on to the
-   format; pass it again in the arguments if the sentence shows the number. */
-int mesh_str_format_plural(char *out, size_t out_len, enum mesh_str_id one_form, uint32_t count,
-                           ...);
-
-/* ---- locales ------------------------------------------------------------------------------ */
-
-size_t mesh_i18n_locale_count(void);
-const struct mesh_i18n_locale *mesh_i18n_locale_at(size_t index);
-const struct mesh_i18n_locale *mesh_i18n_locale_by_id(const char *id); /* NULL when unknown */
-const struct mesh_i18n_locale *mesh_i18n_locale_english(void);
-
-/* The locale in force, never NULL. */
-const struct mesh_i18n_locale *mesh_i18n_locale(void);
-
-/* Switch languages. False, and no change, when `id` names no locale. */
-bool mesh_i18n_set_locale(const char *id);
-
-/*
- * Pick the starting locale from the environment: MESHCLIENT_LANG first, then LC_ALL, LC_MESSAGES
- * and LANG, each matched on the language part alone so "fr_CA.UTF-8" finds "fr". English when
- * nothing matches. Safe to call more than once.
- */
-void mesh_i18n_init(void);
-
-/* Explicit MESHCLIENT_LANG overrides the saved id; otherwise a known saved id wins over
-   the system locale. Empty or unknown saved ids retain the environment's fallback. */
-void mesh_i18n_init_with_preference(const char *id);
-bool mesh_i18n_is_overridden(void);
-
-/*
- * Whether `locale` is fit to ship: the ids are in range, and every entry it does translate
- * carries the same %-specifiers, in the same order, as the English it replaces. A translation
- * that turns "%u of %u" into "%s of %u" is a crash, not a typo, which is why this runs over
- * every locale in the tests.
- *
- * `reason` is filled with a one-line explanation on failure when it is non-NULL.
- */
-bool mesh_i18n_validate(const struct mesh_i18n_locale *locale, char *reason, size_t reason_len);
-
-/* The catalog id's spelling, for the translation template and for test failures:
-   "TAB_NODES", not the text. NULL when `id` is out of range. */
-const char *mesh_str_id_name(enum mesh_str_id id);
+/* mesh_i18n_locale_count() and mesh_i18n_locale_at() still answer, through inkcell_compat.h:
+   they are inkcell's, reading the catalog registered above. */
 
 #ifdef __cplusplus
 }
