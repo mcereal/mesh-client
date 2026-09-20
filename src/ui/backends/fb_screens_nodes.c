@@ -606,10 +606,11 @@ void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
      * So they are the shape this client already has for "one of a small set, chosen on the
      * row": a label naming the axis, the value column, and whichever mark the Settings tab
      * would give the same kind of row - which is the whole of why they are drawn this way, and
-     * why the answer is not written out twice. The filter draws its set as a segmented button
-     * and so says nothing in the gutter; the sort is five orders and one word, so it takes the
-     * stepper. Nothing here is a new component - it is `struct fb_list_item` with the slots the
-     * Settings tab's enums already use.
+     * why the answer is not written out twice. Both carry the stepper, and the filter's
+     * stands down for its segmented button whenever that button is what gets drawn - which is
+     * the row's own answer rather than this screen's, because the fallback to a word is exactly
+     * the shape that still needs the mark. Nothing here is a new component - it is
+     * `struct fb_list_item` with the slots the Settings tab's enums already use.
      *
      * One label column for both rows, measured from the longer of the two words, so the group
      * reads as one block rather than as two rows that happen to adjoin.
@@ -670,10 +671,14 @@ void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
             const struct fb_list_item filter_row = {
                 .label = mesh_str(MESH_STR_NODES_FILTER_ROW),
                 .label_cols = control_label_cols,
-                /* No value column and no marker: the set is the value, the word for the chosen
-                   one is inside the control, and a control the reader can see and aim at does
-                   not need a mark saying it is there. The Settings tab's segmented rows say
-                   this the same way, and drop the stepper for the same reason. */
+                /* No value column: the set is the value, and the word for the chosen one is
+                   inside the control. The stepper *stands down* for that control rather than
+                   being left off, because asking for one is not getting one - too narrow a
+                   panel or too large a glyph scale and the segments come back as the chosen
+                   word, which is the sort row's shape below and needs the sort row's mark. The
+                   Settings tab's segmented rows say this the same way. */
+                .marker_icon = INKCELL_ICON_STEPPER,
+                .marker_yields_to_control = true,
                 .trailing = {.kind = FB_TRAILING_SEGMENTED, .segmented = &filter_segments},
             };
             fb_list_item(state, &list, i, &filter_row);

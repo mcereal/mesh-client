@@ -1860,6 +1860,105 @@ MESH_TEST_CASE(fb_damage_preserves_mirror_and_padding, unit) {
     record_success(test_name);
 }
 
+/*
+ * A row whose control did not get drawn keeps the marker that was standing down for it.
+ *
+ * `marker_yields_to_control` exists because asking for a control is not the same as getting
+ * one. A segmented button falls back to its chosen word when the value column cannot hold the
+ * segments - a narrow panel, a large glyph scale - and a row that had dropped its own marker on
+ * the strength of *asking* comes out as a label and a word, which is precisely the shape of a
+ * row that cannot be changed. An editable setting drawn as a stated fact is the bug this holds:
+ * the reader is left with no way to know Left and Right do anything on it.
+ *
+ * Asserted by drawing the same row twice - once yielding, once with no marker at all - and
+ * comparing the two frames, which is the whole claim without a coordinate in it. A test that
+ * worked out where the gutter is would agree with a renderer that had moved it.
+ *
+ * The two panels are a wide one, where three short segments fit beside the label column, and
+ * one inside the band where they do not but the marker cell still does. That band is real and
+ * narrow at this scale - roughly 128 to 224 pixels - and the lower end matters as much as the
+ * upper: under it the row is too narrow to draw a marker at all, which is a different answer
+ * and not the one under test.
+ */
+MESH_TEST_CASE(fb_a_segmented_row_that_fell_back_keeps_its_marker, unit) {
+    enum { HEIGHT = 96U, MAX_WIDTH = 512U, STRIDE = MAX_WIDTH * 4U };
+    static const char *const k_labels[] = {"Off", "On", "Auto"};
+    /* Wide enough for the segments, and narrow enough that they cannot be drawn. */
+    const uint32_t widths[2] = {448U, 160U};
+    const bool expect_control[2] = {true, false};
+    uint8_t *frames[2] = {NULL, NULL};
+    const char *failure = NULL;
+
+    for (unsigned i = 0U; i < 2U; ++i) {
+        frames[i] = calloc(1U, (size_t)STRIDE * HEIGHT);
+        if (frames[i] == NULL) {
+            failure = "frame allocation failed";
+            goto cleanup;
+        }
+    }
+
+    for (unsigned panel = 0U; panel < 2U && failure == NULL; ++panel) {
+        /* Two passes over one row: the row under test, and the same row with nothing in the
+           gutter. Identical frames mean the marker yielded to a control that was drawn; frames
+           that differ mean it stood. */
+        for (unsigned pass = 0U; pass < 2U; ++pass) {
+            struct mesh_ui_backend_fb_state state = {0};
+            state.var.xres = widths[panel];
+            state.var.yres = HEIGHT;
+            state.var.bits_per_pixel = 32U;
+            state.line_bytes = state.fix.line_length = STRIDE;
+            state.bytes_per_pixel = 4U;
+            state.fb_size = (size_t)STRIDE * HEIGHT;
+            state.fb_ptr = frames[pass];
+            memset(state.fb_ptr, 0, state.fb_size);
+            fb_state_set_theme(&state, mesh_ui_theme_default(), 2);
+
+            struct fb_layout layout = {0};
+            layout.footer_y = (int)HEIGHT;
+            layout.line = 24;
+            layout.rows = 2U;
+            layout.cols = widths[panel] / 12U;
+            layout.body_w = (int)widths[panel] - 16;
+            layout.small = 2;
+
+            struct fb_segmented segmented = {.count = 3U, .active = 1U, .value = k_labels[1]};
+            for (size_t c = 0U; c < 3U; ++c) {
+                segmented.labels[c] = k_labels[c];
+            }
+            const struct fb_list_item row = {
+                .label = "Mode",
+                .label_cols = 6U,
+                .marker_icon = pass == 0U ? INKCELL_ICON_STEPPER : MESH_UI_ICON_NONE,
+                .marker_yields_to_control = pass == 0U,
+                .trailing = {.kind = FB_TRAILING_SEGMENTED, .segmented = &segmented},
+            };
+            struct fb_list list = fb_list_begin(&layout, 1U, 0U);
+            uint32_t i;
+            while (fb_list_next(&list, &i)) {
+                fb_list_item(&state, &list, i, &row);
+            }
+            fb_glyph_cache_free(&state);
+        }
+
+        const bool yielded = memcmp(frames[0], frames[1], (size_t)STRIDE * HEIGHT) == 0;
+        if (yielded != expect_control[panel]) {
+            failure = expect_control[panel]
+                          ? "a row that drew its segments should have stood its marker down"
+                          : "a row whose segments fell back to a word must keep its marker";
+        }
+    }
+
+cleanup:
+    for (unsigned i = 0U; i < 2U; ++i) {
+        free(frames[i]);
+    }
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+        return;
+    }
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(fb_glyph_cache_matches_uncached_colors_and_scales, unit) {
     uint8_t cached_pixels[256U * 128U * 4U];
     uint8_t reference[sizeof cached_pixels];

@@ -369,16 +369,23 @@ void fb_render_settings(struct mesh_ui_backend_fb_state *state,
              */
             const enum mesh_ui_icon marker = mesh_ui_settings_item_marker(&item);
             /*
-             * The same answer for a row that draws a *control* beside its value, which is this
-             * backend's own decision and taken three times below: a small enum becomes a
-             * segmented button, a number on a scale becomes a slider. Both swallow the stepper
-             * for the reason the switch and the checkbox never had one - the control is the
-             * offer, and a mark beside it captions something the reader can already see and aim
-             * at. The two state marks are untouched: an unsaved slider is still unsaved, and
-             * that is a fact about the value rather than a second opinion about the control.
+             * Whether that mark stands down for a control drawn beside the value, which is this
+             * backend's own decision and taken twice below: a small enum becomes a segmented
+             * button, a number on a scale becomes a slider. Both swallow the stepper for the
+             * reason the switch and the checkbox never had one - the control is the offer, and
+             * a mark beside it captions something the reader can already see and aim at.
+             *
+             * Asked as a *flag* rather than answered here, because asking for a control is not
+             * getting one: a segmented button falls back to its chosen word when the value
+             * column cannot hold the segments or when the radio is set to something outside the
+             * set, and a slider draws only if the list gave the row its second step. In each of
+             * those the row comes out as a label and a word - which is exactly the shape that
+             * needs the stepper - so the row is what decides, at the point where it knows.
+             *
+             * Only ever the stepper: a conflict and an unsaved edit are states rather than
+             * offers, and no control supersedes them. An unsaved slider is still unsaved.
              */
-            const enum mesh_ui_icon control_marker =
-                marker == INKCELL_ICON_STEPPER ? MESH_UI_ICON_NONE : marker;
+            const bool marker_yields = (marker == INKCELL_ICON_STEPPER);
             /* The rows of this kind that open a list - a channel slot, a module - as against
                the ones that step a value where they stand. A chevron promises a screen. */
             const bool opens = (item.kind == MESH_UI_SETTING_ACTION) && !item.cycle;
@@ -641,7 +648,8 @@ void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                     .label = item.label,
                     .label_cols = label_cols,
                     .label_quiet = fact,
-                    .marker_icon = control_marker,
+                    .marker_icon = marker,
+                    .marker_yields_to_control = marker_yields,
                     /* The figure stays. The track says how far along, the word says how long,
                        and neither is the other's caption - a slider with no reading is a
                        control that cannot be set to a value anybody could name. */
@@ -686,7 +694,8 @@ void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                     .leading = leading,
                     .label = item.label,
                     .label_cols = label_cols,
-                    .marker_icon = control_marker,
+                    .marker_icon = marker,
+                    .marker_yields_to_control = marker_yields,
                     /* No value column: the set is the value, and the word for the chosen one is
                        inside the control that decides which of the two forms to draw. */
                     .tone = tone,
