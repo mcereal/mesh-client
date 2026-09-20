@@ -66,6 +66,18 @@ static const struct geometry k_geometries[] = {
  * That is what makes "is there text here?" answerable from the page without knowing anything
  * about the layout.
  */
+/*
+ * What counts as a fill rather than as something written.
+ *
+ * The surfaces, and the two rules - because a divider that closes off a bar runs the whole width
+ * of the panel by design, and the outermost column is inside "the whole width". What this check
+ * is for is a glyph or a symbol escaping into the margin, not a hairline doing its job.
+ *
+ * The rules were absent and the check still passed, which is worth stating plainly: the dark
+ * palette used to give RULE_STRONG and SURFACE_ACTIVE the same value, so the bar's own rule was
+ * being recognised as a surface by coincidence. Repainting the palette broke the coincidence and
+ * not the frame.
+ */
 static const enum mesh_ui_color k_grounds[] = {
     MESH_UI_COLOR_BG,
     MESH_UI_COLOR_SURFACE_LOW,
@@ -74,6 +86,8 @@ static const enum mesh_ui_color k_grounds[] = {
     MESH_UI_COLOR_SURFACE_SEL,
     MESH_UI_COLOR_SURFACE_ACTIVE,
     MESH_UI_COLOR_SURFACE_INVERSE,
+    MESH_UI_COLOR_RULE,
+    MESH_UI_COLOR_RULE_STRONG,
 };
 
 static bool pixel_is_ground(const struct mesh_ui_theme *theme, const uint8_t *pixel) {

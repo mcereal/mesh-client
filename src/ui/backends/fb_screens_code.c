@@ -98,19 +98,19 @@ static void fb_draw_code_body(struct mesh_ui_backend_fb_state *state, struct fb_
         /* No code: say so where the code would have been. Both bounds are tested
            (tests/suites/channel_share.c, tests/suites/contact_share.c), so this is a frame that
            should not happen rather than one the screen pretends cannot. */
-        (void)fb_draw_wrapped(state, layout->body_y, no_code, layout->cols, 2,
+        (void)fb_draw_wrapped(state, layout->body_y, no_code, (size_t)layout->body_w, 2,
                               fb_tone_color(state, MESH_UI_TONE_DIM),
                               fb_color(state, MESH_UI_COLOR_BG));
     }
 
     int y = text_y;
-    y += fb_draw_wrapped(state, y, summary, layout->cols, 2,
+    y += fb_draw_wrapped(state, y, summary, (size_t)layout->body_w, 2,
                          fb_tone_color(state, MESH_UI_TONE_NORMAL),
                          fb_color(state, MESH_UI_COLOR_BG)) *
          layout->line;
     const int left = (layout->footer_y - y) / layout->line;
     if (left > 0) {
-        (void)fb_draw_wrapped(state, y, url, layout->cols, left,
+        (void)fb_draw_wrapped(state, y, url, (size_t)layout->body_w, left,
                               fb_tone_color(state, MESH_UI_TONE_DIM),
                               fb_color(state, MESH_UI_COLOR_BG));
     }

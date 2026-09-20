@@ -214,6 +214,8 @@ void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
     layout.small = mesh_ui_theme_type_scale(state->theme, MESH_UI_TYPE_LABEL, state->scale);
     layout.line = fb_line_adv(state, state->scale);
     layout.cols = fb_cols(state, state->scale);
+    /* The same room as `cols`, in the unit anything laying out real text measures in. */
+    layout.body_w = (int)state->var.xres - 2 * fb_margin(state);
 
     fb_draw_nav_bar(state, &layout, fb_tab_chips(snapshot), MESH_UI_SCREEN_COUNT,
                     (size_t)snapshot->nav.screen);
