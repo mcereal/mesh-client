@@ -1874,18 +1874,29 @@ MESH_TEST_CASE(fb_damage_preserves_mirror_and_padding, unit) {
  * comparing the two frames, which is the whole claim without a coordinate in it. A test that
  * worked out where the gutter is would agree with a renderer that had moved it.
  *
- * The two panels are a wide one, where three short segments fit beside the label column, and
- * one inside the band where they do not but the marker cell still does. That band is real and
- * narrow at this scale - roughly 128 to 224 pixels - and the lower end matters as much as the
- * upper: under it the row is too narrow to draw a marker at all, which is a different answer
- * and not the one under test.
+ * Two ways a row can ask for a control and not get one, and both are here:
+ *
+ *   - a segmented button that cannot hold its segments draws its chosen word instead
+ *   - a *fixed-size* control - a switch, a checkbox, a radio - is not drawn at all when
+ *     inkcell_fb_trailing_cols() cannot spare it the cells
+ *
+ * The second is the one that reads as impossible and is not: the row keeps its label, loses the
+ * switch it asked for, and on a panel this narrow that is all there is.
+ *
+ * Each case gets a wide panel where the control is drawn and a narrow one inside the band where
+ * it is not but the marker cell still is. Those bands are real and narrow at this scale - very
+ * roughly 128-224 pixels for the segments and 120-160 for a switch - and their *lower* ends
+ * matter as much as the upper: under them the row cannot draw a marker either, which is a
+ * different answer and not the one under test.
  */
 MESH_TEST_CASE(fb_a_segmented_row_that_fell_back_keeps_its_marker, unit) {
     enum { HEIGHT = 96U, MAX_WIDTH = 512U, STRIDE = MAX_WIDTH * 4U };
     static const char *const k_labels[] = {"Off", "On", "Auto"};
-    /* Wide enough for the segments, and narrow enough that they cannot be drawn. */
-    const uint32_t widths[2] = {448U, 160U};
-    const bool expect_control[2] = {true, false};
+    /* Wide enough for the control, then narrow enough that it cannot be drawn - once for the
+       segmented button, once for a switch, whose two bands do not coincide. */
+    const uint32_t widths[4] = {448U, 160U, 448U, 144U};
+    const bool segmented_row[4] = {true, true, false, false};
+    const bool expect_control[4] = {true, false, true, false};
     uint8_t *frames[2] = {NULL, NULL};
     const char *failure = NULL;
 
@@ -1897,7 +1908,7 @@ MESH_TEST_CASE(fb_a_segmented_row_that_fell_back_keeps_its_marker, unit) {
         }
     }
 
-    for (unsigned panel = 0U; panel < 2U && failure == NULL; ++panel) {
+    for (unsigned panel = 0U; panel < 4U && failure == NULL; ++panel) {
         /* Two passes over one row: the row under test, and the same row with nothing in the
            gutter. Identical frames mean the marker yielded to a control that was drawn; frames
            that differ mean it stood. */
@@ -1925,12 +1936,16 @@ MESH_TEST_CASE(fb_a_segmented_row_that_fell_back_keeps_its_marker, unit) {
             for (size_t c = 0U; c < 3U; ++c) {
                 segmented.labels[c] = k_labels[c];
             }
+            struct fb_switch sw = {.id = 1U, .on = true};
             const struct fb_list_item row = {
                 .label = "Mode",
                 .label_cols = 6U,
                 .marker_icon = pass == 0U ? INKCELL_ICON_STEPPER : MESH_UI_ICON_NONE,
                 .marker_yields_to_control = pass == 0U,
-                .trailing = {.kind = FB_TRAILING_SEGMENTED, .segmented = &segmented},
+                .trailing = segmented_row[panel]
+                                ? (struct fb_trailing){.kind = FB_TRAILING_SEGMENTED,
+                                                       .segmented = &segmented}
+                                : (struct fb_trailing){.kind = FB_TRAILING_SWITCH, .sw = &sw},
             };
             struct fb_list list = fb_list_begin(&layout, 1U, 0U);
             uint32_t i;
@@ -1942,9 +1957,10 @@ MESH_TEST_CASE(fb_a_segmented_row_that_fell_back_keeps_its_marker, unit) {
 
         const bool yielded = memcmp(frames[0], frames[1], (size_t)STRIDE * HEIGHT) == 0;
         if (yielded != expect_control[panel]) {
-            failure = expect_control[panel]
-                          ? "a row that drew its segments should have stood its marker down"
-                          : "a row whose segments fell back to a word must keep its marker";
+            failure = expect_control[panel] ? "a row that drew its control should have stood "
+                                              "its marker down"
+                                            : "a row whose control was not drawn must keep its "
+                                              "marker";
         }
     }
 
