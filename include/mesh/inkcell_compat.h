@@ -904,6 +904,18 @@
 #define mesh_ui_env_set_prefix inkcell_env_set_prefix
 #define mesh_ui_input_host inkcell_input_host
 
+/* The QR module, which kept the old prefix through the extraction and was renamed after it. */
+#define MESH_QR_ECC_LOW INKCELL_QR_ECC_LOW
+#define MESH_QR_ECC_MEDIUM INKCELL_QR_ECC_MEDIUM
+#define MESH_QR_ECC_QUARTILE INKCELL_QR_ECC_QUARTILE
+#define MESH_QR_ECC_HIGH INKCELL_QR_ECC_HIGH
+#define MESH_QR_MAX_VERSION INKCELL_QR_MAX_VERSION
+#define MESH_QR_MAX_SIZE INKCELL_QR_MAX_SIZE
+#define mesh_qr_ecc inkcell_qr_ecc
+#define mesh_qr_encode inkcell_qr_encode
+#define mesh_qr_dark inkcell_qr_dark
+#define mesh_qr inkcell_qr
+
 /* clang-format on */
 
 #endif /* MESH_INKCELL_COMPAT_H */

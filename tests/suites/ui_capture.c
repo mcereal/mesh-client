@@ -259,22 +259,44 @@ static uint32_t last_card_edge_y(const struct mesh_ui_capture *capture, const ui
 /* How many wide bands of `role` there are down the frame - a band being a run of scanlines,
    so a card's two-pixel edge counts once. Three cards on the Status screen is six: a top and a
    bottom each, whichever ink they are drawn in. */
-static unsigned count_edge_bands(const struct mesh_ui_capture *capture, const uint8_t *pixels,
+/*
+ * How many separate card regions the frame has: a run down the panel of rows that are mostly one
+ * card's own fill or edge, counted once per unbroken run.
+ *
+ * It counted *hairlines* - two per card, so three cards was six bands - and that stopped being a
+ * way to find a card when a filled card stopped having one. An edge is now the outlined
+ * variant's business and the focus ring's; a filled or elevated card is a fill and nothing else,
+ * which is the whole point of the tonal tiers.
+ *
+ * So the question is asked of the fill instead, and it is the better question: what this test is
+ * really pinning is that the third card is *on the panel*, and a card is on the panel when a
+ * broad band of its surface is. The gaps between cards are the ground, so the runs stay
+ * separate and the count is one per card.
+ */
+static unsigned count_card_bands(const struct mesh_ui_capture *capture, const uint8_t *pixels,
                                  uint32_t width, uint32_t height, size_t stride) {
+    static const enum mesh_ui_color roles[] = {
+        MESH_UI_COLOR_SURFACE,
+        MESH_UI_COLOR_SURFACE_HIGH,
+        MESH_UI_COLOR_OUTLINE,
+        MESH_UI_COLOR_PRIMARY,
+    };
+    const size_t role_count = sizeof roles / sizeof roles[0];
+
     unsigned bands = 0U;
     bool inside = false;
     for (uint32_t y = 0U; y < height; ++y) {
         const uint8_t *row = pixels + (size_t)y * stride;
+        unsigned run[sizeof roles / sizeof roles[0]] = {0U};
         bool wide = false;
-        unsigned outline = 0U;
-        unsigned ring = 0U;
-        for (uint32_t x = 0U; x < width; ++x) {
+        for (uint32_t x = 0U; x < width && !wide; ++x) {
             const uint8_t *pixel = row + (size_t)x * 4U;
-            outline = pixel_is_role(capture, pixel, MESH_UI_COLOR_OUTLINE) ? outline + 1U : 0U;
-            ring = pixel_is_role(capture, pixel, MESH_UI_COLOR_PRIMARY) ? ring + 1U : 0U;
-            if ((uint64_t)outline * 100U / width >= 80U || (uint64_t)ring * 100U / width >= 80U) {
-                wide = true;
-                break;
+            for (size_t r = 0; r < role_count; ++r) {
+                run[r] = pixel_is_role(capture, pixel, roles[r]) ? run[r] + 1U : 0U;
+                if ((uint64_t)run[r] * 100U / width >= 80U) {
+                    wide = true;
+                    break;
+                }
             }
         }
         if (wide && !inside) {
@@ -357,8 +379,9 @@ MESH_TEST_CASE(ui_capture_status_keeps_the_last_card_when_the_one_above_overflow
     const uint8_t *pixels = mesh_ui_capture_pixels(capture, &width, &height, &stride);
     mesh_ui_capture_render(capture, &snapshot);
 
-    const unsigned bands = count_edge_bands(capture, pixels, width, height, stride);
-    MESH_TEST_FAIL_IF_CLEANUP(bands < 6U, mesh_ui_capture_close(capture);
+    /* Three cards: Link, Mesh and Radio. One band each. */
+    const unsigned bands = count_card_bands(capture, pixels, width, height, stride);
+    MESH_TEST_FAIL_IF_CLEANUP(bands < 3U, mesh_ui_capture_close(capture);
                               mesh_ui_store_shutdown(&store),
                               "a card was squeezed off the Status screen by the one above it");
 

@@ -238,7 +238,11 @@ These are authoring rules - breaking one compiles and looks fine.
   table, never declared.
 - **A list row is however many *steps* the list model says**, and the model is the authority; the
   screen measures and hands `fb_list_begin_heights()` an array.
-- **fb layout is measured in cells, not bytes.** A `strlen` or `%-Ns` there is a bug.
+- **fb text is measured, never counted.** A `strlen` or `%-Ns` is a bug, and so is a cell count
+  multiplied by the advance: the UI face is proportional, so `inkcell_fb_char_adv()` is a
+  *nominal* width and an estimate. Measure with `inkcell_fb_text_width()`, wrap and fit against
+  pixels (`layout->body_w`), and reach for `inkcell_fb_text_cols()` only where a layout really
+  does reserve whole columns.
 - **A setting explains itself through `src/ui/tables/help.c`**, keyed per section (and per route for
   screens that are not lists of fields), never as a sentence on a screen.
 - **Adding a string, icon, theme or cache key is adding a table row** - `catalog.def`,
