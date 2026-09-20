@@ -324,7 +324,6 @@
 #define mesh_ui_action inkcell_action
 #define mesh_ui_action_bar inkcell_action_bar
 #define mesh_ui_action_bar_goes_back inkcell_action_bar_goes_back
-#define mesh_ui_actions_for inkcell_actions_for
 #define mesh_ui_anim inkcell_anim
 #define mesh_ui_anim_active inkcell_anim_active
 #define mesh_ui_anim_loop inkcell_anim_loop

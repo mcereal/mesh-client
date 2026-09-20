@@ -48,16 +48,22 @@ extern "C" {
 /*
  * This client's ids, continuing inkcell's.
  *
+ * **Anonymous, and `enum mesh_str_id` is inkcell's own type.** There is one index space here -
+ * an id *is* a table index into the one array mesh_i18n_register() hands over - and a second
+ * enum type over it makes every one of the ~900 call sites an implicit conversion between two
+ * enum types, which is 214 warnings under clang and a legitimate complaint: nothing says the
+ * two agree. Declaring the ids as constants of inkcell's type says that they do.
+ *
  * The base is an enumerator rather than an `= INKCELL_STR_COUNT` on the first entry, because
  * the first entry is whatever happens to be at the top of the catalog and a renumbering should
  * not depend on which line that is. An enumerator with no entry of its own takes the value
  * before the first real one, so MESH_STR__BASE is one less than where the catalog starts.
  *
- * A plural entry occupies two consecutive ids - _ONE and _OTHER - because the id *is* the table
- * index, and inkcell_str_plural() picks between them by the locale's rule rather than by
- * `n == 1`, which is an English rule and not even that in every sentence.
+ * A plural entry occupies two consecutive ids - _ONE and _OTHER - because the id is the index,
+ * and inkcell_str_plural() picks between them by the locale's rule rather than by `n == 1`,
+ * which is an English rule and not even that in every sentence.
  */
-enum mesh_str_id {
+enum {
     MESH_STR__BASE = INKCELL_STR_COUNT - 1,
 #define MESH_STR_ENTRY(id, text) MESH_STR_##id,
 #define MESH_STR_PLURAL_ENTRY(id, one, other) MESH_STR_##id##_ONE, MESH_STR_##id##_OTHER,
@@ -66,6 +72,9 @@ enum mesh_str_id {
 #undef MESH_STR_PLURAL_ENTRY
     MESH_STR_COUNT
 };
+
+/* The type an id is held in. One enum for one index space - see the note above. */
+#define mesh_str_id inkcell_str_id
 
 /*
  * The fifteen ids that moved to inkcell, under the names this tree already used.

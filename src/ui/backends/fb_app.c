@@ -24,9 +24,9 @@
 #include "mesh/ui/backends/fb_capture.h"
 
 #include <errno.h>
-#include <stdlib.h>
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
+#include <stdlib.h>
 
 struct fb_app *fb_app_of(const struct mesh_ui_backend_fb_state *state) {
     return state != NULL ? (struct fb_app *)state->app.ctx : NULL;
@@ -119,8 +119,7 @@ static void fb_app_close(struct mesh_ui_backend_fb_state *state, void *ctx) {
  * the device backend. Without it a captured frame is a cleared panel, which is a picture of
  * nothing that looks a lot like a picture of a bug.
  */
-int mesh_ui_capture_open(struct mesh_ui_capture **out, uint32_t width, uint32_t height,
-                         int scale) {
+int mesh_ui_capture_open(struct mesh_ui_capture **out, uint32_t width, uint32_t height, int scale) {
     const int result = inkcell_capture_open(out, width, height, scale);
     if (result == 0 && out != NULL && *out != NULL) {
         mesh_ui_fb_set_app(mesh_ui_capture_state(*out), fb_app_vtable());

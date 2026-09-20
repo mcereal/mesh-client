@@ -20,9 +20,9 @@
 
 #include "inkcell/ui/fb_draw.h"
 
+#include "mesh/inkcell_compat.h"
 #include "mesh/map/source.h"
 #include "mesh/map/tile_cache.h"
-#include "mesh/inkcell_compat.h"
 #include "mesh/ui/route.h"
 #include "mesh/ui/store.h"
 

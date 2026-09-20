@@ -25,8 +25,10 @@ static void mesh_ui_backend_stub_shutdown(void *state, void *userdata) {
     }
 }
 
-static void mesh_ui_backend_stub_present(void *state, const struct mesh_ui_snapshot *snapshot,
-                                         void *userdata) {
+static void mesh_ui_backend_stub_present(void *state, const void *snapshot_ptr, void *userdata) {
+    /* The vtable's snapshot is a void *: inkcell hands the backend whatever the application
+       publishes and never looks inside it. This is the one line that knows what it is. */
+    const struct mesh_ui_snapshot *const snapshot = (const struct mesh_ui_snapshot *)snapshot_ptr;
     (void)state;
     if (userdata == NULL || snapshot == NULL) {
         return;

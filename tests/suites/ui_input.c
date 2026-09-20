@@ -869,8 +869,10 @@ struct test_animation_backend {
     mesh_ui_update_flags flags;
 };
 
-static void test_animation_present(void *state, const struct mesh_ui_snapshot *snapshot,
-                                   void *userdata) {
+static void test_animation_present(void *state, const void *snapshot_ptr, void *userdata) {
+    /* The vtable's snapshot is a void *: inkcell hands a backend whatever the application
+       publishes and never looks inside it. */
+    const struct mesh_ui_snapshot *const snapshot = (const struct mesh_ui_snapshot *)snapshot_ptr;
     (void)state;
     struct test_animation_backend *capture = userdata;
     ++capture->frames;

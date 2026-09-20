@@ -17,6 +17,7 @@
 #include "fb_screens_internal.h"
 
 #include "mesh/i18n/strings.h"
+#include "mesh/ui/actions.h"
 #include "mesh/ui/chrome.h"
 #include "mesh/ui/input.h"
 #include "mesh/ui/layout.h"
