@@ -1,3 +1,14 @@
+## [2.71.1](https://github.com/mcereal/mesh-client/compare/v2.71.0...v2.71.1) (2026-09-20)
+
+### Bug Fixes
+
+* build clean under clang, which the sanitizer job uses ([bde2791](https://github.com/mcereal/mesh-client/commit/bde2791521370ca288e75a4b42602f24ba3aa69b))
+* two more places the environment prefix and the catalog were missed ([2208abf](https://github.com/mcereal/mesh-client/commit/2208abf214e18ac2f613f69de2b516d70725b2a0))
+
+### Code Refactoring
+
+* build the UI on inkcell instead of carrying it ([3cee07c](https://github.com/mcereal/mesh-client/commit/3cee07c3b0de1f55f1fe95cf61cefcba237c4328))
+
 ## [2.71.0](https://github.com/mcereal/mesh-client/compare/v2.70.0...v2.71.0) (2026-09-20)
 
 ### Features
