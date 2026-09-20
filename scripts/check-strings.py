@@ -23,7 +23,12 @@ ROOT = Path(__file__).resolve().parent.parent
 # The files whose strings reach a screen. A file not listed here is not exempt from the rule;
 # it is a file with no user-facing text in it, and adding text to one means adding it here.
 #
-# The transports are deliberately absent, and are not an exception: everything they say to a
+# The components, the layout arithmetic and the input layer are absent because they moved to
+# inkcell (third_party/inkcell), which runs this same check over them in its own CI. What is
+# left here is this client's own screens - the layer that knows what a node, a channel and a
+# waypoint are, and therefore the layer where a sentence could get written down.
+#
+# The transports are deliberately absent for a different reason, and are not an exception: everything they say to a
 # person goes out through mesh_ble_set_error() / mesh_serial_set_error(), whose first parameter
 # is an `enum mesh_str_id`. A string literal there does not compile, which is a stronger check
 # than this one - and the rest of those files is D-Bus paths and BlueZ diagnostics, which this
@@ -34,7 +39,6 @@ CHECKED = [
     "src/ui/views/contact_share.c",
     "src/ui/tables/chrome.c",
     "src/ui/tables/help.c",
-    "src/ui/layout.c",
     "src/ui/nav/nav.c",
     "src/ui/nav/nav_canned.c",
     "src/ui/nav/nav_conversations.c",
@@ -45,7 +49,6 @@ CHECKED = [
     "src/ui/views/waypoints.c",
     "src/ui/settings/settings.c",
     "src/ui/settings/settings_rows.c",
-    "src/ui/backends/fb_draw.c",
     "src/ui/backends/fb_screens_chart.c",
     "src/ui/backends/fb_screens_code.c",
     "src/ui/backends/fb_screens_compose.c",
@@ -57,16 +60,6 @@ CHECKED = [
     "src/ui/backends/fb_screens_settings.c",
     "src/ui/backends/fb_screens_status.c",
     "src/ui/backends/fb_screens_waypoints.c",
-    "src/ui/backends/fb_widgets_bubble.c",
-    "src/ui/backends/fb_widgets_button.c",
-    "src/ui/backends/fb_widgets_card.c",
-    "src/ui/backends/fb_widgets_chrome.c",
-    "src/ui/backends/fb_widgets_control.c",
-    "src/ui/backends/fb_widgets_item.c",
-    "src/ui/backends/fb_widgets_list.c",
-    "src/ui/backends/fb_widgets_meter.c",
-    "src/ui/backends/fb_widgets_overlay.c",
-    "src/ui/input/input.c",
     "src/app/app_actions.c",
     "src/app/app_publish.c",
     "src/app/app_settings.c",

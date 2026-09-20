@@ -201,12 +201,9 @@ static void fb_render_begin(struct mesh_ui_backend_fb_state *state,
 
 void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
                         const struct mesh_ui_snapshot *snapshot) {
-    /* Before anything is measured: a theme carries the glyph scale and the margin the whole
-       frame is laid out against, so adopting one mid-frame would draw half of each. */
-    (void)fb_state_follow_snapshot(state, snapshot);
-    /* What the *last* frame wanted of the basemap is not this frame's business - see
-       fb_basemap_frame_begin(). Only a frame that draws the map asks for another one. */
-    fb_basemap_frame_begin(state);
+    /* The theme and the move are settled before this call, and what the *last* frame wanted of
+       the basemap has already been forgotten: all three are inkcell calling up into fb_app.c,
+       which is where the facts a snapshot does not carry are pushed down. */
     fb_render_begin(state, snapshot);
 
     fb_clear(state, fb_color(state, MESH_UI_COLOR_BG));
@@ -285,7 +282,7 @@ void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
      * band. Everything in there is a function of the clock while a move is running, and the
      * partial-redraw path assumes the opposite of anything it has not been told about.
      */
-    const int slide = fb_transition_offset(state, &snapshot->nav);
+    const int slide = fb_transition_offset(state);
     if (slide != 0) {
         fb_animation_damage(state, 0, layout.nav_y, (int)state->var.xres,
                             layout.footer_y - layout.nav_y);

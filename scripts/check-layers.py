@@ -67,7 +67,11 @@ def area_of(path):
         # src/main.c has no directory of its own; everything else is src/<area>/...
         return "main" if len(parts) == 2 else parts[1]
     if parts[:2] == ("include", "mesh"):
-        return parts[2]
+        # A header directly under include/mesh/ belongs to no area: there is one, and it is the
+        # inkcell compatibility list, which is deliberately tree-wide. Every layer says the old
+        # name of something that moved to the toolkit, so filing it under one of them would make
+        # utils include from ui to spell `mesh_text_copy`.
+        return parts[2] if len(parts) > 3 else None
     return None
 
 

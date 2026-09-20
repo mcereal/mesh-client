@@ -1,20 +1,12 @@
-#pragma once
+#ifndef MESH_SHIM_UTILS_FILE_H
+#define MESH_SHIM_UTILS_FILE_H
 
-#include <stddef.h>
-#include <stdint.h>
+/* Moved to inkcell (third_party/inkcell). This is the old path, kept so the layers above did
+   not all have to change in the commit that moved the file; inkcell_compat.h bridges the
+   names. Include the inkcell header directly in new code. */
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+#include "inkcell/utils/file.h"
 
-/*
- * Reads a whole file into a fresh buffer the caller frees. NULL when the file is missing,
- * unreadable, empty, or longer than `max_len` - which is a refusal rather than a truncation,
- * because both callers hand the bytes to a radio, and half an image is the one outcome worth a
- * check to avoid.
- */
-uint8_t *mesh_file_read(const char *path, size_t max_len, size_t *out_len);
+#include "mesh/inkcell_compat.h"
 
-#ifdef __cplusplus
-}
-#endif
+#endif /* MESH_SHIM_UTILS_FILE_H */

@@ -336,7 +336,7 @@ void mesh_app_mqtt_init(struct mesh_app *app) {
      * on the Brick. That is the feature working as intended, and it is still worth being able to
      * say no to from a shell without editing a radio.
      */
-    app->mqtt_disabled = !mesh_env_bool("MESHCLIENT_MQTT_PROXY", "MQTT client proxy", true);
+    app->mqtt_disabled = !mesh_env_bool("MQTT_PROXY", "MQTT client proxy", true);
     if (app->mqtt_disabled) {
         mesh_log_info("app", "MQTT client proxy disabled by MESHCLIENT_MQTT_PROXY");
     }

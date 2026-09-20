@@ -120,21 +120,16 @@ add_library(meshclient_core
     src/map/tile_cache.c
     src/map/tile_image.c
     src/map/viewport.c
-    src/i18n/strings.c
-    src/i18n/locale_es.c
     src/utils/base64.c
     src/utils/crash.c
-    src/utils/env.c
-    src/utils/file.c
     src/utils/inflate.c
     src/utils/json.c
-    src/utils/log.c
-    src/utils/qr.c
     src/utils/sha256.c
-    src/utils/text.c
-    src/utils/time.c
     src/utils/wuffs.c
     src/utils/zip.c
+    src/i18n/strings.c
+    src/i18n/locale_es.c
+    src/ui/tables/trend.c
     src/ui/tables/actions.c
     src/ui/views/channel_share.c
     src/ui/views/contact_share.c
@@ -142,7 +137,6 @@ add_library(meshclient_core
     src/ui/tables/help.c
     src/ui/tables/delivery.c
     src/ui/tables/duration.c
-    src/ui/anim.c
     src/ui/store/store_archive.c
     src/ui/store/store.c
     src/ui/store/store_fields.c
@@ -151,9 +145,6 @@ add_library(meshclient_core
     src/ui/store/store_trends.c
     src/ui/store/history.c
     src/ui/nav/controller.c
-    src/ui/input/input.c
-    src/ui/input/input_profile.c
-    src/ui/views/latency.c
     src/ui/views/map.c
     src/ui/nav/nav.c
     src/ui/nav/nav_canned.c
@@ -175,19 +166,8 @@ add_library(meshclient_core
     src/ui/views/waypoints.c
     src/ui/backends/stub.c
     src/ui/backends/cli.c
-    src/ui/backends/fb.c
-    src/ui/backends/fb_capture.c
-    src/ui/backends/fb_draw.c
+    src/ui/backends/fb_app.c
     src/ui/backends/fb_map.c
-    src/ui/backends/fb_widgets_bubble.c
-    src/ui/backends/fb_widgets_button.c
-    src/ui/backends/fb_widgets_card.c
-    src/ui/backends/fb_widgets_chrome.c
-    src/ui/backends/fb_widgets_control.c
-    src/ui/backends/fb_widgets_item.c
-    src/ui/backends/fb_widgets_list.c
-    src/ui/backends/fb_widgets_meter.c
-    src/ui/backends/fb_widgets_overlay.c
     src/ui/backends/fb_screens_chart.c
     src/ui/backends/fb_screens_code.c
     src/ui/backends/fb_screens_compose.c
@@ -199,18 +179,7 @@ add_library(meshclient_core
     src/ui/backends/fb_screens_settings.c
     src/ui/backends/fb_screens_status.c
     src/ui/backends/fb_screens_waypoints.c
-    src/ui/theme/font.c
-    src/ui/theme/font5x7.c
-    src/ui/theme/font_ui.c
-    src/ui/generated/font_ui_glyphs.c
-    src/ui/theme/theme.c
-    src/ui/theme/emoji.c
-    src/ui/generated/emoji_glyphs.c
-    src/ui/theme/icon.c
-    src/ui/generated/icon_glyphs.c
     src/ui/store/preferences.c
-    src/ui/layout.c
-    src/ui/tables/trend.c
     src/ui/tables/trust.c
 )
 
@@ -276,6 +245,7 @@ if(MESHCLIENT_UPDATE_ASSET)
         MESHCLIENT_UPDATE_ASSET="${MESHCLIENT_UPDATE_ASSET}")
 endif()
 
+target_link_libraries(meshclient_core PUBLIC inkcell::inkcell)
 target_link_libraries(meshclient_core PRIVATE meshclient_options)
 
 # Wuffs, for the map's PNG decoder and the firmware download's inflate. See
@@ -341,6 +311,11 @@ set(nanopb_BUILD_GENERATOR OFF CACHE BOOL "Disable nanopb generator build" FORCE
 set(nanopb_BUILD_RUNTIME ON CACHE BOOL "Enable nanopb runtime" FORCE)
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "Use static nanopb" FORCE)
 set(BUILD_STATIC_LIBS ON CACHE BOOL "Build static nanopb" FORCE)
+
+# The UI toolkit this client was built out of. Its tests and devtools are off here - they run in
+# its own repository and its own CI - and it installs nothing.
+set(INKCELL_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+add_subdirectory(third_party/inkcell)
 
 add_subdirectory(third_party/nanopb)
 target_link_libraries(meshclient_core PUBLIC protobuf-nanopb-static)

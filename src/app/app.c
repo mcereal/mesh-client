@@ -31,6 +31,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <sys/epoll.h>
 
 /* ---- link routing --------------------------------------------------------------------- */
 
@@ -233,6 +234,30 @@ static void mesh_app_select_stub(const struct mesh_ui_backend **backend, void **
     }
 }
 
+/*
+ * The loop inkcell's input layer reads on.
+ *
+ * inkcell does not own an event loop - this process has one already, and a UI library that
+ * brought a second would be asking every application to run two - so the three things reading a
+ * device needs from a loop are a vtable it is handed. These are that vtable over mesh_event_loop,
+ * and they are thin on purpose: anything cleverer here would be the loop's policy written twice.
+ */
+static int mesh_app_ui_add_fd(void *ctx, int fd,
+                              int (*callback)(int fd, uint32_t events, void *userdata),
+                              void *userdata) {
+    return mesh_event_loop_add_fd((struct mesh_event_loop *)ctx, fd, EPOLLIN, callback, userdata);
+}
+
+static void mesh_app_ui_remove_fd(void *ctx, int fd) {
+    mesh_event_loop_remove_fd((struct mesh_event_loop *)ctx, fd);
+}
+
+/* A quit key. What stopping *is* belongs to whoever owns the loop, which is why inkcell asks
+   rather than doing it. */
+static void mesh_app_ui_request_stop(void *ctx) {
+    mesh_event_loop_request_stop((struct mesh_event_loop *)ctx);
+}
+
 static bool mesh_app_select_fb(struct mesh_app *app, const struct mesh_ui_backend **backend,
                                void **userdata) {
     if (!mesh_ui_backend_fb_is_available()) {
@@ -243,7 +268,9 @@ static bool mesh_app_select_fb(struct mesh_app *app, const struct mesh_ui_backen
         *backend = mesh_ui_backend_fb();
     }
     if (userdata != NULL) {
-        app->ui_fb_context.loop = &app->loop;
+        /* What draws the frame, rather than a loop: inkcell owns the panel and calls up into
+           src/ui/backends/fb_app.c once a frame. */
+        app->ui_fb_context.app = fb_app_vtable();
         *userdata = &app->ui_fb_context;
     }
     return true;
@@ -692,6 +719,17 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
     memset(app, 0, sizeof *app);
     app->config = initial_config;
 
+    /*
+     * Before anything reads a knob or asks for a word.
+     *
+     * inkcell reads its environment under a prefix the application sets, so the toolkit's knobs
+     * and this client's are one namespace - MESHCLIENT_THEME and MESHCLIENT_AUTOCONNECT rather
+     * than one of each. The catalog is the same shape of statement: inkcell's fifteen ids and
+     * this client's nine hundred are one table, registered once.
+     */
+    inkcell_env_set_prefix("MESHCLIENT");
+    mesh_i18n_register();
+
     int result = mesh_event_loop_init(&app->loop);
     if (result < 0) {
         mesh_log_error("app", "Event loop init failed: %d", result);
@@ -713,7 +751,7 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
     app->autoconnect_after_link = false;
     app->ui_link_was_connected = false;
     app->ui_report_link_error = false;
-    app->autoconnect_disabled = !mesh_env_bool("MESHCLIENT_AUTOCONNECT", "auto-connect", true);
+    app->autoconnect_disabled = !mesh_env_bool("AUTOCONNECT", "auto-connect", true);
     if (app->autoconnect_disabled) {
         mesh_log_info("app", "Auto-connect disabled by MESHCLIENT_AUTOCONNECT");
     }
@@ -781,6 +819,9 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
                               data_dir);
             }
         }
+        /* inkcell writes the log; the crash reporter wants a copy of each line, and says so
+           rather than being called by name from inside the logger. */
+        mesh_log_set_sink(mesh_crash_log_line);
         mesh_crash_note(MESH_CRASH_NOTE_VERSION, mesh_version_string());
 
         int handshake_written =
@@ -1086,7 +1127,13 @@ int mesh_app_run(struct mesh_app *app) {
        tools that Ctrl-C kills outright. Neither is fatal if it fails - a client that cannot
        read buttons is still better than no client. */
     mesh_signals_init(&app->signals, &app->loop);
-    mesh_ui_input_init(&app->ui_input, &app->loop);
+    const struct inkcell_input_host ui_input_host = {
+        .ctx = &app->loop,
+        .add_fd = mesh_app_ui_add_fd,
+        .remove_fd = mesh_app_ui_remove_fd,
+        .request_stop = mesh_app_ui_request_stop,
+    };
+    mesh_ui_input_init(&app->ui_input, &ui_input_host);
     mesh_ui_input_set_handler(&app->ui_input, mesh_app_on_ui_key, app);
 
     mesh_app_publish_ui_state(app);

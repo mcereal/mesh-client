@@ -60,7 +60,7 @@ void mesh_app_config_apply_env_overrides(struct mesh_app_config *config) {
     }
 
     config->idle_timeout_ms =
-        (int)mesh_env_int("MESHCLIENT_IDLE_TIMEOUT_MS", INT_MIN, INT_MAX, config->idle_timeout_ms);
+        (int)mesh_env_int("IDLE_TIMEOUT_MS", INT_MIN, INT_MAX, config->idle_timeout_ms);
 
     apply_disable_override("MESHCLIENT_DISABLE_BLE", "BLE", &config->enable_ble);
     apply_disable_override("MESHCLIENT_DISABLE_SERIAL", "serial", &config->enable_serial);

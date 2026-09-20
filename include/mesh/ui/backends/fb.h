@@ -1,14 +1,12 @@
-#pragma once
+#ifndef MESH_SHIM_UI_BACKENDS_FB_H
+#define MESH_SHIM_UI_BACKENDS_FB_H
 
-#include "mesh/ui/backend.h"
+/* Moved to inkcell (third_party/inkcell). This is the old path, kept so the layers above did
+   not all have to change in the commit that moved the file; inkcell_compat.h bridges the
+   names. Include the inkcell header directly in new code. */
 
-#include <stdbool.h>
+#include "inkcell/ui/fb.h"
 
-struct mesh_event_loop;
+#include "mesh/inkcell_compat.h"
 
-struct mesh_ui_backend_fb_context {
-    struct mesh_event_loop *loop;
-};
-
-const struct mesh_ui_backend *mesh_ui_backend_fb(void);
-bool mesh_ui_backend_fb_is_available(void);
+#endif /* MESH_SHIM_UI_BACKENDS_FB_H */

@@ -222,6 +222,12 @@ MESH_TEST_CASE(ui_cli_transport_update, unit) {
     record_success(test_name);
 }
 
+/* What a quit key does, for a case that is not running a loop: inkcell asks the host to stop
+   and the host here is one event loop the case owns. */
+static void test_request_stop(void *ctx) {
+    mesh_event_loop_request_stop((struct mesh_event_loop *)ctx);
+}
+
 MESH_TEST_CASE(ui_input_key_mapping, unit) {
     const char *failure = NULL;
     unsetenv("MESHCLIENT_QUIT_KEYS");
@@ -234,7 +240,10 @@ MESH_TEST_CASE(ui_input_key_mapping, unit) {
     memset(&capture, 0, sizeof capture);
     struct mesh_ui_input input;
     memset(&input, 0, sizeof input);
-    input.loop = &loop; /* not opening /dev/input: only the translation is under test */
+    /* Not opening /dev/input: only the translation is under test, so the host vtable is the
+       stop callback and nothing else. */
+    input.host.ctx = &loop;
+    input.host.request_stop = test_request_stop;
     mesh_ui_input_set_handler(&input, test_capture_key, &capture);
 
     /* The Brick's gamepad: face buttons as BTN_ codes, d-pad as hat axes. */
