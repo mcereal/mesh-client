@@ -598,20 +598,21 @@ void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
      * The filter and the sort are one control group, drawn as two Settings field rows.
      *
      * Both were bespoke before this: the filter a chip strip that filled the row on its own, the
-     * sort a label and a word. Neither carried the pencil that everything else in the client
-     * puts in a row's gutter to say "this is set here", so the strip read as a caption about the
-     * list rather than a control over it, and the sort read as a stated fact. The screen was
-     * two rows of what looked like status above a list, and the presses that worked them were
-     * named only at the bottom of the panel.
+     * sort a label and a word. Neither said in the gutter that it was set here, so the strip
+     * read as a caption about the list rather than a control over it, and the sort read as a
+     * stated fact. The screen was two rows of what looked like status above a list, and the
+     * presses that worked them were named only at the bottom of the panel.
      *
-     * So they are the shape this client already has for "one of a small set, chosen on the row":
-     * a label naming the axis, MESH_UI_ICON_EDIT in the gutter, and the value column. Nothing
-     * here is a new component - it is `struct fb_list_item` with the trailing slot the Settings
-     * tab's enums already use, which is what makes the two screens answer Left and Right with
-     * the same picture as well as the same key.
+     * So they are the shape this client already has for "one of a small set, chosen on the
+     * row": a label naming the axis, the value column, and whichever mark the Settings tab
+     * would give the same kind of row - which is the whole of why they are drawn this way, and
+     * why the answer is not written out twice. The filter draws its set as a segmented button
+     * and so says nothing in the gutter; the sort is five orders and one word, so it takes the
+     * stepper. Nothing here is a new component - it is `struct fb_list_item` with the slots the
+     * Settings tab's enums already use.
      *
-     * One label column for both rows, measured from the longer of the two words, so the pencils
-     * line up and the group reads as one block rather than as two rows that happen to adjoin.
+     * One label column for both rows, measured from the longer of the two words, so the group
+     * reads as one block rather than as two rows that happen to adjoin.
      */
     const size_t control_label_cols = fb_field_label_cols(state, layout, 6U);
     /*
@@ -669,10 +670,10 @@ void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
             const struct fb_list_item filter_row = {
                 .label = mesh_str(MESH_STR_NODES_FILTER_ROW),
                 .label_cols = control_label_cols,
-                .marker_icon = MESH_UI_ICON_EDIT,
-                /* No value column: the set is the value, and the word for the chosen one is
-                   inside the control, which is what lets it decide between the two forms. The
-                   Settings tab's segmented rows say this the same way. */
+                /* No value column and no marker: the set is the value, the word for the chosen
+                   one is inside the control, and a control the reader can see and aim at does
+                   not need a mark saying it is there. The Settings tab's segmented rows say
+                   this the same way, and drop the stepper for the same reason. */
                 .trailing = {.kind = FB_TRAILING_SEGMENTED, .segmented = &filter_segments},
             };
             fb_list_item(state, &list, i, &filter_row);
@@ -682,9 +683,10 @@ void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
             const struct fb_list_item sort_row = {
                 .label = mesh_str(MESH_STR_NODES_SORT_ROW),
                 .label_cols = control_label_cols,
-                /* The same pencil the filter above it wears, and the same one a Settings field
-                   wears: the gutter is where this client says a row is set rather than read. */
-                .marker_icon = MESH_UI_ICON_EDIT,
+                /* Five orders is too many for a segmented button, so this row is the word -
+                   and a word cannot say whether it can be changed. The stepper is what a
+                   Settings enum in the same position wears, for the same reason. */
+                .marker_icon = INKCELL_ICON_STEPPER,
                 /* The order, and what it could not do - never dim, whatever it says. On this
                    list a dim row is one that cannot be pressed, and this one always can: the
                    press steps on to a sort that works. */

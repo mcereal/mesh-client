@@ -3153,6 +3153,145 @@ MESH_TEST_CASE(ui_settings_a_fact_is_a_row_nothing_changes, unit) {
 }
 
 /*
+ * The marker gutter says how a row is changed, and a row that is changed two different ways does
+ * not get to wear one mark for both.
+ *
+ * mesh_ui_settings_item_marker() is what a renderer asks, and the failure it exists to prevent is
+ * the one this tab shipped with: every row with a field behind it took the pencil, so eighty-odd
+ * switches and checkboxes each carried a promise of a keyboard that does not open. A pencil is a
+ * keyboard, a stepper is Left and Right, and a control in the value column says it itself.
+ *
+ * Written as the shapes rather than as one expression, for the reason the fact case above is: an
+ * expression here would be this walk re-stating the function it is checking, and would agree with
+ * it however it changed.
+ *
+ * The counters are the other half. Four of these shapes are rare - a key row lives in two
+ * sections, a cycle row in three - and a walk that never met one asserted nothing about it.
+ */
+MESH_TEST_CASE(ui_settings_a_marker_says_how_the_row_is_changed, unit) {
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_metadata = true;
+    settings.has_channels = true;
+    settings.channels_settled = true;
+    settings.channels[0].present = true;
+    settings.channels[0].index = 0U;
+    settings.channels[0].role = 1U;
+    snprintf(settings.channels[0].name, sizeof settings.channels[0].name, "%s", "LongFast");
+    settings.has_ui_config = true;
+    settings.has_lora = true;
+    settings.has_position = true;
+    settings.has_mqtt = true;
+    snprintf(settings.client.version, sizeof settings.client.version, "%s", "1.12.0");
+    snprintf(settings.client.theme_name, sizeof settings.client.theme_name, "%s", "Dark");
+
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.has_my_info = true;
+    handshake.channel_count = 1U;
+
+    char message[224];
+    uint32_t typed = 0U;    /* the pencil: a keyboard opens */
+    uint32_t stepped = 0U;  /* the stepper: Left and Right walk a set */
+    uint32_t controls = 0U; /* a switch or a checkbox, which says it without a mark */
+    uint32_t cycles = 0U;   /* the swap rune: A moves this row's own value */
+    uint32_t quiet = 0U;    /* nothing to say: a fact, a heading, a meter, a verb */
+    for (int i = 0; i < (int)MESH_UI_SETTINGS_SECTION_COUNT; ++i) {
+        const enum mesh_ui_settings_section section = (enum mesh_ui_settings_section)i;
+        const uint32_t count = mesh_ui_settings_item_count(&settings, &handshake, section,
+                                                           MESH_UI_SETTINGS_NO_CHANNEL);
+        for (uint32_t row = 0; row < count; ++row) {
+            struct mesh_ui_settings_item item;
+            if (!mesh_ui_settings_item(&settings, &handshake, NULL, 0U, section,
+                                       MESH_UI_SETTINGS_NO_CHANNEL, row, &item)) {
+                break;
+            }
+            enum mesh_ui_icon expected = MESH_UI_ICON_NONE;
+            uint32_t *counter = &quiet;
+            if (item.cycle) {
+                expected = MESH_UI_ICON_SWAP;
+                counter = &cycles;
+            } else if (item.field == MESH_UI_FIELD_NONE) {
+                /* Nothing behind it to change, whatever the kind says - the radio's own
+                   switches arrive as read-only toggles and must not offer a press. */
+                expected = MESH_UI_ICON_NONE;
+                counter = &quiet;
+            } else if (item.kind == MESH_UI_SETTING_TEXT || item.kind == MESH_UI_SETTING_KEY) {
+                expected = MESH_UI_ICON_EDIT;
+                counter = &typed;
+            } else if (item.kind == MESH_UI_SETTING_ENUM || item.kind == MESH_UI_SETTING_NUMBER) {
+                expected = INKCELL_ICON_STEPPER;
+                counter = &stepped;
+            } else if (item.kind == MESH_UI_SETTING_TOGGLE || item.kind == MESH_UI_SETTING_FLAG) {
+                expected = MESH_UI_ICON_NONE;
+                counter = &controls;
+            }
+            const enum mesh_ui_icon marker = mesh_ui_settings_item_marker(&item);
+            if (marker != expected) {
+                snprintf(message, sizeof message,
+                         "\"%s\" in section %s wears %s and its shape says %s", item.label,
+                         mesh_ui_settings_section_name(section),
+                         marker == MESH_UI_ICON_NONE ? "nothing" : mesh_ui_icon_name(marker),
+                         expected == MESH_UI_ICON_NONE ? "nothing" : mesh_ui_icon_name(expected));
+                record_failure(test_name, message);
+                return;
+            }
+            (*counter)++;
+        }
+    }
+
+    if (typed == 0U || stepped == 0U || controls == 0U || cycles == 0U || quiet == 0U) {
+        snprintf(message, sizeof message,
+                 "the walk met %u typed, %u stepped, %u controls, %u cycles and %u quiet rows - "
+                 "it has to meet all five to be saying anything",
+                 typed, stepped, controls, cycles, quiet);
+        record_failure(test_name, message);
+        return;
+    }
+    record_success(test_name);
+}
+
+/*
+ * The two state marks outrank how the row is changed, and in that order.
+ *
+ * A gutter holds one mark, so the three things that want it have to be ranked somewhere, and the
+ * ranking is the whole of what a reader about to lose an edit relies on. A pending edit hidden
+ * behind a stepper is a change the reader does not know they are about to walk away from; a
+ * conflict hidden behind a dot is a value the radio will refuse, reported as merely unsaved.
+ */
+MESH_TEST_CASE(ui_settings_a_state_mark_outranks_the_offer, unit) {
+    struct mesh_ui_settings_item item;
+    memset(&item, 0, sizeof item);
+    item.kind = MESH_UI_SETTING_TOGGLE;
+    item.field = MESH_UI_FIELD_USER_LICENSED;
+
+    /* A switch says its own offer, so the gutter is free for a state to use. */
+    MESH_TEST_FAIL_IF(mesh_ui_settings_item_marker(&item) != MESH_UI_ICON_NONE,
+                      "a switch should leave the gutter empty");
+    item.dirty = true;
+    MESH_TEST_FAIL_IF(mesh_ui_settings_item_marker(&item) != MESH_UI_ICON_UNSAVED,
+                      "an unsaved switch should still say so");
+
+    /* And over a row that would otherwise have had something to say. */
+    item.kind = MESH_UI_SETTING_ENUM;
+    item.field = MESH_UI_FIELD_DEVICE_ROLE;
+    MESH_TEST_FAIL_IF(mesh_ui_settings_item_marker(&item) != MESH_UI_ICON_UNSAVED,
+                      "an unsaved edit outranks the stepper");
+    item.conflict = true;
+    MESH_TEST_FAIL_IF(mesh_ui_settings_item_marker(&item) != MESH_UI_ICON_WARNING,
+                      "a value the radio will refuse outranks an unsaved one");
+    item.dirty = false;
+    MESH_TEST_FAIL_IF(mesh_ui_settings_item_marker(&item) != MESH_UI_ICON_WARNING,
+                      "a conflict is a conflict whether or not it is also unsaved");
+
+    item.conflict = false;
+    MESH_TEST_FAIL_IF(mesh_ui_settings_item_marker(&item) != INKCELL_ICON_STEPPER,
+                      "with nothing to report the row is back to saying how it is changed");
+    record_success(test_name);
+}
+
+/*
  * The invariant struct mesh_ui_settings_item's `icon` is documented with: which rows carry a
  * symbol, which is what the renderer measures its leading slot from.
  *

@@ -313,6 +313,44 @@ bool mesh_ui_settings_item_is_fact(const struct mesh_ui_settings_item *item) {
            item->kind != MESH_UI_SETTING_ACTION;
 }
 
+enum mesh_ui_icon mesh_ui_settings_item_marker(const struct mesh_ui_settings_item *item) {
+    if (item == NULL) {
+        return MESH_UI_ICON_NONE;
+    }
+    /* The two that are about the value, ahead of everything about the offer - see the header. */
+    if (item->conflict) {
+        return MESH_UI_ICON_WARNING;
+    }
+    if (item->dirty) {
+        return MESH_UI_ICON_UNSAVED;
+    }
+    if (item->cycle) {
+        return MESH_UI_ICON_SWAP;
+    }
+    /* A row with no field behind it is not changed here whatever its kind says: the read-only
+       toggles this client draws for a radio's own switches are MESH_UI_SETTING_TOGGLE and take
+       MESH_UI_FIELD_NONE, and a mark on one would offer a press that does nothing. */
+    if (item->field == MESH_UI_FIELD_NONE) {
+        return MESH_UI_ICON_NONE;
+    }
+    switch (item->kind) {
+    /* A key row steps its presets on Left and Right as well, and still takes the pencil: typing
+       one in is the thing it can do that no other row can, and the four presets are a shortcut
+       past it rather than the point of the row. */
+    case MESH_UI_SETTING_TEXT:
+    case MESH_UI_SETTING_KEY:
+        return MESH_UI_ICON_EDIT;
+    case MESH_UI_SETTING_ENUM:
+    case MESH_UI_SETTING_NUMBER:
+        return INKCELL_ICON_STEPPER;
+    /* The switch and the checkbox say it themselves. */
+    case MESH_UI_SETTING_TOGGLE:
+    case MESH_UI_SETTING_FLAG:
+    default:
+        return MESH_UI_ICON_NONE;
+    }
+}
+
 uint32_t mesh_ui_settings_section_groups(const struct mesh_ui_settings_item *items,
                                          uint32_t count) {
     if (items == NULL) {

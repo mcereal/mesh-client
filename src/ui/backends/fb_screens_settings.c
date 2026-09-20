@@ -360,28 +360,25 @@ void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                 continue;
             }
             /*
-             * What the row offers, in the marker gutter: the pencil on one Left and Right
-             * change, and the dot on one already changed and not yet written. An action row
-             * offers something else - it opens - and says so with the chevron every row that
-             * opens something ends in, on the trailing edge rather than in the gutter.
-             *
-             * The triangle takes the gutter and the tone ahead of both, and that ordering is the
-             * point rather than an accident of the chain: it is the one mark here that is about
-             * the *value* - the radio will not honour this - where the other two are about what
-             * the row offers and what is waiting to be written. Neither of those is worth saying
-             * over it, and a gutter holds one mark.
+             * What the row offers, in the marker gutter - asked of the model, which is where the
+             * whole chain lives now: a warning over a value the radio will not honour, the dot
+             * over one not yet written, and under those the mark for how this kind of row is
+             * changed. An action row offers something else - it opens - and says so with the
+             * chevron every row that opens something ends in, on the trailing edge rather than
+             * in the gutter.
              */
-            const enum mesh_ui_icon marker = item.conflict ? MESH_UI_ICON_WARNING
-                                             : item.dirty  ? MESH_UI_ICON_UNSAVED
-                                             /* A is what steps this one, where a field steps on
-                                                Left and Right. The gutter is where a row says
-                                                how it is changed, so the two runes go in it
-                                                together - and it is what keeps a row that
-                                                cycles from reading as a fact now that the
-                                                leading disc belongs to verbs alone. */
-                                             : item.cycle                       ? MESH_UI_ICON_SWAP
-                                             : item.field != MESH_UI_FIELD_NONE ? MESH_UI_ICON_EDIT
-                                                                                : MESH_UI_ICON_NONE;
+            const enum mesh_ui_icon marker = mesh_ui_settings_item_marker(&item);
+            /*
+             * The same answer for a row that draws a *control* beside its value, which is this
+             * backend's own decision and taken three times below: a small enum becomes a
+             * segmented button, a number on a scale becomes a slider. Both swallow the stepper
+             * for the reason the switch and the checkbox never had one - the control is the
+             * offer, and a mark beside it captions something the reader can already see and aim
+             * at. The two state marks are untouched: an unsaved slider is still unsaved, and
+             * that is a fact about the value rather than a second opinion about the control.
+             */
+            const enum mesh_ui_icon control_marker =
+                marker == INKCELL_ICON_STEPPER ? MESH_UI_ICON_NONE : marker;
             /* The rows of this kind that open a list - a channel slot, a module - as against
                the ones that step a value where they stand. A chevron promises a screen. */
             const bool opens = (item.kind == MESH_UI_SETTING_ACTION) && !item.cycle;
@@ -644,7 +641,7 @@ void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                     .label = item.label,
                     .label_cols = label_cols,
                     .label_quiet = fact,
-                    .marker_icon = marker,
+                    .marker_icon = control_marker,
                     /* The figure stays. The track says how far along, the word says how long,
                        and neither is the other's caption - a slider with no reading is a
                        control that cannot be set to a value anybody could name. */
@@ -689,7 +686,7 @@ void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                     .leading = leading,
                     .label = item.label,
                     .label_cols = label_cols,
-                    .marker_icon = marker,
+                    .marker_icon = control_marker,
                     /* No value column: the set is the value, and the word for the chosen one is
                        inside the control that decides which of the two forms to draw. */
                     .tone = tone,
