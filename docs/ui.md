@@ -506,6 +506,38 @@ reading drew two ways depending on the screen it was on. About radio's fourteen 
 full strength beside a node's; the Status tab's cards pasted label and value into one string and
 drew the result in one colour. Both answer the question now.
 
+### The marker gutter says how a row is changed
+
+One cell between the label column and the value, and `mesh_ui_settings_item_marker()` is the only
+thing that answers it. Two questions share the slot, and the state always wins: a `conflict` takes
+it as a warning, a `dirty` edit as a dot, and only under those does the row get to say how it is
+worked.
+
+| The row | The gutter | Because |
+|---|---|---|
+| `TEXT`, `KEY` | the pencil | a press opens the keyboard — the value is typed |
+| `ENUM`, `NUMBER` drawn as a word | the stepper `‹›` | Left and Right walk a set, where the row stands |
+| `TOGGLE`, `FLAG` | nothing | the switch and the checkbox *are* the offer |
+| a segmented enum, a number on a slider | nothing | same — the backend drew a control, so it drops the stepper |
+| a fact, a heading, a meter, a verb | nothing | none of them is changed in place |
+
+The bottom three rows of that table are one rule said three ways: **a control in the value column
+is its own affordance, and a mark beside it captions something already legible.** Which rows get a
+control is the fb backend's own decision and depends on what will fit, so the model answers the
+first question and `control_marker` in `fb_screens_settings.c` is the seam where the backend
+withdraws the stepper it no longer needs. The two state marks pass straight through: an unsaved
+slider is still unsaved.
+
+The rule this replaced was one symbol for all of it — the pencil on anything with a field behind
+it. That put a promise of a keyboard on roughly eighty switches and checkboxes, which is most of
+the tab, and left the handful of rows that really do open one saying nothing the others did not.
+`ui_settings_a_marker_says_how_the_row_is_changed` walks every section and holds the table above;
+`ui_settings_a_state_mark_outranks_the_offer` holds the ranking.
+
+The Nodes list's filter and sort rows answer the same table, which is why they are drawn as
+settings rows at all: the filter is a segmented button and says nothing, the sort is five orders
+and one word and takes the stepper.
+
 ### A settings row that is a verb
 
 `MESH_UI_SETTING_ACTION` is a row that *does* something, and it is drawn as one rather than as a
@@ -523,7 +555,7 @@ The last one is what keeps the first honest. Five presses change nothing but the
 on — the language, the theme, this client's update channel and its dev-updates switch, and the
 radio's firmware channel — and a row whose value column *is* the setting is a setting, whatever
 key steps it. So they are built with `cycle` set and `verb` clear: no disc, and the swap rune in
-the marker gutter where a field has the pencil. The nav is untouched — it reads the kind and the
+the marker gutter where a field has the stepper. The nav is untouched — it reads the kind and the
 action in `number`, never `verb` — which is the point of the flag saying what the row *is* rather
 than what the press does.
 

@@ -952,6 +952,43 @@ bool mesh_ui_settings_item_is_verb(const struct mesh_ui_settings_item *item);
 bool mesh_ui_settings_item_is_fact(const struct mesh_ui_settings_item *item);
 
 /*
+ * What this row's marker gutter says: a state the reader has to know, or how the row is changed.
+ *
+ * Two questions in one answer, and the order between them is the point rather than an accident
+ * of the chain. A conflict and an unsaved edit are about the *value* - the radio will not honour
+ * this, this is not written yet - and both outrank anything about the offer, because a gutter
+ * holds one mark and a reader who is about to lose a change needs telling before they are told
+ * how to make another one.
+ *
+ * Under those, how the row is changed, which is a fact about the *kind*:
+ *
+ *   TEXT, KEY          the pencil. A press opens the keyboard and the value is typed.
+ *   ENUM, NUMBER       the stepper. Left and Right move along a set, where the row stands.
+ *   TOGGLE, FLAG       nothing, and this is the whole reason the question moved here. A switch
+ *                      and a checkbox *are* the offer: they read as controls, they are aimable,
+ *                      and a mark beside one is a caption on something already legible. Eighty-
+ *                      odd rows of this tab are one of the two, and every one of them used to
+ *                      carry a pencil promising a keyboard that does not open.
+ *   anything else      nothing. A fact, a heading, a meter, a verb - none is changed in place,
+ *                      and the verbs carry a tonal disc and a chevron of their own.
+ *
+ * `cycle` sits with the kinds and answers before them: the swap rune, because A moves that row's
+ * value where the d-pad moves a field's, and the gutter is where that difference is stated.
+ *
+ * Asked of the model rather than worked out by each backend, on the same terms as the two
+ * predicates above: the CLI backend draws words and no marker at all, so if this lived in the fb
+ * renderer it would be the only copy - and the next screen with a field row (the Nodes list has
+ * two) would be free to answer it differently, which is exactly how that screen came to have a
+ * strip of controls wearing no mark at all.
+ *
+ * It says nothing about whether a *control* is drawn beside the value, which is the backend's
+ * own choice and depends on what will fit: a small enum becomes a segmented button and a number
+ * on a scale becomes a slider, and both of those swallow the stepper for the same reason a
+ * switch does. See the seam in fb_screens_settings.c.
+ */
+enum mesh_ui_icon mesh_ui_settings_item_marker(const struct mesh_ui_settings_item *item);
+
+/*
  * How many groups a built section actually has: maximal runs of non-heading rows, counting only
  * the runs that hold at least one row. The rows ahead of the first heading are a group too - an
  * unnamed one - exactly as the block at the top of a phone's settings page is a card before any
