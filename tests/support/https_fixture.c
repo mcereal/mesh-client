@@ -366,6 +366,8 @@ void https_fixture_stop(struct https_fixture *fixture) {
     }
 }
 
+const char *https_fixture_cert_pem(void) { return k_cert_pem; }
+
 void https_fixture_attach(const struct https_fixture *fixture, struct mesh_fetch *fetch) {
     mesh_fetch_connect_to(fetch, "127.0.0.1", fixture->port);
 }

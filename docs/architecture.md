@@ -485,9 +485,15 @@ have their own fetcher on the same code.
 
 What the fetcher decides, and why:
 
-- **https only, verified against the compiled-in roots** (`include/mesh/core/ca_roots.h`), or
-  against `SSL_CERT_FILE` when it is set. The Brick has no system CA store, and a bundle in the pak
-  would not ship through self-update; in the binary, the roots are as new as the release.
+- **https only, verified against the roots the application registered** - this client's are
+  compiled in (`include/mesh/core/ca_roots.h`) and handed over by `src/app/app.c` - or against
+  `SSL_CERT_FILE` when it is set. The Brick has no system CA store, and a bundle in the pak would
+  not ship through self-update; in the binary, the roots are as new as the release. Neither the
+  TLS client nor the fetcher holds an opinion about which roots those are, and neither has a
+  fallback: with nothing registered a session is refused, never opened unverified.
+- **A request says what the application calls it**, not what this layer is: `mesh_fetch_set_user_agent()`
+  takes the product token, set once from `app.c`. The generic default exists only because some
+  servers refuse a request carrying no `User-Agent` at all.
 - **Redirects are followed, up to `MESH_FETCH_REDIRECTS_MAX`, and never off https.** A release
   asset is a 302 from github.com to its CDN. Every header goes to every hop, a `Range` included.
 - **A range request must be answered `206`.** A server that ignores the range sends the whole

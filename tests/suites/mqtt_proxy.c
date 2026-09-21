@@ -22,7 +22,9 @@
 
 #include "inkwell/codec/mqtt.h"
 #include "inkwell/runtime/loop.h"
+#include "mesh/core/ca_roots.h"
 #include "mesh/core/mqtt_proxy.h"
+#include "mesh/core/tls_client.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -1671,13 +1673,18 @@ cleanup:
 }
 
 /*
- * No bundle named is the built-in roots, not an absence of roots.
+ * No bundle named is the registered roots, not an absence of roots.
  *
  * The Brick has no system certificate store, so "nothing configured" is the state every device
  * starts in - which is exactly why it must not be one in which verification quietly stops. The
  * fixture's certificate is self-signed and in no public root set, so a client that checks it
  * against Mozilla's roots refuses it, and says so as a verification failure rather than as a
  * missing bundle: there always is one.
+ *
+ * Which is why this registers them. Only `app.c` does so in a shipped build, and a test binary
+ * that skipped it would get the same refusal from a client that had nothing to check against -
+ * passing this case while testing the opposite of what it is named for. The last check is the
+ * one that tells the three refusals apart.
  */
 MESH_TEST_CASE(mqtt_proxy_verifies_against_built_in_roots_without_a_bundle, unit) {
     struct proxy_probe probe;
@@ -1687,6 +1694,7 @@ MESH_TEST_CASE(mqtt_proxy_verifies_against_built_in_roots_without_a_bundle, unit
     }
     probe.broker.tls = true;
     mesh_mqtt_proxy_set_ca_bundle(&probe.proxy, NULL);
+    mesh_tls_set_roots(mesh_ca_roots, mesh_ca_root_count);
 
     struct mesh_mqtt_proxy_config config;
     probe_config(&config, probe.broker.port);
@@ -1705,13 +1713,17 @@ MESH_TEST_CASE(mqtt_proxy_verifies_against_built_in_roots_without_a_bundle, unit
         goto cleanup;
     }
     const char *error = mesh_mqtt_proxy_tls_error(&probe.proxy);
-    if (strstr(error, "no certificate bundle") != NULL || strstr(error, "built-in root") != NULL) {
-        record_failure(test_name, "the refusal should be the certificate's, not a missing bundle");
+    if (strstr(error, "no certificate bundle") != NULL || strstr(error, "built-in root") != NULL ||
+        strstr(error, "trust anchors") != NULL) {
+        record_failure(test_name,
+                       "the refusal should be the certificate's, not a missing bundle or an "
+                       "empty root set");
         goto cleanup;
     }
     record_success(test_name);
 
 cleanup:
+    mesh_tls_set_roots(NULL, 0U);
     probe_stop(&probe);
 }
 

@@ -63,6 +63,13 @@ void https_fixture_stop(struct https_fixture *fixture);
 /* Every connection `fetch` makes comes here, whatever host its URL names. */
 void https_fixture_attach(const struct https_fixture *fixture, struct mesh_fetch *fetch);
 
+/*
+ * The server's certificate, PEM, for a case that wants to make it a trust anchor rather than
+ * name it in a bundle file - the two are different paths through the TLS client and only one of
+ * them is what a shipped build uses. Static, and the same bytes the server presents.
+ */
+const char *https_fixture_cert_pem(void);
+
 /* The request log so far, NUL-terminated. Returns its length. */
 size_t https_fixture_requests(const struct https_fixture *fixture, char *out, size_t cap);
 

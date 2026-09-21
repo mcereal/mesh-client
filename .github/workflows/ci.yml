@@ -85,6 +85,50 @@ jobs:
   # was green in review, red at release time, and red on a protected branch. This job is the
   # same toolchain the pak is built with (docker/setup-cross.sh, what `make docker-pak` uses),
   # and it packages as well as compiles, because the pak is the thing that ships.
+  # The build without Mbed TLS, which CMakeLists.txt has always claimed to support and nothing
+  # checked. `src/core/net/tls_client.c` compiles to a stub that reports TLS unavailable, the way
+  # the BLE transport does without D-Bus headers, so a checkout that skipped the submodule still
+  # builds and still runs with MQTT in plaintext.
+  #
+  # It is here because that claim was false for one commit and a review bot found it, not this
+  # workflow: `src/core/generated/ca_roots.c` was compiled only inside the TLS block, and the
+  # moment app.c registered the roots unconditionally the link broke with two undefined symbols.
+  # An unchecked configuration is one nobody notices breaking, and this is the cheapest thing
+  # that notices.
+  #
+  # The submodule is emptied rather than skipped, because the checkout needs the other four
+  # (inkwell, inkcell, nanopb, protobufs) and `EXISTS .../mbedtls/CMakeLists.txt` is what the
+  # build actually keys on. When Mbed TLS moves under inkwell, this path moves with it.
+  no-tls:
+    name: Build and test (no TLS)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Remove Mbed TLS
+        run: rm -rf third_party/mbedtls/* third_party/mbedtls/.[!.]*
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config libdbus-1-dev dbus-daemon protobuf-compiler python3 python3-pip git
+
+      - name: Install Python packages for nanopb generator
+        run: |
+          python3 -m pip install --user --upgrade pip setuptools wheel
+          python3 -m pip install --user protobuf grpcio-tools jinja2 jsonschema
+
+      # The configure log says which way it went, so a job that silently built *with* TLS -
+      # which would make this check vacuous - is visible in the output rather than inferred.
+      - name: Build (Debug)
+        run: make debug
+
+      - name: Run tests
+        run: make test
+
   cross-build:
     name: Cross build (tg5040, static aarch64)
     runs-on: ubuntu-24.04

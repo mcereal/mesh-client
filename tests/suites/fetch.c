@@ -46,6 +46,12 @@ MESH_TEST_CASE(fetch_refuses_what_it_cannot_start, unit) {
 
 #include "support/https_fixture.h"
 
+#include "mesh/core/ca_roots.h"
+#include "mesh/core/tls_client.h"
+
+#include <mbedtls/x509_crt.h>
+#include <psa/crypto.h>
+
 #include <stdlib.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -512,8 +518,14 @@ cleanup:
 }
 
 /*
- * The server is checked, always: against the built-in roots when nothing overrides them, which
+ * The server is checked, always: against the registered roots when nothing overrides them, which
  * the fixture's certificate is not in, and against the URL's own name.
+ *
+ * The middle leg registers this client's real root set deliberately. Nothing registers roots in
+ * the test binary - only `app.c` does - so leaving it unregistered would refuse the certificate
+ * for having nothing to check against rather than for not being trusted, and this would pass
+ * without testing anything. Those two refusals are worth telling apart, which is what
+ * `fetch_refuses_a_session_with_nothing_to_trust` is for.
  */
 MESH_TEST_CASE(fetch_verifies_the_server, unit) {
     struct fetch_harness h;
@@ -529,9 +541,10 @@ MESH_TEST_CASE(fetch_verifies_the_server, unit) {
         goto cleanup;
     }
     unsetenv("SSL_CERT_FILE");
+    mesh_tls_set_roots(mesh_ca_roots, mesh_ca_root_count);
     const struct mesh_fetch_request untrusted = {.url = "https://api.github.com/doc"};
     if (!harness_fetch(&h, &untrusted) || h.probe.outcome[1] != MESH_FETCH_TLS) {
-        failure = "a certificate outside the built-in roots should be refused";
+        failure = "a certificate outside the registered roots should be refused";
         goto cleanup;
     }
     if (mesh_fetch_start(&h.fetch,
@@ -540,6 +553,120 @@ MESH_TEST_CASE(fetch_verifies_the_server, unit) {
                                                       .userdata = &h.probe},
                          0U) != -EINVAL) {
         failure = "a plain http URL should be refused at start";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_tls_set_roots(NULL, 0U);
+    harness_stop(&h);
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
+}
+
+/*
+ * The roots the application registered are the ones a connection is actually checked against.
+ *
+ * Every other HTTPS case in this tree trusts the fixture through `SSL_CERT_FILE`, which is the
+ * bundle-file path - a real path, but not the one a shipped build takes. This is the other one:
+ * the fixture's own certificate handed over as a trust anchor, with no bundle named, so what is
+ * under test is the table `app.c` passes down rather than the override beside it.
+ *
+ * The second half is the same set replaced. The parse is cached for the life of the process and
+ * points into the caller's table without copying, so a registration that did not discard the old
+ * parse would keep trusting the fixture here - and, in a build that swapped its roots, keep
+ * trusting a root that had been taken away.
+ */
+MESH_TEST_CASE(fetch_checks_against_the_roots_the_application_registered, unit) {
+    struct fetch_harness h;
+    const char *failure = NULL;
+    mbedtls_x509_crt fixture_crt;
+    mbedtls_x509_crt_init(&fixture_crt);
+
+    /* Parsing a certificate is PSA work in 4.x, and this case reads one itself rather than only
+       through the TLS client - which would have initialised PSA on the way past. Without this the
+       case passes in a whole-suite run, where something earlier has already done it, and fails on
+       its own under `--filter`. */
+    if (psa_crypto_init() != PSA_SUCCESS) {
+        record_failure(test_name, "PSA did not initialise");
+        return;
+    }
+
+    if (!harness_start(&h)) {
+        failure = "the harness did not start";
+        goto cleanup;
+    }
+    /* Out of the bundle path entirely: from here the only trust is what is registered. */
+    unsetenv("SSL_CERT_FILE");
+
+    const char *const pem = https_fixture_cert_pem();
+    if (mbedtls_x509_crt_parse(&fixture_crt, (const unsigned char *)pem, strlen(pem) + 1U) != 0) {
+        failure = "the fixture's certificate did not parse";
+        goto cleanup;
+    }
+    /* `.raw` is the DER the PEM wrapped, which is what a trust anchor is. It belongs to
+       `fixture_crt`, so that has to outlive the registration - hence the ordering at cleanup. */
+    const struct mesh_tls_ca_root root = {
+        .name = "https fixture",
+        .der = fixture_crt.raw.p,
+        .len = fixture_crt.raw.len,
+    };
+    mesh_tls_set_roots(&root, 1U);
+
+    const struct mesh_fetch_request trusted = {.url = "https://api.github.com/doc"};
+    if (!harness_fetch(&h, &trusted) || h.probe.outcome[0] != MESH_FETCH_OK) {
+        failure = "a certificate that is a registered root should verify";
+        goto cleanup;
+    }
+
+    mesh_tls_set_roots(mesh_ca_roots, mesh_ca_root_count);
+    const struct mesh_fetch_request replaced = {.url = "https://api.github.com/doc"};
+    if (!harness_fetch(&h, &replaced) || h.probe.outcome[1] != MESH_FETCH_TLS) {
+        failure = "replacing the roots should stop the old ones being trusted";
+        goto cleanup;
+    }
+
+cleanup:
+    /* Deregister before the certificate is freed: the cached parse points into it. */
+    mesh_tls_set_roots(NULL, 0U);
+    mbedtls_x509_crt_free(&fixture_crt);
+    harness_stop(&h);
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
+}
+
+/*
+ * With nothing registered and no bundle named there is nothing to check against, and that is a
+ * refusal rather than a connection.
+ *
+ * The tempting failure here is the quiet one: no roots read as no verification, and the request
+ * succeeds against whoever answered. So the assertion is not only the outcome but that the server
+ * logged no request at all - whatever happened, it was not a fetch.
+ */
+MESH_TEST_CASE(fetch_refuses_a_session_with_nothing_to_trust, unit) {
+    struct fetch_harness h;
+    const char *failure = NULL;
+    if (!harness_start(&h)) {
+        failure = "the harness did not start";
+        goto cleanup;
+    }
+    unsetenv("SSL_CERT_FILE");
+    mesh_tls_set_roots(NULL, 0U);
+
+    const struct mesh_fetch_request request = {.url = "https://api.github.com/doc"};
+    if (!harness_fetch(&h, &request) || h.probe.outcome[0] != MESH_FETCH_TLS) {
+        failure = "a session with no trust anchors should fail, not connect";
+        goto cleanup;
+    }
+    char log[256];
+    const size_t logged = https_fixture_requests(&h.server, log, sizeof log);
+    if (logged != 0U) {
+        failure = "no request should have reached the server";
         goto cleanup;
     }
 
