@@ -132,7 +132,7 @@ struct fb_chart_screen {
     struct inkcell_fb_app_bar bar;
     /* Borrowed for the call, as every pointer in this file's descriptions is. */
     const struct inkcell_series *series[INKCELL_FB_CHART_LINES];
-    enum inkcell_str_id labels[INKCELL_FB_CHART_LINES];
+    inkcell_str_id labels[INKCELL_FB_CHART_LINES];
     uint32_t count;
     /* The domain the readings are measured on, before the ceiling is contracted to fit them. */
     struct inkcell_scale domain;
@@ -406,7 +406,7 @@ void fb_render_node_trend(struct inkcell_draw_state *state, const struct mesh_ui
     /* The reading names the screen; the node is on the trail, because the app bar's overline
        says only what nothing else on the frame says and the navigation bar is already saying
        Nodes. */
-    enum inkcell_str_id title = MESH_STR_NODE_TREND_BATTERY;
+    inkcell_str_id title = MESH_STR_NODE_TREND_BATTERY;
     uint8_t axis =
         row->scale.min == row->scale.max ? FB_CHART_AXIS_PERMILLE : FB_CHART_AXIS_PERCENT;
     switch ((enum mesh_ui_history_reading)nav->node_trend) {

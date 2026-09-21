@@ -66,8 +66,8 @@ struct mesh_serial_transport_state {
 /* Records a failure for the UI to pick up. First one wins until it is read. */
 /* As in the BLE transport: a catalog id rather than a format string, so the one place a
    transport writes text a person reads cannot be handed an English sentence. */
-static void mesh_serial_set_error(struct mesh_serial_transport_state *state,
-                                  enum inkcell_str_id text, ...) {
+static void mesh_serial_set_error(struct mesh_serial_transport_state *state, inkcell_str_id text,
+                                  ...) {
     if (state == NULL || state->last_error[0] != '\0') {
         return;
     }

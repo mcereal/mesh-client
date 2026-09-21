@@ -44,8 +44,8 @@ static void actions_snapshot(struct mesh_ui_snapshot *snapshot) {
 }
 
 /* Whether the bar offers `button`, and with which verb. INKCELL_STR_NONE when it does not. */
-static enum inkcell_str_id actions_label_for(const struct inkcell_action_bar *bar,
-                                             enum inkcell_button button) {
+static inkcell_str_id actions_label_for(const struct inkcell_action_bar *bar,
+                                        enum inkcell_button button) {
     for (size_t i = 0; i < bar->count; ++i) {
         if (bar->items[i].button == button) {
             return bar->items[i].label;

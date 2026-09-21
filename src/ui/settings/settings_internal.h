@@ -44,7 +44,7 @@ enum mesh_ui_setting_text_limit {
  * no special name for 0 and the seconds formatter handles it.
  */
 struct field_spec {
-    enum inkcell_str_id label;
+    inkcell_str_id label;
     enum mesh_ui_setting_kind kind;
     enum mesh_ui_settings_section section;
     /*
@@ -83,7 +83,7 @@ struct field_spec {
      * value of 0 on such a field is off the track rather than at the start of it.
      */
     bool preset_zero_aside;
-    enum inkcell_str_id zero_label; /* NUMBER: what 0 means (seconds formatting) */
+    inkcell_str_id zero_label; /* NUMBER: what 0 means (seconds formatting) */
     /*
      * NUMBER: overrides the seconds default. `imperial` is the radio's display units, decoded
      * by mesh_ui_units_imperial(), and every formatter takes it whether or not it has anything
@@ -110,7 +110,7 @@ struct field_spec {
      *
      * See docs/help.md for what a note may say and how long it may be.
      */
-    enum inkcell_str_id note;
+    inkcell_str_id note;
 };
 
 /* The spec for `field`, never NULL - an unknown field yields the MESH_UI_FIELD_NONE row. */

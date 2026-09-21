@@ -60,12 +60,12 @@ struct mesh_ui_handshake_state;
  * and belongs to no row.
  */
 struct mesh_ui_help_entry {
-    enum inkcell_str_id label;
-    enum inkcell_str_id body;
+    inkcell_str_id label;
+    inkcell_str_id body;
 };
 
 struct mesh_ui_help_topic {
-    enum inkcell_str_id title;
+    inkcell_str_id title;
     /*
      * What is being explained: the settings section's name, or the feature's.
      *
@@ -76,7 +76,7 @@ struct mesh_ui_help_topic {
      * straight out of the nav by the renderer, which is a renderer knowing that help is about
      * settings. It stopped being true the moment a tab acquired a topic.
      */
-    enum inkcell_str_id subject;
+    inkcell_str_id subject;
     struct mesh_ui_help_entry entries[MESH_UI_HELP_ENTRIES_MAX];
     uint32_t count;
 };

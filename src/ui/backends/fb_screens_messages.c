@@ -219,12 +219,12 @@ static void fb_format_day(uint32_t rx_time, char *out, size_t out_len) {
         }
     }
     /* "%e" pads a single-digit day with a space, which reads as a typo in a centred label. */
-    static const enum inkcell_str_id kMonths[] = {
+    static const inkcell_str_id kMonths[] = {
         MESH_STR_DATE_JAN, MESH_STR_DATE_FEB, MESH_STR_DATE_MAR, MESH_STR_DATE_APR,
         MESH_STR_DATE_MAY, MESH_STR_DATE_JUN, MESH_STR_DATE_JUL, MESH_STR_DATE_AUG,
         MESH_STR_DATE_SEP, MESH_STR_DATE_OCT, MESH_STR_DATE_NOV, MESH_STR_DATE_DEC,
     };
-    static const enum inkcell_str_id kWeekdays[] = {
+    static const inkcell_str_id kWeekdays[] = {
         MESH_STR_DATE_SUN, MESH_STR_DATE_MON, MESH_STR_DATE_TUE, MESH_STR_DATE_WED,
         MESH_STR_DATE_THU, MESH_STR_DATE_FRI, MESH_STR_DATE_SAT,
     };

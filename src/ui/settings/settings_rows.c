@@ -92,13 +92,13 @@ static struct mesh_ui_settings_item *item_add_named(struct item_list *list, cons
     return item;
 }
 
-static struct mesh_ui_settings_item *item_add(struct item_list *list, enum inkcell_str_id label,
+static struct mesh_ui_settings_item *item_add(struct item_list *list, inkcell_str_id label,
                                               enum mesh_ui_setting_kind kind) {
     return item_add_named(list, inkcell_str(label), kind);
 }
 
-static void item_text(struct item_list *list, enum inkcell_str_id label,
-                      enum mesh_ui_setting_kind kind, const char *value) {
+static void item_text(struct item_list *list, inkcell_str_id label, enum mesh_ui_setting_kind kind,
+                      const char *value) {
     struct mesh_ui_settings_item *item = item_add(list, label, kind);
     if (item != NULL) {
         inkwell_str_copy(item->value, sizeof item->value, value);
@@ -106,15 +106,15 @@ static void item_text(struct item_list *list, enum inkcell_str_id label,
 }
 
 /* The common case: both halves of the row are catalog entries. */
-static void item_str(struct item_list *list, enum inkcell_str_id label,
-                     enum mesh_ui_setting_kind kind, enum inkcell_str_id value) {
+static void item_str(struct item_list *list, inkcell_str_id label, enum mesh_ui_setting_kind kind,
+                     inkcell_str_id value) {
     item_text(list, label, kind, inkcell_str(value));
 }
 
 /* A toggle the radio reports and nobody here can change. `number` is set for the same reason
    an editable toggle sets it: it is what a renderer drawing a switch rather than the words
    reads, and a read-only row that left it at 0 would draw every such row off. */
-static void item_toggle(struct item_list *list, enum inkcell_str_id label, bool value) {
+static void item_toggle(struct item_list *list, inkcell_str_id label, bool value) {
     struct mesh_ui_settings_item *item = item_add(list, label, MESH_UI_SETTING_TOGGLE);
     if (item == NULL) {
         return;
@@ -131,7 +131,7 @@ static void item_toggle(struct item_list *list, enum inkcell_str_id label, bool 
  * The words go in the value column as they would on any other read-only row, so a backend that
  * draws no bar shows a complete fact rather than a blank - see MESH_UI_SETTING_METER.
  */
-static void item_meter(struct item_list *list, enum inkcell_str_id label, const char *value,
+static void item_meter(struct item_list *list, inkcell_str_id label, const char *value,
                        uint32_t permille) {
     struct mesh_ui_settings_item *item = item_add(list, label, MESH_UI_SETTING_METER);
     if (item == NULL) {
@@ -161,12 +161,12 @@ static void item_meter(struct item_list *list, enum inkcell_str_id label, const 
  * to say nothing, so the sections divided into the ones whose subjects happened to own a rune
  * and the ones that did not. `ui_settings_row_icons_are_all_or_nothing` holds it.
  */
-static void item_heading(struct item_list *list, enum inkcell_str_id label) {
+static void item_heading(struct item_list *list, inkcell_str_id label) {
     item_add(list, label, MESH_UI_SETTING_HEADING);
 }
 
 /* "30s", "5m", "2h"; `zero` says what 0 means for this field ("off", "default"). */
-static void format_seconds(char *out, size_t out_len, uint32_t seconds, enum inkcell_str_id zero) {
+static void format_seconds(char *out, size_t out_len, uint32_t seconds, inkcell_str_id zero) {
     if (seconds == 0U) {
         snprintf(out, out_len, "%s", inkcell_str(zero));
     } else if (seconds % 3600U == 0U) {
@@ -206,7 +206,7 @@ static bool field_is_secret(enum mesh_ui_setting_field field) {
  * frequency is megahertz and the trim below it is hertz, and "906.8750" over "-12.5" says
  * nothing about which is which; a latitude has no such neighbour and stays bare.
  */
-static enum inkcell_str_id field_unit(enum mesh_ui_setting_field field) {
+static inkcell_str_id field_unit(enum mesh_ui_setting_field field) {
     switch (field) {
     case MESH_UI_FIELD_LORA_OVERRIDE_FREQ:
     case MESH_UI_FIELD_LORA_HAM_FREQUENCY:
@@ -330,7 +330,7 @@ static void item_flag_group(struct item_list *list, enum mesh_ui_setting_field_g
  * the meaning stays with the caller. NULL for a caller that has nothing to add.
  */
 static void item_record_group(struct item_list *list, enum mesh_ui_setting_field_group group,
-                              uint32_t fields_per_record, enum inkcell_str_id title,
+                              uint32_t fields_per_record, inkcell_str_id title,
                               const uint32_t *values, size_t value_count,
                               struct mesh_ui_settings_item **rows) {
     const uint32_t count = mesh_ui_settings_group_count(group);
@@ -413,8 +413,7 @@ static void item_key_field(struct item_list *list, enum mesh_ui_setting_field fi
 
 /* Keys are shown as a short fingerprint: enough to compare against the phone app's view,
    not enough to leak the key to someone reading over your shoulder. */
-static void item_key(struct item_list *list, enum inkcell_str_id label, const uint8_t *key,
-                     size_t len) {
+static void item_key(struct item_list *list, inkcell_str_id label, const uint8_t *key, size_t len) {
     struct mesh_ui_settings_item *item = item_add(list, label, MESH_UI_SETTING_KEY);
     if (item == NULL) {
         return;
@@ -497,12 +496,12 @@ static void item_action_off_named(struct item_list *list, const char *label, con
     }
 }
 
-static void item_action_off(struct item_list *list, enum inkcell_str_id label,
-                            enum inkcell_str_id reason, enum mesh_ui_settings_action action) {
+static void item_action_off(struct item_list *list, inkcell_str_id label, inkcell_str_id reason,
+                            enum mesh_ui_settings_action action) {
     item_action_off_named(list, inkcell_str(label), inkcell_str(reason), action);
 }
 
-static void item_action(struct item_list *list, enum inkcell_str_id label, const char *value,
+static void item_action(struct item_list *list, inkcell_str_id label, const char *value,
                         enum mesh_ui_settings_action action) {
     item_action_named(list, inkcell_str(label), value, action);
 }
@@ -514,7 +513,7 @@ static void item_action(struct item_list *list, enum inkcell_str_id label, const
  * the *point* here - it is what replaced "press A" - and a column of calls passing "" reads as a
  * value somebody forgot to fill in rather than as a row that has none.
  */
-static void item_verb(struct item_list *list, enum inkcell_str_id label,
+static void item_verb(struct item_list *list, inkcell_str_id label,
                       enum mesh_ui_settings_action action) {
     item_action_named(list, inkcell_str(label), "", action);
 }
@@ -528,7 +527,7 @@ static void item_verb_named(struct item_list *list, const char *label,
    remove, so a row with nothing to remove is a fact rather than a press that does nothing -
    and the two can never disagree, because the count came through the same predicate the
    forget itself uses. */
-static void forget_row(struct item_list *list, enum inkcell_str_id label, uint32_t forgettable,
+static void forget_row(struct item_list *list, inkcell_str_id label, uint32_t forgettable,
                        enum mesh_ui_settings_action action) {
     if (forgettable == 0U) {
         item_action_off(list, label, MESH_STR_ACTION_NOTHING_TO_DROP, action);
@@ -542,7 +541,7 @@ static void forget_row(struct item_list *list, enum inkcell_str_id label, uint32
 
 /* An action the radio has to be reachable for. Without a link it becomes the same row saying
    why, so the section keeps its shape whatever the transport is doing. */
-static void item_radio_action(struct item_list *list, enum inkcell_str_id label,
+static void item_radio_action(struct item_list *list, inkcell_str_id label,
                               enum mesh_ui_settings_action action, bool connected) {
     if (connected) {
         item_verb(list, label, action);

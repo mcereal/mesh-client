@@ -2669,8 +2669,8 @@ bool mesh_ui_nav_close_verify_number(struct mesh_ui_nav *nav) {
  */
 uint8_t mesh_ui_nav_dialog_answer(const struct mesh_ui_store *store, enum inkcell_key key,
                                   uint8_t cursor) {
-    const uint8_t here = cursor == 0U ? 0U : 1U;
-    const uint8_t other = here == 0U ? 1U : 0U;
+    const uint8_t here = (uint8_t)(cursor == 0U ? 0U : 1U);
+    const uint8_t other = (uint8_t)(here == 0U ? 1U : 0U);
     const struct inkcell_focus_map *const map = store != NULL ? store->focus : NULL;
     enum inkcell_focus_dir dir;
     if (map == NULL || !inkcell_focus_dir_for_key(key, &dir)) {

@@ -114,7 +114,7 @@ static bool topic_for(const struct mesh_ui_store *store, struct mesh_ui_help_top
 MESH_TEST_CASE(help_every_section_has_a_note, unit) {
     for (int i = 0; i < (int)MESH_UI_SETTINGS_SECTION_COUNT; ++i) {
         const enum mesh_ui_settings_section section = (enum mesh_ui_settings_section)i;
-        const enum inkcell_str_id note = mesh_ui_settings_section_note(section);
+        const inkcell_str_id note = mesh_ui_settings_section_note(section);
         if (note == INKCELL_STR_NONE) {
             char reason[128];
             snprintf(reason, sizeof reason, "section %s has no note",
@@ -143,7 +143,7 @@ MESH_TEST_CASE(help_every_section_has_a_note, unit) {
  */
 MESH_TEST_CASE(help_notes_fit_the_panel, unit) {
     for (int i = 0; i < (int)MESH_STR_COUNT; ++i) {
-        const enum inkcell_str_id id = (enum inkcell_str_id)i;
+        const inkcell_str_id id = (inkcell_str_id)i;
         const char *name = inkcell_str_id_name(id);
         if (name == NULL ||
             (strncmp(name, "SETTINGS_NOTE_", 14) != 0 && strncmp(name, "HELP_NOTE_", 10) != 0)) {
@@ -375,9 +375,9 @@ MESH_TEST_CASE(help_opens_where_the_cursor_was, unit) {
     uint32_t entry = 1U;    /* the paragraph the next explained row will be */
     uint32_t expected = 0U; /* the entry this row resolves to; 0 is the section's overview */
     for (uint32_t row = 0; row < rows; ++row) {
-        const enum inkcell_str_id note = items[row].field != MESH_UI_FIELD_NONE
-                                             ? mesh_ui_settings_field_note(items[row].field)
-                                             : INKCELL_STR_NONE;
+        const inkcell_str_id note = items[row].field != MESH_UI_FIELD_NONE
+                                        ? mesh_ui_settings_field_note(items[row].field)
+                                        : INKCELL_STR_NONE;
         /* A heading is where "the paragraphs above this row" stops, which is the rule
            help_stops_at_a_subheading holds for Telemetry - LoRa grew headings of its own with
            the advanced group, so the rule applies one section further along. */

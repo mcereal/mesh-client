@@ -74,8 +74,7 @@ static struct mesh_ui_node_item *rows_next(struct node_rows *rows) {
  * the two halves of a traced route are the two halves of one trace. In every pair the labels are
  * what tells them apart, which is the thing a heading is for.
  */
-static void rows_heading(struct node_rows *rows, enum inkcell_str_id label,
-                         enum inkcell_icon icon) {
+static void rows_heading(struct node_rows *rows, inkcell_str_id label, enum inkcell_icon icon) {
     struct mesh_ui_node_item *item = rows_next(rows);
     if (item == NULL) {
         return;
@@ -197,7 +196,7 @@ static enum inkcell_tone action_tone(enum mesh_ui_node_action action) {
                : INKCELL_TONE_NORMAL;
 }
 
-static struct mesh_ui_node_item *rows_action(struct node_rows *rows, enum inkcell_str_id label,
+static struct mesh_ui_node_item *rows_action(struct node_rows *rows, inkcell_str_id label,
                                              const char *value, enum mesh_ui_node_action action) {
     struct mesh_ui_node_item *item = rows_next(rows);
     if (item == NULL) {
@@ -223,7 +222,7 @@ static struct mesh_ui_node_item *rows_action(struct node_rows *rows, enum inkcel
  * with no sprites; what is new is that the state is also a field, so a screen that can draw the
  * control draws it from the same flag this read.
  */
-static void rows_toggle(struct node_rows *rows, enum inkcell_str_id label, bool on,
+static void rows_toggle(struct node_rows *rows, inkcell_str_id label, bool on,
                         enum mesh_ui_node_action action) {
     struct mesh_ui_node_item *item = rows_action(
         rows, label, inkcell_str(on ? MESH_STR_COMMON_YES : MESH_STR_COMMON_NO), action);
@@ -252,15 +251,14 @@ static struct mesh_ui_node_item *rows_info_row(struct node_rows *rows, const cha
     return item;
 }
 
-static void rows_text(struct node_rows *rows, enum inkcell_str_id label, const char *value) {
+static void rows_text(struct node_rows *rows, inkcell_str_id label, const char *value) {
     struct mesh_ui_node_item *item = rows_info_row(rows, inkcell_str(label));
     if (item != NULL) {
         snprintf(item->value, sizeof item->value, "%s", value != NULL ? value : "");
     }
 }
 
-static void rows_info(struct node_rows *rows, enum inkcell_str_id label, enum inkcell_str_id format,
-                      ...) {
+static void rows_info(struct node_rows *rows, inkcell_str_id label, inkcell_str_id format, ...) {
     struct mesh_ui_node_item *item = rows_info_row(rows, inkcell_str(label));
     if (item == NULL) {
         return;
@@ -271,7 +269,7 @@ static void rows_info(struct node_rows *rows, enum inkcell_str_id label, enum in
     va_end(args);
 }
 
-static void rows_named(struct node_rows *rows, const char *label, enum inkcell_str_id format, ...) {
+static void rows_named(struct node_rows *rows, const char *label, inkcell_str_id format, ...) {
     struct mesh_ui_node_item *item = rows_info_row(rows, label);
     if (item == NULL) {
         return;
@@ -301,7 +299,7 @@ static void rows_named(struct node_rows *rows, const char *label, enum inkcell_s
  * reporting nothing. A measurement is never a state - there is no "6.75 dB" to be in - and neither
  * is anything the node chose for itself, which is what its names and its hardware are.
  */
-static void rows_state(struct node_rows *rows, enum inkcell_str_id label, const char *value,
+static void rows_state(struct node_rows *rows, inkcell_str_id label, const char *value,
                        enum inkcell_tone tone) {
     struct mesh_ui_node_item *item = rows_info_row(rows, inkcell_str(label));
     if (item == NULL) {

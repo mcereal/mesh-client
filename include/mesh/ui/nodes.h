@@ -103,7 +103,7 @@ uint32_t mesh_ui_node_filter_count(const struct mesh_ui_handshake_state *handsha
 enum mesh_ui_node_filter mesh_ui_node_filter_step(enum mesh_ui_node_filter filter, int delta);
 
 /* The chip's word. */
-enum inkcell_str_id mesh_ui_node_filter_label(enum mesh_ui_node_filter filter);
+inkcell_str_id mesh_ui_node_filter_label(enum mesh_ui_node_filter filter);
 
 /*
  * ---- the Nodes list's sort --------------------------------------------------------------------
@@ -244,7 +244,7 @@ mesh_ui_node_view_at(const struct mesh_ui_handshake_state *handshake,
 enum mesh_ui_node_sort mesh_ui_node_sort_step(enum mesh_ui_node_sort sort, int delta);
 
 /* The chip's word. */
-enum inkcell_str_id mesh_ui_node_sort_label(enum mesh_ui_node_sort sort);
+inkcell_str_id mesh_ui_node_sort_label(enum mesh_ui_node_sort sort);
 
 /*
  * Whether this sort can say anything about this roster - false only for Distance with no fix of

@@ -78,7 +78,7 @@ void mesh_ui_mqtt_failure_text(const struct mesh_mqtt_proxy *proxy, char *out, s
         return;
     }
 
-    enum inkcell_str_id text = MESH_STR_LINK_UNREACHABLE;
+    inkcell_str_id text = MESH_STR_LINK_UNREACHABLE;
     if (!mesh_net_reason_str(failure.net.reason, &text)) {
         return; /* no failure, or a reason with nothing to say about it */
     }

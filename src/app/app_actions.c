@@ -603,7 +603,7 @@ static void on_save_settings(struct mesh_app *app, const struct mesh_ui_action *
 struct radio_admin_verb {
     enum mesh_ui_settings_action row;
     enum mesh_admin_request_kind kind;
-    enum inkcell_str_id asked;
+    inkcell_str_id asked;
     /* A restore is the one that changes what the radio holds, and the settings it changes are
        the ones this tab is showing - so it is followed by a refresh rather than left to a
        screen that would keep drawing the values it had before. */

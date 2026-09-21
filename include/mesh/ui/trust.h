@@ -56,7 +56,7 @@ enum mesh_ui_key_trust mesh_ui_key_trust_of(const struct mesh_ui_node_summary *n
 enum inkcell_icon mesh_ui_key_trust_icon(enum mesh_ui_key_trust trust);
 
 /* The state in words, for a row that has room for them. */
-enum inkcell_str_id mesh_ui_key_trust_label(enum mesh_ui_key_trust trust);
+inkcell_str_id mesh_ui_key_trust_label(enum mesh_ui_key_trust trust);
 
 /*
  * The ink a row saying it takes.
@@ -82,8 +82,8 @@ enum inkcell_tone mesh_ui_key_trust_tone(enum mesh_ui_key_trust trust);
  */
 struct mesh_ui_verify_sheet {
     enum inkcell_icon icon;
-    enum inkcell_str_id accept;
-    enum inkcell_str_id cancel;
+    inkcell_str_id accept;
+    inkcell_str_id cancel;
     /* The answer that acts is the one that says the characters did *not* match: it is the
        destructive half of a comparison, and the dialog colours itself from this. A sheet with
        nothing to refuse - the two waiting stages - is not destructive. */

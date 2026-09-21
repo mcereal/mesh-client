@@ -2,10 +2,10 @@
  * The catalog: every string the user reads, one line each.
  *
  * This file is included more than once, with the two macros defined differently each time -
- * once to build `enum inkcell_str_id`, once to build the English table, once by
- * scripts/gen-locale.py to build a translation template. That is why it has no include guard
- * and why it is not a .h: `make format` would reflow the table into something no translator
- * could scan, and there is nothing here for clang-format to be right about.
+ * once to build the ids, once to build the English table, once by scripts/gen-locale.py to
+ * build a translation template. That is why it has no include guard and why it is not a .h:
+ * `make format` would reflow the table into something no translator could scan, and there is
+ * nothing here for clang-format to be right about.
  *
  *   MESH_STR_ENTRY(ID, "text")
  *   MESH_STR_PLURAL_ENTRY(ID, "one", "other")   -> MESH_STR_ID_ONE and MESH_STR_ID_OTHER

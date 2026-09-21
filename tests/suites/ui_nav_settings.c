@@ -315,7 +315,7 @@ MESH_TEST_CASE(ui_nav_settings_edit, unit) {
     const struct inkcell_keyboard_layout kb_layout = mesh_ui_nav_kb_layout(&store.nav);
     if (!store.nav.keyboard_open || store.nav.keyboard_field != MESH_UI_FIELD_USER_SHORT_NAME ||
         strcmp(store.nav.draft, "OLDN") != 0 || strcmp(store.nav.draft_saved, "half typed") != 0 ||
-        strcmp(inkcell_str((enum inkcell_str_id)kb_layout.submit_label), "done") != 0) {
+        strcmp(inkcell_str((inkcell_str_id)kb_layout.submit_label), "done") != 0) {
         failure = "A on a text row should open the keyboard for it";
         goto cleanup;
     }

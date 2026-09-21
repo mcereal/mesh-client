@@ -41,7 +41,7 @@ extern "C" {
  * library's word for the errno, and the TLS library's own sentence. Neither is translated, for
  * the same reason a channel key is shown as base64.
  */
-bool mesh_net_reason_str(enum inkwell_net_reason reason, enum inkcell_str_id *out);
+bool mesh_net_reason_str(enum inkwell_net_reason reason, inkcell_str_id *out);
 
 #ifdef __cplusplus
 }

@@ -129,7 +129,7 @@ struct mesh_tcp_transport_state {
      * socket half is what eventually moves down to inkwell, and it only ever sets the first.
      */
     struct inkwell_net_failure failure;
-    enum inkcell_str_id own_failure;
+    inkcell_str_id own_failure;
     bool own_failure_set;
     /* Whichever of the target or the host the failure was about, copied because the fields it
        came from are cleared as the attempt is torn down - and it is the user's own typed text
@@ -180,7 +180,7 @@ static void mesh_tcp_fail(struct mesh_tcp_transport_state *state, enum inkwell_n
 
 /* The same, for the three failures that are this link's own and have no reason in inkwell's
    vocabulary. See the note on `own_failure` in the state above. */
-static void mesh_tcp_fail_own(struct mesh_tcp_transport_state *state, enum inkcell_str_id text,
+static void mesh_tcp_fail_own(struct mesh_tcp_transport_state *state, inkcell_str_id text,
                               const char *subject) {
     if (state == NULL || mesh_tcp_has_error(state)) {
         return;
@@ -814,7 +814,7 @@ static bool mesh_tcp_take_error(struct mesh_transport *transport, char *out, siz
         return false;
     }
 
-    enum inkcell_str_id text = MESH_STR_LINK_TCP_DISABLED;
+    inkcell_str_id text = MESH_STR_LINK_TCP_DISABLED;
     if (state->own_failure_set) {
         text = state->own_failure;
     } else if (!mesh_net_reason_str(state->failure.reason, &text)) {

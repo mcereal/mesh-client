@@ -859,7 +859,7 @@ MESH_TEST_CASE(key_trust_node_detail_offers_the_key_rows, unit) {
         bool in_nodedb;
         bool expect_verify;
         bool expect_add;
-        enum inkcell_str_id expect_state;
+        inkcell_str_id expect_state;
     } cases[] = {
         {"no key", false, false, true, false, false, MESH_STR_TRUST_NONE},
         {"key, on the radio", true, false, true, true, false, MESH_STR_TRUST_UNVERIFIED},
@@ -1079,7 +1079,7 @@ MESH_TEST_CASE(key_trust_number_keyboard_takes_six_digits, unit) {
  * this row model; a label elsewhere is measured against its own.
  */
 MESH_TEST_CASE(key_trust_node_action_labels_fit_their_row, unit) {
-    static const enum inkcell_str_id kLabels[] = {
+    static const inkcell_str_id kLabels[] = {
         MESH_STR_NODE_ACT_MESSAGE,       MESH_STR_NODE_ACT_PIN,
         MESH_STR_NODE_ACT_REQUEST_INFO,  MESH_STR_NODE_ACT_REQUEST_POSITION,
         MESH_STR_NODE_ACT_REQUEST_TELEM, MESH_STR_NODE_ACT_MUTE,

@@ -39,7 +39,7 @@
  * as text for a heading, once as an id for the help topic's subject - and a switch answering
  * the same question two ways is the two-opinions bug this layer keeps designing out.
  */
-static const enum inkcell_str_id k_section_labels[MESH_UI_SETTINGS_SECTION_COUNT] = {
+static const inkcell_str_id k_section_labels[MESH_UI_SETTINGS_SECTION_COUNT] = {
     [MESH_UI_SETTINGS_ABOUT] = MESH_STR_SETTINGS_SECTION_ABOUT,
     [MESH_UI_SETTINGS_RADIO] = MESH_STR_SETTINGS_SECTION_RADIO,
     [MESH_UI_SETTINGS_USER] = MESH_STR_SETTINGS_SECTION_USER,
@@ -71,12 +71,12 @@ static const enum inkcell_str_id k_section_labels[MESH_UI_SETTINGS_SECTION_COUNT
     [MESH_UI_SETTINGS_BEACON] = MESH_STR_SETTINGS_SECTION_BEACON,
 };
 
-enum inkcell_str_id mesh_ui_settings_section_label(enum mesh_ui_settings_section section) {
+inkcell_str_id mesh_ui_settings_section_label(enum mesh_ui_settings_section section) {
     return section < MESH_UI_SETTINGS_SECTION_COUNT ? k_section_labels[section] : INKCELL_STR_NONE;
 }
 
 const char *mesh_ui_settings_section_name(enum mesh_ui_settings_section section) {
-    const enum inkcell_str_id label = mesh_ui_settings_section_label(section);
+    const inkcell_str_id label = mesh_ui_settings_section_label(section);
     /* A section past the end still has to render as something: the "?" every unnameable value
        in this client draws, rather than the empty string INKCELL_STR_NONE would hand back. */
     return inkcell_str(label != INKCELL_STR_NONE ? label : INKCELL_STR_COMMON_UNKNOWN_SHORT);
@@ -382,7 +382,7 @@ uint32_t mesh_ui_settings_section_groups(const struct mesh_ui_settings_item *ite
  * most settings explain themselves; a section's may not, because "what is this whole screen
  * about" is the question somebody who opened it has by definition.
  */
-static const enum inkcell_str_id k_section_notes[MESH_UI_SETTINGS_SECTION_COUNT] = {
+static const inkcell_str_id k_section_notes[MESH_UI_SETTINGS_SECTION_COUNT] = {
     [MESH_UI_SETTINGS_ABOUT] = MESH_STR_SETTINGS_NOTE_ABOUT,
     [MESH_UI_SETTINGS_RADIO] = MESH_STR_SETTINGS_NOTE_RADIO,
     [MESH_UI_SETTINGS_USER] = MESH_STR_SETTINGS_NOTE_USER,
@@ -414,7 +414,7 @@ static const enum inkcell_str_id k_section_notes[MESH_UI_SETTINGS_SECTION_COUNT]
     [MESH_UI_SETTINGS_BEACON] = MESH_STR_SETTINGS_NOTE_BEACON,
 };
 
-enum inkcell_str_id mesh_ui_settings_section_note(enum mesh_ui_settings_section section) {
+inkcell_str_id mesh_ui_settings_section_note(enum mesh_ui_settings_section section) {
     return section < MESH_UI_SETTINGS_SECTION_COUNT ? k_section_notes[section] : INKCELL_STR_NONE;
 }
 
@@ -536,7 +536,7 @@ mesh_ui_settings_section_availability(const struct mesh_ui_settings *settings,
     return MESH_UI_SETTINGS_SECTION_WAITING;
 }
 
-enum inkcell_str_id mesh_ui_settings_availability_label(enum mesh_ui_settings_availability state) {
+inkcell_str_id mesh_ui_settings_availability_label(enum mesh_ui_settings_availability state) {
     switch (state) {
     case MESH_UI_SETTINGS_SECTION_WAITING:
         return MESH_STR_SETTINGS_NOT_LOADED;
@@ -548,7 +548,7 @@ enum inkcell_str_id mesh_ui_settings_availability_label(enum mesh_ui_settings_av
     }
 }
 
-enum inkcell_str_id mesh_ui_settings_availability_reason(enum mesh_ui_settings_availability state) {
+inkcell_str_id mesh_ui_settings_availability_reason(enum mesh_ui_settings_availability state) {
     switch (state) {
     case MESH_UI_SETTINGS_SECTION_EXCLUDED:
         return MESH_STR_SETTINGS_EMPTY_EXCLUDED;
@@ -640,7 +640,7 @@ bool mesh_ui_settings_section_loaded(const struct mesh_ui_settings *settings,
 /* ---- editable fields ---------------------------------------------------------------------- */
 
 static const char *compass_name(uint32_t orientation) {
-    static const enum inkcell_str_id k_names[] = {
+    static const inkcell_str_id k_names[] = {
         MESH_STR_ENUM_COMPASS_0,        MESH_STR_ENUM_COMPASS_90,
         MESH_STR_ENUM_COMPASS_180,      MESH_STR_ENUM_COMPASS_270,
         MESH_STR_ENUM_COMPASS_0_FLIP,   MESH_STR_ENUM_COMPASS_90_FLIP,
@@ -659,7 +659,7 @@ static const char *units_name(uint32_t units) {
    the radio's own autodetect got it wrong; every value after Auto is a controller part
    number, because that is what the board's documentation calls it. */
 static const char *oled_name(uint32_t oled) {
-    static const enum inkcell_str_id k_names[] = {
+    static const inkcell_str_id k_names[] = {
         MESH_STR_ENUM_OLED_AUTO,   MESH_STR_ENUM_OLED_SSD1306,    MESH_STR_ENUM_OLED_SH1106,
         MESH_STR_ENUM_OLED_SH1107, MESH_STR_ENUM_OLED_SH1107_128, MESH_STR_ENUM_OLED_SH1107_ROT,
     };
@@ -669,7 +669,7 @@ static const char *oled_name(uint32_t oled) {
 
 /* DisplayConfig.DisplayMode, 0..3 and contiguous. */
 static const char *displaymode_name(uint32_t mode) {
-    static const enum inkcell_str_id k_names[] = {
+    static const inkcell_str_id k_names[] = {
         MESH_STR_ENUM_DISPLAYMODE_DEFAULT,
         MESH_STR_ENUM_DISPLAYMODE_TWOCOLOR,
         MESH_STR_ENUM_DISPLAYMODE_INVERTED,
@@ -682,7 +682,7 @@ static const char *displaymode_name(uint32_t mode) {
 /* DetectionSensorConfig.TriggerType, 0..5 and contiguous. Named for what the pin does rather
    than for the constant: "Low" says more than "LOGIC_LOW" next to the word Trigger. */
 static const char *trigger_name(uint32_t trigger) {
-    static const enum inkcell_str_id k_names[] = {
+    static const inkcell_str_id k_names[] = {
         MESH_STR_ENUM_TRIGGER_LOW,        MESH_STR_ENUM_TRIGGER_HIGH,
         MESH_STR_ENUM_TRIGGER_FALLING,    MESH_STR_ENUM_TRIGGER_RISING,
         MESH_STR_ENUM_TRIGGER_EITHER_LOW, MESH_STR_ENUM_TRIGGER_EITHER_HIGH,
@@ -694,7 +694,7 @@ static const char *trigger_name(uint32_t trigger) {
 /* DeviceUIConfig's three editable enums, all contiguous from 0 - which is what the nav's
    (value + 1) % count stepping needs, and why Language is not among them. */
 static const char *ui_theme_name(uint32_t theme) {
-    static const enum inkcell_str_id k_names[] = {
+    static const inkcell_str_id k_names[] = {
         MESH_STR_ENUM_UI_THEME_DARK,
         MESH_STR_ENUM_UI_THEME_LIGHT,
         MESH_STR_ENUM_UI_THEME_RED,
@@ -704,7 +704,7 @@ static const char *ui_theme_name(uint32_t theme) {
 }
 
 static const char *ui_compass_name(uint32_t mode) {
-    static const enum inkcell_str_id k_names[] = {
+    static const inkcell_str_id k_names[] = {
         MESH_STR_ENUM_UI_COMPASS_DYNAMIC,
         MESH_STR_ENUM_UI_COMPASS_FIXED,
         MESH_STR_ENUM_UI_COMPASS_FREEZE,
@@ -716,7 +716,7 @@ static const char *ui_compass_name(uint32_t mode) {
 /* Named for what a reader would call the format rather than for the acronym, except where the
    acronym is what it is called - MGRS and UTM are not expanded on a map either. */
 static const char *ui_gps_format_name(uint32_t format) {
-    static const enum inkcell_str_id k_names[] = {
+    static const inkcell_str_id k_names[] = {
         MESH_STR_ENUM_UI_GPS_DEC,  MESH_STR_ENUM_UI_GPS_DMS, MESH_STR_ENUM_UI_GPS_UTM,
         MESH_STR_ENUM_UI_GPS_MGRS, MESH_STR_ENUM_UI_GPS_OLC, MESH_STR_ENUM_UI_GPS_OSGR,
         MESH_STR_ENUM_UI_GPS_MLS,
@@ -739,7 +739,7 @@ static const char *ui_clockface_name(uint32_t analog) {
    Named as the phone apps name them - "RTO", not its expansion - for the reason keys are shown
    as base64: a setting read off the Brick should be recognisable in the app and back. */
 static const char *tak_team_name(uint32_t team) {
-    static const enum inkcell_str_id k_names[] = {
+    static const inkcell_str_id k_names[] = {
         MESH_STR_ENUM_TAK_TEAM_DEFAULT,   MESH_STR_ENUM_TAK_TEAM_WHITE,
         MESH_STR_ENUM_TAK_TEAM_YELLOW,    MESH_STR_ENUM_TAK_TEAM_ORANGE,
         MESH_STR_ENUM_TAK_TEAM_MAGENTA,   MESH_STR_ENUM_TAK_TEAM_RED,
@@ -754,7 +754,7 @@ static const char *tak_team_name(uint32_t team) {
 }
 
 static const char *tak_role_name(uint32_t role) {
-    static const enum inkcell_str_id k_names[] = {
+    static const inkcell_str_id k_names[] = {
         MESH_STR_ENUM_TAK_ROLE_DEFAULT,     MESH_STR_ENUM_TAK_ROLE_MEMBER,
         MESH_STR_ENUM_TAK_ROLE_LEAD,        MESH_STR_ENUM_TAK_ROLE_HQ,
         MESH_STR_ENUM_TAK_ROLE_SNIPER,      MESH_STR_ENUM_TAK_ROLE_MEDIC,
@@ -766,7 +766,7 @@ static const char *tak_role_name(uint32_t role) {
 }
 
 static const char *rebroadcast_name(uint32_t mode) {
-    static const enum inkcell_str_id k_names[] = {
+    static const inkcell_str_id k_names[] = {
         MESH_STR_ENUM_REBROADCAST_ALL,   MESH_STR_ENUM_REBROADCAST_ALL_SKIP,
         MESH_STR_ENUM_REBROADCAST_LOCAL, MESH_STR_ENUM_REBROADCAST_KNOWN,
         MESH_STR_ENUM_REBROADCAST_NONE,  MESH_STR_ENUM_REBROADCAST_CORE,
@@ -819,8 +819,8 @@ static const char *pairing_enum_name(uint32_t mode) {
  * `bits` outside that range are answered by the branches below rather than by a row here.
  */
 static const struct {
-    enum inkcell_str_id label;
-    enum inkcell_str_id imperial;
+    inkcell_str_id label;
+    inkcell_str_id imperial;
     uint32_t metres;
 } k_precision[] = {
     {MESH_STR_VALUE_PRECISION_23KM, MESH_STR_VALUE_PRECISION_14MI, 23000U},
@@ -2177,7 +2177,7 @@ const char *mesh_ui_settings_field_label(enum mesh_ui_setting_field field) {
     return inkcell_str(field_spec(field)->label);
 }
 
-enum inkcell_str_id mesh_ui_settings_field_label_id(enum mesh_ui_setting_field field) {
+inkcell_str_id mesh_ui_settings_field_label_id(enum mesh_ui_setting_field field) {
     return field_spec(field)->label;
 }
 
@@ -2205,7 +2205,7 @@ bool mesh_ui_settings_section_has_fields(enum mesh_ui_settings_section section) 
     return false;
 }
 
-enum inkcell_str_id mesh_ui_settings_field_note(enum mesh_ui_setting_field field) {
+inkcell_str_id mesh_ui_settings_field_note(enum mesh_ui_setting_field field) {
     return field_spec(field)->note;
 }
 

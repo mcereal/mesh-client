@@ -30,7 +30,7 @@ static const enum inkcell_icon k_trust_icons[] = {
     [MESH_UI_KEY_TRUST_VERIFIED] = INKCELL_ICON_SECURITY,
 };
 
-static const enum inkcell_str_id k_trust_labels[] = {
+static const inkcell_str_id k_trust_labels[] = {
     [MESH_UI_KEY_TRUST_NONE] = MESH_STR_TRUST_NONE,
     [MESH_UI_KEY_TRUST_UNVERIFIED] = MESH_STR_TRUST_UNVERIFIED,
     [MESH_UI_KEY_TRUST_VERIFIED] = MESH_STR_TRUST_VERIFIED,
@@ -60,7 +60,7 @@ enum inkcell_icon mesh_ui_key_trust_icon(enum mesh_ui_key_trust trust) {
     return trust_in_range(trust) ? k_trust_icons[trust] : INKCELL_ICON_NONE;
 }
 
-enum inkcell_str_id mesh_ui_key_trust_label(enum mesh_ui_key_trust trust) {
+inkcell_str_id mesh_ui_key_trust_label(enum mesh_ui_key_trust trust) {
     return trust_in_range(trust) ? k_trust_labels[trust] : INKCELL_STR_NONE;
 }
 

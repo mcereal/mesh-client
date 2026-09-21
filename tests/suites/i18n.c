@@ -40,7 +40,7 @@ MESH_TEST_CASE(i18n_catalog_is_complete, unit) {
     MESH_TEST_FAIL_IF(inkcell_str_in(NULL, INKCELL_STR_NONE)[0] != '\0',
                       "INKCELL_STR_NONE is not the empty string");
     for (int id = 0; id < (int)MESH_STR_COUNT; ++id) {
-        const enum inkcell_str_id which = (enum inkcell_str_id)id;
+        const inkcell_str_id which = (inkcell_str_id)id;
         const char *text = inkcell_str_in(inkcell_i18n_locale_english(), which);
         const char *name = inkcell_str_id_name(which);
         MESH_TEST_FAIL_IF(text == NULL, "an id has no English text");
@@ -54,9 +54,9 @@ MESH_TEST_CASE(i18n_catalog_is_complete, unit) {
     }
 
     /* Out of range in either direction is the empty string, never a read past the table. */
-    MESH_TEST_FAIL_IF(inkcell_str((enum inkcell_str_id)MESH_STR_COUNT)[0] != '\0',
+    MESH_TEST_FAIL_IF(inkcell_str((inkcell_str_id)MESH_STR_COUNT)[0] != '\0',
                       "an id past the end returned text");
-    MESH_TEST_FAIL_IF(inkcell_str_id_name((enum inkcell_str_id)MESH_STR_COUNT) != NULL,
+    MESH_TEST_FAIL_IF(inkcell_str_id_name((inkcell_str_id)MESH_STR_COUNT) != NULL,
                       "an id past the end has a name");
     record_success(test_name);
 }
@@ -330,7 +330,7 @@ MESH_TEST_CASE(i18n_spanish_catalog, unit) {
          * heading is a few words of chrome beside the rest of the screen's chrome, and a screen
          * half in Spanish is worse than a paragraph wholly in English.
          */
-        const char *name = inkcell_str_id_name((enum inkcell_str_id)id);
+        const char *name = inkcell_str_id_name((inkcell_str_id)id);
         if (name != NULL &&
             (strncmp(name, "SETTINGS_NOTE_", 14) == 0 || strncmp(name, "HELP_NOTE_", 10) == 0)) {
             continue;
