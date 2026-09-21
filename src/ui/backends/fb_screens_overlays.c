@@ -17,6 +17,7 @@
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/channel_share.h"
 #include "mesh/ui/contact_share.h"
+#include "mesh/ui/focus.h"
 #include "mesh/ui/help.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/settings.h"
@@ -203,7 +204,18 @@ static void fb_put_dialog(struct mesh_ui_backend_fb_state *state, struct fb_layo
         .cursor = memo != NULL ? memo->cursor : 0U,
         .destructive = memo != NULL && memo->destructive,
     };
-    const struct fb_dialog *const put = dialog != NULL ? dialog : &remembered;
+    struct fb_dialog put_copy = dialog != NULL ? *dialog : remembered;
+    /*
+     * What the d-pad calls the two answers: accept, and cancel one past it.
+     *
+     * Registered because the pair is laid out side by side or *stacked*, and inkcell decides
+     * which from the words and the panel's width. Left-right on a stacked pair is not the press
+     * that moves between them, and a nav toggling on every direction was right only because it
+     * never had to know - which is the same thing as never being able to be wrong about
+     * anything else either.
+     */
+    put_copy.action_focus_id = MESH_UI_FOCUS_DIALOG;
+    const struct fb_dialog *const put = &put_copy;
     if (!inkcell_fb_draw_dialog(state, layout, put, (uint32_t)id, up) && memo != NULL) {
         /* All the way out. What it asked is not the next question, and a memo kept past the
            travel it was for would be the words a fresh layer arrives holding. */

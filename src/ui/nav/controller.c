@@ -185,10 +185,17 @@ void mesh_ui_controller_handle_key(struct mesh_ui_controller *controller, enum m
         return;
     }
 
-    /* The window the press is judged against is the one on the panel now. */
+    /* The window the press is judged against is the one on the panel now, and so are the boxes
+       it is resolved against: both are facts about the frame the reader was looking at when
+       they pressed, and both are read back rather than guessed at. */
     if (controller->backend != NULL && controller->backend->page_rows != NULL) {
         mesh_ui_store_set_page_rows(controller->store,
                                     controller->backend->page_rows(controller->backend_state,
+                                                                   controller->backend_userdata));
+    }
+    if (controller->backend != NULL && controller->backend->focus_map != NULL) {
+        mesh_ui_store_set_focus_map(controller->store,
+                                    controller->backend->focus_map(controller->backend_state,
                                                                    controller->backend_userdata));
     }
     struct mesh_ui_action action;

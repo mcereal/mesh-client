@@ -30,7 +30,9 @@
  * the core's by a test; each says so where it is declared.
  */
 
+#include "inkcell/ui/focus.h"
 #include "mesh/ui/history.h"
+
 #include "mesh/ui/nav.h"
 #include "mesh/ui/store_channel.h"
 #include "mesh/ui/store_device.h"
@@ -183,6 +185,21 @@ struct mesh_ui_store {
      * and the renderer page a card by the same number. 0 pages nothing.
      */
     uint32_t page_rows;
+    /*
+     * The boxes the last frame drew, or NULL.
+     *
+     * The other fact about the panel a press can need, and told the same way and at the same
+     * moment: a d-pad asks "what is over there", and an index cannot answer it. Two answers side
+     * by side on one line, two stacked because the words were too long for one - the difference
+     * is a fact about the frame that was drawn, and a nav resolving it from a cursor is a nav
+     * guessing which layout the renderer chose.
+     *
+     * Borrowed, not owned. The map is rebuilt every frame by whoever draws, so this is good
+     * only until the next one - which is exactly as long as a press between two frames needs
+     * it. NULL is the whole of the opt-out: a backend that registers nothing, and every screen
+     * that has not adopted this, walk their own indices as they always did.
+     */
+    const struct inkcell_focus_map *focus;
     int event_fd;
     mesh_ui_update_flags pending_flags;
 };
@@ -366,6 +383,10 @@ void mesh_ui_store_request_refresh(struct mesh_ui_store *store);
 /* See `page_rows` on struct mesh_ui_store. Publishes nothing: it is read by the next snapshot
    rather than by this frame, and every reader of it treats "not said yet" as "do not act". */
 void mesh_ui_store_set_page_rows(struct mesh_ui_store *store, uint32_t rows);
+
+/* See `focus` on struct mesh_ui_store. Publishes nothing, and borrows rather than copies: the
+   map is the last frame's and is handed over for the press that follows it. */
+void mesh_ui_store_set_focus_map(struct mesh_ui_store *store, const struct inkcell_focus_map *map);
 
 /*
  * Marks the conversation the nav has open as read up to its newest message. Called from

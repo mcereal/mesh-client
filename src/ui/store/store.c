@@ -1368,6 +1368,12 @@ void mesh_ui_store_set_page_rows(struct mesh_ui_store *store, uint32_t rows) {
     }
 }
 
+void mesh_ui_store_set_focus_map(struct mesh_ui_store *store, const struct inkcell_focus_map *map) {
+    if (store != NULL) {
+        store->focus = map;
+    }
+}
+
 void mesh_ui_store_request_refresh(struct mesh_ui_store *store) {
     mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_DISCOVERY | MESH_UI_UPDATE_HANDSHAKE |
                                         MESH_UI_UPDATE_TRANSPORT | MESH_UI_UPDATE_MESSAGES |

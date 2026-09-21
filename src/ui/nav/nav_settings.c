@@ -318,15 +318,20 @@ void mesh_ui_nav_fill_settings_action(const struct mesh_ui_nav *nav,
     memcpy(action->edits, nav->settings_edits, sizeof action->edits);
 }
 
-bool mesh_ui_nav_confirm_key(struct mesh_ui_nav *nav, enum mesh_ui_key key,
-                             struct mesh_ui_action *action) {
+bool mesh_ui_nav_confirm_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                             enum mesh_ui_key key, struct mesh_ui_action *action) {
     switch (key) {
     case MESH_UI_KEY_UP:
     case MESH_UI_KEY_DOWN:
     case MESH_UI_KEY_LEFT:
-    case MESH_UI_KEY_RIGHT:
-        nav->confirm_cursor = nav->confirm_cursor == 0U ? 1U : 0U;
+    case MESH_UI_KEY_RIGHT: {
+        const uint8_t to = mesh_ui_nav_dialog_answer(store, key, nav->confirm_cursor);
+        if (to == nav->confirm_cursor) {
+            return false;
+        }
+        nav->confirm_cursor = to;
         return true;
+    }
     case MESH_UI_KEY_A:
     case MESH_UI_KEY_START:
         if (nav->confirm_cursor == 0U) {

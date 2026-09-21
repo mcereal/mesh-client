@@ -19,6 +19,7 @@
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/actions.h"
 #include "mesh/ui/chrome.h"
+#include "mesh/ui/focus.h"
 #include "mesh/ui/input.h"
 #include "mesh/ui/layout.h"
 #include "mesh/ui/map.h"
@@ -154,6 +155,16 @@ struct fb_render_cache {
        the same reason: a scroll is a fact about a screen that outlives one frame, and a screen
        renderer is a function with nowhere of its own to put one. */
     struct inkcell_scroll scrolls[FB_SCROLL_COUNT];
+    /*
+     * And the boxes the frame drew, which is the one memo here that is not a memory at all.
+     *
+     * It is rebuilt from nothing every frame - that is the whole of its honesty - and it is
+     * kept on the cache for the same reason the scrolls are: a press happens between two
+     * frames, so the map has to outlive the call that built it, and a renderer is a function
+     * with nowhere of its own to put one.
+     */
+    struct inkcell_focus_item focus_storage[MESH_UI_FOCUS_MAX];
+    struct inkcell_focus_map focus;
 };
 
 struct fb_overlay_memo *fb_overlay_memo(struct mesh_ui_backend_fb_state *state,
@@ -301,6 +312,19 @@ void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
        the basemap has already been forgotten: all three are inkcell calling up into fb_app.c,
        which is where the facts a snapshot does not carry are pushed down. */
     fb_render_begin(state, snapshot);
+
+    /*
+     * The frame's record of what it drew, opened before anything is.
+     *
+     * A screen that registers nothing simply leaves the map empty, and a press falls back to
+     * the arithmetic it always used - so this is pushed in for every frame rather than by the
+     * screens that have adopted it. What it costs an unregistered screen is one memset.
+     */
+    struct fb_render_cache *const cache = state->render_cache;
+    if (cache != NULL) {
+        inkcell_focus_begin(&cache->focus, cache->focus_storage, MESH_UI_FOCUS_MAX);
+        inkcell_fb_set_focus_map(state, &cache->focus);
+    }
 
     fb_clear(state, fb_color(state, MESH_UI_COLOR_BG));
 

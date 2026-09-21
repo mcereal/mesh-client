@@ -13,6 +13,7 @@
 
 #include "mesh/core/message.h"
 #include "mesh/ui/devices.h"
+#include "mesh/ui/focus.h"
 #include "mesh/ui/help.h"
 #include "mesh/ui/history.h"
 #include "mesh/ui/map.h"
@@ -2012,7 +2013,7 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
         return mesh_ui_nav_verify_key(nav, store, key, out_action) || changed;
     }
     if (nav->confirm_open) {
-        return mesh_ui_nav_confirm_key(nav, key, out_action) || changed;
+        return mesh_ui_nav_confirm_key(nav, store, key, out_action) || changed;
     }
     if (nav->picker_open) {
         return mesh_ui_nav_picker_key(nav, store, key) || changed;
@@ -2664,6 +2665,32 @@ bool mesh_ui_nav_close_verify_number(struct mesh_ui_nav *nav) {
  * the user never made. The exchange stays open and the core expires it (see
  * mesh/core/key_verification.h), or the user answers it when the sheet comes back.
  */
+uint8_t mesh_ui_nav_dialog_answer(const struct mesh_ui_store *store, enum mesh_ui_key key,
+                                  uint8_t cursor) {
+    const uint8_t here = cursor == 0U ? 0U : 1U;
+    const uint8_t other = here == 0U ? 1U : 0U;
+    const struct inkcell_focus_map *const map = store != NULL ? store->focus : NULL;
+    enum inkcell_focus_dir dir;
+    if (map == NULL || !inkcell_focus_dir_for_key(key, &dir)) {
+        return other;
+    }
+    const uint32_t to = inkcell_focus_find(map, (uint32_t)MESH_UI_FOCUS_DIALOG + here, dir);
+    if (to == INKCELL_FOCUS_NONE) {
+        /*
+         * Nothing that way. On a dialog that is the edge of the panel and the press goes spare,
+         * which is the right answer and not the old one: Left from the leading button used to
+         * land on the trailing one, so a reader holding Left saw the cursor shuttling between
+         * two answers rather than resting on the one they had reached.
+         */
+        return here;
+    }
+    if (to < (uint32_t)MESH_UI_FOCUS_DIALOG || to > (uint32_t)MESH_UI_FOCUS_DIALOG + 1U) {
+        /* Something else on the frame. A dialog is modal, so the cursor does not leave it. */
+        return here;
+    }
+    return (uint8_t)(to - (uint32_t)MESH_UI_FOCUS_DIALOG);
+}
+
 bool mesh_ui_nav_verify_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                             enum mesh_ui_key key, struct mesh_ui_action *action) {
     const uint8_t stage = store != NULL ? store->verification.stage : 0U;
@@ -2671,9 +2698,14 @@ bool mesh_ui_nav_verify_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
     case MESH_UI_KEY_UP:
     case MESH_UI_KEY_DOWN:
     case MESH_UI_KEY_LEFT:
-    case MESH_UI_KEY_RIGHT:
-        nav->verify_cursor = nav->verify_cursor == 0U ? 1U : 0U;
+    case MESH_UI_KEY_RIGHT: {
+        const uint8_t to = mesh_ui_nav_dialog_answer(store, key, nav->verify_cursor);
+        if (to == nav->verify_cursor) {
+            return false;
+        }
+        nav->verify_cursor = to;
         return true;
+    }
     case MESH_UI_KEY_A:
     case MESH_UI_KEY_START: {
         const bool comparing = stage == (uint8_t)MESH_UI_VERIFY_COMPARE;
