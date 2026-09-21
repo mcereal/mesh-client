@@ -89,7 +89,7 @@ enum mesh_ui_status_verb {
 struct mesh_ui_status_action {
     uint8_t card; /* enum mesh_ui_status_card - which card draws it */
     uint8_t verb; /* enum mesh_ui_status_verb - what nav.c raises for it */
-    enum inkcell_str_id label;
+    inkcell_str_id label;
 };
 
 /* Above what the table can produce, so reaching it means the screen has grown a verb rather

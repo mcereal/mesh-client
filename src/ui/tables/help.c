@@ -252,7 +252,7 @@ static const struct mesh_ui_help_entry k_help_node_chart[] = {
 struct help_feature {
     uint8_t screen; /* enum mesh_ui_screen */
     uint8_t level;  /* enum mesh_ui_route_level */
-    enum inkcell_str_id subject;
+    inkcell_str_id subject;
     const struct mesh_ui_help_entry *entries;
     uint32_t count;
 };
@@ -393,7 +393,7 @@ static uint32_t help_section_items(const struct mesh_ui_settings *settings,
 /* The note for one row, or INKCELL_STR_NONE. A row that is not a field - a heading, a read-only
    fact, an action - has no field to ask about and so has no note; the section's own paragraph
    is what covers those. */
-static enum inkcell_str_id help_item_note(const struct mesh_ui_settings_item *item) {
+static inkcell_str_id help_item_note(const struct mesh_ui_settings_item *item) {
     if (item->field == MESH_UI_FIELD_NONE) {
         return INKCELL_STR_NONE;
     }
@@ -441,7 +441,7 @@ bool mesh_ui_help_topic(const struct mesh_ui_settings *settings,
         const struct help_feature *feature = help_feature_for(&place);
         return feature != NULL && help_feature_topic(feature, out);
     }
-    const enum inkcell_str_id overview = mesh_ui_settings_section_note(section);
+    const inkcell_str_id overview = mesh_ui_settings_section_note(section);
     if (overview == INKCELL_STR_NONE) {
         /* Every section is supposed to have one, and a test says so - but a section that
            somehow does not is a screen with nothing to say, and offering the press for it would
@@ -458,7 +458,7 @@ bool mesh_ui_help_topic(const struct mesh_ui_settings *settings,
     struct mesh_ui_settings_item items[MESH_UI_SETTINGS_ITEMS_MAX];
     const uint32_t rows = help_section_items(settings, handshake, nav, section, items);
     for (uint32_t i = 0U; i < rows && out->count < MESH_UI_HELP_ENTRIES_MAX; ++i) {
-        const enum inkcell_str_id note = help_item_note(&items[i]);
+        const inkcell_str_id note = help_item_note(&items[i]);
         if (note == INKCELL_STR_NONE) {
             continue;
         }

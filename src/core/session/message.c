@@ -263,7 +263,7 @@ int mesh_message_encode_text(const struct mesh_message_text_request *request, ui
  * the *mapping* here and letting each caller pick the locale is what avoids a second table
  * that would drift out of step with this one.
  */
-static enum inkcell_str_id mesh_message_ack_error_id(uint8_t error) {
+static inkcell_str_id mesh_message_ack_error_id(uint8_t error) {
     switch ((meshtastic_Routing_Error)error) {
     case meshtastic_Routing_Error_NONE:
         return MESH_STR_ACK_DELIVERED;

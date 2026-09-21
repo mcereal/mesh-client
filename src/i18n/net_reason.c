@@ -1,6 +1,6 @@
 #include "mesh/i18n/net_reason.h"
 
-bool mesh_net_reason_str(enum inkwell_net_reason reason, enum inkcell_str_id *out) {
+bool mesh_net_reason_str(enum inkwell_net_reason reason, inkcell_str_id *out) {
     if (out == NULL) {
         return false;
     }

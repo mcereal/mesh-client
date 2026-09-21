@@ -380,12 +380,12 @@ MESH_TEST_CASE(ui_settings_labels_fit_the_row_in_every_language, unit) {
             continue;
         }
         for (int id = 0; id < (int)MESH_STR_COUNT; ++id) {
-            const char *name = inkcell_str_id_name((enum inkcell_str_id)id);
+            const char *name = inkcell_str_id_name((inkcell_str_id)id);
             if (name == NULL ||
                 (strncmp(name, "SETTINGS_FIELD_", 15) != 0 && strncmp(name, "HEAD_", 5) != 0)) {
                 continue;
             }
-            const char *text = inkcell_str_in(locale, (enum inkcell_str_id)id);
+            const char *text = inkcell_str_in(locale, (inkcell_str_id)id);
             if (text == NULL || strlen(text) < MESH_UI_SETTINGS_LABEL_MAX) {
                 continue;
             }

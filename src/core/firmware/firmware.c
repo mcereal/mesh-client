@@ -160,8 +160,7 @@ static void firmware_recompute_blocker(struct mesh_firmware *firmware) {
  * row is one line.
  */
 static void firmware_fetch_failed(struct mesh_firmware *firmware,
-                                  const struct inkwell_fetch_result *result,
-                                  enum inkcell_str_id what) {
+                                  const struct inkwell_fetch_result *result, inkcell_str_id what) {
     char message[MESH_FIRMWARE_MESSAGE_MAX];
     switch (result->outcome) {
     case INKWELL_FETCH_TIMED_OUT:

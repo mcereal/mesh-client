@@ -164,8 +164,7 @@ struct mesh_ble_transport_state {
 /* The transports' one user-facing surface: take_error() hands this straight to a toast. The
    parameter is a catalog id rather than a format string, which is what stops an English
    sentence being written here by accident - a literal will not compile. */
-static void mesh_ble_set_error(struct mesh_ble_transport_state *state, enum inkcell_str_id text,
-                               ...) {
+static void mesh_ble_set_error(struct mesh_ble_transport_state *state, inkcell_str_id text, ...) {
     if (state == NULL || state->last_error[0] != '\0') {
         return;
     }

@@ -43,7 +43,7 @@ struct mesh_ui_delivery {
      * bearing: they are JSON fields, where a value that changed with the handheld's locale
      * would be a bug rather than a translation.
      */
-    enum inkcell_str_id word;
+    inkcell_str_id word;
 };
 
 /*

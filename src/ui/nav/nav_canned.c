@@ -22,7 +22,7 @@
 /* Short, unambiguous, and what you actually want to say with no keyboard. Replaceable through
    mesh_ui_canned_load(), and translated: a canned reply is the one piece of text this client
    puts on the air, so it has to be in the language the sender speaks. */
-static const enum inkcell_str_id k_default_canned[] = {
+static const inkcell_str_id k_default_canned[] = {
     MESH_STR_CANNED_OK,        MESH_STR_CANNED_YES,           MESH_STR_CANNED_NO,
     MESH_STR_CANNED_ON_MY_WAY, MESH_STR_CANNED_WHERE_ARE_YOU, MESH_STR_CANNED_IM_HERE,
     MESH_STR_CANNED_CALL_ME,   MESH_STR_CANNED_NEED_HELP,     MESH_STR_CANNED_HEADING_BACK,

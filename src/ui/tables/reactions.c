@@ -15,7 +15,7 @@
  */
 static const struct {
     const char *emoji;
-    enum inkcell_str_id label;
+    inkcell_str_id label;
 } k_reactions[] = {
     {"\xF0\x9F\x91\x8D", MESH_STR_REACTION_THUMBS_UP},   /* U+1F44D thumbs up */
     {"\xF0\x9F\x91\x8E", MESH_STR_REACTION_THUMBS_DOWN}, /* U+1F44E thumbs down */
@@ -36,7 +36,7 @@ const char *mesh_ui_reaction_emoji(size_t index) {
     return k_reactions[index].emoji;
 }
 
-enum inkcell_str_id mesh_ui_reaction_label(size_t index) {
+inkcell_str_id mesh_ui_reaction_label(size_t index) {
     if (index >= INKWELL_ARRAY_LEN(k_reactions)) {
         return INKCELL_STR_NONE;
     }

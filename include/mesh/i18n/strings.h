@@ -46,11 +46,13 @@ extern "C" {
 /*
  * This client's ids, continuing inkcell's.
  *
- * **Anonymous, and `enum inkcell_str_id` is inkcell's own type.** There is one index space here -
- * an id *is* a table index into the one array mesh_i18n_register() hands over - and a second
- * enum type over it makes every one of the ~900 call sites an implicit conversion between two
- * enum types, which is 214 warnings under clang and a legitimate complaint: nothing says the
- * two agree. Declaring the ids as constants of inkcell's type says that they do.
+ * **Anonymous, and the type that carries one is inkcell's `inkcell_str_id`.** There is one
+ * index space here - an id *is* a table index into the one array mesh_i18n_register() hands
+ * over - and an enum type of this client's own over half of it would be a second opinion about
+ * that space at every one of the ~900 call sites: a conversion between two enumeration types,
+ * which nothing says agree, and which gcc says so about one -Wenum-conversion at a time.
+ * inkcell_str_id is an index and not an enumeration for the same reason, so naming no type here
+ * is what makes both halves the one thing they are.
  *
  * The base is an enumerator rather than an `= INKCELL_STR_COUNT` on the first entry, because
  * the first entry is whatever happens to be at the top of the catalog and a renumbering should

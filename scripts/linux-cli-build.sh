@@ -125,6 +125,12 @@ CMAKE_ARGS=(
     -DCMAKE_C_FLAGS="-Os -fno-omit-frame-pointer ${KERNEL_HEADERS} -I${MUSL_DBUS_PREFIX}/include/dbus-1.0 -I${MUSL_DBUS_PREFIX}/lib/dbus-1.0/include"
     -DPython3_EXECUTABLE="${SYSTEM_PYTHON}"
     -DBUILD_TESTING=OFF
+    # No window backend in a static binary. inkcell picks SDL2 up by presence, and `make setup`
+    # installs libsdl2-dev - so on a developer's own machine this build found the host's
+    # libSDL2.so and the static link died on it ("attempted static link of dynamic object"),
+    # while CI, which installs no SDL2 for this job, was green. The download is the headless
+    # half of the client; it has no window to open on the machine it lands on either.
+    -DINKCELL_WITH_SDL=OFF
     -DMESHCLIENT_RELEASE_BUILD=ON
     # The asset this binary is published as, and therefore the one it may replace itself with.
     # Without it the updater's default applies, which is the handheld's aarch64 binary: a

@@ -13,8 +13,8 @@ same treatment in a table beside `k_section_icons[]`. Two accessors return the *
 text, so a caller can ask *is there help here* without a `strlen`:
 
 ```c
-enum inkcell_str_id mesh_ui_settings_section_note(enum mesh_ui_settings_section section);
-enum inkcell_str_id mesh_ui_settings_field_note(enum mesh_ui_setting_field field);
+inkcell_str_id mesh_ui_settings_section_note(enum mesh_ui_settings_section section);
+inkcell_str_id mesh_ui_settings_field_note(enum mesh_ui_setting_field field);
 ```
 
 `src/ui/tables/help.c` answers one question — given where the nav is, what does the help screen say —

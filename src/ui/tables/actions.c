@@ -24,7 +24,7 @@
  * one place a reader can check against the nav that handles those presses.
  */
 static void bar_add(struct inkcell_action_bar *bar, enum inkcell_button button,
-                    enum inkcell_str_id label) {
+                    inkcell_str_id label) {
     if (bar->count >= INKCELL_ACTIONS_MAX) {
         return;
     }

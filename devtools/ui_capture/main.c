@@ -2790,7 +2790,7 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         }
         /* The refusal, which is a different answer from the state above it and is the half a
            picture of this screen is actually for. */
-        enum inkcell_str_id reason = INKCELL_STR_NONE;
+        inkcell_str_id reason = INKCELL_STR_NONE;
         if (why != NULL) {
             if (strcmp(why, "usb") == 0) {
                 reason = MESH_STR_FW_BLOCK_CONNECT_USB;

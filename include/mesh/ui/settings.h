@@ -1038,7 +1038,7 @@ const char *mesh_ui_settings_section_name(enum mesh_ui_settings_section section)
 /* The same name as a catalog id, for a caller that has to carry it rather than draw it - the
    help topic's subject, which is ids the whole way down so that a test can read one with no
    locale in force. INKCELL_STR_NONE for a section past the end. */
-enum inkcell_str_id mesh_ui_settings_section_label(enum mesh_ui_settings_section section);
+inkcell_str_id mesh_ui_settings_section_label(enum mesh_ui_settings_section section);
 
 /*
  * What a section is about, as an icon: the leading slot on a row that *opens* that section.
@@ -1062,7 +1062,7 @@ enum inkcell_icon mesh_ui_settings_section_icon(enum mesh_ui_settings_section se
  * idea of what an absent note looks like. Never INKCELL_STR_NONE for a real section - see the
  * table in settings.c for why that is a rule rather than an observation.
  */
-enum inkcell_str_id mesh_ui_settings_section_note(enum mesh_ui_settings_section section);
+inkcell_str_id mesh_ui_settings_section_note(enum mesh_ui_settings_section section);
 
 /* Whether this section's *items* carry a leading icon - true only of Modules, whose rows are
    sections. What lets a renderer declare the slot once for the list instead of testing a row. */
@@ -1095,7 +1095,7 @@ const char *mesh_ui_settings_field_label(enum mesh_ui_setting_field field);
 /* The same label as a catalog id, for a caller assembling a structure of ids rather than a row
    of text - the help topic is the one, and holding ids there is what lets a test read it with no
    locale in force. */
-enum inkcell_str_id mesh_ui_settings_field_label_id(enum mesh_ui_setting_field field);
+inkcell_str_id mesh_ui_settings_field_label_id(enum mesh_ui_setting_field field);
 enum mesh_ui_setting_kind mesh_ui_settings_field_kind(enum mesh_ui_setting_field field);
 enum mesh_ui_settings_section mesh_ui_settings_field_section(enum mesh_ui_setting_field field);
 /*
@@ -1103,7 +1103,7 @@ enum mesh_ui_settings_section mesh_ui_settings_field_section(enum mesh_ui_settin
  * whole explanation - which is most of them, on purpose. A note is for the row where knowing the
  * name does not tell you what happens if you get it wrong. See docs/help.md.
  */
-enum inkcell_str_id mesh_ui_settings_field_note(enum mesh_ui_setting_field field);
+inkcell_str_id mesh_ui_settings_field_note(enum mesh_ui_setting_field field);
 /*
  * FLAG fields: which bit of its group's word this row is, and 0 for every other kind.
  *
@@ -1356,7 +1356,7 @@ mesh_ui_settings_section_availability(const struct mesh_ui_settings *settings,
 
 /* The word a list row puts in its value column, and INKCELL_STR_NONE for a section that is ready
    (which draws as an empty column rather than as a word for "fine"). */
-enum inkcell_str_id mesh_ui_settings_availability_label(enum mesh_ui_settings_availability state);
+inkcell_str_id mesh_ui_settings_availability_label(enum mesh_ui_settings_availability state);
 
 /* Which bit of DeviceMetadata.excluded_modules stands for this section, and 0 for a section
    the mask has nothing to say about. Exported for the test that pins the table against the
@@ -1366,7 +1366,7 @@ uint32_t mesh_ui_settings_section_excluded_bit(enum mesh_ui_settings_section sec
 /* The line an empty section screen draws instead of its rows. A ready section answers with the
    waiting line rather than with nothing: the only way to reach this while ready is a channel
    slot that went away under an open screen, and "not sent by the radio yet" is what that is. */
-enum inkcell_str_id mesh_ui_settings_availability_reason(enum mesh_ui_settings_availability state);
+inkcell_str_id mesh_ui_settings_availability_reason(enum mesh_ui_settings_availability state);
 
 /*
  * Whether anything in this section can be stepped in place, and whether anything in it is a

@@ -111,9 +111,8 @@ struct inkcell_keyboard_layout mesh_ui_nav_kb_layout(const struct mesh_ui_nav *n
     return (struct inkcell_keyboard_layout){
         .emoji = k_kb_emoji,
         .pages = (uint8_t)MESH_UI_KB_EMOJI_PAGES,
-        .submit_label = mesh_ui_nav_kb_submit_finishes(nav)
-                            ? (enum inkcell_str_id)MESH_STR_KEY_DONE
-                            : (enum inkcell_str_id)MESH_STR_KEY_SEND,
+        .submit_label = mesh_ui_nav_kb_submit_finishes(nav) ? (inkcell_str_id)MESH_STR_KEY_DONE
+                                                            : (inkcell_str_id)MESH_STR_KEY_SEND,
         /* The cap the append is held to. The nav owns it because it is a fact about the job -
            six digits for a passkey, a field's own limit for a setting - and the counter the
            renderer draws asks the same function, so the promise and the typing cannot drift. */

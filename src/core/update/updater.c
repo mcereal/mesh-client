@@ -445,8 +445,7 @@ static bool updater_pak_file(const char *install_path, const char *relative, cha
  * the HTTP status, so the sentence is one string rather than a verb glued onto a template.
  */
 static void updater_fetch_failed(struct mesh_updater *updater,
-                                 const struct inkwell_fetch_result *result,
-                                 enum inkcell_str_id what) {
+                                 const struct inkwell_fetch_result *result, inkcell_str_id what) {
     char message[MESH_UPDATE_MESSAGE_MAX];
     switch (result->outcome) {
     case INKWELL_FETCH_TOO_LARGE:

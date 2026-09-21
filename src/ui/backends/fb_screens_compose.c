@@ -310,8 +310,6 @@ void fb_render_keyboard(const struct inkcell_draw_state *state,
             .badge_family = INKCELL_FAMILY_TERTIARY,
         });
 
-    const int scale = state->scale;
-    const int line = layout->line;
     int y = layout->body_y;
 
     /*

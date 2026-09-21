@@ -63,9 +63,9 @@ static const char *const k_id_names[MESH_STR_COUNT] = {
  * bad translation.
  */
 _Static_assert(sizeof k_english / sizeof k_english[0] == (size_t)MESH_STR_COUNT,
-               "the English table and enum inkcell_str_id disagree about how many ids there are");
+               "the English table and the catalog disagree about how many ids there are");
 _Static_assert(sizeof k_id_names / sizeof k_id_names[0] == (size_t)MESH_STR_COUNT,
-               "the id-name table and enum inkcell_str_id disagree about how many ids there are");
+               "the id-name table and the catalog disagree about how many ids there are");
 
 /* ---- locales ------------------------------------------------------------------------------- */
 

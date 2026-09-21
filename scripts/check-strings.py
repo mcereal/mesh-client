@@ -30,7 +30,7 @@ ROOT = Path(__file__).resolve().parent.parent
 #
 # The transports are deliberately absent for a different reason, and are not an exception: everything they say to a
 # person goes out through mesh_ble_set_error() / mesh_serial_set_error(), whose first parameter
-# is an `enum inkcell_str_id`. A string literal there does not compile, which is a stronger check
+# is an `inkcell_str_id`. A string literal there does not compile, which is a stronger check
 # than this one - and the rest of those files is D-Bus paths and BlueZ diagnostics, which this
 # script would only be able to tell apart from prose with a very long ALLOWED list.
 CHECKED = [

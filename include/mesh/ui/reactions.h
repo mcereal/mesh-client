@@ -27,7 +27,7 @@ size_t mesh_ui_reaction_count(void);
 const char *mesh_ui_reaction_emoji(size_t index);
 
 /* What that emoji means, as a catalog id. INKCELL_STR_NONE past the end. */
-enum inkcell_str_id mesh_ui_reaction_label(size_t index);
+inkcell_str_id mesh_ui_reaction_label(size_t index);
 
 #ifdef __cplusplus
 }

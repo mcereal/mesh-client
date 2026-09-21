@@ -133,8 +133,8 @@ enum mesh_ui_banner_kind {
 struct mesh_ui_banner {
     uint8_t kind; /* enum mesh_ui_banner_kind */
     enum inkcell_icon icon;
-    enum inkcell_str_id text;       /* the headline: what is true */
-    enum inkcell_str_id supporting; /* what to do about it; INKCELL_STR_NONE for nothing */
+    inkcell_str_id text;       /* the headline: what is true */
+    inkcell_str_id supporting; /* what to do about it; INKCELL_STR_NONE for nothing */
     /* Points into `snapshot`, so it lives exactly as long as the snapshot the call was made
        with - which is the frame being drawn. Never NULL; empty when there is nothing to show. */
     const char *detail;

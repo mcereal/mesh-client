@@ -1,5 +1,11 @@
 #define _POSIX_C_SOURCE 200809L
+/* _DEFAULT_SOURCE for the BSD names the HCI headers and the byte-order helpers below are
+   spelled with. Guarded because inkwell defines it for everything that links it, and a bare
+   #define with no replacement list is not the same definition as the -D on the command line -
+   which the compiler is right to say, since the two could have disagreed. */
+#ifndef _DEFAULT_SOURCE
 #define _DEFAULT_SOURCE
+#endif
 
 #include "mesh/transport/ble_hci.h"
 

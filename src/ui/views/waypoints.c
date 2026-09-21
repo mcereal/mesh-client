@@ -29,8 +29,8 @@
 /* The word for a compass point. The mapping is here rather than in geo/ for the reason the
    delivery marks' words are in the UI: geo answers with a direction, and what a direction is
    called is the reader's language. */
-static enum inkcell_str_id waypoint_compass_str(enum mesh_geo_compass point) {
-    static const enum inkcell_str_id k_points[MESH_GEO_COMPASS_COUNT] = {
+static inkcell_str_id waypoint_compass_str(enum mesh_geo_compass point) {
+    static const inkcell_str_id k_points[MESH_GEO_COMPASS_COUNT] = {
         MESH_STR_COMPASS_N, MESH_STR_COMPASS_NE, MESH_STR_COMPASS_E, MESH_STR_COMPASS_SE,
         MESH_STR_COMPASS_S, MESH_STR_COMPASS_SW, MESH_STR_COMPASS_W, MESH_STR_COMPASS_NW,
     };
@@ -307,7 +307,7 @@ static struct mesh_ui_waypoint_item *rows_next(struct waypoint_rows *rows) {
     return item;
 }
 
-static void rows_heading(struct waypoint_rows *rows, enum inkcell_str_id label) {
+static void rows_heading(struct waypoint_rows *rows, inkcell_str_id label) {
     struct mesh_ui_waypoint_item *item = rows_next(rows);
     if (item == NULL) {
         return;
@@ -316,7 +316,7 @@ static void rows_heading(struct waypoint_rows *rows, enum inkcell_str_id label) 
     inkwell_str_copy(item->label, sizeof item->label, inkcell_str(label));
 }
 
-static void rows_text(struct waypoint_rows *rows, enum inkcell_str_id label, const char *value) {
+static void rows_text(struct waypoint_rows *rows, inkcell_str_id label, const char *value) {
     struct mesh_ui_waypoint_item *item = rows_next(rows);
     if (item == NULL) {
         return;
@@ -335,7 +335,7 @@ static void rows_note(struct waypoint_rows *rows, const char *text) {
     inkwell_str_copy(item->value, sizeof item->value, text);
 }
 
-static void rows_action(struct waypoint_rows *rows, enum inkcell_str_id label, const char *value,
+static void rows_action(struct waypoint_rows *rows, inkcell_str_id label, const char *value,
                         enum mesh_ui_waypoint_action action) {
     struct mesh_ui_waypoint_item *item = rows_next(rows);
     if (item == NULL) {

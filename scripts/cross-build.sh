@@ -21,6 +21,10 @@ DBUS_CFLAGS="-I${CROSS_DBUS_PREFIX}/include/dbus-1.0 -I${CROSS_DBUS_PREFIX}/lib/
 # build whose reports have no backtrace in them, while every debug and test build produced a
 # full one. The PC alone still resolves to a line, so this buys the call chain rather than the
 # crash site; at well under one percent of the binary that is the right way round.
+# INKCELL_WITH_SDL=OFF because the Brick's UI is the framebuffer and this binary is static.
+# inkcell picks SDL2 up by presence, and the cross container happens to carry no aarch64 SDL2 -
+# but "happens to" is how a host copy ends up in a device build, and a static link against a
+# .so fails at the last step of a ten-minute build. Say it instead.
 # shellcheck source=scripts/cmake-tree.sh
 source "$(dirname "${BASH_SOURCE[0]}")/cmake-tree.sh"
 mesh_reset_stale_tree "$BUILD_DIR"
@@ -33,6 +37,7 @@ cmake -S . -B "$BUILD_DIR" -G Ninja \
     -DCMAKE_EXE_LINKER_FLAGS="-static -L${CROSS_DBUS_PREFIX}/lib" \
     -DCMAKE_C_FLAGS="-Os -fno-omit-frame-pointer ${CROSS_CFLAGS:-} ${DBUS_CFLAGS}" \
     -DPython3_EXECUTABLE="$(command -v python3)" \
+    -DINKCELL_WITH_SDL=OFF \
     "$@"
 cmake --build "$BUILD_DIR"
 
