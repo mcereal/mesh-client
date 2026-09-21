@@ -41,6 +41,11 @@
 #   input-map [-- args] Record every /dev/input/event* while you press buttons, then print what
 #                      each one reports. Args: -t SECS (record for a fixed time instead of
 #                      waiting for Enter), -k (keep the raw capture directory).
+#   ui-send -- CMDS    Send UI commands to a client started with `start -- --ui-control
+#                      /tmp/meshclient-ui.sock` and print the answers - `key down a; shot
+#                      /tmp/x.ppm`. See include/mesh/app/control.h; scripts/ui-drive.sh --brick
+#                      is the front end that also brings the shots back as PNGs.
+#   pull -- REMOTE LOCAL  Copy one file off the device.
 #   shell              Interactive shell on the device
 #   setup-key          Install ~/.ssh/id_*.pub into the device's authorized_keys (SSH only)
 #
@@ -86,6 +91,9 @@ BRICK_SSH_OPTS="${BRICK_SSH_OPTS:--o StrictHostKeyChecking=accept-new -o Connect
 BRICK_ADB="${BRICK_ADB:-adb}"
 BRICK_ADB_SERIAL="${BRICK_ADB_SERIAL:-}"
 PAK_NAME="MeshClient"
+# Where scripts/ui-drive.sh --brick asks the client to listen. /tmp is tmpfs on the Brick, so a
+# socket left by a client that was killed is gone after a reboot and replaced by the next one.
+BRICK_UI_CONTROL="${BRICK_UI_CONTROL:-/tmp/meshclient-ui.sock}"
 LOCAL_PAK="dist/${PAK_NAME}.pak"
 DRY_RUN=0
 
@@ -933,6 +941,27 @@ cmd_input_map() {
     return ${status}
 }
 
+# The device's own binary is the socket's other end: busybox's nc has no -U. Run with the
+# library path launch.sh gives it, and judged by what it prints, because adbd returns no exit
+# status - every answer is `<command>: ok...`, and anything else is a failure.
+cmd_ui_send() {
+    [[ ${#PASSTHRU[@]} -gt 0 ]] || die "ui-send: nothing to send (ui-send -- 'key down; shot /tmp/x.ppm')"
+    local commands="${PASSTHRU[*]}" out
+    local remote_cmd="cd $(sq "${REMOTE_PAK}") && LD_LIBRARY_PATH=/usr/trimui/lib:bin/${BRICK_PLATFORM}:bin/shared ./bin/shared/meshclient --ui-control $(sq "${BRICK_UI_CONTROL}") --ui-send $(sq "${commands}") 2>&1"
+    out="$(remote_exec "${remote_cmd}")"
+    [[ -n "${out}" ]] && printf '%s\n' "${out}"
+    [[ ${DRY_RUN} -eq 1 ]] && return 0
+    [[ -n "${out}" ]] || die "ui-send: no answer from ${BRICK_UI_CONTROL} - was the client started with --ui-control?"
+    ! grep -qv ': ok' <<<"${out}"
+}
+
+cmd_pull() {
+    [[ ${#PASSTHRU[@]} -eq 2 ]] || die "pull: pull -- REMOTE LOCAL"
+    local dest="${PASSTHRU[1]}"
+    [[ "${dest}" == /* ]] || dest="${INVOKE_DIR}/${dest}"
+    remote_pull_file "${PASSTHRU[0]}" "${dest}"
+}
+
 cmd_shell() {
     remote_tty
 }
@@ -965,6 +994,8 @@ case "${COMMAND}" in
     shot) cmd_shot ;;
     clip) cmd_clip ;;
     input-map) cmd_input_map ;;
+    ui-send) cmd_ui_send ;;
+    pull) cmd_pull ;;
     shell) cmd_shell ;;
     setup-key) cmd_setup_key ;;
     *) die "unknown command: ${COMMAND} (see --help)" ;;

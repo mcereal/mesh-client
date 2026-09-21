@@ -29,6 +29,12 @@ struct mesh_app_config {
      * honest.
      */
     char preferred_tcp_host[64];
+    /*
+     * Where the control socket listens - see include/mesh/app/control.h. Empty is off, which is
+     * the default everywhere including the pak: the socket presses keys, so it is opened only
+     * by someone who asked for it. 104 is the smaller of the two platforms' sun_path.
+     */
+    char ui_control_path[104];
 };
 
 struct mesh_app_config mesh_app_config_default(void);

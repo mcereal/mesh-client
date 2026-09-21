@@ -8,6 +8,7 @@ extern "C" {
 #endif
 
 struct inkcell_backend;
+struct inkcell_surface;
 struct mesh_ui_action;
 
 /* Invoked from mesh_ui_controller_handle_key() when a press asks for something outside the
@@ -73,6 +74,18 @@ void mesh_ui_controller_handle_key(struct mesh_ui_controller *controller, enum i
    window moving its tabs clear of the title-bar buttons after a resize. The store has nothing
    new to say, so this is the frame timer's path rather than the store's. */
 void mesh_ui_controller_request_frame(struct mesh_ui_controller *controller);
+
+/*
+ * Whether the panel has stopped moving: no frame armed, so the last one presented is the one that
+ * will stay up. What something taking a picture waits for - a slide caught halfway is not a
+ * picture of the screen it was going to.
+ */
+bool mesh_ui_controller_settled(const struct mesh_ui_controller *controller);
+
+/* The last frame presented, from the backend's `frame` hook. False with no frame yet, or with a
+   backend that draws no pixels. Good until the next present. */
+bool mesh_ui_controller_frame(const struct mesh_ui_controller *controller,
+                              struct inkcell_surface *out);
 
 #ifdef __cplusplus
 }

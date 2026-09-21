@@ -10,7 +10,7 @@ export BUILD_ROOT
 DOCKER := ./scripts/docker.sh
 
 .PHONY: help setup debug release relwithdebinfo build test package proto clean distclean run format fuzz \
-        ui-capture screenshots demo-pack linux-cli \
+        ui-capture ui-drive screenshots demo-pack linux-cli \
         ship ship-beta ship-rc \
         docker-image docker-cross-image docker-shell docker-debug docker-test docker-run docker-pak \
         docker-clean docker-ui-capture docker-screenshots docker-fuzz \
@@ -29,6 +29,7 @@ help:
 	@echo "  make proto          - Regenerate nanopb sources from proto/meshtastic"
 	@echo "  make format         - clang-format all tracked .c/.h files"
 	@echo "  make ui-capture     - Render a UI scene to a GIF without a device (ARGS=\"scene -o out.gif\")"
+	@echo "  make ui-drive       - Drive a running client by its keys and shoot it (ARGS=\"start|send '...'|stop\")"
 	@echo "  make screenshots    - Re-render the listing stills in .github/resources/screenshots"
 	@echo "  make demo-pack      - Draw a synthetic map pack into $(BUILD_ROOT)/demo.mctp"
 	@echo "  make fuzz           - Build and run the libFuzzer harnesses (ARGS=\"--time 600\" to hunt)"
@@ -102,6 +103,11 @@ run: debug
 # The companion to deploy-shot for a change that is about a transition; see docs/ui.md.
 ui-capture:
 	./scripts/ui-capture.sh $(ARGS)
+
+# The live client rather than a scene: start one with a control socket, press its keys, shoot it.
+# In a window, headless, or on the Brick with --brick. See scripts/ui-drive.sh.
+ui-drive:
+	./scripts/ui-drive.sh $(ARGS)
 
 # A tile pack of a place that does not exist, drawn on this machine.
 #

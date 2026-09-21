@@ -987,6 +987,13 @@ static void print_usage(const char *program) {
             "                            it. Percentiles go to the log on exit. Same knob as\n"
             "                            MESHCLIENT_LATENCY_TRACE, for a device whose launcher\n"
             "                            hands the pak no environment\n"
+            "      --ui-control PATH     Listen for UI commands on a Unix socket at PATH:\n"
+            "                            key presses, waits and screenshots, for driving the\n"
+            "                            client from a script. Same as MESHCLIENT_UI_CONTROL.\n"
+            "                            Off by default\n"
+            "      --ui-send COMMANDS    Send COMMANDS to a running client's --ui-control\n"
+            "                            socket and print the answers, then exit. Separate\n"
+            "                            them with ';': 'key down a; shot /tmp/x.ppm'\n"
             "  -V, --version              Print the client version and exit\n"
             "  -h, --help                 Show this help message\n",
             program);
@@ -1038,6 +1045,7 @@ int main(int argc, char **argv) {
     const char *fetch_firmware_staging = "/tmp";
     const char *install_firmware_target = NULL;
     const char *map_pack_path = NULL;
+    const char *ui_send_commands = NULL;
 
     static const struct option long_options[] = {
         {"foreground", no_argument, NULL, 'f'},
@@ -1062,6 +1070,8 @@ int main(int argc, char **argv) {
         {"install-firmware", required_argument, NULL, 11},
         {"map-pack", required_argument, NULL, 14},
         {"trace-latency", no_argument, NULL, 15},
+        {"ui-control", required_argument, NULL, 16},
+        {"ui-send", required_argument, NULL, 17},
         {"version", no_argument, NULL, 'V'},
         {"help", no_argument, NULL, 'h'},
         {0, 0, 0, 0},
@@ -1160,6 +1170,19 @@ int main(int argc, char **argv) {
         case 15:
             inkcell_latency_enable();
             break;
+        case 16:
+            /* Refused rather than cut short: a truncated path is a socket somewhere else, and
+               the two ends only meet if both were cut at the same byte. */
+            if (optarg == NULL || strlen(optarg) >= sizeof config.ui_control_path) {
+                fprintf(stderr, "--ui-control: path longer than %zu bytes\n",
+                        sizeof config.ui_control_path - 1U);
+                return EXIT_FAILURE;
+            }
+            inkwell_str_copy(config.ui_control_path, sizeof config.ui_control_path, optarg);
+            break;
+        case 17:
+            ui_send_commands = optarg;
+            break;
         case 'V':
             printf("meshclient %s\n", mesh_version_string());
             return EXIT_SUCCESS;
@@ -1178,6 +1201,22 @@ int main(int argc, char **argv) {
 
     if (status_output_path != NULL) {
         output_json = true;
+    }
+
+    /* Ahead of mesh_app_init() too: this is the other end of a client that is already running,
+       and starting a second one - with its own transports reaching for the same radio - is the
+       last thing it should do. */
+    if (ui_send_commands != NULL) {
+        if (config.ui_control_path[0] == '\0') {
+            fprintf(stderr, "--ui-send needs the socket: --ui-control PATH or "
+                            "MESHCLIENT_UI_CONTROL\n");
+            return EXIT_FAILURE;
+        }
+        const int sent = mesh_app_control_send(config.ui_control_path, ui_send_commands, stdout);
+        if (sent < 0 && sent != -EPROTO) {
+            fprintf(stderr, "%s: %s\n", config.ui_control_path, strerror(-sent));
+        }
+        return sent < 0 ? EXIT_FAILURE : EXIT_SUCCESS;
     }
 
     /* Ahead of mesh_app_init(), like --version: a pack is a file, and reading one needs no

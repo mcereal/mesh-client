@@ -832,27 +832,6 @@ static void uicap_hold(struct uicap *cap, unsigned extra_ms) {
 
 /* ---- the script -------------------------------------------------------------------------- */
 
-struct uicap_key_name {
-    const char *name;
-    enum inkcell_key key;
-};
-
-static enum inkcell_key uicap_key_from_name(const char *name) {
-    static const struct uicap_key_name names[] = {
-        {"up", INKCELL_KEY_UP},       {"down", INKCELL_KEY_DOWN},     {"left", INKCELL_KEY_LEFT},
-        {"right", INKCELL_KEY_RIGHT}, {"a", INKCELL_KEY_A},           {"b", INKCELL_KEY_B},
-        {"x", INKCELL_KEY_X},         {"y", INKCELL_KEY_Y},           {"l1", INKCELL_KEY_L1},
-        {"r1", INKCELL_KEY_R1},       {"l2", INKCELL_KEY_L2},         {"r2", INKCELL_KEY_R2},
-        {"start", INKCELL_KEY_START}, {"select", INKCELL_KEY_SELECT},
-    };
-    for (size_t i = 0U; i < sizeof names / sizeof names[0]; ++i) {
-        if (strcmp(names[i].name, name) == 0) {
-            return names[i].key;
-        }
-    }
-    return INKCELL_KEY_NONE;
-}
-
 /* The ids come from src/ui/nav/route.c rather than from a copy here: a scene file naming a tab and
    a crash report naming one are the same strings, and two tables stay in step only until a tab
    is added. Deliberately mesh_ui_screen_id() and not mesh_ui_screen_name() - the latter is
@@ -1321,7 +1300,7 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
             fprintf(stderr, "uicap: line %u: 'key' needs a button\n", line_number);
             exit(1);
         }
-        const enum inkcell_key key = uicap_key_from_name(name);
+        const enum inkcell_key key = inkcell_key_from_name(name);
         if (key == INKCELL_KEY_NONE) {
             fprintf(stderr, "uicap: line %u: no button called '%s'\n", line_number, name);
             exit(1);

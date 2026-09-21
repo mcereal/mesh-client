@@ -90,4 +90,13 @@ void mesh_app_config_apply_env_overrides(struct mesh_app_config *config) {
         inkwell_str_copy(config->preferred_tcp_host, sizeof config->preferred_tcp_host,
                          tcp_host_env);
     }
+
+    const char *ui_control_env = getenv("MESHCLIENT_UI_CONTROL");
+    if (ui_control_env != NULL && strlen(ui_control_env) >= sizeof config->ui_control_path) {
+        /* Not cut short: a truncated path is a socket somewhere nobody is looking. */
+        inkwell_log_warn("config", "MESHCLIENT_UI_CONTROL is longer than %zu bytes; ignored",
+                         sizeof config->ui_control_path - 1U);
+    } else if (ui_control_env != NULL) {
+        inkwell_str_copy(config->ui_control_path, sizeof config->ui_control_path, ui_control_env);
+    }
 }

@@ -315,6 +315,25 @@ static bool mesh_app_select_sdl(struct mesh_app *app, const struct inkcell_backe
     return true;
 }
 
+/*
+ * The device's frame, drawn into memory and shown to nobody - for a host with no panel and no
+ * display, where something drives the client through the control socket and looks at what it
+ * drew. Always opens. Reads no buttons of its own, so the evdev reader stays on where there is
+ * one.
+ */
+static void mesh_app_select_headless(struct mesh_app *app, const struct inkcell_backend **backend,
+                                     void **userdata) {
+    if (backend != NULL) {
+        *backend = inkcell_backend_headless();
+    }
+    if (userdata != NULL) {
+        app->ui_headless_context = (struct inkcell_backend_headless_context){
+            .app = fb_app_vtable(),
+        };
+        *userdata = &app->ui_headless_context;
+    }
+}
+
 static bool mesh_app_select_fb(struct mesh_app *app, const struct inkcell_backend **backend,
                                void **userdata) {
     if (!inkcell_backend_fb_is_available()) {
@@ -349,9 +368,9 @@ static const struct inkcell_backend *mesh_app_select_backend(struct mesh_app *ap
 
     app->ui_backend_reads_input = false;
 
-    /* "cli", "stub" and "sdl" are asked for explicitly; everything else - including no request
-       at all - resolves to the framebuffer, which is what the pak runs, and falls back to the
-       CLI backend only where there is no /dev/fb0 to draw on (a container, or a dev host).
+    /* "cli", "stub", "headless" and "sdl" are asked for explicitly; everything else - including no
+       request at all - resolves to the framebuffer, which is what the pak runs, and falls back to
+       the CLI backend only where there is no /dev/fb0 to draw on (a container, or a dev host).
        "sdl" is not in the fallback chain on purpose: a window is a thing somebody asks for, and
        a client that silently opened one because the panel was missing would be a surprise on
        any host with a display. */
@@ -359,6 +378,8 @@ static const struct inkcell_backend *mesh_app_select_backend(struct mesh_app *ap
         mesh_app_select_cli(app, &backend, &backend_userdata);
     } else if (requested != NULL && strcasecmp(requested, "stub") == 0) {
         mesh_app_select_stub(&backend, &backend_userdata);
+    } else if (requested != NULL && strcasecmp(requested, "headless") == 0) {
+        mesh_app_select_headless(app, &backend, &backend_userdata);
     } else if (requested != NULL && strcasecmp(requested, "sdl") == 0) {
         if (!mesh_app_select_sdl(app, &backend, &backend_userdata)) {
             inkwell_log_warn("ui", "No SDL window backend in this build or on this host; "
@@ -1162,6 +1183,8 @@ void mesh_app_shutdown(struct mesh_app *app) {
     mesh_updater_shutdown(&app->updater);
     mesh_firmware_shutdown(&app->firmware);
     mesh_firmware_update_shutdown(&app->firmware_update);
+    /* Before the controller it presses keys on. */
+    mesh_app_control_close(&app->control);
     mesh_ui_controller_shutdown(&app->ui_controller);
     mesh_app_close_ui_cache_timer(app);
     if (app->ui_handshake_cache_path[0] != '\0') {
@@ -1248,6 +1271,14 @@ int mesh_app_run(struct mesh_app *app) {
     if (!app->ui_backend_reads_input) {
         inkcell_input_init(&app->ui_input, &ui_input_host);
         inkcell_input_set_handler(&app->ui_input, mesh_app_on_ui_key, app);
+    }
+    if (app->config.ui_control_path[0] != '\0') {
+        const int opened = mesh_app_control_open(&app->control, &app->loop, &app->ui_controller,
+                                                 app->config.ui_control_path);
+        if (opened < 0) {
+            inkwell_log_warn("app", "UI control socket at %s did not open: %s",
+                             app->config.ui_control_path, strerror(-opened));
+        }
     }
 
     mesh_app_publish_ui_state(app);

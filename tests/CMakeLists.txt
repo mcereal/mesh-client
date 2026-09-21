@@ -26,6 +26,7 @@ set(MESHCLIENT_TEST_SUPPORT
 )
 
 set(MESHCLIENT_TEST_SUITES
+    suites/app_control.c
     suites/app.c
     suites/ble_ota.c
     suites/ca_roots.c
