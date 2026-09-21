@@ -158,6 +158,19 @@ int mesh_fetch_init(struct mesh_fetch *fetch, struct inkwell_loop *loop);
 /* Abandons anything in flight without reporting it, and releases everything held. */
 void mesh_fetch_shutdown(struct mesh_fetch *fetch);
 
+/*
+ * What a request calls itself: the product token sent as `User-Agent` on every hop of every
+ * request that does not carry one of its own - "meshclient/1.4.2". Copied, so a caller may build
+ * it on the stack. Set once at startup, from wherever this process knows its own name; process
+ * wide rather than per fetcher, because a product does not change its name between downloads.
+ *
+ * There is a generic default rather than none. A request with no `User-Agent` at all is refused
+ * outright by some servers - GitHub's API is one - and forgetting to set this should cost a vague
+ * line in somebody else's log, not a download that fails for a reason nothing here would say.
+ * NULL or "" puts the default back.
+ */
+void mesh_fetch_set_user_agent(const char *product);
+
 /* True when this build has TLS and there is a loop to run a request on. */
 bool mesh_fetch_available(const struct mesh_fetch *fetch);
 /* True while a request is running. A second is refused with -EBUSY. */

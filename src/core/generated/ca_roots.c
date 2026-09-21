@@ -8087,7 +8087,7 @@ static const unsigned char k_der[] = {
     0x08, 0x8F, 0x37, 0x77, 0x6D, 0xC4, 0xAF,
 };
 
-const struct mesh_ca_root mesh_ca_roots[] = {
+const struct mesh_tls_ca_root mesh_ca_roots[] = {
     {"COMODO ECC Certification Authority", k_der + 0, 653},
     {"NetLock Arany (Class Gold) Főtanúsítvány", k_der + 653, 1049},
     {"Microsec e-Szigno Root CA 2009", k_der + 1702, 1038},

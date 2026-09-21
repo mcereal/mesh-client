@@ -334,6 +334,12 @@ does not ship through self-update, so an install updated in place would keep its
 until a rotation on the far end broke the connection. The roots are parsed once, on the first TLS
 connection, and shared by every session after it.
 
+**Which roots is not the TLS client's decision.** `src/app/app.c` calls `mesh_tls_set_roots()` once
+at startup with the table from `ca_roots.h`, and `tls_client.c` checks against whatever it was
+handed - it has no built-in set of its own and no fallback, so a process that registered nothing
+refuses to open a session rather than opening an unchecked one. Compiling the roots in is a
+decision about how this product ships; verifying against them is not.
+
 `SSL_CERT_FILE` names a bundle to use *instead* — for a broker behind a private CA. A path that
 is set and unusable fails naming the path rather than falling back
 (`mqtt_proxy_names_a_missing_bundle`).

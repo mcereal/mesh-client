@@ -82,7 +82,7 @@ def render(roots, as_of):
         out.append("    " + " ".join(f"0x{b:02X}," for b in blob[at : at + 16]))
     out.append("};")
     out.append("")
-    out.append("const struct mesh_ca_root mesh_ca_roots[] = {")
+    out.append("const struct mesh_tls_ca_root mesh_ca_roots[] = {")
     offset = 0
     for label, der in roots:
         out.append(f"    {{{c_string(label)}, k_der + {offset}, {len(der)}}},")

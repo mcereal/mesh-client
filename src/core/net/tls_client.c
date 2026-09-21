@@ -5,8 +5,6 @@
 #include "inkwell/base/log.h"
 #include "inkwell/base/text.h"
 
-#include "mesh/core/ca_roots.h"
-
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -29,6 +27,13 @@ const char *mesh_tls_ca_override(void) {
  */
 
 bool mesh_tls_available(void) { return false; }
+
+void mesh_tls_set_roots(const struct mesh_tls_ca_root *roots, size_t count) {
+    /* Kept rather than refused: the composition root registers what it trusts without asking
+       whether this build can use it, exactly as it would with TLS present. */
+    (void)roots;
+    (void)count;
+}
 
 int mesh_tls_client_start(struct mesh_tls_client *tls, int fd, const char *hostname,
                           const char *ca_bundle) {
@@ -128,28 +133,52 @@ struct mesh_tls_state {
 static bool tls_psa_ready = false;
 
 /*
- * The compiled-in roots, parsed once and kept for the life of the process.
+ * The registered roots, parsed once and kept for the life of the process.
  *
- * Parsed on the first connection that needs them rather than at startup, so a client that never
- * speaks TLS never pays for them. Once, rather than per session, because the chain is read-only
- * once built - Mbed TLS only ever walks it - and 121 roots are a noticeable parse to repeat on
- * every reconnect of a broker that keeps dropping. Never freed: it lives exactly as long as
- * anything that could want it, and a static holding it is reachable, not leaked.
+ * The table itself is the caller's - see mesh_tls_set_roots(). What is here is the parse of it,
+ * done on the first connection that needs them rather than at registration, so a client that
+ * never speaks TLS never pays for them. Once, rather than per session, because the chain is
+ * read-only once built - Mbed TLS only ever walks it - and a hundred-odd roots are a noticeable
+ * parse to repeat on every reconnect of a peer that keeps dropping.
  *
- * `_nocopy`, so each certificate points into the table in .rodata instead of duplicating it on
- * the heap; the table is static for the same lifetime, which is the whole of that API's contract.
+ * `_nocopy`, so each certificate points into the caller's table instead of duplicating it on the
+ * heap. That is why the table has to outlive the process rather than the call, and why the
+ * header says so.
  */
+static const struct mesh_tls_ca_root *tls_ca_roots = NULL;
+static size_t tls_ca_root_count = 0U;
 static mbedtls_x509_crt tls_roots;
 static bool tls_roots_ready = false;
+
+void mesh_tls_set_roots(const struct mesh_tls_ca_root *roots, size_t count) {
+    if (tls_roots_ready) {
+        /* A second registration replaces the first, so the chain parsed out of the old table -
+           which points into it - must go with it. */
+        mbedtls_x509_crt_free(&tls_roots);
+        tls_roots_ready = false;
+    }
+    tls_ca_roots = count > 0U ? roots : NULL;
+    tls_ca_root_count = roots != NULL ? count : 0U;
+}
 
 static bool tls_load_roots(struct mesh_tls_client *tls) {
     if (tls_roots_ready) {
         return true;
     }
+    if (tls_ca_roots == NULL || tls_ca_root_count == 0U) {
+        /*
+         * Nobody said what this process trusts, and there is no set to fall back on: inventing
+         * one here is the same mistake as an insecure mode, made quietly. Failing the connection
+         * sends whoever is debugging it to the startup that forgot to register, which is where
+         * the answer is.
+         */
+        inkwell_str_copy(tls->error, sizeof tls->error, "no trust anchors registered");
+        return false;
+    }
     mbedtls_x509_crt_init(&tls_roots);
-    for (size_t i = 0U; i < mesh_ca_root_count; ++i) {
-        const int rc = mbedtls_x509_crt_parse_der_nocopy(&tls_roots, mesh_ca_roots[i].der,
-                                                         mesh_ca_roots[i].len);
+    for (size_t i = 0U; i < tls_ca_root_count; ++i) {
+        const int rc =
+            mbedtls_x509_crt_parse_der_nocopy(&tls_roots, tls_ca_roots[i].der, tls_ca_roots[i].len);
         if (rc != 0) {
             /*
              * All or nothing, and nothing is not remembered. Every root parses in this build -
@@ -160,13 +189,13 @@ static bool tls_load_roots(struct mesh_tls_client *tls) {
              */
             char detail[64];
             mbedtls_strerror(rc, detail, sizeof detail);
-            (void)snprintf(tls->error, sizeof tls->error, "could not load built-in root %.48s: %s",
-                           mesh_ca_roots[i].name, detail);
+            (void)snprintf(tls->error, sizeof tls->error, "could not load root %.48s: %s",
+                           tls_ca_roots[i].name, detail);
             mbedtls_x509_crt_free(&tls_roots);
             return false;
         }
     }
-    inkwell_log_debug("tls", "%zu built-in roots loaded", mesh_ca_root_count);
+    inkwell_log_debug("tls", "%zu roots loaded", tls_ca_root_count);
     tls_roots_ready = true;
     return true;
 }
@@ -307,8 +336,9 @@ int mesh_tls_client_start(struct mesh_tls_client *tls, int fd, const char *hostn
     }
 
     /*
-     * Which roots the peer is checked against. There is always an answer - the compiled-in set -
-     * so there is no state in which a session starts without one and verification quietly stops.
+     * Which roots the peer is checked against: the registered set, or the bundle file this call
+     * named. Never neither - a session with nothing to check against does not start, so there is
+     * no state in which one runs with verification quietly switched off.
      */
     mbedtls_x509_crt *roots = &tls_roots;
     int rc = 0;
@@ -319,10 +349,10 @@ int mesh_tls_client_start(struct mesh_tls_client *tls, int fd, const char *hostn
         }
     } else {
         /*
-         * A named file replaces the built-in roots rather than adding to them: whoever named it
+         * A named file replaces the registered roots rather than adding to them: whoever named it
          * wants a private CA honoured, and very likely only that one. And a file that is missing
          * or empty is a failure that names it, not a quiet fall back to the built-in set - a
-         * broker behind a private CA would otherwise fail with "certificate not trusted" and
+         * peer behind a private CA would otherwise fail with "certificate not trusted" and
          * send whoever is debugging it after the broker rather than the path.
          *
          * A positive return is the count of certificates that failed to parse while others

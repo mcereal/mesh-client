@@ -17,6 +17,8 @@
 #include "app_internal.h"
 
 #include "inkwell/runtime/crash.h"
+#include "mesh/core/ca_roots.h"
+#include "mesh/core/fetch.h"
 #include "mesh/core/version.h"
 #include "mesh/i18n/strings.h"
 #include "mesh/transport/ble.h"
@@ -724,15 +726,25 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
     app->config = initial_config;
 
     /*
-     * Before anything reads a knob or asks for a word.
+     * Before anything reads a knob, asks for a word, or opens a connection.
      *
      * inkcell reads its environment under a prefix the application sets, so the toolkit's knobs
      * and this client's are one namespace - MESHCLIENT_THEME and MESHCLIENT_AUTOCONNECT rather
      * than one of each. The catalog is the same shape of statement: inkcell's fifteen ids and
      * this client's nine hundred are one table, registered once.
+     *
+     * The last two are the same statement again, made downwards. Which roots a connection is
+     * verified against and what a request calls itself are decisions about this product, and the
+     * layers that use them have no way to make one: the TLS client knows how to check a chain but
+     * not whose, and the fetcher knows how to make a request but not on whose behalf. Both are
+     * answered here, once, and neither has a default that would let a build forget.
      */
     inkwell_env_set_prefix("MESHCLIENT");
     mesh_i18n_register();
+    mesh_tls_set_roots(mesh_ca_roots, mesh_ca_root_count);
+    char user_agent[64];
+    (void)snprintf(user_agent, sizeof user_agent, "meshclient/%s", mesh_version_string());
+    mesh_fetch_set_user_agent(user_agent);
 
     int result = inkwell_loop_init(&app->loop);
     if (result < 0) {

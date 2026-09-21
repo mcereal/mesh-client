@@ -8,7 +8,6 @@
 #include "inkwell/codec/http.h"
 #include "inkwell/runtime/loop.h"
 #include "mesh/core/tls_client.h"
-#include "mesh/core/version.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -56,6 +55,22 @@ enum fetch_phase {
     FETCH_SENDING,
     FETCH_RECEIVING,
 };
+
+/*
+ * What a request says it is, until the application says otherwise.
+ *
+ * Deliberately not a product name: nothing here has one, and inventing one would be this layer
+ * claiming to know what it is embedded in. What it is for is the server that refuses a request
+ * carrying no `User-Agent` at all - see mesh_fetch_set_user_agent().
+ */
+#define FETCH_DEFAULT_USER_AGENT "inkwell-fetch/1"
+
+static char fetch_user_agent[96] = FETCH_DEFAULT_USER_AGENT;
+
+void mesh_fetch_set_user_agent(const char *product) {
+    inkwell_str_copy(fetch_user_agent, sizeof fetch_user_agent,
+                     (product != NULL && product[0] != '\0') ? product : FETCH_DEFAULT_USER_AGENT);
+}
 
 struct mesh_fetch_conn {
     /* ---- the request, copied: a caller's strings need not outlive start() */
@@ -739,8 +754,8 @@ int mesh_fetch_start(struct mesh_fetch *fetch, const struct mesh_fetch_request *
         conn->header_count++;
     }
     if (!agent) {
-        snprintf(conn->headers[conn->header_count++], MESH_FETCH_HEADER_MAX,
-                 "User-Agent: meshclient/%s", mesh_version_string());
+        snprintf(conn->headers[conn->header_count++], MESH_FETCH_HEADER_MAX, "User-Agent: %s",
+                 fetch_user_agent);
     }
     if (request->output_path != NULL &&
         !inkwell_str_copy(conn->output_path, sizeof conn->output_path, request->output_path)) {
