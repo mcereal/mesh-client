@@ -554,6 +554,10 @@ int mesh_serial_port_open(const char *path) {
      * VMIN=1, not 0. With VMIN=0 a tty read() returns 0 as soon as the buffer is empty, which is
      * indistinguishable from the EOF an unplugged node gives; with VMIN=1 an empty buffer on an
      * O_NONBLOCK fd is a proper EAGAIN and 0 means the port really went away.
+     *
+     * Something downstream depends on this now: inkwell's stream turns a zero-length read into
+     * -ENOTCONN, and says so by `enum inkwell_stream_kind` in inkwell/net/stream.h. With VMIN=0
+     * this link would drop itself the first time the radio went quiet.
      */
     tio.c_cc[VMIN] = 1;
     tio.c_cc[VTIME] = 0;
