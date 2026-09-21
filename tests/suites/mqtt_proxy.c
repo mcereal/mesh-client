@@ -648,11 +648,42 @@ MESH_TEST_CASE(mqtt_failure_text_matches_the_reason, unit) {
         }
     }
 
-    /* Nothing recorded says nothing at all. */
+    /*
+     * And what the *log* is told, which is a different question with the same trap in it.
+     *
+     * The record has two halves and exactly one is set, so a log line that reads `net.reason`
+     * on a refusal prints "ok" - a real name for a real value, which is the most convincing
+     * kind of wrong: a broker that rejected the password writing `Broker x: ok` into the one
+     * place somebody debugging it will look. This is the case that would have caught it.
+     */
+    for (int refusal = 1; refusal < (int)MESH_MQTT_REFUSAL_COUNT; ++refusal) {
+        memset(&probe.failure, 0, sizeof probe.failure);
+        probe.failure.refusal = (enum mesh_mqtt_refusal)refusal;
+        const char *const name = mesh_mqtt_failure_name(&probe.failure);
+        if (strcmp(name, "ok") == 0 || strcmp(name, "none") == 0) {
+            record_failure(test_name, "a refusal must not log as a success");
+            goto done;
+        }
+    }
+    for (int reason = 1; reason < (int)INKWELL_NET_REASON_COUNT; ++reason) {
+        memset(&probe.failure, 0, sizeof probe.failure);
+        probe.failure.net.reason = (enum inkwell_net_reason)reason;
+        const char *const name = mesh_mqtt_failure_name(&probe.failure);
+        if (strcmp(name, "ok") == 0 || strcmp(name, "none") == 0) {
+            record_failure(test_name, "a network failure must not log as a success");
+            goto done;
+        }
+    }
+
+    /* Nothing recorded says nothing at all, in either direction. */
     memset(&probe.failure, 0, sizeof probe.failure);
     mesh_ui_mqtt_failure_text(&probe, text, sizeof text);
     if (text[0] != '\0') {
         record_failure(test_name, "a proxy that has not failed should say nothing");
+        goto done;
+    }
+    if (strcmp(mesh_mqtt_failure_name(&probe.failure), "none") != 0) {
+        record_failure(test_name, "and should name nothing in the log either");
         goto done;
     }
     record_success(test_name);

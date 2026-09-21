@@ -65,8 +65,8 @@ static bool mqtt_has_failure(const struct mesh_mqtt_proxy *proxy) {
            proxy->failure.refusal != MESH_MQTT_REFUSAL_NONE;
 }
 
-/* A short ASCII name for a refusal, for the log line below and for nothing else. The same kind
-   of thing as inkwell_net_reason_name(), and not fit for a screen for the same reason. */
+/* A short ASCII name for a refusal, for a log line and for nothing else. The same kind of thing
+   as inkwell_net_reason_name(), and not fit for a screen for the same reason. */
 static const char *mqtt_refusal_name(enum mesh_mqtt_refusal refusal) {
     switch (refusal) {
     case MESH_MQTT_REFUSAL_BAD_ADDRESS:
@@ -1177,6 +1177,21 @@ struct mesh_mqtt_proxy_stats mesh_mqtt_proxy_stats(const struct mesh_mqtt_proxy 
     struct mesh_mqtt_proxy_stats empty;
     memset(&empty, 0, sizeof empty);
     return proxy != NULL ? proxy->stats : empty;
+}
+
+const char *mesh_mqtt_failure_name(const struct mesh_mqtt_proxy_failure *failure) {
+    if (failure == NULL) {
+        return "none";
+    }
+    /* The refusal half first: it is the one that is set when `net.reason` is still
+       INKWELL_NET_OK, and "ok" is not something a failed attempt should ever log. */
+    if (failure->refusal != MESH_MQTT_REFUSAL_NONE) {
+        return mqtt_refusal_name(failure->refusal);
+    }
+    if (failure->net.reason == INKWELL_NET_OK) {
+        return "none";
+    }
+    return inkwell_net_reason_name(failure->net.reason);
 }
 
 struct mesh_mqtt_proxy_failure mesh_mqtt_proxy_failure(const struct mesh_mqtt_proxy *proxy) {

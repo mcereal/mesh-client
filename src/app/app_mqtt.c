@@ -272,7 +272,7 @@ static void app_mqtt_state_changed(void *userdata, enum mesh_mqtt_proxy_state st
          */
         const struct mesh_mqtt_proxy_failure failure = mesh_mqtt_proxy_failure(&app->mqtt);
         inkwell_log_warn("mqtt", "Broker %s: %s", mesh_mqtt_proxy_host(&app->mqtt),
-                         inkwell_net_reason_name(failure.net.reason));
+                         mesh_mqtt_failure_name(&failure));
     }
 }
 

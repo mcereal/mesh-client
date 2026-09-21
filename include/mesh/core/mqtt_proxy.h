@@ -399,6 +399,20 @@ struct mesh_mqtt_proxy_failure mesh_mqtt_proxy_failure(const struct mesh_mqtt_pr
  * it - Mbed TLS's message is the only description of that failure there is.
  */
 const char *mesh_mqtt_proxy_tls_error(const struct mesh_mqtt_proxy *proxy);
+/*
+ * A failure's reason as a short ASCII name - "unreachable", "bad-login" - for a log line.
+ * Never NULL, and "none" when nothing has failed.
+ *
+ * One call rather than two, because the record has two halves and exactly one is set: reading
+ * `net.reason` on a refusal gives "ok", which is both wrong and the most convincing kind of
+ * wrong, since it is a real name for a real value. Whoever writes a log line should not have to
+ * remember which half to look at.
+ *
+ * Not the exception to this file dealing in no words: inkwell's log is deliberately
+ * untranslated, and these are symbol names in the same class as strerror() output. Nothing here
+ * is fit to put on a screen - that is mesh_ui_mqtt_failure_text().
+ */
+const char *mesh_mqtt_failure_name(const struct mesh_mqtt_proxy_failure *failure);
 /* The broker being talked to, for a status row. Never NULL; "" before a start. */
 const char *mesh_mqtt_proxy_host(const struct mesh_mqtt_proxy *proxy);
 /* The address as it was configured, which is what a bad one has to be shown as: it never
