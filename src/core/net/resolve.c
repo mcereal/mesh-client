@@ -1,3 +1,11 @@
+/*
+ * _GNU_SOURCE as well as _POSIX_C_SOURCE, the way src/core/net/mqtt_proxy.c asks for both:
+ * EAI_NODATA is a GNU extension, and <netdb.h> hides it under strict POSIX. Without it the
+ * `#ifdef EAI_NODATA` arm of resolve_outcome_of() below is compiled out, and a name that exists
+ * with no address of its own is reported as a resolver that did not work - the opposite of what
+ * that function is for.
+ */
+#define _GNU_SOURCE
 #define _POSIX_C_SOURCE 200809L
 
 #include "mesh/core/resolve.h"
@@ -222,6 +230,7 @@ static enum mesh_resolve_outcome resolve_outcome_of(const struct resolve_record 
         return MESH_RESOLVE_NOT_FOUND;
     }
 #ifdef EAI_NODATA
+    /* Kept guarded: musl drops EAI_NODATA from some configurations, and it is obsolete in POSIX. */
     if (record->error == EAI_NODATA) {
         return MESH_RESOLVE_NOT_FOUND;
     }
