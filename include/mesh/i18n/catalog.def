@@ -2533,17 +2533,38 @@ MESH_STR_ENTRY(LINK_USB_NO_ANSWER,        "%.24s: the radio did not answer")
    what is on the other end speaks no protobuf. Names the way out, because a single press of
    reset is the whole of it. */
 MESH_STR_ENTRY(LINK_USB_BOOTLOADER,       "%.20s is in its bootloader; press reset to run it")
-/* Network. "%s" here is an address and a port as the user wrote them, not a node name: nothing
-   has been heard from the far end yet at the point most of these are said. An IP address is not
-   translated, and neither is the C library's own word for an errno. */
+/*
+ * Getting to a host, shared by every link that does it: the TCP transport and the MQTT proxy
+ * today, and whatever reaches a network next.
+ *
+ * One entry per `enum inkwell_net_reason` that all of them mean the same thing by, which is
+ * what src/i18n/net_reason.c turns a reason into. These were two sets until the reason had
+ * somewhere to live - "no such host" was written out under LINK_TCP_ and again under
+ * LINK_MQTT_, and translated twice in every language, because the only thing a transport could
+ * hand back was a string id and an id belongs to one caller.
+ *
+ * "%s" here is an address and a port as the user wrote them, not a node name: nothing has been
+ * heard from the far end yet at the point most of these are said. An IP address is not
+ * translated, and neither is the C library's own word for an errno.
+ */
+/* A name that resolved to nothing: a typo, or a host that is not on this network. */
+MESH_STR_ENTRY(LINK_UNKNOWN_HOST,         "%.24s: no such host")
+/* And the other half - the lookup itself did not work, which says nothing about the name. One
+   sentence for both of inkwell's lookup reasons: a resolver that failed and one that ran out of
+   time are two things to inkwell and one thing to read, and collapsing them is this table's
+   decision to make rather than the layer's. */
+MESH_STR_ENTRY(LINK_LOOKUP_FAILED,        "%.24s: could not look up the name")
+MESH_STR_ENTRY(LINK_UNREACHABLE,          "%.24s: %.20s")
+MESH_STR_ENTRY(LINK_TIMEOUT,              "%.32s did not answer")
+MESH_STR_ENTRY(LINK_CLOSED,               "%.32s closed the connection")
+/* The second slot is the TLS library's own sentence for what went wrong with the certificate or
+   the handshake. Untranslated, in the same category as the C library's word for an errno. */
+MESH_STR_ENTRY(LINK_TLS,                  "%.24s: %.64s")
+
+/* The rest of the network link's, which are its own: a policy, a target only it knows the shape
+   of, and a radio that did not finish the handshake once the socket was up. */
 MESH_STR_ENTRY(LINK_TCP_DISABLED,         "Network links are disabled")
 MESH_STR_ENTRY(LINK_TCP_BAD_TARGET,       "%.32s is not an address and port")
-/* A name that resolved to nothing: a typo, or a host that is not on this network. */
-MESH_STR_ENTRY(LINK_TCP_UNKNOWN_HOST,     "%.24s: no such host")
-/* And the other half - the lookup itself did not work, which says nothing about the name. */
-MESH_STR_ENTRY(LINK_TCP_LOOKUP_FAILED,    "%.24s: could not look up the name")
-MESH_STR_ENTRY(LINK_TCP_UNREACHABLE,      "%.24s: %.20s")
-MESH_STR_ENTRY(LINK_TCP_TIMEOUT,          "%.32s did not answer")
 MESH_STR_ENTRY(LINK_TCP_NO_ANSWER,        "%.24s: the radio did not answer")
 
 /*
@@ -2557,19 +2578,11 @@ MESH_STR_ENTRY(LINK_TCP_NO_ANSWER,        "%.24s: the radio did not answer")
  * permitted is an account, and a broker that is unavailable is somebody else's outage.
  */
 MESH_STR_ENTRY(LINK_MQTT_BAD_ADDRESS,     "%.32s is not a broker address")
-MESH_STR_ENTRY(LINK_MQTT_UNKNOWN_HOST,    "%.24s: no such host")
-MESH_STR_ENTRY(LINK_MQTT_LOOKUP_FAILED,   "%.24s: could not look up the name")
-MESH_STR_ENTRY(LINK_MQTT_UNREACHABLE,     "%.24s: %.20s")
-MESH_STR_ENTRY(LINK_MQTT_TIMEOUT,         "%.32s did not answer")
-MESH_STR_ENTRY(LINK_MQTT_DROPPED,         "%.32s closed the connection")
 MESH_STR_ENTRY(LINK_MQTT_PROTOCOL,        "%.32s is not speaking MQTT")
 MESH_STR_ENTRY(LINK_MQTT_BAD_LOGIN,       "%.32s rejected the username or password")
 MESH_STR_ENTRY(LINK_MQTT_NOT_ALLOWED,     "%.32s did not allow this client")
 MESH_STR_ENTRY(LINK_MQTT_BROKER_BUSY,     "%.32s is not accepting connections")
 MESH_STR_ENTRY(LINK_MQTT_REFUSED,         "%.24s refused the connection (%u)")
-/* The second slot is Mbed TLS's own sentence for what went wrong with the certificate or the
-   handshake. Untranslated, in the same category as the C library's word for an errno. */
-MESH_STR_ENTRY(LINK_MQTT_TLS,             "%.24s: %.64s")
 MESH_STR_ENTRY(LINK_MQTT_NO_TLS,          "%.32s needs TLS and this build has none")
 
 /*

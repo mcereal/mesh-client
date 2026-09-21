@@ -110,9 +110,12 @@ evdev -> inkcell_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 **The systems layer is [inkwell](https://github.com/mcereal/inkwell), a submodule at
 `third_party/inkwell`**, and it is the bottom of the stack: the epoll loop, the signals, the
 clock, the log, the environment knobs, the whole-file read, the UTF-8 helpers, semver ordering,
-the crash report, the codecs (base64, SHA-256, JSON, zip, HTTP/1.1, MQTT 3.1.1, deflate, PNG)
-and the forked DNS resolver. None of it knows what a radio is, and its `docs/extraction.md` is
-the running map of what is still on the wrong side of that line. `add_subdirectory(third_party/inkwell)` comes *first* in `CMakeLists.txt`, before
+the crash report, the codecs (base64, SHA-256, JSON, zip, HTTP/1.1, MQTT 3.1.1, deflate, PNG),
+the forked DNS resolver and the vocabulary a link fails in (`inkwell/net/reason.h`). None of it
+knows what a radio is - and none of it knows a word a user reads, which is what
+`inkwell/net/reason.h` is for: a transport reports a *reason* and a number, and
+`src/i18n/net_reason.c` is where this client turns that into a sentence. Its
+`docs/extraction.md` is the running map of what is still on the wrong side of that line. `add_subdirectory(third_party/inkwell)` comes *first* in `CMakeLists.txt`, before
 inkcell, so this client's pin is the one the whole tree builds - inkcell carries a submodule of
 its own and brings it in only when no target of that name exists yet.
 
@@ -183,7 +186,7 @@ publish and read back when that node's detail screen is opened. See
 | Area | Where |
 |---|---|
 | Event loop | inkwell's `src/runtime/loop.c` (`inkwell/runtime/loop.h`) - epoll, 32 fd sources, **no threads** |
-| Transports | `src/transport/` - registry, BLE (BlueZ/D-Bus), serial, TCP; `stream_link.c` is the half serial and TCP share |
+| Transports | `src/transport/` - registry, BLE (BlueZ/D-Bus), serial, TCP; `stream_link.c` is the half serial and TCP share. A link records `struct inkwell_net_failure` and `take_error()` is where it becomes words - see [`docs/transport.md`](docs/transport.md#how-a-failure-reaches-the-user) |
 | Session | `src/core/session/session.c` - handshake, node roster, channels, message log, packet ids |
 | Admin protocol | `src/core/session/radio_settings.c` - `AdminMessage` get/set queue, passkeys, NodeDB verbs |
 | Messaging | `src/core/session/message.c`, `store_forward.c`, `waypoint.c` |
@@ -201,7 +204,7 @@ publish and read back when that node's detail screen is opened. See
 | This client behind the frame | `src/ui/backends/fb_app.c` - the renderer inkcell calls, the move it cannot work out, the theme it is told |
 | Tables the UI reads | `src/ui/tables/` - `actions.c` (button verbs), `status.c` (card verbs), `help.c`, `devices.c`, `nodes.c`, `delivery.c`, `trust.c`, `chrome.c`, `trend.c` (the airtime chart; the frame around it is inkcell's), `duration.c`, `units.c` (metric/imperial lengths) |
 | Themes & fonts | inkcell's `src/theme/` and `src/generated/` - palette by role, shape scale, metrics, the glyph tables |
-| Strings | `src/i18n/strings.c` registers the catalog; the list is `include/mesh/i18n/catalog.def`, continuing inkcell's 15 |
+| Strings | `src/i18n/strings.c` registers the catalog; the list is `include/mesh/i18n/catalog.def`, continuing inkcell's 15; `src/i18n/net_reason.c` is the table from an `inkwell_net_reason` to a sentence |
 | Geography & map | `src/geo/` (the only directory that includes `<math.h>`), `src/map/`, `src/ui/views/map.c`, `src/ui/nav/nav_map.c`, `src/ui/backends/fb_map.c` |
 | Crash reports | inkwell's `inkwell/runtime/crash.h` writes them; `src/utils/crash.c` is this client's name, issues URL and note labels on one |
 | Shared utils | `src/utils/` - the crash seam is all that is left here; `json`, `sha256`, `base64`, `zip`, `http`, `inflate` and `png` are inkwell's `codec/`, `text`, `time`, `env`, `log`, `array`, `file` and `version` its `base/`, the crash reporter its `runtime/`, and `qr` is inkcell's |

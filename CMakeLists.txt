@@ -116,6 +116,7 @@ add_library(meshclient_core
     src/map/tile_image.c
     src/map/viewport.c
     src/utils/crash.c
+    src/i18n/net_reason.c
     src/i18n/strings.c
     src/i18n/locale_es.c
     src/ui/tables/trend.c
