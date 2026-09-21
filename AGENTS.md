@@ -15,11 +15,15 @@ under `docs/`. Tests are split across `tests/suites/<area>.c` over a small frame
 
 ## Build, Test, and Development Commands
 
-- `make setup` — install prerequisites on a Linux host (safe to re-run; `--check` reports only).
-- `make debug` — configure and build a debug tree (`build/debug`; Linux only).
+- `make setup` — install prerequisites on a Linux host or a Mac (`scripts/setup-linux.sh` or
+  `scripts/setup-macos.sh`; safe to re-run; `--check` reports only).
+- `make debug` — configure and build a debug tree (`build/debug`), natively on Linux or macOS.
 - `make test` — build and run the unit suite.
-- `make docker-test` / `make docker-pak` — the same, or the static aarch64 pak build, inside the
-  containers from `docker/Dockerfile`. **Use these on macOS.**
+- `MESHCLIENT_UI_BACKEND=sdl ./build/debug/meshclient -f` — the UI in a window, which on a Mac is
+  the only way to see it. A Mac is a development host: the fb backend, evdev, BlueZ and usbfs
+  compile to refusals there, so a change to those is tested with the next line or on the Brick.
+- `make docker-test` / `make docker-pak` — the same suite, or the static aarch64 pak build, inside
+  the containers from `docker/Dockerfile`. The pak is always built this way.
 - `make release` / `make package` — optimized binary, then `dist/MeshClient.pak.zip`. Inspect the
   zip before publishing.
 - `make proto` — regenerate nanopb sources after editing `proto/meshtastic/meshtastic/`.
@@ -45,7 +49,9 @@ FATAL_ERRORs without them.
 Run `make format` before pushing — not `clang-format` by hand. The repo ships `.clang-format`
 (4-space indents, LLVM brace style, 100-character lines) and the tree is normalised with
 **clang-format 18**, so `make format` refuses to run under a different major version; from a host
-with another one use `./scripts/docker.sh make format`.
+with another one use `./scripts/docker.sh make format`. On a Mac, `make setup` puts 18.1.3 - the
+patch release CI runs - in `.venv`, and `make format` uses it; 18.1.8 lays brace-initializer
+macros out differently and rewrites files nobody touched.
 
 User-facing text is never a literal in a renderer: add a line to
 `include/mesh/i18n/catalog.def` and use `inkcell_str()`. `make test` runs

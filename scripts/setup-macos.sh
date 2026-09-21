@@ -66,14 +66,20 @@ else
 fi
 
 echo "Submodules:"
-if [ -f third_party/inkwell/CMakeLists.txt ] && [ -f third_party/inkcell/CMakeLists.txt ] &&
-    [ -f third_party/nanopb/CMakeLists.txt ]; then
-    say "checked out"
-elif [ "$CHECK_ONLY" -eq 1 ]; then
-    say "missing: run git submodule update --init --recursive"
-    missing=1
+# As scripts/setup-linux.sh does it: '-' is a submodule never initialised, '+' one checked out at
+# something other than the recorded commit - which is what an existing clone has straight after
+# pulling a revision that bumped inkwell or inkcell, and a build against the old one fails on
+# whatever the bump added. A file-exists check would call that clone ready.
+if git submodule status --recursive 2>/dev/null | grep '^[-+]' >/dev/null; then
+    if [ "$CHECK_ONLY" -eq 1 ]; then
+        say "missing: submodules are not initialised or are out of sync"
+        missing=1
+    else
+        say "syncing submodules to the recorded commits"
+        git submodule update --init --recursive
+    fi
 else
-    git submodule update --init --recursive
+    say "in sync"
 fi
 
 if [ "$missing" -ne 0 ]; then
