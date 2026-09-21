@@ -258,3 +258,14 @@ void mesh_ui_controller_request_frame(struct mesh_ui_controller *controller) {
         mesh_ui_controller_schedule_frame(controller, true);
     }
 }
+
+bool mesh_ui_controller_settled(const struct mesh_ui_controller *controller) {
+    return controller == NULL || !controller->frame_armed;
+}
+
+bool mesh_ui_controller_frame(const struct mesh_ui_controller *controller,
+                              struct inkcell_surface *out) {
+    return controller != NULL && controller->backend != NULL &&
+           controller->backend->frame != NULL &&
+           controller->backend->frame(controller->backend_state, controller->backend_userdata, out);
+}

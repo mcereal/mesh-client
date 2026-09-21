@@ -69,6 +69,17 @@ make screenshots                          # re-render the five listing stills in
 make demo-pack                            # draw a synthetic tile pack into build/demo.mctp
 ```
 
+**The running client can be driven and looked at, too** - by you, not just the developer.
+`make ui-drive` starts the real client with a control socket (a window on a Mac, the `headless`
+backend in a container or cloud session, the Brick with `--brick`), presses its keys by name and
+brings each `shot` back as a PNG you can read. See [`docs/ui.md`](docs/ui.md#driving-the-running-client).
+
+```bash
+make ui-drive ARGS="start"                                  # then, as often as needed:
+make ui-drive ARGS="send 'key r1 down a; shot /tmp/x.png; screen'"
+make ui-drive ARGS="stop"                                   # --brick on all three for the device
+```
+
 Device deploys go over SSH via `scripts/deploy-device.sh` (dropbear, busybox only: transfers are
 `tar | ssh tar`, no rsync/scp). Host settings live in the gitignored `.brick.env`; the script
 quotes for POSIX `sh`, not bash - keep it that way. See [`docs/device.md`](docs/device.md).

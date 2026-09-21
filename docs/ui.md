@@ -952,7 +952,9 @@ no renderer ever said "green".
 
 ## Backend selection
 
-`fb` unless there is no `/dev/fb0`; `MESHCLIENT_UI_BACKEND` forces `fb`, `cli` or `stub`.
+`fb` unless there is no `/dev/fb0`; `MESHCLIENT_UI_BACKEND` forces `fb`, `sdl`, `headless`, `cli`
+or `stub`. `headless` is inkcell's: the frame `fb` would draw, into memory, against the real clock,
+for a host with no panel and no display.
 
 ## Looking at a UI change
 
@@ -1034,3 +1036,30 @@ same paths, and `scripts/screenshots.sh` refreshes both.
 
 On a real Brick, `make deploy-shot` and `make deploy-clip` read the framebuffer directly and
 catch whatever is actually on the panel — see [`device.md`](device.md#screenshots-and-clips).
+
+## Driving the running client
+
+`ui-capture` replays a scene against an invented radio. When the question is what the *real*
+client does - its transports, its caches, the radio on the desk - drive that instead:
+`--ui-control PATH` (or `MESHCLIENT_UI_CONTROL`) opens a Unix socket that takes a key by name, a
+wait, and a `shot` that writes the frame as a PPM once nothing on the panel is moving. The
+protocol is in `include/mesh/app/control.h`; `meshclient --ui-send 'key r1; shot /tmp/x.ppm'` is
+its other end, which is what lets a Brick be driven with only the binary it already has.
+
+`scripts/ui-drive.sh` puts the three places it runs behind one command, and brings every shot
+back as a PNG on this machine:
+
+```bash
+make ui-drive ARGS="start"                          # a window on a Mac or a desktop; headless without a display
+make ui-drive ARGS="send 'key r1 r1; shot nodes.png; screen'"
+make ui-drive ARGS="stop"
+make ui-drive ARGS="--brick start"                  # deploy-start with the socket open
+make ui-drive ARGS="--brick send 'key a; shot a.png'"
+make ui-drive ARGS="--brick stop"                   # every on-device session still ends here
+```
+
+A key goes through `mesh_ui_controller_handle_key()`, which is where evdev's presses land too - so
+this drives the UI, not the button wiring (`make deploy-input-map` is for that). And a shot is the
+frame the client drew, from the backend's `frame` hook, not the display: in a window it has no
+title-bar buttons over it, and on the Brick it is the draw buffer rather than `fb0`, so a fault in
+the page flip is `make deploy-shot`'s to find.
