@@ -303,7 +303,7 @@ MESH_TEST_CASE(updater_lifecycle, unit) {
     record_success(test_name);
 }
 
-#ifdef MESHCLIENT_HAVE_TLS
+#ifdef INKWELL_HAVE_TLS
 
 #include "support/https_fixture.h"
 
@@ -716,7 +716,7 @@ MESH_TEST_CASE(updater_gives_up_on_a_silent_server, unit) {
         failure = "a server that never answers should hit the timeout";
         goto cleanup;
     }
-    if (mesh_fetch_busy(&updater.fetch)) {
+    if (inkwell_fetch_busy(&updater.fetch)) {
         failure = "the timed-out request should have let its connection go";
         goto cleanup;
     }
@@ -733,7 +733,7 @@ cleanup:
     record_success(test_name);
 }
 
-#endif /* MESHCLIENT_HAVE_TLS */
+#endif /* INKWELL_HAVE_TLS */
 
 /*
  * A build that was not stamped by the release script must never look like a release, whatever

@@ -44,7 +44,7 @@
 #define TAIL_BASE 46194237
 #define MEMBER_BASE 2540989
 
-#ifdef MESHCLIENT_HAVE_TLS
+#ifdef INKWELL_HAVE_TLS
 
 #include "support/https_fixture.h"
 
@@ -487,7 +487,7 @@ static bool update_settle_at(struct update_harness *harness, const struct update
 
 /* ---- the cases ------------------------------------------------------------------------------- */
 
-#endif /* MESHCLIENT_HAVE_TLS */
+#endif /* INKWELL_HAVE_TLS */
 
 /*
  * Every state and every error has a word, and the two ladders are total.
@@ -520,7 +520,7 @@ MESH_TEST_CASE(firmware_update_names_every_state, unit) {
     record_success(test_name);
 }
 
-#ifdef MESHCLIENT_HAVE_TLS
+#ifdef INKWELL_HAVE_TLS
 
 /*
  * The refusals that happen before a byte moves, and the promise that comes with them: nothing
@@ -882,4 +882,4 @@ cleanup:
     record_success(test_name);
 }
 
-#endif /* MESHCLIENT_HAVE_TLS */
+#endif /* INKWELL_HAVE_TLS */

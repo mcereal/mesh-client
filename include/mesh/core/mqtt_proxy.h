@@ -2,8 +2,8 @@
 
 #include "inkwell/net/reason.h"
 #include "inkwell/net/resolve.h"
+#include "inkwell/net/tls.h"
 #include "inkwell/runtime/loop.h"
-#include "mesh/core/tls_client.h"
 
 #include <netinet/in.h>
 #include <stdbool.h>
@@ -226,7 +226,7 @@ struct mesh_mqtt_proxy {
 
     /* Only started when config.tls_enabled; a plaintext connection never touches it, and
        `tls.state` being non-NULL is what every read and write branches on. */
-    struct mesh_tls_client tls;
+    struct inkwell_tls_client tls;
     /* Empty for the built-in roots; see mesh_mqtt_proxy_set_ca_bundle(). */
     char ca_bundle[256];
 
@@ -315,7 +315,7 @@ void mesh_mqtt_proxy_shutdown(struct mesh_mqtt_proxy *proxy);
 /*
  * A CA bundle file to verify against in place of the built-in roots, or NULL for the built-in
  * roots - which is what every connection uses unless somebody asked otherwise; see
- * mesh_tls_ca_override(). Ignored without TLS.
+ * inkwell_tls_ca_override(). Ignored without TLS.
  */
 void mesh_mqtt_proxy_set_ca_bundle(struct mesh_mqtt_proxy *proxy, const char *path);
 

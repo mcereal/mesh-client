@@ -20,13 +20,13 @@ place. Nothing about it needs a phone any more.
 |---|---|
 | inkwell's `src/codec/mqtt.c` | the MQTT 3.1.1 wire format, and nothing else - it was never about a mesh, so it is the platform layer's |
 | `src/core/net/mqtt_proxy.c` | one broker connection: resolve, connect, subscribe, publish, keepalive, backoff |
-| `src/core/net/tls_client.c` | Mbed TLS over a non-blocking descriptor |
+| inkwell's `src/net/tls.c` (`inkwell/net/tls.h`) | Mbed TLS over a non-blocking descriptor - it was never about a mesh either |
 | `src/proto/mqtt_topic.c` | where a mesh lives on a broker, matched to the firmware |
 | `src/core/session/session.c` | the two hooks: the radio's message out, the broker's message back |
 | `src/app/app_mqtt.c` | the decision: whether to be connected, to what, with which subscriptions |
 | `include/mesh/ui/store_mqtt.h` | what the Status screen is told about it |
-| `third_party/mbedtls-config/mesh_mbedtls_config.h` | what this build of Mbed TLS is and is not (TLS and X.509) |
-| `third_party/mbedtls-config/mesh_psa_crypto_config.h` | the same, for the crypto half 4.x split out |
+| `third_party/inkwell/third_party/mbedtls-config/inkwell_mbedtls_config.h` | what this build of Mbed TLS is and is not (TLS and X.509) |
+| `third_party/inkwell/third_party/mbedtls-config/inkwell_psa_crypto_config.h` | the same, for the crypto half 4.x split out |
 
 The codec/client split is the same one `stream_framing.c` and `stream_link.c` already have: the
 format is a pure function over bytes, testable against hand-written packets with no broker in
@@ -286,8 +286,8 @@ a framed protocol gets that the reader has drifted.
 
 ## TLS
 
-`src/core/net/tls_client.c` is where this process does TLS: the broker connection here, and every
-HTTPS request through `src/core/net/fetch.c`. A broker connection is long-lived and
+inkwell's `inkwell/net/tls.h` is where this process does TLS: the broker connection here, and every
+HTTPS request through `inkwell/net/fetch.h`. A broker connection is long-lived and
 bidirectional, and a download is megabytes arriving while the screen still has to draw, so both
 have to be readable and writable between UI frames on the same epoll loop as everything else.
 There is nowhere to block.
@@ -297,7 +297,7 @@ the way up. Two things about that are easy to get wrong and are handled delibera
 
 - **Which direction it is blocked on is not a property of what the caller asked for.** A
   handshake flight, and a write that triggers one, can block waiting to *read*. Arming the wrong
-  epoll event parks the connection forever. `mesh_tls_client.wants_write` is set by the library's
+  epoll event parks the connection forever. `inkwell_tls_client.wants_write` is set by the library's
   own answer, not guessed.
 - **A reader must loop until `-EAGAIN`.** One TLS record can hold more plaintext than one call
   returns, and the leftovers live inside the session rather than in the socket — so the
@@ -311,12 +311,12 @@ the way up. Two things about that are easy to get wrong and are handled delibera
   once Mbed TLS moved to 4.1, since 4.x enables TLS 1.3 and session tickets by default.
   Answering it with `-EAGAIN` is the other tempting fix and fails the same way as the bullet
   above: the broker's CONNACK usually shares the flight with the ticket, so it is already inside
-  the session with an empty socket underneath. `mesh_tls_client_read()` retries the read instead.
+  the session with an empty socket underneath. `inkwell_tls_client_read()` retries the read instead.
   `mqtt_proxy_reads_past_a_session_ticket` holds this, and the fixture broker issues real tickets
   so the handshake tests exercise the post-handshake path at all — an Mbed TLS server with no
   ticket callback configured sends none, which is why a real handshake under test still missed it.
   That retry is bounded by `MESH_TLS_TICKETS_PER_READ`, because `MQTT_READS_PER_TURN` counts
-  calls *into* `tls_client.c` and cannot bound work that never returns from one; hitting the cap
+  calls *into* inkwell's `net/tls.c` and cannot bound work that never returns from one; hitting the cap
   hands back `-EAGAIN` with `more_to_read` set, and the proxy resumes on its own next turn, in
   `GREETING` as well as `READY`. Mbed TLS reports at most one ticket per read in practice, so the
   cap is defensive rather than exercised — `mqtt_proxy_survives_a_run_of_tickets` says so.
@@ -334,8 +334,8 @@ does not ship through self-update, so an install updated in place would keep its
 until a rotation on the far end broke the connection. The roots are parsed once, on the first TLS
 connection, and shared by every session after it.
 
-**Which roots is not the TLS client's decision.** `src/app/app.c` calls `mesh_tls_set_roots()` once
-at startup with the table from `ca_roots.h`, and `tls_client.c` checks against whatever it was
+**Which roots is not the TLS client's decision.** `src/app/app.c` calls `inkwell_tls_set_roots()` once
+at startup with the table from `ca_roots.h`, and inkwell's `net/tls.c` checks against whatever it was
 handed - it has no built-in set of its own and no fallback, so a process that registered nothing
 refuses to open a session rather than opening an unchecked one. Compiling the roots in is a
 decision about how this product ships; verifying against them is not.
@@ -348,13 +348,15 @@ Refreshing the roots is re-downloading `third_party/mozilla-ca/cacert.pem` from
 [curl.se/ca](https://curl.se/ca/cacert.pem) and running `scripts/gen-ca-roots.py`; `make test`
 fails while the two disagree.
 
-### Mbed TLS is a submodule, and a trimmed one
+### Mbed TLS is a submodule of inkwell's, and a trimmed one
 
-`third_party/mbedtls`, pinned to a 4.1 LTS tag. `git submodule update --init --recursive` is
-required — without it the build still works and says so, and `mesh_tls_available()` reports
+`third_party/inkwell/third_party/mbedtls`, pinned to a 4.1 LTS tag. It sits under inkwell because
+TLS does: this client encrypts one connection and fetches over HTTPS, and neither is about
+Meshtastic, so the session, the request and the library they need all went down together.
+`git submodule update --init --recursive` is required — without it the build still works and says so, and `inkwell_tls_available()` reports
 false, which makes MQTT over TLS the one thing that build cannot do.
 
-`.gitmodules` tracks the `mbedtls-4.1` branch, which is a statement to dependabot rather than to
+inkwell's `.gitmodules` tracks the `mbedtls-4.1` branch, which is a statement to dependabot rather than to
 git: a submodule with no branch configured is followed on the remote's *default* branch, and Mbed
 TLS writes 4.2 and later on `development`. That is how a 3.6.7 pin came back as a 4.2.0 bump that
 could not build. It changes nothing about what checks out — the pinned SHA does that, and only
@@ -362,7 +364,7 @@ could not build. It changes nothing about what checks out — the pinned SHA doe
 
 **Mbed TLS 4.x is two projects.** TLS and X.509 are the outer one; every primitive, the PSA API
 and the RNG live in the `tf-psa-crypto` submodule nested inside it. That is why the config is a
-pair — `mesh_mbedtls_config.h` is the `MBEDTLS_USER_CONFIG_FILE`, `mesh_psa_crypto_config.h` is
+pair — `inkwell_mbedtls_config.h` is the `MBEDTLS_USER_CONFIG_FILE`, `inkwell_psa_crypto_config.h` is
 the `TF_PSA_CRYPTO_USER_CONFIG_FILE` — and why the link line names `tfpsacrypto` where 3.x named
 `mbedcrypto`. Both files are included *after* the library's own config and **subtract** from it.
 That direction is deliberate. A hand-written replacement config starts from nothing and has to

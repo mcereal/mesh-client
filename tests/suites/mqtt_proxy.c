@@ -21,10 +21,10 @@
 #include "mesh/ui/store_mqtt.h"
 
 #include "inkwell/codec/mqtt.h"
+#include "inkwell/net/tls.h"
 #include "inkwell/runtime/loop.h"
 #include "mesh/core/ca_roots.h"
 #include "mesh/core/mqtt_proxy.h"
-#include "mesh/core/tls_client.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -60,7 +60,7 @@ struct fake_broker {
 
 /* ------------------------------------------------------------------ TLS */
 
-#ifdef MESHCLIENT_HAVE_TLS
+#ifdef INKWELL_HAVE_TLS
 #include <mbedtls/platform.h>
 
 #include <mbedtls/net_sockets.h>
@@ -76,11 +76,11 @@ struct fake_broker {
  * A TLS broker, so the client's TLS path completes a real handshake under test.
  *
  * This is the reason `MBEDTLS_SSL_SRV_C` is left enabled in
- * third_party/mbedtls-config/mesh_mbedtls_config.h. The alternative was to check the TLS path
- * only as far as "it tried", which for a security boundary is not a check at all: a client that
- * never verifies a certificate and a client that always does look identical until something
- * presents a bad one. Here, one case connects to a broker whose certificate is in the bundle and
- * one to a broker whose certificate is not, and they have to come out differently.
+ * third_party/inkwell/third_party/mbedtls-config/inkwell_mbedtls_config.h. The alternative was to
+ * check the TLS path only as far as "it tried", which for a security boundary is not a check at
+ * all: a client that never verifies a certificate and a client that always does look identical
+ * until something presents a bad one. Here, one case connects to a broker whose certificate is in
+ * the bundle and one to a broker whose certificate is not, and they have to come out differently.
  *
  * The certificate and key below were generated for this file, are valid from 2020 to 2120, and
  * exist nowhere else. They are not a secret in any sense - the key is published here precisely
@@ -254,7 +254,7 @@ static bool write_pem(const char *path, const char *pem) {
     return fclose(out) == 0 && ok;
 }
 
-#else /* !MESHCLIENT_HAVE_TLS */
+#else /* !INKWELL_HAVE_TLS */
 
 static bool broker_tls_start(struct fake_broker *broker) {
     (void)broker;
@@ -263,7 +263,7 @@ static bool broker_tls_start(struct fake_broker *broker) {
 
 static void broker_tls_stop(struct fake_broker *broker) { (void)broker; }
 
-#endif /* MESHCLIENT_HAVE_TLS */
+#endif /* INKWELL_HAVE_TLS */
 
 static void broker_init(struct fake_broker *broker) {
     memset(broker, 0, sizeof *broker);
@@ -338,7 +338,7 @@ static bool broker_accept(struct fake_broker *broker) {
 
 /* One read, however this connection reads. Returns the byte count, or <= 0 for "nothing now". */
 static ssize_t broker_recv(struct fake_broker *broker, uint8_t *out, size_t cap) {
-#ifdef MESHCLIENT_HAVE_TLS
+#ifdef INKWELL_HAVE_TLS
     if (broker->sec != NULL) {
         /* The handshake first, driven a step at a time from the same turns that drive the
            client's. Neither side can finish without the other being run. */
@@ -421,7 +421,7 @@ static void broker_send(struct fake_broker *broker, const uint8_t *data, size_t 
     if (broker->client < 0) {
         return;
     }
-#ifdef MESHCLIENT_HAVE_TLS
+#ifdef INKWELL_HAVE_TLS
     if (broker->sec != NULL) {
         /* Only ever called after a case has seen a packet arrive, which means the handshake
            finished - so there is no partial-write case to carry here. */
@@ -1357,7 +1357,7 @@ cleanup:
 
 /* ------------------------------------------------------------------ TLS */
 
-#ifdef MESHCLIENT_HAVE_TLS
+#ifdef INKWELL_HAVE_TLS
 
 /*
  * A real handshake against a real broker, and then MQTT over it.
@@ -1694,7 +1694,7 @@ MESH_TEST_CASE(mqtt_proxy_verifies_against_built_in_roots_without_a_bundle, unit
     }
     probe.broker.tls = true;
     mesh_mqtt_proxy_set_ca_bundle(&probe.proxy, NULL);
-    mesh_tls_set_roots(mesh_ca_roots, mesh_ca_root_count);
+    inkwell_tls_set_roots(mesh_ca_roots, mesh_ca_root_count);
 
     struct mesh_mqtt_proxy_config config;
     probe_config(&config, probe.broker.port);
@@ -1723,7 +1723,7 @@ MESH_TEST_CASE(mqtt_proxy_verifies_against_built_in_roots_without_a_bundle, unit
     record_success(test_name);
 
 cleanup:
-    mesh_tls_set_roots(NULL, 0U);
+    inkwell_tls_set_roots(NULL, 0U);
     probe_stop(&probe);
 }
 
@@ -1770,9 +1770,9 @@ cleanup:
     probe_stop(&probe);
 }
 
-#endif /* MESHCLIENT_HAVE_TLS */
+#endif /* INKWELL_HAVE_TLS */
 
-#ifdef MESHCLIENT_HAVE_TLS
+#ifdef INKWELL_HAVE_TLS
 /*
  * The entropy file mbedtls would open, which must never be the blocking one.
  *
@@ -1790,8 +1790,8 @@ cleanup:
  *
  * So what is pinned is the only thing that can be pinned from here: that this build asks for the
  * device that does not block. Since Mbed TLS 4.x that setting is on the crypto side of the
- * split - third_party/mbedtls-config/mesh_psa_crypto_config.h - and the seeding it governs is
- * `psa_crypto_init()`'s rather than a DRBG this code seeds itself.
+ * split - third_party/inkwell/third_party/mbedtls-config/inkwell_psa_crypto_config.h - and the
+ * seeding it governs is `psa_crypto_init()`'s rather than a DRBG this code seeds itself.
  */
 MESH_TEST_CASE(mqtt_proxy_never_seeds_from_the_blocking_random_device, unit) {
     if (strcmp(mbedtls_platform_dev_random, "/dev/urandom") != 0) {
@@ -1800,4 +1800,4 @@ MESH_TEST_CASE(mqtt_proxy_never_seeds_from_the_blocking_random_device, unit) {
     }
     record_success(test_name);
 }
-#endif /* MESHCLIENT_HAVE_TLS */
+#endif /* INKWELL_HAVE_TLS */

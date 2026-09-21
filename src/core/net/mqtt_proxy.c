@@ -156,7 +156,7 @@ static void mqtt_fail_tls(struct mesh_mqtt_proxy *proxy) {
         proxy->failure.net.detail = 0;
     }
     mqtt_back_off(proxy, inkwell_net_reason_name(INKWELL_NET_TLS),
-                  mesh_tls_client_error(&proxy->tls));
+                  inkwell_tls_client_error(&proxy->tls));
 }
 
 /* ------------------------------------------------------------------ the descriptor */
@@ -199,7 +199,7 @@ static void mqtt_arm(struct mesh_mqtt_proxy *proxy) {
  */
 static int mqtt_raw_read(struct mesh_mqtt_proxy *proxy, uint8_t *out, size_t cap) {
     if (proxy->tls.state != NULL) {
-        return mesh_tls_client_read(&proxy->tls, out, cap);
+        return inkwell_tls_client_read(&proxy->tls, out, cap);
     }
     const ssize_t got = recv(proxy->fd, out, cap, 0);
     if (got > 0) {
@@ -216,7 +216,7 @@ static int mqtt_raw_read(struct mesh_mqtt_proxy *proxy, uint8_t *out, size_t cap
 
 static int mqtt_raw_write(struct mesh_mqtt_proxy *proxy, const uint8_t *data, size_t len) {
     if (proxy->tls.state != NULL) {
-        return mesh_tls_client_write(&proxy->tls, data, len);
+        return inkwell_tls_client_write(&proxy->tls, data, len);
     }
     /* MSG_NOSIGNAL for the reason stream_link.h gives: a write to a socket whose peer has gone
        raises SIGPIPE, and its default disposition would kill the client outright. */
@@ -697,7 +697,7 @@ static void mqtt_send_connect(struct mesh_mqtt_proxy *proxy) {
 
 /* Drives the TLS handshake to completion, then hands over to the MQTT one. */
 static void mqtt_secure(struct mesh_mqtt_proxy *proxy) {
-    const int rc = mesh_tls_client_handshake(&proxy->tls);
+    const int rc = inkwell_tls_client_handshake(&proxy->tls);
     if (rc == -EAGAIN) {
         mqtt_arm(proxy);
         return;
@@ -732,7 +732,7 @@ static void mqtt_finish_connect(struct mesh_mqtt_proxy *proxy) {
      * verifying against the resolved address would fail every TLS connection this client makes.
      */
     const int started =
-        mesh_tls_client_start(&proxy->tls, proxy->fd, proxy->host, proxy->ca_bundle);
+        inkwell_tls_client_start(&proxy->tls, proxy->fd, proxy->host, proxy->ca_bundle);
     if (started == -ENOTSUP) {
         mqtt_fail_own(proxy, MESH_MQTT_REFUSAL_NO_TLS, 0U);
         return;
@@ -888,7 +888,7 @@ static void mqtt_attempt(struct mesh_mqtt_proxy *proxy) {
  */
 static void mqtt_close(struct mesh_mqtt_proxy *proxy) {
     inkwell_resolve_cancel(&proxy->resolve);
-    mesh_tls_client_stop(&proxy->tls);
+    inkwell_tls_client_stop(&proxy->tls);
     if (proxy->fd >= 0) {
         if (proxy->fd_registered && proxy->loop != NULL) {
             (void)inkwell_loop_remove_fd(proxy->loop, proxy->fd);
@@ -1201,7 +1201,7 @@ struct mesh_mqtt_proxy_failure mesh_mqtt_proxy_failure(const struct mesh_mqtt_pr
 }
 
 const char *mesh_mqtt_proxy_tls_error(const struct mesh_mqtt_proxy *proxy) {
-    return proxy != NULL ? mesh_tls_client_error(&proxy->tls) : "";
+    return proxy != NULL ? inkwell_tls_client_error(&proxy->tls) : "";
 }
 
 const char *mesh_mqtt_proxy_address(const struct mesh_mqtt_proxy *proxy) {

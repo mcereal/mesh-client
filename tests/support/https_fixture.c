@@ -2,9 +2,9 @@
 
 #include "support/https_fixture.h"
 
-#ifdef MESHCLIENT_HAVE_TLS
+#ifdef INKWELL_HAVE_TLS
 
-#include "mesh/core/fetch.h"
+#include "inkwell/net/fetch.h"
 
 #include <mbedtls/net_sockets.h>
 #include <mbedtls/pk.h>
@@ -368,8 +368,8 @@ void https_fixture_stop(struct https_fixture *fixture) {
 
 const char *https_fixture_cert_pem(void) { return k_cert_pem; }
 
-void https_fixture_attach(const struct https_fixture *fixture, struct mesh_fetch *fetch) {
-    mesh_fetch_connect_to(fetch, "127.0.0.1", fixture->port);
+void https_fixture_attach(const struct https_fixture *fixture, struct inkwell_fetch *fetch) {
+    inkwell_fetch_connect_to(fetch, "127.0.0.1", fixture->port);
 }
 
 size_t https_fixture_requests(const struct https_fixture *fixture, char *out, size_t cap) {
@@ -387,4 +387,4 @@ size_t https_fixture_requests(const struct https_fixture *fixture, char *out, si
     return len;
 }
 
-#endif /* MESHCLIENT_HAVE_TLS */
+#endif /* INKWELL_HAVE_TLS */

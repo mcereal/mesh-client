@@ -74,7 +74,6 @@ add_library(meshclient_core
     src/core/session/contact_share.c
     src/core/runtime/config.c
     src/core/firmware/esp_image.c
-    src/core/net/fetch.c
     src/core/firmware/firmware.c
     src/core/firmware/firmware_catalog.c
     src/core/firmware/firmware_download.c
@@ -89,7 +88,6 @@ add_library(meshclient_core
     src/core/net/mqtt_proxy.c
     src/core/session/session.c
     src/core/session/store_forward.c
-    src/core/net/tls_client.c
     src/core/firmware/uf2.c
     src/core/update/updater.c
     src/core/update/version.c
@@ -323,64 +321,30 @@ target_link_libraries(inkwell PRIVATE meshclient_options)
 add_subdirectory(third_party/nanopb)
 target_link_libraries(meshclient_core PUBLIC protobuf-nanopb-static)
 
-# Mbed TLS, for the one connection this process has to encrypt itself: MQTT to a broker, on
-# behalf of a radio that cannot reach one. Everything else it fetches over HTTPS is a forked
-# curl (src/core/net/fetch.c), and a broker connection cannot be - it is long-lived, bidirectional
-# and has to sit on the same epoll loop as the UI. See include/mesh/core/tls_client.h.
+# TLS is inkwell's, and so is Mbed TLS.
 #
-# Optional on purpose. `MESHCLIENT_HAVE_TLS` is what src/core/net/tls_client.c switches on, and
-# without the submodule it compiles to a stub that reports TLS unavailable - the same
-# arrangement MESH_HAVE_DBUS gives the BLE transport. A checkout that skipped
-# `git submodule update --recursive` still builds and still runs; MQTT over TLS is the one thing
-# it cannot do, and it says so rather than failing to link.
-if(EXISTS ${PROJECT_SOURCE_DIR}/third_party/mbedtls/CMakeLists.txt)
-    # Mbed TLS builds its own tests, sample programs and package config by default, none of which
-    # belong in this build. FATAL_WARNINGS is turned off because it is that project's policy
-    # about its own warnings, applied with this project's compiler flags - a combination neither
-    # side tested.
-    set(ENABLE_TESTING OFF CACHE BOOL "" FORCE)
-    set(ENABLE_PROGRAMS OFF CACHE BOOL "" FORCE)
-    set(MBEDTLS_FATAL_WARNINGS OFF CACHE BOOL "" FORCE)
-    # 4.x generates error.c, the SSL debug helpers and the PSA driver wrappers at build time;
-    # unlike 3.6 they are not committed to the submodule. Needs Python with jinja2 - see
-    # scripts/setup.sh and docker/.
-    set(GEN_FILES ON CACHE BOOL "" FORCE)
-    set(DISABLE_PACKAGE_CONFIG_AND_INSTALL ON CACHE BOOL "" FORCE)
-    set(USE_STATIC_MBEDTLS_LIBRARY ON CACHE BOOL "" FORCE)
-    set(USE_SHARED_MBEDTLS_LIBRARY OFF CACHE BOOL "" FORCE)
-
-    # Where this build's two config files live. Mbed TLS 4.x is two projects - TLS/X.509 here,
-    # everything cryptographic in the vendored tf-psa-crypto - and each reads its own user config
-    # file. The library applies both to its own targets as PUBLIC compile definitions, so unlike
-    # 3.x there is nothing to set by hand afterwards and no include directory to add: the value
-    # is the full path the generated `#include` uses.
-    set(MBEDTLS_USER_CONFIG_FILE
-        ${PROJECT_SOURCE_DIR}/third_party/mbedtls-config/mesh_mbedtls_config.h
-        CACHE FILEPATH "" FORCE)
-    set(TF_PSA_CRYPTO_USER_CONFIG_FILE
-        ${PROJECT_SOURCE_DIR}/third_party/mbedtls-config/mesh_psa_crypto_config.h
-        CACHE FILEPATH "" FORCE)
-
-    add_subdirectory(third_party/mbedtls EXCLUDE_FROM_ALL)
-
-    target_compile_definitions(meshclient_core PUBLIC MESHCLIENT_HAVE_TLS)
-    # `tfpsacrypto` is 4.x's name for what 3.x called `mbedcrypto`.
-    target_link_libraries(meshclient_core PUBLIC mbedtls mbedx509 tfpsacrypto)
-else()
-    message(STATUS
-        "third_party/mbedtls is missing: building without TLS, so MQTT will be plaintext only. "
-        "Run `git submodule update --init --recursive` to enable it.")
-endif()
+# This client encrypts exactly one connection itself - MQTT to a broker, on behalf of a radio
+# that cannot reach one - and fetches over HTTPS for the updater and the firmware catalog.
+# Neither is about Meshtastic, so both went down: `inkwell/net/tls.h` is the session and
+# `inkwell/net/fetch.h` the request, and the Mbed TLS submodule and its configuration went with
+# them. There is nothing to set here; `add_subdirectory(third_party/inkwell)` above brought it
+# in, and inkwell links mbedtls PUBLIC so a test in this tree can still stand a server.
+#
+# Optional on purpose, and still optional here. Without inkwell's submodule `inkwell/net/tls.h`
+# refuses every session, `INKWELL_HAVE_TLS` is not defined, and this client builds, links and
+# runs - MQTT over TLS is the one thing it cannot do, and it says so. `INKWELL_HAVE_TLS` reaches
+# this target through inkwell rather than being minted again here: whether this process can do
+# TLS is inkwell's fact about itself, and two names for it would be two things to keep in step.
 
 # Mozilla's roots, written by scripts/gen-ca-roots.py.
 #
-# Compiled either way, and *outside* the block above on purpose. src/app/app.c hands this table
-# to the TLS client unconditionally - whether this build has Mbed TLS is not a question the
-# composition root should have to answer, which is the whole reason tls_client.c compiles to a
-# stub - so the symbols have to exist in both configurations or the no-TLS build will not link.
-# It used to be inside, and that is exactly how it broke. The 126 KB is still not carried without
-# TLS: ca_roots.c guards its own payload on MESHCLIENT_HAVE_TLS and defines an empty table
-# instead.
+# Compiled whether or not this build has TLS, on purpose. src/app/app.c hands this table to
+# `inkwell_tls_set_roots()` unconditionally - whether Mbed TLS was compiled in is not a question
+# the composition root should have to answer, which is the whole reason inkwell/net/tls.c
+# compiles to a stub - so the symbols have to exist in both configurations or the no-TLS build
+# will not link. This once sat inside a conditional, and that is exactly how it broke. The 126 KB
+# is still not carried without TLS: ca_roots.c guards its own payload on INKWELL_HAVE_TLS and
+# defines an empty table instead.
 target_sources(meshclient_core PRIVATE src/core/generated/ca_roots.c)
 
 set(NANOPB_GENERATED_DIR ${CMAKE_BINARY_DIR}/generated/nanopb)

@@ -16,10 +16,10 @@
  *
  * The composition root registers this table without asking whether this build can use
  * it, because whether Mbed TLS was compiled in is not a question src/app/app.c should
- * have to answer: that is the whole point of tls_client.c compiling to a stub. So the
- * declaration is unconditional and only the 126 KB is not.
+ * have to answer: that is the whole point of inkwell/net/tls.c compiling to a stub. So
+ * the declaration is unconditional and only the 126 KB is not.
  */
-#ifdef MESHCLIENT_HAVE_TLS
+#ifdef INKWELL_HAVE_TLS
 
 /* Every root's DER, one after another. */
 static const unsigned char k_der[] = {
@@ -8097,7 +8097,7 @@ static const unsigned char k_der[] = {
     0x08, 0x8F, 0x37, 0x77, 0x6D, 0xC4, 0xAF,
 };
 
-const struct mesh_tls_ca_root mesh_ca_roots[] = {
+const struct inkwell_tls_ca_root mesh_ca_roots[] = {
     {"COMODO ECC Certification Authority", k_der + 0, 653},
     {"NetLock Arany (Class Gold) Főtanúsítvány", k_der + 653, 1049},
     {"Microsec e-Szigno Root CA 2009", k_der + 1702, 1038},
@@ -8228,7 +8228,7 @@ const size_t mesh_ca_root_count = 121;
 /* One zeroed entry because C has no empty array, and a count of zero so nothing reads
    it. A no-TLS build that somehow reached the TLS client would be told it has no trust
    anchors, which is the right answer rather than a silent one. */
-const struct mesh_tls_ca_root mesh_ca_roots[] = {{NULL, NULL, 0U}};
+const struct inkwell_tls_ca_root mesh_ca_roots[] = {{NULL, NULL, 0U}};
 const size_t mesh_ca_root_count = 0U;
 
-#endif /* MESHCLIENT_HAVE_TLS */
+#endif /* INKWELL_HAVE_TLS */

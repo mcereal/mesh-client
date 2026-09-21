@@ -25,8 +25,8 @@
 
 #include "framework/mesh_test.h"
 
+#include "inkwell/net/fetch.h"
 #include "inkwell/runtime/loop.h"
-#include "mesh/core/fetch.h"
 #include "mesh/core/firmware_catalog.h"
 #include "mesh/core/firmware_download.h"
 #include "mesh/core/firmware_fetch.h"
@@ -42,7 +42,7 @@
 #define MESH_TEST_DATA_DIR "tests/data"
 #endif
 
-#ifdef MESHCLIENT_HAVE_TLS
+#ifdef INKWELL_HAVE_TLS
 
 #include "support/https_fixture.h"
 
@@ -160,7 +160,7 @@ static void download_serve(void *userdata, const struct https_fixture_request *r
 
 /* Stands the fake CDN up as `cdn`, and points `fetch` at it. */
 static bool download_serve_as(struct https_fixture *server, enum download_cdn cdn,
-                              struct mesh_fetch *fetch) {
+                              struct inkwell_fetch *fetch) {
     static enum download_cdn mode;
     mode = cdn;
     https_fixture_stop(server);
@@ -171,12 +171,12 @@ static bool download_serve_as(struct https_fixture *server, enum download_cdn cd
     return true;
 }
 
-static bool download_wait(struct inkwell_loop *loop, struct mesh_fetch *fetch,
+static bool download_wait(struct inkwell_loop *loop, struct inkwell_fetch *fetch,
                           struct mesh_firmware_download *download,
                           const struct download_probe *probe) {
     for (int turn = 0; turn < 600 && probe->calls == 0U; ++turn) {
         (void)inkwell_loop_run(loop, 10);
-        mesh_fetch_tick(fetch, 0U);
+        inkwell_fetch_tick(fetch, 0U);
         mesh_firmware_download_tick(download, 0U);
     }
     return probe->calls > 0U;
@@ -193,11 +193,11 @@ static void fetch_probe_done(void *userdata, const struct mesh_firmware_fetch *f
     ((struct fetch_probe *)userdata)->calls++;
 }
 
-static bool fetch_wait_done(struct inkwell_loop *loop, struct mesh_fetch *fetcher,
+static bool fetch_wait_done(struct inkwell_loop *loop, struct inkwell_fetch *fetcher,
                             struct mesh_firmware_fetch *fetch, const struct fetch_probe *probe) {
     for (int turn = 0; turn < 600 && probe->calls == 0U; ++turn) {
         (void)inkwell_loop_run(loop, 10);
-        mesh_fetch_tick(fetcher, 0U);
+        inkwell_fetch_tick(fetcher, 0U);
         mesh_firmware_fetch_tick(fetch, 0U);
     }
     return probe->calls > 0U;
@@ -231,7 +231,7 @@ MESH_TEST_CASE(firmware_download_fetches_a_member_end_to_end, unit) {
     struct https_fixture server;
     memset(&server, 0, sizeof server);
     struct inkwell_loop loop;
-    struct mesh_fetch fetch;
+    struct inkwell_fetch fetch;
     struct mesh_firmware_download download;
     bool loop_up = false;
     bool fetch_up = false;
@@ -241,7 +241,7 @@ MESH_TEST_CASE(firmware_download_fetches_a_member_end_to_end, unit) {
         goto cleanup;
     }
     loop_up = true;
-    if (mesh_fetch_init(&fetch, &loop) != 0) {
+    if (inkwell_fetch_init(&fetch, &loop) != 0) {
         failure = "fetch init failed";
         goto cleanup;
     }
@@ -336,7 +336,7 @@ MESH_TEST_CASE(firmware_download_fetches_a_member_end_to_end, unit) {
 
 cleanup:
     if (fetch_up) {
-        mesh_fetch_shutdown(&fetch);
+        inkwell_fetch_shutdown(&fetch);
     }
     if (loop_up) {
         inkwell_loop_shutdown(&loop);
@@ -363,7 +363,7 @@ MESH_TEST_CASE(firmware_download_tells_a_missing_member_from_a_broken_one, unit)
     struct https_fixture server;
     memset(&server, 0, sizeof server);
     struct inkwell_loop loop;
-    struct mesh_fetch fetch;
+    struct inkwell_fetch fetch;
     struct mesh_firmware_download download;
     bool loop_up = false;
     bool fetch_up = false;
@@ -373,7 +373,7 @@ MESH_TEST_CASE(firmware_download_tells_a_missing_member_from_a_broken_one, unit)
         goto cleanup;
     }
     loop_up = true;
-    if (mesh_fetch_init(&fetch, &loop) != 0) {
+    if (inkwell_fetch_init(&fetch, &loop) != 0) {
         failure = "fetch init failed";
         goto cleanup;
     }
@@ -466,7 +466,7 @@ MESH_TEST_CASE(firmware_download_tells_a_missing_member_from_a_broken_one, unit)
 
 cleanup:
     if (fetch_up) {
-        mesh_fetch_shutdown(&fetch);
+        inkwell_fetch_shutdown(&fetch);
     }
     if (loop_up) {
         inkwell_loop_shutdown(&loop);
@@ -477,13 +477,13 @@ cleanup:
     record_success(test_name);
 }
 
-#endif /* MESHCLIENT_HAVE_TLS */
+#endif /* INKWELL_HAVE_TLS */
 
 /* The arguments that are refused before anything is started. */
 MESH_TEST_CASE(firmware_download_refuses_what_it_cannot_do, unit) {
-    struct mesh_fetch fetch;
-    MESH_TEST_FAIL_IF(mesh_fetch_init(&fetch, NULL) != 0, "a loopless fetcher should init");
-    MESH_TEST_FAIL_IF(mesh_fetch_available(&fetch), "and report itself unavailable");
+    struct inkwell_fetch fetch;
+    MESH_TEST_FAIL_IF(inkwell_fetch_init(&fetch, NULL) != 0, "a loopless fetcher should init");
+    MESH_TEST_FAIL_IF(inkwell_fetch_available(&fetch), "and report itself unavailable");
 
     struct mesh_firmware_download download;
     memset(&download, 0, sizeof download);
@@ -502,11 +502,11 @@ MESH_TEST_CASE(firmware_download_refuses_what_it_cannot_do, unit) {
                       "nor is there anything to report progress on");
     MESH_TEST_FAIL_IF(mesh_firmware_download_image_path(&download, NULL, 0U) != NULL,
                       "and no image to point at");
-    mesh_fetch_shutdown(&fetch);
+    inkwell_fetch_shutdown(&fetch);
     record_success(test_name);
 }
 
-#ifdef MESHCLIENT_HAVE_TLS
+#ifdef INKWELL_HAVE_TLS
 
 /*
  * The orchestration, over the same fake CDN: a target and a release become a zip URL and a
@@ -525,7 +525,7 @@ MESH_TEST_CASE(firmware_fetch_resolves_a_target_to_a_zip_and_a_member, unit) {
     struct https_fixture server;
     memset(&server, 0, sizeof server);
     struct inkwell_loop loop;
-    struct mesh_fetch fetcher;
+    struct inkwell_fetch fetcher;
     struct mesh_firmware_fetch fetch;
     struct fetch_probe probe;
     bool loop_up = false;
@@ -536,7 +536,7 @@ MESH_TEST_CASE(firmware_fetch_resolves_a_target_to_a_zip_and_a_member, unit) {
         goto cleanup;
     }
     loop_up = true;
-    if (mesh_fetch_init(&fetcher, &loop) != 0) {
+    if (inkwell_fetch_init(&fetcher, &loop) != 0) {
         failure = "fetch init failed";
         goto cleanup;
     }
@@ -611,7 +611,7 @@ MESH_TEST_CASE(firmware_fetch_resolves_a_target_to_a_zip_and_a_member, unit) {
 
 cleanup:
     if (fetch_up) {
-        mesh_fetch_shutdown(&fetcher);
+        inkwell_fetch_shutdown(&fetcher);
     }
     if (loop_up) {
         inkwell_loop_shutdown(&loop);
@@ -622,4 +622,4 @@ cleanup:
     record_success(test_name);
 }
 
-#endif /* MESHCLIENT_HAVE_TLS */
+#endif /* INKWELL_HAVE_TLS */

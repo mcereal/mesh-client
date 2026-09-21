@@ -160,27 +160,27 @@ static void firmware_recompute_blocker(struct mesh_firmware *firmware) {
  * row is one line.
  */
 static void firmware_fetch_failed(struct mesh_firmware *firmware,
-                                  const struct mesh_fetch_result *result,
+                                  const struct inkwell_fetch_result *result,
                                   enum inkcell_str_id what) {
     char message[MESH_FIRMWARE_MESSAGE_MAX];
     switch (result->outcome) {
-    case MESH_FETCH_TIMED_OUT:
+    case INKWELL_FETCH_TIMED_OUT:
         inkwell_str_copy(message, sizeof message, inkcell_str(MESH_STR_FW_TIMED_OUT));
         break;
-    case MESH_FETCH_NETWORK:
+    case INKWELL_FETCH_NETWORK:
         inkwell_str_copy(message, sizeof message, inkcell_str(MESH_STR_FW_UNREACHABLE));
         break;
-    case MESH_FETCH_TLS:
+    case INKWELL_FETCH_TLS:
         inkwell_str_copy(message, sizeof message, inkcell_str(MESH_STR_FW_TLS_UNVERIFIED));
         break;
-    case MESH_FETCH_HTTP_STATUS:
+    case INKWELL_FETCH_HTTP_STATUS:
         inkcell_str_format(message, sizeof message, MESH_STR_FW_CHECK_HTTP, result->status);
         break;
-    case MESH_FETCH_TOO_LARGE:
-    case MESH_FETCH_PROTOCOL:
-    case MESH_FETCH_FILE:
-    case MESH_FETCH_OK:
-    case MESH_FETCH_OUTCOME_COUNT:
+    case INKWELL_FETCH_TOO_LARGE:
+    case INKWELL_FETCH_PROTOCOL:
+    case INKWELL_FETCH_FILE:
+    case INKWELL_FETCH_OK:
+    case INKWELL_FETCH_OUTCOME_COUNT:
     default:
         /* Which document, not what was wrong with it: a reply past the cap and a reply that was
            not HTTP are one answer to the reader - the list did not arrive - and `what` already
@@ -192,12 +192,12 @@ static void firmware_fetch_failed(struct mesh_firmware *firmware,
        and which host and which error it was is the part that only ever helps somebody reading a
        log. */
     inkwell_log_warn("firmware", "%s failed: %s (%s: %s)", inkcell_str(what), message,
-                     mesh_fetch_outcome_name(result->outcome), result->detail);
+                     inkwell_fetch_outcome_name(result->outcome), result->detail);
     firmware_set(firmware, MESH_FIRMWARE_FAILED, message);
 }
 
-static void firmware_on_hardware(void *userdata, const struct mesh_fetch_result *result);
-static void firmware_on_index(void *userdata, const struct mesh_fetch_result *result);
+static void firmware_on_hardware(void *userdata, const struct inkwell_fetch_result *result);
+static void firmware_on_index(void *userdata, const struct inkwell_fetch_result *result);
 
 /*
  * Starts the second half. Called both from the press and from the first half's completion,
@@ -209,7 +209,7 @@ static void firmware_on_index(void *userdata, const struct mesh_fetch_result *re
  * worst it is ever out by is one turn of the loop.
  */
 static int firmware_start_index(struct mesh_firmware *firmware) {
-    const struct mesh_fetch_request request = {
+    const struct inkwell_fetch_request request = {
         .url = firmware_list_url(),
         .headers = {"Accept: application/json"},
         .timeout_ms = MESH_FIRMWARE_TIMEOUT_MS,
@@ -217,7 +217,7 @@ static int firmware_start_index(struct mesh_firmware *firmware) {
         .on_done = firmware_on_index,
         .userdata = firmware,
     };
-    const int result = mesh_fetch_start(&firmware->fetch, &request, firmware->now_ms);
+    const int result = inkwell_fetch_start(&firmware->fetch, &request, firmware->now_ms);
     if (result != 0) {
         firmware_set(firmware, MESH_FIRMWARE_FAILED, inkcell_str(MESH_STR_UPDATE_START_FAILED));
         return result;
@@ -226,12 +226,12 @@ static int firmware_start_index(struct mesh_firmware *firmware) {
     return 0;
 }
 
-static void firmware_on_hardware(void *userdata, const struct mesh_fetch_result *result) {
+static void firmware_on_hardware(void *userdata, const struct inkwell_fetch_result *result) {
     struct mesh_firmware *firmware = (struct mesh_firmware *)userdata;
     if (firmware == NULL || firmware->state != MESH_FIRMWARE_IDENTIFYING) {
         return;
     }
-    if (result->outcome != MESH_FETCH_OK || result->body == NULL) {
+    if (result->outcome != INKWELL_FETCH_OK || result->body == NULL) {
         firmware_fetch_failed(firmware, result, MESH_STR_FW_HARDWARE_UNREADABLE);
         return;
     }
@@ -255,12 +255,12 @@ static void firmware_on_hardware(void *userdata, const struct mesh_fetch_result 
     (void)firmware_start_index(firmware);
 }
 
-static void firmware_on_index(void *userdata, const struct mesh_fetch_result *result) {
+static void firmware_on_index(void *userdata, const struct inkwell_fetch_result *result) {
     struct mesh_firmware *firmware = (struct mesh_firmware *)userdata;
     if (firmware == NULL || firmware->state != MESH_FIRMWARE_CHECKING) {
         return;
     }
-    if (result->outcome != MESH_FETCH_OK || result->body == NULL) {
+    if (result->outcome != INKWELL_FETCH_OK || result->body == NULL) {
         firmware_fetch_failed(firmware, result, MESH_STR_FW_INDEX_UNREADABLE);
         return;
     }
@@ -298,22 +298,22 @@ int mesh_firmware_init(struct mesh_firmware *firmware, struct inkwell_loop *loop
     firmware->channel = MESH_FIRMWARE_CHANNEL_STABLE;
     firmware->bus = MESH_FIRMWARE_PATH_NONE;
     firmware->blocker = MESH_FIRMWARE_BLOCKER_NO_RADIO;
-    return mesh_fetch_init(&firmware->fetch, loop);
+    return inkwell_fetch_init(&firmware->fetch, loop);
 }
 
 void mesh_firmware_shutdown(struct mesh_firmware *firmware) {
     if (firmware == NULL) {
         return;
     }
-    mesh_fetch_shutdown(&firmware->fetch);
+    inkwell_fetch_shutdown(&firmware->fetch);
 }
 
 bool mesh_firmware_available(const struct mesh_firmware *firmware) {
-    return firmware != NULL && mesh_fetch_available(&firmware->fetch);
+    return firmware != NULL && inkwell_fetch_available(&firmware->fetch);
 }
 
 bool mesh_firmware_busy(const struct mesh_firmware *firmware) {
-    return firmware != NULL && mesh_fetch_busy(&firmware->fetch);
+    return firmware != NULL && inkwell_fetch_busy(&firmware->fetch);
 }
 
 void mesh_firmware_set_bus(struct mesh_firmware *firmware, enum mesh_firmware_path bus,
@@ -402,7 +402,7 @@ int mesh_firmware_check(struct mesh_firmware *firmware, uint32_t hw_model, const
         return firmware_start_index(firmware);
     }
 
-    const struct mesh_fetch_request request = {
+    const struct inkwell_fetch_request request = {
         .url = firmware_hardware_url(),
         .headers = {"Accept: application/json"},
         .timeout_ms = MESH_FIRMWARE_TIMEOUT_MS,
@@ -410,7 +410,7 @@ int mesh_firmware_check(struct mesh_firmware *firmware, uint32_t hw_model, const
         .on_done = firmware_on_hardware,
         .userdata = firmware,
     };
-    const int result = mesh_fetch_start(&firmware->fetch, &request, now_ms);
+    const int result = inkwell_fetch_start(&firmware->fetch, &request, now_ms);
     if (result != 0) {
         firmware_set(firmware, MESH_FIRMWARE_FAILED, inkcell_str(MESH_STR_UPDATE_START_FAILED));
         return result;
@@ -426,5 +426,5 @@ void mesh_firmware_tick(struct mesh_firmware *firmware, uint64_t now_ms) {
     /* Stamped before the tick, so a completion the tick dispatches - which may start the second
        document - sets its deadline against this turn rather than the last one. */
     firmware->now_ms = now_ms;
-    mesh_fetch_tick(&firmware->fetch, now_ms);
+    inkwell_fetch_tick(&firmware->fetch, now_ms);
 }

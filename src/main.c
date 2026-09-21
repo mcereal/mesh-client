@@ -308,7 +308,7 @@ static void list_all_devices(struct mesh_app *app) {
  * the two questions are separate and this is the one without a radio in it.
  */
 struct cli_firmware_fetch {
-    struct mesh_fetch *fetcher;
+    struct inkwell_fetch *fetcher;
     struct mesh_firmware_fetch fetch;
     struct mesh_firmware_release release;
     /*
@@ -333,9 +333,9 @@ static void cli_firmware_done(void *userdata, const struct mesh_firmware_fetch *
     run->ok = fetch->state == MESH_FIRMWARE_FETCH_READY;
 }
 
-static void cli_firmware_index(void *userdata, const struct mesh_fetch_result *result) {
+static void cli_firmware_index(void *userdata, const struct inkwell_fetch_result *result) {
     struct cli_firmware_fetch *const run = (struct cli_firmware_fetch *)userdata;
-    if (result->outcome != MESH_FETCH_OK || result->body == NULL ||
+    if (result->outcome != INKWELL_FETCH_OK || result->body == NULL ||
         !mesh_firmware_release_parse(result->body, result->len, run->channel, &run->release)) {
         fprintf(stderr, "Could not read the release index.\n");
         run->finished = true;
@@ -378,14 +378,14 @@ static int fetch_radio_firmware(struct mesh_app *app, struct cli_firmware_fetch 
     run->target = target;
     run->staging = staging;
 
-    if (!mesh_fetch_available(run->fetcher)) {
+    if (!inkwell_fetch_available(run->fetcher)) {
         fprintf(stderr, "This build has no TLS; nothing can be fetched.\n");
         return -ENOTSUP;
     }
     printf("Fetching firmware for %s (%s) into %s\n", target,
            mesh_firmware_channel_name(run->channel), staging);
 
-    struct mesh_fetch_request request;
+    struct inkwell_fetch_request request;
     memset(&request, 0, sizeof request);
     request.url = "https://api.meshtastic.org/github/firmware/list";
     request.timeout_ms = 30000U;
@@ -394,7 +394,7 @@ static int fetch_radio_firmware(struct mesh_app *app, struct cli_firmware_fetch 
     request.response_max = 512U * 1024U;
     request.on_done = cli_firmware_index;
     request.userdata = run;
-    if (mesh_fetch_start(run->fetcher, &request, inkwell_time_monotonic_ms()) != 0) {
+    if (inkwell_fetch_start(run->fetcher, &request, inkwell_time_monotonic_ms()) != 0) {
         fprintf(stderr, "Could not start the release index fetch.\n");
         return -EIO;
     }
@@ -404,7 +404,7 @@ static int fetch_radio_firmware(struct mesh_app *app, struct cli_firmware_fetch 
     for (int turn = 0; turn < 60000 && !run->finished; ++turn) {
         (void)inkwell_loop_run(&app->loop, 10);
         const uint64_t now = inkwell_time_monotonic_ms();
-        mesh_fetch_tick(run->fetcher, now);
+        inkwell_fetch_tick(run->fetcher, now);
         if (run->resolved) {
             mesh_firmware_fetch_tick(&run->fetch, now);
             const unsigned progress = mesh_firmware_fetch_progress(&run->fetch);
@@ -429,7 +429,7 @@ static int fetch_radio_firmware(struct mesh_app *app, struct cli_firmware_fetch 
         return -EIO;
     }
 
-    char path[MESH_FETCH_PATH_MAX];
+    char path[INKWELL_FETCH_PATH_MAX];
     printf("Image:    %s\n", run->fetch.image.name);
     printf("Size:     %llu bytes\n", (unsigned long long)run->fetch.image.bytes);
     printf("Staged:   %s\n",
@@ -603,7 +603,7 @@ static bool cli_select_named_ble_link(struct mesh_app *app, struct mesh_bluez_de
 
 static int install_radio_firmware_ble(struct mesh_app *app,
                                       const struct cli_firmware_fetch *fetched) {
-    char image_path[MESH_FETCH_PATH_MAX];
+    char image_path[INKWELL_FETCH_PATH_MAX];
     if (mesh_firmware_fetch_image_path(&fetched->fetch, image_path, sizeof image_path) == NULL) {
         fprintf(stderr, "The image was fetched and then could not be found.\n");
         return -EIO;
@@ -848,7 +848,7 @@ static int install_radio_firmware(struct mesh_app *app, const char *target, cons
         return -ENOTSUP;
     }
 
-    char image_path[MESH_FETCH_PATH_MAX];
+    char image_path[INKWELL_FETCH_PATH_MAX];
     if (mesh_firmware_fetch_image_path(&fetched.fetch, image_path, sizeof image_path) == NULL) {
         fprintf(stderr, "The image was fetched and then could not be found.\n");
         return -EIO;

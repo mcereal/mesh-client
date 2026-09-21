@@ -25,7 +25,7 @@
  *     client says which of them is true.
  */
 
-#include "mesh/core/fetch.h"
+#include "inkwell/net/fetch.h"
 #include "mesh/core/firmware_catalog.h"
 
 #include <stdbool.h>
@@ -87,7 +87,7 @@ enum mesh_firmware_blocker {
 };
 
 struct mesh_firmware {
-    struct mesh_fetch fetch;
+    struct inkwell_fetch fetch;
     enum mesh_firmware_state state;
     enum mesh_firmware_channel channel;
     /*

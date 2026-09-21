@@ -81,7 +81,7 @@ It is not a general ARM CLI and a Pi will not run it.
 The core is Linux-only (`epoll`/`timerfd`/`eventfd`). On a Linux host:
 
 ```bash
-git submodule update --init --recursive   # nanopb, Meshtastic protobufs, Mbed TLS
+git submodule update --init --recursive   # inkwell, inkcell, nanopb, protobufs (Mbed TLS nests under inkwell)
 make setup                                # libdbus-1-dev + the Python protobuf packages
 make debug                                # needs CMake >= 3.21, Ninja and a C17 toolchain
 make test
@@ -144,7 +144,7 @@ With the Brick on WiFi and the SSH Server pak installed, skip the SD card: set `
 | `devtools/` | host-only development tools; today the off-screen UI capture harness |
 | `docker/` | `Dockerfile` (`dev` and `cross` stages) and the cross toolchain bootstrap |
 | `Tools/tg5040/MeshClient.pak/` | pak scaffold: `launch.sh` |
-| `proto/meshtastic/`, `third_party/nanopb/`, `third_party/mbedtls/` | upstream protobufs, nanopb and Mbed TLS (submodules) |
+| `proto/meshtastic/`, `third_party/nanopb/` | upstream protobufs and nanopb (submodules); Mbed TLS is inkwell's, nested inside it |
 | `docs/` | architecture, transports, UI, CLI, device and release documentation |
 
 ## Documentation

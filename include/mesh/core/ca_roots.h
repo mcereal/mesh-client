@@ -4,7 +4,7 @@
  * The CA roots compiled into this binary: Mozilla's set, as DER.
  *
  * This is *this client's* answer to what it trusts, handed to the TLS client at startup through
- * `mesh_tls_set_roots()`. Nothing below that call knows where a root came from, which is the
+ * `inkwell_tls_set_roots()`. Nothing below that call knows where a root came from, which is the
  * point: compiling them in is a decision about how this product ships, not about how TLS works.
  *
  * And the decision is a real one. The Brick has no system certificate store, and a bundle shipped
@@ -17,13 +17,13 @@
 
 #include <stddef.h>
 
-#include "mesh/core/tls_client.h"
+#include "inkwell/net/tls.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-extern const struct mesh_tls_ca_root mesh_ca_roots[];
+extern const struct inkwell_tls_ca_root mesh_ca_roots[];
 extern const size_t mesh_ca_root_count;
 
 #ifdef __cplusplus
