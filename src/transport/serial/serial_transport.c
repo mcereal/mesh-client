@@ -604,7 +604,9 @@ mesh_serial_transport_handshake_status(struct mesh_transport *transport) {
 }
 
 struct mesh_transport *mesh_serial_transport(void) {
-    static struct mesh_serial_transport_state state = {.link = {.fd = -1}};
+    /* The descriptor reads as closed before start() calls mesh_stream_link_init(): a zeroed
+       struct would have fd 0, which is stdin and is very much open. */
+    static struct mesh_serial_transport_state state = {.link = {.stream = {.fd = -1}}};
     static struct mesh_transport transport = {
         .name = "serial",
         .state = &state,

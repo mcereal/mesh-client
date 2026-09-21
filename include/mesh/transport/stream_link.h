@@ -1,5 +1,6 @@
 #pragma once
 
+#include "inkwell/net/stream.h"
 #include "inkwell/runtime/loop.h"
 #include "mesh/core/session.h"
 #include "mesh/proto/stream_framing.h"
@@ -13,67 +14,57 @@ extern "C" {
 #endif
 
 /*
- * The half of a stream transport that is the same for every stream transport.
+ * The half of a stream transport that knows this is a radio.
  *
  * Meshtastic's serial and TCP APIs are one wire format (mesh/proto/stream_framing.h) over two
  * different ways of getting a file descriptor. What differs between them is how that descriptor
  * comes to exist - a sysfs scan, a driver bind and a DTR assert on one side, a hostname and a
- * connect() on the other - and everything after it is identical: read into the frame parser,
- * hand each frame to the session, frame outbound packets into a queue with a partial-write
- * cursor, and keep EPOLLOUT armed exactly while that queue has a remainder.
+ * connect() on the other - and everything after it is identical.
  *
- * This owns the identical half. A transport owns one of these, opens it with a descriptor it
- * obtained however it likes, and keeps its own connection policy to itself.
+ * **Most of that identical part is inkwell's now.** `struct inkwell_stream` reads what is ready
+ * without starving the loop, queues what goes out, and keeps EPOLLOUT armed exactly while that
+ * queue has a remainder - none of which has anything to do with a radio, and all of which any
+ * program talking a protocol over a descriptor needs. What is left here is the three things
+ * that do know what a radio is:
  *
- * It is a component rather than a seam: it holds no policy, decides nothing about when to
- * connect or what to do when a link dies, and never resets itself. pump() and flush() report a
- * fatal error and stop; the transport that owns the link decides what that means and says so in
- * its own words, because "port closed" and "the radio hung up" are the same errno and two
- * different sentences.
+ *   - the frame parser, because 0x94 0xC3 is Meshtastic's and nobody else's;
+ *   - the session the frames go to;
+ *   - the two numbers that size the outbound queue, which are this protocol's largest frame
+ *     and how many of them this client is willing to hold while a port is not draining.
+ *
+ * A transport owns one of these, opens it with a descriptor it obtained however it likes, and
+ * keeps its own connection policy to itself. pump() and flush() report a fatal error and stop;
+ * the transport that owns the link decides what that means and says so in its own words,
+ * because "port closed" and "the radio hung up" are the same errno and two different sentences.
  */
 
 /* Outbound packets held while the descriptor is not draining. Eight is what the serial link
    carried before this was lifted out of it: a NodeDB sync is inbound, so the outbound queue only
-   ever holds what the user and the admin queue produced in one turn of the loop. */
+   ever holds what the user and the admin queue produced in one turn of the loop.
+
+   It is this client's number, which is why inkwell_stream takes it as storage rather than
+   declaring one: eight Meshtastic frames is a few kilobytes on a handheld, and would be a
+   silly answer for something moving a file. */
 #define MESH_STREAM_LINK_MAX_OUTBOUND 8U
+#define MESH_STREAM_LINK_SLOT_BYTES (MESH_STREAM_FRAME_HEADER_LEN + MESH_STREAM_FRAME_MAX_PAYLOAD)
 
-/*
- * What the descriptor is, which decides how a write to it is made.
- *
- * Not a detail: writing to a socket whose peer has gone raises `SIGPIPE`, whose default
- * disposition kills the process - so a radio that drops off the WiFi between two turns of the
- * loop would take the client down with it, before the `-EPIPE` this code handles could ever be
- * returned. `send(MSG_NOSIGNAL)` is the suppression, and it is a socket call: on a tty it fails
- * with `ENOTSOCK`, which is why the link has to be told which kind it holds rather than picking
- * one. A tty needs none of it - a write to an unplugged port is `EIO`, not a signal.
- */
+/* What the descriptor is, which decides how a write to it is made. inkwell's enum under this
+   client's spelling; see inkwell/net/stream.h for why a stream has to be told rather than
+   guess, and get it wrong towards SOCKET and every write fails with ENOTSOCK. */
 enum mesh_stream_link_kind {
-    MESH_STREAM_LINK_FILE = 0, /* a tty: write() */
-    MESH_STREAM_LINK_SOCKET,   /* a socket: send() with MSG_NOSIGNAL */
-};
-
-/* One framed ToRadio packet, header included, with a cursor for partial writes. */
-struct mesh_stream_link_packet {
-    size_t length;
-    size_t sent;
-    uint32_t packet_id; /* message log id to fail if this never reaches the radio; 0 = none */
-    uint8_t data[MESH_STREAM_FRAME_HEADER_LEN + MESH_STREAM_FRAME_MAX_PAYLOAD];
+    MESH_STREAM_LINK_FILE = (int)INKWELL_STREAM_FILE,
+    MESH_STREAM_LINK_SOCKET = (int)INKWELL_STREAM_SOCKET,
 };
 
 struct mesh_stream_link {
-    int fd;
-    enum mesh_stream_link_kind kind;
-    bool fd_registered;
-    bool want_write; /* EPOLLOUT is armed because the write queue has a remainder */
-    struct inkwell_loop *loop;
+    /* The descriptor, the read bound, the outbound queue and the EPOLLOUT arithmetic. */
+    struct inkwell_stream stream;
+    /* ...over storage this client sizes, because the slot is one Meshtastic frame. */
+    struct inkwell_stream_slot slots[MESH_STREAM_LINK_MAX_OUTBOUND];
+    uint8_t slot_bytes[MESH_STREAM_LINK_MAX_OUTBOUND * MESH_STREAM_LINK_SLOT_BYTES];
 
     struct mesh_stream_parser parser;
     size_t frames_received;
-    size_t bytes_received;
-
-    struct mesh_stream_link_packet write_queue[MESH_STREAM_LINK_MAX_OUTBOUND];
-    size_t write_queue_head;
-    size_t write_queue_len;
 
     /* The conversation this link feeds. Borrowed: the transport owns it, or the app does. */
     struct mesh_session *session;

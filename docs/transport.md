@@ -17,6 +17,21 @@ session never sees GATT, ttys or framing; a link never decodes a protobuf.**
 Serial and TCP are one wire format — `0x94 0xC3`-framed protobufs over a byte stream — and differ
 only in how the descriptor is obtained, so the identical half is `src/transport/stream_link.c`.
 
+Most of *that* is inkwell's now. `struct inkwell_stream` owns the descriptor: the bounded read,
+the outbound queue with its partial-write cursor, and keeping `EPOLLOUT` armed exactly while
+that queue has a remainder — none of which knows what a radio is. What `stream_link.c` still
+owns is the three things that do:
+
+| | |
+|---|---|
+| the frame parser | `0x94 0xC3` is Meshtastic's and nobody else's |
+| the session | frames go to `mesh_session_handle_from_radio()`; a packet dropped unsent comes back as `mesh_session_packet_failed()` |
+| the queue's two numbers | eight slots of one Meshtastic frame each — this client's budget, passed to inkwell as storage rather than declared by it |
+
+The seam reads as a pair: going out, `mesh_stream_link_send()` frames the packet and hands
+inkwell the bytes; going in, inkwell hands back whatever arrived and this pushes it at the
+parser. Neither direction lets the framing down or the descriptor up.
+
 ## How a failure reaches the user
 
 `take_error()` hands back one sentence, once, and the screen that asked shows it. What changed

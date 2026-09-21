@@ -1,177 +1,18 @@
-#define _GNU_SOURCE
-#define _POSIX_C_SOURCE 200809L
-
 #include "mesh/transport/stream_link.h"
 
 #include "inkwell/base/log.h"
 
 #include <errno.h>
 #include <string.h>
-#include <sys/epoll.h>
-#include <sys/socket.h>
-#include <unistd.h>
-
-#define MESH_STREAM_LINK_READ_CHUNK 1024U
-/* Reads per event-loop turn. A NodeDB sync arrives as a burst; bound it so UI input still flows. */
-#define MESH_STREAM_LINK_READS_PER_TURN 8U
-
-void mesh_stream_link_init(struct mesh_stream_link *link, const char *tag,
-                           struct mesh_session *session) {
-    if (link == NULL) {
-        return;
-    }
-    memset(link, 0, sizeof *link);
-    link->fd = -1;
-    link->tag = tag != NULL ? tag : "link";
-    link->session = session;
-    mesh_stream_parser_reset(&link->parser);
-}
 
 /*
- * The one write in this file, so the SIGPIPE suppression cannot be forgotten on one path and
- * applied on another. MSG_NOSIGNAL is a socket flag and a tty write takes none, which is the
- * whole of why the link is told what it holds.
+ * This file is what is left of the stream link after the descriptor went to inkwell: the frame
+ * parser, the session, and the two callbacks that join them to a byte stream.
+ *
+ * The seam is worth reading as a pair. Going out, this frames a packet and hands inkwell the
+ * bytes; going in, inkwell hands back whatever arrived and this pushes it at the parser. Neither
+ * direction lets the framing down or the descriptor up.
  */
-static ssize_t mesh_stream_link_write(const struct mesh_stream_link *link, const uint8_t *data,
-                                      size_t len) {
-    if (link->kind == MESH_STREAM_LINK_SOCKET) {
-        return send(link->fd, data, len, MSG_NOSIGNAL);
-    }
-    return write(link->fd, data, len);
-}
-
-void mesh_stream_link_set_session(struct mesh_stream_link *link, struct mesh_session *session) {
-    if (link != NULL) {
-        link->session = session;
-    }
-}
-
-bool mesh_stream_link_is_open(const struct mesh_stream_link *link) {
-    return link != NULL && link->fd >= 0;
-}
-
-/* ------------------------------------------------------------------ write queue */
-
-static void mesh_stream_link_clear_write_queue(struct mesh_stream_link *link) {
-    for (size_t i = 0; i < link->write_queue_len; ++i) {
-        const size_t index = (link->write_queue_head + i) % MESH_STREAM_LINK_MAX_OUTBOUND;
-        const uint32_t packet_id = link->write_queue[index].packet_id;
-        if (packet_id != 0U) {
-            mesh_session_packet_failed(link->session, packet_id);
-        }
-    }
-    link->write_queue_head = 0U;
-    link->write_queue_len = 0U;
-}
-
-static int mesh_stream_link_queue_packet(struct mesh_stream_link *link, const uint8_t *packet,
-                                         size_t len, uint32_t packet_id) {
-    if (link->write_queue_len >= MESH_STREAM_LINK_MAX_OUTBOUND) {
-        return -ENOSPC;
-    }
-
-    const size_t index =
-        (link->write_queue_head + link->write_queue_len) % MESH_STREAM_LINK_MAX_OUTBOUND;
-    struct mesh_stream_link_packet *slot = &link->write_queue[index];
-    size_t written = 0U;
-    const int encoded =
-        mesh_stream_frame_encode(packet, len, slot->data, sizeof slot->data, &written);
-    if (encoded < 0) {
-        return encoded;
-    }
-
-    slot->length = written;
-    slot->sent = 0U;
-    slot->packet_id = packet_id;
-    link->write_queue_len += 1U;
-    return 0;
-}
-
-/* Keeps EPOLLOUT armed exactly while the queue has a remainder, so a descriptor that filled up
-   wakes the loop instead of waiting out the poll timeout. */
-static void mesh_stream_link_update_write_interest(struct mesh_stream_link *link) {
-    if (!link->fd_registered || link->loop == NULL) {
-        return;
-    }
-    const bool want = link->write_queue_len > 0U;
-    if (want == link->want_write) {
-        return;
-    }
-    const uint32_t events = want ? (uint32_t)(EPOLLIN | EPOLLOUT) : (uint32_t)EPOLLIN;
-    if (inkwell_loop_update_fd(link->loop, link->fd, events) == 0) {
-        link->want_write = want;
-    }
-}
-
-int mesh_stream_link_flush(struct mesh_stream_link *link) {
-    if (link == NULL) {
-        return -EINVAL;
-    }
-    if (link->fd < 0) {
-        return -ENOTCONN;
-    }
-
-    while (link->write_queue_len > 0U) {
-        struct mesh_stream_link_packet *slot = &link->write_queue[link->write_queue_head];
-        const ssize_t written =
-            mesh_stream_link_write(link, slot->data + slot->sent, slot->length - slot->sent);
-        if (written < 0) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                break; /* the far end is not draining; EPOLLOUT brings us back */
-            }
-            if (errno == EINTR) {
-                continue;
-            }
-            /* EPIPE lands here rather than as a dead process, which is what MSG_NOSIGNAL above
-               bought: the far end went away and the owner gets to say so in its own words. */
-            inkwell_log_warn(link->tag, "write failed: %s", strerror(errno));
-            return -EIO;
-        }
-
-        slot->sent += (size_t)written;
-        if (slot->sent < slot->length) {
-            break;
-        }
-        link->write_queue_head = (link->write_queue_head + 1U) % MESH_STREAM_LINK_MAX_OUTBOUND;
-        link->write_queue_len -= 1U;
-    }
-
-    mesh_stream_link_update_write_interest(link);
-    return 0;
-}
-
-int mesh_stream_link_send(struct mesh_stream_link *link, const uint8_t *packet, size_t len,
-                          uint32_t packet_id) {
-    if (link == NULL) {
-        return -EINVAL;
-    }
-    if (link->fd < 0) {
-        return -ENOTCONN;
-    }
-
-    const int queued = mesh_stream_link_queue_packet(link, packet, len, packet_id);
-    if (queued < 0) {
-        return queued;
-    }
-    mesh_stream_link_update_write_interest(link);
-    return mesh_stream_link_flush(link);
-}
-
-int mesh_stream_link_write_raw(struct mesh_stream_link *link, const uint8_t *data, size_t len) {
-    if (link == NULL || data == NULL) {
-        return -EINVAL;
-    }
-    if (link->fd < 0) {
-        return -ENOTCONN;
-    }
-    const ssize_t written = mesh_stream_link_write(link, data, len);
-    if (written < 0) {
-        return -errno;
-    }
-    return (int)written;
-}
-
-/* ------------------------------------------------------------------ read path */
 
 static void mesh_stream_link_on_frame(const uint8_t *payload, size_t len, void *ctx) {
     struct mesh_stream_link *link = (struct mesh_stream_link *)ctx;
@@ -208,79 +49,104 @@ static void mesh_stream_link_on_text(const uint8_t *text, size_t len, void *ctx)
     }
 }
 
-int mesh_stream_link_pump(struct mesh_stream_link *link) {
-    if (link == NULL) {
-        return -EINVAL;
-    }
-    if (link->fd < 0) {
-        return -ENOTCONN;
-    }
-
+/* Bytes off the descriptor go at the parser, which calls back with frames and with the radio's
+   text. Registered once at init, because inkwell keeps the sink across an open/close cycle. */
+static void mesh_stream_link_on_bytes(void *userdata, const uint8_t *bytes, size_t len) {
+    struct mesh_stream_link *link = (struct mesh_stream_link *)userdata;
     const struct mesh_stream_parser_callbacks callbacks = {
         .on_frame = mesh_stream_link_on_frame,
         .on_text = mesh_stream_link_on_text,
         .ctx = link,
     };
-
-    size_t total = 0U;
-    for (unsigned turn = 0U; turn < MESH_STREAM_LINK_READS_PER_TURN; ++turn) {
-        uint8_t buffer[MESH_STREAM_LINK_READ_CHUNK];
-        const ssize_t got = read(link->fd, buffer, sizeof buffer);
-        if (got > 0) {
-            total += (size_t)got;
-            link->bytes_received += (size_t)got;
-            mesh_stream_parser_push(&link->parser, buffer, (size_t)got, &callbacks);
-            continue;
-        }
-        if (got == 0) {
-            /* A tty does not normally report EOF, so on serial this is the node unplugged; on a
-               socket it is the ordinary way a far end says it has gone. */
-            return -ENOTCONN;
-        }
-        if (errno == EAGAIN || errno == EWOULDBLOCK) {
-            break;
-        }
-        if (errno == EINTR) {
-            continue;
-        }
-        inkwell_log_warn(link->tag, "read failed: %s", strerror(errno));
-        return -EIO;
-    }
-
-    return (int)total;
+    mesh_stream_parser_push(&link->parser, bytes, len, &callbacks);
 }
 
-/* ------------------------------------------------------------------ lifecycle */
+/* A packet that was queued and never went out. The id is the message log's, handed to inkwell
+   with the bytes and handed back here unchanged - inkwell never learns what it names. */
+static void mesh_stream_link_on_dropped(void *userdata, uint32_t packet_id) {
+    struct mesh_stream_link *link = (struct mesh_stream_link *)userdata;
+    mesh_session_packet_failed(link->session, packet_id);
+}
+
+void mesh_stream_link_init(struct mesh_stream_link *link, const char *tag,
+                           struct mesh_session *session) {
+    if (link == NULL) {
+        return;
+    }
+    memset(link, 0, sizeof *link);
+    link->tag = tag != NULL ? tag : "link";
+    link->session = session;
+    (void)inkwell_stream_init(&link->stream, link->tag, link->slots, MESH_STREAM_LINK_MAX_OUTBOUND,
+                              link->slot_bytes, MESH_STREAM_LINK_SLOT_BYTES);
+    inkwell_stream_set_sink(&link->stream, mesh_stream_link_on_bytes, mesh_stream_link_on_dropped,
+                            link);
+    mesh_stream_parser_reset(&link->parser);
+}
+
+void mesh_stream_link_set_session(struct mesh_stream_link *link, struct mesh_session *session) {
+    if (link != NULL) {
+        link->session = session;
+    }
+}
+
+bool mesh_stream_link_is_open(const struct mesh_stream_link *link) {
+    return link != NULL && inkwell_stream_is_open(&link->stream);
+}
+
+int mesh_stream_link_flush(struct mesh_stream_link *link) {
+    if (link == NULL) {
+        return -EINVAL;
+    }
+    return inkwell_stream_flush(&link->stream);
+}
+
+int mesh_stream_link_send(struct mesh_stream_link *link, const uint8_t *packet, size_t len,
+                          uint32_t packet_id) {
+    if (link == NULL) {
+        return -EINVAL;
+    }
+    /*
+     * Framed here and not down there. The 0x94 0xC3 header is Meshtastic's, and a byte stream
+     * that knew about it would be a byte stream with one protocol's opinion in it.
+     */
+    uint8_t framed[MESH_STREAM_LINK_SLOT_BYTES];
+    size_t written = 0U;
+    const int encoded = mesh_stream_frame_encode(packet, len, framed, sizeof framed, &written);
+    if (encoded < 0) {
+        return encoded;
+    }
+    return inkwell_stream_send(&link->stream, framed, written, packet_id);
+}
+
+int mesh_stream_link_write_raw(struct mesh_stream_link *link, const uint8_t *data, size_t len) {
+    if (link == NULL) {
+        return -EINVAL;
+    }
+    return inkwell_stream_write_raw(&link->stream, data, len);
+}
+
+int mesh_stream_link_pump(struct mesh_stream_link *link) {
+    if (link == NULL) {
+        return -EINVAL;
+    }
+    return inkwell_stream_pump(&link->stream);
+}
 
 int mesh_stream_link_open(struct mesh_stream_link *link, int fd, enum mesh_stream_link_kind kind,
                           struct inkwell_loop *loop, inkwell_loop_callback callback,
                           void *userdata) {
-    if (link == NULL || fd < 0) {
+    if (link == NULL) {
         return -EINVAL;
     }
-    if (link->fd >= 0) {
-        return -EBUSY;
+    const int opened = inkwell_stream_open(&link->stream, fd, (enum inkwell_stream_kind)kind, loop,
+                                           callback, userdata);
+    if (opened < 0) {
+        return opened;
     }
-
-    if (loop != NULL) {
-        const int added = inkwell_loop_add_fd(loop, fd, EPOLLIN, callback, userdata);
-        if (added < 0) {
-            return added;
-        }
-        link->fd_registered = true;
-    } else {
-        link->fd_registered = false;
-    }
-
-    link->fd = fd;
-    link->kind = kind;
-    link->loop = loop;
-    link->want_write = false;
+    /* The parser is reset on open rather than on close as well, so a link reopened on a new
+       descriptor cannot inherit half a frame from the last one. */
     mesh_stream_parser_reset(&link->parser);
     link->frames_received = 0U;
-    link->bytes_received = 0U;
-    link->write_queue_head = 0U;
-    link->write_queue_len = 0U;
     return 0;
 }
 
@@ -288,20 +154,11 @@ void mesh_stream_link_close(struct mesh_stream_link *link) {
     if (link == NULL) {
         return;
     }
-    /* The queue is cleared even on an already-closed link: a transport that failed between
-       queueing and opening still owes those packets a verdict. */
-    mesh_stream_link_clear_write_queue(link);
+    /* inkwell reports the queue on the way through, which is what fails those packets against
+       the session - including on an already-closed link, where a transport that failed between
+       queueing and opening still owes them a verdict. */
+    inkwell_stream_close(&link->stream);
     mesh_stream_parser_reset(&link->parser);
-    if (link->fd < 0) {
-        return;
-    }
-    if (link->fd_registered && link->loop != NULL) {
-        inkwell_loop_remove_fd(link->loop, link->fd);
-    }
-    close(link->fd);
-    link->fd = -1;
-    link->fd_registered = false;
-    link->want_write = false;
 }
 
 struct mesh_stream_link_stats mesh_stream_link_stats(const struct mesh_stream_link *link) {
@@ -310,7 +167,7 @@ struct mesh_stream_link_stats mesh_stream_link_stats(const struct mesh_stream_li
         return stats;
     }
     stats.frames_received = link->frames_received;
-    stats.bytes_received = link->bytes_received;
+    stats.bytes_received = inkwell_stream_bytes_received(&link->stream);
     stats.junk_bytes = link->parser.dropped_bytes;
     return stats;
 }

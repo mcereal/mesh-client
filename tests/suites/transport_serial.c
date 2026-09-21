@@ -3,6 +3,8 @@
 /* Stream framing and the USB-serial transport. */
 
 #include "framework/mesh_test.h"
+#include "mesh/core/message.h"
+#include "mesh/transport/stream_link.h"
 #include "support/fs_fixture.h"
 #include "support/proto_fixture.h"
 #include "support/serial_fixture.h"
@@ -55,6 +57,102 @@ static void stream_capture_text(const uint8_t *text, size_t len, void *ctx) {
 }
 
 /* ---- serial transport ------------------------------------------------------------------------ */
+
+/*
+ * The seam under the stream link: a packet that was queued and never went out is failed
+ * against the session.
+ *
+ * Untested before the descriptor moved to inkwell, and the riskiest thing about it having
+ * moved. It used to be a loop in this repository walking the queue and calling
+ * mesh_session_packet_failed() directly; it is now inkwell reporting each dropped slot through
+ * a callback, with the message log's own id carried down and handed back. Nothing about that
+ * round trip shows up in a build failure if it is wired wrong - a dropped packet would simply
+ * sit in the log as pending forever, which reads on screen as a message still being delivered.
+ *
+ * A bare session is enough: mesh_session_packet_failed() touches nothing but the message log.
+ */
+MESH_TEST_CASE(stream_link_fails_what_it_could_not_send, unit) {
+    int fds[2];
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, fds) != 0) {
+        record_failure(test_name, "could not make a socket pair");
+        return;
+    }
+    const int flags = fcntl(fds[0], F_GETFL, 0);
+    if (flags < 0 || fcntl(fds[0], F_SETFL, flags | O_NONBLOCK) != 0) {
+        record_failure(test_name, "could not make the pair non-blocking");
+        (void)close(fds[0]);
+        (void)close(fds[1]);
+        return;
+    }
+
+    static struct mesh_session session;
+    memset(&session, 0, sizeof session);
+    mesh_message_log_reset(&session.messages);
+
+    struct mesh_message outbound;
+    memset(&outbound, 0, sizeof outbound);
+    outbound.packet_id = 4242U;
+    outbound.ack = MESH_MESSAGE_ACK_PENDING;
+    /* Outbound, because that is what mesh_message_log_mark_ack() will act on: an inbound entry
+       has no delivery to report and is left alone. */
+    outbound.direction = MESH_MESSAGE_OUTBOUND;
+    if (mesh_message_log_append(&session.messages, &outbound) == NULL) {
+        record_failure(test_name, "could not seed the message log");
+        goto cleanup;
+    }
+
+    struct mesh_stream_link link;
+    mesh_stream_link_init(&link, "test", &session);
+    if (mesh_stream_link_open(&link, fds[0], MESH_STREAM_LINK_SOCKET, NULL, NULL, NULL) != 0) {
+        record_failure(test_name, "could not open the link");
+        goto cleanup;
+    }
+
+    /* Fill the pair so nothing drains, and the send has nowhere to go but the queue. */
+    uint8_t filler[4096];
+    memset(filler, 0xAAU, sizeof filler);
+    while (send(fds[0], filler, sizeof filler, MSG_NOSIGNAL) > 0) {
+    }
+
+    const uint8_t packet[] = {0x08U, 0x01U};
+    if (mesh_stream_link_send(&link, packet, sizeof packet, 4242U) != 0) {
+        record_failure(test_name, "a send with a full descriptor should queue, not fail");
+        mesh_stream_link_close(&link);
+        goto cleanup;
+    }
+    const struct mesh_message *pending = mesh_message_log_find(&session.messages, 4242U);
+    if (pending == NULL || pending->ack != MESH_MESSAGE_ACK_PENDING) {
+        record_failure(test_name, "a queued packet is not failed while it is still queued");
+        mesh_stream_link_close(&link);
+        goto cleanup;
+    }
+
+    /* And the queue is this client's eight, not a number inkwell picked. */
+    int refused_at = -1;
+    for (int i = 0; i < (int)MESH_STREAM_LINK_MAX_OUTBOUND + 2; ++i) {
+        if (mesh_stream_link_send(&link, packet, sizeof packet, 0U) == -ENOSPC) {
+            refused_at = i;
+            break;
+        }
+    }
+    if (refused_at != (int)MESH_STREAM_LINK_MAX_OUTBOUND - 1) {
+        record_failure(test_name, "the queue should hold exactly MESH_STREAM_LINK_MAX_OUTBOUND");
+        mesh_stream_link_close(&link);
+        goto cleanup;
+    }
+
+    mesh_stream_link_close(&link);
+
+    const struct mesh_message *failed = mesh_message_log_find(&session.messages, 4242U);
+    if (failed == NULL || failed->ack != MESH_MESSAGE_ACK_FAILED) {
+        record_failure(test_name, "closing must fail every packet still queued");
+        goto cleanup;
+    }
+    record_success(test_name);
+
+cleanup:
+    (void)close(fds[1]);
+}
 
 MESH_TEST_CASE(stream_frame_encode, unit) {
     const uint8_t payload[] = {0x08U, 0x96U, 0x01U};
