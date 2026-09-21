@@ -52,7 +52,7 @@
 extern "C" {
 #endif
 
-struct mesh_event_loop;
+struct inkwell_loop;
 
 /* A UF2 for a board with 1 MB of flash is about 2 MB, because a block spends 512 bytes carrying
    256. This is well clear of that and well short of anything that would embarrass a device with
@@ -116,7 +116,7 @@ typedef void (*mesh_firmware_install_done_fn)(void *userdata,
                                               const struct mesh_firmware_install *install);
 
 struct mesh_firmware_install {
-    struct mesh_event_loop *loop; /* borrowed; may be NULL */
+    struct inkwell_loop *loop; /* borrowed; may be NULL */
 
     enum mesh_firmware_install_state state;
     enum mesh_firmware_install_error error;
@@ -173,7 +173,7 @@ struct mesh_firmware_install {
  * still filled in - a refusal is a row, and "that file is not a UF2 for this board" is a
  * different row from "the radio would not take the request".
  */
-int mesh_firmware_install_start(struct mesh_firmware_install *install, struct mesh_event_loop *loop,
+int mesh_firmware_install_start(struct mesh_firmware_install *install, struct inkwell_loop *loop,
                                 const char *image_path, const char *port_id, uint32_t expect_family,
                                 mesh_firmware_install_arm_fn arm, void *arm_userdata,
                                 mesh_firmware_install_done_fn on_done, void *userdata);

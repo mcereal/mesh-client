@@ -12,11 +12,11 @@
 #include "framework/mesh_test.h"
 #include "support/ble_ota_fixture.h"
 
+#include "inkwell/codec/sha256.h"
 #include "mesh/core/esp_image.h"
 #include "mesh/core/firmware_ota.h"
 #include "mesh/transport/ble_bluez.h"
 #include "mesh/transport/ble_ota.h"
-#include "mesh/utils/sha256.h"
 
 #include <errno.h>
 #include <limits.h>
@@ -55,9 +55,9 @@ struct fw_rig {
     unsigned stop_discovery_calls;
     char image_path[PATH_MAX];
     uint8_t *image;
-    uint8_t sha256[MESH_SHA256_DIGEST_LEN];
+    uint8_t sha256[INKWELL_SHA256_DIGEST_LEN];
     unsigned armed;
-    uint8_t armed_hash[MESH_SHA256_DIGEST_LEN];
+    uint8_t armed_hash[INKWELL_SHA256_DIGEST_LEN];
     int arm_result;
     unsigned done_calls;
     unsigned last_attempts;
@@ -67,7 +67,7 @@ struct fw_rig {
 static int rig_arm(void *userdata, const uint8_t sha256[32]) {
     struct fw_rig *const rig = (struct fw_rig *)userdata;
     rig->armed += 1U;
-    memcpy(rig->armed_hash, sha256, MESH_SHA256_DIGEST_LEN);
+    memcpy(rig->armed_hash, sha256, INKWELL_SHA256_DIGEST_LEN);
     return rig->arm_result;
 }
 
@@ -107,10 +107,10 @@ static bool rig_open_ex(struct fw_rig *rig, uint16_t chip, bool loader_dies_with
     if (rig->image == NULL) {
         return false;
     }
-    struct mesh_sha256 hasher;
-    mesh_sha256_init(&hasher);
-    mesh_sha256_update(&hasher, rig->image, RIG_IMAGE_LEN);
-    mesh_sha256_final(&hasher, rig->sha256);
+    struct inkwell_sha256 hasher;
+    inkwell_sha256_init(&hasher);
+    inkwell_sha256_update(&hasher, rig->image, RIG_IMAGE_LEN);
+    inkwell_sha256_final(&hasher, rig->sha256);
 
     snprintf(rig->image_path, sizeof rig->image_path, "/tmp/meshclient_ota_XXXXXX");
     const int fd = mkstemp(rig->image_path);

@@ -6,7 +6,7 @@
  * Everything this client downloads comes through here: the self-update check and the binary
  * (src/core/update/updater.c), and the radio's firmware index, hardware list and release zip. It
  * is the TLS session the MQTT proxy uses (tls_client.h) under the HTTP/1.1 codec in
- * mesh/proto/http.h - resolve, connect, handshake, one request, one reply, and a redirect is the
+ * inkwell/codec/http.h - resolve, connect, handshake, one request, one reply, and a redirect is the
  * same again against the URL it named. Nothing is forked but the name lookup, which forks without
  * exec (resolve.h), so there is no program the device has to have and no CA bundle it has to
  * carry: the roots are compiled in (ca_roots.h).
@@ -29,13 +29,13 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "mesh/core/resolve.h"
+#include "inkwell/net/resolve.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-struct mesh_event_loop;
+struct inkwell_loop;
 struct mesh_fetch_conn; /* the request in flight; defined in src/core/net/fetch.c */
 
 #define MESH_FETCH_PATH_MAX 256U
@@ -133,8 +133,8 @@ struct mesh_fetch_request {
 };
 
 struct mesh_fetch {
-    struct mesh_event_loop *loop;
-    struct mesh_resolve resolve;
+    struct inkwell_loop *loop;
+    struct inkwell_resolve resolve;
     /* The request in flight, or NULL. Heap-held and only while one runs: it carries a reply head
        and a read buffer, which is tens of KB this struct's three owners should not hold idle. */
     struct mesh_fetch_conn *conn;
@@ -153,7 +153,7 @@ struct mesh_fetch {
  * `loop` may be NULL, in which case the fetcher reports itself unavailable - which is what a test
  * that never means to connect anywhere wants. Returns 0, or -errno.
  */
-int mesh_fetch_init(struct mesh_fetch *fetch, struct mesh_event_loop *loop);
+int mesh_fetch_init(struct mesh_fetch *fetch, struct inkwell_loop *loop);
 
 /* Abandons anything in flight without reporting it, and releases everything held. */
 void mesh_fetch_shutdown(struct mesh_fetch *fetch);

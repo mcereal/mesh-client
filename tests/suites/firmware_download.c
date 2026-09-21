@@ -25,7 +25,7 @@
 
 #include "framework/mesh_test.h"
 
-#include "mesh/core/event_loop.h"
+#include "inkwell/runtime/loop.h"
 #include "mesh/core/fetch.h"
 #include "mesh/core/firmware_catalog.h"
 #include "mesh/core/firmware_download.h"
@@ -171,11 +171,11 @@ static bool download_serve_as(struct https_fixture *server, enum download_cdn cd
     return true;
 }
 
-static bool download_wait(struct mesh_event_loop *loop, struct mesh_fetch *fetch,
+static bool download_wait(struct inkwell_loop *loop, struct mesh_fetch *fetch,
                           struct mesh_firmware_download *download,
                           const struct download_probe *probe) {
     for (int turn = 0; turn < 600 && probe->calls == 0U; ++turn) {
-        (void)mesh_event_loop_run(loop, 10);
+        (void)inkwell_loop_run(loop, 10);
         mesh_fetch_tick(fetch, 0U);
         mesh_firmware_download_tick(download, 0U);
     }
@@ -193,10 +193,10 @@ static void fetch_probe_done(void *userdata, const struct mesh_firmware_fetch *f
     ((struct fetch_probe *)userdata)->calls++;
 }
 
-static bool fetch_wait_done(struct mesh_event_loop *loop, struct mesh_fetch *fetcher,
+static bool fetch_wait_done(struct inkwell_loop *loop, struct mesh_fetch *fetcher,
                             struct mesh_firmware_fetch *fetch, const struct fetch_probe *probe) {
     for (int turn = 0; turn < 600 && probe->calls == 0U; ++turn) {
-        (void)mesh_event_loop_run(loop, 10);
+        (void)inkwell_loop_run(loop, 10);
         mesh_fetch_tick(fetcher, 0U);
         mesh_firmware_fetch_tick(fetch, 0U);
     }
@@ -230,13 +230,13 @@ MESH_TEST_CASE(firmware_download_fetches_a_member_end_to_end, unit) {
     const char *failure = NULL;
     struct https_fixture server;
     memset(&server, 0, sizeof server);
-    struct mesh_event_loop loop;
+    struct inkwell_loop loop;
     struct mesh_fetch fetch;
     struct mesh_firmware_download download;
     bool loop_up = false;
     bool fetch_up = false;
 
-    if (mesh_event_loop_init(&loop) != 0) {
+    if (inkwell_loop_init(&loop) != 0) {
         failure = "event loop init failed";
         goto cleanup;
     }
@@ -339,7 +339,7 @@ cleanup:
         mesh_fetch_shutdown(&fetch);
     }
     if (loop_up) {
-        mesh_event_loop_shutdown(&loop);
+        inkwell_loop_shutdown(&loop);
     }
     https_fixture_stop(&server);
     download_clean_dir(dir);
@@ -362,13 +362,13 @@ MESH_TEST_CASE(firmware_download_tells_a_missing_member_from_a_broken_one, unit)
     const char *failure = NULL;
     struct https_fixture server;
     memset(&server, 0, sizeof server);
-    struct mesh_event_loop loop;
+    struct inkwell_loop loop;
     struct mesh_fetch fetch;
     struct mesh_firmware_download download;
     bool loop_up = false;
     bool fetch_up = false;
 
-    if (mesh_event_loop_init(&loop) != 0) {
+    if (inkwell_loop_init(&loop) != 0) {
         failure = "event loop init failed";
         goto cleanup;
     }
@@ -469,7 +469,7 @@ cleanup:
         mesh_fetch_shutdown(&fetch);
     }
     if (loop_up) {
-        mesh_event_loop_shutdown(&loop);
+        inkwell_loop_shutdown(&loop);
     }
     https_fixture_stop(&server);
     download_clean_dir(dir);
@@ -524,14 +524,14 @@ MESH_TEST_CASE(firmware_fetch_resolves_a_target_to_a_zip_and_a_member, unit) {
     const char *failure = NULL;
     struct https_fixture server;
     memset(&server, 0, sizeof server);
-    struct mesh_event_loop loop;
+    struct inkwell_loop loop;
     struct mesh_fetch fetcher;
     struct mesh_firmware_fetch fetch;
     struct fetch_probe probe;
     bool loop_up = false;
     bool fetch_up = false;
 
-    if (mesh_event_loop_init(&loop) != 0) {
+    if (inkwell_loop_init(&loop) != 0) {
         failure = "event loop init failed";
         goto cleanup;
     }
@@ -614,7 +614,7 @@ cleanup:
         mesh_fetch_shutdown(&fetcher);
     }
     if (loop_up) {
-        mesh_event_loop_shutdown(&loop);
+        inkwell_loop_shutdown(&loop);
     }
     https_fixture_stop(&server);
     download_clean_dir(dir);

@@ -2,13 +2,13 @@
 
 #include "mesh/core/fetch.h"
 
-#include "inkcell/utils/log.h"
-#include "inkcell/utils/text.h"
+#include "inkwell/base/log.h"
+#include "inkwell/base/text.h"
 
-#include "mesh/core/event_loop.h"
+#include "inkwell/codec/http.h"
+#include "inkwell/runtime/loop.h"
 #include "mesh/core/tls_client.h"
 #include "mesh/core/version.h"
-#include "mesh/proto/http.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -37,7 +37,7 @@
 
 /* The request line and Host, plus every header the caller may add. */
 #define FETCH_REQUEST_MAX                                                                          \
-    (MESH_HTTP_URL_MAX + MESH_HTTP_HOST_MAX + 128U +                                               \
+    (INKWELL_HTTP_URL_MAX + INKWELL_HTTP_HOST_MAX + 128U +                                         \
      (MESH_FETCH_HEADERS_MAX + 1U) * (MESH_FETCH_HEADER_MAX + 2U))
 
 #define FETCH_DEFAULT_TIMEOUT_MS 30000U
@@ -70,11 +70,11 @@ struct mesh_fetch_conn {
     void *userdata;
 
     /* ---- the hop in flight */
-    struct mesh_http_url url;
+    struct inkwell_http_url url;
     unsigned redirects;
     enum fetch_phase phase;
     /* Where the hop's host is, and which of them to try next. */
-    struct mesh_resolve_address addresses[MESH_RESOLVE_ADDRESSES_MAX];
+    struct inkwell_resolve_address addresses[INKWELL_RESOLVE_ADDRESSES_MAX];
     size_t address_count;
     size_t address_next;
     uint64_t attempt_deadline_ms;
@@ -84,7 +84,7 @@ struct mesh_fetch_conn {
     char request[FETCH_REQUEST_MAX];
     size_t request_len;
     size_t request_sent;
-    struct mesh_http_response response;
+    struct inkwell_http_response response;
     bool head_seen;
     /* A TLS read stopped with work still inside the session; tick() comes back for it. */
     bool more_to_read;
@@ -108,7 +108,7 @@ static void fetch_drop_socket(struct mesh_fetch *fetch, struct mesh_fetch_conn *
     mesh_tls_client_stop(&conn->tls);
     if (conn->fd >= 0) {
         if (conn->fd_registered && fetch->loop != NULL) {
-            (void)mesh_event_loop_remove_fd(fetch->loop, conn->fd);
+            (void)inkwell_loop_remove_fd(fetch->loop, conn->fd);
         }
         close(conn->fd);
     }
@@ -141,7 +141,7 @@ static void fetch_complete(struct mesh_fetch *fetch, enum mesh_fetch_outcome out
     }
     fetch->conn = NULL;
     /* Before the callback, which may start a lookup of its own. */
-    mesh_resolve_cancel(&fetch->resolve);
+    inkwell_resolve_cancel(&fetch->resolve);
     fetch_drop_socket(fetch, conn);
     if (conn->out_fd >= 0) {
         const int closed = close(conn->out_fd);
@@ -160,7 +160,7 @@ static void fetch_complete(struct mesh_fetch *fetch, enum mesh_fetch_outcome out
 
     const struct mesh_fetch_result result = {
         .outcome = outcome,
-        .status = mesh_http_response_head_done(&conn->response) ? conn->response.status : 0,
+        .status = inkwell_http_response_head_done(&conn->response) ? conn->response.status : 0,
         .body = conn->body,
         .len = conn->body_len,
         .detail = conn->detail,
@@ -249,8 +249,8 @@ static void fetch_try_next(struct mesh_fetch *fetch);
 
 static void fetch_arm(struct mesh_fetch *fetch, struct mesh_fetch_conn *conn, bool write) {
     if (fetch->loop != NULL && conn->fd_registered) {
-        (void)mesh_event_loop_update_fd(fetch->loop, conn->fd,
-                                        write ? (uint32_t)EPOLLOUT : (uint32_t)EPOLLIN);
+        (void)inkwell_loop_update_fd(fetch->loop, conn->fd,
+                                     write ? (uint32_t)EPOLLOUT : (uint32_t)EPOLLIN);
     }
 }
 
@@ -266,7 +266,7 @@ static bool fetch_on_head(struct mesh_fetch *fetch) {
     if (status == 301 || status == 302 || status == 303 || status == 307 || status == 308) {
         const char *value = NULL;
         size_t len = 0U;
-        if (!mesh_http_response_header(&conn->response, "location", &value, &len)) {
+        if (!inkwell_http_response_header(&conn->response, "location", &value, &len)) {
             fetch_fail(fetch, MESH_FETCH_HTTP_STATUS, "%d with no Location", status);
             return false;
         }
@@ -275,15 +275,15 @@ static bool fetch_on_head(struct mesh_fetch *fetch) {
                        MESH_FETCH_REDIRECTS_MAX);
             return false;
         }
-        char location[MESH_HTTP_URL_MAX];
-        struct mesh_http_url next;
+        char location[INKWELL_HTTP_URL_MAX];
+        struct inkwell_http_url next;
         if (len >= sizeof location) {
             fetch_fail(fetch, MESH_FETCH_PROTOCOL, "a %zu-byte Location", len);
             return false;
         }
         memcpy(location, value, len);
         location[len] = '\0';
-        if (!mesh_http_url_resolve(&conn->url, location, &next)) {
+        if (!inkwell_http_url_resolve(&conn->url, location, &next)) {
             fetch_fail(fetch, MESH_FETCH_PROTOCOL, "unusable Location %.96s", location);
             return false;
         }
@@ -291,7 +291,7 @@ static bool fetch_on_head(struct mesh_fetch *fetch) {
             fetch_fail(fetch, MESH_FETCH_PROTOCOL, "redirect off https to %.96s", next.host);
             return false;
         }
-        inkcell_log_debug("fetch", "%d from %s to %s", status, conn->url.host, next.host);
+        inkwell_log_debug("fetch", "%d from %s to %s", status, conn->url.host, next.host);
         fetch_drop_socket(fetch, conn);
         conn->url = next;
         conn->redirects++;
@@ -325,17 +325,17 @@ static bool fetch_on_head(struct mesh_fetch *fetch) {
 static void fetch_on_close(struct mesh_fetch *fetch, int rc) {
     struct mesh_fetch_conn *const conn = fetch->conn;
     const bool clean = rc == -ENOTCONN;
-    if (!mesh_http_response_head_done(&conn->response)) {
+    if (!inkwell_http_response_head_done(&conn->response)) {
         fetch_fail(fetch, MESH_FETCH_NETWORK, "%s closed before replying: %s", conn->url.host,
                    clean ? "close_notify" : mesh_tls_client_error(&conn->tls));
         return;
     }
-    if (conn->response.framing == MESH_HTTP_FRAMING_UNTIL_CLOSE && !clean) {
+    if (conn->response.framing == INKWELL_HTTP_FRAMING_UNTIL_CLOSE && !clean) {
         fetch_fail(fetch, MESH_FETCH_NETWORK, "%s dropped an unframed body after %llu bytes",
                    conn->url.host, (unsigned long long)conn->response.body_received);
         return;
     }
-    if (!mesh_http_response_finish(&conn->response)) {
+    if (!inkwell_http_response_finish(&conn->response)) {
         fetch_fail(fetch, MESH_FETCH_NETWORK, "%s cut the body short after %llu bytes",
                    conn->url.host, (unsigned long long)conn->response.body_received);
         return;
@@ -352,14 +352,14 @@ static bool fetch_feed(struct mesh_fetch *fetch, const uint8_t *in, size_t len) 
         const uint8_t *body = NULL;
         size_t body_len = 0U;
         const size_t used =
-            mesh_http_response_feed(&conn->response, in + at, len - at, &body, &body_len);
+            inkwell_http_response_feed(&conn->response, in + at, len - at, &body, &body_len);
         at += used;
-        if (mesh_http_response_failed(&conn->response)) {
+        if (inkwell_http_response_failed(&conn->response)) {
             fetch_fail(fetch, MESH_FETCH_PROTOCOL, "bad reply from %s: %s", conn->url.host,
-                       mesh_http_error_name(conn->response.error));
+                       inkwell_http_error_name(conn->response.error));
             return false;
         }
-        if (!conn->head_seen && mesh_http_response_head_done(&conn->response)) {
+        if (!conn->head_seen && inkwell_http_response_head_done(&conn->response)) {
             conn->head_seen = true;
             if (!fetch_on_head(fetch)) {
                 return false;
@@ -368,7 +368,7 @@ static bool fetch_feed(struct mesh_fetch *fetch, const uint8_t *in, size_t len) 
         if (body_len > 0U && !fetch_sink(fetch, body, body_len)) {
             return false;
         }
-        if (mesh_http_response_done(&conn->response)) {
+        if (inkwell_http_response_done(&conn->response)) {
             /* Whatever follows is not part of this reply, and with `Connection: close` there
                should be nothing. */
             fetch_finish(fetch);
@@ -441,17 +441,17 @@ static void fetch_handshake(struct mesh_fetch *fetch) {
     for (size_t i = 0U; i < conn->header_count; ++i) {
         lines[i] = conn->headers[i];
     }
-    const int len =
-        mesh_http_request_format(conn->request, sizeof conn->request,
-                                 conn->method == MESH_FETCH_HEAD ? MESH_HTTP_HEAD : MESH_HTTP_GET,
-                                 &conn->url, lines, conn->header_count);
+    const int len = inkwell_http_request_format(conn->request, sizeof conn->request,
+                                                conn->method == MESH_FETCH_HEAD ? INKWELL_HTTP_HEAD
+                                                                                : INKWELL_HTTP_GET,
+                                                &conn->url, lines, conn->header_count);
     if (len < 0) {
         fetch_fail(fetch, MESH_FETCH_PROTOCOL, "request to %s does not fit", conn->url.host);
         return;
     }
     conn->request_len = (size_t)len;
     conn->request_sent = 0U;
-    mesh_http_response_init(&conn->response, conn->method == MESH_FETCH_HEAD);
+    inkwell_http_response_init(&conn->response, conn->method == MESH_FETCH_HEAD);
     conn->head_seen = false;
     conn->phase = FETCH_SENDING;
     fetch_send(fetch);
@@ -518,7 +518,7 @@ static int fetch_on_fd(int fd, uint32_t events, void *userdata) {
 
 /* Starts connecting to the next address. False, with conn->detail saying why, when it could
    not even begin. */
-static bool fetch_open(struct mesh_fetch *fetch, const struct mesh_resolve_address *address) {
+static bool fetch_open(struct mesh_fetch *fetch, const struct inkwell_resolve_address *address) {
     struct mesh_fetch_conn *const conn = fetch->conn;
     const int fd =
         socket(address->address.ss_family, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
@@ -534,8 +534,8 @@ static bool fetch_open(struct mesh_fetch *fetch, const struct mesh_resolve_addre
         return false;
     }
     conn->fd = fd;
-    if (mesh_event_loop_add_fd(fetch->loop, fd, (uint32_t)(EPOLLIN | EPOLLOUT), fetch_on_fd,
-                               fetch) < 0) {
+    if (inkwell_loop_add_fd(fetch->loop, fd, (uint32_t)(EPOLLIN | EPOLLOUT), fetch_on_fd, fetch) <
+        0) {
         snprintf(conn->detail, sizeof conn->detail, "no room on the loop for %s", conn->url.host);
         fetch_drop_socket(fetch, conn);
         return false;
@@ -553,7 +553,8 @@ static bool fetch_open(struct mesh_fetch *fetch, const struct mesh_resolve_addre
 static void fetch_try_next(struct mesh_fetch *fetch) {
     struct mesh_fetch_conn *const conn = fetch->conn;
     while (conn->address_next < conn->address_count) {
-        const struct mesh_resolve_address *const address = &conn->addresses[conn->address_next++];
+        const struct inkwell_resolve_address *const address =
+            &conn->addresses[conn->address_next++];
         if (fetch_open(fetch, address)) {
             return;
         }
@@ -566,7 +567,7 @@ static void fetch_prefer_family(struct mesh_fetch *fetch, struct mesh_fetch_conn
     for (size_t i = 1U; i < conn->address_count; ++i) {
         if (conn->addresses[i].address.ss_family == fetch->preferred_family &&
             conn->addresses[0].address.ss_family != fetch->preferred_family) {
-            const struct mesh_resolve_address preferred = conn->addresses[i];
+            const struct inkwell_resolve_address preferred = conn->addresses[i];
             memmove(&conn->addresses[1], &conn->addresses[0], i * sizeof conn->addresses[0]);
             conn->addresses[0] = preferred;
             return;
@@ -574,17 +575,17 @@ static void fetch_prefer_family(struct mesh_fetch *fetch, struct mesh_fetch_conn
     }
 }
 
-static void fetch_on_resolved(void *userdata, const struct mesh_resolve_result *result) {
+static void fetch_on_resolved(void *userdata, const struct inkwell_resolve_result *result) {
     struct mesh_fetch *const fetch = (struct mesh_fetch *)userdata;
     struct mesh_fetch_conn *const conn = fetch->conn;
     if (conn == NULL || conn->phase != FETCH_RESOLVING) {
         return;
     }
-    if (result->outcome != MESH_RESOLVE_OK || result->address_count == 0U) {
+    if (result->outcome != INKWELL_RESOLVE_OK || result->address_count == 0U) {
         fetch_fail(fetch, MESH_FETCH_NETWORK, "could not resolve %s (%s)", conn->url.host,
-                   result->outcome == MESH_RESOLVE_NOT_FOUND   ? "no such name"
-                   : result->outcome == MESH_RESOLVE_TIMED_OUT ? "timed out"
-                                                               : "lookup failed");
+                   result->outcome == INKWELL_RESOLVE_NOT_FOUND   ? "no such name"
+                   : result->outcome == INKWELL_RESOLVE_TIMED_OUT ? "timed out"
+                                                                  : "lookup failed");
         return;
     }
     conn->address_count = result->address_count;
@@ -602,10 +603,10 @@ static bool fetch_connect_to_list(const struct mesh_fetch *fetch, struct mesh_fe
     memcpy(list, fetch->connect_host, sizeof list);
     char *save = NULL;
     for (char *host = strtok_r(list, ",", &save);
-         host != NULL && conn->address_count < MESH_RESOLVE_ADDRESSES_MAX;
+         host != NULL && conn->address_count < INKWELL_RESOLVE_ADDRESSES_MAX;
          host = strtok_r(NULL, ",", &save)) {
-        struct mesh_resolve_address *const address = &conn->addresses[conn->address_count];
-        if (!mesh_resolve_literal(host, fetch->connect_port, &address->address, &address->len)) {
+        struct inkwell_resolve_address *const address = &conn->addresses[conn->address_count];
+        if (!inkwell_resolve_literal(host, fetch->connect_port, &address->address, &address->len)) {
             return false;
         }
         conn->address_count++;
@@ -620,15 +621,15 @@ static void fetch_hop(struct mesh_fetch *fetch) {
     conn->head_seen = false;
     conn->address_count = 0U;
     conn->address_next = 0U;
-    mesh_http_response_init(&conn->response, conn->method == MESH_FETCH_HEAD);
+    inkwell_http_response_init(&conn->response, conn->method == MESH_FETCH_HEAD);
 
     if (fetch->connect_host[0] != '\0') {
         if (!fetch_connect_to_list(fetch, conn)) {
             /* Not an address list: a name, looked up like any other. */
             conn->address_count = 0U;
             const int started =
-                mesh_resolve_start(&fetch->resolve, fetch->connect_host, fetch->connect_port,
-                                   fetch_on_resolved, fetch, fetch->now_ms);
+                inkwell_resolve_start(&fetch->resolve, fetch->connect_host, fetch->connect_port,
+                                      fetch_on_resolved, fetch, fetch->now_ms);
             if (started < 0) {
                 fetch_fail(fetch, MESH_FETCH_NETWORK, "could not start a lookup for %s: %s",
                            fetch->connect_host, strerror(-started));
@@ -638,14 +639,14 @@ static void fetch_hop(struct mesh_fetch *fetch) {
         fetch_try_next(fetch);
         return;
     }
-    struct mesh_resolve_address *const address = &conn->addresses[0];
-    if (mesh_resolve_literal(conn->url.host, conn->url.port, &address->address, &address->len)) {
+    struct inkwell_resolve_address *const address = &conn->addresses[0];
+    if (inkwell_resolve_literal(conn->url.host, conn->url.port, &address->address, &address->len)) {
         conn->address_count = 1U;
         fetch_try_next(fetch);
         return;
     }
-    const int started = mesh_resolve_start(&fetch->resolve, conn->url.host, conn->url.port,
-                                           fetch_on_resolved, fetch, fetch->now_ms);
+    const int started = inkwell_resolve_start(&fetch->resolve, conn->url.host, conn->url.port,
+                                              fetch_on_resolved, fetch, fetch->now_ms);
     if (started < 0) {
         fetch_fail(fetch, MESH_FETCH_NETWORK, "could not start a lookup for %s: %s", conn->url.host,
                    strerror(-started));
@@ -654,13 +655,13 @@ static void fetch_hop(struct mesh_fetch *fetch) {
 
 /* ---- the API ---------------------------------------------------------------------------- */
 
-int mesh_fetch_init(struct mesh_fetch *fetch, struct mesh_event_loop *loop) {
+int mesh_fetch_init(struct mesh_fetch *fetch, struct inkwell_loop *loop) {
     if (fetch == NULL) {
         return -EINVAL;
     }
     memset(fetch, 0, sizeof *fetch);
     fetch->loop = loop;
-    return mesh_resolve_init(&fetch->resolve, loop);
+    return inkwell_resolve_init(&fetch->resolve, loop);
 }
 
 void mesh_fetch_shutdown(struct mesh_fetch *fetch) {
@@ -668,7 +669,7 @@ void mesh_fetch_shutdown(struct mesh_fetch *fetch) {
         return;
     }
     mesh_fetch_cancel(fetch);
-    mesh_resolve_shutdown(&fetch->resolve);
+    inkwell_resolve_shutdown(&fetch->resolve);
 }
 
 bool mesh_fetch_available(const struct mesh_fetch *fetch) {
@@ -683,7 +684,7 @@ void mesh_fetch_connect_to(struct mesh_fetch *fetch, const char *host, uint16_t 
     if (fetch == NULL) {
         return;
     }
-    if (host == NULL || !inkcell_str_copy(fetch->connect_host, sizeof fetch->connect_host, host)) {
+    if (host == NULL || !inkwell_str_copy(fetch->connect_host, sizeof fetch->connect_host, host)) {
         fetch->connect_host[0] = '\0';
     }
     fetch->connect_port = port;
@@ -722,13 +723,13 @@ int mesh_fetch_start(struct mesh_fetch *fetch, const struct mesh_fetch_request *
     }
     conn->fd = -1;
     conn->out_fd = -1;
-    if (!mesh_http_url_parse(request->url, &conn->url) || !conn->url.tls) {
+    if (!inkwell_http_url_parse(request->url, &conn->url) || !conn->url.tls) {
         free(conn);
         return -EINVAL;
     }
     bool agent = false;
     for (size_t i = 0U; i < MESH_FETCH_HEADERS_MAX && request->headers[i] != NULL; ++i) {
-        if (!inkcell_str_copy(conn->headers[conn->header_count], MESH_FETCH_HEADER_MAX,
+        if (!inkwell_str_copy(conn->headers[conn->header_count], MESH_FETCH_HEADER_MAX,
                               request->headers[i])) {
             free(conn);
             return -EINVAL;
@@ -742,7 +743,7 @@ int mesh_fetch_start(struct mesh_fetch *fetch, const struct mesh_fetch_request *
                  "User-Agent: meshclient/%s", mesh_version_string());
     }
     if (request->output_path != NULL &&
-        !inkcell_str_copy(conn->output_path, sizeof conn->output_path, request->output_path)) {
+        !inkwell_str_copy(conn->output_path, sizeof conn->output_path, request->output_path)) {
         free(conn);
         return -EINVAL;
     }
@@ -776,7 +777,7 @@ void mesh_fetch_tick(struct mesh_fetch *fetch, uint64_t now_ms) {
         return;
     }
     fetch->now_ms = now_ms;
-    mesh_resolve_tick(&fetch->resolve, now_ms);
+    inkwell_resolve_tick(&fetch->resolve, now_ms);
     struct mesh_fetch_conn *const conn = fetch->conn;
     if (conn == NULL) {
         return;
@@ -840,7 +841,7 @@ void mesh_fetch_cancel(struct mesh_fetch *fetch) {
     }
     struct mesh_fetch_conn *const conn = fetch->conn;
     fetch->conn = NULL;
-    mesh_resolve_cancel(&fetch->resolve);
+    inkwell_resolve_cancel(&fetch->resolve);
     fetch_free(fetch, conn);
 }
 

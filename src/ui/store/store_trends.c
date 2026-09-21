@@ -18,9 +18,9 @@
 
 #include "mesh/ui/store_trends.h"
 
-#include "inkcell/utils/array.h"
-#include "inkcell/utils/log.h"
-#include "inkcell/utils/text.h"
+#include "inkwell/base/array.h"
+#include "inkwell/base/log.h"
+#include "inkwell/base/text.h"
 
 #include "mesh/ui/store_fields.h"
 #include "mesh/ui/store_keys.h"
@@ -207,8 +207,8 @@ static bool trend_read_value(const char *value, struct trend_record *out) {
         MESH_UI_STORE_FIELD(&out->value),
         MESH_UI_STORE_FIELD(&out->gap),
     };
-    return mesh_ui_store_fields_read(value, fields, INKCELL_ARRAY_LEN(fields)) ==
-           INKCELL_ARRAY_LEN(fields);
+    return mesh_ui_store_fields_read(value, fields, INKWELL_ARRAY_LEN(fields)) ==
+           INKWELL_ARRAY_LEN(fields);
 }
 
 /* Whether this build has a series to put the record on. */
@@ -324,10 +324,10 @@ static void trends_compact(const char *path) {
     }
     if (result != 0) {
         (void)unlink(temp);
-        inkcell_log_warn("ui", "Could not compact trend log %s: %d", path, result);
+        inkwell_log_warn("ui", "Could not compact trend log %s: %d", path, result);
         return;
     }
-    inkcell_log_info("ui", "Compacted trend log %s to %u readings", path, (unsigned)count);
+    inkwell_log_info("ui", "Compacted trend log %s to %u readings", path, (unsigned)count);
 }
 
 /* ---- the public half ------------------------------------------------------------------------ */
@@ -342,10 +342,10 @@ int mesh_ui_trends_init(struct mesh_ui_trends *trends, const char *dir) {
     }
     if (mkdir(dir, 0700) != 0 && errno != EEXIST) {
         const int failed = -errno;
-        inkcell_log_warn("ui", "Trend log unavailable at %s: %d", dir, failed);
+        inkwell_log_warn("ui", "Trend log unavailable at %s: %d", dir, failed);
         return failed;
     }
-    inkcell_str_copy(trends->dir, sizeof trends->dir, dir);
+    inkwell_str_copy(trends->dir, sizeof trends->dir, dir);
     /* Truncation would put the files somewhere other than where the caller asked, so it disables
        the log rather than writing to a shortened path. */
     if (strcmp(trends->dir, dir) != 0) {
@@ -371,7 +371,7 @@ bool mesh_ui_trends_note_radio(struct mesh_ui_trends *trends, uint32_t roster_ow
     const int dropped = mesh_ui_trends_forget(trends);
     trends->has_owner = true;
     if (dropped > 0) {
-        inkcell_log_info("ui", "Dropped %d trend log(s) for the radio that was swapped out",
+        inkwell_log_info("ui", "Dropped %d trend log(s) for the radio that was swapped out",
                          dropped);
     }
     return true;
@@ -488,7 +488,7 @@ int mesh_ui_trends_append(struct mesh_ui_trends *trends, const struct mesh_ui_hi
         }
         FILE *file = fopen(path, "a");
         if (file == NULL) {
-            inkcell_log_warn("ui", "Could not append to trend log %s: %d", path, -errno);
+            inkwell_log_warn("ui", "Could not append to trend log %s: %d", path, -errno);
             continue;
         }
         /*
@@ -554,7 +554,7 @@ int mesh_ui_trends_append(struct mesh_ui_trends *trends, const struct mesh_ui_hi
         }
         if (result != 0) {
             /* `state` is untouched, so these readings are written again on the next publish. */
-            inkcell_log_warn("ui", "Could not append to trend log %s: %d", path, result);
+            inkwell_log_warn("ui", "Could not append to trend log %s: %d", path, result);
             continue;
         }
         state->written = chain_open;

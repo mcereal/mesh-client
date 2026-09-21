@@ -11,8 +11,8 @@
 
 #include "mesh/ui/waypoints.h"
 
-#include "inkcell/utils/text.h"
-#include "inkcell/utils/time.h"
+#include "inkwell/base/text.h"
+#include "inkwell/base/time.h"
 
 #include "mesh/ui/store.h"
 
@@ -59,7 +59,7 @@ bool mesh_ui_waypoint_format_range(int32_t from_latitude_i, int32_t from_longitu
     if (!vector.has_bearing) {
         /* Standing on it. A compass point here would be a direction to walk in from a place we
            are already at, which is the one thing the geometry refuses to invent. */
-        inkcell_str_copy(out, out_len, distance);
+        inkwell_str_copy(out, out_len, distance);
         return true;
     }
     inkcell_str_format(out, out_len, MESH_STR_WAYPOINT_VAL_RANGE, distance,
@@ -76,11 +76,11 @@ static void waypoint_node_name(const struct mesh_ui_handshake_state *handshake, 
     const struct mesh_ui_node_summary *node =
         handshake != NULL ? mesh_ui_node_detail_find(handshake, node_id) : NULL;
     if (node != NULL && node->long_name[0] != '\0') {
-        inkcell_str_copy(out, out_len, node->long_name);
+        inkwell_str_copy(out, out_len, node->long_name);
         return;
     }
     if (node != NULL && node->short_name[0] != '\0') {
-        inkcell_str_copy(out, out_len, node->short_name);
+        inkwell_str_copy(out, out_len, node->short_name);
         return;
     }
     inkcell_str_format(out, out_len, MESH_STR_NODE_VAL_USER_ID_HEX, node_id);
@@ -92,15 +92,15 @@ static void waypoint_sharer_name(const struct mesh_ui_waypoint *waypoint,
                                  const struct mesh_ui_handshake_state *handshake, char *out,
                                  size_t out_len) {
     if (waypoint->ours) {
-        inkcell_str_copy(out, out_len, inkcell_str(MESH_STR_WAYPOINTS_BY_YOU));
+        inkwell_str_copy(out, out_len, inkcell_str(MESH_STR_WAYPOINTS_BY_YOU));
         return;
     }
     if (waypoint->from_name[0] != '\0') {
-        inkcell_str_copy(out, out_len, waypoint->from_name);
+        inkwell_str_copy(out, out_len, waypoint->from_name);
         return;
     }
     if (waypoint->from == 0U) {
-        inkcell_str_copy(out, out_len, inkcell_str(MESH_STR_COMMON_UNKNOWN));
+        inkwell_str_copy(out, out_len, inkcell_str(MESH_STR_COMMON_UNKNOWN));
         return;
     }
     waypoint_node_name(handshake, waypoint->from, out, out_len);
@@ -109,7 +109,7 @@ static void waypoint_sharer_name(const struct mesh_ui_waypoint *waypoint,
 /* The name a row shows: the sharer's, or the stand-in for one who left it empty. */
 static void waypoint_display_name(const struct mesh_ui_waypoint *waypoint, char *out,
                                   size_t out_len) {
-    inkcell_str_copy(out, out_len,
+    inkwell_str_copy(out, out_len,
                      waypoint->name[0] != '\0' ? waypoint->name
                                                : inkcell_str(MESH_STR_WAYPOINTS_UNNAMED));
 }
@@ -231,7 +231,7 @@ bool mesh_ui_waypoint_row(const struct mesh_ui_store *store, uint32_t index,
     }
     if (index == places) {
         out->type = MESH_UI_WAYPOINT_ROW_NEW;
-        inkcell_str_copy(out->name, sizeof out->name, inkcell_str(MESH_STR_WAYPOINTS_NEW));
+        inkwell_str_copy(out->name, sizeof out->name, inkcell_str(MESH_STR_WAYPOINTS_NEW));
         /*
          * The row says why it cannot be pressed, on the supporting line rather than in the
          * range column. A range is a measurement between two points and the trailing column is
@@ -244,7 +244,7 @@ bool mesh_ui_waypoint_row(const struct mesh_ui_store *store, uint32_t index,
         int32_t lat = 0;
         int32_t lon = 0;
         if (!mesh_ui_node_our_fix(store->handshake_valid ? &store->handshake : NULL, &lat, &lon)) {
-            inkcell_str_copy(out->shared, sizeof out->shared,
+            inkwell_str_copy(out->shared, sizeof out->shared,
                              inkcell_str(MESH_STR_WAYPOINTS_NEW_NEEDS_FIX));
         }
         return true;
@@ -278,10 +278,10 @@ bool mesh_ui_waypoint_row(const struct mesh_ui_store *store, uint32_t index,
     waypoint_sharer_name(waypoint, handshake, sharer, sizeof sharer);
     char age[24];
     /* The wall clock, asked for here rather than passed in - the same call fb_render_node_detail
-       makes for the same reason, and the same one inkcell_time_wall_set_fixed() pins in a test. The
+       makes for the same reason, and the same one inkwell_time_wall_set_fixed() pins in a test. The
        credible one, because a Brick with no network boots into 1970 and every age measured
        against that comes out as decades; 0 yields "?", which is the honest answer. */
-    mesh_ui_format_age(waypoint->heard, inkcell_time_wall_credible_s(), age, sizeof age);
+    mesh_ui_format_age(waypoint->heard, inkwell_time_wall_credible_s(), age, sizeof age);
     inkcell_str_format(out->shared, sizeof out->shared, MESH_STR_WAYPOINTS_ROW_SHARED, sharer, age);
     return true;
 }
@@ -313,7 +313,7 @@ static void rows_heading(struct waypoint_rows *rows, enum inkcell_str_id label) 
         return;
     }
     item->kind = MESH_UI_WAYPOINT_ITEM_HEADING;
-    inkcell_str_copy(item->label, sizeof item->label, inkcell_str(label));
+    inkwell_str_copy(item->label, sizeof item->label, inkcell_str(label));
 }
 
 static void rows_text(struct waypoint_rows *rows, enum inkcell_str_id label, const char *value) {
@@ -322,8 +322,8 @@ static void rows_text(struct waypoint_rows *rows, enum inkcell_str_id label, con
         return;
     }
     item->kind = MESH_UI_WAYPOINT_ITEM_INFO;
-    inkcell_str_copy(item->label, sizeof item->label, inkcell_str(label));
-    inkcell_str_copy(item->value, sizeof item->value, value);
+    inkwell_str_copy(item->label, sizeof item->label, inkcell_str(label));
+    inkwell_str_copy(item->value, sizeof item->value, value);
 }
 
 static void rows_note(struct waypoint_rows *rows, const char *text) {
@@ -332,7 +332,7 @@ static void rows_note(struct waypoint_rows *rows, const char *text) {
         return;
     }
     item->kind = MESH_UI_WAYPOINT_ITEM_NOTE;
-    inkcell_str_copy(item->value, sizeof item->value, text);
+    inkwell_str_copy(item->value, sizeof item->value, text);
 }
 
 static void rows_action(struct waypoint_rows *rows, enum inkcell_str_id label, const char *value,
@@ -343,8 +343,8 @@ static void rows_action(struct waypoint_rows *rows, enum inkcell_str_id label, c
     }
     item->kind = MESH_UI_WAYPOINT_ITEM_ACTION;
     item->action = (uint8_t)action;
-    inkcell_str_copy(item->label, sizeof item->label, inkcell_str(label));
-    inkcell_str_copy(item->value, sizeof item->value, value != NULL ? value : "");
+    inkwell_str_copy(item->label, sizeof item->label, inkcell_str(label));
+    inkwell_str_copy(item->value, sizeof item->value, value != NULL ? value : "");
 }
 
 static void waypoint_rows_place(struct waypoint_rows *rows, const struct mesh_ui_waypoint *waypoint,
@@ -388,7 +388,7 @@ static void waypoint_channel_name(const struct mesh_ui_handshake_state *handshak
     if (handshake != NULL) {
         for (uint32_t i = 0; i < handshake->channel_count && i < MESH_UI_MAX_CHANNELS; ++i) {
             if (handshake->channels[i].index == channel && handshake->channels[i].name[0] != '\0') {
-                inkcell_str_copy(out, out_len, handshake->channels[i].name);
+                inkwell_str_copy(out, out_len, handshake->channels[i].name);
                 return;
             }
         }

@@ -2,8 +2,8 @@
 
 #include "mesh/core/firmware_update.h"
 
-#include "inkcell/utils/log.h"
-#include "inkcell/utils/text.h"
+#include "inkwell/base/log.h"
+#include "inkwell/base/text.h"
 
 #include "mesh/i18n/strings.h"
 #include "mesh/transport/ble_hci.h"
@@ -83,13 +83,13 @@ const char *mesh_firmware_update_error_name(enum mesh_firmware_update_error erro
 static void update_set(struct mesh_firmware_update *update, enum mesh_firmware_update_state state,
                        const char *detail) {
     if (update->state != state) {
-        inkcell_log_info("firmware-update", "%s -> %s",
+        inkwell_log_info("firmware-update", "%s -> %s",
                          mesh_firmware_update_state_name(update->state),
                          mesh_firmware_update_state_name(state));
     }
     update->state = state;
     if (detail != NULL) {
-        inkcell_str_copy(update->detail, sizeof update->detail, detail);
+        inkwell_str_copy(update->detail, sizeof update->detail, detail);
     }
     update->revision++;
 }
@@ -376,7 +376,7 @@ static void update_image_done(void *userdata, const struct mesh_firmware_fetch *
 /* ---- lifecycle --------------------------------------------------------------------------------
  */
 
-int mesh_firmware_update_init(struct mesh_firmware_update *update, struct mesh_event_loop *loop) {
+int mesh_firmware_update_init(struct mesh_firmware_update *update, struct inkwell_loop *loop) {
     if (update == NULL) {
         return -EINVAL;
     }
@@ -435,8 +435,8 @@ int mesh_firmware_update_start(struct mesh_firmware_update *update,
     update->path = board->path;
     update->hw_model = board->hw_model;
     update->release = *release;
-    inkcell_str_copy(update->where, sizeof update->where, where != NULL ? where : "");
-    inkcell_str_copy(update->staging, sizeof update->staging, firmware_update_staging());
+    inkwell_str_copy(update->where, sizeof update->where, where != NULL ? where : "");
+    inkwell_str_copy(update->staging, sizeof update->staging, firmware_update_staging());
     update->hooks = *hooks;
     update->on_done = on_done;
     update->userdata = userdata;
@@ -449,7 +449,7 @@ int mesh_firmware_update_start(struct mesh_firmware_update *update,
         update_set(update, MESH_FIRMWARE_UPDATE_FAILED, update->image.message);
         return started;
     }
-    inkcell_log_info("firmware-update", "Installing %s %s over %s", board->target, release->version,
+    inkwell_log_info("firmware-update", "Installing %s %s over %s", board->target, release->version,
                      update->path == MESH_FIRMWARE_PATH_USB ? "USB" : "BLE");
     update_set(update, MESH_FIRMWARE_UPDATE_RESOLVING, release->version);
     return 0;

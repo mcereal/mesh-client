@@ -15,7 +15,7 @@
 #include "inkcell/ui/input.h"
 #include "inkcell/ui/layout.h"
 #include "inkcell/ui/widgets.h"
-#include "inkcell/utils/time.h"
+#include "inkwell/base/time.h"
 
 #include "fb_screens_internal.h"
 
@@ -289,7 +289,7 @@ static void fb_render_begin(struct inkcell_backend_fb_state *state,
     }
     struct inkcell_fb_render_cache *cache = state->render_cache;
     if (!state->partial_disabled && cache != NULL) {
-        const time_t second = (time_t)inkcell_time_wall_s();
+        const time_t second = (time_t)inkwell_time_wall_s();
         cache->snapshot.update_flags = snapshot->update_flags;
         state->clip_active =
             cache->valid && state->animation_damage.valid && cache->theme == state->theme &&

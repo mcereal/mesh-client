@@ -2943,7 +2943,7 @@ MESH_TEST_CASE(app_cache_batches_and_retries_persistence, unit) {
     const char *failure = NULL;
     char path[] = "/tmp/mesh-cache-batch-XXXXXX";
     int fd = mkstemp(path);
-    if (fd < 0 || mesh_event_loop_init(&app->loop) != 0) {
+    if (fd < 0 || inkwell_loop_init(&app->loop) != 0) {
         if (fd >= 0)
             close(fd);
         unlink(path);
@@ -2975,7 +2975,7 @@ MESH_TEST_CASE(app_cache_batches_and_retries_persistence, unit) {
     timerfd_settime(timer, 0, &expire, NULL);
     struct pollfd ready_fd = {.fd = timer, .events = POLLIN};
     (void)poll(&ready_fd, 1, 1000);
-    mesh_event_loop_run(&app->loop, 0);
+    inkwell_loop_run(&app->loop, 0);
     if (app->ui_handshake_cache_dirty || app->ui_cache_timer_armed || access(path, F_OK) != 0) {
         failure = "timer must persist and clear the dirty batch";
         goto cleanup;
@@ -2993,7 +2993,7 @@ MESH_TEST_CASE(app_cache_batches_and_retries_persistence, unit) {
     timerfd_settime(app->ui_cache_timer_fd, 0, &expire, NULL);
     ready_fd.fd = app->ui_cache_timer_fd;
     (void)poll(&ready_fd, 1, 1000);
-    mesh_event_loop_run(&app->loop, 0);
+    inkwell_loop_run(&app->loop, 0);
     if (!app->ui_handshake_cache_dirty || !app->ui_cache_timer_armed) {
         failure = "a save that could not be written must stay dirty and schedule another batch";
         goto cleanup;
@@ -3005,7 +3005,7 @@ MESH_TEST_CASE(app_cache_batches_and_retries_persistence, unit) {
 cleanup:
     mesh_app_close_ui_cache_timer(app);
     mesh_ui_store_shutdown(&app->ui_store);
-    mesh_event_loop_shutdown(&app->loop);
+    inkwell_loop_shutdown(&app->loop);
     free(app->publish_cache);
     free(app);
     unlink(path);

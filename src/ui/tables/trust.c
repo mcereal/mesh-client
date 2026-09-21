@@ -1,6 +1,6 @@
 #include "mesh/ui/trust.h"
 
-#include "inkcell/utils/text.h"
+#include "inkwell/base/text.h"
 
 #include <stddef.h>
 
@@ -74,7 +74,7 @@ enum inkcell_tone mesh_ui_key_trust_tone(enum mesh_ui_key_trust trust) {
 static void verify_peer(const struct mesh_ui_verification *verification, char *out,
                         size_t out_len) {
     if (verification->remote_name[0] != '\0') {
-        (void)inkcell_str_copy(out, out_len, verification->remote_name);
+        (void)inkwell_str_copy(out, out_len, verification->remote_name);
         return;
     }
     inkcell_str_format(out, out_len, MESH_STR_NODE_VAL_USER_ID_HEX, verification->remote_node);
@@ -97,7 +97,7 @@ bool mesh_ui_verify_sheet_of(const struct mesh_ui_verification *verification,
     case MESH_UI_VERIFY_WAITING:
         out->icon = INKCELL_ICON_SENDING;
         inkcell_str_format(headline, headline_len, MESH_STR_VERIFY_HEAD_WAITING, peer);
-        (void)inkcell_str_copy(text, text_len, inkcell_str(MESH_STR_VERIFY_BODY_WAITING));
+        (void)inkwell_str_copy(text, text_len, inkcell_str(MESH_STR_VERIFY_BODY_WAITING));
         /* "Later" gets out of the way without ending anything: the sheet comes back when the
            radio asks for something, and a user who has to go and find the other person should
            not have to keep a dialog open while they do it. */
@@ -133,7 +133,7 @@ bool mesh_ui_verify_sheet_of(const struct mesh_ui_verification *verification,
          * code, comparing it is the stronger ceremony and this stays the fallback.
          */
         if (verification->characters[0] == '\0') {
-            (void)inkcell_str_copy(headline, headline_len,
+            (void)inkwell_str_copy(headline, headline_len,
                                    inkcell_str(MESH_STR_VERIFY_HEAD_CHECKED));
             inkcell_str_format(text, text_len, MESH_STR_VERIFY_BODY_CHECKED, peer);
             out->accept = MESH_STR_VERIFY_ANSWER_TRUST;
@@ -144,7 +144,7 @@ bool mesh_ui_verify_sheet_of(const struct mesh_ui_verification *verification,
            one - and unformatted, because it is not a sentence: it is the thing being compared,
            and a specifier around it would be a translator's chance to put something between
            two people reading characters to each other. */
-        (void)inkcell_str_copy(headline, headline_len, verification->characters);
+        (void)inkwell_str_copy(headline, headline_len, verification->characters);
         inkcell_str_format(text, text_len, MESH_STR_VERIFY_BODY_COMPARE, peer);
         out->accept = MESH_STR_VERIFY_ANSWER_MATCH;
         out->cancel = MESH_STR_VERIFY_ANSWER_DIFFER;

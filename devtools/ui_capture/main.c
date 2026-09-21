@@ -71,9 +71,9 @@
  */
 
 #include "inkcell/ui/theme.h"
-#include "inkcell/utils/env.h"
-#include "inkcell/utils/text.h"
-#include "inkcell/utils/time.h"
+#include "inkwell/base/env.h"
+#include "inkwell/base/text.h"
+#include "inkwell/base/time.h"
 
 #include "mesh/core/firmware.h"
 #include "mesh/core/firmware_update.h"
@@ -268,7 +268,7 @@ static void uicap_scene_demo(struct uicap *cap) {
     snprintf(handshake.primary_channel, sizeof handshake.primary_channel, "%s", "LongFast");
     snprintf(handshake.my_short_name, sizeof handshake.my_short_name, "%s", "HOME");
 
-    const uint32_t now = inkcell_time_wall_s();
+    const uint32_t now = inkwell_time_wall_s();
     handshake.node_count = (uint32_t)(sizeof seeds / sizeof seeds[0]);
     for (uint32_t i = 0U; i < handshake.node_count; ++i) {
         struct mesh_ui_node_summary *node = &handshake.nodes[i];
@@ -924,7 +924,7 @@ static void uicap_append_message(struct uicap *cap, bool outbound, enum mesh_mes
     memset(entry, 0, sizeof *entry);
     entry->packet_id = cap->next_packet_id++;
     entry->peer = peer;
-    entry->rx_time = inkcell_time_wall_s();
+    entry->rx_time = inkwell_time_wall_s();
     snprintf(entry->peer_name, sizeof entry->peer_name, "%s", name);
     snprintf(entry->text, sizeof entry->text, "%s", text);
     entry->direction = outbound ? (uint8_t)MESH_MESSAGE_OUTBOUND : (uint8_t)MESH_MESSAGE_INBOUND;
@@ -1079,7 +1079,7 @@ static void uicap_append_reaction(struct uicap *cap, const char *name, const cha
     memset(entry, 0, sizeof *entry);
     entry->packet_id = cap->next_packet_id++;
     entry->peer = peer;
-    entry->rx_time = inkcell_time_wall_s();
+    entry->rx_time = inkwell_time_wall_s();
     entry->channel = channel;
     entry->broadcast = broadcast;
     snprintf(entry->peer_name, sizeof entry->peer_name, "%s", name);
@@ -1264,7 +1264,7 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
                     line_number);
             exit(1);
         }
-        inkcell_time_wall_set_fixed((uint32_t)pinned);
+        inkwell_time_wall_set_fixed((uint32_t)pinned);
         return;
     }
 
@@ -1777,7 +1777,7 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
              * A node already at the clock cannot be freshened, and that is the honest answer
              * rather than a gap: nothing is more recent than now.
              */
-            const uint32_t heard_now = inkcell_time_wall_s();
+            const uint32_t heard_now = inkwell_time_wall_s();
             const uint32_t behind =
                 node->last_heard < heard_now ? heard_now - node->last_heard : 0U;
             if (behind > 0U) {
@@ -1910,7 +1910,7 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
             exit(1);
         }
         settings.notice.seq++;
-        settings.notice.received = inkcell_time_wall_s();
+        settings.notice.received = inkwell_time_wall_s();
         snprintf(settings.notice.text, sizeof settings.notice.text, "%s", uicap_tail(rest));
         mesh_ui_store_set_settings(&cap->store, &settings);
         uicap_emit(cap);
@@ -2089,7 +2089,7 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
          * moves it on from here.
          */
         settings.fw_supported = true;
-        inkcell_str_copy(settings.fw_channel, sizeof settings.fw_channel,
+        inkwell_str_copy(settings.fw_channel, sizeof settings.fw_channel,
                          mesh_firmware_channel_name(MESH_FIRMWARE_CHANNEL_STABLE));
 
         /* The two LoRa rows that read as unconfigured rather than as defaults: a region of
@@ -2497,7 +2497,7 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         uicap_start(cap);
         struct mesh_ui_settings settings = cap->store.settings;
         settings.stats.valid = true;
-        settings.stats.time = inkcell_time_wall_s();
+        settings.stats.time = inkwell_time_wall_s();
         settings.stats.uptime_seconds = 806400U;
         settings.stats.channel_utilization = 11.5F;
         settings.stats.air_util_tx = 3.2F;
@@ -2724,7 +2724,7 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         uicap_start(cap);
         struct mesh_ui_settings settings = cap->store.settings;
         settings.fw_supported = true;
-        inkcell_str_copy(settings.fw_channel, sizeof settings.fw_channel, which);
+        inkwell_str_copy(settings.fw_channel, sizeof settings.fw_channel, which);
         mesh_ui_store_set_settings(&cap->store, &settings);
         uicap_emit(cap);
         uicap_settle(cap);
@@ -2768,24 +2768,24 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         /* The channel the rows read. Left at the harness's default unless a scene says
            otherwise - see the `firmware-channel` verb. */
         if (settings.fw_channel[0] == '\0') {
-            inkcell_str_copy(settings.fw_channel, sizeof settings.fw_channel,
+            inkwell_str_copy(settings.fw_channel, sizeof settings.fw_channel,
                              mesh_firmware_channel_name(MESH_FIRMWARE_CHANNEL_STABLE));
         }
         settings.fw_state = (uint8_t)(checking  ? MESH_FIRMWARE_CHECKING
                                       : behind  ? MESH_FIRMWARE_AVAILABLE
                                       : current ? MESH_FIRMWARE_UP_TO_DATE
                                                 : MESH_FIRMWARE_FAILED);
-        inkcell_str_copy(settings.fw_latest, sizeof settings.fw_latest, "2.7.26.54e0d8d");
-        inkcell_str_copy(settings.fw_board, sizeof settings.fw_board, "Heltec Mesh Node T114");
+        inkwell_str_copy(settings.fw_latest, sizeof settings.fw_latest, "2.7.26.54e0d8d");
+        inkwell_str_copy(settings.fw_board, sizeof settings.fw_board, "Heltec Mesh Node T114");
         /* The value column's value, exactly as the module would have set it: the state's own
            word, or - once there is a release worth having - the version on its own. */
         if (behind) {
-            inkcell_str_copy(settings.fw_message, sizeof settings.fw_message, settings.fw_latest);
+            inkwell_str_copy(settings.fw_message, sizeof settings.fw_message, settings.fw_latest);
         } else if (failed) {
-            inkcell_str_copy(settings.fw_message, sizeof settings.fw_message,
+            inkwell_str_copy(settings.fw_message, sizeof settings.fw_message,
                              inkcell_str(MESH_STR_FW_INDEX_UNREADABLE));
         } else {
-            inkcell_str_copy(settings.fw_message, sizeof settings.fw_message,
+            inkwell_str_copy(settings.fw_message, sizeof settings.fw_message,
                              mesh_firmware_state_name((enum mesh_firmware_state)settings.fw_state));
         }
         /* The refusal, which is a different answer from the state above it and is the half a
@@ -2807,7 +2807,7 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
                 exit(1);
             }
         }
-        inkcell_str_copy(settings.fw_blocker_reason, sizeof settings.fw_blocker_reason,
+        inkwell_str_copy(settings.fw_blocker_reason, sizeof settings.fw_blocker_reason,
                          reason != INKCELL_STR_NONE ? inkcell_str(reason) : "");
         mesh_ui_store_set_settings(&cap->store, &settings);
         uicap_emit(cap);
@@ -2862,12 +2862,12 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         settings.fw_supported = true;
         settings.fw_state = (uint8_t)MESH_FIRMWARE_AVAILABLE;
         if (settings.fw_latest[0] == '\0') {
-            inkcell_str_copy(settings.fw_latest, sizeof settings.fw_latest, "2.7.26.54e0d8d");
-            inkcell_str_copy(settings.fw_message, sizeof settings.fw_message, settings.fw_latest);
-            inkcell_str_copy(settings.fw_board, sizeof settings.fw_board, "Heltec Mesh Node T114");
+            inkwell_str_copy(settings.fw_latest, sizeof settings.fw_latest, "2.7.26.54e0d8d");
+            inkwell_str_copy(settings.fw_message, sizeof settings.fw_message, settings.fw_latest);
+            inkwell_str_copy(settings.fw_board, sizeof settings.fw_board, "Heltec Mesh Node T114");
         }
         if (settings.fw_channel[0] == '\0') {
-            inkcell_str_copy(settings.fw_channel, sizeof settings.fw_channel,
+            inkwell_str_copy(settings.fw_channel, sizeof settings.fw_channel,
                              mesh_firmware_channel_name(MESH_FIRMWARE_CHANNEL_STABLE));
         }
         settings.fw_blocker_reason[0] = '\0';
@@ -2885,7 +2885,7 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
            radio's words rather than the category. */
         if (state == MESH_FIRMWARE_UPDATE_FAILED) {
             settings.fw_update_error = (uint8_t)MESH_FIRMWARE_UPDATE_ERROR_REFUSED;
-            inkcell_str_copy(settings.fw_update_detail, sizeof settings.fw_update_detail,
+            inkwell_str_copy(settings.fw_update_detail, sizeof settings.fw_update_detail,
                              "No OTA partition");
         }
         /* And a radio left in its loader is what raises the banner, which is the one state of
@@ -3061,7 +3061,7 @@ int main(int argc, char **argv) {
      * past the end of inkcell's own fifteen and every label on every captured frame comes back
      * empty - which is a picture of nothing that looks a great deal like a picture of a bug.
      */
-    inkcell_env_set_prefix("MESHCLIENT");
+    inkwell_env_set_prefix("MESHCLIENT");
     mesh_i18n_register();
     inkcell_i18n_init();
     struct uicap cap;

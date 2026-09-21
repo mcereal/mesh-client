@@ -10,7 +10,7 @@
  */
 
 #include "inkcell/ui/widgets.h"
-#include "inkcell/utils/text.h"
+#include "inkwell/base/text.h"
 
 #include "fb_screens_internal.h"
 
@@ -187,16 +187,16 @@ void fb_render_devices(struct inkcell_backend_fb_state *state,
         /* A USB port has no RSSI to show, so it says which bus it is instead - the supporting
            line answers "how is this attached" either way. */
         if (device->kind == (uint8_t)MESH_UI_DEVICE_SERIAL) {
-            inkcell_str_copy(attach, sizeof attach, inkcell_str(MESH_STR_DEVICES_TRAILING_USB));
+            inkwell_str_copy(attach, sizeof attach, inkcell_str(MESH_STR_DEVICES_TRAILING_USB));
         } else if (device->kind == (uint8_t)MESH_UI_DEVICE_TCP) {
             /* Ahead of the in-range arm, which a network link would otherwise fall into and
                answer "not in range" - a sentence about earshot, said of the one link that has
                none to be outside of. */
-            inkcell_str_copy(attach, sizeof attach, inkcell_str(MESH_STR_DEVICES_TRAILING_NETWORK));
+            inkwell_str_copy(attach, sizeof attach, inkcell_str(MESH_STR_DEVICES_TRAILING_NETWORK));
         } else if (!device->in_range) {
             /* A bond BlueZ holds for a radio it cannot hear has no reading behind it, and the
                0 that leaves in the struct would draw as the strongest node on the screen. */
-            inkcell_str_copy(attach, sizeof attach, inkcell_str(MESH_STR_DEVICES_TRAILING_AWAY));
+            inkwell_str_copy(attach, sizeof attach, inkcell_str(MESH_STR_DEVICES_TRAILING_AWAY));
         } else {
             inkcell_str_format(attach, sizeof attach, MESH_STR_DEVICES_TRAILING_RSSI,
                                (int)device->rssi);

@@ -2,7 +2,7 @@
 
 #include "framework/mesh_test.h"
 
-#include "inkcell/utils/env.h"
+#include "inkwell/base/env.h"
 
 #include "mesh/i18n/strings.h"
 
@@ -208,7 +208,7 @@ int main(int argc, char **argv) {
      * INKCELL_LANG and drawing with inkcell's own fifteen strings, which is neither what the
      * client does nor what any case here is written against.
      */
-    inkcell_env_set_prefix("MESHCLIENT");
+    inkwell_env_set_prefix("MESHCLIENT");
     mesh_i18n_register();
 
     struct test_options options = {

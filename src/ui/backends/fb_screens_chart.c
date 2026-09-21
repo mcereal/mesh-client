@@ -11,7 +11,7 @@
 
 #include "inkcell/ui/layout.h"
 #include "inkcell/ui/widgets.h"
-#include "inkcell/utils/text.h"
+#include "inkwell/base/text.h"
 
 #include "fb_screens_internal.h"
 
@@ -315,7 +315,7 @@ static void fb_render_chart(struct inkcell_backend_fb_state *state,
                 break;
             }
             if (first + i == 0U) {
-                inkcell_str_copy(whens[drawn], sizeof whens[drawn],
+                inkwell_str_copy(whens[drawn], sizeof whens[drawn],
                                  inkcell_str(MESH_STR_TREND_READINGS_NEWEST));
             } else {
                 mesh_ui_format_duration(reading.before_ms / 1000U, whens[drawn],
@@ -437,7 +437,7 @@ void fb_render_node_trend(struct inkcell_backend_fb_state *state,
                        : node->short_name[0] != '\0' ? node->short_name
                                                      : NULL;
     if (name != NULL) {
-        inkcell_str_copy(trail, sizeof trail, name);
+        inkwell_str_copy(trail, sizeof trail, name);
     } else {
         inkcell_str_format(trail, sizeof trail, MESH_STR_NODE_VAL_USER_ID_HEX, node->node_id);
     }

@@ -41,12 +41,9 @@ set(MESHCLIENT_TEST_SUITES
     suites/firmware_ota.c
     suites/firmware_update.c
     suites/geo.c
-    suites/http.c
     suites/i18n.c
     suites/inflate.c
-    suites/json.c
     suites/key_trust.c
-    suites/log_file.c
     suites/map.c
     suites/map_pack.c
     suites/tile_cache.c
@@ -58,7 +55,6 @@ set(MESHCLIENT_TEST_SUITES
     suites/mqtt_session.c
     suites/mqtt_topic.c
     suites/radio_settings.c
-    suites/resolve.c
     suites/session.c
     suites/store_forward.c
     suites/transport_ble_data.c
@@ -95,9 +91,7 @@ set(MESHCLIENT_TEST_SUITES
     suites/ui_units.c
     suites/uf2.c
     suites/updater.c
-    suites/utils.c
     suites/waypoints.c
-    suites/zip.c
 )
 
 add_executable(meshclient_core_tests

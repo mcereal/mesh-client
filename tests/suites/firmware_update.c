@@ -18,14 +18,14 @@
  * arrive" and "the bytes are for another board" must not be the same row.
  */
 
-#include "inkcell/utils/text.h"
+#include "inkwell/base/text.h"
 
 #include "framework/mesh_test.h"
 
 #include "support/data_fixture.h"
 #include "support/uf2_fixture.h"
 
-#include "mesh/core/event_loop.h"
+#include "inkwell/runtime/loop.h"
 #include "mesh/core/firmware_update.h"
 
 #include <errno.h>
@@ -392,7 +392,7 @@ struct update_harness {
     char dir[64];
     struct update_cdn cdn;
     struct https_fixture server;
-    struct mesh_event_loop loop;
+    struct inkwell_loop loop;
     struct mesh_firmware_update update;
     bool loop_up;
     bool update_up;
@@ -421,7 +421,7 @@ static bool update_harness_start(struct update_harness *harness, bool whole) {
        itself and two running side by side cannot collide. */
     setenv("MESHCLIENT_FIRMWARE_STAGING", harness->dir, 1);
 
-    if (mesh_event_loop_init(&harness->loop) != 0) {
+    if (inkwell_loop_init(&harness->loop) != 0) {
         return false;
     }
     harness->loop_up = true;
@@ -446,7 +446,7 @@ static void update_harness_down(struct update_harness *harness) {
         mesh_firmware_update_shutdown(&harness->update);
     }
     if (harness->loop_up) {
-        mesh_event_loop_shutdown(&harness->loop);
+        inkwell_loop_shutdown(&harness->loop);
     }
     unsetenv("MESHCLIENT_FIRMWARE_STAGING");
     https_fixture_stop(&harness->server);
@@ -465,7 +465,7 @@ static void update_harness_down(struct update_harness *harness) {
 
 static bool update_settle(struct update_harness *harness, const struct update_probe *probe) {
     for (int turn = 0; turn < 900 && probe->calls == 0U; ++turn) {
-        (void)mesh_event_loop_run(&harness->loop, 10);
+        (void)inkwell_loop_run(&harness->loop, 10);
         mesh_firmware_update_tick(&harness->update, (uint64_t)turn * 100U);
     }
     return probe->calls > 0U;
@@ -476,7 +476,7 @@ static bool update_settle(struct update_harness *harness, const struct update_pr
 static bool update_settle_at(struct update_harness *harness, const struct update_probe *probe,
                              enum mesh_firmware_update_state state) {
     for (int turn = 0; turn < 900 && probe->calls == 0U; ++turn) {
-        (void)mesh_event_loop_run(&harness->loop, 10);
+        (void)inkwell_loop_run(&harness->loop, 10);
         mesh_firmware_update_tick(&harness->update, (uint64_t)turn * 100U);
         if (harness->update.state == state) {
             return true;
@@ -784,7 +784,7 @@ MESH_TEST_CASE(firmware_update_knows_when_it_can_go_back, unit) {
        reads and the one this press exists for. */
     update.board = update_t114_board();
     update.release = update_release();
-    inkcell_str_copy(update.where, sizeof update.where, "9C:13:9E:9D:0A:D9");
+    inkwell_str_copy(update.where, sizeof update.where, "9C:13:9E:9D:0A:D9");
     update.ble.state = MESH_FIRMWARE_OTA_FAILED;
     update.ble.error = MESH_FIRMWARE_OTA_ERROR_TRANSFER;
     MESH_TEST_FAIL_IF(!mesh_firmware_update_radio_in_loader(&update),

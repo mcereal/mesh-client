@@ -16,7 +16,7 @@
 
 #include "framework/mesh_test.h"
 
-#include "mesh/core/event_loop.h"
+#include "inkwell/runtime/loop.h"
 #include "mesh/core/mqtt_proxy.h"
 #include "mesh/proto/mqtt_packet.h"
 
@@ -439,7 +439,7 @@ static void broker_suback(struct fake_broker *broker, uint16_t id, uint8_t code)
 /* ------------------------------------------------------------------ the harness */
 
 struct proxy_probe {
-    struct mesh_event_loop loop;
+    struct inkwell_loop loop;
     struct mesh_mqtt_proxy proxy;
     struct fake_broker broker;
     uint64_t now_ms;
@@ -478,7 +478,7 @@ static void probe_turn(struct proxy_probe *probe, uint64_t step_ms) {
      * certificate, say - would otherwise be waiting on a server that has not spoken yet.
      */
     broker_pump(&probe->broker);
-    (void)mesh_event_loop_run(&probe->loop, 5);
+    (void)inkwell_loop_run(&probe->loop, 5);
     probe->now_ms += step_ms;
     mesh_mqtt_proxy_tick(&probe->proxy, probe->now_ms);
 }
@@ -515,7 +515,7 @@ static void probe_config(struct mesh_mqtt_proxy_config *config, uint16_t port) {
 static bool probe_start(struct proxy_probe *probe) {
     memset(probe, 0, sizeof *probe);
     broker_init(&probe->broker);
-    if (mesh_event_loop_init(&probe->loop) != 0) {
+    if (inkwell_loop_init(&probe->loop) != 0) {
         return false;
     }
     if (!broker_listen(&probe->broker)) {
@@ -527,7 +527,7 @@ static bool probe_start(struct proxy_probe *probe) {
 static void probe_stop(struct proxy_probe *probe) {
     mesh_mqtt_proxy_shutdown(&probe->proxy);
     broker_close(&probe->broker);
-    mesh_event_loop_shutdown(&probe->loop);
+    inkwell_loop_shutdown(&probe->loop);
 }
 
 /* Connects and gets as far as READY, which almost every case needs before it starts. */
@@ -681,8 +681,8 @@ MESH_TEST_CASE(mqtt_proxy_refuses_what_it_cannot_connect_to, unit) {
     }
     mesh_mqtt_proxy_shutdown(&proxy);
 
-    struct mesh_event_loop loop;
-    if (mesh_event_loop_init(&loop) != 0) {
+    struct inkwell_loop loop;
+    if (inkwell_loop_init(&loop) != 0) {
         record_failure(test_name, "the loop did not start");
         return;
     }
@@ -717,7 +717,7 @@ MESH_TEST_CASE(mqtt_proxy_refuses_what_it_cannot_connect_to, unit) {
 
 cleanup:
     mesh_mqtt_proxy_shutdown(&proxy);
-    mesh_event_loop_shutdown(&loop);
+    inkwell_loop_shutdown(&loop);
 }
 
 /* ------------------------------------------------------------------ subscriptions */

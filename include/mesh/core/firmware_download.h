@@ -33,8 +33,8 @@
  * self-updater's does.
  */
 
+#include "inkwell/codec/zip.h"
 #include "mesh/core/fetch.h"
-#include "mesh/utils/zip.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -44,7 +44,7 @@
 extern "C" {
 #endif
 
-struct mesh_event_loop;
+struct inkwell_loop;
 
 /* Enough for a release asset URL: the tag and the file name both carry the version. */
 #define MESH_FIRMWARE_DOWNLOAD_URL_MAX 320U
@@ -107,7 +107,7 @@ struct mesh_firmware_download {
     enum mesh_firmware_download_error error;
 
     char zip_url[MESH_FIRMWARE_DOWNLOAD_URL_MAX];
-    char member[MESH_ZIP_NAME_MAX];
+    char member[INKWELL_ZIP_NAME_MAX];
     /* The directory staged files are written into. On a Brick this is on /mnt/UDISK and
        deliberately **not** beside the client's own .update staging on /mnt/SDCARD: the USB
        path's bootloader mounts a ghost drive over that card the moment the radio reboots, so
@@ -123,7 +123,7 @@ struct mesh_firmware_download {
        its own - which no release zip measured needs, and which decides both what the next read
        lands in and how it is walked. */
     bool directory_only;
-    struct mesh_zip_entry entry;
+    struct inkwell_zip_entry entry;
     bool located;
     uint64_t data_offset;
 

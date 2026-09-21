@@ -4,10 +4,10 @@
 
 #include "framework/mesh_test.h"
 
-#include "mesh/core/event_loop.h"
+#include "inkwell/codec/sha256.h"
+#include "inkwell/runtime/loop.h"
 #include "mesh/core/updater.h"
 #include "mesh/core/version.h"
-#include "mesh/utils/sha256.h"
 
 #include <errno.h>
 #include <stdbool.h>
@@ -36,10 +36,10 @@ static const char k_release_json[] =
 
 /* Runs the loop until `updater` leaves `from`, or the budget runs out. Returns true if it
    moved: every step arrives through the event loop, so the test has to pump it. */
-static bool updater_wait_past(struct mesh_event_loop *loop, struct mesh_updater *updater,
+static bool updater_wait_past(struct inkwell_loop *loop, struct mesh_updater *updater,
                               enum mesh_update_state from) {
     for (int i = 0; i < 200 && updater->state == from; ++i) {
-        mesh_event_loop_run(loop, 50);
+        inkwell_loop_run(loop, 50);
         mesh_updater_tick(updater, (uint64_t)i * 50U);
     }
     return updater->state != from;
@@ -180,18 +180,18 @@ MESH_TEST_CASE(updater_parse_release, unit) {
 }
 
 MESH_TEST_CASE(updater_lifecycle, unit) {
-    struct mesh_event_loop loop;
-    MESH_TEST_FAIL_IF(mesh_event_loop_init(&loop) != 0, "event loop init failed");
+    struct inkwell_loop loop;
+    MESH_TEST_FAIL_IF(inkwell_loop_init(&loop) != 0, "event loop init failed");
 
     struct mesh_updater updater;
     if (mesh_updater_init(&updater, &loop) != 0) {
-        mesh_event_loop_shutdown(&loop);
+        inkwell_loop_shutdown(&loop);
         record_failure(test_name, "updater init failed");
         return;
     }
     if (updater.state != MESH_UPDATE_IDLE || updater.revision != 0U) {
         mesh_updater_shutdown(&updater);
-        mesh_event_loop_shutdown(&loop);
+        inkwell_loop_shutdown(&loop);
         record_failure(test_name, "a fresh updater should be idle");
         return;
     }
@@ -200,7 +200,7 @@ MESH_TEST_CASE(updater_lifecycle, unit) {
     if (updater.install_path[0] == '\0' ||
         strncmp(updater.staged_path, updater.install_path, strlen(updater.install_path)) != 0) {
         mesh_updater_shutdown(&updater);
-        mesh_event_loop_shutdown(&loop);
+        inkwell_loop_shutdown(&loop);
         record_failure(test_name, "the staged path should sit next to the installed one");
         return;
     }
@@ -209,7 +209,7 @@ MESH_TEST_CASE(updater_lifecycle, unit) {
        programming error, not a no-op that silently downloads nothing. */
     if (mesh_updater_install(&updater, 0U) == 0) {
         mesh_updater_shutdown(&updater);
-        mesh_event_loop_shutdown(&loop);
+        inkwell_loop_shutdown(&loop);
         record_failure(test_name, "install from idle should be refused");
         return;
     }
@@ -220,7 +220,7 @@ MESH_TEST_CASE(updater_lifecycle, unit) {
     if (mesh_updater_available(&detached) || mesh_updater_check(&detached, 0U) != -ENOTSUP) {
         mesh_updater_shutdown(&detached);
         mesh_updater_shutdown(&updater);
-        mesh_event_loop_shutdown(&loop);
+        inkwell_loop_shutdown(&loop);
         record_failure(test_name, "an updater with no loop should be unavailable");
         return;
     }
@@ -230,7 +230,7 @@ MESH_TEST_CASE(updater_lifecycle, unit) {
     mesh_updater_tick(&updater, 1000000U);
     if (updater.state != MESH_UPDATE_IDLE) {
         mesh_updater_shutdown(&updater);
-        mesh_event_loop_shutdown(&loop);
+        inkwell_loop_shutdown(&loop);
         record_failure(test_name, "ticking an idle updater should change nothing");
         return;
     }
@@ -238,7 +238,7 @@ MESH_TEST_CASE(updater_lifecycle, unit) {
     if (mesh_update_state_name(MESH_UPDATE_READY) == NULL ||
         strcmp(mesh_update_state_name(MESH_UPDATE_IDLE), "idle") != 0) {
         mesh_updater_shutdown(&updater);
-        mesh_event_loop_shutdown(&loop);
+        inkwell_loop_shutdown(&loop);
         record_failure(test_name, "every state should have a name");
         return;
     }
@@ -289,7 +289,7 @@ MESH_TEST_CASE(updater_lifecycle, unit) {
     }
     if (channel_failure != NULL) {
         mesh_updater_shutdown(&updater);
-        mesh_event_loop_shutdown(&loop);
+        inkwell_loop_shutdown(&loop);
         record_failure(test_name, channel_failure);
         return;
     }
@@ -325,13 +325,13 @@ MESH_TEST_CASE(updater_lifecycle, unit) {
     }
     if (dev_failure != NULL) {
         mesh_updater_shutdown(&updater);
-        mesh_event_loop_shutdown(&loop);
+        inkwell_loop_shutdown(&loop);
         record_failure(test_name, dev_failure);
         return;
     }
 
     mesh_updater_shutdown(&updater);
-    mesh_event_loop_shutdown(&loop);
+    inkwell_loop_shutdown(&loop);
     record_success(test_name);
 }
 
@@ -402,7 +402,7 @@ MESH_TEST_CASE(updater_fetch_and_install, unit) {
     const char *failure = NULL;
     struct https_fixture server;
     memset(&server, 0, sizeof server);
-    struct mesh_event_loop loop;
+    struct inkwell_loop loop;
     struct mesh_updater updater;
     bool loop_up = false;
     bool updater_up = false;
@@ -448,13 +448,13 @@ MESH_TEST_CASE(updater_fetch_and_install, unit) {
     }
     fclose(payload);
 
-    uint8_t digest[MESH_SHA256_DIGEST_LEN];
-    char digest_hex[MESH_SHA256_HEX_LEN];
-    if (mesh_sha256_file(payload_path, digest) != 0) {
+    uint8_t digest[INKWELL_SHA256_DIGEST_LEN];
+    char digest_hex[INKWELL_SHA256_HEX_LEN];
+    if (inkwell_sha256_file(payload_path, digest) != 0) {
         failure = "could not hash the payload";
         goto cleanup;
     }
-    mesh_sha256_hex(digest, digest_hex, sizeof digest_hex);
+    inkwell_sha256_hex(digest, digest_hex, sizeof digest_hex);
 
     FILE *json = fopen(json_path, "wb");
     if (json == NULL) {
@@ -478,7 +478,7 @@ MESH_TEST_CASE(updater_fetch_and_install, unit) {
         goto cleanup;
     }
 
-    if (mesh_event_loop_init(&loop) != 0) {
+    if (inkwell_loop_init(&loop) != 0) {
         failure = "event loop init failed";
         goto cleanup;
     }
@@ -541,7 +541,7 @@ MESH_TEST_CASE(updater_fetch_and_install, unit) {
     /* The server has sent its first piece and is waiting on the gate, so the reading is
        exactly that piece over the asset's size and stays there until the test lets go. */
     for (int i = 0; i < 200 && updater.downloaded == 0U; ++i) {
-        mesh_event_loop_run(&loop, 10);
+        inkwell_loop_run(&loop, 10);
         mesh_updater_tick(&updater, (uint64_t)i * 10U);
     }
     if (updater.downloaded != k_payload_half) {
@@ -585,8 +585,8 @@ MESH_TEST_CASE(updater_fetch_and_install, unit) {
         failure = "the installed binary should be in place and executable";
         goto cleanup;
     }
-    uint8_t installed[MESH_SHA256_DIGEST_LEN];
-    if (mesh_sha256_file(install_path, installed) != 0 ||
+    uint8_t installed[INKWELL_SHA256_DIGEST_LEN];
+    if (inkwell_sha256_file(install_path, installed) != 0 ||
         memcmp(installed, digest, sizeof digest) != 0) {
         failure = "the installed binary should hash to what the release claimed";
         goto cleanup;
@@ -655,7 +655,7 @@ MESH_TEST_CASE(updater_fetch_and_install, unit) {
         goto cleanup;
     }
     /* The previously installed binary is untouched: a bad update never damages a good one. */
-    if (mesh_sha256_file(install_path, installed) != 0 ||
+    if (inkwell_sha256_file(install_path, installed) != 0 ||
         memcmp(installed, digest, sizeof digest) != 0) {
         failure = "a rejected download must leave the installed binary alone";
         goto cleanup;
@@ -677,7 +677,7 @@ cleanup:
         mesh_updater_shutdown(&updater);
     }
     if (loop_up) {
-        mesh_event_loop_shutdown(&loop);
+        inkwell_loop_shutdown(&loop);
     }
     https_fixture_stop(&server);
     unlink(payload_path);
@@ -713,7 +713,7 @@ MESH_TEST_CASE(updater_gives_up_on_a_silent_server, unit) {
     const char *failure = NULL;
     struct https_fixture server;
     memset(&server, 0, sizeof server);
-    struct mesh_event_loop loop;
+    struct inkwell_loop loop;
     struct mesh_updater updater;
     bool loop_up = false;
     bool updater_up = false;
@@ -722,7 +722,7 @@ MESH_TEST_CASE(updater_gives_up_on_a_silent_server, unit) {
         failure = "could not stand up the server";
         goto cleanup;
     }
-    if (mesh_event_loop_init(&loop) != 0) {
+    if (inkwell_loop_init(&loop) != 0) {
         failure = "event loop init failed";
         goto cleanup;
     }
@@ -741,7 +741,7 @@ MESH_TEST_CASE(updater_gives_up_on_a_silent_server, unit) {
     }
 
     for (int i = 0; i < 20 && updater.state == MESH_UPDATE_CHECKING; ++i) {
-        mesh_event_loop_run(&loop, 10);
+        inkwell_loop_run(&loop, 10);
         mesh_updater_tick(&updater, (uint64_t)i * 5000U);
     }
     if (updater.state != MESH_UPDATE_FAILED) {
@@ -758,7 +758,7 @@ cleanup:
         mesh_updater_shutdown(&updater);
     }
     if (loop_up) {
-        mesh_event_loop_shutdown(&loop);
+        inkwell_loop_shutdown(&loop);
     }
     https_fixture_stop(&server);
     MESH_TEST_FAIL_IF(failure != NULL, failure);

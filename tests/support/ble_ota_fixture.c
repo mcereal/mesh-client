@@ -1,6 +1,6 @@
 #include "support/ble_ota_fixture.h"
 
-#include "inkcell/utils/text.h"
+#include "inkwell/base/text.h"
 
 #include "mesh/transport/ble_bluez.h"
 #include "mesh/transport/ble_ota.h"
@@ -36,7 +36,7 @@ void mesh_test_ota_loader_restart(struct mesh_test_ota_loader *loader) {
 
 static void loader_say(struct mesh_test_ota_loader *loader, const char *text) {
     if (loader->queued < MESH_TEST_OTA_LOADER_QUEUE) {
-        inkcell_str_copy(loader->queue[loader->queued++], MESH_TEST_OTA_LOADER_TEXT, text);
+        inkwell_str_copy(loader->queue[loader->queued++], MESH_TEST_OTA_LOADER_TEXT, text);
     }
 }
 
@@ -46,7 +46,7 @@ static void loader_command(struct mesh_test_ota_loader *loader, const uint8_t *d
     memcpy(text, data, copy);
     text[copy] = '\0';
     if (loader->command_count < MESH_TEST_OTA_LOADER_COMMANDS) {
-        inkcell_str_copy(loader->commands[loader->command_count++], sizeof loader->commands[0],
+        inkwell_str_copy(loader->commands[loader->command_count++], sizeof loader->commands[0],
                          text);
     }
     char *const newline = strchr(text, '\n');
@@ -60,7 +60,7 @@ static void loader_command(struct mesh_test_ota_loader *loader, const uint8_t *d
     }
     if (strncmp(text, "OTA", 3U) == 0) {
         unsigned size = 0U;
-        char hex[MESH_SHA256_HEX_LEN] = {0};
+        char hex[INKWELL_SHA256_HEX_LEN] = {0};
         if (sscanf(text + 3, "%u %64s", &size, hex) != 2) {
             loader_say(loader, "ERR Invalid Format\n");
             return;
@@ -70,9 +70,9 @@ static void loader_command(struct mesh_test_ota_loader *loader, const uint8_t *d
             return;
         }
         loader->expected_size = size;
-        inkcell_str_copy(loader->expected_hex, sizeof loader->expected_hex, hex);
+        inkwell_str_copy(loader->expected_hex, sizeof loader->expected_hex, hex);
         loader->received = 0U;
-        mesh_sha256_init(&loader->hasher);
+        inkwell_sha256_init(&loader->hasher);
         loader->downloading = true;
         loader_say(loader, "ERASING\n");
         loader_say(loader, "OK\n");
@@ -97,10 +97,10 @@ void mesh_test_ota_loader_write(void *userdata, const char *char_path, const uin
         return;
     }
 
-    mesh_sha256_update(&loader->hasher, data, len);
+    inkwell_sha256_update(&loader->hasher, data, len);
     if (loader->corrupt && loader->received == 0U) {
         const uint8_t extra = 0xFFU;
-        mesh_sha256_update(&loader->hasher, &extra, 1U);
+        inkwell_sha256_update(&loader->hasher, &extra, 1U);
     }
     if (loader->first_binary_len == 0U) {
         loader->first_binary_len = len;
@@ -113,10 +113,10 @@ void mesh_test_ota_loader_write(void *userdata, const char *char_path, const uin
             loader_say(loader, "ERR Size Mismatch\n");
             return;
         }
-        uint8_t digest[MESH_SHA256_DIGEST_LEN];
-        char hex[MESH_SHA256_HEX_LEN];
-        mesh_sha256_final(&loader->hasher, digest);
-        mesh_sha256_hex(digest, hex, sizeof hex);
+        uint8_t digest[INKWELL_SHA256_DIGEST_LEN];
+        char hex[INKWELL_SHA256_HEX_LEN];
+        inkwell_sha256_final(&loader->hasher, digest);
+        inkwell_sha256_hex(digest, hex, sizeof hex);
         if (strcasecmp(hex, loader->expected_hex) == 0) {
             loader->finished_ok = true;
             loader_say(loader, "OK\n");

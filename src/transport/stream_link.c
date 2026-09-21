@@ -3,7 +3,7 @@
 
 #include "mesh/transport/stream_link.h"
 
-#include "inkcell/utils/log.h"
+#include "inkwell/base/log.h"
 
 #include <errno.h>
 #include <string.h>
@@ -98,7 +98,7 @@ static void mesh_stream_link_update_write_interest(struct mesh_stream_link *link
         return;
     }
     const uint32_t events = want ? (uint32_t)(EPOLLIN | EPOLLOUT) : (uint32_t)EPOLLIN;
-    if (mesh_event_loop_update_fd(link->loop, link->fd, events) == 0) {
+    if (inkwell_loop_update_fd(link->loop, link->fd, events) == 0) {
         link->want_write = want;
     }
 }
@@ -124,7 +124,7 @@ int mesh_stream_link_flush(struct mesh_stream_link *link) {
             }
             /* EPIPE lands here rather than as a dead process, which is what MSG_NOSIGNAL above
                bought: the far end went away and the owner gets to say so in its own words. */
-            inkcell_log_warn(link->tag, "write failed: %s", strerror(errno));
+            inkwell_log_warn(link->tag, "write failed: %s", strerror(errno));
             return -EIO;
         }
 
@@ -190,21 +190,21 @@ static void mesh_stream_link_on_text(const uint8_t *text, size_t len, void *ctx)
         if (byte == '\n' || byte == '\r') {
             if (out > 0U) {
                 line[out] = '\0';
-                inkcell_log_debug(link->tag, "radio: %s", line);
+                inkwell_log_debug(link->tag, "radio: %s", line);
                 out = 0U;
             }
             continue;
         }
         if (out + 1U >= sizeof line) {
             line[out] = '\0';
-            inkcell_log_debug(link->tag, "radio: %s", line);
+            inkwell_log_debug(link->tag, "radio: %s", line);
             out = 0U;
         }
         line[out++] = (byte >= 0x20U && byte < 0x7FU) ? (char)byte : '.';
     }
     if (out > 0U) {
         line[out] = '\0';
-        inkcell_log_debug(link->tag, "radio: %s", line);
+        inkwell_log_debug(link->tag, "radio: %s", line);
     }
 }
 
@@ -243,7 +243,7 @@ int mesh_stream_link_pump(struct mesh_stream_link *link) {
         if (errno == EINTR) {
             continue;
         }
-        inkcell_log_warn(link->tag, "read failed: %s", strerror(errno));
+        inkwell_log_warn(link->tag, "read failed: %s", strerror(errno));
         return -EIO;
     }
 
@@ -253,7 +253,7 @@ int mesh_stream_link_pump(struct mesh_stream_link *link) {
 /* ------------------------------------------------------------------ lifecycle */
 
 int mesh_stream_link_open(struct mesh_stream_link *link, int fd, enum mesh_stream_link_kind kind,
-                          struct mesh_event_loop *loop, mesh_event_callback callback,
+                          struct inkwell_loop *loop, inkwell_loop_callback callback,
                           void *userdata) {
     if (link == NULL || fd < 0) {
         return -EINVAL;
@@ -263,7 +263,7 @@ int mesh_stream_link_open(struct mesh_stream_link *link, int fd, enum mesh_strea
     }
 
     if (loop != NULL) {
-        const int added = mesh_event_loop_add_fd(loop, fd, EPOLLIN, callback, userdata);
+        const int added = inkwell_loop_add_fd(loop, fd, EPOLLIN, callback, userdata);
         if (added < 0) {
             return added;
         }
@@ -296,7 +296,7 @@ void mesh_stream_link_close(struct mesh_stream_link *link) {
         return;
     }
     if (link->fd_registered && link->loop != NULL) {
-        mesh_event_loop_remove_fd(link->loop, link->fd);
+        inkwell_loop_remove_fd(link->loop, link->fd);
     }
     close(link->fd);
     link->fd = -1;

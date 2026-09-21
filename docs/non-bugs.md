@@ -54,7 +54,7 @@ only a consequence of one of them, and neither is a thing a test could pin.
 
 - **A hostname is resolved in a forked child, never on the loop.** `getaddrinfo()` blocks, POSIX
   has no non-blocking resolver and `getaddrinfo_a` starts threads, so calling it here directly is
-  seconds of frozen UI — which is why `src/core/net/resolve.c` exists and why the TCP link refused a
+  seconds of frozen UI — which is why inkwell's `src/net/resolve.c` exists and why the TCP link refused a
   name until it did. A literal is still answered by `inet_pton` with no child at all.
   `tcp_transport_connects_by_name`, `tcp_transport_refuses_what_it_cannot_resolve`,
   `tcp_target_split_shapes`. See [`docs/transport.md`](transport.md#a-name-costs-a-fork).

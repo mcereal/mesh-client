@@ -1,8 +1,8 @@
 #include "mesh/core/config.h"
 
-#include "inkcell/utils/env.h"
-#include "inkcell/utils/log.h"
-#include "inkcell/utils/text.h"
+#include "inkwell/base/env.h"
+#include "inkwell/base/log.h"
+#include "inkwell/base/text.h"
 
 #include <ctype.h>
 #include <limits.h>
@@ -37,11 +37,11 @@ static void lowercase(char *buffer) {
 /* DISABLE_<X>, under the application's environment prefix: truthy turns the transport off, so
    the flag is the negation of the `enable_*` field it lands in.
 
-   `suffix` is a suffix, not a whole name - inkcell_env_bool() puts MESHCLIENT_ on the front. It is
+   `suffix` is a suffix, not a whole name - inkwell_env_bool() puts MESHCLIENT_ on the front. It is
    named for that, because passing the whole name reads perfectly well, compiles, and asks for
    MESHCLIENT_MESHCLIENT_DISABLE_BLE. */
 static void apply_disable_override(const char *suffix, const char *label, bool *enabled) {
-    *enabled = !inkcell_env_bool(suffix, label, !*enabled);
+    *enabled = !inkwell_env_bool(suffix, label, !*enabled);
 }
 
 void mesh_app_config_apply_env_overrides(struct mesh_app_config *config) {
@@ -52,19 +52,19 @@ void mesh_app_config_apply_env_overrides(struct mesh_app_config *config) {
     const char *run_mode_env = getenv("MESHCLIENT_RUN_MODE");
     if (run_mode_env != NULL && run_mode_env[0] != '\0') {
         char mode[32];
-        inkcell_str_copy(mode, sizeof mode, run_mode_env);
+        inkwell_str_copy(mode, sizeof mode, run_mode_env);
         lowercase(mode);
         if (strcmp(mode, "foreground") == 0) {
             config->run_mode = MESH_APP_RUN_FOREGROUND;
         } else if (strcmp(mode, "single_poll") == 0) {
             config->run_mode = MESH_APP_RUN_SINGLE_POLL;
         } else {
-            inkcell_log_warn("config", "Unknown run mode '%s', using default", run_mode_env);
+            inkwell_log_warn("config", "Unknown run mode '%s', using default", run_mode_env);
         }
     }
 
     config->idle_timeout_ms =
-        (int)inkcell_env_int("IDLE_TIMEOUT_MS", INT_MIN, INT_MAX, config->idle_timeout_ms);
+        (int)inkwell_env_int("IDLE_TIMEOUT_MS", INT_MIN, INT_MAX, config->idle_timeout_ms);
 
     apply_disable_override("DISABLE_BLE", "BLE", &config->enable_ble);
     apply_disable_override("DISABLE_SERIAL", "serial", &config->enable_serial);
@@ -72,13 +72,13 @@ void mesh_app_config_apply_env_overrides(struct mesh_app_config *config) {
 
     const char *preferred_env = getenv("MESHCLIENT_PREFERRED_BLE_DEVICE");
     if (preferred_env != NULL) {
-        inkcell_str_copy(config->preferred_ble_device, sizeof config->preferred_ble_device,
+        inkwell_str_copy(config->preferred_ble_device, sizeof config->preferred_ble_device,
                          preferred_env);
     }
 
     const char *preferred_serial_env = getenv("MESHCLIENT_PREFERRED_SERIAL_DEVICE");
     if (preferred_serial_env != NULL) {
-        inkcell_str_copy(config->preferred_serial_device, sizeof config->preferred_serial_device,
+        inkwell_str_copy(config->preferred_serial_device, sizeof config->preferred_serial_device,
                          preferred_serial_env);
     }
 
@@ -87,7 +87,7 @@ void mesh_app_config_apply_env_overrides(struct mesh_app_config *config) {
        prefer it over. */
     const char *tcp_host_env = getenv("MESHCLIENT_TCP_HOST");
     if (tcp_host_env != NULL) {
-        inkcell_str_copy(config->preferred_tcp_host, sizeof config->preferred_tcp_host,
+        inkwell_str_copy(config->preferred_tcp_host, sizeof config->preferred_tcp_host,
                          tcp_host_env);
     }
 }

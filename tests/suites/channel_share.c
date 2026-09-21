@@ -18,88 +18,23 @@
  */
 
 #include "inkcell/utils/qr.h"
-#include "inkcell/utils/text.h"
+#include "inkwell/base/text.h"
 
 #include "framework/mesh_test.h"
 
+#include "inkwell/codec/base64.h"
+#include "inkwell/codec/sha256.h"
 #include "mesh/core/channel_share.h"
 #include "mesh/proto/channel_url.h"
 #include "mesh/ui/channel_share.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
-#include "mesh/utils/base64.h"
-#include "mesh/utils/sha256.h"
 #include "support/ui_fixture.h"
 
 #include <stdio.h>
 #include <string.h>
 
 /* ---- base64 ------------------------------------------------------------------------------ */
-
-MESH_TEST_CASE(base64_round_trips_both_alphabets, unit) {
-    /* The two characters that differ, in a payload chosen to produce both of them: 0x3E and
-       0x3F are '+' and '/' in one alphabet and '-' and '_' in the other. */
-    const uint8_t bytes[] = {0xFBU, 0xF0U, 0x00U, 0x01U, 0x02U};
-    char standard[32];
-    char url[32];
-    MESH_TEST_FAIL_IF(mesh_base64_encode(bytes, sizeof bytes, false, standard, sizeof standard) ==
-                          0U,
-                      "the standard encoding did not fit");
-    MESH_TEST_FAIL_IF(mesh_base64_encode(bytes, sizeof bytes, true, url, sizeof url) == 0U,
-                      "the URL-safe encoding did not fit");
-    MESH_TEST_FAIL_IF(strcmp(standard, "+/AAAQI=") != 0, "the standard encoding came out wrong");
-    MESH_TEST_FAIL_IF(strcmp(url, "-_AAAQI") != 0, "the URL-safe encoding came out wrong");
-
-    /* Either spelling decodes, whichever was asked for, and padding is optional in ANY. */
-    uint8_t out[8];
-    size_t len = 0U;
-    MESH_TEST_FAIL_IF(
-        !mesh_base64_decode(standard, strlen(standard), MESH_BASE64_ANY, out, sizeof out, &len) ||
-            len != sizeof bytes || memcmp(out, bytes, len) != 0,
-        "the standard encoding did not decode back");
-    MESH_TEST_FAIL_IF(
-        !mesh_base64_decode(url, strlen(url), MESH_BASE64_ANY, out, sizeof out, &len) ||
-            len != sizeof bytes || memcmp(out, bytes, len) != 0,
-        "the URL-safe encoding did not decode back");
-
-    /* An output buffer one byte short refuses rather than writing what fits. */
-    MESH_TEST_FAIL_IF(mesh_base64_encode(bytes, sizeof bytes, false, standard, 8U) != 0U,
-                      "a short buffer was written to anyway");
-    MESH_TEST_FAIL_IF(standard[0] != '\0', "a refused encoding left text behind");
-    record_success(test_name);
-}
-
-/*
- * The strictness is the point of the parameter, and the case that says so is a *key*: it is a
- * fixed number of bytes, a mistyped one decodes to a plausible wrong key, and nothing on the
- * wire reports it - the radio just stops hearing the mesh.
- */
-MESH_TEST_CASE(base64_padding_strictness_differs_by_form, unit) {
-    uint8_t out[8];
-    size_t len = 0U;
-
-    /* Three characters: two bytes' worth, and a group the padded form will not take. */
-    MESH_TEST_FAIL_IF(mesh_base64_decode("abc", 3U, MESH_BASE64_PADDED, out, sizeof out, &len),
-                      "the padded form took a short final group");
-    MESH_TEST_FAIL_IF(!mesh_base64_decode("abc", 3U, MESH_BASE64_ANY, out, sizeof out, &len) ||
-                          len != 2U,
-                      "the forgiving form refused a short final group");
-
-    /* One '=' where two belong is a character lost in transit, not a short string. */
-    MESH_TEST_FAIL_IF(mesh_base64_decode("AQ=", 3U, MESH_BASE64_PADDED, out, sizeof out, &len),
-                      "the padded form took a half-padded group");
-
-    /* A group of one character carries no whole byte: neither form takes it. */
-    MESH_TEST_FAIL_IF(mesh_base64_decode("AQIDB", 5U, MESH_BASE64_ANY, out, sizeof out, &len),
-                      "a trailing single character was accepted");
-
-    /* Padding anywhere but the tail is refused by both, and so is anything off the alphabet. */
-    MESH_TEST_FAIL_IF(mesh_base64_decode("A=QI", 4U, MESH_BASE64_ANY, out, sizeof out, &len),
-                      "padding in the middle was accepted");
-    MESH_TEST_FAIL_IF(mesh_base64_decode("AQ I", 4U, MESH_BASE64_ANY, out, sizeof out, &len),
-                      "a space was accepted");
-    record_success(test_name);
-}
 
 /* The key field still reads and writes the padded standard alphabet after being moved onto the
    shared codec - which is the form every Meshtastic app shows a key in. */
@@ -116,13 +51,13 @@ MESH_TEST_CASE(base64_key_text_is_the_padded_alphabet, unit) {
 /* ---- the QR encoder ------------------------------------------------------------------------ */
 
 static void qr_digest(const struct inkcell_qr *qr, char *out, size_t out_len) {
-    struct mesh_sha256 ctx;
-    uint8_t digest[MESH_SHA256_DIGEST_LEN];
-    mesh_sha256_init(&ctx);
-    mesh_sha256_update(&ctx, &qr->size, sizeof qr->size);
-    mesh_sha256_update(&ctx, qr->modules, (size_t)qr->size * qr->size);
-    mesh_sha256_final(&ctx, digest);
-    mesh_sha256_hex(digest, out, out_len);
+    struct inkwell_sha256 ctx;
+    uint8_t digest[INKWELL_SHA256_DIGEST_LEN];
+    inkwell_sha256_init(&ctx);
+    inkwell_sha256_update(&ctx, &qr->size, sizeof qr->size);
+    inkwell_sha256_update(&ctx, qr->modules, (size_t)qr->size * qr->size);
+    inkwell_sha256_final(&ctx, digest);
+    inkwell_sha256_hex(digest, out, out_len);
 }
 
 /* A finder pattern is a 7x7 ring the reader locks onto; three of them say which way up a code
@@ -212,7 +147,7 @@ MESH_TEST_CASE(qr_matrices_are_pinned, unit) {
             record_failure(test_name, reason);
             return;
         }
-        char digest[MESH_SHA256_DIGEST_LEN * 2U + 1U];
+        char digest[INKWELL_SHA256_DIGEST_LEN * 2U + 1U];
         qr_digest(&qr, digest, sizeof digest);
         if (strcmp(digest, k_cases[i].digest) != 0) {
             snprintf(reason, sizeof reason, "%s is not the matrix that was read back: %s",
@@ -693,7 +628,7 @@ MESH_TEST_CASE(channel_share_rows_drive_the_two_screens, unit) {
         failure = "the link did not encode";
         goto cleanup;
     }
-    if (!inkcell_str_copy(store.nav.draft, sizeof store.nav.draft, link)) {
+    if (!inkwell_str_copy(store.nav.draft, sizeof store.nav.draft, link)) {
         failure = "the link did not fit the draft the keyboard fills";
         goto cleanup;
     }

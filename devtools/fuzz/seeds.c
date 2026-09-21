@@ -18,11 +18,11 @@
 
 #include "fuzz_state.h"
 
+#include "inkwell/codec/http.h"
 #include "mesh/core/message.h"
 #include "mesh/core/session.h"
 #include "mesh/proto/channel_url.h"
 #include "mesh/proto/contact_url.h"
-#include "mesh/proto/http.h"
 #include "mesh/proto/mqtt_packet.h"
 #include "mesh/proto/stream_framing.h"
 

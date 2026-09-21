@@ -6,12 +6,12 @@
 #include "inkcell/ui/backend.h"
 #include "inkcell/ui/input.h"
 #include "inkcell/ui/input_profile.h"
-#include "inkcell/utils/array.h"
+#include "inkwell/base/array.h"
 
 #include "framework/mesh_test.h"
 #include "support/ui_fixture.h"
 
-#include "mesh/core/event_loop.h"
+#include "inkwell/runtime/loop.h"
 #include "mesh/core/message.h"
 #include "mesh/ui/backends/cli.h"
 #include "mesh/ui/backends/stub.h"
@@ -55,15 +55,15 @@ static void test_capture_action(void *userdata, const struct mesh_ui_action *act
 }
 
 MESH_TEST_CASE(ui_controller_dispatch, unit) {
-    struct mesh_event_loop loop;
-    if (mesh_event_loop_init(&loop) != 0) {
+    struct inkwell_loop loop;
+    if (inkwell_loop_init(&loop) != 0) {
         record_failure(test_name, "event loop init failed");
         return;
     }
 
     struct mesh_ui_store store;
     if (mesh_ui_store_init(&store) != 0) {
-        mesh_event_loop_shutdown(&loop);
+        inkwell_loop_shutdown(&loop);
         record_failure(test_name, "store init failed");
         return;
     }
@@ -75,7 +75,7 @@ MESH_TEST_CASE(ui_controller_dispatch, unit) {
     if (mesh_ui_controller_init(&controller, &store, mesh_ui_backend_stub(), &context, &loop) !=
         0) {
         mesh_ui_store_shutdown(&store);
-        mesh_event_loop_shutdown(&loop);
+        inkwell_loop_shutdown(&loop);
         record_failure(test_name, "controller init failed");
         return;
     }
@@ -84,12 +84,12 @@ MESH_TEST_CASE(ui_controller_dispatch, unit) {
         {.identifier = "AA:BB:CC:DD:EE:01", .name = "NodeOne", .rssi = -50, .connected = false},
     };
     mesh_ui_store_set_discovery(&store, devices, 1U);
-    mesh_event_loop_run(&loop, 0);
+    inkwell_loop_run(&loop, 0);
 
     if (!context.has_snapshot || context.present_calls == 0U) {
         mesh_ui_controller_shutdown(&controller);
         mesh_ui_store_shutdown(&store);
-        mesh_event_loop_shutdown(&loop);
+        inkwell_loop_shutdown(&loop);
         record_failure(test_name, "backend did not receive discovery update");
         return;
     }
@@ -98,7 +98,7 @@ MESH_TEST_CASE(ui_controller_dispatch, unit) {
         (context.last_snapshot.update_flags & MESH_UI_UPDATE_DISCOVERY) == 0U) {
         mesh_ui_controller_shutdown(&controller);
         mesh_ui_store_shutdown(&store);
-        mesh_event_loop_shutdown(&loop);
+        inkwell_loop_shutdown(&loop);
         record_failure(test_name, "snapshot content mismatch");
         return;
     }
@@ -112,21 +112,21 @@ MESH_TEST_CASE(ui_controller_dispatch, unit) {
     handshake.node_count = 2U;
     handshake.has_my_info = false;
     mesh_ui_store_set_handshake(&store, &handshake);
-    mesh_event_loop_run(&loop, 0);
+    inkwell_loop_run(&loop, 0);
 
     if (!context.has_snapshot ||
         (context.last_snapshot.update_flags & MESH_UI_UPDATE_HANDSHAKE) == 0U ||
         !context.last_snapshot.handshake_valid) {
         mesh_ui_controller_shutdown(&controller);
         mesh_ui_store_shutdown(&store);
-        mesh_event_loop_shutdown(&loop);
+        inkwell_loop_shutdown(&loop);
         record_failure(test_name, "backend did not receive handshake update");
         return;
     }
 
     mesh_ui_controller_shutdown(&controller);
     mesh_ui_store_shutdown(&store);
-    mesh_event_loop_shutdown(&loop);
+    inkwell_loop_shutdown(&loop);
     record_success(test_name);
 }
 
@@ -225,17 +225,15 @@ MESH_TEST_CASE(ui_cli_transport_update, unit) {
 
 /* What a quit key does, for a case that is not running a loop: inkcell asks the host to stop
    and the host here is one event loop the case owns. */
-static void test_request_stop(void *ctx) {
-    mesh_event_loop_request_stop((struct mesh_event_loop *)ctx);
-}
+static void test_request_stop(void *ctx) { inkwell_loop_request_stop((struct inkwell_loop *)ctx); }
 
 MESH_TEST_CASE(ui_input_key_mapping, unit) {
     const char *failure = NULL;
     unsetenv("MESHCLIENT_QUIT_KEYS");
     inkcell_input_reload_quit_keys();
 
-    struct mesh_event_loop loop;
-    MESH_TEST_FAIL_IF(mesh_event_loop_init(&loop) != 0, "event loop init failed");
+    struct inkwell_loop loop;
+    MESH_TEST_FAIL_IF(inkwell_loop_init(&loop) != 0, "event loop init failed");
 
     struct test_key_capture capture;
     memset(&capture, 0, sizeof capture);
@@ -296,7 +294,7 @@ MESH_TEST_CASE(ui_input_key_mapping, unit) {
     }
 
 cleanup:
-    mesh_event_loop_shutdown(&loop);
+    inkwell_loop_shutdown(&loop);
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
@@ -501,14 +499,14 @@ MESH_TEST_CASE(ui_controller_key_dispatch, unit) {
     const char *failure = NULL;
     mesh_ui_canned_reset();
 
-    struct mesh_event_loop loop;
-    if (mesh_event_loop_init(&loop) != 0) {
+    struct inkwell_loop loop;
+    if (inkwell_loop_init(&loop) != 0) {
         record_failure(test_name, "event loop init failed");
         return;
     }
     struct mesh_ui_store store;
     if (mesh_ui_store_init(&store) != 0) {
-        mesh_event_loop_shutdown(&loop);
+        inkwell_loop_shutdown(&loop);
         record_failure(test_name, "store init failed");
         return;
     }
@@ -519,7 +517,7 @@ MESH_TEST_CASE(ui_controller_key_dispatch, unit) {
     if (mesh_ui_controller_init(&controller, &store, mesh_ui_backend_stub(), &backend, &loop) !=
         0) {
         mesh_ui_store_shutdown(&store);
-        mesh_event_loop_shutdown(&loop);
+        inkwell_loop_shutdown(&loop);
         record_failure(test_name, "controller init failed");
         return;
     }
@@ -528,14 +526,14 @@ MESH_TEST_CASE(ui_controller_key_dispatch, unit) {
     mesh_ui_controller_set_action_handler(&controller, test_capture_action, &actions);
 
     mesh_test_nav_populate(&store);
-    mesh_event_loop_run(&loop, 0);
+    inkwell_loop_run(&loop, 0);
     const size_t presents_before = backend.present_calls;
 
     /* The right shoulder lands on Nodes; the repaint arrives through the eventfd on the next
        turn. The shoulder is the tab switch from every row, where Right is the tab switch only
        where the row under the cursor has no control on it. */
     mesh_ui_controller_handle_key(&controller, INKCELL_KEY_R1);
-    mesh_event_loop_run(&loop, 0);
+    inkwell_loop_run(&loop, 0);
     if (backend.present_calls <= presents_before ||
         backend.last_snapshot.nav.screen != MESH_UI_SCREEN_NODES ||
         (backend.last_snapshot.update_flags & MESH_UI_UPDATE_NAV) == 0U) {
@@ -569,7 +567,7 @@ MESH_TEST_CASE(ui_controller_key_dispatch, unit) {
 cleanup:
     mesh_ui_controller_shutdown(&controller);
     mesh_ui_store_shutdown(&store);
-    mesh_event_loop_shutdown(&loop);
+    inkwell_loop_shutdown(&loop);
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
@@ -774,7 +772,7 @@ static void test_evdev_bits_set(struct test_evdev_bits *bits, unsigned int code)
 MESH_TEST_CASE(input_device_filter_keeps_the_pad, unit) {
     struct test_evdev_bits keys;
     struct test_evdev_bits axes;
-    const size_t words = INKCELL_ARRAY_LEN(keys.words);
+    const size_t words = INKWELL_ARRAY_LEN(keys.words);
 
     /* A pad: the face buttons are keys and the d-pad is a pair of absolute axes. */
     memset(&keys, 0, sizeof keys);
@@ -836,7 +834,7 @@ MESH_TEST_CASE(input_device_filter_keeps_the_pad, unit) {
  */
 MESH_TEST_CASE(input_device_filter_follows_the_quit_keys, unit) {
     struct test_evdev_bits keys;
-    const size_t words = INKCELL_ARRAY_LEN(keys.words);
+    const size_t words = INKWELL_ARRAY_LEN(keys.words);
     const char *failure = NULL;
 
     memset(&keys, 0, sizeof keys);
@@ -888,7 +886,7 @@ static bool test_animation_moving(void *state, void *userdata) {
 }
 
 MESH_TEST_CASE(ui_controller_animation_reuses_snapshot_and_consumes_changes, unit) {
-    struct mesh_event_loop loop;
+    struct inkwell_loop loop;
     struct mesh_ui_store store;
     struct mesh_ui_controller controller;
     struct test_animation_backend capture = {0};
@@ -897,21 +895,21 @@ MESH_TEST_CASE(ui_controller_animation_reuses_snapshot_and_consumes_changes, uni
         .present = test_animation_present,
         .animating = test_animation_moving,
     };
-    MESH_TEST_FAIL_IF(mesh_event_loop_init(&loop) != 0, "loop init failed");
+    MESH_TEST_FAIL_IF(inkwell_loop_init(&loop) != 0, "loop init failed");
     if (mesh_ui_store_init(&store) != 0) {
-        mesh_event_loop_shutdown(&loop);
+        inkwell_loop_shutdown(&loop);
         record_failure(test_name, "store init failed");
         return;
     }
     if (mesh_ui_controller_init(&controller, &store, &backend, &capture, &loop) != 0) {
         mesh_ui_store_shutdown(&store);
-        mesh_event_loop_shutdown(&loop);
+        inkwell_loop_shutdown(&loop);
         record_failure(test_name, "controller init failed");
         return;
     }
     const char *failure = NULL;
     mesh_ui_store_set_transport_status(&store, "initial");
-    mesh_event_loop_run(&loop, 0);
+    inkwell_loop_run(&loop, 0);
     for (unsigned pass = 0U; pass < 2U; ++pass) {
         const struct itimerspec spec = {.it_value = {.tv_nsec = 1L}};
         if (timerfd_settime(controller.frame_timer_fd, 0, &spec, NULL) < 0) {
@@ -926,7 +924,7 @@ MESH_TEST_CASE(ui_controller_animation_reuses_snapshot_and_consumes_changes, uni
         if (pass == 1U) {
             mesh_ui_store_set_transport_status(&store, "changed");
         }
-        mesh_event_loop_run(&loop, 0);
+        inkwell_loop_run(&loop, 0);
         if (store.pending_flags != MESH_UI_UPDATE_NONE ||
             strcmp(capture.status, pass == 0U ? "initial" : "changed") != 0 ||
             (pass == 0U && capture.flags != MESH_UI_UPDATE_NONE)) {
@@ -939,7 +937,7 @@ MESH_TEST_CASE(ui_controller_animation_reuses_snapshot_and_consumes_changes, uni
     }
     mesh_ui_controller_shutdown(&controller);
     mesh_ui_store_shutdown(&store);
-    mesh_event_loop_shutdown(&loop);
+    inkwell_loop_shutdown(&loop);
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }

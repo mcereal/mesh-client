@@ -4,7 +4,7 @@
 
 #include "mesh/ui/contact_share.h"
 
-#include "inkcell/utils/text.h"
+#include "inkwell/base/text.h"
 
 #include "mesh/i18n/strings.h"
 #include "mesh/proto/contact_url.h"
@@ -43,14 +43,14 @@ static void contact_id(const meshtastic_SharedContact *contact, char *out, size_
    key, and the name arrives with the node's first NodeInfo. */
 static void contact_name(const meshtastic_SharedContact *contact, char *out, size_t out_len) {
     if (contact->has_user && contact->user.long_name[0] != '\0') {
-        inkcell_str_copy(out, out_len, contact->user.long_name);
+        inkwell_str_copy(out, out_len, contact->user.long_name);
         return;
     }
     if (contact->has_user && contact->user.short_name[0] != '\0') {
-        inkcell_str_copy(out, out_len, contact->user.short_name);
+        inkwell_str_copy(out, out_len, contact->user.short_name);
         return;
     }
-    inkcell_str_copy(out, out_len, inkcell_str(MESH_STR_CONTACT_NO_NAME));
+    inkwell_str_copy(out, out_len, inkcell_str(MESH_STR_CONTACT_NO_NAME));
 }
 
 bool mesh_ui_contact_share_summary(const char *url, char *out, size_t out_len) {

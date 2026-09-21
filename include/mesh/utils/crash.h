@@ -138,7 +138,7 @@ void mesh_crash_note(enum mesh_crash_note_slot slot, const char *value);
 /*
  * Put one already-formatted log line into the ring the report will carry.
  *
- * Called by `inkcell_log_message_v()` and by nothing else. It is here rather than in log.c because
+ * Called by `inkwell_log_message_v()` and by nothing else. It is here rather than in log.c because
  * the ring is the crash report's, and the dependency has to run this way round: a handler that
  * called into the logger would be a handler using stdio on a broken process, which is the one
  * thing this module exists to avoid.

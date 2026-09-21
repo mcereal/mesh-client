@@ -11,8 +11,8 @@
 
 #include "inkcell/ui/layout.h"
 #include "inkcell/ui/widgets.h"
-#include "inkcell/utils/text.h"
-#include "inkcell/utils/time.h"
+#include "inkwell/base/text.h"
+#include "inkwell/base/time.h"
 
 #include "fb_screens_internal.h"
 
@@ -60,7 +60,7 @@ static void fb_render_waypoint_detail(struct inkcell_backend_fb_state *state,
         /* The credible clock rather than the machine's: this screen's "Expires" row subtracts
            from it, and a Brick that has not been told the date would otherwise report every
            deadline as tens of thousands of days away rather than saying it cannot tell. */
-        inkcell_time_wall_credible_s(), nav->waypoint_delete_armed, items,
+        inkwell_time_wall_credible_s(), nav->waypoint_delete_armed, items,
         MESH_UI_WAYPOINT_ITEMS_MAX);
     if (count == 0U) {
         inkcell_fb_draw_empty(state, layout, INKCELL_ICON_POSITION,
@@ -104,10 +104,10 @@ static void fb_render_waypoint_detail(struct inkcell_backend_fb_state *state,
             struct inkcell_wrap wrap;
             inkcell_wrap_begin(&wrap, item->value, inkcell_fb_row_cols(state, state->scale));
             if (inkcell_wrap_next(&wrap)) {
-                inkcell_str_copy(first, sizeof first, wrap.line);
+                inkwell_str_copy(first, sizeof first, wrap.line);
             }
             if (inkcell_wrap_next(&wrap)) {
-                inkcell_str_copy(second, sizeof second, wrap.line);
+                inkwell_str_copy(second, sizeof second, wrap.line);
             }
             const struct inkcell_fb_list_item row = {
                 .text = first,
@@ -163,7 +163,7 @@ void fb_render_waypoints(struct inkcell_backend_fb_state *state,
     if (places > 0U) {
         inkcell_str_format(title, sizeof title, MESH_STR_WAYPOINTS_TITLE_COUNT, places);
     } else {
-        inkcell_str_copy(title, sizeof title, inkcell_str(MESH_STR_TAB_WAYPOINTS));
+        inkwell_str_copy(title, sizeof title, inkcell_str(MESH_STR_TAB_WAYPOINTS));
     }
     inkcell_fb_draw_app_bar(state, layout, &(const struct inkcell_fb_app_bar){.title = title});
 

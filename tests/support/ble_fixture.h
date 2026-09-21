@@ -23,8 +23,8 @@
  * calls rather than one.
  */
 
+#include "inkwell/runtime/loop.h"
 #include "mesh/core/config.h"
-#include "mesh/core/event_loop.h"
 #include "mesh/transport/ble_bluez.h"
 #include "mesh/transport/transport.h"
 
@@ -46,7 +46,7 @@
 struct mesh_test_ble_rig {
     struct mesh_transport *ble;
     struct mesh_app_config config;
-    struct mesh_event_loop loop;
+    struct inkwell_loop loop;
     struct mesh_bluez_mock_config mock;
 
     struct mesh_bluez_device_info devices[MESH_TEST_BLE_MAX_DEVICES];
@@ -95,7 +95,7 @@ bool mesh_test_ble_rig_add_device(struct mesh_test_ble_rig *rig, const char *add
  * call only.
  *
  * A case that stops the transport and starts it again is restarting BLE on the application's
- * existing loop, which is the thing it is there to cover - and mesh_event_loop_init() would
+ * existing loop, which is the thing it is there to cover - and inkwell_loop_init() would
  * memset a live loop and replace its epoll and eventfd descriptors without closing them, leaking
  * both. So the loop outlives a restart and only mesh_test_ble_rig_close() takes it down.
  */

@@ -2,15 +2,15 @@
 
 #include "mesh/core/session.h"
 
-#include "inkcell/utils/log.h"
-#include "inkcell/utils/text.h"
-#include "inkcell/utils/time.h"
+#include "inkwell/base/log.h"
+#include "inkwell/base/text.h"
+#include "inkwell/base/time.h"
 
 #include "mesh/core/channel_share.h"
 #include "mesh/core/contact_share.h"
 
+#include "inkwell/codec/sha256.h"
 #include "mesh/geo/coords.h"
-#include "mesh/utils/sha256.h"
 
 #include <pb_decode.h>
 #include <pb_encode.h>
@@ -37,10 +37,10 @@
  * earlier than the floor is treated as no clock at all, which every caller already renders as
  * "unknown" rather than as a date.
  */
-/* The wall clock when it is credibly one; see inkcell_time_wall_credible_s(). The floor used to
+/* The wall clock when it is credibly one; see inkwell_time_wall_credible_s(). The floor used to
    be spelled out here, and it is now shared with the two other places that need to know a
    Brick's 1970 clock is not a date. */
-static uint32_t mesh_session_wall_clock(void) { return inkcell_time_wall_credible_s(); }
+static uint32_t mesh_session_wall_clock(void) { return inkwell_time_wall_credible_s(); }
 
 /*
  * Everything the connection that just ended told us about *itself* - what was in flight, what
@@ -174,7 +174,7 @@ static int mesh_session_send_raw(struct mesh_session *session, const uint8_t *pa
         return -ENOTCONN;
     }
     if (len > MESH_SESSION_MAX_PACKET) {
-        inkcell_log_warn("session", "ToRadio packet of %zu bytes exceeds %u byte limit", len,
+        inkwell_log_warn("session", "ToRadio packet of %zu bytes exceeds %u byte limit", len,
                          (unsigned)MESH_SESSION_MAX_PACKET);
         return -EMSGSIZE;
     }
@@ -219,19 +219,19 @@ int mesh_session_begin_handshake(struct mesh_session *session) {
     uint8_t payload[64];
     pb_ostream_t stream = pb_ostream_from_buffer(payload, sizeof payload);
     if (!pb_encode(&stream, meshtastic_ToRadio_fields, &request)) {
-        inkcell_log_error("session", "Failed to encode want_config: %s", PB_GET_ERROR(&stream));
+        inkwell_log_error("session", "Failed to encode want_config: %s", PB_GET_ERROR(&stream));
         session->handshake.request_in_flight = false;
         return -EIO;
     }
 
     int result = mesh_session_send_raw(session, payload, stream.bytes_written, 0U);
     if (result < 0) {
-        inkcell_log_error("session", "Failed to send want_config request: %d", result);
+        inkwell_log_error("session", "Failed to send want_config request: %d", result);
         session->handshake.request_in_flight = false;
         return result;
     }
 
-    inkcell_log_info("session", "Requested config sync (request_id=%u)", request_id);
+    inkwell_log_info("session", "Requested config sync (request_id=%u)", request_id);
     return 0;
 }
 
@@ -252,7 +252,7 @@ int mesh_session_send_heartbeat(struct mesh_session *session) {
     uint8_t payload[16];
     pb_ostream_t stream = pb_ostream_from_buffer(payload, sizeof payload);
     if (!pb_encode(&stream, meshtastic_ToRadio_fields, &beat)) {
-        inkcell_log_error("session", "Failed to encode heartbeat: %s", PB_GET_ERROR(&stream));
+        inkwell_log_error("session", "Failed to encode heartbeat: %s", PB_GET_ERROR(&stream));
         return -EIO;
     }
 
@@ -341,7 +341,7 @@ static struct mesh_node_summary *mesh_session_node_slot(struct mesh_session *ses
         summary = mesh_session_evict_candidate(session);
         if (summary == NULL) {
             if (!session->node_cache_warned) {
-                inkcell_log_warn("session",
+                inkwell_log_warn("session",
                                  "Node roster full (%u) and nothing evictable; 0x%08x "
                                  "and any further nodes dropped",
                                  (unsigned)MESH_SESSION_MAX_NODES, node_id);
@@ -349,7 +349,7 @@ static struct mesh_node_summary *mesh_session_node_slot(struct mesh_session *ses
             }
             return NULL;
         }
-        inkcell_log_debug("session", "Roster full; node 0x%08x makes room for 0x%08x",
+        inkwell_log_debug("session", "Roster full; node 0x%08x makes room for 0x%08x",
                           summary->node_id, node_id);
     } else {
         summary = &handshake->nodes[handshake->node_count++];
@@ -439,20 +439,20 @@ static void mesh_session_apply_user(struct mesh_node_summary *summary,
     char long_name[sizeof summary->long_name];
     char short_name[sizeof summary->short_name];
     char user_id[sizeof summary->user_id];
-    inkcell_text_sanitise_str(user->long_name, long_name, sizeof long_name);
-    inkcell_text_sanitise_str(user->short_name, short_name, sizeof short_name);
-    inkcell_text_sanitise_str(user->id, user_id, sizeof user_id);
+    inkwell_text_sanitise_str(user->long_name, long_name, sizeof long_name);
+    inkwell_text_sanitise_str(user->short_name, short_name, sizeof short_name);
+    inkwell_text_sanitise_str(user->id, user_id, sizeof user_id);
 
     /* A NodeInfo can carry a User the radio has nothing to put in - it knows the node exists
        and no more. Blanking a name we derived from the node number for that is a step
        backwards, so an empty record leaves the derived identity standing. */
     if (long_name[0] != '\0' || short_name[0] != '\0') {
-        (void)inkcell_str_copy(summary->long_name, sizeof summary->long_name, long_name);
-        (void)inkcell_str_copy(summary->short_name, sizeof summary->short_name, short_name);
+        (void)inkwell_str_copy(summary->long_name, sizeof summary->long_name, long_name);
+        (void)inkwell_str_copy(summary->short_name, sizeof summary->short_name, short_name);
         summary->has_user = true;
     }
     if (user_id[0] != '\0') {
-        (void)inkcell_str_copy(summary->user_id, sizeof summary->user_id, user_id);
+        (void)inkwell_str_copy(summary->user_id, sizeof summary->user_id, user_id);
     }
     summary->hw_model = (uint32_t)user->hw_model;
     summary->role = (uint32_t)user->role;
@@ -478,7 +478,7 @@ static void mesh_session_apply_position(struct mesh_node_summary *summary,
        the node keeps the last fix we believed, which is the same answer as for a packet that
        carried no coordinates at all. */
     if (!mesh_geo_coords_valid(position->latitude_i, position->longitude_i)) {
-        inkcell_log_debug("session",
+        inkwell_log_debug("session",
                           "Node 0x%08x sent an out-of-range fix (%d, %d); keeping the last",
                           summary->node_id, (int)position->latitude_i, (int)position->longitude_i);
         return;
@@ -724,7 +724,7 @@ static void mesh_session_store_node_summary(struct mesh_session *session,
         mesh_session_apply_device_metrics(summary, &info->device_metrics, info->last_heard);
     }
 
-    inkcell_log_debug("session", "Cached node %u (%s) last_heard=%u%s", summary->node_id,
+    inkwell_log_debug("session", "Cached node %u (%s) last_heard=%u%s", summary->node_id,
                       summary->has_user ? summary->short_name : "unnamed", summary->last_heard,
                       summary->via_mqtt ? " via_mqtt" : "");
 }
@@ -746,7 +746,7 @@ static void mesh_session_resolve_nodedb_membership(struct mesh_session *session)
         }
     }
     if (remembered > 0U) {
-        inkcell_log_info("session", "Roster holds %zu node%s the radio's NodeDB no longer carries",
+        inkwell_log_info("session", "Roster holds %zu node%s the radio's NodeDB no longer carries",
                          remembered, remembered == 1U ? "" : "s");
     }
 }
@@ -778,7 +778,7 @@ static void mesh_session_touch_node_from_packet(struct mesh_session *session,
         return;
     }
     if (!known) {
-        inkcell_log_info("session", "Node 0x%08x heard before its NodeInfo; added to the cache",
+        inkwell_log_info("session", "Node 0x%08x heard before its NodeInfo; added to the cache",
                          packet->from);
     }
 
@@ -861,7 +861,7 @@ static void mesh_session_apply_packet_details(struct mesh_session *session,
     case meshtastic_PortNum_NODEINFO_APP: {
         meshtastic_User user = meshtastic_User_init_default;
         if (!pb_decode(&stream, meshtastic_User_fields, &user)) {
-            inkcell_log_debug("session", "Bad NODEINFO_APP from 0x%08x: %s", packet->from,
+            inkwell_log_debug("session", "Bad NODEINFO_APP from 0x%08x: %s", packet->from,
                               PB_GET_ERROR(&stream));
             return;
         }
@@ -869,14 +869,14 @@ static void mesh_session_apply_packet_details(struct mesh_session *session,
             return;
         }
         mesh_session_apply_user(summary, &user);
-        inkcell_log_debug("session", "Node 0x%08x introduced itself as %s", packet->from,
+        inkwell_log_debug("session", "Node 0x%08x introduced itself as %s", packet->from,
                           summary->short_name);
         break;
     }
     case meshtastic_PortNum_POSITION_APP: {
         meshtastic_Position position = meshtastic_Position_init_default;
         if (!pb_decode(&stream, meshtastic_Position_fields, &position)) {
-            inkcell_log_debug("session", "Bad POSITION_APP from 0x%08x: %s", packet->from,
+            inkwell_log_debug("session", "Bad POSITION_APP from 0x%08x: %s", packet->from,
                               PB_GET_ERROR(&stream));
             return;
         }
@@ -889,7 +889,7 @@ static void mesh_session_apply_packet_details(struct mesh_session *session,
     case meshtastic_PortNum_NEIGHBORINFO_APP: {
         meshtastic_NeighborInfo info = meshtastic_NeighborInfo_init_default;
         if (!pb_decode(&stream, meshtastic_NeighborInfo_fields, &info)) {
-            inkcell_log_debug("session", "Bad NEIGHBORINFO_APP from 0x%08x: %s", packet->from,
+            inkwell_log_debug("session", "Bad NEIGHBORINFO_APP from 0x%08x: %s", packet->from,
                               PB_GET_ERROR(&stream));
             return;
         }
@@ -902,7 +902,7 @@ static void mesh_session_apply_packet_details(struct mesh_session *session,
             return;
         }
         mesh_session_apply_neighbors(owner, &info, heard);
-        inkcell_log_debug("session", "Node 0x%08x reports %u neighbour%s", reporter,
+        inkwell_log_debug("session", "Node 0x%08x reports %u neighbour%s", reporter,
                           (unsigned)owner->neighbors.count,
                           owner->neighbors.count == 1U ? "" : "s");
         break;
@@ -910,7 +910,7 @@ static void mesh_session_apply_packet_details(struct mesh_session *session,
     case meshtastic_PortNum_TELEMETRY_APP: {
         meshtastic_Telemetry telemetry = meshtastic_Telemetry_init_default;
         if (!pb_decode(&stream, meshtastic_Telemetry_fields, &telemetry)) {
-            inkcell_log_debug("session", "Bad TELEMETRY_APP from 0x%08x: %s", packet->from,
+            inkwell_log_debug("session", "Bad TELEMETRY_APP from 0x%08x: %s", packet->from,
                               PB_GET_ERROR(&stream));
             return;
         }
@@ -1002,7 +1002,7 @@ static void mesh_session_handle_store_forward(struct mesh_session *session,
     struct mesh_message replayed;
     const int event = mesh_store_forward_ingest(&session->store_forward, packet, my_node,
                                                 mesh_session_wall_clock(),
-                                                inkcell_time_monotonic_ms(), &replayed);
+                                                inkwell_time_monotonic_ms(), &replayed);
     if (event != MESH_STORE_FORWARD_EVENT_TEXT) {
         /*
          * Everything that is not a replayed message was written by the node that sent it - a
@@ -1023,14 +1023,14 @@ static void mesh_session_handle_store_forward(struct mesh_session *session,
      * mistake the message itself refuses when it declines to carry those fields.
      */
     if (mesh_message_log_holds_replay(&session->messages, &replayed)) {
-        inkcell_log_debug("session", "Store & Forward replayed a message we already had");
+        inkwell_log_debug("session", "Store & Forward replayed a message we already had");
         return;
     }
     if (mesh_message_log_append(&session->messages, &replayed) == NULL) {
         return;
     }
     mesh_store_forward_stored(&session->store_forward);
-    inkcell_log_info("session", "Store & Forward replayed a message from 0x%08x on channel %u",
+    inkwell_log_info("session", "Store & Forward replayed a message from 0x%08x on channel %u",
                      replayed.from, (unsigned)replayed.channel);
 }
 
@@ -1053,7 +1053,7 @@ static bool mesh_session_handle_traceroute(struct mesh_session *session,
         data->request_id != trace->packet_id) {
         /* Not an answer to ours: a trace passing through, or one we have already given up on.
            Claimed anyway - a RouteDiscovery is not a message and has no business in the log. */
-        inkcell_log_debug("session", "Ignoring TRACEROUTE_APP from 0x%08x (request %u)",
+        inkwell_log_debug("session", "Ignoring TRACEROUTE_APP from 0x%08x (request %u)",
                           packet->from, data->request_id);
         return true;
     }
@@ -1061,7 +1061,7 @@ static bool mesh_session_handle_traceroute(struct mesh_session *session,
     meshtastic_RouteDiscovery route = meshtastic_RouteDiscovery_init_default;
     pb_istream_t stream = pb_istream_from_buffer(data->payload.bytes, data->payload.size);
     if (!pb_decode(&stream, meshtastic_RouteDiscovery_fields, &route)) {
-        inkcell_log_warn("session", "Bad TRACEROUTE_APP reply: %s", PB_GET_ERROR(&stream));
+        inkwell_log_warn("session", "Bad TRACEROUTE_APP reply: %s", PB_GET_ERROR(&stream));
         trace->state = MESH_TRACEROUTE_TIMEOUT;
         return true;
     }
@@ -1093,7 +1093,7 @@ static bool mesh_session_handle_traceroute(struct mesh_session *session,
 
     trace->completed = mesh_session_wall_clock();
     trace->state = MESH_TRACEROUTE_DONE;
-    inkcell_log_info("session", "Traceroute to 0x%08x: %u hops out, %u back", trace->target,
+    inkwell_log_info("session", "Traceroute to 0x%08x: %u hops out, %u back", trace->target,
                      (unsigned)trace->route_count, (unsigned)trace->back_count);
     return true;
 }
@@ -1107,21 +1107,21 @@ static void mesh_session_handle_log_record(const meshtastic_LogRecord *record) {
     switch (record->level) {
     case meshtastic_LogRecord_Level_CRITICAL:
     case meshtastic_LogRecord_Level_ERROR:
-        inkcell_log_error(component, "%s", message);
+        inkwell_log_error(component, "%s", message);
         break;
     case meshtastic_LogRecord_Level_WARNING:
-        inkcell_log_warn(component, "%s", message);
+        inkwell_log_warn(component, "%s", message);
         break;
     case meshtastic_LogRecord_Level_INFO:
-        inkcell_log_info(component, "%s", message);
+        inkwell_log_info(component, "%s", message);
         break;
     case meshtastic_LogRecord_Level_DEBUG:
-        inkcell_log_debug(component, "%s", message);
+        inkwell_log_debug(component, "%s", message);
         break;
     case meshtastic_LogRecord_Level_TRACE:
     case meshtastic_LogRecord_Level_UNSET:
     default:
-        inkcell_log_trace(component, "%s", message);
+        inkwell_log_trace(component, "%s", message);
         break;
     }
 }
@@ -1173,7 +1173,7 @@ static void mesh_session_handle_client_notification(struct mesh_session *session
     out->has_reply_id = note->has_reply_id;
     out->reply_id = note->has_reply_id ? note->reply_id : 0U;
     out->level = (uint8_t)note->level;
-    inkcell_text_sanitise((const uint8_t *)note->message,
+    inkwell_text_sanitise((const uint8_t *)note->message,
                           strnlen(note->message, sizeof note->message), out->text,
                           sizeof out->text);
 
@@ -1217,7 +1217,7 @@ static void mesh_session_handle_client_notification(struct mesh_session *session
          * nothing on it to compare", which is not a question a screenshot taken afterwards can
          * answer.
          */
-        inkcell_log_info("verify", "Final for exchange %llu with \"%s\": characters \"%s\"",
+        inkwell_log_info("verify", "Final for exchange %llu with \"%s\": characters \"%s\"",
                          (unsigned long long)note->payload_variant.key_verification_final.nonce,
                          session->verification.remote_name, session->verification.characters);
         break;
@@ -1244,13 +1244,13 @@ static void mesh_session_handle_client_notification(struct mesh_session *session
     switch (note->level) {
     case meshtastic_LogRecord_Level_CRITICAL:
     case meshtastic_LogRecord_Level_ERROR:
-        inkcell_log_error(component, "%s", out->text);
+        inkwell_log_error(component, "%s", out->text);
         break;
     case meshtastic_LogRecord_Level_WARNING:
-        inkcell_log_warn(component, "%s", out->text);
+        inkwell_log_warn(component, "%s", out->text);
         break;
     default:
-        inkcell_log_info(component, "%s", out->text);
+        inkwell_log_info(component, "%s", out->text);
         break;
     }
 }
@@ -1276,7 +1276,7 @@ static void mesh_session_handle_queue_status(struct mesh_session *session,
     if (status->res == 0) {
         return;
     }
-    inkcell_log_warn("session", "Radio refused packet %u (error %d); %u of %u queue slots free",
+    inkwell_log_warn("session", "Radio refused packet %u (error %d); %u of %u queue slots free",
                      status->mesh_packet_id, (int)status->res, (unsigned)status->free,
                      (unsigned)status->maxlen);
     /* `res` is a Routing_Error, the same scale mesh_message_log_mark_ack() already speaks, so
@@ -1291,7 +1291,7 @@ static void mesh_session_handle_queue_status(struct mesh_session *session,
 static void mesh_session_handle_channel(struct mesh_session *session,
                                         const meshtastic_Channel *channel) {
     if (channel->index < 0 || (size_t)channel->index >= MESH_SESSION_MAX_CHANNELS) {
-        inkcell_log_debug("session", "Ignoring channel with index %d", (int)channel->index);
+        inkwell_log_debug("session", "Ignoring channel with index %d", (int)channel->index);
         return;
     }
     mesh_radio_settings_apply_channel(&session->settings, channel);
@@ -1312,7 +1312,7 @@ static void mesh_session_handle_channel(struct mesh_session *session,
         session->handshake.channel_count = (size_t)channel->index + 1U;
     }
     if (channel->role != meshtastic_Channel_Role_DISABLED) {
-        inkcell_log_info("session", "Channel %d: %s (%s)", (int)channel->index,
+        inkwell_log_info("session", "Channel %d: %s (%s)", (int)channel->index,
                          slot->name[0] != '\0' ? slot->name : "<default>",
                          channel->role == meshtastic_Channel_Role_PRIMARY ? "primary"
                                                                           : "secondary");
@@ -1341,13 +1341,13 @@ static void mesh_session_handle_mqtt_proxy(struct mesh_session *session,
         if (session->mqtt_unhandled < UINT32_MAX) {
             session->mqtt_unhandled++;
         }
-        inkcell_log_debug("session", "MQTT proxy message for '%.60s' with no proxy running",
+        inkwell_log_debug("session", "MQTT proxy message for '%.60s' with no proxy running",
                           message->topic);
         return;
     }
 
     if (message->topic[0] == '\0') {
-        inkcell_log_warn("session", "MQTT proxy message with no topic");
+        inkwell_log_warn("session", "MQTT proxy message with no topic");
         return;
     }
 
@@ -1369,7 +1369,7 @@ static void mesh_session_handle_mqtt_proxy(struct mesh_session *session,
         len = strnlen(message->payload_variant.text, sizeof message->payload_variant.text);
         break;
     default:
-        inkcell_log_warn("session", "MQTT proxy message for '%.60s' carries no payload",
+        inkwell_log_warn("session", "MQTT proxy message for '%.60s' carries no payload",
                          message->topic);
         return;
     }
@@ -1386,7 +1386,7 @@ void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t 
     meshtastic_FromRadio message = meshtastic_FromRadio_init_default;
     pb_istream_t stream = pb_istream_from_buffer(payload, len);
     if (!pb_decode(&stream, meshtastic_FromRadio_fields, &message)) {
-        inkcell_log_warn("session", "Failed to decode FromRadio: %s", PB_GET_ERROR(&stream));
+        inkwell_log_warn("session", "Failed to decode FromRadio: %s", PB_GET_ERROR(&stream));
         return;
     }
     /* Any frame at all is the radio still being there, which is what the admin queue's local
@@ -1400,7 +1400,7 @@ void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t 
            NodeDB is a different view of the mesh, and half of what we remember may not be
            reachable through it. */
         if (session->roster_node != 0U && session->roster_node != message.my_info.my_node_num) {
-            inkcell_log_info("session", "Radio changed (0x%08x -> 0x%08x); dropping the roster",
+            inkwell_log_info("session", "Radio changed (0x%08x -> 0x%08x); dropping the roster",
                              session->roster_node, message.my_info.my_node_num);
             mesh_session_clear_nodes(session);
             /* And everything else the old radio told us about itself. A reconnect keeps the
@@ -1422,7 +1422,7 @@ void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t 
         session->roster_node = message.my_info.my_node_num;
         handshake->has_my_info = true;
         handshake->my_info = message.my_info;
-        inkcell_log_info("session", "MyNodeInfo: node=%u, node_count=%u",
+        inkwell_log_info("session", "MyNodeInfo: node=%u, node_count=%u",
                          message.my_info.my_node_num, message.my_info.nodedb_count);
         break;
     case meshtastic_FromRadio_node_info_tag:
@@ -1440,12 +1440,12 @@ void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t 
         handshake->has_config = true;
         handshake->config = message.config;
         mesh_radio_settings_apply_config(&session->settings, &message.config);
-        inkcell_log_debug("session", "Received config fragment (variant %u)",
+        inkwell_log_debug("session", "Received config fragment (variant %u)",
                           (unsigned)message.config.which_payload_variant);
         break;
     case meshtastic_FromRadio_moduleConfig_tag:
         mesh_radio_settings_apply_module_config(&session->settings, &message.moduleConfig);
-        inkcell_log_debug("session", "Received module config fragment (variant %u)",
+        inkwell_log_debug("session", "Received module config fragment (variant %u)",
                           (unsigned)message.moduleConfig.which_payload_variant);
         break;
     case meshtastic_FromRadio_deviceuiConfig_tag:
@@ -1453,7 +1453,7 @@ void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t 
            as well as through get_ui_config_response so the section is populated on a radio
            whose firmware predates the admin verb but still streams the fragment. */
         mesh_radio_settings_apply_ui_config(&session->settings, &message.deviceuiConfig);
-        inkcell_log_debug("session", "Received device UI config (version %u)",
+        inkwell_log_debug("session", "Received device UI config (version %u)",
                           (unsigned)message.deviceuiConfig.version);
         break;
     case meshtastic_FromRadio_region_presets_tag:
@@ -1461,13 +1461,13 @@ void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t 
            verb that asks for it - so this arm is the only way the table is ever held, and a
            firmware that predates the message simply leaves the LoRa rows unconstrained. */
         mesh_radio_settings_apply_region_presets(&session->settings, &message.region_presets);
-        inkcell_log_debug("session", "Region presets: %u groups over %u regions",
+        inkwell_log_debug("session", "Region presets: %u groups over %u regions",
                           (unsigned)message.region_presets.groups_count,
                           (unsigned)message.region_presets.region_groups_count);
         break;
     case meshtastic_FromRadio_metadata_tag:
         mesh_radio_settings_apply_metadata(&session->settings, &message.metadata);
-        inkcell_log_info("session", "Device metadata: firmware %s, hw_model %u",
+        inkwell_log_info("session", "Device metadata: firmware %s, hw_model %u",
                          message.metadata.firmware_version, (unsigned)message.metadata.hw_model);
         break;
     case meshtastic_FromRadio_config_complete_id_tag:
@@ -1476,10 +1476,10 @@ void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t 
             handshake->request_in_flight = false;
             handshake->config_complete = true;
             mesh_session_resolve_nodedb_membership(session);
-            inkcell_log_info("session", "Config sync complete for request %u",
+            inkwell_log_info("session", "Config sync complete for request %u",
                              message.config_complete_id);
         } else {
-            inkcell_log_debug("session", "Received config_complete_id=%u (pending=%s request=%u)",
+            inkwell_log_debug("session", "Received config_complete_id=%u (pending=%s request=%u)",
                               message.config_complete_id,
                               handshake->request_in_flight ? "yes" : "no", handshake->request_id);
         }
@@ -1538,7 +1538,7 @@ void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t 
          * would hand the reset its own answer to wipe.
          */
         if (message.rebooted) {
-            inkcell_log_info("session", "Radio reports it rebooted; re-running the config sync");
+            inkwell_log_info("session", "Radio reports it rebooted; re-running the config sync");
             /* A drop keeps the config because nothing changed; a reboot is the case where it
                may have. A settings write is followed by exactly this, so holding the old value
                here would show the user the number they just replaced. */
@@ -1548,7 +1548,7 @@ void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t 
         }
         break;
     default:
-        inkcell_log_debug("session", "Ignoring FromRadio payload tag %" PRIu32,
+        inkwell_log_debug("session", "Ignoring FromRadio payload tag %" PRIu32,
                           (uint32_t)message.which_payload_variant);
         break;
     }
@@ -1596,7 +1596,7 @@ int mesh_session_send_mqtt_proxy(struct mesh_session *session, const char *topic
     to_radio.which_payload_variant = meshtastic_ToRadio_mqttClientProxyMessage_tag;
     meshtastic_MqttClientProxyMessage *message = &to_radio.mqttClientProxyMessage;
 
-    if (!inkcell_str_copy(message->topic, sizeof message->topic, topic)) {
+    if (!inkwell_str_copy(message->topic, sizeof message->topic, topic)) {
         return -EMSGSIZE;
     }
     /*
@@ -1622,7 +1622,7 @@ int mesh_session_send_mqtt_proxy(struct mesh_session *session, const char *topic
     uint8_t buffer[meshtastic_ToRadio_size];
     pb_ostream_t stream = pb_ostream_from_buffer(buffer, sizeof buffer);
     if (!pb_encode(&stream, meshtastic_ToRadio_fields, &to_radio)) {
-        inkcell_log_error("session", "Failed to encode MQTT proxy message: %s",
+        inkwell_log_error("session", "Failed to encode MQTT proxy message: %s",
                           PB_GET_ERROR(&stream));
         return -EIO;
     }
@@ -1749,14 +1749,14 @@ static void mesh_session_sync_clock(struct mesh_session *session) {
     }
     const uint32_t epoch = (uint32_t)now;
     if (epoch < MESH_RADIO_CLOCK_MIN_EPOCH) {
-        inkcell_log_info("session", "Not setting the radio clock: our own clock reads %u", epoch);
+        inkwell_log_info("session", "Not setting the radio clock: our own clock reads %u", epoch);
         return;
     }
     const int queued = mesh_radio_settings_queue_time(&session->settings, epoch);
     if (queued > 0) {
-        inkcell_log_info("session", "Setting the radio clock to %u (%d requests)", epoch, queued);
+        inkwell_log_info("session", "Setting the radio clock to %u (%d requests)", epoch, queued);
     } else if (queued < 0) {
-        inkcell_log_warn("session", "Could not queue the radio clock: %d", queued);
+        inkwell_log_warn("session", "Could not queue the radio clock: %d", queued);
     }
 }
 
@@ -1782,7 +1782,7 @@ void mesh_session_tick(struct mesh_session *session, uint64_t now_ms) {
     if (trace->state == MESH_TRACEROUTE_PENDING && now_ms > trace->sent_ms &&
         now_ms - trace->sent_ms > MESH_TRACEROUTE_TIMEOUT_MS) {
         trace->state = MESH_TRACEROUTE_TIMEOUT;
-        inkcell_log_info("session", "Traceroute to 0x%08x timed out", trace->target);
+        inkwell_log_info("session", "Traceroute to 0x%08x timed out", trace->target);
     }
     /*
      * And the places whose own deadline has passed, for the same reason: nothing on the mesh
@@ -1793,7 +1793,7 @@ void mesh_session_tick(struct mesh_session *session, uint64_t now_ms) {
      * stopped being a place an hour ago would be wrong whether or not a radio is attached. The
      * clock is the credible one, so a Brick that does not know the date simply retires nothing.
      */
-    (void)mesh_waypoint_book_prune(&session->waypoints, inkcell_time_wall_credible_s());
+    (void)mesh_waypoint_book_prune(&session->waypoints, inkwell_time_wall_credible_s());
 
     /* And the Store & Forward waits, for the traceroute's reason exactly: a ping nobody
        answered and a replay that stopped arriving are both silences, and a clock is the only
@@ -1831,19 +1831,19 @@ void mesh_session_tick(struct mesh_session *session, uint64_t now_ms) {
     int result = mesh_radio_settings_encode_request(&session->settings, &request, payload,
                                                     sizeof payload, &written);
     if (result < 0) {
-        inkcell_log_warn("session", "Admin request encode failed: %d", result);
+        inkwell_log_warn("session", "Admin request encode failed: %d", result);
         return;
     }
     result = mesh_session_send_raw(session, payload, written, 0U);
     if (result < 0) {
         /* A failed send may already have dropped the link (and reset the settings with it);
            the note lands in the fresh struct so the app still hears about the lost write. */
-        inkcell_log_warn("session", "Admin request send failed: %d", result);
+        inkwell_log_warn("session", "Admin request send failed: %d", result);
         mesh_radio_settings_mark_unsent(&session->settings, &request, result);
         return;
     }
     mesh_radio_settings_mark_sent(&session->settings, request.packet_id, now_ms);
-    inkcell_log_info("session", "Sent admin request kind=%u type=%u id=%u", (unsigned)request.kind,
+    inkwell_log_info("session", "Sent admin request kind=%u type=%u id=%u", (unsigned)request.kind,
                      (unsigned)request.type, request.packet_id);
 }
 
@@ -1887,7 +1887,7 @@ int mesh_session_set_node_ignored(struct mesh_session *session, uint32_t node_id
         return queued;
     }
     summary->is_ignored = ignored;
-    inkcell_log_info("session", "%s node 0x%08x in the NodeDB (%d requests)",
+    inkwell_log_info("session", "%s node 0x%08x in the NodeDB (%d requests)",
                      ignored ? "Ignoring" : "No longer ignoring", node_id, queued);
     return queued;
 }
@@ -1924,7 +1924,7 @@ int mesh_session_request_node_info(struct mesh_session *session, uint32_t dest) 
     uint8_t body[192];
     pb_ostream_t body_stream = pb_ostream_from_buffer(body, sizeof body);
     if (!pb_encode(&body_stream, meshtastic_User_fields, &user)) {
-        inkcell_log_error("session", "Failed to encode our User: %s", PB_GET_ERROR(&body_stream));
+        inkwell_log_error("session", "Failed to encode our User: %s", PB_GET_ERROR(&body_stream));
         return -EIO;
     }
 
@@ -1943,14 +1943,14 @@ int mesh_session_request_node_info(struct mesh_session *session, uint32_t dest) 
     uint8_t payload[MESH_SESSION_MAX_PACKET];
     pb_ostream_t stream = pb_ostream_from_buffer(payload, sizeof payload);
     if (!pb_encode(&stream, meshtastic_ToRadio_fields, &to_radio)) {
-        inkcell_log_error("session", "Failed to encode NodeInfo request: %s",
+        inkwell_log_error("session", "Failed to encode NodeInfo request: %s",
                           PB_GET_ERROR(&stream));
         return -EIO;
     }
 
     const int result = mesh_session_send_raw(session, payload, stream.bytes_written, 0U);
     if (result == 0) {
-        inkcell_log_info("session", "Asked node 0x%08x to introduce itself", dest);
+        inkwell_log_info("session", "Asked node 0x%08x to introduce itself", dest);
     }
     return result;
 }
@@ -1997,14 +1997,14 @@ static int mesh_session_request_on_port(struct mesh_session *session, uint32_t d
     uint8_t payload[MESH_SESSION_MAX_PACKET];
     pb_ostream_t stream = pb_ostream_from_buffer(payload, sizeof payload);
     if (!pb_encode(&stream, meshtastic_ToRadio_fields, &to_radio)) {
-        inkcell_log_error("session", "Failed to encode %s request: %s", what,
+        inkwell_log_error("session", "Failed to encode %s request: %s", what,
                           PB_GET_ERROR(&stream));
         return -EIO;
     }
 
     const int result = mesh_session_send_raw(session, payload, stream.bytes_written, 0U);
     if (result == 0) {
-        inkcell_log_info("session", "Asked node 0x%08x for its %s", dest, what);
+        inkwell_log_info("session", "Asked node 0x%08x for its %s", dest, what);
     }
     return result;
 }
@@ -2025,7 +2025,7 @@ int mesh_session_request_telemetry(struct mesh_session *session, uint32_t dest) 
  */
 uint32_t mesh_session_next_packet_id(struct mesh_session *session) {
     if (session->next_packet_id == 0U) {
-        uint32_t seed = (uint32_t)inkcell_time_monotonic_ms();
+        uint32_t seed = (uint32_t)inkwell_time_monotonic_ms();
         if (session->handshake.has_my_info) {
             seed ^= session->handshake.my_info.my_node_num;
         }
@@ -2113,11 +2113,11 @@ static int mesh_session_send_text_packet(struct mesh_session *session, uint32_t 
         *out_packet_id = request.packet_id;
     }
     if (reply_id != 0U) {
-        inkcell_log_info("session", "Queued %s id=%u about id=%u to 0x%08x on channel %u",
+        inkwell_log_info("session", "Queued %s id=%u about id=%u to 0x%08x on channel %u",
                          is_reaction ? "reaction" : "reply", request.packet_id, reply_id, dest,
                          (unsigned)channel);
     } else {
-        inkcell_log_info("session", "Queued text message id=%u to 0x%08x on channel %u",
+        inkwell_log_info("session", "Queued text message id=%u to 0x%08x on channel %u",
                          request.packet_id, dest, (unsigned)channel);
     }
     return 0;
@@ -2206,7 +2206,7 @@ int mesh_session_set_admin_dest(struct mesh_session *session, uint32_t node_id) 
     /* The tab was emptied by the retarget, so the refresh is not a nicety: without it every
        section would read "not loaded" until something else asked. */
     const int queued = (int)mesh_radio_settings_queue_all(&session->settings);
-    inkcell_log_info("session", "Settings now administer 0x%08x (%d requests queued)",
+    inkwell_log_info("session", "Settings now administer 0x%08x (%d requests queued)",
                      node_id != 0U ? node_id : session->handshake.my_info.my_node_num, queued);
     return queued;
 }
@@ -2221,7 +2221,7 @@ int mesh_session_write_settings(struct mesh_session *session,
     }
     const int queued = mesh_radio_settings_queue_write(&session->settings, write);
     if (queued > 0) {
-        inkcell_log_info("session", "Queued settings write kind=%u type=%u (%d requests)",
+        inkwell_log_info("session", "Queued settings write kind=%u type=%u (%d requests)",
                          (unsigned)write->kind, (unsigned)write->type, queued);
     }
     return queued;
@@ -2237,7 +2237,7 @@ int mesh_session_import_channels(struct mesh_session *session, const meshtastic_
     }
     const int queued = mesh_channel_share_queue_import(&session->settings, set, add);
     if (queued > 0) {
-        inkcell_log_info("session", "Queued channel import: %u channels (%d requests)",
+        inkwell_log_info("session", "Queued channel import: %u channels (%d requests)",
                          (unsigned)set->settings_count, queued);
     }
     return queued;
@@ -2278,9 +2278,9 @@ static void mesh_session_seed_contact_node(struct mesh_session *session,
      */
     if (!summary->has_user && contact->has_user) {
         summary->has_user = true;
-        (void)inkcell_str_copy(summary->long_name, sizeof summary->long_name,
+        (void)inkwell_str_copy(summary->long_name, sizeof summary->long_name,
                                contact->user.long_name);
-        (void)inkcell_str_copy(summary->short_name, sizeof summary->short_name,
+        (void)inkwell_str_copy(summary->short_name, sizeof summary->short_name,
                                contact->user.short_name);
         summary->hw_model = (uint32_t)contact->user.hw_model;
         summary->role = (uint32_t)contact->user.role;
@@ -2333,7 +2333,7 @@ int mesh_session_import_contact(struct mesh_session *session,
     if (queued > 0) {
         /* The other half: the radio's NodeDB is not the list this client draws from. */
         mesh_session_seed_contact_node(session, contact);
-        inkcell_log_info("session", "Queued contact import for 0x%08x (%d requests)",
+        inkwell_log_info("session", "Queued contact import for 0x%08x (%d requests)",
                          (unsigned)contact->node_num, queued);
     }
     return queued;
@@ -2360,7 +2360,7 @@ int mesh_session_set_node_favorite(struct mesh_session *session, uint32_t node_i
         return queued;
     }
     summary->is_favorite = favorite;
-    inkcell_log_info("session", "%s node 0x%08x in the NodeDB (%d requests)",
+    inkwell_log_info("session", "%s node 0x%08x in the NodeDB (%d requests)",
                      favorite ? "Pinned" : "Unpinned", node_id, queued);
     return queued;
 }
@@ -2387,7 +2387,7 @@ int mesh_session_toggle_node_muted(struct mesh_session *session, uint32_t node_i
     /* The wire verb is a toggle, so there is no wanted state to send and none to assume: the
        cached flag follows the request rather than leading it. */
     summary->is_muted = !summary->is_muted;
-    inkcell_log_info("session", "%s node 0x%08x in the NodeDB (%d requests)",
+    inkwell_log_info("session", "%s node 0x%08x in the NodeDB (%d requests)",
                      summary->is_muted ? "Muted" : "Unmuted", node_id, queued);
     return queued;
 }
@@ -2422,7 +2422,7 @@ int mesh_session_remove_node(struct mesh_session *session, uint32_t node_id) {
     }
     memset(&session->handshake.nodes[last], 0, sizeof session->handshake.nodes[last]);
     session->handshake.node_count = last;
-    inkcell_log_info("session", "Removed node 0x%08x from the NodeDB (%d requests)", node_id,
+    inkwell_log_info("session", "Removed node 0x%08x from the NodeDB (%d requests)", node_id,
                      queued);
     return queued;
 }
@@ -2445,9 +2445,9 @@ static bool mesh_session_contact_from_node(const struct mesh_node_summary *node,
     *out = (meshtastic_SharedContact)meshtastic_SharedContact_init_zero;
     out->node_num = node->node_id;
     out->has_user = true;
-    (void)inkcell_str_copy(out->user.id, sizeof out->user.id, node->user_id);
-    (void)inkcell_str_copy(out->user.long_name, sizeof out->user.long_name, node->long_name);
-    (void)inkcell_str_copy(out->user.short_name, sizeof out->user.short_name, node->short_name);
+    (void)inkwell_str_copy(out->user.id, sizeof out->user.id, node->user_id);
+    (void)inkwell_str_copy(out->user.long_name, sizeof out->user.long_name, node->long_name);
+    (void)inkwell_str_copy(out->user.short_name, sizeof out->user.short_name, node->short_name);
     out->user.hw_model = (meshtastic_HardwareModel)node->hw_model;
     out->user.role = (meshtastic_Config_DeviceConfig_Role)node->role;
     out->user.is_licensed = node->is_licensed;
@@ -2495,7 +2495,7 @@ int mesh_session_add_contact(struct mesh_session *session, uint32_t node_id) {
      * is the node's next NodeInfo, and claiming the row early would be this client telling the
      * user a direct message will now encrypt when it may still not.
      */
-    inkcell_log_info("session", "Adding node 0x%08x to the NodeDB with its key (%d requests)",
+    inkwell_log_info("session", "Adding node 0x%08x to the NodeDB with its key (%d requests)",
                      node_id, queued);
     return queued;
 }
@@ -2545,10 +2545,10 @@ int mesh_session_verify_key_begin(struct mesh_session *session, uint32_t node_id
     }
     char name[sizeof session->handshake.nodes[0].long_name];
     const struct mesh_node_summary *const summary = mesh_session_find_node(session, node_id);
-    (void)inkcell_str_copy(name, sizeof name, summary != NULL ? summary->long_name : "");
+    (void)inkwell_str_copy(name, sizeof name, summary != NULL ? summary->long_name : "");
     (void)mesh_key_verification_begin(&session->verification, node_id, name,
                                       mesh_session_wall_clock());
-    inkcell_log_info("session", "Starting key verification with 0x%08x (%d requests)", node_id,
+    inkwell_log_info("session", "Starting key verification with 0x%08x (%d requests)", node_id,
                      queued);
     return queued;
 }
@@ -2636,7 +2636,7 @@ int mesh_session_verify_key_settle(struct mesh_session *session, bool verified) 
     if (done.nonce == 0U) {
         const size_t dropped =
             mesh_radio_settings_cancel_key_verification(&session->settings, done.remote_node);
-        inkcell_log_info("session",
+        inkwell_log_info("session",
                          "Key verification with 0x%08x stopped before it began (%zu unsent)",
                          done.remote_node, dropped);
         return 0;
@@ -2667,7 +2667,7 @@ int mesh_session_verify_key_settle(struct mesh_session *session, bool verified) 
     if (verified && summary != NULL) {
         summary->key_verified = true;
     }
-    inkcell_log_info("session", "Key verification with 0x%08x answered %s (%d requests)",
+    inkwell_log_info("session", "Key verification with 0x%08x answered %s (%d requests)",
                      done.remote_node, verified ? "yes" : "no", queued);
     return queued;
 }
@@ -2755,7 +2755,7 @@ int mesh_session_forget_nodes(struct mesh_session *session, bool only_off_nodedb
     handshake->node_count = kept;
     /* The roster has room again, so the next node that does not fit is worth saying so about. */
     session->node_cache_warned = false;
-    inkcell_log_info(
+    inkwell_log_info(
         "session", "Forgot %zu cached node%s (%s); %zu kept", dropped, dropped == 1U ? "" : "s",
         only_off_nodedb ? "not in the radio's NodeDB" : "all but ourselves and pins", kept);
     return (int)dropped;
@@ -2810,7 +2810,7 @@ int mesh_session_set_fixed_position(struct mesh_session *session, int32_t latitu
     write.payload.position.location_source = meshtastic_Position_LocSource_LOC_MANUAL;
     const int queued = mesh_session_queue_fixed_position(session, &write);
     if (queued > 0) {
-        inkcell_log_info("session", "Fixed position set to %d, %d (%d requests)", (int)latitude_i,
+        inkwell_log_info("session", "Fixed position set to %d, %d (%d requests)", (int)latitude_i,
                          (int)longitude_i, queued);
     }
     return queued;
@@ -2826,7 +2826,7 @@ int mesh_session_clear_fixed_position(struct mesh_session *session) {
     write.type = (uint32_t)meshtastic_AdminMessage_ConfigType_POSITION_CONFIG;
     const int queued = mesh_session_queue_fixed_position(session, &write);
     if (queued > 0) {
-        inkcell_log_info("session", "Fixed position cleared (%d requests)", queued);
+        inkwell_log_info("session", "Fixed position cleared (%d requests)", queued);
     }
     return queued;
 }
@@ -2867,12 +2867,12 @@ int mesh_session_request_ble_ota(struct mesh_session *session,
     if (queued < 0) {
         return queued;
     }
-    char hex[MESH_SHA256_HEX_LEN];
-    mesh_sha256_hex(hash, hex, sizeof hex);
+    char hex[INKWELL_SHA256_HEX_LEN];
+    inkwell_sha256_hex(hash, hex, sizeof hex);
     /* Louder than the other actions' line has any need to be, and the hash is in it on
        purpose: from here the radio is held to exactly one image, and if this install has to be
        finished by hand the log is where somebody finds out which. */
-    inkcell_log_warn("session", "Requested %s of node 0x%08x for image %s (%d requests)",
+    inkwell_log_warn("session", "Requested %s of node 0x%08x for image %s (%d requests)",
                      mesh_session_action_name(MESH_ADMIN_OTA_REQUEST),
                      session->handshake.my_info.my_node_num, hex, queued);
     return queued;
@@ -2895,11 +2895,11 @@ int mesh_session_set_ham_mode(struct mesh_session *session, const char *call_sig
         return -ENOTCONN;
     }
     meshtastic_HamParameters ham = meshtastic_HamParameters_init_zero;
-    inkcell_str_copy(ham.call_sign, sizeof ham.call_sign, call_sign);
+    inkwell_str_copy(ham.call_sign, sizeof ham.call_sign, call_sign);
     ham.frequency = frequency;
     ham.tx_power = tx_power;
     if (session->settings.has_owner) {
-        inkcell_str_copy(ham.short_name, sizeof ham.short_name, session->settings.owner.short_name);
+        inkwell_str_copy(ham.short_name, sizeof ham.short_name, session->settings.owner.short_name);
     }
     const int queued = mesh_radio_settings_queue_ham_mode(&session->settings, &ham);
     if (queued < 0) {
@@ -2907,7 +2907,7 @@ int mesh_session_set_ham_mode(struct mesh_session *session, const char *call_sig
     }
     /* Loud for the reason the resets are: it renames the node, moves its frequency and takes
        the primary channel's encryption off, and none of that is undone by pressing again. */
-    inkcell_log_warn("session", "Requested %s for %s on %.4f MHz (%d requests)",
+    inkwell_log_warn("session", "Requested %s for %s on %.4f MHz (%d requests)",
                      mesh_session_action_name(MESH_ADMIN_SET_HAM_MODE), ham.call_sign,
                      (double)frequency, queued);
     return queued;
@@ -2928,7 +2928,7 @@ int mesh_session_radio_action(struct mesh_session *session, enum mesh_admin_requ
     }
     /* Loud on purpose: this is the one thing the Settings tab does that cannot be undone by
        pressing the opposite row, and the log is what says who asked for it. */
-    inkcell_log_warn("session", "Requested %s of node 0x%08x (%d requests)",
+    inkwell_log_warn("session", "Requested %s of node 0x%08x (%d requests)",
                      mesh_session_action_name(kind), session->handshake.my_info.my_node_num,
                      queued);
     return queued;
@@ -3020,7 +3020,7 @@ int mesh_session_send_waypoint(struct mesh_session *session, const struct mesh_w
     if (result < 0) {
         return result;
     }
-    inkcell_log_info("session", "Shared waypoint %u \"%s\" on channel %u", outgoing.id,
+    inkwell_log_info("session", "Shared waypoint %u \"%s\" on channel %u", outgoing.id,
                      outgoing.name, (unsigned)channel);
     return 0;
 }
@@ -3062,7 +3062,7 @@ int mesh_session_forget_waypoint(struct mesh_session *session, uint32_t id, bool
             if (out_shared != NULL) {
                 *out_shared = true;
             }
-            inkcell_log_info("session", "Withdrew waypoint %u from channel %u", id,
+            inkwell_log_info("session", "Withdrew waypoint %u from channel %u", id,
                              (unsigned)tombstone.channel);
         }
     }
@@ -3129,7 +3129,7 @@ int mesh_session_send_traceroute(struct mesh_session *session, uint32_t dest) {
     uint8_t body[64];
     pb_ostream_t body_stream = pb_ostream_from_buffer(body, sizeof body);
     if (!pb_encode(&body_stream, meshtastic_RouteDiscovery_fields, &route)) {
-        inkcell_log_error("session", "Failed to encode RouteDiscovery: %s",
+        inkwell_log_error("session", "Failed to encode RouteDiscovery: %s",
                           PB_GET_ERROR(&body_stream));
         return -EIO;
     }
@@ -3149,7 +3149,7 @@ int mesh_session_send_traceroute(struct mesh_session *session, uint32_t dest) {
     uint8_t payload[MESH_SESSION_MAX_PACKET];
     pb_ostream_t stream = pb_ostream_from_buffer(payload, sizeof payload);
     if (!pb_encode(&stream, meshtastic_ToRadio_fields, &to_radio)) {
-        inkcell_log_error("session", "Failed to encode traceroute: %s", PB_GET_ERROR(&stream));
+        inkwell_log_error("session", "Failed to encode traceroute: %s", PB_GET_ERROR(&stream));
         return -EIO;
     }
 
@@ -3158,14 +3158,14 @@ int mesh_session_send_traceroute(struct mesh_session *session, uint32_t dest) {
     trace->state = MESH_TRACEROUTE_PENDING;
     trace->target = dest;
     trace->packet_id = packet->id;
-    trace->sent_ms = inkcell_time_monotonic_ms();
+    trace->sent_ms = inkwell_time_monotonic_ms();
 
     const int result = mesh_session_send_raw(session, payload, stream.bytes_written, 0U);
     if (result < 0) {
         trace->state = MESH_TRACEROUTE_TIMEOUT;
         return result;
     }
-    inkcell_log_info("session", "Traceroute to 0x%08x sent (id %u)", dest, trace->packet_id);
+    inkwell_log_info("session", "Traceroute to 0x%08x sent (id %u)", dest, trace->packet_id);
     return 0;
 }
 
@@ -3208,9 +3208,9 @@ static int mesh_session_send_store_forward(struct mesh_session *session, bool pi
     }
     mesh_store_forward_sent(sf, request.dest, request.channel, now_ms, ping);
     if (ping) {
-        inkcell_log_info("session", "Looking for a Store & Forward router");
+        inkwell_log_info("session", "Looking for a Store & Forward router");
     } else {
-        inkcell_log_info("session", "Asked router 0x%08x for the history from %u", request.dest,
+        inkwell_log_info("session", "Asked router 0x%08x for the history from %u", request.dest,
                          request.cursor);
     }
     return 0;
@@ -3235,7 +3235,7 @@ int mesh_session_request_history(struct mesh_session *session) {
         sf->state == (uint8_t)MESH_STORE_FORWARD_REPLAYING) {
         return -EBUSY;
     }
-    return mesh_session_send_store_forward(session, sf->router == 0U, inkcell_time_monotonic_ms());
+    return mesh_session_send_store_forward(session, sf->router == 0U, inkwell_time_monotonic_ms());
 }
 
 const struct mesh_store_forward *mesh_session_store_forward(const struct mesh_session *session) {

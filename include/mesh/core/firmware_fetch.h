@@ -106,7 +106,7 @@ struct mesh_firmware_fetch {
     /* What the documents answered. */
     char platform[MESH_FIRMWARE_ARCH_MAX];
     char zip_url[MESH_FIRMWARE_DOWNLOAD_URL_MAX];
-    char member[MESH_ZIP_NAME_MAX];
+    char member[INKWELL_ZIP_NAME_MAX];
     struct mesh_firmware_manifest manifest;
     struct mesh_firmware_image image;
     enum mesh_firmware_path path;

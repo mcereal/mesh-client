@@ -12,8 +12,8 @@
 
 #include "inkcell/ui/layout.h"
 #include "inkcell/ui/widgets.h"
-#include "inkcell/utils/text.h"
-#include "inkcell/utils/time.h"
+#include "inkwell/base/text.h"
+#include "inkwell/base/time.h"
 
 #include "fb_screens_internal.h"
 
@@ -48,7 +48,7 @@ static void fb_node_title(const struct mesh_ui_node_summary *node, char *out, si
                        : node->short_name[0] != '\0' ? node->short_name
                                                      : NULL;
     if (name != NULL) {
-        inkcell_str_copy(out, out_len, name);
+        inkwell_str_copy(out, out_len, name);
         return;
     }
     inkcell_str_format(out, out_len, MESH_STR_NODE_VAL_USER_ID_HEX, node->node_id);
@@ -180,7 +180,7 @@ void fb_render_node_detail(struct inkcell_backend_fb_state *state,
 
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
     const uint32_t count = mesh_ui_node_detail_build(
-        node, is_self, inkcell_time_wall_s(),
+        node, is_self, inkwell_time_wall_s(),
         mesh_ui_snapshot_traceroute_view(snapshot, node->node_id), &snapshot->handshake,
         &snapshot->history, mesh_ui_units_imperial(snapshot->settings.units), items,
         MESH_UI_NODE_ITEMS_MAX);
@@ -612,7 +612,7 @@ void fb_render_nodes(struct inkcell_backend_fb_state *state,
         inkcell_str_format(sort_value, sizeof sort_value, MESH_STR_NODES_SORT_NO_FIX,
                            inkcell_str(mesh_ui_node_sort_label(sort)));
     } else {
-        inkcell_str_copy(sort_value, sizeof sort_value, inkcell_str(mesh_ui_node_sort_label(sort)));
+        inkwell_str_copy(sort_value, sizeof sort_value, inkcell_str(mesh_ui_node_sort_label(sort)));
     }
     const uint32_t rows = count + MESH_UI_NODES_LEAD_ROWS + (nothing_matched ? 1U : 0U);
     /*
@@ -701,7 +701,7 @@ void fb_render_nodes(struct inkcell_backend_fb_state *state,
         /* The row stays and says why it cannot be pressed, rather than disappearing - the
            Waypoints tab's "New waypoint here" rule, and for its reason: a row that vanishes
            explains nothing to the reader wondering where the map went. */
-        inkcell_str_copy(map_line, sizeof map_line, inkcell_str(MESH_STR_MAP_ROW_EMPTY));
+        inkwell_str_copy(map_line, sizeof map_line, inkcell_str(MESH_STR_MAP_ROW_EMPTY));
     }
 
     uint32_t i;
@@ -815,7 +815,7 @@ void fb_render_nodes(struct inkcell_backend_fb_state *state,
              * scanned for.
              */
             direct = true;
-            inkcell_str_copy(right, sizeof right, age);
+            inkwell_str_copy(right, sizeof right, age);
         } else {
             /* Hops the firmware never reported, or no reading behind the figure. Exactly the
                column this list drew before, which is why MESH_STR_NODES_ROW_SNR keeps its

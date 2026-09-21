@@ -1,6 +1,6 @@
 #include "mesh/ui/reactions.h"
 
-#include "inkcell/utils/array.h"
+#include "inkwell/base/array.h"
 
 /*
  * The eight, in the order the picker walks them: agreement first, because it is what almost
@@ -27,17 +27,17 @@ static const struct {
     {"\xE2\x80\xBC", MESH_STR_REACTION_IMPORTANT},       /* U+203C double exclamation mark */
 };
 
-size_t mesh_ui_reaction_count(void) { return INKCELL_ARRAY_LEN(k_reactions); }
+size_t mesh_ui_reaction_count(void) { return INKWELL_ARRAY_LEN(k_reactions); }
 
 const char *mesh_ui_reaction_emoji(size_t index) {
-    if (index >= INKCELL_ARRAY_LEN(k_reactions)) {
+    if (index >= INKWELL_ARRAY_LEN(k_reactions)) {
         return "";
     }
     return k_reactions[index].emoji;
 }
 
 enum inkcell_str_id mesh_ui_reaction_label(size_t index) {
-    if (index >= INKCELL_ARRAY_LEN(k_reactions)) {
+    if (index >= INKWELL_ARRAY_LEN(k_reactions)) {
         return INKCELL_STR_NONE;
     }
     return k_reactions[index].label;

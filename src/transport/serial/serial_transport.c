@@ -1,8 +1,8 @@
 #define _GNU_SOURCE
 #define _POSIX_C_SOURCE 200809L
 
-#include "inkcell/utils/log.h"
-#include "inkcell/utils/time.h"
+#include "inkwell/base/log.h"
+#include "inkwell/base/time.h"
 
 #include "mesh/i18n/strings.h"
 #include "mesh/transport/serial.h"
@@ -44,7 +44,7 @@ enum mesh_serial_link_state {
 struct mesh_serial_transport_state {
     enum mesh_serial_state state;
     enum mesh_serial_link_state link_state;
-    struct mesh_event_loop *loop;
+    struct inkwell_loop *loop;
     struct mesh_serial_device_info devices[MESH_SERIAL_MAX_DEVICES];
     size_t device_count;
     uint64_t last_scan_ms;
@@ -171,7 +171,7 @@ static void mesh_serial_reset_link(struct mesh_serial_transport_state *state, co
        queued FAILED in the message log - the three things this used to do by hand. */
     mesh_stream_link_close(&state->link);
     memset(&state->connected, 0, sizeof state->connected);
-    inkcell_log_info("serial", "Disconnected from %s (%s)", port, reason);
+    inkwell_log_info("serial", "Disconnected from %s (%s)", port, reason);
 }
 
 /* Matches a sysfs interface id ("1-1:1.1") or a device node ("/dev/ttyUSB0"). */
@@ -213,7 +213,7 @@ int mesh_serial_transport_connect(struct mesh_transport *transport, const char *
         device = mesh_serial_find_device(state, identifier);
     }
     if (device == NULL) {
-        inkcell_log_warn("serial", "No USB serial port matches '%s'", identifier);
+        inkwell_log_warn("serial", "No USB serial port matches '%s'", identifier);
         mesh_serial_set_error(state, MESH_STR_LINK_USB_GONE);
         return -ENODEV;
     }
@@ -228,7 +228,7 @@ int mesh_serial_transport_connect(struct mesh_transport *transport, const char *
      * the Devices tab both arrive through this function.
      */
     if (!mesh_serial_device_is_radio(device)) {
-        inkcell_log_info("serial", "%s (%04x:%04x) is in its bootloader, not running firmware",
+        inkwell_log_info("serial", "%s (%04x:%04x) is in its bootloader, not running firmware",
                          device->name, device->vendor_id, device->product_id);
         mesh_serial_set_error(state, MESH_STR_LINK_USB_BOOTLOADER, device->name);
         return -ENOTSUP;
@@ -245,7 +245,7 @@ int mesh_serial_transport_connect(struct mesh_transport *transport, const char *
 
     const int fd = mesh_serial_port_open(device->path);
     if (fd < 0) {
-        inkcell_log_warn("serial", "Cannot open %s: %s", device->path, strerror(-fd));
+        inkwell_log_warn("serial", "Cannot open %s: %s", device->path, strerror(-fd));
         mesh_serial_set_error(state, MESH_STR_LINK_USB_OPEN_FAILED, device->path, strerror(-fd));
         return fd;
     }
@@ -259,13 +259,13 @@ int mesh_serial_transport_connect(struct mesh_transport *transport, const char *
     if (device->needs_line_state) {
         const int line_result = mesh_serial_usb_set_line_state(device, true, true);
         if (line_result < 0) {
-            inkcell_log_warn("serial", "%s: could not assert DTR (%s); the node may stay silent",
+            inkwell_log_warn("serial", "%s: could not assert DTR (%s); the node may stay silent",
                              device->path, strerror(-line_result));
         }
     } else {
         const int dtr_result = mesh_serial_port_set_dtr(fd, true);
         if (dtr_result < 0 && dtr_result != -ENOTTY && dtr_result != -EINVAL) {
-            inkcell_log_debug("serial", "%s: TIOCMBIS failed (%s)", device->path,
+            inkwell_log_debug("serial", "%s: TIOCMBIS failed (%s)", device->path,
                               strerror(-dtr_result));
         }
     }
@@ -274,7 +274,7 @@ int mesh_serial_transport_connect(struct mesh_transport *transport, const char *
     const int opened = mesh_stream_link_open(&state->link, fd, MESH_STREAM_LINK_FILE, state->loop,
                                              mesh_serial_fd_callback, transport);
     if (opened < 0) {
-        inkcell_log_warn("serial", "Cannot watch %s: %d", device->path, opened);
+        inkwell_log_warn("serial", "Cannot watch %s: %d", device->path, opened);
         mesh_serial_port_close(fd);
         memset(&state->connected, 0, sizeof state->connected);
         return opened;
@@ -283,19 +283,19 @@ int mesh_serial_transport_connect(struct mesh_transport *transport, const char *
     uint8_t wake[MESH_SERIAL_WAKE_BYTES];
     memset(wake, (int)MESH_STREAM_FRAME_START2, sizeof wake);
     if (mesh_stream_link_write_raw(&state->link, wake, sizeof wake) < 0) {
-        inkcell_log_debug("serial", "%s: wake write failed (%s)", device->path, strerror(errno));
+        inkwell_log_debug("serial", "%s: wake write failed (%s)", device->path, strerror(errno));
     }
 
     state->link_state = MESH_SERIAL_LINK_WAKING;
-    state->wake_done_at_ms = inkcell_time_monotonic_ms() + MESH_SERIAL_WAKE_SETTLE_MS;
-    inkcell_log_info("serial", "Opened %s (%s); waking the radio", device->path, device->name);
+    state->wake_done_at_ms = inkwell_time_monotonic_ms() + MESH_SERIAL_WAKE_SETTLE_MS;
+    inkwell_log_info("serial", "Opened %s (%s); waking the radio", device->path, device->name);
     return 0;
 }
 
 /* Runs while WAKING: once the radio has had its moment, start the conversation. */
 static void mesh_serial_finish_wake(struct mesh_serial_transport_state *state) {
     if (state->link_state != MESH_SERIAL_LINK_WAKING ||
-        inkcell_time_monotonic_ms() < state->wake_done_at_ms) {
+        inkwell_time_monotonic_ms() < state->wake_done_at_ms) {
         return;
     }
 
@@ -303,12 +303,12 @@ static void mesh_serial_finish_wake(struct mesh_serial_transport_state *state) {
     mesh_session_attach(state->session, mesh_serial_session_send, state);
     const int handshake = mesh_session_begin_handshake(state->session);
     if (handshake < 0) {
-        inkcell_log_warn("serial", "Failed to request config sync: %d", handshake);
+        inkwell_log_warn("serial", "Failed to request config sync: %d", handshake);
         mesh_serial_set_error(state, MESH_STR_LINK_USB_NO_ANSWER, state->connected.path);
         mesh_serial_reset_link(state, "handshake failed");
         return;
     }
-    inkcell_log_info("serial", "Connected to %s", state->connected.path);
+    inkwell_log_info("serial", "Connected to %s", state->connected.path);
 }
 
 int mesh_serial_transport_disconnect(struct mesh_transport *transport) {
@@ -340,7 +340,7 @@ size_t mesh_serial_transport_refresh_devices(struct mesh_transport *transport) {
     }
     struct mesh_serial_transport_state *state =
         (struct mesh_serial_transport_state *)transport->state;
-    state->last_scan_ms = inkcell_time_monotonic_ms();
+    state->last_scan_ms = inkwell_time_monotonic_ms();
     return mesh_serial_scan_internal(state);
 }
 
@@ -392,7 +392,7 @@ static void mesh_serial_tick(struct mesh_transport *transport) {
         return;
     }
 
-    const uint64_t now = inkcell_time_monotonic_ms();
+    const uint64_t now = inkwell_time_monotonic_ms();
 
     if (state->link_state == MESH_SERIAL_LINK_WAKING) {
         mesh_serial_finish_wake(state);
@@ -416,7 +416,7 @@ static void mesh_serial_tick(struct mesh_transport *transport) {
 }
 
 static int mesh_serial_start(struct mesh_transport *transport, const struct mesh_app_config *config,
-                             struct mesh_event_loop *loop) {
+                             struct inkwell_loop *loop) {
     if (transport == NULL || config == NULL || transport->state == NULL) {
         return -EINVAL;
     }
@@ -440,21 +440,21 @@ static int mesh_serial_start(struct mesh_transport *transport, const struct mesh
     mesh_stream_link_init(&state->link, "serial", state->session);
 
     if (!config->enable_serial) {
-        inkcell_log_info("serial", "Serial transport disabled by configuration");
+        inkwell_log_info("serial", "Serial transport disabled by configuration");
         state->state = MESH_SERIAL_STATE_DISABLED;
         return 0;
     }
 
     state->state = MESH_SERIAL_STATE_IDLE;
     const size_t found = mesh_serial_scan_internal(state);
-    state->last_scan_ms = inkcell_time_monotonic_ms();
+    state->last_scan_ms = inkwell_time_monotonic_ms();
     if (found == 0U) {
-        inkcell_log_info("serial",
+        inkwell_log_info("serial",
                          "No USB serial ports found; watching for a node to be plugged in");
     } else {
         for (size_t i = 0; i < found; ++i) {
             const struct mesh_serial_device_info *device = &state->devices[i];
-            inkcell_log_info("serial", "Found %s (%04x:%04x) at %s%s%s", device->name,
+            inkwell_log_info("serial", "Found %s (%04x:%04x) at %s%s%s", device->name,
                              device->vendor_id, device->product_id,
                              device->bound ? device->path : "(unbound)",
                              device->needs_line_state ? ", needs DTR over usbfs" : "",

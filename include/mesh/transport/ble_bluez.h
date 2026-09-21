@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-struct mesh_event_loop;
+struct inkwell_loop;
 struct mesh_bluez_client;
 
 /*
@@ -93,7 +93,7 @@ struct mesh_bluez_client {
     bool connection_private;
     void *connection;
     bool connected;
-    struct mesh_event_loop *loop;
+    struct inkwell_loop *loop;
     mesh_bluez_notification_callback notification_callback;
     void *notification_userdata;
     char notify_characteristic_path[128];
@@ -334,7 +334,7 @@ int mesh_bluez_client_find_characteristic(struct mesh_bluez_client *client, cons
  */
 int mesh_bluez_client_characteristic_mtu(struct mesh_bluez_client *client, const char *char_path,
                                          uint16_t *out_mtu);
-int mesh_bluez_client_attach_loop(struct mesh_bluez_client *client, struct mesh_event_loop *loop);
+int mesh_bluez_client_attach_loop(struct mesh_bluez_client *client, struct inkwell_loop *loop);
 void mesh_bluez_client_detach_loop(struct mesh_bluez_client *client);
 int mesh_bluez_client_process(struct mesh_bluez_client *client);
 void mesh_bluez_client_set_notification_handler(struct mesh_bluez_client *client,

@@ -8,8 +8,8 @@
  * because it is loaded once from disk and shared by every screen that can send.
  */
 
-#include "inkcell/utils/array.h"
-#include "inkcell/utils/text.h"
+#include "inkwell/base/array.h"
+#include "inkwell/base/text.h"
 
 #include "nav_internal.h"
 
@@ -38,7 +38,7 @@ static void mesh_ui_canned_defaults(void) {
     s_canned_custom = false;
     s_canned_count = 0U;
     for (size_t i = 0;
-         i < INKCELL_ARRAY_LEN(k_default_canned) && s_canned_count < MESH_UI_CANNED_MAX; ++i) {
+         i < INKWELL_ARRAY_LEN(k_default_canned) && s_canned_count < MESH_UI_CANNED_MAX; ++i) {
         snprintf(s_canned[s_canned_count], sizeof s_canned[0], "%s",
                  inkcell_str(k_default_canned[i]));
         s_canned_count++;
@@ -91,7 +91,7 @@ int mesh_ui_canned_load(const char *path) {
         if (!clean || line[0] == '\0' || line[0] == '#') {
             continue;
         }
-        inkcell_str_copy(staged[count], sizeof staged[0], line);
+        inkwell_str_copy(staged[count], sizeof staged[0], line);
         count++;
     }
     fclose(file);

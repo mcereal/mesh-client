@@ -2,7 +2,7 @@
 
 /* The session's node cache, stats, traceroute and node actions. */
 
-#include "inkcell/utils/text.h"
+#include "inkwell/base/text.h"
 
 #include "framework/mesh_test.h"
 #include "support/proto_fixture.h"
@@ -117,7 +117,7 @@ MESH_TEST_CASE(session_node_names_sanitised, unit) {
     /* Whatever survived has to be well-formed all the way to the NUL. */
     size_t offset = 0U;
     while (summary->long_name[offset] != '\0') {
-        const size_t step = inkcell_text_utf8_sequence_len(
+        const size_t step = inkwell_text_utf8_sequence_len(
             (const uint8_t *)&summary->long_name[offset], strlen(&summary->long_name[offset]));
         if (step == 0U) {
             record_failure(test_name, "truncation left a half character in the cache");
@@ -913,7 +913,7 @@ MESH_TEST_CASE(session_roster_survives_resync, unit) {
     struct mesh_node_summary restored;
     memset(&restored, 0, sizeof restored);
     restored.node_id = 0x3333U;
-    (void)inkcell_str_copy(restored.short_name, sizeof restored.short_name, "N001");
+    (void)inkwell_str_copy(restored.short_name, sizeof restored.short_name, "N001");
     mesh_session_seed_node(&restarted, &restored);
     mesh_session_attach(&restarted, mesh_test_trace_capture_fn, &capture);
     const uint32_t elsewhere[] = {0x5555U};
@@ -926,8 +926,8 @@ MESH_TEST_CASE(session_roster_survives_resync, unit) {
     struct mesh_node_summary legacy;
     memset(&legacy, 0, sizeof legacy);
     legacy.node_id = 0xb2a7e54cU;
-    (void)inkcell_str_copy(legacy.short_name, sizeof legacy.short_name, "HILL");
-    (void)inkcell_str_copy(legacy.long_name, sizeof legacy.long_name, "Hill Repeater");
+    (void)inkwell_str_copy(legacy.short_name, sizeof legacy.short_name, "HILL");
+    (void)inkwell_str_copy(legacy.long_name, sizeof legacy.long_name, "Hill Repeater");
     mesh_session_seed_node(&restarted, &legacy);
     const struct mesh_node_summary *seeded = mesh_test_session_find_node(&restarted, 0xb2a7e54cU);
     MESH_TEST_FAIL_IF(seeded == NULL || !seeded->has_user,
@@ -936,8 +936,8 @@ MESH_TEST_CASE(session_roster_survives_resync, unit) {
     struct mesh_node_summary plain;
     memset(&plain, 0, sizeof plain);
     plain.node_id = 0x0a1b2c3dU;
-    (void)inkcell_str_copy(plain.short_name, sizeof plain.short_name, "2c3d");
-    (void)inkcell_str_copy(plain.long_name, sizeof plain.long_name, "Meshtastic 2c3d");
+    (void)inkwell_str_copy(plain.short_name, sizeof plain.short_name, "2c3d");
+    (void)inkwell_str_copy(plain.long_name, sizeof plain.long_name, "Meshtastic 2c3d");
     mesh_session_seed_node(&restarted, &plain);
     seeded = mesh_test_session_find_node(&restarted, 0x0a1b2c3dU);
     MESH_TEST_FAIL_IF(seeded == NULL || seeded->has_user,
@@ -1187,7 +1187,7 @@ MESH_TEST_CASE(session_radio_announcements, unit) {
     sent.packet_id = packet_id;
     sent.direction = MESH_MESSAGE_OUTBOUND;
     sent.ack = MESH_MESSAGE_ACK_PENDING;
-    inkcell_str_copy(sent.text, sizeof sent.text, "hello");
+    inkwell_str_copy(sent.text, sizeof sent.text, "hello");
     MESH_TEST_FAIL_IF(mesh_message_log_append(&session.messages, &sent) == NULL,
                       "seeding the outbound message failed");
 

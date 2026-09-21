@@ -4,7 +4,7 @@
 
 #include "inkcell/ui/backend.h"
 #include "inkcell/ui/latency.h"
-#include "inkcell/utils/log.h"
+#include "inkwell/base/log.h"
 
 #include "mesh/ui/nav.h"
 
@@ -32,7 +32,7 @@ static void mesh_ui_controller_schedule_frame(struct mesh_ui_controller *control
         spec.it_value.tv_nsec = (long)MESH_UI_FRAME_INTERVAL_MS * 1000000L;
     }
     if (timerfd_settime(controller->frame_timer_fd, 0, &spec, NULL) < 0) {
-        inkcell_log_warn("ui", "frame timerfd_settime failed: %s", strerror(errno));
+        inkwell_log_warn("ui", "frame timerfd_settime failed: %s", strerror(errno));
     }
 }
 
@@ -80,7 +80,7 @@ static int mesh_ui_controller_frame_callback(int fd, uint32_t events, void *user
 
     uint64_t expirations = 0U;
     if (read(fd, &expirations, sizeof expirations) < 0 && errno != EAGAIN) {
-        inkcell_log_warn("ui", "frame timer read failed: %s", strerror(errno));
+        inkwell_log_warn("ui", "frame timer read failed: %s", strerror(errno));
     }
 
     if (mesh_ui_store_consume_updates(controller->store, &controller->snapshot)) {
@@ -99,7 +99,7 @@ static int mesh_ui_controller_frame_callback(int fd, uint32_t events, void *user
 /* The timer is optional: without it a switch lands on its target on the next frame something
    else asks for, which is a UI that works and does not animate. */
 static void mesh_ui_controller_setup_frame_timer(struct mesh_ui_controller *controller,
-                                                 struct mesh_event_loop *loop) {
+                                                 struct inkwell_loop *loop) {
     controller->frame_timer_fd = -1;
     if (loop == NULL || controller->backend == NULL || controller->backend->animating == NULL) {
         return;
@@ -107,12 +107,11 @@ static void mesh_ui_controller_setup_frame_timer(struct mesh_ui_controller *cont
 
     const int fd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
     if (fd < 0) {
-        inkcell_log_warn("ui", "frame timerfd_create failed: %s", strerror(errno));
+        inkwell_log_warn("ui", "frame timerfd_create failed: %s", strerror(errno));
         return;
     }
-    if (mesh_event_loop_add_fd(loop, fd, EPOLLIN, mesh_ui_controller_frame_callback, controller) <
-        0) {
-        inkcell_log_warn("ui", "Failed to watch the frame timer");
+    if (inkwell_loop_add_fd(loop, fd, EPOLLIN, mesh_ui_controller_frame_callback, controller) < 0) {
+        inkwell_log_warn("ui", "Failed to watch the frame timer");
         close(fd);
         return;
     }
@@ -121,7 +120,7 @@ static void mesh_ui_controller_setup_frame_timer(struct mesh_ui_controller *cont
 
 int mesh_ui_controller_init(struct mesh_ui_controller *controller, struct mesh_ui_store *store,
                             const struct inkcell_backend *backend, void *backend_userdata,
-                            struct mesh_event_loop *loop) {
+                            struct inkwell_loop *loop) {
     if (controller == NULL || store == NULL) {
         return -EINVAL;
     }
@@ -136,7 +135,7 @@ int mesh_ui_controller_init(struct mesh_ui_controller *controller, struct mesh_u
     if (backend != NULL && backend->init != NULL) {
         int result = backend->init(&controller->backend_state, backend_userdata);
         if (result < 0) {
-            inkcell_log_error("ui", "Backend init failed (%s): %d",
+            inkwell_log_error("ui", "Backend init failed (%s): %d",
                               backend->name != NULL ? backend->name : "unknown", result);
             controller->backend = NULL;
             controller->backend_state = NULL;
@@ -146,10 +145,10 @@ int mesh_ui_controller_init(struct mesh_ui_controller *controller, struct mesh_u
 
     const int event_fd = mesh_ui_store_event_fd(store);
     if (loop != NULL && event_fd >= 0) {
-        int add_result = mesh_event_loop_add_fd(loop, event_fd, EPOLLIN,
-                                                mesh_ui_controller_event_callback, controller);
+        int add_result = inkwell_loop_add_fd(loop, event_fd, EPOLLIN,
+                                             mesh_ui_controller_event_callback, controller);
         if (add_result < 0) {
-            inkcell_log_error("ui", "Failed to register UI store fd: %d", add_result);
+            inkwell_log_error("ui", "Failed to register UI store fd: %d", add_result);
             if (controller->backend != NULL && controller->backend->shutdown != NULL) {
                 controller->backend->shutdown(controller->backend_state,
                                               controller->backend_userdata);
@@ -222,13 +221,13 @@ void mesh_ui_controller_shutdown(struct mesh_ui_controller *controller) {
 
     if (controller->loop != NULL && controller->registered) {
         const int event_fd = mesh_ui_store_event_fd(controller->store);
-        mesh_event_loop_remove_fd(controller->loop, event_fd);
+        inkwell_loop_remove_fd(controller->loop, event_fd);
         controller->registered = false;
     }
 
     if (controller->frame_timer_fd >= 0) {
         if (controller->loop != NULL) {
-            mesh_event_loop_remove_fd(controller->loop, controller->frame_timer_fd);
+            inkwell_loop_remove_fd(controller->loop, controller->frame_timer_fd);
         }
         close(controller->frame_timer_fd);
         controller->frame_timer_fd = -1;

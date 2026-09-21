@@ -95,7 +95,7 @@ radio interleaves its text log with framed protobufs on one port) and `session`
 (`mesh_session_handle_from_radio()`). Off the network: `firmware_catalog`, `zip` and `uf2`, which
 are what a downloaded firmware image arrives as, `mqtt_packet`, whose far end is a machine on
 the internet rather than something on the end of a cable — a public broker carries whatever
-every other mesh pointed at it published — and `http` (`src/proto/http.c`), the reply to every
+every other mesh pointed at it published — and `http` (now inkwell's `src/codec/http.c`, and its suite went with it), the reply to every
 HTTPS fetch. That one checks that parsing a reply in one read and in split reads agree on every
 byte, and that no `Location` a server sends can add a line to the request that follows it. And off a *person* —
 `channel_url` and

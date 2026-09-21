@@ -48,7 +48,7 @@
 extern "C" {
 #endif
 
-struct mesh_event_loop;
+struct inkwell_loop;
 
 /* The radio's own words, or a sub-module's name for what went wrong. Untranslated, like a log
    line or a region code - see docs/i18n.md. */
@@ -161,7 +161,7 @@ typedef void (*mesh_firmware_update_done_fn)(void *userdata,
                                              const struct mesh_firmware_update *update);
 
 struct mesh_firmware_update {
-    struct mesh_event_loop *loop; /* borrowed; may be NULL */
+    struct inkwell_loop *loop; /* borrowed; may be NULL */
     /* Its own, so a check running next door cannot take the connection out from under a download.
      */
     struct mesh_fetch fetch;
@@ -219,7 +219,7 @@ struct mesh_firmware_update {
 
 /* `loop` may be NULL, in which case the module reports itself unavailable. Returns 0, or
    -errno. */
-int mesh_firmware_update_init(struct mesh_firmware_update *update, struct mesh_event_loop *loop);
+int mesh_firmware_update_init(struct mesh_firmware_update *update, struct inkwell_loop *loop);
 void mesh_firmware_update_shutdown(struct mesh_firmware_update *update);
 
 /* True when a fetcher was found, i.e. when a press could do anything at all. */

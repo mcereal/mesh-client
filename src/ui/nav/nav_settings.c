@@ -9,7 +9,7 @@
  * dropped rather than recorded, which is what keeps "toggle it twice" from queueing a write.
  */
 
-#include "inkcell/utils/text.h"
+#include "inkwell/base/text.h"
 
 #include "nav_internal.h"
 
@@ -185,7 +185,7 @@ bool mesh_ui_nav_settings_edit_key(struct mesh_ui_nav *nav, const struct mesh_ui
 bool mesh_ui_nav_settings_commit_text(struct mesh_ui_nav *nav, const struct mesh_ui_store *store) {
     const enum mesh_ui_setting_field field = (enum mesh_ui_setting_field)nav->keyboard_field;
     char text[MESH_UI_SETTING_TEXT_MAX];
-    inkcell_str_copy(text, sizeof text, nav->draft);
+    inkwell_str_copy(text, sizeof text, nav->draft);
     size_t cap = mesh_ui_settings_text_max(field);
     /* The buffer is measured from the field limits (mesh/ui/settings_text.def), so this is the
        bound holding rather than a cut: a field wide enough to need it would fail the test that

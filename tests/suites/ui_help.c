@@ -17,7 +17,7 @@
  * which is what help_keycap_and_press_agree does.
  */
 
-#include "inkcell/utils/text.h"
+#include "inkwell/base/text.h"
 
 #include "framework/mesh_test.h"
 #include "support/ui_fixture.h"
@@ -1001,7 +1001,7 @@ MESH_TEST_CASE(help_does_not_offer_a_key_that_does_nothing, unit) {
                    both read, and the section is rebuilt from it on every draw and press. */
                 struct mesh_ui_settings admin = store.settings;
                 admin.admin_dest = 0x7001U;
-                inkcell_str_copy(admin.admin_dest_name, sizeof admin.admin_dest_name,
+                inkwell_str_copy(admin.admin_dest_name, sizeof admin.admin_dest_name,
                                  "Weather Hut");
                 mesh_ui_store_set_settings(&store, &admin);
             }

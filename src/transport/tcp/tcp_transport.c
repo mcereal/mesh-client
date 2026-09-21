@@ -1,15 +1,15 @@
 #define _GNU_SOURCE
 #define _POSIX_C_SOURCE 200809L
 
-#include "inkcell/utils/log.h"
-#include "inkcell/utils/text.h"
-#include "inkcell/utils/time.h"
+#include "inkwell/base/log.h"
+#include "inkwell/base/text.h"
+#include "inkwell/base/time.h"
 
 #include "mesh/i18n/strings.h"
 #include "mesh/transport/tcp.h"
 
+#include "inkwell/net/resolve.h"
 #include "mesh/core/config.h"
-#include "mesh/core/resolve.h"
 #include "mesh/transport/stream_link.h"
 
 #include <arpa/inet.h>
@@ -73,7 +73,7 @@ enum mesh_tcp_link_state {
 struct mesh_tcp_transport_state {
     enum mesh_tcp_state state;
     enum mesh_tcp_link_state link_state;
-    struct mesh_event_loop *loop;
+    struct inkwell_loop *loop;
 
     /* Everything about an established stream that a serial link does identically. */
     struct mesh_stream_link link;
@@ -98,7 +98,7 @@ struct mesh_tcp_transport_state {
      * attempt: dropping the link has to be able to abandon it, and a resolver shared with
      * anything else could not be cancelled here without cancelling somebody else's.
      */
-    struct mesh_resolve resolve;
+    struct inkwell_resolve resolve;
 
     char target[MESH_TCP_TARGET_MAX]; /* what is being connected to, or what is up */
     /*
@@ -245,7 +245,7 @@ static void mesh_tcp_drop_pending(struct mesh_tcp_transport_state *state) {
         return;
     }
     if (state->pending_registered && state->loop != NULL) {
-        mesh_event_loop_remove_fd(state->loop, state->pending_fd);
+        inkwell_loop_remove_fd(state->loop, state->pending_fd);
     }
     close(state->pending_fd);
     state->pending_fd = -1;
@@ -269,7 +269,7 @@ static void mesh_tcp_finish_connect(struct mesh_tcp_transport_state *state,
         error = errno;
     }
     if (error != 0) {
-        inkcell_log_warn("tcp", "Cannot reach %s: %s", state->target, strerror(error));
+        inkwell_log_warn("tcp", "Cannot reach %s: %s", state->target, strerror(error));
         mesh_tcp_set_error(state, MESH_STR_LINK_TCP_UNREACHABLE, state->target, strerror(error));
         mesh_tcp_reset_link(state, "connect failed");
         return;
@@ -279,7 +279,7 @@ static void mesh_tcp_finish_connect(struct mesh_tcp_transport_state *state,
     /* Taken off the state before the link adopts it: the link owns the descriptor from here, and
        two owners is one double close. */
     if (state->pending_registered && state->loop != NULL) {
-        mesh_event_loop_remove_fd(state->loop, fd);
+        inkwell_loop_remove_fd(state->loop, fd);
     }
     state->pending_fd = -1;
     state->pending_registered = false;
@@ -287,7 +287,7 @@ static void mesh_tcp_finish_connect(struct mesh_tcp_transport_state *state,
     const int opened = mesh_stream_link_open(&state->link, fd, MESH_STREAM_LINK_SOCKET, state->loop,
                                              mesh_tcp_fd_callback, transport);
     if (opened < 0) {
-        inkcell_log_warn("tcp", "Cannot watch %s: %d", state->target, opened);
+        inkwell_log_warn("tcp", "Cannot watch %s: %d", state->target, opened);
         close(fd);
         mesh_tcp_reset_link(state, "could not watch the socket");
         return;
@@ -298,13 +298,13 @@ static void mesh_tcp_finish_connect(struct mesh_tcp_transport_state *state,
     mesh_session_attach(state->session, mesh_tcp_session_send, state);
     const int handshake = mesh_session_begin_handshake(state->session);
     if (handshake < 0) {
-        inkcell_log_warn("tcp", "Failed to request config sync: %d", handshake);
+        inkwell_log_warn("tcp", "Failed to request config sync: %d", handshake);
         mesh_tcp_set_error(state, MESH_STR_LINK_TCP_NO_ANSWER, state->target);
         mesh_tcp_reset_link(state, "handshake failed");
         return;
     }
-    state->next_heartbeat_ms = inkcell_time_monotonic_ms() + MESH_TCP_HEARTBEAT_INTERVAL_MS;
-    inkcell_log_info("tcp", "Connected to %s", state->target);
+    state->next_heartbeat_ms = inkwell_time_monotonic_ms() + MESH_TCP_HEARTBEAT_INTERVAL_MS;
+    inkwell_log_info("tcp", "Connected to %s", state->target);
 }
 
 static int mesh_tcp_fd_callback(int fd, uint32_t events, void *userdata) {
@@ -347,7 +347,7 @@ static void mesh_tcp_reset_link(struct mesh_tcp_transport_state *state, const ch
         return;
     }
     char target[MESH_TCP_TARGET_MAX];
-    inkcell_str_copy(target, sizeof target, state->target[0] != '\0' ? state->target : "the radio");
+    inkwell_str_copy(target, sizeof target, state->target[0] != '\0' ? state->target : "the radio");
 
     state->link_state = MESH_TCP_LINK_DISCONNECTED;
     state->connect_deadline_ms = 0U;
@@ -356,11 +356,11 @@ static void mesh_tcp_reset_link(struct mesh_tcp_transport_state *state, const ch
     /* A name still being looked up is part of the attempt being abandoned. Cancelling rather
        than letting it land is what stops a child that was out for five seconds opening a socket
        to a link the user has already dropped. */
-    mesh_resolve_cancel(&state->resolve);
+    inkwell_resolve_cancel(&state->resolve);
     mesh_tcp_drop_pending(state);
     mesh_stream_link_close(&state->link);
     state->target[0] = '\0';
-    inkcell_log_info("tcp", "Disconnected from %s (%s)", target, reason);
+    inkwell_log_info("tcp", "Disconnected from %s (%s)", target, reason);
 }
 
 /*
@@ -373,7 +373,7 @@ static void mesh_tcp_reset_link(struct mesh_tcp_transport_state *state, const ch
  * that is switched off is still the address the user wrote down.
  */
 static void mesh_tcp_adopt_target(struct mesh_tcp_transport_state *state) {
-    inkcell_str_copy(state->configured, sizeof state->configured, state->target);
+    inkwell_str_copy(state->configured, sizeof state->configured, state->target);
     state->state = MESH_TCP_STATE_READY;
 }
 
@@ -393,7 +393,7 @@ static int mesh_tcp_open(struct mesh_tcp_transport_state *state, struct mesh_tra
     const int fd = socket(address->ss_family, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
     if (fd < 0) {
         const int error = errno;
-        inkcell_log_warn("tcp", "Cannot open a socket: %s", strerror(error));
+        inkwell_log_warn("tcp", "Cannot open a socket: %s", strerror(error));
         mesh_tcp_set_error(state, MESH_STR_LINK_TCP_UNREACHABLE, target, strerror(error));
         return -error;
     }
@@ -416,7 +416,7 @@ static int mesh_tcp_open(struct mesh_tcp_transport_state *state, struct mesh_tra
     const int connected = connect(fd, (const struct sockaddr *)address, address_len);
     if (connected < 0 && errno != EINPROGRESS) {
         const int error = errno;
-        inkcell_log_warn("tcp", "Cannot reach %s: %s", target, strerror(error));
+        inkwell_log_warn("tcp", "Cannot reach %s: %s", target, strerror(error));
         mesh_tcp_set_error(state, MESH_STR_LINK_TCP_UNREACHABLE, target, strerror(error));
         close(fd);
         state->target[0] = '\0';
@@ -432,9 +432,9 @@ static int mesh_tcp_open(struct mesh_tcp_transport_state *state, struct mesh_tra
          * descriptor is handed over.
          */
         const int added =
-            mesh_event_loop_add_fd(state->loop, fd, EPOLLOUT, mesh_tcp_fd_callback, transport);
+            inkwell_loop_add_fd(state->loop, fd, EPOLLOUT, mesh_tcp_fd_callback, transport);
         if (added < 0) {
-            inkcell_log_warn("tcp", "Cannot watch %s: %d", target, added);
+            inkwell_log_warn("tcp", "Cannot watch %s: %d", target, added);
             close(fd);
             state->pending_fd = -1;
             state->target[0] = '\0';
@@ -444,8 +444,8 @@ static int mesh_tcp_open(struct mesh_tcp_transport_state *state, struct mesh_tra
     }
 
     state->link_state = MESH_TCP_LINK_CONNECTING;
-    state->connect_deadline_ms = inkcell_time_monotonic_ms() + MESH_TCP_CONNECT_TIMEOUT_MS;
-    inkcell_log_info("tcp", "Connecting to %s", target);
+    state->connect_deadline_ms = inkwell_time_monotonic_ms() + MESH_TCP_CONNECT_TIMEOUT_MS;
+    inkwell_log_info("tcp", "Connecting to %s", target);
 
     /*
      * A loopback connect is usually complete before connect() returns, and with no loop to make
@@ -473,7 +473,7 @@ static int mesh_tcp_open(struct mesh_tcp_transport_state *state, struct mesh_tra
  * lookup started, so a failure at this point reaches the user the way a failed connect does -
  * through `last_error`, picked up by whichever screen asks next.
  */
-static void mesh_tcp_on_resolved(void *userdata, const struct mesh_resolve_result *result) {
+static void mesh_tcp_on_resolved(void *userdata, const struct inkwell_resolve_result *result) {
     struct mesh_transport *transport = (struct mesh_transport *)userdata;
     if (transport == NULL || transport->state == NULL) {
         return;
@@ -481,7 +481,7 @@ static void mesh_tcp_on_resolved(void *userdata, const struct mesh_resolve_resul
     struct mesh_tcp_transport_state *state = (struct mesh_tcp_transport_state *)transport->state;
     /*
      * A lookup that was overtaken - the link was dropped, or something else connected while the
-     * child was out - is not this answer's to act on. mesh_resolve_cancel() already suppresses
+     * child was out - is not this answer's to act on. inkwell_resolve_cancel() already suppresses
      * the callback for any teardown that went through us; this is the belt behind those braces.
      */
     if (state->link_state != MESH_TCP_LINK_RESOLVING) {
@@ -492,23 +492,23 @@ static void mesh_tcp_on_resolved(void *userdata, const struct mesh_resolve_resul
     uint16_t port = 0U;
     (void)mesh_tcp_target_split(state->target, host, sizeof host, &port);
 
-    if (result->outcome != MESH_RESOLVE_OK) {
+    if (result->outcome != INKWELL_RESOLVE_OK) {
         /*
          * Two sentences rather than one, because they ask for different things from the person
          * reading them: a name that does not resolve is a typo or the wrong network, and a
          * resolver that did not answer is neither - the name may be perfectly good.
          */
         switch (result->outcome) {
-        case MESH_RESOLVE_NOT_FOUND:
-            inkcell_log_warn("tcp", "No address for %s", host);
+        case INKWELL_RESOLVE_NOT_FOUND:
+            inkwell_log_warn("tcp", "No address for %s", host);
             mesh_tcp_set_error(state, MESH_STR_LINK_TCP_UNKNOWN_HOST, host);
             break;
-        case MESH_RESOLVE_TIMED_OUT:
-            inkcell_log_warn("tcp", "Looking up %s took too long", host);
+        case INKWELL_RESOLVE_TIMED_OUT:
+            inkwell_log_warn("tcp", "Looking up %s took too long", host);
             mesh_tcp_set_error(state, MESH_STR_LINK_TCP_LOOKUP_FAILED, host);
             break;
         default:
-            inkcell_log_warn("tcp", "Cannot look up %s: %s", host,
+            inkwell_log_warn("tcp", "Cannot look up %s: %s", host,
                              result->error != 0 ? gai_strerror(result->error) : "no resolver");
             mesh_tcp_set_error(state, MESH_STR_LINK_TCP_LOOKUP_FAILED, host);
             break;
@@ -546,18 +546,18 @@ int mesh_tcp_transport_connect(struct mesh_transport *transport, const char *tar
     char host[MESH_TCP_TARGET_MAX];
     uint16_t port = 0U;
     if (mesh_tcp_target_split(target, host, sizeof host, &port) < 0) {
-        inkcell_log_warn("tcp", "'%s' is not an address and port", target);
+        inkwell_log_warn("tcp", "'%s' is not an address and port", target);
         mesh_tcp_set_error(state, MESH_STR_LINK_TCP_BAD_TARGET, target);
         return -EINVAL;
     }
 
     /* Named now because everything below reports through it; adopted only once something is
        actually under way - see mesh_tcp_adopt_target(). */
-    inkcell_str_copy(state->target, sizeof state->target, target);
+    inkwell_str_copy(state->target, sizeof state->target, target);
 
     struct sockaddr_storage address;
     socklen_t address_len = 0;
-    if (mesh_resolve_literal(host, port, &address, &address_len)) {
+    if (inkwell_resolve_literal(host, port, &address, &address_len)) {
         const int opened = mesh_tcp_open(state, transport, &address, address_len);
         if (opened < 0 && state->link_state == MESH_TCP_LINK_DISCONNECTED) {
             state->target[0] = '\0';
@@ -571,10 +571,10 @@ int mesh_tcp_transport_connect(struct mesh_transport *transport, const char *tar
      * no refusal to hand back, because nothing has been tried yet. Whatever goes wrong from here
      * is reported through `last_error`; see mesh_tcp_on_resolved().
      */
-    const int started = mesh_resolve_start(&state->resolve, host, port, mesh_tcp_on_resolved,
-                                           transport, inkcell_time_monotonic_ms());
+    const int started = inkwell_resolve_start(&state->resolve, host, port, mesh_tcp_on_resolved,
+                                              transport, inkwell_time_monotonic_ms());
     if (started < 0) {
-        inkcell_log_warn("tcp", "Cannot look up %s: %d", host, started);
+        inkwell_log_warn("tcp", "Cannot look up %s: %d", host, started);
         mesh_tcp_set_error(state, MESH_STR_LINK_TCP_LOOKUP_FAILED, host);
         state->target[0] = '\0';
         return started;
@@ -588,7 +588,7 @@ int mesh_tcp_transport_connect(struct mesh_transport *transport, const char *tar
      */
     mesh_tcp_adopt_target(state);
     state->link_state = MESH_TCP_LINK_RESOLVING;
-    inkcell_log_info("tcp", "Looking up %s", host);
+    inkwell_log_info("tcp", "Looking up %s", host);
     return 0;
 }
 
@@ -615,14 +615,14 @@ static void mesh_tcp_tick(struct mesh_transport *transport) {
         return;
     }
 
-    const uint64_t now = inkcell_time_monotonic_ms();
+    const uint64_t now = inkwell_time_monotonic_ms();
 
     /* The resolver's own deadline and its reap, every turn: the fd callback sees the answer, but
        the child is only ever collected here. */
-    mesh_resolve_tick(&state->resolve, now);
+    inkwell_resolve_tick(&state->resolve, now);
 
     if (state->link_state == MESH_TCP_LINK_RESOLVING) {
-        /* Nothing to time out here that mesh_resolve_tick() does not already own - it kills the
+        /* Nothing to time out here that inkwell_resolve_tick() does not already own - it kills the
            child on its own deadline and reports TIMED_OUT, which mesh_tcp_on_resolved() turns
            into the error and the drop. */
         return;
@@ -630,7 +630,7 @@ static void mesh_tcp_tick(struct mesh_transport *transport) {
 
     if (state->link_state == MESH_TCP_LINK_CONNECTING) {
         if (state->connect_deadline_ms != 0U && now >= state->connect_deadline_ms) {
-            inkcell_log_warn("tcp", "%s did not answer in time", state->target);
+            inkwell_log_warn("tcp", "%s did not answer in time", state->target);
             mesh_tcp_set_error(state, MESH_STR_LINK_TCP_TIMEOUT, state->target);
             mesh_tcp_reset_link(state, "connect timed out");
         }
@@ -662,7 +662,7 @@ static void mesh_tcp_tick(struct mesh_transport *transport) {
 }
 
 static int mesh_tcp_start(struct mesh_transport *transport, const struct mesh_app_config *config,
-                          struct mesh_event_loop *loop) {
+                          struct inkwell_loop *loop) {
     if (transport == NULL || config == NULL || transport->state == NULL) {
         return -EINVAL;
     }
@@ -676,7 +676,7 @@ static int mesh_tcp_start(struct mesh_transport *transport, const struct mesh_ap
     state->loop = loop;
     state->link_state = MESH_TCP_LINK_DISCONNECTED;
     /* After the memset, which would otherwise leave the resolver looking like it owned pid 0. */
-    (void)mesh_resolve_init(&state->resolve, loop);
+    (void)inkwell_resolve_init(&state->resolve, loop);
     /* The app hands every link the same session; standalone (tests, --list-devices) each link
        falls back to its own and initialises it here. */
     if (state->session == NULL) {
@@ -688,18 +688,18 @@ static int mesh_tcp_start(struct mesh_transport *transport, const struct mesh_ap
     mesh_stream_link_init(&state->link, "tcp", state->session);
 
     if (!config->enable_tcp) {
-        inkcell_log_info("tcp", "Network transport disabled by configuration");
+        inkwell_log_info("tcp", "Network transport disabled by configuration");
         state->state = MESH_TCP_STATE_DISABLED;
         return 0;
     }
 
-    inkcell_str_copy(state->configured, sizeof state->configured, config->preferred_tcp_host);
+    inkwell_str_copy(state->configured, sizeof state->configured, config->preferred_tcp_host);
     if (state->configured[0] == '\0') {
         state->state = MESH_TCP_STATE_IDLE;
-        inkcell_log_debug("tcp", "No host configured; nothing to connect to");
+        inkwell_log_debug("tcp", "No host configured; nothing to connect to");
     } else {
         state->state = MESH_TCP_STATE_READY;
-        inkcell_log_info("tcp", "Configured for %s", state->configured);
+        inkwell_log_info("tcp", "Configured for %s", state->configured);
     }
     return 0;
 }
@@ -710,7 +710,7 @@ static void mesh_tcp_stop(struct mesh_transport *transport) {
     }
     struct mesh_tcp_transport_state *state = (struct mesh_tcp_transport_state *)transport->state;
     mesh_tcp_reset_link(state, "shutting down");
-    mesh_resolve_shutdown(&state->resolve);
+    inkwell_resolve_shutdown(&state->resolve);
     mesh_tcp_drop_pending(state);
     mesh_stream_link_close(&state->link);
     state->loop = NULL;
@@ -754,7 +754,7 @@ static bool mesh_tcp_take_error(struct mesh_transport *transport, char *out, siz
     if (state->last_error[0] == '\0') {
         return false;
     }
-    inkcell_str_copy(out, out_len, state->last_error);
+    inkwell_str_copy(out, out_len, state->last_error);
     state->last_error[0] = '\0';
     return true;
 }
@@ -804,7 +804,7 @@ int mesh_tcp_transport_forget(struct mesh_transport *transport) {
     if (state->state == MESH_TCP_STATE_READY) {
         state->state = MESH_TCP_STATE_IDLE;
     }
-    inkcell_log_info("tcp", "Network address cleared");
+    inkwell_log_info("tcp", "Network address cleared");
     return 0;
 }
 

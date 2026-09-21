@@ -129,7 +129,7 @@ PATH_NAME = re.compile(r"^/[A-Za-z0-9_./%*+-]*$")
 # rather than to the end of the line, because the argument carrying the words is often not on
 # the first one. A log is read by a developer; an assertion's message is read by a compiler, in
 # a build that by definition did not produce a binary.
-SKIPPED_CALLS = ("inkcell_log", "INKCELL_STATIC_ASSERT", "_Static_assert", "static_assert")
+SKIPPED_CALLS = ("inkwell_log", "INKCELL_STATIC_ASSERT", "_Static_assert", "static_assert")
 
 
 def strip_comments(text):

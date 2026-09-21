@@ -9,8 +9,8 @@
  * two dispatch into are the neighbouring nav_*.c files, through nav_internal.h.
  */
 
-#include "inkcell/utils/array.h"
-#include "inkcell/utils/text.h"
+#include "inkwell/base/array.h"
+#include "inkwell/base/text.h"
 
 #include "nav_internal.h"
 

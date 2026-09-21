@@ -23,7 +23,7 @@
 #include "mesh/ui/settings.h"
 #include "mesh/ui/trust.h"
 
-#include "inkcell/utils/text.h"
+#include "inkwell/base/text.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -171,10 +171,10 @@ static void fb_dialog_remember(struct fb_overlay_memo *memo,
     if (memo == NULL || dialog == NULL) {
         return;
     }
-    (void)inkcell_str_copy(memo->headline, sizeof memo->headline, dialog->headline);
-    (void)inkcell_str_copy(memo->text, sizeof memo->text, dialog->text);
-    (void)inkcell_str_copy(memo->accept, sizeof memo->accept, dialog->accept);
-    (void)inkcell_str_copy(memo->cancel, sizeof memo->cancel, dialog->cancel);
+    (void)inkwell_str_copy(memo->headline, sizeof memo->headline, dialog->headline);
+    (void)inkwell_str_copy(memo->text, sizeof memo->text, dialog->text);
+    (void)inkwell_str_copy(memo->accept, sizeof memo->accept, dialog->accept);
+    (void)inkwell_str_copy(memo->cancel, sizeof memo->cancel, dialog->cancel);
     memo->icon = dialog->icon;
     memo->cursor = dialog->cursor;
     memo->destructive = dialog->destructive;

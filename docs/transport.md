@@ -166,7 +166,7 @@ non-blocking resolver in POSIX (`getaddrinfo_a` starts threads), so the call can
 loop at all — for a long time that meant a target had to be a numeric literal and a name was
 refused in words.
 
-[`src/core/net/resolve.c`](../src/core/net/resolve.c) is the way out: fork a child, let *it*
+inkwell's `src/net/resolve.c` (`inkwell/net/resolve.h`) is the way out: fork a child, let *it*
 block in `getaddrinfo()`, read one fixed-size record back through the loop. The child does not exec —
 there is nothing worth exec'ing, since `getent` is not on the Brick and busybox's `nslookup`
 prints something different every version — so it inherits everything this process has open and

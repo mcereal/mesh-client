@@ -3,11 +3,11 @@
 
 #include "mesh/transport/usb_msc.h"
 
-#include "inkcell/utils/log.h"
-#include "inkcell/utils/text.h"
-#include "inkcell/utils/time.h"
+#include "inkwell/base/log.h"
+#include "inkwell/base/text.h"
+#include "inkwell/base/time.h"
 
-#include "mesh/core/event_loop.h"
+#include "inkwell/runtime/loop.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -207,7 +207,7 @@ static void read_mounts(struct mesh_usb_msc_target *target) {
             target->too_many_mounts = true;
             break;
         }
-        inkcell_str_copy(target->mounts[target->mount_count],
+        inkwell_str_copy(target->mounts[target->mount_count],
                          sizeof target->mounts[target->mount_count], point);
         target->mount_count += 1U;
     }
@@ -239,7 +239,7 @@ int mesh_usb_msc_find(const struct mesh_serial_device_info *device,
             continue;
         }
         if (block_belongs_to(root, entry->d_name, device_name)) {
-            inkcell_str_copy(found, sizeof found, entry->d_name);
+            inkwell_str_copy(found, sizeof found, entry->d_name);
         }
     }
     closedir(dir);
@@ -305,14 +305,14 @@ int mesh_usb_msc_claim(const char *device_path) {
         }
         struct mesh_usb_msc_target again;
         memset(&again, 0, sizeof again);
-        inkcell_str_copy(again.device, sizeof again.device, device_path);
+        inkwell_str_copy(again.device, sizeof again.device, device_path);
         read_mounts(&again);
         if (again.mount_count == 0U) {
             /* Busy and mounted nowhere: something else on this system holds the device, and
                that is not ours to take. */
             return err;
         }
-        inkcell_log_info("firmware", "%s was mounted again after it came off; taking it back",
+        inkwell_log_info("firmware", "%s was mounted again after it came off; taking it back",
                          device_path);
         const int off = mesh_usb_msc_unmount(&again);
         if (off != 0) {
@@ -338,11 +338,11 @@ int mesh_usb_msc_unmount(struct mesh_usb_msc_target *target) {
         const char *const point = target->mounts[target->mount_count - 1U];
         if (umount2(point, 0) != 0 && errno != EINVAL && errno != ENOENT) {
             const int err = -errno;
-            inkcell_log_error("firmware", "Could not unmount %s from %s: %s", target->device, point,
+            inkwell_log_error("firmware", "Could not unmount %s from %s: %s", target->device, point,
                               strerror(-err));
             return err;
         }
-        inkcell_log_info("firmware", "Unmounted %s from %s", target->device, point);
+        inkwell_log_info("firmware", "Unmounted %s from %s", target->device, point);
         target->mount_count -= 1U;
     }
     return 0;
@@ -366,7 +366,7 @@ static void write_release_fd(struct mesh_usb_msc_write *write) {
         return;
     }
     if (write->loop != NULL) {
-        (void)mesh_event_loop_remove_fd(write->loop, write->progress_fd);
+        (void)inkwell_loop_remove_fd(write->loop, write->progress_fd);
     }
     close(write->progress_fd);
     write->progress_fd = -1;
@@ -423,7 +423,7 @@ static int write_on_progress(int fd, uint32_t events, void *userdata) {
         /* Draining only; reaping is the tick's, so nothing here can block. The clock is read
            rather than passed because a count that arrived is what pushes the silence deadline
            out, and the loop does not carry one. */
-        (void)write_drain(write, inkcell_time_monotonic_ms());
+        (void)write_drain(write, inkwell_time_monotonic_ms());
     }
     return 0;
 }
@@ -472,7 +472,7 @@ static void write_child(const uint8_t *image, size_t len, int out, int pipe_fd) 
     _exit(0);
 }
 
-int mesh_usb_msc_write_start(struct mesh_usb_msc_write *write, struct mesh_event_loop *loop,
+int mesh_usb_msc_write_start(struct mesh_usb_msc_write *write, struct inkwell_loop *loop,
                              const uint8_t *image, size_t len, const char *device_path,
                              uint64_t now_ms) {
     if (write == NULL || image == NULL || len == 0U || device_path == NULL ||
@@ -529,7 +529,7 @@ int mesh_usb_msc_write_start(struct mesh_usb_msc_write *write, struct mesh_event
         (void)fcntl(write->progress_fd, F_SETFL, flags | O_NONBLOCK);
     }
     if (loop != NULL &&
-        mesh_event_loop_add_fd(loop, write->progress_fd, EPOLLIN, write_on_progress, write) != 0) {
+        inkwell_loop_add_fd(loop, write->progress_fd, EPOLLIN, write_on_progress, write) != 0) {
         /* Not fatal: without the loop the tick still drains the pipe, it just does so at
            whatever rate the caller ticks. */
         write->loop = NULL;
@@ -550,11 +550,11 @@ static void write_finish(struct mesh_usb_msc_write *write, int status) {
     switch (code) {
     case MESH_USB_MSC_EXIT_SYNC:
         write->error = -EIO;
-        inkcell_log_error("firmware", "The drive stopped acknowledging writes");
+        inkwell_log_error("firmware", "The drive stopped acknowledging writes");
         break;
     default:
         write->error = -EIO;
-        inkcell_log_error("firmware", "The write ended after %llu of %llu bytes (status %d)",
+        inkwell_log_error("firmware", "The write ended after %llu of %llu bytes (status %d)",
                           (unsigned long long)write->written, (unsigned long long)write->total,
                           code);
         break;
@@ -584,7 +584,7 @@ void mesh_usb_msc_write_tick(struct mesh_usb_msc_write *write, uint64_t now_ms) 
         write_release_fd(write);
         write->state = MESH_USB_MSC_WRITE_FAILED;
         write->error = -ETIMEDOUT;
-        inkcell_log_error("firmware", "The write stalled at %llu of %llu bytes",
+        inkwell_log_error("firmware", "The write stalled at %llu of %llu bytes",
                           (unsigned long long)write->written, (unsigned long long)write->total);
         return;
     }

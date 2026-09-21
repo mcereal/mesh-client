@@ -14,7 +14,7 @@
 #include "inkcell/ui/font.h"
 #include "inkcell/ui/theme.h"
 #include "inkcell/ui/widgets.h"
-#include "inkcell/utils/time.h"
+#include "inkwell/base/time.h"
 
 #include "framework/mesh_test.h"
 #include "support/map_fixture.h"
@@ -1155,7 +1155,7 @@ MESH_TEST_CASE(ui_capture_app_bar_badges_unsaved_edits, unit) {
  * says "Yesterday" - used to come from time(NULL) inside the renderer, which made a rendered
  * frame a function of when it was rendered. That is invisible on a device and fatal for the
  * screenshots in .github/resources: regenerating them an hour later rewrote the clock column,
- * and either side of midnight moved the day separators. inkcell_time_wall_set_fixed() is the seam
+ * and either side of midnight moved the day separators. inkwell_time_wall_set_fixed() is the seam
  * that fixes it, and this is the contract it has to keep - the same pin draws the same bytes,
  * and a different pin draws different ones, which is what proves the renderer reads it at all.
  */
@@ -1201,35 +1201,35 @@ MESH_TEST_CASE(ui_capture_draws_against_the_pinned_clock, unit) {
     uint8_t *later = pixels != NULL ? malloc(page) : NULL;
     MESH_TEST_FAIL_IF_CLEANUP(pixels == NULL || early == NULL || later == NULL, free(early);
                               free(later); inkcell_capture_close(capture);
-                              inkcell_time_wall_set_fixed(0U);
+                              inkwell_time_wall_set_fixed(0U);
                               mesh_ui_store_shutdown(&store), "no page to compare");
 
     /* Ten minutes after the message, then two hours after it: "10m" against "2h". */
-    inkcell_time_wall_set_fixed(base + 600U);
+    inkwell_time_wall_set_fixed(base + 600U);
     inkcell_capture_render(capture, &snapshot);
     memcpy(early, pixels, page);
 
-    inkcell_time_wall_set_fixed(base + 7200U);
+    inkwell_time_wall_set_fixed(base + 7200U);
     inkcell_capture_render(capture, &snapshot);
     memcpy(later, pixels, page);
 
     MESH_TEST_FAIL_IF_CLEANUP(memcmp(early, later, page) == 0, free(early); free(later);
-                              inkcell_capture_close(capture); inkcell_time_wall_set_fixed(0U);
+                              inkcell_capture_close(capture); inkwell_time_wall_set_fixed(0U);
                               mesh_ui_store_shutdown(&store), "the frame ignored the pinned clock");
 
     /* And back: the same pin has to draw the same bytes, or a checked-in screenshot still
        churns however carefully the scene pins its clock. */
-    inkcell_time_wall_set_fixed(base + 600U);
+    inkwell_time_wall_set_fixed(base + 600U);
     inkcell_capture_render(capture, &snapshot);
     MESH_TEST_FAIL_IF_CLEANUP(memcmp(early, pixels, page) != 0, free(early); free(later);
-                              inkcell_capture_close(capture); inkcell_time_wall_set_fixed(0U);
+                              inkcell_capture_close(capture); inkwell_time_wall_set_fixed(0U);
                               mesh_ui_store_shutdown(&store),
                               "the same pinned clock drew a different frame");
 
     free(early);
     free(later);
     inkcell_capture_close(capture);
-    inkcell_time_wall_set_fixed(0U);
+    inkwell_time_wall_set_fixed(0U);
     mesh_ui_store_shutdown(&store);
     record_success(test_name);
 }

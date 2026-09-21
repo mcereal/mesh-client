@@ -2,7 +2,7 @@
 
 /* Encoding, ingesting and acking text messages. */
 
-#include "inkcell/utils/text.h"
+#include "inkwell/base/text.h"
 
 #include "framework/mesh_test.h"
 #include "support/proto_fixture.h"
@@ -610,7 +610,7 @@ MESH_TEST_CASE(message_echo_carries_encryption, unit) {
     sent.to = 0x11111111U;
     sent.direction = MESH_MESSAGE_OUTBOUND;
     sent.ack = MESH_MESSAGE_ACK_PENDING;
-    inkcell_str_copy(sent.text, sizeof sent.text, "on my way");
+    inkwell_str_copy(sent.text, sizeof sent.text, "on my way");
     MESH_TEST_FAIL_IF(mesh_message_log_append(&log, &sent) == NULL, "seeding the send failed");
     MESH_TEST_FAIL_IF(mesh_message_log_find(&log, 800U)->pki_encrypted,
                       "a message is not encrypted before the radio has sent it");

@@ -15,8 +15,8 @@
  * doing" lives, and is the reason that function is longer than it looks like it should be.
  */
 
-#include "inkcell/utils/array.h"
-#include "inkcell/utils/text.h"
+#include "inkwell/base/array.h"
+#include "inkwell/base/text.h"
 
 #include "nav_internal.h"
 
@@ -279,11 +279,11 @@ bool mesh_ui_nav_commit_network_host(struct mesh_ui_nav *nav, struct mesh_ui_act
          */
         action->type = nav->draft[0] != '\0' ? MESH_UI_ACTION_CONNECT : MESH_UI_ACTION_FORGET;
         action->kind = (uint8_t)MESH_UI_DEVICE_TCP;
-        /* inkcell_str_copy rather than snprintf: the draft is the message buffer and the
+        /* inkwell_str_copy rather than snprintf: the draft is the message buffer and the
            identifier is a target, so the compiler is right that one does not fit in the other
            - it is mesh_ui_nav_draft_cap() that keeps the two in step, and a bounded copy is
            what says so at the call rather than in a comment. */
-        inkcell_str_copy(action->identifier, sizeof action->identifier, nav->draft);
+        inkwell_str_copy(action->identifier, sizeof action->identifier, nav->draft);
     }
     nav->draft[0] = '\0';
     mesh_ui_nav_keyboard_close(nav);

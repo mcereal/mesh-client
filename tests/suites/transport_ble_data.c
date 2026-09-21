@@ -6,9 +6,9 @@
 #include "support/ble_fixture.h"
 #include "support/proto_fixture.h"
 
+#include "inkwell/runtime/loop.h"
 #include "mesh/app/app.h"
 #include "mesh/core/config.h"
-#include "mesh/core/event_loop.h"
 #include "mesh/core/message.h"
 #include "mesh/core/radio_settings.h"
 #include "mesh/core/session.h"
@@ -152,7 +152,7 @@ MESH_TEST_CASE(ble_transport_messaging_mock, unit) {
     rig.read_index = 0U;
     mesh_bluez_client_mock_emit_notification(rig.fromnum_path, from_num, sizeof(from_num));
     for (int spin = 0; spin < 20 && rig.read_index < 3U; ++spin) {
-        mesh_event_loop_run(&rig.loop, 10);
+        inkwell_loop_run(&rig.loop, 10);
         ble->ops->tick(ble);
     }
 
@@ -250,7 +250,7 @@ MESH_TEST_CASE(ble_transport_messaging_mock, unit) {
     rig.read_index = 0U;
     mesh_bluez_client_mock_emit_notification(rig.fromnum_path, from_num, sizeof(from_num));
     for (int spin = 0; spin < 20 && rig.read_index < 2U; ++spin) {
-        mesh_event_loop_run(&rig.loop, 10);
+        inkwell_loop_run(&rig.loop, 10);
         ble->ops->tick(ble);
     }
 
@@ -338,7 +338,7 @@ MESH_TEST_CASE(ble_transport_channel_decode, unit) {
     }
     for (int spin = 0; spin < 20 && rig.read_index < 3U; ++spin) {
         ble->ops->tick(ble);
-        mesh_event_loop_run(&rig.loop, 10);
+        inkwell_loop_run(&rig.loop, 10);
     }
 
     struct mesh_handshake_status status = mesh_ble_transport_handshake_status(ble);
@@ -421,7 +421,7 @@ MESH_TEST_CASE(ble_transport_packet_touches_node, unit) {
     }
     for (int spin = 0; spin < 20 && rig.read_index < 4U; ++spin) {
         ble->ops->tick(ble);
-        mesh_event_loop_run(&rig.loop, 10);
+        inkwell_loop_run(&rig.loop, 10);
     }
 
     struct mesh_handshake_status status = mesh_ble_transport_handshake_status(ble);
@@ -505,7 +505,7 @@ MESH_TEST_CASE(ble_transport_admin_probe, unit) {
     const uint8_t from_num[4] = {1U, 0U, 0U, 0U};
     for (int spin = 0; spin < 30 && rig.read_index < 5U; ++spin) {
         ble->ops->tick(ble);
-        mesh_event_loop_run(&rig.loop, 10);
+        inkwell_loop_run(&rig.loop, 10);
         if (mesh_ble_transport_connected_address(ble) != NULL && spin % 5 == 0) {
             mesh_bluez_client_mock_emit_notification(rig.fromnum_path, from_num, sizeof from_num);
         }
@@ -538,7 +538,7 @@ MESH_TEST_CASE(ble_transport_admin_probe, unit) {
     const size_t writes_before = rig.write_call_count;
     mesh_bluez_client_mock_emit_notification(rig.fromnum_path, from_num, sizeof from_num);
     for (int spin = 0; spin < 20 && rig.write_call_count == writes_before; ++spin) {
-        mesh_event_loop_run(&rig.loop, 10);
+        inkwell_loop_run(&rig.loop, 10);
         ble->ops->tick(ble);
     }
     if (rig.write_call_count != writes_before + 1U) {
@@ -588,7 +588,7 @@ MESH_TEST_CASE(ble_transport_admin_probe, unit) {
     const size_t writes_before_reply = rig.write_call_count;
     mesh_bluez_client_mock_emit_notification(rig.fromnum_path, from_num, sizeof from_num);
     for (int spin = 0; spin < 20 && rig.write_call_count == writes_before_reply; ++spin) {
-        mesh_event_loop_run(&rig.loop, 10);
+        inkwell_loop_run(&rig.loop, 10);
         ble->ops->tick(ble);
     }
     settings = mesh_ble_transport_settings(ble);
@@ -677,7 +677,7 @@ MESH_TEST_CASE(ble_transport_settings_write, unit) {
     const uint8_t from_num[4] = {1U, 0U, 0U, 0U};
     for (int spin = 0; spin < 30 && rig.read_index < 3U; ++spin) {
         ble->ops->tick(ble);
-        mesh_event_loop_run(&rig.loop, 10);
+        inkwell_loop_run(&rig.loop, 10);
         if (mesh_ble_transport_connected_address(ble) != NULL && spin % 5 == 0) {
             mesh_bluez_client_mock_emit_notification(rig.fromnum_path, from_num, sizeof from_num);
         }
@@ -719,7 +719,7 @@ MESH_TEST_CASE(ble_transport_settings_write, unit) {
     for (size_t step = 0; step < 3U; ++step) {
         for (int spin = 0; spin < 20 && rig.write_call_count < base + step + 1U; ++spin) {
             ble->ops->tick(ble);
-            mesh_event_loop_run(&rig.loop, 10);
+            inkwell_loop_run(&rig.loop, 10);
         }
         if (rig.write_call_count != base + step + 1U) {
             failure = "each request should go out once the previous one is answered";
@@ -749,7 +749,7 @@ MESH_TEST_CASE(ble_transport_settings_write, unit) {
         slot += 2U; /* leave an empty slot to end each drain */
         mesh_bluez_client_mock_emit_notification(rig.fromnum_path, from_num, sizeof from_num);
         for (int spin = 0; spin < 5; ++spin) {
-            mesh_event_loop_run(&rig.loop, 10);
+            inkwell_loop_run(&rig.loop, 10);
             ble->ops->tick(ble);
         }
     }
@@ -780,7 +780,7 @@ MESH_TEST_CASE(ble_transport_settings_write, unit) {
     for (size_t step = 0; step < 2U; ++step) {
         for (int spin = 0; spin < 20 && rig.write_call_count < base2 + step + 1U; ++spin) {
             ble->ops->tick(ble);
-            mesh_event_loop_run(&rig.loop, 10);
+            inkwell_loop_run(&rig.loop, 10);
         }
         test_answer_admin_write(rig.write_capture, rig.write_len, my_node,
                                 meshtastic_Routing_Error_ADMIN_BAD_SESSION_KEY,
@@ -790,7 +790,7 @@ MESH_TEST_CASE(ble_transport_settings_write, unit) {
         slot += 2U;
         mesh_bluez_client_mock_emit_notification(rig.fromnum_path, from_num, sizeof from_num);
         for (int spin = 0; spin < 5; ++spin) {
-            mesh_event_loop_run(&rig.loop, 10);
+            inkwell_loop_run(&rig.loop, 10);
             ble->ops->tick(ble);
         }
     }

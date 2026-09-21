@@ -1,8 +1,8 @@
 #include "mesh/core/firmware_fetch.h"
 
-#include "inkcell/utils/log.h"
-#include "inkcell/utils/text.h"
-#include "inkcell/utils/time.h"
+#include "inkwell/base/log.h"
+#include "inkwell/base/text.h"
+#include "inkwell/base/time.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -20,7 +20,7 @@ static void fetch_finish(struct mesh_firmware_fetch *fetch, enum mesh_firmware_f
                          enum mesh_firmware_fetch_error error, const char *message) {
     fetch->state = state;
     fetch->error = error;
-    inkcell_str_copy(fetch->message, sizeof fetch->message, message != NULL ? message : "");
+    inkwell_str_copy(fetch->message, sizeof fetch->message, message != NULL ? message : "");
     if (fetch->on_done != NULL) {
         const mesh_firmware_fetch_done_fn done = fetch->on_done;
         void *const userdata = fetch->userdata;
@@ -32,7 +32,7 @@ static void fetch_finish(struct mesh_firmware_fetch *fetch, enum mesh_firmware_f
 
 static void fetch_fail(struct mesh_firmware_fetch *fetch, enum mesh_firmware_fetch_error error,
                        const char *message) {
-    inkcell_log_error("firmware", "%s", message != NULL ? message : "the fetch failed");
+    inkwell_log_error("firmware", "%s", message != NULL ? message : "the fetch failed");
     fetch_finish(fetch, MESH_FIRMWARE_FETCH_FAILED, error, message);
 }
 
@@ -63,7 +63,7 @@ static bool fetch_build_zip_url(struct mesh_firmware_fetch *fetch) {
 }
 
 static bool fetch_start_download(struct mesh_firmware_fetch *fetch, const char *member) {
-    inkcell_str_copy(fetch->member, sizeof fetch->member, member);
+    inkwell_str_copy(fetch->member, sizeof fetch->member, member);
     const int started =
         mesh_firmware_download_start(&fetch->download, fetch->fetcher, fetch->zip_url,
                                      fetch->member, fetch->staging, fetch_on_download, fetch);
@@ -93,10 +93,10 @@ static void fetch_on_manifest(void *userdata, const struct mesh_fetch_result *re
                    "can build a zip name from");
         return;
     }
-    inkcell_log_info("firmware", "%s is built on %s; reading %s", fetch->target, fetch->platform,
+    inkwell_log_info("firmware", "%s is built on %s; reading %s", fetch->target, fetch->platform,
                      fetch->zip_url);
 
-    char member[MESH_ZIP_NAME_MAX];
+    char member[INKWELL_ZIP_NAME_MAX];
     const int written =
         snprintf(member, sizeof member, "firmware-%s-%s.mt.json", fetch->target, fetch->version);
     if (written <= 0 || (size_t)written >= sizeof member) {
@@ -183,7 +183,7 @@ static void fetch_read_manifest(struct mesh_firmware_fetch *fetch) {
         return;
     }
     fetch->image = *image;
-    inkcell_log_info("firmware", "The image is %s, %llu bytes", fetch->image.name,
+    inkwell_log_info("firmware", "The image is %s, %llu bytes", fetch->image.name,
                      (unsigned long long)fetch->image.bytes);
 
     fetch->state = MESH_FIRMWARE_FETCH_DOWNLOADING;
@@ -252,7 +252,7 @@ static void fetch_check_image(struct mesh_firmware_fetch *fetch) {
         fetch_fail(fetch, MESH_FIRMWARE_FETCH_ERROR_WRONG_IMAGE, message);
         return;
     }
-    inkcell_log_info("firmware", "%u blocks, family %08x, %#x-%#x", (unsigned)fetch->uf2.blocks,
+    inkwell_log_info("firmware", "%u blocks, family %08x, %#x-%#x", (unsigned)fetch->uf2.blocks,
                      (unsigned)fetch->uf2.family_id, (unsigned)fetch->uf2.first_address,
                      (unsigned)fetch->uf2.last_address);
     fetch_finish(fetch, MESH_FIRMWARE_FETCH_READY, MESH_FIRMWARE_FETCH_ERROR_NONE, "");
@@ -295,12 +295,12 @@ int mesh_firmware_fetch_start(struct mesh_firmware_fetch *fetch, struct mesh_fet
 
     memset(fetch, 0, sizeof *fetch);
     fetch->fetcher = fetcher;
-    inkcell_str_copy(fetch->target, sizeof fetch->target, target);
-    inkcell_str_copy(fetch->version, sizeof fetch->version, version);
-    inkcell_str_copy(fetch->manifest_url, sizeof fetch->manifest_url, manifest_url);
-    inkcell_str_copy(fetch->expect_architecture, sizeof fetch->expect_architecture,
+    inkwell_str_copy(fetch->target, sizeof fetch->target, target);
+    inkwell_str_copy(fetch->version, sizeof fetch->version, version);
+    inkwell_str_copy(fetch->manifest_url, sizeof fetch->manifest_url, manifest_url);
+    inkwell_str_copy(fetch->expect_architecture, sizeof fetch->expect_architecture,
                      expect_architecture != NULL ? expect_architecture : "");
-    inkcell_str_copy(fetch->staging, sizeof fetch->staging, staging_dir);
+    inkwell_str_copy(fetch->staging, sizeof fetch->staging, staging_dir);
     fetch->on_done = on_done;
     fetch->userdata = userdata;
     fetch->state = MESH_FIRMWARE_FETCH_RESOLVING;
@@ -311,7 +311,7 @@ int mesh_firmware_fetch_start(struct mesh_firmware_fetch *fetch, struct mesh_fet
     request.timeout_ms = FETCH_DOCUMENT_TIMEOUT_MS;
     request.on_done = fetch_on_manifest;
     request.userdata = fetch;
-    const int started = mesh_fetch_start(fetcher, &request, inkcell_time_monotonic_ms());
+    const int started = mesh_fetch_start(fetcher, &request, inkwell_time_monotonic_ms());
     if (started != 0) {
         fetch->state = MESH_FIRMWARE_FETCH_IDLE;
         fetch->on_done = NULL;

@@ -27,7 +27,7 @@
  * save and comes back as nothing.
  */
 
-#include "inkcell/utils/array.h"
+#include "inkwell/base/array.h"
 
 #include "mesh/ui/store.h"
 
@@ -540,7 +540,7 @@ static void load_handshake_request(struct mesh_ui_handshake_state *handshake, co
         MESH_UI_STORE_FIELD(&in_flight),
         MESH_UI_STORE_FIELD(&request_id),
     };
-    if (!cache_fields(value, fields, INKCELL_ARRAY_LEN(fields))) {
+    if (!cache_fields(value, fields, INKWELL_ARRAY_LEN(fields))) {
         return;
     }
     handshake->request_in_flight = in_flight;
@@ -556,7 +556,7 @@ static void load_handshake_config(struct mesh_ui_handshake_state *handshake, con
         MESH_UI_STORE_FIELD(&complete_id),
         MESH_UI_STORE_FIELD(&has_config),
     };
-    if (!cache_fields(value, fields, INKCELL_ARRAY_LEN(fields))) {
+    if (!cache_fields(value, fields, INKWELL_ARRAY_LEN(fields))) {
         return;
     }
     handshake->config_complete = complete;
@@ -573,7 +573,7 @@ static void load_handshake_mynode(struct mesh_ui_handshake_state *handshake, con
         MESH_UI_STORE_FIELD(&info.nodedb_entries),
         MESH_UI_STORE_FIELD(&info.reboot_count),
     };
-    if (!cache_fields(value, fields, INKCELL_ARRAY_LEN(fields))) {
+    if (!cache_fields(value, fields, INKWELL_ARRAY_LEN(fields))) {
         return;
     }
     handshake->has_my_info = has_my_info;
@@ -598,7 +598,7 @@ static void load_channel(struct mesh_ui_channel *channel, const char *value) {
         MESH_UI_STORE_FIELD(&slot),
         MESH_UI_STORE_FIELD(&role),
     };
-    if (!cache_fields(value, fields, INKCELL_ARRAY_LEN(fields))) {
+    if (!cache_fields(value, fields, INKWELL_ARRAY_LEN(fields))) {
         return;
     }
     channel->index = slot;
@@ -628,7 +628,7 @@ static bool load_node(struct mesh_ui_node_summary *node, const char *value) {
         MESH_UI_STORE_FIELD(&has_hops), MESH_UI_STORE_FIELD(&snr),
         MESH_UI_STORE_FIELD(&via_mqtt), MESH_UI_STORE_FIELD(&hops),
     };
-    if (!cache_fields(value, fields, INKCELL_ARRAY_LEN(fields))) {
+    if (!cache_fields(value, fields, INKWELL_ARRAY_LEN(fields))) {
         return false;
     }
     node->node_id = node_id;
@@ -675,7 +675,7 @@ static void load_node_ident(struct mesh_ui_node_summary *node, const char *value
         MESH_UI_STORE_FIELD(&favorite), MESH_UI_STORE_FIELD(&ignored),
         MESH_UI_STORE_FIELD(&channel),
     };
-    if (!cache_fields(value, fields, INKCELL_ARRAY_LEN(fields))) {
+    if (!cache_fields(value, fields, INKWELL_ARRAY_LEN(fields))) {
         return;
     }
     node->hw_model = hw_model;
@@ -701,7 +701,7 @@ static void load_node_state(struct mesh_ui_node_summary *node, const char *value
     };
     /* Two fields or three: a cache from before the verified bit existed leaves it false, which
        is what an unverified key reads as anyway. */
-    if (mesh_ui_store_fields_read(value, fields, INKCELL_ARRAY_LEN(fields)) < 2U) {
+    if (mesh_ui_store_fields_read(value, fields, INKWELL_ARRAY_LEN(fields)) < 2U) {
         return;
     }
     node->has_user = has_user;
@@ -732,7 +732,7 @@ static void load_node_rssi(struct mesh_ui_node_summary *node, const char *value)
     /* The stamp joined this line after the reading did, so one field or two: a cache written
        without it still loads, and an unstamped reading reads as current - which is exactly what
        it was before the stamp existed. */
-    if (mesh_ui_store_fields_read(value, fields, INKCELL_ARRAY_LEN(fields)) < 1U) {
+    if (mesh_ui_store_fields_read(value, fields, INKWELL_ARRAY_LEN(fields)) < 1U) {
         return;
     }
     node->has_rssi = true;
@@ -759,7 +759,7 @@ static void load_node_position(struct mesh_ui_node_summary *node, const char *va
        bound dance was for. `%d` on text past INT32_MAX is undefined and glibc's answer is 0, so
        scanned narrowly an absurd coordinate arrived at the range check already wearing a valid
        one's clothes and was stored as a fix in the Gulf of Guinea. */
-    if (mesh_ui_store_fields_read(value, fields, INKCELL_ARRAY_LEN(fields)) < 7U) {
+    if (mesh_ui_store_fields_read(value, fields, INKWELL_ARRAY_LEN(fields)) < 7U) {
         return;
     }
     /* The cache is a text file on a card the user can edit, so it is an ingress like the air
@@ -790,7 +790,7 @@ static void load_node_metrics(struct mesh_ui_node_summary *node, const char *val
         MESH_UI_STORE_FIELD(&metrics.has_uptime),
         MESH_UI_STORE_FIELD(&metrics.uptime_seconds),
     };
-    if (!cache_fields(value, fields, INKCELL_ARRAY_LEN(fields))) {
+    if (!cache_fields(value, fields, INKWELL_ARRAY_LEN(fields))) {
         return;
     }
     metrics.valid = true;
@@ -819,7 +819,7 @@ static void load_node_environment(struct mesh_ui_node_summary *node, const char 
         MESH_UI_STORE_FIELD(&env.has_current),
         MESH_UI_STORE_FIELD(&env.current),
     };
-    if (!cache_fields(value, fields, INKCELL_ARRAY_LEN(fields))) {
+    if (!cache_fields(value, fields, INKWELL_ARRAY_LEN(fields))) {
         return;
     }
     env.valid = true;
@@ -840,7 +840,7 @@ static void load_node_neighbors(struct mesh_ui_node_summary *node, const char *v
         MESH_UI_STORE_FIELD(&neighbors.broadcast_interval_secs),
         MESH_UI_STORE_FIELD(&claimed),
     };
-    if (!cache_fields(value, fields, INKCELL_ARRAY_LEN(fields))) {
+    if (!cache_fields(value, fields, INKWELL_ARRAY_LEN(fields))) {
         return;
     }
     neighbors.valid = true;
@@ -857,7 +857,7 @@ static void load_node_neighbor(struct mesh_ui_node_summary *node, uint32_t slot,
         MESH_UI_STORE_FIELD(&entry.node_id),
         MESH_UI_STORE_FIELD(&entry.snr),
     };
-    if (!cache_fields(value, fields, INKCELL_ARRAY_LEN(fields)) || entry.node_id == 0U) {
+    if (!cache_fields(value, fields, INKWELL_ARRAY_LEN(fields)) || entry.node_id == 0U) {
         return;
     }
     /* Only ever appended, and only to a list the node_nbrs line already opened: a stray entry
@@ -889,7 +889,7 @@ static void load_node_power(struct mesh_ui_node_summary *node, const char *value
         MESH_UI_STORE_FIELD(&power.channel[2].has_current),
         MESH_UI_STORE_FIELD(&power.channel[2].current),
     };
-    if (!cache_fields(value, fields, INKCELL_ARRAY_LEN(fields))) {
+    if (!cache_fields(value, fields, INKWELL_ARRAY_LEN(fields))) {
         return;
     }
     power.valid = true;
@@ -916,7 +916,7 @@ static void load_node_air_quality(struct mesh_ui_node_summary *node, const char 
         MESH_UI_STORE_FIELD(&air.has_nox_index),
         MESH_UI_STORE_FIELD(&air.nox_index),
     };
-    if (!cache_fields(value, fields, INKCELL_ARRAY_LEN(fields))) {
+    if (!cache_fields(value, fields, INKWELL_ARRAY_LEN(fields))) {
         return;
     }
     air.valid = true;
@@ -934,7 +934,7 @@ static void load_node_health(struct mesh_ui_node_summary *node, const char *valu
         MESH_UI_STORE_FIELD(&health.spo2),        MESH_UI_STORE_FIELD(&health.has_temperature),
         MESH_UI_STORE_FIELD(&health.temperature),
     };
-    if (!cache_fields(value, fields, INKCELL_ARRAY_LEN(fields))) {
+    if (!cache_fields(value, fields, INKWELL_ARRAY_LEN(fields))) {
         return;
     }
     health.valid = true;
@@ -954,7 +954,7 @@ static void load_node_host(struct mesh_ui_node_summary *node, const char *value)
         MESH_UI_STORE_FIELD(&host.load1),          MESH_UI_STORE_FIELD(&host.load5),
         MESH_UI_STORE_FIELD(&host.load15),
     };
-    if (!cache_fields(value, fields, INKCELL_ARRAY_LEN(fields))) {
+    if (!cache_fields(value, fields, INKWELL_ARRAY_LEN(fields))) {
         return;
     }
     host.valid = true;
@@ -968,7 +968,7 @@ static void load_messages_header(struct mesh_ui_store_cache *cache, const char *
         MESH_UI_STORE_FIELD(&count),
         MESH_UI_STORE_FIELD(&dropped),
     };
-    if (!cache_fields(value, fields, INKCELL_ARRAY_LEN(fields))) {
+    if (!cache_fields(value, fields, INKWELL_ARRAY_LEN(fields))) {
         return;
     }
     cache->messages_claimed = count;
@@ -994,7 +994,7 @@ static bool load_message(struct mesh_ui_message *message, const char *value) {
         MESH_UI_STORE_FIELD(&direction), MESH_UI_STORE_FIELD(&ack),
         MESH_UI_STORE_FIELD(&broadcast),
     };
-    if (!cache_fields(value, fields, INKCELL_ARRAY_LEN(fields))) {
+    if (!cache_fields(value, fields, INKWELL_ARRAY_LEN(fields))) {
         return false;
     }
     message->packet_id = packet_id;
@@ -1026,7 +1026,7 @@ static void load_message_meta(struct mesh_ui_message *message, const char *value
        file needs rather than merely deserves: it holds records from every build that ever ran
        on this card. `ack_error` keeps its 0 for the older ones, which is what the bubble
        already reads as "no reason to give". */
-    if (mesh_ui_store_fields_read(value, fields, INKCELL_ARRAY_LEN(fields)) < 4U) {
+    if (mesh_ui_store_fields_read(value, fields, INKWELL_ARRAY_LEN(fields)) < 4U) {
         return;
     }
     message->kind = kind;
@@ -1112,7 +1112,7 @@ static void load_read_mark(struct mesh_ui_read_state *state, uint32_t index, con
        keeps its false either way. And a mark is worth keeping when it carries *either* half - a
        conversation muted before it was ever read has no packet id to name, and dropping it
        would unmute it on the next launch. */
-    if (mesh_ui_store_fields_read(value, fields, INKCELL_ARRAY_LEN(fields)) < 4U) {
+    if (mesh_ui_store_fields_read(value, fields, INKWELL_ARRAY_LEN(fields)) < 4U) {
         return;
     }
     if (mark.packet_id == 0U && !mark.muted) {
@@ -1138,7 +1138,7 @@ static void load_airtime(struct mesh_ui_store_cache *cache, uint32_t index, cons
         MESH_UI_STORE_FIELD(&sample.tx),
         MESH_UI_STORE_FIELD(&sample.gap),
     };
-    if (!cache_fields(value, fields, INKCELL_ARRAY_LEN(fields))) {
+    if (!cache_fields(value, fields, INKWELL_ARRAY_LEN(fields))) {
         return;
     }
     cache->airtime[index] = sample;
@@ -1163,7 +1163,7 @@ static void load_traceroute(struct mesh_ui_store_cache *cache, uint32_t index, c
         MESH_UI_STORE_FIELD(&target),
         MESH_UI_STORE_FIELD(&completed),
     };
-    if (!cache_fields(value, fields, INKCELL_ARRAY_LEN(fields)) || target == 0U) {
+    if (!cache_fields(value, fields, INKWELL_ARRAY_LEN(fields)) || target == 0U) {
         return;
     }
     memset(trace, 0, sizeof *trace);
@@ -1208,7 +1208,7 @@ static void load_traceroute_hop(struct mesh_ui_store_cache *cache, uint32_t inde
     };
     /* Read a field wider than it is written and bounded here, because the reading is an int8_t
        and store_fields.h has no i8: a value that does not fit is a hop that does not load. */
-    if (!cache_fields(value, fields, INKCELL_ARRAY_LEN(fields)) || snr < INT8_MIN ||
+    if (!cache_fields(value, fields, INKWELL_ARRAY_LEN(fields)) || snr < INT8_MIN ||
         snr > INT8_MAX) {
         return;
     }

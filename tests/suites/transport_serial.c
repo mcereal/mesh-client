@@ -7,8 +7,8 @@
 #include "support/proto_fixture.h"
 #include "support/serial_fixture.h"
 
+#include "inkwell/runtime/loop.h"
 #include "mesh/core/config.h"
-#include "mesh/core/event_loop.h"
 #include "mesh/core/session.h"
 #include "mesh/proto/stream_framing.h"
 #include "mesh/transport/serial.h"
@@ -165,8 +165,8 @@ MESH_TEST_CASE(serial_transport_connect_mock, unit) {
     mock.open_fd = pair[0];
     mesh_serial_usb_mock_enable(&mock);
 
-    struct mesh_event_loop loop;
-    if (mesh_event_loop_init(&loop) != 0) {
+    struct inkwell_loop loop;
+    if (inkwell_loop_init(&loop) != 0) {
         record_failure(test_name, "event loop init failed");
         goto cleanup;
     }
@@ -310,7 +310,7 @@ MESH_TEST_CASE(serial_transport_connect_mock, unit) {
 cleanup_transport:
     transport->ops->stop(transport);
 cleanup_loop:
-    mesh_event_loop_shutdown(&loop);
+    inkwell_loop_shutdown(&loop);
 cleanup:
     mesh_serial_usb_mock_disable();
     if (pair[0] >= 0) {
@@ -345,8 +345,8 @@ MESH_TEST_CASE(serial_transport_link_drop, unit) {
     mock.open_fd = pair[0];
     mesh_serial_usb_mock_enable(&mock);
 
-    struct mesh_event_loop loop;
-    if (mesh_event_loop_init(&loop) != 0) {
+    struct inkwell_loop loop;
+    if (inkwell_loop_init(&loop) != 0) {
         record_failure(test_name, "event loop init failed");
         goto cleanup;
     }
@@ -401,7 +401,7 @@ MESH_TEST_CASE(serial_transport_link_drop, unit) {
 cleanup_transport:
     transport->ops->stop(transport);
 cleanup_loop:
-    mesh_event_loop_shutdown(&loop);
+    inkwell_loop_shutdown(&loop);
 cleanup:
     mesh_serial_usb_mock_disable();
     if (pair[0] >= 0) {
@@ -593,14 +593,14 @@ MESH_TEST_CASE(serial_transport_refuses_a_bootloader, unit) {
     mock.open_fd = -1;
     mesh_serial_usb_mock_enable(&mock);
 
-    struct mesh_event_loop loop;
-    MESH_TEST_FAIL_IF_CLEANUP(mesh_event_loop_init(&loop) != 0, mesh_serial_usb_mock_disable(),
+    struct inkwell_loop loop;
+    MESH_TEST_FAIL_IF_CLEANUP(inkwell_loop_init(&loop) != 0, mesh_serial_usb_mock_disable(),
                               "event loop init failed");
 
     struct mesh_transport *transport = mesh_serial_transport();
     struct mesh_app_config config = mesh_app_config_default();
     MESH_TEST_FAIL_IF_CLEANUP(transport->ops->start(transport, &config, &loop) != 0,
-                              (mesh_event_loop_shutdown(&loop), mesh_serial_usb_mock_disable()),
+                              (inkwell_loop_shutdown(&loop), mesh_serial_usb_mock_disable()),
                               "serial start failed");
 
     const int result = mesh_serial_transport_connect(transport, "1-1:1.1");
@@ -611,7 +611,7 @@ MESH_TEST_CASE(serial_transport_refuses_a_bootloader, unit) {
     const bool said_why = transport->ops->take_error(transport, reason, sizeof reason);
 
     transport->ops->stop(transport);
-    mesh_event_loop_shutdown(&loop);
+    inkwell_loop_shutdown(&loop);
     mesh_serial_usb_mock_disable();
 
     MESH_TEST_FAIL_IF(result != -ENOTSUP, "connecting to a bootloader should be refused");

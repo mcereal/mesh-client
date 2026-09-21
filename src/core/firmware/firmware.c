@@ -2,9 +2,9 @@
 
 #include "mesh/core/firmware.h"
 
-#include "inkcell/utils/log.h"
-#include "inkcell/utils/text.h"
-#include "inkcell/utils/time.h"
+#include "inkwell/base/log.h"
+#include "inkwell/base/text.h"
+#include "inkwell/base/time.h"
 
 #include "mesh/i18n/strings.h"
 
@@ -101,7 +101,7 @@ const struct mesh_firmware_board *mesh_firmware_board(const struct mesh_firmware
 static void firmware_set(struct mesh_firmware *firmware, enum mesh_firmware_state state,
                          const char *message) {
     firmware->state = state;
-    inkcell_str_copy(firmware->message, sizeof firmware->message, message != NULL ? message : "");
+    inkwell_str_copy(firmware->message, sizeof firmware->message, message != NULL ? message : "");
     firmware->revision++;
 }
 
@@ -165,13 +165,13 @@ static void firmware_fetch_failed(struct mesh_firmware *firmware,
     char message[MESH_FIRMWARE_MESSAGE_MAX];
     switch (result->outcome) {
     case MESH_FETCH_TIMED_OUT:
-        inkcell_str_copy(message, sizeof message, inkcell_str(MESH_STR_FW_TIMED_OUT));
+        inkwell_str_copy(message, sizeof message, inkcell_str(MESH_STR_FW_TIMED_OUT));
         break;
     case MESH_FETCH_NETWORK:
-        inkcell_str_copy(message, sizeof message, inkcell_str(MESH_STR_FW_UNREACHABLE));
+        inkwell_str_copy(message, sizeof message, inkcell_str(MESH_STR_FW_UNREACHABLE));
         break;
     case MESH_FETCH_TLS:
-        inkcell_str_copy(message, sizeof message, inkcell_str(MESH_STR_FW_TLS_UNVERIFIED));
+        inkwell_str_copy(message, sizeof message, inkcell_str(MESH_STR_FW_TLS_UNVERIFIED));
         break;
     case MESH_FETCH_HTTP_STATUS:
         inkcell_str_format(message, sizeof message, MESH_STR_FW_CHECK_HTTP, result->status);
@@ -185,13 +185,13 @@ static void firmware_fetch_failed(struct mesh_firmware *firmware,
         /* Which document, not what was wrong with it: a reply past the cap and a reply that was
            not HTTP are one answer to the reader - the list did not arrive - and `what` already
            says which list. */
-        inkcell_str_copy(message, sizeof message, inkcell_str(what));
+        inkwell_str_copy(message, sizeof message, inkcell_str(what));
         break;
     }
     /* The whole of it in the log, where a sentence has room: the row gets the short form above,
        and which host and which error it was is the part that only ever helps somebody reading a
        log. */
-    inkcell_log_warn("firmware", "%s failed: %s (%s: %s)", inkcell_str(what), message,
+    inkwell_log_warn("firmware", "%s failed: %s (%s: %s)", inkcell_str(what), message,
                      mesh_fetch_outcome_name(result->outcome), result->detail);
     firmware_set(firmware, MESH_FIRMWARE_FAILED, message);
 }
@@ -241,12 +241,12 @@ static void firmware_on_hardware(void *userdata, const struct mesh_fetch_result 
         return;
     }
     if (firmware->boards.found == 1U) {
-        inkcell_log_info("firmware", "hw_model %u is %s (%s, %s)", (unsigned)firmware->hw_model,
+        inkwell_log_info("firmware", "hw_model %u is %s (%s, %s)", (unsigned)firmware->hw_model,
                          firmware->boards.entries[0].target,
                          firmware->boards.entries[0].architecture,
                          firmware->boards.entries[0].actively_supported ? "supported" : "retired");
     } else {
-        inkcell_log_info("firmware", "hw_model %u matches %u boards", (unsigned)firmware->hw_model,
+        inkwell_log_info("firmware", "hw_model %u matches %u boards", (unsigned)firmware->hw_model,
                          (unsigned)firmware->boards.found);
     }
     /* Straight on to the index, from inside this completion: the two documents are one press
@@ -271,7 +271,7 @@ static void firmware_on_index(void *userdata, const struct mesh_fetch_result *re
     }
 
     firmware_recompute_blocker(firmware);
-    inkcell_log_info("firmware", "newest %s is %s (radio has %s)",
+    inkwell_log_info("firmware", "newest %s is %s (radio has %s)",
                      firmware->channel == MESH_FIRMWARE_CHANNEL_ALPHA ? "alpha" : "stable",
                      firmware->release.version,
                      firmware->running[0] != '\0' ? firmware->running : "?");
@@ -289,7 +289,7 @@ static void firmware_on_index(void *userdata, const struct mesh_fetch_result *re
     firmware_set(firmware, MESH_FIRMWARE_AVAILABLE, firmware->release.version);
 }
 
-int mesh_firmware_init(struct mesh_firmware *firmware, struct mesh_event_loop *loop) {
+int mesh_firmware_init(struct mesh_firmware *firmware, struct inkwell_loop *loop) {
     if (firmware == NULL) {
         return -EINVAL;
     }
@@ -345,7 +345,7 @@ bool mesh_firmware_set_channel(struct mesh_firmware *firmware, enum mesh_firmwar
     }
     firmware->channel = channel;
     mesh_firmware_forget(firmware);
-    inkcell_log_info("firmware", "Firmware channel set to %s", mesh_firmware_channel_name(channel));
+    inkwell_log_info("firmware", "Firmware channel set to %s", mesh_firmware_channel_name(channel));
     return true;
 }
 
@@ -385,7 +385,7 @@ int mesh_firmware_check(struct mesh_firmware *firmware, uint32_t hw_model, const
     memset(&firmware->boards, 0, sizeof firmware->boards);
     memset(&firmware->release, 0, sizeof firmware->release);
     firmware->hw_model = hw_model;
-    inkcell_str_copy(firmware->running, sizeof firmware->running, running != NULL ? running : "");
+    inkwell_str_copy(firmware->running, sizeof firmware->running, running != NULL ? running : "");
     firmware->now_ms = now_ms;
     /* The old answer is gone, so the refusal that went with it is too - recomputed now rather
        than when the documents land, or the rows would keep naming last check's board while

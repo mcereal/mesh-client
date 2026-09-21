@@ -2,7 +2,7 @@
 
 /* Run only under dbus-run-session: the fake service and client use its isolated address,
    never the host's system bus or real BlueZ. */
-#include "mesh/core/event_loop.h"
+#include "inkwell/runtime/loop.h"
 #include "mesh/transport/ble_bluez.h"
 
 #include <dbus/dbus.h>
@@ -26,10 +26,10 @@ static int input(int fd, uint32_t events, void *userdata) {
     return 0;
 }
 
-static DBusMessage *request_named(DBusConnection *server, struct mesh_event_loop *loop,
+static DBusMessage *request_named(DBusConnection *server, struct inkwell_loop *loop,
                                   const char *member) {
     for (unsigned turn = 0U; turn < 100U; ++turn) {
-        mesh_event_loop_run(loop, 0);
+        inkwell_loop_run(loop, 0);
         dbus_connection_read_write(server, 10);
         DBusMessage *message;
         while ((message = dbus_connection_pop_message(server)) != NULL) {
@@ -89,7 +89,7 @@ static void operation_reply(DBusConnection *server, DBusMessage *call, unsigned 
     dbus_message_unref(reply);
 }
 
-static const char *test_operations(DBusConnection *server, struct mesh_event_loop *loop,
+static const char *test_operations(DBusConnection *server, struct inkwell_loop *loop,
                                    struct mesh_bluez_client *client, int input_fd,
                                    unsigned *inputs) {
     for (unsigned op = 0U; op < 3U; ++op) {
@@ -108,7 +108,7 @@ static const char *test_operations(DBusConnection *server, struct mesh_event_loo
                 dbus_message_unref(call);
                 return "input wake failed";
             }
-            mesh_event_loop_run(loop, 0);
+            inkwell_loop_run(loop, 0);
             if (!signature || *inputs != before + 1U || operation(client, op, &value) != -EAGAIN) {
                 dbus_message_unref(call);
                 return "pending operation blocked input, duplicated send or marshalled incorrectly";
@@ -119,7 +119,7 @@ static const char *test_operations(DBusConnection *server, struct mesh_event_loo
                     timerfd_settime(client->requests[op].timer_fd, 0, &spec, NULL);
                     struct pollfd fd = {.fd = client->requests[op].timer_fd, .events = POLLIN};
                     (void)poll(&fd, 1, 1000);
-                    mesh_event_loop_run(loop, 0);
+                    inkwell_loop_run(loop, 0);
                     if (operation(client, op, &value) != -ETIMEDOUT) {
                         dbus_message_unref(call);
                         return "operation timeout lost";
@@ -136,7 +136,7 @@ static const char *test_operations(DBusConnection *server, struct mesh_event_loo
                 operation_reply(server, call, op, 0U);
                 dbus_message_unref(call);
                 call = next;
-                mesh_event_loop_run(loop, 1);
+                inkwell_loop_run(loop, 1);
                 if (call == NULL || operation(client, op, &value) != -EAGAIN) {
                     if (call != NULL)
                         dbus_message_unref(call);
@@ -146,7 +146,7 @@ static const char *test_operations(DBusConnection *server, struct mesh_event_loo
             operation_reply(server, call, op, pass < 3U ? pass : 0U);
             dbus_message_unref(call);
             for (unsigned turn = 0U; turn < 100U && client->requests[op].state == 1; ++turn) {
-                mesh_event_loop_run(loop, 1);
+                inkwell_loop_run(loop, 1);
             }
             const int expected = pass == 1U ? -EIO : pass == 2U ? -EPROTO : 0;
             if (operation(client, op, &value) != expected ||
@@ -175,8 +175,8 @@ int main(void) {
     struct mesh_bluez_mock_config mock = {.read_bus_address = address};
     mesh_bluez_client_mock_enable(&mock);
     struct mesh_bluez_client client = {0};
-    struct mesh_event_loop loop;
-    if (mesh_event_loop_init(&loop) != 0 || mesh_bluez_client_init(&client) != 0 ||
+    struct inkwell_loop loop;
+    if (inkwell_loop_init(&loop) != 0 || mesh_bluez_client_init(&client) != 0 ||
         mesh_bluez_client_attach_loop(&client, &loop) != 0) {
         fputs("Could not initialize isolated client.\n", stderr);
         return 1;
@@ -186,7 +186,7 @@ int main(void) {
     client.read_ready = ready;
     client.read_userdata = &completions;
     int input_fd = eventfd(0U, EFD_NONBLOCK | EFD_CLOEXEC);
-    mesh_event_loop_add_fd(&loop, input_fd, EPOLLIN, input, &inputs);
+    inkwell_loop_add_fd(&loop, input_fd, EPOLLIN, input, &inputs);
     const char *failure = NULL;
     uint8_t bytes[512];
     size_t length;
@@ -212,7 +212,7 @@ int main(void) {
             failure = "input wake failed";
             break;
         }
-        mesh_event_loop_run(&loop, 0);
+        inkwell_loop_run(&loop, 0);
         if (inputs != pass + 1U || completions != pass) {
             failure = "input must be serviced while the reply is withheld";
             break;
@@ -226,7 +226,7 @@ int main(void) {
             respond(server, call, pass == 1U);
         }
         for (unsigned turn = 0U; turn < 100U && completions == pass; ++turn) {
-            mesh_event_loop_run(&loop, 1);
+            inkwell_loop_run(&loop, 1);
         }
         const int result =
             mesh_bluez_client_read(&client, "/fromradio", bytes, sizeof bytes, &length);
@@ -239,7 +239,7 @@ int main(void) {
         if (pass == 2U) {
             /* A timed-out reply must not complete the following read. */
             respond(server, call, false);
-            mesh_event_loop_run(&loop, 1);
+            inkwell_loop_run(&loop, 1);
             if (completions != pass + 1U) {
                 failure = "late reply was not discarded";
                 break;
@@ -254,10 +254,10 @@ int main(void) {
     if (failure == NULL) {
         failure = test_operations(server, &loop, &client, input_fd, &inputs);
     }
-    mesh_event_loop_remove_fd(&loop, input_fd);
+    inkwell_loop_remove_fd(&loop, input_fd);
     close(input_fd);
     mesh_bluez_client_shutdown(&client);
-    mesh_event_loop_shutdown(&loop);
+    inkwell_loop_shutdown(&loop);
     mesh_bluez_client_mock_disable();
     dbus_connection_close(server);
     dbus_connection_unref(server);
