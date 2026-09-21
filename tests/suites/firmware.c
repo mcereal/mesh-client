@@ -60,7 +60,7 @@ MESH_TEST_CASE(firmware_starts_idle_and_needs_a_fetcher, unit) {
     record_success(test_name);
 }
 
-#ifdef MESHCLIENT_HAVE_TLS
+#ifdef INKWELL_HAVE_TLS
 
 #include "support/https_fixture.h"
 
@@ -500,4 +500,4 @@ cleanup:
     record_success(test_name);
 }
 
-#endif /* MESHCLIENT_HAVE_TLS */
+#endif /* INKWELL_HAVE_TLS */

@@ -18,7 +18,7 @@ provisions the prerequisites and the plain targets work directly.
 `.claude/hooks/session-start.sh` runs that setup automatically for remote sessions.
 
 ```bash
-git submodule update --init --recursive   # inkwell + inkcell + nanopb + protobufs (required), Mbed TLS (TLS)
+git submodule update --init --recursive   # inkwell + inkcell + nanopb + protobufs; Mbed TLS nests under inkwell
 make test                                 # Debug build + ctest - the default verify step
 make debug                                # Debug build only
 cmake --preset debug                      # the same configure, for an editor or a bare shell
@@ -111,12 +111,20 @@ evdev -> inkcell_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 `third_party/inkwell`**, and it is the bottom of the stack: the epoll loop, the signals, the
 clock, the log, the environment knobs, the whole-file read, the UTF-8 helpers, semver ordering,
 the crash report, the codecs (base64, SHA-256, JSON, zip, HTTP/1.1, MQTT 3.1.1, deflate, PNG),
-the forked DNS resolver, the byte stream under a link (`inkwell/net/stream.h`) and the
+the forked DNS resolver, the byte stream under a link (`inkwell/net/stream.h`), the TLS session
+on it (`inkwell/net/tls.h`), the HTTPS request over that (`inkwell/net/fetch.h`) and the
 vocabulary one fails in (`inkwell/net/reason.h`). None of it
 knows what a radio is - and none of it knows a word a user reads, which is what
 `inkwell/net/reason.h` is for: a transport reports a *reason* and a number, and
 `src/i18n/net_reason.c` is where this client turns that into a sentence. Its
-`docs/extraction.md` is the running map of what is still on the wrong side of that line. `add_subdirectory(third_party/inkwell)` comes *first* in `CMakeLists.txt`, before
+`docs/extraction.md` is the running map of what is still on the wrong side of that line.
+
+**Mbed TLS is inkwell's submodule, not this repository's.** TLS went down with the two things
+that use it, so `third_party/inkwell/third_party/mbedtls` is where the library lives and
+`third_party/inkwell/third_party/mbedtls-config/` is how it is configured. This client supplies
+the two facts that *are* its own, both from `src/app/app.c`:
+`inkwell_tls_set_roots(mesh_ca_roots, mesh_ca_root_count)` (what it trusts - see
+`include/mesh/core/ca_roots.h`) and `inkwell_fetch_set_user_agent()` (what it calls itself). `add_subdirectory(third_party/inkwell)` comes *first* in `CMakeLists.txt`, before
 inkcell, so this client's pin is the one the whole tree builds - inkcell carries a submodule of
 its own and brings it in only when no target of that name exists yet.
 
@@ -196,8 +204,8 @@ publish and read back when that node's detail screen is opened. See
 | Channel sharing | `src/proto/channel_url.c` (the `meshtastic.org/e/#` link), `src/core/session/channel_share.c` (the radio's table either way), inkcell's `src/utils/qr.c` (the code), `src/ui/views/channel_share.c` (what the two screens say) |
 | Contact sharing | `src/proto/contact_url.c` (the `meshtastic.org/v/#` link), `src/core/session/contact_share.c` (this radio's record out, a stranger's in), `src/ui/views/contact_share.c` (what the two screens say); the wrapper both links share is `src/proto/link_url.h` |
 | App glue | `src/app/*.c` - the composition root: lifecycle/link, `_actions`, `_publish`, `_settings` |
-| Self-update | `src/core/update/updater.c`, `version.c`; HTTPS is `src/core/net/fetch.c` over inkwell's `inkwell/codec/http.h` |
-| MQTT proxy | inkwell's `inkwell/codec/mqtt.h` (the 3.1.1 wire format), `src/proto/mqtt_topic.c` (where a mesh lives on a broker), `src/core/net/mqtt_proxy.c` (one broker connection; it names no word a user reads), `src/core/net/tls_client.c` (Mbed TLS on the loop), `src/ui/tables/mqtt.c` (what this client says about either), `src/app/app_mqtt.c` (whether to hold one at all) |
+| Self-update | `src/core/update/updater.c`, `version.c`; HTTPS is inkwell's `inkwell/net/fetch.h` over its `inkwell/codec/http.h` |
+| MQTT proxy | inkwell's `inkwell/codec/mqtt.h` (the 3.1.1 wire format), `src/proto/mqtt_topic.c` (where a mesh lives on a broker), `src/core/net/mqtt_proxy.c` (one broker connection; it names no word a user reads), inkwell's `inkwell/net/tls.h` (Mbed TLS on the loop), `src/ui/tables/mqtt.c` (what this client says about either), `src/app/app_mqtt.c` (whether to hold one at all) |
 | Radio firmware | `src/core/firmware/` - `firmware*.c`, `uf2.c`, `esp_image.c`, `src/transport/*/{usb_msc,ble_ota,ble_hci}.c` - the *other* binary |
 | UI | `src/ui/` - see the group map below; **`fb` is the device UI** |
 | UI toolkit | `third_party/inkcell/` - theme, fonts, glyphs, layout, widgets, the fb backend, input |
@@ -226,7 +234,7 @@ its include path - see the flat-header rule above.
 | `src/ui/backends/` | the renderers. **`fb` is the device UI** |
 | `src/core/session/` | the Meshtastic conversation: session, messaging, admin, trust, sharing |
 | `src/core/firmware/` | the *radio's* firmware - a different binary on a different computer |
-| `src/core/net/` | one hostname, one socket, one TLS session, one broker |
+| `src/core/net/` | one broker connection. The hostname, the socket, the TLS session and the HTTPS request are inkwell's |
 | `src/core/update/` | the *client* updating itself |
 | `src/core/runtime/` | the loop, signals, process config |
 

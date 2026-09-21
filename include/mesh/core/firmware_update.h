@@ -34,7 +34,7 @@
  * carrying the request that started it.
  */
 
-#include "mesh/core/fetch.h"
+#include "inkwell/net/fetch.h"
 #include "mesh/core/firmware_catalog.h"
 #include "mesh/core/firmware_fetch.h"
 #include "mesh/core/firmware_install.h"
@@ -164,7 +164,7 @@ struct mesh_firmware_update {
     struct inkwell_loop *loop; /* borrowed; may be NULL */
     /* Its own, so a check running next door cannot take the connection out from under a download.
      */
-    struct mesh_fetch fetch;
+    struct inkwell_fetch fetch;
 
     enum mesh_firmware_update_state state;
     enum mesh_firmware_update_error error;
@@ -183,7 +183,7 @@ struct mesh_firmware_update {
     struct mesh_firmware_release release;
     uint32_t hw_model;
     enum mesh_firmware_path path;
-    char staging[MESH_FETCH_PATH_MAX];
+    char staging[INKWELL_FETCH_PATH_MAX];
     /*
      * Where the radio is, in the terms its own bus uses: the serial transport's **id** on the
      * USB path, its BLE address on the other. Both are what the handover watches for the radio

@@ -308,7 +308,7 @@ static void update_begin_ble(struct mesh_firmware_update *update, const char *im
 
 /* The image has landed and been checked. From here the two buses part company for good. */
 static void update_begin_handover(struct mesh_firmware_update *update) {
-    char image_path[MESH_FETCH_PATH_MAX];
+    char image_path[INKWELL_FETCH_PATH_MAX];
     if (mesh_firmware_fetch_image_path(&update->image, image_path, sizeof image_path) == NULL) {
         update_finish(update, MESH_FIRMWARE_UPDATE_ERROR_DOWNLOAD,
                       inkcell_str(MESH_STR_FW_UPDATE_ERR_NO_IMAGE));
@@ -383,7 +383,7 @@ int mesh_firmware_update_init(struct mesh_firmware_update *update, struct inkwel
     memset(update, 0, sizeof *update);
     update->loop = loop;
     update->state = MESH_FIRMWARE_UPDATE_IDLE;
-    return mesh_fetch_init(&update->fetch, loop);
+    return inkwell_fetch_init(&update->fetch, loop);
 }
 
 void mesh_firmware_update_shutdown(struct mesh_firmware_update *update) {
@@ -391,11 +391,11 @@ void mesh_firmware_update_shutdown(struct mesh_firmware_update *update) {
         return;
     }
     mesh_firmware_update_cancel(update);
-    mesh_fetch_shutdown(&update->fetch);
+    inkwell_fetch_shutdown(&update->fetch);
 }
 
 bool mesh_firmware_update_available(const struct mesh_firmware_update *update) {
-    return update != NULL && mesh_fetch_available(&update->fetch);
+    return update != NULL && inkwell_fetch_available(&update->fetch);
 }
 
 int mesh_firmware_update_start(struct mesh_firmware_update *update,
@@ -481,7 +481,7 @@ void mesh_firmware_update_tick(struct mesh_firmware_update *update, uint64_t now
     if (update == NULL) {
         return;
     }
-    mesh_fetch_tick(&update->fetch, now_ms);
+    inkwell_fetch_tick(&update->fetch, now_ms);
 
     switch (update->state) {
     case MESH_FIRMWARE_UPDATE_RESOLVING:

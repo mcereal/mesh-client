@@ -86,8 +86,8 @@ jobs:
   # same toolchain the pak is built with (docker/setup-cross.sh, what `make docker-pak` uses),
   # and it packages as well as compiles, because the pak is the thing that ships.
   # The build without Mbed TLS, which CMakeLists.txt has always claimed to support and nothing
-  # checked. `src/core/net/tls_client.c` compiles to a stub that reports TLS unavailable, the way
-  # the BLE transport does without D-Bus headers, so a checkout that skipped the submodule still
+  # checked. inkwell's `net/tls.c` compiles to a stub that reports TLS unavailable, the way the
+  # BLE transport does without D-Bus headers, so a checkout that skipped the submodule still
   # builds and still runs with MQTT in plaintext.
   #
   # It is here because that claim was false for one commit and a review bot found it, not this
@@ -98,7 +98,8 @@ jobs:
   #
   # The submodule is emptied rather than skipped, because the checkout needs the other four
   # (inkwell, inkcell, nanopb, protobufs) and `EXISTS .../mbedtls/CMakeLists.txt` is what the
-  # build actually keys on. When Mbed TLS moves under inkwell, this path moves with it.
+  # build actually keys on. Mbed TLS is nested one level deeper now that TLS is inkwell's, so
+  # what this empties is inkwell's submodule rather than one of this repository's.
   no-tls:
     name: Build and test (no TLS)
     runs-on: ubuntu-24.04
@@ -108,8 +109,12 @@ jobs:
         with:
           submodules: recursive
 
+      # Mbed TLS is inkwell's submodule, not this repo's, so the directory to empty is inside
+      # it. Emptying rather than removing, because `actions/checkout` has already placed it and
+      # deleting the path outright leaves git thinking the submodule is merely modified; what
+      # the build looks for is the CMakeLists.txt inside.
       - name: Remove Mbed TLS
-        run: rm -rf third_party/mbedtls/* third_party/mbedtls/.[!.]*
+        run: rm -rf third_party/inkwell/third_party/mbedtls/* third_party/inkwell/third_party/mbedtls/.[!.]*
 
       - name: Install dependencies
         run: |

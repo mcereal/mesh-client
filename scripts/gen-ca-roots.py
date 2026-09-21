@@ -79,10 +79,10 @@ def render(roots, as_of):
         " *",
         " * The composition root registers this table without asking whether this build can use",
         " * it, because whether Mbed TLS was compiled in is not a question src/app/app.c should",
-        " * have to answer: that is the whole point of tls_client.c compiling to a stub. So the",
-        " * declaration is unconditional and only the 126 KB is not.",
+        " * have to answer: that is the whole point of inkwell/net/tls.c compiling to a stub. So",
+        " * the declaration is unconditional and only the 126 KB is not.",
         " */",
-        "#ifdef MESHCLIENT_HAVE_TLS",
+        "#ifdef INKWELL_HAVE_TLS",
         "",
         "/* Every root's DER, one after another. */",
         "static const unsigned char k_der[] = {",
@@ -92,7 +92,7 @@ def render(roots, as_of):
         out.append("    " + " ".join(f"0x{b:02X}," for b in blob[at : at + 16]))
     out.append("};")
     out.append("")
-    out.append("const struct mesh_tls_ca_root mesh_ca_roots[] = {")
+    out.append("const struct inkwell_tls_ca_root mesh_ca_roots[] = {")
     offset = 0
     for label, der in roots:
         out.append(f"    {{{c_string(label)}, k_der + {offset}, {len(der)}}},")
@@ -107,10 +107,10 @@ def render(roots, as_of):
         "/* One zeroed entry because C has no empty array, and a count of zero so nothing reads",
         "   it. A no-TLS build that somehow reached the TLS client would be told it has no trust",
         "   anchors, which is the right answer rather than a silent one. */",
-        "const struct mesh_tls_ca_root mesh_ca_roots[] = {{NULL, NULL, 0U}};",
+        "const struct inkwell_tls_ca_root mesh_ca_roots[] = {{NULL, NULL, 0U}};",
         "const size_t mesh_ca_root_count = 0U;",
         "",
-        "#endif /* MESHCLIENT_HAVE_TLS */",
+        "#endif /* INKWELL_HAVE_TLS */",
         "",
     ])
     return "\n".join(out)

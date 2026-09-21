@@ -33,7 +33,6 @@ set(MESHCLIENT_TEST_SUITES
     suites/contact_share.c
     suites/core_basics.c
     suites/crash.c
-    suites/fetch.c
     suites/firmware.c
     suites/firmware_catalog.c
     suites/firmware_download.c

@@ -24,9 +24,9 @@
 #include "app_internal.h"
 
 #include "inkwell/net/reason.h"
+#include "inkwell/net/tls.h"
 #include "mesh/core/mqtt_proxy.h"
 #include "mesh/core/session.h"
-#include "mesh/core/tls_client.h"
 #include "mesh/ui/mqtt.h"
 #include "mesh/ui/store_mqtt.h"
 
@@ -353,7 +353,7 @@ void mesh_app_mqtt_init(struct mesh_app *app) {
     }
     (void)mesh_mqtt_proxy_init(&app->mqtt, &app->loop);
     /* The built-in roots, unless somebody named a bundle. See include/mesh/core/ca_roots.h. */
-    mesh_mqtt_proxy_set_ca_bundle(&app->mqtt, mesh_tls_ca_override());
+    mesh_mqtt_proxy_set_ca_bundle(&app->mqtt, inkwell_tls_ca_override());
 }
 
 void mesh_app_mqtt_shutdown(struct mesh_app *app) {

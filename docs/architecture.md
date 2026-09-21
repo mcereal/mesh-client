@@ -80,10 +80,13 @@ one fixed-size record back through a pipe the loop owns. The child does not exec
 program the device has to have. An address literal costs no child at all. See
 [`docs/transport.md`](transport.md#a-name-costs-a-fork).
 
-**TLS does not.** `src/core/net/tls_client.c` drives Mbed TLS through BIO callbacks over a
+**TLS does not.** inkwell's `inkwell/net/tls.h` drives Mbed TLS through BIO callbacks over a
 non-blocking socket, reporting `-EAGAIN` back out to the loop rather than waiting. Two things sit
-on it: the MQTT proxy's broker connection, and `src/core/net/fetch.c`, which is every HTTPS request
-the client makes - HTTP/1.1 from inkwell's codec (`inkwell/codec/http.h`) over that session. See
+on it: the MQTT proxy's broker connection, and `inkwell/net/fetch.h`, which is every HTTPS request
+the client makes - HTTP/1.1 from inkwell's codec (`inkwell/codec/http.h`) over that session.
+Both are the platform layer's: a session on a descriptor and a request over one are not about a
+mesh, and what this client supplies is the two things that are - the roots it trusts and the name
+it gives itself, registered from `src/app/app.c`. See
 [`docs/mqtt.md`](mqtt.md#tls) and the updater section below.
 
 ## `src/core/session/session.c` — the Meshtastic conversation
@@ -478,7 +481,7 @@ connect, and counts the attempt against the backoff.
 `mesh_version_compare()` is SemVer precedence including prerelease ordering, so a `dev` build
 never offers to "update" itself to a release.
 
-The updater fetches in-process: `src/core/net/fetch.c` resolves, connects, does the TLS
+The updater fetches in-process: inkwell's `inkwell/net/fetch.h` resolves, connects, does the TLS
 handshake and speaks HTTP/1.1 on the event loop, one request at a time, states strictly
 sequential. It needs no program on the device. The firmware check and the firmware download each
 have their own fetcher on the same code.
@@ -491,10 +494,10 @@ What the fetcher decides, and why:
   not ship through self-update; in the binary, the roots are as new as the release. Neither the
   TLS client nor the fetcher holds an opinion about which roots those are, and neither has a
   fallback: with nothing registered a session is refused, never opened unverified.
-- **A request says what the application calls it**, not what this layer is: `mesh_fetch_set_user_agent()`
+- **A request says what the application calls it**, not what this layer is: `inkwell_fetch_set_user_agent()`
   takes the product token, set once from `app.c`. The generic default exists only because some
   servers refuse a request carrying no `User-Agent` at all.
-- **Redirects are followed, up to `MESH_FETCH_REDIRECTS_MAX`, and never off https.** A release
+- **Redirects are followed, up to `INKWELL_FETCH_REDIRECTS_MAX`, and never off https.** A release
   asset is a 302 from github.com to its CDN. Every header goes to every hop, a `Range` included.
 - **A range request must be answered `206`.** A server that ignores the range sends the whole
   file, and a caller that asked for 64 KB of a 46 MB zip is owed a failure rather than the zip.

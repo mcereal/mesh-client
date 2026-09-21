@@ -13,7 +13,7 @@
    memory rather than staged, because nothing downstream wants it as a file. */
 #define FETCH_DOCUMENT_TIMEOUT_MS 20000U
 
-static void fetch_on_manifest(void *userdata, const struct mesh_fetch_result *result);
+static void fetch_on_manifest(void *userdata, const struct inkwell_fetch_result *result);
 static void fetch_on_download(void *userdata, const struct mesh_firmware_download *download);
 
 static void fetch_finish(struct mesh_firmware_fetch *fetch, enum mesh_firmware_fetch_state state,
@@ -70,9 +70,9 @@ static bool fetch_start_download(struct mesh_firmware_fetch *fetch, const char *
     return started == 0;
 }
 
-static void fetch_on_manifest(void *userdata, const struct mesh_fetch_result *result) {
+static void fetch_on_manifest(void *userdata, const struct inkwell_fetch_result *result) {
     struct mesh_firmware_fetch *const fetch = (struct mesh_firmware_fetch *)userdata;
-    if (result->outcome != MESH_FETCH_OK || result->body == NULL) {
+    if (result->outcome != INKWELL_FETCH_OK || result->body == NULL) {
         fetch_fail(fetch, MESH_FIRMWARE_FETCH_ERROR_DOCUMENT,
                    "the release manifest could not be read");
         return;
@@ -114,7 +114,7 @@ static void fetch_on_manifest(void *userdata, const struct mesh_fetch_result *re
 /* ---- step three: what the board says about itself ------------------------------------------*/
 
 static void fetch_read_manifest(struct mesh_firmware_fetch *fetch) {
-    char path[MESH_FETCH_PATH_MAX];
+    char path[INKWELL_FETCH_PATH_MAX];
     if (mesh_firmware_download_image_path(&fetch->download, path, sizeof path) == NULL) {
         fetch_fail(fetch, MESH_FIRMWARE_FETCH_ERROR_DOCUMENT, "the board manifest went missing");
         return;
@@ -212,7 +212,7 @@ static void fetch_check_image(struct mesh_firmware_fetch *fetch) {
         return;
     }
 
-    char path[MESH_FETCH_PATH_MAX];
+    char path[INKWELL_FETCH_PATH_MAX];
     if (mesh_firmware_download_image_path(&fetch->download, path, sizeof path) == NULL) {
         fetch_fail(fetch, MESH_FIRMWARE_FETCH_ERROR_DOWNLOAD, "the image went missing");
         return;
@@ -277,7 +277,7 @@ static void fetch_on_download(void *userdata, const struct mesh_firmware_downloa
 
 /* ---- the public half ----------------------------------------------------------------------*/
 
-int mesh_firmware_fetch_start(struct mesh_firmware_fetch *fetch, struct mesh_fetch *fetcher,
+int mesh_firmware_fetch_start(struct mesh_firmware_fetch *fetch, struct inkwell_fetch *fetcher,
                               const char *target, const char *version, const char *manifest_url,
                               const char *expect_architecture, const char *staging_dir,
                               mesh_firmware_fetch_done_fn on_done, void *userdata) {
@@ -289,7 +289,7 @@ int mesh_firmware_fetch_start(struct mesh_firmware_fetch *fetch, struct mesh_fet
     if (mesh_firmware_fetch_busy(fetch)) {
         return -EBUSY;
     }
-    if (!mesh_fetch_available(fetcher)) {
+    if (!inkwell_fetch_available(fetcher)) {
         return -ENOTSUP;
     }
 
@@ -305,13 +305,13 @@ int mesh_firmware_fetch_start(struct mesh_firmware_fetch *fetch, struct mesh_fet
     fetch->userdata = userdata;
     fetch->state = MESH_FIRMWARE_FETCH_RESOLVING;
 
-    struct mesh_fetch_request request;
+    struct inkwell_fetch_request request;
     memset(&request, 0, sizeof request);
     request.url = fetch->manifest_url;
     request.timeout_ms = FETCH_DOCUMENT_TIMEOUT_MS;
     request.on_done = fetch_on_manifest;
     request.userdata = fetch;
-    const int started = mesh_fetch_start(fetcher, &request, inkwell_time_monotonic_ms());
+    const int started = inkwell_fetch_start(fetcher, &request, inkwell_time_monotonic_ms());
     if (started != 0) {
         fetch->state = MESH_FIRMWARE_FETCH_IDLE;
         fetch->on_done = NULL;
@@ -332,7 +332,7 @@ void mesh_firmware_fetch_cancel(struct mesh_firmware_fetch *fetch) {
     }
     mesh_firmware_download_cancel(&fetch->download);
     if (fetch->fetcher != NULL) {
-        mesh_fetch_cancel(fetch->fetcher);
+        inkwell_fetch_cancel(fetch->fetcher);
     }
     fetch->on_done = NULL;
     fetch->userdata = NULL;

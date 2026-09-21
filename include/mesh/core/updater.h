@@ -5,7 +5,7 @@
  * carries (mesh/version.h), and if it is newer download the release's `meshclient` asset,
  * verify it against the digest the API reported, and swap it over the running binary.
  *
- * How it talks to the network: mesh/core/fetch.h, an HTTPS client on the event loop over the
+ * How it talks to the network: inkwell/net/fetch.h, an HTTPS client on the event loop over the
  * TLS session the MQTT proxy uses, verifying against roots compiled into the binary. No threads,
  * no child process, one request at a time, and every step is a state the About screen can name.
  *
@@ -22,7 +22,7 @@
  * itself.
  */
 
-#include "mesh/core/fetch.h"
+#include "inkwell/net/fetch.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -139,7 +139,7 @@ struct mesh_updater {
     /* Room for install_path plus the ".update" suffix, so staging can never truncate. */
     char staged_path[MESH_UPDATE_PATH_MAX + 16U];
     /* The one request this module ever has in flight. The radio-firmware side has its own. */
-    struct mesh_fetch fetch;
+    struct inkwell_fetch fetch;
     /* Bumped whenever anything above changes, so app.c can publish without diffing. */
     uint32_t revision;
 };

@@ -88,7 +88,7 @@ typedef void (*mesh_firmware_fetch_done_fn)(void *userdata,
                                             const struct mesh_firmware_fetch *fetch);
 
 struct mesh_firmware_fetch {
-    struct mesh_fetch *fetcher; /* borrowed */
+    struct inkwell_fetch *fetcher; /* borrowed */
     struct mesh_firmware_download download;
 
     enum mesh_firmware_fetch_state state;
@@ -101,7 +101,7 @@ struct mesh_firmware_fetch {
     char version[MESH_FIRMWARE_VERSION_MAX];
     char manifest_url[MESH_FIRMWARE_URL_MAX];
     char expect_architecture[MESH_FIRMWARE_ARCH_MAX];
-    char staging[MESH_FETCH_PATH_MAX];
+    char staging[INKWELL_FETCH_PATH_MAX];
 
     /* What the documents answered. */
     char platform[MESH_FIRMWARE_ARCH_MAX];
@@ -137,7 +137,7 @@ struct mesh_firmware_fetch {
  *
  * Returns 0, or -errno. On 0 `on_done` is called exactly once, later, from the loop.
  */
-int mesh_firmware_fetch_start(struct mesh_firmware_fetch *fetch, struct mesh_fetch *fetcher,
+int mesh_firmware_fetch_start(struct mesh_firmware_fetch *fetch, struct inkwell_fetch *fetcher,
                               const char *target, const char *version, const char *manifest_url,
                               const char *expect_architecture, const char *staging_dir,
                               mesh_firmware_fetch_done_fn on_done, void *userdata);

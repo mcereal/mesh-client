@@ -34,7 +34,7 @@
  */
 
 #include "inkwell/codec/zip.h"
-#include "mesh/core/fetch.h"
+#include "inkwell/net/fetch.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -101,7 +101,7 @@ typedef void (*mesh_firmware_download_done_fn)(void *userdata,
 struct mesh_firmware_download {
     /* Borrowed. The caller owns the fetcher and may not use it while a download is running:
        one request at a time is the fetcher's rule, not this module's. */
-    struct mesh_fetch *fetch;
+    struct inkwell_fetch *fetch;
 
     enum mesh_firmware_download_state state;
     enum mesh_firmware_download_error error;
@@ -112,7 +112,7 @@ struct mesh_firmware_download {
        deliberately **not** beside the client's own .update staging on /mnt/SDCARD: the USB
        path's bootloader mounts a ghost drive over that card the moment the radio reboots, so
        an image staged there vanishes from its own path between being written and being read. */
-    char staging[MESH_FETCH_PATH_MAX];
+    char staging[INKWELL_FETCH_PATH_MAX];
 
     /* Filled in as the steps answer. */
     uint64_t zip_size;
@@ -131,7 +131,7 @@ struct mesh_firmware_download {
     bool inflate_pending;
 
     /* Stable for the duration of a request, because the fetcher holds pointers to them. */
-    char active_path[MESH_FETCH_PATH_MAX];
+    char active_path[INKWELL_FETCH_PATH_MAX];
     char range[64];
 
     mesh_firmware_download_done_fn on_done;
@@ -146,13 +146,14 @@ struct mesh_firmware_download {
  * -ENOTSUP with no fetcher. On any error nothing was spawned and `on_done` will not be called;
  * on 0 it is called exactly once, later, from the loop.
  */
-int mesh_firmware_download_start(struct mesh_firmware_download *download, struct mesh_fetch *fetch,
-                                 const char *zip_url, const char *member, const char *staging_dir,
+int mesh_firmware_download_start(struct mesh_firmware_download *download,
+                                 struct inkwell_fetch *fetch, const char *zip_url,
+                                 const char *member, const char *staging_dir,
                                  mesh_firmware_download_done_fn on_done, void *userdata);
 
 /*
  * Runs the inflate once the member has landed, and so is where a download that got that far
- * finishes. Call every loop turn, beside mesh_fetch_tick() - the fetch half of this drives
+ * finishes. Call every loop turn, beside inkwell_fetch_tick() - the fetch half of this drives
  * itself off that, and the inflate is ours rather than the fetcher's.
  */
 void mesh_firmware_download_tick(struct mesh_firmware_download *download, uint64_t now_ms);

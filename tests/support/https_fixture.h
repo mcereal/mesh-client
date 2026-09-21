@@ -23,9 +23,9 @@
 #include <stdint.h>
 #include <sys/types.h>
 
-#ifdef MESHCLIENT_HAVE_TLS
+#ifdef INKWELL_HAVE_TLS
 
-struct mesh_fetch;
+struct inkwell_fetch;
 
 struct https_fixture_request {
     char method[8];
@@ -61,7 +61,7 @@ bool https_fixture_start(struct https_fixture *fixture, https_fixture_handler ha
 void https_fixture_stop(struct https_fixture *fixture);
 
 /* Every connection `fetch` makes comes here, whatever host its URL names. */
-void https_fixture_attach(const struct https_fixture *fixture, struct mesh_fetch *fetch);
+void https_fixture_attach(const struct https_fixture *fixture, struct inkwell_fetch *fetch);
 
 /*
  * The server's certificate, PEM, for a case that wants to make it a trust anchor rather than
@@ -94,4 +94,4 @@ void https_fixture_reply_file(struct https_fixture_conn *conn,
 /* Ends the connection without a close_notify, the way a dropped network does. */
 void https_fixture_cut(struct https_fixture_conn *conn);
 
-#endif /* MESHCLIENT_HAVE_TLS */
+#endif /* INKWELL_HAVE_TLS */

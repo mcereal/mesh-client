@@ -12,7 +12,7 @@
 
 #include "mesh/core/ca_roots.h"
 
-#ifdef MESHCLIENT_HAVE_TLS
+#ifdef INKWELL_HAVE_TLS
 
 #include <mbedtls/x509_crt.h>
 #include <psa/crypto.h>
@@ -53,4 +53,4 @@ MESH_TEST_CASE(ca_roots_all_parse, unit) {
     record_success(test_name);
 }
 
-#endif /* MESHCLIENT_HAVE_TLS */
+#endif /* INKWELL_HAVE_TLS */

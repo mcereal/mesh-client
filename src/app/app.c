@@ -16,9 +16,9 @@
 
 #include "app_internal.h"
 
+#include "inkwell/net/fetch.h"
 #include "inkwell/runtime/crash.h"
 #include "mesh/core/ca_roots.h"
-#include "mesh/core/fetch.h"
 #include "mesh/core/version.h"
 #include "mesh/i18n/strings.h"
 #include "mesh/transport/ble.h"
@@ -741,10 +741,10 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
      */
     inkwell_env_set_prefix("MESHCLIENT");
     mesh_i18n_register();
-    mesh_tls_set_roots(mesh_ca_roots, mesh_ca_root_count);
+    inkwell_tls_set_roots(mesh_ca_roots, mesh_ca_root_count);
     char user_agent[64];
     (void)snprintf(user_agent, sizeof user_agent, "meshclient/%s", mesh_version_string());
-    mesh_fetch_set_user_agent(user_agent);
+    inkwell_fetch_set_user_agent(user_agent);
 
     int result = inkwell_loop_init(&app->loop);
     if (result < 0) {

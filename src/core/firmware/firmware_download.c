@@ -52,7 +52,7 @@ static bool download_path(const struct mesh_firmware_download *download, const c
 }
 
 static void download_remove(const struct mesh_firmware_download *download, const char *name) {
-    char path[MESH_FETCH_PATH_MAX];
+    char path[INKWELL_FETCH_PATH_MAX];
     if (download_path(download, name, path, sizeof path)) {
         (void)unlink(path);
     }
@@ -72,7 +72,7 @@ static void download_clean(const struct mesh_firmware_download *download) {
 static uint8_t *download_read(const struct mesh_firmware_download *download, const char *name,
                               size_t *out_len) {
     *out_len = 0U;
-    char path[MESH_FETCH_PATH_MAX];
+    char path[INKWELL_FETCH_PATH_MAX];
     if (!download_path(download, name, path, sizeof path)) {
         return NULL;
     }
@@ -106,7 +106,7 @@ static uint8_t *download_read(const struct mesh_firmware_download *download, con
 
 static uint64_t download_file_size(const struct mesh_firmware_download *download,
                                    const char *name) {
-    char path[MESH_FETCH_PATH_MAX];
+    char path[INKWELL_FETCH_PATH_MAX];
     struct stat info;
     if (!download_path(download, name, path, sizeof path) || stat(path, &info) != 0) {
         return 0U;
@@ -131,7 +131,7 @@ static void download_finish(struct mesh_firmware_download *download,
         const mesh_firmware_download_done_fn done = download->on_done;
         void *const userdata = download->userdata;
         /* Cleared before the call: a caller starting the next download from inside this one is
-           the shape mesh_fetch already supports, and it must not see a stale callback. */
+           the shape inkwell_fetch already supports, and it must not see a stale callback. */
         download->on_done = NULL;
         download->userdata = NULL;
         done(userdata, download);
@@ -145,7 +145,7 @@ static void download_fail(struct mesh_firmware_download *download,
 
 /* ---- the range requests -------------------------------------------------------------------*/
 
-static void download_on_fetch(void *userdata, const struct mesh_fetch_result *result);
+static void download_on_fetch(void *userdata, const struct inkwell_fetch_result *result);
 
 /*
  * Starts one range read into `name`.
@@ -164,7 +164,7 @@ static bool download_range(struct mesh_firmware_download *download, const char *
     if (written <= 0 || (size_t)written >= sizeof download->range) {
         return false;
     }
-    struct mesh_fetch_request request;
+    struct inkwell_fetch_request request;
     memset(&request, 0, sizeof request);
     request.url = download->zip_url;
     request.headers[0] = download->range;
@@ -172,7 +172,7 @@ static bool download_range(struct mesh_firmware_download *download, const char *
     request.timeout_ms = timeout_ms;
     request.on_done = download_on_fetch;
     request.userdata = download;
-    return mesh_fetch_start(download->fetch, &request, inkwell_time_monotonic_ms()) == 0;
+    return inkwell_fetch_start(download->fetch, &request, inkwell_time_monotonic_ms()) == 0;
 }
 
 static void download_step_window(struct mesh_firmware_download *download) {
@@ -339,9 +339,9 @@ static void download_read_header(struct mesh_firmware_download *download) {
     download_step_member(download);
 }
 
-static void download_on_fetch(void *userdata, const struct mesh_fetch_result *result) {
+static void download_on_fetch(void *userdata, const struct inkwell_fetch_result *result) {
     struct mesh_firmware_download *const download = (struct mesh_firmware_download *)userdata;
-    if (result->outcome != MESH_FETCH_OK) {
+    if (result->outcome != INKWELL_FETCH_OK) {
         inkwell_log_error("firmware", "A range read failed (outcome %d, status %d)",
                           (int)result->outcome, result->status);
         download_fail(download, MESH_FIRMWARE_DOWNLOAD_ERROR_NETWORK);
@@ -350,7 +350,7 @@ static void download_on_fetch(void *userdata, const struct mesh_fetch_result *re
     switch (download->state) {
     case MESH_FIRMWARE_DOWNLOAD_MEASURING: {
         uint64_t size = 0U;
-        if (!mesh_fetch_content_length(result->body, result->len, &size) ||
+        if (!inkwell_fetch_content_length(result->body, result->len, &size) ||
             size < INKWELL_ZIP_LOCAL_HEADER_SIZE) {
             download_fail(download, MESH_FIRMWARE_DOWNLOAD_ERROR_NOT_A_ZIP);
             return;
@@ -390,7 +390,7 @@ static void download_step_inflate(struct mesh_firmware_download *download) {
 
 static bool download_write_image(const struct mesh_firmware_download *download,
                                  const uint8_t *bytes, size_t len) {
-    char path[MESH_FETCH_PATH_MAX];
+    char path[INKWELL_FETCH_PATH_MAX];
     if (!download_path(download, DOWNLOAD_FILE_IMAGE, path, sizeof path)) {
         return false;
     }
@@ -489,8 +489,9 @@ static void download_inflate(struct mesh_firmware_download *download) {
 
 /* ---- the public half ----------------------------------------------------------------------*/
 
-int mesh_firmware_download_start(struct mesh_firmware_download *download, struct mesh_fetch *fetch,
-                                 const char *zip_url, const char *member, const char *staging_dir,
+int mesh_firmware_download_start(struct mesh_firmware_download *download,
+                                 struct inkwell_fetch *fetch, const char *zip_url,
+                                 const char *member, const char *staging_dir,
                                  mesh_firmware_download_done_fn on_done, void *userdata) {
     if (download == NULL || fetch == NULL || zip_url == NULL || member == NULL ||
         staging_dir == NULL || zip_url[0] == '\0' || member[0] == '\0' || staging_dir[0] == '\0') {
@@ -499,10 +500,10 @@ int mesh_firmware_download_start(struct mesh_firmware_download *download, struct
     if (mesh_firmware_download_busy(download)) {
         return -EBUSY;
     }
-    if (!mesh_fetch_available(fetch)) {
+    if (!inkwell_fetch_available(fetch)) {
         return -ENOTSUP;
     }
-    if (mesh_fetch_busy(fetch)) {
+    if (inkwell_fetch_busy(fetch)) {
         return -EBUSY;
     }
 
@@ -519,14 +520,14 @@ int mesh_firmware_download_start(struct mesh_firmware_download *download, struct
      * The HEAD first, because the range that follows it cannot be expressed without a length -
      * the CDN refuses a suffix range outright.
      */
-    struct mesh_fetch_request request;
+    struct inkwell_fetch_request request;
     memset(&request, 0, sizeof request);
     request.url = download->zip_url;
-    request.method = MESH_FETCH_HEAD;
+    request.method = INKWELL_FETCH_HEAD;
     request.timeout_ms = DOWNLOAD_STEP_TIMEOUT_MS;
     request.on_done = download_on_fetch;
     request.userdata = download;
-    const int started = mesh_fetch_start(fetch, &request, inkwell_time_monotonic_ms());
+    const int started = inkwell_fetch_start(fetch, &request, inkwell_time_monotonic_ms());
     if (started != 0) {
         download->state = MESH_FIRMWARE_DOWNLOAD_IDLE;
         download->on_done = NULL;
@@ -549,7 +550,7 @@ void mesh_firmware_download_cancel(struct mesh_firmware_download *download) {
         return;
     }
     if (download->fetch != NULL) {
-        mesh_fetch_cancel(download->fetch);
+        inkwell_fetch_cancel(download->fetch);
     }
     download->inflate_pending = false;
     download_clean(download);

@@ -9,8 +9,8 @@
 #include "mesh/i18n/strings.h"
 
 #include "inkwell/codec/sha256.h"
+#include "inkwell/net/tls.h"
 #include "inkwell/runtime/loop.h"
-#include "mesh/core/tls_client.h"
 #include "mesh/core/version.h"
 
 #include <errno.h>
@@ -445,37 +445,38 @@ static bool updater_pak_file(const char *install_path, const char *relative, cha
  * the HTTP status, so the sentence is one string rather than a verb glued onto a template.
  */
 static void updater_fetch_failed(struct mesh_updater *updater,
-                                 const struct mesh_fetch_result *result, enum inkcell_str_id what) {
+                                 const struct inkwell_fetch_result *result,
+                                 enum inkcell_str_id what) {
     char message[MESH_UPDATE_MESSAGE_MAX];
     switch (result->outcome) {
-    case MESH_FETCH_TOO_LARGE:
+    case INKWELL_FETCH_TOO_LARGE:
         snprintf(message, sizeof message, "%s", inkcell_str(MESH_STR_UPDATE_RESPONSE_TOO_LARGE));
         break;
-    case MESH_FETCH_NETWORK:
+    case INKWELL_FETCH_NETWORK:
         snprintf(message, sizeof message, "%s", inkcell_str(MESH_STR_UPDATE_UNREACHABLE));
         break;
-    case MESH_FETCH_TLS:
+    case INKWELL_FETCH_TLS:
         snprintf(message, sizeof message, "%s", inkcell_str(MESH_STR_UPDATE_TLS_UNVERIFIED));
         break;
-    case MESH_FETCH_FILE:
+    case INKWELL_FETCH_FILE:
         snprintf(message, sizeof message, "%s", inkcell_str(MESH_STR_UPDATE_WRITE_FAILED));
         break;
-    case MESH_FETCH_TIMED_OUT:
+    case INKWELL_FETCH_TIMED_OUT:
         snprintf(message, sizeof message, "%s", inkcell_str(MESH_STR_UPDATE_TIMED_OUT));
         break;
-    case MESH_FETCH_HTTP_STATUS:
+    case INKWELL_FETCH_HTTP_STATUS:
         inkcell_str_format(message, sizeof message, what, result->status);
         break;
-    case MESH_FETCH_PROTOCOL:
-    case MESH_FETCH_OK:
-    case MESH_FETCH_OUTCOME_COUNT:
+    case INKWELL_FETCH_PROTOCOL:
+    case INKWELL_FETCH_OK:
+    case INKWELL_FETCH_OUTCOME_COUNT:
     default:
         snprintf(message, sizeof message, "%s", inkcell_str(MESH_STR_UPDATE_BAD_REPLY));
         break;
     }
     inkwell_log_warn("update", "Fetch failed in state %s: %s (%s)",
                      mesh_update_state_name(updater->state),
-                     mesh_fetch_outcome_name(result->outcome), result->detail);
+                     inkwell_fetch_outcome_name(result->outcome), result->detail);
     updater_set(updater, MESH_UPDATE_FAILED, message);
 }
 
@@ -487,7 +488,7 @@ int mesh_updater_init(struct mesh_updater *updater, struct inkwell_loop *loop) {
     }
     memset(updater, 0, sizeof *updater);
     updater->state = MESH_UPDATE_IDLE;
-    const int ready = mesh_fetch_init(&updater->fetch, loop);
+    const int ready = inkwell_fetch_init(&updater->fetch, loop);
     if (ready != 0) {
         return ready;
     }
@@ -507,7 +508,7 @@ int mesh_updater_init(struct mesh_updater *updater, struct inkwell_loop *loop) {
     updater->allow_dev_from_env = inkwell_env_bool("UPDATE_ALLOW_DEV", "dev updates", false);
     updater->allow_dev = updater->allow_dev_from_env;
 
-    if (!mesh_tls_available()) {
+    if (!inkwell_tls_available()) {
         snprintf(updater->message, sizeof updater->message, "%s",
                  inkcell_str(MESH_STR_UPDATE_NO_TLS));
     } else if (!mesh_version_is_release() && !updater->allow_dev) {
@@ -520,10 +521,10 @@ int mesh_updater_init(struct mesh_updater *updater, struct inkwell_loop *loop) {
         snprintf(updater->message, sizeof updater->message, "%s",
                  inkcell_str(MESH_STR_UPDATE_DEV_ENABLED));
     }
-    const char *const ca_override = mesh_tls_ca_override();
+    const char *const ca_override = inkwell_tls_ca_override();
     inkwell_log_info(
         "update", "Updater ready: tls=%s binary=%s version=%s channel=%s allow_dev=%s cacert=%s",
-        mesh_tls_available() ? "yes" : "no",
+        inkwell_tls_available() ? "yes" : "no",
         updater->install_path[0] != '\0' ? updater->install_path : "unknown", mesh_version_string(),
         mesh_update_channel_name(mesh_updater_effective_channel(updater)),
         updater->allow_dev ? "yes" : "no", ca_override != NULL ? ca_override : "built-in");
@@ -534,7 +535,7 @@ void mesh_updater_shutdown(struct mesh_updater *updater) {
     if (updater == NULL) {
         return;
     }
-    mesh_fetch_shutdown(&updater->fetch);
+    inkwell_fetch_shutdown(&updater->fetch);
     /* Half a download left behind would otherwise sit next to the binary until the next run. */
     if (updater->state == MESH_UPDATE_DOWNLOADING && updater->staged_path[0] != '\0') {
         (void)unlink(updater->staged_path);
@@ -542,7 +543,7 @@ void mesh_updater_shutdown(struct mesh_updater *updater) {
 }
 
 bool mesh_updater_available(const struct mesh_updater *updater) {
-    return updater != NULL && mesh_fetch_available(&updater->fetch) &&
+    return updater != NULL && inkwell_fetch_available(&updater->fetch) &&
            updater->install_path[0] != '\0';
 }
 
@@ -550,7 +551,7 @@ bool mesh_updater_set_channel(struct mesh_updater *updater, enum mesh_update_cha
     if (updater == NULL || channel >= MESH_UPDATE_CHANNEL_COUNT || updater->channel == channel) {
         return false;
     }
-    if (mesh_fetch_busy(&updater->fetch)) {
+    if (inkwell_fetch_busy(&updater->fetch)) {
         return false; /* mid-check or mid-download: the asset in flight belongs to the old one */
     }
     updater->channel = channel;
@@ -564,7 +565,7 @@ bool mesh_updater_set_allow_dev(struct mesh_updater *updater, bool allow) {
     if (updater == NULL || updater->allow_dev == allow) {
         return false;
     }
-    if (mesh_fetch_busy(&updater->fetch)) {
+    if (inkwell_fetch_busy(&updater->fetch)) {
         return false; /* mid-check or mid-download; let it finish rather than move the goalposts */
     }
     updater->allow_dev = allow;
@@ -580,8 +581,8 @@ bool mesh_updater_set_allow_dev(struct mesh_updater *updater, bool allow) {
 }
 
 /* The fetcher calls these once each, from the loop, when its request is over. */
-static void updater_on_check_done(void *userdata, const struct mesh_fetch_result *result);
-static void updater_on_download_done(void *userdata, const struct mesh_fetch_result *result);
+static void updater_on_check_done(void *userdata, const struct inkwell_fetch_result *result);
+static void updater_on_download_done(void *userdata, const struct inkwell_fetch_result *result);
 
 int mesh_updater_check(struct mesh_updater *updater, uint64_t now_ms) {
     if (updater == NULL) {
@@ -590,7 +591,7 @@ int mesh_updater_check(struct mesh_updater *updater, uint64_t now_ms) {
     if (!mesh_updater_available(updater)) {
         return -ENOTSUP;
     }
-    if (mesh_fetch_busy(&updater->fetch)) {
+    if (inkwell_fetch_busy(&updater->fetch)) {
         return -EBUSY;
     }
     updater_forget_release(updater);
@@ -610,7 +611,7 @@ int mesh_updater_check(struct mesh_updater *updater, uint64_t now_ms) {
         snprintf(url, sizeof url, "https://api.github.com/repos/%s/releases/latest",
                  mesh_updater_repo());
     }
-    const struct mesh_fetch_request request = {
+    const struct inkwell_fetch_request request = {
         .url = url,
         .headers = {"Accept: application/vnd.github+json"},
         .timeout_ms = MESH_UPDATE_CHECK_TIMEOUT_MS,
@@ -618,7 +619,7 @@ int mesh_updater_check(struct mesh_updater *updater, uint64_t now_ms) {
         .on_done = updater_on_check_done,
         .userdata = updater,
     };
-    const int result = mesh_fetch_start(&updater->fetch, &request, now_ms);
+    const int result = inkwell_fetch_start(&updater->fetch, &request, now_ms);
     if (result != 0) {
         updater_set(updater, MESH_UPDATE_FAILED, inkcell_str(MESH_STR_UPDATE_START_FAILED));
         return result;
@@ -627,12 +628,12 @@ int mesh_updater_check(struct mesh_updater *updater, uint64_t now_ms) {
     return 0;
 }
 
-static void updater_on_check_done(void *userdata, const struct mesh_fetch_result *result) {
+static void updater_on_check_done(void *userdata, const struct inkwell_fetch_result *result) {
     struct mesh_updater *updater = (struct mesh_updater *)userdata;
     if (updater == NULL || updater->state != MESH_UPDATE_CHECKING) {
         return;
     }
-    if (result->outcome != MESH_FETCH_OK) {
+    if (result->outcome != INKWELL_FETCH_OK) {
         updater_fetch_failed(updater, result, MESH_STR_UPDATE_CHECK_HTTP);
         return;
     }
@@ -705,7 +706,7 @@ int mesh_updater_install(struct mesh_updater *updater, uint64_t now_ms) {
     if (!mesh_updater_available(updater)) {
         return -ENOTSUP;
     }
-    if (mesh_fetch_busy(&updater->fetch)) {
+    if (inkwell_fetch_busy(&updater->fetch)) {
         return -EBUSY;
     }
     if (updater->state != MESH_UPDATE_AVAILABLE || updater->asset_url[0] == '\0' ||
@@ -718,14 +719,14 @@ int mesh_updater_install(struct mesh_updater *updater, uint64_t now_ms) {
        the next one at 100%. */
     updater->downloaded = 0U;
 
-    const struct mesh_fetch_request request = {
+    const struct inkwell_fetch_request request = {
         .url = updater->asset_url,
         .output_path = updater->staged_path,
         .timeout_ms = MESH_UPDATE_DOWNLOAD_TIMEOUT_MS,
         .on_done = updater_on_download_done,
         .userdata = updater,
     };
-    const int result = mesh_fetch_start(&updater->fetch, &request, now_ms);
+    const int result = inkwell_fetch_start(&updater->fetch, &request, now_ms);
     if (result != 0) {
         updater_set(updater, MESH_UPDATE_FAILED, inkcell_str(MESH_STR_UPDATE_DOWNLOAD_START_FAIL));
         return result;
@@ -819,12 +820,12 @@ static void updater_stamp_pak_json(const struct mesh_updater *updater) {
     inkwell_log_info("update", "Stamped %s with v%s", json_path, updater->latest);
 }
 
-static void updater_on_download_done(void *userdata, const struct mesh_fetch_result *result) {
+static void updater_on_download_done(void *userdata, const struct inkwell_fetch_result *result) {
     struct mesh_updater *updater = (struct mesh_updater *)userdata;
     if (updater == NULL || updater->state != MESH_UPDATE_DOWNLOADING) {
         return;
     }
-    if (result->outcome != MESH_FETCH_OK) {
+    if (result->outcome != INKWELL_FETCH_OK) {
         updater_fetch_failed(updater, result, MESH_STR_UPDATE_DOWNLOAD_HTTP);
         (void)unlink(updater->staged_path);
         return;
@@ -928,7 +929,7 @@ bool mesh_updater_progress(const struct mesh_updater *updater, uint32_t *permill
 }
 
 void mesh_updater_tick(struct mesh_updater *updater, uint64_t now_ms) {
-    if (updater == NULL || !mesh_fetch_busy(&updater->fetch)) {
+    if (updater == NULL || !inkwell_fetch_busy(&updater->fetch)) {
         return;
     }
     /* The bar. A download that finishes does so on the read path, not here, and moves the
@@ -938,5 +939,5 @@ void mesh_updater_tick(struct mesh_updater *updater, uint64_t now_ms) {
     }
     /* Enforces the deadline, which lands in one of the two completions above - which is where a
        timed-out download unlinks its staging file. */
-    mesh_fetch_tick(&updater->fetch, now_ms);
+    inkwell_fetch_tick(&updater->fetch, now_ms);
 }
