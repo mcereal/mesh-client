@@ -494,6 +494,15 @@ void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
      * The node's sheet of verbs is not here. It belongs to one tab rather than to the frame,
      * so fb_render_nodes() draws it over its own detail, where the order it stacks in is a
      * fact about that tab.
+     *
+     * **None of the three is drawn over help**, which is the one thing about this order that is
+     * not a matter of taste. mesh_ui_nav_handle_key() gives help every press before it reaches
+     * any of these, so a layer drawn over an open help screen would be a panel the reader can
+     * see and cannot answer - and a verification sheet is the one that would be caught by it,
+     * since a radio raises that at a moment of its own choosing. What is drawn and what the
+     * press reaches have to be the same thing; each of the three reads `help_open` and treats
+     * it as the app no longer wanting it up, so one already on the panel walks out rather than
+     * being cut off mid-frame.
      */
     fb_render_reactions(state, snapshot, &layout);
     fb_render_confirm(state, snapshot, &layout);

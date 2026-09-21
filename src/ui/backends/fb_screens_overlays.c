@@ -23,6 +23,8 @@
 #include "mesh/ui/settings.h"
 #include "mesh/ui/trust.h"
 
+#include "inkcell/utils/text.h"
+
 #include <stdio.h>
 #include <string.h>
 
@@ -229,7 +231,9 @@ static void fb_put_dialog(struct mesh_ui_backend_fb_state *state, struct fb_layo
 void fb_render_confirm(struct mesh_ui_backend_fb_state *state,
                        const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
-    if (!nav->confirm_open) {
+    /* Not over help, which takes every press - see the note at the tail of
+       fb_render_snapshot(). */
+    if (!nav->confirm_open || nav->help_open) {
         fb_put_dialog(state, layout, FB_OVERLAY_CONFIRM, false, NULL);
         return;
     }
@@ -304,7 +308,10 @@ void fb_render_verify(struct mesh_ui_backend_fb_state *state,
     struct mesh_ui_verify_sheet sheet;
     char headline[96];
     char text[256];
-    if (!snapshot->nav.verify_open ||
+    /* `help_open` for the reason the confirm above has it, and this is the sheet that reason is
+       about: a radio raises a verification at a moment of its own choosing, so it is the one
+       that can arrive over an open help screen and be left unanswerable. */
+    if (!snapshot->nav.verify_open || snapshot->nav.help_open ||
         !mesh_ui_verify_sheet_of(&snapshot->verification, &sheet, headline, sizeof headline, text,
                                  sizeof text)) {
         /*

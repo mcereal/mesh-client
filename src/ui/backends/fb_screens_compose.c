@@ -44,7 +44,9 @@ void fb_render_reactions(struct mesh_ui_backend_fb_state *state,
      * src/ui/views/reactions.c and the delete out of the catalog - so all that has to outlive
      * the press is the packet id the quote is drawn from.
      */
-    const bool up = nav->reaction_open;
+    /* Not over help, which takes every press - see the note at the tail of
+       fb_render_snapshot(). */
+    const bool up = nav->reaction_open && !nav->help_open;
     const uint32_t reply_to = fb_overlay_subject(state, FB_OVERLAY_REACTIONS, up, nav->reply_to);
     if (reply_to == 0U) {
         return;
