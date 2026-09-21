@@ -23,9 +23,11 @@
 
 #include "app_internal.h"
 
+#include "inkwell/net/reason.h"
 #include "mesh/core/mqtt_proxy.h"
 #include "mesh/core/session.h"
 #include "mesh/core/tls_client.h"
+#include "mesh/ui/mqtt.h"
 #include "mesh/ui/store_mqtt.h"
 
 #include <stdio.h>
@@ -261,8 +263,16 @@ static void app_mqtt_state_changed(void *userdata, enum mesh_mqtt_proxy_state st
      * screen is not being watched the retry loop would be silent about what it was retrying.
      */
     if (state == MESH_MQTT_PROXY_WAITING) {
+        /*
+         * The reason's name, not the sentence a screen would show. This line used to print the
+         * translated text, so a Spanish device wrote its retry loop in Spanish - and a log is
+         * read by whoever is debugging it, not by whoever is holding the Brick. The proxy logs
+         * the same reason with its detail and its backoff; this is the app's own note that the
+         * loop is running at all.
+         */
+        const struct mesh_mqtt_proxy_failure failure = mesh_mqtt_proxy_failure(&app->mqtt);
         inkwell_log_warn("mqtt", "Broker %s: %s", mesh_mqtt_proxy_host(&app->mqtt),
-                         mesh_mqtt_proxy_last_error(&app->mqtt));
+                         mesh_mqtt_failure_name(&failure));
     }
 }
 
@@ -413,7 +423,7 @@ void mesh_app_mqtt_publish_state(const struct mesh_app *app, struct mesh_ui_mqtt
     out->disabled = app->mqtt_disabled;
 
     const enum mesh_mqtt_proxy_state state = mesh_mqtt_proxy_state(&app->mqtt);
-    (void)inkwell_str_copy(out->state, sizeof out->state, mesh_mqtt_proxy_state_string(state));
+    (void)inkwell_str_copy(out->state, sizeof out->state, mesh_ui_mqtt_state_str(state));
     out->connected = state == MESH_MQTT_PROXY_READY;
     out->failing = state == MESH_MQTT_PROXY_WAITING;
 
@@ -425,8 +435,7 @@ void mesh_app_mqtt_publish_state(const struct mesh_app *app, struct mesh_ui_mqtt
      * that exists to say why.
      */
     (void)inkwell_str_copy(out->host, sizeof out->host, want.address);
-    (void)inkwell_str_copy(out->last_error, sizeof out->last_error,
-                           mesh_mqtt_proxy_last_error(&app->mqtt));
+    mesh_ui_mqtt_failure_text(&app->mqtt, out->last_error, sizeof out->last_error);
 
     const struct mesh_mqtt_proxy_stats stats = mesh_mqtt_proxy_stats(&app->mqtt);
     out->published = stats.published;

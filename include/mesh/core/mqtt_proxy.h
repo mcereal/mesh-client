@@ -1,5 +1,6 @@
 #pragma once
 
+#include "inkwell/net/reason.h"
 #include "inkwell/net/resolve.h"
 #include "inkwell/runtime/loop.h"
 #include "mesh/core/tls_client.h"
@@ -123,6 +124,48 @@ enum mesh_mqtt_proxy_state {
     MESH_MQTT_PROXY_READY,      /* the broker accepted us */
     MESH_MQTT_PROXY_WAITING,    /* an attempt failed; the next one is scheduled */
     MESH_MQTT_PROXY_STATE_COUNT,
+};
+
+/*
+ * The failures this proxy names itself, as opposed to the ones any link has.
+ *
+ * Getting to a host is `enum inkwell_net_reason` and is inkwell's, because every link that
+ * reaches a network fails in the same ways. What is left over is this: the broker's own answer
+ * to being asked for a session, and the two this refuses before it tries. Neither set carries a
+ * word - the sentence for either is built in src/ui/tables/mqtt.c, which is the only place that
+ * knows what language the reader has.
+ *
+ * The refusals are kept apart rather than collapsed into "the broker said no" because they are
+ * three different things to do next: a wrong password is a setting, a client that is not
+ * permitted is an account, and a broker that is unavailable is somebody else's outage.
+ */
+enum mesh_mqtt_refusal {
+    MESH_MQTT_REFUSAL_NONE = 0,
+    /* Refused before anything was attempted: `config.address` is not a host and a port, or TLS
+       was asked for and this build has none. Both are a setting to change rather than a
+       network to wait on, which is why they are not INKWELL_NET_BAD_ADDRESS and a timeout. */
+    MESH_MQTT_REFUSAL_BAD_ADDRESS,
+    MESH_MQTT_REFUSAL_NO_TLS,
+    /* Something answered and it is not speaking MQTT: a malformed packet, a packet out of
+       order, or a length this could not make sense of. */
+    MESH_MQTT_REFUSAL_PROTOCOL,
+    /* The three CONNACK codes worth their own sentence. */
+    MESH_MQTT_REFUSAL_BAD_LOGIN,
+    MESH_MQTT_REFUSAL_NOT_ALLOWED,
+    MESH_MQTT_REFUSAL_BROKER_BUSY,
+    /* Any other CONNACK refusal; `code` carries the number, which is all anyone could act on. */
+    MESH_MQTT_REFUSAL_OTHER,
+    MESH_MQTT_REFUSAL_COUNT,
+};
+
+/*
+ * One failure, waiting to be shown. Exactly one half is set: `net.reason` is INKWELL_NET_OK
+ * when the broker or this proxy refused, and `refusal` is NONE when the network did.
+ */
+struct mesh_mqtt_proxy_failure {
+    struct inkwell_net_failure net;
+    enum mesh_mqtt_refusal refusal;
+    uint8_t code; /* the CONNACK code, for MESH_MQTT_REFUSAL_OTHER */
 };
 
 /* What to connect to. Copied on start(), so the caller's buffer need not outlive the call. */
@@ -251,8 +294,8 @@ struct mesh_mqtt_proxy {
     uint32_t failures; /* consecutive, for the backoff; cleared by a CONNACK */
 
     struct mesh_mqtt_proxy_stats stats;
-    /* Why the last attempt failed, in words, for the status screen. Empty until one does. */
-    char last_error[128];
+    /* Why the last attempt failed, for the status screen. See mesh_mqtt_proxy_failure(). */
+    struct mesh_mqtt_proxy_failure failure;
 
     mesh_mqtt_proxy_message_fn on_message;
     mesh_mqtt_proxy_state_fn on_state;
@@ -340,16 +383,41 @@ enum mesh_mqtt_proxy_state mesh_mqtt_proxy_state(const struct mesh_mqtt_proxy *p
 /* True only in READY: the one state in which a publish will be taken. */
 bool mesh_mqtt_proxy_is_ready(const struct mesh_mqtt_proxy *proxy);
 struct mesh_mqtt_proxy_stats mesh_mqtt_proxy_stats(const struct mesh_mqtt_proxy *proxy);
-/* Why the last attempt failed, or "" when none has. Never NULL. */
-const char *mesh_mqtt_proxy_last_error(const struct mesh_mqtt_proxy *proxy);
+/*
+ * Why the last attempt failed. Zeroed - net.reason INKWELL_NET_OK, refusal NONE - until one
+ * does, and cleared by the next start.
+ *
+ * A record rather than a sentence, because this file has no business choosing words: see
+ * mesh_ui_mqtt_failure_text() in mesh/ui/mqtt.h, which is where one is written.
+ */
+struct mesh_mqtt_proxy_failure mesh_mqtt_proxy_failure(const struct mesh_mqtt_proxy *proxy);
+/*
+ * The TLS library's own account of a handshake that failed, or "" when there is none.
+ *
+ * Not translated and not a catalog entry, in the same category as the C library's word for an
+ * errno: it is a diagnostic, and it is here because a reason and a number cannot reconstruct
+ * it - Mbed TLS's message is the only description of that failure there is.
+ */
+const char *mesh_mqtt_proxy_tls_error(const struct mesh_mqtt_proxy *proxy);
+/*
+ * A failure's reason as a short ASCII name - "unreachable", "bad-login" - for a log line.
+ * Never NULL, and "none" when nothing has failed.
+ *
+ * One call rather than two, because the record has two halves and exactly one is set: reading
+ * `net.reason` on a refusal gives "ok", which is both wrong and the most convincing kind of
+ * wrong, since it is a real name for a real value. Whoever writes a log line should not have to
+ * remember which half to look at.
+ *
+ * Not the exception to this file dealing in no words: inkwell's log is deliberately
+ * untranslated, and these are symbol names in the same class as strerror() output. Nothing here
+ * is fit to put on a screen - that is mesh_ui_mqtt_failure_text().
+ */
+const char *mesh_mqtt_failure_name(const struct mesh_mqtt_proxy_failure *failure);
 /* The broker being talked to, for a status row. Never NULL; "" before a start. */
 const char *mesh_mqtt_proxy_host(const struct mesh_mqtt_proxy *proxy);
-/*
- * The state as a sentence, from the string catalog. Here rather than in a UI table because it
- * is the same mapping the transports keep next to their own state enums - a screen naming the
- * id itself would have to enumerate these states a second time, and the two would drift.
- */
-const char *mesh_mqtt_proxy_state_string(enum mesh_mqtt_proxy_state state);
+/* The address as it was configured, which is what a bad one has to be shown as: it never
+   became a host. Never NULL; "" before a start. */
+const char *mesh_mqtt_proxy_address(const struct mesh_mqtt_proxy *proxy);
 
 #ifdef __cplusplus
 }

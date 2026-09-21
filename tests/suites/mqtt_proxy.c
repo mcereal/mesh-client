@@ -15,6 +15,10 @@
  */
 
 #include "framework/mesh_test.h"
+#include "inkwell/base/text.h"
+#include "inkwell/net/reason.h"
+#include "mesh/ui/mqtt.h"
+#include "mesh/ui/store_mqtt.h"
 
 #include "inkwell/codec/mqtt.h"
 #include "inkwell/runtime/loop.h"
@@ -549,6 +553,145 @@ static bool probe_connect(struct proxy_probe *probe) {
 
 /* ------------------------------------------------------------------ getting connected */
 
+/*
+ * What the sentences actually say, which nothing else here checks.
+ *
+ * The other cases in this file now assert the *reason*, which is the right thing to hold and is
+ * stronger than the English substrings they used to match. It leaves a gap: the reason is only
+ * half the answer, and the other half is whether src/ui/tables/mqtt.c reaches the right catalog
+ * entry with the right number of arguments. A reason mapped to the wrong entry still produces a
+ * non-empty string, and three of these entries take a second argument - "%.24s: %.20s" for the
+ * errno, "%.24s: %.64s" for the TLS library's own account, "%.24s ... (%u)" for a CONNACK code.
+ * Handed one argument, each prints whatever was next on the stack.
+ *
+ * Driven by writing the record directly rather than by provoking a broker: the point is the
+ * table, and every one of these reasons has a case above that proves the proxy records it.
+ */
+MESH_TEST_CASE(mqtt_failure_text_matches_the_reason, unit) {
+    struct mesh_mqtt_proxy probe;
+    (void)mesh_mqtt_proxy_init(&probe, NULL);
+    (void)inkwell_str_copy(probe.host, sizeof probe.host, "broker.example");
+    (void)inkwell_str_copy(probe.config.address, sizeof probe.config.address, "not:a:broker:addr");
+    char text[MESH_UI_MQTT_ERROR_MAX];
+
+    /* An errno, spelled by the C library at the moment somebody reads it. */
+    memset(&probe.failure, 0, sizeof probe.failure);
+    probe.failure.net.reason = INKWELL_NET_UNREACHABLE;
+    probe.failure.net.detail = -ECONNREFUSED;
+    mesh_ui_mqtt_failure_text(&probe, text, sizeof text);
+    if (strstr(text, "broker.example") == NULL) {
+        record_failure(test_name, "an unreachable broker should be named");
+        goto done;
+    }
+    if (strstr(text, strerror(ECONNREFUSED)) == NULL) {
+        record_failure(test_name, "and carry the errno the kernel gave");
+        goto done;
+    }
+
+    /* The TLS library's own sentence, which no number could rebuild. */
+    memset(&probe.failure, 0, sizeof probe.failure);
+    probe.failure.net.reason = INKWELL_NET_TLS;
+    (void)inkwell_str_copy(probe.tls.error, sizeof probe.tls.error, "certificate has expired");
+    mesh_ui_mqtt_failure_text(&probe, text, sizeof text);
+    if (strstr(text, "broker.example") == NULL || strstr(text, "certificate has expired") == NULL) {
+        record_failure(test_name, "a TLS failure should carry the library's own account");
+        goto done;
+    }
+
+    /* A CONNACK code with no sentence of its own carries the number instead. */
+    memset(&probe.failure, 0, sizeof probe.failure);
+    probe.failure.refusal = MESH_MQTT_REFUSAL_OTHER;
+    probe.failure.code = 42U;
+    mesh_ui_mqtt_failure_text(&probe, text, sizeof text);
+    if (strstr(text, "broker.example") == NULL || strstr(text, "42") == NULL) {
+        record_failure(test_name, "an unrecognised refusal should carry its code");
+        goto done;
+    }
+
+    /*
+     * And the one whose subject is not the host. A target that would not parse never became
+     * one, so showing `host` here would name an empty string on the one screen that exists to
+     * say what went wrong.
+     */
+    memset(&probe.failure, 0, sizeof probe.failure);
+    probe.failure.refusal = MESH_MQTT_REFUSAL_BAD_ADDRESS;
+    mesh_ui_mqtt_failure_text(&probe, text, sizeof text);
+    if (strstr(text, "not:a:broker:addr") == NULL) {
+        record_failure(test_name, "a bad address should be shown as the address");
+        goto done;
+    }
+
+    /*
+     * And no two refusals say the same thing.
+     *
+     * Structural rather than a table of expected English, which would only be the catalog
+     * written out twice. What it holds is the claim the catalog itself makes: a wrong password,
+     * a client that is not permitted and a broker that is unavailable are three different
+     * things to do next, so a refusal reaching another one's entry is a user told to change
+     * their account when what is wrong is their password. That mistake produces a perfectly
+     * good sentence, and nothing else here would notice it.
+     */
+    static char seen[MESH_MQTT_REFUSAL_COUNT][MESH_UI_MQTT_ERROR_MAX];
+    for (int refusal = 1; refusal < (int)MESH_MQTT_REFUSAL_COUNT; ++refusal) {
+        memset(&probe.failure, 0, sizeof probe.failure);
+        probe.failure.refusal = (enum mesh_mqtt_refusal)refusal;
+        mesh_ui_mqtt_failure_text(&probe, seen[refusal], sizeof seen[refusal]);
+        if (seen[refusal][0] == '\0') {
+            record_failure(test_name, "every refusal needs a sentence");
+            goto done;
+        }
+        for (int earlier = 1; earlier < refusal; ++earlier) {
+            if (strcmp(seen[refusal], seen[earlier]) == 0) {
+                record_failure(test_name, "two refusals say the same thing");
+                goto done;
+            }
+        }
+    }
+
+    /*
+     * And what the *log* is told, which is a different question with the same trap in it.
+     *
+     * The record has two halves and exactly one is set, so a log line that reads `net.reason`
+     * on a refusal prints "ok" - a real name for a real value, which is the most convincing
+     * kind of wrong: a broker that rejected the password writing `Broker x: ok` into the one
+     * place somebody debugging it will look. This is the case that would have caught it.
+     */
+    for (int refusal = 1; refusal < (int)MESH_MQTT_REFUSAL_COUNT; ++refusal) {
+        memset(&probe.failure, 0, sizeof probe.failure);
+        probe.failure.refusal = (enum mesh_mqtt_refusal)refusal;
+        const char *const name = mesh_mqtt_failure_name(&probe.failure);
+        if (strcmp(name, "ok") == 0 || strcmp(name, "none") == 0) {
+            record_failure(test_name, "a refusal must not log as a success");
+            goto done;
+        }
+    }
+    for (int reason = 1; reason < (int)INKWELL_NET_REASON_COUNT; ++reason) {
+        memset(&probe.failure, 0, sizeof probe.failure);
+        probe.failure.net.reason = (enum inkwell_net_reason)reason;
+        const char *const name = mesh_mqtt_failure_name(&probe.failure);
+        if (strcmp(name, "ok") == 0 || strcmp(name, "none") == 0) {
+            record_failure(test_name, "a network failure must not log as a success");
+            goto done;
+        }
+    }
+
+    /* Nothing recorded says nothing at all, in either direction. */
+    memset(&probe.failure, 0, sizeof probe.failure);
+    mesh_ui_mqtt_failure_text(&probe, text, sizeof text);
+    if (text[0] != '\0') {
+        record_failure(test_name, "a proxy that has not failed should say nothing");
+        goto done;
+    }
+    if (strcmp(mesh_mqtt_failure_name(&probe.failure), "none") != 0) {
+        record_failure(test_name, "and should name nothing in the log either");
+        goto done;
+    }
+    record_success(test_name);
+
+done:
+    mesh_mqtt_proxy_shutdown(&probe);
+}
+
 MESH_TEST_CASE(mqtt_proxy_greets_a_broker, unit) {
     struct proxy_probe probe;
     if (!probe_start(&probe)) {
@@ -644,9 +787,15 @@ MESH_TEST_CASE(mqtt_proxy_reports_a_refused_login, unit) {
         record_failure(test_name, "a refused login should end the attempt");
         goto cleanup;
     }
-    const char *error = mesh_mqtt_proxy_last_error(&probe.proxy);
-    if (error[0] == '\0' || strstr(error, "127.0.0.1") == NULL) {
-        record_failure(test_name, "the refusal should name the broker, in words");
+    const struct mesh_mqtt_proxy_failure failure = mesh_mqtt_proxy_failure(&probe.proxy);
+    if (failure.refusal != MESH_MQTT_REFUSAL_BAD_LOGIN) {
+        record_failure(test_name, "a rejected password is its own refusal, not a generic one");
+        goto cleanup;
+    }
+    char text[MESH_UI_MQTT_ERROR_MAX];
+    mesh_ui_mqtt_failure_text(&probe.proxy, text, sizeof text);
+    if (text[0] == '\0' || strstr(text, "127.0.0.1") == NULL) {
+        record_failure(test_name, "and it still reaches the user naming the broker");
         goto cleanup;
     }
     if (mesh_mqtt_proxy_stats(&probe.proxy).connections != 0U) {
@@ -1073,8 +1222,8 @@ MESH_TEST_CASE(mqtt_proxy_gives_up_on_a_silent_broker, unit) {
         record_failure(test_name, "a silent broker should end the connection");
         goto cleanup;
     }
-    if (mesh_mqtt_proxy_last_error(&probe.proxy)[0] == '\0') {
-        record_failure(test_name, "the timeout should say something");
+    if (mesh_mqtt_proxy_failure(&probe.proxy).net.reason != INKWELL_NET_TIMED_OUT) {
+        record_failure(test_name, "a broker that went quiet is a timeout");
         goto cleanup;
     }
     record_success(test_name);
@@ -1498,11 +1647,20 @@ MESH_TEST_CASE(mqtt_proxy_refuses_an_unknown_certificate, unit) {
         record_failure(test_name, "an unverifiable certificate must not connect");
         goto cleanup;
     }
+    if (mesh_mqtt_proxy_failure(&probe.proxy).net.reason != INKWELL_NET_TLS) {
+        record_failure(test_name, "a certificate that will not verify is a TLS failure");
+        goto cleanup;
+    }
     /* And it says so in words rather than as a number, which is the reason MBEDTLS_ERROR_C is
-       left enabled. */
-    const char *error = mesh_mqtt_proxy_last_error(&probe.proxy);
-    if (error[0] == '\0' || strstr(error, "127.0.0.1") == NULL) {
-        record_failure(test_name, "the refusal should name the broker and say why");
+       left enabled. The words are the library's, not the catalog's. */
+    if (mesh_mqtt_proxy_tls_error(&probe.proxy)[0] == '\0') {
+        record_failure(test_name, "the TLS library should say why");
+        goto cleanup;
+    }
+    char text[MESH_UI_MQTT_ERROR_MAX];
+    mesh_ui_mqtt_failure_text(&probe.proxy, text, sizeof text);
+    if (strstr(text, "127.0.0.1") == NULL) {
+        record_failure(test_name, "and the sentence should name the broker");
         goto cleanup;
     }
     record_success(test_name);
@@ -1546,7 +1704,7 @@ MESH_TEST_CASE(mqtt_proxy_verifies_against_built_in_roots_without_a_bundle, unit
         record_failure(test_name, "a certificate no built-in root signed must not connect");
         goto cleanup;
     }
-    const char *error = mesh_mqtt_proxy_last_error(&probe.proxy);
+    const char *error = mesh_mqtt_proxy_tls_error(&probe.proxy);
     if (strstr(error, "no certificate bundle") != NULL || strstr(error, "built-in root") != NULL) {
         record_failure(test_name, "the refusal should be the certificate's, not a missing bundle");
         goto cleanup;
@@ -1590,7 +1748,7 @@ MESH_TEST_CASE(mqtt_proxy_names_a_missing_bundle, unit) {
         record_failure(test_name, "a missing bundle must not connect");
         goto cleanup;
     }
-    if (strstr(mesh_mqtt_proxy_last_error(&probe.proxy), k_missing) == NULL) {
+    if (strstr(mesh_mqtt_proxy_tls_error(&probe.proxy), k_missing) == NULL) {
         record_failure(test_name, "the refusal should name the bundle that was asked for");
         goto cleanup;
     }

@@ -18,8 +18,11 @@
 
 #include "../../src/app/app_internal.h"
 #include "framework/mesh_test.h"
+#include "inkwell/net/reason.h"
+#include "mesh/ui/mqtt.h"
 #include "support/mqtt_fixture.h"
 #include "support/session_fixture.h"
+#include <errno.h>
 
 #include "mesh/core/mqtt_proxy.h"
 #include "mesh/core/radio_settings.h"
@@ -468,22 +471,63 @@ MESH_TEST_CASE(mqtt_status_limits_agree_across_the_seam, unit) {
     }
     struct mesh_mqtt_proxy probe;
     (void)mesh_mqtt_proxy_init(&probe, NULL);
-    if (MESH_UI_MQTT_ERROR_MAX < sizeof probe.last_error) {
-        record_failure(test_name, "the published reason should hold any reason the proxy writes");
-        return;
-    }
-    /* Every sentence the core's own table can produce, including the default arm: a state added
-       to the enum without a string still comes back as something, and that something has to fit
-       too. */
-    for (int state = 0; state <= (int)MESH_MQTT_PROXY_STATE_COUNT; ++state) {
-        const char *text = mesh_mqtt_proxy_state_string((enum mesh_mqtt_proxy_state)state);
-        if (text == NULL || strlen(text) >= MESH_UI_MQTT_STATE_MAX) {
-            record_failure(test_name, "a connection state does not fit the published field");
-            return;
+
+    /*
+     * Every sentence mesh_ui_mqtt_failure_text() can produce, at the longest broker address the
+     * radio's own field can hold, has to fit the published one.
+     *
+     * This used to compare the published field against the buffer the proxy formatted into,
+     * which was one number against another. There is no such buffer now - the proxy records a
+     * reason and the sentence is written straight into the field below - so the only way to ask
+     * the question is to write every sentence and measure it.
+     */
+    memset(probe.host, 'h', sizeof probe.host - 1U);
+    probe.host[sizeof probe.host - 1U] = '\0';
+    memcpy(probe.config.address, probe.host, sizeof probe.config.address);
+
+    char rendered[MESH_UI_MQTT_ERROR_MAX * 4U];
+    for (int refusal = 1; refusal < (int)MESH_MQTT_REFUSAL_COUNT; ++refusal) {
+        memset(&probe.failure, 0, sizeof probe.failure);
+        probe.failure.refusal = (enum mesh_mqtt_refusal)refusal;
+        probe.failure.code = 255U;
+        mesh_ui_mqtt_failure_text(&probe, rendered, sizeof rendered);
+        if (rendered[0] == '\0' || strlen(rendered) >= MESH_UI_MQTT_ERROR_MAX) {
+            record_failure(test_name, "a refusal does not fit the published field");
+            goto done;
         }
     }
-    mesh_mqtt_proxy_shutdown(&probe);
+    for (int reason = 1; reason < (int)INKWELL_NET_REASON_COUNT; ++reason) {
+        memset(&probe.failure, 0, sizeof probe.failure);
+        probe.failure.net.reason = (enum inkwell_net_reason)reason;
+        probe.failure.net.detail = -ECONNREFUSED;
+        mesh_ui_mqtt_failure_text(&probe, rendered, sizeof rendered);
+        /* BAD_ADDRESS is a refusal here and has no sentence of its own on this side, which is
+           what mesh_net_reason_str() returning false means; everything else must say something
+           and must fit. */
+        const bool expected_silent = (reason == (int)INKWELL_NET_BAD_ADDRESS);
+        if ((rendered[0] == '\0') != expected_silent) {
+            record_failure(test_name, "a reason said the wrong amount about itself");
+            goto done;
+        }
+        if (strlen(rendered) >= MESH_UI_MQTT_ERROR_MAX) {
+            record_failure(test_name, "a failure reason does not fit the published field");
+            goto done;
+        }
+    }
+
+    /* Every sentence the state table can produce, including the default arm: a state added to
+       the enum without a string still comes back as something, and that has to fit too. */
+    for (int state = 0; state <= (int)MESH_MQTT_PROXY_STATE_COUNT; ++state) {
+        const char *text = mesh_ui_mqtt_state_str((enum mesh_mqtt_proxy_state)state);
+        if (text == NULL || strlen(text) >= MESH_UI_MQTT_STATE_MAX) {
+            record_failure(test_name, "a connection state does not fit the published field");
+            goto done;
+        }
+    }
     record_success(test_name);
+
+done:
+    mesh_mqtt_proxy_shutdown(&probe);
 }
 
 MESH_TEST_CASE(mqtt_status_says_nothing_about_a_radio_that_never_asked, unit) {

@@ -7,7 +7,7 @@
 #include "inkwell/base/text.h"
 
 #include "inkwell/codec/mqtt.h"
-#include "mesh/i18n/strings.h"
+#include "inkwell/net/reason.h"
 #include "mesh/transport/tcp.h"
 
 #include <errno.h>
@@ -60,14 +60,47 @@ static void mqtt_set_state(struct mesh_mqtt_proxy *proxy, enum mesh_mqtt_proxy_s
  * socket becomes a closed connection - and the first of the three is the only one that explains
  * anything.
  */
-static void mqtt_fail(struct mesh_mqtt_proxy *proxy, enum inkcell_str_id text, ...) {
-    va_list args;
-    va_start(args, text);
-    if (proxy->last_error[0] == '\0') {
-        (void)inkcell_str_vformat(proxy->last_error, sizeof proxy->last_error, text, args);
-    }
-    va_end(args);
+static bool mqtt_has_failure(const struct mesh_mqtt_proxy *proxy) {
+    return inkwell_net_failed(&proxy->failure.net) ||
+           proxy->failure.refusal != MESH_MQTT_REFUSAL_NONE;
+}
 
+/* A short ASCII name for a refusal, for a log line and for nothing else. The same kind of thing
+   as inkwell_net_reason_name(), and not fit for a screen for the same reason. */
+static const char *mqtt_refusal_name(enum mesh_mqtt_refusal refusal) {
+    switch (refusal) {
+    case MESH_MQTT_REFUSAL_BAD_ADDRESS:
+        return "bad-address";
+    case MESH_MQTT_REFUSAL_NO_TLS:
+        return "no-tls";
+    case MESH_MQTT_REFUSAL_PROTOCOL:
+        return "not-mqtt";
+    case MESH_MQTT_REFUSAL_BAD_LOGIN:
+        return "bad-login";
+    case MESH_MQTT_REFUSAL_NOT_ALLOWED:
+        return "not-allowed";
+    case MESH_MQTT_REFUSAL_BROKER_BUSY:
+        return "broker-busy";
+    case MESH_MQTT_REFUSAL_OTHER:
+        return "refused";
+    case MESH_MQTT_REFUSAL_NONE:
+    case MESH_MQTT_REFUSAL_COUNT:
+    default:
+        break;
+    }
+    return "unknown";
+}
+
+/*
+ * Close, count, arm the retry, and say so in the log.
+ *
+ * `why` and `detail` are the log line and nothing else: they are ASCII, they are English, and
+ * neither comes out of the string catalog. That is deliberate rather than an oversight to fix
+ * later - this line used to print the translated sentence, so a Spanish device wrote its
+ * retry loop in Spanish and a bug report nobody could read. What a *reader* is told is built
+ * from the record, elsewhere, when a screen asks.
+ */
+static void mqtt_back_off(struct mesh_mqtt_proxy *proxy, const char *why, const char *detail) {
     mqtt_close(proxy);
 
     if (proxy->failures < UINT32_MAX) {
@@ -84,8 +117,46 @@ static void mqtt_fail(struct mesh_mqtt_proxy *proxy, enum inkcell_str_id text, .
     }
     proxy->retry_at_ms = proxy->now_ms + delay;
     mqtt_set_state(proxy, MESH_MQTT_PROXY_WAITING);
-    inkwell_log_warn("mqtt", "%s; retrying in %llums", proxy->last_error,
-                     (unsigned long long)delay);
+    /* The address rather than the host when the host was never parsed out of it, which is
+       exactly the case a bad address is. */
+    const char *const subject = proxy->host[0] != '\0' ? proxy->host : proxy->config.address;
+    inkwell_log_warn("mqtt", "%s: %s%s%s; retrying in %llums", subject, why,
+                     detail[0] != '\0' ? ": " : "", detail, (unsigned long long)delay);
+}
+
+/* A failure any link has: inkwell's reason, and the number behind it. `detail` is the negative
+   errno for UNREACHABLE, the EAI_* for a lookup, and 0 where the reason says everything. */
+static void mqtt_fail_net(struct mesh_mqtt_proxy *proxy, enum inkwell_net_reason reason,
+                          int detail) {
+    const bool first = !mqtt_has_failure(proxy);
+    if (first) {
+        proxy->failure.net.reason = reason;
+        proxy->failure.net.detail = detail;
+    }
+    mqtt_back_off(proxy, inkwell_net_reason_name(reason),
+                  reason == INKWELL_NET_UNREACHABLE ? strerror(-detail) : "");
+}
+
+/* A failure this proxy or the broker named. `code` is the CONNACK byte and is read only for
+   MESH_MQTT_REFUSAL_OTHER. */
+static void mqtt_fail_own(struct mesh_mqtt_proxy *proxy, enum mesh_mqtt_refusal refusal,
+                          uint8_t code) {
+    if (!mqtt_has_failure(proxy)) {
+        proxy->failure.refusal = refusal;
+        proxy->failure.code = code;
+    }
+    mqtt_back_off(proxy, mqtt_refusal_name(refusal), "");
+}
+
+/* TLS gets its own entry point because the only account of what went wrong is the library's
+   own sentence, which is already sitting in the session and cannot be rebuilt from a number. */
+static void mqtt_fail_tls(struct mesh_mqtt_proxy *proxy) {
+    if (!mqtt_has_failure(proxy)) {
+        proxy->failure.net.reason = INKWELL_NET_TLS;
+        proxy->failure.net.detail = 0;
+    }
+    mqtt_back_off(proxy, inkwell_net_reason_name(INKWELL_NET_TLS),
+                  mesh_tls_client_error(&proxy->tls));
 }
 
 /* ------------------------------------------------------------------ the descriptor */
@@ -284,7 +355,7 @@ static void mqtt_pump_subscribes(struct mesh_mqtt_proxy *proxy) {
         return;
     }
     if (queued < 0) {
-        mqtt_fail(proxy, MESH_STR_LINK_CLOSED, proxy->host);
+        mqtt_fail_net(proxy, INKWELL_NET_CLOSED, 0);
         return;
     }
     proxy->subscribe_id = id;
@@ -294,12 +365,12 @@ static void mqtt_pump_subscribes(struct mesh_mqtt_proxy *proxy) {
 
 static bool mqtt_on_connack(struct mesh_mqtt_proxy *proxy, const uint8_t *body, size_t len) {
     if (proxy->state != MESH_MQTT_PROXY_GREETING) {
-        mqtt_fail(proxy, MESH_STR_LINK_MQTT_PROTOCOL, proxy->host);
+        mqtt_fail_own(proxy, MESH_MQTT_REFUSAL_PROTOCOL, 0U);
         return false;
     }
     uint8_t code = 0U;
     if (inkwell_mqtt_decode_connack(body, len, &code, NULL) != 0) {
-        mqtt_fail(proxy, MESH_STR_LINK_MQTT_PROTOCOL, proxy->host);
+        mqtt_fail_own(proxy, MESH_MQTT_REFUSAL_PROTOCOL, 0U);
         return false;
     }
     if (code != INKWELL_MQTT_CONNACK_ACCEPTED) {
@@ -312,16 +383,16 @@ static bool mqtt_on_connack(struct mesh_mqtt_proxy *proxy, const uint8_t *body, 
          */
         switch (code) {
         case INKWELL_MQTT_CONNACK_BAD_CREDENTIALS:
-            mqtt_fail(proxy, MESH_STR_LINK_MQTT_BAD_LOGIN, proxy->host);
+            mqtt_fail_own(proxy, MESH_MQTT_REFUSAL_BAD_LOGIN, code);
             break;
         case INKWELL_MQTT_CONNACK_NOT_AUTHORISED:
-            mqtt_fail(proxy, MESH_STR_LINK_MQTT_NOT_ALLOWED, proxy->host);
+            mqtt_fail_own(proxy, MESH_MQTT_REFUSAL_NOT_ALLOWED, code);
             break;
         case INKWELL_MQTT_CONNACK_UNAVAILABLE:
-            mqtt_fail(proxy, MESH_STR_LINK_MQTT_BROKER_BUSY, proxy->host);
+            mqtt_fail_own(proxy, MESH_MQTT_REFUSAL_BROKER_BUSY, code);
             break;
         default:
-            mqtt_fail(proxy, MESH_STR_LINK_MQTT_REFUSED, proxy->host, (unsigned)code);
+            mqtt_fail_own(proxy, MESH_MQTT_REFUSAL_OTHER, code);
             break;
         }
         return false;
@@ -336,7 +407,7 @@ static bool mqtt_on_connack(struct mesh_mqtt_proxy *proxy, const uint8_t *body, 
     proxy->failures = 0U;
     proxy->deadline_ms = 0U;
     proxy->stats.connections++;
-    proxy->last_error[0] = '\0';
+    memset(&proxy->failure, 0, sizeof proxy->failure);
     mqtt_set_state(proxy, MESH_MQTT_PROXY_READY);
     inkwell_log_info("mqtt", "Connected to %s as %s", proxy->host, proxy->config.client_id);
 
@@ -352,7 +423,7 @@ static bool mqtt_on_suback(struct mesh_mqtt_proxy *proxy, const uint8_t *body, s
     uint16_t id = 0U;
     uint8_t code = 0U;
     if (inkwell_mqtt_decode_suback(body, len, &id, &code) != 0) {
-        mqtt_fail(proxy, MESH_STR_LINK_MQTT_PROTOCOL, proxy->host);
+        mqtt_fail_own(proxy, MESH_MQTT_REFUSAL_PROTOCOL, 0U);
         return false;
     }
     if (id != proxy->subscribe_id) {
@@ -381,7 +452,7 @@ static bool mqtt_on_publish(struct mesh_mqtt_proxy *proxy, uint8_t flags, const 
                             size_t len) {
     struct inkwell_mqtt_incoming message;
     if (inkwell_mqtt_decode_publish(flags, body, len, &message) != 0) {
-        mqtt_fail(proxy, MESH_STR_LINK_MQTT_PROTOCOL, proxy->host);
+        mqtt_fail_own(proxy, MESH_MQTT_REFUSAL_PROTOCOL, 0U);
         return false;
     }
     /*
@@ -443,7 +514,7 @@ static bool mqtt_handle(struct mesh_mqtt_proxy *proxy, const struct inkwell_mqtt
     default:
         /* Client-to-server packets arriving from the server. This is not a broker being
            eccentric, it is a stream that is being read at the wrong offset. */
-        mqtt_fail(proxy, MESH_STR_LINK_MQTT_PROTOCOL, proxy->host);
+        mqtt_fail_own(proxy, MESH_MQTT_REFUSAL_PROTOCOL, 0U);
         return false;
     }
 }
@@ -483,7 +554,7 @@ static bool mqtt_consume(struct mesh_mqtt_proxy *proxy) {
             break; /* not a whole header yet */
         }
         if (decoded < 0) {
-            mqtt_fail(proxy, MESH_STR_LINK_MQTT_PROTOCOL, proxy->host);
+            mqtt_fail_own(proxy, MESH_MQTT_REFUSAL_PROTOCOL, 0U);
             return false;
         }
 
@@ -562,15 +633,14 @@ static void mqtt_read_ready(struct mesh_mqtt_proxy *proxy) {
             return;
         }
         if (got == -ENOTCONN || got == -ECONNRESET) {
-            mqtt_fail(proxy, MESH_STR_LINK_CLOSED, proxy->host);
+            mqtt_fail_net(proxy, INKWELL_NET_CLOSED, 0);
             return;
         }
         if (got < 0) {
             if (proxy->tls.state != NULL) {
-                mqtt_fail(proxy, MESH_STR_LINK_TLS, proxy->host,
-                          mesh_tls_client_error(&proxy->tls));
+                mqtt_fail_tls(proxy);
             } else {
-                mqtt_fail(proxy, MESH_STR_LINK_UNREACHABLE, proxy->host, strerror(-got));
+                mqtt_fail_net(proxy, inkwell_net_reason_from_errno(got), got);
             }
             return;
         }
@@ -613,11 +683,11 @@ static void mqtt_send_connect(struct mesh_mqtt_proxy *proxy) {
     uint8_t packet[MESH_MQTT_CLIENT_ID_MAX + MESH_MQTT_USERNAME_MAX + MESH_MQTT_PASSWORD_MAX + 32U];
     const int len = inkwell_mqtt_encode_connect(packet, sizeof packet, &params);
     if (len < 0) {
-        mqtt_fail(proxy, MESH_STR_LINK_MQTT_BAD_ADDRESS, proxy->config.address);
+        mqtt_fail_own(proxy, MESH_MQTT_REFUSAL_BAD_ADDRESS, 0U);
         return;
     }
     if (mqtt_queue(proxy, packet, (size_t)len) < 0) {
-        mqtt_fail(proxy, MESH_STR_LINK_UNREACHABLE, proxy->host, strerror(ENOBUFS));
+        mqtt_fail_net(proxy, inkwell_net_reason_from_errno(ENOBUFS), -ENOBUFS);
         return;
     }
     proxy->deadline_ms = proxy->now_ms + MESH_MQTT_HANDSHAKE_TIMEOUT_MS;
@@ -633,7 +703,7 @@ static void mqtt_secure(struct mesh_mqtt_proxy *proxy) {
         return;
     }
     if (rc < 0) {
-        mqtt_fail(proxy, MESH_STR_LINK_TLS, proxy->host, mesh_tls_client_error(&proxy->tls));
+        mqtt_fail_tls(proxy);
         return;
     }
     mqtt_send_connect(proxy);
@@ -647,7 +717,7 @@ static void mqtt_finish_connect(struct mesh_mqtt_proxy *proxy) {
         error = errno;
     }
     if (error != 0) {
-        mqtt_fail(proxy, MESH_STR_LINK_UNREACHABLE, proxy->host, strerror(error));
+        mqtt_fail_net(proxy, inkwell_net_reason_from_errno(error), -error);
         return;
     }
 
@@ -664,11 +734,11 @@ static void mqtt_finish_connect(struct mesh_mqtt_proxy *proxy) {
     const int started =
         mesh_tls_client_start(&proxy->tls, proxy->fd, proxy->host, proxy->ca_bundle);
     if (started == -ENOTSUP) {
-        mqtt_fail(proxy, MESH_STR_LINK_MQTT_NO_TLS, proxy->host);
+        mqtt_fail_own(proxy, MESH_MQTT_REFUSAL_NO_TLS, 0U);
         return;
     }
     if (started < 0) {
-        mqtt_fail(proxy, MESH_STR_LINK_TLS, proxy->host, mesh_tls_client_error(&proxy->tls));
+        mqtt_fail_tls(proxy);
         return;
     }
     proxy->deadline_ms = proxy->now_ms + MESH_MQTT_HANDSHAKE_TIMEOUT_MS;
@@ -693,7 +763,7 @@ static int mqtt_fd_callback(int fd, uint32_t events, void *userdata) {
     }
 
     if ((events & (uint32_t)(EPOLLERR | EPOLLHUP)) != 0U) {
-        mqtt_fail(proxy, MESH_STR_LINK_CLOSED, proxy->host);
+        mqtt_fail_net(proxy, INKWELL_NET_CLOSED, 0);
         return 0;
     }
 
@@ -719,7 +789,7 @@ static int mqtt_fd_callback(int fd, uint32_t events, void *userdata) {
         }
         const int flushed = mqtt_flush(proxy);
         if (flushed < 0) {
-            mqtt_fail(proxy, MESH_STR_LINK_CLOSED, proxy->host);
+            mqtt_fail_net(proxy, INKWELL_NET_CLOSED, 0);
             return 0;
         }
     }
@@ -734,7 +804,7 @@ static void mqtt_open(struct mesh_mqtt_proxy *proxy, const struct sockaddr_stora
                       socklen_t address_len) {
     const int fd = socket(address->ss_family, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
     if (fd < 0) {
-        mqtt_fail(proxy, MESH_STR_LINK_UNREACHABLE, proxy->host, strerror(errno));
+        mqtt_fail_net(proxy, inkwell_net_reason_from_errno(errno), -errno);
         return;
     }
     /* MQTT packets are small and a reply often follows a request immediately, which is exactly
@@ -745,7 +815,7 @@ static void mqtt_open(struct mesh_mqtt_proxy *proxy, const struct sockaddr_stora
     if (connect(fd, (const struct sockaddr *)address, address_len) < 0 && errno != EINPROGRESS) {
         const int error = errno;
         close(fd);
-        mqtt_fail(proxy, MESH_STR_LINK_UNREACHABLE, proxy->host, strerror(error));
+        mqtt_fail_net(proxy, inkwell_net_reason_from_errno(error), -error);
         return;
     }
 
@@ -755,7 +825,7 @@ static void mqtt_open(struct mesh_mqtt_proxy *proxy, const struct sockaddr_stora
                             proxy) < 0) {
         proxy->fd = -1;
         close(fd);
-        mqtt_fail(proxy, MESH_STR_LINK_UNREACHABLE, proxy->host, strerror(ENOMEM));
+        mqtt_fail_net(proxy, inkwell_net_reason_from_errno(ENOMEM), -ENOMEM);
         return;
     }
     proxy->fd_registered = true;
@@ -770,20 +840,17 @@ static void mqtt_on_resolved(void *userdata, const struct inkwell_resolve_result
     if (proxy->state != MESH_MQTT_PROXY_RESOLVING) {
         return;
     }
-    switch (result->outcome) {
-    case INKWELL_RESOLVE_OK:
+    if (result->outcome == INKWELL_RESOLVE_OK) {
         mqtt_open(proxy, &result->address, result->address_len);
         return;
-    case INKWELL_RESOLVE_NOT_FOUND:
-        mqtt_fail(proxy, MESH_STR_LINK_UNKNOWN_HOST, proxy->host);
-        return;
-    case INKWELL_RESOLVE_TIMED_OUT:
-    case INKWELL_RESOLVE_FAILED:
-    case INKWELL_RESOLVE_OUTCOME_COUNT:
-    default:
-        mqtt_fail(proxy, MESH_STR_LINK_LOOKUP_FAILED, proxy->host);
-        return;
     }
+    /*
+     * Three outcomes into three reasons, one for one. The switch this replaces folded the
+     * timeout in with the failure because both said the same sentence; inkwell keeps them apart
+     * and what to say about them is now somebody else's decision, so there is nothing left here
+     * to collapse. `error` is the EAI_* the child got - worth logging, not worth showing.
+     */
+    mqtt_fail_net(proxy, inkwell_net_reason_from_resolve(result->outcome), result->error);
 }
 
 /*
@@ -793,7 +860,7 @@ static void mqtt_on_resolved(void *userdata, const struct inkwell_resolve_result
  * there is exactly one description of what an attempt is.
  */
 static void mqtt_attempt(struct mesh_mqtt_proxy *proxy) {
-    proxy->last_error[0] = '\0';
+    memset(&proxy->failure, 0, sizeof proxy->failure);
 
     struct sockaddr_storage address;
     socklen_t address_len = 0;
@@ -805,7 +872,7 @@ static void mqtt_attempt(struct mesh_mqtt_proxy *proxy) {
     const int started = inkwell_resolve_start(&proxy->resolve, proxy->host, proxy->port,
                                               mqtt_on_resolved, proxy, proxy->now_ms);
     if (started < 0) {
-        mqtt_fail(proxy, MESH_STR_LINK_LOOKUP_FAILED, proxy->host);
+        mqtt_fail_net(proxy, INKWELL_NET_LOOKUP_FAILED, started);
         return;
     }
     proxy->deadline_ms = 0U; /* the resolver enforces its own */
@@ -914,7 +981,7 @@ int mesh_mqtt_proxy_start(struct mesh_mqtt_proxy *proxy,
     proxy->userdata = userdata;
     proxy->failures = 0U;
     proxy->retry_at_ms = 0U;
-    proxy->last_error[0] = '\0';
+    memset(&proxy->failure, 0, sizeof proxy->failure);
     (void)inkwell_str_copy(proxy->host, sizeof proxy->host, host);
 
     /*
@@ -953,7 +1020,7 @@ void mesh_mqtt_proxy_stop(struct mesh_mqtt_proxy *proxy) {
         }
     }
     mqtt_close(proxy);
-    proxy->last_error[0] = '\0';
+    memset(&proxy->failure, 0, sizeof proxy->failure);
     proxy->failures = 0U;
     proxy->retry_at_ms = 0U;
     mqtt_set_state(proxy, MESH_MQTT_PROXY_OFF);
@@ -1020,7 +1087,7 @@ int mesh_mqtt_proxy_publish(struct mesh_mqtt_proxy *proxy, const char *topic,
         /* A failed *write* is fatal to the connection; a full buffer is not. The first says the
            socket is gone, the second says it has not drained yet. */
         if (queued != -ENOSPC) {
-            mqtt_fail(proxy, MESH_STR_LINK_CLOSED, proxy->host);
+            mqtt_fail_net(proxy, INKWELL_NET_CLOSED, 0);
         }
         return queued;
     }
@@ -1058,7 +1125,7 @@ void mesh_mqtt_proxy_tick(struct mesh_mqtt_proxy *proxy, uint64_t now_ms) {
     /* A deadline on every state that is waiting for the far end to do something, so none of them
        can park on a socket that will never answer. */
     if (proxy->deadline_ms != 0U && now_ms >= proxy->deadline_ms) {
-        mqtt_fail(proxy, MESH_STR_LINK_TIMEOUT, proxy->host);
+        mqtt_fail_net(proxy, INKWELL_NET_TIMED_OUT, 0);
         return;
     }
 
@@ -1085,7 +1152,7 @@ void mesh_mqtt_proxy_tick(struct mesh_mqtt_proxy *proxy, uint64_t now_ms) {
        carried out of WiFi range, most often. */
     if (proxy->last_heard_ms != 0U && now_ms > proxy->last_heard_ms &&
         now_ms - proxy->last_heard_ms > MESH_MQTT_SILENCE_TIMEOUT_MS) {
-        mqtt_fail(proxy, MESH_STR_LINK_TIMEOUT, proxy->host);
+        mqtt_fail_net(proxy, INKWELL_NET_TIMED_OUT, 0);
         return;
     }
 
@@ -1093,7 +1160,7 @@ void mesh_mqtt_proxy_tick(struct mesh_mqtt_proxy *proxy, uint64_t now_ms) {
         uint8_t packet[2];
         const int len = inkwell_mqtt_encode_empty(packet, sizeof packet, INKWELL_MQTT_PINGREQ);
         if (len > 0 && mqtt_queue(proxy, packet, (size_t)len) < 0) {
-            mqtt_fail(proxy, MESH_STR_LINK_CLOSED, proxy->host);
+            mqtt_fail_net(proxy, INKWELL_NET_CLOSED, 0);
         }
     }
 }
@@ -1112,31 +1179,35 @@ struct mesh_mqtt_proxy_stats mesh_mqtt_proxy_stats(const struct mesh_mqtt_proxy 
     return proxy != NULL ? proxy->stats : empty;
 }
 
-const char *mesh_mqtt_proxy_last_error(const struct mesh_mqtt_proxy *proxy) {
-    return proxy != NULL ? proxy->last_error : "";
+const char *mesh_mqtt_failure_name(const struct mesh_mqtt_proxy_failure *failure) {
+    if (failure == NULL) {
+        return "none";
+    }
+    /* The refusal half first: it is the one that is set when `net.reason` is still
+       INKWELL_NET_OK, and "ok" is not something a failed attempt should ever log. */
+    if (failure->refusal != MESH_MQTT_REFUSAL_NONE) {
+        return mqtt_refusal_name(failure->refusal);
+    }
+    if (failure->net.reason == INKWELL_NET_OK) {
+        return "none";
+    }
+    return inkwell_net_reason_name(failure->net.reason);
+}
+
+struct mesh_mqtt_proxy_failure mesh_mqtt_proxy_failure(const struct mesh_mqtt_proxy *proxy) {
+    struct mesh_mqtt_proxy_failure none;
+    memset(&none, 0, sizeof none);
+    return proxy != NULL ? proxy->failure : none;
+}
+
+const char *mesh_mqtt_proxy_tls_error(const struct mesh_mqtt_proxy *proxy) {
+    return proxy != NULL ? mesh_tls_client_error(&proxy->tls) : "";
+}
+
+const char *mesh_mqtt_proxy_address(const struct mesh_mqtt_proxy *proxy) {
+    return proxy != NULL ? proxy->config.address : "";
 }
 
 const char *mesh_mqtt_proxy_host(const struct mesh_mqtt_proxy *proxy) {
     return proxy != NULL ? proxy->host : "";
-}
-
-const char *mesh_mqtt_proxy_state_string(enum mesh_mqtt_proxy_state state) {
-    switch (state) {
-    case MESH_MQTT_PROXY_OFF:
-        return inkcell_str(MESH_STR_MQTT_STATE_OFF);
-    case MESH_MQTT_PROXY_RESOLVING:
-        return inkcell_str(MESH_STR_MQTT_STATE_RESOLVING);
-    case MESH_MQTT_PROXY_CONNECTING:
-        return inkcell_str(MESH_STR_MQTT_STATE_CONNECTING);
-    case MESH_MQTT_PROXY_SECURING:
-        return inkcell_str(MESH_STR_MQTT_STATE_SECURING);
-    case MESH_MQTT_PROXY_GREETING:
-        return inkcell_str(MESH_STR_MQTT_STATE_GREETING);
-    case MESH_MQTT_PROXY_READY:
-        return inkcell_str(MESH_STR_MQTT_STATE_READY);
-    case MESH_MQTT_PROXY_WAITING:
-    case MESH_MQTT_PROXY_STATE_COUNT:
-    default:
-        return inkcell_str(MESH_STR_MQTT_STATE_WAITING);
-    }
 }
