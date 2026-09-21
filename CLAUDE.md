@@ -196,7 +196,7 @@ publish and read back when that node's detail screen is opened. See
 | Contact sharing | `src/proto/contact_url.c` (the `meshtastic.org/v/#` link), `src/core/session/contact_share.c` (this radio's record out, a stranger's in), `src/ui/views/contact_share.c` (what the two screens say); the wrapper both links share is `src/proto/link_url.h` |
 | App glue | `src/app/*.c` - the composition root: lifecycle/link, `_actions`, `_publish`, `_settings` |
 | Self-update | `src/core/update/updater.c`, `version.c`; HTTPS is `src/core/net/fetch.c` over inkwell's `inkwell/codec/http.h` |
-| MQTT proxy | inkwell's `inkwell/codec/mqtt.h` (the 3.1.1 wire format), `src/proto/mqtt_topic.c` (where a mesh lives on a broker), `src/core/net/mqtt_proxy.c` (one broker connection), `src/core/net/tls_client.c` (Mbed TLS on the loop), `src/app/app_mqtt.c` (whether to hold one at all) |
+| MQTT proxy | inkwell's `inkwell/codec/mqtt.h` (the 3.1.1 wire format), `src/proto/mqtt_topic.c` (where a mesh lives on a broker), `src/core/net/mqtt_proxy.c` (one broker connection; it names no word a user reads), `src/core/net/tls_client.c` (Mbed TLS on the loop), `src/ui/tables/mqtt.c` (what this client says about either), `src/app/app_mqtt.c` (whether to hold one at all) |
 | Radio firmware | `src/core/firmware/` - `firmware*.c`, `uf2.c`, `esp_image.c`, `src/transport/*/{usb_msc,ble_ota,ble_hci}.c` - the *other* binary |
 | UI | `src/ui/` - see the group map below; **`fb` is the device UI** |
 | UI toolkit | `third_party/inkcell/` - theme, fonts, glyphs, layout, widgets, the fb backend, input |
@@ -220,7 +220,7 @@ its include path - see the flat-header rule above.
 | `src/ui/store/` | the records and the three files on the card, plus `history.c` and `preferences.c` |
 | `src/ui/nav/` | where the reader is and what a press does: `nav*.c`, `route.c`, `controller.c` |
 | `src/ui/settings/` | the settings model: fields, rows, the codec |
-| `src/ui/tables/` | the vocabulary tables a screen names rather than spells out |
+| `src/ui/tables/` | the vocabulary tables a screen names rather than spells out, including `mqtt.c`, which is what a broker failure and a connection state are *called* |
 | `src/ui/views/` | per-screen view models - what a screen says, not how it is drawn |
 | `src/ui/backends/` | the renderers. **`fb` is the device UI** |
 | `src/core/session/` | the Meshtastic conversation: session, messaging, admin, trust, sharing |

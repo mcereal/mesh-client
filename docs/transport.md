@@ -35,6 +35,10 @@ ways. "No such host" used to be in `catalog.def` twice — once under `LINK_TCP_
 and a reason belongs to nobody. Four entries collapsed to one set the day the transports had a
 reason to report instead.
 
+The MQTT proxy reports the same way, through its own table in `src/ui/tables/mqtt.c`; what is
+left over there is the broker's answer rather than the network's. See
+[`docs/mqtt.md`](mqtt.md#how-a-failure-reaches-the-user).
+
 Two things the table settles rather than inkwell:
 
 - **Collapsing.** inkwell keeps a lookup that failed apart from a lookup that timed out, because

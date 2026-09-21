@@ -119,6 +119,7 @@ add_library(meshclient_core
     src/i18n/net_reason.c
     src/i18n/strings.c
     src/i18n/locale_es.c
+    src/ui/tables/mqtt.c
     src/ui/tables/trend.c
     src/ui/tables/actions.c
     src/ui/views/channel_share.c

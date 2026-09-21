@@ -32,6 +32,41 @@ The codec/client split is the same one `stream_framing.c` and `stream_link.c` al
 format is a pure function over bytes, testable against hand-written packets with no broker in
 sight, and the client is the state machine that owns a socket.
 
+## How a failure reaches the user
+
+`src/core/net/mqtt_proxy.c` names no word a user reads. A failed attempt is recorded as
+`struct mesh_mqtt_proxy_failure` and the sentence is written later, by
+[`src/ui/tables/mqtt.c`](../src/ui/tables/mqtt.c), when a screen asks.
+
+The record is two halves and exactly one is set:
+
+| Half | What it covers |
+|---|---|
+| `net` — `struct inkwell_net_failure` | getting to a host: unreachable, unknown host, lookup failed or timed out, the connect or the silence deadline, a peer that closed, TLS. inkwell's vocabulary, shared with the TCP link |
+| `refusal` — `enum mesh_mqtt_refusal` | what the broker answered, and the two this refuses before asking: a bad address, a build with no TLS, a peer not speaking MQTT, and the CONNACK codes |
+
+The split is not tidiness. Everything in the left column is the same for any link that reaches a
+network, which is why it is inkwell's and why the TCP transport reports in the same words; the
+right column is MQTT's and stays with MQTT. When the proxy moves down to inkwell — it has no
+application include left that would stop it — the left half goes as it is, and the table that
+turns either half into a sentence stays here.
+
+Two things need something the record cannot hold, and both are taken off the proxy at the moment
+the sentence is written:
+
+- **A bad address is shown as the address**, not the host. A target that would not parse never
+  became a host, so `mesh_mqtt_proxy_host()` is empty exactly when that sentence is needed.
+- **A TLS failure carries `mesh_mqtt_proxy_tls_error()`** — Mbed TLS's own account of what went
+  wrong. No number rebuilds it, and it is untranslated for the same reason the C library's word
+  for an errno is.
+
+**The log is not the screen.** `mqtt_back_off()` writes an ASCII reason name and its detail —
+`broker.example: unreachable: Connection refused; retrying in 5000ms` — and never a catalog
+entry. That line used to print the translated sentence, so a device set to Spanish wrote its
+retry loop in Spanish and produced a bug report the maintainer could not read. `docs/i18n.md`
+already said log lines are not translated; this is the code agreeing with it.
+
+
 ## Publishing is a relay; subscribing is not
 
 The two directions are not symmetric, and the asymmetry is the reason `src/proto/mqtt_topic.c`
@@ -335,7 +370,9 @@ remove by hand are simply gone from 4.x's default and no longer appear in either
 key exchanges without forward secrecy, and the sub-256-bit NIST curves.
 
 Kept, against the instinct to trim: `MBEDTLS_ERROR_C`, because `mbedtls_strerror()` is what turns
-a handshake failure into a sentence and `-0x2700` on a handheld is not an answer; and
+a handshake failure into a sentence and `-0x2700` on a handheld is not an answer — it is also
+the one diagnostic `mesh_mqtt_proxy_tls_error()` exists to carry, for the reason in
+[how a failure reaches the user](#how-a-failure-reaches-the-user) below; and
 `MBEDTLS_SSL_SRV_C`, because it is what lets `tests/suites/mqtt_proxy.c` stand a real broker on a
 loopback socket and complete a real handshake against it, with no network and no `openssl` in the
 container.
