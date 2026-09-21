@@ -81,6 +81,7 @@ void fb_render_help(struct mesh_ui_backend_fb_state *state, const struct mesh_ui
     }
 
     struct fb_list list = fb_list_begin_heights(layout, topic.count, nav->help_cursor, heights);
+    inkcell_fb_list_glide(state, &list, FB_LIST_HELP);
     uint32_t i;
     while (fb_list_next(&list, &i)) {
         fb_list_note(state, &list, i, headings[i], bodies[i]);

@@ -150,6 +150,7 @@ void fb_render_picker(struct mesh_ui_backend_fb_state *state,
     }
 
     struct fb_list list = fb_list_begin(layout, count, nav->picker_cursor);
+    inkcell_fb_list_glide(state, &list, FB_LIST_PICKER);
     char name[96];
     char initials[MESH_UI_CONVERSATION_INITIALS_MAX];
     uint32_t i;

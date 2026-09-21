@@ -143,6 +143,32 @@ enum fb_overlay_id {
 };
 
 /*
+ * What this client's lists are called, for the glide.
+ *
+ * A window that moves a row moves every row in it by a row's height at once, which on this
+ * panel is the whole body flicking; a list that glides draws its content displaced and eases
+ * the displacement to nothing. What has to be remembered between frames is where the window
+ * was, and there is one slot - so an id is only ever compared with the one the last frame left
+ * behind, and a list that finds another's window in it takes it over without gliding.
+ *
+ * One per list rather than one per screen, because two of these screens draw a different list
+ * depending on what is open: a list inheriting the window of the one it replaced would glide
+ * from a place it was never at. Zero is not a list.
+ */
+enum fb_list_id {
+    FB_LIST_CONVERSATIONS = 1,
+    FB_LIST_NODES,
+    FB_LIST_NODE_DETAIL,
+    FB_LIST_NODE_ACTIONS,
+    FB_LIST_WAYPOINTS,
+    FB_LIST_WAYPOINT_DETAIL,
+    FB_LIST_DEVICES,
+    FB_LIST_SETTINGS,
+    FB_LIST_HELP,
+    FB_LIST_PICKER,
+};
+
+/*
  * The last question a layer was asked to put, so that it can finish leaving after the nav has
  * stopped asking it.
  *

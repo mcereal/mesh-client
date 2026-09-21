@@ -331,6 +331,7 @@ void fb_render_settings(struct mesh_ui_backend_fb_state *state,
     }
     struct fb_list list = fb_list_begin_cards(layout, count, nav->cursor[MESH_UI_SCREEN_SETTINGS],
                                               heights, any_cards ? cards : NULL);
+    inkcell_fb_list_glide(state, &list, FB_LIST_SETTINGS);
     uint32_t i;
     while (fb_list_next(&list, &i)) {
         if (section_open) {

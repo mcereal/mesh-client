@@ -278,6 +278,7 @@ void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
                                    &span);
     struct fb_list list = fb_list_begin_focus(layout, count, cursor, heights, cards, span.first,
                                               span.last, span.card);
+    inkcell_fb_list_glide(state, &list, FB_LIST_NODE_DETAIL);
     uint32_t i;
     while (fb_list_next(&list, &i)) {
         const struct mesh_ui_node_item *item = &items[i];
@@ -446,6 +447,7 @@ void fb_render_node_actions(struct mesh_ui_backend_fb_state *state,
        false for exactly the rows this screen is made of. */
     struct fb_list list =
         fb_list_begin_focus(layout, count, cursor, heights, cards, cursor, cursor, false);
+    inkcell_fb_list_glide(state, &list, FB_LIST_NODE_ACTIONS);
     uint32_t i;
     while (fb_list_next(&list, &i)) {
         fb_node_action_row(state, &list, i, &items[i], node->node_id);
@@ -594,6 +596,7 @@ void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
     }
     struct fb_list list =
         fb_list_begin_heights(layout, rows, nav->cursor[MESH_UI_SCREEN_NODES], node_heights);
+    inkcell_fb_list_glide(state, &list, FB_LIST_NODES);
     /*
      * The filter and the sort are one control group, drawn as two Settings field rows.
      *
