@@ -380,7 +380,7 @@ static void fb_map_draw_attribution(const struct mesh_ui_backend_fb_state *state
        width taken as a cell count times the nominal advance puts a proportional run either
        over the edge or short of it. */
     const int width = inkcell_fb_text_width(state, attribution, scale);
-    const int height = (int)fb_font(state)->height * scale;
+    const int height = inkcell_scale_px((int)fb_font(state)->height, scale);
     const int x = body->x + body->w - pad - width;
     const int y = body->y + body->h - pad - height;
     /* Half the body, so a long credit is dropped rather than drawn across the ruler it would
@@ -1011,7 +1011,7 @@ void fb_render_map(struct mesh_ui_backend_fb_state *state, const struct mesh_ui_
          * a rectangle a line above where it landed - collisions tested against nothing, and once
          * there was a halo to draw, a halo in the wrong place.
          */
-        const int text_h = (int)fb_font(state)->height * scale;
+        const int text_h = inkcell_scale_px((int)fb_font(state)->height, scale);
         const struct fb_map_box label = {
             .x = cx + radius + fb_space_at(state, MESH_UI_SPACE_XS, scale),
             .y = cy - text_h / 2,
