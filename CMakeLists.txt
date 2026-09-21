@@ -105,7 +105,6 @@ add_library(meshclient_core
     src/transport/tcp/tcp_transport.c
     src/proto/channel_url.c
     src/proto/contact_url.c
-    src/proto/mqtt_packet.c
     src/proto/mqtt_topic.c
     src/proto/stream_framing.c
     src/geo/coords.c
@@ -117,8 +116,6 @@ add_library(meshclient_core
     src/map/tile_image.c
     src/map/viewport.c
     src/utils/crash.c
-    src/utils/inflate.c
-    src/utils/wuffs.c
     src/i18n/strings.c
     src/i18n/locale_es.c
     src/ui/tables/trend.c
@@ -243,20 +240,6 @@ endif()
 target_link_libraries(meshclient_core PUBLIC inkcell::inkcell inkwell::inkwell)
 target_link_libraries(meshclient_core PRIVATE meshclient_options)
 
-# Wuffs, for the map's PNG decoder and the firmware download's inflate. See
-# third_party/wuffs/README.md for what it is and why it is a vendored file rather than a
-# submodule; third_party/wuffs-config/mesh_wuffs.h is what keeps the thirty codecs this client
-# does not want out of the binary.
-#
-# Only src/utils/wuffs.c compiles it, and it is the one source in the tree built without this
-# project's warning flags: 3.6 MB of generated C has no business answering to -Wconversion, and
-# -w after the target's options is what turns them off for that file alone. Sanitizers are
-# deliberately *not* turned off with them - a decoder is exactly what they are for, and one that
-# claims to be memory-safe by construction is exactly the claim worth checking.
-target_include_directories(meshclient_core PRIVATE
-    ${PROJECT_SOURCE_DIR}/third_party/wuffs
-    ${PROJECT_SOURCE_DIR}/third_party/wuffs-config)
-set_source_files_properties(src/utils/wuffs.c PROPERTIES COMPILE_OPTIONS "-w")
 
 find_package(Threads REQUIRED)
 find_package(PkgConfig)

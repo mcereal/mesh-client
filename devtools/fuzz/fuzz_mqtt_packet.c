@@ -26,7 +26,7 @@
  * Build with scripts/fuzz.sh; see docs/testing.md.
  */
 
-#include "mesh/proto/mqtt_packet.h"
+#include "inkwell/codec/mqtt.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -58,9 +58,9 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
             continue;
         }
 
-        struct mesh_mqtt_header header;
+        struct inkwell_mqtt_header header;
         memset(&header, 0xEE, sizeof header);
-        const int decoded = mesh_mqtt_decode_header(data + at, size - at, &header);
+        const int decoded = inkwell_mqtt_decode_header(data + at, size - at, &header);
         if (decoded == 0) {
             break; /* not a whole header yet, which is not an error */
         }
@@ -71,10 +71,10 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         if ((size_t)decoded != header.header_len) {
             fuzz_broke("the return value and header_len disagree");
         }
-        if (header.header_len < 2U || header.header_len > MESH_MQTT_HEADER_MAX) {
+        if (header.header_len < 2U || header.header_len > INKWELL_MQTT_HEADER_MAX) {
             fuzz_broke("a header of an impossible length");
         }
-        if (header.remaining > MESH_MQTT_REMAINING_MAX) {
+        if (header.remaining > INKWELL_MQTT_REMAINING_MAX) {
             fuzz_broke("a remaining length past what four bytes can express");
         }
         /* The header was decoded from what is left, so it cannot claim to be longer than that. */
@@ -94,10 +94,10 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         const uint8_t *body = data + at + header.header_len;
         const size_t body_len = header.remaining;
 
-        if (header.type == MESH_MQTT_PUBLISH) {
-            struct mesh_mqtt_incoming message;
+        if (header.type == INKWELL_MQTT_PUBLISH) {
+            struct inkwell_mqtt_incoming message;
             memset(&message, 0xEE, sizeof message);
-            if (mesh_mqtt_decode_publish(header.flags, body, body_len, &message) == 0) {
+            if (inkwell_mqtt_decode_publish(header.flags, body, body_len, &message) == 0) {
                 if (message.topic_len > body_len || message.payload_len > body_len) {
                     fuzz_broke("a topic or payload longer than the body it came from");
                 }
@@ -121,14 +121,14 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
                     checksum += message.payload[i];
                 }
             }
-        } else if (header.type == MESH_MQTT_CONNACK) {
+        } else if (header.type == INKWELL_MQTT_CONNACK) {
             uint8_t code = 0U;
             bool present = false;
-            (void)mesh_mqtt_decode_connack(body, body_len, &code, &present);
-        } else if (header.type == MESH_MQTT_SUBACK) {
+            (void)inkwell_mqtt_decode_connack(body, body_len, &code, &present);
+        } else if (header.type == INKWELL_MQTT_SUBACK) {
             uint16_t id = 0U;
             uint8_t code = 0U;
-            (void)mesh_mqtt_decode_suback(body, body_len, &id, &code);
+            (void)inkwell_mqtt_decode_suback(body, body_len, &id, &code);
         }
 
         at += header.header_len + header.remaining;

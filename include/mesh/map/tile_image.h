@@ -11,14 +11,19 @@ extern "C" {
 #endif
 
 /*
- * A tile's bytes turned into pixels: the one function that knows what a PNG is.
+ * A tile's bytes turned into pixels: this client's one fixed size, over inkwell/codec/png.h.
  *
- * It is a seam rather than a wrapper. Nothing above it names Wuffs, includes its header or knows a
- * PNG from a JPEG - what this promises is a fixed-size block of pixels in a stated order, which is
- * the only thing a cache or a blit has any business relying on. The decoder behind it was chosen by
- * measurement: twice stb_image's speed on the palette tiles a map pack is built from, 1.24 ms
- * against 2.41 for one tile on the Brick, and memory-safe by construction, which matters more than
- * the speed does for a decoder whose input is a file this client did not write.
+ * The decode is not here and never was this client's - a PNG is bytes in, bytes out. What is
+ * here is everything that makes it a *tile*: the size, the destination a cache budgets in, and
+ * the two static buffers a 256-square decode at four bytes a pixel needs. That is the seam, and
+ * src/map/tile_image.c is three lines of it.
+ *
+ * Nothing above this names a PNG or knows one from a JPEG - what this promises is a fixed-size
+ * block of pixels in a stated order, which is the only thing a cache or a blit has any business
+ * relying on. The decoder behind it was chosen by measurement: twice stb_image's speed on the
+ * palette tiles a map pack is built from, 1.24 ms against 2.41 for one tile on the Brick, and
+ * memory-safe by construction, which matters more than the speed does for a decoder whose input
+ * is a file this client did not write.
  *
  * There is no decode *state* in this API and no handle to open. The client is one epoll loop
  * with no threads in it, so there is exactly one decode in flight ever, and a handle would be a
@@ -27,6 +32,10 @@ extern "C" {
 
 /*
  * Four bytes a pixel, in the order **blue, green, red, alpha**.
+ *
+ * INKWELL_PNG_PIXEL_BYTES by another name, kept here because a tile's size is arithmetic this
+ * client does and a caller of it should not have to reach past this header for one of the two
+ * factors.
  *
  * Stated in bytes rather than as a word, because a word is a claim about the host's endianness
  * and this is a claim about memory. On this hardware - aarch64, little-endian - reading four of

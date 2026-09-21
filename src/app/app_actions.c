@@ -22,6 +22,7 @@
 
 #include "app_internal.h"
 
+#include "inkwell/runtime/crash.h"
 #include "mesh/core/version.h"
 #include "mesh/geo/coords.h"
 #include "mesh/i18n/strings.h"
@@ -1586,7 +1587,7 @@ static void on_discard_crash_report(struct mesh_app *app, const struct mesh_ui_a
      * discard that somehow failed leaves the notice standing rather than hiding a report
      * that is still on the card.
      */
-    const int result = mesh_crash_discard();
+    const int result = inkwell_crash_discard();
     if (result < 0) {
         inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_CRASH_DISCARD_FAILED, -result);
         mesh_ui_store_set_toast(&app->ui_store, now, toast);

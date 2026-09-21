@@ -21,7 +21,6 @@ Refresh one by fetching it again, not by editing it.
 | `zip_member_t114_mt_json_2.7.26.bin` | that member's local header and deflated bytes, as served | 2026-09-10 | nothing — 597 bytes covering both |
 | `firmware_release_2.7.26.json` | `…/download/v2.7.26.54e0d8d/firmware-2.7.26.54e0d8d.json` | 2026-09-10 | nothing — all 129 targets |
 | `tile_palette.png` | `devtools/tile_bench/gen_tiles.py`, the palette set's median tile at zoom 16 | 2026-09-11 | nothing — all 9,391 bytes |
-| `tile_truecolour.png` | the same generator's 24-bit set, its median tile | 2026-09-11 | nothing — all 25,868 bytes |
 
 `firmware_list.json` is the one that is not whole, because the served document is 155 KB and
 almost all of it is release notes. Kept: the first four entries of each channel, every key each
@@ -85,18 +84,24 @@ around. So these come from
 [`devtools/tile_bench/gen_tiles.py`](../../devtools/tile_bench/gen_tiles.py) — the generator
 that was written for the *device measurement*, months before there was a decoder in the client
 to test, and whose output the Brick decoded to produce the numbers that chose Wuffs. It is an
-independent encoder (Python's `zlib` and the PNG spec) that knows nothing about
-`src/map/tile_image.c`, which is the property the rule above is actually about.
+independent encoder (Python's `zlib` and the PNG spec) that knows nothing about the decoder,
+which is the property the rule above is actually about.
 
-One of each colour type, because a pack can hold either and they take different paths through
-the decoder: `tile_palette.png` is 8-bit indexed, which is what the pack builder quantises to
-and what the measurement's 1.24 ms is for, and `tile_truecolour.png` is 24-bit RGB, the
-bracket the roadmap kept for a hillshaded style at 2.09 ms. Each is its set's **median** tile by
-size rather than a hand-picked one, so neither is easy by selection.
+`tile_palette.png` is 8-bit indexed, which is what the pack builder quantises to and what the
+measurement's 1.24 ms is for. It is its set's **median** tile by size rather than a hand-picked
+one, so it is not easy by selection.
 
-`tile_palette.png` carries the property the colour test rests on: of its 31 palette entries,
-**not one has its red and blue swapped also present**. That is what lets
-`tests/suites/tile_image.c` check the decoder's channel order against the file rather than
+**Both this and the 24-bit tile beside it also live in inkwell**, as `png_palette_256.png` and
+`png_truecolour_256.png`, and the decoder cases moved there with the decoder. What is tested
+against the copy here is the *seam* — that this client asks for its own tile size, that a tile
+lands in exactly the block a cache budgets for one, and that the two static buffers behind
+`mesh_map_tile_decode()` are the footprint the tile cache was sized against. The 24-bit one is
+not here any more, because the claim it held — that the other colour type reaches the swizzler
+by a different path — is the decoder's and is inkwell's to keep.
+
+The palette copy carries a property inkwell's colour test rests on: of its 31 palette entries,
+**not one has its red and blue swapped also present**. That is what lets inkwell's
+`tests/suites/codec_png.c` check the decoder's channel order against the file rather than
 against itself — every decoded pixel's RGB has to appear in the PNG's own `PLTE` chunk, which a
 swizzle that swapped two channels fails on every non-grey pixel in the picture. The alternative
 was asserting the colours a working decoder happened to produce, which is the fixture-tests-the-

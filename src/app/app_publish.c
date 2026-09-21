@@ -17,6 +17,7 @@
 
 #include "mesh/i18n/strings.h"
 
+#include "inkwell/runtime/crash.h"
 #include "mesh/core/channel_share.h"
 #include "mesh/core/contact_share.h"
 #include "mesh/core/version.h"
@@ -1015,8 +1016,8 @@ static void mesh_app_flatten_client_info(const struct mesh_app *app,
      * after a crash could never answer "where would it go" - which is the question somebody
      * setting up a bug report asks first.
      */
-    (void)mesh_crash_report_path(dst->crash_report_path, sizeof dst->crash_report_path);
-    dst->crash_report_waiting = mesh_crash_report_waiting();
+    (void)inkwell_crash_report_path(dst->crash_report_path, sizeof dst->crash_report_path);
+    dst->crash_report_waiting = inkwell_crash_report_waiting();
 
     /* The theme every backend draws this frame with. Published like any other fact about the
        client, so the switch needs no path of its own down to the renderer. */
@@ -2167,10 +2168,10 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
      */
     struct mesh_ui_route place;
     mesh_ui_route_of(&app->ui_store.nav, &place);
-    char route_note[MESH_CRASH_NOTE_MAX];
+    char route_note[INKWELL_CRASH_NOTE_MAX];
     mesh_ui_route_describe(&place, route_note, sizeof route_note);
-    mesh_crash_note(MESH_CRASH_NOTE_ROUTE, route_note);
-    mesh_crash_note(MESH_CRASH_NOTE_TRANSPORT, transport_status);
+    inkwell_crash_note(MESH_CRASH_NOTE_ROUTE, route_note);
+    inkwell_crash_note(MESH_CRASH_NOTE_TRANSPORT, transport_status);
 
     struct mesh_ui_device ui_devices[MESH_UI_MAX_DEVICES];
     memset(ui_devices, 0, sizeof(ui_devices));

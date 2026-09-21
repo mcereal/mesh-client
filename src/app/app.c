@@ -16,6 +16,7 @@
 
 #include "app_internal.h"
 
+#include "inkwell/runtime/crash.h"
 #include "mesh/core/version.h"
 #include "mesh/i18n/strings.h"
 #include "mesh/transport/ble.h"
@@ -817,15 +818,15 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
             const int crash_result = mesh_crash_install(data_dir);
             if (crash_result < 0) {
                 inkwell_log_warn("app", "Crash reports unavailable: %d", crash_result);
-            } else if (mesh_crash_report_waiting()) {
+            } else if (inkwell_crash_report_waiting()) {
                 inkwell_log_warn("app", "A crash report from a previous run is waiting in %s",
                                  data_dir);
             }
         }
         /* inkcell writes the log; the crash reporter wants a copy of each line, and says so
            rather than being called by name from inside the logger. */
-        inkwell_log_set_sink(mesh_crash_log_line);
-        mesh_crash_note(MESH_CRASH_NOTE_VERSION, mesh_version_string());
+        inkwell_log_set_sink(inkwell_crash_log_line);
+        inkwell_crash_note(MESH_CRASH_NOTE_VERSION, mesh_version_string());
 
         int handshake_written =
             snprintf(app->ui_handshake_cache_path, sizeof(app->ui_handshake_cache_path),

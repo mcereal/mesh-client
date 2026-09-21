@@ -19,11 +19,11 @@
 #include "fuzz_state.h"
 
 #include "inkwell/codec/http.h"
+#include "inkwell/codec/mqtt.h"
 #include "mesh/core/message.h"
 #include "mesh/core/session.h"
 #include "mesh/proto/channel_url.h"
 #include "mesh/proto/contact_url.h"
-#include "mesh/proto/mqtt_packet.h"
 #include "mesh/proto/stream_framing.h"
 
 #include <pb_encode.h>
@@ -615,25 +615,25 @@ static void write_mqtt_seeds(void) {
     uint8_t packet[1024];
     static const uint8_t payload[] = {0x08U, 0x01U, 0x12U, 0x04U, 't', 'e', 's', 't'};
 
-    int len = mesh_mqtt_encode_publish(packet, sizeof packet, "msh/US/2/e/LongFast/!abcd1234",
-                                       payload, sizeof payload, false);
+    int len = inkwell_mqtt_encode_publish(packet, sizeof packet, "msh/US/2/e/LongFast/!abcd1234",
+                                          payload, sizeof payload, false);
     if (len > 0) {
         write_seed("mqtt_packet", "publish", packet, (size_t)len);
     }
 
-    struct mesh_mqtt_connect connect;
+    struct inkwell_mqtt_connect connect;
     memset(&connect, 0, sizeof connect);
     connect.client_id = "meshclient-!abcd1234";
     connect.username = "meshdev";
     connect.password = "large4cats";
     connect.keepalive_s = 60U;
     connect.clean_session = true;
-    len = mesh_mqtt_encode_connect(packet, sizeof packet, &connect);
+    len = inkwell_mqtt_encode_connect(packet, sizeof packet, &connect);
     if (len > 0) {
         write_seed("mqtt_packet", "connect", packet, (size_t)len);
     }
 
-    len = mesh_mqtt_encode_subscribe(packet, sizeof packet, 1U, "msh/US/2/e/LongFast/#");
+    len = inkwell_mqtt_encode_subscribe(packet, sizeof packet, 1U, "msh/US/2/e/LongFast/#");
     if (len > 0) {
         write_seed("mqtt_packet", "subscribe", packet, (size_t)len);
     }
@@ -657,12 +657,12 @@ static void write_mqtt_seeds(void) {
        decoder is supposed to notice. */
     uint8_t stream[512];
     size_t at = 0U;
-    len = mesh_mqtt_encode_publish(stream, sizeof stream, "msh/US/2/e/LongFast/!1", payload,
-                                   sizeof payload, false);
+    len = inkwell_mqtt_encode_publish(stream, sizeof stream, "msh/US/2/e/LongFast/!1", payload,
+                                      sizeof payload, false);
     if (len > 0) {
         at = (size_t)len;
-        len = mesh_mqtt_encode_publish(stream + at, sizeof stream - at, "msh/US/2/e/LongFast/!2",
-                                       payload, sizeof payload, true);
+        len = inkwell_mqtt_encode_publish(stream + at, sizeof stream - at, "msh/US/2/e/LongFast/!2",
+                                          payload, sizeof payload, true);
         if (len > 0) {
             write_seed("mqtt_packet", "two_publishes", stream, at + (size_t)len);
         }

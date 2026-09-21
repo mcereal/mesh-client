@@ -6,8 +6,8 @@
 #include "inkwell/base/log.h"
 #include "inkwell/base/text.h"
 
+#include "inkwell/codec/mqtt.h"
 #include "mesh/i18n/strings.h"
-#include "mesh/proto/mqtt_packet.h"
 #include "mesh/transport/tcp.h"
 
 #include <errno.h>
@@ -266,8 +266,8 @@ static void mqtt_pump_subscribes(struct mesh_mqtt_proxy *proxy) {
        in a packet capture next to the filter it belongs to. */
     const uint16_t id = (uint16_t)(proxy->filter_sent + 1U);
     uint8_t packet[MESH_MQTT_FILTER_MAX + 16U];
-    const int len =
-        mesh_mqtt_encode_subscribe(packet, sizeof packet, id, proxy->filters[proxy->filter_sent]);
+    const int len = inkwell_mqtt_encode_subscribe(packet, sizeof packet, id,
+                                                  proxy->filters[proxy->filter_sent]);
     if (len < 0) {
         inkwell_log_warn("mqtt", "Cannot subscribe to %s: %d", proxy->filters[proxy->filter_sent],
                          len);
@@ -298,11 +298,11 @@ static bool mqtt_on_connack(struct mesh_mqtt_proxy *proxy, const uint8_t *body, 
         return false;
     }
     uint8_t code = 0U;
-    if (mesh_mqtt_decode_connack(body, len, &code, NULL) != 0) {
+    if (inkwell_mqtt_decode_connack(body, len, &code, NULL) != 0) {
         mqtt_fail(proxy, MESH_STR_LINK_MQTT_PROTOCOL, proxy->host);
         return false;
     }
-    if (code != MESH_MQTT_CONNACK_ACCEPTED) {
+    if (code != INKWELL_MQTT_CONNACK_ACCEPTED) {
         /*
          * Told apart because they are three different things for the user to do. A wrong
          * password is a setting on the radio; a client that is not permitted is an account on
@@ -311,13 +311,13 @@ static bool mqtt_on_connack(struct mesh_mqtt_proxy *proxy, const uint8_t *body, 
          * could act on anyway.
          */
         switch (code) {
-        case MESH_MQTT_CONNACK_BAD_CREDENTIALS:
+        case INKWELL_MQTT_CONNACK_BAD_CREDENTIALS:
             mqtt_fail(proxy, MESH_STR_LINK_MQTT_BAD_LOGIN, proxy->host);
             break;
-        case MESH_MQTT_CONNACK_NOT_AUTHORISED:
+        case INKWELL_MQTT_CONNACK_NOT_AUTHORISED:
             mqtt_fail(proxy, MESH_STR_LINK_MQTT_NOT_ALLOWED, proxy->host);
             break;
-        case MESH_MQTT_CONNACK_UNAVAILABLE:
+        case INKWELL_MQTT_CONNACK_UNAVAILABLE:
             mqtt_fail(proxy, MESH_STR_LINK_MQTT_BROKER_BUSY, proxy->host);
             break;
         default:
@@ -351,7 +351,7 @@ static bool mqtt_on_connack(struct mesh_mqtt_proxy *proxy, const uint8_t *body, 
 static bool mqtt_on_suback(struct mesh_mqtt_proxy *proxy, const uint8_t *body, size_t len) {
     uint16_t id = 0U;
     uint8_t code = 0U;
-    if (mesh_mqtt_decode_suback(body, len, &id, &code) != 0) {
+    if (inkwell_mqtt_decode_suback(body, len, &id, &code) != 0) {
         mqtt_fail(proxy, MESH_STR_LINK_MQTT_PROTOCOL, proxy->host);
         return false;
     }
@@ -361,7 +361,7 @@ static bool mqtt_on_suback(struct mesh_mqtt_proxy *proxy, const uint8_t *body, s
         inkwell_log_debug("mqtt", "Unexpected SUBACK %u", (unsigned)id);
         return true;
     }
-    if (code == MESH_MQTT_SUBACK_FAILURE) {
+    if (code == INKWELL_MQTT_SUBACK_FAILURE) {
         /*
          * One refused filter, not a refused connection. The broker's ACLs may permit some
          * topics and not others, and dropping the link would lose the ones that work - but this
@@ -379,8 +379,8 @@ static bool mqtt_on_suback(struct mesh_mqtt_proxy *proxy, const uint8_t *body, s
 
 static bool mqtt_on_publish(struct mesh_mqtt_proxy *proxy, uint8_t flags, const uint8_t *body,
                             size_t len) {
-    struct mesh_mqtt_incoming message;
-    if (mesh_mqtt_decode_publish(flags, body, len, &message) != 0) {
+    struct inkwell_mqtt_incoming message;
+    if (inkwell_mqtt_decode_publish(flags, body, len, &message) != 0) {
         mqtt_fail(proxy, MESH_STR_LINK_MQTT_PROTOCOL, proxy->host);
         return false;
     }
@@ -412,34 +412,34 @@ static bool mqtt_on_publish(struct mesh_mqtt_proxy *proxy, uint8_t flags, const 
 }
 
 /* Handles one whole packet. False means the connection is gone and the buffers with it. */
-static bool mqtt_handle(struct mesh_mqtt_proxy *proxy, const struct mesh_mqtt_header *header,
+static bool mqtt_handle(struct mesh_mqtt_proxy *proxy, const struct inkwell_mqtt_header *header,
                         const uint8_t *body) {
     switch (header->type) {
-    case MESH_MQTT_CONNACK:
+    case INKWELL_MQTT_CONNACK:
         return mqtt_on_connack(proxy, body, header->remaining);
-    case MESH_MQTT_SUBACK:
+    case INKWELL_MQTT_SUBACK:
         return mqtt_on_suback(proxy, body, header->remaining);
-    case MESH_MQTT_PUBLISH:
+    case INKWELL_MQTT_PUBLISH:
         return mqtt_on_publish(proxy, header->flags, body, header->remaining);
-    case MESH_MQTT_PINGRESP:
+    case INKWELL_MQTT_PINGRESP:
         /* Nothing to do: having arrived at all is the whole content, and `last_heard_ms` was
            already moved by the read that produced it. */
         return true;
-    case MESH_MQTT_PUBACK:
-    case MESH_MQTT_PUBREC:
-    case MESH_MQTT_PUBREL:
-    case MESH_MQTT_PUBCOMP:
-    case MESH_MQTT_UNSUBACK:
+    case INKWELL_MQTT_PUBACK:
+    case INKWELL_MQTT_PUBREC:
+    case INKWELL_MQTT_PUBREL:
+    case INKWELL_MQTT_PUBCOMP:
+    case INKWELL_MQTT_UNSUBACK:
         /* Answers to things this client never sends. Ignored rather than fatal - a broker that
            volunteers one is odd, not broken, and the stream is still in sync. */
         inkwell_log_debug("mqtt", "Ignoring an unexpected packet type %u", (unsigned)header->type);
         return true;
-    case MESH_MQTT_CONNECT:
-    case MESH_MQTT_SUBSCRIBE:
-    case MESH_MQTT_UNSUBSCRIBE:
-    case MESH_MQTT_PINGREQ:
-    case MESH_MQTT_DISCONNECT:
-    case MESH_MQTT_PACKET_NONE:
+    case INKWELL_MQTT_CONNECT:
+    case INKWELL_MQTT_SUBSCRIBE:
+    case INKWELL_MQTT_UNSUBSCRIBE:
+    case INKWELL_MQTT_PINGREQ:
+    case INKWELL_MQTT_DISCONNECT:
+    case INKWELL_MQTT_PACKET_NONE:
     default:
         /* Client-to-server packets arriving from the server. This is not a broker being
            eccentric, it is a stream that is being read at the wrong offset. */
@@ -477,8 +477,8 @@ static bool mqtt_consume(struct mesh_mqtt_proxy *proxy) {
             continue;
         }
 
-        struct mesh_mqtt_header header;
-        const int decoded = mesh_mqtt_decode_header(proxy->in + at, proxy->in_len - at, &header);
+        struct inkwell_mqtt_header header;
+        const int decoded = inkwell_mqtt_decode_header(proxy->in + at, proxy->in_len - at, &header);
         if (decoded == 0) {
             break; /* not a whole header yet */
         }
@@ -596,7 +596,7 @@ static void mqtt_read_ready(struct mesh_mqtt_proxy *proxy) {
 /* Sends the CONNECT and waits for the answer. Called once the transport - socket or TLS
    session - is ready to carry it. */
 static void mqtt_send_connect(struct mesh_mqtt_proxy *proxy) {
-    struct mesh_mqtt_connect params;
+    struct inkwell_mqtt_connect params;
     memset(&params, 0, sizeof params);
     params.client_id = proxy->config.client_id;
     params.username = proxy->config.username[0] != '\0' ? proxy->config.username : NULL;
@@ -611,7 +611,7 @@ static void mqtt_send_connect(struct mesh_mqtt_proxy *proxy) {
     params.clean_session = true;
 
     uint8_t packet[MESH_MQTT_CLIENT_ID_MAX + MESH_MQTT_USERNAME_MAX + MESH_MQTT_PASSWORD_MAX + 32U];
-    const int len = mesh_mqtt_encode_connect(packet, sizeof packet, &params);
+    const int len = inkwell_mqtt_encode_connect(packet, sizeof packet, &params);
     if (len < 0) {
         mqtt_fail(proxy, MESH_STR_LINK_MQTT_BAD_ADDRESS, proxy->config.address);
         return;
@@ -947,7 +947,7 @@ void mesh_mqtt_proxy_stop(struct mesh_mqtt_proxy *proxy) {
      */
     if (proxy->state == MESH_MQTT_PROXY_READY) {
         uint8_t packet[2];
-        const int len = mesh_mqtt_encode_empty(packet, sizeof packet, MESH_MQTT_DISCONNECT);
+        const int len = inkwell_mqtt_encode_empty(packet, sizeof packet, INKWELL_MQTT_DISCONNECT);
         if (len > 0) {
             (void)mqtt_raw_write(proxy, packet, (size_t)len);
         }
@@ -1002,14 +1002,14 @@ int mesh_mqtt_proxy_publish(struct mesh_mqtt_proxy *proxy, const char *topic,
     /* A wildcard is legal in a filter and forbidden in a published topic, and a broker's answer
        to one is to drop the connection rather than to say so - which would present as a link
        that flaps whenever one particular channel has traffic. */
-    if (!mesh_mqtt_topic_is_publishable(topic)) {
+    if (!inkwell_mqtt_topic_is_publishable(topic)) {
         proxy->stats.dropped++;
         return -EINVAL;
     }
 
     uint8_t packet[MESH_MQTT_PACKET_MAX];
     const int encoded =
-        mesh_mqtt_encode_publish(packet, sizeof packet, topic, payload, len, retained);
+        inkwell_mqtt_encode_publish(packet, sizeof packet, topic, payload, len, retained);
     if (encoded < 0) {
         proxy->stats.dropped++;
         return encoded == -ENOSPC ? -EMSGSIZE : encoded;
@@ -1091,7 +1091,7 @@ void mesh_mqtt_proxy_tick(struct mesh_mqtt_proxy *proxy, uint64_t now_ms) {
 
     if (proxy->next_ping_ms != 0U && now_ms >= proxy->next_ping_ms) {
         uint8_t packet[2];
-        const int len = mesh_mqtt_encode_empty(packet, sizeof packet, MESH_MQTT_PINGREQ);
+        const int len = inkwell_mqtt_encode_empty(packet, sizeof packet, INKWELL_MQTT_PINGREQ);
         if (len > 0 && mqtt_queue(proxy, packet, (size_t)len) < 0) {
             mqtt_fail(proxy, MESH_STR_LINK_MQTT_DROPPED, proxy->host);
         }
