@@ -10,21 +10,21 @@
  * it is the twin of.
  */
 
-#include "fb_widgets.h"
+#include "inkcell/ui/layout.h"
+#include "inkcell/ui/widgets.h"
+#include "inkcell/utils/text.h"
+#include "inkcell/utils/time.h"
 
 #include "fb_screens_internal.h"
 
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/history.h"
-#include "mesh/ui/layout.h"
 #include "mesh/ui/map.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/node_detail.h"
 #include "mesh/ui/nodes.h"
 #include "mesh/ui/trust.h"
 #include "mesh/ui/units.h"
-#include "mesh/utils/text.h"
-#include "mesh/utils/time.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -48,10 +48,10 @@ static void fb_node_title(const struct mesh_ui_node_summary *node, char *out, si
                        : node->short_name[0] != '\0' ? node->short_name
                                                      : NULL;
     if (name != NULL) {
-        mesh_str_copy(out, out_len, name);
+        inkcell_str_copy(out, out_len, name);
         return;
     }
-    mesh_str_format(out, out_len, MESH_STR_NODE_VAL_USER_ID_HEX, node->node_id);
+    inkcell_str_format(out, out_len, MESH_STR_NODE_VAL_USER_ID_HEX, node->node_id);
 }
 
 /*
@@ -62,7 +62,7 @@ static void fb_node_title(const struct mesh_ui_node_summary *node, char *out, si
  * by a second copy of this would be a second opinion about what a destructive row looks like,
  * which is the drift node_detail.c's `tone` and `icon` fields exist to prevent one layer down.
  */
-static void fb_node_action_row(struct mesh_ui_backend_fb_state *state, struct fb_list *list,
+static void fb_node_action_row(struct inkcell_backend_fb_state *state, struct inkcell_fb_list *list,
                                uint32_t index, const struct mesh_ui_node_item *item,
                                uint32_t node_id) {
     /*
@@ -85,15 +85,15 @@ static void fb_node_action_row(struct mesh_ui_backend_fb_state *state, struct fb
      *
      * The verb is unique within the frame - a node offers each of the three at most
      * once - and the node is what makes two nodes' switches different controls, which
-     * is the pair `struct fb_switch` asks for. The id is folded rather than truncated
+     * is the pair `struct inkcell_fb_switch` asks for. The id is folded rather than truncated
      * so two node numbers agreeing in their low bits are not one control; it sits above
      * everything the settings fields and this screen's meters can reach.
      */
     const uint32_t node_key = (node_id ^ (node_id >> 20)) & 0x000FFFFFU;
-    struct fb_switch sw = {
+    struct inkcell_fb_switch sw = {
         .id = 0x05000000U | ((uint32_t)item->action << 20) | node_key,
-        .family = item->tone == (uint8_t)MESH_UI_TONE_WARNING ? MESH_UI_FAMILY_WARNING
-                                                              : MESH_UI_FAMILY_PRIMARY,
+        .family = item->tone == (uint8_t)INKCELL_TONE_WARNING ? INKCELL_FAMILY_WARNING
+                                                              : INKCELL_FAMILY_PRIMARY,
         .on = item->on,
     };
     /*
@@ -105,36 +105,39 @@ static void fb_node_action_row(struct mesh_ui_backend_fb_state *state, struct fb
      * long before it reads the word - but it is in a container at the leading edge,
      * where Material puts it and where it does not compete with the label beside it.
      * Which family the disc wears is the row's own tone, read by the component; see
-     * FB_LEADING_TONAL.
+     * INKCELL_FB_LEADING_TONAL.
      */
-    const struct fb_list_item row = {
-        .leading = {.kind = FB_LEADING_TONAL, .icon = (enum mesh_ui_icon)item->icon},
+    const struct inkcell_fb_list_item row = {
+        .leading = {.kind = INKCELL_FB_LEADING_TONAL, .icon = (enum inkcell_icon)item->icon},
         .text = item->label,
-        .tone = (enum mesh_ui_tone)item->tone,
-        .trailing = item->toggle ? (struct fb_trailing){.kind = FB_TRAILING_SWITCH, .sw = &sw}
-                                 : (struct fb_trailing){.kind = FB_TRAILING_ICON,
-                                                        .icon = MESH_UI_ICON_CHEVRON},
+        .tone = (enum inkcell_tone)item->tone,
+        .trailing = item->toggle ? (struct inkcell_fb_trailing){.kind = INKCELL_FB_TRAILING_SWITCH,
+                                                                .sw = &sw}
+                                 : (struct inkcell_fb_trailing){.kind = INKCELL_FB_TRAILING_ICON,
+                                                                .icon = INKCELL_ICON_CHEVRON},
         /* A row whose press cannot be walked back gets the leading bar as well as the
            ink, in its own tone - the accent edge is drawn in the row's family, so the
            one row on the screen that deletes something is the one row marked in red on
            both of its edges. */
         .label_plain = true,
-        .accent_edge = item->tone == (uint8_t)MESH_UI_TONE_ERROR,
+        .accent_edge = item->tone == (uint8_t)INKCELL_TONE_ERROR,
     };
-    fb_list_item(state, list, index, &row);
+    inkcell_fb_list_item(state, list, index, &row);
 }
 
-/* Mutable state, as every screen drawing a fb_list_item is: an item may carry a control
+/* Mutable state, as every screen drawing a inkcell_fb_list_item is: an item may carry a control
    that animates, and where such a control has got to is kept on the backend. */
-void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
-                           const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
+void fb_render_node_detail(struct inkcell_backend_fb_state *state,
+                           const struct mesh_ui_snapshot *snapshot,
+                           struct inkcell_fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
     const struct mesh_ui_handshake_state *hs = &snapshot->handshake;
     const struct mesh_ui_node_summary *node = mesh_ui_node_detail_find(hs, nav->node_detail_node);
     if (node == NULL) {
-        fb_draw_app_bar(state, layout,
-                        &(const struct fb_app_bar){.title = mesh_str(MESH_STR_TAB_NODES)});
-        fb_draw_empty(state, layout, MESH_UI_ICON_NODES, mesh_str(MESH_STR_NODES_GONE));
+        inkcell_fb_draw_app_bar(
+            state, layout,
+            &(const struct inkcell_fb_app_bar){.title = inkcell_str(MESH_STR_TAB_NODES)});
+        inkcell_fb_draw_empty(state, layout, INKCELL_ICON_NODES, inkcell_str(MESH_STR_NODES_GONE));
         return;
     }
 
@@ -167,25 +170,27 @@ void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
     if (!is_self && node->last_heard != 0U) {
         /* The same shorthand the Nodes list puts against the row this was opened from, so the
            two screens cannot report the node's age in two different spellings. */
-        fb_format_age(node->last_heard, heard, sizeof heard);
+        inkcell_fb_format_age(node->last_heard, heard, sizeof heard);
     }
-    fb_draw_app_bar(state, layout,
-                    &(const struct fb_app_bar){.title = title,
-                                               .badge = heard[0] != '\0' ? heard : NULL,
-                                               .badge_family = MESH_UI_FAMILY_SECONDARY});
+    inkcell_fb_draw_app_bar(
+        state, layout,
+        &(const struct inkcell_fb_app_bar){.title = title,
+                                           .badge = heard[0] != '\0' ? heard : NULL,
+                                           .badge_family = INKCELL_FAMILY_SECONDARY});
 
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
     const uint32_t count = mesh_ui_node_detail_build(
-        node, is_self, mesh_time_wall_s(),
+        node, is_self, inkcell_time_wall_s(),
         mesh_ui_snapshot_traceroute_view(snapshot, node->node_id), &snapshot->handshake,
         &snapshot->history, mesh_ui_units_imperial(snapshot->settings.units), items,
         MESH_UI_NODE_ITEMS_MAX);
     if (count == 0U) {
-        fb_draw_empty(state, layout, MESH_UI_ICON_NODES, mesh_str(MESH_STR_NODES_DETAIL_EMPTY));
+        inkcell_fb_draw_empty(state, layout, INKCELL_ICON_NODES,
+                              inkcell_str(MESH_STR_NODES_DETAIL_EMPTY));
         return;
     }
 
-    const size_t label_cols = fb_field_label_cols(state, layout, 16U);
+    const size_t label_cols = inkcell_fb_field_label_cols(state, layout, 16U);
     /*
      * The one list on the device whose rows are not all the same height, and the reason the
      * window learned to count steps: a reading gets a bar with the row to itself, so the
@@ -214,14 +219,14 @@ void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
      * at its first, with the heading centred between them naming the group it opens. It is also
      * what every settings list on a phone does with a section label, and it still costs no rows.
      *
-     * The ordinal wraps well below FB_LIST_NO_CARD: the row budget is 128 and a node's headings
-     * are a dozen at the very most, so the counter cannot reach it.
+     * The ordinal wraps well below INKCELL_FB_LIST_NO_CARD: the row budget is 128 and a node's
+     * headings are a dozen at the very most, so the counter cannot reach it.
      */
     uint8_t cards[MESH_UI_NODE_ITEMS_MAX];
     /*
-     * Starting at 0 rather than at FB_LIST_NO_CARD, which is what gives the row above the first
-     * heading a surface to stand on. That row is the one that opens the node's verbs, and it is
-     * deliberately unheaded - a heading names a group the reader can skip past and this is one
+     * Starting at 0 rather than at INKCELL_FB_LIST_NO_CARD, which is what gives the row above the
+     * first heading a surface to stand on. That row is the one that opens the node's verbs, and it
+     * is deliberately unheaded - a heading names a group the reader can skip past and this is one
      * row - so without this it would be the only thing on a card screen drawn on the bare panel,
      * and the only row whose highlight had no edge around it.
      *
@@ -237,7 +242,7 @@ void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
         heights[r] = mesh_ui_node_item_steps(&items[r]);
         if (items[r].kind == MESH_UI_NODE_ROW_HEADING) {
             card = (uint8_t)(card + 1U);
-            cards[r] = FB_LIST_NO_CARD;
+            cards[r] = INKCELL_FB_LIST_NO_CARD;
             continue;
         }
         cards[r] = card;
@@ -276,11 +281,11 @@ void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
     struct mesh_ui_node_span span = {.first = cursor, .last = cursor, .card = false};
     (void)mesh_ui_node_detail_span(items, count, layout->rows, cursor < count ? cursor : count - 1U,
                                    &span);
-    struct fb_list list = fb_list_begin_focus(layout, count, cursor, heights, cards, span.first,
-                                              span.last, span.card);
+    struct inkcell_fb_list list = inkcell_fb_list_begin_focus(layout, count, cursor, heights, cards,
+                                                              span.first, span.last, span.card);
     inkcell_fb_list_glide(state, &list, FB_LIST_NODE_DETAIL);
     uint32_t i;
-    while (fb_list_next(&list, &i)) {
+    while (inkcell_fb_list_next(&list, &i)) {
         const struct mesh_ui_node_item *item = &items[i];
         if (item->kind == MESH_UI_NODE_ROW_HEADING) {
             /*
@@ -295,9 +300,10 @@ void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
              * way, and it is what gives a hundred and twenty rows of facts a set of landmarks
              * the eye can find without reading any of them.
              */
-            fb_list_subheader_icon(state, &list, i, item->label,
-                                   (struct fb_leading){.kind = FB_LEADING_TONAL,
-                                                       .icon = (enum mesh_ui_icon)item->icon});
+            inkcell_fb_list_subheader_icon(
+                state, &list, i, item->label,
+                (struct inkcell_fb_leading){.kind = INKCELL_FB_LEADING_TONAL,
+                                            .icon = (enum inkcell_icon)item->icon});
         } else if (item->kind == MESH_UI_NODE_ROW_ACTION) {
             fb_node_action_row(state, &list, i, item, node->node_id);
         } else if (item->kind == MESH_UI_NODE_ROW_METER) {
@@ -310,13 +316,13 @@ void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
              * reason a meter row there is: a reading is a fact rather than a control, so it has
              * no field of its own to be identified by.
              */
-            struct fb_meter meter = {
+            struct inkcell_fb_meter meter = {
                 .id = 0x04000000U | i,
-                .kind = FB_METER_DETERMINATE,
+                .kind = INKCELL_FB_METER_DETERMINATE,
                 .value = item->number,
                 .scale = item->scale,
                 .band = item->banded ? &item->band : NULL,
-                .tone = MESH_UI_TONE_SUCCESS,
+                .tone = INKCELL_TONE_SUCCESS,
             };
             /*
              * And, where the client has been watching one, which way the reading has been
@@ -329,21 +335,21 @@ void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
              * A trend given the full-width treatment would have taken a third step and said the
              * word "battery" three times down one screen.
              */
-            struct mesh_ui_polyline points;
-            mesh_ui_series_project(item->trend, item->scale, &points);
-            struct fb_sparkline trend = {.points = &points, .tone = MESH_UI_TONE_PRIMARY};
-            const struct fb_list_item row = {
+            struct inkcell_polyline points;
+            inkcell_series_project(item->trend, item->scale, &points);
+            struct inkcell_fb_sparkline trend = {.points = &points, .tone = INKCELL_TONE_PRIMARY};
+            const struct inkcell_fb_list_item row = {
                 .label = item->label,
                 .label_cols = label_cols,
                 /* The question recedes and the answer keeps the row - see the INFO row below,
                    which is the same statement about the same kind of row. */
                 .label_quiet = true,
                 .value = item->value,
-                .tone = MESH_UI_TONE_NORMAL,
+                .tone = INKCELL_TONE_NORMAL,
                 .meter = &meter,
-                .trailing = {.kind = FB_TRAILING_SPARK, .spark = &trend},
+                .trailing = {.kind = INKCELL_FB_TRAILING_SPARK, .spark = &trend},
             };
-            fb_list_item(state, &list, i, &row);
+            inkcell_fb_list_item(state, &list, i, &row);
         } else {
             /*
              * A stated fact, and the two halves of it are not one tier.
@@ -361,19 +367,19 @@ void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
              * and the value is merely where it stands, so there the label leads. Which of the
              * two a row is, is the row's to say.
              */
-            const struct fb_list_item row = {
+            const struct inkcell_fb_list_item row = {
                 .label = item->label,
                 .label_cols = label_cols,
                 .label_quiet = true,
                 .value = item->value,
                 /*
                  * The row's own ink rather than a flat normal, which every row here still gets:
-                 * MESH_UI_TONE_NORMAL is 0, so a builder that says nothing says exactly what
+                 * INKCELL_TONE_NORMAL is 0, so a builder that says nothing says exactly what
                  * this used to hard-code. What it buys is the one fact on this screen that is a
                  * *judgement* rather than a reading - a key somebody proved is theirs, which is
                  * worth a colour for the reason no temperature is.
                  */
-                .tone = (enum mesh_ui_tone)item->tone,
+                .tone = (enum inkcell_tone)item->tone,
                 /*
                  * And, on the handful of rows whose answer is one of a set rather than a figure,
                  * the shape that says so. Which rows those are is node_detail.c's to decide -
@@ -382,7 +388,7 @@ void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
                  */
                 .value_chip = item->chip,
             };
-            fb_list_item(state, &list, i, &row);
+            inkcell_fb_list_item(state, &list, i, &row);
         }
     }
 }
@@ -403,8 +409,9 @@ void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
  * Settings tab's shape for a level inside a level and says whose verbs these are without
  * spending a row on it.
  */
-void fb_render_node_actions(struct mesh_ui_backend_fb_state *state,
-                            const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
+void fb_render_node_actions(struct inkcell_backend_fb_state *state,
+                            const struct mesh_ui_snapshot *snapshot,
+                            struct inkcell_fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
     const struct mesh_ui_handshake_state *hs = &snapshot->handshake;
     /*
@@ -447,10 +454,10 @@ void fb_render_node_actions(struct mesh_ui_backend_fb_state *state,
     char name[96];
     fb_node_title(node, name, sizeof name);
     const struct inkcell_fb_sheet sheet = {.title = name,
-                                           .detail = mesh_str(MESH_STR_NODE_HEAD_ACTIONS)};
+                                           .detail = inkcell_str(MESH_STR_NODE_HEAD_ACTIONS)};
 
     struct inkcell_overlay_frame frame;
-    struct fb_layout inner;
+    struct inkcell_fb_layout inner;
     if (!fb_sheet_begin(state, layout, FB_OVERLAY_NODE_ACTIONS, up, &sheet,
                         (int)count * layout->line, &frame, &inner)) {
         return;
@@ -467,18 +474,18 @@ void fb_render_node_actions(struct mesh_ui_backend_fb_state *state,
     /* The cursor is a row here and never a card, so the span is the row itself: a verb is a
        control and gets the row highlight, which is the `card` half of the detail's span being
        false for exactly the rows this screen is made of. */
-    struct fb_list list =
-        fb_list_begin_focus(&inner, count, cursor, heights, cards, cursor, cursor, false);
+    struct inkcell_fb_list list =
+        inkcell_fb_list_begin_focus(&inner, count, cursor, heights, cards, cursor, cursor, false);
     inkcell_fb_list_glide(state, &list, FB_LIST_NODE_ACTIONS);
     uint32_t i;
-    while (fb_list_next(&list, &i)) {
+    while (inkcell_fb_list_next(&list, &i)) {
         fb_node_action_row(state, &list, i, &items[i], node->node_id);
     }
     fb_sheet_end(state, &frame);
 }
 
-void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
-                     const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
+void fb_render_nodes(struct inkcell_backend_fb_state *state,
+                     const struct mesh_ui_snapshot *snapshot, struct inkcell_fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
     if (nav->node_detail_open) {
         /* The chart over the detail, the way the detail is drawn over the list. The reading is
@@ -501,11 +508,13 @@ void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
         return;
     }
     if (!snapshot->handshake_valid || snapshot->handshake.node_count == 0U) {
-        fb_draw_app_bar(state, layout,
-                        &(const struct fb_app_bar){.title = mesh_str(MESH_STR_TAB_NODES)});
-        fb_draw_empty(state, layout, MESH_UI_ICON_NODES,
-                      mesh_str(snapshot->handshake_valid ? MESH_STR_NODES_EMPTY_WAITING
-                                                         : MESH_STR_NODES_EMPTY_DISCONNECTED));
+        inkcell_fb_draw_app_bar(
+            state, layout,
+            &(const struct inkcell_fb_app_bar){.title = inkcell_str(MESH_STR_TAB_NODES)});
+        inkcell_fb_draw_empty(state, layout, INKCELL_ICON_NODES,
+                              inkcell_str(snapshot->handshake_valid
+                                              ? MESH_STR_NODES_EMPTY_WAITING
+                                              : MESH_STR_NODES_EMPTY_DISCONNECTED));
         return;
     }
 
@@ -556,16 +565,16 @@ void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
         known = held;
     }
     if (known > count) {
-        mesh_str_format(title, sizeof title, MESH_STR_NODES_TITLE_OF, count, known);
+        inkcell_str_format(title, sizeof title, MESH_STR_NODES_TITLE_OF, count, known);
     } else if (off_radio > 0U) {
         /* The count the Status screen shows is the radio's; this one is ours, and after a
            NodeDB reset the two are nothing alike. Saying how much of the gap is nodes only we
            remember is what keeps "81 here, 2 there" from reading as a bug. */
-        mesh_str_format(title, sizeof title, MESH_STR_NODES_TITLE_OFF_RADIO, count, off_radio);
+        inkcell_str_format(title, sizeof title, MESH_STR_NODES_TITLE_OFF_RADIO, count, off_radio);
     } else {
-        fb_title_count(title, sizeof title, mesh_str(MESH_STR_TAB_NODES), count, 0U);
+        inkcell_fb_title_count(title, sizeof title, inkcell_str(MESH_STR_TAB_NODES), count, 0U);
     }
-    fb_draw_app_bar(state, layout, &(const struct fb_app_bar){.title = title});
+    inkcell_fb_draw_app_bar(state, layout, &(const struct inkcell_fb_app_bar){.title = title});
 
     const uint32_t me = hs->has_my_info ? hs->my_info.node_num : 0U;
     /* The discs come from the nav layer, which wants a store rather than the handshake alone -
@@ -600,10 +609,10 @@ void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
     const bool sort_unavailable = !mesh_ui_node_sort_available(hs, sort);
     char sort_value[40];
     if (sort_unavailable) {
-        mesh_str_format(sort_value, sizeof sort_value, MESH_STR_NODES_SORT_NO_FIX,
-                        mesh_str(mesh_ui_node_sort_label(sort)));
+        inkcell_str_format(sort_value, sizeof sort_value, MESH_STR_NODES_SORT_NO_FIX,
+                           inkcell_str(mesh_ui_node_sort_label(sort)));
     } else {
-        mesh_str_copy(sort_value, sizeof sort_value, mesh_str(mesh_ui_node_sort_label(sort)));
+        inkcell_str_copy(sort_value, sizeof sort_value, inkcell_str(mesh_ui_node_sort_label(sort)));
     }
     const uint32_t rows = count + MESH_UI_NODES_LEAD_ROWS + (nothing_matched ? 1U : 0U);
     /*
@@ -621,8 +630,8 @@ void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
     for (uint32_t r = 0; r < rows && r < (uint32_t)(sizeof node_heights); ++r) {
         node_heights[r] = (r == MESH_UI_NODES_FILTER_ROW || r == MESH_UI_NODES_SORT_ROW) ? 1U : 2U;
     }
-    struct fb_list list =
-        fb_list_begin_heights(layout, rows, nav->cursor[MESH_UI_SCREEN_NODES], node_heights);
+    struct inkcell_fb_list list = inkcell_fb_list_begin_heights(
+        layout, rows, nav->cursor[MESH_UI_SCREEN_NODES], node_heights);
     inkcell_fb_list_glide(state, &list, FB_LIST_NODES);
     /*
      * The filter and the sort are one control group, drawn as two Settings field rows.
@@ -640,15 +649,15 @@ void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
      * stands down for its segmented button whenever that button is what gets drawn - which is
      * the row's own answer rather than this screen's, because the fallback to a word is exactly
      * the shape that still needs the mark. Nothing here is a new component - it is
-     * `struct fb_list_item` with the slots the Settings tab's enums already use.
+     * `struct inkcell_fb_list_item` with the slots the Settings tab's enums already use.
      *
      * One label column for both rows, measured from the longer of the two words, so the group
      * reads as one block rather than as two rows that happen to adjoin.
      */
-    const size_t control_label_cols = fb_field_label_cols(state, layout, 6U);
+    const size_t control_label_cols = inkcell_fb_field_label_cols(state, layout, 6U);
     /*
      * The filter gets the whole set and the sort gets the chosen word, and that split is a
-     * measurement rather than a preference - it is FB_SEGMENTED_MAX, stated once in the
+     * measurement rather than a preference - it is INKCELL_FB_SEGMENTED_MAX, stated once in the
      * component and read here.
      *
      * Three filters are inside it, so all three are on the panel: the reader sees that "Direct"
@@ -664,18 +673,18 @@ void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
        rather than trusted. A fourth filter is free; a fifth is a write past `labels` that only
        shows up as whatever sits after it on the stack, which is the one way this row could fail
        without looking wrong. The same guard mesh_ui_node_view::order states about the roster. */
-    MESH_UI_STATIC_ASSERT((unsigned)MESH_UI_NODE_FILTER_COUNT <= FB_SEGMENTED_MAX,
+    INKCELL_STATIC_ASSERT((unsigned)MESH_UI_NODE_FILTER_COUNT <= INKCELL_FB_SEGMENTED_MAX,
                           "a filter has been added that the segmented button cannot hold");
-    struct fb_segmented filter_segments = {
+    struct inkcell_fb_segmented filter_segments = {
         .count = (size_t)MESH_UI_NODE_FILTER_COUNT,
         .active = (size_t)filter,
-        .value = mesh_str(mesh_ui_node_filter_label(filter)),
+        .value = inkcell_str(mesh_ui_node_filter_label(filter)),
     };
     for (uint32_t f = 0; f < (uint32_t)MESH_UI_NODE_FILTER_COUNT; ++f) {
         filter_segments.labels[f] =
-            mesh_str(mesh_ui_node_filter_label((enum mesh_ui_node_filter)f));
+            inkcell_str(mesh_ui_node_filter_label((enum mesh_ui_node_filter)f));
     }
-    struct mesh_ui_line line;
+    struct inkcell_line line;
     char right[32];
     char age[8];
     char initials[MESH_UI_CONVERSATION_INITIALS_MAX];
@@ -686,20 +695,20 @@ void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
     mesh_ui_map_build(&view, &markers);
     char map_line[48];
     if (markers.count > 0U) {
-        mesh_str_format_plural(map_line, sizeof map_line, MESH_STR_MAP_ROW_MARKERS_ONE,
-                               markers.count, markers.count);
+        inkcell_str_format_plural(map_line, sizeof map_line, MESH_STR_MAP_ROW_MARKERS_ONE,
+                                  markers.count, markers.count);
     } else {
         /* The row stays and says why it cannot be pressed, rather than disappearing - the
            Waypoints tab's "New waypoint here" rule, and for its reason: a row that vanishes
            explains nothing to the reader wondering where the map went. */
-        mesh_str_copy(map_line, sizeof map_line, mesh_str(MESH_STR_MAP_ROW_EMPTY));
+        inkcell_str_copy(map_line, sizeof map_line, inkcell_str(MESH_STR_MAP_ROW_EMPTY));
     }
 
     uint32_t i;
-    while (fb_list_next(&list, &i)) {
+    while (inkcell_fb_list_next(&list, &i)) {
         if (i == MESH_UI_NODES_FILTER_ROW) {
-            const struct fb_list_item filter_row = {
-                .label = mesh_str(MESH_STR_NODES_FILTER_ROW),
+            const struct inkcell_fb_list_item filter_row = {
+                .label = inkcell_str(MESH_STR_NODES_FILTER_ROW),
                 .label_cols = control_label_cols,
                 /* No value column: the set is the value, and the word for the chosen one is
                    inside the control. The stepper *stands down* for that control rather than
@@ -709,14 +718,14 @@ void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
                    Settings tab's segmented rows say this the same way. */
                 .marker_icon = INKCELL_ICON_STEPPER,
                 .marker_yields_to_control = true,
-                .trailing = {.kind = FB_TRAILING_SEGMENTED, .segmented = &filter_segments},
+                .trailing = {.kind = INKCELL_FB_TRAILING_SEGMENTED, .segmented = &filter_segments},
             };
-            fb_list_item(state, &list, i, &filter_row);
+            inkcell_fb_list_item(state, &list, i, &filter_row);
             continue;
         }
         if (i == MESH_UI_NODES_SORT_ROW) {
-            const struct fb_list_item sort_row = {
-                .label = mesh_str(MESH_STR_NODES_SORT_ROW),
+            const struct inkcell_fb_list_item sort_row = {
+                .label = inkcell_str(MESH_STR_NODES_SORT_ROW),
                 .label_cols = control_label_cols,
                 /* Five orders is too many for a segmented button, so this row is the word -
                    and a word cannot say whether it can be changed. The stepper is what a
@@ -727,28 +736,29 @@ void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
                    press steps on to a sort that works. */
                 .value = sort_value,
             };
-            fb_list_item(state, &list, i, &sort_row);
+            inkcell_fb_list_item(state, &list, i, &sort_row);
             continue;
         }
         if (nothing_matched && i > MESH_UI_NODES_MAP_ROW) {
             /* The row that is not a row: what the filter did, where the nodes would be. Dim
                because it is not something to press - the same tone the map row takes when it
                has nothing to open. */
-            fb_list_row(state, &list, i, mesh_str(MESH_STR_NODES_FILTER_NONE), MESH_UI_TONE_DIM);
+            inkcell_fb_list_row(state, &list, i, inkcell_str(MESH_STR_NODES_FILTER_NONE),
+                                INKCELL_TONE_DIM);
             continue;
         }
         if (i == MESH_UI_NODES_MAP_ROW) {
-            const struct fb_list_item map_row = {
-                .leading = {.kind = FB_LEADING_ICON, .icon = MESH_UI_ICON_MAP},
-                .text = mesh_str(MESH_STR_MAP_ROW),
+            const struct inkcell_fb_list_item map_row = {
+                .leading = {.kind = INKCELL_FB_LEADING_ICON, .icon = INKCELL_ICON_MAP},
+                .text = inkcell_str(MESH_STR_MAP_ROW),
                 /* Dim when there is nothing to put on it, for the reason the "New message" row
                    is dim: it is a button among things, and one that cannot be pressed. */
-                .tone = markers.count > 0U ? MESH_UI_TONE_NORMAL : MESH_UI_TONE_DIM,
-                .trailing = {.kind = FB_TRAILING_ICON, .icon = MESH_UI_ICON_CHEVRON},
+                .tone = markers.count > 0U ? INKCELL_TONE_NORMAL : INKCELL_TONE_DIM,
+                .trailing = {.kind = INKCELL_FB_TRAILING_ICON, .icon = INKCELL_ICON_CHEVRON},
                 .supporting = map_line,
                 .supporting_quiet = true,
             };
-            fb_list_item(state, &list, i, &map_row);
+            inkcell_fb_list_item(state, &list, i, &map_row);
             continue;
         }
         /* Through the view, never by subtracting from the raw roster: the row-to-node mapping
@@ -759,10 +769,11 @@ void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
         if (node == NULL) {
             continue;
         }
-        const char *short_name =
-            node->short_name[0] != '\0' ? node->short_name : mesh_str(MESH_STR_NODES_NO_SHORT_NAME);
+        const char *short_name = node->short_name[0] != '\0'
+                                     ? node->short_name
+                                     : inkcell_str(MESH_STR_NODES_NO_SHORT_NAME);
         const char *long_name = node->long_name[0] != '\0' ? node->long_name : "";
-        fb_format_age(node->last_heard, age, sizeof age);
+        inkcell_fb_format_age(node->last_heard, age, sizeof age);
 
         /*
          * A node the radio's NodeDB no longer carries says so in the column that would
@@ -786,12 +797,12 @@ void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
          */
         bool direct = false;
         if (!node->in_nodedb) {
-            mesh_str_format(right, sizeof right, MESH_STR_NODES_ROW_OFF_RADIO, age);
+            inkcell_str_format(right, sizeof right, MESH_STR_NODES_ROW_OFF_RADIO, age);
         } else if (node->has_hops_away && node->hops_away > 0U) {
-            mesh_str_format(right, sizeof right, MESH_STR_NODES_ROW_HOPS, (unsigned)node->hops_away,
-                            age);
+            inkcell_str_format(right, sizeof right, MESH_STR_NODES_ROW_HOPS,
+                               (unsigned)node->hops_away, age);
         } else if (node->via_mqtt) {
-            mesh_str_format(right, sizeof right, MESH_STR_NODES_ROW_MQTT, age);
+            inkcell_str_format(right, sizeof right, MESH_STR_NODES_ROW_MQTT, age);
         } else if (mesh_ui_node_signal_heard(node)) {
             /*
              * Heard directly, with a reading of its own: rungs and the age, and the decibels go
@@ -804,12 +815,12 @@ void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
              * scanned for.
              */
             direct = true;
-            mesh_str_copy(right, sizeof right, age);
+            inkcell_str_copy(right, sizeof right, age);
         } else {
             /* Hops the firmware never reported, or no reading behind the figure. Exactly the
                column this list drew before, which is why MESH_STR_NODES_ROW_SNR keeps its
                entry - and what the CLI backend, which has no staircase, draws throughout. */
-            mesh_str_format(right, sizeof right, MESH_STR_NODES_ROW_SNR, (double)node->snr, age);
+            inkcell_str_format(right, sizeof right, MESH_STR_NODES_ROW_SNR, (double)node->snr, age);
         }
 
         /*
@@ -842,40 +853,42 @@ void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
          * node_detail.c both refuse to pin our own node - so a star there would advertise a
          * preference that no press can clear.
          */
-        mesh_ui_line_reset(&line);
-        mesh_ui_line_column(&line, short_name, 4U);
+        inkcell_line_reset(&line);
+        inkcell_line_column(&line, short_name, 4U);
         if (long_name[0] != '\0') {
-            mesh_ui_line_printf(&line, " %s", long_name);
+            inkcell_line_printf(&line, " %s", long_name);
         }
 
         /* Dim behind the words, so a list that is mostly off-radio reads as one at a glance.
            The open thread's node keeps the accent whatever its NodeDB state: which node you
            are talking to is the one thing the cursor colour is for. */
-        enum mesh_ui_tone tone = MESH_UI_TONE_NORMAL;
+        enum inkcell_tone tone = INKCELL_TONE_NORMAL;
         if (node->node_id == nav->target_node) {
-            tone = MESH_UI_TONE_PRIMARY;
+            tone = INKCELL_TONE_PRIMARY;
         } else if (!node->in_nodedb) {
-            tone = MESH_UI_TONE_DIM;
+            tone = INKCELL_TONE_DIM;
         }
 
-        const struct fb_list_item row = {
+        const struct inkcell_fb_list_item row = {
             .leading =
                 {
-                    .kind = FB_LEADING_AVATAR,
+                    .kind = INKCELL_FB_LEADING_AVATAR,
                     .label = initials,
                     .tint = tint,
-                    .role = is_me ? MESH_UI_COLOR_PRIMARY : MESH_UI_COLOR_COUNT,
+                    .role = is_me ? INKCELL_COLOR_PRIMARY : INKCELL_COLOR_COUNT,
                 },
-            .text = mesh_ui_line_text(&line),
-            .marker_icon = (node->is_favorite && !is_me) ? MESH_UI_ICON_PINNED : MESH_UI_ICON_NONE,
+            .text = inkcell_line_text(&line),
+            .marker_icon = (node->is_favorite && !is_me) ? INKCELL_ICON_PINNED : INKCELL_ICON_NONE,
             .marker_slot = true,
             .tone = tone,
-            .trailing = direct ? (struct fb_trailing){.kind = FB_TRAILING_SIGNAL,
-                                                      .text = right,
-                                                      .signal = mesh_ui_signal_level(node->snr)}
-                               : (struct fb_trailing){.kind = FB_TRAILING_TEXT, .text = right},
+            .trailing =
+                direct
+                    ? (struct inkcell_fb_trailing){.kind = INKCELL_FB_TRAILING_SIGNAL,
+                                                   .text = right,
+                                                   .signal = inkcell_signal_level(node->snr)}
+                    : (struct inkcell_fb_trailing){.kind = INKCELL_FB_TRAILING_TEXT, .text = right},
             .divider = true,
         };
-        fb_list_item(state, &list, i, &row);
+        inkcell_fb_list_item(state, &list, i, &row);
     }
 }

@@ -1,11 +1,12 @@
 #define _POSIX_C_SOURCE 200809L
 
+#include "inkcell/utils/array.h"
+#include "inkcell/utils/log.h"
+#include "inkcell/utils/time.h"
+
 #include "mesh/transport/ble_bluez.h"
 
 #include "mesh/core/event_loop.h"
-#include "mesh/utils/array.h"
-#include "mesh/utils/log.h"
-#include "mesh/utils/time.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -77,7 +78,7 @@ static int mesh_bluez_read_timeout(int fd, uint32_t events, void *userdata) {
 
 static int mesh_bluez_read_start_timer(struct mesh_bluez_client *client) {
     client->read_state = 1;
-    client->read_deadline_ms = mesh_time_monotonic_ms() + MESH_BLUEZ_READ_TIMEOUT_MS;
+    client->read_deadline_ms = inkcell_time_monotonic_ms() + MESH_BLUEZ_READ_TIMEOUT_MS;
     if (client->loop == NULL) {
         return 0;
     }
@@ -114,7 +115,7 @@ static void mesh_bluez_request_cancel(struct mesh_bluez_pending *request) {
 
 void mesh_bluez_client_requests_cancel(struct mesh_bluez_client *client) {
     if (client != NULL) {
-        for (size_t i = 0; i < MESH_ARRAY_LEN(client->requests); ++i) {
+        for (size_t i = 0; i < INKCELL_ARRAY_LEN(client->requests); ++i) {
             mesh_bluez_request_cancel(&client->requests[i]);
         }
     }
@@ -149,7 +150,7 @@ static int mesh_bluez_request_send(struct mesh_bluez_client *client,
     request->client = client;
     request->timer_fd = -1;
     request->state = 1;
-    request->deadline_ms = mesh_time_monotonic_ms() + timeout_ms;
+    request->deadline_ms = inkcell_time_monotonic_ms() + timeout_ms;
     int result = 0;
     if (client->loop != NULL) {
         request->timer_fd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
@@ -200,9 +201,9 @@ static int mesh_bluez_read_reply(DBusMessage *reply, uint8_t *out, size_t capaci
         const char *error_name = dbus_message_get_error_name(reply);
         char *text = NULL;
         dbus_message_get_args(reply, NULL, DBUS_TYPE_STRING, &text, DBUS_TYPE_INVALID);
-        mesh_log_warn("bluez", "FromRadio read failed: %s%s%s",
-                      error_name != NULL ? error_name : "?", text != NULL ? ": " : "",
-                      text != NULL ? text : "");
+        inkcell_log_warn("bluez", "FromRadio read failed: %s%s%s",
+                         error_name != NULL ? error_name : "?", text != NULL ? ": " : "",
+                         text != NULL ? text : "");
         return mesh_bluez_error_to_errno(error_name, text);
     }
     DBusMessageIter iter;
@@ -294,7 +295,7 @@ static int mesh_bluez_dbus_error_to_errno(const DBusError *error) {
 static int mesh_bluez_watch_fd_callback(int fd, uint32_t events, void *userdata);
 
 static int mesh_bluez_watch_sync(struct mesh_bluez_client *client, size_t index) {
-    if (client == NULL || index >= MESH_ARRAY_LEN(client->watches)) {
+    if (client == NULL || index >= INKCELL_ARRAY_LEN(client->watches)) {
         return -EINVAL;
     }
 
@@ -314,7 +315,7 @@ static int mesh_bluez_watch_sync(struct mesh_bluez_client *client, size_t index)
        lose EPOLLOUT behind an EEXIST from the readable watch. */
     uint32_t events = 0U;
     struct mesh_bluez_watch_entry *owner = NULL;
-    for (size_t i = 0U; i < MESH_ARRAY_LEN(client->watches); ++i) {
+    for (size_t i = 0U; i < INKCELL_ARRAY_LEN(client->watches); ++i) {
         struct mesh_bluez_watch_entry *other = &client->watches[i];
         if (other->watch == NULL || dbus_watch_get_unix_fd(other->watch) != entry->fd) {
             continue;
@@ -340,7 +341,7 @@ static int mesh_bluez_watch_sync(struct mesh_bluez_client *client, size_t index)
     const int result = mesh_event_loop_add_fd(client->loop, entry->fd, events,
                                               mesh_bluez_watch_fd_callback, client);
     if (result < 0) {
-        mesh_log_warn("bluez", "Failed to register D-Bus watch fd %d: %d", entry->fd, result);
+        inkcell_log_warn("bluez", "Failed to register D-Bus watch fd %d: %d", entry->fd, result);
         return result;
     }
     entry->registered = true;
@@ -348,7 +349,7 @@ static int mesh_bluez_watch_sync(struct mesh_bluez_client *client, size_t index)
 }
 
 static void mesh_bluez_watch_unregister(struct mesh_bluez_client *client, size_t index) {
-    if (client == NULL || client->loop == NULL || index >= MESH_ARRAY_LEN(client->watches)) {
+    if (client == NULL || client->loop == NULL || index >= INKCELL_ARRAY_LEN(client->watches)) {
         return;
     }
 
@@ -366,7 +367,7 @@ static ssize_t mesh_bluez_watch_find(struct mesh_bluez_client *client, DBusWatch
         return -1;
     }
 
-    for (size_t i = 0; i < MESH_ARRAY_LEN(client->watches); ++i) {
+    for (size_t i = 0; i < INKCELL_ARRAY_LEN(client->watches); ++i) {
         if (client->watches[i].watch == watch) {
             return (ssize_t)i;
         }
@@ -380,7 +381,7 @@ static dbus_bool_t mesh_bluez_watch_add(DBusWatch *watch, void *userdata) {
         return FALSE;
     }
 
-    for (size_t i = 0; i < MESH_ARRAY_LEN(client->watches); ++i) {
+    for (size_t i = 0; i < INKCELL_ARRAY_LEN(client->watches); ++i) {
         if (client->watches[i].watch == NULL) {
             client->watches[i].watch = watch;
             client->watches[i].registered = false;
@@ -390,7 +391,7 @@ static dbus_bool_t mesh_bluez_watch_add(DBusWatch *watch, void *userdata) {
         }
     }
 
-    mesh_log_warn("bluez", "No space for additional D-Bus watches");
+    inkcell_log_warn("bluez", "No space for additional D-Bus watches");
     return FALSE;
 }
 
@@ -413,7 +414,7 @@ static void mesh_bluez_watch_remove(DBusWatch *watch, void *userdata) {
     entry->events = 0U;
     entry->registered = false;
     entry->client = NULL;
-    for (size_t i = 0U; i < MESH_ARRAY_LEN(client->watches); ++i) {
+    for (size_t i = 0U; i < INKCELL_ARRAY_LEN(client->watches); ++i) {
         if (client->watches[i].watch != NULL &&
             dbus_watch_get_unix_fd(client->watches[i].watch) == fd) {
             mesh_bluez_watch_sync(client, i);
@@ -456,7 +457,7 @@ static int mesh_bluez_watch_fd_callback(int fd, uint32_t events, void *userdata)
         flags |= DBUS_WATCH_HANGUP;
     }
 
-    for (size_t i = 0U; i < MESH_ARRAY_LEN(client->watches); ++i) {
+    for (size_t i = 0U; i < INKCELL_ARRAY_LEN(client->watches); ++i) {
         DBusWatch *watch = client->watches[i].watch;
         if (watch == NULL || dbus_watch_get_unix_fd(watch) != fd ||
             !dbus_watch_get_enabled(watch)) {
@@ -465,7 +466,7 @@ static int mesh_bluez_watch_fd_callback(int fd, uint32_t events, void *userdata)
         const unsigned int relevant =
             flags & (dbus_watch_get_flags(watch) | DBUS_WATCH_ERROR | DBUS_WATCH_HANGUP);
         if (relevant != 0U && !dbus_watch_handle(watch, relevant)) {
-            mesh_log_warn("bluez", "dbus_watch_handle returned false");
+            inkcell_log_warn("bluez", "dbus_watch_handle returned false");
         }
     }
     mesh_bluez_client_process(client);
@@ -647,7 +648,7 @@ static int mesh_bluez_client_open(struct mesh_bluez_client *client, bool private
     client->connection_private = test_address != NULL || private_bus;
     if (connection == NULL) {
         if (dbus_error_is_set(&error)) {
-            mesh_log_warn("bluez", "Failed to connect to system bus: %s", error.message);
+            inkcell_log_warn("bluez", "Failed to connect to system bus: %s", error.message);
             dbus_error_free(&error);
         }
         return -EIO;
@@ -679,7 +680,7 @@ static int mesh_bluez_client_open(struct mesh_bluez_client *client, bool private
         return 0;
     }
     (void)private_bus;
-    mesh_log_debug("bluez", "DBus support disabled at build time");
+    inkcell_log_debug("bluez", "DBus support disabled at build time");
     return -ENOSYS;
 #endif
 }
@@ -780,7 +781,7 @@ int mesh_bluez_client_check_ready(struct mesh_bluez_client *client) {
     dbus_bool_t has_owner = dbus_bus_name_has_owner(connection, "org.bluez", &error);
 
     if (dbus_error_is_set(&error)) {
-        mesh_log_warn("bluez", "Failed to query BlueZ ownership: %s", error.message);
+        inkcell_log_warn("bluez", "Failed to query BlueZ ownership: %s", error.message);
         dbus_error_free(&error);
         return -EIO;
     }
@@ -980,7 +981,8 @@ static bool mesh_bluez_client_handle_agent_call(struct mesh_bluez_client *client
 
     if (strcmp(member, "RequestPasskey") == 0) {
         dbus_message_get_args(message, NULL, DBUS_TYPE_OBJECT_PATH, &device, DBUS_TYPE_INVALID);
-        mesh_log_info("bluez", "Pairing: %s is asking for its PIN", device != NULL ? device : "?");
+        inkcell_log_info("bluez", "Pairing: %s is asking for its PIN",
+                         device != NULL ? device : "?");
         mesh_bluez_agent_defer(client, message, MESH_BLUEZ_AGENT_REQUEST_PASSKEY, device, 0U);
         return true;
     }
@@ -1001,7 +1003,7 @@ static bool mesh_bluez_client_handle_agent_call(struct mesh_bluez_client *client
     }
     if (strcmp(member, "DisplayPasskey") == 0 || strcmp(member, "DisplayPinCode") == 0) {
         /* The node is the one entering; nothing for us to do but say so in the log. */
-        mesh_log_info("bluez", "Pairing: %s wants a code entered on it", member);
+        inkcell_log_info("bluez", "Pairing: %s wants a code entered on it", member);
         mesh_bluez_agent_ack(client, message);
         return true;
     }
@@ -1024,8 +1026,8 @@ static bool mesh_bluez_client_handle_agent_call(struct mesh_bluez_client *client
         const bool ours = (client->pair_state == 1 && device != NULL &&
                            strcmp(device, client->pair_device_path) == 0);
         if (!ours) {
-            mesh_log_warn("bluez", "Refusing %s for %s: no pairing of ours is in flight", member,
-                          device != NULL ? device : "?");
+            inkcell_log_warn("bluez", "Refusing %s for %s: no pairing of ours is in flight", member,
+                             device != NULL ? device : "?");
             DBusConnection *connection = (DBusConnection *)client->connection;
             DBusMessage *reply =
                 dbus_message_new_error(message, "org.bluez.Error.Rejected", "Not requested");
@@ -1048,7 +1050,7 @@ static bool mesh_bluez_client_handle_agent_call(struct mesh_bluez_client *client
             client->agent_pending_message = NULL;
         }
         memset(&client->agent_request, 0, sizeof(client->agent_request));
-        mesh_log_warn("bluez", "Pairing request cancelled by BlueZ");
+        inkcell_log_warn("bluez", "Pairing request cancelled by BlueZ");
         mesh_bluez_agent_ack(client, message);
         return true;
     }
@@ -1073,7 +1075,7 @@ static void mesh_bluez_client_handle_message(struct mesh_bluez_client *client,
         return;
     }
 
-    for (size_t i = 0; i < MESH_ARRAY_LEN(client->requests); ++i) {
+    for (size_t i = 0; i < INKCELL_ARRAY_LEN(client->requests); ++i) {
         struct mesh_bluez_pending *request = &client->requests[i];
         if (request->state != 1 || request->serial == 0U ||
             dbus_message_get_reply_serial(message) != request->serial) {
@@ -1120,8 +1122,8 @@ static void mesh_bluez_client_handle_message(struct mesh_bluez_client *client,
             const char *error_name = dbus_message_get_error_name(message);
             char *text = NULL;
             dbus_message_get_args(message, NULL, DBUS_TYPE_STRING, &text, DBUS_TYPE_INVALID);
-            mesh_log_warn("bluez", "Pair failed: %s%s%s", error_name != NULL ? error_name : "?",
-                          text != NULL ? ": " : "", text != NULL ? text : "");
+            inkcell_log_warn("bluez", "Pair failed: %s%s%s", error_name != NULL ? error_name : "?",
+                             text != NULL ? ": " : "", text != NULL ? text : "");
             client->pair_result = mesh_bluez_error_to_errno(error_name, text);
         }
         client->pair_state = 2;
@@ -1137,8 +1139,9 @@ static void mesh_bluez_client_handle_message(struct mesh_bluez_client *client,
             const char *error_name = dbus_message_get_error_name(message);
             char *text = NULL;
             dbus_message_get_args(message, NULL, DBUS_TYPE_STRING, &text, DBUS_TYPE_INVALID);
-            mesh_log_warn("bluez", "Connect failed: %s%s%s", error_name != NULL ? error_name : "?",
-                          text != NULL ? ": " : "", text != NULL ? text : "");
+            inkcell_log_warn("bluez", "Connect failed: %s%s%s",
+                             error_name != NULL ? error_name : "?", text != NULL ? ": " : "",
+                             text != NULL ? text : "");
             client->connect_result = mesh_bluez_error_to_errno(error_name, text);
         }
         client->connect_state = 2;
@@ -1175,7 +1178,7 @@ static int mesh_bluez_client_add_properties_match(struct mesh_bluez_client *clie
     dbus_error_init(&error);
     dbus_bus_add_match(connection, rule, &error);
     if (dbus_error_is_set(&error)) {
-        mesh_log_warn("bluez", "Failed to add match rule: %s", error.message);
+        inkcell_log_warn("bluez", "Failed to add match rule: %s", error.message);
         dbus_error_free(&error);
         return -EIO;
     }
@@ -1219,7 +1222,7 @@ int mesh_bluez_client_attach_loop(struct mesh_bluez_client *client, struct mesh_
 
 #ifdef MESH_HAVE_DBUS
     if (loop != NULL) {
-        for (size_t i = 0; i < MESH_ARRAY_LEN(client->watches); ++i) {
+        for (size_t i = 0; i < INKCELL_ARRAY_LEN(client->watches); ++i) {
             if (client->watches[i].watch != NULL) {
                 mesh_bluez_watch_sync(client, i);
             }
@@ -1242,7 +1245,7 @@ void mesh_bluez_client_detach_loop(struct mesh_bluez_client *client) {
 
 #ifdef MESH_HAVE_DBUS
     if (client->loop != NULL) {
-        for (size_t i = 0; i < MESH_ARRAY_LEN(client->watches); ++i) {
+        for (size_t i = 0; i < INKCELL_ARRAY_LEN(client->watches); ++i) {
             if (client->watches[i].registered) {
                 mesh_event_loop_remove_fd(client->loop, client->watches[i].fd);
             }
@@ -1263,13 +1266,13 @@ int mesh_bluez_client_process(struct mesh_bluez_client *client) {
         return -ENOTCONN;
     }
 
-    for (size_t i = 0; i < MESH_ARRAY_LEN(client->requests); ++i) {
+    for (size_t i = 0; i < INKCELL_ARRAY_LEN(client->requests); ++i) {
         struct mesh_bluez_pending *request = &client->requests[i];
-        if (request->state == 1 && mesh_time_monotonic_ms() >= request->deadline_ms) {
+        if (request->state == 1 && inkcell_time_monotonic_ms() >= request->deadline_ms) {
             mesh_bluez_request_finish(request, -ETIMEDOUT);
         }
     }
-    if (client->read_state == 1 && mesh_time_monotonic_ms() >= client->read_deadline_ms) {
+    if (client->read_state == 1 && inkcell_time_monotonic_ms() >= client->read_deadline_ms) {
         mesh_bluez_read_finish(client, -ETIMEDOUT);
     }
     if (g_mock_state.enabled && client->read_state == 1 && client->read_mock_polls > 0U) {
@@ -1351,7 +1354,7 @@ int mesh_bluez_client_find_adapter(struct mesh_bluez_client *client, char *path,
 
     if (reply == NULL) {
         if (dbus_error_is_set(&error)) {
-            mesh_log_warn("bluez", "GetManagedObjects failed: %s", error.message);
+            inkcell_log_warn("bluez", "GetManagedObjects failed: %s", error.message);
             dbus_error_free(&error);
         }
         return -EIO;
@@ -1491,7 +1494,7 @@ static int call_adapter_method(struct mesh_bluez_client *client, const char *ada
 
     if (reply == NULL) {
         if (dbus_error_is_set(&error)) {
-            mesh_log_warn("bluez", "%s failed: %s", method, error.message);
+            inkcell_log_warn("bluez", "%s failed: %s", method, error.message);
             dbus_error_free(&error);
         }
         return -EIO;
@@ -1666,7 +1669,7 @@ int mesh_bluez_client_pair_begin(struct mesh_bluez_client *client, const char *d
     client->pair_serial = serial;
     client->pair_state = 1;
     client->pair_result = 0;
-    mesh_log_info("bluez", "Pairing with %s", device_path);
+    inkcell_log_info("bluez", "Pairing with %s", device_path);
     return 0;
 #else
     return -ENOSYS;
@@ -1777,7 +1780,7 @@ int mesh_bluez_client_set_trusted(struct mesh_bluez_client *client, const char *
     if (reply == NULL) {
         int mapped = -EIO;
         if (dbus_error_is_set(&error)) {
-            mesh_log_warn("bluez", "Set Trusted failed: %s", error.message);
+            inkcell_log_warn("bluez", "Set Trusted failed: %s", error.message);
             mapped = mesh_bluez_dbus_error_to_errno(&error);
             dbus_error_free(&error);
         }
@@ -1824,14 +1827,14 @@ int mesh_bluez_client_remove_device(struct mesh_bluez_client *client, const char
     if (reply == NULL) {
         int mapped = -EIO;
         if (dbus_error_is_set(&error)) {
-            mesh_log_warn("bluez", "RemoveDevice failed: %s", error.message);
+            inkcell_log_warn("bluez", "RemoveDevice failed: %s", error.message);
             mapped = mesh_bluez_dbus_error_to_errno(&error);
             dbus_error_free(&error);
         }
         return mapped;
     }
     dbus_message_unref(reply);
-    mesh_log_info("bluez", "Removed %s", device_path);
+    inkcell_log_info("bluez", "Removed %s", device_path);
     return 0;
 #else
     return -ENOSYS;
@@ -1891,7 +1894,7 @@ int mesh_bluez_client_register_agent(struct mesh_bluez_client *client) {
                 client->agent_registered = true;
                 return 0;
             }
-            mesh_log_warn("bluez", "RegisterAgent failed: %s", error.message);
+            inkcell_log_warn("bluez", "RegisterAgent failed: %s", error.message);
             mapped = mesh_bluez_dbus_error_to_errno(&error);
             dbus_error_free(&error);
         }
@@ -1912,13 +1915,13 @@ int mesh_bluez_client_register_agent(struct mesh_bluez_client *client) {
         if (default_reply != NULL) {
             dbus_message_unref(default_reply);
         } else if (dbus_error_is_set(&error)) {
-            mesh_log_warn("bluez", "RequestDefaultAgent failed: %s", error.message);
+            inkcell_log_warn("bluez", "RequestDefaultAgent failed: %s", error.message);
             dbus_error_free(&error);
         }
     }
 
     client->agent_registered = true;
-    mesh_log_info("bluez", "Pairing agent registered at %s", path);
+    inkcell_log_info("bluez", "Pairing agent registered at %s", path);
     return 0;
 #else
     return -ENOSYS;
@@ -2024,7 +2027,7 @@ int mesh_bluez_client_agent_submit_passkey(struct mesh_bluez_client *client, uin
         dbus_message_append_args(reply, DBUS_TYPE_STRING, &text, DBUS_TYPE_INVALID);
     }
     /* CONFIRM takes an empty reply: sending it *is* the confirmation. */
-    mesh_log_info("bluez", "Answered pairing request for %s", client->agent_request.device_path);
+    inkcell_log_info("bluez", "Answered pairing request for %s", client->agent_request.device_path);
     mesh_bluez_agent_finish(client, reply);
     return 0;
 #else
@@ -2197,7 +2200,7 @@ int mesh_bluez_client_disconnect(struct mesh_bluez_client *client, const char *d
 
     if (reply == NULL) {
         if (dbus_error_is_set(&error)) {
-            mesh_log_warn("bluez", "Disconnect failed: %s", error.message);
+            inkcell_log_warn("bluez", "Disconnect failed: %s", error.message);
             dbus_error_free(&error);
         }
         return -EIO;
@@ -2257,7 +2260,7 @@ int mesh_bluez_client_subscribe(struct mesh_bluez_client *client, const char *de
     if (reply == NULL) {
         int mapped = -EIO;
         if (dbus_error_is_set(&error)) {
-            mesh_log_warn("bluez", "StartNotify failed: %s", error.message);
+            inkcell_log_warn("bluez", "StartNotify failed: %s", error.message);
             mapped = mesh_bluez_dbus_error_to_errno(&error);
             dbus_error_free(&error);
         }
@@ -2271,8 +2274,8 @@ int mesh_bluez_client_subscribe(struct mesh_bluez_client *client, const char *de
     int match_result =
         mesh_bluez_client_add_properties_match(client, client->notify_characteristic_path);
     if (match_result < 0) {
-        mesh_log_warn("bluez", "Failed to add notification match for %s",
-                      client->notify_characteristic_path);
+        inkcell_log_warn("bluez", "Failed to add notification match for %s",
+                         client->notify_characteristic_path);
     }
     return 0;
 #else
@@ -2394,7 +2397,7 @@ static int mesh_bluez_find_characteristics(DBusConnection *connection, const cha
 
     if (reply == NULL) {
         if (dbus_error_is_set(&error)) {
-            mesh_log_warn("bluez", "GetManagedObjects failed: %s", error.message);
+            inkcell_log_warn("bluez", "GetManagedObjects failed: %s", error.message);
             dbus_error_free(&error);
         }
         return -EIO;
@@ -2547,19 +2550,19 @@ int mesh_bluez_client_find_meshtastic_characteristics(struct mesh_bluez_client *
     int result = mesh_bluez_find_characteristics(connection, device_path, MESH_BLE_TORADIO_UUID,
                                                  out->toradio_path, sizeof(out->toradio_path));
     if (result < 0) {
-        mesh_log_warn("bluez", "ToRadio characteristic not found under %s", device_path);
+        inkcell_log_warn("bluez", "ToRadio characteristic not found under %s", device_path);
         return result;
     }
     result = mesh_bluez_find_characteristics(connection, device_path, MESH_BLE_FROMRADIO_UUID,
                                              out->fromradio_path, sizeof(out->fromradio_path));
     if (result < 0) {
-        mesh_log_warn("bluez", "FromRadio characteristic not found under %s", device_path);
+        inkcell_log_warn("bluez", "FromRadio characteristic not found under %s", device_path);
         return result;
     }
     result = mesh_bluez_find_characteristics(connection, device_path, MESH_BLE_FROMNUM_UUID,
                                              out->fromnum_path, sizeof(out->fromnum_path));
     if (result < 0) {
-        mesh_log_warn("bluez", "FromNum characteristic not found under %s", device_path);
+        inkcell_log_warn("bluez", "FromNum characteristic not found under %s", device_path);
         return result;
     }
     /* LogRadio is optional; older firmware does not expose it. */
@@ -2649,7 +2652,7 @@ int mesh_bluez_client_characteristic_mtu(struct mesh_bluez_client *client, const
                       strcmp(error.name, "org.freedesktop.DBus.Error.InvalidArgs") == 0)
                          ? -ENOTSUP
                          : mesh_bluez_dbus_error_to_errno(&error);
-            mesh_log_warn("bluez", "MTU unavailable on %s: %s", char_path, error.message);
+            inkcell_log_warn("bluez", "MTU unavailable on %s: %s", char_path, error.message);
             dbus_error_free(&error);
         }
         return mapped;
@@ -2820,7 +2823,7 @@ int mesh_bluez_client_list_by_service(struct mesh_bluez_client *client, const ch
 
     if (reply == NULL) {
         if (dbus_error_is_set(&error)) {
-            mesh_log_warn("bluez", "GetManagedObjects failed: %s", error.message);
+            inkcell_log_warn("bluez", "GetManagedObjects failed: %s", error.message);
             dbus_error_free(&error);
         }
         return -EIO;
@@ -2953,7 +2956,7 @@ int mesh_bluez_client_list_by_service(struct mesh_bluez_client *client, const ch
             if (matched < capacity) {
                 devices[matched] = info;
             } else {
-                mesh_log_warn("ble", "Device cache full, dropping entry");
+                inkcell_log_warn("ble", "Device cache full, dropping entry");
             }
             ++matched;
         }

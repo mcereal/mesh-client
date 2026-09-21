@@ -3,9 +3,9 @@
 
 #include "mesh/transport/serial_usb.h"
 
-#include "mesh/utils/ioctl.h"
-#include "mesh/utils/log.h"
-#include "mesh/utils/text.h"
+#include "inkcell/utils/ioctl.h"
+#include "inkcell/utils/log.h"
+#include "inkcell/utils/text.h"
 
 #include <ctype.h>
 #include <dirent.h>
@@ -143,7 +143,7 @@ static bool sysfs_driver(const char *dir, char *out, size_t out_len) {
     target[len] = '\0';
     const char *base = strrchr(target, '/');
     /* Explicit precision: sysfs paths are PATH_MAX, the field they land in is not. */
-    mesh_str_copy(out, out_len, base != NULL ? base + 1 : target);
+    inkcell_str_copy(out, out_len, base != NULL ? base + 1 : target);
     return true;
 }
 
@@ -307,7 +307,7 @@ size_t mesh_serial_usb_scan(struct mesh_serial_device_info *out, size_t capacity
 
     DIR *dir = opendir(sysfs_usb_root());
     if (dir == NULL) {
-        mesh_log_debug("serial", "No USB sysfs at %s: %s", sysfs_usb_root(), strerror(errno));
+        inkcell_log_debug("serial", "No USB sysfs at %s: %s", sysfs_usb_root(), strerror(errno));
         return 0U;
     }
 
@@ -345,7 +345,7 @@ size_t mesh_serial_usb_scan(struct mesh_serial_device_info *out, size_t capacity
 
         struct mesh_serial_device_info *info = &out[count];
         memset(info, 0, sizeof *info);
-        mesh_str_copy(info->id, sizeof info->id, entry->d_name);
+        inkcell_str_copy(info->id, sizeof info->id, entry->d_name);
         info->bound = find_interface_tty(iface_dir, info->path, sizeof info->path);
         info->control_interface = facts.control_interface;
         info->needs_line_state =
@@ -417,7 +417,8 @@ int mesh_serial_usb_bind(struct mesh_serial_device_info *device) {
 
     FILE *new_id = fopen(MESH_SERIAL_GENERIC_NEW_ID, "we");
     if (new_id == NULL) {
-        mesh_log_warn("serial", "Cannot open %s: %s", MESH_SERIAL_GENERIC_NEW_ID, strerror(errno));
+        inkcell_log_warn("serial", "Cannot open %s: %s", MESH_SERIAL_GENERIC_NEW_ID,
+                         strerror(errno));
         return -errno;
     }
     /* The generic driver rejects the control interface ("no bulk out") and takes the data one. */
@@ -425,12 +426,12 @@ int mesh_serial_usb_bind(struct mesh_serial_device_info *device) {
         fprintf(new_id, "%04x %04x\n", (unsigned)device->vendor_id, (unsigned)device->product_id);
     const int flushed = fclose(new_id);
     if (printed < 0 || flushed != 0) {
-        mesh_log_warn("serial", "new_id write for %04x:%04x failed: %s", device->vendor_id,
-                      device->product_id, strerror(errno));
+        inkcell_log_warn("serial", "new_id write for %04x:%04x failed: %s", device->vendor_id,
+                         device->product_id, strerror(errno));
         return -EIO;
     }
-    mesh_log_info("serial", "Bound %04x:%04x to the generic usbserial driver", device->vendor_id,
-                  device->product_id);
+    inkcell_log_info("serial", "Bound %04x:%04x to the generic usbserial driver", device->vendor_id,
+                     device->product_id);
 
     char iface_dir[PATH_MAX];
     if (snprintf(iface_dir, sizeof iface_dir, "%s/%s", sysfs_usb_root(), device->id) >=
@@ -443,14 +444,14 @@ int mesh_serial_usb_bind(struct mesh_serial_device_info *device) {
         if (find_interface_tty(iface_dir, device->path, sizeof device->path)) {
             device->bound = true;
             device->needs_line_state = device->control_interface >= 0;
-            mesh_log_info("serial", "%s is now %s", device->id, device->path);
+            inkcell_log_info("serial", "%s is now %s", device->id, device->path);
             return 0;
         }
         mesh_serial_sleep_ms(MESH_SERIAL_BIND_POLL_MS);
     }
 
-    mesh_log_warn("serial", "No tty appeared for %s after %u ms", device->id,
-                  MESH_SERIAL_BIND_TIMEOUT_MS);
+    inkcell_log_warn("serial", "No tty appeared for %s after %u ms", device->id,
+                     MESH_SERIAL_BIND_TIMEOUT_MS);
     return -ENODEV;
 }
 
@@ -475,17 +476,17 @@ int mesh_serial_usb_set_line_state(const struct mesh_serial_device_info *device,
 
     const int fd = open(usbfs_path, O_RDWR | O_CLOEXEC);
     if (fd < 0) {
-        mesh_log_warn("serial", "Cannot open %s: %s", usbfs_path, strerror(errno));
+        inkcell_log_warn("serial", "Cannot open %s: %s", usbfs_path, strerror(errno));
         return -errno;
     }
 
     /* The control interface has no driver (the generic one refused it), so claiming it is what
        lets usbfs deliver the request. */
     unsigned int iface = (unsigned int)device->control_interface;
-    bool claimed = ioctl(fd, mesh_ioctl_request_of(USBDEVFS_CLAIMINTERFACE), &iface) == 0;
+    bool claimed = ioctl(fd, inkcell_ioctl_request_of(USBDEVFS_CLAIMINTERFACE), &iface) == 0;
     if (!claimed) {
-        mesh_log_debug("serial", "Claim of interface %u on %s failed: %s", iface, usbfs_path,
-                       strerror(errno));
+        inkcell_log_debug("serial", "Claim of interface %u on %s failed: %s", iface, usbfs_path,
+                          strerror(errno));
     }
 
     struct usbdevfs_ctrltransfer transfer;
@@ -499,16 +500,16 @@ int mesh_serial_usb_set_line_state(const struct mesh_serial_device_info *device,
     transfer.data = NULL;
 
     int result = 0;
-    if (ioctl(fd, mesh_ioctl_request_of(USBDEVFS_CONTROL), &transfer) < 0) {
+    if (ioctl(fd, inkcell_ioctl_request_of(USBDEVFS_CONTROL), &transfer) < 0) {
         result = -errno;
-        mesh_log_warn("serial", "SET_CONTROL_LINE_STATE on %s failed: %s", usbfs_path,
-                      strerror(errno));
+        inkcell_log_warn("serial", "SET_CONTROL_LINE_STATE on %s failed: %s", usbfs_path,
+                         strerror(errno));
     } else {
-        mesh_log_info("serial", "Asserted DTR on %s interface %u", usbfs_path, iface);
+        inkcell_log_info("serial", "Asserted DTR on %s interface %u", usbfs_path, iface);
     }
 
     if (claimed) {
-        (void)ioctl(fd, mesh_ioctl_request_of(USBDEVFS_RELEASEINTERFACE), &iface);
+        (void)ioctl(fd, inkcell_ioctl_request_of(USBDEVFS_RELEASEINTERFACE), &iface);
     }
     close(fd);
     return result;
@@ -577,7 +578,7 @@ int mesh_serial_port_set_dtr(int fd, bool on) {
         return -EINVAL;
     }
     int bits = TIOCM_DTR;
-    if (ioctl(fd, mesh_ioctl_request_of(on ? TIOCMBIS : TIOCMBIC), &bits) < 0) {
+    if (ioctl(fd, inkcell_ioctl_request_of(on ? TIOCMBIS : TIOCMBIC), &bits) < 0) {
         return -errno;
     }
     return 0;

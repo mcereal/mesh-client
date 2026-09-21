@@ -1,13 +1,14 @@
-#ifndef MESH_SHIM_UI_BACKENDS_FB_H
-#define MESH_SHIM_UI_BACKENDS_FB_H
+#ifndef MESH_UI_BACKENDS_FB_H
+#define MESH_UI_BACKENDS_FB_H
 
-/* Moved to inkcell (third_party/inkcell). This is the old path, kept so the layers above did
-   not all have to change in the commit that moved the file; inkcell_compat.h bridges the
-   names. Include the inkcell header directly in new code. */
+/*
+ * This client's half of the framebuffer backend.
+ *
+ * The panel, the page flip and the drawing are inkcell's (inkcell/ui/fb.h). What is here is the
+ * one thing it cannot supply.
+ */
 
 #include "inkcell/ui/fb.h"
-
-#include "mesh/inkcell_compat.h"
 
 struct inkcell_fb_app;
 
@@ -23,4 +24,4 @@ struct inkcell_fb_app;
  */
 const struct inkcell_fb_app *fb_app_vtable(void);
 
-#endif /* MESH_SHIM_UI_BACKENDS_FB_H */
+#endif /* MESH_UI_BACKENDS_FB_H */

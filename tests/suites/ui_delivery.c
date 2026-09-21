@@ -34,21 +34,21 @@ MESH_TEST_CASE(ui_delivery_marks_every_state_it_can_be_asked_about, unit) {
        is the common case on a channel - and a tick there would be the client reporting a
        delivery no Routing reply ever confirmed. */
     const struct mesh_ui_delivery none = mesh_ui_delivery_of((uint8_t)MESH_MESSAGE_ACK_NONE);
-    MESH_TEST_FAIL_IF(mesh_ui_icon_is_valid(none.icon),
+    MESH_TEST_FAIL_IF(inkcell_icon_is_valid(none.icon),
                       "a message with nothing to wait for should carry no mark");
 
     for (size_t i = 1U; i < sizeof kAcks / sizeof kAcks[0]; ++i) {
         const struct mesh_ui_delivery mark = mesh_ui_delivery_of((uint8_t)kAcks[i]);
         char detail[96];
         snprintf(detail, sizeof detail, "state %u has no drawable mark", (unsigned)kAcks[i]);
-        MESH_TEST_FAIL_IF(!mesh_ui_icon_is_valid(mark.icon), detail);
+        MESH_TEST_FAIL_IF(!inkcell_icon_is_valid(mark.icon), detail);
         /* A sprite this build can find, rather than an id past the end of the generated table -
            which is what an icons.def edit committed without rerunning gen-icons.py leaves. */
         snprintf(detail, sizeof detail, "state %u names a sprite this build cannot draw",
                  (unsigned)kAcks[i]);
-        MESH_TEST_FAIL_IF(mesh_ui_icon_name(mark.icon)[0] == '\0', detail);
+        MESH_TEST_FAIL_IF(inkcell_icon_name(mark.icon)[0] == '\0', detail);
         snprintf(detail, sizeof detail, "state %u has no word", (unsigned)kAcks[i]);
-        MESH_TEST_FAIL_IF(mesh_str(mark.word)[0] == '\0', detail);
+        MESH_TEST_FAIL_IF(inkcell_str(mark.word)[0] == '\0', detail);
     }
     record_success(test_name);
 }
@@ -64,7 +64,7 @@ MESH_TEST_CASE(ui_delivery_marks_are_distinct, unit) {
             MESH_TEST_FAIL_IF(a.icon == b.icon, detail);
             snprintf(detail, sizeof detail, "states %u and %u say the same word",
                      (unsigned)kAcks[i], (unsigned)kAcks[j]);
-            MESH_TEST_FAIL_IF(strcmp(mesh_str(a.word), mesh_str(b.word)) == 0, detail);
+            MESH_TEST_FAIL_IF(strcmp(inkcell_str(a.word), inkcell_str(b.word)) == 0, detail);
         }
     }
     record_success(test_name);
@@ -79,7 +79,7 @@ MESH_TEST_CASE(ui_delivery_marks_are_distinct, unit) {
  */
 MESH_TEST_CASE(ui_delivery_refuses_a_state_it_does_not_know, unit) {
     const struct mesh_ui_delivery mark = mesh_ui_delivery_of(200U);
-    MESH_TEST_FAIL_IF(mesh_ui_icon_is_valid(mark.icon), "an unknown state should carry no mark");
-    MESH_TEST_FAIL_IF(mesh_str(mark.word)[0] != '\0', "an unknown state should say nothing");
+    MESH_TEST_FAIL_IF(inkcell_icon_is_valid(mark.icon), "an unknown state should carry no mark");
+    MESH_TEST_FAIL_IF(inkcell_str(mark.word)[0] != '\0', "an unknown state should say nothing");
     record_success(test_name);
 }

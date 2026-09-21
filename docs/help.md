@@ -7,14 +7,14 @@ setting, and one screen that reads it — the same shape as `theme.c` answering 
 ## The model
 
 `struct field_spec` (`src/ui/settings/settings_internal.h`) carries a `note`, a catalog id.
-`MESH_STR_NONE` is id 0 and the empty string, so a row that explains itself needs no change and a
+`INKCELL_STR_NONE` is id 0 and the empty string, so a row that explains itself needs no change and a
 field acquires help by naming one id in the row somebody was already writing. Sections get the
 same treatment in a table beside `k_section_icons[]`. Two accessors return the **id**, not the
 text, so a caller can ask *is there help here* without a `strlen`:
 
 ```c
-enum mesh_str_id mesh_ui_settings_section_note(enum mesh_ui_settings_section section);
-enum mesh_str_id mesh_ui_settings_field_note(enum mesh_ui_setting_field field);
+enum inkcell_str_id mesh_ui_settings_section_note(enum mesh_ui_settings_section section);
+enum inkcell_str_id mesh_ui_settings_field_note(enum mesh_ui_setting_field field);
 ```
 
 `src/ui/tables/help.c` answers one question — given where the nav is, what does the help screen say —
@@ -38,9 +38,9 @@ one fewer. Every section has a note, so the key always does something — and th
 scrolled to the row the cursor was on**. A feature's topic opens at the top instead, because its
 paragraphs are about the screen rather than about the rows of it.
 
-`fb_list_note()` is the row: a heading at the label scale, sentences wrapped under it. A note is
-however many `mesh_ui_wrap_lines()` lines long, which is however many *steps* its row is — the
-same `fb_list_begin_heights()` machinery the transcript uses. This is the one list where a row's
+`inkcell_fb_list_note()` is the row: a heading at the label scale, sentences wrapped under it. A note is
+however many `inkcell_wrap_lines()` lines long, which is however many *steps* its row is — the
+same `inkcell_fb_list_begin_heights()` machinery the transcript uses. This is the one list where a row's
 height is a property of its **words** rather than of its kind.
 
 **The key is SELECT**, the one free key on the case, and it means the same thing everywhere. It
@@ -65,14 +65,14 @@ Notes are the one class of string a locale may leave `NULL` ([`i18n.md`](i18n.md
 
 - **A note that is missing is a note nobody wrote.** There is no fallback text and no "no
   description available" row — that would be chrome saying nothing, on the screen whose whole job
-  is to say something. `MESH_STR_NONE` is the right answer forever for a row whose label is the
+  is to say something. `INKCELL_STR_NONE` is the right answer forever for a row whose label is the
   whole of it.
 - **A row with no paragraph opens on the nearest one above it, but never across a subheading.**
   Without the fallback the screen opens at the overview for most rows; without the reset,
   Telemetry's Air quality rows opened on a paragraph about reading a thermometer in Fahrenheit.
   `help_opens_on_the_overview_across_a_subheading` checks both sides.
 - **Two explained rows in one section may not share a heading**, and one that would keeps
-  `MESH_STR_NONE`. A topic is a flat list, so Telemetry's five Enabled / Interval / Show on screen
+  `INKCELL_STR_NONE`. A topic is a flat list, so Telemetry's five Enabled / Interval / Show on screen
   trios would draw five paragraphs headed "Enabled". The section's overview names the five
   readings instead. `help_note_labels_are_unique_in_a_section` compares the *rendered* label,
   because a reader sees the word and not the id.

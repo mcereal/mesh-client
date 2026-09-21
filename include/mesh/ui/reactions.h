@@ -26,8 +26,8 @@ size_t mesh_ui_reaction_count(void);
 /* The emoji itself, as UTF-8, or "" when the index is past the end. */
 const char *mesh_ui_reaction_emoji(size_t index);
 
-/* What that emoji means, as a catalog id. MESH_STR_NONE past the end. */
-enum mesh_str_id mesh_ui_reaction_label(size_t index);
+/* What that emoji means, as a catalog id. INKCELL_STR_NONE past the end. */
+enum inkcell_str_id mesh_ui_reaction_label(size_t index);
 
 #ifdef __cplusplus
 }

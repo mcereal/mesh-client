@@ -2,6 +2,8 @@
 
 /* Bringing a BLE link up and watching it fall over: discovery, connect, drops. */
 
+#include "inkcell/utils/log.h"
+
 #include "framework/mesh_test.h"
 #include "support/ble_fixture.h"
 
@@ -12,7 +14,6 @@
 #include "mesh/transport/ble.h"
 #include "mesh/transport/ble_bluez.h"
 #include "mesh/transport/transport.h"
-#include "mesh/utils/log.h"
 
 #include <pb_decode.h>
 
@@ -1023,8 +1024,8 @@ MESH_TEST_CASE(ble_roster_is_logged_on_change_not_on_every_refresh, unit) {
                       "could not add a second advertiser");
     MESH_TEST_FAIL_IF(mesh_test_ble_rig_start(&rig) != 0, "the BLE transport did not start");
 
-    const enum mesh_log_level saved_level = mesh_log_get_level();
-    mesh_log_set_level(MESH_LOG_LEVEL_DEBUG);
+    const enum inkcell_log_level saved_level = inkcell_log_get_level();
+    inkcell_log_set_level(INKCELL_LOG_LEVEL_DEBUG);
 
     /* Starting the transport enumerated once and announced what it found, so the roster has
        already been logged by the time this case gets a look in - which is what makes the next
@@ -1047,7 +1048,7 @@ MESH_TEST_CASE(ble_roster_is_logged_on_change_not_on_every_refresh, unit) {
     /* And having been logged, it goes quiet again rather than repeating from then on. */
     const int settled = ble_refresh_counting_log_lines(rig.ble, "AA:BB:CC:DD:EE:01");
 
-    mesh_log_set_level(saved_level);
+    inkcell_log_set_level(saved_level);
     mesh_test_ble_rig_close(&rig);
 
     MESH_TEST_FAIL_IF(unchanged < 0 || rssi_only < 0 || renamed < 0 || departed < 0 || settled < 0,

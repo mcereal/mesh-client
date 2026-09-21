@@ -14,7 +14,7 @@
  * and re-reading the radio's configuration meant walking to Settings - two verbs about the
  * subject already on screen, reachable only from somewhere else.
  *
- * A card can carry a verb now (fb_widgets.h), and this is the table of which card carries
+ * A card can carry a verb now (inkcell/ui/widgets.h), and this is the table of which card carries
  * which. It lives here rather than beside the framebuffer backend for the reason
  * `src/ui/tables/actions.c` does: *what a screen offers in a given state* is a fact about the nav,
  * and three things have to agree about it - nav.c, which moves the cursor over the verbs and runs
@@ -89,7 +89,7 @@ enum mesh_ui_status_verb {
 struct mesh_ui_status_action {
     uint8_t card; /* enum mesh_ui_status_card - which card draws it */
     uint8_t verb; /* enum mesh_ui_status_verb - what nav.c raises for it */
-    enum mesh_str_id label;
+    enum inkcell_str_id label;
 };
 
 /* Above what the table can produce, so reaching it means the screen has grown a verb rather

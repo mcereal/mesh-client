@@ -52,7 +52,7 @@ void mesh_ui_nav_picker_open(struct mesh_ui_nav *nav, const struct mesh_ui_store
                              enum mesh_ui_picker_follow follow);
 /* One key while the picker is up. False when the key was not the picker's to take. */
 bool mesh_ui_nav_picker_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
-                            enum mesh_ui_key key);
+                            enum inkcell_key key);
 
 /* ---- nav_keyboard.c ----------------------------------------------------------------------- */
 
@@ -91,10 +91,10 @@ bool mesh_ui_nav_commit_contact_url(struct mesh_ui_nav *nav);
 /* B on the share sheet. Its own handler rather than a branch in the tab's, the way the help
    overlay has one: nothing on this screen moves, so every key but the one that leaves it is a
    key that does nothing. */
-bool mesh_ui_nav_share_key(struct mesh_ui_nav *nav, enum mesh_ui_key key);
+bool mesh_ui_nav_share_key(struct mesh_ui_nav *nav, enum inkcell_key key);
 
 /* B on the contact code sheet, the share sheet's counterpart and for its reason. */
-bool mesh_ui_nav_contact_key(struct mesh_ui_nav *nav, enum mesh_ui_key key);
+bool mesh_ui_nav_contact_key(struct mesh_ui_nav *nav, enum inkcell_key key);
 
 /* ---- nav_waypoints.c --------------------------------------------------------------------- */
 
@@ -135,7 +135,7 @@ bool mesh_ui_nav_map_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_store *
  * still has to stop here rather than falling through and switching tabs.
  */
 bool mesh_ui_nav_map_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
-                         enum mesh_ui_key key, bool *handled);
+                         enum inkcell_key key, bool *handled);
 
 /* ---- nav_keyboard.c ---------------------------------------------------------------------- */
 
@@ -143,7 +143,7 @@ bool mesh_ui_nav_map_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *st
 void mesh_ui_nav_keyboard_close(struct mesh_ui_nav *nav);
 /* One key while the keyboard is up. False when the key was not the keyboard's to take. */
 bool mesh_ui_nav_keyboard_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
-                              enum mesh_ui_key key, struct mesh_ui_action *action);
+                              enum inkcell_key key, struct mesh_ui_action *action);
 
 /* ---- nav.c ------------------------------------------------------------------------------- */
 
@@ -175,14 +175,14 @@ bool mesh_ui_nav_settings_current(const struct mesh_ui_nav *nav, const struct me
                                   bool with_edits, struct mesh_ui_settings_item *out);
 /* Left/right on a settings row: records or drops an edit. */
 bool mesh_ui_nav_settings_edit_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
-                                   enum mesh_ui_key key);
+                                   enum inkcell_key key);
 /* Commits the keyboard's draft into the field it was opened for. */
 bool mesh_ui_nav_settings_commit_text(struct mesh_ui_nav *nav, const struct mesh_ui_store *store);
 /* B out of an open section, or off the section list. False when there is nowhere to go. */
 bool mesh_ui_nav_settings_back(struct mesh_ui_nav *nav);
 /* A on the settings section list: opens a section or a channel slot. */
 bool mesh_ui_nav_settings_section_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
-                                      enum mesh_ui_key key, struct mesh_ui_action *action,
+                                      enum inkcell_key key, struct mesh_ui_action *action,
                                       bool *handled);
 /* One key while a confirm sheet is up. False when the key was not the sheet's to take. */
 /*
@@ -200,15 +200,15 @@ bool mesh_ui_nav_settings_section_key(struct mesh_ui_nav *nav, const struct mesh
  *
  * Returns the answer to put the cursor on; `cursor` back again is a press that goes nowhere.
  */
-uint8_t mesh_ui_nav_dialog_answer(const struct mesh_ui_store *store, enum mesh_ui_key key,
+uint8_t mesh_ui_nav_dialog_answer(const struct mesh_ui_store *store, enum inkcell_key key,
                                   uint8_t cursor);
 
 bool mesh_ui_nav_confirm_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
-                             enum mesh_ui_key key, struct mesh_ui_action *action);
+                             enum inkcell_key key, struct mesh_ui_action *action);
 /* One key while the key-verification sheet is up. Reads the stage out of the store, because
    which answer each button gives depends on what the radio is asking. */
 bool mesh_ui_nav_verify_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
-                            enum mesh_ui_key key, struct mesh_ui_action *action);
+                            enum inkcell_key key, struct mesh_ui_action *action);
 /* Fills `action` with what an ACTION row - or the confirm sheet standing in front of one -
    is asking for. Most are radio actions; the two forget rows are the client's own. */
 void mesh_ui_nav_fill_settings_action(const struct mesh_ui_nav *nav,

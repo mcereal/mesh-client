@@ -80,7 +80,7 @@ extern "C" {
 /*
  * Records one node's file keeps once it has been compacted.
  *
- * Deliberately more than a restore can use. Five readings at MESH_UI_SERIES_MAX apiece is 120
+ * Deliberately more than a restore can use. Five readings at INKCELL_SERIES_MAX apiece is 120
  * records, and that is a node reporting everything it possibly could; the rest is headroom so
  * that a file cut back is not immediately a file that has lost a reading. Both the reader's
  * buffer and the rewrite are this size, which is about 4.5 KB of stack while one runs.
@@ -104,7 +104,7 @@ extern "C" {
  * places its oldest reading this far behind the live stamp, and MESH_UI_HISTORY_EPOCH_MS is
  * where the clock starts so that it can. Seven days against eight is the margin.
  *
- * Nothing real is lost to it. A series holds MESH_UI_SERIES_MAX samples, so a week of them is a
+ * Nothing real is lost to it. A series holds INKCELL_SERIES_MAX samples, so a week of them is a
  * reading every seven hours - well past the point where what is being drawn is a trend.
  */
 #define MESH_UI_TRENDS_SPAN_MAX_MS (7U * 24U * 60U * 60U * 1000U)

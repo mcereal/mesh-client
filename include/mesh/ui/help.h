@@ -56,16 +56,16 @@ struct mesh_ui_handshake_state;
  * One paragraph and what it is about.
  *
  * `label` is the row's own name, so a reader scrolling can see which setting each paragraph
- * belongs to; MESH_STR_NONE marks the topic's own opening note, which is about the whole screen
+ * belongs to; INKCELL_STR_NONE marks the topic's own opening note, which is about the whole screen
  * and belongs to no row.
  */
 struct mesh_ui_help_entry {
-    enum mesh_str_id label;
-    enum mesh_str_id body;
+    enum inkcell_str_id label;
+    enum inkcell_str_id body;
 };
 
 struct mesh_ui_help_topic {
-    enum mesh_str_id title;
+    enum inkcell_str_id title;
     /*
      * What is being explained: the settings section's name, or the feature's.
      *
@@ -76,7 +76,7 @@ struct mesh_ui_help_topic {
      * straight out of the nav by the renderer, which is a renderer knowing that help is about
      * settings. It stopped being true the moment a tab acquired a topic.
      */
-    enum mesh_str_id subject;
+    enum inkcell_str_id subject;
     struct mesh_ui_help_entry entries[MESH_UI_HELP_ENTRIES_MAX];
     uint32_t count;
 };

@@ -18,6 +18,8 @@
  * arrive" and "the bytes are for another board" must not be the same row.
  */
 
+#include "inkcell/utils/text.h"
+
 #include "framework/mesh_test.h"
 
 #include "support/data_fixture.h"
@@ -25,7 +27,6 @@
 
 #include "mesh/core/event_loop.h"
 #include "mesh/core/firmware_update.h"
-#include "mesh/utils/text.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -783,7 +784,7 @@ MESH_TEST_CASE(firmware_update_knows_when_it_can_go_back, unit) {
        reads and the one this press exists for. */
     update.board = update_t114_board();
     update.release = update_release();
-    mesh_str_copy(update.where, sizeof update.where, "9C:13:9E:9D:0A:D9");
+    inkcell_str_copy(update.where, sizeof update.where, "9C:13:9E:9D:0A:D9");
     update.ble.state = MESH_FIRMWARE_OTA_FAILED;
     update.ble.error = MESH_FIRMWARE_OTA_ERROR_TRANSFER;
     MESH_TEST_FAIL_IF(!mesh_firmware_update_radio_in_loader(&update),

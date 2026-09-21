@@ -39,19 +39,19 @@ static void trends_history(struct mesh_ui_history *history) { mesh_ui_history_re
 /* How many samples one node's series of `reading` holds. */
 static uint32_t trends_count(const struct mesh_ui_history *history, uint32_t node_id,
                              enum mesh_ui_history_reading reading) {
-    const struct mesh_ui_series *series = mesh_ui_history_series(history, node_id, reading);
+    const struct inkcell_series *series = mesh_ui_history_series(history, node_id, reading);
     return series != NULL ? series->count : 0U;
 }
 
 static bool trends_values(const struct mesh_ui_history *history, uint32_t node_id,
                           enum mesh_ui_history_reading reading, const int32_t *expected,
                           uint32_t count) {
-    const struct mesh_ui_series *series = mesh_ui_history_series(history, node_id, reading);
+    const struct inkcell_series *series = mesh_ui_history_series(history, node_id, reading);
     if (series == NULL || series->count != count) {
         return false;
     }
     for (uint32_t i = 0U; i < count; ++i) {
-        const struct mesh_ui_sample *sample = mesh_ui_series_at(series, i);
+        const struct inkcell_sample *sample = inkcell_series_at(series, i);
         if (sample == NULL || sample->value != expected[i]) {
             return false;
         }
@@ -67,7 +67,7 @@ static bool trends_values(const struct mesh_ui_history *history, uint32_t node_i
  * The same shape as history_airtime_survives_a_restart_onto_a_new_clock and for the same reason:
  * a sample is stamped with a clock that counts from boot, so the second session here deliberately
  * runs on a clock far *below* the first's. A restore that kept the saved stamps would be undone
- * by the first live reading, which mesh_ui_series_push() would read as the clock having gone
+ * by the first live reading, which inkcell_series_push() would read as the clock having gone
  * backwards.
  */
 MESH_TEST_CASE(ui_trends_survive_a_restart, unit) {
@@ -122,7 +122,7 @@ MESH_TEST_CASE(ui_trends_survive_a_restart, unit) {
     }
     /* Four readings half an hour apart is a line, which is the whole point: the detail screen
        offers a chart off a drawable segment rather than off a sample. */
-    if (!mesh_ui_series_has_segment(
+    if (!inkcell_series_has_segment(
             mesh_ui_history_series(&two, 0x1234U, MESH_UI_HISTORY_BATTERY))) {
         failure = "a restored trend should be drawable before the radio says anything";
         goto cleanup;
@@ -135,7 +135,7 @@ MESH_TEST_CASE(ui_trends_survive_a_restart, unit) {
         failure = "a reading on a lower clock must not empty the restored series";
         goto cleanup;
     }
-    if (!mesh_ui_series_starts_segment(
+    if (!inkcell_series_starts_segment(
             mesh_ui_history_series(&two, 0x1234U, MESH_UI_HISTORY_BATTERY), 4U)) {
         failure = "the first reading after a restart starts a segment of its own";
         goto cleanup;
@@ -143,7 +143,7 @@ MESH_TEST_CASE(ui_trends_survive_a_restart, unit) {
     /* A second live reading continues it, so this session draws a line of its own. */
     mesh_ui_history_note_battery(&two, new_clock + 1000U + MESH_UI_HISTORY_NODE_REPORT_MS, 0x1234U,
                                  68U);
-    if (mesh_ui_series_starts_segment(
+    if (inkcell_series_starts_segment(
             mesh_ui_history_series(&two, 0x1234U, MESH_UI_HISTORY_BATTERY), 5U)) {
         failure = "a punctual reading after the seam continues the live segment";
         goto cleanup;
@@ -189,7 +189,7 @@ MESH_TEST_CASE(ui_trends_restore_continues_a_live_session, unit) {
     }
     /* No seam anywhere in it: nothing was interrupted. */
     for (uint32_t i = 1U; i < 3U; ++i) {
-        if (mesh_ui_series_starts_segment(
+        if (inkcell_series_starts_segment(
                 mesh_ui_history_series(&history, 0x77U, MESH_UI_HISTORY_BATTERY), i)) {
             failure = "a restore over an uninterrupted session must not break the line";
             goto cleanup;
@@ -218,7 +218,7 @@ cleanup:
  * A break the source armed is part of what was watched, and comes back with the reading.
  *
  * A node that spends a while on external power reports punctually and reports something that is
- * not a level, so the silence is invisible to the clock - mesh_ui_series_break() is how the push
+ * not a level, so the silence is invisible to the clock - inkcell_series_break() is how the push
  * says so, and the format has to carry that or the restored trend would slope across an hour of
  * charge nobody measured.
  */
@@ -249,7 +249,7 @@ MESH_TEST_CASE(ui_trends_keep_a_break_the_clock_cannot_see, unit) {
         failure = "both readings either side of the charge should come back";
         goto cleanup;
     }
-    if (!mesh_ui_series_starts_segment(
+    if (!inkcell_series_starts_segment(
             mesh_ui_history_series(&next, 0x99U, MESH_UI_HISTORY_BATTERY), 1U)) {
         failure = "the reading after external power must not continue the one before it";
         goto cleanup;
@@ -317,13 +317,13 @@ MESH_TEST_CASE(ui_trends_append_writes_the_restart_seam, unit) {
         failure = "the readings should come back in the order they were written";
         goto cleanup;
     }
-    const struct mesh_ui_series *series =
+    const struct inkcell_series *series =
         mesh_ui_history_series(&three, 0x321U, MESH_UI_HISTORY_BATTERY);
-    if (mesh_ui_series_starts_segment(series, 1U)) {
+    if (inkcell_series_starts_segment(series, 1U)) {
         failure = "two readings inside one run should still be one line";
         goto cleanup;
     }
-    if (!mesh_ui_series_starts_segment(series, 2U)) {
+    if (!inkcell_series_starts_segment(series, 2U)) {
         failure = "the first reading of a later run must not continue the run before it";
         goto cleanup;
     }
@@ -383,10 +383,10 @@ MESH_TEST_CASE(ui_trends_keep_a_signed_reading_and_its_pair, unit) {
     }
     /* One packet is one moment: the two series line up sample for sample. */
     for (uint32_t i = 0U; i < 3U; ++i) {
-        const struct mesh_ui_sample *snr =
-            mesh_ui_series_at(mesh_ui_history_series(&next, 0xABCU, MESH_UI_HISTORY_SNR), i);
-        const struct mesh_ui_sample *rssi =
-            mesh_ui_series_at(mesh_ui_history_series(&next, 0xABCU, MESH_UI_HISTORY_RSSI), i);
+        const struct inkcell_sample *snr =
+            inkcell_series_at(mesh_ui_history_series(&next, 0xABCU, MESH_UI_HISTORY_SNR), i);
+        const struct inkcell_sample *rssi =
+            inkcell_series_at(mesh_ui_history_series(&next, 0xABCU, MESH_UI_HISTORY_RSSI), i);
         if (snr == NULL || rssi == NULL || snr->time != rssi->time) {
             failure = "two readings off one packet should come back on one timeline";
             goto cleanup;
@@ -445,22 +445,22 @@ MESH_TEST_CASE(ui_trends_compaction_keeps_the_chain, unit) {
         failure = "a compacted file should still restore";
         goto cleanup;
     }
-    const struct mesh_ui_series *series =
+    const struct inkcell_series *series =
         mesh_ui_history_series(&next, 0x42U, MESH_UI_HISTORY_BATTERY);
-    if (series == NULL || series->count != MESH_UI_SERIES_MAX) {
+    if (series == NULL || series->count != INKCELL_SERIES_MAX) {
         failure = "a compacted file should still fill the series";
         goto cleanup;
     }
     /* The newest reading written is the newest reading back, which is what a cap on the *oldest*
        records means. */
-    const struct mesh_ui_sample *newest = mesh_ui_series_newest(series);
+    const struct inkcell_sample *newest = inkcell_series_newest(series);
     if (newest == NULL || newest->value != (int32_t)(50U + ((4000U - 1U) % 50U))) {
         failure = "the newest reading should survive a compaction";
         goto cleanup;
     }
     /* And one chain: a minute apart throughout, so nothing in it breaks. */
     for (uint32_t i = 1U; i < series->count; ++i) {
-        if (mesh_ui_series_starts_segment(series, i)) {
+        if (inkcell_series_starts_segment(series, i)) {
             failure = "a compacted chain should still be one line";
             goto cleanup;
         }
@@ -514,7 +514,7 @@ MESH_TEST_CASE(ui_trends_keep_an_unknown_reading_in_the_chain, unit) {
         failure = "the readings this build knows should come back as they were";
         goto cleanup;
     }
-    if (!mesh_ui_series_starts_segment(
+    if (!inkcell_series_starts_segment(
             mesh_ui_history_series(&history, 0xABCU, MESH_UI_HISTORY_BATTERY), 1U)) {
         failure = "the interval an unknown record spent must stay in the chain";
         goto cleanup;
@@ -530,7 +530,7 @@ cleanup:
  * A clock that wraps starts a new chain rather than stopping the log.
  *
  * The history's timeline is a uint32 of milliseconds shifted up by MESH_UI_HISTORY_EPOCH_MS, so
- * 41 days of continuous running reaches the end of it. mesh_ui_series_push() handles that by
+ * 41 days of continuous running reaches the end of it. inkcell_series_push() handles that by
  * emptying what it holds - the readings are still true and when they were taken is not - but a
  * writer whose high-water mark stayed up near the top of the range would read every reading
  * after the wrap as one it had already written, and go quiet for the rest of the run.

@@ -47,20 +47,20 @@ MESH_TEST_CASE(ui_nav_settings, unit) {
         failure = "A should open the LoRa section";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     if (store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != 1U) {
         failure = "Down should move within the section";
         goto cleanup;
     }
     /* A on the "Use preset" toggle edits it in place; nothing is sent until Y. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (action.type != MESH_UI_ACTION_NONE || store.nav.settings_section != MESH_UI_SETTINGS_LORA ||
         store.nav.settings_edit_count != 1U ||
         store.nav.settings_edits[0].field != MESH_UI_FIELD_LORA_USE_PRESET) {
         failure = "A on a toggle should record an edit";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
     /* The refresh carries the pending edit count so the toast can say they were kept: X and
        Y sit together, and a refresh that reports nothing reads like a save that did nothing. */
     if (action.type != MESH_UI_ACTION_REFRESH_SETTINGS || action.edit_count != 1U) {
@@ -68,12 +68,12 @@ MESH_TEST_CASE(ui_nav_settings, unit) {
         goto cleanup;
     }
     /* B with an edit asks first; B again discards and leaves. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
     if (!store.nav.settings_discard_armed || store.nav.settings_section != MESH_UI_SETTINGS_LORA) {
         failure = "B with an edit should ask before leaving";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
     if (store.nav.settings_section != MESH_UI_SETTINGS_NO_SECTION ||
         mesh_ui_settings_root_at(store.nav.cursor[MESH_UI_SCREEN_SETTINGS]) !=
             MESH_UI_SETTINGS_LORA ||
@@ -131,9 +131,9 @@ MESH_TEST_CASE(ui_nav_modules, unit) {
         telemetry_row++;
     }
     while (store.nav.cursor[MESH_UI_SCREEN_SETTINGS] < telemetry_row &&
-           mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action)) {
+           mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action)) {
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     /* Telemetry groups its rows under a "Device" heading, so the module opens on row 1 - the
        first row its cursor may stand on - rather than on the title above it. */
     if (store.nav.settings_section != MESH_UI_SETTINGS_TELEMETRY ||
@@ -146,14 +146,14 @@ MESH_TEST_CASE(ui_nav_modules, unit) {
     /* An edit inside the module still belongs to the module's own section, not to Modules.
        The cursor is already on Enabled - the section opened there - so one step reaches
        Interval. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action); /* Interval */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action); /* Interval */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
     if (store.nav.settings_edit_count != 1U ||
         store.nav.settings_edits[0].field != MESH_UI_FIELD_TELEMETRY_INTERVAL) {
         failure = "Right should edit the interval row inside the module";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_Y, &action);
     if (action.type != MESH_UI_ACTION_SAVE_SETTINGS ||
         action.section != MESH_UI_SETTINGS_TELEMETRY) {
         failure = "Y should save the module's own section";
@@ -163,20 +163,20 @@ MESH_TEST_CASE(ui_nav_modules, unit) {
     /* Nothing cleared the edits - that is the app's job once the write is queued, and no app
        is running here - so the first B arms the discard question and the second acts on it.
        The level it then unwinds to is the module row it came from. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
     if (!store.nav.settings_discard_armed ||
         store.nav.settings_section != MESH_UI_SETTINGS_TELEMETRY) {
         failure = "B with edits pending should ask before discarding";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
     if (store.nav.settings_section != MESH_UI_SETTINGS_MODULES ||
         store.nav.settings_parent != MESH_UI_SETTINGS_NO_SECTION ||
         store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != telemetry_row) {
         failure = "B should return to the Modules list at the module's row";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
     if (store.nav.settings_section != MESH_UI_SETTINGS_NO_SECTION ||
         store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != modules_row ||
         mesh_ui_settings_root_at(store.nav.cursor[MESH_UI_SCREEN_SETTINGS]) !=
@@ -226,7 +226,7 @@ MESH_TEST_CASE(ui_nav_settings_edit, unit) {
         mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS);
 
     /* Right on Screen on steps to the next preset; Left twice goes back past it. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
     struct mesh_ui_settings_item item;
     if (store.nav.screen != MESH_UI_SCREEN_SETTINGS || store.nav.settings_edit_count != 1U ||
         store.nav.settings_edits[0].field != MESH_UI_FIELD_DISPLAY_SCREEN_ON ||
@@ -238,23 +238,23 @@ MESH_TEST_CASE(ui_nav_settings_edit, unit) {
         failure = "Right should step the number and stay on the tab";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_LEFT, &action);
     if (store.nav.settings_edit_count != 0U) {
         failure = "stepping back to the radio's value should drop the edit";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_LEFT, &action);
     if (store.nav.settings_edit_count != 1U || store.nav.settings_edits[0].number != 30U) {
         failure = "Left should step down";
         goto cleanup;
     }
     /* Down to 12-hour clock: A flips a toggle. Down to Units: Left wraps the enum. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_LEFT, &action);
     if (store.nav.settings_edit_count != 3U ||
         mesh_ui_settings_find_edit(store.nav.settings_edits, 3U, MESH_UI_FIELD_DISPLAY_12H) ==
             NULL ||
@@ -273,20 +273,20 @@ MESH_TEST_CASE(ui_nav_settings_edit, unit) {
     }
 
     /* B asks first; a different key stands the question down; B twice discards. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
     if (!store.nav.settings_discard_armed ||
         store.nav.settings_section != MESH_UI_SETTINGS_DISPLAY) {
         failure = "B with edits should ask, not leave";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
     if (store.nav.settings_discard_armed) {
         failure = "another key should cancel the discard question";
         goto cleanup;
     }
     /* Y saves: the action carries the section and every edit; the nav keeps them until the
        app says so. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_Y, &action);
     if (action.type != MESH_UI_ACTION_SAVE_SETTINGS || action.section != MESH_UI_SETTINGS_DISPLAY ||
         action.edit_count != 3U || action.edits[0].field != MESH_UI_FIELD_DISPLAY_SCREEN_ON ||
         action.edits[0].number != 30U || store.nav.settings_edit_count != 3U) {
@@ -298,7 +298,7 @@ MESH_TEST_CASE(ui_nav_settings_edit, unit) {
         failure = "clearing the edits should repaint";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_Y, &action);
     if (action.type != MESH_UI_ACTION_NONE) {
         failure = "Y with nothing to save does nothing";
         goto cleanup;
@@ -306,28 +306,28 @@ MESH_TEST_CASE(ui_nav_settings_edit, unit) {
 
     /* Text: A on Short name opens the keyboard on that field with the value preloaded, the
        Compose draft parked; typing is capped at four bytes; done records the edit. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
     mesh_test_settings_open(&store, MESH_UI_SETTINGS_USER);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     /* The word on the submit key is this client's to name and the grid's to draw, so it is
        asked for the way the renderer asks: off the layout the nav builds for the job. */
     const struct inkcell_keyboard_layout kb_layout = mesh_ui_nav_kb_layout(&store.nav);
     if (!store.nav.keyboard_open || store.nav.keyboard_field != MESH_UI_FIELD_USER_SHORT_NAME ||
         strcmp(store.nav.draft, "OLDN") != 0 || strcmp(store.nav.draft_saved, "half typed") != 0 ||
-        strcmp(mesh_str((enum mesh_str_id)kb_layout.submit_label), "done") != 0) {
+        strcmp(inkcell_str((enum inkcell_str_id)kb_layout.submit_label), "done") != 0) {
         failure = "A on a text row should open the keyboard for it";
         goto cleanup;
     }
     /* Row 0 col 0 of the lower layer is '1': appending at the cap is refused. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (strcmp(store.nav.draft, "OLDN") != 0) {
         failure = "the draft must respect the field's byte cap";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action); /* delete -> OLD */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action); /* '1' -> OLD1 */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action); /* delete -> OLD */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action); /* '1' -> OLD1 */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_START, &action);
     if (store.nav.keyboard_open || store.nav.screen != MESH_UI_SCREEN_SETTINGS ||
         store.nav.keyboard_field != MESH_UI_FIELD_NONE ||
         strcmp(store.nav.draft, "half typed") != 0 || action.type != MESH_UI_ACTION_NONE ||
@@ -338,29 +338,29 @@ MESH_TEST_CASE(ui_nav_settings_edit, unit) {
         goto cleanup;
     }
     /* Reopen and cancel: nothing changes. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.keyboard_open || strcmp(store.nav.draft, "OLD1") != 0) {
         failure = "the keyboard should preload the pending edit";
         goto cleanup;
     }
     store.nav.kb.row = INKCELL_KB_CHAR_ROWS;
     store.nav.kb.col = INKCELL_KB_ACTION_CANCEL;
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (store.nav.keyboard_open || store.nav.settings_edit_count != 1U ||
         strcmp(store.nav.draft, "half typed") != 0) {
         failure = "cancel should keep the edit as it was";
         goto cleanup;
     }
     /* B twice leaves the section with the edits gone. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
     if (store.nav.settings_section != MESH_UI_SETTINGS_NO_SECTION ||
         store.nav.settings_edit_count != 0U) {
         failure = "B twice should discard and go back";
         goto cleanup;
     }
     /* Left on the section list still switches tabs. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_LEFT, &action);
     if (store.nav.screen != MESH_UI_SCREEN_STATUS) {
         failure = "Left on the section list should switch tabs";
         goto cleanup;
@@ -477,8 +477,8 @@ MESH_TEST_CASE(ui_nav_channel_edit, unit) {
             goto cleanup;
         }
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (store.nav.settings_channel != 1U || store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != 0U ||
         mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS) != channel_rows ||
         !mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_CHANNELS, 1U, 2U,
@@ -501,9 +501,9 @@ MESH_TEST_CASE(ui_nav_channel_edit, unit) {
     }
 
     /* Key row: Right walks default / random 128 / random 256 / none / back to keep. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
     if (store.nav.settings_edit_count != 1U ||
         store.nav.settings_edits[0].field != MESH_UI_FIELD_CHANNEL_KEY ||
         store.nav.settings_edits[0].number != MESH_UI_PSK_DEFAULT ||
@@ -513,52 +513,52 @@ MESH_TEST_CASE(ui_nav_channel_edit, unit) {
         failure = "Right on the key should pick the default key and keep the text for the keyboard";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
     if (store.nav.settings_edits[0].number != MESH_UI_PSK_RANDOM_256) {
         failure = "Right twice more should reach random AES-256";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_LEFT, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_LEFT, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_LEFT, &action);
     if (store.nav.settings_edit_count != 0U) {
         failure = "Left back to keep should drop the edit";
         goto cleanup;
     }
     /* A opens the keyboard on the key as base64; a bad key keeps it open; a good one is
        recorded. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.keyboard_open || store.nav.keyboard_field != MESH_UI_FIELD_CHANNEL_KEY ||
         strcmp(store.nav.draft, "oKGio6SlpqeoqaqrrK2urw==") != 0) {
         failure = "A on the key should open the keyboard on the current key as base64";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action); /* 23 chars: not base64 */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action); /* 23 chars: not base64 */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_START, &action);
     if (!store.nav.keyboard_open || store.nav.settings_edit_count != 0U) {
         failure = "a truncated key should be refused and the keyboard stay open";
         goto cleanup;
     }
     /* Delete "w=" too, then type "a==": still 16 bytes, last byte different. 'a' is row 2
        col 0 of the lower layer; '=' is row 1 col 2 of the symbol layer, two panels along. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_R1, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_R1, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_R1, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_R1, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (strcmp(store.nav.draft, "oKGio6SlpqeoqaqrrK2ura==") != 0) {
         failure = "typing on the key keyboard went wrong";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_START, &action);
     if (store.nav.keyboard_open || store.nav.settings_edit_count != 1U ||
         store.nav.settings_edits[0].number != MESH_UI_PSK_TYPED ||
         strcmp(store.nav.settings_edits[0].text, "oKGio6SlpqeoqaqrrK2ura==") != 0) {
@@ -566,21 +566,21 @@ MESH_TEST_CASE(ui_nav_channel_edit, unit) {
         goto cleanup;
     }
     /* Y asks first; B cancels; Y, Up, A saves with the channel slot in the action. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_Y, &action);
     if (!store.nav.confirm_open || store.nav.confirm_cursor != 1U ||
         action.type != MESH_UI_ACTION_NONE) {
         failure = "Y on a channel should open the confirm overlay on Cancel";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (store.nav.confirm_open || action.type != MESH_UI_ACTION_NONE ||
         store.nav.settings_edit_count != 1U) {
         failure = "A on Cancel should close the overlay and keep the edits";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_Y, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (store.nav.confirm_open || action.type != MESH_UI_ACTION_SAVE_SETTINGS ||
         action.section != MESH_UI_SETTINGS_CHANNELS || action.channel != 1U ||
         action.edit_count != 1U || action.edits[0].field != MESH_UI_FIELD_CHANNEL_KEY) {
@@ -589,14 +589,14 @@ MESH_TEST_CASE(ui_nav_channel_edit, unit) {
     }
     mesh_ui_store_settings_edits_clear(&store);
     /* B leaves the channel for the list, then the list for the sections. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
     if (store.nav.settings_channel != MESH_UI_SETTINGS_NO_CHANNEL ||
         store.nav.settings_section != MESH_UI_SETTINGS_CHANNELS ||
         store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != 1U) {
         failure = "B should return to the channel list at the same row";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
     if (store.nav.settings_section != MESH_UI_SETTINGS_NO_SECTION) {
         failure = "B again should return to the section list";
         goto cleanup;
@@ -658,15 +658,15 @@ MESH_TEST_CASE(ui_nav_clear_channel, unit) {
     (void)mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS);
     mesh_test_settings_open(&store, MESH_UI_SETTINGS_CHANNELS);
     /* Into slot 1, then down onto the last row - the verb. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     const uint32_t rows = mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS);
     if (store.nav.settings_channel != 1U || rows < 7U) {
         failure = "A should open the slot with the clearing verb under its rows";
         goto cleanup;
     }
     for (uint32_t i = 0; i + 1U < rows; ++i) {
-        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+        mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     }
     /* The row under the cursor, asked of the public item list rather than of the nav's own
        `settings_current` - that one is declared in nav_internal.h, which is the group's private
@@ -689,7 +689,7 @@ MESH_TEST_CASE(ui_nav_clear_channel, unit) {
              "Renamed");
 
     /* A asks rather than acts, and the question opens on Cancel. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.confirm_open || store.nav.confirm_cursor != 1U ||
         store.nav.confirm_action != (uint8_t)MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL ||
         action.type != MESH_UI_ACTION_NONE) {
@@ -697,8 +697,8 @@ MESH_TEST_CASE(ui_nav_clear_channel, unit) {
         goto cleanup;
     }
     /* Onto the verb and answer. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (store.nav.confirm_open || action.type != MESH_UI_ACTION_SAVE_SETTINGS ||
         action.section != MESH_UI_SETTINGS_CHANNELS || action.channel != 1U ||
         action.number != (uint32_t)MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL) {
@@ -932,37 +932,37 @@ MESH_TEST_CASE(ui_nav_radio_actions, unit) {
         failure = "the section should open on Reboot rather than on the heading above it";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
     if (store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != 1U) {
         failure = "UP off the first real row should not land on a heading";
         goto cleanup;
     }
 
     /* A opens the question on Cancel, and asking is not doing. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.confirm_open || store.nav.confirm_cursor != 1U ||
         store.nav.confirm_action != (uint8_t)MESH_UI_SETTINGS_ACTION_REBOOT ||
         action.type != MESH_UI_ACTION_NONE) {
         failure = "A on Reboot should open the confirm overlay on Cancel";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (store.nav.confirm_open || action.type != MESH_UI_ACTION_NONE ||
         store.nav.confirm_action != (uint8_t)MESH_UI_SETTINGS_ACTION_NONE) {
         failure = "A on Cancel should close the overlay without acting";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
     if (store.nav.confirm_open || action.type != MESH_UI_ACTION_NONE) {
         failure = "B should back out of the overlay";
         goto cleanup;
     }
 
     /* Open it again, move onto the verb, and answer: that is the only press that acts. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (store.nav.confirm_open || action.type != MESH_UI_ACTION_RADIO_ACTION ||
         action.number != (uint32_t)MESH_UI_SETTINGS_ACTION_REBOOT ||
         action.section != MESH_UI_SETTINGS_ACTIONS || action.edit_count != 0U) {
@@ -1105,7 +1105,7 @@ MESH_TEST_CASE(ui_nav_forget_nodes, unit) {
        headings between, so this walks to the row rather than counting presses - what the test
        is about is which row the forget verb is on, not how many times DOWN was pressed. */
     while (store.nav.cursor[MESH_UI_SCREEN_SETTINGS] < 6U &&
-           mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action)) {
+           mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action)) {
     }
     if (store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != 6U) {
         failure = "six presses should land on the first forget row";
@@ -1114,14 +1114,14 @@ MESH_TEST_CASE(ui_nav_forget_nodes, unit) {
 
     /* A asks first, like every other row in this section: a forgotten node comes back only
        when it speaks again. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.confirm_open || action.type != MESH_UI_ACTION_NONE ||
         store.nav.confirm_action != (uint8_t)MESH_UI_SETTINGS_ACTION_FORGET_OFF_RADIO_NODES) {
         failure = "A on the forget row should open the confirm overlay";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (store.nav.confirm_open || action.type != MESH_UI_ACTION_FORGET_NODES ||
         action.number != 0U) {
         failure = "confirming should ask the client to drop the off-radio nodes";
@@ -1129,10 +1129,10 @@ MESH_TEST_CASE(ui_nav_forget_nodes, unit) {
     }
 
     /* One row further down is the same press for the whole roster. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (action.type != MESH_UI_ACTION_FORGET_NODES || action.number != 1U) {
         failure = "the second row should empty the roster rather than trim it";
         goto cleanup;
@@ -1246,12 +1246,12 @@ MESH_TEST_CASE(ui_nav_position_flags_edit_one_bit_each, unit) {
         failure = "the cursor should reach the altitude flag";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
     if (!mesh_test_settings_cursor_to(&store, speed_row)) {
         failure = "the cursor should reach the speed flag";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
 
     if (store.nav.settings_edit_count != 2U) {
         failure = "two flags flipped should be two pending edits";
@@ -1385,14 +1385,14 @@ MESH_TEST_CASE(ui_nav_fixed_position, unit) {
         failure = "the cursor should reach the latitude row";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.keyboard_open ||
         store.nav.keyboard_field != (uint8_t)MESH_UI_FIELD_POSITION_LATITUDE) {
         failure = "A on the latitude row should open the keyboard on it";
         goto cleanup;
     }
     snprintf(store.nav.draft, sizeof store.nav.draft, "%s", "45.0");
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_START, &action);
     if (store.nav.settings_edit_count != 1U ||
         store.nav.settings_edits[0].field != MESH_UI_FIELD_POSITION_LATITUDE) {
         failure = "the typed latitude should be recorded as a pending edit";
@@ -1402,7 +1402,7 @@ MESH_TEST_CASE(ui_nav_fixed_position, unit) {
         failure = "the cursor should reach the set-fixed-position row";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (store.nav.confirm_open) {
         failure = "setting a position should not ask first";
         goto cleanup;
@@ -1429,11 +1429,11 @@ MESH_TEST_CASE(ui_nav_fixed_position, unit) {
         goto cleanup;
     }
     /* Add a GPS-mode edit beside the latitude one, then consume each side in turn. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
     while (store.nav.cursor[MESH_UI_SCREEN_SETTINGS] > 0U) {
-        mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+        mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
     if (store.nav.settings_edit_count != 2U) {
         failure = "the GPS row should record an edit beside the latitude one";
         goto cleanup;
@@ -1487,7 +1487,7 @@ MESH_TEST_CASE(ui_nav_canned_separator, unit) {
         failure = "the canned section should open from the Modules list";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.keyboard_open || store.nav.keyboard_field != MESH_UI_FIELD_CANNED_0 ||
         strcmp(store.nav.draft, "one") != 0) {
         failure = "A on a slot should open the keyboard preloaded with it";
@@ -1496,7 +1496,7 @@ MESH_TEST_CASE(ui_nav_canned_separator, unit) {
     /* Typed rather than assembled a keypress at a time: what matters is what the commit does
        with a separator in the draft, not how it got there. */
     snprintf(store.nav.draft, sizeof store.nav.draft, "%s", "meet|later");
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_START, &action);
     if (store.nav.keyboard_open || store.nav.settings_edit_count != 1U ||
         store.nav.settings_edits[0].field != MESH_UI_FIELD_CANNED_0 ||
         strcmp(store.nav.settings_edits[0].text, "meetlater") != 0) {
@@ -1580,7 +1580,7 @@ MESH_TEST_CASE(ui_settings_actions_need_a_live_link, unit) {
             ++pressable;
         }
         if (item.kind == MESH_UI_SETTING_ACTION_OFF &&
-            strcmp(item.value, mesh_str(MESH_STR_SETTINGS_NOT_CONNECTED)) == 0) {
+            strcmp(item.value, inkcell_str(MESH_STR_SETTINGS_NOT_CONNECTED)) == 0) {
             ++not_connected;
         }
     }
@@ -1680,14 +1680,14 @@ MESH_TEST_CASE(ui_nav_ham_mode, unit) {
         failure = "the cursor should reach the call sign row";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.keyboard_open ||
         store.nav.keyboard_field != (uint8_t)MESH_UI_FIELD_LORA_HAM_CALL_SIGN) {
         failure = "A on the call sign row should open the keyboard on it";
         goto cleanup;
     }
     snprintf(store.nav.draft, sizeof store.nav.draft, "%s", "KD2ABC");
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_START, &action);
     if (store.nav.settings_edit_count != 1U ||
         store.nav.settings_edits[0].field != MESH_UI_FIELD_LORA_HAM_CALL_SIGN) {
         failure = "the typed call sign should be recorded as a pending edit";
@@ -1699,15 +1699,15 @@ MESH_TEST_CASE(ui_nav_ham_mode, unit) {
         goto cleanup;
     }
     memset(&action, 0, sizeof action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.confirm_open || action.type == MESH_UI_ACTION_RADIO_ACTION) {
         failure = "A on the ham row should open the sheet rather than act";
         goto cleanup;
     }
     /* Cancel is where the cursor starts, so the answer has to be moved to on purpose. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
     memset(&action, 0, sizeof action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (action.type != MESH_UI_ACTION_RADIO_ACTION ||
         action.number != (uint32_t)MESH_UI_SETTINGS_ACTION_SET_HAM_MODE ||
         action.section != MESH_UI_SETTINGS_LORA || action.edit_count != 1U ||
@@ -1721,7 +1721,7 @@ MESH_TEST_CASE(ui_nav_ham_mode, unit) {
         failure = "the cursor should reach the hop limit row";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
     if (store.nav.settings_edit_count != 2U) {
         failure = "the hop limit should record an edit beside the call sign";
         goto cleanup;
@@ -1797,7 +1797,7 @@ MESH_TEST_CASE(ui_nav_lora_preset_steps_inside_the_region, unit) {
         failure = "a preset the region does not allow should be marked";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
     if (store.nav.settings_edit_count != 1U ||
         store.nav.settings_edits[0].field != MESH_UI_FIELD_LORA_PRESET ||
         store.nav.settings_edits[0].number != 8U) {
@@ -1805,7 +1805,7 @@ MESH_TEST_CASE(ui_nav_lora_preset_steps_inside_the_region, unit) {
         goto cleanup;
     }
     /* And Right again wraps inside the set rather than walking on through it. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
     if (store.nav.settings_edits[0].number != 0U) {
         failure = "Right off the end of the set should wrap to its first value";
         goto cleanup;
@@ -1818,7 +1818,7 @@ MESH_TEST_CASE(ui_nav_lora_preset_steps_inside_the_region, unit) {
         goto cleanup;
     }
     /* Left goes back the way it came, through the same set. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_LEFT, &action);
     if (store.nav.settings_edits[0].number != 8U) {
         failure = "Left should walk the set backwards";
         goto cleanup;
@@ -1874,7 +1874,7 @@ MESH_TEST_CASE(ui_nav_settings_shoulders_walk_the_cards, unit) {
         for (;;) {
             const uint32_t before = store.nav.cursor[MESH_UI_SCREEN_SETTINGS];
             memset(&action, 0, sizeof action);
-            (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_R2, &action);
+            (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_R2, &action);
             const uint32_t after = store.nav.cursor[MESH_UI_SCREEN_SETTINGS];
             if (after == before) {
                 break; /* refused: no group that way */
@@ -1913,12 +1913,12 @@ MESH_TEST_CASE(ui_nav_settings_shoulders_walk_the_cards, unit) {
     if (failure == NULL) {
         const uint32_t top = store.nav.cursor[MESH_UI_SCREEN_SETTINGS];
         memset(&action, 0, sizeof action);
-        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+        (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
         if (store.nav.cursor[MESH_UI_SCREEN_SETTINGS] == top) {
             failure = "the last group is one row, so there is no 'inside' to come back from";
         } else {
             memset(&action, 0, sizeof action);
-            (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_L2, &action);
+            (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_L2, &action);
             if (store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != top) {
                 snprintf(message, sizeof message,
                          "back from inside a group landed on row %u rather than on its first row "
@@ -1933,7 +1933,7 @@ MESH_TEST_CASE(ui_nav_settings_shoulders_walk_the_cards, unit) {
        walk said it would be. */
     if (failure == NULL) {
         memset(&action, 0, sizeof action);
-        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_L2, &action);
+        (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_L2, &action);
         const uint32_t want = seen[groups - 2U];
         if (store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != want) {
             snprintf(message, sizeof message,
@@ -2036,7 +2036,7 @@ MESH_TEST_CASE(ui_nav_a_chevron_is_a_promise_the_nav_keeps, unit) {
             const enum mesh_ui_settings_action which = (enum mesh_ui_settings_action)item.number;
             struct mesh_ui_action out;
             memset(&out, 0, sizeof out);
-            (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &out);
+            (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &out);
             /* Everything the nav can raise from a settings row: the question, the two code
                screens, and the keyboard the two importing rows open. */
             const bool raised = store.nav.confirm_open || store.nav.share_open ||

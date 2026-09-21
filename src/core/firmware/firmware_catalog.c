@@ -1,7 +1,8 @@
 #include "mesh/core/firmware_catalog.h"
 
+#include "inkcell/utils/text.h"
+
 #include "mesh/utils/json.h"
-#include "mesh/utils/text.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -185,7 +186,7 @@ bool mesh_firmware_release_parse(const char *json_text, size_t len,
     if (version[0] == '\0') {
         return false;
     }
-    mesh_str_copy(out->version, sizeof out->version, version);
+    inkcell_str_copy(out->version, sizeof out->version, version);
     /*
      * The index calls it `zip_url` and for a current release it is a `.json` - the per-release
      * manifest. Older entries really do point at a per-platform zip, and one of those is not
@@ -243,7 +244,7 @@ bool mesh_firmware_platform_parse(const char *json_text, size_t len, const char 
              * would let a later duplicate - the shape a bad merge produces - overwrite the
              * answer with whichever copy was last.
              */
-            mesh_str_copy(out, out_len, platform);
+            inkcell_str_copy(out, out_len, platform);
             return true;
         }
     }

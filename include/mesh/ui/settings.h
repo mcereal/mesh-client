@@ -10,12 +10,13 @@
  * number presets, text cap - is answered here so the nav never has to know what a field means.
  */
 
+#include "inkcell/ui/icon.h"
+#include "inkcell/ui/theme.h"
+
 #include "mesh/i18n/strings.h"
-#include "mesh/ui/icon.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/store_handshake.h"
 #include "mesh/ui/store_settings.h"
-#include "mesh/ui/theme.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -159,7 +160,7 @@ enum mesh_ui_setting_kind {
      * drawing is what a kind is for. A switch is a boolean that acts: flick it and the thing
      * it names is on. A flag is a boolean that is part of a set - one of the ten things a
      * position packet may carry - and the set is only readable as a set. That is the checkbox,
-     * and fb_widgets.h has said since the control was built that a square is "any of these"
+     * and inkcell/ui/widgets.h has said since the control was built that a square is "any of these"
      * where a circle is "one of these".
      *
      * The CLI backend draws the same "on"/"off" it draws for a toggle, because the difference
@@ -719,24 +720,24 @@ enum mesh_ui_settings_action {
  * and the marker bar are three renderings of that one statement. A backend deciding which of
  * its verbs is the dangerous one is a backend holding an opinion the CLI backend cannot share.
  *
- * The weight is a tone rather than a family because it is the *row's* tone: FB_LEADING_TONAL
- * reads the family back out of it, the accent edge takes the same answer, and so does the label.
- * Three weights, and the first of them is the reason a card of verbs is readable at all:
+ * The weight is a tone rather than a family because it is the *row's* tone:
+ * INKCELL_FB_LEADING_TONAL reads the family back out of it, the accent edge takes the same answer,
+ * and so does the label. Three weights, and the first of them is the reason a card of verbs is
+ * readable at all:
  *
  *   NORMAL   the ordinary verb. The words stay in the body ink and the disc takes the primary,
- *            which is what FB_LEADING_TONAL does with a tone that names no family. A verb drawn
- *            in the accent is a verb shouting, and a card where all of them shout is a card
- *            where none of them does - which is the state the node detail was in before its own
- *            table, and the state Radio actions would be in with eleven coloured rows.
- *   WARNING  the radio goes away for a while, or something takes time to come back. A reboot is
- *            the shape of it: nothing is lost, and you wait.
+ *            which is what INKCELL_FB_LEADING_TONAL does with a tone that names no family. A verb
+ * drawn in the accent is a verb shouting, and a card where all of them shout is a card where none
+ * of them does - which is the state the node detail was in before its own table, and the state
+ * Radio actions would be in with eleven coloured rows. WARNING  the radio goes away for a while, or
+ * something takes time to come back. A reboot is the shape of it: nothing is lost, and you wait.
  *   ERROR    the floor drops out. Spent sparingly and on purpose: in a section that is nothing
  *            but things done *to* a radio, "this costs something" is the baseline rather than
  *            the exception, so the red marks where there is no way back rather than every row a
  *            confirm sheet stands in front of.
  */
-enum mesh_ui_icon mesh_ui_settings_action_icon(enum mesh_ui_settings_action action);
-enum mesh_ui_tone mesh_ui_settings_action_tone(enum mesh_ui_settings_action action);
+enum inkcell_icon mesh_ui_settings_action_icon(enum mesh_ui_settings_action action);
+enum inkcell_tone mesh_ui_settings_action_tone(enum mesh_ui_settings_action action);
 
 /* Which press writes this field (mesh/ui/nav.h). */
 enum mesh_ui_setting_consumer mesh_ui_settings_field_consumer(enum mesh_ui_setting_field field);
@@ -850,7 +851,7 @@ struct mesh_ui_settings_item {
     bool conflict;
     /*
      * What this row is *about*, for the leading slot: the cloud on MQTT, the shield on
-     * Security. MESH_UI_ICON_NONE on a row that is a setting rather than a subject, which is
+     * Security. INKCELL_ICON_NONE on a row that is a setting rather than a subject, which is
      * every row of every section except the one that lists the modules.
      *
      * A section gives every row an icon or gives none, and that is a rule rather than an
@@ -873,18 +874,18 @@ struct mesh_ui_settings_item {
      * eight in Radio actions. A settings section is a list of fields and a list has one kind of
      * subheader; the node detail and Status are card screens and keep theirs.
      */
-    enum mesh_ui_icon icon;
+    enum inkcell_icon icon;
     /*
      * What this row *costs*, for an ACTION or an ACTION_OFF - mesh_ui_settings_action_tone()'s
      * answer, carried on the row so a backend reads one thing.
      *
-     * Zero is MESH_UI_TONE_NORMAL, which is what every row that is not a verb says and what the
+     * Zero is INKCELL_TONE_NORMAL, which is what every row that is not a verb says and what the
      * settings rows have always drawn in. A renderer still layers the two marks that are about
      * the *value* over it - a conflict is a warning and an unsaved edit is strong, and both of
      * those outrank what the row would otherwise have been - because those describe the state of
      * this row now and this describes what the row is for.
      */
-    enum mesh_ui_tone tone;
+    enum inkcell_tone tone;
     /*
      * This row is a verb: something happens when A is pressed, as opposed to a list opening.
      *
@@ -986,7 +987,7 @@ bool mesh_ui_settings_item_is_fact(const struct mesh_ui_settings_item *item);
  * on a scale becomes a slider, and both of those swallow the stepper for the same reason a
  * switch does. See the seam in fb_screens_settings.c.
  */
-enum mesh_ui_icon mesh_ui_settings_item_marker(const struct mesh_ui_settings_item *item);
+enum inkcell_icon mesh_ui_settings_item_marker(const struct mesh_ui_settings_item *item);
 
 /*
  * How many groups a built section actually has: maximal runs of non-heading rows, counting only
@@ -1036,8 +1037,8 @@ void mesh_ui_settings_canned_entry(const char *list, uint32_t index, char *out, 
 const char *mesh_ui_settings_section_name(enum mesh_ui_settings_section section);
 /* The same name as a catalog id, for a caller that has to carry it rather than draw it - the
    help topic's subject, which is ids the whole way down so that a test can read one with no
-   locale in force. MESH_STR_NONE for a section past the end. */
-enum mesh_str_id mesh_ui_settings_section_label(enum mesh_ui_settings_section section);
+   locale in force. INKCELL_STR_NONE for a section past the end. */
+enum inkcell_str_id mesh_ui_settings_section_label(enum mesh_ui_settings_section section);
 
 /*
  * What a section is about, as an icon: the leading slot on a row that *opens* that section.
@@ -1048,20 +1049,20 @@ enum mesh_str_id mesh_ui_settings_section_label(enum mesh_ui_settings_section se
  * chevron.
  *
  * Three sections answer with an icon another part of the UI already owns, because they are
- * saying the same thing it says: "About radio" with MESH_UI_ICON_RADIO, Bluetooth and Channels
+ * saying the same thing it says: "About radio" with INKCELL_ICON_RADIO, Bluetooth and Channels
  * with their own runes.
  */
-enum mesh_ui_icon mesh_ui_settings_section_icon(enum mesh_ui_settings_section section);
+enum inkcell_icon mesh_ui_settings_section_icon(enum mesh_ui_settings_section section);
 
 /*
  * What a section is *for*, as a catalog id: the paragraph the help screen opens with.
  *
  * An id rather than a `const char *` so a caller can ask whether there is anything to say
  * without a strlen, and so the fb backend, the CLI and the tests cannot each invent their own
- * idea of what an absent note looks like. Never MESH_STR_NONE for a real section - see the
+ * idea of what an absent note looks like. Never INKCELL_STR_NONE for a real section - see the
  * table in settings.c for why that is a rule rather than an observation.
  */
-enum mesh_str_id mesh_ui_settings_section_note(enum mesh_ui_settings_section section);
+enum inkcell_str_id mesh_ui_settings_section_note(enum mesh_ui_settings_section section);
 
 /* Whether this section's *items* carry a leading icon - true only of Modules, whose rows are
    sections. What lets a renderer declare the slot once for the list instead of testing a row. */
@@ -1094,15 +1095,15 @@ const char *mesh_ui_settings_field_label(enum mesh_ui_setting_field field);
 /* The same label as a catalog id, for a caller assembling a structure of ids rather than a row
    of text - the help topic is the one, and holding ids there is what lets a test read it with no
    locale in force. */
-enum mesh_str_id mesh_ui_settings_field_label_id(enum mesh_ui_setting_field field);
+enum inkcell_str_id mesh_ui_settings_field_label_id(enum mesh_ui_setting_field field);
 enum mesh_ui_setting_kind mesh_ui_settings_field_kind(enum mesh_ui_setting_field field);
 enum mesh_ui_settings_section mesh_ui_settings_field_section(enum mesh_ui_setting_field field);
 /*
- * What one setting does, as a catalog id, or MESH_STR_NONE for a row whose label is already the
+ * What one setting does, as a catalog id, or INKCELL_STR_NONE for a row whose label is already the
  * whole explanation - which is most of them, on purpose. A note is for the row where knowing the
  * name does not tell you what happens if you get it wrong. See docs/help.md.
  */
-enum mesh_str_id mesh_ui_settings_field_note(enum mesh_ui_setting_field field);
+enum inkcell_str_id mesh_ui_settings_field_note(enum mesh_ui_setting_field field);
 /*
  * FLAG fields: which bit of its group's word this row is, and 0 for every other kind.
  *
@@ -1353,9 +1354,9 @@ mesh_ui_settings_section_availability(const struct mesh_ui_settings *settings,
                                       const struct mesh_ui_handshake_state *handshake,
                                       enum mesh_ui_settings_section section);
 
-/* The word a list row puts in its value column, and MESH_STR_NONE for a section that is ready
+/* The word a list row puts in its value column, and INKCELL_STR_NONE for a section that is ready
    (which draws as an empty column rather than as a word for "fine"). */
-enum mesh_str_id mesh_ui_settings_availability_label(enum mesh_ui_settings_availability state);
+enum inkcell_str_id mesh_ui_settings_availability_label(enum mesh_ui_settings_availability state);
 
 /* Which bit of DeviceMetadata.excluded_modules stands for this section, and 0 for a section
    the mask has nothing to say about. Exported for the test that pins the table against the
@@ -1365,7 +1366,7 @@ uint32_t mesh_ui_settings_section_excluded_bit(enum mesh_ui_settings_section sec
 /* The line an empty section screen draws instead of its rows. A ready section answers with the
    waiting line rather than with nothing: the only way to reach this while ready is a channel
    slot that went away under an open screen, and "not sent by the radio yet" is what that is. */
-enum mesh_str_id mesh_ui_settings_availability_reason(enum mesh_ui_settings_availability state);
+enum inkcell_str_id mesh_ui_settings_availability_reason(enum mesh_ui_settings_availability state);
 
 /*
  * Whether anything in this section can be stepped in place, and whether anything in it is a

@@ -9,6 +9,9 @@
  * copy of the last four hours under the first" - is only true if all three agree.
  */
 
+#include "inkcell/utils/text.h"
+#include "inkcell/utils/time.h"
+
 #include "framework/mesh_test.h"
 #include "support/session_fixture.h"
 #include "support/ui_fixture.h"
@@ -18,8 +21,6 @@
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store_handshake.h"
 #include "mesh/ui/store_settings.h"
-#include "mesh/utils/text.h"
-#include "mesh/utils/time.h"
 
 #include "meshtastic/storeforward.pb.h"
 
@@ -761,7 +762,8 @@ MESH_TEST_CASE(store_forward_replay_that_stops_arriving, unit) {
      * stamped the last arrival with; a tick handed a small number would be a tick from before
      * the packet landed.
      */
-    mesh_session_tick(&session, mesh_time_monotonic_ms() + MESH_STORE_FORWARD_REPLAY_GAP_MS + 1U);
+    mesh_session_tick(&session,
+                      inkcell_time_monotonic_ms() + MESH_STORE_FORWARD_REPLAY_GAP_MS + 1U);
     const struct mesh_store_forward *state = mesh_session_store_forward(&session);
     MESH_TEST_FAIL_IF(state->state != MESH_STORE_FORWARD_DONE || state->received != 1U ||
                           state->stored != 1U,
@@ -857,7 +859,7 @@ MESH_TEST_CASE(store_forward_rows_say_who_would_answer, unit) {
 
     sf.router = SF_ROUTER;
     sf.router_secondary = true;
-    mesh_str_copy(sf.router_name, sizeof sf.router_name, "Hilltop");
+    inkcell_str_copy(sf.router_name, sizeof sf.router_name, "Hilltop");
     count = sf_rows(&sf, true, items, (uint32_t)(sizeof items / sizeof items[0]));
     router = sf_row(items, count, "Router");
     /* A secondary router is still a router - on a mesh whose primary is off it is the only
@@ -873,7 +875,7 @@ MESH_TEST_CASE(store_forward_rows_say_what_the_request_did, unit) {
     struct mesh_ui_store_forward sf;
     memset(&sf, 0, sizeof sf);
     sf.router = SF_ROUTER;
-    mesh_str_copy(sf.router_name, sizeof sf.router_name, "Hilltop");
+    inkcell_str_copy(sf.router_name, sizeof sf.router_name, "Hilltop");
 
     /* Running: the action row becomes the progress reading, because the session refuses a
        second press anyway and a row that vanished mid-replay would move the rows under it. */

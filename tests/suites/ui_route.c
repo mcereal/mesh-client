@@ -28,7 +28,7 @@ static struct mesh_ui_route route_now(const struct mesh_ui_store *store) {
 }
 
 /* One press, and which way it moved the frame. */
-static enum mesh_ui_transition press(struct mesh_ui_store *store, enum mesh_ui_key key) {
+static enum inkcell_transition press(struct mesh_ui_store *store, enum inkcell_key key) {
     const struct mesh_ui_route before = route_now(store);
     struct mesh_ui_action action;
     memset(&action, 0, sizeof action);
@@ -52,8 +52,8 @@ MESH_TEST_CASE(ui_route_depth_counts_the_levels, unit) {
     memset(&action, 0, sizeof action);
     /* Off the all-traffic row and onto a conversation there is somebody to reply in: the
        firehose has no destination, so it offers neither the compose sheet nor the keyboard. */
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.thread_open || route_now(&store).depth != 1U ||
         route_now(&store).level != MESH_UI_ROUTE_THREAD) {
         failure = "an open thread is one level in";
@@ -63,16 +63,16 @@ MESH_TEST_CASE(ui_route_depth_counts_the_levels, unit) {
     /* A on a thread raises the compose sheet, and A on its draft row raises the keyboard over
        the sheet without closing it. Two levels, not one - which is the whole reason every
        overlay that is up is counted rather than only the topmost. */
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.compose_open || route_now(&store).depth != 2U ||
         route_now(&store).level != MESH_UI_ROUTE_COMPOSE) {
         failure = "the compose sheet is a level over the thread";
         goto cleanup;
     }
     while (store.nav.compose_cursor != MESH_UI_COMPOSE_ROW_DRAFT) {
-        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+        (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
     }
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.keyboard_open || !store.nav.compose_open || route_now(&store).depth != 3U ||
         route_now(&store).level != MESH_UI_ROUTE_KEYBOARD) {
         failure = "the keyboard over the sheet is a third level";
@@ -97,7 +97,7 @@ MESH_TEST_CASE(ui_route_settings_goes_three_deep, unit) {
        only on a row with no control on it, so this walk would sit on the Nodes tab's filter
        stepping it for ever. */
     while (store.nav.screen != MESH_UI_SCREEN_SETTINGS) {
-        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_R1, &action);
+        (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_R1, &action);
     }
     if (route_now(&store).depth != 0U) {
         failure = "the section list is the Settings tab's own level";
@@ -112,7 +112,7 @@ MESH_TEST_CASE(ui_route_settings_goes_three_deep, unit) {
         failure = "a top-level section is one level in";
         goto cleanup;
     }
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
     if (!mesh_test_settings_open(&store, MESH_UI_SETTINGS_MQTT) || route_now(&store).depth != 2U) {
         failure = "a module section is two levels in";
         goto cleanup;
@@ -130,11 +130,11 @@ MESH_TEST_CASE(ui_route_in_and_out_are_opposite, unit) {
     MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
     mesh_test_nav_populate(&store);
 
-    if (press(&store, MESH_UI_KEY_A) != MESH_UI_TRANSITION_FORWARD) {
+    if (press(&store, INKCELL_KEY_A) != INKCELL_TRANSITION_FORWARD) {
         failure = "opening a thread should move forward";
         goto cleanup;
     }
-    if (press(&store, MESH_UI_KEY_B) != MESH_UI_TRANSITION_BACK) {
+    if (press(&store, INKCELL_KEY_B) != INKCELL_TRANSITION_BACK) {
         failure = "backing out of a thread should move back";
         goto cleanup;
     }
@@ -149,25 +149,25 @@ MESH_TEST_CASE(ui_route_in_and_out_are_opposite, unit) {
      * belong to the control - so asking them for a transition here would be asking the one row
      * on the tab that does not offer one.
      */
-    if (press(&store, MESH_UI_KEY_R1) != MESH_UI_TRANSITION_FORWARD ||
+    if (press(&store, INKCELL_KEY_R1) != INKCELL_TRANSITION_FORWARD ||
         store.nav.screen != MESH_UI_SCREEN_NODES) {
         failure = "the right shoulder should move rightwards along the tabs";
         goto cleanup;
     }
-    if (press(&store, MESH_UI_KEY_L1) != MESH_UI_TRANSITION_BACK) {
+    if (press(&store, INKCELL_KEY_L1) != INKCELL_TRANSITION_BACK) {
         failure = "the left shoulder should move leftwards along the tabs";
         goto cleanup;
     }
-    (void)press(&store, MESH_UI_KEY_R1);
+    (void)press(&store, INKCELL_KEY_R1);
     /* Off the filter, the sort and the map rows, onto a node. */
     for (uint32_t lead = 0; lead < MESH_UI_NODES_LEAD_ROWS; ++lead) {
-        (void)press(&store, MESH_UI_KEY_DOWN);
+        (void)press(&store, INKCELL_KEY_DOWN);
     }
-    if (press(&store, MESH_UI_KEY_A) != MESH_UI_TRANSITION_FORWARD || !store.nav.node_detail_open) {
+    if (press(&store, INKCELL_KEY_A) != INKCELL_TRANSITION_FORWARD || !store.nav.node_detail_open) {
         failure = "opening a node should move forward";
         goto cleanup;
     }
-    if (press(&store, MESH_UI_KEY_B) != MESH_UI_TRANSITION_BACK) {
+    if (press(&store, INKCELL_KEY_B) != INKCELL_TRANSITION_BACK) {
         failure = "backing out of a node should move back";
         goto cleanup;
     }
@@ -196,33 +196,33 @@ MESH_TEST_CASE(ui_route_the_tab_strip_decides, unit) {
 
     struct mesh_ui_action action;
     memset(&action, 0, sizeof action);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_R1, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_R1, &action);
     /* Off the filter, the sort and the map rows, onto a node. */
     for (uint32_t lead = 0; lead < MESH_UI_NODES_LEAD_ROWS; ++lead) {
-        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+        (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     }
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.node_detail_open || store.nav.screen != MESH_UI_SCREEN_NODES) {
         failure = "could not open a node detail to leave from";
         goto cleanup;
     }
     /* One tab rightwards and one level shallower at the same time. The strip is what the eye
        is following, so the strip is what the body has to agree with. */
-    if (press(&store, MESH_UI_KEY_R1) != MESH_UI_TRANSITION_FORWARD ||
+    if (press(&store, INKCELL_KEY_R1) != INKCELL_TRANSITION_FORWARD ||
         store.nav.screen != MESH_UI_SCREEN_WAYPOINTS || route_now(&store).depth != 0U) {
         failure = "Right off a nested screen should still move rightwards";
         goto cleanup;
     }
 
     while (store.nav.screen != MESH_UI_SCREEN_SETTINGS) {
-        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_R1, &action);
+        (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_R1, &action);
     }
-    if (press(&store, MESH_UI_KEY_R1) != MESH_UI_TRANSITION_FORWARD ||
+    if (press(&store, INKCELL_KEY_R1) != INKCELL_TRANSITION_FORWARD ||
         store.nav.screen != MESH_UI_SCREEN_MESSAGES) {
         failure = "Right off the last tab wraps to the first, and is still rightwards";
         goto cleanup;
     }
-    if (press(&store, MESH_UI_KEY_L1) != MESH_UI_TRANSITION_BACK ||
+    if (press(&store, INKCELL_KEY_L1) != INKCELL_TRANSITION_BACK ||
         store.nav.screen != MESH_UI_SCREEN_SETTINGS) {
         failure = "Left off the first tab wraps to the last, and is still leftwards";
         goto cleanup;
@@ -246,32 +246,32 @@ MESH_TEST_CASE(ui_route_ignores_the_cursor_and_the_draft, unit) {
     MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
     mesh_test_nav_populate(&store);
 
-    if (press(&store, MESH_UI_KEY_DOWN) != MESH_UI_TRANSITION_NONE ||
-        press(&store, MESH_UI_KEY_UP) != MESH_UI_TRANSITION_NONE) {
+    if (press(&store, INKCELL_KEY_DOWN) != INKCELL_TRANSITION_NONE ||
+        press(&store, INKCELL_KEY_UP) != INKCELL_TRANSITION_NONE) {
         failure = "walking the conversation list is not a move between places";
         goto cleanup;
     }
     /* X arms a delete on the row under the cursor, which changes the frame and changes no
        place. Nothing armed is part of a route, and this is the one that is easiest to reach. */
-    if (press(&store, MESH_UI_KEY_X) != MESH_UI_TRANSITION_NONE) {
+    if (press(&store, INKCELL_KEY_X) != INKCELL_TRANSITION_NONE) {
         failure = "arming a delete is not a move between places";
         goto cleanup;
     }
-    (void)press(&store, MESH_UI_KEY_B);
+    (void)press(&store, INKCELL_KEY_B);
 
     struct mesh_ui_action action;
     memset(&action, 0, sizeof action);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action); /* a thread */
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action); /* straight to typing */
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action); /* a thread */
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_Y, &action); /* straight to typing */
     if (!store.nav.keyboard_open) {
         failure = "Y should open the keyboard on the thread";
         goto cleanup;
     }
     const struct mesh_ui_route typing = route_now(&store);
     for (int i = 0; i < 3; ++i) {
-        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action); /* type a character */
-        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+        (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action); /* type a character */
+        (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
     }
     if (store.nav.draft[0] == '\0') {
         failure = "the keyboard should have typed something";
@@ -337,7 +337,7 @@ MESH_TEST_CASE(ui_route_tells_the_threads_apart, unit) {
     struct mesh_ui_route again;
     mesh_ui_route_of(&channel, &again);
     if (!mesh_ui_route_same(&b, &again) ||
-        mesh_ui_route_move(&b, &again) != MESH_UI_TRANSITION_NONE) {
+        mesh_ui_route_move(&b, &again) != INKCELL_TRANSITION_NONE) {
         failure = "the same thread read as two places";
         goto cleanup;
     }
@@ -381,9 +381,9 @@ MESH_TEST_CASE(ui_route_a_node_chart_names_its_reading, unit) {
     MESH_TEST_FAIL_IF(warm.depth != 2U || warm.level != MESH_UI_ROUTE_TREND,
                       "a chart is one level over the detail");
     MESH_TEST_FAIL_IF(warm.subject != 0x4242U, "and it is about the node the detail was");
-    MESH_TEST_FAIL_IF(mesh_ui_route_move(&detail, &warm) != MESH_UI_TRANSITION_FORWARD,
+    MESH_TEST_FAIL_IF(mesh_ui_route_move(&detail, &warm) != INKCELL_TRANSITION_FORWARD,
                       "opening it should slide forward");
-    MESH_TEST_FAIL_IF(mesh_ui_route_move(&warm, &detail) != MESH_UI_TRANSITION_BACK,
+    MESH_TEST_FAIL_IF(mesh_ui_route_move(&warm, &detail) != INKCELL_TRANSITION_BACK,
                       "and B should slide back");
 
     nav.node_trend = MESH_UI_HISTORY_HUMIDITY;
@@ -423,9 +423,9 @@ MESH_TEST_CASE(ui_route_the_chart_is_a_level_of_the_status_tab, unit) {
     mesh_ui_route_of(&nav, &chart);
     MESH_TEST_FAIL_IF(chart.depth != 1U || chart.level != MESH_UI_ROUTE_TREND,
                       "the chart is one level in");
-    MESH_TEST_FAIL_IF(mesh_ui_route_move(&cards, &chart) != MESH_UI_TRANSITION_FORWARD,
+    MESH_TEST_FAIL_IF(mesh_ui_route_move(&cards, &chart) != INKCELL_TRANSITION_FORWARD,
                       "opening the chart should slide forward");
-    MESH_TEST_FAIL_IF(mesh_ui_route_move(&chart, &cards) != MESH_UI_TRANSITION_BACK,
+    MESH_TEST_FAIL_IF(mesh_ui_route_move(&chart, &cards) != INKCELL_TRANSITION_BACK,
                       "leaving it should slide back");
 
     /*

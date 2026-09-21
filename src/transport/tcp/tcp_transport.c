@@ -1,15 +1,16 @@
 #define _GNU_SOURCE
 #define _POSIX_C_SOURCE 200809L
 
+#include "inkcell/utils/log.h"
+#include "inkcell/utils/text.h"
+#include "inkcell/utils/time.h"
+
 #include "mesh/i18n/strings.h"
 #include "mesh/transport/tcp.h"
 
 #include "mesh/core/config.h"
 #include "mesh/core/resolve.h"
 #include "mesh/transport/stream_link.h"
-#include "mesh/utils/log.h"
-#include "mesh/utils/text.h"
-#include "mesh/utils/time.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -120,26 +121,27 @@ struct mesh_tcp_transport_state {
 static void mesh_tcp_reset_link(struct mesh_tcp_transport_state *state, const char *reason);
 
 /* Records a failure for the UI to pick up. First one wins until it is read. */
-static void mesh_tcp_set_error(struct mesh_tcp_transport_state *state, enum mesh_str_id text, ...) {
+static void mesh_tcp_set_error(struct mesh_tcp_transport_state *state, enum inkcell_str_id text,
+                               ...) {
     if (state == NULL || state->last_error[0] != '\0') {
         return;
     }
     va_list args;
     va_start(args, text);
-    (void)mesh_str_vformat(state->last_error, sizeof state->last_error, text, args);
+    (void)inkcell_str_vformat(state->last_error, sizeof state->last_error, text, args);
     va_end(args);
 }
 
 static const char *mesh_tcp_state_to_string(enum mesh_tcp_state state) {
     switch (state) {
     case MESH_TCP_STATE_DISABLED:
-        return mesh_str(MESH_STR_TRANSPORT_DISABLED);
+        return inkcell_str(MESH_STR_TRANSPORT_DISABLED);
     case MESH_TCP_STATE_IDLE:
-        return mesh_str(MESH_STR_TRANSPORT_NO_HOST);
+        return inkcell_str(MESH_STR_TRANSPORT_NO_HOST);
     case MESH_TCP_STATE_READY:
-        return mesh_str(MESH_STR_TRANSPORT_RUNNING);
+        return inkcell_str(MESH_STR_TRANSPORT_RUNNING);
     }
-    return mesh_str(MESH_STR_TRANSPORT_UNKNOWN);
+    return inkcell_str(MESH_STR_TRANSPORT_UNKNOWN);
 }
 
 /* ------------------------------------------------------------------ the target */
@@ -267,7 +269,7 @@ static void mesh_tcp_finish_connect(struct mesh_tcp_transport_state *state,
         error = errno;
     }
     if (error != 0) {
-        mesh_log_warn("tcp", "Cannot reach %s: %s", state->target, strerror(error));
+        inkcell_log_warn("tcp", "Cannot reach %s: %s", state->target, strerror(error));
         mesh_tcp_set_error(state, MESH_STR_LINK_TCP_UNREACHABLE, state->target, strerror(error));
         mesh_tcp_reset_link(state, "connect failed");
         return;
@@ -285,7 +287,7 @@ static void mesh_tcp_finish_connect(struct mesh_tcp_transport_state *state,
     const int opened = mesh_stream_link_open(&state->link, fd, MESH_STREAM_LINK_SOCKET, state->loop,
                                              mesh_tcp_fd_callback, transport);
     if (opened < 0) {
-        mesh_log_warn("tcp", "Cannot watch %s: %d", state->target, opened);
+        inkcell_log_warn("tcp", "Cannot watch %s: %d", state->target, opened);
         close(fd);
         mesh_tcp_reset_link(state, "could not watch the socket");
         return;
@@ -296,13 +298,13 @@ static void mesh_tcp_finish_connect(struct mesh_tcp_transport_state *state,
     mesh_session_attach(state->session, mesh_tcp_session_send, state);
     const int handshake = mesh_session_begin_handshake(state->session);
     if (handshake < 0) {
-        mesh_log_warn("tcp", "Failed to request config sync: %d", handshake);
+        inkcell_log_warn("tcp", "Failed to request config sync: %d", handshake);
         mesh_tcp_set_error(state, MESH_STR_LINK_TCP_NO_ANSWER, state->target);
         mesh_tcp_reset_link(state, "handshake failed");
         return;
     }
-    state->next_heartbeat_ms = mesh_time_monotonic_ms() + MESH_TCP_HEARTBEAT_INTERVAL_MS;
-    mesh_log_info("tcp", "Connected to %s", state->target);
+    state->next_heartbeat_ms = inkcell_time_monotonic_ms() + MESH_TCP_HEARTBEAT_INTERVAL_MS;
+    inkcell_log_info("tcp", "Connected to %s", state->target);
 }
 
 static int mesh_tcp_fd_callback(int fd, uint32_t events, void *userdata) {
@@ -345,7 +347,7 @@ static void mesh_tcp_reset_link(struct mesh_tcp_transport_state *state, const ch
         return;
     }
     char target[MESH_TCP_TARGET_MAX];
-    mesh_str_copy(target, sizeof target, state->target[0] != '\0' ? state->target : "the radio");
+    inkcell_str_copy(target, sizeof target, state->target[0] != '\0' ? state->target : "the radio");
 
     state->link_state = MESH_TCP_LINK_DISCONNECTED;
     state->connect_deadline_ms = 0U;
@@ -358,7 +360,7 @@ static void mesh_tcp_reset_link(struct mesh_tcp_transport_state *state, const ch
     mesh_tcp_drop_pending(state);
     mesh_stream_link_close(&state->link);
     state->target[0] = '\0';
-    mesh_log_info("tcp", "Disconnected from %s (%s)", target, reason);
+    inkcell_log_info("tcp", "Disconnected from %s (%s)", target, reason);
 }
 
 /*
@@ -371,7 +373,7 @@ static void mesh_tcp_reset_link(struct mesh_tcp_transport_state *state, const ch
  * that is switched off is still the address the user wrote down.
  */
 static void mesh_tcp_adopt_target(struct mesh_tcp_transport_state *state) {
-    mesh_str_copy(state->configured, sizeof state->configured, state->target);
+    inkcell_str_copy(state->configured, sizeof state->configured, state->target);
     state->state = MESH_TCP_STATE_READY;
 }
 
@@ -391,7 +393,7 @@ static int mesh_tcp_open(struct mesh_tcp_transport_state *state, struct mesh_tra
     const int fd = socket(address->ss_family, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
     if (fd < 0) {
         const int error = errno;
-        mesh_log_warn("tcp", "Cannot open a socket: %s", strerror(error));
+        inkcell_log_warn("tcp", "Cannot open a socket: %s", strerror(error));
         mesh_tcp_set_error(state, MESH_STR_LINK_TCP_UNREACHABLE, target, strerror(error));
         return -error;
     }
@@ -414,7 +416,7 @@ static int mesh_tcp_open(struct mesh_tcp_transport_state *state, struct mesh_tra
     const int connected = connect(fd, (const struct sockaddr *)address, address_len);
     if (connected < 0 && errno != EINPROGRESS) {
         const int error = errno;
-        mesh_log_warn("tcp", "Cannot reach %s: %s", target, strerror(error));
+        inkcell_log_warn("tcp", "Cannot reach %s: %s", target, strerror(error));
         mesh_tcp_set_error(state, MESH_STR_LINK_TCP_UNREACHABLE, target, strerror(error));
         close(fd);
         state->target[0] = '\0';
@@ -432,7 +434,7 @@ static int mesh_tcp_open(struct mesh_tcp_transport_state *state, struct mesh_tra
         const int added =
             mesh_event_loop_add_fd(state->loop, fd, EPOLLOUT, mesh_tcp_fd_callback, transport);
         if (added < 0) {
-            mesh_log_warn("tcp", "Cannot watch %s: %d", target, added);
+            inkcell_log_warn("tcp", "Cannot watch %s: %d", target, added);
             close(fd);
             state->pending_fd = -1;
             state->target[0] = '\0';
@@ -442,8 +444,8 @@ static int mesh_tcp_open(struct mesh_tcp_transport_state *state, struct mesh_tra
     }
 
     state->link_state = MESH_TCP_LINK_CONNECTING;
-    state->connect_deadline_ms = mesh_time_monotonic_ms() + MESH_TCP_CONNECT_TIMEOUT_MS;
-    mesh_log_info("tcp", "Connecting to %s", target);
+    state->connect_deadline_ms = inkcell_time_monotonic_ms() + MESH_TCP_CONNECT_TIMEOUT_MS;
+    inkcell_log_info("tcp", "Connecting to %s", target);
 
     /*
      * A loopback connect is usually complete before connect() returns, and with no loop to make
@@ -498,16 +500,16 @@ static void mesh_tcp_on_resolved(void *userdata, const struct mesh_resolve_resul
          */
         switch (result->outcome) {
         case MESH_RESOLVE_NOT_FOUND:
-            mesh_log_warn("tcp", "No address for %s", host);
+            inkcell_log_warn("tcp", "No address for %s", host);
             mesh_tcp_set_error(state, MESH_STR_LINK_TCP_UNKNOWN_HOST, host);
             break;
         case MESH_RESOLVE_TIMED_OUT:
-            mesh_log_warn("tcp", "Looking up %s took too long", host);
+            inkcell_log_warn("tcp", "Looking up %s took too long", host);
             mesh_tcp_set_error(state, MESH_STR_LINK_TCP_LOOKUP_FAILED, host);
             break;
         default:
-            mesh_log_warn("tcp", "Cannot look up %s: %s", host,
-                          result->error != 0 ? gai_strerror(result->error) : "no resolver");
+            inkcell_log_warn("tcp", "Cannot look up %s: %s", host,
+                             result->error != 0 ? gai_strerror(result->error) : "no resolver");
             mesh_tcp_set_error(state, MESH_STR_LINK_TCP_LOOKUP_FAILED, host);
             break;
         }
@@ -544,14 +546,14 @@ int mesh_tcp_transport_connect(struct mesh_transport *transport, const char *tar
     char host[MESH_TCP_TARGET_MAX];
     uint16_t port = 0U;
     if (mesh_tcp_target_split(target, host, sizeof host, &port) < 0) {
-        mesh_log_warn("tcp", "'%s' is not an address and port", target);
+        inkcell_log_warn("tcp", "'%s' is not an address and port", target);
         mesh_tcp_set_error(state, MESH_STR_LINK_TCP_BAD_TARGET, target);
         return -EINVAL;
     }
 
     /* Named now because everything below reports through it; adopted only once something is
        actually under way - see mesh_tcp_adopt_target(). */
-    mesh_str_copy(state->target, sizeof state->target, target);
+    inkcell_str_copy(state->target, sizeof state->target, target);
 
     struct sockaddr_storage address;
     socklen_t address_len = 0;
@@ -570,9 +572,9 @@ int mesh_tcp_transport_connect(struct mesh_transport *transport, const char *tar
      * is reported through `last_error`; see mesh_tcp_on_resolved().
      */
     const int started = mesh_resolve_start(&state->resolve, host, port, mesh_tcp_on_resolved,
-                                           transport, mesh_time_monotonic_ms());
+                                           transport, inkcell_time_monotonic_ms());
     if (started < 0) {
-        mesh_log_warn("tcp", "Cannot look up %s: %d", host, started);
+        inkcell_log_warn("tcp", "Cannot look up %s: %d", host, started);
         mesh_tcp_set_error(state, MESH_STR_LINK_TCP_LOOKUP_FAILED, host);
         state->target[0] = '\0';
         return started;
@@ -586,7 +588,7 @@ int mesh_tcp_transport_connect(struct mesh_transport *transport, const char *tar
      */
     mesh_tcp_adopt_target(state);
     state->link_state = MESH_TCP_LINK_RESOLVING;
-    mesh_log_info("tcp", "Looking up %s", host);
+    inkcell_log_info("tcp", "Looking up %s", host);
     return 0;
 }
 
@@ -613,7 +615,7 @@ static void mesh_tcp_tick(struct mesh_transport *transport) {
         return;
     }
 
-    const uint64_t now = mesh_time_monotonic_ms();
+    const uint64_t now = inkcell_time_monotonic_ms();
 
     /* The resolver's own deadline and its reap, every turn: the fd callback sees the answer, but
        the child is only ever collected here. */
@@ -628,7 +630,7 @@ static void mesh_tcp_tick(struct mesh_transport *transport) {
 
     if (state->link_state == MESH_TCP_LINK_CONNECTING) {
         if (state->connect_deadline_ms != 0U && now >= state->connect_deadline_ms) {
-            mesh_log_warn("tcp", "%s did not answer in time", state->target);
+            inkcell_log_warn("tcp", "%s did not answer in time", state->target);
             mesh_tcp_set_error(state, MESH_STR_LINK_TCP_TIMEOUT, state->target);
             mesh_tcp_reset_link(state, "connect timed out");
         }
@@ -686,18 +688,18 @@ static int mesh_tcp_start(struct mesh_transport *transport, const struct mesh_ap
     mesh_stream_link_init(&state->link, "tcp", state->session);
 
     if (!config->enable_tcp) {
-        mesh_log_info("tcp", "Network transport disabled by configuration");
+        inkcell_log_info("tcp", "Network transport disabled by configuration");
         state->state = MESH_TCP_STATE_DISABLED;
         return 0;
     }
 
-    mesh_str_copy(state->configured, sizeof state->configured, config->preferred_tcp_host);
+    inkcell_str_copy(state->configured, sizeof state->configured, config->preferred_tcp_host);
     if (state->configured[0] == '\0') {
         state->state = MESH_TCP_STATE_IDLE;
-        mesh_log_debug("tcp", "No host configured; nothing to connect to");
+        inkcell_log_debug("tcp", "No host configured; nothing to connect to");
     } else {
         state->state = MESH_TCP_STATE_READY;
-        mesh_log_info("tcp", "Configured for %s", state->configured);
+        inkcell_log_info("tcp", "Configured for %s", state->configured);
     }
     return 0;
 }
@@ -717,7 +719,7 @@ static void mesh_tcp_stop(struct mesh_transport *transport) {
 
 static const char *mesh_tcp_status(const struct mesh_transport *transport) {
     if (transport == NULL || transport->state == NULL) {
-        return mesh_str(MESH_STR_TRANSPORT_UNAVAILABLE);
+        return inkcell_str(MESH_STR_TRANSPORT_UNAVAILABLE);
     }
     const struct mesh_tcp_transport_state *state =
         (const struct mesh_tcp_transport_state *)transport->state;
@@ -726,9 +728,9 @@ static const char *mesh_tcp_status(const struct mesh_transport *transport) {
        the user pressed connect and it has not finished. */
     case MESH_TCP_LINK_RESOLVING:
     case MESH_TCP_LINK_CONNECTING:
-        return mesh_str(MESH_STR_TRANSPORT_CONNECTING);
+        return inkcell_str(MESH_STR_TRANSPORT_CONNECTING);
     case MESH_TCP_LINK_CONNECTED:
-        return mesh_str(MESH_STR_TRANSPORT_CONNECTED);
+        return inkcell_str(MESH_STR_TRANSPORT_CONNECTED);
     case MESH_TCP_LINK_DISCONNECTED:
         break;
     }
@@ -752,7 +754,7 @@ static bool mesh_tcp_take_error(struct mesh_transport *transport, char *out, siz
     if (state->last_error[0] == '\0') {
         return false;
     }
-    mesh_str_copy(out, out_len, state->last_error);
+    inkcell_str_copy(out, out_len, state->last_error);
     state->last_error[0] = '\0';
     return true;
 }
@@ -802,7 +804,7 @@ int mesh_tcp_transport_forget(struct mesh_transport *transport) {
     if (state->state == MESH_TCP_STATE_READY) {
         state->state = MESH_TCP_STATE_IDLE;
     }
-    mesh_log_info("tcp", "Network address cleared");
+    inkcell_log_info("tcp", "Network address cleared");
     return 0;
 }
 

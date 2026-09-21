@@ -2,6 +2,8 @@
 
 /* App glue: auto-connect policy, link routing, and settings writes built from UI state. */
 
+#include "inkcell/ui/theme.h"
+
 #include "../../src/app/app_internal.h"
 #include "framework/mesh_test.h"
 #include "support/proto_fixture.h"
@@ -28,7 +30,6 @@
 #include "mesh/ui/preferences.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
-#include "mesh/ui/theme.h"
 
 #include "meshtastic/admin.pb.h"
 #include "meshtastic/channel.pb.h"
@@ -2376,7 +2377,7 @@ MESH_TEST_CASE(app_theme_switcher, unit) {
     app_ready = true;
 
     /* Nothing saved and nothing in the environment: the theme the device has always drawn. */
-    const struct mesh_ui_theme *const first = mesh_ui_theme_default();
+    const struct inkcell_theme *const first = inkcell_theme_default();
     if (app.ui_theme != first || app.ui_theme_from_env) {
         failure = "a fresh install should start on the default theme, unpinned";
         goto cleanup;
@@ -2398,9 +2399,9 @@ MESH_TEST_CASE(app_theme_switcher, unit) {
     for (unsigned guard = 0; guard <= (unsigned)MESH_UI_SCREEN_COUNT &&
                              app.ui_store.nav.screen != MESH_UI_SCREEN_SETTINGS;
          ++guard) {
-        mesh_ui_controller_handle_key(&app.ui_controller, MESH_UI_KEY_R1);
+        mesh_ui_controller_handle_key(&app.ui_controller, INKCELL_KEY_R1);
     }
-    mesh_ui_controller_handle_key(&app.ui_controller, MESH_UI_KEY_A);
+    mesh_ui_controller_handle_key(&app.ui_controller, INKCELL_KEY_A);
     if (app.ui_store.nav.settings_section != MESH_UI_SETTINGS_ABOUT) {
         failure = "A on the first Settings row should open About";
         goto cleanup;
@@ -2422,12 +2423,12 @@ MESH_TEST_CASE(app_theme_switcher, unit) {
         goto cleanup;
     }
     for (uint32_t i = 0; i < theme_row; ++i) {
-        mesh_ui_controller_handle_key(&app.ui_controller, MESH_UI_KEY_DOWN);
+        mesh_ui_controller_handle_key(&app.ui_controller, INKCELL_KEY_DOWN);
     }
 
     /* One press steps to the next theme, remembers it, and says so. */
-    mesh_ui_controller_handle_key(&app.ui_controller, MESH_UI_KEY_A);
-    const struct mesh_ui_theme *const second = mesh_ui_theme_next(first);
+    mesh_ui_controller_handle_key(&app.ui_controller, INKCELL_KEY_A);
+    const struct inkcell_theme *const second = inkcell_theme_next(first);
     if (app.ui_theme != second) {
         failure = "A on the theme row should step to the next theme";
         goto cleanup;
@@ -2440,7 +2441,7 @@ MESH_TEST_CASE(app_theme_switcher, unit) {
        between the press and the next thing that would have saved it. */
     struct mesh_ui_preferences after_press;
     if (mesh_ui_preferences_load(&after_press, app.ui_preferences_path) != 0 ||
-        mesh_ui_theme_resolve(after_press.theme) != second) {
+        inkcell_theme_resolve(after_press.theme) != second) {
         failure = "the press should have written the new theme to disk";
         goto cleanup;
     }
@@ -2462,8 +2463,8 @@ MESH_TEST_CASE(app_theme_switcher, unit) {
 
     /* All the way round and back to where it started, which is how somebody who has stepped
        into an unreadable theme gets home. */
-    for (size_t i = 1; i < mesh_ui_theme_count(); ++i) {
-        mesh_ui_controller_handle_key(&app.ui_controller, MESH_UI_KEY_A);
+    for (size_t i = 1; i < inkcell_theme_count(); ++i) {
+        mesh_ui_controller_handle_key(&app.ui_controller, INKCELL_KEY_A);
     }
     if (app.ui_theme != first) {
         failure = "cycling all the way round should come back to the first theme";
@@ -2474,7 +2475,7 @@ MESH_TEST_CASE(app_theme_switcher, unit) {
        is what the next run reads back. */
     struct mesh_ui_preferences reloaded;
     if (mesh_ui_preferences_load(&reloaded, app.ui_preferences_path) != 0 ||
-        mesh_ui_theme_resolve(reloaded.theme) != first) {
+        inkcell_theme_resolve(reloaded.theme) != first) {
         failure = "the saved theme should follow the last press";
         goto cleanup;
     }
@@ -2488,30 +2489,30 @@ MESH_TEST_CASE(app_theme_switcher, unit) {
             item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CYCLE_LANGUAGE) {
             language_row = i;
         }
-        mesh_ui_controller_handle_key(&app.ui_controller, MESH_UI_KEY_UP);
+        mesh_ui_controller_handle_key(&app.ui_controller, INKCELL_KEY_UP);
     }
     if (language_row >= rows) {
         failure = "About should offer the language action";
         goto cleanup;
     }
     for (uint32_t i = 0; i < language_row; ++i) {
-        mesh_ui_controller_handle_key(&app.ui_controller, MESH_UI_KEY_DOWN);
+        mesh_ui_controller_handle_key(&app.ui_controller, INKCELL_KEY_DOWN);
     }
-    mesh_ui_controller_handle_key(&app.ui_controller, MESH_UI_KEY_A);
-    if (strcmp(mesh_i18n_locale()->id, "es") != 0 ||
+    mesh_ui_controller_handle_key(&app.ui_controller, INKCELL_KEY_A);
+    if (strcmp(inkcell_i18n_locale()->id, "es") != 0 ||
         strcmp(app.ui_store.settings.client.language_name, "Español") != 0 ||
         mesh_ui_preferences_load(&reloaded, app.ui_preferences_path) != 0 ||
         strcmp(reloaded.language, "es") != 0) {
         failure = "the language press must select, publish and persist Spanish";
         goto cleanup;
     }
-    mesh_ui_controller_handle_key(&app.ui_controller, MESH_UI_KEY_A);
-    if (strcmp(mesh_i18n_locale()->id, "en") != 0) {
+    mesh_ui_controller_handle_key(&app.ui_controller, INKCELL_KEY_A);
+    if (strcmp(inkcell_i18n_locale()->id, "en") != 0) {
         failure = "the language picker must wrap back to English";
         goto cleanup;
     }
     setenv("MESHCLIENT_LANG", "es", 1);
-    mesh_i18n_init_with_preference(reloaded.language);
+    inkcell_i18n_init_with_preference(reloaded.language);
     mesh_app_publish_ui_state(&app);
     if (!mesh_ui_settings_item(&app.ui_store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_ABOUT,
                                MESH_UI_SETTINGS_NO_CHANNEL, language_row, &item) ||
@@ -2519,14 +2520,14 @@ MESH_TEST_CASE(app_theme_switcher, unit) {
         failure = "an explicit language override must make the row read-only";
         goto cleanup;
     }
-    mesh_ui_controller_handle_key(&app.ui_controller, MESH_UI_KEY_A);
-    if (strcmp(mesh_i18n_locale()->id, "es") != 0) {
+    mesh_ui_controller_handle_key(&app.ui_controller, INKCELL_KEY_A);
+    if (strcmp(inkcell_i18n_locale()->id, "es") != 0) {
         failure = "a read-only language row must not change the language";
     }
 
 cleanup:
     unsetenv("MESHCLIENT_LANG");
-    (void)mesh_i18n_set_locale("en");
+    (void)inkcell_i18n_set_locale("en");
     if (app_ready) {
         mesh_app_shutdown(&app);
     }
@@ -2575,7 +2576,7 @@ MESH_TEST_CASE(app_theme_environment_pin, unit) {
     }
     app_ready = true;
 
-    if (app.ui_theme != mesh_ui_theme_by_id("light") || !app.ui_theme_from_env) {
+    if (app.ui_theme != inkcell_theme_by_id("light") || !app.ui_theme_from_env) {
         failure = "the environment should win over the saved theme";
         goto cleanup;
     }
@@ -2665,8 +2666,8 @@ MESH_TEST_CASE(app_delete_conversation, unit) {
     app.ui_messages_cached = messages;
 
     /* Down to the direct conversation: All traffic, #Primary, then the peer. */
-    mesh_ui_controller_handle_key(&app.ui_controller, MESH_UI_KEY_DOWN);
-    mesh_ui_controller_handle_key(&app.ui_controller, MESH_UI_KEY_DOWN);
+    mesh_ui_controller_handle_key(&app.ui_controller, INKCELL_KEY_DOWN);
+    mesh_ui_controller_handle_key(&app.ui_controller, INKCELL_KEY_DOWN);
     struct mesh_ui_conversation conversation;
     if (!mesh_ui_nav_conversation_at(
             &app.ui_store, app.ui_store.nav.cursor[MESH_UI_SCREEN_MESSAGES], &conversation) ||
@@ -2676,13 +2677,13 @@ MESH_TEST_CASE(app_delete_conversation, unit) {
     }
 
     /* One X only arms it: a press that lands here by accident costs nothing. */
-    mesh_ui_controller_handle_key(&app.ui_controller, MESH_UI_KEY_X);
+    mesh_ui_controller_handle_key(&app.ui_controller, INKCELL_KEY_X);
     if (!app.ui_store.nav.messages_delete_armed || app.ui_store.messages.count != 3U) {
         failure = "the first X should arm the delete without touching the log";
         goto cleanup;
     }
 
-    mesh_ui_controller_handle_key(&app.ui_controller, MESH_UI_KEY_X);
+    mesh_ui_controller_handle_key(&app.ui_controller, INKCELL_KEY_X);
     if (app.ui_store.messages.count != 1U || !app.ui_store.messages.entries[0].broadcast) {
         failure = "the second X should leave only the broadcast in the store";
         goto cleanup;
@@ -3428,7 +3429,7 @@ MESH_TEST_CASE(app_unmute_reports_the_radios_mute, unit) {
         goto cleanup;
     }
     char expected[MESH_UI_NAV_TOAST_MAX];
-    mesh_str_format(expected, sizeof expected, MESH_STR_TOAST_CONVO_MUTED_ON_RADIO, "ALFA");
+    inkcell_str_format(expected, sizeof expected, MESH_STR_TOAST_CONVO_MUTED_ON_RADIO, "ALFA");
     if (strcmp(app->ui_store.nav.toast, expected) != 0) {
         failure = "an unmute the radio overrides should name the radio, not claim success";
         goto cleanup;
@@ -3449,7 +3450,7 @@ MESH_TEST_CASE(app_unmute_reports_the_radios_mute, unit) {
     mesh_ui_store_set_handshake(&app->ui_store, &published);
     mesh_app_on_ui_action(app, &action); /* mute */
     mesh_app_on_ui_action(app, &action); /* and unmute */
-    mesh_str_format(expected, sizeof expected, MESH_STR_TOAST_CONVO_UNMUTED, "ALFA");
+    inkcell_str_format(expected, sizeof expected, MESH_STR_TOAST_CONVO_UNMUTED, "ALFA");
     if (strcmp(app->ui_store.nav.toast, expected) != 0) {
         failure = "an unmute with nothing else muting it should say so plainly";
         goto cleanup;

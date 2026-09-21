@@ -2,9 +2,9 @@
 
 /* The monochrome icon sprites: the table, the decoder, and the contract a screen relies on. */
 
-#include "framework/mesh_test.h"
+#include "inkcell/ui/icon.h"
 
-#include "mesh/ui/icon.h"
+#include "framework/mesh_test.h"
 
 #include <stdbool.h>
 #include <stdio.h>
@@ -19,11 +19,11 @@
  * panel as one icon drawn in place of another for every id after the new one.
  */
 MESH_TEST_CASE(icon_table_covers_every_id, unit) {
-    const struct mesh_ui_icon_table *table = &mesh_ui_icon_table;
+    const struct inkcell_icon_table *table = &inkcell_icon_table;
     char message[128];
 
-    for (int i = 0; i < (int)MESH_UI_ICON_COUNT; ++i) {
-        const enum mesh_ui_icon icon = (enum mesh_ui_icon)i;
+    for (int i = 0; i < (int)INKCELL_ICON_COUNT; ++i) {
+        const enum inkcell_icon icon = (enum inkcell_icon)i;
         const uint32_t start = table->run_offsets[i];
         const uint32_t end = table->run_offsets[i + 1];
         MESH_TEST_FAIL_IF(end < start, "run offsets should not go backwards");
@@ -35,10 +35,10 @@ MESH_TEST_CASE(icon_table_covers_every_id, unit) {
         for (uint32_t run = start; run < end; ++run) {
             pixels += table->runs[run * 2U];
         }
-        if (pixels != (size_t)MESH_UI_ICON_SIZE * MESH_UI_ICON_SIZE) {
+        if (pixels != (size_t)INKCELL_ICON_SIZE * INKCELL_ICON_SIZE) {
             snprintf(message, sizeof message, "%s covers %zu pixels, expected %d",
-                     i == 0 ? "MESH_UI_ICON_NONE" : mesh_ui_icon_name(icon), pixels,
-                     MESH_UI_ICON_SIZE * MESH_UI_ICON_SIZE);
+                     i == 0 ? "INKCELL_ICON_NONE" : inkcell_icon_name(icon), pixels,
+                     INKCELL_ICON_SIZE * INKCELL_ICON_SIZE);
             record_failure(test_name, message);
             return;
         }
@@ -48,7 +48,7 @@ MESH_TEST_CASE(icon_table_covers_every_id, unit) {
                 record_failure(test_name, "a run of zero pixels wastes two bytes and draws none");
                 return;
             }
-            if (table->runs[run * 2U + 1U] > MESH_UI_ICON_MAX_ALPHA) {
+            if (table->runs[run * 2U + 1U] > INKCELL_ICON_MAX_ALPHA) {
                 record_failure(test_name, "coverage should fit in four bits");
                 return;
             }
@@ -60,12 +60,12 @@ MESH_TEST_CASE(icon_table_covers_every_id, unit) {
 /* An icon that draws nothing is a mistake nobody sees until the panel is in front of them:
    an empty slot and a blank sprite look the same from every layer above this one. */
 MESH_TEST_CASE(icon_sprites_have_ink, unit) {
-    uint8_t alpha[MESH_UI_ICON_SIZE * MESH_UI_ICON_SIZE];
+    uint8_t alpha[INKCELL_ICON_SIZE * INKCELL_ICON_SIZE];
     char message[128];
 
-    for (int i = 1; i < (int)MESH_UI_ICON_COUNT; ++i) {
-        const enum mesh_ui_icon icon = (enum mesh_ui_icon)i;
-        mesh_ui_icon_alpha(icon, alpha);
+    for (int i = 1; i < (int)INKCELL_ICON_COUNT; ++i) {
+        const enum inkcell_icon icon = (enum inkcell_icon)i;
+        inkcell_icon_alpha(icon, alpha);
 
         size_t ink = 0;
         for (size_t p = 0; p < sizeof alpha; ++p) {
@@ -75,8 +75,8 @@ MESH_TEST_CASE(icon_sprites_have_ink, unit) {
            window a little wider than Material's grid, and the air around the outside is not
            somewhere a symbol was ever going to put ink. Counting it would make these bounds a
            fact about how much padding the generator crops with. */
-        const size_t body = (size_t)MESH_UI_ICON_SIZE * MESH_UI_ICON_BODY / MESH_UI_ICON_WINDOW;
-        const size_t full = body * body * MESH_UI_ICON_MAX_ALPHA;
+        const size_t body = (size_t)INKCELL_ICON_SIZE * INKCELL_ICON_BODY / INKCELL_ICON_WINDOW;
+        const size_t full = body * body * INKCELL_ICON_MAX_ALPHA;
         /*
          * Coverage rather than solid pixels: the thinnest symbols in the set are strokes - the
          * chevron, the check, the space bar - and most of a 2 px stroke scaled to 16 is partial
@@ -87,7 +87,7 @@ MESH_TEST_CASE(icon_sprites_have_ink, unit) {
         if (ink < full / 20U || ink > full * 9U / 10U) {
             snprintf(message, sizeof message,
                      "%s covers %zu%% of the symbol's box, which is not a symbol",
-                     mesh_ui_icon_name(icon), ink * 100U / full);
+                     inkcell_icon_name(icon), ink * 100U / full);
             record_failure(test_name, message);
             return;
         }
@@ -114,13 +114,13 @@ MESH_TEST_CASE(icon_sprites_have_ink, unit) {
  *     towards the other.
  */
 MESH_TEST_CASE(icon_sprites_are_not_cropped, unit) {
-    uint8_t alpha[MESH_UI_ICON_SIZE * MESH_UI_ICON_SIZE];
+    uint8_t alpha[INKCELL_ICON_SIZE * INKCELL_ICON_SIZE];
     char message[160];
-    const int last = MESH_UI_ICON_SIZE - 1;
+    const int last = INKCELL_ICON_SIZE - 1;
 
-    for (int i = 1; i < (int)MESH_UI_ICON_COUNT; ++i) {
-        const enum mesh_ui_icon icon = (enum mesh_ui_icon)i;
-        mesh_ui_icon_alpha(icon, alpha);
+    for (int i = 1; i < (int)INKCELL_ICON_COUNT; ++i) {
+        const enum inkcell_icon icon = (enum inkcell_icon)i;
+        inkcell_icon_alpha(icon, alpha);
 
         int min_x = last;
         int max_x = 0;
@@ -129,7 +129,7 @@ MESH_TEST_CASE(icon_sprites_are_not_cropped, unit) {
         int edge = 0;
         for (int y = 0; y <= last; ++y) {
             for (int x = 0; x <= last; ++x) {
-                const int a = alpha[y * MESH_UI_ICON_SIZE + x];
+                const int a = alpha[y * INKCELL_ICON_SIZE + x];
                 if (a == 0) {
                     continue;
                 }
@@ -143,10 +143,10 @@ MESH_TEST_CASE(icon_sprites_are_not_cropped, unit) {
             }
         }
 
-        if (edge > MESH_UI_ICON_MAX_ALPHA / 2) {
+        if (edge > INKCELL_ICON_MAX_ALPHA / 2) {
             snprintf(message, sizeof message,
                      "%s is solid at the sprite's edge (%d of %d): the window cut it",
-                     mesh_ui_icon_name(icon), edge, MESH_UI_ICON_MAX_ALPHA);
+                     inkcell_icon_name(icon), edge, INKCELL_ICON_MAX_ALPHA);
             record_failure(test_name, message);
             return;
         }
@@ -161,7 +161,7 @@ MESH_TEST_CASE(icon_sprites_are_not_cropped, unit) {
             centre_y > last + slack) {
             snprintf(message, sizeof message,
                      "%s sits at (%d, %d) rather than (%d, %d): the window is off-centre",
-                     mesh_ui_icon_name(icon), centre_x, centre_y, last, last);
+                     inkcell_icon_name(icon), centre_x, centre_y, last, last);
             record_failure(test_name, message);
             return;
         }
@@ -171,26 +171,26 @@ MESH_TEST_CASE(icon_sprites_are_not_cropped, unit) {
 
 /* The rule every icon slot leans on: a zeroed slot is an empty one. */
 MESH_TEST_CASE(icon_none_is_blank, unit) {
-    uint8_t alpha[MESH_UI_ICON_SIZE * MESH_UI_ICON_SIZE];
+    uint8_t alpha[INKCELL_ICON_SIZE * INKCELL_ICON_SIZE];
     memset(alpha, 0xFF, sizeof alpha);
-    mesh_ui_icon_alpha(MESH_UI_ICON_NONE, alpha);
+    inkcell_icon_alpha(INKCELL_ICON_NONE, alpha);
     for (size_t p = 0; p < sizeof alpha; ++p) {
-        MESH_TEST_FAIL_IF(alpha[p] != 0U, "MESH_UI_ICON_NONE should decode to nothing");
+        MESH_TEST_FAIL_IF(alpha[p] != 0U, "INKCELL_ICON_NONE should decode to nothing");
     }
 
-    MESH_TEST_FAIL_IF(mesh_ui_icon_is_valid(MESH_UI_ICON_NONE),
-                      "MESH_UI_ICON_NONE is the absence of an icon, not one of them");
-    MESH_TEST_FAIL_IF(mesh_ui_icon_name(MESH_UI_ICON_NONE)[0] != '\0',
-                      "MESH_UI_ICON_NONE should have no glyph name");
+    MESH_TEST_FAIL_IF(inkcell_icon_is_valid(INKCELL_ICON_NONE),
+                      "INKCELL_ICON_NONE is the absence of an icon, not one of them");
+    MESH_TEST_FAIL_IF(inkcell_icon_name(INKCELL_ICON_NONE)[0] != '\0',
+                      "INKCELL_ICON_NONE should have no glyph name");
 
     /* An id from a newer build - a snapshot replayed, a capture scene naming an icon this
        binary does not have - decodes to nothing rather than reading past the table. */
     memset(alpha, 0xFF, sizeof alpha);
-    mesh_ui_icon_alpha((enum mesh_ui_icon)MESH_UI_ICON_COUNT, alpha);
+    inkcell_icon_alpha((enum inkcell_icon)INKCELL_ICON_COUNT, alpha);
     for (size_t p = 0; p < sizeof alpha; ++p) {
         MESH_TEST_FAIL_IF(alpha[p] != 0U, "an unknown icon should decode to nothing");
     }
-    MESH_TEST_FAIL_IF(mesh_ui_icon_name((enum mesh_ui_icon)MESH_UI_ICON_COUNT)[0] != '\0',
+    MESH_TEST_FAIL_IF(inkcell_icon_name((enum inkcell_icon)INKCELL_ICON_COUNT)[0] != '\0',
                       "an unknown icon should have no glyph name");
     record_success(test_name);
 }
@@ -199,10 +199,10 @@ MESH_TEST_CASE(icon_none_is_blank, unit) {
    ids sharing one is not an error, but a blank one means the catalog and the table have
    parted company. */
 MESH_TEST_CASE(icon_names_are_present, unit) {
-    for (int i = 1; i < (int)MESH_UI_ICON_COUNT; ++i) {
-        const char *name = mesh_ui_icon_name((enum mesh_ui_icon)i);
+    for (int i = 1; i < (int)INKCELL_ICON_COUNT; ++i) {
+        const char *name = inkcell_icon_name((enum inkcell_icon)i);
         MESH_TEST_FAIL_IF(name[0] == '\0', "every icon should name the glyph it was drawn from");
-        MESH_TEST_FAIL_IF(!mesh_ui_icon_is_valid((enum mesh_ui_icon)i),
+        MESH_TEST_FAIL_IF(!inkcell_icon_is_valid((enum inkcell_icon)i),
                           "every id in the enum should be drawable");
     }
     record_success(test_name);

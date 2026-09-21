@@ -9,25 +9,25 @@
  *
  * Most of this file is neither, and that is the point of it having one: a bubble is expensive to
  * word and to measure, so the rows a thread draws are derived once and cached against the
- * messages they were built from. Nothing here computes a pixel - fb_bubble_rows() says how tall
- * a message is and mesh_ui_transcript_window() says which of them are on screen.
+ * messages they were built from. Nothing here computes a pixel - inkcell_fb_bubble_rows() says how
+ * tall a message is and inkcell_transcript_window() says which of them are on screen.
  */
 
-#include "fb_widgets.h"
+#include "inkcell/ui/emoji.h"
+#include "inkcell/ui/layout.h"
+#include "inkcell/ui/widgets.h"
+#include "inkcell/utils/text.h"
+#include "inkcell/utils/time.h"
 
 #include "fb_screens_internal.h"
 
 #include "mesh/core/message.h"
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/delivery.h"
-#include "mesh/ui/emoji.h"
-#include "mesh/ui/layout.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/node_detail.h"
 #include "mesh/ui/reactions.h"
 #include "mesh/ui/trust.h"
-#include "mesh/utils/text.h"
-#include "mesh/utils/time.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -35,20 +35,22 @@
 #include <time.h>
 
 /* Level one of the Messages tab: all traffic, the channels, whoever we have direct messages
-   with, and the way to start a new one. One conversation cell a row - see fb_widgets.h. */
-void fb_render_conversations(struct mesh_ui_backend_fb_state *state,
-                             const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
+   with, and the way to start a new one. One conversation cell a row - see inkcell/ui/widgets.h. */
+void fb_render_conversations(struct inkcell_backend_fb_state *state,
+                             const struct mesh_ui_snapshot *snapshot,
+                             struct inkcell_fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
     struct mesh_ui_store view;
     mesh_ui_store_view(snapshot, &view);
 
     const uint32_t count = mesh_ui_nav_conversation_count(&view);
     char title[96];
-    fb_title_count(title, sizeof title, mesh_str(MESH_STR_TAB_MESSAGES), count,
-                   snapshot->messages.dropped);
-    fb_draw_app_bar(state, layout, &(const struct fb_app_bar){.title = title});
+    inkcell_fb_title_count(title, sizeof title, inkcell_str(MESH_STR_TAB_MESSAGES), count,
+                           snapshot->messages.dropped);
+    inkcell_fb_draw_app_bar(state, layout, &(const struct inkcell_fb_app_bar){.title = title});
     if (count == 0U) {
-        fb_draw_empty(state, layout, MESH_UI_ICON_MESSAGES, mesh_str(MESH_STR_MESSAGES_EMPTY));
+        inkcell_fb_draw_empty(state, layout, INKCELL_ICON_MESSAGES,
+                              inkcell_str(MESH_STR_MESSAGES_EMPTY));
         return;
     }
 
@@ -57,13 +59,13 @@ void fb_render_conversations(struct mesh_ui_backend_fb_state *state,
      * the last thing said with the unread count as a pill. The cell owns every pixel of that -
      * this loop only says which strings go in it and what each one means.
      */
-    struct fb_list list =
-        fb_list_begin_rows(layout, count, nav->cursor[MESH_UI_SCREEN_MESSAGES], 2U);
+    struct inkcell_fb_list list =
+        inkcell_fb_list_begin_rows(layout, count, nav->cursor[MESH_UI_SCREEN_MESSAGES], 2U);
     inkcell_fb_list_glide(state, &list, FB_LIST_CONVERSATIONS);
     char age[8];
     char badge[8];
     uint32_t i;
-    while (fb_list_next(&list, &i)) {
+    while (inkcell_fb_list_next(&list, &i)) {
         struct mesh_ui_conversation conversation;
         if (!mesh_ui_nav_conversation_at(&view, i, &conversation)) {
             break;
@@ -75,20 +77,20 @@ void fb_render_conversations(struct mesh_ui_backend_fb_state *state,
            rather than a bare "?" nobody can act on. */
         age[0] = '\0';
         if (conversation.last_time != 0U) {
-            fb_format_age(conversation.last_time, age, sizeof age);
+            inkcell_fb_format_age(conversation.last_time, age, sizeof age);
         }
         badge[0] = '\0';
         if (conversation.unread > 0U) {
             /* Past two figures a badge stops being a number and becomes a width, which is what
                every messenger's "99+" is for. */
             if (conversation.unread > 99U) {
-                snprintf(badge, sizeof badge, "%s", mesh_str(MESH_STR_MESSAGES_UNREAD_OVERFLOW));
+                snprintf(badge, sizeof badge, "%s", inkcell_str(MESH_STR_MESSAGES_UNREAD_OVERFLOW));
             } else {
                 snprintf(badge, sizeof badge, "%u", (unsigned)conversation.unread);
             }
         }
 
-        const struct fb_conversation cell = {
+        const struct inkcell_fb_conversation cell = {
             .avatar = conversation.initials,
             /*
              * The three rows that are not a person say so with a symbol instead of initials.
@@ -97,10 +99,10 @@ void fb_render_conversations(struct mesh_ui_backend_fb_state *state,
              * always did.
              */
             .avatar_icon =
-                is_new                                                ? MESH_UI_ICON_COMPOSE
-                : (conversation.kind == MESH_UI_CONVERSATION_ALL)     ? MESH_UI_ICON_BROADCAST
-                : (conversation.kind == MESH_UI_CONVERSATION_CHANNEL) ? MESH_UI_ICON_CHANNEL
-                                                                      : MESH_UI_ICON_NONE,
+                is_new                                                ? INKCELL_ICON_COMPOSE
+                : (conversation.kind == MESH_UI_CONVERSATION_ALL)     ? INKCELL_ICON_BROADCAST
+                : (conversation.kind == MESH_UI_CONVERSATION_CHANNEL) ? INKCELL_ICON_CHANNEL
+                                                                      : INKCELL_ICON_NONE,
             .tint = conversation.tint,
             /* The two rows that are not somebody: a view over the others, and a button. */
             .accent = is_view,
@@ -108,7 +110,7 @@ void fb_render_conversations(struct mesh_ui_backend_fb_state *state,
             .age = age,
             /* The one row that is a button rather than a conversation says what it does
                instead of what was last said in it. */
-            .preview = is_new ? mesh_str(MESH_STR_MESSAGES_NEW_PREVIEW) : conversation.preview,
+            .preview = is_new ? inkcell_str(MESH_STR_MESSAGES_NEW_PREVIEW) : conversation.preview,
             .preview_outbound = conversation.preview_outbound,
             .badge = badge,
             .unread = (conversation.unread > 0U),
@@ -118,12 +120,12 @@ void fb_render_conversations(struct mesh_ui_backend_fb_state *state,
                used to be too, and no longer needs to be now that its avatar carries the tag.
                That frees the strong tone to mean what it means everywhere else on this
                screen: there is something here you have not read. */
-            .name_tone = is_new                                              ? MESH_UI_TONE_DIM
-                         : (conversation.kind == MESH_UI_CONVERSATION_ALL)   ? MESH_UI_TONE_PRIMARY
-                         : (conversation.unread > 0U && !conversation.muted) ? MESH_UI_TONE_STRONG
-                                                                             : MESH_UI_TONE_NORMAL,
+            .name_tone = is_new                                              ? INKCELL_TONE_DIM
+                         : (conversation.kind == MESH_UI_CONVERSATION_ALL)   ? INKCELL_TONE_PRIMARY
+                         : (conversation.unread > 0U && !conversation.muted) ? INKCELL_TONE_STRONG
+                                                                             : INKCELL_TONE_NORMAL,
         };
-        fb_draw_conversation(state, &list, i, &cell);
+        inkcell_fb_draw_conversation(state, &list, i, &cell);
     }
 }
 
@@ -136,18 +138,18 @@ void fb_render_conversations(struct mesh_ui_backend_fb_state *state,
  * detail pane underneath - which meant the only way to read a message in full was to select it,
  * and reading the one before it meant losing the one you had.
  *
- * Nothing here computes a pixel: fb_bubble_rows() says how tall a message is and
- * mesh_ui_transcript_window() says which of them are on screen.
+ * Nothing here computes a pixel: inkcell_fb_bubble_rows() says how tall a message is and
+ * inkcell_transcript_window() says which of them are on screen.
  */
 
 /* A message as the screen describes it, with the strings the bubble points at.
  *
  * One buffer per slot rather than one buffer per line: the bubble's trailing run is four typed
- * parts it measures itself (struct fb_bubble_meta), and the screen's job is to fill the slots
- * rather than to assemble a line out of them. Concatenating them here is what used to let a
+ * parts it measures itself (struct inkcell_fb_bubble_meta), and the screen's job is to fill the
+ * slots rather than to assemble a line out of them. Concatenating them here is what used to let a
  * failure reason push the run past the bubble's own width. */
 struct fb_thread_row {
-    struct fb_bubble bubble;
+    struct inkcell_fb_bubble bubble;
     char separator[24];
     char name[48];
     char clock[8];
@@ -159,7 +161,7 @@ struct fb_thread_row {
 
 /* Both first-visible and ordinary variants are derived from exact message inputs. Cursor
    movement only chooses between them; it never reformats or remeasures the transcript. */
-struct fb_thread_cache {
+struct inkcell_fb_thread_cache {
     bool valid;
     /*
      * The messages the cached rows were built from, *after* the conversation filter - `count`
@@ -179,8 +181,8 @@ struct fb_thread_cache {
        without a single message doing so: leaving a conversation and coming straight back is the
        same log, the same indices and the same target with the line in a different place. */
     uint32_t unread_from;
-    const struct mesh_ui_theme *theme;
-    const struct mesh_i18n_locale *locale;
+    const struct inkcell_theme *theme;
+    const struct inkcell_i18n_locale *locale;
     int scale;
     size_t cols;
     char calendar[80];
@@ -188,7 +190,7 @@ struct fb_thread_cache {
     uint8_t heights[2][MESH_UI_MAX_THREAD_MESSAGES];
 };
 
-void fb_thread_cache_free(struct mesh_ui_backend_fb_state *state) {
+void fb_thread_cache_free(struct inkcell_backend_fb_state *state) {
     free(state->thread_cache);
     state->thread_cache = NULL;
 }
@@ -204,31 +206,31 @@ static void fb_format_day(uint32_t rx_time, char *out, size_t out_len) {
     if (localtime_r(&stamp, &when) == NULL) {
         return;
     }
-    const time_t now = (time_t)mesh_time_wall_s();
+    const time_t now = (time_t)inkcell_time_wall_s();
     struct tm today;
     if (now > 0 && localtime_r(&now, &today) != NULL) {
         if (when.tm_year == today.tm_year && when.tm_yday == today.tm_yday) {
-            snprintf(out, out_len, "%s", mesh_str(MESH_STR_DATE_TODAY));
+            snprintf(out, out_len, "%s", inkcell_str(MESH_STR_DATE_TODAY));
             return;
         }
         if (when.tm_year == today.tm_year && when.tm_yday + 1 == today.tm_yday) {
-            snprintf(out, out_len, "%s", mesh_str(MESH_STR_DATE_YESTERDAY));
+            snprintf(out, out_len, "%s", inkcell_str(MESH_STR_DATE_YESTERDAY));
             return;
         }
     }
     /* "%e" pads a single-digit day with a space, which reads as a typo in a centred label. */
-    static const enum mesh_str_id kMonths[] = {
+    static const enum inkcell_str_id kMonths[] = {
         MESH_STR_DATE_JAN, MESH_STR_DATE_FEB, MESH_STR_DATE_MAR, MESH_STR_DATE_APR,
         MESH_STR_DATE_MAY, MESH_STR_DATE_JUN, MESH_STR_DATE_JUL, MESH_STR_DATE_AUG,
         MESH_STR_DATE_SEP, MESH_STR_DATE_OCT, MESH_STR_DATE_NOV, MESH_STR_DATE_DEC,
     };
-    static const enum mesh_str_id kWeekdays[] = {
+    static const enum inkcell_str_id kWeekdays[] = {
         MESH_STR_DATE_SUN, MESH_STR_DATE_MON, MESH_STR_DATE_TUE, MESH_STR_DATE_WED,
         MESH_STR_DATE_THU, MESH_STR_DATE_FRI, MESH_STR_DATE_SAT,
     };
-    const char *month = mesh_str(kMonths[when.tm_mon]);
-    const char *weekday = mesh_str(kWeekdays[when.tm_wday]);
-    mesh_str_format(out, out_len, MESH_STR_DATE_WEEKDAY_DAY_MONTH, weekday, when.tm_mday, month);
+    const char *month = inkcell_str(kMonths[when.tm_mon]);
+    const char *weekday = inkcell_str(kWeekdays[when.tm_wday]);
+    inkcell_str_format(out, out_len, MESH_STR_DATE_WEEKDAY_DAY_MONTH, weekday, when.tm_mday, month);
 }
 
 /* A day apart, or a long enough silence, is a break in the conversation; anything closer is the
@@ -295,7 +297,7 @@ static void fb_thread_reactions(struct mesh_ui_message_view messages, uint32_t p
             continue;
         }
         char glyph[8];
-        const size_t take = mesh_ui_text_cell_offset(reaction->text, 1U);
+        const size_t take = inkcell_text_cell_offset(reaction->text, 1U);
         if (take == 0U || take >= sizeof glyph) {
             continue;
         }
@@ -310,25 +312,25 @@ static void fb_thread_reactions(struct mesh_ui_message_view messages, uint32_t p
             if (kinds == FB_THREAD_REACTION_KINDS) {
                 continue; /* a fifth kind; the four already shown are the story */
             }
-            mesh_str_copy(seen[kinds].glyph, sizeof seen[kinds].glyph, glyph);
+            inkcell_str_copy(seen[kinds].glyph, sizeof seen[kinds].glyph, glyph);
             seen[kinds].count = 0U;
             kinds++;
         }
         seen[slot].count++;
     }
 
-    struct mesh_ui_line line;
-    mesh_ui_line_reset(&line);
+    struct inkcell_line line;
+    inkcell_line_reset(&line);
     for (size_t i = 0; i < kinds; ++i) {
         /* The count is left off a lone reaction: "\U0001F44D 1" reads as a score. */
         if (seen[i].count > 1U) {
-            mesh_ui_line_printf(&line, "%s%s%u", i > 0U ? " " : "", seen[i].glyph,
+            inkcell_line_printf(&line, "%s%s%u", i > 0U ? " " : "", seen[i].glyph,
                                 (unsigned)seen[i].count);
         } else {
-            mesh_ui_line_printf(&line, "%s%s", i > 0U ? " " : "", seen[i].glyph);
+            inkcell_line_printf(&line, "%s%s", i > 0U ? " " : "", seen[i].glyph);
         }
     }
-    mesh_str_copy(out, out_len, mesh_ui_line_text(&line));
+    inkcell_str_copy(out, out_len, inkcell_line_text(&line));
 }
 
 /*
@@ -351,9 +353,9 @@ void fb_thread_quote(struct mesh_ui_message_view messages, uint32_t reply_id, ch
         if (target->packet_id != reply_id || target->is_reaction) {
             continue;
         }
-        /* Sanitised rather than copied: this truncates, and mesh_str_copy truncates by bytes -
+        /* Sanitised rather than copied: this truncates, and inkcell_str_copy truncates by bytes -
            which on a message ending in an emoji would cut a character in half. */
-        mesh_text_sanitise_str(target->text, out, out_len);
+        inkcell_text_sanitise_str(target->text, out, out_len);
         return;
     }
 }
@@ -394,13 +396,13 @@ static void fb_thread_row_build(const struct mesh_ui_snapshot *snapshot,
     if (previous == NULL || !fb_thread_same_day(previous->rx_time, message->rx_time)) {
         fb_format_day(message->rx_time, row->separator, sizeof row->separator);
     } else if (fb_thread_elapsed(previous->rx_time, message->rx_time) >= FB_THREAD_GAP_SECONDS) {
-        fb_format_clock(message->rx_time, row->separator, sizeof row->separator);
+        inkcell_fb_format_clock(message->rx_time, row->separator, sizeof row->separator);
     }
-    row->bubble.separator_tone = MESH_UI_TONE_DIM;
+    row->bubble.separator_tone = INKCELL_TONE_DIM;
 
     /*
      * And the line under where the reader stopped last time, which takes the slot from a date
-     * when both want it - see struct fb_bubble for why that is the right way round.
+     * when both want it - see struct inkcell_fb_bubble for why that is the right way round.
      *
      * "The first message after the marked one" is exactly "the message whose predecessor is the
      * marked one", which is why this is a comparison against `previous` rather than a search:
@@ -415,9 +417,9 @@ static void fb_thread_row_build(const struct mesh_ui_snapshot *snapshot,
      */
     if (nav->thread_unread_from != 0U && previous != NULL &&
         previous->packet_id == nav->thread_unread_from) {
-        mesh_str_copy(row->separator, sizeof row->separator,
-                      mesh_str(MESH_STR_THREAD_UNREAD_FROM_HERE));
-        row->bubble.separator_tone = MESH_UI_TONE_PRIMARY;
+        inkcell_str_copy(row->separator, sizeof row->separator,
+                         inkcell_str(MESH_STR_THREAD_UNREAD_FROM_HERE));
+        row->bubble.separator_tone = INKCELL_TONE_PRIMARY;
     }
 
     /*
@@ -444,43 +446,44 @@ static void fb_thread_row_build(const struct mesh_ui_snapshot *snapshot,
     row->bubble.alert = (message->kind == (uint8_t)MESH_MESSAGE_KIND_ALERT);
 
     if (labelled || ((starts_run || force_name) && (names_needed || (outbound && nav->inbox)))) {
-        const char *peer = message->peer_name[0] != '\0' ? message->peer_name
-                                                         : mesh_str(MESH_STR_COMMON_UNKNOWN_SHORT);
-        struct mesh_ui_line line;
-        mesh_ui_line_reset(&line);
+        const char *peer = message->peer_name[0] != '\0'
+                               ? message->peer_name
+                               : inkcell_str(INKCELL_STR_COMMON_UNKNOWN_SHORT);
+        struct inkcell_line line;
+        inkcell_line_reset(&line);
         if (outbound) {
             /* Ours in all-traffic still needs a destination: "sent" alone does not say to whom,
                and a broadcast and a DM look identical without it. */
             if (message->broadcast) {
-                mesh_ui_line_printf(&line, "%s", mesh_str(MESH_STR_BUBBLE_SENT));
+                inkcell_line_printf(&line, "%s", inkcell_str(MESH_STR_BUBBLE_SENT));
             } else {
-                mesh_ui_line_str(&line, MESH_STR_BUBBLE_SENT_TO, peer);
+                inkcell_line_str(&line, MESH_STR_BUBBLE_SENT_TO, peer);
             }
         } else {
-            mesh_ui_line_printf(&line, "%s", peer);
+            inkcell_line_printf(&line, "%s", peer);
         }
         /* All-traffic is several conversations at once, so each bubble says which one it is. */
         if (nav->inbox) {
             if (message->broadcast) {
-                mesh_ui_line_str(&line, MESH_STR_BUBBLE_CHANNEL, (unsigned)message->channel);
+                inkcell_line_str(&line, MESH_STR_BUBBLE_CHANNEL, (unsigned)message->channel);
             } else {
-                mesh_ui_line_printf(&line, "%s", mesh_str(MESH_STR_BUBBLE_DIRECT));
+                inkcell_line_printf(&line, "%s", inkcell_str(MESH_STR_BUBBLE_DIRECT));
             }
         }
         if (message->kind == (uint8_t)MESH_MESSAGE_KIND_ALERT) {
-            mesh_ui_line_printf(&line, "%s", mesh_str(MESH_STR_BUBBLE_ALERT));
+            inkcell_line_printf(&line, "%s", inkcell_str(MESH_STR_BUBBLE_ALERT));
         } else if (message->kind == (uint8_t)MESH_MESSAGE_KIND_DETECTION) {
-            mesh_ui_line_printf(&line, "%s", mesh_str(MESH_STR_BUBBLE_SENSOR));
+            inkcell_line_printf(&line, "%s", inkcell_str(MESH_STR_BUBBLE_SENSOR));
         }
-        mesh_str_copy(row->name, sizeof row->name, mesh_ui_line_text(&line));
+        inkcell_str_copy(row->name, sizeof row->name, inkcell_line_text(&line));
     }
 
     /*
      * The trailing run: when it arrived, whether it went out encrypted, and for ours what
      * became of it. Four slots the bubble measures for itself rather than a line assembled
-     * here - see struct fb_bubble_meta for why that distinction is the whole of it.
+     * here - see struct inkcell_fb_bubble_meta for why that distinction is the whole of it.
      */
-    fb_format_clock(message->rx_time, row->clock, sizeof row->clock);
+    inkcell_fb_format_clock(message->rx_time, row->clock, sizeof row->clock);
 
     /*
      * And through whom, when that was somebody other than whoever sent it. The store resolves
@@ -490,7 +493,8 @@ static void fb_thread_row_build(const struct mesh_ui_snapshot *snapshot,
      * an individual message.
      */
     if (message->relay_name[0] != '\0') {
-        mesh_str_format(row->relay, sizeof row->relay, MESH_STR_BUBBLE_RELAY, message->relay_name);
+        inkcell_str_format(row->relay, sizeof row->relay, MESH_STR_BUBBLE_RELAY,
+                           message->relay_name);
     }
 
     /*
@@ -523,7 +527,7 @@ static void fb_thread_row_build(const struct mesh_ui_snapshot *snapshot,
            it says what the packet did, and claims nothing about whose key it used. */
         row->bubble.meta.lock = peer_trust == MESH_UI_KEY_TRUST_VERIFIED
                                     ? mesh_ui_key_trust_icon(MESH_UI_KEY_TRUST_VERIFIED)
-                                    : MESH_UI_ICON_ENCRYPTED;
+                                    : INKCELL_ICON_ENCRYPTED;
     }
 
     /* What became of one of ours, as src/ui/tables/delivery.c answers - the mark for the corner,
@@ -545,10 +549,10 @@ static void fb_thread_row_build(const struct mesh_ui_snapshot *snapshot,
      * wrong place to find out that it did, so the generic word stands in for it.
      */
     if (row->bubble.failed) {
-        mesh_str_copy(row->note, sizeof row->note,
-                      message->ack_error != 0U
-                          ? mesh_message_ack_error_to_string(message->ack_error)
-                          : mesh_str(delivery.word));
+        inkcell_str_copy(row->note, sizeof row->note,
+                         message->ack_error != 0U
+                             ? mesh_message_ack_error_to_string(message->ack_error)
+                             : inkcell_str(delivery.word));
     }
 
     /* Reactions ride the trailing run rather than taking a row: they are an annotation on this
@@ -557,30 +561,30 @@ static void fb_thread_row_build(const struct mesh_ui_snapshot *snapshot,
 }
 
 /* A bubble's height, clamped into the byte the transcript window measures in. */
-static uint8_t fb_thread_height(const struct mesh_ui_backend_fb_state *state,
-                                const struct fb_layout *layout, const struct fb_thread_row *row) {
-    const uint32_t rows = fb_bubble_rows(state, layout, &row->bubble);
+static uint8_t fb_thread_height(const struct inkcell_backend_fb_state *state,
+                                const struct inkcell_fb_layout *layout,
+                                const struct fb_thread_row *row) {
+    const uint32_t rows = inkcell_fb_bubble_rows(state, layout, &row->bubble);
     return rows > 0xFFU ? 0xFFU : (uint8_t)rows;
 }
 
-static struct fb_thread_cache *fb_thread_cache_get(struct mesh_ui_backend_fb_state *state,
-                                                   const struct mesh_ui_snapshot *snapshot,
-                                                   const struct fb_layout *layout,
-                                                   struct mesh_ui_message_view messages,
-                                                   const uint32_t *indices, uint32_t count) {
+static struct inkcell_fb_thread_cache *
+fb_thread_cache_get(struct inkcell_backend_fb_state *state, const struct mesh_ui_snapshot *snapshot,
+                    const struct inkcell_fb_layout *layout, struct mesh_ui_message_view messages,
+                    const uint32_t *indices, uint32_t count) {
     if (state->thread_cache_disabled) {
         return NULL;
     }
     if (state->thread_cache == NULL) {
         state->thread_cache = calloc(1U, sizeof *state->thread_cache);
     }
-    struct fb_thread_cache *cache = state->thread_cache;
+    struct inkcell_fb_thread_cache *cache = state->thread_cache;
     if (cache == NULL) {
         return NULL;
     }
     /* Include local calendar and zone, so midnight and a timezone change invalidate labels. */
     char calendar[80] = {0};
-    const time_t now = (time_t)mesh_time_wall_s();
+    const time_t now = (time_t)inkcell_time_wall_s();
     struct tm local;
     if (localtime_r(&now, &local) != NULL) {
         (void)strftime(calendar, sizeof calendar, "%Y-%m-%d %Z %z", &local);
@@ -595,7 +599,7 @@ static struct fb_thread_cache *fb_thread_cache_get(struct mesh_ui_backend_fb_sta
     const bool changed = !same_entries || cache->inbox != snapshot->nav.inbox ||
                          cache->target_node != snapshot->nav.target_node ||
                          cache->unread_from != snapshot->nav.thread_unread_from ||
-                         cache->theme != state->theme || cache->locale != mesh_i18n_locale() ||
+                         cache->theme != state->theme || cache->locale != inkcell_i18n_locale() ||
                          cache->scale != state->scale || cache->cols != layout->cols ||
                          strcmp(cache->calendar, calendar) != 0;
     if (changed) {
@@ -607,7 +611,7 @@ static struct fb_thread_cache *fb_thread_cache_get(struct mesh_ui_backend_fb_sta
         cache->target_node = snapshot->nav.target_node;
         cache->unread_from = snapshot->nav.thread_unread_from;
         cache->theme = state->theme;
-        cache->locale = mesh_i18n_locale();
+        cache->locale = inkcell_i18n_locale();
         cache->scale = state->scale;
         cache->cols = layout->cols;
         memcpy(cache->calendar, calendar, sizeof calendar);
@@ -627,7 +631,8 @@ static struct fb_thread_cache *fb_thread_cache_get(struct mesh_ui_backend_fb_sta
 static void fb_thread_row_get(const struct mesh_ui_snapshot *snapshot,
                               struct mesh_ui_message_view messages, const uint32_t *indices,
                               uint32_t position, bool force_name,
-                              const struct fb_thread_cache *cache, struct fb_thread_row *row) {
+                              const struct inkcell_fb_thread_cache *cache,
+                              struct fb_thread_row *row) {
     if (cache == NULL) {
         fb_thread_row_build(snapshot, messages, indices, position, force_name, row);
         return;
@@ -644,8 +649,8 @@ static void fb_thread_row_get(const struct mesh_ui_snapshot *snapshot,
     row->bubble.meta.clock = row->clock;
 }
 
-void fb_render_thread(struct mesh_ui_backend_fb_state *state,
-                      const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
+void fb_render_thread(struct inkcell_backend_fb_state *state,
+                      const struct mesh_ui_snapshot *snapshot, struct inkcell_fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
 
     const struct mesh_ui_message_view messages = mesh_ui_snapshot_message_view(snapshot);
@@ -660,27 +665,28 @@ void fb_render_thread(struct mesh_ui_backend_fb_state *state,
        conversation drawn from the card has the messages the ring evicted, and saying "+30 older"
        over thirty messages the reader can scroll to is the opposite of what the line is for. */
     if (nav->inbox) {
-        fb_title_count(title, sizeof title, convo, count, messages.dropped);
+        inkcell_fb_title_count(title, sizeof title, convo, count, messages.dropped);
     } else if (messages.dropped > 0U) {
-        mesh_str_format(title, sizeof title, MESH_STR_THREAD_TITLE_OLDER, convo,
-                        mesh_str(nav->target_node == MESH_MESSAGE_BROADCAST_ADDR
-                                     ? MESH_STR_THREAD_KIND_CHANNEL
-                                     : MESH_STR_THREAD_KIND_DIRECT),
-                        (unsigned)messages.dropped);
+        inkcell_str_format(title, sizeof title, MESH_STR_THREAD_TITLE_OLDER, convo,
+                           inkcell_str(nav->target_node == MESH_MESSAGE_BROADCAST_ADDR
+                                           ? MESH_STR_THREAD_KIND_CHANNEL
+                                           : MESH_STR_THREAD_KIND_DIRECT),
+                           (unsigned)messages.dropped);
     } else {
-        mesh_str_format(title, sizeof title, MESH_STR_THREAD_TITLE, convo,
-                        mesh_str(nav->target_node == MESH_MESSAGE_BROADCAST_ADDR
-                                     ? MESH_STR_THREAD_KIND_CHANNEL
-                                     : MESH_STR_THREAD_KIND_DIRECT));
+        inkcell_str_format(title, sizeof title, MESH_STR_THREAD_TITLE, convo,
+                           inkcell_str(nav->target_node == MESH_MESSAGE_BROADCAST_ADDR
+                                           ? MESH_STR_THREAD_KIND_CHANNEL
+                                           : MESH_STR_THREAD_KIND_DIRECT));
     }
     /* No overline. Which kind of conversation this is stays in the title, because a channel's
        name already starts with a '#' and every bubble under it is tagged - so a trail would be
        spending a body row of transcript to repeat what two other things on the frame say. */
-    fb_draw_app_bar(state, layout, &(const struct fb_app_bar){.title = title});
+    inkcell_fb_draw_app_bar(state, layout, &(const struct inkcell_fb_app_bar){.title = title});
 
     if (count == 0U) {
-        fb_draw_empty(state, layout, MESH_UI_ICON_MESSAGES,
-                      mesh_str(nav->inbox ? MESH_STR_THREAD_EMPTY_INBOX : MESH_STR_THREAD_EMPTY));
+        inkcell_fb_draw_empty(
+            state, layout, INKCELL_ICON_MESSAGES,
+            inkcell_str(nav->inbox ? MESH_STR_THREAD_EMPTY_INBOX : MESH_STR_THREAD_EMPTY));
         return;
     }
 
@@ -689,7 +695,7 @@ void fb_render_thread(struct mesh_ui_backend_fb_state *state,
     const uint32_t cursor = nav->cursor[MESH_UI_SCREEN_MESSAGES];
     uint8_t heights[MESH_UI_MAX_THREAD_MESSAGES];
     struct fb_thread_row row;
-    struct fb_thread_cache *cache =
+    struct inkcell_fb_thread_cache *cache =
         fb_thread_cache_get(state, snapshot, layout, messages, indices, count);
     for (uint32_t i = 0; i < count; ++i) {
         if (cache != NULL) {
@@ -699,8 +705,8 @@ void fb_render_thread(struct mesh_ui_backend_fb_state *state,
             heights[i] = fb_thread_height(state, layout, &row);
         }
     }
-    struct mesh_ui_transcript window =
-        mesh_ui_transcript_window(heights, count, cursor, layout->rows);
+    struct inkcell_transcript window =
+        inkcell_transcript_window(heights, count, cursor, layout->rows);
 
     /*
      * The first bubble on screen always names its sender.
@@ -734,7 +740,7 @@ void fb_render_thread(struct mesh_ui_backend_fb_state *state,
             fb_thread_row_build(snapshot, messages, indices, named, true, &row);
             heights[named] = fb_thread_height(state, layout, &row);
         }
-        window = mesh_ui_transcript_window(heights, count, cursor, layout->rows);
+        window = inkcell_transcript_window(heights, count, cursor, layout->rows);
     }
     /* Only force what the heights were settled against, so the draw can never disagree with the
        measure even if the loop ran out of passes. */
@@ -744,7 +750,7 @@ void fb_render_thread(struct mesh_ui_backend_fb_state *state,
     for (uint32_t i = window.first; i < window.first + window.count && i < count; ++i) {
         fb_thread_row_get(snapshot, messages, indices, i, settled && i == named, cache, &row);
         row.bubble.selected = (i == cursor);
-        fb_draw_bubble(state, layout, y, &row.bubble);
+        inkcell_fb_draw_bubble(state, layout, y, &row.bubble);
         y += (int)heights[i] * layout->line;
     }
 }

@@ -65,14 +65,14 @@ bool mesh_test_settings_cursor_to(struct mesh_ui_store *store, uint32_t row) {
     struct mesh_ui_action action;
     while (store->nav.cursor[MESH_UI_SCREEN_SETTINGS] > row) {
         const uint32_t before = store->nav.cursor[MESH_UI_SCREEN_SETTINGS];
-        mesh_ui_store_handle_key(store, MESH_UI_KEY_UP, &action);
+        mesh_ui_store_handle_key(store, INKCELL_KEY_UP, &action);
         if (store->nav.cursor[MESH_UI_SCREEN_SETTINGS] == before) {
             return false; /* nothing above it the cursor may stand on */
         }
     }
     while (store->nav.cursor[MESH_UI_SCREEN_SETTINGS] < row) {
         const uint32_t before = store->nav.cursor[MESH_UI_SCREEN_SETTINGS];
-        mesh_ui_store_handle_key(store, MESH_UI_KEY_DOWN, &action);
+        mesh_ui_store_handle_key(store, INKCELL_KEY_DOWN, &action);
         if (store->nav.cursor[MESH_UI_SCREEN_SETTINGS] == before) {
             return false; /* the list is shorter than the row asked for */
         }
@@ -87,7 +87,7 @@ static bool settings_step_to(struct mesh_ui_store *store, uint32_t row) {
         return false;
     }
     struct mesh_ui_action action;
-    mesh_ui_store_handle_key(store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(store, INKCELL_KEY_A, &action);
     return true;
 }
 
@@ -111,7 +111,7 @@ bool mesh_test_open_tab(struct mesh_ui_store *store, enum mesh_ui_screen screen)
         if (store->nav.screen == screen) {
             return true;
         }
-        mesh_ui_store_handle_key(store, MESH_UI_KEY_R1, &action);
+        mesh_ui_store_handle_key(store, INKCELL_KEY_R1, &action);
     }
     return store->nav.screen == screen;
 }

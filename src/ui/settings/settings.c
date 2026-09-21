@@ -9,24 +9,23 @@
  * switching on a field id.
  */
 
+#include "inkcell/ui/anim.h"
+#include "inkcell/utils/array.h"
+#include "inkcell/utils/text.h"
+
 #include "settings_internal.h"
 
 #include "mesh/core/radio_settings.h"
-#include "mesh/utils/array.h"
-#include "mesh/utils/text.h"
 
 #include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
 
-#include "mesh/ui/anim.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/units.h"
 
 #include "mesh/core/radio_settings.h"
 #include "mesh/core/updater.h"
-#include "mesh/utils/array.h"
-#include "mesh/utils/text.h"
 
 #include <ctype.h>
 #include <stdio.h>
@@ -40,7 +39,7 @@
  * as text for a heading, once as an id for the help topic's subject - and a switch answering
  * the same question two ways is the two-opinions bug this layer keeps designing out.
  */
-static const enum mesh_str_id k_section_labels[MESH_UI_SETTINGS_SECTION_COUNT] = {
+static const enum inkcell_str_id k_section_labels[MESH_UI_SETTINGS_SECTION_COUNT] = {
     [MESH_UI_SETTINGS_ABOUT] = MESH_STR_SETTINGS_SECTION_ABOUT,
     [MESH_UI_SETTINGS_RADIO] = MESH_STR_SETTINGS_SECTION_RADIO,
     [MESH_UI_SETTINGS_USER] = MESH_STR_SETTINGS_SECTION_USER,
@@ -72,67 +71,67 @@ static const enum mesh_str_id k_section_labels[MESH_UI_SETTINGS_SECTION_COUNT] =
     [MESH_UI_SETTINGS_BEACON] = MESH_STR_SETTINGS_SECTION_BEACON,
 };
 
-enum mesh_str_id mesh_ui_settings_section_label(enum mesh_ui_settings_section section) {
-    return section < MESH_UI_SETTINGS_SECTION_COUNT ? k_section_labels[section] : MESH_STR_NONE;
+enum inkcell_str_id mesh_ui_settings_section_label(enum mesh_ui_settings_section section) {
+    return section < MESH_UI_SETTINGS_SECTION_COUNT ? k_section_labels[section] : INKCELL_STR_NONE;
 }
 
 const char *mesh_ui_settings_section_name(enum mesh_ui_settings_section section) {
-    const enum mesh_str_id label = mesh_ui_settings_section_label(section);
+    const enum inkcell_str_id label = mesh_ui_settings_section_label(section);
     /* A section past the end still has to render as something: the "?" every unnameable value
-       in this client draws, rather than the empty string MESH_STR_NONE would hand back. */
-    return mesh_str(label != MESH_STR_NONE ? label : MESH_STR_COMMON_UNKNOWN_SHORT);
+       in this client draws, rather than the empty string INKCELL_STR_NONE would hand back. */
+    return inkcell_str(label != INKCELL_STR_NONE ? label : INKCELL_STR_COMMON_UNKNOWN_SHORT);
 }
 
 /*
  * What each section is about, in one line each, in the enum's own order.
  *
  * A table rather than a switch because it is a lookup with no cases in it, and because a
- * section added without an icon then comes out as MESH_UI_ICON_NONE - which draws nothing and
+ * section added without an icon then comes out as INKCELL_ICON_NONE - which draws nothing and
  * leaves the row where it was, rather than failing to compile in a file that has nothing to do
  * with icons.
  */
-static const enum mesh_ui_icon k_section_icons[MESH_UI_SETTINGS_SECTION_COUNT] = {
-    [MESH_UI_SETTINGS_ABOUT] = MESH_UI_ICON_ABOUT,
+static const enum inkcell_icon k_section_icons[MESH_UI_SETTINGS_SECTION_COUNT] = {
+    [MESH_UI_SETTINGS_ABOUT] = INKCELL_ICON_ABOUT,
     /* Facts about the radio, which is what the Status tab's Radio card holds - the same
        sentence, so the same icon. */
-    [MESH_UI_SETTINGS_RADIO] = MESH_UI_ICON_RADIO,
-    [MESH_UI_SETTINGS_USER] = MESH_UI_ICON_USER,
-    [MESH_UI_SETTINGS_DEVICE] = MESH_UI_ICON_DEVICE,
-    [MESH_UI_SETTINGS_DISPLAY] = MESH_UI_ICON_DISPLAY,
-    [MESH_UI_SETTINGS_LORA] = MESH_UI_ICON_LORA,
-    [MESH_UI_SETTINGS_BLUETOOTH] = MESH_UI_ICON_BLUETOOTH,
-    [MESH_UI_SETTINGS_CHANNELS] = MESH_UI_ICON_CHANNEL,
-    [MESH_UI_SETTINGS_SECURITY] = MESH_UI_ICON_SECURITY,
-    [MESH_UI_SETTINGS_POSITION] = MESH_UI_ICON_POSITION,
-    [MESH_UI_SETTINGS_POWER] = MESH_UI_ICON_POWER,
-    [MESH_UI_SETTINGS_MQTT] = MESH_UI_ICON_MQTT,
-    [MESH_UI_SETTINGS_STORE_FORWARD] = MESH_UI_ICON_STORE_FWD,
-    [MESH_UI_SETTINGS_TELEMETRY] = MESH_UI_ICON_TELEMETRY,
-    [MESH_UI_SETTINGS_ACTIONS] = MESH_UI_ICON_ACTIONS,
-    [MESH_UI_SETTINGS_MODULES] = MESH_UI_ICON_MODULES,
-    [MESH_UI_SETTINGS_NEIGHBOR_INFO] = MESH_UI_ICON_NEIGHBORS,
-    [MESH_UI_SETTINGS_RANGE_TEST] = MESH_UI_ICON_RANGE_TEST,
-    [MESH_UI_SETTINGS_PAXCOUNTER] = MESH_UI_ICON_PAXCOUNTER,
-    [MESH_UI_SETTINGS_TAK] = MESH_UI_ICON_TAK,
-    [MESH_UI_SETTINGS_AMBIENT] = MESH_UI_ICON_AMBIENT,
-    [MESH_UI_SETTINGS_STATUS_MESSAGE] = MESH_UI_ICON_STATUS_MSG,
-    [MESH_UI_SETTINGS_DETECTION] = MESH_UI_ICON_DETECTION,
-    [MESH_UI_SETTINGS_EXT_NOTIFICATION] = MESH_UI_ICON_EXT_NOTIFY,
-    [MESH_UI_SETTINGS_TRAFFIC] = MESH_UI_ICON_TRAFFIC,
+    [MESH_UI_SETTINGS_RADIO] = INKCELL_ICON_RADIO,
+    [MESH_UI_SETTINGS_USER] = INKCELL_ICON_USER,
+    [MESH_UI_SETTINGS_DEVICE] = INKCELL_ICON_DEVICE,
+    [MESH_UI_SETTINGS_DISPLAY] = INKCELL_ICON_DISPLAY,
+    [MESH_UI_SETTINGS_LORA] = INKCELL_ICON_LORA,
+    [MESH_UI_SETTINGS_BLUETOOTH] = INKCELL_ICON_BLUETOOTH,
+    [MESH_UI_SETTINGS_CHANNELS] = INKCELL_ICON_CHANNEL,
+    [MESH_UI_SETTINGS_SECURITY] = INKCELL_ICON_SECURITY,
+    [MESH_UI_SETTINGS_POSITION] = INKCELL_ICON_POSITION,
+    [MESH_UI_SETTINGS_POWER] = INKCELL_ICON_POWER,
+    [MESH_UI_SETTINGS_MQTT] = INKCELL_ICON_MQTT,
+    [MESH_UI_SETTINGS_STORE_FORWARD] = INKCELL_ICON_STORE_FWD,
+    [MESH_UI_SETTINGS_TELEMETRY] = INKCELL_ICON_TELEMETRY,
+    [MESH_UI_SETTINGS_ACTIONS] = INKCELL_ICON_ACTIONS,
+    [MESH_UI_SETTINGS_MODULES] = INKCELL_ICON_MODULES,
+    [MESH_UI_SETTINGS_NEIGHBOR_INFO] = INKCELL_ICON_NEIGHBORS,
+    [MESH_UI_SETTINGS_RANGE_TEST] = INKCELL_ICON_RANGE_TEST,
+    [MESH_UI_SETTINGS_PAXCOUNTER] = INKCELL_ICON_PAXCOUNTER,
+    [MESH_UI_SETTINGS_TAK] = INKCELL_ICON_TAK,
+    [MESH_UI_SETTINGS_AMBIENT] = INKCELL_ICON_AMBIENT,
+    [MESH_UI_SETTINGS_STATUS_MESSAGE] = INKCELL_ICON_STATUS_MSG,
+    [MESH_UI_SETTINGS_DETECTION] = INKCELL_ICON_DETECTION,
+    [MESH_UI_SETTINGS_EXT_NOTIFICATION] = INKCELL_ICON_EXT_NOTIFY,
+    [MESH_UI_SETTINGS_TRAFFIC] = INKCELL_ICON_TRAFFIC,
     /* Two more sections answering with an icon another part of the UI owns, for the reason the
        three above do: Radio UI *is* the radio's screen, which is what DISPLAY says, and a
        canned message is a quick reply, which is what REPLY says. */
-    [MESH_UI_SETTINGS_RADIO_UI] = MESH_UI_ICON_DISPLAY,
-    [MESH_UI_SETTINGS_CANNED] = MESH_UI_ICON_REPLY,
-    [MESH_UI_SETTINGS_NETWORK] = MESH_UI_ICON_NETWORK,
+    [MESH_UI_SETTINGS_RADIO_UI] = INKCELL_ICON_DISPLAY,
+    [MESH_UI_SETTINGS_CANNED] = INKCELL_ICON_REPLY,
+    [MESH_UI_SETTINGS_NETWORK] = INKCELL_ICON_NETWORK,
     /* A third section answering with an icon another part of the UI owns, by the rule the two
        above state: a beacon is a broadcast, which is the one thing that glyph says anywhere in
        this client. */
-    [MESH_UI_SETTINGS_BEACON] = MESH_UI_ICON_BROADCAST,
+    [MESH_UI_SETTINGS_BEACON] = INKCELL_ICON_BROADCAST,
 };
 
-enum mesh_ui_icon mesh_ui_settings_section_icon(enum mesh_ui_settings_section section) {
-    return section < MESH_UI_SETTINGS_SECTION_COUNT ? k_section_icons[section] : MESH_UI_ICON_NONE;
+enum inkcell_icon mesh_ui_settings_section_icon(enum mesh_ui_settings_section section) {
+    return section < MESH_UI_SETTINGS_SECTION_COUNT ? k_section_icons[section] : INKCELL_ICON_NONE;
 }
 
 /*
@@ -143,102 +142,102 @@ enum mesh_ui_icon mesh_ui_settings_section_icon(enum mesh_ui_settings_section se
  * and to a contact. What a reader has to tell apart is the *label*; the symbol is what gets the
  * eye to the right row of the card first.
  *
- * MESH_UI_ICON_NONE is a legible answer here rather than a hole - the disc draws empty and the
+ * INKCELL_ICON_NONE is a legible answer here rather than a hole - the disc draws empty and the
  * row keeps its column - which is the same bargain k_section_icons[] makes, and the reason both
  * are tables rather than switches.
  */
-static const enum mesh_ui_icon k_action_icons[MESH_UI_SETTINGS_ACTION_COUNT] = {
+static const enum inkcell_icon k_action_icons[MESH_UI_SETTINGS_ACTION_COUNT] = {
     /* About: this client's own update, and the two rows that change how it looks and reads. */
-    [MESH_UI_SETTINGS_ACTION_CHECK_UPDATE] = MESH_UI_ICON_REFRESH,
-    [MESH_UI_SETTINGS_ACTION_INSTALL_UPDATE] = MESH_UI_ICON_DOWNLOAD,
-    [MESH_UI_SETTINGS_ACTION_CYCLE_UPDATE_CHANNEL] = MESH_UI_ICON_SWAP,
-    [MESH_UI_SETTINGS_ACTION_TOGGLE_DEV_UPDATES] = MESH_UI_ICON_SWAP,
-    [MESH_UI_SETTINGS_ACTION_CYCLE_THEME] = MESH_UI_ICON_THEME,
-    [MESH_UI_SETTINGS_ACTION_CYCLE_LANGUAGE] = MESH_UI_ICON_LANGUAGE,
-    [MESH_UI_SETTINGS_ACTION_DISCARD_CRASH_REPORT] = MESH_UI_ICON_DELETE,
+    [MESH_UI_SETTINGS_ACTION_CHECK_UPDATE] = INKCELL_ICON_REFRESH,
+    [MESH_UI_SETTINGS_ACTION_INSTALL_UPDATE] = INKCELL_ICON_DOWNLOAD,
+    [MESH_UI_SETTINGS_ACTION_CYCLE_UPDATE_CHANNEL] = INKCELL_ICON_SWAP,
+    [MESH_UI_SETTINGS_ACTION_TOGGLE_DEV_UPDATES] = INKCELL_ICON_SWAP,
+    [MESH_UI_SETTINGS_ACTION_CYCLE_THEME] = INKCELL_ICON_THEME,
+    [MESH_UI_SETTINGS_ACTION_CYCLE_LANGUAGE] = INKCELL_ICON_LANGUAGE,
+    [MESH_UI_SETTINGS_ACTION_DISCARD_CRASH_REPORT] = INKCELL_ICON_DELETE,
 
     /* Radio actions, in the order the section runs them: least to most destructive. */
-    [MESH_UI_SETTINGS_ACTION_REBOOT] = MESH_UI_ICON_RESTART,
-    [MESH_UI_SETTINGS_ACTION_SHUTDOWN] = MESH_UI_ICON_SHUTDOWN,
+    [MESH_UI_SETTINGS_ACTION_REBOOT] = INKCELL_ICON_RESTART,
+    [MESH_UI_SETTINGS_ACTION_SHUTDOWN] = INKCELL_ICON_SHUTDOWN,
     /* The radio's own database, and this client's cache of it. Three rows, one symbol, because
        all three are the same sentence about three stores - which is exactly what makes the
        group readable as a group. */
-    [MESH_UI_SETTINGS_ACTION_RESET_NODEDB] = MESH_UI_ICON_DELETE,
-    [MESH_UI_SETTINGS_ACTION_FORGET_OFF_RADIO_NODES] = MESH_UI_ICON_DELETE,
-    [MESH_UI_SETTINGS_ACTION_FORGET_ALL_NODES] = MESH_UI_ICON_DELETE,
-    [MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG] = MESH_UI_ICON_FACTORY,
-    [MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE] = MESH_UI_ICON_FACTORY,
-    [MESH_UI_SETTINGS_ACTION_BACKUP_CONFIG] = MESH_UI_ICON_BACKUP,
-    [MESH_UI_SETTINGS_ACTION_RESTORE_CONFIG] = MESH_UI_ICON_RESTORE,
-    [MESH_UI_SETTINGS_ACTION_REMOVE_BACKUP] = MESH_UI_ICON_DELETE,
+    [MESH_UI_SETTINGS_ACTION_RESET_NODEDB] = INKCELL_ICON_DELETE,
+    [MESH_UI_SETTINGS_ACTION_FORGET_OFF_RADIO_NODES] = INKCELL_ICON_DELETE,
+    [MESH_UI_SETTINGS_ACTION_FORGET_ALL_NODES] = INKCELL_ICON_DELETE,
+    [MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG] = INKCELL_ICON_FACTORY,
+    [MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE] = INKCELL_ICON_FACTORY,
+    [MESH_UI_SETTINGS_ACTION_BACKUP_CONFIG] = INKCELL_ICON_BACKUP,
+    [MESH_UI_SETTINGS_ACTION_RESTORE_CONFIG] = INKCELL_ICON_RESTORE,
+    [MESH_UI_SETTINGS_ACTION_REMOVE_BACKUP] = INKCELL_ICON_DELETE,
 
     /* Position: the pin this radio is pinned to, and taking it off again. */
-    [MESH_UI_SETTINGS_ACTION_SET_FIXED_POSITION] = MESH_UI_ICON_POSITION,
-    [MESH_UI_SETTINGS_ACTION_CLEAR_FIXED_POSITION] = MESH_UI_ICON_CLOSE,
+    [MESH_UI_SETTINGS_ACTION_SET_FIXED_POSITION] = INKCELL_ICON_POSITION,
+    [MESH_UI_SETTINGS_ACTION_CLEAR_FIXED_POSITION] = INKCELL_ICON_CLOSE,
     /* LoRa: a claim about the operator rather than about the hardware. */
-    [MESH_UI_SETTINGS_ACTION_SET_HAM_MODE] = MESH_UI_ICON_LICENSE,
+    [MESH_UI_SETTINGS_ACTION_SET_HAM_MODE] = INKCELL_ICON_LICENSE,
     /* Store & Forward: what arrived while this client was away. */
-    [MESH_UI_SETTINGS_ACTION_REQUEST_HISTORY] = MESH_UI_ICON_HISTORY,
+    [MESH_UI_SETTINGS_ACTION_REQUEST_HISTORY] = INKCELL_ICON_HISTORY,
 
     /* About radio: the *other* binary. The check and the channel step are About's own pair one
        subject over, so they answer with the same two symbols; the install says which bus it is
        going over, because that is the whole reason there are two of it. */
-    [MESH_UI_SETTINGS_ACTION_CHECK_RADIO_FIRMWARE] = MESH_UI_ICON_REFRESH,
-    [MESH_UI_SETTINGS_ACTION_CYCLE_FIRMWARE_CHANNEL] = MESH_UI_ICON_SWAP,
-    [MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB] = MESH_UI_ICON_USB,
-    [MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE] = MESH_UI_ICON_BLUETOOTH,
+    [MESH_UI_SETTINGS_ACTION_CHECK_RADIO_FIRMWARE] = INKCELL_ICON_REFRESH,
+    [MESH_UI_SETTINGS_ACTION_CYCLE_FIRMWARE_CHANNEL] = INKCELL_ICON_SWAP,
+    [MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB] = INKCELL_ICON_USB,
+    [MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE] = INKCELL_ICON_BLUETOOTH,
 
     /* The two link pairs: a channel set and a contact, each going out as a code and coming back
        typed in. */
-    [MESH_UI_SETTINGS_ACTION_SHARE_CHANNELS] = MESH_UI_ICON_SHARE,
-    [MESH_UI_SETTINGS_ACTION_IMPORT_CHANNELS] = MESH_UI_ICON_IMPORT,
+    [MESH_UI_SETTINGS_ACTION_SHARE_CHANNELS] = INKCELL_ICON_SHARE,
+    [MESH_UI_SETTINGS_ACTION_IMPORT_CHANNELS] = INKCELL_ICON_IMPORT,
     /* Emptying a slot, which is the same sentence about a store that the node rows wear this
        symbol for - one channel rather than a database of them. */
-    [MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL] = MESH_UI_ICON_DELETE,
-    [MESH_UI_SETTINGS_ACTION_SHARE_CONTACT] = MESH_UI_ICON_SHARE,
-    [MESH_UI_SETTINGS_ACTION_IMPORT_CONTACT] = MESH_UI_ICON_IMPORT,
+    [MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL] = INKCELL_ICON_DELETE,
+    [MESH_UI_SETTINGS_ACTION_SHARE_CONTACT] = INKCELL_ICON_SHARE,
+    [MESH_UI_SETTINGS_ACTION_IMPORT_CONTACT] = INKCELL_ICON_IMPORT,
 
     /* Stop configuring somebody else's radio. The way back, which is what that arrow means
        everywhere else in this client. */
-    [MESH_UI_SETTINGS_ACTION_ADMIN_LOCAL] = MESH_UI_ICON_BACK,
+    [MESH_UI_SETTINGS_ACTION_ADMIN_LOCAL] = INKCELL_ICON_BACK,
 };
 
 /*
  * What each verb costs, in the enum's own order.
  *
- * MESH_UI_TONE_NORMAL is both the zero and the right answer for most rows, and the entries that
+ * INKCELL_TONE_NORMAL is both the zero and the right answer for most rows, and the entries that
  * say so are written out anyway: a verb left out of this table and a verb deliberately drawn at
  * the ordinary weight are the same value, so spelling every row is the only thing that makes the
  * second one legible. What must not be left to the default is a row that deserved a weight and
  * did not get one, which is what `settings_verbs_that_cannot_be_undone_are_red` holds.
  */
-static const enum mesh_ui_tone k_action_tones[MESH_UI_SETTINGS_ACTION_COUNT] = {
-    [MESH_UI_SETTINGS_ACTION_CHECK_UPDATE] = MESH_UI_TONE_NORMAL,
+static const enum inkcell_tone k_action_tones[MESH_UI_SETTINGS_ACTION_COUNT] = {
+    [MESH_UI_SETTINGS_ACTION_CHECK_UPDATE] = INKCELL_TONE_NORMAL,
     /* Replaces the running binary and restarts under the reader. Not red - the check is the
        separate first press and the pak keeps what was there - but not an ordinary verb. */
-    [MESH_UI_SETTINGS_ACTION_INSTALL_UPDATE] = MESH_UI_TONE_WARNING,
-    [MESH_UI_SETTINGS_ACTION_CYCLE_UPDATE_CHANNEL] = MESH_UI_TONE_NORMAL,
-    [MESH_UI_SETTINGS_ACTION_TOGGLE_DEV_UPDATES] = MESH_UI_TONE_NORMAL,
-    [MESH_UI_SETTINGS_ACTION_CYCLE_THEME] = MESH_UI_TONE_NORMAL,
-    [MESH_UI_SETTINGS_ACTION_CYCLE_LANGUAGE] = MESH_UI_TONE_NORMAL,
+    [MESH_UI_SETTINGS_ACTION_INSTALL_UPDATE] = INKCELL_TONE_WARNING,
+    [MESH_UI_SETTINGS_ACTION_CYCLE_UPDATE_CHANNEL] = INKCELL_TONE_NORMAL,
+    [MESH_UI_SETTINGS_ACTION_TOGGLE_DEV_UPDATES] = INKCELL_TONE_NORMAL,
+    [MESH_UI_SETTINGS_ACTION_CYCLE_THEME] = INKCELL_TONE_NORMAL,
+    [MESH_UI_SETTINGS_ACTION_CYCLE_LANGUAGE] = INKCELL_TONE_NORMAL,
     /* The one copy of why the last run died, and nothing else has it - but what is lost is a
        diagnosis rather than anything the reader made, and this is the one row in the two tables
        with no confirm sheet in front of it. Red without a sheet is a trap; see
        `settings_verbs_that_cannot_be_undone_are_red`, which is what holds the pair together. */
-    [MESH_UI_SETTINGS_ACTION_DISCARD_CRASH_REPORT] = MESH_UI_TONE_WARNING,
+    [MESH_UI_SETTINGS_ACTION_DISCARD_CRASH_REPORT] = INKCELL_TONE_WARNING,
 
     /* The link drops and auto-connect brings it back: nothing is lost, and you wait. */
-    [MESH_UI_SETTINGS_ACTION_REBOOT] = MESH_UI_TONE_WARNING,
+    [MESH_UI_SETTINGS_ACTION_REBOOT] = INKCELL_TONE_WARNING,
     /* And the one row in the section this client cannot undo by any route - a radio that is off
        cannot be told to come on, so the way back is a walk to wherever it is. Red for the trip
        rather than for anything destroyed, which is the honest reading of what it costs. */
-    [MESH_UI_SETTINGS_ACTION_SHUTDOWN] = MESH_UI_TONE_ERROR,
+    [MESH_UI_SETTINGS_ACTION_SHUTDOWN] = INKCELL_TONE_ERROR,
     /* Both node stores rebuild from the air as their nodes speak again, which is what keeps
        them out of the red: what a press costs is the time until they do. The one that drops
        everything is a step above the one that drops what the radio has already let go. */
-    [MESH_UI_SETTINGS_ACTION_RESET_NODEDB] = MESH_UI_TONE_WARNING,
-    [MESH_UI_SETTINGS_ACTION_FORGET_OFF_RADIO_NODES] = MESH_UI_TONE_NORMAL,
-    [MESH_UI_SETTINGS_ACTION_FORGET_ALL_NODES] = MESH_UI_TONE_WARNING,
+    [MESH_UI_SETTINGS_ACTION_RESET_NODEDB] = INKCELL_TONE_WARNING,
+    [MESH_UI_SETTINGS_ACTION_FORGET_OFF_RADIO_NODES] = INKCELL_TONE_NORMAL,
+    [MESH_UI_SETTINGS_ACTION_FORGET_ALL_NODES] = INKCELL_TONE_WARNING,
     /*
      * The two rows nothing brings back. A factory reset is where the section has been heading
      * since its first row, and it is the only place the red belongs - which is the point of
@@ -250,51 +249,51 @@ static const enum mesh_ui_tone k_action_tones[MESH_UI_SETTINGS_ACTION_COUNT] = {
      * gradient the rows are already ordered by - least to most destructive - is what the three
      * weights are drawing.
      */
-    [MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG] = MESH_UI_TONE_ERROR,
-    [MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE] = MESH_UI_TONE_ERROR,
+    [MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG] = INKCELL_TONE_ERROR,
+    [MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE] = INKCELL_TONE_ERROR,
     /* A backup is the row you want pressed before the two under it. The restore overwrites every
        setting the radio holds and the delete throws the copy away - but the live configuration
        survives both, and another backup is one press away. */
-    [MESH_UI_SETTINGS_ACTION_BACKUP_CONFIG] = MESH_UI_TONE_NORMAL,
-    [MESH_UI_SETTINGS_ACTION_RESTORE_CONFIG] = MESH_UI_TONE_WARNING,
-    [MESH_UI_SETTINGS_ACTION_REMOVE_BACKUP] = MESH_UI_TONE_WARNING,
+    [MESH_UI_SETTINGS_ACTION_BACKUP_CONFIG] = INKCELL_TONE_NORMAL,
+    [MESH_UI_SETTINGS_ACTION_RESTORE_CONFIG] = INKCELL_TONE_WARNING,
+    [MESH_UI_SETTINGS_ACTION_REMOVE_BACKUP] = INKCELL_TONE_WARNING,
 
-    [MESH_UI_SETTINGS_ACTION_SET_FIXED_POSITION] = MESH_UI_TONE_NORMAL,
-    [MESH_UI_SETTINGS_ACTION_CLEAR_FIXED_POSITION] = MESH_UI_TONE_NORMAL,
+    [MESH_UI_SETTINGS_ACTION_SET_FIXED_POSITION] = INKCELL_TONE_NORMAL,
+    [MESH_UI_SETTINGS_ACTION_CLEAR_FIXED_POSITION] = INKCELL_TONE_NORMAL,
     /* Turns the primary channel's encryption off, and pressing the row again does not turn it
        back on - the way out is two other rows in two other sections. */
-    [MESH_UI_SETTINGS_ACTION_SET_HAM_MODE] = MESH_UI_TONE_ERROR,
-    [MESH_UI_SETTINGS_ACTION_REQUEST_HISTORY] = MESH_UI_TONE_NORMAL,
+    [MESH_UI_SETTINGS_ACTION_SET_HAM_MODE] = INKCELL_TONE_ERROR,
+    [MESH_UI_SETTINGS_ACTION_REQUEST_HISTORY] = INKCELL_TONE_NORMAL,
 
-    [MESH_UI_SETTINGS_ACTION_CHECK_RADIO_FIRMWARE] = MESH_UI_TONE_NORMAL,
-    [MESH_UI_SETTINGS_ACTION_CYCLE_FIRMWARE_CHANNEL] = MESH_UI_TONE_NORMAL,
+    [MESH_UI_SETTINGS_ACTION_CHECK_RADIO_FIRMWARE] = INKCELL_TONE_NORMAL,
+    [MESH_UI_SETTINGS_ACTION_CYCLE_FIRMWARE_CHANNEL] = INKCELL_TONE_NORMAL,
     /* Writing the radio's own firmware. Over USB the worst case is a board sitting in its
        bootloader that any computer can write again; over Bluetooth it leaves the mesh for a
        loader it cannot come back out of on its own, which is the difference the two rows exist
        for and the reason only one of them is red. */
-    [MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB] = MESH_UI_TONE_WARNING,
-    [MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE] = MESH_UI_TONE_ERROR,
+    [MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB] = INKCELL_TONE_WARNING,
+    [MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE] = INKCELL_TONE_ERROR,
 
     /* Showing a code touches nothing. Taking one in overwrites this radio's channel table,
        which is every channel the reader is on. */
-    [MESH_UI_SETTINGS_ACTION_SHARE_CHANNELS] = MESH_UI_TONE_NORMAL,
-    [MESH_UI_SETTINGS_ACTION_IMPORT_CHANNELS] = MESH_UI_TONE_WARNING,
+    [MESH_UI_SETTINGS_ACTION_SHARE_CHANNELS] = INKCELL_TONE_NORMAL,
+    [MESH_UI_SETTINGS_ACTION_IMPORT_CHANNELS] = INKCELL_TONE_WARNING,
     /* Red where the import above it is only amber, and the difference is what a key is. An
        import overwrites the table with one the reader is holding a link to; this erases a key
        and there may be no other copy of it anywhere. Nothing in this client brings it back. */
-    [MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL] = MESH_UI_TONE_ERROR,
-    [MESH_UI_SETTINGS_ACTION_SHARE_CONTACT] = MESH_UI_TONE_NORMAL,
-    [MESH_UI_SETTINGS_ACTION_IMPORT_CONTACT] = MESH_UI_TONE_NORMAL,
+    [MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL] = INKCELL_TONE_ERROR,
+    [MESH_UI_SETTINGS_ACTION_SHARE_CONTACT] = INKCELL_TONE_NORMAL,
+    [MESH_UI_SETTINGS_ACTION_IMPORT_CONTACT] = INKCELL_TONE_NORMAL,
 
-    [MESH_UI_SETTINGS_ACTION_ADMIN_LOCAL] = MESH_UI_TONE_NORMAL,
+    [MESH_UI_SETTINGS_ACTION_ADMIN_LOCAL] = INKCELL_TONE_NORMAL,
 };
 
-enum mesh_ui_icon mesh_ui_settings_action_icon(enum mesh_ui_settings_action action) {
-    return action < MESH_UI_SETTINGS_ACTION_COUNT ? k_action_icons[action] : MESH_UI_ICON_NONE;
+enum inkcell_icon mesh_ui_settings_action_icon(enum mesh_ui_settings_action action) {
+    return action < MESH_UI_SETTINGS_ACTION_COUNT ? k_action_icons[action] : INKCELL_ICON_NONE;
 }
 
-enum mesh_ui_tone mesh_ui_settings_action_tone(enum mesh_ui_settings_action action) {
-    return action < MESH_UI_SETTINGS_ACTION_COUNT ? k_action_tones[action] : MESH_UI_TONE_NORMAL;
+enum inkcell_tone mesh_ui_settings_action_tone(enum mesh_ui_settings_action action) {
+    return action < MESH_UI_SETTINGS_ACTION_COUNT ? k_action_tones[action] : INKCELL_TONE_NORMAL;
 }
 
 bool mesh_ui_settings_item_is_verb(const struct mesh_ui_settings_item *item) {
@@ -313,25 +312,25 @@ bool mesh_ui_settings_item_is_fact(const struct mesh_ui_settings_item *item) {
            item->kind != MESH_UI_SETTING_ACTION;
 }
 
-enum mesh_ui_icon mesh_ui_settings_item_marker(const struct mesh_ui_settings_item *item) {
+enum inkcell_icon mesh_ui_settings_item_marker(const struct mesh_ui_settings_item *item) {
     if (item == NULL) {
-        return MESH_UI_ICON_NONE;
+        return INKCELL_ICON_NONE;
     }
     /* The two that are about the value, ahead of everything about the offer - see the header. */
     if (item->conflict) {
-        return MESH_UI_ICON_WARNING;
+        return INKCELL_ICON_WARNING;
     }
     if (item->dirty) {
-        return MESH_UI_ICON_UNSAVED;
+        return INKCELL_ICON_UNSAVED;
     }
     if (item->cycle) {
-        return MESH_UI_ICON_SWAP;
+        return INKCELL_ICON_SWAP;
     }
     /* A row with no field behind it is not changed here whatever its kind says: the read-only
        toggles this client draws for a radio's own switches are MESH_UI_SETTING_TOGGLE and take
        MESH_UI_FIELD_NONE, and a mark on one would offer a press that does nothing. */
     if (item->field == MESH_UI_FIELD_NONE) {
-        return MESH_UI_ICON_NONE;
+        return INKCELL_ICON_NONE;
     }
     switch (item->kind) {
     /* A key row steps its presets on Left and Right as well, and still takes the pencil: typing
@@ -339,7 +338,7 @@ enum mesh_ui_icon mesh_ui_settings_item_marker(const struct mesh_ui_settings_ite
        past it rather than the point of the row. */
     case MESH_UI_SETTING_TEXT:
     case MESH_UI_SETTING_KEY:
-        return MESH_UI_ICON_EDIT;
+        return INKCELL_ICON_EDIT;
     case MESH_UI_SETTING_ENUM:
     case MESH_UI_SETTING_NUMBER:
         return INKCELL_ICON_STEPPER;
@@ -347,7 +346,7 @@ enum mesh_ui_icon mesh_ui_settings_item_marker(const struct mesh_ui_settings_ite
     case MESH_UI_SETTING_TOGGLE:
     case MESH_UI_SETTING_FLAG:
     default:
-        return MESH_UI_ICON_NONE;
+        return INKCELL_ICON_NONE;
     }
 }
 
@@ -379,11 +378,11 @@ uint32_t mesh_ui_settings_section_groups(const struct mesh_ui_settings_item *ite
  * failing to compile in a file that has nothing to do with help.
  *
  * Every section has one, and that is a rule rather than an observation - it is what makes the
- * help key worth offering on every section screen. A field's note may be MESH_STR_NONE, because
+ * help key worth offering on every section screen. A field's note may be INKCELL_STR_NONE, because
  * most settings explain themselves; a section's may not, because "what is this whole screen
  * about" is the question somebody who opened it has by definition.
  */
-static const enum mesh_str_id k_section_notes[MESH_UI_SETTINGS_SECTION_COUNT] = {
+static const enum inkcell_str_id k_section_notes[MESH_UI_SETTINGS_SECTION_COUNT] = {
     [MESH_UI_SETTINGS_ABOUT] = MESH_STR_SETTINGS_NOTE_ABOUT,
     [MESH_UI_SETTINGS_RADIO] = MESH_STR_SETTINGS_NOTE_RADIO,
     [MESH_UI_SETTINGS_USER] = MESH_STR_SETTINGS_NOTE_USER,
@@ -415,8 +414,8 @@ static const enum mesh_str_id k_section_notes[MESH_UI_SETTINGS_SECTION_COUNT] = 
     [MESH_UI_SETTINGS_BEACON] = MESH_STR_SETTINGS_NOTE_BEACON,
 };
 
-enum mesh_str_id mesh_ui_settings_section_note(enum mesh_ui_settings_section section) {
-    return section < MESH_UI_SETTINGS_SECTION_COUNT ? k_section_notes[section] : MESH_STR_NONE;
+enum inkcell_str_id mesh_ui_settings_section_note(enum mesh_ui_settings_section section) {
+    return section < MESH_UI_SETTINGS_SECTION_COUNT ? k_section_notes[section] : INKCELL_STR_NONE;
 }
 
 bool mesh_ui_settings_section_icons_rows(enum mesh_ui_settings_section section) {
@@ -473,20 +472,20 @@ static const enum mesh_ui_settings_section k_modules[] = {
     MESH_UI_SETTINGS_CANNED,
 };
 
-uint32_t mesh_ui_settings_root_count(void) { return (uint32_t)MESH_ARRAY_LEN(k_root); }
+uint32_t mesh_ui_settings_root_count(void) { return (uint32_t)INKCELL_ARRAY_LEN(k_root); }
 
 enum mesh_ui_settings_section mesh_ui_settings_root_at(uint32_t row) {
-    return row < MESH_ARRAY_LEN(k_root) ? k_root[row] : MESH_UI_SETTINGS_ABOUT;
+    return row < INKCELL_ARRAY_LEN(k_root) ? k_root[row] : MESH_UI_SETTINGS_ABOUT;
 }
 
-uint32_t mesh_ui_settings_module_count(void) { return (uint32_t)MESH_ARRAY_LEN(k_modules); }
+uint32_t mesh_ui_settings_module_count(void) { return (uint32_t)INKCELL_ARRAY_LEN(k_modules); }
 
 enum mesh_ui_settings_section mesh_ui_settings_module_at(uint32_t row) {
-    return row < MESH_ARRAY_LEN(k_modules) ? k_modules[row] : MESH_UI_SETTINGS_MQTT;
+    return row < INKCELL_ARRAY_LEN(k_modules) ? k_modules[row] : MESH_UI_SETTINGS_MQTT;
 }
 
 bool mesh_ui_settings_section_is_module(enum mesh_ui_settings_section section) {
-    for (size_t i = 0; i < MESH_ARRAY_LEN(k_modules); ++i) {
+    for (size_t i = 0; i < INKCELL_ARRAY_LEN(k_modules); ++i) {
         if (k_modules[i] == section) {
             return true;
         }
@@ -537,7 +536,7 @@ mesh_ui_settings_section_availability(const struct mesh_ui_settings *settings,
     return MESH_UI_SETTINGS_SECTION_WAITING;
 }
 
-enum mesh_str_id mesh_ui_settings_availability_label(enum mesh_ui_settings_availability state) {
+enum inkcell_str_id mesh_ui_settings_availability_label(enum mesh_ui_settings_availability state) {
     switch (state) {
     case MESH_UI_SETTINGS_SECTION_WAITING:
         return MESH_STR_SETTINGS_NOT_LOADED;
@@ -545,11 +544,11 @@ enum mesh_str_id mesh_ui_settings_availability_label(enum mesh_ui_settings_avail
         return MESH_STR_SETTINGS_NOT_IN_FIRMWARE;
     case MESH_UI_SETTINGS_SECTION_READY:
     default:
-        return MESH_STR_NONE;
+        return INKCELL_STR_NONE;
     }
 }
 
-enum mesh_str_id mesh_ui_settings_availability_reason(enum mesh_ui_settings_availability state) {
+enum inkcell_str_id mesh_ui_settings_availability_reason(enum mesh_ui_settings_availability state) {
     switch (state) {
     case MESH_UI_SETTINGS_SECTION_EXCLUDED:
         return MESH_STR_SETTINGS_EMPTY_EXCLUDED;
@@ -641,92 +640,96 @@ bool mesh_ui_settings_section_loaded(const struct mesh_ui_settings *settings,
 /* ---- editable fields ---------------------------------------------------------------------- */
 
 static const char *compass_name(uint32_t orientation) {
-    static const enum mesh_str_id k_names[] = {
+    static const enum inkcell_str_id k_names[] = {
         MESH_STR_ENUM_COMPASS_0,        MESH_STR_ENUM_COMPASS_90,
         MESH_STR_ENUM_COMPASS_180,      MESH_STR_ENUM_COMPASS_270,
         MESH_STR_ENUM_COMPASS_0_FLIP,   MESH_STR_ENUM_COMPASS_90_FLIP,
         MESH_STR_ENUM_COMPASS_180_FLIP, MESH_STR_ENUM_COMPASS_270_FLIP,
     };
-    return mesh_str(orientation < MESH_ARRAY_LEN(k_names) ? k_names[orientation]
-                                                          : MESH_STR_COMMON_UNKNOWN_SHORT);
+    return inkcell_str(orientation < INKCELL_ARRAY_LEN(k_names) ? k_names[orientation]
+                                                                : INKCELL_STR_COMMON_UNKNOWN_SHORT);
 }
 
 static const char *units_name(uint32_t units) {
-    return mesh_str(mesh_ui_units_imperial((uint8_t)units) ? MESH_STR_ENUM_UNITS_IMPERIAL
-                                                           : MESH_STR_ENUM_UNITS_METRIC);
+    return inkcell_str(mesh_ui_units_imperial((uint8_t)units) ? MESH_STR_ENUM_UNITS_IMPERIAL
+                                                              : MESH_STR_ENUM_UNITS_METRIC);
 }
 
 /* DisplayConfig.OledType, 0..5 and contiguous. The panel a board carries, for the case where
    the radio's own autodetect got it wrong; every value after Auto is a controller part
    number, because that is what the board's documentation calls it. */
 static const char *oled_name(uint32_t oled) {
-    static const enum mesh_str_id k_names[] = {
+    static const enum inkcell_str_id k_names[] = {
         MESH_STR_ENUM_OLED_AUTO,   MESH_STR_ENUM_OLED_SSD1306,    MESH_STR_ENUM_OLED_SH1106,
         MESH_STR_ENUM_OLED_SH1107, MESH_STR_ENUM_OLED_SH1107_128, MESH_STR_ENUM_OLED_SH1107_ROT,
     };
-    return mesh_str(oled < MESH_ARRAY_LEN(k_names) ? k_names[oled] : MESH_STR_COMMON_UNKNOWN_SHORT);
+    return inkcell_str(oled < INKCELL_ARRAY_LEN(k_names) ? k_names[oled]
+                                                         : INKCELL_STR_COMMON_UNKNOWN_SHORT);
 }
 
 /* DisplayConfig.DisplayMode, 0..3 and contiguous. */
 static const char *displaymode_name(uint32_t mode) {
-    static const enum mesh_str_id k_names[] = {
+    static const enum inkcell_str_id k_names[] = {
         MESH_STR_ENUM_DISPLAYMODE_DEFAULT,
         MESH_STR_ENUM_DISPLAYMODE_TWOCOLOR,
         MESH_STR_ENUM_DISPLAYMODE_INVERTED,
         MESH_STR_ENUM_DISPLAYMODE_COLOR,
     };
-    return mesh_str(mode < MESH_ARRAY_LEN(k_names) ? k_names[mode] : MESH_STR_COMMON_UNKNOWN_SHORT);
+    return inkcell_str(mode < INKCELL_ARRAY_LEN(k_names) ? k_names[mode]
+                                                         : INKCELL_STR_COMMON_UNKNOWN_SHORT);
 }
 
 /* DetectionSensorConfig.TriggerType, 0..5 and contiguous. Named for what the pin does rather
    than for the constant: "Low" says more than "LOGIC_LOW" next to the word Trigger. */
 static const char *trigger_name(uint32_t trigger) {
-    static const enum mesh_str_id k_names[] = {
+    static const enum inkcell_str_id k_names[] = {
         MESH_STR_ENUM_TRIGGER_LOW,        MESH_STR_ENUM_TRIGGER_HIGH,
         MESH_STR_ENUM_TRIGGER_FALLING,    MESH_STR_ENUM_TRIGGER_RISING,
         MESH_STR_ENUM_TRIGGER_EITHER_LOW, MESH_STR_ENUM_TRIGGER_EITHER_HIGH,
     };
-    return mesh_str(trigger < MESH_ARRAY_LEN(k_names) ? k_names[trigger]
-                                                      : MESH_STR_COMMON_UNKNOWN_SHORT);
+    return inkcell_str(trigger < INKCELL_ARRAY_LEN(k_names) ? k_names[trigger]
+                                                            : INKCELL_STR_COMMON_UNKNOWN_SHORT);
 }
 
 /* DeviceUIConfig's three editable enums, all contiguous from 0 - which is what the nav's
    (value + 1) % count stepping needs, and why Language is not among them. */
 static const char *ui_theme_name(uint32_t theme) {
-    static const enum mesh_str_id k_names[] = {
+    static const enum inkcell_str_id k_names[] = {
         MESH_STR_ENUM_UI_THEME_DARK,
         MESH_STR_ENUM_UI_THEME_LIGHT,
         MESH_STR_ENUM_UI_THEME_RED,
     };
-    return mesh_str(theme < MESH_ARRAY_LEN(k_names) ? k_names[theme]
-                                                    : MESH_STR_COMMON_UNKNOWN_SHORT);
+    return inkcell_str(theme < INKCELL_ARRAY_LEN(k_names) ? k_names[theme]
+                                                          : INKCELL_STR_COMMON_UNKNOWN_SHORT);
 }
 
 static const char *ui_compass_name(uint32_t mode) {
-    static const enum mesh_str_id k_names[] = {
+    static const enum inkcell_str_id k_names[] = {
         MESH_STR_ENUM_UI_COMPASS_DYNAMIC,
         MESH_STR_ENUM_UI_COMPASS_FIXED,
         MESH_STR_ENUM_UI_COMPASS_FREEZE,
     };
-    return mesh_str(mode < MESH_ARRAY_LEN(k_names) ? k_names[mode] : MESH_STR_COMMON_UNKNOWN_SHORT);
+    return inkcell_str(mode < INKCELL_ARRAY_LEN(k_names) ? k_names[mode]
+                                                         : INKCELL_STR_COMMON_UNKNOWN_SHORT);
 }
 
 /* Named for what a reader would call the format rather than for the acronym, except where the
    acronym is what it is called - MGRS and UTM are not expanded on a map either. */
 static const char *ui_gps_format_name(uint32_t format) {
-    static const enum mesh_str_id k_names[] = {
+    static const enum inkcell_str_id k_names[] = {
         MESH_STR_ENUM_UI_GPS_DEC,  MESH_STR_ENUM_UI_GPS_DMS, MESH_STR_ENUM_UI_GPS_UTM,
         MESH_STR_ENUM_UI_GPS_MGRS, MESH_STR_ENUM_UI_GPS_OLC, MESH_STR_ENUM_UI_GPS_OSGR,
         MESH_STR_ENUM_UI_GPS_MLS,
     };
-    return mesh_str(format < MESH_ARRAY_LEN(k_names) ? k_names[format]
-                                                     : MESH_STR_COMMON_UNKNOWN_SHORT);
+    return inkcell_str(format < INKCELL_ARRAY_LEN(k_names) ? k_names[format]
+                                                           : INKCELL_STR_COMMON_UNKNOWN_SHORT);
 }
 
 /* `is_clockface_analog` is a bool on the wire and an enum here: a row reading "Clock face: on"
    says nothing, and the two values have names. */
 static const char *ui_clockface_name(uint32_t analog) {
-    return mesh_str(analog != 0U ? MESH_STR_ENUM_UI_CLOCK_ANALOG : MESH_STR_ENUM_UI_CLOCK_DIGITAL);
+    return inkcell_str(analog != 0U ? MESH_STR_ENUM_UI_CLOCK_ANALOG
+                                    : MESH_STR_ENUM_UI_CLOCK_DIGITAL);
 }
 
 /* meshtastic_Team and meshtastic_MemberRole, from atak.proto. Both are contiguous from 0, which
@@ -736,7 +739,7 @@ static const char *ui_clockface_name(uint32_t analog) {
    Named as the phone apps name them - "RTO", not its expansion - for the reason keys are shown
    as base64: a setting read off the Brick should be recognisable in the app and back. */
 static const char *tak_team_name(uint32_t team) {
-    static const enum mesh_str_id k_names[] = {
+    static const enum inkcell_str_id k_names[] = {
         MESH_STR_ENUM_TAK_TEAM_DEFAULT,   MESH_STR_ENUM_TAK_TEAM_WHITE,
         MESH_STR_ENUM_TAK_TEAM_YELLOW,    MESH_STR_ENUM_TAK_TEAM_ORANGE,
         MESH_STR_ENUM_TAK_TEAM_MAGENTA,   MESH_STR_ENUM_TAK_TEAM_RED,
@@ -746,56 +749,60 @@ static const char *tak_team_name(uint32_t team) {
         MESH_STR_ENUM_TAK_TEAM_GREEN,     MESH_STR_ENUM_TAK_TEAM_DARK_GREEN,
         MESH_STR_ENUM_TAK_TEAM_BROWN,
     };
-    return mesh_str(team < MESH_ARRAY_LEN(k_names) ? k_names[team] : MESH_STR_COMMON_UNKNOWN_SHORT);
+    return inkcell_str(team < INKCELL_ARRAY_LEN(k_names) ? k_names[team]
+                                                         : INKCELL_STR_COMMON_UNKNOWN_SHORT);
 }
 
 static const char *tak_role_name(uint32_t role) {
-    static const enum mesh_str_id k_names[] = {
+    static const enum inkcell_str_id k_names[] = {
         MESH_STR_ENUM_TAK_ROLE_DEFAULT,     MESH_STR_ENUM_TAK_ROLE_MEMBER,
         MESH_STR_ENUM_TAK_ROLE_LEAD,        MESH_STR_ENUM_TAK_ROLE_HQ,
         MESH_STR_ENUM_TAK_ROLE_SNIPER,      MESH_STR_ENUM_TAK_ROLE_MEDIC,
         MESH_STR_ENUM_TAK_ROLE_FORWARD_OBS, MESH_STR_ENUM_TAK_ROLE_RTO,
         MESH_STR_ENUM_TAK_ROLE_K9,
     };
-    return mesh_str(role < MESH_ARRAY_LEN(k_names) ? k_names[role] : MESH_STR_COMMON_UNKNOWN_SHORT);
+    return inkcell_str(role < INKCELL_ARRAY_LEN(k_names) ? k_names[role]
+                                                         : INKCELL_STR_COMMON_UNKNOWN_SHORT);
 }
 
 static const char *rebroadcast_name(uint32_t mode) {
-    static const enum mesh_str_id k_names[] = {
+    static const enum inkcell_str_id k_names[] = {
         MESH_STR_ENUM_REBROADCAST_ALL,   MESH_STR_ENUM_REBROADCAST_ALL_SKIP,
         MESH_STR_ENUM_REBROADCAST_LOCAL, MESH_STR_ENUM_REBROADCAST_KNOWN,
         MESH_STR_ENUM_REBROADCAST_NONE,  MESH_STR_ENUM_REBROADCAST_CORE,
     };
-    return mesh_str(mode < MESH_ARRAY_LEN(k_names) ? k_names[mode] : MESH_STR_COMMON_UNKNOWN_SHORT);
+    return inkcell_str(mode < INKCELL_ARRAY_LEN(k_names) ? k_names[mode]
+                                                         : INKCELL_STR_COMMON_UNKNOWN_SHORT);
 }
 
 static const char *gps_mode_name(uint32_t mode) {
     switch (mode) {
     case 0U:
-        return mesh_str(MESH_STR_ENUM_GPS_DISABLED);
+        return inkcell_str(MESH_STR_ENUM_GPS_DISABLED);
     case 1U:
-        return mesh_str(MESH_STR_ENUM_GPS_ENABLED);
+        return inkcell_str(MESH_STR_ENUM_GPS_ENABLED);
     case 2U:
-        return mesh_str(MESH_STR_ENUM_GPS_NOT_PRESENT);
+        return inkcell_str(MESH_STR_ENUM_GPS_NOT_PRESENT);
     default:
-        return mesh_str(MESH_STR_COMMON_UNKNOWN_SHORT);
+        return inkcell_str(INKCELL_STR_COMMON_UNKNOWN_SHORT);
     }
 }
 
 static const char *channel_role_name(uint32_t value) {
-    return mesh_str(value == 1U ? MESH_STR_ENUM_CHANNEL_SECONDARY : MESH_STR_ENUM_CHANNEL_DISABLED);
+    return inkcell_str(value == 1U ? MESH_STR_ENUM_CHANNEL_SECONDARY
+                                   : MESH_STR_ENUM_CHANNEL_DISABLED);
 }
 
 static const char *pairing_enum_name(uint32_t mode) {
     switch (mode) {
     case 0U:
-        return mesh_str(MESH_STR_ENUM_PAIRING_RANDOM_PIN);
+        return inkcell_str(MESH_STR_ENUM_PAIRING_RANDOM_PIN);
     case 1U:
-        return mesh_str(MESH_STR_ENUM_PAIRING_FIXED_PIN);
+        return inkcell_str(MESH_STR_ENUM_PAIRING_FIXED_PIN);
     case 2U:
-        return mesh_str(MESH_STR_ENUM_PAIRING_NO_PIN);
+        return inkcell_str(MESH_STR_ENUM_PAIRING_NO_PIN);
     default:
-        return mesh_str(MESH_STR_COMMON_UNKNOWN_SHORT);
+        return inkcell_str(INKCELL_STR_COMMON_UNKNOWN_SHORT);
     }
 }
 
@@ -812,8 +819,8 @@ static const char *pairing_enum_name(uint32_t mode) {
  * `bits` outside that range are answered by the branches below rather than by a row here.
  */
 static const struct {
-    enum mesh_str_id label;
-    enum mesh_str_id imperial;
+    enum inkcell_str_id label;
+    enum inkcell_str_id imperial;
     uint32_t metres;
 } k_precision[] = {
     {MESH_STR_VALUE_PRECISION_23KM, MESH_STR_VALUE_PRECISION_14MI, 23000U},
@@ -843,22 +850,22 @@ uint32_t mesh_ui_settings_precision_metres(uint32_t bits) {
 
 void mesh_ui_settings_format_precision(uint32_t bits, bool imperial, char *out, size_t out_len) {
     if (bits == 0U) {
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_VALUE_PRECISION_OFF));
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_VALUE_PRECISION_OFF));
     } else if (bits >= 32U) {
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_VALUE_PRECISION_EXACT));
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_VALUE_PRECISION_EXACT));
     } else if (bits >= 10U && bits <= 19U) {
         const size_t row = (size_t)bits - 10U;
         snprintf(out, out_len, "%s",
-                 mesh_str(imperial ? k_precision[row].imperial : k_precision[row].label));
+                 inkcell_str(imperial ? k_precision[row].imperial : k_precision[row].label));
     } else {
-        mesh_str_format(out, out_len, MESH_STR_VALUE_PRECISION_BITS, (unsigned)bits);
+        inkcell_str_format(out, out_len, MESH_STR_VALUE_PRECISION_BITS, (unsigned)bits);
     }
 }
 
 /* PositionConfig's smart-broadcast threshold, which is metres on the wire whatever it reads as. */
 static void format_metres(uint32_t metres, bool imperial, char *out, size_t out_len) {
     if (metres == 0U) {
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_COMMON_DEFAULT));
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_COMMON_DEFAULT));
         return;
     }
     mesh_ui_format_length(metres, imperial, out, out_len);
@@ -874,9 +881,9 @@ static void format_metres(uint32_t metres, bool imperial, char *out, size_t out_
 static const char *role_enum_name(uint32_t role) {
     switch (role) {
     case 3U:
-        return mesh_str(MESH_STR_ENUM_ROLE_ROUTER_CLIENT);
+        return inkcell_str(MESH_STR_ENUM_ROLE_ROUTER_CLIENT);
     case 4U:
-        return mesh_str(MESH_STR_ENUM_ROLE_REPEATER);
+        return inkcell_str(MESH_STR_ENUM_ROLE_REPEATER);
     default:
         return mesh_radio_role_name(role);
     }
@@ -897,11 +904,11 @@ static const char *preset_enum_name(uint32_t preset) {
  * not offering one, while a target that names none goes out on whatever the radio is running.
  */
 static const char *beacon_offer_preset_name(uint32_t value) {
-    return value == 0U ? mesh_str(MESH_STR_ENUM_BEACON_NOT_OFFERED)
+    return value == 0U ? inkcell_str(MESH_STR_ENUM_BEACON_NOT_OFFERED)
                        : mesh_radio_modem_preset_name(value - 1U);
 }
 static const char *beacon_target_preset_name(uint32_t value) {
-    return value == 0U ? mesh_str(MESH_STR_ENUM_BEACON_AS_RUNNING)
+    return value == 0U ? inkcell_str(MESH_STR_ENUM_BEACON_AS_RUNNING)
                        : mesh_radio_modem_preset_name(value - 1U);
 }
 /*
@@ -911,10 +918,12 @@ static const char *beacon_target_preset_name(uint32_t value) {
  * record that looks like it is holding two answers and a mistake.
  */
 static const char *beacon_offer_region_name(uint32_t value) {
-    return value == 0U ? mesh_str(MESH_STR_ENUM_BEACON_NOT_OFFERED) : mesh_radio_region_name(value);
+    return value == 0U ? inkcell_str(MESH_STR_ENUM_BEACON_NOT_OFFERED)
+                       : mesh_radio_region_name(value);
 }
 static const char *beacon_target_region_name(uint32_t value) {
-    return value == 0U ? mesh_str(MESH_STR_ENUM_BEACON_AS_RUNNING) : mesh_radio_region_name(value);
+    return value == 0U ? inkcell_str(MESH_STR_ENUM_BEACON_AS_RUNNING)
+                       : mesh_radio_region_name(value);
 }
 /*
  * A target's channel is the same "0 is absent" shift over a channel index, and it is a NUMBER
@@ -926,46 +935,47 @@ static void format_beacon_channel(uint32_t value, bool imperial, char *out, size
     /* Not a length. Every NUMBER formatter takes the units so none of them can silently
        decide to keep metres; the ones with nothing to say discard it here. */
     (void)imperial;
-    mesh_str_format(out, out_len, MESH_STR_VALUE_PLAIN, (unsigned)(value > 0U ? value - 1U : 0U));
+    inkcell_str_format(out, out_len, MESH_STR_VALUE_PLAIN,
+                       (unsigned)(value > 0U ? value - 1U : 0U));
 }
 
 static const char *signature_policy_name(uint32_t policy) {
     switch (policy) {
     case 0U:
-        return mesh_str(MESH_STR_ENUM_SIGNATURE_COMPATIBLE);
+        return inkcell_str(MESH_STR_ENUM_SIGNATURE_COMPATIBLE);
     case 1U:
-        return mesh_str(MESH_STR_ENUM_SIGNATURE_BALANCED);
+        return inkcell_str(MESH_STR_ENUM_SIGNATURE_BALANCED);
     case 2U:
-        return mesh_str(MESH_STR_ENUM_SIGNATURE_STRICT);
+        return inkcell_str(MESH_STR_ENUM_SIGNATURE_STRICT);
     default:
-        return mesh_str(MESH_STR_COMMON_UNKNOWN_SHORT);
+        return inkcell_str(INKCELL_STR_COMMON_UNKNOWN_SHORT);
     }
 }
 
 static void format_bandwidth(uint32_t khz, bool imperial, char *out, size_t out_len) {
     (void)imperial;
     if (khz == 31U) {
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_VALUE_BANDWIDTH_31));
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_VALUE_BANDWIDTH_31));
     } else if (khz == 62U) {
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_VALUE_BANDWIDTH_62));
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_VALUE_BANDWIDTH_62));
     } else {
-        mesh_str_format(out, out_len, MESH_STR_VALUE_BANDWIDTH_KHZ, (unsigned)khz);
+        inkcell_str_format(out, out_len, MESH_STR_VALUE_BANDWIDTH_KHZ, (unsigned)khz);
     }
 }
 static void format_plain(uint32_t value, bool imperial, char *out, size_t out_len) {
     (void)imperial;
-    mesh_str_format(out, out_len, MESH_STR_VALUE_PLAIN, (unsigned)value);
+    inkcell_str_format(out, out_len, MESH_STR_VALUE_PLAIN, (unsigned)value);
 }
 static void format_coding_rate(uint32_t value, bool imperial, char *out, size_t out_len) {
     (void)imperial;
-    mesh_str_format(out, out_len, MESH_STR_VALUE_CODING_RATE, (unsigned)value);
+    inkcell_str_format(out, out_len, MESH_STR_VALUE_CODING_RATE, (unsigned)value);
 }
 static void format_tx_power(uint32_t value, bool imperial, char *out, size_t out_len) {
     (void)imperial;
     if (value == 0U) {
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_VALUE_TX_POWER_MAX));
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_VALUE_TX_POWER_MAX));
     } else {
-        mesh_str_format(out, out_len, MESH_STR_VALUE_DBM, (int)(int8_t)value);
+        inkcell_str_format(out, out_len, MESH_STR_VALUE_DBM, (int)(int8_t)value);
     }
 }
 
@@ -1057,7 +1067,7 @@ static const uint32_t k_rssi_presets[] = {RSSI(-100), RSSI(-95), RSSI(-90), RSSI
  * board-specific assumption there is no way to make here - nothing on the wire says what board
  * this is, and a RAK4631 puts usable output on 9, 10 and 28, all of which that list omitted and
  * so made unreachable. A contiguous range covers nRF52840 (P0.00-P1.15, flat 0-47) and ESP32-S3
- * (0-48) alike, and stepping it is not tedious because the d-pad autorepeats (mesh_ui_input
+ * (0-48) alike, and stepping it is not tedious because the d-pad autorepeats (inkcell_input
  * honours repeat for the navigation keys).
  *
  * Whether a pin is wired to anything remains the radio's business and unanswerable here; this
@@ -1117,9 +1127,9 @@ static const uint32_t k_led_level_presets[] = {0U, 32U, 64U, 96U, 128U, 160U, 19
 static void format_millis(uint32_t value, bool imperial, char *out, size_t out_len) {
     (void)imperial;
     if (value % 1000U == 0U && value != 0U) {
-        mesh_str_format(out, out_len, MESH_STR_VALUE_SECONDS, (unsigned)(value / 1000U));
+        inkcell_str_format(out, out_len, MESH_STR_VALUE_SECONDS, (unsigned)(value / 1000U));
     } else {
-        mesh_str_format(out, out_len, MESH_STR_VALUE_MILLISECONDS, (unsigned)value);
+        inkcell_str_format(out, out_len, MESH_STR_VALUE_MILLISECONDS, (unsigned)value);
     }
 }
 
@@ -1127,28 +1137,28 @@ static void format_millis(uint32_t value, bool imperial, char *out, size_t out_l
 static void format_pin(uint32_t value, bool imperial, char *out, size_t out_len) {
     (void)imperial;
     if (value == 0U) {
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_VALUE_PIN_UNSET));
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_VALUE_PIN_UNSET));
     } else {
-        mesh_str_format(out, out_len, MESH_STR_VALUE_PIN, (unsigned)value);
+        inkcell_str_format(out, out_len, MESH_STR_VALUE_PIN, (unsigned)value);
     }
 }
 
 /* Signed dBm, read back out of the uint32_t the preset table stores it in. */
 static void format_rssi(uint32_t value, bool imperial, char *out, size_t out_len) {
     (void)imperial;
-    mesh_str_format(out, out_len, MESH_STR_VALUE_DBM, (int)(int32_t)value);
+    inkcell_str_format(out, out_len, MESH_STR_VALUE_DBM, (int)(int32_t)value);
 }
 
 /* A plain 0-255 level, so an LED channel does not read as a duration. */
 static void format_level(uint32_t value, bool imperial, char *out, size_t out_len) {
     (void)imperial;
-    mesh_str_format(out, out_len, MESH_STR_VALUE_PLAIN, (unsigned)value);
+    inkcell_str_format(out, out_len, MESH_STR_VALUE_PLAIN, (unsigned)value);
 }
 
 /* Milliamps, for the LED current row. */
 static void format_milliamps(uint32_t value, bool imperial, char *out, size_t out_len) {
     (void)imperial;
-    mesh_str_format(out, out_len, MESH_STR_VALUE_MILLIAMPS, (unsigned)value);
+    inkcell_str_format(out, out_len, MESH_STR_VALUE_MILLIAMPS, (unsigned)value);
 }
 
 /* NUMBER fields whose value is a count rather than a duration; without this the seconds
@@ -1156,9 +1166,9 @@ static void format_milliamps(uint32_t value, bool imperial, char *out, size_t ou
 static void format_count(uint32_t value, bool imperial, char *out, size_t out_len) {
     (void)imperial;
     if (value == 0U) {
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_COMMON_DEFAULT));
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_COMMON_DEFAULT));
     } else {
-        mesh_str_format(out, out_len, MESH_STR_VALUE_PLAIN, (unsigned)value);
+        inkcell_str_format(out, out_len, MESH_STR_VALUE_PLAIN, (unsigned)value);
     }
 }
 
@@ -1182,11 +1192,11 @@ static void format_count(uint32_t value, bool imperial, char *out, size_t out_le
  * limit under MESH_UI_FIELD_LORA_HOPS and a pin under MESH_UI_FIELD_DETECT_PIN, and a leading 0
  * is "never" on one field and "the firmware decides" on the next.
  */
-#define SCALE_PRESETS(array) (array), MESH_ARRAY_LEN(array), true, false
+#define SCALE_PRESETS(array) (array), INKCELL_ARRAY_LEN(array), true, false
 /* The same, for a list whose leading 0 is "the firmware's own default" or "as much as this
    radio has" rather than the bottom of the scale: the track spans what follows it. */
-#define SCALE_PRESETS_AFTER_ZERO(array) (array), MESH_ARRAY_LEN(array), true, true
-#define NAMED_PRESETS(array) (array), MESH_ARRAY_LEN(array), false, false
+#define SCALE_PRESETS_AFTER_ZERO(array) (array), INKCELL_ARRAY_LEN(array), true, true
+#define NAMED_PRESETS(array) (array), INKCELL_ARRAY_LEN(array), false, false
 #define NO_PRESETS NULL, 0U, false, false
 
 /*
@@ -1228,20 +1238,20 @@ _Static_assert(MESH_UI_TEXT_LIMIT_CHANNEL_KEY == 2U * MESH_UI_PSK_MAX &&
                                                   BEACON_PRESET_VALUES,                            \
                                                   beacon_target_preset_name,                       \
                                                   NO_PRESETS,                                      \
-                                                  MESH_STR_NONE,                                   \
+                                                  INKCELL_STR_NONE,                                \
                                                   NULL,                                            \
                                                   0U,                                              \
-                                                  MESH_STR_NONE},                                  \
+                                                  INKCELL_STR_NONE},                               \
     [MESH_UI_FIELD_BEACON_TARGET_##n##_REGION] = {MESH_STR_SETTINGS_FIELD_BEACON_TARGET_REGION,    \
                                                   MESH_UI_SETTING_ENUM,                            \
                                                   MESH_UI_SETTINGS_BEACON,                         \
                                                   38U,                                             \
                                                   beacon_target_region_name,                       \
                                                   NO_PRESETS,                                      \
-                                                  MESH_STR_NONE,                                   \
+                                                  INKCELL_STR_NONE,                                \
                                                   NULL,                                            \
                                                   0U,                                              \
-                                                  MESH_STR_NONE},                                  \
+                                                  INKCELL_STR_NONE},                               \
     [MESH_UI_FIELD_BEACON_TARGET_##n##_CHANNEL] = {MESH_STR_SETTINGS_FIELD_BEACON_TARGET_CHANNEL,  \
                                                    MESH_UI_SETTING_NUMBER,                         \
                                                    MESH_UI_SETTINGS_BEACON,                        \
@@ -1251,39 +1261,40 @@ _Static_assert(MESH_UI_TEXT_LIMIT_CHANNEL_KEY == 2U * MESH_UI_PSK_MAX &&
                                                    MESH_STR_ENUM_BEACON_AS_RUNNING,                \
                                                    format_beacon_channel,                          \
                                                    0U,                                             \
-                                                   MESH_STR_NONE}
+                                                   INKCELL_STR_NONE}
 
 static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
-    [MESH_UI_FIELD_NONE] = {MESH_STR_COMMON_UNKNOWN_SHORT, MESH_UI_SETTING_INFO,
-                            MESH_UI_SETTINGS_SECTION_COUNT, 0U, NULL, NO_PRESETS, MESH_STR_NONE,
-                            NULL, 0U, MESH_STR_NONE},
+    [MESH_UI_FIELD_NONE] = {INKCELL_STR_COMMON_UNKNOWN_SHORT, MESH_UI_SETTING_INFO,
+                            MESH_UI_SETTINGS_SECTION_COUNT, 0U, NULL, NO_PRESETS, INKCELL_STR_NONE,
+                            NULL, 0U, INKCELL_STR_NONE},
     [MESH_UI_FIELD_USER_LONG_NAME] = {MESH_STR_SETTINGS_FIELD_USER_LONG_NAME, MESH_UI_SETTING_TEXT,
                                       MESH_UI_SETTINGS_USER, MESH_UI_TEXT_LIMIT_USER_LONG_NAME,
-                                      NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U, MESH_STR_NONE},
+                                      NULL, NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
+                                      INKCELL_STR_NONE},
     [MESH_UI_FIELD_USER_SHORT_NAME] = {MESH_STR_SETTINGS_FIELD_USER_SHORT_NAME,
                                        MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_USER,
                                        MESH_UI_TEXT_LIMIT_USER_SHORT_NAME, NULL, NO_PRESETS,
-                                       MESH_STR_NONE, NULL, 0U, MESH_STR_NONE},
+                                       INKCELL_STR_NONE, NULL, 0U, INKCELL_STR_NONE},
     [MESH_UI_FIELD_USER_LICENSED] = {MESH_STR_SETTINGS_FIELD_USER_LICENSED, MESH_UI_SETTING_TOGGLE,
-                                     MESH_UI_SETTINGS_USER, 0U, NULL, NO_PRESETS, MESH_STR_NONE,
+                                     MESH_UI_SETTINGS_USER, 0U, NULL, NO_PRESETS, INKCELL_STR_NONE,
                                      NULL, 0U, MESH_STR_SETTINGS_NOTE_USER_LICENSED},
     [MESH_UI_FIELD_USER_UNMESSAGEABLE] = {MESH_STR_SETTINGS_FIELD_USER_UNMESSAGEABLE,
                                           MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_USER, 0U, NULL,
-                                          NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                          NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                           MESH_STR_SETTINGS_NOTE_USER_UNMESSAGEABLE},
     /* Thirteen values, two of them retired but still steppable: see role_enum_name(). */
     [MESH_UI_FIELD_DEVICE_ROLE] = {MESH_STR_SETTINGS_FIELD_DEVICE_ROLE, MESH_UI_SETTING_ENUM,
                                    MESH_UI_SETTINGS_DEVICE, 13U, role_enum_name, NO_PRESETS,
-                                   MESH_STR_NONE, NULL, 0U, MESH_STR_SETTINGS_NOTE_DEVICE_ROLE},
+                                   INKCELL_STR_NONE, NULL, 0U, MESH_STR_SETTINGS_NOTE_DEVICE_ROLE},
     /* The radio applies tzdef to its own clock only; it has no bearing on what this client
        shows, which follows the Brick's own TZ. */
     [MESH_UI_FIELD_DEVICE_TZDEF] = {MESH_STR_SETTINGS_FIELD_DEVICE_TZDEF, MESH_UI_SETTING_TEXT,
                                     MESH_UI_SETTINGS_DEVICE, MESH_UI_TEXT_LIMIT_DEVICE_TZDEF, NULL,
-                                    NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                    NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                     MESH_STR_SETTINGS_NOTE_DEVICE_TZDEF},
     [MESH_UI_FIELD_DEVICE_REBROADCAST] = {MESH_STR_SETTINGS_FIELD_DEVICE_REBROADCAST,
                                           MESH_UI_SETTING_ENUM, MESH_UI_SETTINGS_DEVICE, 6U,
-                                          rebroadcast_name, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                          rebroadcast_name, NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                           MESH_STR_SETTINGS_NOTE_DEVICE_REBROADCAST},
     [MESH_UI_FIELD_DEVICE_NODEINFO_SECS] = {MESH_STR_SETTINGS_FIELD_DEVICE_NODEINFO_SECS,
                                             MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_DEVICE, 0U,
@@ -1292,15 +1303,15 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                                             MESH_STR_SETTINGS_NOTE_DEVICE_NODEINFO},
     [MESH_UI_FIELD_DEVICE_LED_HEARTBEAT] = {MESH_STR_SETTINGS_FIELD_DEVICE_LED_HEARTBEAT,
                                             MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_DEVICE, 0U,
-                                            NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                            NULL, NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                             MESH_STR_SETTINGS_NOTE_DEVICE_LED},
     [MESH_UI_FIELD_DEVICE_DOUBLE_TAP] = {MESH_STR_SETTINGS_FIELD_DEVICE_DOUBLE_TAP,
                                          MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_DEVICE, 0U, NULL,
-                                         NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                         NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                          MESH_STR_SETTINGS_NOTE_DEVICE_DOUBLE_TAP},
     [MESH_UI_FIELD_POSITION_GPS_MODE] = {MESH_STR_SETTINGS_FIELD_POSITION_GPS_MODE,
                                          MESH_UI_SETTING_ENUM, MESH_UI_SETTINGS_POSITION, 3U,
-                                         gps_mode_name, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                         gps_mode_name, NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                          MESH_STR_SETTINGS_NOTE_POSITION_GPS_MODE},
     [MESH_UI_FIELD_POSITION_BROADCAST_SECS] = {MESH_STR_SETTINGS_FIELD_POSITION_BROADCAST_SECS,
                                                MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_POSITION,
@@ -1310,12 +1321,12 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                                                MESH_STR_SETTINGS_NOTE_POSITION_BROADCAST},
     [MESH_UI_FIELD_POSITION_SMART] = {MESH_STR_SETTINGS_FIELD_POSITION_SMART,
                                       MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_POSITION, 0U, NULL,
-                                      NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                      NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                       MESH_STR_SETTINGS_NOTE_POSITION_SMART},
     [MESH_UI_FIELD_POSITION_SMART_DISTANCE] = {MESH_STR_SETTINGS_FIELD_POSITION_SMART_DISTANCE,
                                                MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_POSITION,
                                                0U, NULL, SCALE_PRESETS(k_smart_distance_presets),
-                                               MESH_STR_NONE, format_metres, 0U,
+                                               INKCELL_STR_NONE, format_metres, 0U,
                                                MESH_STR_SETTINGS_NOTE_POSITION_SMART_DISTANCE},
     [MESH_UI_FIELD_POSITION_SMART_INTERVAL] = {MESH_STR_SETTINGS_FIELD_POSITION_SMART_INTERVAL,
                                                MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_POSITION,
@@ -1336,53 +1347,53 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
      */
     [MESH_UI_FIELD_POSITION_FLAG_ALTITUDE] = {MESH_STR_SETTINGS_FIELD_POSITION_FLAG_ALTITUDE,
                                               MESH_UI_SETTING_FLAG, MESH_UI_SETTINGS_POSITION,
-                                              0x0001U, NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                              0x0001U, NULL, NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                               MESH_STR_SETTINGS_NOTE_POSITION_FLAG_ALTITUDE},
     [MESH_UI_FIELD_POSITION_FLAG_ALTITUDE_MSL] =
         {MESH_STR_SETTINGS_FIELD_POSITION_FLAG_ALTITUDE_MSL, MESH_UI_SETTING_FLAG,
-         MESH_UI_SETTINGS_POSITION, 0x0002U, NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+         MESH_UI_SETTINGS_POSITION, 0x0002U, NULL, NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
          MESH_STR_SETTINGS_NOTE_POSITION_FLAG_ALTITUDE_MSL},
     [MESH_UI_FIELD_POSITION_FLAG_GEOIDAL] = {MESH_STR_SETTINGS_FIELD_POSITION_FLAG_GEOIDAL,
                                              MESH_UI_SETTING_FLAG, MESH_UI_SETTINGS_POSITION,
-                                             0x0004U, NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                             0x0004U, NULL, NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                              MESH_STR_SETTINGS_NOTE_POSITION_FLAG_GEOIDAL},
     [MESH_UI_FIELD_POSITION_FLAG_DOP] = {MESH_STR_SETTINGS_FIELD_POSITION_FLAG_DOP,
                                          MESH_UI_SETTING_FLAG, MESH_UI_SETTINGS_POSITION, 0x0008U,
-                                         NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                         NULL, NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                          MESH_STR_SETTINGS_NOTE_POSITION_FLAG_DOP},
     [MESH_UI_FIELD_POSITION_FLAG_HVDOP] = {MESH_STR_SETTINGS_FIELD_POSITION_FLAG_HVDOP,
                                            MESH_UI_SETTING_FLAG, MESH_UI_SETTINGS_POSITION, 0x0010U,
-                                           NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                           NULL, NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                            MESH_STR_SETTINGS_NOTE_POSITION_FLAG_HVDOP},
     [MESH_UI_FIELD_POSITION_FLAG_SATINVIEW] = {MESH_STR_SETTINGS_FIELD_POSITION_FLAG_SATINVIEW,
                                                MESH_UI_SETTING_FLAG, MESH_UI_SETTINGS_POSITION,
-                                               0x0020U, NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
-                                               MESH_STR_SETTINGS_NOTE_POSITION_FLAG_SATINVIEW},
+                                               0x0020U, NULL, NO_PRESETS, INKCELL_STR_NONE, NULL,
+                                               0U, MESH_STR_SETTINGS_NOTE_POSITION_FLAG_SATINVIEW},
     [MESH_UI_FIELD_POSITION_FLAG_SEQ_NO] = {MESH_STR_SETTINGS_FIELD_POSITION_FLAG_SEQ_NO,
                                             MESH_UI_SETTING_FLAG, MESH_UI_SETTINGS_POSITION,
-                                            0x0040U, NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                            0x0040U, NULL, NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                             MESH_STR_SETTINGS_NOTE_POSITION_FLAG_SEQ_NO},
     [MESH_UI_FIELD_POSITION_FLAG_TIMESTAMP] = {MESH_STR_SETTINGS_FIELD_POSITION_FLAG_TIMESTAMP,
                                                MESH_UI_SETTING_FLAG, MESH_UI_SETTINGS_POSITION,
-                                               0x0080U, NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
-                                               MESH_STR_SETTINGS_NOTE_POSITION_FLAG_TIMESTAMP},
+                                               0x0080U, NULL, NO_PRESETS, INKCELL_STR_NONE, NULL,
+                                               0U, MESH_STR_SETTINGS_NOTE_POSITION_FLAG_TIMESTAMP},
     [MESH_UI_FIELD_POSITION_FLAG_HEADING] = {MESH_STR_SETTINGS_FIELD_POSITION_FLAG_HEADING,
                                              MESH_UI_SETTING_FLAG, MESH_UI_SETTINGS_POSITION,
-                                             0x0100U, NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                             0x0100U, NULL, NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                              MESH_STR_SETTINGS_NOTE_POSITION_FLAG_HEADING},
     [MESH_UI_FIELD_POSITION_FLAG_SPEED] = {MESH_STR_SETTINGS_FIELD_POSITION_FLAG_SPEED,
                                            MESH_UI_SETTING_FLAG, MESH_UI_SETTINGS_POSITION, 0x0200U,
-                                           NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                           NULL, NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                            MESH_STR_SETTINGS_NOTE_POSITION_FLAG_SPEED},
     [MESH_UI_FIELD_POSITION_LATITUDE] = {MESH_STR_SETTINGS_FIELD_POSITION_LATITUDE,
                                          MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_POSITION,
                                          MESH_UI_TEXT_LIMIT_POSITION_LATITUDE, NULL, NO_PRESETS,
-                                         MESH_STR_NONE, NULL, 0U,
+                                         INKCELL_STR_NONE, NULL, 0U,
                                          MESH_STR_SETTINGS_NOTE_POSITION_FIXED},
     [MESH_UI_FIELD_POSITION_LONGITUDE] = {MESH_STR_SETTINGS_FIELD_POSITION_LONGITUDE,
                                           MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_POSITION,
                                           MESH_UI_TEXT_LIMIT_POSITION_LONGITUDE, NULL, NO_PRESETS,
-                                          MESH_STR_NONE, NULL, 0U, MESH_STR_NONE},
+                                          INKCELL_STR_NONE, NULL, 0U, INKCELL_STR_NONE},
     /*
      * The one length in the client that stays metric whatever DisplayConfig.units says, and it
      * says so in its own label: "Altitude (m)".
@@ -1396,9 +1407,9 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
     [MESH_UI_FIELD_POSITION_ALTITUDE] = {MESH_STR_SETTINGS_FIELD_POSITION_ALTITUDE,
                                          MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_POSITION,
                                          MESH_UI_TEXT_LIMIT_POSITION_ALTITUDE, NULL, NO_PRESETS,
-                                         MESH_STR_NONE, NULL, 0U, MESH_STR_NONE},
+                                         INKCELL_STR_NONE, NULL, 0U, INKCELL_STR_NONE},
     [MESH_UI_FIELD_POWER_SAVING] = {MESH_STR_SETTINGS_FIELD_POWER_SAVING, MESH_UI_SETTING_TOGGLE,
-                                    MESH_UI_SETTINGS_POWER, 0U, NULL, NO_PRESETS, MESH_STR_NONE,
+                                    MESH_UI_SETTINGS_POWER, 0U, NULL, NO_PRESETS, INKCELL_STR_NONE,
                                     NULL, 0U, MESH_STR_SETTINGS_NOTE_POWER_SAVING},
     [MESH_UI_FIELD_POWER_LS_SECS] = {MESH_STR_SETTINGS_FIELD_POWER_LS_SECS, MESH_UI_SETTING_NUMBER,
                                      MESH_UI_SETTINGS_POWER, 0U, NULL,
@@ -1430,77 +1441,81 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                                         0U, MESH_STR_SETTINGS_NOTE_DISPLAY_CAROUSEL},
     [MESH_UI_FIELD_DISPLAY_COMPASS] = {MESH_STR_SETTINGS_FIELD_DISPLAY_COMPASS,
                                        MESH_UI_SETTING_ENUM, MESH_UI_SETTINGS_DISPLAY, 8U,
-                                       compass_name, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                       compass_name, NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                        MESH_STR_SETTINGS_NOTE_DISPLAY_COMPASS},
     [MESH_UI_FIELD_DISPLAY_12H] = {MESH_STR_SETTINGS_FIELD_DISPLAY_12H, MESH_UI_SETTING_TOGGLE,
-                                   MESH_UI_SETTINGS_DISPLAY, 0U, NULL, NO_PRESETS, MESH_STR_NONE,
-                                   NULL, 0U, MESH_STR_NONE},
+                                   MESH_UI_SETTINGS_DISPLAY, 0U, NULL, NO_PRESETS, INKCELL_STR_NONE,
+                                   NULL, 0U, INKCELL_STR_NONE},
     /* The one Display row this client reads for itself: see src/ui/tables/units.c. */
     [MESH_UI_FIELD_DISPLAY_UNITS] = {MESH_STR_SETTINGS_FIELD_DISPLAY_UNITS, MESH_UI_SETTING_ENUM,
                                      MESH_UI_SETTINGS_DISPLAY, 2U, units_name, NO_PRESETS,
-                                     MESH_STR_NONE, NULL, 0U, MESH_STR_SETTINGS_NOTE_DISPLAY_UNITS},
+                                     INKCELL_STR_NONE, NULL, 0U,
+                                     MESH_STR_SETTINGS_NOTE_DISPLAY_UNITS},
     [MESH_UI_FIELD_DISPLAY_FLIP] = {MESH_STR_SETTINGS_FIELD_DISPLAY_FLIP, MESH_UI_SETTING_TOGGLE,
-                                    MESH_UI_SETTINGS_DISPLAY, 0U, NULL, NO_PRESETS, MESH_STR_NONE,
-                                    NULL, 0U, MESH_STR_SETTINGS_NOTE_DISPLAY_FLIP},
+                                    MESH_UI_SETTINGS_DISPLAY, 0U, NULL, NO_PRESETS,
+                                    INKCELL_STR_NONE, NULL, 0U,
+                                    MESH_STR_SETTINGS_NOTE_DISPLAY_FLIP},
     [MESH_UI_FIELD_DISPLAY_OLED] = {MESH_STR_SETTINGS_FIELD_DISPLAY_OLED, MESH_UI_SETTING_ENUM,
                                     MESH_UI_SETTINGS_DISPLAY, 6U, oled_name, NO_PRESETS,
-                                    MESH_STR_NONE, NULL, 0U, MESH_STR_SETTINGS_NOTE_DISPLAY_OLED},
+                                    INKCELL_STR_NONE, NULL, 0U,
+                                    MESH_STR_SETTINGS_NOTE_DISPLAY_OLED},
     [MESH_UI_FIELD_DISPLAY_MODE] = {MESH_STR_SETTINGS_FIELD_DISPLAY_MODE, MESH_UI_SETTING_ENUM,
                                     MESH_UI_SETTINGS_DISPLAY, 4U, displaymode_name, NO_PRESETS,
-                                    MESH_STR_NONE, NULL, 0U, MESH_STR_SETTINGS_NOTE_DISPLAY_MODE},
+                                    INKCELL_STR_NONE, NULL, 0U,
+                                    MESH_STR_SETTINGS_NOTE_DISPLAY_MODE},
     [MESH_UI_FIELD_DISPLAY_HEADING_BOLD] = {MESH_STR_SETTINGS_FIELD_DISPLAY_HEADING_BOLD,
                                             MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_DISPLAY, 0U,
-                                            NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                            NULL, NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                             MESH_STR_SETTINGS_NOTE_DISPLAY_HEADING_BOLD},
     [MESH_UI_FIELD_DISPLAY_WAKE_ON_MOTION] = {MESH_STR_SETTINGS_FIELD_DISPLAY_WAKE_ON_MOTION,
                                               MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_DISPLAY, 0U,
-                                              NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                              NULL, NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                               MESH_STR_SETTINGS_NOTE_DISPLAY_WAKE_ON_MOTION},
     [MESH_UI_FIELD_DISPLAY_LONG_NAMES] = {MESH_STR_SETTINGS_FIELD_DISPLAY_LONG_NAMES,
                                           MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_DISPLAY, 0U,
-                                          NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                          NULL, NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                           MESH_STR_SETTINGS_NOTE_DISPLAY_LONG_NAMES},
     [MESH_UI_FIELD_DISPLAY_MESSAGE_BUBBLES] = {MESH_STR_SETTINGS_FIELD_DISPLAY_MESSAGE_BUBBLES,
                                                MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_DISPLAY, 0U,
-                                               NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                               NULL, NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                                MESH_STR_SETTINGS_NOTE_DISPLAY_MESSAGE_BUBBLES},
     [MESH_UI_FIELD_MQTT_ENABLED] = {MESH_STR_SETTINGS_FIELD_MQTT_ENABLED, MESH_UI_SETTING_TOGGLE,
-                                    MESH_UI_SETTINGS_MQTT, 0U, NULL, NO_PRESETS, MESH_STR_NONE,
+                                    MESH_UI_SETTINGS_MQTT, 0U, NULL, NO_PRESETS, INKCELL_STR_NONE,
                                     NULL, 0U, MESH_STR_SETTINGS_NOTE_MQTT_ENABLED},
     [MESH_UI_FIELD_MQTT_ADDRESS] = {MESH_STR_SETTINGS_FIELD_MQTT_ADDRESS, MESH_UI_SETTING_TEXT,
                                     MESH_UI_SETTINGS_MQTT, MESH_UI_TEXT_LIMIT_MQTT_ADDRESS, NULL,
-                                    NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                    NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                     MESH_STR_SETTINGS_NOTE_MQTT_ADDRESS},
     [MESH_UI_FIELD_MQTT_USERNAME] = {MESH_STR_SETTINGS_FIELD_MQTT_USERNAME, MESH_UI_SETTING_TEXT,
                                      MESH_UI_SETTINGS_MQTT, MESH_UI_TEXT_LIMIT_MQTT_USERNAME, NULL,
-                                     NO_PRESETS, MESH_STR_NONE, NULL, 0U, MESH_STR_NONE},
+                                     NO_PRESETS, INKCELL_STR_NONE, NULL, 0U, INKCELL_STR_NONE},
     [MESH_UI_FIELD_MQTT_PASSWORD] = {MESH_STR_SETTINGS_FIELD_MQTT_PASSWORD, MESH_UI_SETTING_TEXT,
                                      MESH_UI_SETTINGS_MQTT, MESH_UI_TEXT_LIMIT_MQTT_PASSWORD, NULL,
-                                     NO_PRESETS, MESH_STR_NONE, NULL, 0U, MESH_STR_NONE},
+                                     NO_PRESETS, INKCELL_STR_NONE, NULL, 0U, INKCELL_STR_NONE},
     [MESH_UI_FIELD_MQTT_ROOT] = {MESH_STR_SETTINGS_FIELD_MQTT_ROOT, MESH_UI_SETTING_TEXT,
                                  MESH_UI_SETTINGS_MQTT, MESH_UI_TEXT_LIMIT_MQTT_ROOT, NULL,
-                                 NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                 NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                  MESH_STR_SETTINGS_NOTE_MQTT_ROOT},
     [MESH_UI_FIELD_MQTT_PROXY] = {MESH_STR_SETTINGS_FIELD_MQTT_PROXY, MESH_UI_SETTING_TOGGLE,
-                                  MESH_UI_SETTINGS_MQTT, 0U, NULL, NO_PRESETS, MESH_STR_NONE, NULL,
-                                  0U, MESH_STR_SETTINGS_NOTE_MQTT_PROXY},
+                                  MESH_UI_SETTINGS_MQTT, 0U, NULL, NO_PRESETS, INKCELL_STR_NONE,
+                                  NULL, 0U, MESH_STR_SETTINGS_NOTE_MQTT_PROXY},
     [MESH_UI_FIELD_MQTT_ENCRYPTION] = {MESH_STR_SETTINGS_FIELD_MQTT_ENCRYPTION,
                                        MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_MQTT, 0U, NULL,
-                                       NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                       NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                        MESH_STR_SETTINGS_NOTE_MQTT_ENCRYPTION},
     [MESH_UI_FIELD_MQTT_TLS] = {MESH_STR_SETTINGS_FIELD_MQTT_TLS, MESH_UI_SETTING_TOGGLE,
-                                MESH_UI_SETTINGS_MQTT, 0U, NULL, NO_PRESETS, MESH_STR_NONE, NULL,
+                                MESH_UI_SETTINGS_MQTT, 0U, NULL, NO_PRESETS, INKCELL_STR_NONE, NULL,
                                 0U, MESH_STR_SETTINGS_NOTE_MQTT_TLS},
     /* Spelled out: this one publishes the node's position to a public map, which is not what
        "map reporting" reads as to somebody stepping through toggles. */
     [MESH_UI_FIELD_MQTT_MAP_REPORTING] = {MESH_STR_SETTINGS_FIELD_MQTT_MAP_REPORTING,
                                           MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_MQTT, 0U, NULL,
-                                          NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                          NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                           MESH_STR_SETTINGS_NOTE_MQTT_MAP_REPORTING},
     [MESH_UI_FIELD_MQTT_MAP_INTERVAL] = {MESH_STR_SETTINGS_FIELD_MQTT_MAP_INTERVAL,
                                          MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_MQTT, 0U, NULL,
-                                         SCALE_PRESETS(k_map_interval_presets), MESH_STR_NONE, NULL,
-                                         0U, MESH_STR_SETTINGS_NOTE_MQTT_MAP_INTERVAL},
+                                         SCALE_PRESETS(k_map_interval_presets), INKCELL_STR_NONE,
+                                         NULL, 0U, MESH_STR_SETTINGS_NOTE_MQTT_MAP_INTERVAL},
     [MESH_UI_FIELD_MQTT_MAP_PRECISION] = {MESH_STR_SETTINGS_FIELD_MQTT_MAP_PRECISION,
                                           MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_MQTT, 0U, NULL,
                                           NAMED_PRESETS(k_precision_presets), MESH_STR_ZERO_OFF,
@@ -1508,25 +1523,26 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                                           MESH_STR_SETTINGS_NOTE_MQTT_MAP_PRECISION},
     [MESH_UI_FIELD_MQTT_MAP_LOCATION] = {MESH_STR_SETTINGS_FIELD_MQTT_MAP_LOCATION,
                                          MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_MQTT, 0U, NULL,
-                                         NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                         NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                          MESH_STR_SETTINGS_NOTE_MQTT_MAP_LOCATION},
     [MESH_UI_FIELD_SF_ENABLED] = {MESH_STR_SETTINGS_FIELD_SF_ENABLED, MESH_UI_SETTING_TOGGLE,
                                   MESH_UI_SETTINGS_STORE_FORWARD, 0U, NULL, NO_PRESETS,
-                                  MESH_STR_NONE, NULL, 0U, MESH_STR_SETTINGS_NOTE_SF_ENABLED},
+                                  INKCELL_STR_NONE, NULL, 0U, MESH_STR_SETTINGS_NOTE_SF_ENABLED},
     [MESH_UI_FIELD_SF_HEARTBEAT] = {MESH_STR_SETTINGS_FIELD_SF_HEARTBEAT, MESH_UI_SETTING_TOGGLE,
                                     MESH_UI_SETTINGS_STORE_FORWARD, 0U, NULL, NO_PRESETS,
-                                    MESH_STR_NONE, NULL, 0U, MESH_STR_SETTINGS_NOTE_SF_HEARTBEAT},
+                                    INKCELL_STR_NONE, NULL, 0U,
+                                    MESH_STR_SETTINGS_NOTE_SF_HEARTBEAT},
     [MESH_UI_FIELD_SF_SERVER] = {MESH_STR_SETTINGS_FIELD_SF_SERVER, MESH_UI_SETTING_TOGGLE,
                                  MESH_UI_SETTINGS_STORE_FORWARD, 0U, NULL, NO_PRESETS,
-                                 MESH_STR_NONE, NULL, 0U, MESH_STR_SETTINGS_NOTE_SF_SERVER},
+                                 INKCELL_STR_NONE, NULL, 0U, MESH_STR_SETTINGS_NOTE_SF_SERVER},
     [MESH_UI_FIELD_SF_RECORDS] = {MESH_STR_SETTINGS_FIELD_SF_RECORDS, MESH_UI_SETTING_NUMBER,
                                   MESH_UI_SETTINGS_STORE_FORWARD, 0U, NULL,
-                                  SCALE_PRESETS_AFTER_ZERO(k_sf_records_presets), MESH_STR_NONE,
+                                  SCALE_PRESETS_AFTER_ZERO(k_sf_records_presets), INKCELL_STR_NONE,
                                   format_count, 0U, MESH_STR_SETTINGS_NOTE_SF_RECORDS},
     [MESH_UI_FIELD_SF_HISTORY_MAX] = {MESH_STR_SETTINGS_FIELD_SF_HISTORY_MAX,
                                       MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_STORE_FORWARD, 0U,
                                       NULL, SCALE_PRESETS_AFTER_ZERO(k_sf_history_presets),
-                                      MESH_STR_NONE, format_count, 0U,
+                                      INKCELL_STR_NONE, format_count, 0U,
                                       MESH_STR_SETTINGS_NOTE_SF_HISTORY_MAX},
     [MESH_UI_FIELD_SF_HISTORY_WINDOW] = {MESH_STR_SETTINGS_FIELD_SF_HISTORY_WINDOW,
                                          MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_STORE_FORWARD, 0U,
@@ -1539,83 +1555,86 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
        these is a TEXT field. */
     [MESH_UI_FIELD_TELEMETRY_DEVICE] = {MESH_STR_SETTINGS_FIELD_TELEMETRY_DEVICE,
                                         MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_TELEMETRY, 0U,
-                                        NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U, MESH_STR_NONE},
+                                        NULL, NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
+                                        INKCELL_STR_NONE},
     [MESH_UI_FIELD_TELEMETRY_INTERVAL] = {MESH_STR_SETTINGS_FIELD_TELEMETRY_INTERVAL,
                                           MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_TELEMETRY, 0U,
                                           NULL, SCALE_PRESETS_AFTER_ZERO(k_interval_presets),
-                                          MESH_STR_ZERO_DEFAULT, NULL, 0U, MESH_STR_NONE},
+                                          MESH_STR_ZERO_DEFAULT, NULL, 0U, INKCELL_STR_NONE},
     [MESH_UI_FIELD_TELEMETRY_ENVIRONMENT] = {MESH_STR_SETTINGS_FIELD_TELEMETRY_ENVIRONMENT,
                                              MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_TELEMETRY, 0U,
-                                             NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
-                                             MESH_STR_NONE},
+                                             NULL, NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
+                                             INKCELL_STR_NONE},
     [MESH_UI_FIELD_TELEMETRY_ENV_INTERVAL] = {MESH_STR_SETTINGS_FIELD_TELEMETRY_ENV_INTERVAL,
                                               MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_TELEMETRY,
                                               0U,
                                               NULL, SCALE_PRESETS_AFTER_ZERO(k_interval_presets),
-                                              MESH_STR_ZERO_DEFAULT, NULL, 0U, MESH_STR_NONE},
+                                              MESH_STR_ZERO_DEFAULT, NULL, 0U, INKCELL_STR_NONE},
     [MESH_UI_FIELD_TELEMETRY_ENV_SCREEN] = {MESH_STR_SETTINGS_FIELD_TELEMETRY_ENV_SCREEN,
                                             MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_TELEMETRY, 0U,
-                                            NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
-                                            MESH_STR_NONE},
+                                            NULL, NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
+                                            INKCELL_STR_NONE},
     [MESH_UI_FIELD_TELEMETRY_ENV_FAHRENHEIT] = {MESH_STR_SETTINGS_FIELD_TELEMETRY_ENV_FAHRENHEIT,
                                                 MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_TELEMETRY,
-                                                0U, NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                                0U, NULL, NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                                 MESH_STR_SETTINGS_NOTE_TELEMETRY_FAHRENHEIT},
     [MESH_UI_FIELD_TELEMETRY_AIR_QUALITY] = {MESH_STR_SETTINGS_FIELD_TELEMETRY_AIR_QUALITY,
                                              MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_TELEMETRY, 0U,
-                                             NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
-                                             MESH_STR_NONE},
+                                             NULL, NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
+                                             INKCELL_STR_NONE},
     [MESH_UI_FIELD_TELEMETRY_AIR_INTERVAL] = {MESH_STR_SETTINGS_FIELD_TELEMETRY_AIR_INTERVAL,
                                               MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_TELEMETRY,
                                               0U,
                                               NULL, SCALE_PRESETS_AFTER_ZERO(k_interval_presets),
-                                              MESH_STR_ZERO_DEFAULT, NULL, 0U, MESH_STR_NONE},
+                                              MESH_STR_ZERO_DEFAULT, NULL, 0U, INKCELL_STR_NONE},
     [MESH_UI_FIELD_TELEMETRY_AIR_SCREEN] = {MESH_STR_SETTINGS_FIELD_TELEMETRY_AIR_SCREEN,
                                             MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_TELEMETRY, 0U,
-                                            NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
-                                            MESH_STR_NONE},
+                                            NULL, NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
+                                            INKCELL_STR_NONE},
     [MESH_UI_FIELD_TELEMETRY_POWER] = {MESH_STR_SETTINGS_FIELD_TELEMETRY_POWER,
                                        MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_TELEMETRY, 0U, NULL,
-                                       NO_PRESETS, MESH_STR_NONE, NULL, 0U, MESH_STR_NONE},
+                                       NO_PRESETS, INKCELL_STR_NONE, NULL, 0U, INKCELL_STR_NONE},
     [MESH_UI_FIELD_TELEMETRY_POWER_INTERVAL] = {MESH_STR_SETTINGS_FIELD_TELEMETRY_POWER_INTERVAL,
                                                 MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_TELEMETRY,
                                                 0U, NULL,
                                                 SCALE_PRESETS_AFTER_ZERO(k_interval_presets),
-                                                MESH_STR_ZERO_DEFAULT, NULL, 0U, MESH_STR_NONE},
+                                                MESH_STR_ZERO_DEFAULT, NULL, 0U, INKCELL_STR_NONE},
     [MESH_UI_FIELD_TELEMETRY_POWER_SCREEN] = {MESH_STR_SETTINGS_FIELD_TELEMETRY_POWER_SCREEN,
                                               MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_TELEMETRY,
-                                              0U, NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
-                                              MESH_STR_NONE},
+                                              0U, NULL, NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
+                                              INKCELL_STR_NONE},
     [MESH_UI_FIELD_TELEMETRY_HEALTH] = {MESH_STR_SETTINGS_FIELD_TELEMETRY_HEALTH,
                                         MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_TELEMETRY, 0U,
-                                        NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U, MESH_STR_NONE},
+                                        NULL, NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
+                                        INKCELL_STR_NONE},
     [MESH_UI_FIELD_TELEMETRY_HEALTH_INTERVAL] = {MESH_STR_SETTINGS_FIELD_TELEMETRY_HEALTH_INTERVAL,
                                                  MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_TELEMETRY,
                                                  0U, NULL,
                                                  SCALE_PRESETS_AFTER_ZERO(k_interval_presets),
-                                                 MESH_STR_ZERO_DEFAULT, NULL, 0U, MESH_STR_NONE},
+                                                 MESH_STR_ZERO_DEFAULT, NULL, 0U, INKCELL_STR_NONE},
     [MESH_UI_FIELD_TELEMETRY_HEALTH_SCREEN] = {MESH_STR_SETTINGS_FIELD_TELEMETRY_HEALTH_SCREEN,
                                                MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_TELEMETRY,
-                                               0U, NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
-                                               MESH_STR_NONE},
+                                               0U, NULL, NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
+                                               INKCELL_STR_NONE},
     [MESH_UI_FIELD_CHANNEL_NAME] = {MESH_STR_SETTINGS_FIELD_CHANNEL_NAME, MESH_UI_SETTING_TEXT,
                                     MESH_UI_SETTINGS_CHANNELS, MESH_UI_TEXT_LIMIT_CHANNEL_NAME,
-                                    NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                    NULL, NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                     MESH_STR_SETTINGS_NOTE_CHANNEL_NAME},
     [MESH_UI_FIELD_CHANNEL_ROLE] = {MESH_STR_SETTINGS_FIELD_CHANNEL_ROLE, MESH_UI_SETTING_ENUM,
                                     MESH_UI_SETTINGS_CHANNELS, 2U, channel_role_name, NO_PRESETS,
-                                    MESH_STR_NONE, NULL, 0U, MESH_STR_SETTINGS_NOTE_CHANNEL_ROLE},
+                                    INKCELL_STR_NONE, NULL, 0U,
+                                    MESH_STR_SETTINGS_NOTE_CHANNEL_ROLE},
     [MESH_UI_FIELD_CHANNEL_KEY] = {MESH_STR_SETTINGS_FIELD_CHANNEL_KEY, MESH_UI_SETTING_KEY,
                                    MESH_UI_SETTINGS_CHANNELS, MESH_UI_TEXT_LIMIT_CHANNEL_KEY, NULL,
-                                   NO_PRESETS, MESH_STR_NONE, NULL, CHANNEL_KEY_CHOICES,
+                                   NO_PRESETS, INKCELL_STR_NONE, NULL, CHANNEL_KEY_CHOICES,
                                    MESH_STR_SETTINGS_NOTE_CHANNEL_KEY},
     [MESH_UI_FIELD_CHANNEL_UPLINK] = {MESH_STR_SETTINGS_FIELD_CHANNEL_UPLINK,
                                       MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_CHANNELS, 0U, NULL,
-                                      NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                      NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                       MESH_STR_SETTINGS_NOTE_CHANNEL_UPLINK},
     [MESH_UI_FIELD_CHANNEL_DOWNLINK] = {MESH_STR_SETTINGS_FIELD_CHANNEL_DOWNLINK,
                                         MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_CHANNELS, 0U, NULL,
-                                        NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                        NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                         MESH_STR_SETTINGS_NOTE_CHANNEL_DOWNLINK},
     [MESH_UI_FIELD_CHANNEL_POSITION] = {MESH_STR_SETTINGS_FIELD_CHANNEL_POSITION,
                                         MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_CHANNELS, 0U, NULL,
@@ -1623,65 +1642,68 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                                         mesh_ui_settings_format_precision, 0U,
                                         MESH_STR_SETTINGS_NOTE_CHANNEL_POSITION},
     [MESH_UI_FIELD_CHANNEL_MUTED] = {MESH_STR_SETTINGS_FIELD_CHANNEL_MUTED, MESH_UI_SETTING_TOGGLE,
-                                     MESH_UI_SETTINGS_CHANNELS, 0U, NULL, NO_PRESETS, MESH_STR_NONE,
-                                     NULL, 0U, MESH_STR_SETTINGS_NOTE_CHANNEL_MUTED},
+                                     MESH_UI_SETTINGS_CHANNELS, 0U, NULL, NO_PRESETS,
+                                     INKCELL_STR_NONE, NULL, 0U,
+                                     MESH_STR_SETTINGS_NOTE_CHANNEL_MUTED},
     [MESH_UI_FIELD_BT_ENABLED] = {MESH_STR_SETTINGS_FIELD_BT_ENABLED, MESH_UI_SETTING_TOGGLE,
-                                  MESH_UI_SETTINGS_BLUETOOTH, 0U, NULL, NO_PRESETS, MESH_STR_NONE,
-                                  NULL, 0U, MESH_STR_NONE},
+                                  MESH_UI_SETTINGS_BLUETOOTH, 0U, NULL, NO_PRESETS,
+                                  INKCELL_STR_NONE, NULL, 0U, INKCELL_STR_NONE},
     [MESH_UI_FIELD_BT_MODE] = {MESH_STR_SETTINGS_FIELD_BT_MODE, MESH_UI_SETTING_ENUM,
                                MESH_UI_SETTINGS_BLUETOOTH, 3U, pairing_enum_name, NO_PRESETS,
-                               MESH_STR_NONE, NULL, 0U, MESH_STR_SETTINGS_NOTE_BT_MODE},
+                               INKCELL_STR_NONE, NULL, 0U, MESH_STR_SETTINGS_NOTE_BT_MODE},
     [MESH_UI_FIELD_BT_PIN] = {MESH_STR_SETTINGS_FIELD_BT_PIN, MESH_UI_SETTING_TEXT,
                               MESH_UI_SETTINGS_BLUETOOTH, MESH_UI_TEXT_LIMIT_BT_PIN, NULL,
-                              NO_PRESETS, MESH_STR_NONE, NULL, 0U, MESH_STR_SETTINGS_NOTE_BT_PIN},
+                              NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
+                              MESH_STR_SETTINGS_NOTE_BT_PIN},
     [MESH_UI_FIELD_LORA_REGION] = {MESH_STR_SETTINGS_FIELD_LORA_REGION, MESH_UI_SETTING_ENUM,
                                    MESH_UI_SETTINGS_LORA, 38U, region_enum_name, NO_PRESETS,
-                                   MESH_STR_NONE, NULL, 0U, MESH_STR_SETTINGS_NOTE_LORA_REGION},
+                                   INKCELL_STR_NONE, NULL, 0U, MESH_STR_SETTINGS_NOTE_LORA_REGION},
     [MESH_UI_FIELD_LORA_USE_PRESET] = {MESH_STR_SETTINGS_FIELD_LORA_USE_PRESET,
                                        MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_LORA, 0U, NULL,
-                                       NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                       NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                        MESH_STR_SETTINGS_NOTE_LORA_USE_PRESET},
     [MESH_UI_FIELD_LORA_PRESET] = {MESH_STR_SETTINGS_FIELD_LORA_PRESET, MESH_UI_SETTING_ENUM,
                                    MESH_UI_SETTINGS_LORA, 17U, preset_enum_name, NO_PRESETS,
-                                   MESH_STR_NONE, NULL, 0U, MESH_STR_SETTINGS_NOTE_LORA_PRESET},
+                                   INKCELL_STR_NONE, NULL, 0U, MESH_STR_SETTINGS_NOTE_LORA_PRESET},
     [MESH_UI_FIELD_LORA_BANDWIDTH] = {MESH_STR_SETTINGS_FIELD_LORA_BANDWIDTH,
                                       MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_LORA, 0U, NULL,
-                                      NAMED_PRESETS(k_bandwidth_presets), MESH_STR_NONE,
+                                      NAMED_PRESETS(k_bandwidth_presets), INKCELL_STR_NONE,
                                       format_bandwidth, 0U, MESH_STR_SETTINGS_NOTE_LORA_BANDWIDTH},
     [MESH_UI_FIELD_LORA_SPREAD] = {MESH_STR_SETTINGS_FIELD_LORA_SPREAD, MESH_UI_SETTING_NUMBER,
                                    MESH_UI_SETTINGS_LORA, 0U, NULL, NAMED_PRESETS(k_spread_presets),
-                                   MESH_STR_NONE, format_plain, 0U,
+                                   INKCELL_STR_NONE, format_plain, 0U,
                                    MESH_STR_SETTINGS_NOTE_LORA_SPREAD},
     [MESH_UI_FIELD_LORA_CODING] = {MESH_STR_SETTINGS_FIELD_LORA_CODING, MESH_UI_SETTING_NUMBER,
                                    MESH_UI_SETTINGS_LORA, 0U, NULL, NAMED_PRESETS(k_coding_presets),
-                                   MESH_STR_NONE, format_coding_rate, 0U,
+                                   INKCELL_STR_NONE, format_coding_rate, 0U,
                                    MESH_STR_SETTINGS_NOTE_LORA_CODING},
     [MESH_UI_FIELD_LORA_HOPS] = {MESH_STR_SETTINGS_FIELD_LORA_HOPS, MESH_UI_SETTING_NUMBER,
                                  MESH_UI_SETTINGS_LORA, 0U, NULL, SCALE_PRESETS(k_hop_presets),
-                                 MESH_STR_NONE, format_plain, 0U, MESH_STR_SETTINGS_NOTE_LORA_HOPS},
+                                 INKCELL_STR_NONE, format_plain, 0U,
+                                 MESH_STR_SETTINGS_NOTE_LORA_HOPS},
     [MESH_UI_FIELD_LORA_TX_ENABLED] = {MESH_STR_SETTINGS_FIELD_LORA_TX_ENABLED,
                                        MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_LORA, 0U, NULL,
-                                       NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                       NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                        MESH_STR_SETTINGS_NOTE_LORA_TX_ENABLED},
     [MESH_UI_FIELD_LORA_TX_POWER] = {MESH_STR_SETTINGS_FIELD_LORA_TX_POWER, MESH_UI_SETTING_NUMBER,
                                      MESH_UI_SETTINGS_LORA, 0U, NULL,
-                                     SCALE_PRESETS_AFTER_ZERO(k_tx_power_presets), MESH_STR_NONE,
+                                     SCALE_PRESETS_AFTER_ZERO(k_tx_power_presets), INKCELL_STR_NONE,
                                      format_tx_power, 0U, MESH_STR_SETTINGS_NOTE_LORA_TX_POWER},
     [MESH_UI_FIELD_LORA_IGNORE_MQTT] = {MESH_STR_SETTINGS_FIELD_LORA_IGNORE_MQTT,
                                         MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_LORA, 0U, NULL,
-                                        NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                        NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                         MESH_STR_SETTINGS_NOTE_LORA_IGNORE_MQTT},
     [MESH_UI_FIELD_LORA_OK_TO_MQTT] = {MESH_STR_SETTINGS_FIELD_LORA_OK_TO_MQTT,
                                        MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_LORA, 0U, NULL,
-                                       NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                       NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                        MESH_STR_SETTINGS_NOTE_LORA_OK_TO_MQTT},
     [MESH_UI_FIELD_LORA_BOOST_GAIN] = {MESH_STR_SETTINGS_FIELD_LORA_BOOST_GAIN,
                                        MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_LORA, 0U, NULL,
-                                       NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                       NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                        MESH_STR_SETTINGS_NOTE_LORA_BOOST_GAIN},
     [MESH_UI_FIELD_LORA_OVERRIDE_DUTY] = {MESH_STR_SETTINGS_FIELD_LORA_OVERRIDE_DUTY,
                                           MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_LORA, 0U, NULL,
-                                          NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                          NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                           MESH_STR_SETTINGS_NOTE_LORA_OVERRIDE_DUTY},
     /* The three typed numbers. TEXT rather than NUMBER because none of them has presets worth
        stepping: every slot of a region's band is as likely as every other, and a frequency has
@@ -1689,17 +1711,17 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
     [MESH_UI_FIELD_LORA_CHANNEL_NUM] = {MESH_STR_SETTINGS_FIELD_LORA_CHANNEL_NUM,
                                         MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_LORA,
                                         MESH_UI_TEXT_LIMIT_LORA_CHANNEL_NUM, NULL, NO_PRESETS,
-                                        MESH_STR_NONE, NULL, 0U,
+                                        INKCELL_STR_NONE, NULL, 0U,
                                         MESH_STR_SETTINGS_NOTE_LORA_CHANNEL_NUM},
     [MESH_UI_FIELD_LORA_OVERRIDE_FREQ] = {MESH_STR_SETTINGS_FIELD_LORA_OVERRIDE_FREQ,
                                           MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_LORA,
                                           MESH_UI_TEXT_LIMIT_LORA_OVERRIDE_FREQ, NULL, NO_PRESETS,
-                                          MESH_STR_NONE, NULL, 0U,
+                                          INKCELL_STR_NONE, NULL, 0U,
                                           MESH_STR_SETTINGS_NOTE_LORA_OVERRIDE_FREQ},
     [MESH_UI_FIELD_LORA_FREQUENCY_TRIM] = {MESH_STR_SETTINGS_FIELD_LORA_FREQUENCY_TRIM,
                                            MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_LORA,
                                            MESH_UI_TEXT_LIMIT_LORA_FREQUENCY_TRIM, NULL, NO_PRESETS,
-                                           MESH_STR_NONE, NULL, 0U,
+                                           INKCELL_STR_NONE, NULL, 0U,
                                            MESH_STR_SETTINGS_NOTE_LORA_FREQUENCY_TRIM},
     /* Three slots of one repeated field, and the note is on the first of them alone: what
        makes them worth explaining is that they are not the Nodes tab's Ignore, which is one
@@ -1709,84 +1731,85 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
     [MESH_UI_FIELD_LORA_IGNORE_NODE_0] = {MESH_STR_SETTINGS_FIELD_LORA_IGNORE_NODE_0,
                                           MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_LORA,
                                           MESH_UI_TEXT_LIMIT_LORA_IGNORE_NODE_0, NULL, NO_PRESETS,
-                                          MESH_STR_NONE, NULL, 0U,
+                                          INKCELL_STR_NONE, NULL, 0U,
                                           MESH_STR_SETTINGS_NOTE_LORA_IGNORE_NODES},
     [MESH_UI_FIELD_LORA_IGNORE_NODE_1] = {MESH_STR_SETTINGS_FIELD_LORA_IGNORE_NODE_1,
                                           MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_LORA,
                                           MESH_UI_TEXT_LIMIT_LORA_IGNORE_NODE_1, NULL, NO_PRESETS,
-                                          MESH_STR_NONE, NULL, 0U, MESH_STR_NONE},
+                                          INKCELL_STR_NONE, NULL, 0U, INKCELL_STR_NONE},
     [MESH_UI_FIELD_LORA_IGNORE_NODE_2] = {MESH_STR_SETTINGS_FIELD_LORA_IGNORE_NODE_2,
                                           MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_LORA,
                                           MESH_UI_TEXT_LIMIT_LORA_IGNORE_NODE_2, NULL, NO_PRESETS,
-                                          MESH_STR_NONE, NULL, 0U, MESH_STR_NONE},
+                                          INKCELL_STR_NONE, NULL, 0U, INKCELL_STR_NONE},
     /* Ham mode's three. The power row shares the LoRa row's presets, because it is the same
        quantity written by a different verb. */
     [MESH_UI_FIELD_LORA_HAM_CALL_SIGN] = {MESH_STR_SETTINGS_FIELD_LORA_HAM_CALL_SIGN,
                                           MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_LORA,
                                           MESH_UI_TEXT_LIMIT_LORA_HAM_CALL_SIGN, NULL, NO_PRESETS,
-                                          MESH_STR_NONE, NULL, 0U,
+                                          INKCELL_STR_NONE, NULL, 0U,
                                           MESH_STR_SETTINGS_NOTE_LORA_HAM_CALL_SIGN},
     [MESH_UI_FIELD_LORA_HAM_FREQUENCY] = {MESH_STR_SETTINGS_FIELD_LORA_HAM_FREQUENCY,
                                           MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_LORA,
                                           MESH_UI_TEXT_LIMIT_LORA_HAM_FREQUENCY, NULL, NO_PRESETS,
-                                          MESH_STR_NONE, NULL, 0U,
+                                          INKCELL_STR_NONE, NULL, 0U,
                                           MESH_STR_SETTINGS_NOTE_LORA_HAM_FREQUENCY},
     [MESH_UI_FIELD_LORA_HAM_TX_POWER] = {MESH_STR_SETTINGS_FIELD_LORA_HAM_TX_POWER,
                                          MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_LORA, 0U, NULL,
                                          SCALE_PRESETS_AFTER_ZERO(k_tx_power_presets),
-                                         MESH_STR_NONE, format_tx_power, 0U,
+                                         INKCELL_STR_NONE, format_tx_power, 0U,
                                          MESH_STR_SETTINGS_NOTE_LORA_HAM_TX_POWER},
     [MESH_UI_FIELD_SECURITY_PRIVATE_KEY] = {MESH_STR_SETTINGS_FIELD_SECURITY_PRIVATE_KEY,
                                             MESH_UI_SETTING_KEY, MESH_UI_SETTINGS_SECURITY,
                                             MESH_UI_TEXT_LIMIT_SECURITY_PRIVATE_KEY, NULL,
-                                            NO_PRESETS, MESH_STR_NONE, NULL, PRIVATE_KEY_CHOICES,
+                                            NO_PRESETS, INKCELL_STR_NONE, NULL, PRIVATE_KEY_CHOICES,
                                             MESH_STR_SETTINGS_NOTE_SECURITY_PRIVATE_KEY},
     [MESH_UI_FIELD_SECURITY_ADMIN_KEY_0] = {MESH_STR_SETTINGS_FIELD_SECURITY_ADMIN_KEY_0,
                                             MESH_UI_SETTING_KEY, MESH_UI_SETTINGS_SECURITY,
                                             MESH_UI_TEXT_LIMIT_SECURITY_ADMIN_KEY_0, NULL,
-                                            NO_PRESETS, MESH_STR_NONE, NULL, ADMIN_KEY_CHOICES,
+                                            NO_PRESETS, INKCELL_STR_NONE, NULL, ADMIN_KEY_CHOICES,
                                             MESH_STR_SETTINGS_NOTE_SECURITY_ADMIN_KEYS},
     [MESH_UI_FIELD_SECURITY_ADMIN_KEY_1] = {MESH_STR_SETTINGS_FIELD_SECURITY_ADMIN_KEY_1,
                                             MESH_UI_SETTING_KEY, MESH_UI_SETTINGS_SECURITY,
                                             MESH_UI_TEXT_LIMIT_SECURITY_ADMIN_KEY_1, NULL,
-                                            NO_PRESETS, MESH_STR_NONE, NULL, ADMIN_KEY_CHOICES,
-                                            MESH_STR_NONE},
+                                            NO_PRESETS, INKCELL_STR_NONE, NULL, ADMIN_KEY_CHOICES,
+                                            INKCELL_STR_NONE},
     [MESH_UI_FIELD_SECURITY_ADMIN_KEY_2] = {MESH_STR_SETTINGS_FIELD_SECURITY_ADMIN_KEY_2,
                                             MESH_UI_SETTING_KEY, MESH_UI_SETTINGS_SECURITY,
                                             MESH_UI_TEXT_LIMIT_SECURITY_ADMIN_KEY_2, NULL,
-                                            NO_PRESETS, MESH_STR_NONE, NULL, ADMIN_KEY_CHOICES,
-                                            MESH_STR_NONE},
+                                            NO_PRESETS, INKCELL_STR_NONE, NULL, ADMIN_KEY_CHOICES,
+                                            INKCELL_STR_NONE},
     [MESH_UI_FIELD_SECURITY_MANAGED] = {MESH_STR_SETTINGS_FIELD_SECURITY_MANAGED,
                                         MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_SECURITY, 0U, NULL,
-                                        NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                        NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                         MESH_STR_SETTINGS_NOTE_SECURITY_MANAGED},
     [MESH_UI_FIELD_SECURITY_ADMIN_CHANNEL] = {MESH_STR_SETTINGS_FIELD_SECURITY_ADMIN_CHANNEL,
                                               MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_SECURITY, 0U,
-                                              NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                              NULL, NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                               MESH_STR_SETTINGS_NOTE_SECURITY_ADMIN_CHANNEL},
     [MESH_UI_FIELD_SECURITY_SERIAL] = {MESH_STR_SETTINGS_FIELD_SECURITY_SERIAL,
                                        MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_SECURITY, 0U, NULL,
-                                       NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                       NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                        MESH_STR_SETTINGS_NOTE_SECURITY_SERIAL},
     [MESH_UI_FIELD_SECURITY_DEBUG_LOG] = {MESH_STR_SETTINGS_FIELD_SECURITY_DEBUG_LOG,
                                           MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_SECURITY, 0U,
-                                          NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                          NULL, NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                           MESH_STR_SETTINGS_NOTE_SECURITY_DEBUG_LOG},
     [MESH_UI_FIELD_NEIGHBOR_ENABLED] = {MESH_STR_SETTINGS_FIELD_NEIGHBOR_ENABLED,
                                         MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_NEIGHBOR_INFO, 0U,
-                                        NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                        NULL, NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                         MESH_STR_SETTINGS_NOTE_NEIGHBOR_ENABLED},
     [MESH_UI_FIELD_NEIGHBOR_INTERVAL] = {MESH_STR_SETTINGS_FIELD_NEIGHBOR_INTERVAL,
                                          MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_NEIGHBOR_INFO, 0U,
-                                         NULL, SCALE_PRESETS(k_neighbor_presets), MESH_STR_NONE,
+                                         NULL, SCALE_PRESETS(k_neighbor_presets), INKCELL_STR_NONE,
                                          NULL, 0U, MESH_STR_SETTINGS_NOTE_NEIGHBOR_INTERVAL},
     [MESH_UI_FIELD_NEIGHBOR_OVER_LORA] = {MESH_STR_SETTINGS_FIELD_NEIGHBOR_OVER_LORA,
                                           MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_NEIGHBOR_INFO,
-                                          0U, NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                          0U, NULL, NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                           MESH_STR_SETTINGS_NOTE_NEIGHBOR_OVER_LORA},
     [MESH_UI_FIELD_RANGE_TEST_ENABLED] = {MESH_STR_SETTINGS_FIELD_RANGE_TEST_ENABLED,
                                           MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_RANGE_TEST, 0U,
-                                          NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U, MESH_STR_NONE},
+                                          NULL, NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
+                                          INKCELL_STR_NONE},
     [MESH_UI_FIELD_RANGE_TEST_SENDER] = {MESH_STR_SETTINGS_FIELD_RANGE_TEST_SENDER,
                                          MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_RANGE_TEST, 0U,
                                          NULL, SCALE_PRESETS(k_range_test_presets),
@@ -1794,15 +1817,15 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                                          MESH_STR_SETTINGS_NOTE_RANGE_TEST_SENDER},
     [MESH_UI_FIELD_RANGE_TEST_SAVE] = {MESH_STR_SETTINGS_FIELD_RANGE_TEST_SAVE,
                                        MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_RANGE_TEST, 0U,
-                                       NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                       NULL, NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                        MESH_STR_SETTINGS_NOTE_RANGE_TEST_SAVE},
     [MESH_UI_FIELD_RANGE_TEST_CLEAR] = {MESH_STR_SETTINGS_FIELD_RANGE_TEST_CLEAR,
                                         MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_RANGE_TEST, 0U,
-                                        NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                        NULL, NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                         MESH_STR_SETTINGS_NOTE_RANGE_TEST_CLEAR},
     [MESH_UI_FIELD_PAX_ENABLED] = {MESH_STR_SETTINGS_FIELD_PAX_ENABLED, MESH_UI_SETTING_TOGGLE,
-                                   MESH_UI_SETTINGS_PAXCOUNTER, 0U, NULL, NO_PRESETS, MESH_STR_NONE,
-                                   NULL, 0U, MESH_STR_NONE},
+                                   MESH_UI_SETTINGS_PAXCOUNTER, 0U, NULL, NO_PRESETS,
+                                   INKCELL_STR_NONE, NULL, 0U, INKCELL_STR_NONE},
     [MESH_UI_FIELD_PAX_INTERVAL] = {MESH_STR_SETTINGS_FIELD_PAX_INTERVAL, MESH_UI_SETTING_NUMBER,
                                     MESH_UI_SETTINGS_PAXCOUNTER, 0U, NULL,
                                     SCALE_PRESETS_AFTER_ZERO(k_interval_presets),
@@ -1810,47 +1833,47 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                                     MESH_STR_SETTINGS_NOTE_PAX_INTERVAL},
     [MESH_UI_FIELD_PAX_WIFI_THRESHOLD] = {MESH_STR_SETTINGS_FIELD_PAX_WIFI_THRESHOLD,
                                           MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_PAXCOUNTER, 0U,
-                                          NULL, SCALE_PRESETS(k_rssi_presets), MESH_STR_NONE,
+                                          NULL, SCALE_PRESETS(k_rssi_presets), INKCELL_STR_NONE,
                                           format_rssi, 0U, MESH_STR_SETTINGS_NOTE_PAX_WIFI},
     [MESH_UI_FIELD_PAX_BLE_THRESHOLD] = {MESH_STR_SETTINGS_FIELD_PAX_BLE_THRESHOLD,
                                          MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_PAXCOUNTER, 0U,
-                                         NULL, SCALE_PRESETS(k_rssi_presets), MESH_STR_NONE,
+                                         NULL, SCALE_PRESETS(k_rssi_presets), INKCELL_STR_NONE,
                                          format_rssi, 0U, MESH_STR_SETTINGS_NOTE_PAX_BLE},
     [MESH_UI_FIELD_TAK_TEAM] = {MESH_STR_SETTINGS_FIELD_TAK_TEAM, MESH_UI_SETTING_ENUM,
-                                MESH_UI_SETTINGS_TAK, 15U, tak_team_name, NO_PRESETS, MESH_STR_NONE,
-                                NULL, 0U, MESH_STR_SETTINGS_NOTE_TAK_TEAM},
+                                MESH_UI_SETTINGS_TAK, 15U, tak_team_name, NO_PRESETS,
+                                INKCELL_STR_NONE, NULL, 0U, MESH_STR_SETTINGS_NOTE_TAK_TEAM},
     [MESH_UI_FIELD_TAK_ROLE] = {MESH_STR_SETTINGS_FIELD_TAK_ROLE, MESH_UI_SETTING_ENUM,
-                                MESH_UI_SETTINGS_TAK, 9U, tak_role_name, NO_PRESETS, MESH_STR_NONE,
-                                NULL, 0U, MESH_STR_SETTINGS_NOTE_TAK_ROLE},
+                                MESH_UI_SETTINGS_TAK, 9U, tak_role_name, NO_PRESETS,
+                                INKCELL_STR_NONE, NULL, 0U, MESH_STR_SETTINGS_NOTE_TAK_ROLE},
     [MESH_UI_FIELD_AMBIENT_LED] = {MESH_STR_SETTINGS_FIELD_AMBIENT_LED, MESH_UI_SETTING_TOGGLE,
-                                   MESH_UI_SETTINGS_AMBIENT, 0U, NULL, NO_PRESETS, MESH_STR_NONE,
-                                   NULL, 0U, MESH_STR_NONE},
+                                   MESH_UI_SETTINGS_AMBIENT, 0U, NULL, NO_PRESETS, INKCELL_STR_NONE,
+                                   NULL, 0U, INKCELL_STR_NONE},
     [MESH_UI_FIELD_AMBIENT_CURRENT] = {MESH_STR_SETTINGS_FIELD_AMBIENT_CURRENT,
                                        MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_AMBIENT, 0U, NULL,
-                                       SCALE_PRESETS(k_led_current_presets), MESH_STR_NONE,
+                                       SCALE_PRESETS(k_led_current_presets), INKCELL_STR_NONE,
                                        format_milliamps, 0U,
                                        MESH_STR_SETTINGS_NOTE_AMBIENT_CURRENT},
     [MESH_UI_FIELD_AMBIENT_RED] = {MESH_STR_SETTINGS_FIELD_AMBIENT_RED, MESH_UI_SETTING_NUMBER,
                                    MESH_UI_SETTINGS_AMBIENT, 0U, NULL,
-                                   SCALE_PRESETS(k_led_level_presets), MESH_STR_NONE, format_level,
-                                   0U, MESH_STR_NONE},
+                                   SCALE_PRESETS(k_led_level_presets), INKCELL_STR_NONE,
+                                   format_level, 0U, INKCELL_STR_NONE},
     [MESH_UI_FIELD_AMBIENT_GREEN] = {MESH_STR_SETTINGS_FIELD_AMBIENT_GREEN, MESH_UI_SETTING_NUMBER,
                                      MESH_UI_SETTINGS_AMBIENT, 0U, NULL,
-                                     SCALE_PRESETS(k_led_level_presets), MESH_STR_NONE,
-                                     format_level, 0U, MESH_STR_NONE},
+                                     SCALE_PRESETS(k_led_level_presets), INKCELL_STR_NONE,
+                                     format_level, 0U, INKCELL_STR_NONE},
     [MESH_UI_FIELD_AMBIENT_BLUE] = {MESH_STR_SETTINGS_FIELD_AMBIENT_BLUE, MESH_UI_SETTING_NUMBER,
                                     MESH_UI_SETTINGS_AMBIENT, 0U, NULL,
-                                    SCALE_PRESETS(k_led_level_presets), MESH_STR_NONE, format_level,
-                                    0U, MESH_STR_NONE},
+                                    SCALE_PRESETS(k_led_level_presets), INKCELL_STR_NONE,
+                                    format_level, 0U, INKCELL_STR_NONE},
     [MESH_UI_FIELD_STATUS_TEXT] = {MESH_STR_SETTINGS_FIELD_STATUS_TEXT, MESH_UI_SETTING_TEXT,
                                    MESH_UI_SETTINGS_STATUS_MESSAGE, MESH_UI_TEXT_LIMIT_STATUS_TEXT,
-                                   NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U, MESH_STR_NONE},
+                                   NULL, NO_PRESETS, INKCELL_STR_NONE, NULL, 0U, INKCELL_STR_NONE},
     [MESH_UI_FIELD_DETECT_ENABLED] = {MESH_STR_SETTINGS_FIELD_DETECT_ENABLED,
                                       MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_DETECTION, 0U, NULL,
-                                      NO_PRESETS, MESH_STR_NONE, NULL, 0U, MESH_STR_NONE},
+                                      NO_PRESETS, INKCELL_STR_NONE, NULL, 0U, INKCELL_STR_NONE},
     [MESH_UI_FIELD_DETECT_NAME] = {MESH_STR_SETTINGS_FIELD_DETECT_NAME, MESH_UI_SETTING_TEXT,
                                    MESH_UI_SETTINGS_DETECTION, MESH_UI_TEXT_LIMIT_DETECT_NAME, NULL,
-                                   NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                   NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                    MESH_STR_SETTINGS_NOTE_DETECT_NAME},
     [MESH_UI_FIELD_DETECT_MIN_BROADCAST] = {MESH_STR_SETTINGS_FIELD_DETECT_MIN_BROADCAST,
                                             MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_DETECTION, 0U,
@@ -1864,83 +1887,87 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                                               MESH_STR_SETTINGS_NOTE_DETECT_STATE_BROADCAST},
     [MESH_UI_FIELD_DETECT_SEND_BELL] = {MESH_STR_SETTINGS_FIELD_DETECT_SEND_BELL,
                                         MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_DETECTION, 0U,
-                                        NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                        NULL, NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                         MESH_STR_SETTINGS_NOTE_DETECT_SEND_BELL},
     [MESH_UI_FIELD_DETECT_PIN] = {MESH_STR_SETTINGS_FIELD_DETECT_PIN, MESH_UI_SETTING_NUMBER,
                                   MESH_UI_SETTINGS_DETECTION, 0U, NULL,
-                                  NAMED_PRESETS(k_gpio_presets), MESH_STR_NONE, format_pin, 0U,
+                                  NAMED_PRESETS(k_gpio_presets), INKCELL_STR_NONE, format_pin, 0U,
                                   MESH_STR_SETTINGS_NOTE_DETECT_PIN},
     [MESH_UI_FIELD_DETECT_TRIGGER] = {MESH_STR_SETTINGS_FIELD_DETECT_TRIGGER, MESH_UI_SETTING_ENUM,
                                       MESH_UI_SETTINGS_DETECTION, 6U, trigger_name, NO_PRESETS,
-                                      MESH_STR_NONE, NULL, 0U,
+                                      INKCELL_STR_NONE, NULL, 0U,
                                       MESH_STR_SETTINGS_NOTE_DETECT_TRIGGER},
     [MESH_UI_FIELD_DETECT_PULLUP] = {MESH_STR_SETTINGS_FIELD_DETECT_PULLUP, MESH_UI_SETTING_TOGGLE,
                                      MESH_UI_SETTINGS_DETECTION, 0U, NULL, NO_PRESETS,
-                                     MESH_STR_NONE, NULL, 0U, MESH_STR_SETTINGS_NOTE_DETECT_PULLUP},
+                                     INKCELL_STR_NONE, NULL, 0U,
+                                     MESH_STR_SETTINGS_NOTE_DETECT_PULLUP},
     [MESH_UI_FIELD_EXTNOTIF_ENABLED] = {MESH_STR_SETTINGS_FIELD_EXTNOTIF_ENABLED,
                                         MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_EXT_NOTIFICATION,
-                                        0U, NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
-                                        MESH_STR_NONE},
+                                        0U, NULL, NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
+                                        INKCELL_STR_NONE},
     [MESH_UI_FIELD_EXTNOTIF_ACTIVE] = {MESH_STR_SETTINGS_FIELD_EXTNOTIF_ACTIVE,
                                        MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_EXT_NOTIFICATION,
-                                       0U, NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                       0U, NULL, NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                        MESH_STR_SETTINGS_NOTE_EXTNOTIF_ACTIVE},
     [MESH_UI_FIELD_EXTNOTIF_OUTPUT_MS] = {MESH_STR_SETTINGS_FIELD_EXTNOTIF_OUTPUT_MS,
                                           MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_EXT_NOTIFICATION,
                                           0U, NULL, SCALE_PRESETS(k_output_ms_presets),
-                                          MESH_STR_NONE, format_millis,
-                                          0U, MESH_STR_SETTINGS_NOTE_EXTNOTIF_OUTPUT_MS},
+                                          INKCELL_STR_NONE, format_millis, 0U,
+                                          MESH_STR_SETTINGS_NOTE_EXTNOTIF_OUTPUT_MS},
     [MESH_UI_FIELD_EXTNOTIF_NAG] = {MESH_STR_SETTINGS_FIELD_EXTNOTIF_NAG, MESH_UI_SETTING_NUMBER,
                                     MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL,
                                     SCALE_PRESETS(k_nag_presets), MESH_STR_ZERO_ONCE, NULL, 0U,
                                     MESH_STR_SETTINGS_NOTE_EXTNOTIF_NAG},
     [MESH_UI_FIELD_EXTNOTIF_PWM] = {MESH_STR_SETTINGS_FIELD_EXTNOTIF_PWM, MESH_UI_SETTING_TOGGLE,
                                     MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL, NO_PRESETS,
-                                    MESH_STR_NONE, NULL, 0U, MESH_STR_SETTINGS_NOTE_EXTNOTIF_PWM},
+                                    INKCELL_STR_NONE, NULL, 0U,
+                                    MESH_STR_SETTINGS_NOTE_EXTNOTIF_PWM},
     [MESH_UI_FIELD_EXTNOTIF_I2S] = {MESH_STR_SETTINGS_FIELD_EXTNOTIF_I2S, MESH_UI_SETTING_TOGGLE,
                                     MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL, NO_PRESETS,
-                                    MESH_STR_NONE, NULL, 0U, MESH_STR_SETTINGS_NOTE_EXTNOTIF_I2S},
+                                    INKCELL_STR_NONE, NULL, 0U,
+                                    MESH_STR_SETTINGS_NOTE_EXTNOTIF_I2S},
     /* The three output groups. Each row is named for what it is inside its group, the way the
        telemetry groups are, because the heading above it says which output it belongs to. */
     [MESH_UI_FIELD_EXTNOTIF_PIN] = {MESH_STR_SETTINGS_FIELD_EXTNOTIF_PIN, MESH_UI_SETTING_NUMBER,
                                     MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL,
-                                    NAMED_PRESETS(k_gpio_presets), MESH_STR_NONE, format_pin, 0U,
-                                    MESH_STR_NONE},
+                                    NAMED_PRESETS(k_gpio_presets), INKCELL_STR_NONE, format_pin, 0U,
+                                    INKCELL_STR_NONE},
     [MESH_UI_FIELD_EXTNOTIF_ALERT_MSG] = {MESH_STR_SETTINGS_FIELD_EXTNOTIF_ALERT_MSG,
                                           MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_EXT_NOTIFICATION,
-                                          0U, NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
-                                          MESH_STR_NONE},
+                                          0U, NULL, NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
+                                          INKCELL_STR_NONE},
     [MESH_UI_FIELD_EXTNOTIF_ALERT_BELL] = {MESH_STR_SETTINGS_FIELD_EXTNOTIF_ALERT_BELL,
                                            MESH_UI_SETTING_TOGGLE,
                                            MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL, NO_PRESETS,
-                                           MESH_STR_NONE, NULL, 0U, MESH_STR_NONE},
+                                           INKCELL_STR_NONE, NULL, 0U, INKCELL_STR_NONE},
     [MESH_UI_FIELD_EXTNOTIF_PIN_VIBRA] = {MESH_STR_SETTINGS_FIELD_EXTNOTIF_PIN_VIBRA,
                                           MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_EXT_NOTIFICATION,
-                                          0U, NULL, NAMED_PRESETS(k_gpio_presets), MESH_STR_NONE,
-                                          format_pin, 0U, MESH_STR_NONE},
+                                          0U, NULL, NAMED_PRESETS(k_gpio_presets), INKCELL_STR_NONE,
+                                          format_pin, 0U, INKCELL_STR_NONE},
     [MESH_UI_FIELD_EXTNOTIF_ALERT_MSG_VIBRA] = {MESH_STR_SETTINGS_FIELD_EXTNOTIF_ALERT_MSG_VIBRA,
                                                 MESH_UI_SETTING_TOGGLE,
                                                 MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL,
-                                                NO_PRESETS, MESH_STR_NONE, NULL, 0U, MESH_STR_NONE},
+                                                NO_PRESETS, INKCELL_STR_NONE, NULL,
+                                                0U, INKCELL_STR_NONE},
     [MESH_UI_FIELD_EXTNOTIF_ALERT_BELL_VIBRA] = {MESH_STR_SETTINGS_FIELD_EXTNOTIF_ALERT_BELL_VIBRA,
                                                  MESH_UI_SETTING_TOGGLE,
                                                  MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL,
-                                                 NO_PRESETS, MESH_STR_NONE, NULL, 0U,
-                                                 MESH_STR_NONE},
+                                                 NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
+                                                 INKCELL_STR_NONE},
     [MESH_UI_FIELD_EXTNOTIF_PIN_BUZZER] = {MESH_STR_SETTINGS_FIELD_EXTNOTIF_PIN_BUZZER,
                                            MESH_UI_SETTING_NUMBER,
                                            MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL,
-                                           NAMED_PRESETS(k_gpio_presets), MESH_STR_NONE, format_pin,
-                                           0U, MESH_STR_NONE},
+                                           NAMED_PRESETS(k_gpio_presets), INKCELL_STR_NONE,
+                                           format_pin, 0U, INKCELL_STR_NONE},
     [MESH_UI_FIELD_EXTNOTIF_ALERT_MSG_BUZZER] = {MESH_STR_SETTINGS_FIELD_EXTNOTIF_ALERT_MSG_BUZZER,
                                                  MESH_UI_SETTING_TOGGLE,
                                                  MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL,
-                                                 NO_PRESETS, MESH_STR_NONE, NULL, 0U,
-                                                 MESH_STR_NONE},
+                                                 NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
+                                                 INKCELL_STR_NONE},
     [MESH_UI_FIELD_EXTNOTIF_ALERT_BELL_BUZZER] =
         {MESH_STR_SETTINGS_FIELD_EXTNOTIF_ALERT_BELL_BUZZER, MESH_UI_SETTING_TOGGLE,
-         MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
-         MESH_STR_NONE},
+         MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL, NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
+         INKCELL_STR_NONE},
     [MESH_UI_FIELD_TRAFFIC_POSITION_INTERVAL] = {MESH_STR_SETTINGS_FIELD_TRAFFIC_POSITION_INTERVAL,
                                                  MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_TRAFFIC,
                                                  0U, NULL,
@@ -1970,71 +1997,74 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
     [MESH_UI_FIELD_SECURITY_SIGNATURE_POLICY] = {MESH_STR_SETTINGS_FIELD_SECURITY_SIGNATURE_POLICY,
                                                  MESH_UI_SETTING_ENUM, MESH_UI_SETTINGS_SECURITY,
                                                  3U, signature_policy_name, NO_PRESETS,
-                                                 MESH_STR_NONE, NULL, 0U,
+                                                 INKCELL_STR_NONE, NULL, 0U,
                                                  MESH_STR_SETTINGS_NOTE_SECURITY_SIGNATURE},
     [MESH_UI_FIELD_UI_THEME] = {MESH_STR_SETTINGS_FIELD_UI_THEME, MESH_UI_SETTING_ENUM,
                                 MESH_UI_SETTINGS_RADIO_UI, 3U, ui_theme_name, NO_PRESETS,
-                                MESH_STR_NONE, NULL, 0U, MESH_STR_NONE},
+                                INKCELL_STR_NONE, NULL, 0U, INKCELL_STR_NONE},
     [MESH_UI_FIELD_UI_BRIGHTNESS] = {MESH_STR_SETTINGS_FIELD_UI_BRIGHTNESS, MESH_UI_SETTING_NUMBER,
                                      MESH_UI_SETTINGS_RADIO_UI, 0U, NULL,
-                                     SCALE_PRESETS(k_ui_brightness_presets), MESH_STR_NONE,
-                                     format_plain, 0U, MESH_STR_NONE},
+                                     SCALE_PRESETS(k_ui_brightness_presets), INKCELL_STR_NONE,
+                                     format_plain, 0U, INKCELL_STR_NONE},
     [MESH_UI_FIELD_UI_SCREEN_TIMEOUT] = {MESH_STR_SETTINGS_FIELD_UI_SCREEN_TIMEOUT,
                                          MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_RADIO_UI, 0U,
                                          NULL, SCALE_PRESETS_AFTER_ZERO(k_ui_timeout_presets),
                                          MESH_STR_ZERO_NEVER, NULL, 0U,
                                          MESH_STR_SETTINGS_NOTE_UI_SCREEN_TIMEOUT},
     [MESH_UI_FIELD_UI_ALERT] = {MESH_STR_SETTINGS_FIELD_UI_ALERT, MESH_UI_SETTING_TOGGLE,
-                                MESH_UI_SETTINGS_RADIO_UI, 0U, NULL, NO_PRESETS, MESH_STR_NONE,
+                                MESH_UI_SETTINGS_RADIO_UI, 0U, NULL, NO_PRESETS, INKCELL_STR_NONE,
                                 NULL, 0U, MESH_STR_SETTINGS_NOTE_UI_ALERT},
     [MESH_UI_FIELD_UI_BANNER] = {MESH_STR_SETTINGS_FIELD_UI_BANNER, MESH_UI_SETTING_TOGGLE,
-                                 MESH_UI_SETTINGS_RADIO_UI, 0U, NULL, NO_PRESETS, MESH_STR_NONE,
+                                 MESH_UI_SETTINGS_RADIO_UI, 0U, NULL, NO_PRESETS, INKCELL_STR_NONE,
                                  NULL, 0U, MESH_STR_SETTINGS_NOTE_UI_BANNER},
     [MESH_UI_FIELD_UI_RING_TONE] = {MESH_STR_SETTINGS_FIELD_UI_RING_TONE, MESH_UI_SETTING_NUMBER,
                                     MESH_UI_SETTINGS_RADIO_UI, 0U, NULL,
-                                    NAMED_PRESETS(k_ui_ringtone_presets), MESH_STR_NONE,
+                                    NAMED_PRESETS(k_ui_ringtone_presets), INKCELL_STR_NONE,
                                     format_plain, 0U, MESH_STR_SETTINGS_NOTE_UI_RING_TONE},
     [MESH_UI_FIELD_UI_COMPASS_MODE] = {MESH_STR_SETTINGS_FIELD_UI_COMPASS_MODE,
                                        MESH_UI_SETTING_ENUM, MESH_UI_SETTINGS_RADIO_UI, 3U,
-                                       ui_compass_name, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                       ui_compass_name, NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                        MESH_STR_SETTINGS_NOTE_UI_COMPASS_MODE},
     [MESH_UI_FIELD_UI_GPS_FORMAT] = {MESH_STR_SETTINGS_FIELD_UI_GPS_FORMAT, MESH_UI_SETTING_ENUM,
                                      MESH_UI_SETTINGS_RADIO_UI, 7U, ui_gps_format_name, NO_PRESETS,
-                                     MESH_STR_NONE, NULL, 0U, MESH_STR_SETTINGS_NOTE_UI_GPS_FORMAT},
+                                     INKCELL_STR_NONE, NULL, 0U,
+                                     MESH_STR_SETTINGS_NOTE_UI_GPS_FORMAT},
     [MESH_UI_FIELD_UI_CLOCKFACE] = {MESH_STR_SETTINGS_FIELD_UI_CLOCKFACE, MESH_UI_SETTING_ENUM,
                                     MESH_UI_SETTINGS_RADIO_UI, 2U, ui_clockface_name, NO_PRESETS,
-                                    MESH_STR_NONE, NULL, 0U, MESH_STR_SETTINGS_NOTE_UI_CLOCKFACE},
+                                    INKCELL_STR_NONE, NULL, 0U,
+                                    MESH_STR_SETTINGS_NOTE_UI_CLOCKFACE},
     /* The per-slot cap, not the wire's 200: see MESH_UI_CANNED_SLOTS for why the count and
        the length are chosen together. The keyboard reads `limit` as the number of bytes it may
        commit. */
     [MESH_UI_FIELD_CANNED_0] = {MESH_STR_SETTINGS_FIELD_CANNED_0, MESH_UI_SETTING_TEXT,
                                 MESH_UI_SETTINGS_CANNED, MESH_UI_TEXT_LIMIT_CANNED_0, NULL,
-                                NO_PRESETS, MESH_STR_NONE, NULL, 0U, MESH_STR_NONE},
+                                NO_PRESETS, INKCELL_STR_NONE, NULL, 0U, INKCELL_STR_NONE},
     [MESH_UI_FIELD_CANNED_1] = {MESH_STR_SETTINGS_FIELD_CANNED_1, MESH_UI_SETTING_TEXT,
                                 MESH_UI_SETTINGS_CANNED, MESH_UI_TEXT_LIMIT_CANNED_1, NULL,
-                                NO_PRESETS, MESH_STR_NONE, NULL, 0U, MESH_STR_NONE},
+                                NO_PRESETS, INKCELL_STR_NONE, NULL, 0U, INKCELL_STR_NONE},
     [MESH_UI_FIELD_CANNED_2] = {MESH_STR_SETTINGS_FIELD_CANNED_2, MESH_UI_SETTING_TEXT,
                                 MESH_UI_SETTINGS_CANNED, MESH_UI_TEXT_LIMIT_CANNED_2, NULL,
-                                NO_PRESETS, MESH_STR_NONE, NULL, 0U, MESH_STR_NONE},
+                                NO_PRESETS, INKCELL_STR_NONE, NULL, 0U, INKCELL_STR_NONE},
     [MESH_UI_FIELD_CANNED_3] = {MESH_STR_SETTINGS_FIELD_CANNED_3, MESH_UI_SETTING_TEXT,
                                 MESH_UI_SETTINGS_CANNED, MESH_UI_TEXT_LIMIT_CANNED_3, NULL,
-                                NO_PRESETS, MESH_STR_NONE, NULL, 0U, MESH_STR_NONE},
+                                NO_PRESETS, INKCELL_STR_NONE, NULL, 0U, INKCELL_STR_NONE},
     [MESH_UI_FIELD_CANNED_4] = {MESH_STR_SETTINGS_FIELD_CANNED_4, MESH_UI_SETTING_TEXT,
                                 MESH_UI_SETTINGS_CANNED, MESH_UI_TEXT_LIMIT_CANNED_4, NULL,
-                                NO_PRESETS, MESH_STR_NONE, NULL, 0U, MESH_STR_NONE},
+                                NO_PRESETS, INKCELL_STR_NONE, NULL, 0U, INKCELL_STR_NONE},
     [MESH_UI_FIELD_CANNED_5] = {MESH_STR_SETTINGS_FIELD_CANNED_5, MESH_UI_SETTING_TEXT,
                                 MESH_UI_SETTINGS_CANNED, MESH_UI_TEXT_LIMIT_CANNED_5, NULL,
-                                NO_PRESETS, MESH_STR_NONE, NULL, 0U, MESH_STR_NONE},
+                                NO_PRESETS, INKCELL_STR_NONE, NULL, 0U, INKCELL_STR_NONE},
     [MESH_UI_FIELD_BEACON_LISTEN] = {MESH_STR_SETTINGS_FIELD_BEACON_LISTEN, MESH_UI_SETTING_FLAG,
                                      MESH_UI_SETTINGS_BEACON, 0x0001U, NULL, NO_PRESETS,
-                                     MESH_STR_NONE, NULL, 0U, MESH_STR_SETTINGS_NOTE_BEACON_LISTEN},
+                                     INKCELL_STR_NONE, NULL, 0U,
+                                     MESH_STR_SETTINGS_NOTE_BEACON_LISTEN},
     [MESH_UI_FIELD_BEACON_BROADCAST] = {MESH_STR_SETTINGS_FIELD_BEACON_BROADCAST,
                                         MESH_UI_SETTING_FLAG, MESH_UI_SETTINGS_BEACON, 0x0002U,
-                                        NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                        NULL, NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                         MESH_STR_SETTINGS_NOTE_BEACON_BROADCAST},
     [MESH_UI_FIELD_BEACON_LEGACY_SPLIT] = {MESH_STR_SETTINGS_FIELD_BEACON_LEGACY_SPLIT,
                                            MESH_UI_SETTING_FLAG, MESH_UI_SETTINGS_BEACON, 0x0004U,
-                                           NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                           NULL, NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                            MESH_STR_SETTINGS_NOTE_BEACON_LEGACY_SPLIT},
     [MESH_UI_FIELD_BEACON_INTERVAL] = {MESH_STR_SETTINGS_FIELD_BEACON_INTERVAL,
                                        MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_BEACON, 0U, NULL,
@@ -2043,28 +2073,28 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                                        MESH_STR_SETTINGS_NOTE_BEACON_INTERVAL},
     [MESH_UI_FIELD_BEACON_MESSAGE] = {MESH_STR_SETTINGS_FIELD_BEACON_MESSAGE, MESH_UI_SETTING_TEXT,
                                       MESH_UI_SETTINGS_BEACON, MESH_UI_TEXT_LIMIT_BEACON_MESSAGE,
-                                      NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                      NULL, NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                       MESH_STR_SETTINGS_NOTE_BEACON_MESSAGE},
     [MESH_UI_FIELD_BEACON_OFFER_NAME] = {MESH_STR_SETTINGS_FIELD_BEACON_OFFER_NAME,
                                          MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_BEACON,
                                          MESH_UI_TEXT_LIMIT_BEACON_OFFER_NAME, NULL, NO_PRESETS,
-                                         MESH_STR_NONE, NULL, 0U,
+                                         INKCELL_STR_NONE, NULL, 0U,
                                          MESH_STR_SETTINGS_NOTE_BEACON_OFFER_NAME},
     /* The offered key takes the channel row's choices whole: it is a ChannelSettings.psk, and
        every way there is of filling one in is a way of filling this one in. */
     [MESH_UI_FIELD_BEACON_OFFER_KEY] = {MESH_STR_SETTINGS_FIELD_BEACON_OFFER_KEY,
                                         MESH_UI_SETTING_KEY, MESH_UI_SETTINGS_BEACON,
                                         MESH_UI_TEXT_LIMIT_BEACON_OFFER_KEY, NULL, NO_PRESETS,
-                                        MESH_STR_NONE, NULL, CHANNEL_KEY_CHOICES,
+                                        INKCELL_STR_NONE, NULL, CHANNEL_KEY_CHOICES,
                                         MESH_STR_SETTINGS_NOTE_BEACON_OFFER_KEY},
     [MESH_UI_FIELD_BEACON_OFFER_REGION] = {MESH_STR_SETTINGS_FIELD_BEACON_OFFER_REGION,
                                            MESH_UI_SETTING_ENUM, MESH_UI_SETTINGS_BEACON, 38U,
-                                           beacon_offer_region_name, NO_PRESETS, MESH_STR_NONE,
+                                           beacon_offer_region_name, NO_PRESETS, INKCELL_STR_NONE,
                                            NULL, 0U, MESH_STR_SETTINGS_NOTE_BEACON_OFFER_REGION},
     [MESH_UI_FIELD_BEACON_OFFER_PRESET] = {MESH_STR_SETTINGS_FIELD_BEACON_OFFER_PRESET,
                                            MESH_UI_SETTING_ENUM, MESH_UI_SETTINGS_BEACON,
                                            BEACON_PRESET_VALUES, beacon_offer_preset_name,
-                                           NO_PRESETS, MESH_STR_NONE, NULL, 0U,
+                                           NO_PRESETS, INKCELL_STR_NONE, NULL, 0U,
                                            MESH_STR_SETTINGS_NOTE_BEACON_OFFER_PRESET},
     BEACON_TARGET_ROWS(0),
     BEACON_TARGET_ROWS(1),
@@ -2144,10 +2174,10 @@ const struct field_spec *field_spec(enum mesh_ui_setting_field field) {
 }
 
 const char *mesh_ui_settings_field_label(enum mesh_ui_setting_field field) {
-    return mesh_str(field_spec(field)->label);
+    return inkcell_str(field_spec(field)->label);
 }
 
-enum mesh_str_id mesh_ui_settings_field_label_id(enum mesh_ui_setting_field field) {
+enum inkcell_str_id mesh_ui_settings_field_label_id(enum mesh_ui_setting_field field) {
     return field_spec(field)->label;
 }
 
@@ -2175,7 +2205,7 @@ bool mesh_ui_settings_section_has_fields(enum mesh_ui_settings_section section) 
     return false;
 }
 
-enum mesh_str_id mesh_ui_settings_field_note(enum mesh_ui_setting_field field) {
+enum inkcell_str_id mesh_ui_settings_field_note(enum mesh_ui_setting_field field) {
     return field_spec(field)->note;
 }
 
@@ -2227,7 +2257,7 @@ uint32_t mesh_ui_settings_enum_count(enum mesh_ui_setting_field field) {
 const char *mesh_ui_settings_enum_name(enum mesh_ui_setting_field field, uint32_t value) {
     const struct field_spec *spec = field_spec(field);
     if (spec->kind != MESH_UI_SETTING_ENUM || spec->enum_name == NULL) {
-        return mesh_str(MESH_STR_COMMON_UNKNOWN_SHORT);
+        return inkcell_str(INKCELL_STR_COMMON_UNKNOWN_SHORT);
     }
     return spec->enum_name(value);
 }
@@ -2310,7 +2340,7 @@ bool mesh_ui_settings_number_track(enum mesh_ui_setting_field field, uint32_t va
          */
         track.unplaced = true;
     } else if (value >= stops[last]) {
-        track.position = MESH_UI_ANIM_ONE;
+        track.position = INKCELL_ANIM_ONE;
     } else if (value > stops[0]) {
         size_t i = 0U;
         while (i < last && stops[i + 1U] <= value) {
@@ -2321,8 +2351,8 @@ bool mesh_ui_settings_number_track(enum mesh_ui_setting_field field, uint32_t va
            holding a repeat would divide by it, and the stop is the honest answer for that. */
         const uint32_t span = stops[i + 1U] - stops[i];
         const uint64_t within =
-            span > 0U ? ((uint64_t)(value - stops[i]) * MESH_UI_ANIM_ONE) / span : 0U;
-        track.position = (int32_t)(((uint64_t)i * MESH_UI_ANIM_ONE + within) / last);
+            span > 0U ? ((uint64_t)(value - stops[i]) * INKCELL_ANIM_ONE) / span : 0U;
+        track.position = (int32_t)(((uint64_t)i * INKCELL_ANIM_ONE + within) / last);
     }
     if (out != NULL) {
         *out = track;
@@ -2537,102 +2567,102 @@ void mesh_ui_settings_confirm_title(enum mesh_ui_settings_section section, uint8
     }
     switch (action) {
     case MESH_UI_SETTINGS_ACTION_REBOOT:
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TITLE_REBOOT));
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TITLE_REBOOT));
         return;
     case MESH_UI_SETTINGS_ACTION_SHUTDOWN:
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TITLE_SHUTDOWN));
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TITLE_SHUTDOWN));
         return;
     case MESH_UI_SETTINGS_ACTION_RESET_NODEDB:
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TITLE_RESET_DB));
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TITLE_RESET_DB));
         return;
     case MESH_UI_SETTINGS_ACTION_FORGET_OFF_RADIO_NODES:
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TITLE_FORGET_OFF));
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TITLE_FORGET_OFF));
         return;
     case MESH_UI_SETTINGS_ACTION_FORGET_ALL_NODES:
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TITLE_FORGET_ALL));
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TITLE_FORGET_ALL));
         return;
     case MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG:
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TITLE_FACTORY_CFG));
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TITLE_FACTORY_CFG));
         return;
     case MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE:
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TITLE_FACTORY_DEV));
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TITLE_FACTORY_DEV));
         return;
     case MESH_UI_SETTINGS_ACTION_BACKUP_CONFIG:
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TITLE_BACKUP));
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TITLE_BACKUP));
         return;
     case MESH_UI_SETTINGS_ACTION_RESTORE_CONFIG:
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TITLE_RESTORE));
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TITLE_RESTORE));
         return;
     case MESH_UI_SETTINGS_ACTION_REMOVE_BACKUP:
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TITLE_RM_BACKUP));
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TITLE_RM_BACKUP));
         return;
     case MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB:
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TITLE_FW_USB));
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TITLE_FW_USB));
         return;
     case MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE:
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TITLE_FW_BLE));
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TITLE_FW_BLE));
         return;
     case MESH_UI_SETTINGS_ACTION_SET_HAM_MODE:
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TITLE_HAM_MODE));
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TITLE_HAM_MODE));
         return;
     /* The one verb in this switch that names a slot, which is why it is here rather than above:
        a sheet that asked "clear the channel?" over a list of eight would be asking about
        whichever one the reader had in mind. */
     case MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL:
-        mesh_str_format(out, out_len, MESH_STR_CONFIRM_TITLE_CLEAR_CHAN, (unsigned)channel);
+        inkcell_str_format(out, out_len, MESH_STR_CONFIRM_TITLE_CLEAR_CHAN, (unsigned)channel);
         return;
     default:
         break;
     }
     if (section == MESH_UI_SETTINGS_CHANNELS && channel != MESH_UI_SETTINGS_NO_CHANNEL) {
-        mesh_str_format(out, out_len, MESH_STR_CONFIRM_TITLE_SAVE_CHANNEL, (unsigned)channel);
+        inkcell_str_format(out, out_len, MESH_STR_CONFIRM_TITLE_SAVE_CHANNEL, (unsigned)channel);
         return;
     }
-    mesh_str_format(out, out_len, MESH_STR_CONFIRM_TITLE_SAVE,
-                    mesh_ui_settings_section_name(section));
+    inkcell_str_format(out, out_len, MESH_STR_CONFIRM_TITLE_SAVE,
+                       mesh_ui_settings_section_name(section));
 }
 
 const char *mesh_ui_settings_confirm_accept(enum mesh_ui_settings_action action) {
     switch (action) {
     case MESH_UI_SETTINGS_ACTION_REBOOT:
-        return mesh_str(MESH_STR_CONFIRM_ACCEPT_REBOOT);
+        return inkcell_str(MESH_STR_CONFIRM_ACCEPT_REBOOT);
     case MESH_UI_SETTINGS_ACTION_SHUTDOWN:
-        return mesh_str(MESH_STR_CONFIRM_ACCEPT_SHUTDOWN);
+        return inkcell_str(MESH_STR_CONFIRM_ACCEPT_SHUTDOWN);
     case MESH_UI_SETTINGS_ACTION_RESET_NODEDB:
-        return mesh_str(MESH_STR_CONFIRM_ACCEPT_RESET_DB);
+        return inkcell_str(MESH_STR_CONFIRM_ACCEPT_RESET_DB);
     case MESH_UI_SETTINGS_ACTION_FORGET_OFF_RADIO_NODES:
-        return mesh_str(MESH_STR_CONFIRM_ACCEPT_FORGET_OFF);
+        return inkcell_str(MESH_STR_CONFIRM_ACCEPT_FORGET_OFF);
     case MESH_UI_SETTINGS_ACTION_FORGET_ALL_NODES:
-        return mesh_str(MESH_STR_CONFIRM_ACCEPT_FORGET_ALL);
+        return inkcell_str(MESH_STR_CONFIRM_ACCEPT_FORGET_ALL);
     case MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG:
-        return mesh_str(MESH_STR_CONFIRM_ACCEPT_FACTORY_CFG);
+        return inkcell_str(MESH_STR_CONFIRM_ACCEPT_FACTORY_CFG);
     case MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE:
-        return mesh_str(MESH_STR_CONFIRM_ACCEPT_FACTORY_DEV);
+        return inkcell_str(MESH_STR_CONFIRM_ACCEPT_FACTORY_DEV);
     case MESH_UI_SETTINGS_ACTION_BACKUP_CONFIG:
-        return mesh_str(MESH_STR_CONFIRM_ACCEPT_BACKUP);
+        return inkcell_str(MESH_STR_CONFIRM_ACCEPT_BACKUP);
     case MESH_UI_SETTINGS_ACTION_RESTORE_CONFIG:
-        return mesh_str(MESH_STR_CONFIRM_ACCEPT_RESTORE);
+        return inkcell_str(MESH_STR_CONFIRM_ACCEPT_RESTORE);
     case MESH_UI_SETTINGS_ACTION_REMOVE_BACKUP:
-        return mesh_str(MESH_STR_CONFIRM_ACCEPT_RM_BACKUP);
+        return inkcell_str(MESH_STR_CONFIRM_ACCEPT_RM_BACKUP);
     case MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB:
-        return mesh_str(MESH_STR_CONFIRM_ACCEPT_FW_USB);
+        return inkcell_str(MESH_STR_CONFIRM_ACCEPT_FW_USB);
     case MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE:
-        return mesh_str(MESH_STR_CONFIRM_ACCEPT_FW_BLE);
+        return inkcell_str(MESH_STR_CONFIRM_ACCEPT_FW_BLE);
     case MESH_UI_SETTINGS_ACTION_SET_HAM_MODE:
-        return mesh_str(MESH_STR_CONFIRM_ACCEPT_HAM_MODE);
+        return inkcell_str(MESH_STR_CONFIRM_ACCEPT_HAM_MODE);
     /* "Clear the slot", not "Save": what stands behind this sheet is a write like any other,
        but agreeing to a save is not what the reader is being asked. */
     case MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL:
-        return mesh_str(MESH_STR_CONFIRM_ACCEPT_CLEAR_CHAN);
+        return inkcell_str(MESH_STR_CONFIRM_ACCEPT_CLEAR_CHAN);
     /* "Join", not "Import": what the user is agreeing to is being on somebody else's mesh, and
        the word for the file operation says nothing about that. */
     case MESH_UI_SETTINGS_ACTION_IMPORT_CHANNELS:
-        return mesh_str(MESH_STR_CONFIRM_ACCEPT_IMPORT);
+        return inkcell_str(MESH_STR_CONFIRM_ACCEPT_IMPORT);
     /* "Add", not "Import": what the press does is put one node in a list. */
     case MESH_UI_SETTINGS_ACTION_IMPORT_CONTACT:
-        return mesh_str(MESH_STR_CONFIRM_ACCEPT_ADD_CONTACT);
+        return inkcell_str(MESH_STR_CONFIRM_ACCEPT_ADD_CONTACT);
     default:
-        return mesh_str(MESH_STR_CONFIRM_ACCEPT_SAVE);
+        return inkcell_str(MESH_STR_CONFIRM_ACCEPT_SAVE);
     }
 }
 
@@ -2653,8 +2683,8 @@ void mesh_ui_settings_confirm_add_subject(const struct mesh_ui_settings *setting
     if (at >= text_len) {
         return;
     }
-    mesh_str_format(text + at, text_len - at, MESH_STR_CONFIRM_TEXT_REMOTE,
-                    settings->admin_dest_name);
+    inkcell_str_format(text + at, text_len - at, MESH_STR_CONFIRM_TEXT_REMOTE,
+                       settings->admin_dest_name);
 }
 
 void mesh_ui_settings_confirm_text(enum mesh_ui_settings_section section,
@@ -2670,78 +2700,78 @@ void mesh_ui_settings_confirm_text(enum mesh_ui_settings_section section,
      */
     switch (action) {
     case MESH_UI_SETTINGS_ACTION_REBOOT:
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TEXT_REBOOT));
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_REBOOT));
         return;
     case MESH_UI_SETTINGS_ACTION_SHUTDOWN:
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TEXT_SHUTDOWN));
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_SHUTDOWN));
         return;
     /* Four wrapped lines is what the sheet draws, so each of these stops inside it: a warning
        whose last clause is cut off is worse than a shorter one. */
     case MESH_UI_SETTINGS_ACTION_RESET_NODEDB:
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TEXT_RESET_DB));
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_RESET_DB));
         return;
     case MESH_UI_SETTINGS_ACTION_FORGET_OFF_RADIO_NODES:
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TEXT_FORGET_OFF));
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_FORGET_OFF));
         return;
     case MESH_UI_SETTINGS_ACTION_FORGET_ALL_NODES:
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TEXT_FORGET_ALL));
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_FORGET_ALL));
         return;
     case MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG:
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TEXT_FACTORY_CFG));
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_FACTORY_CFG));
         return;
     case MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE:
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TEXT_FACTORY_DEV));
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_FACTORY_DEV));
         return;
     case MESH_UI_SETTINGS_ACTION_BACKUP_CONFIG:
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TEXT_BACKUP));
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_BACKUP));
         return;
     case MESH_UI_SETTINGS_ACTION_RESTORE_CONFIG:
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TEXT_RESTORE));
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_RESTORE));
         return;
     /* The two that are not about settings at all. Each says what is actually true of its own
        bus, which is the whole reason there are two: an interrupted USB write leaves a
        bootloader anything can talk to, and an interrupted OTA leaves a radio off the mesh. */
     case MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB:
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TEXT_FW_USB));
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_FW_USB));
         return;
     case MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE:
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TEXT_FW_BLE));
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_FW_BLE));
         return;
     case MESH_UI_SETTINGS_ACTION_REMOVE_BACKUP:
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TEXT_RM_BACKUP));
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_RM_BACKUP));
         return;
     /* The one sheet here that is neither a reset nor an install: what it costs is the mesh the
        radio is on, because amateur rules require the encryption it turns off. */
     case MESH_UI_SETTINGS_ACTION_SET_HAM_MODE:
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TEXT_HAM_MODE));
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_HAM_MODE));
         return;
     /* Answered here rather than by the Channels arm below, which is a save's sheet and says
        the link may drop. That is true of this write too and is not what the reader needs from
        it: the link comes back and the key does not. */
     case MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL:
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TEXT_CLEAR_CHAN));
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_CLEAR_CHAN));
         return;
     default:
         break;
     }
     switch (section) {
     case MESH_UI_SETTINGS_BLUETOOTH:
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TEXT_BLUETOOTH));
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_BLUETOOTH));
         break;
     case MESH_UI_SETTINGS_CHANNELS:
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TEXT_CHANNELS));
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_CHANNELS));
         break;
     case MESH_UI_SETTINGS_LORA:
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TEXT_LORA));
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_LORA));
         break;
     case MESH_UI_SETTINGS_SECURITY:
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TEXT_SECURITY));
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_SECURITY));
         break;
     case MESH_UI_SETTINGS_POWER:
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TEXT_POWER));
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_POWER));
         break;
     default:
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TEXT_DEFAULT));
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_DEFAULT));
         break;
     }
 }

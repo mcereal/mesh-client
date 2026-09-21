@@ -2,6 +2,9 @@
 
 /* The settings model itself: rows, edits, key text, coordinates, About. */
 
+#include "inkcell/ui/layout.h"
+#include "inkcell/utils/text.h"
+
 #include "framework/mesh_test.h"
 #include "support/ui_fixture.h"
 
@@ -11,12 +14,10 @@
 /* For enum mesh_traceroute_state, which the UI's traceroute carries as a byte. */
 #include "mesh/core/session.h"
 #include "mesh/core/updater.h"
-#include "mesh/ui/layout.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/node_detail.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
-#include "mesh/utils/text.h"
 
 #include "meshtastic/config.pb.h"
 #include "meshtastic/mesh.pb.h"
@@ -373,18 +374,18 @@ static void settings_mark_all_present(struct mesh_ui_settings *settings) {
  * bisect rather than a failure message.
  */
 MESH_TEST_CASE(ui_settings_labels_fit_the_row_in_every_language, unit) {
-    for (size_t l = 0; l < mesh_i18n_locale_count(); ++l) {
-        const struct mesh_i18n_locale *locale = mesh_i18n_locale_at(l);
+    for (size_t l = 0; l < inkcell_i18n_locale_count(); ++l) {
+        const struct inkcell_i18n_locale *locale = inkcell_i18n_locale_at(l);
         if (locale == NULL) {
             continue;
         }
         for (int id = 0; id < (int)MESH_STR_COUNT; ++id) {
-            const char *name = mesh_str_id_name((enum mesh_str_id)id);
+            const char *name = inkcell_str_id_name((enum inkcell_str_id)id);
             if (name == NULL ||
                 (strncmp(name, "SETTINGS_FIELD_", 15) != 0 && strncmp(name, "HEAD_", 5) != 0)) {
                 continue;
             }
-            const char *text = mesh_str_in(locale, (enum mesh_str_id)id);
+            const char *text = inkcell_str_in(locale, (enum inkcell_str_id)id);
             if (text == NULL || strlen(text) < MESH_UI_SETTINGS_LABEL_MAX) {
                 continue;
             }
@@ -498,7 +499,7 @@ MESH_TEST_CASE(ui_settings_position_flag_rows, unit) {
         if (mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_POSITION,
                                   MESH_UI_SETTINGS_NO_CHANNEL, row, &item) &&
             item.kind == MESH_UI_SETTING_HEADING &&
-            strcmp(item.label, mesh_str(MESH_STR_HEAD_POSITION_CARRIES)) == 0) {
+            strcmp(item.label, inkcell_str(MESH_STR_HEAD_POSITION_CARRIES)) == 0) {
             heading_row = row;
             break;
         }
@@ -615,8 +616,8 @@ MESH_TEST_CASE(ui_settings_beacon_rows, unit) {
     uint32_t target_rows = 0U;
     bool saw_broadcast_on = false;
     bool saw_named_channel = false;
-    const char *const absent_target = mesh_str(MESH_STR_ENUM_BEACON_AS_RUNNING);
-    const char *const absent_offer = mesh_str(MESH_STR_ENUM_BEACON_NOT_OFFERED);
+    const char *const absent_target = inkcell_str(MESH_STR_ENUM_BEACON_AS_RUNNING);
+    const char *const absent_offer = inkcell_str(MESH_STR_ENUM_BEACON_NOT_OFFERED);
     for (uint32_t row = 0; row < rows; ++row) {
         struct mesh_ui_settings_item item;
         MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_BEACON,
@@ -624,8 +625,8 @@ MESH_TEST_CASE(ui_settings_beacon_rows, unit) {
                           "a beacon row is missing");
         if (item.kind == MESH_UI_SETTING_HEADING) {
             char expect[MESH_UI_SETTINGS_LABEL_MAX];
-            mesh_str_format(expect, sizeof expect, MESH_STR_HEAD_BEACON_TARGET,
-                            (unsigned)(headings + 1U));
+            inkcell_str_format(expect, sizeof expect, MESH_STR_HEAD_BEACON_TARGET,
+                               (unsigned)(headings + 1U));
             if (strcmp(item.label, expect) == 0) {
                 headings++;
             }
@@ -838,10 +839,11 @@ MESH_TEST_CASE(ui_settings_section_availability, unit) {
                 MESH_UI_SETTINGS_SECTION_WAITING,
         "an excluded module should not read as one that has not arrived yet");
     MESH_TEST_FAIL_IF(
-        strcmp(mesh_str(mesh_ui_settings_availability_label(MESH_UI_SETTINGS_SECTION_EXCLUDED)),
+        strcmp(inkcell_str(mesh_ui_settings_availability_label(MESH_UI_SETTINGS_SECTION_EXCLUDED)),
                "not in firmware") != 0 ||
-            strcmp(mesh_str(mesh_ui_settings_availability_label(MESH_UI_SETTINGS_SECTION_WAITING)),
-                   "not loaded") != 0 ||
+            strcmp(
+                inkcell_str(mesh_ui_settings_availability_label(MESH_UI_SETTINGS_SECTION_WAITING)),
+                "not loaded") != 0 ||
             mesh_ui_settings_availability_reason(MESH_UI_SETTINGS_SECTION_EXCLUDED) ==
                 mesh_ui_settings_availability_reason(MESH_UI_SETTINGS_SECTION_WAITING),
         "the two empty sections should not read the same, in a row or on the screen behind it");
@@ -1240,7 +1242,7 @@ MESH_TEST_CASE(ui_settings_confirm_fits, unit) {
         MESH_TEST_FAIL_IF(!mesh_ui_settings_action_needs_confirm(actions[i]),
                           "an action in the confirm list does not ask first");
         mesh_ui_settings_confirm_text(MESH_UI_SETTINGS_ACTIONS, actions[i], text, sizeof text);
-        const uint32_t lines = mesh_ui_wrap_lines(text, 38U);
+        const uint32_t lines = inkcell_wrap_lines(text, 38U);
         snprintf(message, sizeof message, "action %u needs %u lines and the sheet draws 4",
                  (unsigned)actions[i], lines);
         MESH_TEST_FAIL_IF(lines > 4U, message);
@@ -1384,21 +1386,21 @@ MESH_TEST_CASE(ui_node_detail_items, unit) {
     for (uint32_t i = 0; i < verb_count; ++i) {
         MESH_TEST_FAIL_IF(verbs[i].kind != MESH_UI_NODE_ROW_ACTION,
                           "the sheet is verbs and nothing else - no headings, no facts");
-        MESH_TEST_FAIL_IF(verbs[i].icon == MESH_UI_ICON_NONE,
+        MESH_TEST_FAIL_IF(verbs[i].icon == INKCELL_ICON_NONE,
                           "every action row should name an icon");
         if (verbs[i].action == MESH_UI_NODE_ACTION_REMOVE) {
-            MESH_TEST_FAIL_IF(verbs[i].tone != MESH_UI_TONE_ERROR,
+            MESH_TEST_FAIL_IF(verbs[i].tone != INKCELL_TONE_ERROR,
                               "removing a node should be drawn in the error family");
         } else if (verbs[i].action == MESH_UI_NODE_ACTION_IGNORE) {
-            MESH_TEST_FAIL_IF(verbs[i].tone != MESH_UI_TONE_WARNING,
+            MESH_TEST_FAIL_IF(verbs[i].tone != INKCELL_TONE_WARNING,
                               "ignoring a node should be drawn in the warning family");
         } else {
             /* And everything else is the ordinary ink, which is the half of that statement the
                table used to get wrong: eleven verbs in the accent is not eleven emphases, it is
                a card with none - and the two rows above cannot be the exception if they are not
                the exception. The accent is on these rows still, in the disc at the leading edge
-               (FB_LEADING_TONAL), which is a colour the words are not competing with. */
-            MESH_TEST_FAIL_IF(verbs[i].tone != MESH_UI_TONE_NORMAL,
+               (INKCELL_FB_LEADING_TONAL), which is a colour the words are not competing with. */
+            MESH_TEST_FAIL_IF(verbs[i].tone != INKCELL_TONE_NORMAL,
                               "an ordinary verb should draw in the ordinary ink");
         }
         /* The three flags are controls rather than errands, and each carries its state as a
@@ -1539,7 +1541,7 @@ MESH_TEST_CASE(node_detail_states_are_chips, unit) {
             via_chip = item->chip;
             /* Over the air is the ordinary answer and takes the neutral tone, which is what
                draws the quiet outlined capsule rather than a filled one. */
-            MESH_TEST_FAIL_IF(item->tone != (uint8_t)MESH_UI_TONE_NORMAL,
+            MESH_TEST_FAIL_IF(item->tone != (uint8_t)INKCELL_TONE_NORMAL,
                               "a node heard over the air is in no particular state");
         }
         /* The readings this node reports carry no capsule, and neither does anything it chose
@@ -1563,10 +1565,10 @@ MESH_TEST_CASE(node_detail_states_are_chips, unit) {
     bool nodedb_ok = false;
     for (uint32_t i = 0; i < count; ++i) {
         if (strcmp(items[i].label, "Heard via") == 0) {
-            mqtt_ok = items[i].chip && items[i].tone == (uint8_t)MESH_UI_TONE_TERTIARY;
+            mqtt_ok = items[i].chip && items[i].tone == (uint8_t)INKCELL_TONE_TERTIARY;
         }
         if (strcmp(items[i].label, "NodeDB") == 0) {
-            nodedb_ok = items[i].chip && items[i].tone == (uint8_t)MESH_UI_TONE_WARNING;
+            nodedb_ok = items[i].chip && items[i].tone == (uint8_t)INKCELL_TONE_WARNING;
         }
     }
     MESH_TEST_FAIL_IF(!mqtt_ok, "a node reaching us over MQTT should say so in a tone of its own");
@@ -1705,7 +1707,7 @@ MESH_TEST_CASE(ui_settings_about, unit) {
         failure = "Settings should open with the cursor on About";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (store.nav.settings_section != MESH_UI_SETTINGS_ABOUT) {
         failure = "A should open About";
         goto cleanup;
@@ -1740,9 +1742,9 @@ MESH_TEST_CASE(ui_settings_about, unit) {
         goto cleanup;
     }
     for (uint32_t i = 0; i < check_row; ++i) {
-        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+        mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (action.type != MESH_UI_ACTION_CHECK_UPDATE) {
         failure = "A on the check row should ask the app to check";
         goto cleanup;
@@ -1780,12 +1782,12 @@ MESH_TEST_CASE(ui_settings_about, unit) {
     /* Back to the top - an earlier case above left the cursor on the check row - and then
        down to the theme row. Up clamps at the first row, so this lands where it says. */
     for (uint32_t i = 0; i < rows; ++i) {
-        mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+        mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
     }
     for (uint32_t i = 0; i < theme_row; ++i) {
-        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+        mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (action.type != MESH_UI_ACTION_CYCLE_THEME) {
         failure = "A on the theme row should ask the app to step the theme";
         goto cleanup;
@@ -1857,7 +1859,7 @@ MESH_TEST_CASE(ui_settings_about, unit) {
         goto cleanup;
     }
     store.nav.cursor[MESH_UI_SCREEN_SETTINGS] = install_row;
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (action.type != MESH_UI_ACTION_INSTALL_UPDATE) {
         failure = "A on the install row should ask the app to install";
         goto cleanup;
@@ -1884,7 +1886,7 @@ MESH_TEST_CASE(ui_settings_about, unit) {
         goto cleanup;
     }
     store.nav.cursor[MESH_UI_SCREEN_SETTINGS] = channel_row;
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (action.type != MESH_UI_ACTION_CYCLE_UPDATE_CHANNEL) {
         failure = "A on the channel row should ask the app to cycle the channel";
         goto cleanup;
@@ -1939,7 +1941,7 @@ MESH_TEST_CASE(ui_settings_about, unit) {
         goto cleanup;
     }
     store.nav.cursor[MESH_UI_SCREEN_SETTINGS] = dev_toggle_row;
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (action.type != MESH_UI_ACTION_TOGGLE_DEV_UPDATES) {
         failure = "A on the dev-updates row should ask the app to toggle it";
         goto cleanup;
@@ -2092,7 +2094,7 @@ MESH_TEST_CASE(ui_settings_about, unit) {
     }
 
     /* B backs out to the section list, as in every other section. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
     if (store.nav.settings_section != MESH_UI_SETTINGS_NO_SECTION) {
         failure = "B should return to the section list";
         goto cleanup;
@@ -2726,7 +2728,7 @@ MESH_TEST_CASE(settings_verbs_that_cannot_be_undone_are_red, unit) {
     char message[160];
     for (int i = 1; i < (int)MESH_UI_SETTINGS_ACTION_COUNT; ++i) {
         const enum mesh_ui_settings_action action = (enum mesh_ui_settings_action)i;
-        if (mesh_ui_settings_action_tone(action) != MESH_UI_TONE_ERROR) {
+        if (mesh_ui_settings_action_tone(action) != INKCELL_TONE_ERROR) {
             continue;
         }
         if (!mesh_ui_settings_action_needs_confirm(action)) {
@@ -2739,11 +2741,11 @@ MESH_TEST_CASE(settings_verbs_that_cannot_be_undone_are_red, unit) {
     /* And the weight is a lookup rather than whatever sits past the table. */
     MESH_TEST_FAIL_IF(
         mesh_ui_settings_action_tone((enum mesh_ui_settings_action)MESH_UI_SETTINGS_ACTION_COUNT) !=
-            MESH_UI_TONE_NORMAL,
+            INKCELL_TONE_NORMAL,
         "an unknown action should answer with the ordinary weight");
     MESH_TEST_FAIL_IF(
         mesh_ui_settings_action_icon((enum mesh_ui_settings_action)MESH_UI_SETTINGS_ACTION_COUNT) !=
-            MESH_UI_ICON_NONE,
+            INKCELL_ICON_NONE,
         "an unknown action should answer with no symbol");
     record_success(test_name);
 }
@@ -2820,7 +2822,7 @@ MESH_TEST_CASE(settings_openers_are_not_verbs, unit) {
             record_failure(test_name, message);
             return;
         }
-        if (!mesh_ui_icon_is_valid(item.icon)) {
+        if (!inkcell_icon_is_valid(item.icon)) {
             snprintf(message, sizeof message, "Radio actions row %u is a verb with no symbol", row);
             record_failure(test_name, message);
             return;
@@ -2866,7 +2868,7 @@ MESH_TEST_CASE(settings_withdrawn_verbs_keep_the_section_shape, unit) {
         MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, &up, NULL, 0U, MESH_UI_SETTINGS_ACTIONS,
                                                  MESH_UI_SETTINGS_NO_CHANNEL, row, &item),
                           "a row should exist over a live link");
-        mesh_str_copy(live[row], sizeof live[row], item.label);
+        inkcell_str_copy(live[row], sizeof live[row], item.label);
     }
 
     char message[160];
@@ -2902,7 +2904,7 @@ MESH_TEST_CASE(settings_withdrawn_verbs_keep_the_section_shape, unit) {
             continue; /* the two forget rows are local and stay pressable */
         }
         if (item.kind != MESH_UI_SETTING_ACTION_OFF || !mesh_ui_settings_item_is_verb(&item) ||
-            !mesh_ui_icon_is_valid(item.icon)) {
+            !inkcell_icon_is_valid(item.icon)) {
             snprintf(message, sizeof message, "row %u (%.*s) lost its shape when the link dropped",
                      row, (int)sizeof live[row], live[row]);
             record_failure(test_name, message);
@@ -2925,7 +2927,7 @@ MESH_TEST_CASE(ui_settings_every_section_has_an_icon, unit) {
     char message[128];
     for (int i = 0; i < (int)MESH_UI_SETTINGS_SECTION_COUNT; ++i) {
         const enum mesh_ui_settings_section section = (enum mesh_ui_settings_section)i;
-        if (!mesh_ui_icon_is_valid(mesh_ui_settings_section_icon(section))) {
+        if (!inkcell_icon_is_valid(mesh_ui_settings_section_icon(section))) {
             snprintf(message, sizeof message, "section %s has no icon",
                      mesh_ui_settings_section_name(section));
             record_failure(test_name, message);
@@ -2935,7 +2937,7 @@ MESH_TEST_CASE(ui_settings_every_section_has_an_icon, unit) {
     /* Out of range is the absence of one rather than whatever sits past the table. */
     MESH_TEST_FAIL_IF(mesh_ui_settings_section_icon(
                           (enum mesh_ui_settings_section)MESH_UI_SETTINGS_SECTION_COUNT) !=
-                          MESH_UI_ICON_NONE,
+                          INKCELL_ICON_NONE,
                       "an unknown section should answer with no icon");
     record_success(test_name);
 }
@@ -3012,7 +3014,7 @@ MESH_TEST_CASE(ui_settings_a_disc_marks_a_press_that_acts, unit) {
                 record_failure(test_name, message);
                 return;
             }
-            if (mesh_ui_icon_is_valid(item.icon)) {
+            if (inkcell_icon_is_valid(item.icon)) {
                 snprintf(message, sizeof message, "\"%s\" steps its own value and carries a disc",
                          item.label);
                 record_failure(test_name, message);
@@ -3207,33 +3209,33 @@ MESH_TEST_CASE(ui_settings_a_marker_says_how_the_row_is_changed, unit) {
                                        MESH_UI_SETTINGS_NO_CHANNEL, row, &item)) {
                 break;
             }
-            enum mesh_ui_icon expected = MESH_UI_ICON_NONE;
+            enum inkcell_icon expected = INKCELL_ICON_NONE;
             uint32_t *counter = &quiet;
             if (item.cycle) {
-                expected = MESH_UI_ICON_SWAP;
+                expected = INKCELL_ICON_SWAP;
                 counter = &cycles;
             } else if (item.field == MESH_UI_FIELD_NONE) {
                 /* Nothing behind it to change, whatever the kind says - the radio's own
                    switches arrive as read-only toggles and must not offer a press. */
-                expected = MESH_UI_ICON_NONE;
+                expected = INKCELL_ICON_NONE;
                 counter = &quiet;
             } else if (item.kind == MESH_UI_SETTING_TEXT || item.kind == MESH_UI_SETTING_KEY) {
-                expected = MESH_UI_ICON_EDIT;
+                expected = INKCELL_ICON_EDIT;
                 counter = &typed;
             } else if (item.kind == MESH_UI_SETTING_ENUM || item.kind == MESH_UI_SETTING_NUMBER) {
                 expected = INKCELL_ICON_STEPPER;
                 counter = &stepped;
             } else if (item.kind == MESH_UI_SETTING_TOGGLE || item.kind == MESH_UI_SETTING_FLAG) {
-                expected = MESH_UI_ICON_NONE;
+                expected = INKCELL_ICON_NONE;
                 counter = &controls;
             }
-            const enum mesh_ui_icon marker = mesh_ui_settings_item_marker(&item);
+            const enum inkcell_icon marker = mesh_ui_settings_item_marker(&item);
             if (marker != expected) {
                 snprintf(message, sizeof message,
                          "\"%s\" in section %s wears %s and its shape says %s", item.label,
                          mesh_ui_settings_section_name(section),
-                         marker == MESH_UI_ICON_NONE ? "nothing" : mesh_ui_icon_name(marker),
-                         expected == MESH_UI_ICON_NONE ? "nothing" : mesh_ui_icon_name(expected));
+                         marker == INKCELL_ICON_NONE ? "nothing" : inkcell_icon_name(marker),
+                         expected == INKCELL_ICON_NONE ? "nothing" : inkcell_icon_name(expected));
                 record_failure(test_name, message);
                 return;
             }
@@ -3267,22 +3269,22 @@ MESH_TEST_CASE(ui_settings_a_state_mark_outranks_the_offer, unit) {
     item.field = MESH_UI_FIELD_USER_LICENSED;
 
     /* A switch says its own offer, so the gutter is free for a state to use. */
-    MESH_TEST_FAIL_IF(mesh_ui_settings_item_marker(&item) != MESH_UI_ICON_NONE,
+    MESH_TEST_FAIL_IF(mesh_ui_settings_item_marker(&item) != INKCELL_ICON_NONE,
                       "a switch should leave the gutter empty");
     item.dirty = true;
-    MESH_TEST_FAIL_IF(mesh_ui_settings_item_marker(&item) != MESH_UI_ICON_UNSAVED,
+    MESH_TEST_FAIL_IF(mesh_ui_settings_item_marker(&item) != INKCELL_ICON_UNSAVED,
                       "an unsaved switch should still say so");
 
     /* And over a row that would otherwise have had something to say. */
     item.kind = MESH_UI_SETTING_ENUM;
     item.field = MESH_UI_FIELD_DEVICE_ROLE;
-    MESH_TEST_FAIL_IF(mesh_ui_settings_item_marker(&item) != MESH_UI_ICON_UNSAVED,
+    MESH_TEST_FAIL_IF(mesh_ui_settings_item_marker(&item) != INKCELL_ICON_UNSAVED,
                       "an unsaved edit outranks the stepper");
     item.conflict = true;
-    MESH_TEST_FAIL_IF(mesh_ui_settings_item_marker(&item) != MESH_UI_ICON_WARNING,
+    MESH_TEST_FAIL_IF(mesh_ui_settings_item_marker(&item) != INKCELL_ICON_WARNING,
                       "a value the radio will refuse outranks an unsaved one");
     item.dirty = false;
-    MESH_TEST_FAIL_IF(mesh_ui_settings_item_marker(&item) != MESH_UI_ICON_WARNING,
+    MESH_TEST_FAIL_IF(mesh_ui_settings_item_marker(&item) != INKCELL_ICON_WARNING,
                       "a conflict is a conflict whether or not it is also unsaved");
 
     item.conflict = false;
@@ -3305,8 +3307,9 @@ MESH_TEST_CASE(ui_settings_a_state_mark_outranks_the_offer, unit) {
  * What this does *not* decide is the gutter. A symbol is per row; the width every row's words
  * start at is per section, because a list that indents only the rows with something in it starts
  * its text in two columns - so a section holding any verb reserves the disc's gutter on its
- * fields too, and FB_LEADING_TONAL_SLOT is what it reserves it with. About is the case the two
- * rules part company on: four rows, two of them verbs, and only the verbs have a symbol to draw.
+ * fields too, and INKCELL_FB_LEADING_TONAL_SLOT is what it reserves it with. About is the case the
+ * two rules part company on: four rows, two of them verbs, and only the verbs have a symbol to
+ * draw.
  *
  * The list is built with everything loaded, because a module row that has not been answered for
  * still names its module - and that is the row most likely to be the one that forgets.
@@ -3343,7 +3346,7 @@ MESH_TEST_CASE(ui_settings_row_icons_are_all_or_nothing, unit) {
                                        MESH_UI_SETTINGS_NO_CHANNEL, row, &item)) {
                 break;
             }
-            const bool has_icon = mesh_ui_icon_is_valid(item.icon);
+            const bool has_icon = inkcell_icon_is_valid(item.icon);
             if (mesh_ui_settings_item_is_verb(&item)) {
                 if (!has_icon) {
                     snprintf(message, sizeof message, "%s row %u is a verb with no symbol",
@@ -3998,7 +4001,7 @@ MESH_TEST_CASE(ui_settings_firmware_install_goes_through_the_sheet, unit) {
 
     store.nav.cursor[MESH_UI_SCREEN_SETTINGS] = install_row;
     memset(&action, 0, sizeof action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (action.type != MESH_UI_ACTION_NONE) {
         failure = "A on the row opens the question rather than sending the radio anywhere";
         goto cleanup;
@@ -4015,7 +4018,7 @@ MESH_TEST_CASE(ui_settings_firmware_install_goes_through_the_sheet, unit) {
 
     /* B backs out and nothing happens, which is the half of the sheet that matters most. */
     memset(&action, 0, sizeof action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
     if (store.nav.confirm_open || action.type != MESH_UI_ACTION_NONE) {
         failure = "backing out of the sheet should install nothing";
         goto cleanup;
@@ -4024,10 +4027,10 @@ MESH_TEST_CASE(ui_settings_firmware_install_goes_through_the_sheet, unit) {
     /* And through it: the action carries the bus rather than making the app look it up again. */
     store.nav.cursor[MESH_UI_SCREEN_SETTINGS] = install_row;
     memset(&action, 0, sizeof action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     store.nav.confirm_cursor = 0U;
     memset(&action, 0, sizeof action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (action.type != MESH_UI_ACTION_INSTALL_RADIO_FIRMWARE) {
         failure = "agreeing to the sheet should ask the app to install";
         goto cleanup;
@@ -4595,7 +4598,7 @@ MESH_TEST_CASE(ui_settings_about_radio_names_the_node_being_configured, unit) {
             continue;
         }
         saw_local_number = saw_local_number || strcmp(item.value, "!00001111") == 0;
-        saw_reboots = saw_reboots || strcmp(item.label, mesh_str(MESH_STR_RADIO_REBOOTS)) == 0;
+        saw_reboots = saw_reboots || strcmp(item.label, inkcell_str(MESH_STR_RADIO_REBOOTS)) == 0;
     }
     MESH_TEST_FAIL_IF(!saw_local_number || !saw_reboots,
                       "the ordinary section is the one it always was");
@@ -4638,7 +4641,7 @@ MESH_TEST_CASE(ui_settings_about_radio_names_the_node_being_configured, unit) {
         }
         saw_remote_number = saw_remote_number || strcmp(item.value, "!00007001") == 0;
         saw_local_number = saw_local_number || strcmp(item.value, "!00001111") == 0;
-        saw_reboots = saw_reboots || strcmp(item.label, mesh_str(MESH_STR_RADIO_REBOOTS)) == 0;
+        saw_reboots = saw_reboots || strcmp(item.label, inkcell_str(MESH_STR_RADIO_REBOOTS)) == 0;
     }
     MESH_TEST_FAIL_IF(!saw_remote_number || saw_local_number,
                       "the node number has to be the one this section is describing");
@@ -4757,7 +4760,7 @@ MESH_TEST_CASE(ui_settings_node_detail_offers_remote_admin_with_a_key, unit) {
         }
     }
     MESH_TEST_FAIL_IF(at == verb_count, "a node we hold a key for can be configured over the mesh");
-    MESH_TEST_FAIL_IF(verbs[at].tone != (uint8_t)MESH_UI_TONE_WARNING,
+    MESH_TEST_FAIL_IF(verbs[at].tone != (uint8_t)INKCELL_TONE_WARNING,
                       "it is the one row here that changes what every other screen means, so it "
                       "says so before it is pressed");
 
@@ -4798,7 +4801,7 @@ MESH_TEST_CASE(ui_settings_confirm_names_the_remote_radio, unit) {
                                          sizeof text);
     MESH_TEST_FAIL_IF(strstr(text, "Hill repeater") == NULL,
                       "a reboot that leaves this radio has to say whose radio it reaches");
-    MESH_TEST_FAIL_IF(strncmp(text, mesh_str(MESH_STR_CONFIRM_TEXT_REBOOT), 16) != 0,
+    MESH_TEST_FAIL_IF(strncmp(text, inkcell_str(MESH_STR_CONFIRM_TEXT_REBOOT), 16) != 0,
                       "added to the sheet's own words, not instead of them - what is being "
                       "asked has not changed, only which radio it lands on");
 

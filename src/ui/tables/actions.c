@@ -1,10 +1,11 @@
-#include "mesh/ui/actions.h"
 
+#include "inkcell/ui/input.h"
+#include "inkcell/ui/input_profile.h"
+
+#include "mesh/ui/actions.h"
 #include "mesh/ui/devices.h"
 #include "mesh/ui/help.h"
 #include "mesh/ui/history.h"
-#include "mesh/ui/input.h"
-#include "mesh/ui/input_profile.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/node_detail.h"
 #include "mesh/ui/settings.h"
@@ -22,9 +23,9 @@
  * hide the thing the tables exist to make visible: what a given state offers, all of it, in
  * one place a reader can check against the nav that handles those presses.
  */
-static void bar_add(struct mesh_ui_action_bar *bar, enum mesh_ui_button button,
-                    enum mesh_str_id label) {
-    if (bar->count >= MESH_UI_ACTIONS_MAX) {
+static void bar_add(struct inkcell_action_bar *bar, enum inkcell_button button,
+                    enum inkcell_str_id label) {
+    if (bar->count >= INKCELL_ACTIONS_MAX) {
         return;
     }
     bar->items[bar->count].button = button;
@@ -33,25 +34,25 @@ static void bar_add(struct mesh_ui_action_bar *bar, enum mesh_ui_button button,
 }
 
 /* The press that moves between tabs, which is true on every screen that is not an overlay. */
-static void bar_add_tabs(struct mesh_ui_action_bar *bar) {
-    bar_add(bar, MESH_UI_BUTTON_SHOULDERS, MESH_STR_ACTION_TABS);
+static void bar_add_tabs(struct inkcell_action_bar *bar) {
+    bar_add(bar, INKCELL_BUTTON_SHOULDERS, MESH_STR_ACTION_TABS);
 }
 
 /* Declared ahead of the per-screen builders and defined below them, beside the paragraph that
    explains what it refuses to do. Every builder here ends up calling it. */
-static void bar_add_help(const struct mesh_ui_snapshot *snapshot, struct mesh_ui_action_bar *bar);
+static void bar_add_help(const struct mesh_ui_snapshot *snapshot, struct inkcell_action_bar *bar);
 
 static void actions_messages(const struct mesh_ui_nav *nav, const struct mesh_ui_snapshot *snapshot,
-                             struct mesh_ui_action_bar *bar) {
+                             struct inkcell_action_bar *bar) {
     if (!nav->thread_open) {
         if (nav->messages_delete_armed) {
-            bar_add(bar, MESH_UI_BUTTON_X, MESH_STR_ACTION_CONFIRM_DELETE);
-            bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_CANCEL);
+            bar_add(bar, INKCELL_BUTTON_X, MESH_STR_ACTION_CONFIRM_DELETE);
+            bar_add(bar, INKCELL_BUTTON_B, MESH_STR_ACTION_CANCEL);
             return;
         }
-        bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_OPEN);
-        bar_add(bar, MESH_UI_BUTTON_Y, MESH_STR_ACTION_NEW);
-        bar_add(bar, MESH_UI_BUTTON_X, MESH_STR_ACTION_DELETE);
+        bar_add(bar, INKCELL_BUTTON_A, MESH_STR_ACTION_OPEN);
+        bar_add(bar, INKCELL_BUTTON_Y, MESH_STR_ACTION_NEW);
+        bar_add(bar, INKCELL_BUTTON_X, MESH_STR_ACTION_DELETE);
         /*
          * The mute, named for the row the cursor is on rather than for the key.
          *
@@ -79,7 +80,7 @@ static void actions_messages(const struct mesh_ui_nav *nav, const struct mesh_ui
                                             &conversation) &&
                 (conversation.kind == MESH_UI_CONVERSATION_CHANNEL ||
                  conversation.kind == MESH_UI_CONVERSATION_DIRECT)) {
-                bar_add(bar, MESH_UI_BUTTON_START,
+                bar_add(bar, INKCELL_BUTTON_START,
                         conversation.muted ? MESH_STR_ACTION_UNMUTE : MESH_STR_ACTION_MUTE);
             }
         }
@@ -91,18 +92,18 @@ static void actions_messages(const struct mesh_ui_nav *nav, const struct mesh_ui
     /* The all-traffic thread is a transcript of everything, not a conversation with anybody, so
        there is nobody for a reply to go to. That is the whole of the difference. */
     if (nav->inbox) {
-        bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_OPEN);
-        bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
+        bar_add(bar, INKCELL_BUTTON_A, MESH_STR_ACTION_OPEN);
+        bar_add(bar, INKCELL_BUTTON_B, MESH_STR_ACTION_BACK);
         bar_add_help(snapshot, bar);
         bar_add_tabs(bar);
         return;
     }
     /* Three verbs about three different things, which is why they are three keys: A answers
        the bubble under the cursor, X puts an emoji on it, and Y writes to the conversation. */
-    bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_REPLY);
-    bar_add(bar, MESH_UI_BUTTON_X, MESH_STR_ACTION_REACT);
-    bar_add(bar, MESH_UI_BUTTON_Y, MESH_STR_ACTION_WRITE);
-    bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
+    bar_add(bar, INKCELL_BUTTON_A, MESH_STR_ACTION_REPLY);
+    bar_add(bar, INKCELL_BUTTON_X, MESH_STR_ACTION_REACT);
+    bar_add(bar, INKCELL_BUTTON_Y, MESH_STR_ACTION_WRITE);
+    bar_add(bar, INKCELL_BUTTON_B, MESH_STR_ACTION_BACK);
     /*
      * And one more that is only sometimes there, named for the bubble rather than for the key:
      * a message the mesh came back on can go out again, and one that arrived has nothing to
@@ -113,7 +114,7 @@ static void actions_messages(const struct mesh_ui_nav *nav, const struct mesh_ui
      * come from one answer; on any row where this is absent, START goes on standing in for A.
      */
     if (mesh_ui_nav_resendable(nav, mesh_ui_snapshot_message_view(snapshot)) != NULL) {
-        bar_add(bar, MESH_UI_BUTTON_START, MESH_STR_ACTION_RESEND);
+        bar_add(bar, INKCELL_BUTTON_START, MESH_STR_ACTION_RESEND);
     }
     bar_add_help(snapshot, bar);
     bar_add_tabs(bar);
@@ -134,16 +135,16 @@ static void actions_messages(const struct mesh_ui_nav *nav, const struct mesh_ui
  * and the directions are the same press on every other screen, and this is the one place they
  * part company.
  */
-static void actions_map(const struct mesh_ui_snapshot *snapshot, struct mesh_ui_action_bar *bar) {
-    bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_OPEN);
-    bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
-    bar_add(bar, MESH_UI_BUTTON_X, MESH_STR_ACTION_ZOOM_IN);
-    bar_add(bar, MESH_UI_BUTTON_Y, MESH_STR_ACTION_ZOOM_OUT);
-    bar_add(bar, MESH_UI_BUTTON_START, MESH_STR_ACTION_FIT);
+static void actions_map(const struct mesh_ui_snapshot *snapshot, struct inkcell_action_bar *bar) {
+    bar_add(bar, INKCELL_BUTTON_A, MESH_STR_ACTION_OPEN);
+    bar_add(bar, INKCELL_BUTTON_B, MESH_STR_ACTION_BACK);
+    bar_add(bar, INKCELL_BUTTON_X, MESH_STR_ACTION_ZOOM_IN);
+    bar_add(bar, INKCELL_BUTTON_Y, MESH_STR_ACTION_ZOOM_OUT);
+    bar_add(bar, INKCELL_BUTTON_START, MESH_STR_ACTION_FIT);
     /* Late, so it is among the first to go on a narrow panel - the four presses above are the
        ones that leave the screen or change what is on it, and this one names a gesture a reader
        discovers by trying it. */
-    bar_add(bar, MESH_UI_BUTTON_UP_DOWN, MESH_STR_ACTION_PAN);
+    bar_add(bar, INKCELL_BUTTON_UP_DOWN, MESH_STR_ACTION_PAN);
     bar_add_help(snapshot, bar);
     bar_add_tabs(bar);
 }
@@ -176,10 +177,10 @@ static enum mesh_ui_node_press mesh_ui_actions_node_press(const struct mesh_ui_s
 
 /* The chart's bar, defined below beside the Status arm that first needed it - a node's chart is
    the same screen, so it calls that rather than restating it. */
-static void actions_trend(const struct mesh_ui_snapshot *snapshot, struct mesh_ui_action_bar *bar);
+static void actions_trend(const struct mesh_ui_snapshot *snapshot, struct inkcell_action_bar *bar);
 
 static void actions_nodes(const struct mesh_ui_nav *nav, const struct mesh_ui_snapshot *snapshot,
-                          struct mesh_ui_action_bar *bar) {
+                          struct inkcell_action_bar *bar) {
     if (nav->node_detail_open) {
         /*
          * A chart of one of this node's readings, over the detail - and the Status tab's chart
@@ -211,12 +212,12 @@ static void actions_nodes(const struct mesh_ui_nav *nav, const struct mesh_ui_sn
              * meaning of B and does not need naming twice.
              */
             if (nav->node_remove_armed) {
-                bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_CONFIRM_REMOVE);
-                bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_CANCEL);
+                bar_add(bar, INKCELL_BUTTON_A, MESH_STR_ACTION_CONFIRM_REMOVE);
+                bar_add(bar, INKCELL_BUTTON_B, MESH_STR_ACTION_CANCEL);
                 return;
             }
-            bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_SELECT);
-            bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
+            bar_add(bar, INKCELL_BUTTON_A, MESH_STR_ACTION_SELECT);
+            bar_add(bar, INKCELL_BUTTON_B, MESH_STR_ACTION_BACK);
             bar_add_help(snapshot, bar);
             bar_add_tabs(bar);
             return;
@@ -237,15 +238,15 @@ static void actions_nodes(const struct mesh_ui_nav *nav, const struct mesh_ui_sn
          */
         switch (mesh_ui_actions_node_press(snapshot)) {
         case MESH_UI_NODE_PRESS_TREND:
-            bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_TREND);
+            bar_add(bar, INKCELL_BUTTON_A, MESH_STR_ACTION_TREND);
             break;
         case MESH_UI_NODE_PRESS_SELECT:
-            bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_SELECT);
+            bar_add(bar, INKCELL_BUTTON_A, MESH_STR_ACTION_SELECT);
             break;
         case MESH_UI_NODE_PRESS_NONE:
             break;
         }
-        bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
+        bar_add(bar, INKCELL_BUTTON_B, MESH_STR_ACTION_BACK);
         /*
          * The d-pad's other axis, which walks the groups a card at a time.
          *
@@ -258,9 +259,9 @@ static void actions_nodes(const struct mesh_ui_nav *nav, const struct mesh_ui_sn
          * emitted for every node including our own, so this screen has never had fewer than two
          * groups and the press has never had nowhere to go.
          */
-        bar_add(bar, MESH_UI_BUTTON_LEFT_RIGHT, MESH_STR_ACTION_GROUPS);
-        bar_add(bar, MESH_UI_BUTTON_X, MESH_STR_ACTION_PIN);
-        bar_add(bar, MESH_UI_BUTTON_Y, MESH_STR_ACTION_WRITE);
+        bar_add(bar, INKCELL_BUTTON_LEFT_RIGHT, MESH_STR_ACTION_GROUPS);
+        bar_add(bar, INKCELL_BUTTON_X, MESH_STR_ACTION_PIN);
+        bar_add(bar, INKCELL_BUTTON_Y, MESH_STR_ACTION_WRITE);
         bar_add_help(snapshot, bar);
         bar_add_tabs(bar);
         return;
@@ -300,14 +301,14 @@ static void actions_nodes(const struct mesh_ui_nav *nav, const struct mesh_ui_sn
      */
     const uint32_t nodes_cursor = nav->cursor[MESH_UI_SCREEN_NODES];
     if (nodes_cursor == MESH_UI_NODES_FILTER_ROW || nodes_cursor == MESH_UI_NODES_SORT_ROW) {
-        bar_add(bar, MESH_UI_BUTTON_LEFT_RIGHT,
+        bar_add(bar, INKCELL_BUTTON_LEFT_RIGHT,
                 nodes_cursor == MESH_UI_NODES_FILTER_ROW ? MESH_STR_ACTION_FILTER
                                                          : MESH_STR_ACTION_SORT);
     } else {
-        bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_OPEN);
+        bar_add(bar, INKCELL_BUTTON_A, MESH_STR_ACTION_OPEN);
     }
-    bar_add(bar, MESH_UI_BUTTON_X, MESH_STR_ACTION_PIN);
-    bar_add(bar, MESH_UI_BUTTON_Y, MESH_STR_ACTION_WRITE);
+    bar_add(bar, INKCELL_BUTTON_X, MESH_STR_ACTION_PIN);
+    bar_add(bar, INKCELL_BUTTON_Y, MESH_STR_ACTION_WRITE);
     bar_add_help(snapshot, bar);
     bar_add_tabs(bar);
 }
@@ -323,15 +324,15 @@ static void actions_nodes(const struct mesh_ui_nav *nav, const struct mesh_ui_sn
  */
 static void actions_waypoints(const struct mesh_ui_nav *nav,
                               const struct mesh_ui_snapshot *snapshot,
-                              struct mesh_ui_action_bar *bar) {
+                              struct inkcell_action_bar *bar) {
     if (nav->waypoint_detail_open) {
         if (nav->waypoint_delete_armed) {
-            bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_CONFIRM_DELETE);
-            bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_CANCEL);
+            bar_add(bar, INKCELL_BUTTON_A, MESH_STR_ACTION_CONFIRM_DELETE);
+            bar_add(bar, INKCELL_BUTTON_B, MESH_STR_ACTION_CANCEL);
             return;
         }
-        bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_SELECT);
-        bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
+        bar_add(bar, INKCELL_BUTTON_A, MESH_STR_ACTION_SELECT);
+        bar_add(bar, INKCELL_BUTTON_B, MESH_STR_ACTION_BACK);
         bar_add_help(snapshot, bar);
         bar_add_tabs(bar);
         return;
@@ -339,7 +340,7 @@ static void actions_waypoints(const struct mesh_ui_nav *nav,
     const uint32_t places = snapshot->waypoints.count > MESH_UI_MAX_WAYPOINTS
                                 ? MESH_UI_MAX_WAYPOINTS
                                 : snapshot->waypoints.count;
-    bar_add(bar, MESH_UI_BUTTON_A,
+    bar_add(bar, INKCELL_BUTTON_A,
             nav->cursor[MESH_UI_SCREEN_WAYPOINTS] >= places ? MESH_STR_ACTION_NEW
                                                             : MESH_STR_ACTION_OPEN);
     bar_add_help(snapshot, bar);
@@ -347,10 +348,10 @@ static void actions_waypoints(const struct mesh_ui_nav *nav,
 }
 
 static void actions_devices(const struct mesh_ui_nav *nav, const struct mesh_ui_snapshot *snapshot,
-                            struct mesh_ui_action_bar *bar) {
+                            struct inkcell_action_bar *bar) {
     if (nav->devices_forget_armed) {
-        bar_add(bar, MESH_UI_BUTTON_Y, MESH_STR_ACTION_CONFIRM_FORGET);
-        bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_CANCEL);
+        bar_add(bar, INKCELL_BUTTON_Y, MESH_STR_ACTION_CONFIRM_FORGET);
+        bar_add(bar, INKCELL_BUTTON_B, MESH_STR_ACTION_CANCEL);
         return;
     }
     /*
@@ -379,23 +380,23 @@ static void actions_devices(const struct mesh_ui_nav *nav, const struct mesh_ui_
          * table exists as much to prevent as the one that does nothing.
          */
         if (row.host[0] != '\0') {
-            bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_CONNECT);
-            bar_add(bar, MESH_UI_BUTTON_X, MESH_STR_ACTION_DISCONNECT);
-            bar_add(bar, MESH_UI_BUTTON_Y, MESH_STR_ACTION_ADDRESS);
+            bar_add(bar, INKCELL_BUTTON_A, MESH_STR_ACTION_CONNECT);
+            bar_add(bar, INKCELL_BUTTON_X, MESH_STR_ACTION_DISCONNECT);
+            bar_add(bar, INKCELL_BUTTON_Y, MESH_STR_ACTION_ADDRESS);
         } else {
-            bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_ADDRESS);
-            bar_add(bar, MESH_UI_BUTTON_X, MESH_STR_ACTION_DISCONNECT);
+            bar_add(bar, INKCELL_BUTTON_A, MESH_STR_ACTION_ADDRESS);
+            bar_add(bar, INKCELL_BUTTON_X, MESH_STR_ACTION_DISCONNECT);
         }
         bar_add_help(snapshot, bar);
         bar_add_tabs(bar);
         return;
     }
     if (mesh_ui_device_connectable(row.device)) {
-        bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_CONNECT);
+        bar_add(bar, INKCELL_BUTTON_A, MESH_STR_ACTION_CONNECT);
     }
-    bar_add(bar, MESH_UI_BUTTON_X, MESH_STR_ACTION_DISCONNECT);
+    bar_add(bar, INKCELL_BUTTON_X, MESH_STR_ACTION_DISCONNECT);
     if (mesh_ui_device_forgettable(row.device)) {
-        bar_add(bar, MESH_UI_BUTTON_Y, MESH_STR_ACTION_FORGET);
+        bar_add(bar, INKCELL_BUTTON_Y, MESH_STR_ACTION_FORGET);
     }
     bar_add_help(snapshot, bar);
     bar_add_tabs(bar);
@@ -415,16 +416,16 @@ static void actions_devices(const struct mesh_ui_nav *nav, const struct mesh_ui_
  * is the first to go. It still sits ahead of "L/R tabs", which is true on every screen in the
  * client and therefore the least worth the room.
  */
-static void bar_add_help(const struct mesh_ui_snapshot *snapshot, struct mesh_ui_action_bar *bar) {
+static void bar_add_help(const struct mesh_ui_snapshot *snapshot, struct inkcell_action_bar *bar) {
     if (mesh_ui_help_offered(&snapshot->settings,
                              snapshot->handshake_valid ? &snapshot->handshake : NULL,
                              &snapshot->nav)) {
-        bar_add(bar, MESH_UI_BUTTON_SELECT, MESH_STR_ACTION_HELP);
+        bar_add(bar, INKCELL_BUTTON_SELECT, MESH_STR_ACTION_HELP);
     }
 }
 
 static void actions_settings(const struct mesh_ui_nav *nav, const struct mesh_ui_snapshot *snapshot,
-                             struct mesh_ui_action_bar *bar) {
+                             struct inkcell_action_bar *bar) {
     /*
      * The two code sheets, first because they are the deepest things this tab opens.
      *
@@ -434,25 +435,25 @@ static void actions_settings(const struct mesh_ui_nav *nav, const struct mesh_ui
      * scanning is not a move anyone means to make.
      */
     if (nav->share_open || nav->contact_open) {
-        bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
+        bar_add(bar, INKCELL_BUTTON_B, MESH_STR_ACTION_BACK);
         bar_add_help(snapshot, bar);
         return;
     }
     if (nav->settings_section == MESH_UI_SETTINGS_NO_SECTION) {
-        bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_OPEN);
-        bar_add(bar, MESH_UI_BUTTON_X, MESH_STR_ACTION_REFRESH);
+        bar_add(bar, INKCELL_BUTTON_A, MESH_STR_ACTION_OPEN);
+        bar_add(bar, INKCELL_BUTTON_X, MESH_STR_ACTION_REFRESH);
         bar_add_tabs(bar);
         return;
     }
     if (nav->settings_discard_armed) {
-        bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_CONFIRM_DISCARD);
-        bar_add(bar, MESH_UI_BUTTON_Y, MESH_STR_ACTION_SAVE);
+        bar_add(bar, INKCELL_BUTTON_B, MESH_STR_ACTION_CONFIRM_DISCARD);
+        bar_add(bar, INKCELL_BUTTON_Y, MESH_STR_ACTION_SAVE);
         return;
     }
     if (nav->settings_edit_count > 0U) {
-        bar_add(bar, MESH_UI_BUTTON_Y, MESH_STR_ACTION_SAVE);
-        bar_add(bar, MESH_UI_BUTTON_LEFT_RIGHT, MESH_STR_ACTION_EDIT);
-        bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_DISCARD);
+        bar_add(bar, INKCELL_BUTTON_Y, MESH_STR_ACTION_SAVE);
+        bar_add(bar, INKCELL_BUTTON_LEFT_RIGHT, MESH_STR_ACTION_EDIT);
+        bar_add(bar, INKCELL_BUTTON_B, MESH_STR_ACTION_DISCARD);
         /* An edit in hand does not make the setting need less explaining - if anything it is the
            likelier moment to want it - so this branch offers the same press the pristine one
            does. It was the branch that proved the bar and the handler had to share a predicate:
@@ -466,9 +467,9 @@ static void actions_settings(const struct mesh_ui_nav *nav, const struct mesh_ui
     if ((nav->settings_section == MESH_UI_SETTINGS_CHANNELS &&
          nav->settings_channel == MESH_UI_SETTINGS_NO_CHANNEL) ||
         nav->settings_section == MESH_UI_SETTINGS_MODULES) {
-        bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_OPEN);
-        bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
-        bar_add(bar, MESH_UI_BUTTON_X, MESH_STR_ACTION_REFRESH);
+        bar_add(bar, INKCELL_BUTTON_A, MESH_STR_ACTION_OPEN);
+        bar_add(bar, INKCELL_BUTTON_B, MESH_STR_ACTION_BACK);
+        bar_add(bar, INKCELL_BUTTON_X, MESH_STR_ACTION_REFRESH);
         bar_add_help(snapshot, bar);
         bar_add_tabs(bar);
         return;
@@ -476,8 +477,8 @@ static void actions_settings(const struct mesh_ui_nav *nav, const struct mesh_ui
     /* Rows that are verbs, not values: nothing here is editable and nothing here came from the
        radio, so neither the edit keys nor the refresh mean anything. */
     if (nav->settings_section == MESH_UI_SETTINGS_ABOUT) {
-        bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_RUN);
-        bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
+        bar_add(bar, INKCELL_BUTTON_A, MESH_STR_ACTION_RUN);
+        bar_add(bar, INKCELL_BUTTON_B, MESH_STR_ACTION_BACK);
         bar_add_help(snapshot, bar);
         bar_add_tabs(bar);
         return;
@@ -520,7 +521,7 @@ static void actions_settings(const struct mesh_ui_nav *nav, const struct mesh_ui
         mesh_ui_settings_section_availability(
             &snapshot->settings, snapshot->handshake_valid ? &snapshot->handshake : NULL,
             section) == MESH_UI_SETTINGS_SECTION_EXCLUDED) {
-        bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
+        bar_add(bar, INKCELL_BUTTON_B, MESH_STR_ACTION_BACK);
         bar_add_help(snapshot, bar);
         bar_add_tabs(bar);
         return;
@@ -530,10 +531,10 @@ static void actions_settings(const struct mesh_ui_nav *nav, const struct mesh_ui
             mesh_ui_settings_section_has_verbs(
                 &snapshot->settings, snapshot->handshake_valid ? &snapshot->handshake : NULL,
                 section, nav->settings_channel)) {
-            bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_RUN);
+            bar_add(bar, INKCELL_BUTTON_A, MESH_STR_ACTION_RUN);
         }
-        bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
-        bar_add(bar, MESH_UI_BUTTON_X, MESH_STR_ACTION_REFRESH);
+        bar_add(bar, INKCELL_BUTTON_B, MESH_STR_ACTION_BACK);
+        bar_add(bar, INKCELL_BUTTON_X, MESH_STR_ACTION_REFRESH);
         bar_add_help(snapshot, bar);
         bar_add_tabs(bar);
         return;
@@ -544,9 +545,9 @@ static void actions_settings(const struct mesh_ui_nav *nav, const struct mesh_ui
      * opens the picker on the rows that have one: the bar names the gesture that works on every
      * row here, and a keycap that only sometimes does anything is worse than one fewer.
      */
-    bar_add(bar, MESH_UI_BUTTON_LEFT_RIGHT, MESH_STR_ACTION_EDIT);
-    bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
-    bar_add(bar, MESH_UI_BUTTON_X, MESH_STR_ACTION_REFRESH);
+    bar_add(bar, INKCELL_BUTTON_LEFT_RIGHT, MESH_STR_ACTION_EDIT);
+    bar_add(bar, INKCELL_BUTTON_B, MESH_STR_ACTION_BACK);
+    bar_add(bar, INKCELL_BUTTON_X, MESH_STR_ACTION_REFRESH);
     bar_add_help(snapshot, bar);
     bar_add_tabs(bar);
 }
@@ -593,13 +594,13 @@ static bool mesh_ui_actions_trend_scrolls(const struct mesh_ui_snapshot *snapsho
             &snapshot->history, (enum mesh_ui_history_reading)nav->node_trend, &row)) {
         return false;
     }
-    return mesh_ui_trend_readings(row.trend, nav->trend_span) > snapshot->page_rows;
+    return inkcell_trend_readings(row.trend, nav->trend_span) > snapshot->page_rows;
 }
 
-static void actions_trend(const struct mesh_ui_snapshot *snapshot, struct mesh_ui_action_bar *bar) {
+static void actions_trend(const struct mesh_ui_snapshot *snapshot, struct inkcell_action_bar *bar) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
-    bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
-    bar_add(bar, MESH_UI_BUTTON_LEFT_RIGHT, MESH_STR_ACTION_SPAN);
+    bar_add(bar, INKCELL_BUTTON_B, MESH_STR_ACTION_BACK);
+    bar_add(bar, INKCELL_BUTTON_LEFT_RIGHT, MESH_STR_ACTION_SPAN);
     /*
      * And the two presses only a node's chart has.
      *
@@ -618,17 +619,17 @@ static void actions_trend(const struct mesh_ui_snapshot *snapshot, struct mesh_u
         bar_add_tabs(bar);
         return;
     }
-    bar_add(bar, MESH_UI_BUTTON_Y,
+    bar_add(bar, INKCELL_BUTTON_Y,
             nav->trend_table ? MESH_STR_ACTION_CHART : MESH_STR_ACTION_READINGS);
     if (nav->trend_table && mesh_ui_actions_trend_scrolls(snapshot)) {
-        bar_add(bar, MESH_UI_BUTTON_UP_DOWN, MESH_STR_ACTION_SCROLL);
+        bar_add(bar, INKCELL_BUTTON_UP_DOWN, MESH_STR_ACTION_SCROLL);
     }
     bar_add_help(snapshot, bar);
     bar_add_tabs(bar);
 }
 
 static void actions_status(const struct mesh_ui_snapshot *snapshot,
-                           struct mesh_ui_action_bar *bar) {
+                           struct inkcell_action_bar *bar) {
     const bool connected = mesh_ui_snapshot_connected_device(snapshot) != NULL;
 
     /*
@@ -645,12 +646,12 @@ static void actions_status(const struct mesh_ui_snapshot *snapshot,
     const struct mesh_ui_status_action *chosen = mesh_ui_status_find(
         &actions, mesh_ui_status_verb_resolve(&actions, snapshot->nav.status_verb));
     if (chosen != NULL) {
-        bar_add(bar, MESH_UI_BUTTON_A, chosen->label);
+        bar_add(bar, INKCELL_BUTTON_A, chosen->label);
     }
     /* Only once there is somewhere to move to. A screen offering one verb needs no gesture for
        choosing between verbs, and a keycap that does nothing is worse than one fewer. */
     if (actions.count > 1U) {
-        bar_add(bar, MESH_UI_BUTTON_UP_DOWN, MESH_STR_ACTION_CHOOSE);
+        bar_add(bar, INKCELL_BUTTON_UP_DOWN, MESH_STR_ACTION_CHOOSE);
     }
     /*
      * And the one thing the Brick's own chrome cannot say: how to get out. Only while a radio
@@ -658,13 +659,13 @@ static void actions_status(const struct mesh_ui_snapshot *snapshot,
      * and the same instruction twice reads as a rendering fault.
      */
     if (connected) {
-        bar_add(bar, MESH_UI_BUTTON_QUIT, MESH_STR_ACTION_QUIT);
+        bar_add(bar, INKCELL_BUTTON_QUIT, MESH_STR_ACTION_QUIT);
     }
     bar_add_help(snapshot, bar);
     bar_add_tabs(bar);
 }
 
-void mesh_ui_actions_for(const struct mesh_ui_snapshot *snapshot, struct mesh_ui_action_bar *out) {
+void mesh_ui_actions_for(const struct mesh_ui_snapshot *snapshot, struct inkcell_action_bar *out) {
     if (out == NULL) {
         return;
     }
@@ -684,8 +685,8 @@ void mesh_ui_actions_for(const struct mesh_ui_snapshot *snapshot, struct mesh_ui
          * walking sideways out of an explanation of the screen behind it is not a move anyone
          * means to make.
          */
-        bar_add(out, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
-        bar_add(out, MESH_UI_BUTTON_UP_DOWN, MESH_STR_ACTION_SCROLL);
+        bar_add(out, INKCELL_BUTTON_B, MESH_STR_ACTION_BACK);
+        bar_add(out, INKCELL_BUTTON_UP_DOWN, MESH_STR_ACTION_SCROLL);
         return;
     }
     /*
@@ -697,54 +698,54 @@ void mesh_ui_actions_for(const struct mesh_ui_snapshot *snapshot, struct mesh_ui
      * bar suggesting there is a right answer to press.
      */
     if (nav->verify_open) {
-        bar_add(out, MESH_UI_BUTTON_A, MESH_STR_ACTION_ANSWER);
-        bar_add(out, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
-        bar_add(out, MESH_UI_BUTTON_UP_DOWN, MESH_STR_ACTION_CHOOSE);
+        bar_add(out, INKCELL_BUTTON_A, MESH_STR_ACTION_ANSWER);
+        bar_add(out, INKCELL_BUTTON_B, MESH_STR_ACTION_BACK);
+        bar_add(out, INKCELL_BUTTON_UP_DOWN, MESH_STR_ACTION_CHOOSE);
         return;
     }
     if (nav->confirm_open) {
-        bar_add(out, MESH_UI_BUTTON_A, MESH_STR_ACTION_CONFIRM);
-        bar_add(out, MESH_UI_BUTTON_B, MESH_STR_ACTION_CANCEL);
-        bar_add(out, MESH_UI_BUTTON_UP_DOWN, MESH_STR_ACTION_CHOOSE);
+        bar_add(out, INKCELL_BUTTON_A, MESH_STR_ACTION_CONFIRM);
+        bar_add(out, INKCELL_BUTTON_B, MESH_STR_ACTION_CANCEL);
+        bar_add(out, INKCELL_BUTTON_UP_DOWN, MESH_STR_ACTION_CHOOSE);
         return;
     }
     if (nav->picker_open) {
-        bar_add(out, MESH_UI_BUTTON_A, MESH_STR_ACTION_CHOOSE);
-        bar_add(out, MESH_UI_BUTTON_B, MESH_STR_ACTION_CANCEL);
-        bar_add(out, MESH_UI_BUTTON_SHOULDERS, MESH_STR_ACTION_JUMP);
-        bar_add(out, MESH_UI_BUTTON_UP_DOWN, MESH_STR_ACTION_MOVE);
+        bar_add(out, INKCELL_BUTTON_A, MESH_STR_ACTION_CHOOSE);
+        bar_add(out, INKCELL_BUTTON_B, MESH_STR_ACTION_CANCEL);
+        bar_add(out, INKCELL_BUTTON_SHOULDERS, MESH_STR_ACTION_JUMP);
+        bar_add(out, INKCELL_BUTTON_UP_DOWN, MESH_STR_ACTION_MOVE);
         return;
     }
     if (nav->keyboard_open) {
         if (nav->keyboard_verify) {
             /* Four digits and nothing else: no Send, because the number does not go anywhere
                near the mesh, and "done" is the same word the grid's own key carries. */
-            bar_add(out, MESH_UI_BUTTON_A, MESH_STR_ACTION_TYPE);
-            bar_add(out, MESH_UI_BUTTON_START, MESH_STR_ACTION_DONE);
-            bar_add(out, MESH_UI_BUTTON_B, MESH_STR_ACTION_CANCEL);
+            bar_add(out, INKCELL_BUTTON_A, MESH_STR_ACTION_TYPE);
+            bar_add(out, INKCELL_BUTTON_START, MESH_STR_ACTION_DONE);
+            bar_add(out, INKCELL_BUTTON_B, MESH_STR_ACTION_CANCEL);
             return;
         }
         if (nav->keyboard_passkey) {
             /* The numeric-comparison case answers a question the radio asked; the other one is
                a passkey being typed, and it has the digits and a cancel. */
             if (nav->pairing_confirm) {
-                bar_add(out, MESH_UI_BUTTON_START, MESH_STR_ACTION_CONFIRM);
-                bar_add(out, MESH_UI_BUTTON_B, MESH_STR_ACTION_CANCEL);
+                bar_add(out, INKCELL_BUTTON_START, MESH_STR_ACTION_CONFIRM);
+                bar_add(out, INKCELL_BUTTON_B, MESH_STR_ACTION_CANCEL);
                 return;
             }
-            bar_add(out, MESH_UI_BUTTON_A, MESH_STR_ACTION_TYPE);
-            bar_add(out, MESH_UI_BUTTON_START, MESH_STR_ACTION_PAIR);
-            bar_add(out, MESH_UI_BUTTON_B, MESH_STR_ACTION_CANCEL);
+            bar_add(out, INKCELL_BUTTON_A, MESH_STR_ACTION_TYPE);
+            bar_add(out, INKCELL_BUTTON_START, MESH_STR_ACTION_PAIR);
+            bar_add(out, INKCELL_BUTTON_B, MESH_STR_ACTION_CANCEL);
             return;
         }
-        bar_add(out, MESH_UI_BUTTON_A, MESH_STR_ACTION_TYPE);
+        bar_add(out, INKCELL_BUTTON_A, MESH_STR_ACTION_TYPE);
         /* "send" only when something goes to a person, which is mesh_ui_kb_action_label()'s
            rule for the keycap on the grid - and it has to be the same rule, or the bar and the
            key one row above it name the same press two ways. It was the field alone, so the
            waypoint keyboard's bar said "send" over a grid whose own key said "done", and a
            network address would have joined it - and the two link keyboards did join it, saying
            "send" over a link that goes to a radio setting rather than to anybody. */
-        bar_add(out, MESH_UI_BUTTON_START,
+        bar_add(out, INKCELL_BUTTON_START,
                 (nav->keyboard_field != MESH_UI_FIELD_NONE || nav->keyboard_waypoint ||
                  nav->keyboard_network || nav->keyboard_verify || nav->keyboard_channel_url ||
                  nav->keyboard_contact_url)
@@ -756,13 +757,13 @@ void mesh_ui_actions_for(const struct mesh_ui_snapshot *snapshot, struct mesh_ui
          * a keyboard whose backspace is the button that goes back everywhere else is one people
          * stumble over on every draft, not once.
          */
-        bar_add(out, MESH_UI_BUTTON_X, MESH_STR_ACTION_DELETE);
-        bar_add(out, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
-        bar_add(out, MESH_UI_BUTTON_Y, MESH_STR_ACTION_SPACE);
+        bar_add(out, INKCELL_BUTTON_X, MESH_STR_ACTION_DELETE);
+        bar_add(out, INKCELL_BUTTON_B, MESH_STR_ACTION_BACK);
+        bar_add(out, INKCELL_BUTTON_Y, MESH_STR_ACTION_SPACE);
         /* Last, and in this order, because the bar drops from the end: the shoulders reach the
            panel the character is on, which is no use without the shift that is one of them. */
-        bar_add(out, MESH_UI_BUTTON_TRIGGERS, MESH_STR_ACTION_SHIFT);
-        bar_add(out, MESH_UI_BUTTON_SHOULDERS, MESH_STR_ACTION_KEYS);
+        bar_add(out, INKCELL_BUTTON_TRIGGERS, MESH_STR_ACTION_SHIFT);
+        bar_add(out, INKCELL_BUTTON_SHOULDERS, MESH_STR_ACTION_KEYS);
         return;
     }
     if (nav->compose_open) {
@@ -772,10 +773,10 @@ void mesh_ui_actions_for(const struct mesh_ui_snapshot *snapshot, struct mesh_ui
          * "A send / type" for exactly that reason; a bar names one verb per key, so it has to
          * name the one *this row* offers rather than the commoner of the two.
          */
-        bar_add(out, MESH_UI_BUTTON_A,
+        bar_add(out, INKCELL_BUTTON_A,
                 nav->compose_cursor == MESH_UI_COMPOSE_ROW_DRAFT ? MESH_STR_ACTION_TYPE
                                                                  : MESH_STR_ACTION_SEND);
-        bar_add(out, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
+        bar_add(out, INKCELL_BUTTON_B, MESH_STR_ACTION_BACK);
         return;
     }
     if (nav->reaction_open) {
@@ -792,14 +793,14 @@ void mesh_ui_actions_for(const struct mesh_ui_snapshot *snapshot, struct mesh_ui
          * finishes it and the one that calls it off.
          */
         if (nav->message_delete_armed) {
-            bar_add(out, MESH_UI_BUTTON_A, MESH_STR_ACTION_CONFIRM_DELETE);
-            bar_add(out, MESH_UI_BUTTON_B, MESH_STR_ACTION_CANCEL);
+            bar_add(out, INKCELL_BUTTON_A, MESH_STR_ACTION_CONFIRM_DELETE);
+            bar_add(out, INKCELL_BUTTON_B, MESH_STR_ACTION_CANCEL);
             return;
         }
-        bar_add(out, MESH_UI_BUTTON_A,
+        bar_add(out, INKCELL_BUTTON_A,
                 mesh_ui_nav_reaction_row_is_delete(nav->reaction_cursor) ? MESH_STR_ACTION_DELETE
                                                                          : MESH_STR_ACTION_SEND);
-        bar_add(out, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
+        bar_add(out, INKCELL_BUTTON_B, MESH_STR_ACTION_BACK);
         bar_add_help(snapshot, out);
         return;
     }
@@ -833,7 +834,7 @@ void mesh_ui_actions_for(const struct mesh_ui_snapshot *snapshot, struct mesh_ui
     }
 }
 
-bool mesh_ui_action_bar_goes_back(const struct mesh_ui_action_bar *bar) {
+bool mesh_ui_action_bar_goes_back(const struct inkcell_action_bar *bar) {
     if (bar == NULL) {
         return false;
     }

@@ -1,8 +1,9 @@
 #include "support/ble_ota_fixture.h"
 
+#include "inkcell/utils/text.h"
+
 #include "mesh/transport/ble_bluez.h"
 #include "mesh/transport/ble_ota.h"
-#include "mesh/utils/text.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -35,7 +36,7 @@ void mesh_test_ota_loader_restart(struct mesh_test_ota_loader *loader) {
 
 static void loader_say(struct mesh_test_ota_loader *loader, const char *text) {
     if (loader->queued < MESH_TEST_OTA_LOADER_QUEUE) {
-        mesh_str_copy(loader->queue[loader->queued++], MESH_TEST_OTA_LOADER_TEXT, text);
+        inkcell_str_copy(loader->queue[loader->queued++], MESH_TEST_OTA_LOADER_TEXT, text);
     }
 }
 
@@ -45,7 +46,8 @@ static void loader_command(struct mesh_test_ota_loader *loader, const uint8_t *d
     memcpy(text, data, copy);
     text[copy] = '\0';
     if (loader->command_count < MESH_TEST_OTA_LOADER_COMMANDS) {
-        mesh_str_copy(loader->commands[loader->command_count++], sizeof loader->commands[0], text);
+        inkcell_str_copy(loader->commands[loader->command_count++], sizeof loader->commands[0],
+                         text);
     }
     char *const newline = strchr(text, '\n');
     if (newline != NULL) {
@@ -68,7 +70,7 @@ static void loader_command(struct mesh_test_ota_loader *loader, const uint8_t *d
             return;
         }
         loader->expected_size = size;
-        mesh_str_copy(loader->expected_hex, sizeof loader->expected_hex, hex);
+        inkcell_str_copy(loader->expected_hex, sizeof loader->expected_hex, hex);
         loader->received = 0U;
         mesh_sha256_init(&loader->hasher);
         loader->downloading = true;

@@ -14,19 +14,20 @@
  * colour, radius and margin comes from the theme. This file is placement and ink.
  */
 
+#include "inkcell/ui/latency.h"
+#include "inkcell/ui/widgets.h"
+#include "inkcell/utils/log.h"
+#include "inkcell/utils/text.h"
+
 #include "fb_internal.h"
-#include "fb_widgets.h"
 
 #include "mesh/geo/coords.h"
 #include "mesh/i18n/strings.h"
 #include "mesh/map/tile_image.h"
-#include "mesh/ui/latency.h"
 #include "mesh/ui/map.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/units.h"
 #include "mesh/ui/waypoints.h"
-#include "mesh/utils/log.h"
-#include "mesh/utils/text.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -87,9 +88,9 @@ static bool fb_map_boxes_overlap(const struct fb_map_box *a, const struct fb_map
  * whole of that bug, and no amount of care at the call sites fixes it: the shapes have different
  * extents and two of them are drawn by components that do not take a bounding box.
  *
- * So the clip goes on the state, where fb_fill_packed() already honours one - every fill, glyph
- * and icon span in this backend goes through that one function, so a rectangle set here covers
- * the discs, the pins and the names alike.
+ * So the clip goes on the state, where inkcell_fb_fill_packed() already honours one - every fill,
+ * glyph and icon span in this backend goes through that one function, so a rectangle set here
+ * covers the discs, the pins and the names alike.
  *
  * It *intersects* rather than replaces, and that is not defensive: fb_render_snapshot() sets a
  * clip of its own for the partial-redraw path, and a map that overwrote it would repaint rows
@@ -97,15 +98,15 @@ static bool fb_map_boxes_overlap(const struct fb_map_box *a, const struct fb_map
  */
 struct fb_map_clip {
     bool active;
-    struct fb_damage_rect rect;
+    struct inkcell_fb_damage_rect rect;
 };
 
-static void fb_map_clip_push(struct mesh_ui_backend_fb_state *state, const struct fb_map_box *body,
+static void fb_map_clip_push(struct inkcell_backend_fb_state *state, const struct fb_map_box *body,
                              struct fb_map_clip *saved) {
     saved->active = state->clip_active;
     saved->rect = state->clip;
 
-    struct fb_damage_rect wanted = {
+    struct inkcell_fb_damage_rect wanted = {
         .x = body->x,
         .y = body->y,
         .right = body->x + body->w,
@@ -130,7 +131,7 @@ static void fb_map_clip_push(struct mesh_ui_backend_fb_state *state, const struc
     state->clip_active = true;
 }
 
-static void fb_map_clip_pop(struct mesh_ui_backend_fb_state *state,
+static void fb_map_clip_pop(struct inkcell_backend_fb_state *state,
                             const struct fb_map_clip *saved) {
     state->clip_active = saved->active;
     state->clip = saved->rect;
@@ -141,22 +142,23 @@ static void fb_map_clip_pop(struct mesh_ui_backend_fb_state *state,
  *
  * Off the cap height rather than a constant, so it stays in proportion to the names beside it
  * at every glyph scale the theme can be asked for - the same reason an icon in a row slot is
- * measured against mesh_ui_font_cap() rather than against the cell.
+ * measured against inkcell_font_cap() rather than against the cell.
  */
-static int fb_map_marker_radius(const struct mesh_ui_backend_fb_state *state) {
-    const int radius = mesh_ui_font_cap(fb_font(state), state->scale) / 3;
+static int fb_map_marker_radius(const struct inkcell_backend_fb_state *state) {
+    const int radius = inkcell_font_cap(inkcell_fb_font(state), state->scale) / 3;
     return radius < 3 ? 3 : radius;
 }
 
 /* A filled disc, which is the one shape this file draws that fb_widgets.h has no name for: a
-   rounded rectangle whose radius is half its shorter side is a circle, and fb_fill_round_rect()
-   already clamps anything larger to exactly that. */
-static void fb_map_disc(const struct mesh_ui_backend_fb_state *state, int cx, int cy, int radius,
-                        struct mesh_ui_rgb color) {
+   rounded rectangle whose radius is half its shorter side is a circle, and
+   inkcell_fb_fill_round_rect() already clamps anything larger to exactly that. */
+static void fb_map_disc(const struct inkcell_backend_fb_state *state, int cx, int cy, int radius,
+                        struct inkcell_rgb color) {
     if (radius <= 0) {
         return;
     }
-    fb_fill_round_rect(state, cx - radius, cy - radius, radius * 2, radius * 2, radius, color);
+    inkcell_fb_fill_round_rect(state, cx - radius, cy - radius, radius * 2, radius * 2, radius,
+                               color);
 }
 
 /*
@@ -197,11 +199,11 @@ static int32_t fb_map_grid_floor(int32_t value, int32_t step) {
  * that with - they are real, they are what the scale bar measures against, and they are the one
  * thing a client with no tiles is entitled to draw.
  */
-static void fb_map_draw_grid(const struct mesh_ui_backend_fb_state *state,
+static void fb_map_draw_grid(const struct inkcell_backend_fb_state *state,
                              const struct mesh_map_viewport *viewport,
-                             const struct fb_map_box *body, struct mesh_ui_rgb ink) {
+                             const struct fb_map_box *body, struct inkcell_rgb ink) {
     const int32_t step = fb_map_grid_step(viewport);
-    const int thickness = fb_rule_height(state, state->scale);
+    const int thickness = inkcell_fb_rule_height(state, state->scale);
 
     /* What the corners of the body are looking at, which is what says which lines are inside
        it. Asked of the viewport rather than derived here: the wrap and the polar clamp are
@@ -230,7 +232,7 @@ static void fb_map_draw_grid(const struct mesh_ui_backend_fb_state *state,
         if (placement.x < 0 || placement.x >= body->w) {
             continue;
         }
-        fb_fill_rect(state, body->x + placement.x, body->y, thickness, body->h, ink);
+        inkcell_fb_fill_rect(state, body->x + placement.x, body->y, thickness, body->h, ink);
     }
 
     /* The parallels. Latitude does not wrap, so these are walked as coordinates and stopped at
@@ -247,7 +249,7 @@ static void fb_map_draw_grid(const struct mesh_ui_backend_fb_state *state,
         if (placement.y < 0 || placement.y >= body->h) {
             continue;
         }
-        fb_fill_rect(state, body->x, body->y + placement.y, body->w, thickness, ink);
+        inkcell_fb_fill_rect(state, body->x, body->y + placement.y, body->w, thickness, ink);
     }
 }
 
@@ -255,7 +257,7 @@ static void fb_map_draw_grid(const struct mesh_ui_backend_fb_state *state,
  * The two ways a word is made legible over a picture, and why the map needs both.
  *
  * A glyph carries coverage rather than a mask, so every piece of text in this backend is blended
- * against a colour the caller says it has just filled (fb_draw_text()'s `ground`). Over the
+ * against a colour the caller says it has just filled (inkcell_fb_draw_text()'s `ground`). Over the
  * map's own surface that claim is true by construction. Over a basemap tile it is a guess, and
  * the way it goes wrong is a fringe of panel colour around every letter standing on a street -
  * which on a pale style is a name nobody can read.
@@ -273,25 +275,25 @@ static void fb_map_draw_grid(const struct mesh_ui_backend_fb_state *state,
  * colour that is already there, and all they would achieve is rubbing out the grid lines a
  * distance is judged against.
  */
-static void fb_map_plate(const struct mesh_ui_backend_fb_state *state, int x, int y, int w, int h,
+static void fb_map_plate(const struct inkcell_backend_fb_state *state, int x, int y, int w, int h,
                          int scale) {
-    const int pad = fb_space_at(state, MESH_UI_SPACE_XS, scale);
-    fb_fill_round_rect(state, x - pad, y - pad, w + pad * 2, h + pad * 2,
-                       fb_radius(state, MESH_UI_SHAPE_SM),
-                       fb_color(state, MESH_UI_COLOR_SURFACE_LOW));
+    const int pad = inkcell_fb_space_at(state, INKCELL_SPACE_XS, scale);
+    inkcell_fb_fill_round_rect(state, x - pad, y - pad, w + pad * 2, h + pad * 2,
+                               inkcell_fb_radius(state, INKCELL_SHAPE_SM),
+                               inkcell_fb_color(state, INKCELL_COLOR_SURFACE_LOW));
 }
 
-static void fb_map_text(const struct mesh_ui_backend_fb_state *state, int x, int y,
-                        const char *text, int scale, struct mesh_ui_rgb ink,
-                        struct mesh_ui_rgb ground, bool halo) {
+static void fb_map_text(const struct inkcell_backend_fb_state *state, int x, int y,
+                        const char *text, int scale, struct inkcell_rgb ink,
+                        struct inkcell_rgb ground, bool halo) {
     if (halo) {
-        const int out = fb_rule_height(state, scale);
-        fb_draw_text(state, x - out, y, text, scale, ground, ground);
-        fb_draw_text(state, x + out, y, text, scale, ground, ground);
-        fb_draw_text(state, x, y - out, text, scale, ground, ground);
-        fb_draw_text(state, x, y + out, text, scale, ground, ground);
+        const int out = inkcell_fb_rule_height(state, scale);
+        inkcell_fb_draw_text(state, x - out, y, text, scale, ground, ground);
+        inkcell_fb_draw_text(state, x + out, y, text, scale, ground, ground);
+        inkcell_fb_draw_text(state, x, y - out, text, scale, ground, ground);
+        inkcell_fb_draw_text(state, x, y + out, text, scale, ground, ground);
     }
-    fb_draw_text(state, x, y, text, scale, ink, ground);
+    inkcell_fb_draw_text(state, x, y, text, scale, ink, ground);
 }
 
 /*
@@ -301,7 +303,7 @@ static void fb_map_text(const struct mesh_ui_backend_fb_state *state, int x, int
  * decoration. The distance is chosen off the same 1-2-5 ladder the grid is, for the same
  * reason - a bar that read "137 m" would be a bar nobody could estimate against.
  */
-static void fb_map_draw_scale(const struct mesh_ui_backend_fb_state *state,
+static void fb_map_draw_scale(const struct inkcell_backend_fb_state *state,
                               const struct mesh_map_viewport *viewport,
                               const struct fb_map_box *body, bool imperial, bool plate, int scale) {
     const double metres_per_pixel = mesh_map_viewport_metres_per_pixel(viewport);
@@ -330,19 +332,19 @@ static void fb_map_draw_scale(const struct mesh_ui_backend_fb_state *state,
     char label[24];
     mesh_ui_format_distance(rounded, imperial, label, sizeof label);
 
-    const int pad = fb_space_at(state, MESH_UI_SPACE_SM, scale);
-    const int thickness = fb_rule_height(state, state->scale);
-    const int cap = mesh_ui_font_cap(fb_font(state), scale);
+    const int pad = inkcell_fb_space_at(state, INKCELL_SPACE_SM, scale);
+    const int thickness = inkcell_fb_rule_height(state, state->scale);
+    const int cap = inkcell_font_cap(inkcell_fb_font(state), scale);
     const int x = body->x + pad;
     /* Everything is measured up from the body's own bottom edge, so the whole bar lives inside
        the map rather than half in the line underneath it. The ticks stand up from the rule and
        the label sits above them, which is the order a ruler is read in. */
     const int bar_y = body->y + body->h - pad - thickness;
     const int tick = cap / 2;
-    const int text_y = bar_y - tick - fb_line_adv(state, scale);
+    const int text_y = bar_y - tick - inkcell_fb_line_adv(state, scale);
 
-    const struct mesh_ui_rgb ink = fb_color(state, MESH_UI_COLOR_TEXT_DIM);
-    const struct mesh_ui_rgb ground = fb_color(state, MESH_UI_COLOR_SURFACE_LOW);
+    const struct inkcell_rgb ink = inkcell_fb_color(state, INKCELL_COLOR_TEXT_DIM);
+    const struct inkcell_rgb ground = inkcell_fb_color(state, INKCELL_COLOR_SURFACE_LOW);
     /* Over a picture the whole bar needs a ground of its own - see fb_map_plate(). Over the
        graticule it needs none, and would cover the lines it is the ruler for. */
     if (plate) {
@@ -350,10 +352,10 @@ static void fb_map_draw_scale(const struct mesh_ui_backend_fb_state *state,
     }
     /* The bar and a tick at each end, so the length being measured is the span between two
        marks rather than a line that might be a rule. */
-    fb_fill_rect(state, x, bar_y, length, thickness, ink);
-    fb_fill_rect(state, x, bar_y - tick, thickness, tick, ink);
-    fb_fill_rect(state, x + length - thickness, bar_y - tick, thickness, tick, ink);
-    fb_draw_text(state, x, text_y, label, scale, ink, ground);
+    inkcell_fb_fill_rect(state, x, bar_y, length, thickness, ink);
+    inkcell_fb_fill_rect(state, x, bar_y - tick, thickness, tick, ink);
+    inkcell_fb_fill_rect(state, x + length - thickness, bar_y - tick, thickness, tick, ink);
+    inkcell_fb_draw_text(state, x, text_y, label, scale, ink, ground);
 }
 
 /*
@@ -369,18 +371,18 @@ static void fb_map_draw_scale(const struct mesh_ui_backend_fb_state *state,
  * hold the credit and the ruler is a panel where the ruler wins, and the pack is still named in
  * the log and in the settings row that eventually lists what is installed.
  */
-static void fb_map_draw_attribution(const struct mesh_ui_backend_fb_state *state,
+static void fb_map_draw_attribution(const struct inkcell_backend_fb_state *state,
                                     const struct fb_map_box *body, const char *attribution,
                                     int scale) {
     if (attribution == NULL || attribution[0] == '\0') {
         return;
     }
-    const int pad = fb_space_at(state, MESH_UI_SPACE_SM, scale);
+    const int pad = inkcell_fb_space_at(state, INKCELL_SPACE_SM, scale);
     /* Measured, not counted: the credit is right-aligned against the body's far edge, so a
        width taken as a cell count times the nominal advance puts a proportional run either
        over the edge or short of it. */
     const int width = inkcell_fb_text_width(state, attribution, scale);
-    const int height = inkcell_scale_px((int)fb_font(state)->height, scale);
+    const int height = inkcell_scale_px((int)inkcell_fb_font(state)->height, scale);
     const int x = body->x + body->w - pad - width;
     const int y = body->y + body->h - pad - height;
     /* Half the body, so a long credit is dropped rather than drawn across the ruler it would
@@ -389,8 +391,9 @@ static void fb_map_draw_attribution(const struct mesh_ui_backend_fb_state *state
         return;
     }
     fb_map_plate(state, x, y, width, height, scale);
-    fb_draw_text(state, x, y, attribution, scale, fb_color(state, MESH_UI_COLOR_TEXT_DIM),
-                 fb_color(state, MESH_UI_COLOR_SURFACE_LOW));
+    inkcell_fb_draw_text(state, x, y, attribution, scale,
+                         inkcell_fb_color(state, INKCELL_COLOR_TEXT_DIM),
+                         inkcell_fb_color(state, INKCELL_COLOR_SURFACE_LOW));
 }
 
 /*
@@ -400,43 +403,44 @@ static void fb_map_draw_attribution(const struct mesh_ui_backend_fb_state *state
  * at is a marker a few pixels across and a cross would be drawn straight over it. The gap is
  * what the reader looks *into*.
  */
-static void fb_map_draw_crosshair(const struct mesh_ui_backend_fb_state *state,
+static void fb_map_draw_crosshair(const struct inkcell_backend_fb_state *state,
                                   const struct fb_map_box *body, bool on_something) {
     const int cx = body->x + body->w / 2;
     const int cy = body->y + body->h / 2;
-    const int cap = mesh_ui_font_cap(fb_font(state), state->scale);
+    const int cap = inkcell_font_cap(inkcell_fb_font(state), state->scale);
     const int arm = cap / 2;
     const int gap = cap / 2;
-    const int thickness = fb_rule_height(state, state->scale) * 2;
+    const int thickness = inkcell_fb_rule_height(state, state->scale) * 2;
     /*
      * The primary when it is on a marker, the dim ink when it is on nothing - so what A would do
      * is readable off the crosshair alone. It is the same predicate the press asks
      * (mesh_ui_map_selected()), passed in rather than asked again here, which is what keeps the
      * ring, the line under the body and the press from ever being three answers.
      */
-    const struct mesh_ui_rgb ink =
+    const struct inkcell_rgb ink =
         on_something
-            ? fb_paint(state, MESH_UI_FAMILY_PRIMARY, MESH_UI_SLOT_BASE, MESH_UI_STATE_REST).fill
-            : fb_color(state, MESH_UI_COLOR_TEXT_DIM);
+            ? inkcell_fb_paint(state, INKCELL_FAMILY_PRIMARY, INKCELL_SLOT_BASE, INKCELL_STATE_REST)
+                  .fill
+            : inkcell_fb_color(state, INKCELL_COLOR_TEXT_DIM);
 
-    fb_fill_rect(state, cx - thickness / 2, cy - gap - arm, thickness, arm, ink);
-    fb_fill_rect(state, cx - thickness / 2, cy + gap, thickness, arm, ink);
-    fb_fill_rect(state, cx - gap - arm, cy - thickness / 2, arm, thickness, ink);
-    fb_fill_rect(state, cx + gap, cy - thickness / 2, arm, thickness, ink);
+    inkcell_fb_fill_rect(state, cx - thickness / 2, cy - gap - arm, thickness, arm, ink);
+    inkcell_fb_fill_rect(state, cx - thickness / 2, cy + gap, thickness, arm, ink);
+    inkcell_fb_fill_rect(state, cx - gap - arm, cy - thickness / 2, arm, thickness, ink);
+    inkcell_fb_fill_rect(state, cx + gap, cy - thickness / 2, arm, thickness, ink);
 }
 
 /* Which family a marker is drawn in: ourselves, a place, a node, a node the radio has
    forgotten. A table here rather than a chain of conditionals at each of the three places that
    need it - the disc, the ring and the label all ask this one question. */
-static enum mesh_ui_family fb_map_marker_family(const struct mesh_ui_map_marker *marker) {
+static enum inkcell_family fb_map_marker_family(const struct mesh_ui_map_marker *marker) {
     switch ((enum mesh_ui_map_marker_kind)marker->kind) {
     case MESH_UI_MAP_MARKER_SELF:
-        return MESH_UI_FAMILY_PRIMARY;
+        return INKCELL_FAMILY_PRIMARY;
     case MESH_UI_MAP_MARKER_WAYPOINT:
-        return MESH_UI_FAMILY_TERTIARY;
+        return INKCELL_FAMILY_TERTIARY;
     case MESH_UI_MAP_MARKER_NODE:
     default:
-        return marker->stale ? MESH_UI_FAMILY_WARNING : MESH_UI_FAMILY_SECONDARY;
+        return marker->stale ? INKCELL_FAMILY_WARNING : INKCELL_FAMILY_SECONDARY;
     }
 }
 
@@ -448,15 +452,16 @@ static enum mesh_ui_family fb_map_marker_family(const struct mesh_ui_map_marker 
  * somewhere, and the alternative - a label beside every marker carrying all of them - is the
  * panel covered in text with the map underneath it.
  */
-static void fb_map_draw_selection(const struct mesh_ui_backend_fb_state *state,
+static void fb_map_draw_selection(const struct inkcell_backend_fb_state *state,
                                   const struct mesh_ui_snapshot *snapshot,
                                   const struct mesh_ui_map_view *view,
                                   const struct mesh_map_viewport *viewport, int y, int scale) {
-    const struct mesh_ui_rgb ground = fb_color(state, MESH_UI_COLOR_BG);
+    const struct inkcell_rgb ground = inkcell_fb_color(state, INKCELL_COLOR_BG);
     uint32_t index = 0U;
     if (!mesh_ui_map_selected(view, viewport, &index)) {
-        fb_draw_text(state, fb_margin(state), y, mesh_str(MESH_STR_MAP_NOTHING_SELECTED), scale,
-                     fb_color(state, MESH_UI_COLOR_TEXT_DIM), ground);
+        inkcell_fb_draw_text(state, inkcell_fb_margin(state), y,
+                             inkcell_str(MESH_STR_MAP_NOTHING_SELECTED), scale,
+                             inkcell_fb_color(state, INKCELL_COLOR_TEXT_DIM), ground);
         return;
     }
 
@@ -487,31 +492,31 @@ static void fb_map_draw_selection(const struct mesh_ui_backend_fb_state *state,
     char note[48];
     note[0] = '\0';
     if (marker->kind == MESH_UI_MAP_MARKER_SELF) {
-        mesh_str_copy(note, sizeof note, mesh_str(MESH_STR_MAP_SELECTED_SELF));
+        inkcell_str_copy(note, sizeof note, inkcell_str(MESH_STR_MAP_SELECTED_SELF));
     } else if (marker->stale) {
-        mesh_str_copy(note, sizeof note, mesh_str(MESH_STR_MAP_SELECTED_OFF_RADIO));
+        inkcell_str_copy(note, sizeof note, inkcell_str(MESH_STR_MAP_SELECTED_OFF_RADIO));
     } else if (mesh_ui_settings_precision_metres(marker->precision_bits) > 0U) {
         char footprint[24];
         mesh_ui_settings_format_precision(marker->precision_bits, imperial, footprint,
                                           sizeof footprint);
-        mesh_str_format(note, sizeof note, MESH_STR_MAP_SELECTED_APPROX, footprint);
+        inkcell_str_format(note, sizeof note, MESH_STR_MAP_SELECTED_APPROX, footprint);
     }
 
     char line[128];
     if (range[0] != '\0' && note[0] != '\0') {
         char tail[80];
-        mesh_str_format(tail, sizeof tail, MESH_STR_MAP_SELECTED_RANGE, range, note);
-        mesh_str_format(line, sizeof line, MESH_STR_MAP_SELECTED_RANGE, marker->label, tail);
+        inkcell_str_format(tail, sizeof tail, MESH_STR_MAP_SELECTED_RANGE, range, note);
+        inkcell_str_format(line, sizeof line, MESH_STR_MAP_SELECTED_RANGE, marker->label, tail);
     } else if (range[0] != '\0' || note[0] != '\0') {
-        mesh_str_format(line, sizeof line, MESH_STR_MAP_SELECTED_RANGE, marker->label,
-                        range[0] != '\0' ? range : note);
+        inkcell_str_format(line, sizeof line, MESH_STR_MAP_SELECTED_RANGE, marker->label,
+                           range[0] != '\0' ? range : note);
     } else {
-        mesh_str_copy(line, sizeof line, marker->label);
+        inkcell_str_copy(line, sizeof line, marker->label);
     }
 
-    const struct mesh_ui_paint paint =
-        fb_paint(state, fb_map_marker_family(marker), MESH_UI_SLOT_BASE, MESH_UI_STATE_REST);
-    fb_draw_text(state, fb_margin(state), y, line, scale, paint.fill, ground);
+    const struct inkcell_paint paint = inkcell_fb_paint(state, fb_map_marker_family(marker),
+                                                        INKCELL_SLOT_BASE, INKCELL_STATE_REST);
+    inkcell_fb_draw_text(state, inkcell_fb_margin(state), y, line, scale, paint.fill, ground);
 }
 
 /* ---- the basemap -------------------------------------------------------------------------- */
@@ -533,7 +538,7 @@ static void fb_map_draw_selection(const struct mesh_ui_backend_fb_state *state,
 /* How far a tile's pixels are apart, row to row: the decoder's format, not the panel's. */
 #define FB_BASEMAP_TILE_STRIDE ((size_t)MESH_MAP_TILE_SIZE * (size_t)MESH_MAP_TILE_PIXEL_BYTES)
 
-bool fb_basemap_pending(const struct mesh_ui_backend_fb_state *state) {
+bool fb_basemap_pending(const struct inkcell_backend_fb_state *state) {
     return state != NULL && fb_app_of(state)->basemap != NULL && fb_app_of(state)->basemap->pending;
 }
 
@@ -546,13 +551,13 @@ bool fb_basemap_pending(const struct mesh_ui_backend_fb_state *state) {
  * second of a screen with no map on it, for as long as the client ran - which on a handheld is
  * the battery, and is invisible because every one of those frames is correct.
  */
-void fb_basemap_frame_begin(struct mesh_ui_backend_fb_state *state) {
+void fb_basemap_frame_begin(struct inkcell_backend_fb_state *state) {
     if (state != NULL && fb_app_of(state)->basemap != NULL) {
         fb_app_of(state)->basemap->pending = false;
     }
 }
 
-void fb_basemap_close(struct mesh_ui_backend_fb_state *state) {
+void fb_basemap_close(struct inkcell_backend_fb_state *state) {
     if (state == NULL || fb_app_of(state)->basemap == NULL) {
         return;
     }
@@ -564,7 +569,7 @@ void fb_basemap_close(struct mesh_ui_backend_fb_state *state) {
     free(basemap);
 }
 
-int fb_basemap_open(struct mesh_ui_backend_fb_state *state, const char *path) {
+int fb_basemap_open(struct inkcell_backend_fb_state *state, const char *path) {
     if (state == NULL || path == NULL || path[0] == '\0') {
         return -EINVAL;
     }
@@ -594,15 +599,15 @@ int fb_basemap_open(struct mesh_ui_backend_fb_state *state, const char *path) {
 
     basemap->open = true;
     fb_app_of(state)->basemap = basemap;
-    mesh_log_info("ui", "Map pack %s: %s, %u tiles, zoom %u-%u, holding up to %zu KiB of them",
-                  path, basemap->source.info.name[0] != '\0' ? basemap->source.info.name : path,
-                  basemap->source.info.tiles, (unsigned)basemap->source.info.min_zoom,
-                  (unsigned)basemap->source.info.max_zoom,
-                  mesh_map_tile_cache_bytes(&basemap->cache) / 1024U);
+    inkcell_log_info("ui", "Map pack %s: %s, %u tiles, zoom %u-%u, holding up to %zu KiB of them",
+                     path, basemap->source.info.name[0] != '\0' ? basemap->source.info.name : path,
+                     basemap->source.info.tiles, (unsigned)basemap->source.info.min_zoom,
+                     (unsigned)basemap->source.info.max_zoom,
+                     mesh_map_tile_cache_bytes(&basemap->cache) / 1024U);
     return 0;
 }
 
-void fb_basemap_open_default(struct mesh_ui_backend_fb_state *state) {
+void fb_basemap_open_default(struct inkcell_backend_fb_state *state) {
     if (state == NULL) {
         return;
     }
@@ -627,7 +632,7 @@ void fb_basemap_open_default(struct mesh_ui_backend_fb_state *state) {
     if (opened < 0) {
         /* Named and unreadable is worth a line, though: somebody pointed the client at a file,
            and the map about to draw a bare graticule is the only other evidence they get. */
-        mesh_log_warn("ui", "Map pack %s could not be opened: %s", named, strerror(-opened));
+        inkcell_log_warn("ui", "Map pack %s could not be opened: %s", named, strerror(-opened));
     }
 }
 
@@ -663,7 +668,7 @@ void fb_basemap_open_default(struct mesh_ui_backend_fb_state *state) {
  * Returns whether any tile was drawn, which is what decides whether the names on top of them
  * need a plate behind them.
  */
-static bool fb_map_draw_basemap(struct mesh_ui_backend_fb_state *state,
+static bool fb_map_draw_basemap(struct inkcell_backend_fb_state *state,
                                 const struct mesh_map_viewport *viewport,
                                 const struct fb_map_box *body) {
     struct fb_basemap *const basemap = fb_app_of(state)->basemap;
@@ -696,8 +701,8 @@ static bool fb_map_draw_basemap(struct mesh_ui_backend_fb_state *state,
             const enum mesh_map_tile_state held =
                 mesh_map_tile_cache_get(&basemap->cache, key, &pixels);
             if (held == MESH_MAP_TILE_READY) {
-                fb_blit_bgra(state, x, y, MESH_MAP_TILE_SIZE, MESH_MAP_TILE_SIZE, pixels,
-                             FB_BASEMAP_TILE_STRIDE);
+                inkcell_fb_blit_bgra(state, x, y, MESH_MAP_TILE_SIZE, MESH_MAP_TILE_SIZE, pixels,
+                                     FB_BASEMAP_TILE_STRIDE);
                 drew = true;
                 continue;
             }
@@ -729,7 +734,7 @@ static bool fb_map_draw_basemap(struct mesh_ui_backend_fb_state *state,
         /* And what the next frame has to redraw. Without this the frame after an animation
            would be clipped to the widget that was moving and the tile just decoded would not
            reach the panel until something else changed. */
-        fb_animation_damage(state, body->x, body->y, body->w, body->h);
+        inkcell_fb_animation_damage(state, body->x, body->y, body->w, body->h);
     }
     if (wanted == 0U) {
         return drew;
@@ -740,10 +745,10 @@ static bool fb_map_draw_basemap(struct mesh_ui_backend_fb_state *state,
      * on the frame that fetched it rather than on the one after, which halves how long a view
      * takes to fill for the cost of the blit being written twice in this function.
      */
-    const uint64_t read_at = mesh_ui_latency_now_us();
+    const uint64_t read_at = inkcell_latency_now_us();
     const int length =
         mesh_map_source_read(&basemap->source, next, basemap->encoded, MESH_MAP_TILE_BYTES_MAX);
-    const uint64_t decode_at = mesh_ui_latency_now_us();
+    const uint64_t decode_at = inkcell_latency_now_us();
     uint8_t *const slot = length > 0 ? mesh_map_tile_cache_claim(&basemap->cache, next) : NULL;
     const int decoded = slot == NULL ? -ENOENT
                                      : mesh_map_tile_decode(basemap->encoded, (size_t)length, slot,
@@ -752,11 +757,11 @@ static bool fb_map_draw_basemap(struct mesh_ui_backend_fb_state *state,
        card's and the decode is the CPU's, and which of them a slow frame is made of is what
        the standalone tile benchmark measured apart and an integrated number would otherwise run
        together. */
-    mesh_ui_latency_tile(decode_at - read_at, mesh_ui_latency_now_us() - decode_at);
+    inkcell_latency_tile(decode_at - read_at, inkcell_latency_now_us() - decode_at);
     if (decoded == 0) {
         mesh_map_tile_cache_commit(&basemap->cache, next);
-        fb_blit_bgra(state, next_x, next_y, MESH_MAP_TILE_SIZE, MESH_MAP_TILE_SIZE, slot,
-                     FB_BASEMAP_TILE_STRIDE);
+        inkcell_fb_blit_bgra(state, next_x, next_y, MESH_MAP_TILE_SIZE, MESH_MAP_TILE_SIZE, slot,
+                             FB_BASEMAP_TILE_STRIDE);
         return true;
     }
 
@@ -772,14 +777,14 @@ static bool fb_map_draw_basemap(struct mesh_ui_backend_fb_state *state,
     }
     mesh_map_tile_cache_note_absent(&basemap->cache, next);
     if (length != 0) {
-        mesh_log_warn("ui", "Map tile z%u/%u/%u will not draw: %s", (unsigned)next.zoom, next.x,
-                      next.y, strerror(length < 0 ? -length : -decoded));
+        inkcell_log_warn("ui", "Map tile z%u/%u/%u will not draw: %s", (unsigned)next.zoom, next.x,
+                         next.y, strerror(length < 0 ? -length : -decoded));
     }
     return drew;
 }
 
-void fb_render_map(struct mesh_ui_backend_fb_state *state, const struct mesh_ui_snapshot *snapshot,
-                   struct fb_layout *layout) {
+void fb_render_map(struct inkcell_backend_fb_state *state, const struct mesh_ui_snapshot *snapshot,
+                   struct inkcell_fb_layout *layout) {
     struct mesh_ui_store view_store;
     mesh_ui_store_view(snapshot, &view_store);
     struct mesh_ui_map_view view;
@@ -793,7 +798,7 @@ void fb_render_map(struct mesh_ui_backend_fb_state *state, const struct mesh_ui_
      * and not a measured one (MESH_UI_MAP_FIT_WIDTH). The centre and the zoom are the nav's and
      * are used as they come; only the box is this backend's business.
      */
-    const int margin = fb_margin(state);
+    const int margin = inkcell_fb_margin(state);
     const int scale = layout->small;
 
     /*
@@ -801,14 +806,14 @@ void fb_render_map(struct mesh_ui_backend_fb_state *state, const struct mesh_ui_
      *
      * The badge counts the markers on the panel, so it cannot be written until the panel has
      * been measured - and the panel cannot be measured until the app bar has taken its rows.
-     * fb_app_bar_height() is what breaks that circle: the bar's height is asked for rather than
-     * discovered by drawing it, so the bar is drawn once, with the right number in it.
+     * inkcell_fb_app_bar_height() is what breaks that circle: the bar's height is asked for rather
+     * than discovered by drawing it, so the bar is drawn once, with the right number in it.
      *
      * One body row is also kept back for the line under the map that says what the crosshair is
      * on. It costs a row and is worth one - see fb_map_draw_selection().
      */
-    const int top = layout->body_y + fb_app_bar_height(state, layout, 0U);
-    const int bottom = layout->footer_y - fb_gutter(state);
+    const int top = layout->body_y + inkcell_fb_app_bar_height(state, layout, 0U);
+    const int bottom = layout->footer_y - inkcell_fb_gutter(state);
     /*
      * Measured in whole body rows, the way every list on this panel is.
      *
@@ -829,18 +834,18 @@ void fb_render_map(struct mesh_ui_backend_fb_state *state, const struct mesh_ui_
         .w = (int)state->var.xres - margin * 2,
         /* Clear of the line under it by the same step a list leaves between a row and its
            supporting line, so the map's edge and the text below it are not touching. */
-        .h = selection_y - top - fb_space(state, MESH_UI_SPACE_SM),
+        .h = selection_y - top - inkcell_fb_space(state, INKCELL_SPACE_SM),
     };
 
     struct mesh_map_viewport viewport = snapshot->nav.map_viewport;
     mesh_map_viewport_resize(&viewport, body.w > 0 ? body.w : 0, body.h > 0 ? body.h : 0);
 
     char badge[24];
-    mesh_str_format(badge, sizeof badge, MESH_STR_MAP_BADGE_IN_VIEW,
-                    mesh_ui_map_visible(&view, &viewport), view.known);
-    struct fb_app_bar bar;
+    inkcell_str_format(badge, sizeof badge, MESH_STR_MAP_BADGE_IN_VIEW,
+                       mesh_ui_map_visible(&view, &viewport), view.known);
+    struct inkcell_fb_app_bar bar;
     memset(&bar, 0, sizeof bar);
-    bar.title = mesh_str(MESH_STR_MAP_TITLE);
+    bar.title = inkcell_str(MESH_STR_MAP_TITLE);
     bar.badge = badge;
     /*
      * The primary rather than the warning family the badge was invented for. "4 of 9" is a fact
@@ -848,8 +853,8 @@ void fb_render_map(struct mesh_ui_backend_fb_state *state, const struct mesh_ui_
      * state of a mesh, and a capsule that read as a problem every time the map opened would be
      * the frame crying wolf.
      */
-    bar.badge_family = MESH_UI_FAMILY_PRIMARY;
-    fb_draw_app_bar(state, layout, &bar);
+    bar.badge_family = INKCELL_FAMILY_PRIMARY;
+    inkcell_fb_draw_app_bar(state, layout, &bar);
 
     if (body.w <= 0 || body.h <= 0) {
         return;
@@ -865,8 +870,9 @@ void fb_render_map(struct mesh_ui_backend_fb_state *state, const struct mesh_ui_
 
     /* The ground the map is drawn on: the recessed surface, so the body reads as a panel the
        markers sit in rather than as the screen's own background with dots on it. */
-    fb_fill_rect(state, body.x, body.y, body.w, body.h, fb_color(state, MESH_UI_COLOR_SURFACE_LOW));
-    fb_map_draw_grid(state, &viewport, &body, fb_color(state, MESH_UI_COLOR_RULE));
+    inkcell_fb_fill_rect(state, body.x, body.y, body.w, body.h,
+                         inkcell_fb_color(state, INKCELL_COLOR_SURFACE_LOW));
+    fb_map_draw_grid(state, &viewport, &body, inkcell_fb_color(state, INKCELL_COLOR_RULE));
 
     /*
      * The pictures, over the graticule rather than instead of it.
@@ -908,8 +914,9 @@ void fb_render_map(struct mesh_ui_backend_fb_state *state, const struct mesh_ui_
         if (footprint <= radius || footprint > body.w) {
             continue;
         }
-        const struct mesh_ui_paint paint = fb_paint(state, fb_map_marker_family(&view.markers[i]),
-                                                    MESH_UI_SLOT_CONTAINER, MESH_UI_STATE_REST);
+        const struct inkcell_paint paint =
+            inkcell_fb_paint(state, fb_map_marker_family(&view.markers[i]), INKCELL_SLOT_CONTAINER,
+                             INKCELL_STATE_REST);
         fb_map_disc(state, body.x + placement.x, body.y + placement.y, footprint, paint.fill);
     }
 
@@ -926,8 +933,8 @@ void fb_render_map(struct mesh_ui_backend_fb_state *state, const struct mesh_ui_
      */
     struct fb_map_box taken[FB_MAP_BOXES_MAX];
     size_t taken_count = 0U;
-    const int cap = mesh_ui_font_cap(fb_font(state), scale);
-    const struct mesh_ui_rgb ground = fb_color(state, MESH_UI_COLOR_SURFACE_LOW);
+    const int cap = inkcell_font_cap(inkcell_fb_font(state), scale);
+    const struct inkcell_rgb ground = inkcell_fb_color(state, INKCELL_COLOR_SURFACE_LOW);
 
     /*
      * The crosshair's own square, claimed before anything else is placed.
@@ -938,7 +945,7 @@ void fb_render_map(struct mesh_ui_backend_fb_state *state, const struct mesh_ui_
      * crosshair is where the reader is aiming, and the label it displaced belongs to whatever
      * it is aiming at, which the line under the map is already naming in full.
      */
-    const int crosshair_reach = mesh_ui_font_cap(fb_font(state), state->scale);
+    const int crosshair_reach = inkcell_font_cap(inkcell_fb_font(state), state->scale);
     taken[taken_count++] = (struct fb_map_box){
         .x = body.x + body.w / 2 - crosshair_reach,
         .y = body.y + body.h / 2 - crosshair_reach,
@@ -956,15 +963,15 @@ void fb_render_map(struct mesh_ui_backend_fb_state *state, const struct mesh_ui_
         }
         const int cx = body.x + placement.x;
         const int cy = body.y + placement.y;
-        const struct mesh_ui_paint paint =
-            fb_paint(state, fb_map_marker_family(marker), MESH_UI_SLOT_BASE, MESH_UI_STATE_REST);
+        const struct inkcell_paint paint = inkcell_fb_paint(state, fb_map_marker_family(marker),
+                                                            INKCELL_SLOT_BASE, INKCELL_STATE_REST);
 
         if (marker->kind == MESH_UI_MAP_MARKER_WAYPOINT) {
             /* A place wears the pin the Waypoints tab wears, for the reason icons.def gives:
                one id per job, and both are saying "somewhere on Earth". */
-            const int box = fb_icon_box(state, scale);
-            fb_draw_icon(state, cx - box / 2, cy + cap / 2, MESH_UI_ICON_POSITION, scale,
-                         paint.fill, ground);
+            const int box = inkcell_fb_icon_box(state, scale);
+            inkcell_fb_draw_icon(state, cx - box / 2, cy + cap / 2, INKCELL_ICON_POSITION, scale,
+                                 paint.fill, ground);
         } else {
             fb_map_disc(state, cx, cy, radius, paint.fill);
             if (marker->kind == MESH_UI_MAP_MARKER_SELF) {
@@ -1006,14 +1013,14 @@ void fb_render_map(struct mesh_ui_backend_fb_state *state, const struct mesh_ui_
         /*
          * The box is the one the text occupies, which is the cell's height and not the cap's.
          *
-         * fb_draw_text() places a run by the top of its cell (fb_draw_glyph_ramp()), so a box
-         * measured in cap heights and a run drawn from the marker's middle were a name reserving
-         * a rectangle a line above where it landed - collisions tested against nothing, and once
-         * there was a halo to draw, a halo in the wrong place.
+         * inkcell_fb_draw_text() places a run by the top of its cell (fb_draw_glyph_ramp()), so a
+         * box measured in cap heights and a run drawn from the marker's middle were a name
+         * reserving a rectangle a line above where it landed - collisions tested against nothing,
+         * and once there was a halo to draw, a halo in the wrong place.
          */
-        const int text_h = inkcell_scale_px((int)fb_font(state)->height, scale);
+        const int text_h = inkcell_scale_px((int)inkcell_fb_font(state)->height, scale);
         const struct fb_map_box label = {
-            .x = cx + radius + fb_space_at(state, MESH_UI_SPACE_XS, scale),
+            .x = cx + radius + inkcell_fb_space_at(state, INKCELL_SPACE_XS, scale),
             .y = cy - text_h / 2,
             /* Measured: this width is what the bounds check below drops the label on, and what
                the plate behind it is sized to. */
@@ -1037,8 +1044,8 @@ void fb_render_map(struct mesh_ui_backend_fb_state *state, const struct mesh_ui_
             taken[taken_count++] = label;
         }
         ++labels_drawn;
-        const struct mesh_ui_paint paint =
-            fb_paint(state, fb_map_marker_family(marker), MESH_UI_SLOT_BASE, MESH_UI_STATE_REST);
+        const struct inkcell_paint paint = inkcell_fb_paint(state, fb_map_marker_family(marker),
+                                                            INKCELL_SLOT_BASE, INKCELL_STATE_REST);
         fb_map_text(state, label.x, label.y, marker->label, scale, paint.fill, ground, basemap);
     }
 

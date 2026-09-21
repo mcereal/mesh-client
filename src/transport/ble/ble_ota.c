@@ -2,10 +2,11 @@
 
 #include "mesh/transport/ble_ota.h"
 
+#include "inkcell/utils/log.h"
+#include "inkcell/utils/text.h"
+
 #include "mesh/transport/ble_bluez.h"
-#include "mesh/utils/log.h"
 #include "mesh/utils/sha256.h"
-#include "mesh/utils/text.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -61,9 +62,9 @@ static void ota_fail(struct mesh_ble_ota *ota, enum mesh_ble_ota_error error, ui
     ota->state = MESH_BLE_OTA_FAILED;
     ota->error = error;
     ota->finished_ms = now_ms;
-    mesh_log_error("ble_ota", "The loader conversation failed: %s%s%s, at %zu of %zu bytes",
-                   mesh_ble_ota_error_name(error), ota->reason[0] != '\0' ? ": " : "", ota->reason,
-                   ota->acked, ota->image_len);
+    inkcell_log_error("ble_ota", "The loader conversation failed: %s%s%s, at %zu of %zu bytes",
+                      mesh_ble_ota_error_name(error), ota->reason[0] != '\0' ? ": " : "",
+                      ota->reason, ota->acked, ota->image_len);
 }
 
 /* ---- what the loader says ------------------------------------------------------------------
@@ -80,7 +81,7 @@ static void ota_push(struct mesh_ble_ota *ota, enum mesh_ble_ota_event_kind kind
     struct mesh_ble_ota_event *const event =
         &ota->events[(ota->event_head + ota->event_count) % MESH_BLE_OTA_EVENTS];
     event->kind = kind;
-    mesh_str_copy(event->text, sizeof event->text, text != NULL ? text : "");
+    inkcell_str_copy(event->text, sizeof event->text, text != NULL ? text : "");
     ota->event_count += 1U;
 }
 
@@ -107,7 +108,7 @@ static void ota_line(struct mesh_ble_ota *ota, const char *line) {
     } else {
         /* The loader logs to its UART, not to this characteristic, so anything else is not a
            thing it says - but a line nobody asked about is not worth failing a transfer for. */
-        mesh_log_debug("ble_ota", "Ignoring '%s' from the loader", line);
+        inkcell_log_debug("ble_ota", "Ignoring '%s' from the loader", line);
     }
 }
 
@@ -162,7 +163,8 @@ static bool ota_pump(struct mesh_ble_ota *ota, uint64_t now_ms) {
         return true;
     }
     ota->write_error = result;
-    mesh_log_warn("ble_ota", "A %zu-byte write was refused: %s", ota->write_len, strerror(-result));
+    inkcell_log_warn("ble_ota", "A %zu-byte write was refused: %s", ota->write_len,
+                     strerror(-result));
     ota_fail(ota, MESH_BLE_OTA_ERROR_WRITE, now_ms);
     return false;
 }
@@ -190,8 +192,8 @@ static bool ota_erased(struct mesh_ble_ota *ota, uint64_t now_ms) {
         return false;
     }
     ota->sending_since_ms = now_ms;
-    mesh_log_info("ble_ota", "Erased; sending %zu bytes in %zu-byte chunks", ota->image_len,
-                  ota->chunk);
+    inkcell_log_info("ble_ota", "Erased; sending %zu bytes in %zu-byte chunks", ota->image_len,
+                     ota->chunk);
     ota_send_next_chunk(ota, now_ms);
     return true;
 }
@@ -201,7 +203,7 @@ static bool ota_erased(struct mesh_ble_ota *ota, uint64_t now_ms) {
 static bool ota_handle(struct mesh_ble_ota *ota, const struct mesh_ble_ota_event *event,
                        uint64_t now_ms) {
     if (event->kind == MESH_BLE_OTA_EVENT_ERR) {
-        mesh_str_copy(ota->reason, sizeof ota->reason, event->text);
+        inkcell_str_copy(ota->reason, sizeof ota->reason, event->text);
         ota_fail(ota,
                  strstr(event->text, "Hash Mismatch") != NULL ? MESH_BLE_OTA_ERROR_HASH_MISMATCH
                                                               : MESH_BLE_OTA_ERROR_REFUSED,
@@ -217,8 +219,8 @@ static bool ota_handle(struct mesh_ble_ota *ota, const struct mesh_ble_ota_event
         if (!ota_can_write(ota)) {
             return false;
         }
-        mesh_str_copy(ota->loader_version, sizeof ota->loader_version, event->text);
-        mesh_log_info("ble_ota", "The loader answered: %s", ota->loader_version);
+        inkcell_str_copy(ota->loader_version, sizeof ota->loader_version, event->text);
+        inkcell_log_info("ble_ota", "The loader answered: %s", ota->loader_version);
         char hex[MESH_SHA256_HEX_LEN];
         mesh_sha256_hex(ota->sha256, hex, sizeof hex);
         snprintf(ota->command, sizeof ota->command, "OTA %zu %s\n", ota->image_len, hex);
@@ -231,7 +233,7 @@ static bool ota_handle(struct mesh_ble_ota *ota, const struct mesh_ble_ota_event
         if (event->kind == MESH_BLE_OTA_EVENT_ERASING) {
             ota->state = MESH_BLE_OTA_ERASING;
             ota->deadline_ms = now_ms + OTA_ERASE_TIMEOUT_MS;
-            mesh_log_info("ble_ota", "The loader is erasing its partition");
+            inkcell_log_info("ble_ota", "The loader is erasing its partition");
             return true;
         }
         /* An OK with no ERASING in front of it is the erase already over. */
@@ -266,19 +268,19 @@ static bool ota_handle(struct mesh_ble_ota *ota, const struct mesh_ble_ota_event
         ota->in_flight = 0U;
         ota->state = MESH_BLE_OTA_DONE;
         ota->finished_ms = now_ms;
-        mesh_log_info("ble_ota", "The loader took all %zu bytes and the hash matched",
-                      ota->image_len);
+        inkcell_log_info("ble_ota", "The loader took all %zu bytes and the hash matched",
+                         ota->image_len);
         return true;
     default:
         return true;
     }
 
     /* Everything that broke out of the switch is an answer to a question we did not ask. */
-    mesh_str_copy(ota->reason, sizeof ota->reason,
-                  event->kind == MESH_BLE_OTA_EVENT_ACK
-                      ? "ACK out of turn"
-                      : (event->kind == MESH_BLE_OTA_EVENT_ERASING ? "ERASING out of turn"
-                                                                   : "OK out of turn"));
+    inkcell_str_copy(ota->reason, sizeof ota->reason,
+                     event->kind == MESH_BLE_OTA_EVENT_ACK
+                         ? "ACK out of turn"
+                         : (event->kind == MESH_BLE_OTA_EVENT_ERASING ? "ERASING out of turn"
+                                                                      : "OK out of turn"));
     ota_fail(ota, MESH_BLE_OTA_ERROR_PROTOCOL, now_ms);
     return true;
 }
@@ -297,13 +299,13 @@ int mesh_ble_ota_attach(struct mesh_ble_ota *ota, struct mesh_bluez_client *clie
     int result = mesh_bluez_client_find_characteristic(client, device_path, MESH_BLE_OTA_WRITE_UUID,
                                                        ota->write_path, sizeof ota->write_path);
     if (result < 0) {
-        mesh_log_warn("ble_ota", "No OTA characteristic under %s: %d", device_path, result);
+        inkcell_log_warn("ble_ota", "No OTA characteristic under %s: %d", device_path, result);
         return result;
     }
     result = mesh_bluez_client_find_characteristic(client, device_path, MESH_BLE_OTA_NOTIFY_UUID,
                                                    ota->notify_path, sizeof ota->notify_path);
     if (result < 0) {
-        mesh_log_warn("ble_ota", "No answer characteristic under %s: %d", device_path, result);
+        inkcell_log_warn("ble_ota", "No answer characteristic under %s: %d", device_path, result);
         return result;
     }
 
@@ -313,19 +315,19 @@ int mesh_ble_ota_attach(struct mesh_ble_ota *ota, struct mesh_bluez_client *clie
     ota->chunk = mesh_ble_ota_chunk_for_mtu(ota->mtu);
     if (result != 0) {
         /* Correct and slow: twenty bytes always fit a Write Request, so the cadence holds. */
-        mesh_log_warn("ble_ota", "BlueZ reported no MTU (%d); writing %zu-byte chunks", result,
-                      ota->chunk);
+        inkcell_log_warn("ble_ota", "BlueZ reported no MTU (%d); writing %zu-byte chunks", result,
+                         ota->chunk);
     }
 
     mesh_bluez_client_set_notification_handler(client, ota_notification, ota);
     result = mesh_bluez_client_subscribe(client, ota->notify_path, MESH_BLE_OTA_NOTIFY_UUID);
     if (result < 0) {
         mesh_bluez_client_set_notification_handler(client, NULL, NULL);
-        mesh_log_warn("ble_ota", "Could not subscribe to the loader's answers: %d", result);
+        inkcell_log_warn("ble_ota", "Could not subscribe to the loader's answers: %d", result);
         return result;
     }
-    mesh_log_info("ble_ota", "Loader attached: MTU %u, %zu-byte chunks", (unsigned)ota->mtu,
-                  ota->chunk);
+    inkcell_log_info("ble_ota", "Loader attached: MTU %u, %zu-byte chunks", (unsigned)ota->mtu,
+                     ota->chunk);
     return 0;
 }
 
@@ -358,7 +360,7 @@ int mesh_ble_ota_begin(struct mesh_ble_ota *ota, const uint8_t *image, size_t im
 
     /* VERSION first, and not as a courtesy: it is how the unified loader is told from anything
        else that happens to advertise the service, since the old one answers nothing at all. */
-    mesh_str_copy(ota->command, sizeof ota->command, "VERSION\n");
+    inkcell_str_copy(ota->command, sizeof ota->command, "VERSION\n");
     ota->state = MESH_BLE_OTA_VERSION;
     ota->deadline_ms = now_ms + OTA_VERSION_TIMEOUT_MS;
     (void)ota_issue(ota, (const uint8_t *)ota->command, strlen(ota->command), now_ms);
@@ -370,7 +372,7 @@ void mesh_ble_ota_tick(struct mesh_ble_ota *ota, uint64_t now_ms) {
         return;
     }
     if (ota->events_overflow) {
-        mesh_str_copy(ota->reason, sizeof ota->reason, "answers out of turn");
+        inkcell_str_copy(ota->reason, sizeof ota->reason, "answers out of turn");
         ota_fail(ota, MESH_BLE_OTA_ERROR_PROTOCOL, now_ms);
         return;
     }

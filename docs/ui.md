@@ -13,23 +13,23 @@ at `mesh/ui/<name>.h` whichever group its source sits in. See the group map in `
 
 ```
 mesh_app -> mesh_ui_store (snapshot + eventfd) -> mesh_ui_controller -> backend->present()
-evdev -> mesh_ui_input -> mesh_ui_controller_handle_key -> mesh_ui_store_handle_key
+evdev -> inkcell_input -> mesh_ui_controller_handle_key -> mesh_ui_store_handle_key
       -> nav.c -> mesh_ui_action -> mesh_app_on_ui_action
 ```
 
 - **`src/ui/store/store.c`** owns `mesh_ui_snapshot` and signals the loop via an eventfd.
 - **`src/ui/nav/controller.c`** drains the store and calls `backend->present(snapshot)`.
-- **Backends** implement the three-function `struct mesh_ui_backend` (`init`, `shutdown`,
+- **Backends** implement the three-function `struct inkcell_backend` (`init`, `shutdown`,
   `present`): `fb.c` (the device UI), `cli.c` (a terminal fallback), `stub.c` (tests).
   **Backends are stateless** — they draw the cursor from `snapshot->nav`. A new platform
   implements the backend interface and leaves the store and controller untouched.
-- **`src/ui/layout.c`** holds the backend-agnostic primitives: `struct mesh_ui_line` (a string
-  builder that only ever measures in drawn cells), `struct mesh_ui_list` (the
+- **inkcell's `src/layout.c`** holds the backend-agnostic primitives: `struct inkcell_line` (a string
+  builder that only ever measures in drawn cells), `struct inkcell_list` (the
   cursor-clamp-and-scroll-window arithmetic, measured in **steps** rather than items),
-  `struct mesh_ui_wrap` (cell-measured word wrap) and `mesh_ui_transcript_window` (the
+  `struct inkcell_wrap` (cell-measured word wrap) and `inkcell_transcript_window` (the
   bottom-anchored window variable-height items need). None touches a framebuffer, a font or a
   snapshot, so all are unit tested directly in `tests/suites/ui_layout.c`.
-- **`src/ui/theme/theme.c`** and **`src/ui/theme/font.c`** hold what the UI *looks* like. Nothing that draws
+- **inkcell's `src/theme/theme.c`** and **`src/theme/font.c`** hold what the UI *looks* like. Nothing that draws
   holds a colour or a margin of its own — see [Themes](#themes).
 - **`src/ui/nav/`** owns the tab/cursor/compose-target model (`struct mesh_ui_nav`, carried in
   every snapshot and clamped against the lists on each consume) and return a `mesh_ui_action`.
@@ -195,7 +195,7 @@ detail came to describe itself with the first node's trace.
 
 ## Input
 
-`src/ui/input/input.c` reads every `/dev/input/event*` and maps evdev codes to `enum mesh_ui_key`.
+inkcell's `src/input/input.c` reads every `/dev/input/event*` and maps evdev codes to `enum inkcell_key`.
 Quit keys stop the loop before mapping.
 
 **The Brick's face buttons do not report by position.** A is `BTN_EAST` (305), B is `BTN_SOUTH`
@@ -206,8 +206,8 @@ and X refreshes it. `input_brick_face_buttons` pins all four. **Do not "fix" any
 See [`device.md`](device.md#the-buttons).
 
 **L2 and R2 are absolute axes, not buttons.** The pad declares no `BTN_TL2`, so the two triggers
-on the case went unread until the keyboard wanted a shift key. `mesh_ui_input_map_trigger()` reads
-`ABS_Z`/`ABS_RZ` and a latch in `mesh_ui_input_handle_device_event()` turns a squeeze into one
+on the case went unread until the keyboard wanted a shift key. `inkcell_input_map_trigger()` reads
+`ABS_Z`/`ABS_RZ` and a latch in `inkcell_input_handle_device_event()` turns a squeeze into one
 press — on this hardware a trigger is digital (255 down, 0 up), but the axis is an axis, and a pad
 that reported the way up as a ramp would otherwise be a press per value.
 `input_triggers_are_axes_and_press_on_the_edge`.
@@ -269,7 +269,7 @@ was a test reaching down a layer to read data it does not own - and `kb_emoji_ce
 is this client asking it of these pages.
 
 **A keycap that is one emoji is drawn at the key's size, not at the text scale.** It went through
-`fb_draw_text()` at first, which sizes an emoji like the letter beside it - correct in a node's
+`inkcell_fb_draw_text()` at first, which sizes an emoji like the letter beside it - correct in a node's
 name and wrong on a key five times that across, where forty 20 px thumbnails a panel could not be
 told apart. The button's `emoji_face` is the rule: a label that is a single sprite and nothing
 else becomes the key's face, centred and sized to the box. It is ignored over a letter, a word or
@@ -290,10 +290,14 @@ cursor and gets a grid back for.
 
 | File | Layer | What belongs there |
 |---|---|---|
-| `fb_draw.c` | ink | pixels, glyphs, theme lookups, cell metrics |
-| `fb_widgets_*.c` | components | every component below (`fb_widgets.h` is the umbrella header) |
+| inkcell's `src/fb/fb_draw.c` | ink | pixels, glyphs, theme lookups, cell metrics |
+| inkcell's `src/fb/widgets_*.c` | components | every component below (`inkcell/ui/widgets.h` is the umbrella header) |
 | `fb_screens_*.c` | screens | one renderer per screen, one file each (see below) |
-| `fb.c` | device | `/dev/fb0`, the page flip, the backend vtable |
+| inkcell's `src/fb/fb.c` | device | `/dev/fb0`, the page flip, the backend vtable |
+
+The top and the bottom of that stack are inkcell's - a panel and a button were never about
+Meshtastic. What is in `src/ui/backends/` is the screens layer, plus `fb_app.c`, the frame
+inkcell calls up into, and `fb_map.c`.
 
 **A screen renderer should read as a description of its content** — what the list holds, what
 each row says, which rows are actions. If it is computing a pixel coordinate, a scroll offset or
@@ -323,31 +327,31 @@ places things at coordinates rather than describing rows, so it is not held to t
 The renderers the frame calls are declared in `fb_screens_internal.h`, along with the five places
 one screen reaches another: what a device is called, the one-line quote of a message, the airtime
 thresholds, a node's chart and the detail under it. Everything else in these files is `static`,
-and the header is not part of `fb_widgets.h` — nothing outside `fb_screens_*.c` includes it.
+and the header is not part of `inkcell/ui/widgets.h` — nothing outside `fb_screens_*.c` includes it.
 
 The list is the component that earns the most. Every screen is the same shape:
 
 ```c
-struct fb_list list = fb_list_begin(layout, count, nav->cursor[MESH_UI_SCREEN_NODES]);
+struct inkcell_fb_list list = inkcell_fb_list_begin(layout, count, nav->cursor[MESH_UI_SCREEN_NODES]);
 uint32_t i;
-while (fb_list_next(&list, &i)) {
-    mesh_ui_line_reset(&line);
-    mesh_ui_line_printf(&line, "%s", node_name(i));
-    mesh_ui_line_right(&line, layout->cols, metrics);   /* right-aligned, in cells */
-    fb_list_row_line(state, &list, i, &line, FB_TONE_NORMAL);
+while (inkcell_fb_list_next(&list, &i)) {
+    inkcell_line_reset(&line);
+    inkcell_line_printf(&line, "%s", node_name(i));
+    inkcell_line_right(&line, layout->cols, metrics);   /* right-aligned, in cells */
+    inkcell_fb_list_row_line(state, &list, i, &line, FB_TONE_NORMAL);
 }
 ```
 
-`fb_list_begin_rows()` is the variant for an item that spends more than one row;
-`fb_list_begin_visible()` for a screen that reserves body rows for something else.
+`inkcell_fb_list_begin_rows()` is the variant for an item that spends more than one row;
+`inkcell_fb_list_begin_visible()` for a screen that reserves body rows for something else.
 
 ### A row is however many steps the model says
 
-`fb_list_begin_heights()` takes one row count per item and is what a list of **mixed** heights
+`inkcell_fb_list_begin_heights()` takes one row count per item and is what a list of **mixed** heights
 opens with. The screen measures and hands over the array; the window, the highlight and the
 scroll thumb are three sums of the same heights.
 
-`struct mesh_ui_list` used to count items and multiply — the first row on screen, the scroll
+`struct inkcell_list` used to count items and multiply — the first row on screen, the scroll
 thumb and the highlight rect were all `index * line` — so a row that quietly grew a second tier
 put those three in three different places. It now counts **steps**, and the arithmetic is in
 `layout.c`, unit tested there (`layout_list_window_counts_steps`,
@@ -366,50 +370,50 @@ reference; what follows is the map.
 
 | Group | What is in it |
 |---|---|
-| `fb_widgets_button` | the button, the chip, a strip of chips, the badge — the shapes sized to their own label |
-| `fb_widgets_chrome` | the app bar and its trail, the navigation bar, the action bar, the banner, the progress bar, the empty state, the hairline |
-| `fb_widgets_list` | the list window, the card surfaces and rail under it, the subheader, the note row, the disc |
-| `fb_widgets_item` | one row and its slots, and the conversation cell |
-| `fb_widgets_bubble` | the transcript: a message, and the separator between two of them |
-| `fb_widgets_card` | a card, built row by row and then drawn |
-| `fb_widgets_control` | the switch, the checkbox and radio, the segmented button, the text field |
-| `fb_widgets_meter` | the meter, the slider, the signal staircase, the sparkline, the proportion bar, the chart |
-| `fb_widgets_overlay` | the dialog, the snackbar, the QR code |
+| `inkcell/ui/widgets/button.h` | the button, the chip, a strip of chips, the badge — the shapes sized to their own label |
+| `inkcell/ui/widgets/chrome.h` | the app bar and its trail, the navigation bar, the action bar, the banner, the progress bar, the empty state, the hairline |
+| `inkcell/ui/widgets/list.h` | the list window, the card surfaces and rail under it, the subheader, the note row, the disc |
+| `inkcell/ui/widgets/item.h` | one row and its slots, and the conversation cell |
+| `inkcell/ui/widgets/bubble.h` | the transcript: a message, and the separator between two of them |
+| `inkcell/ui/widgets/card.h` | a card, built row by row and then drawn |
+| `inkcell/ui/widgets/control.h` | the switch, the checkbox and radio, the segmented button, the text field |
+| `inkcell/ui/widgets/meter.h` | the meter, the slider, the signal staircase, the sparkline, the proportion bar, the chart |
+| `inkcell/ui/widgets/overlay.h` | the dialog, the snackbar, the QR code |
 
 Calls between them run one way — `button` is the leaf everything else reaches for — so a group's
 header names only the groups above it. The two exceptions to one-header-per-group are
-`fb_widgets.h`, which includes all nine for a caller that wants the lot, and
-`fb_widgets_list_internal.h`, the six answers the list window and the row it draws both need.
+`inkcell/ui/widgets.h`, which includes all nine for a caller that wants the lot, and inkcell's
+own `list_internal.h`, the six answers the list window and the row it draws both need.
 
 
 | Component | What it is |
 |---|---|
 | `fb_list_*` | the list model above: rows, cards, notes, mixed heights |
-| `struct fb_list_item` | one row with slots — marker gutter, leading avatar or tonal disc, label, trailing value, supporting line |
-| `struct fb_bubble` | the transcript's one component: wrapped body, quote line, reactions, the relay chip, the delivery mark |
-| `struct fb_selection` | the checkbox and the radio |
-| `struct fb_segmented` | a small set of alternatives, all on screen at once |
-| `struct fb_meter`, the slider | a quantity as a length; the slider is the editable one |
-| `fb_draw_signal()` | signal as rungs |
-| `fb_draw_sparkline()`, `fb_draw_chart()` | a reading over time; the axis frame under it, or the readings listed instead |
-| `fb_draw_proportion()` | a whole and its parts |
-| `struct fb_text_field`, `struct fb_dialog` | the draft box and the confirm sheet |
-| `struct fb_snackbar` | the transient notice |
-| `fb_draw_badge()`, `fb_draw_state_chip()` | a capsule of text: a count that shouts, a state that is read |
-| `struct fb_qr` | a QR code — the one component drawn for a camera rather than for a reader |
-| `fb_draw_app_bar()` | the heading, with slots |
-| `fb_draw_nav_bar()`, `fb_draw_action_bar()` | the chrome |
-| `fb_draw_progress()`, `fb_draw_banner()` | what the *client* says, as opposed to the radio |
+| `struct inkcell_fb_list_item` | one row with slots — marker gutter, leading avatar or tonal disc, label, trailing value, supporting line |
+| `struct inkcell_fb_bubble` | the transcript's one component: wrapped body, quote line, reactions, the relay chip, the delivery mark |
+| `struct inkcell_fb_selection` | the checkbox and the radio |
+| `struct inkcell_fb_segmented` | a small set of alternatives, all on screen at once |
+| `struct inkcell_fb_meter`, the slider | a quantity as a length; the slider is the editable one |
+| `inkcell_fb_draw_signal()` | signal as rungs |
+| `inkcell_fb_draw_sparkline()`, `inkcell_fb_draw_chart()` | a reading over time; the axis frame under it, or the readings listed instead |
+| `inkcell_fb_draw_proportion()` | a whole and its parts |
+| `struct inkcell_fb_text_field`, `struct inkcell_fb_dialog` | the draft box and the confirm sheet |
+| `struct inkcell_fb_snackbar` | the transient notice |
+| `inkcell_fb_draw_badge()`, `inkcell_fb_draw_state_chip()` | a capsule of text: a count that shouts, a state that is read |
+| `struct inkcell_fb_qr` | a QR code — the one component drawn for a camera rather than for a reader |
+| `inkcell_fb_draw_app_bar()` | the heading, with slots |
+| `inkcell_fb_draw_nav_bar()`, `inkcell_fb_draw_action_bar()` | the chrome |
+| `inkcell_fb_draw_progress()`, `inkcell_fb_draw_banner()` | what the *client* says, as opposed to the radio |
 
 Four authoring rules hold across all of them, and breaking one compiles and looks fine:
 
 - **Nothing is spelled out in a renderer.** A screen names an *id* and something else answers: a
-  string (`MESH_STR_*`), an icon (`MESH_UI_ICON_*`), a tone/family/role/shape. No English prose,
+  string (`MESH_STR_*`), an icon (`INKCELL_ICON_*`), a tone/family/role/shape. No English prose,
   colour, margin, glyph size or corner radius belongs in `src/ui/backends/`.
   `scripts/check-strings.py` fails the build on prose.
 - **Button hints are (button, string id) pairs** in `src/ui/tables/actions.c`, never a sentence. A
   keycap is untranslated — it is what is printed on the case. A keycap that does nothing is a bug.
-- **A heading is `struct fb_app_bar`**, with slots; the back arrow is *derived* from the action
+- **A heading is `struct inkcell_fb_app_bar`**, with slots; the back arrow is *derived* from the action
   table, never declared.
 - **fb layout is measured in cells, not bytes.** A `strlen` or `%-Ns` there is a bug.
 
@@ -437,13 +441,13 @@ states its unit in its label — see `docs/non-bugs.md`.
 A row says what it means once, with its `tone`, and three of its slots are renderings of that one
 answer rather than three fields a caller has to keep in step:
 
-- **`FB_LEADING_TONAL`** fills the leading disc from the tone's family (the primary where the tone
-  names none), which is what a verb's colour is *for* — the eye finds "Remove" by its red long
-  before it reads the word. Its width is the avatar's, so a list may mix the two.
+- **`INKCELL_FB_LEADING_TONAL`** fills the leading disc from the tone's family (the primary where
+  the tone names none), which is what a verb's colour is *for* — the eye finds "Remove" by its
+  red long before it reads the word. Its width is the avatar's, so a list may mix the two.
 - **`value_chip`** draws the value column as a capsule instead of as words, filled from the same
   family, and outlined in the theme's `OUTLINE` where the tone names none. A state, not a reading:
   "verified", "over MQTT", "plugged in". A card where every row is a bubble is a column of colour
-  reporting nothing, which is the bar `fb_draw_badge()` already states.
+  reporting nothing, which is the bar `inkcell_fb_draw_badge()` already states.
 - **`accent_edge`** is the bar down a selected row, in the same family.
 
 The node detail is what this was written for. Eleven verbs in the accent is not eleven emphases,
@@ -481,7 +485,7 @@ Three things fall out of the split and are worth knowing:
 The detail's own row is a card of one above the first heading, and that is what made
 `fb_list_card_of()`'s top hairline a bug rather than a limitation: a card whose first row is the
 body's first row had nowhere to spend its top edge and lost it under the cursor on the row it opens
-with. The ceiling in `fb_widgets_list.c` is now that row's top *less the hairline*, which is room
+with. The ceiling in inkcell's `widgets_list.c` is now that row's top *less the hairline*, which is room
 the app bar already leaves.
 
 ### A stated fact and a control are two tiers, not one
@@ -491,12 +495,12 @@ goes:
 
 - **A stated fact** — "Firmware", "Node number", "Latitude", "Sync". The label is the *question*
   and repeats down a column the reader is scanning for the **answers**, so the label takes the
-  quiet tier (`MESH_UI_TONE_DIM`) and the value keeps the row's own ink.
+  quiet tier (`INKCELL_TONE_DIM`) and the value keeps the row's own ink.
 - **A control** — a setting, a verb, a row that opens a list. The label is what the reader is
   *choosing* and the value is merely where it currently stands, so the label leads and the row
   draws in one ink.
 
-`fb_list_item()` takes `label_quiet` per row because a settings section mixes the two; the card
+`inkcell_fb_list_item()` takes `label_quiet` per row because a settings section mixes the two; the card
 component states it, because nothing a card draws is a control (a card's verbs are buttons beside
 its heading, not rows) and a flag would be a question with one answer.
 
@@ -650,8 +654,8 @@ for firmware" were unboxed rows between two cards, while Radio actions, the one 
 nothing but verbs, drew the same widget as a card row.
 
 The premise stopped being true when the slot was made unconditional (below): every row of every
-open section reserves it now, and `fb_item_measure()` gives `FB_LEADING_TONAL` and
-`FB_LEADING_TONAL_SLOT` one gutter deliberately, so a list can mix the two. A verb's disc lands
+open section reserves it now, and `fb_item_measure()` gives `INKCELL_FB_LEADING_TONAL` and
+`INKCELL_FB_LEADING_TONAL_SLOT` one gutter deliberately, so a list can mix the two. A verb's disc lands
 in the gutter its neighbours were already holding open and the labels line up down the card. It
 reads better as well as simpler: a verb under a group of fields is the thing that *applies* them,
 and a button belongs on the form it commits rather than adrift below it.
@@ -669,7 +673,7 @@ per card: it is one width for the whole tab.
 A list that indents only the rows carrying something starts its text in two columns, and the
 cards were hiding that rather than fixing it — About is four ungrouped rows, two of them verbs,
 and drawing the verbs past a disc while the fields began at the panel's padding put the seam on
-a card edge instead of removing it. That is why `FB_LEADING_TONAL_SLOT` exists: the gutter,
+a card edge instead of removing it. That is why `INKCELL_FB_LEADING_TONAL_SLOT` exists: the gutter,
 promised to a row that has nothing to put in it.
 
 Reserving it *per section* fixed each screen and left the set of them wrong. The condition was
@@ -690,7 +694,7 @@ itself in whatever is left. A full row cannot give the room up: it is a line adv
 cell in it and, where it leads with a disc, a disc nearly as tall as the step, so a card padding
 into one would land its hairline across the disc's crown. Since a group is one card whatever is
 in it, the step below a card is a heading or it is the end of the list, and there is no second
-sentinel to say which — `FB_LIST_NO_CARD` is the only one.
+sentinel to say which — `INKCELL_FB_LIST_NO_CARD` is the only one.
 
 The hairline still has to go somewhere, and outside is the only place: an edge drawn inside a
 row's box is an edge that row's highlight paints out, which is why `box_top` spends one upward.
@@ -741,14 +745,14 @@ have it, since the action bar is five hints wide there already.
 
 ### The one colour pair that is not a theme choice
 
-`MESH_UI_COLOR_CODE` and `MESH_UI_COLOR_CODE_GROUND` are black on white on every palette, and
+`INKCELL_COLOR_CODE` and `INKCELL_COLOR_CODE_GROUND` are black on white on every palette, and
 that is deliberate rather than an omission. A QR code on this panel is not read by a person — it
 is read by a phone camera held by somebody standing next to the Brick — and several scanners,
 the one built into iOS among them, will not read an inverted code at all. The choice still lives
 in `theme.c` rather than in the renderer, which is the rule doing its job: a screen names a role
 and the theme answers, and the answer for these two happens not to vary.
 
-Two other things about drawing a code are worth knowing before changing `fb_draw_qr()`. Its
+Two other things about drawing a code are worth knowing before changing `inkcell_fb_draw_qr()`. Its
 module size is a whole number of pixels, because a code scaled to fill the room available puts
 module boundaries between pixels and a reader thresholding a photograph of that finds edges the
 code has none of; so a code may not quite fill its box. And the quiet zone is part of the code —
@@ -759,7 +763,7 @@ behind it, because a reader that cannot find the margin does not lock on.
 
 `MESH_UI_ROUTE_*` levels in `mesh/ui/route.h` describe *where the nav is* as a stack, and
 `mesh_ui_route_of()` derives it rather than each screen declaring one. A screen transition
-(`fb_shift_begin()`), the back arrow and the `B` keycap all follow from that without being told,
+(`inkcell_fb_shift_begin()`), the back arrow and the `B` keycap all follow from that without being told,
 which is the whole of what deriving a route buys — a new way of reaching a screen arrives with
 the right behaviour already attached.
 
@@ -768,7 +772,7 @@ clip drawing to the union of the moving bounds. See [`performance.md`](performan
 
 ## Text and glyphs
 
-**Text is measured in cells, not bytes.** `mesh_ui_font_advance()` / `mesh_ui_font_line()` are
+**Text is measured in cells, not bytes.** `inkcell_font_advance()` / `inkcell_font_line()` are
 where every column count, button width, bubble height and scroll window comes from, never a
 constant — which is what made a second font a table entry rather than a refactor.
 
@@ -777,10 +781,10 @@ and tinted at draw time, so changing a colour does not regenerate them.
 
 | File | What it is |
 |---|---|
-| `src/ui/theme/font_ui.c` | `"ui"`, JetBrains Mono, the default face — generated |
-| `src/ui/theme/font5x7.c` | `"5x7"`, the pixel face. ASCII plus composed accented Latin |
-| `src/ui/theme/emoji.c` + `generated/emoji_glyphs.c` | emoji, generated |
-| `src/ui/theme/icon.c` + `generated/icon_glyphs.c` | the icon set; `icons.def` is the table |
+| inkcell's `src/theme/font_ui.c` | `"ui"`, JetBrains Mono, the default face — generated |
+| inkcell's `src/theme/font5x7.c` | `"5x7"`, the pixel face. ASCII plus composed accented Latin |
+| inkcell's `src/theme/emoji.c` + `src/generated/emoji_glyphs.c` | emoji, generated |
+| inkcell's `src/theme/icon.c` + `src/generated/icon_glyphs.c` | the icon set; `icons.def` is the table |
 
 `scripts/gen-{emoji,icons,font,locale}.py` are **not part of the build** — run them by hand and
 commit the result.
@@ -788,7 +792,7 @@ commit the result.
 ## Themes
 
 Everything that makes the UI look like something — palette, margin, glyph multiplier, font — is
-one table in `src/ui/theme/theme.c`. `MESHCLIENT_THEME` picks one (`dark`, `light`, `contrast`,
+one table in inkcell's `src/theme/theme.c`. `MESHCLIENT_THEME` picks one (`dark`, `light`, `contrast`,
 `colorblind`).
 
 **A scale is not a pixel count.** It counts quarters of a glyph step (`INKCELL_SCALE_UNIT`), so
@@ -805,13 +809,14 @@ Four vocabularies, most abstract to least:
 
 | Layer | What it is | Who speaks it |
 |---|---|---|
-| **Tone** (`mesh_ui_tone`) | what a piece of *text* means | screens, and every widget taking text |
-| **Family** (`mesh_ui_family`) | what a *fill* means | widgets that fill something |
-| **Role** (`mesh_ui_color`) | what a colour *does* | widgets, for the neutral spine |
-| **RGB** (`mesh_ui_rgb`) | an actual colour | `theme.c` and `fb_fill_packed()`, nothing between |
+| **Tone** (`inkcell_tone`) | what a piece of *text* means | screens, and every widget taking text |
+| **Family** (`inkcell_family`) | what a *fill* means | widgets that fill something |
+| **Role** (`inkcell_color`) | what a colour *does* | widgets, for the neutral spine |
+| **RGB** (`inkcell_rgb`) | an actual colour | `theme.c` and `inkcell_fb_fill_packed()`, nothing between |
 
-`fb_color()`, `fb_tone_color()` and `fb_paint()` are the only path, which is what makes a theme
-switch total: a renderer cannot keep a colour back, because it has nowhere to put one.
+`inkcell_fb_color()`, `inkcell_fb_tone_color()` and `inkcell_fb_paint()` are the only path, which
+is what makes a theme switch total: a renderer cannot keep a colour back, because it has nowhere
+to put one.
 
 ### The six families
 
@@ -829,15 +834,15 @@ and the same colour used as a fill are not the same colour, and a fill the size 
 one the size of a tab are not either. `BASE` is the saturated value; `CONTAINER` is it held back
 until text can sit on it.
 
-**The pair is the unit.** `mesh_ui_theme_paint(theme, family, slot, state)` returns the fill and
+**The pair is the unit.** `inkcell_theme_paint(theme, family, slot, state)` returns the fill and
 the ink together, and every widget that fills something goes through it. A widget taking its fill
 from one slot and its label colour from another would be drawing a combination no theme was ever
 measured against. Adding a family means every theme answers for all four slots, and
-`mesh_ui_theme_validate()` loops over `MESH_UI_FAMILY_COUNT` rather than hand-written rows.
+`inkcell_theme_validate()` loops over `INKCELL_FAMILY_COUNT` rather than hand-written rows.
 
 ### State is a layer, not a second colour
 
-`enum mesh_ui_state` — `REST`, `SELECTED`, `ACTIVE` — is a *modifier*: the resting fill with its
+`enum inkcell_state` — `REST`, `SELECTED`, `ACTIVE` — is a *modifier*: the resting fill with its
 own ink mixed in (12% and 20%). Mixing the **ink** in rather than white or black is what makes
 one rule work on both a dark ground and a light one.
 
@@ -856,7 +861,7 @@ on every frame and every theme, and a theme cannot state fewer, because a chart 
 parts than it has. They exist because a chart's parts need colours whose only meaning is *which
 part* — on the high-contrast theme the primary, secondary and tertiary are one yellow, so a
 three-part bar drawn from them is an undivided block claiming the mesh is made of one thing.
-`mesh_ui_theme_validate()` holds them to 1.4:1 in **both directions** and over every pair, not
+`inkcell_theme_validate()` holds them to 1.4:1 in **both directions** and over every pair, not
 just neighbours: a part measuring zero is not drawn, so which two share an edge is a property of
 the data.
 
@@ -874,19 +879,19 @@ A renderer names what kind of container it is drawing and the theme answers with
 
 Steps are **glyph-scale multiples, not pixels**, so a theme asking for bigger text gets
 proportionally rounder corners. `FULL` has no entry — "half of whatever this turns out to be" is
-not a length a theme can state in advance — and `mesh_ui_theme_radius()` answers with a number
-`fb_fill_round_rect()` clamps to half the shorter side. An entirely square theme is `shape` all
+not a length a theme can state in advance — and `inkcell_theme_radius()` answers with a number
+`inkcell_fb_fill_round_rect()` clamps to half the shorter side. An entirely square theme is `shape` all
 zeroes. The scale starts at two because four pixels off the corner of a row a thousand pixels
 wide is not a rounded rectangle, it is a rectangle somebody sanded.
 
-`struct mesh_ui_metrics` holds the rest of the geometry — margin, body scale, how many steps
+`struct inkcell_metrics` holds the rest of the geometry — margin, body scale, how many steps
 smaller chrome text is, how much of the body a bubble may fill, the width below which the label
 column gives way. A "large text" theme is that struct with a different `scale`.
 
 ### Adding a theme
 
-Add an entry to `k_themes` in `src/ui/theme/theme.c` — id, name, font id, a colour per role, metrics.
-That is the whole change. `mesh_ui_theme_validate()` then holds it to a readability contract the
+Add an entry to `k_themes` in inkcell's `src/theme/theme.c` — id, name, font id, a colour per role, metrics.
+That is the whole change. `inkcell_theme_validate()` then holds it to a readability contract the
 suite runs over every registered theme: body text on its ground **4.5:1** (WCAG AA), secondary
 text **3:1**, a hairline only has to be visible.
 
@@ -894,7 +899,7 @@ A pair belongs in `k_required` **when something is actually drawn that way**, an
 ways: a pair missing from the table is a pair nothing checks, which is how dim text on a selected
 outbound bubble stayed at 1.9:1 for as long as it did.
 
-`mesh_ui_theme_contrast()` undoes the display's gamma per channel, weights the three by
+`inkcell_theme_contrast()` undoes the display's gamma per channel, weights the three by
 luminance and compares. It is a 256-entry table rather than a `pow()`, because `pow()` would be
 the only thing in this tree pulling libm into the static aarch64 link.
 
@@ -912,7 +917,7 @@ A UI change wants a picture, and most want a moving one: the interesting part is
 *transition*. `scripts/ui-capture.sh` drives the HUD through a scripted sequence of presses and
 renders each frame into memory. **Nothing about it is a mock** — `mesh_ui_store_handle_key()` and
 `fb_render_snapshot()` are the ones that ship, drawing into a malloc'd page instead of an mmap of
-`/dev/fb0` (`src/ui/backends/fb_capture.c`). Only the radio is invented, so it works from a
+`/dev/fb0` (inkcell's `src/fb/fb_capture.c`). Only the radio is invented, so it works from a
 container, a CI runner or a cloud session.
 
 ```bash

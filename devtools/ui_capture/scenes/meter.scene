@@ -20,7 +20,7 @@ hold 900
 
 # A quiet mesh fills a little of the track in the good tone. Then the air gets busy - and the
 # tone, the figure's colour and the card's heading all change together, because all three ask
-# mesh_ui_tone_for_load() the same question about the same number.
+# inkcell_tone_for_load() the same question about the same number.
 airtime 18 6
 hold 1100
 airtime 31 11
@@ -29,7 +29,7 @@ airtime 58 19
 hold 1300
 
 # The same bar in every theme. The track is a role (SURFACE_SEL) and the fill is a tone, so
-# nothing here is switched by hand - and mesh_ui_theme_validate() is what guarantees the two
+# nothing here is switched by hand - and inkcell_theme_validate() is what guarantees the two
 # stay tellable apart on a palette nobody has opened yet.
 theme light
 hold 1000

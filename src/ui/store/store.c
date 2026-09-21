@@ -2,10 +2,10 @@
 
 #include "mesh/ui/store.h"
 
-#include "store_internal.h"
+#include "inkcell/utils/log.h"
+#include "inkcell/utils/text.h"
 
-#include "mesh/utils/log.h"
-#include "mesh/utils/text.h"
+#include "store_internal.h"
 
 #include "mesh/core/message.h"
 /* For enum mesh_traceroute_state, which the UI's traceroute carries as a byte: telling a trace
@@ -36,7 +36,7 @@ void mesh_ui_store_mark_dirty(struct mesh_ui_store *store, mesh_ui_update_flags 
         const uint64_t value = 1U;
         if (write(store->event_fd, &value, sizeof value) < 0) {
             if (errno != EAGAIN) {
-                mesh_log_warn("ui", "eventfd write failed: %s", strerror(errno));
+                inkcell_log_warn("ui", "eventfd write failed: %s", strerror(errno));
             }
         }
     }
@@ -53,7 +53,7 @@ int mesh_ui_store_init(struct mesh_ui_store *store) {
     store->event_fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
     if (store->event_fd < 0) {
         const int err = -errno;
-        mesh_log_error("ui", "eventfd create failed: %s", strerror(errno));
+        inkcell_log_error("ui", "eventfd create failed: %s", strerror(errno));
         store->event_fd = -1;
         return err;
     }
@@ -78,7 +78,7 @@ void mesh_ui_store_shutdown(struct mesh_ui_store *store) {
     memset(&store->thread, 0, sizeof store->thread);
 }
 
-bool mesh_ui_store_handle_key(struct mesh_ui_store *store, enum mesh_ui_key key,
+bool mesh_ui_store_handle_key(struct mesh_ui_store *store, enum inkcell_key key,
                               struct mesh_ui_action *out_action) {
     if (store == NULL) {
         if (out_action != NULL) {
@@ -277,11 +277,11 @@ void mesh_ui_store_set_network_host(struct mesh_ui_store *store, const char *hos
         return;
     }
     char next[MESH_UI_NETWORK_HOST_MAX];
-    mesh_str_copy(next, sizeof next, host != NULL ? host : "");
+    inkcell_str_copy(next, sizeof next, host != NULL ? host : "");
     if (strcmp(store->network_host, next) == 0) {
         return;
     }
-    mesh_str_copy(store->network_host, sizeof store->network_host, next);
+    inkcell_str_copy(store->network_host, sizeof store->network_host, next);
     mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_DISCOVERY);
 }
 
@@ -355,8 +355,8 @@ static void mesh_ui_store_note_roster(struct mesh_ui_store *store,
             node->metrics.has_channel_utilization && node->metrics.has_air_util_tx) {
             mesh_ui_history_note_metrics_airtime(
                 &store->history, (uint32_t)store->now_ms,
-                mesh_ui_percent_permille(node->metrics.channel_utilization),
-                mesh_ui_percent_permille(node->metrics.air_util_tx));
+                inkcell_percent_permille(node->metrics.channel_utilization),
+                inkcell_percent_permille(node->metrics.air_util_tx));
         }
 
         /*
@@ -381,9 +381,9 @@ static void mesh_ui_store_note_roster(struct mesh_ui_store *store,
             mesh_ui_history_note_environment(
                 &store->history, (uint32_t)store->now_ms, node->node_id,
                 node->environment.has_temperature,
-                mesh_ui_temperature_decidegrees(node->environment.temperature),
+                inkcell_temperature_decidegrees(node->environment.temperature),
                 node->environment.has_humidity,
-                mesh_ui_percent_permille(node->environment.relative_humidity));
+                inkcell_percent_permille(node->environment.relative_humidity));
         }
 
         /*
@@ -429,7 +429,7 @@ static void mesh_ui_store_note_roster(struct mesh_ui_store *store,
         if (measured && mesh_ui_node_signal_heard(node)) {
             const bool rssi_now = node->has_rssi && node->rssi_time == node->snr_time;
             mesh_ui_history_note_signal(&store->history, (uint32_t)store->now_ms, node->node_id,
-                                        mesh_ui_snr_db(node->snr), rssi_now,
+                                        inkcell_snr_db(node->snr), rssi_now,
                                         (int32_t)node->rx_rssi);
         }
     }
@@ -539,8 +539,8 @@ void mesh_ui_store_set_settings(struct mesh_ui_store *store,
      */
     if (next.stats.valid && memcmp(&next.stats, &store->settings.stats, sizeof next.stats) != 0) {
         mesh_ui_history_note_airtime(&store->history, (uint32_t)store->now_ms,
-                                     mesh_ui_percent_permille(next.stats.channel_utilization),
-                                     mesh_ui_percent_permille(next.stats.air_util_tx));
+                                     inkcell_percent_permille(next.stats.channel_utilization),
+                                     inkcell_percent_permille(next.stats.air_util_tx));
     }
     store->settings = next;
     mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_SETTINGS);
@@ -1187,7 +1187,7 @@ void mesh_ui_store_view(const struct mesh_ui_snapshot *snapshot, struct mesh_ui_
     memset(view, 0, sizeof *view);
     memcpy(view->devices, snapshot->devices, sizeof view->devices);
     view->device_count = snapshot->device_count;
-    mesh_str_copy(view->network_host, sizeof view->network_host, snapshot->network_host);
+    inkcell_str_copy(view->network_host, sizeof view->network_host, snapshot->network_host);
     view->handshake = snapshot->handshake;
     view->handshake_valid = snapshot->handshake_valid;
     view->messages = snapshot->messages;
@@ -1389,7 +1389,7 @@ bool mesh_ui_store_consume_updates(struct mesh_ui_store *store, struct mesh_ui_s
         uint64_t value = 0;
         ssize_t read_result = read(store->event_fd, &value, sizeof value);
         if (read_result < 0 && errno != EAGAIN) {
-            mesh_log_warn("ui", "eventfd read failed: %s", strerror(errno));
+            inkcell_log_warn("ui", "eventfd read failed: %s", strerror(errno));
         }
     }
 
@@ -1404,7 +1404,7 @@ bool mesh_ui_store_consume_updates(struct mesh_ui_store *store, struct mesh_ui_s
 
     snapshot->update_flags = store->pending_flags;
     snapshot->device_count = store->device_count;
-    mesh_str_copy(snapshot->network_host, sizeof snapshot->network_host, store->network_host);
+    inkcell_str_copy(snapshot->network_host, sizeof snapshot->network_host, store->network_host);
     if (store->device_count > 0U) {
         memcpy(snapshot->devices, store->devices,
                store->device_count * sizeof(struct mesh_ui_device));

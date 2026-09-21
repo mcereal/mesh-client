@@ -9,6 +9,11 @@
  * The three neighbouring files hang off the seams in app_internal.h.
  */
 
+#include "inkcell/utils/env.h"
+#include "inkcell/utils/log.h"
+#include "inkcell/utils/text.h"
+#include "inkcell/utils/time.h"
+
 #include "app_internal.h"
 
 #include "mesh/core/version.h"
@@ -17,13 +22,10 @@
 #include "mesh/transport/serial.h"
 #include "mesh/transport/tcp.h"
 #include "mesh/ui/backends/cli.h"
+#include "mesh/ui/backends/fb.h"
 #include "mesh/ui/backends/stub.h"
 #include "mesh/ui/preferences.h"
 #include "mesh/utils/crash.h"
-#include "mesh/utils/env.h"
-#include "mesh/utils/log.h"
-#include "mesh/utils/text.h"
-#include "mesh/utils/time.h"
 
 #include <errno.h>
 #include <stdbool.h>
@@ -207,7 +209,7 @@ int mesh_app_link_connect(struct mesh_app *app, const char *identifier, uint8_t 
 
 /* Button presses arrive here from the evdev reader and go straight into the UI store's
    navigation model; the repaint happens on the store's eventfd in the same loop turn. */
-void mesh_app_on_ui_key(void *userdata, enum mesh_ui_key key) {
+void mesh_app_on_ui_key(void *userdata, enum inkcell_key key) {
     struct mesh_app *app = (struct mesh_app *)userdata;
     if (app == NULL) {
         return;
@@ -215,7 +217,7 @@ void mesh_app_on_ui_key(void *userdata, enum mesh_ui_key key) {
     mesh_ui_controller_handle_key(&app->ui_controller, key);
 }
 
-static void mesh_app_select_cli(struct mesh_app *app, const struct mesh_ui_backend **backend,
+static void mesh_app_select_cli(struct mesh_app *app, const struct inkcell_backend **backend,
                                 void **userdata) {
     if (backend != NULL) {
         *backend = mesh_ui_backend_cli();
@@ -225,7 +227,7 @@ static void mesh_app_select_cli(struct mesh_app *app, const struct mesh_ui_backe
     }
 }
 
-static void mesh_app_select_stub(const struct mesh_ui_backend **backend, void **userdata) {
+static void mesh_app_select_stub(const struct inkcell_backend **backend, void **userdata) {
     if (backend != NULL) {
         *backend = mesh_ui_backend_stub();
     }
@@ -258,14 +260,14 @@ static void mesh_app_ui_request_stop(void *ctx) {
     mesh_event_loop_request_stop((struct mesh_event_loop *)ctx);
 }
 
-static bool mesh_app_select_fb(struct mesh_app *app, const struct mesh_ui_backend **backend,
+static bool mesh_app_select_fb(struct mesh_app *app, const struct inkcell_backend **backend,
                                void **userdata) {
-    if (!mesh_ui_backend_fb_is_available()) {
+    if (!inkcell_backend_fb_is_available()) {
         return false;
     }
 
     if (backend != NULL) {
-        *backend = mesh_ui_backend_fb();
+        *backend = inkcell_backend_fb();
     }
     if (userdata != NULL) {
         /* What draws the frame, rather than a loop: inkcell owns the panel and calls up into
@@ -276,7 +278,7 @@ static bool mesh_app_select_fb(struct mesh_app *app, const struct mesh_ui_backen
     return true;
 }
 
-static const struct mesh_ui_backend *mesh_app_select_backend(struct mesh_app *app,
+static const struct inkcell_backend *mesh_app_select_backend(struct mesh_app *app,
                                                              void **userdata) {
     if (userdata != NULL) {
         *userdata = NULL;
@@ -287,7 +289,7 @@ static const struct mesh_ui_backend *mesh_app_select_backend(struct mesh_app *ap
         requested = NULL;
     }
 
-    const struct mesh_ui_backend *backend = NULL;
+    const struct inkcell_backend *backend = NULL;
     void *backend_userdata = NULL;
 
     /* "cli" and "stub" are asked for explicitly; everything else - including no request at all -
@@ -300,7 +302,7 @@ static const struct mesh_ui_backend *mesh_app_select_backend(struct mesh_app *ap
     } else {
         if (requested != NULL && strcasecmp(requested, "fb") != 0 &&
             strcasecmp(requested, "auto") != 0) {
-            mesh_log_warn("ui", "Unknown UI backend '%s'; using the default", requested);
+            inkcell_log_warn("ui", "Unknown UI backend '%s'; using the default", requested);
         }
         if (!mesh_app_select_fb(app, &backend, &backend_userdata)) {
             mesh_app_select_cli(app, &backend, &backend_userdata);
@@ -406,7 +408,7 @@ static uint64_t mesh_app_backoff_autoconnect(struct mesh_app *app) {
     if (delay > MESH_APP_AUTOCONNECT_MAX_BACKOFF_MS) {
         delay = MESH_APP_AUTOCONNECT_MAX_BACKOFF_MS;
     }
-    app->autoconnect_retry_at_ms = mesh_time_monotonic_ms() + delay;
+    app->autoconnect_retry_at_ms = inkcell_time_monotonic_ms() + delay;
     return delay;
 }
 
@@ -454,7 +456,7 @@ void mesh_app_autoconnect(struct mesh_app *app) {
         return;
     }
 
-    uint64_t now = mesh_time_monotonic_ms();
+    uint64_t now = inkcell_time_monotonic_ms();
     if (now < app->autoconnect_retry_at_ms) {
         return;
     }
@@ -520,15 +522,16 @@ void mesh_app_autoconnect(struct mesh_app *app) {
             mesh_app_link_connect(app, identifier, (uint8_t)MESH_UI_DEVICE_SERIAL);
         if (serial_result == 0 || serial_result == -EALREADY || serial_result == -EINPROGRESS) {
             if (serial_result == 0) {
-                mesh_log_info("app", "Auto-connecting to %s over USB (%s)", port->name, identifier);
+                inkcell_log_info("app", "Auto-connecting to %s over USB (%s)", port->name,
+                                 identifier);
             }
             /* Not a success yet: the handshake still has to go out. The counter stays where it
                is until a link is actually up. */
             app->autoconnect_retry_at_ms = now + MESH_APP_AUTOCONNECT_RETRY_MS;
             return;
         }
-        mesh_log_warn("app", "Auto-connect to %s over USB failed (%d); trying the network",
-                      identifier, serial_result);
+        inkcell_log_warn("app", "Auto-connect to %s over USB failed (%d); trying the network",
+                         identifier, serial_result);
     }
 
     /*
@@ -546,14 +549,14 @@ void mesh_app_autoconnect(struct mesh_app *app) {
         mesh_app_release_other_link(tcp);
         const int tcp_result = mesh_tcp_transport_connect(tcp, tcp_target);
         if (tcp_result == 0) {
-            mesh_log_info("app", "Auto-connecting to %s over the network", tcp_target);
+            inkcell_log_info("app", "Auto-connecting to %s over the network", tcp_target);
             /* Not a success yet: the connect has not completed and the handshake has not gone
                out. The counter stays where it is until a link is actually up. */
             app->autoconnect_retry_at_ms = now + MESH_APP_AUTOCONNECT_RETRY_MS;
             return;
         }
-        mesh_log_warn("app", "Auto-connect to %s over the network failed (%d); trying Bluetooth",
-                      tcp_target, tcp_result);
+        inkcell_log_warn("app", "Auto-connect to %s over the network failed (%d); trying Bluetooth",
+                         tcp_target, tcp_result);
     }
 
     struct mesh_bluez_device_info devices[MESH_UI_MAX_DEVICES];
@@ -623,8 +626,8 @@ void mesh_app_autoconnect(struct mesh_app *app) {
                                        : MESH_APP_AUTOCONNECT_PREFERRED_GRACE_MS;
             if (now - app->autoconnect_started_ms < grace) {
                 if (!app->autoconnect_waiting_logged) {
-                    mesh_log_info("app", "Preferred device '%s' not in range yet; waiting",
-                                  preferred);
+                    inkcell_log_info("app", "Preferred device '%s' not in range yet; waiting",
+                                     preferred);
                     app->autoconnect_waiting_logged = true;
                 }
                 app->autoconnect_retry_at_ms = now + 1000U;
@@ -633,10 +636,10 @@ void mesh_app_autoconnect(struct mesh_app *app) {
         }
         target = known;
         if (target != NULL) {
-            mesh_log_info("app", "%s; using your most recent node %s (%s, %d dBm)",
-                          preferred[0] != '\0' ? "Preferred device not in range"
-                                               : "No preferred device saved",
-                          target->name, target->address, (int)target->rssi);
+            inkcell_log_info("app", "%s; using your most recent node %s (%s, %d dBm)",
+                             preferred[0] != '\0' ? "Preferred device not in range"
+                                                  : "No preferred device saved",
+                             target->name, target->address, (int)target->rssi);
         }
     }
 
@@ -648,16 +651,16 @@ void mesh_app_autoconnect(struct mesh_app *app) {
             }
         }
         target = &devices[best];
-        mesh_log_info("app", "%s; using strongest node %s (%s, %d dBm)",
-                      preferred[0] != '\0' ? "Preferred device not in range"
-                                           : "No node of yours in range",
-                      target->name, target->address, (int)target->rssi);
+        inkcell_log_info("app", "%s; using strongest node %s (%s, %d dBm)",
+                         preferred[0] != '\0' ? "Preferred device not in range"
+                                              : "No node of yours in range",
+                         target->name, target->address, (int)target->rssi);
     }
 
     int result = mesh_ble_transport_connect(ble, target->address);
     if (result == 0 || result == -EALREADY || result == -EINPROGRESS) {
         if (result == 0) {
-            mesh_log_info("app", "Auto-connecting to %s (%s)", target->name, target->address);
+            inkcell_log_info("app", "Auto-connecting to %s (%s)", target->name, target->address);
         }
         /* Not a success yet: BLE only resolves its services a few seconds from now. */
         app->autoconnect_retry_at_ms = now + MESH_APP_AUTOCONNECT_RETRY_MS;
@@ -669,8 +672,8 @@ void mesh_app_autoconnect(struct mesh_app *app) {
     }
 
     const uint64_t delay = mesh_app_backoff_autoconnect(app);
-    mesh_log_warn("app", "Auto-connect to %s failed (%d); retrying in %llu ms", target->address,
-                  result, (unsigned long long)delay);
+    inkcell_log_warn("app", "Auto-connect to %s failed (%d); retrying in %llu ms", target->address,
+                     result, (unsigned long long)delay);
 }
 
 bool mesh_app_report_link_errors(struct mesh_app *app) {
@@ -685,10 +688,10 @@ bool mesh_app_report_link_errors(struct mesh_app *app) {
     }
 
     if (app->ui_report_link_error && app->config.run_mode == MESH_APP_RUN_FOREGROUND) {
-        mesh_log_info("ui", "Link failure shown to the user: %s", link_error);
-        mesh_ui_store_set_toast(&app->ui_store, mesh_time_monotonic_ms(), link_error);
+        inkcell_log_info("ui", "Link failure shown to the user: %s", link_error);
+        mesh_ui_store_set_toast(&app->ui_store, inkcell_time_monotonic_ms(), link_error);
     } else {
-        mesh_log_debug("ui", "Link failure not shown (auto-connect): %s", link_error);
+        inkcell_log_debug("ui", "Link failure not shown (auto-connect): %s", link_error);
     }
     app->ui_report_link_error = false;
 
@@ -732,7 +735,7 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
 
     int result = mesh_event_loop_init(&app->loop);
     if (result < 0) {
-        mesh_log_error("app", "Event loop init failed: %d", result);
+        inkcell_log_error("app", "Event loop init failed: %d", result);
         return result;
     }
 
@@ -751,9 +754,9 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
     app->autoconnect_after_link = false;
     app->ui_link_was_connected = false;
     app->ui_report_link_error = false;
-    app->autoconnect_disabled = !mesh_env_bool("AUTOCONNECT", "auto-connect", true);
+    app->autoconnect_disabled = !inkcell_env_bool("AUTOCONNECT", "auto-connect", true);
     if (app->autoconnect_disabled) {
-        mesh_log_info("app", "Auto-connect disabled by MESHCLIENT_AUTOCONNECT");
+        inkcell_log_info("app", "Auto-connect disabled by MESHCLIENT_AUTOCONNECT");
     }
     app->ui_handshake_cache_dirty = false;
     app->ui_cache_timer_armed = false;
@@ -807,21 +810,21 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
          * outage.
          */
         char data_dir[sizeof app->ui_preferences_path];
-        mesh_str_copy(data_dir, sizeof data_dir, app->ui_preferences_path);
+        inkcell_str_copy(data_dir, sizeof data_dir, app->ui_preferences_path);
         char *data_slash = strrchr(data_dir, '/');
         if (data_slash != NULL && data_slash != data_dir) {
             *data_slash = '\0';
             const int crash_result = mesh_crash_install(data_dir);
             if (crash_result < 0) {
-                mesh_log_warn("app", "Crash reports unavailable: %d", crash_result);
+                inkcell_log_warn("app", "Crash reports unavailable: %d", crash_result);
             } else if (mesh_crash_report_waiting()) {
-                mesh_log_warn("app", "A crash report from a previous run is waiting in %s",
-                              data_dir);
+                inkcell_log_warn("app", "A crash report from a previous run is waiting in %s",
+                                 data_dir);
             }
         }
         /* inkcell writes the log; the crash reporter wants a copy of each line, and says so
            rather than being called by name from inside the logger. */
-        mesh_log_set_sink(mesh_crash_log_line);
+        inkcell_log_set_sink(mesh_crash_log_line);
         mesh_crash_note(MESH_CRASH_NOTE_VERSION, mesh_version_string());
 
         int handshake_written =
@@ -829,7 +832,7 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
                      "%s.handshake", app->ui_preferences_path);
         if (handshake_written < 0 ||
             handshake_written >= (int)sizeof(app->ui_handshake_cache_path)) {
-            mesh_log_warn("app", "Handshake cache path truncated; disabling cache");
+            inkcell_log_warn("app", "Handshake cache path truncated; disabling cache");
             app->ui_handshake_cache_path[0] = '\0';
         }
 
@@ -846,10 +849,10 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
         if (archive_written > 0 && archive_written < (int)sizeof archive_dir) {
             const int archive_result = mesh_ui_archive_init(&app->ui_archive, archive_dir);
             if (archive_result < 0) {
-                mesh_log_warn("app", "Message archive unavailable: %d", archive_result);
+                inkcell_log_warn("app", "Message archive unavailable: %d", archive_result);
             }
         } else {
-            mesh_log_warn("app", "Message archive path truncated; disabling the transcript");
+            inkcell_log_warn("app", "Message archive path truncated; disabling the transcript");
         }
 
         /* And the trend log, in a directory of its own beside both. Its failure is the same
@@ -861,16 +864,16 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
         if (trends_written > 0 && trends_written < (int)sizeof trends_dir) {
             const int trends_result = mesh_ui_trends_init(&app->ui_trends, trends_dir);
             if (trends_result < 0) {
-                mesh_log_warn("app", "Trend log unavailable: %d", trends_result);
+                inkcell_log_warn("app", "Trend log unavailable: %d", trends_result);
             }
         } else {
-            mesh_log_warn("app", "Trend log path truncated; disabling node trends");
+            inkcell_log_warn("app", "Trend log path truncated; disabling node trends");
         }
     }
 
     result = mesh_ui_store_init(&app->ui_store);
     if (result < 0) {
-        mesh_log_error("app", "UI store init failed: %d", result);
+        inkcell_log_error("app", "UI store init failed: %d", result);
         mesh_event_loop_shutdown(&app->loop);
         return result;
     }
@@ -878,7 +881,7 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
     if (app->ui_handshake_cache_path[0] != '\0') {
         int handshake_load = mesh_ui_store_load(&app->ui_store, app->ui_handshake_cache_path);
         if (handshake_load < 0 && handshake_load != -ENOENT) {
-            mesh_log_debug("app", "Failed to load handshake cache: %d", handshake_load);
+            inkcell_log_debug("app", "Failed to load handshake cache: %d", handshake_load);
         }
     }
 
@@ -895,7 +898,7 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
      */
     const int seeded = mesh_ui_archive_seed(&app->ui_archive, &app->ui_messages_cached);
     if (seeded > 0) {
-        mesh_log_info("app", "Seeded the message archive with %d restored message(s)", seeded);
+        inkcell_log_info("app", "Seeded the message archive with %d restored message(s)", seeded);
     }
     /*
      * The radio the trend logs on the card are about, off the cache rather than off a link that
@@ -912,16 +915,16 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
     app->ui_read_state_revision = app->ui_store.read_state.revision;
 
     void *backend_userdata = NULL;
-    const struct mesh_ui_backend *ui_backend = mesh_app_select_backend(app, &backend_userdata);
+    const struct inkcell_backend *ui_backend = mesh_app_select_backend(app, &backend_userdata);
     result = mesh_ui_controller_init(&app->ui_controller, &app->ui_store, ui_backend,
                                      backend_userdata, &app->loop);
     if (result < 0) {
-        mesh_log_warn("app", "UI backend init failed (%d); falling back to stub", result);
+        inkcell_log_warn("app", "UI backend init failed (%d); falling back to stub", result);
         result = mesh_ui_controller_init(&app->ui_controller, &app->ui_store,
                                          mesh_ui_backend_stub(), NULL, &app->loop);
     }
     if (result < 0) {
-        mesh_log_error("app", "UI controller init failed: %d", result);
+        inkcell_log_error("app", "UI controller init failed: %d", result);
         mesh_ui_store_shutdown(&app->ui_store);
         mesh_event_loop_shutdown(&app->loop);
         return result;
@@ -935,12 +938,12 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
      * spoken the About row shows the theme as a fact rather than as a switch.
      */
     /* Resolve the saved language before building any translated UI state. */
-    mesh_i18n_init_with_preference(app->ui_preferences.language);
+    inkcell_i18n_init_with_preference(app->ui_preferences.language);
 
-    app->ui_theme = mesh_ui_theme_env();
+    app->ui_theme = inkcell_theme_env();
     app->ui_theme_from_env = (app->ui_theme != NULL);
     if (app->ui_theme == NULL) {
-        app->ui_theme = mesh_ui_theme_resolve(app->ui_preferences.theme);
+        app->ui_theme = inkcell_theme_resolve(app->ui_preferences.theme);
     }
 
     /* Never fatal: a client that cannot update itself is still a working client, and the
@@ -985,9 +988,9 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
             snprintf(slash + 1, room, "%s", "canned.txt");
             const int loaded = mesh_ui_canned_load(canned_path);
             if (loaded > 0) {
-                mesh_log_info("app", "Loaded %d canned replies from %s", loaded, canned_path);
+                inkcell_log_info("app", "Loaded %d canned replies from %s", loaded, canned_path);
             } else if (loaded != -ENOENT) {
-                mesh_log_warn("app", "Ignoring %s: %d", canned_path, loaded);
+                inkcell_log_warn("app", "Ignoring %s: %d", canned_path, loaded);
             }
         }
     }
@@ -996,7 +999,7 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
 
     result = mesh_transport_registry_register(&app->transport_registry, mesh_ble_transport());
     if (result < 0) {
-        mesh_log_error("app", "Failed to register BLE transport: %d", result);
+        inkcell_log_error("app", "Failed to register BLE transport: %d", result);
         mesh_ui_controller_shutdown(&app->ui_controller);
         mesh_ui_store_shutdown(&app->ui_store);
         mesh_event_loop_shutdown(&app->loop);
@@ -1005,7 +1008,7 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
 
     result = mesh_transport_registry_register(&app->transport_registry, mesh_serial_transport());
     if (result < 0) {
-        mesh_log_error("app", "Failed to register serial transport: %d", result);
+        inkcell_log_error("app", "Failed to register serial transport: %d", result);
         mesh_ui_controller_shutdown(&app->ui_controller);
         mesh_ui_store_shutdown(&app->ui_store);
         mesh_event_loop_shutdown(&app->loop);
@@ -1014,7 +1017,7 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
 
     result = mesh_transport_registry_register(&app->transport_registry, mesh_tcp_transport());
     if (result < 0) {
-        mesh_log_error("app", "Failed to register network transport: %d", result);
+        inkcell_log_error("app", "Failed to register network transport: %d", result);
         mesh_ui_controller_shutdown(&app->ui_controller);
         mesh_ui_store_shutdown(&app->ui_store);
         mesh_event_loop_shutdown(&app->loop);
@@ -1043,7 +1046,7 @@ void mesh_app_shutdown(struct mesh_app *app) {
     mesh_transport_registry_set_session(&app->transport_registry, NULL);
     free(app->publish_cache);
     app->publish_cache = NULL;
-    mesh_ui_input_shutdown(&app->ui_input);
+    inkcell_input_shutdown(&app->ui_input);
     mesh_signals_shutdown(&app->signals);
     /* Before the loop goes: the updater has an fd registered with it, and a half-finished
        download to clean up. The broker connection goes for the same reason, and goes first so
@@ -1133,15 +1136,15 @@ int mesh_app_run(struct mesh_app *app) {
         .remove_fd = mesh_app_ui_remove_fd,
         .request_stop = mesh_app_ui_request_stop,
     };
-    mesh_ui_input_init(&app->ui_input, &ui_input_host);
-    mesh_ui_input_set_handler(&app->ui_input, mesh_app_on_ui_key, app);
+    inkcell_input_init(&app->ui_input, &ui_input_host);
+    inkcell_input_set_handler(&app->ui_input, mesh_app_on_ui_key, app);
 
     mesh_app_publish_ui_state(app);
 
     switch (app->config.run_mode) {
     case MESH_APP_RUN_SINGLE_POLL:
-        mesh_log_debug("app", "Running single poll with timeout %d ms",
-                       app->config.idle_timeout_ms);
+        inkcell_log_debug("app", "Running single poll with timeout %d ms",
+                          app->config.idle_timeout_ms);
         mesh_app_publish_ui_state(app);
         result = mesh_event_loop_run(&app->loop, app->config.idle_timeout_ms);
         if (result >= 0) {
@@ -1149,8 +1152,8 @@ int mesh_app_run(struct mesh_app *app) {
         }
         break;
     case MESH_APP_RUN_FOREGROUND:
-        mesh_log_info("app", "Starting foreground event loop (timeout %d ms)",
-                      app->config.idle_timeout_ms);
+        inkcell_log_info("app", "Starting foreground event loop (timeout %d ms)",
+                         app->config.idle_timeout_ms);
         /* Paint the first frame before any transport work: the store already has a refresh
            queued, and a zero timeout drains what is ready without waiting for more. */
         mesh_event_loop_run(&app->loop, 0);
@@ -1158,8 +1161,8 @@ int mesh_app_run(struct mesh_app *app) {
             mesh_transport_registry_tick(&app->transport_registry);
             /* The updater's connection is watched by the event loop; this enforces its timeout
                and resumes a read that gave the loop back early. */
-            mesh_updater_tick(&app->updater, mesh_time_monotonic_ms());
-            mesh_firmware_tick(&app->firmware, mesh_time_monotonic_ms());
+            mesh_updater_tick(&app->updater, inkcell_time_monotonic_ms());
+            mesh_firmware_tick(&app->firmware, inkcell_time_monotonic_ms());
             /* One antenna: a download and a link cannot both have it, and the link is the one
                that loses - a Meshtastic node ends the connection after a second of silence,
                while a download only takes longer. Derived here rather than done at the install
@@ -1185,11 +1188,11 @@ int mesh_app_run(struct mesh_app *app) {
                                                 ? mesh_serial_transport()
                                                 : NULL);
             }
-            mesh_app_firmware_update_tick(app, mesh_time_monotonic_ms());
+            mesh_app_firmware_update_tick(app, inkcell_time_monotonic_ms());
             /* After the transports have been pumped, so a link that dropped this turn has
                already cleared the config sync that this reads to decide whether to stay
                connected at all. */
-            mesh_app_mqtt_tick(app, mesh_time_monotonic_ms());
+            mesh_app_mqtt_tick(app, inkcell_time_monotonic_ms());
             /* Before auto-connect, not after: a retry starts the link over and clears the
                reason the last attempt failed. */
             (void)mesh_app_report_link_errors(app);
@@ -1200,14 +1203,15 @@ int mesh_app_run(struct mesh_app *app) {
                 break;
             }
             if (app->loop.stop_requested) {
-                mesh_log_info("app", "Event loop stop requested");
+                inkcell_log_info("app", "Event loop stop requested");
                 break;
             }
             mesh_app_publish_ui_state(app);
         }
         break;
     default:
-        mesh_log_warn("app", "Unknown run mode %d, performing single poll", app->config.run_mode);
+        inkcell_log_warn("app", "Unknown run mode %d, performing single poll",
+                         app->config.run_mode);
         mesh_transport_registry_tick(&app->transport_registry);
         mesh_app_publish_ui_state(app);
         result = mesh_event_loop_run(&app->loop, app->config.idle_timeout_ms);
@@ -1227,10 +1231,10 @@ int mesh_app_run(struct mesh_app *app) {
                                  ? ble->ops->status(ble)
                                  : NULL;
         mesh_ui_store_set_transport_status(
-            &app->ui_store, status != NULL ? status : mesh_str(MESH_STR_TRANSPORT_STOPPED));
+            &app->ui_store, status != NULL ? status : inkcell_str(MESH_STR_TRANSPORT_STOPPED));
     }
 
-    mesh_ui_input_shutdown(&app->ui_input);
+    inkcell_input_shutdown(&app->ui_input);
     mesh_signals_shutdown(&app->signals);
     return result;
 }

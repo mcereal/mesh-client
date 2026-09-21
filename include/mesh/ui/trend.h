@@ -10,16 +10,16 @@
  * LocalStats arrives and what a gap in it means are facts about a radio rather than about a
  * picture.
  *
- * Nothing here has a pixel in it, for the reason mesh_ui_series_project() does not. Nothing here
+ * Nothing here has a pixel in it, for the reason inkcell_series_project() does not. Nothing here
  * holds state either - a span is on the nav, where every other thing a press moves is.
  */
 
 #include "inkcell/ui/trend.h"
 
+#include "inkcell/ui/layout.h"
+
 #include "mesh/i18n/strings.h"
-#include "mesh/inkcell_compat.h"
 #include "mesh/ui/history.h"
-#include "mesh/ui/layout.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -36,10 +36,10 @@ extern "C" {
  * of an idle one are two different situations and one number.
  */
 struct mesh_ui_trend_airtime {
-    struct mesh_ui_trend frame; /* the window, and the ceiling picked from the bins */
+    struct inkcell_trend frame; /* the window, and the ceiling picked from the bins */
     uint32_t bin_ms;
-    struct mesh_ui_trend_bins utilization;
-    struct mesh_ui_trend_bins tx;
+    struct inkcell_trend_bins utilization;
+    struct inkcell_trend_bins tx;
 };
 
 /*

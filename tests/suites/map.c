@@ -453,7 +453,7 @@ static void map_test_stand_on_the_map_row(struct mesh_ui_store *store) {
     store->nav.screen = MESH_UI_SCREEN_NODES;
     store->nav.cursor[MESH_UI_SCREEN_NODES] = 0U;
     while (store->nav.cursor[MESH_UI_SCREEN_NODES] < MESH_UI_NODES_MAP_ROW) {
-        (void)mesh_ui_store_handle_key(store, MESH_UI_KEY_DOWN, &action);
+        (void)mesh_ui_store_handle_key(store, INKCELL_KEY_DOWN, &action);
     }
 }
 
@@ -630,7 +630,7 @@ MESH_TEST_CASE(map_opens_from_the_node_list, unit) {
                       "and the map row is the one under it");
     MESH_TEST_FAIL_IF(mesh_ui_map_has_markers(&store), "and nothing has a position");
 
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     MESH_TEST_FAIL_IF(store.nav.map_open, "so the press does not open a map");
     MESH_TEST_FAIL_IF(store.nav.toast[0] == '\0', "and says why rather than doing nothing");
 
@@ -642,7 +642,7 @@ MESH_TEST_CASE(map_opens_from_the_node_list, unit) {
     mesh_ui_store_set_handshake(&store, &handshake);
     mesh_ui_store_consume_updates(&store, NULL);
 
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     MESH_TEST_FAIL_IF(!store.nav.map_open, "now it opens");
     MESH_TEST_FAIL_IF(!mesh_geo_coords_valid(store.nav.map_viewport.center_latitude_i,
                                              store.nav.map_viewport.center_longitude_i),
@@ -651,7 +651,7 @@ MESH_TEST_CASE(map_opens_from_the_node_list, unit) {
                       "framed on the one thing it has");
 
     /* B goes back to the list, on the row it was opened from. */
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
     MESH_TEST_FAIL_IF(store.nav.map_open, "B closes it");
     MESH_TEST_FAIL_IF(store.nav.cursor[MESH_UI_SCREEN_NODES] != MESH_UI_NODES_MAP_ROW,
                       "landing back on the row that opened it");
@@ -675,39 +675,39 @@ MESH_TEST_CASE(map_the_dpad_moves_the_world, unit) {
 
     struct mesh_ui_action action;
     map_test_stand_on_the_map_row(&store);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     MESH_TEST_FAIL_IF(!store.nav.map_open, "the map opened");
 
     const int32_t longitude = store.nav.map_viewport.center_longitude_i;
     const int32_t latitude = store.nav.map_viewport.center_latitude_i;
 
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
     MESH_TEST_FAIL_IF(store.nav.screen != MESH_UI_SCREEN_NODES,
                       "Right pans rather than changing tab");
     MESH_TEST_FAIL_IF(store.nav.map_viewport.center_longitude_i <= longitude, "and pans east");
 
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
     MESH_TEST_FAIL_IF(store.nav.map_viewport.center_latitude_i <= latitude, "Up pans north");
 
     /* The shoulders are untouched, so the strip above the body still works from here. */
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_R1, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_R1, &action);
     MESH_TEST_FAIL_IF(store.nav.screen == MESH_UI_SCREEN_NODES, "R1 still changes tab");
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_L1, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_L1, &action);
     MESH_TEST_FAIL_IF(store.nav.screen != MESH_UI_SCREEN_NODES, "and L1 comes back");
     MESH_TEST_FAIL_IF(!store.nav.map_open, "with the map still open");
 
     /* X and Y are the zoom, in whole levels and clamped. */
     const uint8_t zoom = store.nav.map_viewport.zoom;
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
     MESH_TEST_FAIL_IF(store.nav.map_viewport.zoom != zoom + 1U, "X goes one level closer");
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_Y, &action);
     MESH_TEST_FAIL_IF(store.nav.map_viewport.zoom != zoom, "Y goes one level wider");
 
     /* START frames everything again, however far the view has been walked. */
     for (int i = 0; i < 30; ++i) {
-        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+        (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
     }
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_START, &action);
     struct mesh_ui_map_view view;
     mesh_ui_map_build(&store, &view);
     for (uint32_t i = 0; i < view.count; ++i) {
@@ -908,7 +908,7 @@ MESH_TEST_CASE(map_the_dpad_reaches_what_a_pan_could_not, unit) {
 
     struct mesh_ui_action action;
     map_test_stand_on_the_map_row(&store);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     MESH_TEST_FAIL_IF(!store.nav.map_open, "the map opened");
 
     /* Standing on our own radio, at a zoom a reader would actually use. */
@@ -957,7 +957,7 @@ MESH_TEST_CASE(map_the_dpad_reaches_what_a_pan_could_not, unit) {
 
     /* One press east, and the view is on it exactly - which is what makes the aim exact rather
        than merely better. */
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
     MESH_TEST_FAIL_IF(store.nav.map_viewport.center_latitude_i != latitude_i ||
                           store.nav.map_viewport.center_longitude_i != longitude_i,
                       "the press lands on the marker's own coordinates");
@@ -969,7 +969,7 @@ MESH_TEST_CASE(map_the_dpad_reaches_what_a_pan_could_not, unit) {
     MESH_TEST_FAIL_IF(view.markers[selected].id != 0x3000U, "and it is the node aimed at");
 
     /* And A opens it, which is the whole point of being able to aim. */
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     MESH_TEST_FAIL_IF(!store.nav.node_detail_open || store.nav.node_detail_node != 0x3000U,
                       "the press that was impossible before opens that node");
 
@@ -992,7 +992,7 @@ MESH_TEST_CASE(map_a_direction_pans_when_nothing_is_that_way, unit) {
 
     struct mesh_ui_action action;
     map_test_stand_on_the_map_row(&store);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     MESH_TEST_FAIL_IF(!store.nav.map_open, "the map opened");
 
     /* Well out in open country, with the whole roster behind us to the east. */
@@ -1004,7 +1004,7 @@ MESH_TEST_CASE(map_a_direction_pans_when_nothing_is_that_way, unit) {
     MESH_TEST_FAIL_IF(!mesh_map_viewport_pan(&expected, -(MESH_UI_MAP_FIT_WIDTH / 5), 0),
                       "a step west is a real move");
 
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_LEFT, &action);
     MESH_TEST_FAIL_IF(store.nav.map_viewport.center_longitude_i != expected.center_longitude_i ||
                           store.nav.map_viewport.center_latitude_i != expected.center_latitude_i,
                       "and the press is exactly that step");
@@ -1034,7 +1034,7 @@ MESH_TEST_CASE(map_opens_a_marker_and_comes_back_to_the_map, unit) {
     struct mesh_ui_action action;
     store.nav.screen = MESH_UI_SCREEN_NODES;
     map_test_stand_on_the_map_row(&store);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action); /* the map row */
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action); /* the map row */
     MESH_TEST_FAIL_IF(!store.nav.map_open, "the map opened");
 
     /* Onto ALFA, whose fix the fixture put a few hundred metres north-east. */
@@ -1044,7 +1044,7 @@ MESH_TEST_CASE(map_opens_a_marker_and_comes_back_to_the_map, unit) {
                                       store.handshake.nodes[1].position.longitude_i);
     store.nav.map_viewport.zoom = 16U;
 
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     MESH_TEST_FAIL_IF(!store.nav.node_detail_open, "A opened the marker under the crosshair");
     MESH_TEST_FAIL_IF(store.nav.node_detail_node != alfa, "and it is that node");
     MESH_TEST_FAIL_IF(!store.nav.map_open, "with the map still underneath it");
@@ -1066,7 +1066,7 @@ MESH_TEST_CASE(map_opens_a_marker_and_comes_back_to_the_map, unit) {
                           "and on a row the cursor may stand on, not the heading above it");
     }
 
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
     MESH_TEST_FAIL_IF(store.nav.node_detail_open, "B closes the detail");
     MESH_TEST_FAIL_IF(!store.nav.map_open, "back onto the map it was opened from");
 
@@ -1074,7 +1074,7 @@ MESH_TEST_CASE(map_opens_a_marker_and_comes_back_to_the_map, unit) {
        back - the node detail's "Message this node" makes the same move for the same reason. */
     (void)mesh_map_viewport_center_on(&store.nav.map_viewport, MAP_TEST_LATITUDE - 20000,
                                       MAP_TEST_LONGITUDE + 10000);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     MESH_TEST_FAIL_IF(store.nav.screen != MESH_UI_SCREEN_WAYPOINTS, "a place opens on its own tab");
     MESH_TEST_FAIL_IF(!store.nav.waypoint_detail_open || store.nav.waypoint_detail_id != 7U,
                       "showing that place");
@@ -1092,7 +1092,7 @@ MESH_TEST_CASE(map_closes_when_there_is_nothing_left_to_draw, unit) {
 
     struct mesh_ui_action action;
     map_test_stand_on_the_map_row(&store);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     MESH_TEST_FAIL_IF(!store.nav.map_open, "the map opened");
 
     struct mesh_ui_handshake_state handshake;
@@ -1136,11 +1136,11 @@ MESH_TEST_CASE(map_keys_belong_to_the_screen_the_map_is_on, unit) {
 
     struct mesh_ui_action action;
     map_test_stand_on_the_map_row(&store);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     MESH_TEST_FAIL_IF(!store.nav.map_open, "the map opened");
 
     /* Off to the next tab, with the map still open behind us - which is the point. */
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_R1, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_R1, &action);
     MESH_TEST_FAIL_IF(store.nav.screen == MESH_UI_SCREEN_NODES, "R1 left the Nodes tab");
     MESH_TEST_FAIL_IF(!store.nav.map_open, "and the map is still open behind it");
 
@@ -1149,23 +1149,23 @@ MESH_TEST_CASE(map_keys_belong_to_the_screen_the_map_is_on, unit) {
     const uint8_t zoom = store.nav.map_viewport.zoom;
 
     /* Now every press the map claims has to belong to the tab in front of the reader. */
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
     MESH_TEST_FAIL_IF(store.nav.map_viewport.center_longitude_i != longitude,
                       "Right on another tab must not pan the hidden map");
     MESH_TEST_FAIL_IF(store.nav.screen == elsewhere, "it moves along the tabs, as it always does");
 
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_LEFT, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
     MESH_TEST_FAIL_IF(store.nav.map_viewport.zoom != zoom,
                       "X on another tab must not zoom the hidden map");
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
     MESH_TEST_FAIL_IF(!store.nav.map_open, "B on another tab must not close the hidden map");
 
     /* And back onto Nodes, where the map is what is on the panel and the presses are its own. */
     while (store.nav.screen != MESH_UI_SCREEN_NODES) {
-        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_L1, &action);
+        (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_L1, &action);
     }
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
     MESH_TEST_FAIL_IF(store.nav.map_viewport.zoom != zoom + 1U, "X on the map zooms it again");
 
     mesh_ui_store_shutdown(&store);
@@ -1181,16 +1181,16 @@ MESH_TEST_CASE(map_hands_the_keys_over_when_a_place_opens, unit) {
 
     struct mesh_ui_action action;
     map_test_stand_on_the_map_row(&store);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     MESH_TEST_FAIL_IF(!store.nav.map_open, "the map opened");
 
     (void)mesh_map_viewport_center_on(&store.nav.map_viewport, MAP_TEST_LATITUDE - 20000,
                                       MAP_TEST_LONGITUDE + 10000);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     MESH_TEST_FAIL_IF(store.nav.screen != MESH_UI_SCREEN_WAYPOINTS, "the place opened on its tab");
     MESH_TEST_FAIL_IF(!store.nav.waypoint_detail_open, "showing that place");
 
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
     MESH_TEST_FAIL_IF(store.nav.waypoint_detail_open,
                       "B closes the place that is on the panel, not the map behind it");
     MESH_TEST_FAIL_IF(!store.nav.map_open, "and the map is still where it was left");
@@ -1404,7 +1404,7 @@ MESH_TEST_CASE(map_press_refuses_a_node_it_cannot_open, unit) {
     struct mesh_ui_action action;
     store.nav.screen = MESH_UI_SCREEN_NODES;
     map_test_stand_on_the_map_row(&store);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action); /* the map row */
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action); /* the map row */
     MESH_TEST_FAIL_IF(!store.nav.map_open, "the map opened");
 
     /* Aimed at the last node, which is far enough down the ranking to have no row. */
@@ -1419,7 +1419,7 @@ MESH_TEST_CASE(map_press_refuses_a_node_it_cannot_open, unit) {
                       "the crosshair is on a marker");
     MESH_TEST_FAIL_IF(view.markers[index].id != MAP_WIDE_SELF + 199U, "and on the right one");
 
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     MESH_TEST_FAIL_IF(store.nav.node_detail_open, "A opens no detail it cannot fill");
     MESH_TEST_FAIL_IF(!store.nav.map_open, "and leaves the reader on the map");
     /*
@@ -1434,7 +1434,7 @@ MESH_TEST_CASE(map_press_refuses_a_node_it_cannot_open, unit) {
        about the node and not about the map. */
     (void)mesh_map_viewport_center_on(&store.nav.map_viewport, hs.map_nodes[5].latitude_i,
                                       hs.map_nodes[5].longitude_i);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     MESH_TEST_FAIL_IF(!store.nav.node_detail_open, "a node with a row still opens");
     MESH_TEST_FAIL_IF(store.nav.node_detail_node != MAP_WIDE_SELF + 5U, "and it is that node");
 

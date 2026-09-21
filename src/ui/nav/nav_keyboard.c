@@ -15,13 +15,14 @@
  * doing" lives, and is the reason that function is longer than it looks like it should be.
  */
 
+#include "inkcell/utils/array.h"
+#include "inkcell/utils/text.h"
+
 #include "nav_internal.h"
 
 #include "mesh/ui/channel_share.h"
 #include "mesh/ui/contact_share.h"
 #include "mesh/ui/settings.h"
-#include "mesh/utils/array.h"
-#include "mesh/utils/text.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -278,11 +279,11 @@ bool mesh_ui_nav_commit_network_host(struct mesh_ui_nav *nav, struct mesh_ui_act
          */
         action->type = nav->draft[0] != '\0' ? MESH_UI_ACTION_CONNECT : MESH_UI_ACTION_FORGET;
         action->kind = (uint8_t)MESH_UI_DEVICE_TCP;
-        /* mesh_str_copy rather than snprintf: the draft is the message buffer and the
+        /* inkcell_str_copy rather than snprintf: the draft is the message buffer and the
            identifier is a target, so the compiler is right that one does not fit in the other
            - it is mesh_ui_nav_draft_cap() that keeps the two in step, and a bounded copy is
            what says so at the call rather than in a comment. */
-        mesh_str_copy(action->identifier, sizeof action->identifier, nav->draft);
+        inkcell_str_copy(action->identifier, sizeof action->identifier, nav->draft);
     }
     nav->draft[0] = '\0';
     mesh_ui_nav_keyboard_close(nav);
@@ -428,7 +429,7 @@ bool mesh_ui_nav_commit_channel_url(struct mesh_ui_nav *nav) {
         return false;
     }
     if (!mesh_ui_channel_link_valid(nav->draft)) {
-        mesh_ui_nav_raise_toast(nav, mesh_str(MESH_STR_TOAST_IMPORT_NOT_A_LINK));
+        mesh_ui_nav_raise_toast(nav, inkcell_str(MESH_STR_TOAST_IMPORT_NOT_A_LINK));
         return true; /* stay on the keyboard so it can be fixed */
     }
     snprintf(nav->channel_url, sizeof nav->channel_url, "%s", nav->draft);
@@ -470,7 +471,7 @@ bool mesh_ui_nav_commit_contact_url(struct mesh_ui_nav *nav) {
         return false;
     }
     if (!mesh_ui_contact_link_valid(nav->draft)) {
-        mesh_ui_nav_raise_toast(nav, mesh_str(MESH_STR_TOAST_CONTACT_LINK_INVALID));
+        mesh_ui_nav_raise_toast(nav, inkcell_str(MESH_STR_TOAST_CONTACT_LINK_INVALID));
         return true; /* stay on the keyboard so it can be fixed */
     }
     snprintf(nav->contact_url, sizeof nav->contact_url, "%s", nav->draft);
@@ -536,7 +537,7 @@ static bool mesh_ui_nav_keyboard_cancel(struct mesh_ui_nav *nav, struct mesh_ui_
 }
 
 bool mesh_ui_nav_keyboard_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
-                              enum mesh_ui_key key, struct mesh_ui_action *action) {
+                              enum inkcell_key key, struct mesh_ui_action *action) {
     if (nav == NULL) {
         return false;
     }

@@ -2,8 +2,9 @@
 
 #include "framework/mesh_test.h"
 
+#include "inkcell/utils/env.h"
+
 #include "mesh/i18n/strings.h"
-#include "mesh/utils/env.h"
 
 #include <stdio.h>
 #include <stdlib.h>

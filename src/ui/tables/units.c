@@ -28,24 +28,25 @@ void mesh_ui_format_distance(double metres, bool imperial, char *out, size_t out
     }
     if (!(metres >= 0.0)) {
         /* Also the NaN case, which is why the test is written this way round. */
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_COMMON_UNKNOWN_SHORT));
+        snprintf(out, out_len, "%s", inkcell_str(INKCELL_STR_COMMON_UNKNOWN_SHORT));
         return;
     }
 
     if (imperial) {
         if (metres < MESH_UI_METRES_PER_MILE) {
-            mesh_str_format(out, out_len, MESH_STR_VALUE_DISTANCE_FT,
-                            (unsigned)(metres / MESH_UI_METRES_PER_FOOT + 0.5));
+            inkcell_str_format(out, out_len, MESH_STR_VALUE_DISTANCE_FT,
+                               (unsigned)(metres / MESH_UI_METRES_PER_FOOT + 0.5));
             return;
         }
-        mesh_str_format(out, out_len, MESH_STR_VALUE_DISTANCE_MI, metres / MESH_UI_METRES_PER_MILE);
+        inkcell_str_format(out, out_len, MESH_STR_VALUE_DISTANCE_MI,
+                           metres / MESH_UI_METRES_PER_MILE);
         return;
     }
     if (metres < MESH_UI_DISTANCE_KM_FROM) {
-        mesh_str_format(out, out_len, MESH_STR_VALUE_DISTANCE_M, (unsigned)(metres + 0.5));
+        inkcell_str_format(out, out_len, MESH_STR_VALUE_DISTANCE_M, (unsigned)(metres + 0.5));
         return;
     }
-    mesh_str_format(out, out_len, MESH_STR_VALUE_DISTANCE_KM, metres / MESH_UI_DISTANCE_KM_FROM);
+    inkcell_str_format(out, out_len, MESH_STR_VALUE_DISTANCE_KM, metres / MESH_UI_DISTANCE_KM_FROM);
 }
 
 void mesh_ui_format_altitude(int32_t metres, bool imperial, char *out, size_t out_len) {
@@ -53,7 +54,7 @@ void mesh_ui_format_altitude(int32_t metres, bool imperial, char *out, size_t ou
         return;
     }
     if (!imperial) {
-        mesh_str_format(out, out_len, MESH_STR_VALUE_ALTITUDE_M, (int)metres);
+        inkcell_str_format(out, out_len, MESH_STR_VALUE_ALTITUDE_M, (int)metres);
         return;
     }
     /*
@@ -75,7 +76,7 @@ void mesh_ui_format_altitude(int32_t metres, bool imperial, char *out, size_t ou
      */
     const long long scaled = (long long)metres * 10000LL;
     const long long half = metres >= 0 ? 1524LL : -1524LL;
-    mesh_str_format(out, out_len, MESH_STR_VALUE_ALTITUDE_FT, (scaled + half) / 3048LL);
+    inkcell_str_format(out, out_len, MESH_STR_VALUE_ALTITUDE_FT, (scaled + half) / 3048LL);
 }
 
 void mesh_ui_format_length(uint32_t metres, bool imperial, char *out, size_t out_len) {
@@ -87,8 +88,8 @@ void mesh_ui_format_length(uint32_t metres, bool imperial, char *out, size_t out
         return;
     }
     if (metres >= 1000U && metres % 1000U == 0U) {
-        mesh_str_format(out, out_len, MESH_STR_VALUE_KILOMETRES, (unsigned)(metres / 1000U));
+        inkcell_str_format(out, out_len, MESH_STR_VALUE_KILOMETRES, (unsigned)(metres / 1000U));
         return;
     }
-    mesh_str_format(out, out_len, MESH_STR_VALUE_METRES, (unsigned)metres);
+    inkcell_str_format(out, out_len, MESH_STR_VALUE_METRES, (unsigned)metres);
 }

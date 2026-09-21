@@ -158,7 +158,7 @@ reports by position**:
 
 **L2 and R2 are triggers, not buttons** — there is no `BTN_TL2` in the key bitmap at all. They are
 digital in practice (255 on press, 0 on release), which is what lets the client treat them as
-ordinary logical keys: `mesh_ui_input_map_trigger()` reads the two axes, and a latch turns the
+ordinary logical keys: `inkcell_input_map_trigger()` reads the two axes, and a latch turns the
 squeeze into one press rather than one per value an analogue pad would report on the way up. **F1 and F2 are the stick clicks**: a 360 pad
 has two sticks and the Brick has none, so TrimUI spent those codes on the middle buttons.
 
@@ -180,7 +180,7 @@ these two describe no real diamond. An Xbox pad's X is on the **left** and repor
 either profile by reading the compass name as a position and you get A and B right and silently
 swap X and Y. `tests/suites/ui_input.c` asserts both by number.
 
-That is why the codes and the keycaps are **one table**: `src/ui/input/input_profile.c` holds a row per
+That is why the codes and the keycaps are **one table**: inkcell's `src/input/input_profile.c` holds a row per
 device, and `MESHCLIENT_INPUT_PROFILE` (`brick` or `xbox`) picks one for both the key mapping and
 the action bar's caps. Correcting one without the other is invisible — the binding still works,
 it just does the other thing, and the bar goes on promising the first.

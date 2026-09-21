@@ -48,7 +48,7 @@ Run `make format` before pushing — not `clang-format` by hand. The repo ships 
 with another one use `./scripts/docker.sh make format`.
 
 User-facing text is never a literal in a renderer: add a line to
-`include/mesh/i18n/catalog.def` and use `mesh_str()`. `make test` runs
+`include/mesh/i18n/catalog.def` and use `inkcell_str()`. `make test` runs
 `scripts/check-strings.py`, which fails on prose spelled out in the files that draw. See
 [`docs/i18n.md`](docs/i18n.md).
 

@@ -18,21 +18,20 @@
 
 #include "fb_internal.h"
 
-#include "inkcell/ui/fb.h"
-#include "mesh/ui/store.h"
-
+#include "mesh/ui/backends/fb.h"
 #include "mesh/ui/backends/fb_capture.h"
+#include "mesh/ui/store.h"
 
 #include <errno.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
 
-struct fb_app *fb_app_of(const struct mesh_ui_backend_fb_state *state) {
+struct fb_app *fb_app_of(const struct inkcell_backend_fb_state *state) {
     return state != NULL ? (struct fb_app *)state->app.ctx : NULL;
 }
 
-static void fb_app_render(struct mesh_ui_backend_fb_state *state, const void *snapshot_ptr,
+static void fb_app_render(struct inkcell_backend_fb_state *state, const void *snapshot_ptr,
                           void *ctx) {
     const struct mesh_ui_snapshot *const snapshot = (const struct mesh_ui_snapshot *)snapshot_ptr;
     struct fb_app *const app = (struct fb_app *)ctx;
@@ -62,7 +61,7 @@ static void fb_app_render(struct mesh_ui_backend_fb_state *state, const void *sn
         app->route = route;
         app->route_valid = true;
     } else {
-        const enum mesh_ui_transition move = mesh_ui_route_move(&app->route, &route);
+        const enum inkcell_transition move = mesh_ui_route_move(&app->route, &route);
         app->route = route;
         inkcell_fb_transition_begin(state, move);
     }
@@ -100,7 +99,7 @@ static void fb_app_frame_begin(void *ctx) {
  * closing a pack is what fb_basemap_close() does and it is written against the state like
  * everything else in fb_map.c.
  */
-static void fb_app_drop_caches(struct mesh_ui_backend_fb_state *state, void *ctx) {
+static void fb_app_drop_caches(struct inkcell_backend_fb_state *state, void *ctx) {
     (void)ctx;
     if (state == NULL) {
         return;
@@ -117,7 +116,7 @@ static void fb_app_drop_caches(struct mesh_ui_backend_fb_state *state, void *ctx
  * it. Getting that wrong left every frame after the first reference render drawing a map with
  * nothing under it.
  */
-static void fb_app_close(struct mesh_ui_backend_fb_state *state, void *ctx) {
+static void fb_app_close(struct inkcell_backend_fb_state *state, void *ctx) {
     fb_app_drop_caches(state, ctx);
     fb_basemap_close(state);
     free(ctx);
@@ -131,10 +130,10 @@ static void fb_app_close(struct mesh_ui_backend_fb_state *state, void *ctx) {
  * the device backend. Without it a captured frame is a cleared panel, which is a picture of
  * nothing that looks a lot like a picture of a bug.
  */
-int mesh_ui_capture_open(struct mesh_ui_capture **out, uint32_t width, uint32_t height, int scale) {
+int mesh_ui_capture_open(struct inkcell_capture **out, uint32_t width, uint32_t height, int scale) {
     const int result = inkcell_capture_open(out, width, height, scale);
     if (result == 0 && out != NULL && *out != NULL) {
-        mesh_ui_fb_set_app(mesh_ui_capture_state(*out), fb_app_vtable());
+        inkcell_fb_set_app(inkcell_capture_state(*out), fb_app_vtable());
     }
     return result;
 }
@@ -147,8 +146,8 @@ int mesh_ui_capture_open(struct mesh_ui_capture **out, uint32_t width, uint32_t 
  * two machines. It installs the app first, since a capture is opened by inkcell with nothing
  * behind it.
  */
-int mesh_ui_capture_open_map_pack(struct mesh_ui_capture *capture, const char *path) {
-    struct mesh_ui_backend_fb_state *const state = mesh_ui_capture_state(capture);
+int mesh_ui_capture_open_map_pack(struct inkcell_capture *capture, const char *path) {
+    struct inkcell_backend_fb_state *const state = inkcell_capture_state(capture);
     if (state == NULL) {
         return -EINVAL;
     }

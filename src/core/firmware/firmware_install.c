@@ -2,10 +2,11 @@
 
 #include "mesh/core/firmware_install.h"
 
+#include "inkcell/utils/file.h"
+#include "inkcell/utils/log.h"
+#include "inkcell/utils/text.h"
+
 #include "mesh/transport/serial_usb.h"
-#include "mesh/utils/file.h"
-#include "mesh/utils/log.h"
-#include "mesh/utils/text.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -83,7 +84,8 @@ static void install_refuse(struct mesh_firmware_install *install,
 
 static void install_fail(struct mesh_firmware_install *install,
                          enum mesh_firmware_install_error error) {
-    mesh_log_error("firmware", "The install failed: %s", mesh_firmware_install_error_name(error));
+    inkcell_log_error("firmware", "The install failed: %s",
+                      mesh_firmware_install_error_name(error));
     install_finish(install, MESH_FIRMWARE_INSTALL_FAILED, error);
 }
 
@@ -157,7 +159,7 @@ static void install_enter_waiting(struct mesh_firmware_install *install, uint64_
     install->state = MESH_FIRMWARE_INSTALL_WAITING;
     install->deadline_ms = now_ms + INSTALL_WAIT_TIMEOUT_MS;
     install->next_poll_ms = now_ms;
-    mesh_log_info("firmware", "Waiting for a bootloader to enumerate");
+    inkcell_log_info("firmware", "Waiting for a bootloader to enumerate");
 }
 
 static void install_begin_write(struct mesh_firmware_install *install,
@@ -193,8 +195,8 @@ static void install_begin_write(struct mesh_firmware_install *install,
         return;
     }
     install->state = MESH_FIRMWARE_INSTALL_WRITING;
-    mesh_log_info("firmware", "Writing %zu bytes of firmware to %s", install->image_len,
-                  install->target.device);
+    inkcell_log_info("firmware", "Writing %zu bytes of firmware to %s", install->image_len,
+                     install->target.device);
 }
 
 static void install_tick_arming(struct mesh_firmware_install *install, uint64_t now_ms) {
@@ -267,16 +269,16 @@ static void install_tick_writing(struct mesh_firmware_install *install, uint64_t
             install_fail(install, MESH_FIRMWARE_INSTALL_ERROR_WRITE);
             return;
         }
-        mesh_log_info("firmware",
-                      "The drive went away after %llu of %llu bytes; waiting to see what "
-                      "comes back",
-                      (unsigned long long)install->write.written,
-                      (unsigned long long)install->write.total);
+        inkcell_log_info("firmware",
+                         "The drive went away after %llu of %llu bytes; waiting to see what "
+                         "comes back",
+                         (unsigned long long)install->write.written,
+                         (unsigned long long)install->write.total);
         install_enter_restarting(install, now_ms);
         return;
     }
-    mesh_log_info("firmware", "Wrote %llu bytes; waiting for the board to restart",
-                  (unsigned long long)install->write.total);
+    inkcell_log_info("firmware", "Wrote %llu bytes; waiting for the board to restart",
+                     (unsigned long long)install->write.total);
     install_enter_restarting(install, now_ms);
 }
 
@@ -297,7 +299,7 @@ static void install_tick_restarting(struct mesh_firmware_install *install, uint6
          * has to be honest about would report as success. Measured at about 600 ms between the
          * two on a T114.
          */
-        mesh_log_info("firmware", "The board restarted into its new firmware");
+        inkcell_log_info("firmware", "The board restarted into its new firmware");
         install_finish(install, MESH_FIRMWARE_INSTALL_DONE, MESH_FIRMWARE_INSTALL_ERROR_NONE);
         return;
     }
@@ -347,11 +349,11 @@ int mesh_firmware_install_start(struct mesh_firmware_install *install, struct me
     }
 
     size_t len = 0U;
-    uint8_t *const image = mesh_file_read(image_path, MESH_FIRMWARE_INSTALL_IMAGE_MAX, &len);
+    uint8_t *const image = inkcell_file_read(image_path, MESH_FIRMWARE_INSTALL_IMAGE_MAX, &len);
     if (image == NULL) {
         /* Missing, unreadable, empty, or larger than any UF2 for a board this reaches. All
            four are the same sentence to a reader: the image is not there to be written. */
-        mesh_log_error("firmware", "The staged image could not be read: %s", image_path);
+        inkcell_log_error("firmware", "The staged image could not be read: %s", image_path);
         install_refuse(install, MESH_FIRMWARE_INSTALL_ERROR_UNAVAILABLE);
         return -EIO;
     }
@@ -370,8 +372,8 @@ int mesh_firmware_install_start(struct mesh_firmware_install *install, struct me
     const enum mesh_uf2_verdict verdict =
         mesh_uf2_validate(image, len, expect_family, &install->uf2);
     if (verdict != MESH_UF2_OK) {
-        mesh_log_error("firmware", "The staged image is not a UF2 for this board (verdict %d)",
-                       (int)verdict);
+        inkcell_log_error("firmware", "The staged image is not a UF2 for this board (verdict %d)",
+                          (int)verdict);
         install_refuse(install, MESH_FIRMWARE_INSTALL_ERROR_WRONG_IMAGE);
         return -EINVAL;
     }
@@ -379,18 +381,18 @@ int mesh_firmware_install_start(struct mesh_firmware_install *install, struct me
     if (arm != NULL) {
         const int armed = arm(arm_userdata);
         if (armed != 0) {
-            mesh_log_error("firmware", "The radio would not take the DFU request: %s",
-                           strerror(-armed));
+            inkcell_log_error("firmware", "The radio would not take the DFU request: %s",
+                              strerror(-armed));
             install_refuse(install, MESH_FIRMWARE_INSTALL_ERROR_ARM);
             return armed;
         }
         install->state = MESH_FIRMWARE_INSTALL_ARMING;
-        mesh_log_info("firmware", "Asked the radio to enter DFU; %u blocks are ready",
-                      (unsigned)install->uf2.blocks);
+        inkcell_log_info("firmware", "Asked the radio to enter DFU; %u blocks are ready",
+                         (unsigned)install->uf2.blocks);
     } else {
         install->state = MESH_FIRMWARE_INSTALL_WAITING;
-        mesh_log_info("firmware", "Waiting for a bootloader; %u blocks are ready",
-                      (unsigned)install->uf2.blocks);
+        inkcell_log_info("firmware", "Waiting for a bootloader; %u blocks are ready",
+                         (unsigned)install->uf2.blocks);
     }
     /* Both deadlines are armed on the first tick, which is where the clock comes from. */
     install->deadline_ms = 0U;

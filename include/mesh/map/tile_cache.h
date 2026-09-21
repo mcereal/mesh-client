@@ -44,8 +44,8 @@ extern "C" {
  *
  * What it costs is real and is worth writing down: on a panel narrower than four bytes the
  * cache holds more bytes than that panel strictly needs, and the blit converts per *drawn*
- * pixel. The conversion is not new work in a new place - fb_fill_packed() already switches on
- * `bytes_per_pixel`, and the blit joins that switch rather than adding one.
+ * pixel. The conversion is not new work in a new place - inkcell_fb_fill_packed() already switches
+ * on `bytes_per_pixel`, and the blit joins that switch rather than adding one.
  */
 #define MESH_MAP_TILE_CACHE_TILE_BYTES MESH_MAP_TILE_IMAGE_BYTES
 

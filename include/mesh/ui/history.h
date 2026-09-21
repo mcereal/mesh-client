@@ -9,7 +9,7 @@
  * the air in use, this battery at this percent. That is the whole of what the radio sends, and
  * it is why nothing on this panel could answer a question about a *direction* - the reader had
  * to have looked before and remembered. The sparkline needed somewhere for the client to
- * remember instead, and this is it: a small, bounded set of `struct mesh_ui_series`
+ * remember instead, and this is it: a small, bounded set of `struct inkcell_series`
  * (layout.h) filled as the readings arrive.
  *
  * Three decisions, because each of them is a way this could have been bigger and worse:
@@ -31,11 +31,11 @@
  *   - **Nothing here knows what a node is.** The store walks the roster and hands over
  *     readings; this holds series and decides which ones are worth a slot. That is what lets
  *     store.h include this rather than the other way round, and it is the same seam
- *     mesh_ui_signal_level() sits on - what a number means is one layer, what it is a number
+ *     inkcell_signal_level() sits on - what a number means is one layer, what it is a number
  *     *about* is another.
  */
 
-#include "mesh/ui/layout.h"
+#include "inkcell/ui/layout.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -124,15 +124,15 @@ extern "C" {
  * so the widest restore still lands above zero with the better part of a day to spare. What it
  * costs is at the other end: a uint32 of milliseconds is 49 days, so the client now has 41 of
  * them of continuous running before the clock wraps rather than 49. A wrap empties a series
- * either way - see mesh_ui_series_push() - and a Brick is a handheld.
+ * either way - see inkcell_series_push() - and a Brick is a handheld.
  */
 #define MESH_UI_HISTORY_EPOCH_MS (8U * 24U * 60U * 60U * 1000U)
 
 /*
  * Readings of the radio's airtime kept: six hours at the one-minute cadence, which is the widest
- * fixed span the chart offers (MESH_UI_TREND_SPAN_6H).
+ * fixed span the chart offers (INKCELL_TREND_SPAN_6H).
  *
- * Its own ring rather than a `struct mesh_ui_series`, whose two dozen is sized for a sparkline
+ * Its own ring rather than a `struct inkcell_series`, whose two dozen is sized for a sparkline
  * the width of a list row. The chart bins these into columns (mesh_ui_trend_airtime()), so the
  * count here is a memory budget rather than a count of marks: about 4 KB, carried in every
  * snapshot.
@@ -157,14 +157,14 @@ enum mesh_ui_history_reading {
     MESH_UI_HISTORY_NONE = 0,    /* no reading: a row with nothing watched, a closed chart */
     MESH_UI_HISTORY_BATTERY,     /* whole percent, as the wire carries it */
     MESH_UI_HISTORY_TEMPERATURE, /* tenths of a degree Celsius */
-    MESH_UI_HISTORY_HUMIDITY,    /* permille, as mesh_ui_percent_permille() leaves a percentage */
+    MESH_UI_HISTORY_HUMIDITY,    /* permille, as inkcell_percent_permille() leaves a percentage */
     /*
-     * The link itself: whole decibels as mesh_ui_snr_db() leaves the wire's float, and whole dBm
+     * The link itself: whole decibels as inkcell_snr_db() leaves the wire's float, and whole dBm
      * as the wire already carries it.
      *
      * Whole units rather than the tenths a temperature is kept in, and that is not a shortcut -
      * it is the rule that a series is measured in the units of the row it hangs on. The bar
-     * under the SNR row is banded in whole decibels (MESH_UI_SNR_FAIR and its neighbours) and
+     * under the SNR row is banded in whole decibels (INKCELL_SNR_FAIR and its neighbours) and
      * the chart is drawn on that row's own scale, so a series in tenths would be a line placed
      * against a domain ten times too small. An SNR is measured off one packet anyway, which is
      * error bars wide enough that a tenth of a decibel is precision the reading does not have.
@@ -200,7 +200,7 @@ struct mesh_ui_history_node {
 
 /*
  * One report of the radio's airtime: how much of the channel was busy and how much of that was
- * us, both in permille of the air - the unit mesh_ui_percent_permille() puts the wire's floats on
+ * us, both in permille of the air - the unit inkcell_percent_permille() puts the wire's floats on
  * and the unit the Status card's meter reads. Permille fits sixteen bits, and at 360 of these the
  * difference from two int32 is the difference between 4 KB and 6 KB per snapshot.
  *
@@ -241,14 +241,14 @@ struct mesh_ui_history {
      * temperature - the failure this whole module is arranged to make impossible. Taking an entry
      * happens once per node per reading, so what it costs is a scan nobody is waiting on.
      */
-    struct mesh_ui_series pool[MESH_UI_HISTORY_SERIES];
+    struct inkcell_series pool[MESH_UI_HISTORY_SERIES];
     /*
      * What the caller's clock has to be shifted by to land on this history's own timeline, and
      * the shift a resumed history has not worked out yet.
      *
      * A sample is stamped with CLOCK_MONOTONIC, which counts from *boot* - so a series restored
      * from the cache carries times from a clock that no longer exists, and the first live push
-     * after it would be a reading from before the oldest one we hold. mesh_ui_series_push()
+     * after it would be a reading from before the oldest one we hold. inkcell_series_push()
      * reads that as the clock having gone backwards and empties the series, which is right for
      * what it can see and would silently undo the whole restore.
      *
@@ -374,7 +374,7 @@ bool mesh_ui_history_has_airtime(const struct mesh_ui_history *history);
  * asked here where the drawing is decided - see rows_trend() in src/ui/views/node_detail.c, which
  * is the one place a reading becomes a picture and a press.
  */
-const struct mesh_ui_series *mesh_ui_history_series(const struct mesh_ui_history *history,
+const struct inkcell_series *mesh_ui_history_series(const struct mesh_ui_history *history,
                                                     uint32_t node_id,
                                                     enum mesh_ui_history_reading reading);
 

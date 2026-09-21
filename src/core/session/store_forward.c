@@ -1,7 +1,7 @@
 #include "mesh/core/store_forward.h"
 
-#include "mesh/utils/log.h"
-#include "mesh/utils/text.h"
+#include "inkcell/utils/log.h"
+#include "inkcell/utils/text.h"
 
 #include "meshtastic/portnums.pb.h"
 #include "meshtastic/storeforward.pb.h"
@@ -57,7 +57,8 @@ int mesh_store_forward_encode(const struct mesh_store_forward_request *request, 
     uint8_t body[STORE_FORWARD_BODY_MAX];
     pb_ostream_t body_stream = pb_ostream_from_buffer(body, sizeof body);
     if (!pb_encode(&body_stream, meshtastic_StoreAndForward_fields, &sf)) {
-        mesh_log_error("store-forward", "Failed to encode request: %s", PB_GET_ERROR(&body_stream));
+        inkcell_log_error("store-forward", "Failed to encode request: %s",
+                          PB_GET_ERROR(&body_stream));
         return -EIO;
     }
 
@@ -77,7 +78,7 @@ int mesh_store_forward_encode(const struct mesh_store_forward_request *request, 
 
     pb_ostream_t stream = pb_ostream_from_buffer(out, out_len);
     if (!pb_encode(&stream, meshtastic_ToRadio_fields, &to_radio)) {
-        mesh_log_error("store-forward", "Failed to encode ToRadio: %s", PB_GET_ERROR(&stream));
+        inkcell_log_error("store-forward", "Failed to encode ToRadio: %s", PB_GET_ERROR(&stream));
         return -EIO;
     }
     *written = stream.bytes_written;
@@ -165,7 +166,8 @@ static bool store_forward_build_message(const meshtastic_MeshPacket *packet,
                                         const meshtastic_StoreAndForward *sf, bool broadcast,
                                         uint32_t my_node_num, struct mesh_message *out) {
     memset(out, 0, sizeof(*out));
-    mesh_text_sanitise(sf->variant.text.bytes, sf->variant.text.size, out->text, sizeof(out->text));
+    inkcell_text_sanitise(sf->variant.text.bytes, sf->variant.text.size, out->text,
+                          sizeof(out->text));
     if (out->text[0] == '\0') {
         return false;
     }
@@ -245,8 +247,8 @@ int mesh_store_forward_ingest(struct mesh_store_forward *state, const meshtastic
     if (!pb_decode(&stream, meshtastic_StoreAndForward_fields, &sf)) {
         /* Untrusted radio content: logged and dropped, never an error the caller has to
            handle. The packet is still claimed - it was a Store & Forward frame. */
-        mesh_log_debug("store-forward", "Bad frame from 0x%08x: %s", packet->from,
-                       PB_GET_ERROR(&stream));
+        inkcell_log_debug("store-forward", "Bad frame from 0x%08x: %s", packet->from,
+                          PB_GET_ERROR(&stream));
         return MESH_STORE_FORWARD_EVENT_NONE;
     }
 
@@ -275,8 +277,8 @@ int mesh_store_forward_ingest(struct mesh_store_forward *state, const meshtastic
     const bool running = state->state == (uint8_t)MESH_STORE_FORWARD_REQUESTED ||
                          state->state == (uint8_t)MESH_STORE_FORWARD_REPLAYING;
     if (router_authored && running && state->router != 0U && packet->from != state->router) {
-        mesh_log_debug("store-forward", "Ignoring a frame from 0x%08x; 0x%08x is answering",
-                       packet->from, state->router);
+        inkcell_log_debug("store-forward", "Ignoring a frame from 0x%08x; 0x%08x is answering",
+                          packet->from, state->router);
         return MESH_STORE_FORWARD_EVENT_NONE;
     }
 
@@ -322,8 +324,8 @@ int mesh_store_forward_ingest(struct mesh_store_forward *state, const meshtastic
         state->stored = 0U;
         state->state = (uint8_t)(state->expected == 0U ? MESH_STORE_FORWARD_EMPTY
                                                        : MESH_STORE_FORWARD_REPLAYING);
-        mesh_log_info("store-forward", "Router 0x%08x is replaying %u message(s)", packet->from,
-                      state->expected);
+        inkcell_log_info("store-forward", "Router 0x%08x is replaying %u message(s)", packet->from,
+                         state->expected);
         return MESH_STORE_FORWARD_EVENT_HISTORY;
     }
 
@@ -360,14 +362,14 @@ int mesh_store_forward_ingest(struct mesh_store_forward *state, const meshtastic
         store_forward_note_router(state, packet, now);
         state->last_ms = now_ms;
         state->state = (uint8_t)MESH_STORE_FORWARD_BUSY;
-        mesh_log_info("store-forward", "Router 0x%08x is busy", packet->from);
+        inkcell_log_info("store-forward", "Router 0x%08x is busy", packet->from);
         return MESH_STORE_FORWARD_EVENT_REFUSED;
 
     case meshtastic_StoreAndForward_RequestResponse_ROUTER_ERROR:
         store_forward_note_router(state, packet, now);
         state->last_ms = now_ms;
         state->state = (uint8_t)MESH_STORE_FORWARD_FAILED;
-        mesh_log_warn("store-forward", "Router 0x%08x reports an error", packet->from);
+        inkcell_log_warn("store-forward", "Router 0x%08x reports an error", packet->from);
         return MESH_STORE_FORWARD_EVENT_REFUSED;
 
     case meshtastic_StoreAndForward_RequestResponse_ROUTER_STATS:
@@ -402,15 +404,15 @@ bool mesh_store_forward_tick(struct mesh_store_forward *sf, uint64_t now_ms) {
         if (since >= MESH_STORE_FORWARD_SEEK_TIMEOUT_MS) {
             sf->followup = false;
             sf->state = (uint8_t)MESH_STORE_FORWARD_NO_ROUTER;
-            mesh_log_info("store-forward", "No router answered the ping");
+            inkcell_log_info("store-forward", "No router answered the ping");
             return true;
         }
         return false;
     case MESH_STORE_FORWARD_REQUESTED:
         if (since >= MESH_STORE_FORWARD_REQUEST_TIMEOUT_MS) {
             sf->state = (uint8_t)MESH_STORE_FORWARD_TIMEOUT;
-            mesh_log_info("store-forward", "Router 0x%08x did not answer the history request",
-                          sf->router);
+            inkcell_log_info("store-forward", "Router 0x%08x did not answer the history request",
+                             sf->router);
             /* And it is forgotten, so the next press goes looking rather than asking the same
                silence again. The cursor goes with it: it indexes a table inside that router. */
             sf->router = 0U;
@@ -422,8 +424,8 @@ bool mesh_store_forward_tick(struct mesh_store_forward *sf, uint64_t now_ms) {
     case MESH_STORE_FORWARD_REPLAYING:
         if (since >= MESH_STORE_FORWARD_REPLAY_GAP_MS) {
             sf->state = (uint8_t)MESH_STORE_FORWARD_DONE;
-            mesh_log_info("store-forward", "Replay stopped after %u of %u message(s)", sf->received,
-                          sf->expected);
+            inkcell_log_info("store-forward", "Replay stopped after %u of %u message(s)",
+                             sf->received, sf->expected);
             return true;
         }
         return false;

@@ -1,5 +1,9 @@
 #pragma once
 
+#include "inkcell/ui/fb.h"
+#include "inkcell/ui/input.h"
+#include "inkcell/ui/theme.h"
+
 #include "mesh/core/config.h"
 #include "mesh/core/event_loop.h"
 #include "mesh/core/firmware.h"
@@ -10,15 +14,12 @@
 #include "mesh/core/updater.h"
 #include "mesh/transport/transport.h"
 #include "mesh/ui/backends/cli.h"
-#include "mesh/ui/backends/fb.h"
 #include "mesh/ui/controller.h"
-#include "mesh/ui/input.h"
 #include "mesh/ui/preferences.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
 #include "mesh/ui/store_archive.h"
 #include "mesh/ui/store_trends.h"
-#include "mesh/ui/theme.h"
 
 #include <stdint.h>
 
@@ -58,13 +59,13 @@ struct mesh_app {
     struct mesh_ui_store ui_store;
     struct mesh_ui_controller ui_controller;
     struct mesh_ui_backend_cli_context ui_cli_context;
-    struct mesh_ui_backend_fb_context ui_fb_context;
+    struct inkcell_backend_fb_context ui_fb_context;
     struct mesh_ui_preferences ui_preferences;
     /* Conversation loaded from the cache at startup. The transport's log starts empty every
        run, so this is merged back in on publish; without it the first publish would erase the
        persisted history. */
     struct mesh_ui_message_list ui_messages_cached;
-    struct mesh_ui_input ui_input;
+    struct inkcell_input ui_input;
     struct mesh_signals signals;
     /* Self-update: HTTPS through the event loop above. Its state is flattened into the UI's
        client info on every publish, so the About section renders it without the UI ever seeing
@@ -121,7 +122,7 @@ struct mesh_app {
      * which is how a switch reaches the framebuffer without anything pushing at the backend.
      * Never NULL after mesh_app_init(); every theme lookup falls back to the default anyway.
      */
-    const struct mesh_ui_theme *ui_theme;
+    const struct inkcell_theme *ui_theme;
     /* MESHCLIENT_THEME named it, so the Settings row is a fact rather than a switch. */
     bool ui_theme_from_env;
     char ui_preferences_path[256];

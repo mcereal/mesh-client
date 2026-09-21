@@ -9,7 +9,7 @@ The transports have their own page ([`transport.md`](transport.md)), as does the
 
 ```
 link (transport) -> mesh_session -> mesh_app -> UI store -> controller -> backend
-evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_ui_action
+evdev -> inkcell_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_ui_action
 ```
 
 ## Layers
@@ -522,7 +522,7 @@ parsing an array instead of the single object `per_page=1` guarantees.
 
 ## `src/utils/`
 
-`text.c` holds the UTF-8 helpers everything that touches radio text shares. `mesh_text_sanitise`
+`text.c` holds the UTF-8 helpers everything that touches radio text shares. `inkcell_text_sanitise`
 folds C0 controls, replaces malformed bytes with `?` and never splits a sequence at the buffer
 boundary. **Names are radio input exactly like message text is**, and `User.short_name` is
 `char[5]` — sized for one four-byte emoji and its NUL — so multi-byte names are the norm.

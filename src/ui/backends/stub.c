@@ -39,8 +39,8 @@ static void mesh_ui_backend_stub_present(void *state, const void *snapshot_ptr, 
     context->has_snapshot = true;
 }
 
-const struct mesh_ui_backend *mesh_ui_backend_stub(void) {
-    static const struct mesh_ui_backend k_backend = {
+const struct inkcell_backend *mesh_ui_backend_stub(void) {
+    static const struct inkcell_backend k_backend = {
         .name = "stub",
         .init = mesh_ui_backend_stub_init,
         .shutdown = mesh_ui_backend_stub_shutdown,

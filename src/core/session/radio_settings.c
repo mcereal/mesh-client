@@ -1,7 +1,8 @@
 #include "mesh/core/radio_settings.h"
 
-#include "mesh/utils/log.h"
-#include "mesh/utils/text.h"
+#include "inkcell/utils/log.h"
+#include "inkcell/utils/text.h"
+
 #include "meshtastic/portnums.pb.h"
 
 #include <pb_decode.h>
@@ -185,9 +186,9 @@ int mesh_radio_settings_set_admin_dest(struct mesh_radio_settings *settings, uin
         settings->admin_dest_key_len = MESH_ADMIN_PUBLIC_KEY_LEN;
     }
     if (node_id == 0U) {
-        mesh_log_info("admin", "Administering the connected radio again");
+        inkcell_log_info("admin", "Administering the connected radio again");
     } else {
-        mesh_log_info("admin", "Administering node 0x%08x over the mesh", node_id);
+        inkcell_log_info("admin", "Administering node 0x%08x over the mesh", node_id);
     }
     return 0;
 }
@@ -512,16 +513,16 @@ static int mesh_radio_settings_ingest_routing(struct mesh_radio_settings *settin
         pb_istream_from_buffer(packet->decoded.payload.bytes, packet->decoded.payload.size);
     int32_t error = 0;
     if (!pb_decode(&stream, meshtastic_Routing_fields, &routing)) {
-        mesh_log_warn("admin", "Undecodable Routing reply to admin request %u: %s", request_id,
-                      PB_GET_ERROR(&stream));
+        inkcell_log_warn("admin", "Undecodable Routing reply to admin request %u: %s", request_id,
+                         PB_GET_ERROR(&stream));
     } else if (routing.which_variant == meshtastic_Routing_error_reason_tag) {
         error = (int32_t)routing.error_reason;
     }
     if (error == 0) {
-        mesh_log_info("admin", "Admin request %u acknowledged", request_id);
+        inkcell_log_info("admin", "Admin request %u acknowledged", request_id);
     } else {
-        mesh_log_warn("admin", "Admin request %u rejected: routing error %d", request_id,
-                      (int)error);
+        inkcell_log_warn("admin", "Admin request %u rejected: routing error %d", request_id,
+                         (int)error);
     }
     mesh_radio_settings_finish_pending(settings, request_id, error);
     return 1;
@@ -546,8 +547,8 @@ int mesh_radio_settings_ingest(struct mesh_radio_settings *settings,
     pb_istream_t stream =
         pb_istream_from_buffer(packet->decoded.payload.bytes, packet->decoded.payload.size);
     if (!pb_decode(&stream, meshtastic_AdminMessage_fields, &admin)) {
-        mesh_log_warn("admin", "Undecodable AdminMessage (request_id=%u): %s",
-                      packet->decoded.request_id, PB_GET_ERROR(&stream));
+        inkcell_log_warn("admin", "Undecodable AdminMessage (request_id=%u): %s",
+                         packet->decoded.request_id, PB_GET_ERROR(&stream));
         mesh_radio_settings_finish_pending(settings, packet->decoded.request_id, 0);
         return 1;
     }
@@ -572,8 +573,8 @@ int mesh_radio_settings_ingest(struct mesh_radio_settings *settings,
      * another's name, in the rows the tab is drawing under that name right now.
      */
     if (!is_targets) {
-        mesh_log_info("admin", "Admin reply for another node (request_id=%u); passkey only",
-                      packet->decoded.request_id);
+        inkcell_log_info("admin", "Admin reply for another node (request_id=%u); passkey only",
+                         packet->decoded.request_id);
         mesh_radio_settings_finish_pending(settings, packet->decoded.request_id, 0);
         return 1;
     }
@@ -611,22 +612,23 @@ int mesh_radio_settings_ingest(struct mesh_radio_settings *settings,
         break;
     case meshtastic_AdminMessage_get_canned_message_module_messages_response_tag:
         settings->has_canned_messages = true;
-        mesh_str_copy(settings->canned_messages, sizeof settings->canned_messages,
-                      admin.get_canned_message_module_messages_response);
+        inkcell_str_copy(settings->canned_messages, sizeof settings->canned_messages,
+                         admin.get_canned_message_module_messages_response);
         what = "canned messages";
         break;
     case meshtastic_AdminMessage_get_ringtone_response_tag:
         settings->has_ringtone = true;
-        mesh_str_copy(settings->ringtone, sizeof settings->ringtone, admin.get_ringtone_response);
+        inkcell_str_copy(settings->ringtone, sizeof settings->ringtone,
+                         admin.get_ringtone_response);
         what = "ringtone";
         break;
     default:
         break;
     }
 
-    mesh_log_info("admin", "Admin reply: %s (request_id=%u, variant=%u, session passkey %s)", what,
-                  packet->decoded.request_id, (unsigned)admin.which_payload_variant,
-                  settings->has_session_passkey ? "held" : "absent");
+    inkcell_log_info("admin", "Admin reply: %s (request_id=%u, variant=%u, session passkey %s)",
+                     what, packet->decoded.request_id, (unsigned)admin.which_payload_variant,
+                     settings->has_session_passkey ? "held" : "absent");
     mesh_radio_settings_finish_pending(settings, packet->decoded.request_id, 0);
     return 1;
 }
@@ -877,8 +879,8 @@ int mesh_radio_settings_encode_request(const struct mesh_radio_settings *setting
     case MESH_ADMIN_SET_CANNED_MESSAGES:
         admin.which_payload_variant =
             meshtastic_AdminMessage_set_canned_message_module_messages_tag;
-        mesh_str_copy(admin.set_canned_message_module_messages,
-                      sizeof admin.set_canned_message_module_messages, request->payload.text);
+        inkcell_str_copy(admin.set_canned_message_module_messages,
+                         sizeof admin.set_canned_message_module_messages, request->payload.text);
         break;
     case MESH_ADMIN_GET_RINGTONE:
         admin.which_payload_variant = meshtastic_AdminMessage_get_ringtone_request_tag;
@@ -936,7 +938,7 @@ int mesh_radio_settings_encode_request(const struct mesh_radio_settings *setting
          */
         if (request->dest != settings->admin_dest ||
             settings->admin_dest_key_len != MESH_ADMIN_PUBLIC_KEY_LEN) {
-            mesh_log_warn("admin", "No public key for admin destination 0x%08x", request->dest);
+            inkcell_log_warn("admin", "No public key for admin destination 0x%08x", request->dest);
             return -EINVAL;
         }
         packet->to = request->dest;
@@ -967,14 +969,14 @@ int mesh_radio_settings_encode_request(const struct mesh_radio_settings *setting
     pb_ostream_t payload =
         pb_ostream_from_buffer(packet->decoded.payload.bytes, sizeof packet->decoded.payload.bytes);
     if (!pb_encode(&payload, meshtastic_AdminMessage_fields, &admin)) {
-        mesh_log_error("admin", "Failed to encode AdminMessage: %s", PB_GET_ERROR(&payload));
+        inkcell_log_error("admin", "Failed to encode AdminMessage: %s", PB_GET_ERROR(&payload));
         return -EIO;
     }
     packet->decoded.payload.size = (pb_size_t)payload.bytes_written;
 
     pb_ostream_t stream = pb_ostream_from_buffer(out, out_len);
     if (!pb_encode(&stream, meshtastic_ToRadio_fields, &to_radio)) {
-        mesh_log_error("admin", "Failed to encode admin ToRadio: %s", PB_GET_ERROR(&stream));
+        inkcell_log_error("admin", "Failed to encode admin ToRadio: %s", PB_GET_ERROR(&stream));
         return -EIO;
     }
     *written = stream.bytes_written;
@@ -1280,8 +1282,8 @@ size_t mesh_radio_settings_cancel_key_verification(struct mesh_radio_settings *s
             memset(&settings->queue[slot], 0, sizeof settings->queue[slot]);
         }
         settings->queue_len = kept;
-        mesh_log_info("admin", "Dropped %zu unsent verification step(s) for 0x%08x", dropped,
-                      node_id);
+        inkcell_log_info("admin", "Dropped %zu unsent verification step(s) for 0x%08x", dropped,
+                         node_id);
     }
     return dropped;
 }
@@ -1580,8 +1582,8 @@ bool mesh_radio_settings_next_request(struct mesh_radio_settings *settings, uint
         if (now_ms - settings->pending_sent_at_ms < deadline) {
             return false;
         }
-        mesh_log_warn("admin", "No reply to admin request %u after %u ms; moving on",
-                      settings->pending_request_id, deadline);
+        inkcell_log_warn("admin", "No reply to admin request %u after %u ms; moving on",
+                         settings->pending_request_id, deadline);
         settings->timeouts += 1U;
         if (settings->pending_dest != 0U) {
             settings->remote_silence += 1U;
@@ -1607,8 +1609,8 @@ bool mesh_radio_settings_next_request(struct mesh_radio_settings *settings, uint
          * moved or the path has come back.
          */
         if (give_up) {
-            mesh_log_warn("admin", "Node 0x%08x has not answered %u admin requests; giving up",
-                          settings->admin_dest, MESH_RADIO_SETTINGS_REMOTE_GIVE_UP);
+            inkcell_log_warn("admin", "Node 0x%08x has not answered %u admin requests; giving up",
+                             settings->admin_dest, MESH_RADIO_SETTINGS_REMOTE_GIVE_UP);
             memset(settings->queue, 0, sizeof settings->queue);
             settings->queue_head = 0U;
             settings->queue_len = 0U;
@@ -1618,10 +1620,10 @@ bool mesh_radio_settings_next_request(struct mesh_radio_settings *settings, uint
         /* The radio we are attached to, not one across the mesh: nothing left in the queue can
            be answered either, and the link is handed back for the transport to drop. */
         if (link_silent) {
-            mesh_log_warn("admin",
-                          "The radio has not answered %u admin requests and sent nothing else; "
-                          "calling the link dead",
-                          MESH_RADIO_SETTINGS_LOCAL_GIVE_UP);
+            inkcell_log_warn("admin",
+                             "The radio has not answered %u admin requests and sent nothing else; "
+                             "calling the link dead",
+                             MESH_RADIO_SETTINGS_LOCAL_GIVE_UP);
             memset(settings->queue, 0, sizeof settings->queue);
             settings->queue_head = 0U;
             settings->queue_len = 0U;

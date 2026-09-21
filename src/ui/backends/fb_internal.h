@@ -20,7 +20,6 @@
 
 #include "inkcell/ui/fb_draw.h"
 
-#include "mesh/inkcell_compat.h"
 #include "mesh/map/source.h"
 #include "mesh/map/tile_cache.h"
 #include "mesh/ui/route.h"
@@ -94,7 +93,7 @@ struct fb_app {
 };
 
 /* The app behind `state`, or NULL when nothing installed one. */
-struct fb_app *fb_app_of(const struct mesh_ui_backend_fb_state *state);
+struct fb_app *fb_app_of(const struct inkcell_backend_fb_state *state);
 
 /* The vtable inkcell's backend is opened with - see struct inkcell_backend_fb_context. One
    static app, because there is one panel. */
@@ -105,8 +104,8 @@ const struct inkcell_fb_app *fb_app_vtable(void);
 /* The map over the node list: the graticule, the markers and what the crosshair is on. Its own
    file because it is the one screen that places things at coordinates rather than describing
    rows - see the paragraph at the top of it. */
-void fb_render_map(struct mesh_ui_backend_fb_state *state, const struct mesh_ui_snapshot *snapshot,
-                   struct fb_layout *layout);
+void fb_render_map(struct inkcell_backend_fb_state *state, const struct mesh_ui_snapshot *snapshot,
+                   struct inkcell_fb_layout *layout);
 
 /*
  * Opens the tile pack at `path` and hangs it off the app. 0, or -errno from the pack reader.
@@ -116,7 +115,7 @@ void fb_render_map(struct mesh_ui_backend_fb_state *state, const struct mesh_ui_
  * the same key - carried across a swap, the map draws the old pack's streets under the new
  * pack's attribution and nothing on the frame looks wrong.
  */
-int fb_basemap_open(struct mesh_ui_backend_fb_state *state, const char *path);
+int fb_basemap_open(struct inkcell_backend_fb_state *state, const char *path);
 
 /*
  * Opens whatever pack this device has, if any: MESHCLIENT_MAP_PACK when it is set, otherwise the
@@ -127,18 +126,18 @@ int fb_basemap_open(struct mesh_ui_backend_fb_state *state, const char *path);
  * pack, because a frame that quietly picked up whatever pack the developer had installed would
  * render differently on two machines.
  */
-void fb_basemap_open_default(struct mesh_ui_backend_fb_state *state);
+void fb_basemap_open_default(struct inkcell_backend_fb_state *state);
 
 /* Closes the pack, releases the cache and the read buffer, and leaves the app with no basemap.
    Safe on an app that never opened one. */
-void fb_basemap_close(struct mesh_ui_backend_fb_state *state);
+void fb_basemap_close(struct inkcell_backend_fb_state *state);
 
 /* Whether the frame just drawn wanted a tile it did not have - what inkcell adds to its own
    animations when it decides whether another frame is owed. */
-bool fb_basemap_pending(const struct mesh_ui_backend_fb_state *state);
+bool fb_basemap_pending(const struct inkcell_backend_fb_state *state);
 
 /* Clears that, so a frame drawing any other screen stops the map asking for the next one. */
-void fb_basemap_frame_begin(struct mesh_ui_backend_fb_state *state);
+void fb_basemap_frame_begin(struct inkcell_backend_fb_state *state);
 
 /* ---- the memos this client hangs off inkcell's state ---------------------------------------
  *
@@ -148,16 +147,16 @@ void fb_basemap_frame_begin(struct mesh_ui_backend_fb_state *state);
 
 /* The laid-out message thread, memoised so scrolling a conversation does not re-wrap every
    bubble above the window on every frame. */
-void fb_thread_cache_free(struct mesh_ui_backend_fb_state *state);
+void fb_thread_cache_free(struct inkcell_backend_fb_state *state);
 
 /* The last drawn screen, memoised so a frame that changed nothing is a compare rather than a
    redraw. */
-void fb_render_cache_free(struct mesh_ui_backend_fb_state *state);
+void fb_render_cache_free(struct inkcell_backend_fb_state *state);
 
 /* ---- fb_screens_frame.c -------------------------------------------------------------------- */
 
 /* Draws one whole frame: chrome, then whichever screen the snapshot says is up. */
-void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
+void fb_render_snapshot(struct inkcell_backend_fb_state *state,
                         const struct mesh_ui_snapshot *snapshot);
 
 #endif /* MESH_UI_BACKENDS_FB_INTERNAL_H */

@@ -16,12 +16,13 @@
 
 #include "mesh/ui/store_archive.h"
 
+#include "inkcell/utils/log.h"
+#include "inkcell/utils/text.h"
+
 #include "store_internal.h"
 
 #include "mesh/ui/nav.h"
 #include "mesh/ui/store_keys.h"
-#include "mesh/utils/log.h"
-#include "mesh/utils/text.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -428,10 +429,10 @@ static void archive_compact(const char *path) {
     }
     const int result = archive_rewrite(path, keep, count);
     if (result != 0) {
-        mesh_log_warn("ui", "Could not compact message archive %s: %d", path, result);
+        inkcell_log_warn("ui", "Could not compact message archive %s: %d", path, result);
         return;
     }
-    mesh_log_info("ui", "Compacted message archive %s to %u messages", path, (unsigned)count);
+    inkcell_log_info("ui", "Compacted message archive %s to %u messages", path, (unsigned)count);
 }
 
 /* Appends whole records to a conversation's file, creating it if it is not there. */
@@ -472,10 +473,10 @@ int mesh_ui_archive_init(struct mesh_ui_archive *archive, const char *dir) {
     }
     if (mkdir(dir, 0700) != 0 && errno != EEXIST) {
         const int failed = -errno;
-        mesh_log_warn("ui", "Message archive unavailable at %s: %d", dir, failed);
+        inkcell_log_warn("ui", "Message archive unavailable at %s: %d", dir, failed);
         return failed;
     }
-    mesh_str_copy(archive->dir, sizeof archive->dir, dir);
+    inkcell_str_copy(archive->dir, sizeof archive->dir, dir);
     /* Truncation would put the files somewhere other than where the caller asked, so it
        disables the archive rather than writing to a shortened path. */
     if (strcmp(archive->dir, dir) != 0) {
@@ -550,7 +551,7 @@ int mesh_ui_archive_append(struct mesh_ui_archive *archive,
 
         const int result = archive_append_records(archive, path, batch, batch_count);
         if (result < 0) {
-            mesh_log_warn("ui", "Could not append to message archive %s: %d", path, result);
+            inkcell_log_warn("ui", "Could not append to message archive %s: %d", path, result);
             continue;
         }
         /* Remembered only once the records are on the card, so a failed write is retried on the
@@ -652,7 +653,7 @@ int mesh_ui_archive_seed(struct mesh_ui_archive *archive, const struct mesh_ui_m
 
         const int result = archive_rewrite(path, batch, batch_count);
         if (result != 0) {
-            mesh_log_warn("ui", "Could not seed message archive %s: %d", path, result);
+            inkcell_log_warn("ui", "Could not seed message archive %s: %d", path, result);
             continue;
         }
         /* Seeded records are on the card now, so the append path must not write them again. */
@@ -800,7 +801,7 @@ static void archive_filter_line(struct archive_filter *filter, const char *raw, 
             fputc('\n', filter->out);
             return;
         }
-        mesh_str_copy(filter->pending, sizeof filter->pending, raw);
+        inkcell_str_copy(filter->pending, sizeof filter->pending, raw);
         filter->pending_held = true;
         filter->pending_index = index;
         filter->pending_packet_id = opened.packet_id;
@@ -867,7 +868,7 @@ int mesh_ui_archive_forget_message(struct mesh_ui_archive *archive, uint8_t kind
     char work[MESH_UI_ARCHIVE_LINE_MAX];
     while (fgets(raw, sizeof raw, source) != NULL) {
         raw[strcspn(raw, "\r\n")] = '\0';
-        mesh_str_copy(work, sizeof work, raw);
+        inkcell_str_copy(work, sizeof work, raw);
         archive_filter_line(&filter, raw, work);
     }
     archive_filter_settle(&filter, false, 0U);

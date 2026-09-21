@@ -9,10 +9,11 @@
  * dropped rather than recorded, which is what keeps "toggle it twice" from queueing a write.
  */
 
+#include "inkcell/utils/text.h"
+
 #include "nav_internal.h"
 
 #include "mesh/ui/settings.h"
-#include "mesh/utils/text.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -123,14 +124,14 @@ static void mesh_ui_nav_open_field_keyboard(struct mesh_ui_nav *nav,
 /* A, Left or Right on a row of an open section. Toggles flip, enums cycle, numbers step
    through their presets, text opens the keyboard. Read-only rows ignore the press. */
 bool mesh_ui_nav_settings_edit_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
-                                   enum mesh_ui_key key) {
+                                   enum inkcell_key key) {
     struct mesh_ui_settings_item item;
     if (!mesh_ui_nav_settings_current(nav, store, true, &item) ||
         item.field == MESH_UI_FIELD_NONE) {
         return false;
     }
     const enum mesh_ui_setting_field field = item.field;
-    const int delta = (key == MESH_UI_KEY_LEFT) ? -1 : +1;
+    const int delta = (key == INKCELL_KEY_LEFT) ? -1 : +1;
     switch (item.kind) {
     /* A flag is edited exactly as a toggle is - it carries 0 or 1 like one, and which bit of
        which word that ends up in is the write builder's business, not this one's. The kinds
@@ -156,7 +157,7 @@ bool mesh_ui_nav_settings_edit_key(struct mesh_ui_nav *nav, const struct mesh_ui
         return mesh_ui_nav_edit_set(nav, store, field, next, NULL);
     }
     case MESH_UI_SETTING_KEY:
-        if (key == MESH_UI_KEY_A) {
+        if (key == INKCELL_KEY_A) {
             mesh_ui_nav_open_field_keyboard(nav, &item); /* the key as hex */
             return true;
         }
@@ -170,7 +171,7 @@ bool mesh_ui_nav_settings_edit_key(struct mesh_ui_nav *nav, const struct mesh_ui
             return mesh_ui_nav_edit_set(nav, store, field, choice, NULL);
         }
     case MESH_UI_SETTING_TEXT:
-        if (key != MESH_UI_KEY_A) {
+        if (key != INKCELL_KEY_A) {
             return false;
         }
         mesh_ui_nav_open_field_keyboard(nav, &item);
@@ -184,7 +185,7 @@ bool mesh_ui_nav_settings_edit_key(struct mesh_ui_nav *nav, const struct mesh_ui
 bool mesh_ui_nav_settings_commit_text(struct mesh_ui_nav *nav, const struct mesh_ui_store *store) {
     const enum mesh_ui_setting_field field = (enum mesh_ui_setting_field)nav->keyboard_field;
     char text[MESH_UI_SETTING_TEXT_MAX];
-    mesh_str_copy(text, sizeof text, nav->draft);
+    inkcell_str_copy(text, sizeof text, nav->draft);
     size_t cap = mesh_ui_settings_text_max(field);
     /* The buffer is measured from the field limits (mesh/ui/settings_text.def), so this is the
        bound holding rather than a cut: a field wide enough to need it would fail the test that
@@ -319,12 +320,12 @@ void mesh_ui_nav_fill_settings_action(const struct mesh_ui_nav *nav,
 }
 
 bool mesh_ui_nav_confirm_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
-                             enum mesh_ui_key key, struct mesh_ui_action *action) {
+                             enum inkcell_key key, struct mesh_ui_action *action) {
     switch (key) {
-    case MESH_UI_KEY_UP:
-    case MESH_UI_KEY_DOWN:
-    case MESH_UI_KEY_LEFT:
-    case MESH_UI_KEY_RIGHT: {
+    case INKCELL_KEY_UP:
+    case INKCELL_KEY_DOWN:
+    case INKCELL_KEY_LEFT:
+    case INKCELL_KEY_RIGHT: {
         const uint8_t to = mesh_ui_nav_dialog_answer(store, key, nav->confirm_cursor);
         if (to == nav->confirm_cursor) {
             return false;
@@ -332,8 +333,8 @@ bool mesh_ui_nav_confirm_key(struct mesh_ui_nav *nav, const struct mesh_ui_store
         nav->confirm_cursor = to;
         return true;
     }
-    case MESH_UI_KEY_A:
-    case MESH_UI_KEY_START:
+    case INKCELL_KEY_A:
+    case INKCELL_KEY_START:
         if (nav->confirm_cursor == 0U) {
             /* Two things stand behind this overlay: a section save, and an action row that
                keeps no state and so has no edits to carry - a radio one, or one of the two
@@ -364,7 +365,7 @@ bool mesh_ui_nav_confirm_key(struct mesh_ui_nav *nav, const struct mesh_ui_store
         }
         mesh_ui_nav_confirm_close(nav);
         return true;
-    case MESH_UI_KEY_B:
+    case INKCELL_KEY_B:
         mesh_ui_nav_confirm_close(nav);
         return true;
     default:
@@ -399,22 +400,22 @@ bool mesh_ui_nav_settings_back(struct mesh_ui_nav *nav) {
    row instead of switching tabs (L1/R1 still do), Y saves, B asks before discarding edits.
    Returns false to let the ordinary handling run. */
 bool mesh_ui_nav_settings_section_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
-                                      enum mesh_ui_key key, struct mesh_ui_action *action,
+                                      enum inkcell_key key, struct mesh_ui_action *action,
                                       bool *handled) {
     *handled = true;
     switch (key) {
-    case MESH_UI_KEY_LEFT:
-    case MESH_UI_KEY_RIGHT:
+    case INKCELL_KEY_LEFT:
+    case INKCELL_KEY_RIGHT:
         return mesh_ui_nav_settings_edit_key(nav, store, key);
     /* A card at a time, where the section has cards. The d-pad walks rows and Left/Right are
        spoken for by the editor, so the crossing the cards draw is the shoulder pair's - see
        mesh_ui_nav_cursor_group(). A section with no groups refuses both, which is the same
        answer the screen gives by drawing no cards. */
-    case MESH_UI_KEY_L2:
+    case INKCELL_KEY_L2:
         return mesh_ui_nav_cursor_group(nav, store, -1);
-    case MESH_UI_KEY_R2:
+    case INKCELL_KEY_R2:
         return mesh_ui_nav_cursor_group(nav, store, +1);
-    case MESH_UI_KEY_Y:
+    case INKCELL_KEY_Y:
         if (nav->settings_edit_count == 0U) {
             return false;
         }
@@ -427,7 +428,7 @@ bool mesh_ui_nav_settings_section_key(struct mesh_ui_nav *nav, const struct mesh
         }
         mesh_ui_nav_fill_save(nav, action);
         return false; /* the app clears the edits once the write is queued */
-    case MESH_UI_KEY_B:
+    case INKCELL_KEY_B:
         if (nav->settings_edit_count > 0U && !nav->settings_discard_armed) {
             nav->settings_discard_armed = true; /* the footer now says "B again to discard" */
             return true;

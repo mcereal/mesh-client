@@ -10,16 +10,16 @@
  * survive - and one of them, fb_air_band, is ruled across the chart this screen opens.
  */
 
-#include "fb_widgets.h"
+#include "inkcell/ui/layout.h"
+#include "inkcell/ui/widgets.h"
+#include "inkcell/utils/text.h"
 
 #include "fb_screens_internal.h"
 
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/history.h"
-#include "mesh/ui/layout.h"
 #include "mesh/ui/status.h"
 #include "mesh/ui/trust.h"
-#include "mesh/utils/text.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -27,13 +27,13 @@
 /* "3d 4h", "5h 12m", "40m" - a radio's uptime, which is a duration rather than an age. */
 static void fb_format_uptime(uint32_t seconds, char *out, size_t out_len) {
     if (seconds >= 86400U) {
-        mesh_str_format(out, out_len, MESH_STR_TIME_DAYS_HOURS, seconds / 86400U,
-                        (seconds % 86400U) / 3600U);
+        inkcell_str_format(out, out_len, MESH_STR_TIME_DAYS_HOURS, seconds / 86400U,
+                           (seconds % 86400U) / 3600U);
     } else if (seconds >= 3600U) {
-        mesh_str_format(out, out_len, MESH_STR_TIME_HOURS_MINUTES, seconds / 3600U,
-                        (seconds % 3600U) / 60U);
+        inkcell_str_format(out, out_len, MESH_STR_TIME_HOURS_MINUTES, seconds / 3600U,
+                           (seconds % 3600U) / 60U);
     } else {
-        mesh_str_format(out, out_len, MESH_STR_TIME_MINUTES_SHORT, seconds / 60U);
+        inkcell_str_format(out, out_len, INKCELL_STR_TIME_MINUTES_SHORT, seconds / 60U);
     }
 }
 
@@ -68,8 +68,8 @@ static const struct mesh_ui_node_summary *fb_self_node(const struct mesh_ui_snap
  * The numbers themselves moved to layout.h once a node's own detail screen started reading
  * them too. This is the band they make; where the mesh's limits actually are is stated there.
  */
-const struct mesh_ui_band fb_air_band = {.warn = MESH_UI_AIRTIME_BUSY_WARN,
-                                         .bad = MESH_UI_AIRTIME_BUSY_BAD};
+const struct inkcell_band fb_air_band = {.warn = INKCELL_AIRTIME_BUSY_WARN,
+                                         .bad = INKCELL_AIRTIME_BUSY_BAD};
 
 /*
  * Where a radio's free heap stops being comfortable, in bytes.
@@ -102,14 +102,14 @@ const struct mesh_ui_band fb_air_band = {.warn = MESH_UI_AIRTIME_BUSY_WARN,
  * against, and the list here is a function of the link: a snapshot taken across a radio going
  * away is a cursor counted on one list and drawn on another.
  */
-static void fb_status_card_actions(struct fb_card *card,
+static void fb_status_card_actions(struct inkcell_fb_card *card,
                                    const struct mesh_ui_status_actions *actions,
                                    enum mesh_ui_status_card which, uint8_t focus) {
     for (uint32_t i = 0U; i < actions->count && i < MESH_UI_STATUS_ACTIONS_MAX; ++i) {
         if (actions->items[i].card != (uint8_t)which) {
             continue;
         }
-        fb_card_action(card, actions->items[i].label, actions->items[i].verb == focus);
+        inkcell_fb_card_action(card, actions->items[i].label, actions->items[i].verb == focus);
     }
 }
 
@@ -126,28 +126,28 @@ static void fb_status_card_actions(struct fb_card *card,
  * title would be the third time. The rows it frees are the ones the cards spend on their
  * headings.
  *
- * Cards are declared and then drawn (see fb_widgets.h), so a row that only exists when the
+ * Cards are declared and then drawn (see inkcell/ui/widgets.h), so a row that only exists when the
  * radio has reported something is an `if` around one call. Nothing here guards the footer
- * either: fb_draw_card() drops what does not fit and refuses a card outright when nothing does,
- * which is the check this screen used to write out per row, and in two different ways.
+ * either: inkcell_fb_draw_card() drops what does not fit and refuses a card outright when nothing
+ * does, which is the check this screen used to write out per row, and in two different ways.
  */
-void fb_render_status(struct mesh_ui_backend_fb_state *state,
-                      const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
+void fb_render_status(struct inkcell_backend_fb_state *state,
+                      const struct mesh_ui_snapshot *snapshot, struct inkcell_fb_layout *layout) {
     int y = layout->body_y;
-    struct fb_card card;
+    struct inkcell_fb_card card;
     /*
      * The Radio card gets a local of its own because it is built before the card above it is
      * *drawn*, which is the whole of how it stops being squeezed off the screen - see the
      * reservation below. Everything else on this screen is still declared and drawn in one go.
      */
-    struct fb_card radio;
+    struct inkcell_fb_card radio;
     /*
      * And the Broker card, for the mirror image of the same reason. It is *drawn* second and so
      * declares a claim on the column before the two cards below it have been built - which is
      * how it came to push the Radio card, and the refresh verb with it, off the bottom of the
      * screen entirely. It is built where it reads and drawn at the end with the rest.
      */
-    struct fb_card broker;
+    struct inkcell_fb_card broker;
     bool have_broker = false;
     char buffer[64];
     char second[64];
@@ -175,8 +175,9 @@ void fb_render_status(struct mesh_ui_backend_fb_state *state,
      * every number on the two cards below it is about a link this one says whether we have; a
      * column of equal weights was the audit's complaint about this screen.
      */
-    fb_card_begin(&card, FB_CARD_ELEVATED, MESH_UI_ICON_LINK, MESH_STR_STATUS_CARD_LINK,
-                  connected != NULL ? MESH_UI_TONE_SUCCESS : MESH_UI_TONE_ERROR);
+    inkcell_fb_card_begin(&card, INKCELL_FB_CARD_ELEVATED, INKCELL_ICON_LINK,
+                          MESH_STR_STATUS_CARD_LINK,
+                          connected != NULL ? INKCELL_TONE_SUCCESS : INKCELL_TONE_ERROR);
     /*
      * The transport and the radio it found - but only while nothing else on the frame is
      * saying them.
@@ -194,12 +195,12 @@ void fb_render_status(struct mesh_ui_backend_fb_state *state,
      * question about the state rather than about the row.
      */
     if (connected == NULL) {
-        fb_card_row_text(&card, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_TRANSPORT,
-                         snapshot->transport_status[0] != '\0'
-                             ? snapshot->transport_status
-                             : mesh_str(MESH_STR_HEADER_TRANSPORT_STARTING));
-        fb_card_row_text(&card, MESH_UI_TONE_ERROR, MESH_STR_STATUS_LABEL_RADIO,
-                         mesh_str(MESH_STR_STATUS_NOT_CONNECTED));
+        inkcell_fb_card_row_text(&card, INKCELL_TONE_NORMAL, MESH_STR_STATUS_LABEL_TRANSPORT,
+                                 snapshot->transport_status[0] != '\0'
+                                     ? snapshot->transport_status
+                                     : inkcell_str(MESH_STR_HEADER_TRANSPORT_STARTING));
+        inkcell_fb_card_row_text(&card, INKCELL_TONE_ERROR, MESH_STR_STATUS_LABEL_RADIO,
+                                 inkcell_str(MESH_STR_STATUS_NOT_CONNECTED));
     }
     if (snapshot->handshake_valid) {
         const struct mesh_ui_handshake_state *hs = &snapshot->handshake;
@@ -210,27 +211,28 @@ void fb_render_status(struct mesh_ui_backend_fb_state *state,
            still says just "in progress". */
         if (hs->request_in_flight && !hs->config_complete && hs->has_my_info &&
             hs->my_info.nodedb_entries > 0U) {
-            fb_card_row(&card, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_SYNC,
-                        MESH_STR_STATUS_SYNC_PROGRESS, hs->sync_nodes, hs->my_info.nodedb_entries);
+            inkcell_fb_card_row(&card, INKCELL_TONE_NORMAL, MESH_STR_STATUS_LABEL_SYNC,
+                                MESH_STR_STATUS_SYNC_PROGRESS, hs->sync_nodes,
+                                hs->my_info.nodedb_entries);
         } else {
-            fb_card_row(&card, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_SYNC,
-                        MESH_STR_STATUS_SYNC_VALUE,
-                        mesh_str(hs->config_complete     ? MESH_STR_STATUS_SYNC_COMPLETE
-                                 : hs->request_in_flight ? MESH_STR_STATUS_SYNC_IN_PROGRESS
-                                                         : MESH_STR_STATUS_SYNC_IDLE),
-                        hs->cached ? mesh_str(MESH_STR_STATUS_SYNC_CACHED) : "");
+            inkcell_fb_card_row(
+                &card, INKCELL_TONE_NORMAL, MESH_STR_STATUS_LABEL_SYNC, MESH_STR_STATUS_SYNC_VALUE,
+                inkcell_str(hs->config_complete     ? MESH_STR_STATUS_SYNC_COMPLETE
+                            : hs->request_in_flight ? MESH_STR_STATUS_SYNC_IN_PROGRESS
+                                                    : MESH_STR_STATUS_SYNC_IDLE),
+                hs->cached ? inkcell_str(MESH_STR_STATUS_SYNC_CACHED) : "");
         }
         if (hs->has_my_info) {
-            fb_card_row(&card, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_MY_NODE,
-                        MESH_STR_STATUS_MY_NODE, hs->my_short_name, hs->my_info.node_num);
+            inkcell_fb_card_row(&card, INKCELL_TONE_NORMAL, MESH_STR_STATUS_LABEL_MY_NODE,
+                                MESH_STR_STATUS_MY_NODE, hs->my_short_name, hs->my_info.node_num);
         }
         if (hs->primary_channel[0] != '\0') {
-            fb_card_row_text(&card, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_CHANNEL,
-                             hs->primary_channel);
+            inkcell_fb_card_row_text(&card, INKCELL_TONE_NORMAL, MESH_STR_STATUS_LABEL_CHANNEL,
+                                     hs->primary_channel);
         }
     } else {
-        fb_card_row_text(&card, MESH_UI_TONE_DIM, MESH_STR_STATUS_LABEL_SYNC,
-                         mesh_str(MESH_STR_STATUS_SYNC_WAITING));
+        inkcell_fb_card_row_text(&card, INKCELL_TONE_DIM, MESH_STR_STATUS_LABEL_SYNC,
+                                 inkcell_str(MESH_STR_STATUS_SYNC_WAITING));
     }
     /* What else is within reach, which is the same subject as what we are attached to - and on
        a screen where the radio is gone it is the row that says whether anything is there. The
@@ -242,10 +244,10 @@ void fb_render_status(struct mesh_ui_backend_fb_state *state,
             ++devices_in_range;
         }
     }
-    fb_card_row(&card, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_DEVICES,
-                MESH_STR_STATUS_DEVICES_IN_RANGE, devices_in_range);
+    inkcell_fb_card_row(&card, INKCELL_TONE_NORMAL, MESH_STR_STATUS_LABEL_DEVICES,
+                        MESH_STR_STATUS_DEVICES_IN_RANGE, devices_in_range);
     fb_status_card_actions(&card, &actions, MESH_UI_STATUS_CARD_LINK, focus);
-    (void)fb_draw_card(state, layout, &y, &card);
+    (void)inkcell_fb_draw_card(state, layout, &y, &card);
 
     /*
      * ---- the broker: the second link, and only when a radio has asked for one ----
@@ -271,19 +273,20 @@ void fb_render_status(struct mesh_ui_backend_fb_state *state,
          * client declining outright is red too - it is not a transient state and it is not
          * working.
          */
-        const enum mesh_ui_tone broker_tone = mqtt->connected ? MESH_UI_TONE_SUCCESS
+        const enum inkcell_tone broker_tone = mqtt->connected ? INKCELL_TONE_SUCCESS
                                               : (mqtt->failing || mqtt->disabled)
-                                                  ? MESH_UI_TONE_ERROR
-                                                  : MESH_UI_TONE_NORMAL;
-        fb_card_begin(&broker, FB_CARD_FILLED, MESH_UI_ICON_MQTT, MESH_STR_STATUS_CARD_BROKER,
-                      broker_tone);
+                                                  ? INKCELL_TONE_ERROR
+                                                  : INKCELL_TONE_NORMAL;
+        inkcell_fb_card_begin(&broker, INKCELL_FB_CARD_FILLED, INKCELL_ICON_MQTT,
+                              MESH_STR_STATUS_CARD_BROKER, broker_tone);
         /*
          * Where, before what. It is the row the radio's own Settings screen cannot draw: an
          * empty `MQTTConfig.address` means the public broker, and that substitution happens on
          * this client - so the Server field over in Settings is blank while this says
          * mqtt.meshtastic.org, and the blank one is the one somebody has already looked at.
          */
-        fb_card_row_text(&broker, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_BROKER, mqtt->host);
+        inkcell_fb_card_row_text(&broker, INKCELL_TONE_NORMAL, MESH_STR_STATUS_LABEL_BROKER,
+                                 mqtt->host);
         /*
          * How many times we have signed in, folded into the status row rather than given one of
          * its own. A proxy that connects, drops and reconnects every minute reads as "Connected"
@@ -292,10 +295,11 @@ void fb_render_status(struct mesh_ui_backend_fb_state *state,
          * forever.
          */
         if (mqtt->connections > 1U) {
-            fb_card_row(&broker, broker_tone, MESH_STR_STATUS_LABEL_BROKER_STATE,
-                        MESH_STR_STATUS_BROKER_RECONNECTS, mqtt->state, mqtt->connections);
+            inkcell_fb_card_row(&broker, broker_tone, MESH_STR_STATUS_LABEL_BROKER_STATE,
+                                MESH_STR_STATUS_BROKER_RECONNECTS, mqtt->state, mqtt->connections);
         } else {
-            fb_card_row_text(&broker, broker_tone, MESH_STR_STATUS_LABEL_BROKER_STATE, mqtt->state);
+            inkcell_fb_card_row_text(&broker, broker_tone, MESH_STR_STATUS_LABEL_BROKER_STATE,
+                                     mqtt->state);
         }
         /*
          * And the sentence, directly under the status it elaborates rather than at the foot of
@@ -312,9 +316,10 @@ void fb_render_status(struct mesh_ui_backend_fb_state *state,
          * leave the card green with nothing to say about why it keeps going red.
          */
         if (mqtt->disabled) {
-            fb_card_note(&broker, MESH_UI_TONE_ERROR, mesh_str(MESH_STR_STATUS_BROKER_DISABLED));
+            inkcell_fb_card_note(&broker, INKCELL_TONE_ERROR,
+                                 inkcell_str(MESH_STR_STATUS_BROKER_DISABLED));
         } else if (mqtt->last_error[0] != '\0') {
-            fb_card_note(&broker, MESH_UI_TONE_ERROR, mqtt->last_error);
+            inkcell_fb_card_note(&broker, INKCELL_TONE_ERROR, mqtt->last_error);
         }
         /*
          * Everything below reports on a connection, so none of it is drawn when this client was
@@ -332,18 +337,19 @@ void fb_render_status(struct mesh_ui_backend_fb_state *state,
              * concerned everything worked.
              */
             if (mqtt->subscriptions > 0U) {
-                fb_card_row(&broker, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_TOPICS,
-                            MESH_STR_STATUS_BROKER_TOPICS, mqtt->subscriptions);
+                inkcell_fb_card_row(&broker, INKCELL_TONE_NORMAL, MESH_STR_STATUS_LABEL_TOPICS,
+                                    MESH_STR_STATUS_BROKER_TOPICS, mqtt->subscriptions);
             } else {
-                fb_card_row_text(&broker, MESH_UI_TONE_WARNING, MESH_STR_STATUS_LABEL_TOPICS,
-                                 mesh_str(MESH_STR_STATUS_BROKER_NO_TOPICS));
+                inkcell_fb_card_row_text(&broker, INKCELL_TONE_WARNING,
+                                         MESH_STR_STATUS_LABEL_TOPICS,
+                                         inkcell_str(MESH_STR_STATUS_BROKER_NO_TOPICS));
             }
             /* What has actually crossed. Drawn from the first message either way, because "0
                out, 0 in" against a broker that says Connected is itself an answer - it means the
                radio has not offered anything yet, which is a different problem from a broker
                refusing. */
-            fb_card_row(&broker, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_RELAYED,
-                        MESH_STR_STATUS_BROKER_RELAYED, mqtt->published, mqtt->received);
+            inkcell_fb_card_row(&broker, INKCELL_TONE_NORMAL, MESH_STR_STATUS_LABEL_RELAYED,
+                                MESH_STR_STATUS_BROKER_RELAYED, mqtt->published, mqtt->received);
             /*
              * What did not cross, in the same shape, and only once something has not.
              *
@@ -354,8 +360,9 @@ void fb_render_status(struct mesh_ui_backend_fb_state *state,
              * with a message that was too big.
              */
             if (mqtt->dropped > 0U || mqtt->undelivered > 0U) {
-                fb_card_row(&broker, MESH_UI_TONE_WARNING, MESH_STR_STATUS_LABEL_DROPPED,
-                            MESH_STR_STATUS_BROKER_DROPPED, mqtt->dropped, mqtt->undelivered);
+                inkcell_fb_card_row(&broker, INKCELL_TONE_WARNING, MESH_STR_STATUS_LABEL_DROPPED,
+                                    MESH_STR_STATUS_BROKER_DROPPED, mqtt->dropped,
+                                    mqtt->undelivered);
             }
         }
         /* Messages the radio offered with nowhere to put them - the client declining, or a
@@ -363,8 +370,8 @@ void fb_render_status(struct mesh_ui_backend_fb_state *state,
            the link from everything above, and it is the number that moves when this client is
            the thing that is wrong. */
         if (mqtt->unhandled > 0U) {
-            fb_card_row(&broker, MESH_UI_TONE_WARNING, MESH_STR_STATUS_LABEL_MESSAGES,
-                        MESH_STR_STATUS_BROKER_UNHANDLED, mqtt->unhandled);
+            inkcell_fb_card_row(&broker, INKCELL_TONE_WARNING, MESH_STR_STATUS_LABEL_MESSAGES,
+                                MESH_STR_STATUS_BROKER_UNHANDLED, mqtt->unhandled);
         }
     }
 
@@ -398,31 +405,32 @@ void fb_render_status(struct mesh_ui_backend_fb_state *state,
      * of the screen rather than from reading a percentage.
      *
      * The thresholds are stated once, in fb_air_band, and answer for the figure's colour, the
-     * heading's, the meter's fill and the marks on its track alike - see mesh_ui_band_tone(). A
+     * heading's, the meter's fill and the marks on its track alike - see inkcell_band_tone(). A
      * screen that worked them out separately for the words and for the bar would be drawing a
      * picture and a number that can disagree, and the picture is the one that gets believed.
      */
-    const int32_t util_permille = mesh_ui_percent_permille(util_value);
-    const enum mesh_ui_tone air_tone =
-        have_util ? mesh_ui_band_tone(&fb_air_band, util_permille, MESH_UI_TONE_SUCCESS)
-                  : MESH_UI_TONE_NORMAL;
+    const int32_t util_permille = inkcell_percent_permille(util_value);
+    const enum inkcell_tone air_tone =
+        have_util ? inkcell_band_tone(&fb_air_band, util_permille, INKCELL_TONE_SUCCESS)
+                  : INKCELL_TONE_NORMAL;
 
     /* Filled: the ordinary weight, and the middle of the three. The mesh is the subject of the
        screen once there is a link, but it is never the thing to read first. */
-    fb_card_begin(&card, FB_CARD_FILLED, MESH_UI_ICON_NODES, MESH_STR_STATUS_CARD_MESH,
-                  air_tone != MESH_UI_TONE_NORMAL ? air_tone : MESH_UI_TONE_PRIMARY);
+    inkcell_fb_card_begin(&card, INKCELL_FB_CARD_FILLED, INKCELL_ICON_NODES,
+                          MESH_STR_STATUS_CARD_MESH,
+                          air_tone != INKCELL_TONE_NORMAL ? air_tone : INKCELL_TONE_PRIMARY);
     if (snapshot->handshake_valid) {
         const struct mesh_ui_handshake_state *hs = &snapshot->handshake;
         /* One line for the NodeDB, and LocalStats' online count when the radio has sent it:
            "132 nodes" alone says nothing about how much of that mesh is still alive. */
         if (hs->has_my_info && stats->valid && stats->num_online_nodes > 0U) {
-            fb_card_row(&card, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_NODEDB,
-                        MESH_STR_STATUS_NODEDB_ONLINE, hs->my_info.nodedb_entries,
-                        stats->num_online_nodes);
+            inkcell_fb_card_row(&card, INKCELL_TONE_NORMAL, MESH_STR_STATUS_LABEL_NODEDB,
+                                MESH_STR_STATUS_NODEDB_ONLINE, hs->my_info.nodedb_entries,
+                                stats->num_online_nodes);
         } else if (hs->has_my_info) {
-            fb_card_row(&card, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_NODEDB,
-                        MESH_STR_STATUS_NODEDB_REBOOTS, hs->my_info.nodedb_entries,
-                        hs->my_info.reboot_count);
+            inkcell_fb_card_row(&card, INKCELL_TONE_NORMAL, MESH_STR_STATUS_LABEL_NODEDB,
+                                MESH_STR_STATUS_NODEDB_REBOOTS, hs->my_info.nodedb_entries,
+                                hs->my_info.reboot_count);
         }
         /* Ours, next to the radio's, and only while the two differ. The row above counts the
            radio's database; this one counts the roster, which outlives it on purpose - so after
@@ -430,8 +438,8 @@ void fb_render_status(struct mesh_ui_backend_fb_state *state,
            here are the published rows, so the second can never exceed the first. */
         const uint32_t off_radio = mesh_ui_handshake_off_radio(hs);
         if (off_radio > 0U) {
-            fb_card_row(&card, MESH_UI_TONE_DIM, MESH_STR_STATUS_LABEL_CACHED_HERE,
-                        MESH_STR_STATUS_CACHED_OFF_RADIO, hs->node_count, off_radio);
+            inkcell_fb_card_row(&card, INKCELL_TONE_DIM, MESH_STR_STATUS_LABEL_CACHED_HERE,
+                                MESH_STR_STATUS_CACHED_OFF_RADIO, hs->node_count, off_radio);
         }
     }
 
@@ -439,21 +447,21 @@ void fb_render_status(struct mesh_ui_backend_fb_state *state,
         const float tx_value =
             air_from_stats ? stats->air_util_tx : (metrics != NULL ? metrics->air_util_tx : 0.0f);
         char util[32];
-        mesh_str_copy(util, sizeof util, mesh_str(MESH_STR_COMMON_UNKNOWN_SHORT));
+        inkcell_str_copy(util, sizeof util, inkcell_str(INKCELL_STR_COMMON_UNKNOWN_SHORT));
         if (have_util) {
-            mesh_str_format(util, sizeof util, MESH_STR_STATUS_PERCENT, (double)util_value);
+            inkcell_str_format(util, sizeof util, MESH_STR_STATUS_PERCENT, (double)util_value);
         }
         char tx[32];
-        mesh_str_copy(tx, sizeof tx, mesh_str(MESH_STR_COMMON_UNKNOWN_SHORT));
+        inkcell_str_copy(tx, sizeof tx, inkcell_str(INKCELL_STR_COMMON_UNKNOWN_SHORT));
         if (have_tx) {
-            mesh_str_format(tx, sizeof tx, MESH_STR_STATUS_PERCENT, (double)tx_value);
+            inkcell_str_format(tx, sizeof tx, MESH_STR_STATUS_PERCENT, (double)tx_value);
         }
         if (stats->valid && stats->has_noise_floor) {
-            fb_card_row(&card, air_tone, MESH_STR_STATUS_LABEL_AIRTIME,
-                        MESH_STR_STATUS_AIRTIME_FLOOR, util, tx, stats->noise_floor);
+            inkcell_fb_card_row(&card, air_tone, MESH_STR_STATUS_LABEL_AIRTIME,
+                                MESH_STR_STATUS_AIRTIME_FLOOR, util, tx, stats->noise_floor);
         } else {
-            fb_card_row(&card, air_tone, MESH_STR_STATUS_LABEL_AIRTIME, MESH_STR_STATUS_AIRTIME,
-                        util, tx);
+            inkcell_fb_card_row(&card, air_tone, MESH_STR_STATUS_LABEL_AIRTIME,
+                                MESH_STR_STATUS_AIRTIME, util, tx);
         }
         /*
          * Two rows about this figure and no third, which is a change from what shipped here.
@@ -483,8 +491,8 @@ void fb_render_status(struct mesh_ui_backend_fb_state *state,
          * A zeroed scale: this reading is already permille, so there is no domain to state.
          */
         if (have_util) {
-            fb_card_meter(&card, MESH_UI_TONE_SUCCESS, MESH_STR_NONE, util_permille,
-                          (struct mesh_ui_scale){0, 0}, &fb_air_band, FB_ANIM_ID_AIRTIME);
+            inkcell_fb_card_meter(&card, INKCELL_TONE_SUCCESS, INKCELL_STR_NONE, util_permille,
+                                  (struct inkcell_scale){0, 0}, &fb_air_band, FB_ANIM_ID_AIRTIME);
         }
     }
 
@@ -520,12 +528,12 @@ void fb_render_status(struct mesh_ui_backend_fb_state *state,
          * card's TX queue row goes to the error family the moment the radio is refusing sends
          * *now*, which is the alarm. This is the tally, and a tally's job is proportion.
          */
-        fb_card_row(&card,
-                    (uint64_t)stats->num_tx_dropped * 100U > stats->num_packets_tx
-                        ? MESH_UI_TONE_WARNING
-                        : MESH_UI_TONE_NORMAL,
-                    MESH_STR_STATUS_LABEL_SENT, MESH_STR_STATUS_SENT, stats->num_packets_tx,
-                    stats->num_tx_relay, stats->num_tx_dropped);
+        inkcell_fb_card_row(&card,
+                            (uint64_t)stats->num_tx_dropped * 100U > stats->num_packets_tx
+                                ? INKCELL_TONE_WARNING
+                                : INKCELL_TONE_NORMAL,
+                            MESH_STR_STATUS_LABEL_SENT, MESH_STR_STATUS_SENT, stats->num_packets_tx,
+                            stats->num_tx_relay, stats->num_tx_dropped);
         /*
          * And the receive side, which is a partition and so gets the picture.
          *
@@ -571,13 +579,13 @@ void fb_render_status(struct mesh_ui_backend_fb_state *state,
         if (heard > 0U && not_new <= heard) {
             const uint32_t parts[] = {heard - (uint32_t)not_new, stats->num_rx_dupe,
                                       stats->num_packets_rx_bad};
-            fb_card_row(&card, not_new * 2U > heard ? MESH_UI_TONE_WARNING : MESH_UI_TONE_NORMAL,
-                        MESH_STR_STATUS_LABEL_HEARD, MESH_STR_STATUS_HEARD, parts[0], parts[1],
-                        parts[2]);
+            inkcell_fb_card_row(
+                &card, not_new * 2U > heard ? INKCELL_TONE_WARNING : INKCELL_TONE_NORMAL,
+                MESH_STR_STATUS_LABEL_HEARD, MESH_STR_STATUS_HEARD, parts[0], parts[1], parts[2]);
             /* No label: the row it sits under names all three parts, in this order, and that
                correspondence is the only legend a bar in a row's height has room for. */
-            fb_card_proportion(&card, MESH_UI_TONE_NORMAL, MESH_STR_NONE, parts,
-                               (uint32_t)(sizeof parts / sizeof parts[0]));
+            inkcell_fb_card_proportion(&card, INKCELL_TONE_NORMAL, INKCELL_STR_NONE, parts,
+                                       (uint32_t)(sizeof parts / sizeof parts[0]));
         }
     } else if (snapshot->handshake_valid) {
         /* Standing in for the two rows above, so it carries their label rather than one naming
@@ -585,16 +593,16 @@ void fb_render_status(struct mesh_ui_backend_fb_state *state,
            word twice and the subject once. Short enough for the value gutter, too: the long
            form was cut mid-word, which reads as a bug rather than as a radio that has simply
            not reported yet. */
-        fb_card_row_text(&card, MESH_UI_TONE_DIM, MESH_STR_STATUS_LABEL_PACKETS,
-                         mesh_str(MESH_STR_STATUS_MESH_NO_REPORT));
+        inkcell_fb_card_row_text(&card, INKCELL_TONE_DIM, MESH_STR_STATUS_LABEL_PACKETS,
+                                 inkcell_str(MESH_STR_STATUS_MESH_NO_REPORT));
     }
     /* How much of that traffic this client is still holding. It is the one row on the card that
        counts something of ours rather than the radio's, and it sits here because what the ring
        holds is mesh traffic - a card of its own for two client-side numbers is a heading and two
        insets spent on the least-read rows of the screen. */
-    fb_card_row(&card, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_MESSAGES,
-                MESH_STR_STATUS_MESSAGES_KEPT, (unsigned)snapshot->messages.count,
-                (unsigned)snapshot->messages.dropped);
+    inkcell_fb_card_row(&card, INKCELL_TONE_NORMAL, MESH_STR_STATUS_LABEL_MESSAGES,
+                        MESH_STR_STATUS_MESSAGES_KEPT, (unsigned)snapshot->messages.count,
+                        (unsigned)snapshot->messages.dropped);
     /*
      * And the verb that opens the airtime readings as a chart, on the heading line above all of
      * them.
@@ -627,9 +635,9 @@ void fb_render_status(struct mesh_ui_backend_fb_state *state,
      */
     const struct mesh_ui_radio_notice *notice = &snapshot->settings.notice;
     const bool have_notice = notice->seq != 0U && notice->text[0] != '\0';
-    const enum mesh_ui_tone notice_tone = notice->level >= 40U   ? MESH_UI_TONE_ERROR
-                                          : notice->level >= 30U ? MESH_UI_TONE_WARNING
-                                                                 : MESH_UI_TONE_NORMAL;
+    const enum inkcell_tone notice_tone = notice->level >= 40U   ? INKCELL_TONE_ERROR
+                                          : notice->level >= 30U ? INKCELL_TONE_WARNING
+                                                                 : INKCELL_TONE_NORMAL;
     const struct mesh_ui_queue_status *queue = &snapshot->settings.queue;
     /* The radio's send queue is only worth a row once it is under pressure or has just refused
        something: on an idle link it reads "16 of 16 free" for ever, which is one more number to
@@ -649,18 +657,18 @@ void fb_render_status(struct mesh_ui_backend_fb_state *state,
        the radio saying no; a flat battery is the reason it is about to. Below that, anything
        drawn in the warning tone heads the card in it too - a card saying "fine" over a row it
        has just drawn as a warning is the summary being wrong about its own contents. */
-    enum mesh_ui_tone radio_tone = MESH_UI_TONE_PRIMARY;
+    enum inkcell_tone radio_tone = INKCELL_TONE_PRIMARY;
     if (low_battery || (have_queue && queue->res != 0) || (have_notice && notice->level >= 40U)) {
-        radio_tone = MESH_UI_TONE_ERROR;
+        radio_tone = INKCELL_TONE_ERROR;
     } else if ((have_notice && notice->level >= 30U) || rebooted || low_heap) {
-        radio_tone = MESH_UI_TONE_WARNING;
+        radio_tone = INKCELL_TONE_WARNING;
     }
 
     /*
      * Ordered most-read first, which matters here and on no other card: this is the one that can
      * outgrow the panel - every row on it appears only when the radio is in some kind of
-     * trouble, so the worst case is all of them at once - and fb_draw_card() drops from the end.
-     * So the battery and the radio's own words come first and the heap figure last, because a
+     * trouble, so the worst case is all of them at once - and inkcell_fb_draw_card() drops from the
+     * end. So the battery and the radio's own words come first and the heap figure last, because a
      * free-heap number is the row a user would have scrolled past anyway.
      */
     /*
@@ -672,17 +680,19 @@ void fb_render_status(struct mesh_ui_backend_fb_state *state,
      * and lifts to the raised tier the moment the tone above says it has something to report,
      * which is the fact the heading colour was already carrying alone.
      */
-    fb_card_begin(&radio, radio_tone == MESH_UI_TONE_PRIMARY ? FB_CARD_OUTLINED : FB_CARD_ELEVATED,
-                  MESH_UI_ICON_RADIO, MESH_STR_STATUS_CARD_RADIO, radio_tone);
+    inkcell_fb_card_begin(&radio,
+                          radio_tone == INKCELL_TONE_PRIMARY ? INKCELL_FB_CARD_OUTLINED
+                                                             : INKCELL_FB_CARD_ELEVATED,
+                          INKCELL_ICON_RADIO, MESH_STR_STATUS_CARD_RADIO, radio_tone);
     if (have_battery || have_uptime) {
         buffer[0] = '\0';
         if (have_battery) {
             /* 101 is upstream's "running off USB", not a 101% battery. */
             if (metrics->battery_level > 100U) {
-                mesh_str_copy(buffer, sizeof buffer, mesh_str(MESH_STR_STATUS_BATTERY_USB));
+                inkcell_str_copy(buffer, sizeof buffer, inkcell_str(MESH_STR_STATUS_BATTERY_USB));
             } else {
-                mesh_str_format(buffer, sizeof buffer, MESH_STR_STATUS_BATTERY_PERCENT,
-                                (unsigned)metrics->battery_level);
+                inkcell_str_format(buffer, sizeof buffer, MESH_STR_STATUS_BATTERY_PERCENT,
+                                   (unsigned)metrics->battery_level);
             }
         } else {
             /*
@@ -695,16 +705,17 @@ void fb_render_status(struct mesh_ui_backend_fb_state *state,
              * radio that has sent LocalStats and not yet sent DeviceMetrics: uptime is in both
              * reports and battery is only in the second.
              */
-            mesh_str_copy(buffer, sizeof buffer, mesh_str(MESH_STR_STATUS_BATTERY_UNKNOWN));
+            inkcell_str_copy(buffer, sizeof buffer, inkcell_str(MESH_STR_STATUS_BATTERY_UNKNOWN));
         }
         second[0] = '\0';
         if (have_uptime) {
             char uptime[32];
             fb_format_uptime(uptime_value, uptime, sizeof uptime);
-            mesh_str_format(second, sizeof second, MESH_STR_STATUS_UPTIME_SUFFIX, uptime);
+            inkcell_str_format(second, sizeof second, MESH_STR_STATUS_UPTIME_SUFFIX, uptime);
         }
-        fb_card_row(&radio, low_battery ? MESH_UI_TONE_ERROR : MESH_UI_TONE_NORMAL,
-                    MESH_STR_STATUS_LABEL_BATTERY, MESH_STR_STATUS_SYNC_VALUE, buffer, second);
+        inkcell_fb_card_row(&radio, low_battery ? INKCELL_TONE_ERROR : INKCELL_TONE_NORMAL,
+                            MESH_STR_STATUS_LABEL_BATTERY, MESH_STR_STATUS_SYNC_VALUE, buffer,
+                            second);
     }
     if (have_notice) {
         /*
@@ -714,33 +725,34 @@ void fb_render_status(struct mesh_ui_backend_fb_state *state,
          * gutter is three words and a cut - which loses exactly the part that explains anything.
          */
         char age[24];
-        fb_format_age(notice->received, age, sizeof age);
+        inkcell_fb_format_age(notice->received, age, sizeof age);
         if (notice->seq > 1U) {
-            fb_card_row(&radio, MESH_UI_TONE_DIM, MESH_STR_STATUS_LABEL_RADIO_SAID,
-                        MESH_STR_STATUS_RADIO_SAID_COUNT, age, notice->seq);
+            inkcell_fb_card_row(&radio, INKCELL_TONE_DIM, MESH_STR_STATUS_LABEL_RADIO_SAID,
+                                MESH_STR_STATUS_RADIO_SAID_COUNT, age, notice->seq);
         } else {
-            fb_card_row_text(&radio, MESH_UI_TONE_DIM, MESH_STR_STATUS_LABEL_RADIO_SAID, age);
+            inkcell_fb_card_row_text(&radio, INKCELL_TONE_DIM, MESH_STR_STATUS_LABEL_RADIO_SAID,
+                                     age);
         }
-        fb_card_note(&radio, notice_tone, notice->text);
+        inkcell_fb_card_note(&radio, notice_tone, notice->text);
     }
     if (have_queue) {
         /* A queue under pressure is work in flight, not a fault - the tertiary. A refusal is
            a fault, and takes the error family. */
-        fb_card_row(&radio, queue->res != 0 ? MESH_UI_TONE_ERROR : MESH_UI_TONE_TERTIARY,
-                    MESH_STR_STATUS_LABEL_TX_QUEUE, MESH_STR_STATUS_TX_QUEUE, (unsigned)queue->free,
-                    (unsigned)queue->maxlen,
-                    queue->res != 0 ? mesh_str(MESH_STR_STATUS_TX_QUEUE_REFUSED) : "");
+        inkcell_fb_card_row(&radio, queue->res != 0 ? INKCELL_TONE_ERROR : INKCELL_TONE_TERTIARY,
+                            MESH_STR_STATUS_LABEL_TX_QUEUE, MESH_STR_STATUS_TX_QUEUE,
+                            (unsigned)queue->free, (unsigned)queue->maxlen,
+                            queue->res != 0 ? inkcell_str(MESH_STR_STATUS_TX_QUEUE_REFUSED) : "");
     }
     if (rebooted) {
         /* A radio that has restarted since we attached is not broken, but it is the first thing
            to know when something else looks wrong. */
-        fb_card_row(&radio, MESH_UI_TONE_WARNING, MESH_STR_STATUS_LABEL_REBOOTS,
-                    MESH_STR_STATUS_REBOOTS_SINCE, snapshot->settings.reboot_notices);
+        inkcell_fb_card_row(&radio, INKCELL_TONE_WARNING, MESH_STR_STATUS_LABEL_REBOOTS,
+                            MESH_STR_STATUS_REBOOTS_SINCE, snapshot->settings.reboot_notices);
     }
     if (stats->valid && stats->has_heap) {
-        fb_card_row(&radio, low_heap ? MESH_UI_TONE_WARNING : MESH_UI_TONE_DIM,
-                    MESH_STR_STATUS_LABEL_HEAP, MESH_STR_STATUS_HEAP,
-                    stats->heap_free_bytes / 1024U, stats->heap_total_bytes / 1024U);
+        inkcell_fb_card_row(&radio, low_heap ? INKCELL_TONE_WARNING : INKCELL_TONE_DIM,
+                            MESH_STR_STATUS_LABEL_HEAP, MESH_STR_STATUS_HEAP,
+                            stats->heap_free_bytes / 1024U, stats->heap_total_bytes / 1024U);
     }
     /*
      * A radio that has told us nothing about itself, said out loud.
@@ -753,9 +765,9 @@ void fb_render_status(struct mesh_ui_backend_fb_state *state,
      * for the same reason its counters can be missing; this is the same sentence for the same
      * situation, with its own id because it is read somewhere else.
      */
-    if (fb_card_is_empty(&radio) && snapshot->handshake_valid) {
-        fb_card_row_text(&radio, MESH_UI_TONE_DIM, MESH_STR_STATUS_LABEL_RADIO_SELF,
-                         mesh_str(MESH_STR_STATUS_RADIO_NO_REPORT));
+    if (inkcell_fb_card_is_empty(&radio) && snapshot->handshake_valid) {
+        inkcell_fb_card_row_text(&radio, INKCELL_TONE_DIM, MESH_STR_STATUS_LABEL_RADIO_SELF,
+                                 inkcell_str(MESH_STR_STATUS_RADIO_NO_REPORT));
     }
     fb_status_card_actions(&radio, &actions, MESH_UI_STATUS_CARD_RADIO, focus);
     /*
@@ -795,9 +807,9 @@ void fb_render_status(struct mesh_ui_backend_fb_state *state,
      * rows it takes are the ones the Mesh card declared last - the message ring and the received
      * composition, which are the rows a reader chasing a fault would have skipped.
      */
-    const int radio_reserve = radio_tone == MESH_UI_TONE_PRIMARY
-                                  ? fb_card_min_height(state, layout, &radio)
-                                  : fb_card_height(state, layout, &radio);
+    const int radio_reserve = radio_tone == INKCELL_TONE_PRIMARY
+                                  ? inkcell_fb_card_min_height(state, layout, &radio)
+                                  : inkcell_fb_card_height(state, layout, &radio);
     /*
      * The Broker card goes in above them, holding the same promise one level further up.
      *
@@ -813,9 +825,10 @@ void fb_render_status(struct mesh_ui_backend_fb_state *state,
      * because MQTT is not working is not reading packet counters.
      */
     if (have_broker) {
-        (void)fb_draw_card_reserving(state, layout, &y, &broker,
-                                     fb_card_min_height(state, layout, &card) + radio_reserve);
+        (void)inkcell_fb_draw_card_reserving(state, layout, &y, &broker,
+                                             inkcell_fb_card_min_height(state, layout, &card) +
+                                                 radio_reserve);
     }
-    (void)fb_draw_card_reserving(state, layout, &y, &card, radio_reserve);
-    (void)fb_draw_card(state, layout, &y, &radio);
+    (void)inkcell_fb_draw_card_reserving(state, layout, &y, &card, radio_reserve);
+    (void)inkcell_fb_draw_card(state, layout, &y, &radio);
 }

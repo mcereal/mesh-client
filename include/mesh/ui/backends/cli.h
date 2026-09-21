@@ -1,6 +1,7 @@
 #pragma once
 
-#include "mesh/ui/backend.h"
+#include "inkcell/ui/backend.h"
+
 #include "mesh/ui/store.h"
 
 #include <stdio.h>
@@ -16,7 +17,7 @@ struct mesh_ui_backend_cli_context {
     FILE *tty_stream;
 };
 
-const struct mesh_ui_backend *mesh_ui_backend_cli(void);
+const struct inkcell_backend *mesh_ui_backend_cli(void);
 
 #ifdef __cplusplus
 }

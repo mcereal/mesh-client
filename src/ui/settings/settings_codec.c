@@ -11,10 +11,11 @@
  * A leaf - nothing outside the public header in include/mesh/ui/settings.h.
  */
 
+#include "inkcell/utils/text.h"
+
 #include "mesh/ui/settings.h"
 
 #include "mesh/utils/base64.h"
-#include "mesh/utils/text.h"
 
 #include <ctype.h>
 #include <stdio.h>

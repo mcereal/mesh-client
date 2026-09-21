@@ -236,7 +236,7 @@ static bool mesh_ui_nav_map_confirm(struct mesh_ui_nav *nav, const struct mesh_u
 }
 
 bool mesh_ui_nav_map_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
-                         enum mesh_ui_key key, bool *handled) {
+                         enum inkcell_key key, bool *handled) {
     if (handled != NULL) {
         *handled = false;
     }
@@ -271,22 +271,22 @@ bool mesh_ui_nav_map_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *st
      * move is expressed in, because the marker it is looking for is on the ground and only the
      * pan underneath it is in pixels.
      */
-    case MESH_UI_KEY_UP:
+    case INKCELL_KEY_UP:
         if (handled != NULL) {
             *handled = true;
         }
         return mesh_ui_nav_map_move(nav, store, MESH_UI_MAP_NORTH);
-    case MESH_UI_KEY_DOWN:
+    case INKCELL_KEY_DOWN:
         if (handled != NULL) {
             *handled = true;
         }
         return mesh_ui_nav_map_move(nav, store, MESH_UI_MAP_SOUTH);
-    case MESH_UI_KEY_LEFT:
+    case INKCELL_KEY_LEFT:
         if (handled != NULL) {
             *handled = true;
         }
         return mesh_ui_nav_map_move(nav, store, MESH_UI_MAP_WEST);
-    case MESH_UI_KEY_RIGHT:
+    case INKCELL_KEY_RIGHT:
         if (handled != NULL) {
             *handled = true;
         }
@@ -296,17 +296,17 @@ bool mesh_ui_nav_map_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *st
      * that opens, B is the way back, and the two remaining face buttons are the two remaining
      * things a map does.
      */
-    case MESH_UI_KEY_X:
+    case INKCELL_KEY_X:
         if (handled != NULL) {
             *handled = true;
         }
         return mesh_map_viewport_zoom_by(&nav->map_viewport, +1);
-    case MESH_UI_KEY_Y:
+    case INKCELL_KEY_Y:
         if (handled != NULL) {
             *handled = true;
         }
         return mesh_map_viewport_zoom_by(&nav->map_viewport, -1);
-    case MESH_UI_KEY_START:
+    case INKCELL_KEY_START:
         /*
          * Back to everything.
          *
@@ -320,22 +320,22 @@ bool mesh_ui_nav_map_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *st
             *handled = true;
         }
         return mesh_ui_nav_map_fit(nav, store);
-    case MESH_UI_KEY_A:
+    case INKCELL_KEY_A:
         if (handled != NULL) {
             *handled = true;
         }
         return mesh_ui_nav_map_confirm(nav, store);
-    case MESH_UI_KEY_B:
+    case INKCELL_KEY_B:
         if (handled != NULL) {
             *handled = true;
         }
         return mesh_ui_nav_close_map(nav);
     /* Everything else - the shoulders, SELECT, the quit key - is not the map's, and falls
        through to the routing that has always answered for it. */
-    case MESH_UI_KEY_L1:
-    case MESH_UI_KEY_R1:
-    case MESH_UI_KEY_SELECT:
-    case MESH_UI_KEY_NONE:
+    case INKCELL_KEY_L1:
+    case INKCELL_KEY_R1:
+    case INKCELL_KEY_SELECT:
+    case INKCELL_KEY_NONE:
     default:
         return false;
     }

@@ -16,6 +16,10 @@
  * adapter - is a column in the table rather than four lines repeated at the top of it.
  */
 
+#include "inkcell/utils/log.h"
+#include "inkcell/utils/text.h"
+#include "inkcell/utils/time.h"
+
 #include "app_internal.h"
 
 #include "mesh/core/version.h"
@@ -31,9 +35,6 @@
 #include "mesh/ui/node_detail.h"
 #include "mesh/ui/preferences.h"
 #include "mesh/utils/crash.h"
-#include "mesh/utils/log.h"
-#include "mesh/utils/text.h"
-#include "mesh/utils/time.h"
 
 #include <errno.h>
 #include <stdbool.h>
@@ -144,7 +145,7 @@ static void mesh_app_firmware_release_link(void *userdata) {
          * client is sharing. Stopping everything here would be taking away the one thing
          * watching for the board to come back.
          */
-        mesh_log_info("ui", "Releasing the serial link for the firmware install");
+        inkcell_log_info("ui", "Releasing the serial link for the firmware install");
         (void)mesh_serial_transport_disconnect(mesh_serial_transport());
         return;
     }
@@ -160,7 +161,7 @@ static void mesh_app_firmware_release_link(void *userdata) {
      *
      * Restarted when the job ends, by the completion below.
      */
-    mesh_log_info("ui", "Stopping transports for the firmware install");
+    inkcell_log_info("ui", "Stopping transports for the firmware install");
     mesh_transport_registry_stop_all(&app->transport_registry);
     app->firmware_transports_stopped = true;
 }
@@ -219,10 +220,10 @@ void mesh_app_firmware_watch_bond(struct mesh_app *app, const struct mesh_firmwa
     if (address[0] == '\0') {
         return;
     }
-    mesh_str_copy(app->firmware_bond_watch, sizeof app->firmware_bond_watch, address);
+    inkcell_str_copy(app->firmware_bond_watch, sizeof app->firmware_bond_watch, address);
     app->firmware_bond_watch_until_ms = now + MESH_APP_FIRMWARE_BOND_GRACE_MS;
-    mesh_log_info("ui", "Watching %s for %u s to see whether its bond survived the update", address,
-                  (unsigned)(MESH_APP_FIRMWARE_BOND_GRACE_MS / 1000U));
+    inkcell_log_info("ui", "Watching %s for %u s to see whether its bond survived the update",
+                     address, (unsigned)(MESH_APP_FIRMWARE_BOND_GRACE_MS / 1000U));
 }
 
 /* One turn of that watch. Returns true when it dropped a bond, which is only ever once. */
@@ -234,8 +235,8 @@ bool mesh_app_firmware_settle_bond(struct mesh_app *app, const char *connected, 
        read from mesh_app_connected_identifier() here: what this answers is a question about two
        addresses and a clock, and taking them as arguments is what lets a suite ask it. */
     if (connected != NULL && strcasecmp(connected, app->firmware_bond_watch) == 0) {
-        mesh_log_info("ui", "%s came back after its update; its bond is intact",
-                      app->firmware_bond_watch);
+        inkcell_log_info("ui", "%s came back after its update; its bond is intact",
+                         app->firmware_bond_watch);
         app->firmware_bond_watch[0] = '\0';
         app->firmware_bond_watch_until_ms = 0U;
         return false;
@@ -272,8 +273,8 @@ bool mesh_app_firmware_settle_bond(struct mesh_app *app, const char *connected, 
      */
     if (dropped < 0 && dropped != -ENOENT) {
         app->firmware_bond_watch_until_ms = now + MESH_APP_FIRMWARE_BOND_RETRY_MS;
-        mesh_log_info("ui", "Could not drop %s's bond yet (%d); retrying", app->firmware_bond_watch,
-                      dropped);
+        inkcell_log_info("ui", "Could not drop %s's bond yet (%d); retrying",
+                         app->firmware_bond_watch, dropped);
         return false;
     }
 
@@ -282,13 +283,13 @@ bool mesh_app_firmware_settle_bond(struct mesh_app *app, const char *connected, 
         /* Deliberately *not* dropped from the preferred devices, unlike the Devices tab's
            Forget. That press means "stop reaching for this radio"; this one means "reach for it,
            but pair first" - it is the radio the user just spent minutes updating. */
-        mesh_log_warn("ui",
-                      "%s did not come back after its update; dropped the stale bond so it can "
-                      "be paired with again",
-                      app->firmware_bond_watch);
+        inkcell_log_warn("ui",
+                         "%s did not come back after its update; dropped the stale bond so it can "
+                         "be paired with again",
+                         app->firmware_bond_watch);
     } else {
-        mesh_log_info("ui", "%s did not come back and had no bond left to drop",
-                      app->firmware_bond_watch);
+        inkcell_log_info("ui", "%s did not come back and had no bond left to drop",
+                         app->firmware_bond_watch);
     }
     app->firmware_bond_watch[0] = '\0';
     app->firmware_bond_watch_until_ms = 0U;
@@ -297,7 +298,7 @@ bool mesh_app_firmware_settle_bond(struct mesh_app *app, const char *connected, 
 
 void mesh_app_firmware_update_done(void *userdata, const struct mesh_firmware_update *update) {
     struct mesh_app *const app = (struct mesh_app *)userdata;
-    const uint64_t now = mesh_time_monotonic_ms();
+    const uint64_t now = inkcell_time_monotonic_ms();
     char toast[MESH_UI_NAV_TOAST_MAX];
 
     if (app->firmware_transports_stopped) {
@@ -309,9 +310,9 @@ void mesh_app_firmware_update_done(void *userdata, const struct mesh_firmware_up
     }
 
     if (update->state == MESH_FIRMWARE_UPDATE_DONE) {
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_FIRMWARE_INSTALLED,
-                        update->release.version);
-        mesh_log_info("ui", "Radio firmware %s installed", update->release.version);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_FIRMWARE_INSTALLED,
+                           update->release.version);
+        inkcell_log_info("ui", "Radio firmware %s installed", update->release.version);
         /*
          * The check's answer was about the firmware this radio *was* running. Dropping it means
          * the rows go back to "not checked" rather than going on offering an install of what is
@@ -323,11 +324,12 @@ void mesh_app_firmware_update_done(void *userdata, const struct mesh_firmware_up
     } else {
         /* The radio's own words where it supplied any, our name for the category where not.
            Untranslated either way, like a log line. */
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_FIRMWARE_FAILED,
-                        update->detail[0] != '\0' ? update->detail
-                                                  : mesh_firmware_update_error_name(update->error));
-        mesh_log_warn("ui", "Radio firmware install failed: %s (%s)",
-                      mesh_firmware_update_error_name(update->error), update->detail);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_FIRMWARE_FAILED,
+                           update->detail[0] != '\0'
+                               ? update->detail
+                               : mesh_firmware_update_error_name(update->error));
+        inkcell_log_warn("ui", "Radio firmware install failed: %s (%s)",
+                         mesh_firmware_update_error_name(update->error), update->detail);
     }
     /* Posted rather than set: the press that started this was minutes ago and whatever is on
        the screen now is the answer to something else. */
@@ -356,8 +358,8 @@ void mesh_app_firmware_update_tick(struct mesh_app *app, uint64_t now) {
     mesh_firmware_update_tick(&app->firmware_update, now);
     if (mesh_app_firmware_settle_bond(app, mesh_app_connected_identifier(), now)) {
         char toast[MESH_UI_NAV_TOAST_MAX];
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_FIRMWARE_REPAIR,
-                        app->firmware_update.release.version);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_FIRMWARE_REPAIR,
+                           app->firmware_update.release.version);
         mesh_ui_store_post_toast(&app->ui_store, now, toast);
     }
 }
@@ -378,15 +380,15 @@ static void action_peer_name(const struct mesh_app *app, uint32_t node, char *ou
 
 static void on_connect(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
-    const uint64_t now = mesh_time_monotonic_ms();
+    const uint64_t now = inkcell_time_monotonic_ms();
 
     /* The kind, in the log's own words. Inline rather than behind a helper because
-       scripts/check-strings.py exempts a literal inside mesh_log() and nowhere else, and
+       scripts/check-strings.py exempts a literal inside inkcell_log() and nowhere else, and
        these three are log words - untranslated, like every other line this file writes. */
-    mesh_log_info("ui", "Connect to %s (%s) requested from the device", action->identifier,
-                  action->kind == (uint8_t)MESH_UI_DEVICE_SERIAL ? "usb"
-                  : action->kind == (uint8_t)MESH_UI_DEVICE_TCP  ? "network"
-                                                                 : "ble");
+    inkcell_log_info("ui", "Connect to %s (%s) requested from the device", action->identifier,
+                     action->kind == (uint8_t)MESH_UI_DEVICE_SERIAL ? "usb"
+                     : action->kind == (uint8_t)MESH_UI_DEVICE_TCP  ? "network"
+                                                                    : "ble");
     /*
      * A network link is deliberately not remembered here, for the reason
      * mesh_app_publish_ui_state() does not remember it either: this history is what
@@ -422,27 +424,27 @@ static void on_connect(struct mesh_app *app, const struct mesh_ui_action *action
     if (action->kind == (uint8_t)MESH_UI_DEVICE_TCP && adopted != NULL &&
         strcmp(adopted, action->identifier) == 0 &&
         strcmp(app->ui_preferences.network_host, adopted) != 0) {
-        mesh_str_copy(app->ui_preferences.network_host, sizeof app->ui_preferences.network_host,
-                      adopted);
+        inkcell_str_copy(app->ui_preferences.network_host, sizeof app->ui_preferences.network_host,
+                         adopted);
         app->ui_preferences_dirty = true;
     }
     if (result == 0 || result == -EALREADY || result == -EINPROGRESS) {
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_CONNECTING, action->identifier);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_CONNECTING, action->identifier);
         /* BLE resolves services from tick(), so a 0 here is not yet a connection. Arm the
            error report so whatever goes wrong next reaches the screen. */
         app->ui_report_link_error = true;
     } else if (mesh_transport_registry_take_error(&app->transport_registry, toast, sizeof toast)) {
-        mesh_log_warn("ui", "Connect to %s failed: %s (%d)", action->identifier, toast, result);
+        inkcell_log_warn("ui", "Connect to %s failed: %s (%d)", action->identifier, toast, result);
     } else {
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_CONNECT_FAILED, result);
-        mesh_log_warn("ui", "Connect to %s failed: %d", action->identifier, result);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_CONNECT_FAILED, result);
+        inkcell_log_warn("ui", "Connect to %s failed: %d", action->identifier, result);
     }
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
 }
 
 static void on_send_text(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
-    const uint64_t now = mesh_time_monotonic_ms();
+    const uint64_t now = inkcell_time_monotonic_ms();
 
     const bool broadcast = (action->dest == MESH_MESSAGE_BROADCAST_ADDR);
     uint32_t packet_id = 0U;
@@ -461,24 +463,25 @@ static void on_send_text(struct mesh_app *app, const struct mesh_ui_action *acti
     if (result == 0 && action->is_reaction) {
         /* A tapback has no bubble and nothing to wait for, so it is not watched: there is
            no delivery mark for a report to land on. */
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_REACTION_SENT));
-        mesh_log_info("ui", "Reacted \"%s\" to packet %u in %s", action->text, action->reply_id,
-                      app->ui_store.nav.target_name);
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_REACTION_SENT));
+        inkcell_log_info("ui", "Reacted \"%s\" to packet %u in %s", action->text, action->reply_id,
+                         app->ui_store.nav.target_name);
     } else if (result == 0) {
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_SENT_TO, app->ui_store.nav.target_name);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_SENT_TO,
+                           app->ui_store.nav.target_name);
         if (action->reply_id != 0U) {
-            mesh_log_info("ui", "Sent \"%s\" to %s (packet %u, replying to %u)", action->text,
-                          app->ui_store.nav.target_name, packet_id, action->reply_id);
+            inkcell_log_info("ui", "Sent \"%s\" to %s (packet %u, replying to %u)", action->text,
+                             app->ui_store.nav.target_name, packet_id, action->reply_id);
         } else {
-            mesh_log_info("ui", "Sent \"%s\" to %s (packet %u)", action->text,
-                          app->ui_store.nav.target_name, packet_id);
+            inkcell_log_info("ui", "Sent \"%s\" to %s (packet %u)", action->text,
+                             app->ui_store.nav.target_name, packet_id);
         }
         mesh_app_watch_sent(app, packet_id, app->ui_store.nav.target_name);
     } else if (result == -ENOTCONN) {
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_NOT_CONNECTED));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NOT_CONNECTED));
     } else {
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_SEND_FAILED, result);
-        mesh_log_warn("ui", "Send to %s failed: %d", app->ui_store.nav.target_name, result);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_SEND_FAILED, result);
+        inkcell_log_warn("ui", "Send to %s failed: %d", app->ui_store.nav.target_name, result);
     }
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
 }
@@ -499,7 +502,7 @@ static void on_send_text(struct mesh_app *app, const struct mesh_ui_action *acti
  */
 static void on_resend(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
-    const uint64_t now = mesh_time_monotonic_ms();
+    const uint64_t now = inkcell_time_monotonic_ms();
 
     const bool broadcast = (action->dest == MESH_MESSAGE_BROADCAST_ADDR);
     uint32_t packet_id = 0U;
@@ -509,38 +512,38 @@ static void on_resend(struct mesh_app *app, const struct mesh_ui_action *action)
         mesh_session_send_reply(&app->session, action->dest, action->channel, action->text,
                                 !broadcast, action->reply_id, &packet_id);
     if (result == 0) {
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_RESENT_TO,
-                        app->ui_store.nav.target_name);
-        mesh_log_info("ui", "Resent \"%s\" to %s as packet %u (packet %u went undelivered)",
-                      action->text, app->ui_store.nav.target_name, packet_id, action->number);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_RESENT_TO,
+                           app->ui_store.nav.target_name);
+        inkcell_log_info("ui", "Resent \"%s\" to %s as packet %u (packet %u went undelivered)",
+                         action->text, app->ui_store.nav.target_name, packet_id, action->number);
         /* Watched like any other send, so the retry's own result reaches the user. The failed
            attempt has already been reported and is no longer watched. */
         mesh_app_watch_sent(app, packet_id, app->ui_store.nav.target_name);
     } else if (result == -ENOTCONN) {
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_NOT_CONNECTED));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NOT_CONNECTED));
     } else {
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_SEND_FAILED, result);
-        mesh_log_warn("ui", "Resend to %s failed: %d", app->ui_store.nav.target_name, result);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_SEND_FAILED, result);
+        inkcell_log_warn("ui", "Resend to %s failed: %d", app->ui_store.nav.target_name, result);
     }
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
 }
 
 static void on_refresh_settings(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
-    const uint64_t now = mesh_time_monotonic_ms();
+    const uint64_t now = inkcell_time_monotonic_ms();
 
     const int result = mesh_session_refresh_settings(&app->session);
     if (result > 0 && action->edit_count > 0U) {
-        mesh_str_format_plural(toast, sizeof toast, MESH_STR_TOAST_REFRESH_EDITS_ONE,
-                               action->edit_count, result, (unsigned)action->edit_count);
+        inkcell_str_format_plural(toast, sizeof toast, MESH_STR_TOAST_REFRESH_EDITS_ONE,
+                                  action->edit_count, result, (unsigned)action->edit_count);
     } else if (result > 0) {
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_REFRESHING, result);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_REFRESHING, result);
     } else if (result == 0) {
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_REFRESH_IN_PROGRESS));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_REFRESH_IN_PROGRESS));
     } else if (result == -ENOTCONN) {
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_NOT_CONNECTED));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NOT_CONNECTED));
     } else {
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_REFRESH_FAILED, result);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_REFRESH_FAILED, result);
     }
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
 }
@@ -556,30 +559,30 @@ static void on_refresh_settings(struct mesh_app *app, const struct mesh_ui_actio
  */
 static void on_set_admin_target(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
-    const uint64_t now = mesh_time_monotonic_ms();
+    const uint64_t now = inkcell_time_monotonic_ms();
 
     char name[MESH_UI_NAV_TARGET_NAME_MAX];
     action_peer_name(app, action->dest, name, sizeof name);
     const int result = mesh_session_set_admin_dest(&app->session, action->dest);
     if (result >= 0 && action->dest == 0U) {
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_ADMIN_LOCAL));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_ADMIN_LOCAL));
     } else if (result >= 0) {
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_ADMIN_REMOTE, name);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_ADMIN_REMOTE, name);
     } else if (result == -ENOTCONN) {
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_NOT_CONNECTED));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NOT_CONNECTED));
     } else if (result == -EINVAL || result == -ENOENT) {
         /* The one thing this side can check: an admin request to a remote node is sealed to
            that node's key, and a node that has never broadcast one cannot be addressed at all.
            Said as what is missing rather than as a press that failed. */
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_ADMIN_NO_KEY, name);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_ADMIN_NO_KEY, name);
     } else {
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_ADMIN_FAILED, result);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_ADMIN_FAILED, result);
     }
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
 }
 
 static void on_save_settings(struct mesh_app *app, const struct mesh_ui_action *action) {
-    const uint64_t now = mesh_time_monotonic_ms();
+    const uint64_t now = inkcell_time_monotonic_ms();
 
     mesh_app_save_settings(app, action, now);
 }
@@ -599,7 +602,7 @@ static void on_save_settings(struct mesh_app *app, const struct mesh_ui_action *
 struct radio_admin_verb {
     enum mesh_ui_settings_action row;
     enum mesh_admin_request_kind kind;
-    enum mesh_str_id asked;
+    enum inkcell_str_id asked;
     /* A restore is the one that changes what the radio holds, and the settings it changes are
        the ones this tab is showing - so it is followed by a refresh rather than left to a
        screen that would keep drawing the values it had before. */
@@ -651,25 +654,25 @@ static void radio_request_history(struct mesh_app *app, uint64_t now) {
     const struct mesh_store_forward *before = mesh_session_store_forward(&app->session);
     const bool knew_router = before != NULL && before->router != 0U;
     char name[MESH_UI_STORE_FORWARD_NAME_MAX];
-    mesh_str_copy(name, sizeof name, app->ui_store.settings.store_forward.router_name);
+    inkcell_str_copy(name, sizeof name, app->ui_store.settings.store_forward.router_name);
 
     const int result = mesh_session_request_history(&app->session);
     char toast[MESH_UI_NAV_TOAST_MAX];
     if (result == -EBUSY) {
-        mesh_str_copy(toast, sizeof toast, mesh_str(MESH_STR_TOAST_HISTORY_RUNNING));
+        inkcell_str_copy(toast, sizeof toast, inkcell_str(MESH_STR_TOAST_HISTORY_RUNNING));
     } else if (result < 0) {
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_HISTORY_FAILED, result);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_HISTORY_FAILED, result);
     } else if (knew_router) {
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_HISTORY_ASKED, name);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_HISTORY_ASKED, name);
     } else {
-        mesh_str_copy(toast, sizeof toast, mesh_str(MESH_STR_TOAST_HISTORY_LOOKING));
+        inkcell_str_copy(toast, sizeof toast, inkcell_str(MESH_STR_TOAST_HISTORY_LOOKING));
     }
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
 }
 
 static void on_radio_action(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
-    const uint64_t now = mesh_time_monotonic_ms();
+    const uint64_t now = inkcell_time_monotonic_ms();
     const enum mesh_ui_settings_action row = (enum mesh_ui_settings_action)action->number;
 
     /* Three rows reach this verb without being admin requests at all, so they are answered
@@ -698,24 +701,24 @@ static void on_radio_action(struct mesh_app *app, const struct mesh_ui_action *a
     }
     const int result = mesh_session_radio_action(&app->session, verb->kind);
     if (result > 0) {
-        snprintf(toast, sizeof toast, "%s", mesh_str(verb->asked));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(verb->asked));
         if (verb->refresh_after) {
             (void)mesh_session_refresh_settings(&app->session);
         }
     } else if (result == 0) {
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_ALREADY_REQUESTED));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_ALREADY_REQUESTED));
     } else if (result == -ENOTCONN) {
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_NOT_CONNECTED));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NOT_CONNECTED));
     } else {
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_REQUEST_FAILED, result);
-        mesh_log_warn("ui", "Radio action %u failed: %d", (unsigned)action->number, result);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_REQUEST_FAILED, result);
+        inkcell_log_warn("ui", "Radio action %u failed: %d", (unsigned)action->number, result);
     }
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
 }
 
 static void on_forget_nodes(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
-    const uint64_t now = mesh_time_monotonic_ms();
+    const uint64_t now = inkcell_time_monotonic_ms();
 
     /*
      * The two rows in Radio actions that ask nothing of the radio. The roster is this
@@ -729,16 +732,16 @@ static void on_forget_nodes(struct mesh_app *app, const struct mesh_ui_action *a
     const bool all = (action->number != 0U);
     const int dropped = mesh_session_forget_nodes(&app->session, !all);
     if (dropped > 0) {
-        mesh_str_format_plural(toast, sizeof toast, MESH_STR_TOAST_FORGOT_NODES_ONE,
-                               (uint32_t)dropped, dropped);
-        mesh_log_info("ui", "Forgot %d cached node%s from Settings (%s)", dropped,
-                      dropped == 1 ? "" : "s", all ? "all" : "off-radio only");
+        inkcell_str_format_plural(toast, sizeof toast, MESH_STR_TOAST_FORGOT_NODES_ONE,
+                                  (uint32_t)dropped, dropped);
+        inkcell_log_info("ui", "Forgot %d cached node%s from Settings (%s)", dropped,
+                         dropped == 1 ? "" : "s", all ? "all" : "off-radio only");
     } else if (dropped == 0) {
         snprintf(toast, sizeof toast, "%s",
-                 mesh_str(all ? MESH_STR_TOAST_NOTHING_CACHED : MESH_STR_TOAST_ALL_ON_RADIO));
+                 inkcell_str(all ? MESH_STR_TOAST_NOTHING_CACHED : MESH_STR_TOAST_ALL_ON_RADIO));
     } else {
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_FORGET_FAILED, dropped);
-        mesh_log_warn("ui", "Forget nodes failed: %d", dropped);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_FORGET_FAILED, dropped);
+        inkcell_log_warn("ui", "Forget nodes failed: %d", dropped);
     }
     /* The hint that sent the user here compares each sync against the last, so the press
        that acts on it has to move that baseline too: without this, a divergence the user
@@ -750,35 +753,35 @@ static void on_forget_nodes(struct mesh_app *app, const struct mesh_ui_action *a
 
 static void on_toggle_favorite(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
-    const uint64_t now = mesh_time_monotonic_ms();
+    const uint64_t now = inkcell_time_monotonic_ms();
 
     const bool favorite = (action->number != 0U);
     char name[MESH_UI_NAV_TARGET_NAME_MAX];
     action_peer_name(app, action->dest, name, sizeof name);
     const int result = mesh_session_set_node_favorite(&app->session, action->dest, favorite);
     if (result > 0) {
-        mesh_str_format(toast, sizeof toast,
-                        favorite ? MESH_STR_TOAST_PINNED : MESH_STR_TOAST_UNPINNED, name);
-        mesh_log_info("ui", "%s node 0x%08x from the Nodes tab", favorite ? "Pinned" : "Unpinned",
-                      action->dest);
+        inkcell_str_format(toast, sizeof toast,
+                           favorite ? MESH_STR_TOAST_PINNED : MESH_STR_TOAST_UNPINNED, name);
+        inkcell_log_info("ui", "%s node 0x%08x from the Nodes tab",
+                         favorite ? "Pinned" : "Unpinned", action->dest);
     } else if (result == 0) {
-        mesh_str_format(toast, sizeof toast,
-                        favorite ? MESH_STR_TOAST_ALREADY_PINNED : MESH_STR_TOAST_ALREADY_UNPINNED,
-                        name);
+        inkcell_str_format(
+            toast, sizeof toast,
+            favorite ? MESH_STR_TOAST_ALREADY_PINNED : MESH_STR_TOAST_ALREADY_UNPINNED, name);
     } else if (result == -ENOTCONN) {
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_NOT_CONNECTED));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NOT_CONNECTED));
     } else if (result == -ENOENT) {
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_NODE_GONE));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NODE_GONE));
     } else {
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_PIN_FAILED, result);
-        mesh_log_warn("ui", "Favorite for 0x%08x failed: %d", action->dest, result);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_PIN_FAILED, result);
+        inkcell_log_warn("ui", "Favorite for 0x%08x failed: %d", action->dest, result);
     }
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
 }
 
 static void on_request_node_info(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
-    const uint64_t now = mesh_time_monotonic_ms();
+    const uint64_t now = inkcell_time_monotonic_ms();
 
     char name[MESH_UI_NAV_TARGET_NAME_MAX];
     action_peer_name(app, action->dest, name, sizeof name);
@@ -786,25 +789,25 @@ static void on_request_node_info(struct mesh_app *app, const struct mesh_ui_acti
     if (result == 0) {
         /* Nothing here can promise an answer: the node may be out of range, asleep, or
            simply slow, and no ack comes back for the request itself. */
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_ASKED_NAME, name);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_ASKED_NAME, name);
     } else if (result == -ENOTCONN) {
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_NOT_CONNECTED));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NOT_CONNECTED));
     } else if (result == -EAGAIN) {
         /* Our own owner record has not landed yet, and sending a placeholder would erase
            this node's name on whoever received it. */
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_STILL_SYNCING));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_STILL_SYNCING));
     } else if (result == -EINVAL) {
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_CANNOT_ASK));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_CANNOT_ASK));
     } else {
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_REQUEST_FAILED, result);
-        mesh_log_warn("ui", "NodeInfo request for 0x%08x failed: %d", action->dest, result);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_REQUEST_FAILED, result);
+        inkcell_log_warn("ui", "NodeInfo request for 0x%08x failed: %d", action->dest, result);
     }
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
 }
 
 static void on_request_reading(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
-    const uint64_t now = mesh_time_monotonic_ms();
+    const uint64_t now = inkcell_time_monotonic_ms();
 
     const bool position = (action->type == MESH_UI_ACTION_REQUEST_POSITION);
     char name[MESH_UI_NAV_TARGET_NAME_MAX];
@@ -814,24 +817,24 @@ static void on_request_reading(struct mesh_app *app, const struct mesh_ui_action
     if (result == 0) {
         /* Nothing here can promise an answer either: the request carries no want_ack, and a
            node that is out of range, asleep or simply not equipped answers nothing. */
-        mesh_str_format(toast, sizeof toast,
-                        position ? MESH_STR_TOAST_ASKED_POSITION : MESH_STR_TOAST_ASKED_TELEMETRY,
-                        name);
+        inkcell_str_format(
+            toast, sizeof toast,
+            position ? MESH_STR_TOAST_ASKED_POSITION : MESH_STR_TOAST_ASKED_TELEMETRY, name);
     } else if (result == -ENOTCONN) {
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_NOT_CONNECTED));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NOT_CONNECTED));
     } else if (result == -EINVAL) {
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_CANNOT_ASK));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_CANNOT_ASK));
     } else {
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_REQUEST_FAILED, result);
-        mesh_log_warn("ui", "%s request for 0x%08x failed: %d", position ? "Position" : "Telemetry",
-                      action->dest, result);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_REQUEST_FAILED, result);
+        inkcell_log_warn("ui", "%s request for 0x%08x failed: %d",
+                         position ? "Position" : "Telemetry", action->dest, result);
     }
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
 }
 
 static void on_toggle_ignore(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
-    const uint64_t now = mesh_time_monotonic_ms();
+    const uint64_t now = inkcell_time_monotonic_ms();
 
     const bool ignored = (action->number != 0U);
     char name[MESH_UI_NAV_TARGET_NAME_MAX];
@@ -839,30 +842,30 @@ static void on_toggle_ignore(struct mesh_app *app, const struct mesh_ui_action *
     const int result = mesh_session_set_node_ignored(&app->session, action->dest, ignored);
     if (result > 0) {
         /* Said as what it does to the traffic, not as a preference that was recorded. */
-        mesh_str_format(toast, sizeof toast,
-                        ignored ? MESH_STR_TOAST_IGNORING : MESH_STR_TOAST_UNIGNORING, name);
-        mesh_log_info("ui", "%s node 0x%08x from the Nodes tab",
-                      ignored ? "Ignoring" : "Unignoring", action->dest);
+        inkcell_str_format(toast, sizeof toast,
+                           ignored ? MESH_STR_TOAST_IGNORING : MESH_STR_TOAST_UNIGNORING, name);
+        inkcell_log_info("ui", "%s node 0x%08x from the Nodes tab",
+                         ignored ? "Ignoring" : "Unignoring", action->dest);
     } else if (result == 0) {
-        mesh_str_format(toast, sizeof toast,
-                        ignored ? MESH_STR_TOAST_ALREADY_IGNORED : MESH_STR_TOAST_ALREADY_UNIGNORED,
-                        name);
+        inkcell_str_format(
+            toast, sizeof toast,
+            ignored ? MESH_STR_TOAST_ALREADY_IGNORED : MESH_STR_TOAST_ALREADY_UNIGNORED, name);
     } else if (result == -ENOTCONN) {
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_NOT_CONNECTED));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NOT_CONNECTED));
     } else if (result == -ENOENT) {
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_NODE_GONE));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NODE_GONE));
     } else if (result == -EINVAL) {
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_CANNOT_IGNORE));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_CANNOT_IGNORE));
     } else {
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_IGNORE_FAILED, result);
-        mesh_log_warn("ui", "Ignore for 0x%08x failed: %d", action->dest, result);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_IGNORE_FAILED, result);
+        inkcell_log_warn("ui", "Ignore for 0x%08x failed: %d", action->dest, result);
     }
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
 }
 
 static void on_toggle_mute(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
-    const uint64_t now = mesh_time_monotonic_ms();
+    const uint64_t now = inkcell_time_monotonic_ms();
 
     char name[MESH_UI_NAV_TARGET_NAME_MAX];
     action_peer_name(app, action->dest, name, sizeof name);
@@ -870,29 +873,29 @@ static void on_toggle_mute(struct mesh_app *app, const struct mesh_ui_action *ac
     if (result == 0) {
         /* Already on its way. Two local flips for one toggle on the wire would leave the
            row stating the opposite of what the radio is about to do. */
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_MUTE_REQUESTED));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_MUTE_REQUESTED));
     } else if (result > 0) {
         /* The session flipped the cached flag on the way through, so what it now holds is
            what we asked the radio for. */
         const struct mesh_ui_node_summary *node =
             mesh_ui_node_detail_find(&app->ui_store.handshake, action->dest);
         const bool muted = node != NULL ? node->is_muted : true;
-        mesh_str_format(toast, sizeof toast, muted ? MESH_STR_TOAST_MUTED : MESH_STR_TOAST_UNMUTED,
-                        name);
+        inkcell_str_format(toast, sizeof toast,
+                           muted ? MESH_STR_TOAST_MUTED : MESH_STR_TOAST_UNMUTED, name);
     } else if (result == -ENOTCONN) {
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_NOT_CONNECTED));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NOT_CONNECTED));
     } else if (result == -ENOENT) {
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_NODE_GONE));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NODE_GONE));
     } else {
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_MUTE_FAILED, result);
-        mesh_log_warn("ui", "Mute for 0x%08x failed: %d", action->dest, result);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_MUTE_FAILED, result);
+        inkcell_log_warn("ui", "Mute for 0x%08x failed: %d", action->dest, result);
     }
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
 }
 
 static void on_remove_node(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
-    const uint64_t now = mesh_time_monotonic_ms();
+    const uint64_t now = inkcell_time_monotonic_ms();
 
     char name[MESH_UI_NAV_TARGET_NAME_MAX];
     action_peer_name(app, action->dest, name, sizeof name);
@@ -900,17 +903,17 @@ static void on_remove_node(struct mesh_app *app, const struct mesh_ui_action *ac
     if (result > 0) {
         /* Says how it comes back, because the row that would have undone it has gone with
            the node. */
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_REMOVED_NODE, name);
-        mesh_log_info("ui", "Removed node 0x%08x from the Nodes tab", action->dest);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_REMOVED_NODE, name);
+        inkcell_log_info("ui", "Removed node 0x%08x from the Nodes tab", action->dest);
     } else if (result == -ENOTCONN) {
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_NOT_CONNECTED));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NOT_CONNECTED));
     } else if (result == -ENOENT) {
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_NODE_GONE));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NODE_GONE));
     } else if (result == -EINVAL) {
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_REMOVE_SELF));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_REMOVE_SELF));
     } else {
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_REMOVE_FAILED, result);
-        mesh_log_warn("ui", "Remove of 0x%08x failed: %d", action->dest, result);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_REMOVE_FAILED, result);
+        inkcell_log_warn("ui", "Remove of 0x%08x failed: %d", action->dest, result);
     }
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
 }
@@ -929,7 +932,7 @@ static void on_remove_node(struct mesh_app *app, const struct mesh_ui_action *ac
  */
 static void on_delete_message(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
-    const uint64_t now = mesh_time_monotonic_ms();
+    const uint64_t now = inkcell_time_monotonic_ms();
     const uint32_t packet_id = action->number;
 
     if (packet_id == 0U) {
@@ -958,8 +961,8 @@ static void on_delete_message(struct mesh_app *app, const struct mesh_ui_action 
     const int archived =
         mesh_ui_archive_forget_message(&app->ui_archive, kind, node, channel, packet_id);
     if (archived < 0) {
-        mesh_log_warn("ui", "Could not remove message %u from the stored transcript: %d", packet_id,
-                      archived);
+        inkcell_log_warn("ui", "Could not remove message %u from the stored transcript: %d",
+                         packet_id, archived);
     }
     const uint32_t removed =
         mesh_ui_store_forget_message(&app->ui_store, kind, node, channel, packet_id);
@@ -971,17 +974,17 @@ static void on_delete_message(struct mesh_app *app, const struct mesh_ui_action 
     }
 
     if (removed > 0U || archived > 0) {
-        mesh_str_copy(toast, sizeof toast, mesh_str(MESH_STR_TOAST_MESSAGE_DELETED));
-        mesh_log_info("ui", "Deleted message %u", packet_id);
+        inkcell_str_copy(toast, sizeof toast, inkcell_str(MESH_STR_TOAST_MESSAGE_DELETED));
+        inkcell_log_info("ui", "Deleted message %u", packet_id);
     } else {
-        mesh_str_copy(toast, sizeof toast, mesh_str(MESH_STR_TOAST_MESSAGE_NOT_FOUND));
+        inkcell_str_copy(toast, sizeof toast, inkcell_str(MESH_STR_TOAST_MESSAGE_NOT_FOUND));
     }
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
 }
 
 static void on_delete_conversation(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
-    const uint64_t now = mesh_time_monotonic_ms();
+    const uint64_t now = inkcell_time_monotonic_ms();
 
     /*
      * A message lives in three places at once, and the delete has to reach all three or the
@@ -1004,7 +1007,7 @@ static void on_delete_conversation(struct mesh_app *app, const struct mesh_ui_ac
     const int archived = mesh_ui_archive_forget_conversation(
         &app->ui_archive, (uint8_t)action->number, action->dest, action->channel);
     if (archived < 0) {
-        mesh_log_warn("ui", "Could not remove the stored transcript for %s: %d", name, archived);
+        inkcell_log_warn("ui", "Could not remove the stored transcript for %s: %d", name, archived);
     }
     const uint32_t removed = mesh_ui_store_forget_conversation(
         &app->ui_store, (uint8_t)action->number, action->dest, action->channel);
@@ -1016,19 +1019,19 @@ static void on_delete_conversation(struct mesh_app *app, const struct mesh_ui_ac
     }
 
     if (removed > 0U) {
-        mesh_str_format_plural(toast, sizeof toast, MESH_STR_TOAST_DELETED_MESSAGES_ONE, removed,
-                               (unsigned)removed, name);
-        mesh_log_info("ui", "Deleted %u message(s) in the conversation with %s", (unsigned)removed,
-                      name);
+        inkcell_str_format_plural(toast, sizeof toast, MESH_STR_TOAST_DELETED_MESSAGES_ONE, removed,
+                                  (unsigned)removed, name);
+        inkcell_log_info("ui", "Deleted %u message(s) in the conversation with %s",
+                         (unsigned)removed, name);
     } else {
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_NOTHING_TO_DELETE, name);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_NOTHING_TO_DELETE, name);
     }
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
 }
 
 static void on_mute_conversation(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
-    const uint64_t now = mesh_time_monotonic_ms();
+    const uint64_t now = inkcell_time_monotonic_ms();
 
     /*
      * Purely local: nothing goes on the air, and the only state that moves is the read mark
@@ -1050,7 +1053,7 @@ static void on_mute_conversation(struct mesh_app *app, const struct mesh_ui_acti
         mesh_ui_store_conversation_muted(&app->ui_store, kind, action->dest, action->channel);
 
     if (!local && effective) {
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_CONVO_MUTED_ON_RADIO, name);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_CONVO_MUTED_ON_RADIO, name);
         mesh_ui_store_set_toast(&app->ui_store, now, toast);
         return;
     }
@@ -1071,44 +1074,44 @@ static void on_mute_conversation(struct mesh_app *app, const struct mesh_ui_acti
     const bool still_muted =
         mesh_ui_store_conversation_muted(&app->ui_store, kind, action->dest, action->channel);
     if (local && still_muted) {
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_CONVO_MUTED_ON_RADIO, name);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_CONVO_MUTED_ON_RADIO, name);
         mesh_ui_store_set_toast(&app->ui_store, now, toast);
-        mesh_log_info("ui", "Cleared the local mute on %s; the radio still mutes it", name);
+        inkcell_log_info("ui", "Cleared the local mute on %s; the radio still mutes it", name);
         return;
     }
-    mesh_str_format(toast, sizeof toast,
-                    !local ? MESH_STR_TOAST_CONVO_MUTED : MESH_STR_TOAST_CONVO_UNMUTED, name);
+    inkcell_str_format(toast, sizeof toast,
+                       !local ? MESH_STR_TOAST_CONVO_MUTED : MESH_STR_TOAST_CONVO_UNMUTED, name);
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
-    mesh_log_info("ui", "%s the conversation with %s", !local ? "Muted" : "Unmuted", name);
+    inkcell_log_info("ui", "%s the conversation with %s", !local ? "Muted" : "Unmuted", name);
 }
 
 static void on_traceroute(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
-    const uint64_t now = mesh_time_monotonic_ms();
+    const uint64_t now = inkcell_time_monotonic_ms();
 
     char name[MESH_UI_NAV_TARGET_NAME_MAX];
     action_peer_name(app, action->dest, name, sizeof name);
     const int result = mesh_session_send_traceroute(&app->session, action->dest);
     if (result == 0) {
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_TRACING, name);
-        mesh_log_info("ui", "Traceroute to 0x%08x from the Nodes tab", action->dest);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_TRACING, name);
+        inkcell_log_info("ui", "Traceroute to 0x%08x from the Nodes tab", action->dest);
     } else if (result == -ENOTCONN) {
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_NOT_CONNECTED));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NOT_CONNECTED));
     } else if (result == -EBUSY) {
         /* One trace at a time is this client's half of the firmware's rate limit. */
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_TRACE_RUNNING));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_TRACE_RUNNING));
     } else if (result == -EINVAL) {
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_CANNOT_TRACE));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_CANNOT_TRACE));
     } else {
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_TRACE_FAILED, result);
-        mesh_log_warn("ui", "Traceroute to 0x%08x failed: %d", action->dest, result);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_TRACE_FAILED, result);
+        inkcell_log_warn("ui", "Traceroute to 0x%08x failed: %d", action->dest, result);
     }
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
 }
 
 static void on_share_waypoint(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
-    const uint64_t now = mesh_time_monotonic_ms();
+    const uint64_t now = inkcell_time_monotonic_ms();
 
     /*
      * Two jobs behind one action, told apart by `number`: 0 is a new place at a node's fix,
@@ -1128,7 +1131,7 @@ static void on_share_waypoint(struct mesh_app *app, const struct mesh_ui_action 
         const struct mesh_waypoint *existing =
             mesh_waypoint_book_get(mesh_session_waypoints(&app->session), action->number);
         if (existing == NULL) {
-            snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_WAYPOINT_GONE));
+            snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_WAYPOINT_GONE));
             mesh_ui_store_set_toast(&app->ui_store, now, toast);
             return;
         }
@@ -1136,7 +1139,7 @@ static void on_share_waypoint(struct mesh_app *app, const struct mesh_ui_action 
         channel = existing->channel;
     } else {
         if (action->text[0] == '\0') {
-            snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_WAYPOINT_NAME_NEEDED));
+            snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_WAYPOINT_NAME_NEEDED));
             mesh_ui_store_set_toast(&app->ui_store, now, toast);
             return;
         }
@@ -1154,14 +1157,14 @@ static void on_share_waypoint(struct mesh_app *app, const struct mesh_ui_action 
         }
         if (node == NULL || !node->position.valid ||
             !mesh_geo_coords_valid(node->position.latitude_i, node->position.longitude_i)) {
-            snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_WAYPOINT_NO_FIX));
+            snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_WAYPOINT_NO_FIX));
             mesh_ui_store_set_toast(&app->ui_store, now, toast);
             return;
         }
         waypoint.has_coords = true;
         waypoint.latitude_i = node->position.latitude_i;
         waypoint.longitude_i = node->position.longitude_i;
-        mesh_str_copy(waypoint.name, sizeof waypoint.name, action->text);
+        inkcell_str_copy(waypoint.name, sizeof waypoint.name, action->text);
         /*
          * Locked to us: we made it, and nobody else on the mesh has a reason to move it.
          * Left open, any client could edit or withdraw it - which upstream allows and which
@@ -1174,15 +1177,15 @@ static void on_share_waypoint(struct mesh_app *app, const struct mesh_ui_action 
     uint32_t id = 0U;
     const int result = mesh_session_send_waypoint(&app->session, &waypoint, channel, &id);
     if (result == 0) {
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_WAYPOINT_SHARED, waypoint.name);
-        mesh_log_info("ui", "Shared waypoint %u on channel %u", id, (unsigned)channel);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_WAYPOINT_SHARED, waypoint.name);
+        inkcell_log_info("ui", "Shared waypoint %u on channel %u", id, (unsigned)channel);
     } else if (result == -ENOTCONN) {
         /* The session kept the place regardless - see mesh_session_send_waypoint(). What
            did not happen is the mesh hearing about it, and that is what the toast says. */
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_WAYPOINT_SAVED, waypoint.name);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_WAYPOINT_SAVED, waypoint.name);
     } else {
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_WAYPOINT_FAILED, result);
-        mesh_log_warn("ui", "Sharing a waypoint failed: %d", result);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_WAYPOINT_FAILED, result);
+        inkcell_log_warn("ui", "Sharing a waypoint failed: %d", result);
     }
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
     mesh_app_publish_ui_state(app);
@@ -1190,26 +1193,26 @@ static void on_share_waypoint(struct mesh_app *app, const struct mesh_ui_action 
 
 static void on_forget_waypoint(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
-    const uint64_t now = mesh_time_monotonic_ms();
+    const uint64_t now = inkcell_time_monotonic_ms();
 
     const struct mesh_waypoint *existing =
         mesh_waypoint_book_get(mesh_session_waypoints(&app->session), action->number);
     char name[MESH_WAYPOINT_NAME_MAX + 1U];
-    mesh_str_copy(name, sizeof name,
-                  (existing != NULL && existing->name[0] != '\0')
-                      ? existing->name
-                      : mesh_str(MESH_STR_WAYPOINTS_UNNAMED));
+    inkcell_str_copy(name, sizeof name,
+                     (existing != NULL && existing->name[0] != '\0')
+                         ? existing->name
+                         : inkcell_str(MESH_STR_WAYPOINTS_UNNAMED));
 
     bool shared = false;
     const int result = mesh_session_forget_waypoint(&app->session, action->number, &shared);
     if (result == -ENOENT) {
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_WAYPOINT_GONE));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_WAYPOINT_GONE));
     } else if (shared) {
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_WAYPOINT_DELETED, name);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_WAYPOINT_DELETED, name);
     } else {
         /* The place is gone from here either way; the toast says whether the mesh heard
            about it, because a locked place and a dead link both end up here. */
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_WAYPOINT_FORGOT, name);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_WAYPOINT_FORGOT, name);
     }
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
     mesh_app_publish_ui_state(app);
@@ -1217,7 +1220,7 @@ static void on_forget_waypoint(struct mesh_app *app, const struct mesh_ui_action
 
 static void on_disconnect(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
-    const uint64_t now = mesh_time_monotonic_ms();
+    const uint64_t now = inkcell_time_monotonic_ms();
 
     struct mesh_transport *transport = mesh_app_active_transport();
     const char *identifier = mesh_app_connected_identifier();
@@ -1247,17 +1250,17 @@ static void on_disconnect(struct mesh_app *app, const struct mesh_ui_action *act
         app->autoconnect_held = true;
         app->ui_report_link_error = false;
         if (name[0] != '\0') {
-            mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_DISCONNECTED_FROM, name);
+            inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_DISCONNECTED_FROM, name);
         } else {
-            snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_DISCONNECTED));
+            snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_DISCONNECTED));
         }
-        mesh_log_info("ui", "Disconnect requested from the device (%s)",
-                      name[0] != '\0' ? name : "active link");
+        inkcell_log_info("ui", "Disconnect requested from the device (%s)",
+                         name[0] != '\0' ? name : "active link");
     } else if (result == -ENOTCONN) {
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_NOTHING_CONNECTED));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NOTHING_CONNECTED));
     } else {
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_DISCONNECT_FAILED, result);
-        mesh_log_warn("ui", "Disconnect failed: %d", result);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_DISCONNECT_FAILED, result);
+        inkcell_log_warn("ui", "Disconnect failed: %d", result);
     }
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
 }
@@ -1265,7 +1268,7 @@ static void on_disconnect(struct mesh_app *app, const struct mesh_ui_action *act
 static void on_forget(struct mesh_app *app, const struct mesh_ui_action *action) {
     struct mesh_transport *const ble = mesh_ble_transport();
     char toast[MESH_UI_NAV_TOAST_MAX];
-    const uint64_t now = mesh_time_monotonic_ms();
+    const uint64_t now = inkcell_time_monotonic_ms();
 
     if (action->kind == (uint8_t)MESH_UI_DEVICE_TCP) {
         /*
@@ -1277,7 +1280,8 @@ static void on_forget(struct mesh_app *app, const struct mesh_ui_action *action)
          */
         if (app->config.preferred_tcp_host[0] == '\0' &&
             app->ui_preferences.network_host[0] == '\0') {
-            mesh_ui_store_set_toast(&app->ui_store, now, mesh_str(MESH_STR_TOAST_NO_NETWORK_HOST));
+            mesh_ui_store_set_toast(&app->ui_store, now,
+                                    inkcell_str(MESH_STR_TOAST_NO_NETWORK_HOST));
             return;
         }
         (void)mesh_tcp_transport_forget(mesh_tcp_transport());
@@ -1286,13 +1290,13 @@ static void on_forget(struct mesh_app *app, const struct mesh_ui_action *action)
         app->ui_preferences_dirty = true;
         /* A host we have just thrown away is not one to reconnect to on the next tick. */
         app->autoconnect_tcp_retry_at_ms = 0U;
-        mesh_log_info("ui", "Forgot the network address");
-        mesh_ui_store_set_toast(&app->ui_store, now, mesh_str(MESH_STR_TOAST_FORGOT_NETWORK));
+        inkcell_log_info("ui", "Forgot the network address");
+        mesh_ui_store_set_toast(&app->ui_store, now, inkcell_str(MESH_STR_TOAST_FORGOT_NETWORK));
         mesh_app_publish_ui_state(app);
         return;
     }
     if (ble == NULL || action->kind != (uint8_t)MESH_UI_DEVICE_BLE) {
-        mesh_ui_store_set_toast(&app->ui_store, now, mesh_str(MESH_STR_TOAST_BLE_ONLY_PAIRING));
+        mesh_ui_store_set_toast(&app->ui_store, now, inkcell_str(MESH_STR_TOAST_BLE_ONLY_PAIRING));
         return;
     }
     const bool was_connected = (mesh_app_connected_identifier() != NULL &&
@@ -1318,12 +1322,12 @@ static void on_forget(struct mesh_app *app, const struct mesh_ui_action *action)
                          ? ""
                          : app->ui_preferences.preferred_device);
         }
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_FORGOT_DEVICE, action->identifier);
-        mesh_log_info("ui", "Forgot BLE node %s", action->identifier);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_FORGOT_DEVICE, action->identifier);
+        inkcell_log_info("ui", "Forgot BLE node %s", action->identifier);
     } else if (mesh_transport_registry_take_error(&app->transport_registry, toast, sizeof toast)) {
-        mesh_log_warn("ui", "Forget %s failed: %s (%d)", action->identifier, toast, result);
+        inkcell_log_warn("ui", "Forget %s failed: %s (%d)", action->identifier, toast, result);
     } else {
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_FORGET_DEVICE_FAILED, result);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_FORGET_DEVICE_FAILED, result);
     }
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
 }
@@ -1332,26 +1336,26 @@ static void on_submit_passkey(struct mesh_app *app, const struct mesh_ui_action 
     /* Non-NULL: the table's needs_ble is what asked. */
     struct mesh_transport *const ble = mesh_ble_transport();
     char toast[MESH_UI_NAV_TOAST_MAX];
-    const uint64_t now = mesh_time_monotonic_ms();
+    const uint64_t now = inkcell_time_monotonic_ms();
 
     const unsigned long value = strtoul(action->text, NULL, 10);
     const int result = mesh_ble_transport_submit_passkey(ble, (uint32_t)value);
     if (result == 0) {
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_PAIRING));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_PAIRING));
         /* Whatever goes wrong from here is reported by the transport, not by this call. */
         app->ui_report_link_error = true;
     } else if (result == -ENOENT) {
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_PAIRING_EXPIRED));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_PAIRING_EXPIRED));
     } else {
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_PAIRING_FAILED, result);
-        mesh_log_warn("ui", "Passkey submit failed: %d", result);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_PAIRING_FAILED, result);
+        inkcell_log_warn("ui", "Passkey submit failed: %d", result);
     }
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
 }
 
 static void on_cancel_pairing(struct mesh_app *app, const struct mesh_ui_action *action) {
     struct mesh_transport *const ble = mesh_ble_transport();
-    const uint64_t now = mesh_time_monotonic_ms();
+    const uint64_t now = inkcell_time_monotonic_ms();
     (void)action;
 
     if (ble != NULL) {
@@ -1360,12 +1364,12 @@ static void on_cancel_pairing(struct mesh_app *app, const struct mesh_ui_action 
     /* A cancelled pairing is a cancelled connect: do not let auto-connect start it over. */
     app->autoconnect_held = true;
     app->ui_report_link_error = false;
-    mesh_ui_store_set_toast(&app->ui_store, now, mesh_str(MESH_STR_TOAST_PAIRING_CANCELLED));
+    mesh_ui_store_set_toast(&app->ui_store, now, inkcell_str(MESH_STR_TOAST_PAIRING_CANCELLED));
 }
 
 static void on_add_contact(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
-    const uint64_t now = mesh_time_monotonic_ms();
+    const uint64_t now = inkcell_time_monotonic_ms();
 
     char name[MESH_UI_NAV_TARGET_NAME_MAX];
     action_peer_name(app, action->dest, name, sizeof name);
@@ -1375,26 +1379,26 @@ static void on_add_contact(struct mesh_app *app, const struct mesh_ui_action *ac
            the entry landed is this node's next NodeInfo rather than the ack for this
            request. Claiming the row early would promise an encrypted direct message that
            may still have nothing to encrypt with. */
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_CONTACT_SENT, name);
-        mesh_log_info("ui", "Added node 0x%08x to the NodeDB from the Nodes tab", action->dest);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_CONTACT_SENT, name);
+        inkcell_log_info("ui", "Added node 0x%08x to the NodeDB from the Nodes tab", action->dest);
     } else if (result == -ENOTCONN) {
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_NOT_CONNECTED));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NOT_CONNECTED));
     } else if (result == -ENOENT) {
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_NODE_GONE));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NODE_GONE));
     } else if (result == -EINVAL) {
         /* The one thing this verb cannot do without, said as the reason rather than as a
            refusal: an entry with no key is what the radio would build for itself. */
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_CONTACT_NO_KEY, name);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_CONTACT_NO_KEY, name);
     } else {
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_CONTACT_FAILED, result);
-        mesh_log_warn("ui", "Add contact for 0x%08x failed: %d", action->dest, result);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_CONTACT_FAILED, result);
+        inkcell_log_warn("ui", "Add contact for 0x%08x failed: %d", action->dest, result);
     }
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
 }
 
 static void on_verify_key(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
-    const uint64_t now = mesh_time_monotonic_ms();
+    const uint64_t now = inkcell_time_monotonic_ms();
 
     char name[MESH_UI_NAV_TARGET_NAME_MAX];
     action_peer_name(app, action->dest, name, sizeof name);
@@ -1403,30 +1407,30 @@ static void on_verify_key(struct mesh_app *app, const struct mesh_ui_action *act
         /* Said as what happens next rather than as "started": the two radios have to reach
            each other before anything is asked of anybody, and on a mesh that is seconds at
            best. The sheet arrives on its own when there is something to answer. */
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_VERIFY_STARTED, name);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_VERIFY_STARTED, name);
         /* A press is always a new question. A second press on an exchange that is still waiting
            starts over in the stage the sheet last showed, and the publish opens the sheet only
            on a stage it has not shown - so a waiting sheet dismissed with B never came back. */
         app->ui_verify_stage_shown = (uint8_t)MESH_KEY_VERIFICATION_IDLE;
     } else if (result == -ENOTCONN) {
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_NOT_CONNECTED));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NOT_CONNECTED));
     } else if (result == -ENOENT) {
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_NODE_GONE));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NODE_GONE));
     } else if (result == -EINVAL) {
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_VERIFY_NO_KEY));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_VERIFY_NO_KEY));
     } else if (result == -EBUSY) {
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_VERIFY_BUSY));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_VERIFY_BUSY));
     } else {
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_VERIFY_FAILED, result);
-        mesh_log_warn("ui", "Key verification with 0x%08x failed to start: %d", action->dest,
-                      result);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_VERIFY_FAILED, result);
+        inkcell_log_warn("ui", "Key verification with 0x%08x failed to start: %d", action->dest,
+                         result);
     }
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
 }
 
 static void on_verify_number(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
-    const uint64_t now = mesh_time_monotonic_ms();
+    const uint64_t now = inkcell_time_monotonic_ms();
 
     const unsigned long value = strtoul(action->text, NULL, 10);
     const int result = mesh_session_verify_key_number(&app->session, (uint32_t)value);
@@ -1436,43 +1440,43 @@ static void on_verify_number(struct mesh_app *app, const struct mesh_ui_action *
         return;
     }
     if (result == -ENOTCONN) {
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_NOT_CONNECTED));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NOT_CONNECTED));
     } else {
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_VERIFY_FAILED, result);
-        mesh_log_warn("ui", "Security number rejected: %d", result);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_VERIFY_FAILED, result);
+        inkcell_log_warn("ui", "Security number rejected: %d", result);
     }
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
 }
 
 static void on_verify_answer(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
-    const uint64_t now = mesh_time_monotonic_ms();
+    const uint64_t now = inkcell_time_monotonic_ms();
 
     const bool verified = (action->number != 0U);
     /* The name is read before the answer, because answering ends the exchange and takes
        the name with it. */
     char name[MESH_UI_NAV_TARGET_NAME_MAX];
     const struct mesh_key_verification *const live = mesh_session_verification(&app->session);
-    (void)mesh_str_copy(name, sizeof name,
-                        live->remote_name[0] != '\0' ? live->remote_name
-                                                     : mesh_str(MESH_STR_COMMON_UNKNOWN));
+    (void)inkcell_str_copy(name, sizeof name,
+                           live->remote_name[0] != '\0' ? live->remote_name
+                                                        : inkcell_str(MESH_STR_COMMON_UNKNOWN));
     const int result = mesh_session_verify_key_settle(&app->session, verified);
     if (result < 0 && result != -ENOTCONN) {
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_VERIFY_FAILED, result);
-        mesh_log_warn("ui", "Key verification answer rejected: %d", result);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_VERIFY_FAILED, result);
+        inkcell_log_warn("ui", "Key verification answer rejected: %d", result);
     } else if (result == -ENOTCONN) {
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_NOT_CONNECTED));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NOT_CONNECTED));
     } else {
-        mesh_str_format(toast, sizeof toast,
-                        verified ? MESH_STR_TOAST_VERIFY_DONE : MESH_STR_TOAST_VERIFY_REFUSED,
-                        name);
+        inkcell_str_format(toast, sizeof toast,
+                           verified ? MESH_STR_TOAST_VERIFY_DONE : MESH_STR_TOAST_VERIFY_REFUSED,
+                           name);
     }
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
 }
 
 static void on_cycle_update_channel(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
-    const uint64_t now = mesh_time_monotonic_ms();
+    const uint64_t now = inkcell_time_monotonic_ms();
     (void)action;
 
     /* Steps DEFAULT -> STABLE -> PRERELEASE -> DEFAULT. Saved immediately rather than
@@ -1481,31 +1485,32 @@ static void on_cycle_update_channel(struct mesh_app *app, const struct mesh_ui_a
     const enum mesh_update_channel next = (enum mesh_update_channel)(
         ((unsigned)app->updater.channel + 1U) % (unsigned)MESH_UPDATE_CHANNEL_COUNT);
     if (!mesh_updater_set_channel(&app->updater, next)) {
-        mesh_ui_store_set_toast(&app->ui_store, now, mesh_str(MESH_STR_TOAST_BUSY_RETRY));
+        mesh_ui_store_set_toast(&app->ui_store, now, inkcell_str(MESH_STR_TOAST_BUSY_RETRY));
         return;
     }
     app->ui_preferences.update_channel = (uint8_t)app->updater.channel;
     app->ui_preferences_dirty = true;
-    mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_UPDATE_CHANNEL, (int)(sizeof toast - 18U),
-                    mesh_update_channel_name(app->updater.channel));
+    inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_UPDATE_CHANNEL,
+                       (int)(sizeof toast - 18U), mesh_update_channel_name(app->updater.channel));
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
 }
 
 static void on_cycle_language(struct mesh_app *app, const struct mesh_ui_action *action) {
-    const uint64_t now = mesh_time_monotonic_ms();
+    const uint64_t now = inkcell_time_monotonic_ms();
     (void)action;
 
-    if (mesh_i18n_is_overridden()) {
+    if (inkcell_i18n_is_overridden()) {
         return;
     }
-    const size_t count = mesh_i18n_locale_count();
+    const size_t count = inkcell_i18n_locale_count();
     for (size_t i = 0; i < count; ++i) {
-        if (mesh_i18n_locale_at(i) != mesh_i18n_locale()) {
+        if (inkcell_i18n_locale_at(i) != inkcell_i18n_locale()) {
             continue;
         }
-        const struct mesh_i18n_locale *next = mesh_i18n_locale_at((i + 1U) % count);
-        (void)mesh_i18n_set_locale(next->id);
-        mesh_str_copy(app->ui_preferences.language, sizeof app->ui_preferences.language, next->id);
+        const struct inkcell_i18n_locale *next = inkcell_i18n_locale_at((i + 1U) % count);
+        (void)inkcell_i18n_set_locale(next->id);
+        inkcell_str_copy(app->ui_preferences.language, sizeof app->ui_preferences.language,
+                         next->id);
         app->ui_preferences_dirty = true;
         mesh_ui_store_set_toast(&app->ui_store, now, next->name);
         /* Persist and rebuild formatted snapshot text before the queued redraw. */
@@ -1516,7 +1521,7 @@ static void on_cycle_language(struct mesh_app *app, const struct mesh_ui_action 
 
 static void on_cycle_theme(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
-    const uint64_t now = mesh_time_monotonic_ms();
+    const uint64_t now = inkcell_time_monotonic_ms();
     (void)action;
 
     /* Saved immediately rather than collected as a pending edit, for the reason the update
@@ -1524,18 +1529,18 @@ static void on_cycle_theme(struct mesh_app *app, const struct mesh_ui_action *ac
        The frame after this one is drawn in the new theme - the backends read it out of the
        client info in the snapshot - so the press is its own confirmation. */
     if (app->ui_theme_from_env) {
-        mesh_ui_store_set_toast(&app->ui_store, now, mesh_str(MESH_STR_TOAST_THEME_HELD));
+        mesh_ui_store_set_toast(&app->ui_store, now, inkcell_str(MESH_STR_TOAST_THEME_HELD));
         return;
     }
-    const struct mesh_ui_theme *next = mesh_ui_theme_next(app->ui_theme);
+    const struct inkcell_theme *next = inkcell_theme_next(app->ui_theme);
     if (next == NULL) {
         return;
     }
     app->ui_theme = next;
-    mesh_str_copy(app->ui_preferences.theme, sizeof app->ui_preferences.theme, next->id);
+    inkcell_str_copy(app->ui_preferences.theme, sizeof app->ui_preferences.theme, next->id);
     app->ui_preferences_dirty = true;
-    mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_THEME, (int)(sizeof toast - 8U),
-                    next->name);
+    inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_THEME, (int)(sizeof toast - 8U),
+                       next->name);
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
     /*
      * Published here rather than left to the next loop turn. This handler runs inside
@@ -1548,23 +1553,23 @@ static void on_cycle_theme(struct mesh_app *app, const struct mesh_ui_action *ac
 }
 
 static void on_toggle_dev_updates(struct mesh_app *app, const struct mesh_ui_action *action) {
-    const uint64_t now = mesh_time_monotonic_ms();
+    const uint64_t now = inkcell_time_monotonic_ms();
     (void)action;
 
     if (!mesh_updater_set_allow_dev(&app->updater, !app->updater.allow_dev)) {
-        mesh_ui_store_set_toast(&app->ui_store, now, mesh_str(MESH_STR_TOAST_BUSY_RETRY));
+        mesh_ui_store_set_toast(&app->ui_store, now, inkcell_str(MESH_STR_TOAST_BUSY_RETRY));
         return;
     }
     app->ui_preferences.update_allow_dev = app->updater.allow_dev;
     app->ui_preferences_dirty = true;
     mesh_ui_store_set_toast(&app->ui_store, now,
-                            mesh_str(app->updater.allow_dev ? MESH_STR_TOAST_DEV_UPDATES_ON
-                                                            : MESH_STR_TOAST_DEV_UPDATES_OFF));
+                            inkcell_str(app->updater.allow_dev ? MESH_STR_TOAST_DEV_UPDATES_ON
+                                                               : MESH_STR_TOAST_DEV_UPDATES_OFF));
 }
 
 static void on_discard_crash_report(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
-    const uint64_t now = mesh_time_monotonic_ms();
+    const uint64_t now = inkcell_time_monotonic_ms();
     (void)action;
 
     /*
@@ -1583,58 +1588,58 @@ static void on_discard_crash_report(struct mesh_app *app, const struct mesh_ui_a
      */
     const int result = mesh_crash_discard();
     if (result < 0) {
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_CRASH_DISCARD_FAILED, -result);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_CRASH_DISCARD_FAILED, -result);
         mesh_ui_store_set_toast(&app->ui_store, now, toast);
         return;
     }
-    mesh_ui_store_set_toast(&app->ui_store, now, mesh_str(MESH_STR_TOAST_CRASH_DISCARDED));
+    mesh_ui_store_set_toast(&app->ui_store, now, inkcell_str(MESH_STR_TOAST_CRASH_DISCARDED));
     mesh_app_publish_ui_state(app);
 }
 
 static void on_check_update(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
-    const uint64_t now = mesh_time_monotonic_ms();
+    const uint64_t now = inkcell_time_monotonic_ms();
     (void)action;
 
     const int result = mesh_updater_check(&app->updater, now);
     if (result == 0) {
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_CHECKING_UPDATES));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_CHECKING_UPDATES));
     } else if (result == -ENOTSUP) {
-        mesh_str_copy(toast, sizeof toast,
-                      app->updater.message[0] != '\0'
-                          ? app->updater.message
-                          : mesh_str(MESH_STR_TOAST_UPDATES_UNAVAILABLE));
+        inkcell_str_copy(toast, sizeof toast,
+                         app->updater.message[0] != '\0'
+                             ? app->updater.message
+                             : inkcell_str(MESH_STR_TOAST_UPDATES_UNAVAILABLE));
     } else if (result == -EBUSY) {
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_ALREADY_CHECKING));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_ALREADY_CHECKING));
     } else {
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_UPDATE_CHECK_FAILED, result);
-        mesh_log_warn("ui", "Update check could not start: %d", result);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_UPDATE_CHECK_FAILED, result);
+        inkcell_log_warn("ui", "Update check could not start: %d", result);
     }
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
 }
 
 static void on_cycle_firmware_channel(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
-    const uint64_t now = mesh_time_monotonic_ms();
+    const uint64_t now = inkcell_time_monotonic_ms();
     (void)action;
 
     const enum mesh_firmware_channel next = (enum mesh_firmware_channel)(
         ((unsigned)app->firmware.channel + 1U) % (unsigned)MESH_FIRMWARE_CHANNEL_COUNT);
     if (!mesh_firmware_set_channel(&app->firmware, next)) {
         /* Refused, which here only ever means a check is in flight. */
-        mesh_ui_store_set_toast(&app->ui_store, now, mesh_str(MESH_STR_TOAST_ALREADY_CHECKING));
+        mesh_ui_store_set_toast(&app->ui_store, now, inkcell_str(MESH_STR_TOAST_ALREADY_CHECKING));
         return;
     }
     app->ui_preferences.firmware_channel = (uint8_t)app->firmware.channel;
     app->ui_preferences_dirty = true;
-    mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_FIRMWARE_CHANNEL,
-                    mesh_firmware_channel_name(app->firmware.channel));
+    inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_FIRMWARE_CHANNEL,
+                       mesh_firmware_channel_name(app->firmware.channel));
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
 }
 
 static void on_check_radio_firmware(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
-    const uint64_t now = mesh_time_monotonic_ms();
+    const uint64_t now = inkcell_time_monotonic_ms();
     (void)action;
 
     /* What the radio said about itself is the whole input: the model number decides which
@@ -1651,37 +1656,37 @@ static void on_check_radio_firmware(struct mesh_app *app, const struct mesh_ui_a
         mesh_firmware_check(&app->firmware, metadata != NULL ? (uint32_t)metadata->hw_model : 0U,
                             metadata != NULL ? metadata->firmware_version : "", now);
     if (result == 0) {
-        mesh_str_copy(toast, sizeof toast, mesh_str(MESH_STR_TOAST_CHECKING_FIRMWARE));
+        inkcell_str_copy(toast, sizeof toast, inkcell_str(MESH_STR_TOAST_CHECKING_FIRMWARE));
     } else if (result == -ENOTSUP) {
-        mesh_str_copy(toast, sizeof toast, mesh_str(MESH_STR_TOAST_UPDATES_UNAVAILABLE));
+        inkcell_str_copy(toast, sizeof toast, inkcell_str(MESH_STR_TOAST_UPDATES_UNAVAILABLE));
     } else if (result == -EBUSY) {
-        mesh_str_copy(toast, sizeof toast, mesh_str(MESH_STR_TOAST_ALREADY_CHECKING));
+        inkcell_str_copy(toast, sizeof toast, inkcell_str(MESH_STR_TOAST_ALREADY_CHECKING));
     } else {
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_UPDATE_CHECK_FAILED, result);
-        mesh_log_warn("ui", "Firmware check could not start: %d", result);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_UPDATE_CHECK_FAILED, result);
+        inkcell_log_warn("ui", "Firmware check could not start: %d", result);
     }
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
 }
 
 static void on_install_update(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
-    const uint64_t now = mesh_time_monotonic_ms();
+    const uint64_t now = inkcell_time_monotonic_ms();
     (void)action;
 
     const int result = mesh_updater_install(&app->updater, now);
     if (result == 0) {
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_DOWNLOADING, app->updater.latest);
-        mesh_log_info("ui", "Installing update %s from the About screen", app->updater.latest);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_DOWNLOADING, app->updater.latest);
+        inkcell_log_info("ui", "Installing update %s from the About screen", app->updater.latest);
     } else if (result == -EBUSY) {
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_ALREADY_WORKING));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_ALREADY_WORKING));
     } else if (result == -EINVAL) {
         /* Nothing to install: the check has not run, or found nothing newer. */
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_CHECK_FIRST));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_CHECK_FIRST));
     } else if (result == -ENOTSUP) {
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_UPDATES_UNAVAILABLE));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_UPDATES_UNAVAILABLE));
     } else {
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_UPDATE_FAILED, result);
-        mesh_log_warn("ui", "Update install could not start: %d", result);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_UPDATE_FAILED, result);
+        inkcell_log_warn("ui", "Update install could not start: %d", result);
     }
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
 }
@@ -1705,7 +1710,7 @@ static bool firmware_resume_install(struct mesh_app *app, uint64_t now) {
     const struct mesh_firmware_board board = app->firmware_update.board;
     const struct mesh_firmware_release release = app->firmware_update.release;
     char where[sizeof app->firmware_update.where];
-    mesh_str_copy(where, sizeof where, app->firmware_update.where);
+    inkcell_str_copy(where, sizeof where, app->firmware_update.where);
     const struct mesh_firmware_update_hooks resume = {
         .release_link = mesh_app_firmware_release_link,
         .request_interval = mesh_app_firmware_interval,
@@ -1714,13 +1719,14 @@ static bool firmware_resume_install(struct mesh_app *app, uint64_t now) {
     const int resumed = mesh_firmware_update_start(&app->firmware_update, &board, &release, where,
                                                    &resume, mesh_app_firmware_update_done, app);
     if (resumed == 0) {
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_INSTALLING_FIRMWARE, release.version);
-        mesh_log_info("ui", "Resuming the firmware install: %s is in its OTA loader",
-                      where[0] != '\0' ? where : board.target);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_INSTALLING_FIRMWARE,
+                           release.version);
+        inkcell_log_info("ui", "Resuming the firmware install: %s is in its OTA loader",
+                         where[0] != '\0' ? where : board.target);
     } else {
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_FIRMWARE_FAILED,
-                        mesh_firmware_update_error_name(app->firmware_update.error));
-        mesh_log_warn("ui", "Firmware install could not resume: %d", resumed);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_FIRMWARE_FAILED,
+                           mesh_firmware_update_error_name(app->firmware_update.error));
+        inkcell_log_warn("ui", "Firmware install could not resume: %d", resumed);
     }
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
     return true;
@@ -1728,7 +1734,7 @@ static bool firmware_resume_install(struct mesh_app *app, uint64_t now) {
 
 static void on_install_radio_firmware(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
-    const uint64_t now = mesh_time_monotonic_ms();
+    const uint64_t now = inkcell_time_monotonic_ms();
 
     if (firmware_resume_install(app, now)) {
         return;
@@ -1740,7 +1746,7 @@ static void on_install_radio_firmware(struct mesh_app *app, const struct mesh_ui
      */
     const struct mesh_firmware_board *const board = mesh_firmware_board(&app->firmware);
     if (board == NULL || app->firmware.state != MESH_FIRMWARE_AVAILABLE) {
-        mesh_ui_store_set_toast(&app->ui_store, now, mesh_str(MESH_STR_TOAST_CHECK_FIRST));
+        mesh_ui_store_set_toast(&app->ui_store, now, inkcell_str(MESH_STR_TOAST_CHECK_FIRST));
         return;
     }
     /*
@@ -1757,12 +1763,12 @@ static void on_install_radio_firmware(struct mesh_app *app, const struct mesh_ui
     const enum mesh_firmware_path agreed =
         action->number == 1U ? MESH_FIRMWARE_PATH_BLE : MESH_FIRMWARE_PATH_USB;
     if (board->path != agreed || app->firmware.bus != agreed) {
-        mesh_ui_store_set_toast(&app->ui_store, now, mesh_str(MESH_STR_TOAST_CHECK_FIRST));
-        mesh_log_warn("ui",
-                      "Refusing a firmware install: the sheet said %s and the radio is "
-                      "on %s",
-                      agreed == MESH_FIRMWARE_PATH_BLE ? "BLE" : "USB",
-                      app->firmware.bus == MESH_FIRMWARE_PATH_BLE ? "BLE" : "USB");
+        mesh_ui_store_set_toast(&app->ui_store, now, inkcell_str(MESH_STR_TOAST_CHECK_FIRST));
+        inkcell_log_warn("ui",
+                         "Refusing a firmware install: the sheet said %s and the radio is "
+                         "on %s",
+                         agreed == MESH_FIRMWARE_PATH_BLE ? "BLE" : "USB",
+                         app->firmware.bus == MESH_FIRMWARE_PATH_BLE ? "BLE" : "USB");
         return;
     }
     /*
@@ -1797,16 +1803,16 @@ static void on_install_radio_firmware(struct mesh_app *app, const struct mesh_ui
         &app->firmware_update, board, &app->firmware.release, where != NULL ? where : "", &hooks,
         mesh_app_firmware_update_done, app);
     if (result == 0) {
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_INSTALLING_FIRMWARE,
-                        app->firmware.release.version);
-        mesh_log_info("ui", "Installing radio firmware %s on %s", app->firmware.release.version,
-                      board->target);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_INSTALLING_FIRMWARE,
+                           app->firmware.release.version);
+        inkcell_log_info("ui", "Installing radio firmware %s on %s", app->firmware.release.version,
+                         board->target);
     } else if (result == -EBUSY) {
-        mesh_str_copy(toast, sizeof toast, mesh_str(MESH_STR_TOAST_ALREADY_WORKING));
+        inkcell_str_copy(toast, sizeof toast, inkcell_str(MESH_STR_TOAST_ALREADY_WORKING));
     } else {
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_FIRMWARE_FAILED,
-                        mesh_firmware_update_error_name(app->firmware_update.error));
-        mesh_log_warn("ui", "Radio firmware install could not start: %d", result);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_FIRMWARE_FAILED,
+                           mesh_firmware_update_error_name(app->firmware_update.error));
+        inkcell_log_warn("ui", "Radio firmware install could not start: %d", result);
     }
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
 }
@@ -1842,12 +1848,12 @@ struct app_action_entry {
  */
 static void on_import_channels(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
-    const uint64_t now = mesh_time_monotonic_ms();
+    const uint64_t now = inkcell_time_monotonic_ms();
 
     meshtastic_ChannelSet set;
     bool add = false;
     if (!mesh_channel_url_decode(action->text, &set, &add)) {
-        mesh_ui_store_set_toast(&app->ui_store, now, mesh_str(MESH_STR_TOAST_IMPORT_NOT_A_LINK));
+        mesh_ui_store_set_toast(&app->ui_store, now, inkcell_str(MESH_STR_TOAST_IMPORT_NOT_A_LINK));
         return;
     }
 
@@ -1864,16 +1870,16 @@ static void on_import_channels(struct mesh_app *app, const struct mesh_ui_action
         app->settings_writes_acked_seen = radio != NULL ? radio->writes_acked : 0U;
         app->settings_writes_failed_seen = radio != NULL ? radio->writes_failed : 0U;
         snprintf(app->settings_save_section, sizeof app->settings_save_section, "%s",
-                 mesh_str(MESH_STR_SETTINGS_SECTION_CHANNELS));
-        mesh_str_format_plural(toast, sizeof toast, MESH_STR_TOAST_IMPORT_QUEUED_ONE,
-                               (uint32_t)set.settings_count, (unsigned)set.settings_count);
+                 inkcell_str(MESH_STR_SETTINGS_SECTION_CHANNELS));
+        inkcell_str_format_plural(toast, sizeof toast, MESH_STR_TOAST_IMPORT_QUEUED_ONE,
+                                  (uint32_t)set.settings_count, (unsigned)set.settings_count);
     } else if (queued == 0) {
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_IMPORT_NO_CHANGE));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_IMPORT_NO_CHANGE));
     } else if (queued == -ENOTCONN) {
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_NOT_CONNECTED));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NOT_CONNECTED));
     } else {
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_IMPORT_FAILED));
-        mesh_log_warn("ui", "Channel import failed: %d", queued);
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_IMPORT_FAILED));
+        inkcell_log_warn("ui", "Channel import failed: %d", queued);
     }
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
 }
@@ -1893,17 +1899,19 @@ static void on_import_channels(struct mesh_app *app, const struct mesh_ui_action
  */
 static void on_import_contact(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
-    const uint64_t now = mesh_time_monotonic_ms();
+    const uint64_t now = inkcell_time_monotonic_ms();
 
     meshtastic_SharedContact contact;
     if (!mesh_contact_url_decode(action->text, &contact)) {
-        mesh_ui_store_set_toast(&app->ui_store, now, mesh_str(MESH_STR_TOAST_CONTACT_LINK_INVALID));
+        mesh_ui_store_set_toast(&app->ui_store, now,
+                                inkcell_str(MESH_STR_TOAST_CONTACT_LINK_INVALID));
         return;
     }
 
     const struct mesh_handshake_status *const status = mesh_session_handshake(&app->session);
     if (status != NULL && status->has_my_info && contact.node_num == status->my_info.my_node_num) {
-        mesh_ui_store_set_toast(&app->ui_store, now, mesh_str(MESH_STR_TOAST_CONTACT_LINK_IS_SELF));
+        mesh_ui_store_set_toast(&app->ui_store, now,
+                                inkcell_str(MESH_STR_TOAST_CONTACT_LINK_IS_SELF));
         return;
     }
 
@@ -1916,14 +1924,14 @@ static void on_import_contact(struct mesh_app *app, const struct mesh_ui_action 
         /* "Sent", not "added", for the reason on_add_contact() gives: the radio's database may
            be full, and what settles whether the entry landed is this node's next NodeInfo
            rather than the ack for this request. */
-        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_CONTACT_LINK_QUEUED, name);
-        mesh_log_info("ui", "Added node 0x%08x to the NodeDB from a contact link",
-                      (unsigned)contact.node_num);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_CONTACT_LINK_QUEUED, name);
+        inkcell_log_info("ui", "Added node 0x%08x to the NodeDB from a contact link",
+                         (unsigned)contact.node_num);
     } else if (queued == -ENOTCONN) {
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_NOT_CONNECTED));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NOT_CONNECTED));
     } else {
-        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_CONTACT_LINK_FAILED));
-        mesh_log_warn("ui", "Contact import failed: %d", queued);
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_CONTACT_LINK_FAILED));
+        inkcell_log_warn("ui", "Contact import failed: %d", queued);
     }
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
 }
@@ -2005,8 +2013,8 @@ void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *action) 
         return;
     }
     if (entry->needs_ble && mesh_ble_transport() == NULL) {
-        mesh_ui_store_set_toast(&app->ui_store, mesh_time_monotonic_ms(),
-                                mesh_str(MESH_STR_TOAST_BLE_UNAVAILABLE));
+        mesh_ui_store_set_toast(&app->ui_store, inkcell_time_monotonic_ms(),
+                                inkcell_str(MESH_STR_TOAST_BLE_UNAVAILABLE));
         return;
     }
     entry->run(app, action);

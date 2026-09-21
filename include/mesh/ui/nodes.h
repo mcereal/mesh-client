@@ -68,7 +68,7 @@ enum mesh_ui_node_filter {
      * Pinned: the nodes the reader chose to keep at the top - and never our own.
      *
      * "Pinned" rather than "favourites" because X is called pin, the row wears
-     * MESH_UI_ICON_PINNED, and a third word for one fact is the thing the action bar's table
+     * INKCELL_ICON_PINNED, and a third word for one fact is the thing the action bar's table
      * exists to stop.
      *
      * Our own node is excluded for the reason it wears no star: a radio can carry a stale
@@ -103,7 +103,7 @@ uint32_t mesh_ui_node_filter_count(const struct mesh_ui_handshake_state *handsha
 enum mesh_ui_node_filter mesh_ui_node_filter_step(enum mesh_ui_node_filter filter, int delta);
 
 /* The chip's word. */
-enum mesh_str_id mesh_ui_node_filter_label(enum mesh_ui_node_filter filter);
+enum inkcell_str_id mesh_ui_node_filter_label(enum mesh_ui_node_filter filter);
 
 /*
  * ---- the Nodes list's sort --------------------------------------------------------------------
@@ -244,7 +244,7 @@ mesh_ui_node_view_at(const struct mesh_ui_handshake_state *handshake,
 enum mesh_ui_node_sort mesh_ui_node_sort_step(enum mesh_ui_node_sort sort, int delta);
 
 /* The chip's word. */
-enum mesh_str_id mesh_ui_node_sort_label(enum mesh_ui_node_sort sort);
+enum inkcell_str_id mesh_ui_node_sort_label(enum mesh_ui_node_sort sort);
 
 /*
  * Whether this sort can say anything about this roster - false only for Distance with no fix of

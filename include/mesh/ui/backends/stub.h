@@ -1,6 +1,7 @@
 #pragma once
 
-#include "mesh/ui/backend.h"
+#include "inkcell/ui/backend.h"
+
 #include "mesh/ui/store.h"
 
 #ifdef __cplusplus
@@ -13,7 +14,7 @@ struct mesh_ui_backend_stub_context {
     size_t present_calls;
 };
 
-const struct mesh_ui_backend *mesh_ui_backend_stub(void);
+const struct inkcell_backend *mesh_ui_backend_stub(void);
 
 #ifdef __cplusplus
 }

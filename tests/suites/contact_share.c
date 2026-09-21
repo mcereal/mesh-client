@@ -18,6 +18,8 @@
  * padlock in this client is for.
  */
 
+#include "inkcell/utils/qr.h"
+
 #include "framework/mesh_test.h"
 
 #include "mesh/core/contact_share.h"
@@ -26,7 +28,6 @@
 #include "mesh/ui/contact_share.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
-#include "mesh/utils/qr.h"
 #include "support/session_fixture.h"
 #include "support/ui_fixture.h"
 
@@ -231,8 +232,8 @@ MESH_TEST_CASE(contact_url_refuses_a_contradictory_id, unit) {
 MESH_TEST_CASE(contact_url_always_fits_a_code, unit) {
     static uint8_t longest[MESH_CONTACT_URL_MAX - 1U];
     memset(longest, 'A', sizeof longest);
-    struct mesh_qr qr;
-    MESH_TEST_FAIL_IF(!mesh_qr_encode(longest, sizeof longest, MESH_QR_ECC_LOW, &qr),
+    struct inkcell_qr qr;
+    MESH_TEST_FAIL_IF(!inkcell_qr_encode(longest, sizeof longest, INKCELL_QR_ECC_LOW, &qr),
                       "the longest possible contact link did not fit in a code");
     record_success(test_name);
 }
@@ -585,18 +586,18 @@ MESH_TEST_CASE(contact_share_rows_drive_the_two_screens, unit) {
         failure = "the show row could not be reached";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.contact_open || action.type != MESH_UI_ACTION_NONE) {
         failure = "A on the show row should open the sheet and ask the app for nothing";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.contact_open) {
         failure = "the contact sheet should ignore every key but B";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
     if (store.nav.contact_open) {
         failure = "B should close the contact sheet";
         goto cleanup;
@@ -620,7 +621,7 @@ MESH_TEST_CASE(contact_share_rows_drive_the_two_screens, unit) {
         failure = "the add row could not be reached";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.keyboard_open || !store.nav.keyboard_contact_url) {
         failure = "A on the add row should open the contact link keyboard";
         goto cleanup;
@@ -629,7 +630,7 @@ MESH_TEST_CASE(contact_share_rows_drive_the_two_screens, unit) {
     /* Done on something that is not a link leaves the user standing on the keyboard with what
        they typed: two hundred characters of base64 are not worth one wrong one. */
     snprintf(store.nav.draft, sizeof store.nav.draft, "%s", "not a link");
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_START, &action);
     if (!store.nav.keyboard_open || store.nav.confirm_open || store.nav.toast[0] == '\0') {
         failure = "a link that does not parse should stay on the keyboard and say so";
         goto cleanup;
@@ -637,7 +638,7 @@ MESH_TEST_CASE(contact_share_rows_drive_the_two_screens, unit) {
     /* A channel link is not a contact link, and the two must not be read as each other. */
     snprintf(store.nav.draft, sizeof store.nav.draft, "%s",
              "https://meshtastic.org/e/#CgkSAQEaBFRlc3Q");
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_START, &action);
     if (!store.nav.keyboard_open || store.nav.confirm_open) {
         failure = "a channel link should not be taken as a contact";
         goto cleanup;
@@ -651,7 +652,7 @@ MESH_TEST_CASE(contact_share_rows_drive_the_two_screens, unit) {
         goto cleanup;
     }
     snprintf(store.nav.draft, sizeof store.nav.draft, "%s", link);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_START, &action);
     if (store.nav.keyboard_open || !store.nav.confirm_open ||
         store.nav.confirm_action != (uint8_t)MESH_UI_SETTINGS_ACTION_IMPORT_CONTACT ||
         store.nav.confirm_cursor != 1U) {
@@ -673,8 +674,8 @@ MESH_TEST_CASE(contact_share_rows_drive_the_two_screens, unit) {
 
     /* And the answer is the only thing that reaches the app, carrying the link itself so the
        app can parse it against the session as it stands then. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action); /* onto the accept button */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action); /* onto the accept button */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (store.nav.confirm_open || action.type != MESH_UI_ACTION_IMPORT_CONTACT ||
         strcmp(action.text, link) != 0) {
         failure = "the sheet's accept should hand the app the link";

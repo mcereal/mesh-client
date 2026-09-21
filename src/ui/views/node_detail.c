@@ -1,9 +1,10 @@
 #include "mesh/ui/node_detail.h"
 
+#include "inkcell/utils/text.h"
+
 #include "mesh/geo/coords.h"
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/duration.h"
-#include "mesh/utils/text.h"
 
 /* session.h for the traceroute state enum: the UI struct carries it as a byte so store.h
    stays plain, but this file already pulls nanopb in through radio_settings.h, so naming the
@@ -73,12 +74,13 @@ static struct mesh_ui_node_item *rows_next(struct node_rows *rows) {
  * the two halves of a traced route are the two halves of one trace. In every pair the labels are
  * what tells them apart, which is the thing a heading is for.
  */
-static void rows_heading(struct node_rows *rows, enum mesh_str_id label, enum mesh_ui_icon icon) {
+static void rows_heading(struct node_rows *rows, enum inkcell_str_id label,
+                         enum inkcell_icon icon) {
     struct mesh_ui_node_item *item = rows_next(rows);
     if (item == NULL) {
         return;
     }
-    snprintf(item->label, sizeof item->label, "%s", mesh_str(label));
+    snprintf(item->label, sizeof item->label, "%s", inkcell_str(label));
     item->kind = MESH_UI_NODE_ROW_HEADING;
     item->icon = (uint8_t)icon;
 }
@@ -98,38 +100,38 @@ static void rows_heading(struct node_rows *rows, enum mesh_str_id label, enum me
  * honest rather than lazy - "Ask where it is" and "Save this place" are two verbs about one
  * subject, and their labels are what tells them apart.
  */
-static const enum mesh_ui_icon k_action_icons[] = {
-    [MESH_UI_NODE_ACTION_NONE] = MESH_UI_ICON_NONE,
+static const enum inkcell_icon k_action_icons[] = {
+    [MESH_UI_NODE_ACTION_NONE] = INKCELL_ICON_NONE,
     /* The group's own symbol, which is what the heading over these verbs used to carry: the row
        that opens them is the card they were on, so it wears what named them. */
-    [MESH_UI_NODE_ACTION_OPEN_ACTIONS] = MESH_UI_ICON_ACTIONS,
-    [MESH_UI_NODE_ACTION_MESSAGE] = MESH_UI_ICON_MESSAGES,
-    [MESH_UI_NODE_ACTION_FAVORITE] = MESH_UI_ICON_PINNED,
+    [MESH_UI_NODE_ACTION_OPEN_ACTIONS] = INKCELL_ICON_ACTIONS,
+    [MESH_UI_NODE_ACTION_MESSAGE] = INKCELL_ICON_MESSAGES,
+    [MESH_UI_NODE_ACTION_FAVORITE] = INKCELL_ICON_PINNED,
     /* A traced route is the chain of links that reaches the node, which is what LINK says on
        the Status card's transport row. */
-    [MESH_UI_NODE_ACTION_TRACEROUTE] = MESH_UI_ICON_LINK,
-    [MESH_UI_NODE_ACTION_REQUEST_INFO] = MESH_UI_ICON_USER,
-    [MESH_UI_NODE_ACTION_REQUEST_POSITION] = MESH_UI_ICON_POSITION,
-    [MESH_UI_NODE_ACTION_REQUEST_TELEMETRY] = MESH_UI_ICON_TELEMETRY,
+    [MESH_UI_NODE_ACTION_TRACEROUTE] = INKCELL_ICON_LINK,
+    [MESH_UI_NODE_ACTION_REQUEST_INFO] = INKCELL_ICON_USER,
+    [MESH_UI_NODE_ACTION_REQUEST_POSITION] = INKCELL_ICON_POSITION,
+    [MESH_UI_NODE_ACTION_REQUEST_TELEMETRY] = INKCELL_ICON_TELEMETRY,
     /* The bell with a stroke through it, which is the mark the Messages tab already puts on a
        muted conversation - one mute, one symbol, whichever screen turns it on. */
-    [MESH_UI_NODE_ACTION_MUTE] = MESH_UI_ICON_MUTED,
+    [MESH_UI_NODE_ACTION_MUTE] = INKCELL_ICON_MUTED,
     /* Ignoring is the harder one and gets the harder rune: a mute still lets the traffic
        arrive, an ignore has the radio drop it before we ever see it. */
-    [MESH_UI_NODE_ACTION_IGNORE] = MESH_UI_ICON_CLOSE,
-    [MESH_UI_NODE_ACTION_REMOVE] = MESH_UI_ICON_DELETE,
-    [MESH_UI_NODE_ACTION_WAYPOINT] = MESH_UI_ICON_POSITION,
-    [MESH_UI_NODE_ACTION_SHOW_ON_MAP] = MESH_UI_ICON_MAP,
+    [MESH_UI_NODE_ACTION_IGNORE] = INKCELL_ICON_CLOSE,
+    [MESH_UI_NODE_ACTION_REMOVE] = INKCELL_ICON_DELETE,
+    [MESH_UI_NODE_ACTION_WAYPOINT] = INKCELL_ICON_POSITION,
+    [MESH_UI_NODE_ACTION_SHOW_ON_MAP] = INKCELL_ICON_MAP,
     /* The shield the verified state is drawn with, on the row that gets you there - so the
        verb and the state it produces are the same mark. */
-    [MESH_UI_NODE_ACTION_VERIFY_KEY] = MESH_UI_ICON_SECURITY,
+    [MESH_UI_NODE_ACTION_VERIFY_KEY] = INKCELL_ICON_SECURITY,
     /* The radio, because that is what the row is about: our list already has this node and the
        radio's does not. */
-    [MESH_UI_NODE_ACTION_ADD_CONTACT] = MESH_UI_ICON_RADIO,
+    [MESH_UI_NODE_ACTION_ADD_CONTACT] = INKCELL_ICON_RADIO,
     /* The Settings tab's own mark, because that is where the press lands and what it changes is
        which radio that tab is about. The radio rune next door means "this node's entry in our
        radio's database", which is a different sentence. */
-    [MESH_UI_NODE_ACTION_ADMIN] = MESH_UI_ICON_SETTINGS,
+    [MESH_UI_NODE_ACTION_ADMIN] = INKCELL_ICON_SETTINGS,
 };
 
 /*
@@ -139,7 +141,7 @@ static const enum mesh_ui_icon k_action_icons[] = {
  * rows in the accent is not eleven emphases, it is a card with no emphasis in it at all, and
  * the one row that deletes something had to shout over ten rows already shouting. The accent
  * did not go away - it moved to the leading disc, where a colour marks *what the row is about*
- * without competing with the words (see FB_LEADING_TONAL) - and the ink went back to saying
+ * without competing with the words (see INKCELL_FB_LEADING_TONAL) - and the ink went back to saying
  * only what it can say once: this row is not like the others.
  *
  * So an ordinary errand is the ordinary ink. Ignoring a node is the radio dropping its packets -
@@ -152,24 +154,24 @@ static const enum mesh_ui_icon k_action_icons[] = {
  * leading edge and the action bar's "confirm remove" cannot come from four different opinions
  * about which row is which.
  */
-static const enum mesh_ui_tone k_action_tones[] = {
-    [MESH_UI_NODE_ACTION_NONE] = MESH_UI_TONE_NORMAL,
-    [MESH_UI_NODE_ACTION_MESSAGE] = MESH_UI_TONE_NORMAL,
-    [MESH_UI_NODE_ACTION_FAVORITE] = MESH_UI_TONE_NORMAL,
-    [MESH_UI_NODE_ACTION_TRACEROUTE] = MESH_UI_TONE_NORMAL,
-    [MESH_UI_NODE_ACTION_REQUEST_INFO] = MESH_UI_TONE_NORMAL,
-    [MESH_UI_NODE_ACTION_REQUEST_POSITION] = MESH_UI_TONE_NORMAL,
-    [MESH_UI_NODE_ACTION_REQUEST_TELEMETRY] = MESH_UI_TONE_NORMAL,
-    [MESH_UI_NODE_ACTION_IGNORE] = MESH_UI_TONE_WARNING,
-    [MESH_UI_NODE_ACTION_MUTE] = MESH_UI_TONE_NORMAL,
-    [MESH_UI_NODE_ACTION_REMOVE] = MESH_UI_TONE_ERROR,
-    [MESH_UI_NODE_ACTION_WAYPOINT] = MESH_UI_TONE_NORMAL,
-    [MESH_UI_NODE_ACTION_SHOW_ON_MAP] = MESH_UI_TONE_NORMAL,
+static const enum inkcell_tone k_action_tones[] = {
+    [MESH_UI_NODE_ACTION_NONE] = INKCELL_TONE_NORMAL,
+    [MESH_UI_NODE_ACTION_MESSAGE] = INKCELL_TONE_NORMAL,
+    [MESH_UI_NODE_ACTION_FAVORITE] = INKCELL_TONE_NORMAL,
+    [MESH_UI_NODE_ACTION_TRACEROUTE] = INKCELL_TONE_NORMAL,
+    [MESH_UI_NODE_ACTION_REQUEST_INFO] = INKCELL_TONE_NORMAL,
+    [MESH_UI_NODE_ACTION_REQUEST_POSITION] = INKCELL_TONE_NORMAL,
+    [MESH_UI_NODE_ACTION_REQUEST_TELEMETRY] = INKCELL_TONE_NORMAL,
+    [MESH_UI_NODE_ACTION_IGNORE] = INKCELL_TONE_WARNING,
+    [MESH_UI_NODE_ACTION_MUTE] = INKCELL_TONE_NORMAL,
+    [MESH_UI_NODE_ACTION_REMOVE] = INKCELL_TONE_ERROR,
+    [MESH_UI_NODE_ACTION_WAYPOINT] = INKCELL_TONE_NORMAL,
+    [MESH_UI_NODE_ACTION_SHOW_ON_MAP] = INKCELL_TONE_NORMAL,
     /* Ordinary verbs, both of them. Neither costs anything that cannot be done again, and a
        warning colour on the row that establishes trust would be saying the opposite of what
        the row is for. */
-    [MESH_UI_NODE_ACTION_VERIFY_KEY] = MESH_UI_TONE_NORMAL,
-    [MESH_UI_NODE_ACTION_ADD_CONTACT] = MESH_UI_TONE_NORMAL,
+    [MESH_UI_NODE_ACTION_VERIFY_KEY] = INKCELL_TONE_NORMAL,
+    [MESH_UI_NODE_ACTION_ADD_CONTACT] = INKCELL_TONE_NORMAL,
     /*
      * The warning family, and the only row on this card that earns one without taking anything
      * away.
@@ -180,28 +182,28 @@ static const enum mesh_ui_tone k_action_tones[] = {
      * who presses it by accident would not find out from any row on this screen. The banner
      * says so from then on (mesh/ui/chrome.h); the colour is what says it first.
      */
-    [MESH_UI_NODE_ACTION_ADMIN] = MESH_UI_TONE_WARNING,
+    [MESH_UI_NODE_ACTION_ADMIN] = INKCELL_TONE_WARNING,
 };
 
-static enum mesh_ui_icon action_icon(enum mesh_ui_node_action action) {
+static enum inkcell_icon action_icon(enum mesh_ui_node_action action) {
     return (size_t)action < sizeof k_action_icons / sizeof k_action_icons[0]
                ? k_action_icons[action]
-               : MESH_UI_ICON_NONE;
+               : INKCELL_ICON_NONE;
 }
 
-static enum mesh_ui_tone action_tone(enum mesh_ui_node_action action) {
+static enum inkcell_tone action_tone(enum mesh_ui_node_action action) {
     return (size_t)action < sizeof k_action_tones / sizeof k_action_tones[0]
                ? k_action_tones[action]
-               : MESH_UI_TONE_NORMAL;
+               : INKCELL_TONE_NORMAL;
 }
 
-static struct mesh_ui_node_item *rows_action(struct node_rows *rows, enum mesh_str_id label,
+static struct mesh_ui_node_item *rows_action(struct node_rows *rows, enum inkcell_str_id label,
                                              const char *value, enum mesh_ui_node_action action) {
     struct mesh_ui_node_item *item = rows_next(rows);
     if (item == NULL) {
         return NULL;
     }
-    snprintf(item->label, sizeof item->label, "%s", mesh_str(label));
+    snprintf(item->label, sizeof item->label, "%s", inkcell_str(label));
     if (value != NULL) {
         snprintf(item->value, sizeof item->value, "%s", value);
     }
@@ -217,14 +219,14 @@ static struct mesh_ui_node_item *rows_action(struct node_rows *rows, enum mesh_s
  *
  * Pinned, muted and ignored are each a flag the press flips, and each spelled its state into
  * the value column as "Yes" or "No" - a control written down as a word, which is the thing
- * fb_draw_switch() was added to stop on the settings rows. The words stay, for the backend with
- * no sprites; what is new is that the state is also a field, so a screen that can draw the
+ * inkcell_fb_draw_switch() was added to stop on the settings rows. The words stay, for the backend
+ * with no sprites; what is new is that the state is also a field, so a screen that can draw the
  * control draws it from the same flag this read.
  */
-static void rows_toggle(struct node_rows *rows, enum mesh_str_id label, bool on,
+static void rows_toggle(struct node_rows *rows, enum inkcell_str_id label, bool on,
                         enum mesh_ui_node_action action) {
-    struct mesh_ui_node_item *item =
-        rows_action(rows, label, mesh_str(on ? MESH_STR_COMMON_YES : MESH_STR_COMMON_NO), action);
+    struct mesh_ui_node_item *item = rows_action(
+        rows, label, inkcell_str(on ? MESH_STR_COMMON_YES : MESH_STR_COMMON_NO), action);
     if (item == NULL) {
         return;
     }
@@ -250,33 +252,33 @@ static struct mesh_ui_node_item *rows_info_row(struct node_rows *rows, const cha
     return item;
 }
 
-static void rows_text(struct node_rows *rows, enum mesh_str_id label, const char *value) {
-    struct mesh_ui_node_item *item = rows_info_row(rows, mesh_str(label));
+static void rows_text(struct node_rows *rows, enum inkcell_str_id label, const char *value) {
+    struct mesh_ui_node_item *item = rows_info_row(rows, inkcell_str(label));
     if (item != NULL) {
         snprintf(item->value, sizeof item->value, "%s", value != NULL ? value : "");
     }
 }
 
-static void rows_info(struct node_rows *rows, enum mesh_str_id label, enum mesh_str_id format,
+static void rows_info(struct node_rows *rows, enum inkcell_str_id label, enum inkcell_str_id format,
                       ...) {
-    struct mesh_ui_node_item *item = rows_info_row(rows, mesh_str(label));
+    struct mesh_ui_node_item *item = rows_info_row(rows, inkcell_str(label));
     if (item == NULL) {
         return;
     }
     va_list args;
     va_start(args, format);
-    (void)mesh_str_vformat(item->value, sizeof item->value, format, args);
+    (void)inkcell_str_vformat(item->value, sizeof item->value, format, args);
     va_end(args);
 }
 
-static void rows_named(struct node_rows *rows, const char *label, enum mesh_str_id format, ...) {
+static void rows_named(struct node_rows *rows, const char *label, enum inkcell_str_id format, ...) {
     struct mesh_ui_node_item *item = rows_info_row(rows, label);
     if (item == NULL) {
         return;
     }
     va_list args;
     va_start(args, format);
-    (void)mesh_str_vformat(item->value, sizeof item->value, format, args);
+    (void)inkcell_str_vformat(item->value, sizeof item->value, format, args);
     va_end(args);
 }
 
@@ -295,13 +297,13 @@ static void rows_named(struct node_rows *rows, const char *label, enum mesh_str_
  * honest answer for a state that is simply the usual one, and most of these take it.
  *
  * The bar for using this rather than rows_text() is deliberately high, and it is the one
- * fb_draw_badge() states: a card where every row is a bubble is a column of colour reporting
- * nothing. A measurement is never a state - there is no "6.75 dB" to be in - and neither is
- * anything the node chose for itself, which is what its names and its hardware are.
+ * inkcell_fb_draw_badge() states: a card where every row is a bubble is a column of colour
+ * reporting nothing. A measurement is never a state - there is no "6.75 dB" to be in - and neither
+ * is anything the node chose for itself, which is what its names and its hardware are.
  */
-static void rows_state(struct node_rows *rows, enum mesh_str_id label, const char *value,
-                       enum mesh_ui_tone tone) {
-    struct mesh_ui_node_item *item = rows_info_row(rows, mesh_str(label));
+static void rows_state(struct node_rows *rows, enum inkcell_str_id label, const char *value,
+                       enum inkcell_tone tone) {
+    struct mesh_ui_node_item *item = rows_info_row(rows, inkcell_str(label));
     if (item == NULL) {
         return;
     }
@@ -319,15 +321,15 @@ static void rows_state(struct node_rows *rows, enum mesh_str_id label, const cha
  * permille because that is the precision the radio reports it at, battery in whole percent
  * because that is all the wire carries, signal in decibels because that is what it is.
  */
-static const struct mesh_ui_scale node_battery_scale = {0, 100};
-static const struct mesh_ui_band node_battery_band = {.warn = MESH_UI_BATTERY_LOW,
-                                                      .bad = MESH_UI_BATTERY_CRITICAL};
+static const struct inkcell_scale node_battery_scale = {0, 100};
+static const struct inkcell_band node_battery_band = {.warn = INKCELL_BATTERY_LOW,
+                                                      .bad = INKCELL_BATTERY_CRITICAL};
 /* A zeroed scale is the identity domain: these readings are already permille. */
-static const struct mesh_ui_scale node_permille_scale = {0, 0};
-static const struct mesh_ui_band node_channel_util_band = {.warn = MESH_UI_AIRTIME_BUSY_WARN,
-                                                           .bad = MESH_UI_AIRTIME_BUSY_BAD};
-static const struct mesh_ui_band node_air_tx_band = {.warn = MESH_UI_AIRTIME_TX_WARN,
-                                                     .bad = MESH_UI_AIRTIME_TX_BAD};
+static const struct inkcell_scale node_permille_scale = {0, 0};
+static const struct inkcell_band node_channel_util_band = {.warn = INKCELL_AIRTIME_BUSY_WARN,
+                                                           .bad = INKCELL_AIRTIME_BUSY_BAD};
+static const struct inkcell_band node_air_tx_band = {.warn = INKCELL_AIRTIME_TX_WARN,
+                                                     .bad = INKCELL_AIRTIME_TX_BAD};
 /*
  * The node's own air, and the two bands that are about the *node* rather than about the weather.
  *
@@ -338,33 +340,33 @@ static const struct mesh_ui_band node_air_tx_band = {.warn = MESH_UI_AIRTIME_TX_
  * stated for the second question, which is the only one this client can answer, and the scale
  * runs wide enough that an ordinary day is not pinned against either end.
  */
-static const struct mesh_ui_scale node_temperature_scale = {MESH_UI_TEMPERATURE_FLOOR,
-                                                            MESH_UI_TEMPERATURE_CEILING};
-static const struct mesh_ui_band node_temperature_band = {.warn = MESH_UI_TEMPERATURE_WARM,
-                                                          .bad = MESH_UI_TEMPERATURE_HOT};
-static const struct mesh_ui_band node_humidity_band = {.warn = MESH_UI_HUMIDITY_DAMP,
-                                                       .bad = MESH_UI_HUMIDITY_WET};
+static const struct inkcell_scale node_temperature_scale = {INKCELL_TEMPERATURE_FLOOR,
+                                                            INKCELL_TEMPERATURE_CEILING};
+static const struct inkcell_band node_temperature_band = {.warn = INKCELL_TEMPERATURE_WARM,
+                                                          .bad = INKCELL_TEMPERATURE_HOT};
+static const struct inkcell_band node_humidity_band = {.warn = INKCELL_HUMIDITY_DAMP,
+                                                       .bad = INKCELL_HUMIDITY_WET};
 /*
  * The three air readings whose ends somebody else published - see the note beside them in
  * layout.h for why these get a band where a temperature's is about the node instead.
  */
-static const struct mesh_ui_scale node_iaq_scale = {MESH_UI_IAQ_FLOOR, MESH_UI_IAQ_CEILING};
-static const struct mesh_ui_band node_iaq_band = {.warn = MESH_UI_IAQ_POLLUTED,
-                                                  .bad = MESH_UI_IAQ_HEAVY};
-static const struct mesh_ui_scale node_co2_scale = {MESH_UI_CO2_FLOOR, MESH_UI_CO2_CEILING};
-static const struct mesh_ui_band node_co2_band = {.warn = MESH_UI_CO2_STUFFY,
-                                                  .bad = MESH_UI_CO2_BAD};
-static const struct mesh_ui_scale node_pm25_scale = {MESH_UI_PM25_FLOOR, MESH_UI_PM25_CEILING};
-static const struct mesh_ui_band node_pm25_band = {.warn = MESH_UI_PM25_ELEVATED,
-                                                   .bad = MESH_UI_PM25_UNHEALTHY};
-static const struct mesh_ui_scale node_snr_scale = {MESH_UI_SNR_FLOOR, MESH_UI_SNR_CEILING};
-static const struct mesh_ui_band node_snr_band = {.warn = MESH_UI_SNR_FAIR,
-                                                  .bad = MESH_UI_SNR_POOR};
+static const struct inkcell_scale node_iaq_scale = {INKCELL_IAQ_FLOOR, INKCELL_IAQ_CEILING};
+static const struct inkcell_band node_iaq_band = {.warn = INKCELL_IAQ_POLLUTED,
+                                                  .bad = INKCELL_IAQ_HEAVY};
+static const struct inkcell_scale node_co2_scale = {INKCELL_CO2_FLOOR, INKCELL_CO2_CEILING};
+static const struct inkcell_band node_co2_band = {.warn = INKCELL_CO2_STUFFY,
+                                                  .bad = INKCELL_CO2_BAD};
+static const struct inkcell_scale node_pm25_scale = {INKCELL_PM25_FLOOR, INKCELL_PM25_CEILING};
+static const struct inkcell_band node_pm25_band = {.warn = INKCELL_PM25_ELEVATED,
+                                                   .bad = INKCELL_PM25_UNHEALTHY};
+static const struct inkcell_scale node_snr_scale = {INKCELL_SNR_FLOOR, INKCELL_SNR_CEILING};
+static const struct inkcell_band node_snr_band = {.warn = INKCELL_SNR_FAIR,
+                                                  .bad = INKCELL_SNR_POOR};
 /* Received strength's own ends and its own thresholds, which are deliberately not the ratio's
-   scaled - see MESH_UI_RSSI_FAIR for why the two readings are banded on different questions. */
-static const struct mesh_ui_scale node_rssi_scale = {MESH_UI_RSSI_FLOOR, MESH_UI_RSSI_CEILING};
-static const struct mesh_ui_band node_rssi_band = {.warn = MESH_UI_RSSI_FAIR,
-                                                   .bad = MESH_UI_RSSI_POOR};
+   scaled - see INKCELL_RSSI_FAIR for why the two readings are banded on different questions. */
+static const struct inkcell_scale node_rssi_scale = {INKCELL_RSSI_FLOOR, INKCELL_RSSI_CEILING};
+static const struct inkcell_band node_rssi_band = {.warn = INKCELL_RSSI_FAIR,
+                                                   .bad = INKCELL_RSSI_POOR};
 
 /*
  * The fourth way a fact gets onto this screen, and it is a modifier on the other three rather
@@ -377,8 +379,8 @@ static const struct mesh_ui_band node_rssi_band = {.warn = MESH_UI_RSSI_FAIR,
  * would have had to restate the formatting, and the two copies would have drifted the first
  * time a unit changed.
  */
-static void rows_gauge(struct node_rows *rows, int32_t value, struct mesh_ui_scale scale,
-                       const struct mesh_ui_band *band) {
+static void rows_gauge(struct node_rows *rows, int32_t value, struct inkcell_scale scale,
+                       const struct inkcell_band *band) {
     /* The row builder counts past the end so its totals stay honest, so "there is a row behind
        me" is not the same question as "a row was written". */
     if (rows->items == NULL || rows->count == 0U || rows->count > rows->capacity) {
@@ -428,9 +430,9 @@ static void rows_trend(struct node_rows *rows, enum mesh_ui_history_reading read
      * ends labelled and nothing between them. Gating the attach rather than the press keeps the
      * two answers one answer: a row has a trend, or it has neither trend nor verb.
      */
-    const struct mesh_ui_series *series =
+    const struct inkcell_series *series =
         mesh_ui_history_series(rows->history, rows->node_id, reading);
-    if (series == NULL || !mesh_ui_series_has_segment(series)) {
+    if (series == NULL || !inkcell_series_has_segment(series)) {
         return;
     }
     struct mesh_ui_node_item *item = &rows->items[rows->count - 1U];
@@ -442,7 +444,7 @@ static void rows_trend(struct node_rows *rows, enum mesh_ui_history_reading read
 }
 
 static void node_rows_identity(struct node_rows *rows, const struct mesh_ui_node_summary *node) {
-    rows_heading(rows, MESH_STR_NODE_HEAD_IDENTITY, MESH_UI_ICON_USER);
+    rows_heading(rows, MESH_STR_NODE_HEAD_IDENTITY, INKCELL_ICON_USER);
 
     if (node->long_name[0] != '\0') {
         rows_text(rows, MESH_STR_NODE_LONG_NAME, node->long_name);
@@ -461,22 +463,22 @@ static void node_rows_identity(struct node_rows *rows, const struct mesh_ui_node
        chose, and a node the radio's NodeDB no longer carries is one this client remembers
        alone - it is still on the mesh, but a message to it has no stored key to travel with. */
     if (!node->has_user) {
-        rows_state(rows, MESH_STR_NODE_NAME, mesh_str(MESH_STR_NODE_DERIVED_NAME),
-                   MESH_UI_TONE_NORMAL);
+        rows_state(rows, MESH_STR_NODE_NAME, inkcell_str(MESH_STR_NODE_DERIVED_NAME),
+                   INKCELL_TONE_NORMAL);
     }
     if (!node->in_nodedb) {
         /* The warning tone rather than the neutral one, because this row only exists when the
            answer is the bad one: a node the radio has evicted is one a direct message has no
            stored key to travel with, and the row is here to be noticed. */
-        rows_state(rows, MESH_STR_NODE_NODEDB, mesh_str(MESH_STR_NODE_NOT_IN_NODEDB),
-                   MESH_UI_TONE_WARNING);
+        rows_state(rows, MESH_STR_NODE_NODEDB, inkcell_str(MESH_STR_NODE_NOT_IN_NODEDB),
+                   INKCELL_TONE_WARNING);
     }
 
     if (node->role != 0U || node->hw_model != 0U) {
         /* What the node is *for* - client, router, repeater - which is a role out of a fixed
            set and the one thing on this card that changes how every other card should be read.
            The hardware beside it is a model name the node chose, so it stays words. */
-        rows_state(rows, MESH_STR_NODE_ROLE, mesh_radio_role_name(node->role), MESH_UI_TONE_NORMAL);
+        rows_state(rows, MESH_STR_NODE_ROLE, mesh_radio_role_name(node->role), INKCELL_TONE_NORMAL);
     }
     if (node->hw_model != 0U) {
         char fallback[MESH_UI_NODE_VALUE_MAX];
@@ -500,10 +502,10 @@ static void node_rows_identity(struct node_rows *rows, const struct mesh_ui_node
      */
     const enum mesh_ui_key_trust trust = mesh_ui_key_trust_of(node);
     struct mesh_ui_node_item *const trust_row =
-        rows_info_row(rows, mesh_str(MESH_STR_NODE_KEY_TRUST));
+        rows_info_row(rows, inkcell_str(MESH_STR_NODE_KEY_TRUST));
     if (trust_row != NULL) {
         snprintf(trust_row->value, sizeof trust_row->value, "%s",
-                 mesh_str(mesh_ui_key_trust_label(trust)));
+                 inkcell_str(mesh_ui_key_trust_label(trust)));
         /* The tone and not the mark. This card has no icon column - every fact in it is a
            label and a value - so a leading icon here would start one row's words in a column of
            their own. The mark belongs where there is no room for the words: the padlock on a
@@ -522,26 +524,26 @@ static void node_rows_identity(struct node_rows *rows, const struct mesh_ui_node
     const char *set[3];
     size_t set_count = 0U;
     if (node->is_ignored) {
-        set[set_count++] = mesh_str(MESH_STR_NODE_FLAG_IGNORED);
+        set[set_count++] = inkcell_str(MESH_STR_NODE_FLAG_IGNORED);
     }
     if (node->is_licensed) {
-        set[set_count++] = mesh_str(MESH_STR_NODE_FLAG_LICENSED);
+        set[set_count++] = inkcell_str(MESH_STR_NODE_FLAG_LICENSED);
     }
     if (node->is_unmessagable) {
-        set[set_count++] = mesh_str(MESH_STR_NODE_FLAG_UNMESSAGEABLE);
+        set[set_count++] = inkcell_str(MESH_STR_NODE_FLAG_UNMESSAGEABLE);
     }
     for (size_t i = 0; i < set_count; ++i) {
         const size_t used = strlen(flags);
         snprintf(flags + used, sizeof flags - used, "%s%s",
-                 i > 0U ? mesh_str(MESH_STR_NODE_FLAG_SEPARATOR) : "", set[i]);
+                 i > 0U ? inkcell_str(MESH_STR_NODE_FLAG_SEPARATOR) : "", set[i]);
     }
     if (flags[0] != '\0') {
         /* Every flag in this set is something being withheld - the radio dropping the node's
            packets, a node that cannot be written to - so the row warns whenever it is there at
            all. Licensed alone is the exception and is merely a fact about the operator. */
         rows_state(rows, MESH_STR_NODE_FLAGS, flags,
-                   (node->is_ignored || node->is_unmessagable) ? MESH_UI_TONE_WARNING
-                                                               : MESH_UI_TONE_NORMAL);
+                   (node->is_ignored || node->is_unmessagable) ? INKCELL_TONE_WARNING
+                                                               : INKCELL_TONE_NORMAL);
     }
 }
 
@@ -589,11 +591,11 @@ static void node_rows_relay_name(const struct mesh_ui_handshake_state *roster, u
     if (match != NULL) {
         const char *name = match->short_name[0] != '\0' ? match->short_name : match->long_name;
         if (name[0] != '\0') {
-            mesh_str_copy(out, out_len, name);
+            inkcell_str_copy(out, out_len, name);
             return;
         }
     }
-    mesh_str_format(out, out_len, MESH_STR_NODE_VAL_RELAY_HEX, (unsigned)last_byte);
+    inkcell_str_format(out, out_len, MESH_STR_NODE_VAL_RELAY_HEX, (unsigned)last_byte);
 }
 
 /*
@@ -634,8 +636,8 @@ static void node_rows_route(struct node_rows *rows, const struct mesh_ui_node_su
         if ((uint8_t)(node->node_id & 0xFFU) == node->relay_node && !relayed) {
             /* A state rather than a name, because "direct" is a fact about the path and the
                reader is scanning this column for node names. */
-            rows_state(rows, MESH_STR_NODE_RELAYED_BY, mesh_str(MESH_STR_NODE_RELAY_DIRECT),
-                       MESH_UI_TONE_SUCCESS);
+            rows_state(rows, MESH_STR_NODE_RELAYED_BY, inkcell_str(MESH_STR_NODE_RELAY_DIRECT),
+                       INKCELL_TONE_SUCCESS);
         } else {
             char relay[MESH_UI_NODE_VALUE_MAX];
             /* Struck off when we know the packet travelled: whatever carried it, it was not
@@ -650,8 +652,8 @@ static void node_rows_route(struct node_rows *rows, const struct mesh_ui_node_su
         /* Upstream's NO_NEXT_HOP_PREFERENCE: the packet went out to whoever would carry it
            rather than to a chosen relay. Tertiary, not a warning - flooding is how the mesh
            works until it has learnt a route, and how all of it worked before firmware 2.5. */
-        rows_state(rows, MESH_STR_NODE_NEXT_HOP, mesh_str(MESH_STR_NODE_NEXT_HOP_FLOOD),
-                   MESH_UI_TONE_TERTIARY);
+        rows_state(rows, MESH_STR_NODE_NEXT_HOP, inkcell_str(MESH_STR_NODE_NEXT_HOP_FLOOD),
+                   INKCELL_TONE_TERTIARY);
     } else {
         char hop[MESH_UI_NODE_VALUE_MAX];
         node_rows_relay_name(roster, node->next_hop, node->next_hop_ambiguous, 0U, hop, sizeof hop);
@@ -662,7 +664,7 @@ static void node_rows_route(struct node_rows *rows, const struct mesh_ui_node_su
 static void node_rows_signal(struct node_rows *rows, const struct mesh_ui_node_summary *node,
                              const struct mesh_ui_handshake_state *roster, bool is_self,
                              uint32_t now) {
-    rows_heading(rows, MESH_STR_NODE_HEAD_SIGNAL, MESH_UI_ICON_LORA);
+    rows_heading(rows, MESH_STR_NODE_HEAD_SIGNAL, INKCELL_ICON_LORA);
 
     char age[24];
     mesh_ui_format_age(node->last_heard, now, age, sizeof age);
@@ -680,7 +682,7 @@ static void node_rows_signal(struct node_rows *rows, const struct mesh_ui_node_s
          */
         const bool heard = mesh_ui_node_signal_heard(node);
         if (heard) {
-            rows_gauge(rows, mesh_ui_snr_db(node->snr), node_snr_scale, &node_snr_band);
+            rows_gauge(rows, inkcell_snr_db(node->snr), node_snr_scale, &node_snr_band);
             rows_trend(rows, MESH_UI_HISTORY_SNR);
         }
         /* Beside it rather than instead of it: SNR is how far above the noise the packet was
@@ -717,7 +719,7 @@ static void node_rows_signal(struct node_rows *rows, const struct mesh_ui_node_s
             rows_info(rows, MESH_STR_NODE_HOPS_AWAY, MESH_STR_NODE_VAL_NUMBER,
                       (unsigned)node->hops_away);
         } else {
-            rows_text(rows, MESH_STR_NODE_HOPS_AWAY, mesh_str(MESH_STR_COMMON_UNKNOWN));
+            rows_text(rows, MESH_STR_NODE_HOPS_AWAY, inkcell_str(MESH_STR_COMMON_UNKNOWN));
         }
         /* Beside the hop count rather than under its own heading: how far away a node is and
            which node stands between us are one question asked twice, and a heading between
@@ -735,8 +737,8 @@ static void node_rows_signal(struct node_rows *rows, const struct mesh_ui_node_s
      * looking for - a packet that came in over the internet is still a packet.
      */
     rows_state(rows, MESH_STR_NODE_HEARD_VIA,
-               mesh_str(node->via_mqtt ? MESH_STR_NODE_VIA_MQTT : MESH_STR_NODE_VIA_RF),
-               node->via_mqtt ? MESH_UI_TONE_TERTIARY : MESH_UI_TONE_NORMAL);
+               inkcell_str(node->via_mqtt ? MESH_STR_NODE_VIA_MQTT : MESH_STR_NODE_VIA_RF),
+               node->via_mqtt ? INKCELL_TONE_TERTIARY : INKCELL_TONE_NORMAL);
 }
 
 static void node_rows_power(struct node_rows *rows, const struct mesh_ui_node_summary *node,
@@ -745,15 +747,15 @@ static void node_rows_power(struct node_rows *rows, const struct mesh_ui_node_su
     if (!metrics->valid) {
         return;
     }
-    rows_heading(rows, MESH_STR_NODE_HEAD_METRICS, MESH_UI_ICON_TELEMETRY);
+    rows_heading(rows, MESH_STR_NODE_HEAD_METRICS, INKCELL_ICON_TELEMETRY);
 
     if (metrics->has_battery) {
         /* 101 is upstream's "running off USB", not a 101% battery. */
         if (metrics->battery_level > 100U) {
             /* Not a reading at all - upstream's way of saying there is nothing to measure -
                so it is a state where every other battery row is a percentage with a bar. */
-            rows_state(rows, MESH_STR_NODE_BATTERY, mesh_str(MESH_STR_STATUS_BATTERY_USB),
-                       MESH_UI_TONE_SUCCESS);
+            rows_state(rows, MESH_STR_NODE_BATTERY, inkcell_str(MESH_STR_STATUS_BATTERY_USB),
+                       INKCELL_TONE_SUCCESS);
         } else {
             rows_info(rows, MESH_STR_NODE_BATTERY, MESH_STR_NODE_VAL_PERCENT,
                       (unsigned)metrics->battery_level);
@@ -771,7 +773,7 @@ static void node_rows_power(struct node_rows *rows, const struct mesh_ui_node_su
     if (metrics->has_channel_utilization) {
         rows_info(rows, MESH_STR_NODE_CHANNEL_UTIL, MESH_STR_NODE_VAL_PERCENT_FINE,
                   (double)metrics->channel_utilization);
-        rows_gauge(rows, mesh_ui_percent_permille(metrics->channel_utilization),
+        rows_gauge(rows, inkcell_percent_permille(metrics->channel_utilization),
                    node_permille_scale, &node_channel_util_band);
     }
     if (metrics->has_air_util_tx) {
@@ -779,7 +781,7 @@ static void node_rows_power(struct node_rows *rows, const struct mesh_ui_node_su
                   (double)metrics->air_util_tx);
         /* Its own band, an order of magnitude below the one above: this is the radio's own
            transmit duty cycle rather than how busy the band is. */
-        rows_gauge(rows, mesh_ui_percent_permille(metrics->air_util_tx), node_permille_scale,
+        rows_gauge(rows, inkcell_percent_permille(metrics->air_util_tx), node_permille_scale,
                    &node_air_tx_band);
     }
     if (metrics->has_uptime) {
@@ -798,7 +800,7 @@ static void node_rows_position(struct node_rows *rows, const struct mesh_ui_node
     if (!position->valid) {
         return;
     }
-    rows_heading(rows, MESH_STR_NODE_HEAD_POSITION, MESH_UI_ICON_POSITION);
+    rows_heading(rows, MESH_STR_NODE_HEAD_POSITION, INKCELL_ICON_POSITION);
 
     /* Fixed-point 1e-7 degrees on the wire; five decimals is about a metre, which is finer
        than anything a LoRa node reports. */
@@ -854,7 +856,7 @@ static void node_rows_environment(struct node_rows *rows, const struct mesh_ui_n
     if (!env->valid) {
         return;
     }
-    rows_heading(rows, MESH_STR_NODE_HEAD_ENVIRONMENT, MESH_UI_ICON_DETECTION);
+    rows_heading(rows, MESH_STR_NODE_HEAD_ENVIRONMENT, INKCELL_ICON_DETECTION);
 
     /*
      * The two readings the client keeps a trend of, so each is a figure, a bar and a line.
@@ -868,14 +870,14 @@ static void node_rows_environment(struct node_rows *rows, const struct mesh_ui_n
     if (env->has_temperature) {
         rows_info(rows, MESH_STR_NODE_TEMPERATURE, MESH_STR_NODE_VAL_TEMPERATURE,
                   (double)env->temperature, (double)env->temperature * 9.0 / 5.0 + 32.0);
-        rows_gauge(rows, mesh_ui_temperature_decidegrees(env->temperature), node_temperature_scale,
+        rows_gauge(rows, inkcell_temperature_decidegrees(env->temperature), node_temperature_scale,
                    &node_temperature_band);
         rows_trend(rows, MESH_UI_HISTORY_TEMPERATURE);
     }
     if (env->has_humidity) {
         rows_info(rows, MESH_STR_NODE_HUMIDITY, MESH_STR_NODE_VAL_PERCENT_FINE,
                   (double)env->relative_humidity);
-        rows_gauge(rows, mesh_ui_percent_permille(env->relative_humidity), node_permille_scale,
+        rows_gauge(rows, inkcell_percent_permille(env->relative_humidity), node_permille_scale,
                    &node_humidity_band);
         rows_trend(rows, MESH_UI_HISTORY_HUMIDITY);
     }
@@ -914,14 +916,14 @@ static void node_rows_power_metrics(struct node_rows *rows, const struct mesh_ui
     if (!power->valid) {
         return;
     }
-    rows_heading(rows, MESH_STR_NODE_HEAD_POWER, MESH_UI_ICON_POWER);
+    rows_heading(rows, MESH_STR_NODE_HEAD_POWER, INKCELL_ICON_POWER);
     for (size_t ch = 0; ch < sizeof power->channel / sizeof power->channel[0]; ++ch) {
         const struct mesh_ui_node_power_channel *channel = &power->channel[ch];
         if (!channel->has_voltage && !channel->has_current) {
             continue;
         }
         char label[MESH_UI_NODE_LABEL_MAX];
-        mesh_str_format(label, sizeof label, MESH_STR_NODE_POWER_CHANNEL, (unsigned)ch + 1U);
+        inkcell_str_format(label, sizeof label, MESH_STR_NODE_POWER_CHANNEL, (unsigned)ch + 1U);
         /* Both readings on one row: a supply is a voltage and a draw, and splitting them makes
            a three-channel board six rows that have to be read in pairs anyway. */
         if (channel->has_voltage && channel->has_current) {
@@ -944,7 +946,7 @@ static void node_rows_air_quality(struct node_rows *rows, const struct mesh_ui_n
     if (!air->valid) {
         return;
     }
-    rows_heading(rows, MESH_STR_NODE_HEAD_AIR_QUALITY, MESH_UI_ICON_DETECTION);
+    rows_heading(rows, MESH_STR_NODE_HEAD_AIR_QUALITY, INKCELL_ICON_DETECTION);
     /* PM2.5 first and on its own row: it is the number air quality is judged by, and the one a
        person looks for. The coarser fractions share a row because they are read against it. */
     if (air->has_pm25) {
@@ -983,7 +985,7 @@ static void node_rows_health(struct node_rows *rows, const struct mesh_ui_node_s
     if (!health->valid) {
         return;
     }
-    rows_heading(rows, MESH_STR_NODE_HEAD_HEALTH, MESH_UI_ICON_DETECTION);
+    rows_heading(rows, MESH_STR_NODE_HEAD_HEALTH, INKCELL_ICON_DETECTION);
     if (health->has_heart_bpm) {
         rows_info(rows, MESH_STR_NODE_HEART_RATE, MESH_STR_NODE_VAL_BPM,
                   (unsigned)health->heart_bpm);
@@ -1006,7 +1008,7 @@ static void node_rows_host(struct node_rows *rows, const struct mesh_ui_node_sum
     if (!host->valid) {
         return;
     }
-    rows_heading(rows, MESH_STR_NODE_HEAD_HOST, MESH_UI_ICON_STATUS);
+    rows_heading(rows, MESH_STR_NODE_HEAD_HOST, INKCELL_ICON_STATUS);
     if (host->has_uptime) {
         char uptime[32];
         mesh_ui_format_duration(host->uptime_seconds, uptime, sizeof uptime);
@@ -1063,13 +1065,13 @@ static void node_rows_neighbor_name(const struct mesh_ui_handshake_state *roster
             const char *name = roster->nodes[i].short_name[0] != '\0' ? roster->nodes[i].short_name
                                                                       : roster->nodes[i].long_name;
             if (name[0] != '\0') {
-                mesh_str_copy(out, out_len, name);
+                inkcell_str_copy(out, out_len, name);
                 return;
             }
             break;
         }
     }
-    mesh_str_format(out, out_len, MESH_STR_NODE_VAL_USER_ID_HEX, node_id);
+    inkcell_str_format(out, out_len, MESH_STR_NODE_VAL_USER_ID_HEX, node_id);
 }
 
 static void node_rows_neighbors(struct node_rows *rows, const struct mesh_ui_node_summary *node,
@@ -1080,12 +1082,12 @@ static void node_rows_neighbors(struct node_rows *rows, const struct mesh_ui_nod
 
     const struct mesh_ui_node_neighbors *heard = &node->neighbors;
     if (heard->valid) {
-        rows_heading(rows, MESH_STR_NODE_HEAD_NEIGHBOURS, MESH_UI_ICON_NEIGHBORS);
+        rows_heading(rows, MESH_STR_NODE_HEAD_NEIGHBOURS, INKCELL_ICON_NEIGHBORS);
         if (heard->count == 0U) {
             /* A node that hears nobody is a real state and an interesting one - it is how a
                repeater that has fallen off the mesh looks - so it says so rather than showing
                a heading with nothing under it. */
-            rows_text(rows, MESH_STR_NODE_NEIGHBOURS_NONE, mesh_str(MESH_STR_NODE_HEARS_NO_ONE));
+            rows_text(rows, MESH_STR_NODE_NEIGHBOURS_NONE, inkcell_str(MESH_STR_NODE_HEARS_NO_ONE));
         }
         for (uint8_t i = 0; i < heard->count && i < MESH_UI_MAX_NEIGHBORS; ++i) {
             char name[MESH_UI_NODE_LABEL_MAX];
@@ -1123,7 +1125,7 @@ static void node_rows_neighbors(struct node_rows *rows, const struct mesh_ui_nod
                 continue;
             }
             if (listeners == 0U) {
-                rows_heading(rows, MESH_STR_NODE_HEAD_HEARD_BY, MESH_UI_ICON_NEIGHBORS);
+                rows_heading(rows, MESH_STR_NODE_HEAD_HEARD_BY, INKCELL_ICON_NEIGHBORS);
             }
             listeners++;
             /* The roster is already ordered by mesh_app_node_rank, so the first ten are the
@@ -1162,14 +1164,14 @@ static void node_rows_neighbors(struct node_rows *rows, const struct mesh_ui_nod
 static void node_rows_route_action(struct node_rows *rows, const struct mesh_ui_node_summary *node,
                                    const struct mesh_ui_traceroute *trace) {
     const bool ours = trace != NULL && trace->target == node->node_id;
-    const char *value = mesh_str(MESH_STR_COMMON_PRESS_A);
+    const char *value = inkcell_str(MESH_STR_COMMON_PRESS_A);
     if (ours) {
         switch ((enum mesh_traceroute_state)trace->state) {
         case MESH_TRACEROUTE_PENDING:
-            value = mesh_str(MESH_STR_NODE_TRACE_RUNNING);
+            value = inkcell_str(MESH_STR_NODE_TRACE_RUNNING);
             break;
         case MESH_TRACEROUTE_TIMEOUT:
-            value = mesh_str(MESH_STR_NODE_TRACE_TIMEOUT);
+            value = inkcell_str(MESH_STR_NODE_TRACE_TIMEOUT);
             break;
         default:
             break;
@@ -1203,22 +1205,22 @@ static void node_rows_route_path(struct node_rows *rows, const struct mesh_ui_no
            came out of - one trace, one symbol, whichever end of it is being read. */
         rows_heading(rows,
                      direction == 0U ? MESH_STR_NODE_HEAD_ROUTE_OUT : MESH_STR_NODE_HEAD_ROUTE_BACK,
-                     MESH_UI_ICON_LINK);
+                     INKCELL_ICON_LINK);
         for (uint8_t i = 0; i < count && i < MESH_UI_TRACEROUTE_MAX_HOPS; ++i) {
             const struct mesh_ui_traceroute_hop *hop = &path[i];
             char label[MESH_UI_NODE_LABEL_MAX];
             /* An arrow would be two bytes the framebuffer font has no glyph for. */
-            snprintf(label, sizeof label, "%s%s", i == 0U ? "" : mesh_str(MESH_STR_NODE_HOP_ARROW),
-                     hop->name);
+            snprintf(label, sizeof label, "%s%s",
+                     i == 0U ? "" : inkcell_str(MESH_STR_NODE_HOP_ARROW), hop->name);
             /* INT8_MIN is the firmware's "this link was not measured", not a -32 dB link. */
             if (hop->has_snr && hop->snr_quarter_db != INT8_MIN) {
                 rows_named(rows, label, MESH_STR_NODE_VAL_SNR, (double)hop->snr_quarter_db / 4.0);
             } else {
                 struct mesh_ui_node_item *row = rows_info_row(rows, label);
                 if (row != NULL) {
-                    snprintf(
-                        row->value, sizeof row->value, "%s",
-                        mesh_str(i == 0U ? MESH_STR_NODE_HOP_START : MESH_STR_NODE_HOP_NO_READING));
+                    snprintf(row->value, sizeof row->value, "%s",
+                             inkcell_str(i == 0U ? MESH_STR_NODE_HOP_START
+                                                 : MESH_STR_NODE_HOP_NO_READING));
                 }
             }
         }
@@ -1272,15 +1274,15 @@ uint32_t mesh_ui_node_actions_build(const struct mesh_ui_node_summary *node, boo
         node_rows_route_action(&rows, node, trace);
         /* The one row that answers "who is this?" for a node that joined after the NodeDB
            replay and has been sitting in the list as a bare id ever since. */
-        rows_action(&rows, MESH_STR_NODE_ACT_REQUEST_INFO, mesh_str(MESH_STR_COMMON_PRESS_A),
+        rows_action(&rows, MESH_STR_NODE_ACT_REQUEST_INFO, inkcell_str(MESH_STR_COMMON_PRESS_A),
                     MESH_UI_NODE_ACTION_REQUEST_INFO);
         /* The same shape, for the two readings that otherwise arrive on the node's own
            schedule. They sit next to "Ask for its name" because they are the same question -
            tell me what you have now - and because the answer to all three lands in the groups
            further down this screen rather than anywhere else. */
-        rows_action(&rows, MESH_STR_NODE_ACT_REQUEST_POSITION, mesh_str(MESH_STR_COMMON_PRESS_A),
+        rows_action(&rows, MESH_STR_NODE_ACT_REQUEST_POSITION, inkcell_str(MESH_STR_COMMON_PRESS_A),
                     MESH_UI_NODE_ACTION_REQUEST_POSITION);
-        rows_action(&rows, MESH_STR_NODE_ACT_REQUEST_TELEM, mesh_str(MESH_STR_COMMON_PRESS_A),
+        rows_action(&rows, MESH_STR_NODE_ACT_REQUEST_TELEM, inkcell_str(MESH_STR_COMMON_PRESS_A),
                     MESH_UI_NODE_ACTION_REQUEST_TELEMETRY);
         /* Muting is the gentle one of the three below: the node's traffic still arrives and
            still shows in its conversation, the radio just stops announcing it. The wire verb
@@ -1295,7 +1297,7 @@ uint32_t mesh_ui_node_actions_build(const struct mesh_ui_node_summary *node, boo
            the confirm overlay - the cost is a wait, not a loss. */
         rows_action(
             &rows, MESH_STR_NODE_ACT_REMOVE,
-            mesh_str(remove_armed ? MESH_STR_NODE_ACT_REMOVE_ARMED : MESH_STR_COMMON_PRESS_A),
+            inkcell_str(remove_armed ? MESH_STR_NODE_ACT_REMOVE_ARMED : MESH_STR_COMMON_PRESS_A),
             MESH_UI_NODE_ACTION_REMOVE);
         /*
          * The two key rows, after everything above because they are the pair that acts on what
@@ -1312,8 +1314,8 @@ uint32_t mesh_ui_node_actions_build(const struct mesh_ui_node_summary *node, boo
         const enum mesh_ui_key_trust key_trust = mesh_ui_key_trust_of(node);
         if (key_trust != MESH_UI_KEY_TRUST_NONE) {
             if (!node->in_nodedb) {
-                rows_action(&rows, MESH_STR_NODE_ACT_ADD_CONTACT, mesh_str(MESH_STR_COMMON_PRESS_A),
-                            MESH_UI_NODE_ACTION_ADD_CONTACT);
+                rows_action(&rows, MESH_STR_NODE_ACT_ADD_CONTACT,
+                            inkcell_str(MESH_STR_COMMON_PRESS_A), MESH_UI_NODE_ACTION_ADD_CONTACT);
             }
             /* Already verified is not a reason to hide the row. A key that changed is exactly
                when somebody would want to do it again, and the label says which of the two
@@ -1321,7 +1323,7 @@ uint32_t mesh_ui_node_actions_build(const struct mesh_ui_node_summary *node, boo
             rows_action(&rows,
                         key_trust == MESH_UI_KEY_TRUST_VERIFIED ? MESH_STR_NODE_ACT_VERIFY_AGAIN
                                                                 : MESH_STR_NODE_ACT_VERIFY_KEY,
-                        mesh_str(MESH_STR_COMMON_PRESS_A), MESH_UI_NODE_ACTION_VERIFY_KEY);
+                        inkcell_str(MESH_STR_COMMON_PRESS_A), MESH_UI_NODE_ACTION_VERIFY_KEY);
             /*
              * And the last row on the card: open the Settings tab against this node's radio
              * instead of our own.
@@ -1337,7 +1339,7 @@ uint32_t mesh_ui_node_actions_build(const struct mesh_ui_node_summary *node, boo
              * is what somebody pressing "configure this radio" wanted either way. The way back
              * is a row in About radio, which is where the banner sends them.
              */
-            rows_action(&rows, MESH_STR_NODE_ACT_ADMIN, mesh_str(MESH_STR_COMMON_PRESS_A),
+            rows_action(&rows, MESH_STR_NODE_ACT_ADMIN, inkcell_str(MESH_STR_COMMON_PRESS_A),
                         MESH_UI_NODE_ACTION_ADMIN);
         }
     }
@@ -1352,9 +1354,9 @@ uint32_t mesh_ui_node_actions_build(const struct mesh_ui_node_summary *node, boo
         /* Looking at it, and keeping it: the two things a fix is good for, and both gated on
            there being one. A "show on map" row over a node with no position would open a map
            aimed at nowhere. */
-        rows_action(&rows, MESH_STR_NODE_ACT_SHOW_ON_MAP, mesh_str(MESH_STR_COMMON_PRESS_A),
+        rows_action(&rows, MESH_STR_NODE_ACT_SHOW_ON_MAP, inkcell_str(MESH_STR_COMMON_PRESS_A),
                     MESH_UI_NODE_ACTION_SHOW_ON_MAP);
-        rows_action(&rows, MESH_STR_NODE_ACT_WAYPOINT, mesh_str(MESH_STR_COMMON_PRESS_A),
+        rows_action(&rows, MESH_STR_NODE_ACT_WAYPOINT, inkcell_str(MESH_STR_COMMON_PRESS_A),
                     MESH_UI_NODE_ACTION_WAYPOINT);
     }
 
@@ -1402,7 +1404,7 @@ uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool
      * what the row is about is in the row, and the sheet it opens says "Actions" in its own bar.
      */
     if (mesh_ui_node_actions_count(node, is_self, trace) > 0U) {
-        rows_action(&rows, MESH_STR_NODE_HEAD_ACTIONS, mesh_str(MESH_STR_COMMON_PRESS_A),
+        rows_action(&rows, MESH_STR_NODE_HEAD_ACTIONS, inkcell_str(MESH_STR_COMMON_PRESS_A),
                     MESH_UI_NODE_ACTION_OPEN_ACTIONS);
     }
     /*

@@ -12,7 +12,10 @@
  * fb_screens_internal.h, and a case here.
  */
 
-#include "fb_widgets.h"
+#include "inkcell/ui/input.h"
+#include "inkcell/ui/layout.h"
+#include "inkcell/ui/widgets.h"
+#include "inkcell/utils/time.h"
 
 #include "fb_screens_internal.h"
 
@@ -20,11 +23,8 @@
 #include "mesh/ui/actions.h"
 #include "mesh/ui/chrome.h"
 #include "mesh/ui/focus.h"
-#include "mesh/ui/input.h"
-#include "mesh/ui/layout.h"
 #include "mesh/ui/map.h"
 #include "mesh/ui/nav.h"
-#include "mesh/utils/time.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -36,33 +36,34 @@
  * its list. One answer in one place, because a tab and its empty screen showing two different
  * symbols for the same thing is exactly the drift a table like this prevents.
  */
-static enum mesh_ui_icon fb_screen_icon(enum mesh_ui_screen screen) {
+static enum inkcell_icon fb_screen_icon(enum mesh_ui_screen screen) {
     switch (screen) {
     case MESH_UI_SCREEN_MESSAGES:
-        return MESH_UI_ICON_MESSAGES;
+        return INKCELL_ICON_MESSAGES;
     case MESH_UI_SCREEN_NODES:
-        return MESH_UI_ICON_NODES;
+        return INKCELL_ICON_NODES;
     case MESH_UI_SCREEN_WAYPOINTS:
         /* `place` - the same pin the Position settings section wears, and deliberately the same
            id: icons.def's rule is one id per job, and both are saying "somewhere on Earth". A
            second sprite drawing the same rune would be a second answer to one question. */
-        return MESH_UI_ICON_POSITION;
+        return INKCELL_ICON_POSITION;
     case MESH_UI_SCREEN_DEVICES:
-        return MESH_UI_ICON_DEVICES;
+        return INKCELL_ICON_DEVICES;
     case MESH_UI_SCREEN_STATUS:
-        return MESH_UI_ICON_STATUS;
+        return INKCELL_ICON_STATUS;
     case MESH_UI_SCREEN_SETTINGS:
-        return MESH_UI_ICON_SETTINGS;
+        return INKCELL_ICON_SETTINGS;
     default:
-        return MESH_UI_ICON_NONE;
+        return INKCELL_ICON_NONE;
     }
 }
 
 /*
  * The tab strip and the two lines under the body were both written out here, and both were the
  * last screen-level renderers laying out their own pixels. They are components now
- * (fb_draw_nav_bar, fb_draw_action_bar), so what is left in this file is the *content*: which
- * tabs there are, which one is up, and what the bottom line has to say about the radio.
+ * (inkcell_fb_draw_nav_bar, inkcell_fb_draw_action_bar), so what is left in this file is the
+ * *content*: which tabs there are, which one is up, and what the bottom line has to say about the
+ * radio.
  */
 
 /* One chip per screen, in tab order. Static because the set never changes and the strip only
@@ -83,8 +84,8 @@ static enum mesh_ui_icon fb_screen_icon(enum mesh_ui_screen screen) {
  * The count is mesh_ui_nav_unread_total(), so a muted conversation contributes nothing to it -
  * see the note there for why a permanently badged tab is the same as an unbadged one.
  */
-static const struct fb_chip *fb_tab_chips(const struct mesh_ui_snapshot *snapshot) {
-    static struct fb_chip chips[MESH_UI_SCREEN_COUNT];
+static const struct inkcell_fb_chip *fb_tab_chips(const struct mesh_ui_snapshot *snapshot) {
+    static struct inkcell_fb_chip chips[MESH_UI_SCREEN_COUNT];
     /* Static because the strip points at it for the length of the draw, and the frame is built
        and drawn on one turn of the one loop this client has. The chips array above is static
        for the same reason and has always been. */
@@ -98,7 +99,7 @@ static const struct fb_chip *fb_tab_chips(const struct mesh_ui_snapshot *snapsho
         /* "99+" past two figures, which is the conversation row's rule and for the stronger
            reason: this capsule is competing with five tabs for the width of the panel. */
         if (total > 99U) {
-            snprintf(unread, sizeof unread, "%s", mesh_str(MESH_STR_MESSAGES_UNREAD_OVERFLOW));
+            snprintf(unread, sizeof unread, "%s", inkcell_str(MESH_STR_MESSAGES_UNREAD_OVERFLOW));
         } else {
             snprintf(unread, sizeof unread, "%u", (unsigned)total);
         }
@@ -121,28 +122,28 @@ static const struct fb_chip *fb_tab_chips(const struct mesh_ui_snapshot *snapsho
  * success colour, and one that is not is not worth shouting about - so the two are decided
  * together here rather than by the widget, which has no idea what the words mean.
  */
-static void fb_link_summary(const struct mesh_ui_snapshot *snapshot, struct mesh_ui_line *line,
-                            enum mesh_ui_tone *tone) {
-    mesh_ui_line_reset(line);
+static void fb_link_summary(const struct mesh_ui_snapshot *snapshot, struct inkcell_line *line,
+                            enum inkcell_tone *tone) {
+    inkcell_line_reset(line);
     const char *status = snapshot->transport_status[0] != '\0'
                              ? snapshot->transport_status
-                             : mesh_str(MESH_STR_HEADER_TRANSPORT_STARTING);
+                             : inkcell_str(MESH_STR_HEADER_TRANSPORT_STARTING);
     const struct mesh_ui_device *device = mesh_ui_snapshot_connected_device(snapshot);
     if (device != NULL) {
-        mesh_ui_line_str(line, MESH_STR_HEADER_STATUS_CONNECTED, status, fb_device_label(device));
-        *tone = MESH_UI_TONE_SUCCESS;
+        inkcell_line_str(line, MESH_STR_HEADER_STATUS_CONNECTED, status, fb_device_label(device));
+        *tone = INKCELL_TONE_SUCCESS;
         return;
     }
-    mesh_ui_line_str(line, MESH_STR_HEADER_STATUS_QUIT, status, mesh_ui_input_quit_hint());
-    *tone = MESH_UI_TONE_DIM;
+    inkcell_line_str(line, MESH_STR_HEADER_STATUS_QUIT, status, inkcell_input_quit_hint());
+    *tone = INKCELL_TONE_DIM;
 }
 
 /* The same snapshot and geometry can only move inside the bounds declared by animated
    widgets. Re-run composition through a clip so overlapping chrome is restored in draw order. */
-struct fb_render_cache {
+struct inkcell_fb_render_cache {
     struct mesh_ui_snapshot snapshot;
-    const struct mesh_ui_theme *theme;
-    const struct mesh_i18n_locale *locale;
+    const struct inkcell_theme *theme;
+    const struct inkcell_i18n_locale *locale;
     int scale;
     uint32_t width, height;
     time_t second;
@@ -167,31 +168,31 @@ struct fb_render_cache {
     struct inkcell_focus_map focus;
 };
 
-struct fb_overlay_memo *fb_overlay_memo(struct mesh_ui_backend_fb_state *state,
+struct fb_overlay_memo *fb_overlay_memo(struct inkcell_backend_fb_state *state,
                                         enum fb_overlay_id id) {
-    struct fb_render_cache *const cache = state != NULL ? state->render_cache : NULL;
+    struct inkcell_fb_render_cache *const cache = state != NULL ? state->render_cache : NULL;
     if (cache == NULL || (unsigned)id >= (sizeof cache->overlays / sizeof cache->overlays[0])) {
         return NULL;
     }
     return &cache->overlays[id];
 }
 
-struct inkcell_scroll *fb_scroll(struct mesh_ui_backend_fb_state *state, enum fb_scroll_id id) {
-    struct fb_render_cache *const cache = state != NULL ? state->render_cache : NULL;
+struct inkcell_scroll *fb_scroll(struct inkcell_backend_fb_state *state, enum fb_scroll_id id) {
+    struct inkcell_fb_render_cache *const cache = state != NULL ? state->render_cache : NULL;
     if (cache == NULL || (unsigned)id >= (unsigned)FB_SCROLL_COUNT) {
         return NULL;
     }
     return &cache->scrolls[id];
 }
 
-void fb_scroll_report(struct mesh_ui_backend_fb_state *state, bool moving) {
+void fb_scroll_report(struct inkcell_backend_fb_state *state, bool moving) {
     struct fb_app *const app = fb_app_of(state);
     if (app != NULL) {
         app->scrolling = moving;
     }
 }
 
-uint32_t fb_overlay_subject(struct mesh_ui_backend_fb_state *state, enum fb_overlay_id id, bool up,
+uint32_t fb_overlay_subject(struct inkcell_backend_fb_state *state, enum fb_overlay_id id, bool up,
                             uint32_t subject) {
     struct fb_overlay_memo *const memo = fb_overlay_memo(state, id);
     if (memo == NULL) {
@@ -214,8 +215,9 @@ uint32_t fb_overlay_subject(struct mesh_ui_backend_fb_state *state, enum fb_over
  * a sheet or a scrolled body, and nothing in either may ask whether there is a screen behind it
  * to go back to - that is the frame's question and the frame has already answered it.
  */
-struct fb_layout fb_layout_in(const struct fb_layout *layout, struct inkcell_fb_rect box) {
-    struct fb_layout out = *layout;
+struct inkcell_fb_layout fb_layout_in(const struct inkcell_fb_layout *layout,
+                                      struct inkcell_fb_rect box) {
+    struct inkcell_fb_layout out = *layout;
     out.nav_y = box.y;
     out.body_y = box.y;
     out.footer_y = box.y + box.h;
@@ -225,9 +227,10 @@ struct fb_layout fb_layout_in(const struct fb_layout *layout, struct inkcell_fb_
     return out;
 }
 
-bool fb_sheet_begin(struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
+bool fb_sheet_begin(struct inkcell_backend_fb_state *state, const struct inkcell_fb_layout *layout,
                     enum fb_overlay_id id, bool up, const struct inkcell_fb_sheet *sheet,
-                    int content_h, struct inkcell_overlay_frame *frame, struct fb_layout *out) {
+                    int content_h, struct inkcell_overlay_frame *frame,
+                    struct inkcell_fb_layout *out) {
     if (state == NULL || layout == NULL || sheet == NULL || frame == NULL || out == NULL) {
         return false;
     }
@@ -265,16 +268,16 @@ bool fb_sheet_begin(struct mesh_ui_backend_fb_state *state, const struct fb_layo
     return true;
 }
 
-void fb_sheet_end(struct mesh_ui_backend_fb_state *state, struct inkcell_overlay_frame *frame) {
+void fb_sheet_end(struct inkcell_backend_fb_state *state, struct inkcell_overlay_frame *frame) {
     inkcell_fb_overlay_end(state, frame);
 }
 
-void fb_render_cache_free(struct mesh_ui_backend_fb_state *state) {
+void fb_render_cache_free(struct inkcell_backend_fb_state *state) {
     free(state->render_cache);
     state->render_cache = NULL;
 }
 
-static void fb_render_begin(struct mesh_ui_backend_fb_state *state,
+static void fb_render_begin(struct inkcell_backend_fb_state *state,
                             const struct mesh_ui_snapshot *snapshot) {
     state->clip_active = false;
     /* Allocated whether or not partial redraw is on: what hangs off it is no longer only the
@@ -284,19 +287,19 @@ static void fb_render_begin(struct mesh_ui_backend_fb_state *state,
     if (state->render_cache == NULL) {
         state->render_cache = calloc(1U, sizeof *state->render_cache);
     }
-    struct fb_render_cache *cache = state->render_cache;
+    struct inkcell_fb_render_cache *cache = state->render_cache;
     if (!state->partial_disabled && cache != NULL) {
-        const time_t second = (time_t)mesh_time_wall_s();
+        const time_t second = (time_t)inkcell_time_wall_s();
         cache->snapshot.update_flags = snapshot->update_flags;
-        state->clip_active = cache->valid && state->animation_damage.valid &&
-                             cache->theme == state->theme && cache->locale == mesh_i18n_locale() &&
-                             cache->scale == state->scale && cache->width == state->var.xres &&
-                             cache->height == state->var.yres && cache->second == second &&
-                             memcmp(&cache->snapshot, snapshot, sizeof *snapshot) == 0;
+        state->clip_active =
+            cache->valid && state->animation_damage.valid && cache->theme == state->theme &&
+            cache->locale == inkcell_i18n_locale() && cache->scale == state->scale &&
+            cache->width == state->var.xres && cache->height == state->var.yres &&
+            cache->second == second && memcmp(&cache->snapshot, snapshot, sizeof *snapshot) == 0;
         state->clip = state->animation_damage;
         cache->snapshot = *snapshot;
         cache->theme = state->theme;
-        cache->locale = mesh_i18n_locale();
+        cache->locale = inkcell_i18n_locale();
         cache->scale = state->scale;
         cache->width = state->var.xres;
         cache->height = state->var.yres;
@@ -306,7 +309,7 @@ static void fb_render_begin(struct mesh_ui_backend_fb_state *state,
     state->animation_damage.valid = false;
 }
 
-void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
+void fb_render_snapshot(struct inkcell_backend_fb_state *state,
                         const struct mesh_ui_snapshot *snapshot) {
     /* The theme and the move are settled before this call, and what the *last* frame wanted of
        the basemap has already been forgotten: all three are inkcell calling up into fb_app.c,
@@ -320,24 +323,24 @@ void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
      * the arithmetic it always used - so this is pushed in for every frame rather than by the
      * screens that have adopted it. What it costs an unregistered screen is one memset.
      */
-    struct fb_render_cache *const cache = state->render_cache;
+    struct inkcell_fb_render_cache *const cache = state->render_cache;
     if (cache != NULL) {
         inkcell_focus_begin(&cache->focus, cache->focus_storage, MESH_UI_FOCUS_MAX);
         inkcell_fb_set_focus_map(state, &cache->focus);
     }
 
-    fb_clear(state, fb_color(state, MESH_UI_COLOR_BG));
+    inkcell_fb_clear(state, inkcell_fb_color(state, INKCELL_COLOR_BG));
 
-    struct fb_layout layout;
+    struct inkcell_fb_layout layout;
     memset(&layout, 0, sizeof layout);
-    layout.small = mesh_ui_theme_type_scale(state->theme, MESH_UI_TYPE_LABEL, state->scale);
-    layout.line = fb_line_adv(state, state->scale);
-    layout.cols = fb_cols(state, state->scale);
+    layout.small = inkcell_theme_type_scale(state->theme, INKCELL_TYPE_LABEL, state->scale);
+    layout.line = inkcell_fb_line_adv(state, state->scale);
+    layout.cols = inkcell_fb_cols(state, state->scale);
     /* The same room as `cols`, in the unit anything laying out real text measures in. */
-    layout.body_w = (int)state->var.xres - 2 * fb_margin(state);
+    layout.body_w = (int)state->var.xres - 2 * inkcell_fb_margin(state);
 
-    fb_draw_nav_bar(state, &layout, fb_tab_chips(snapshot), MESH_UI_SCREEN_COUNT,
-                    (size_t)snapshot->nav.screen);
+    inkcell_fb_draw_nav_bar(state, &layout, fb_tab_chips(snapshot), MESH_UI_SCREEN_COUNT,
+                            (size_t)snapshot->nav.screen);
 
     /*
      * The two things the *client* says about itself, rather than what any screen says about
@@ -349,10 +352,10 @@ void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
      * The bar goes first and costs nothing: it hangs in the gap the navigation bar already
      * leaves, so `layout` is unchanged by it and a request going out never reflows a list.
      */
-    fb_draw_progress(state, &layout, mesh_ui_chrome_busy(snapshot));
+    inkcell_fb_draw_progress(state, &layout, mesh_ui_chrome_busy(snapshot));
 
-    layout.footer_y = (int)state->var.yres - fb_action_bar_height(state, &layout);
-    const int body_height = layout.footer_y - layout.body_y - fb_gutter(state);
+    layout.footer_y = (int)state->var.yres - inkcell_fb_action_bar_height(state, &layout);
+    const int body_height = layout.footer_y - layout.body_y - inkcell_fb_gutter(state);
     layout.rows = body_height > 0 ? (uint32_t)(body_height / layout.line) : 0U;
 
     /*
@@ -362,14 +365,15 @@ void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
      */
     struct mesh_ui_banner banner;
     if (mesh_ui_chrome_banner(snapshot, &banner)) {
-        const struct fb_banner drawn = {
+        const struct inkcell_fb_banner drawn = {
             .icon = banner.icon,
-            .text = mesh_str(banner.text),
-            .supporting = banner.supporting != MESH_STR_NONE ? mesh_str(banner.supporting) : NULL,
+            .text = inkcell_str(banner.text),
+            .supporting =
+                banner.supporting != INKCELL_STR_NONE ? inkcell_str(banner.supporting) : NULL,
             .detail = banner.detail,
             .family = banner.family,
         };
-        fb_draw_banner(state, &layout, &drawn);
+        inkcell_fb_draw_banner(state, &layout, &drawn);
     }
 
     /*
@@ -386,13 +390,13 @@ void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
      * arrow when what B does is leave. Two answers from one table is the whole point - a screen
      * deciding its own back arrow would be free to disagree with the keycap under it.
      */
-    struct mesh_ui_action_bar actions;
+    struct inkcell_action_bar actions;
     mesh_ui_actions_for(snapshot, &actions);
     layout.back = mesh_ui_action_bar_goes_back(&actions);
 
     /*
      * And whether this frame is part of a move between two places, which is the one thing about
-     * it that is not a function of the snapshot - see fb_transition_offset().
+     * it that is not a function of the snapshot - see inkcell_fb_transition_offset().
      *
      * The band is everything below the navigation bar and above the action bar, because those
      * two are the same on both sides of any move: the strip still names the tab it named, the
@@ -404,11 +408,11 @@ void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
      * band. Everything in there is a function of the clock while a move is running, and the
      * partial-redraw path assumes the opposite of anything it has not been told about.
      */
-    const int slide = fb_transition_offset(state);
+    const int slide = inkcell_fb_transition_offset(state);
     if (slide != 0) {
-        fb_animation_damage(state, 0, layout.nav_y, (int)state->var.xres,
-                            layout.footer_y - layout.nav_y);
-        fb_shift_begin(state, slide, layout.nav_y, layout.footer_y);
+        inkcell_fb_animation_damage(state, 0, layout.nav_y, (int)state->var.xres,
+                                    layout.footer_y - layout.nav_y);
+        inkcell_fb_shift_begin(state, slide, layout.nav_y, layout.footer_y);
     }
 
     /*
@@ -475,7 +479,7 @@ void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
             break;
         }
     }
-    fb_shift_end(state);
+    inkcell_fb_shift_end(state);
 
     /*
      * The layers, over whichever of the above raised them.
@@ -508,25 +512,25 @@ void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
     fb_render_confirm(state, snapshot, &layout);
     fb_render_verify(state, snapshot, &layout);
 
-    struct mesh_ui_line summary;
-    enum mesh_ui_tone summary_tone = MESH_UI_TONE_DIM;
+    struct inkcell_line summary;
+    enum inkcell_tone summary_tone = INKCELL_TONE_DIM;
     fb_link_summary(snapshot, &summary, &summary_tone);
-    const struct fb_action_bar bar = {
+    const struct inkcell_fb_action_bar bar = {
         .items = actions.items,
         .count = actions.count,
-        .status = mesh_ui_line_text(&summary),
+        .status = inkcell_line_text(&summary),
         .status_tone = summary_tone,
     };
-    fb_draw_action_bar(state, &layout, &bar);
+    inkcell_fb_draw_action_bar(state, &layout, &bar);
 
     /*
      * Last, because it is over the UI rather than in it: a notice that a screen could paint
      * over is a notice that is only visible on the screens that happen not to reach the bottom
      * of the body.
      */
-    const struct fb_snackbar snackbar = {
+    const struct inkcell_fb_snackbar snackbar = {
         .text = snapshot->nav.toast,
         .until_ms = snapshot->nav.toast_until_ms,
     };
-    fb_draw_snackbar(state, &layout, &snackbar);
+    inkcell_fb_draw_snackbar(state, &layout, &snackbar);
 }

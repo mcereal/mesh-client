@@ -9,6 +9,9 @@
  * two dispatch into are the neighbouring nav_*.c files, through nav_internal.h.
  */
 
+#include "inkcell/utils/array.h"
+#include "inkcell/utils/text.h"
+
 #include "nav_internal.h"
 
 #include "mesh/core/message.h"
@@ -24,8 +27,6 @@
 #include "mesh/ui/status.h"
 #include "mesh/ui/trend.h"
 #include "mesh/ui/units.h"
-#include "mesh/utils/array.h"
-#include "mesh/utils/text.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -34,19 +35,19 @@
 const char *mesh_ui_screen_name(enum mesh_ui_screen screen) {
     switch (screen) {
     case MESH_UI_SCREEN_MESSAGES:
-        return mesh_str(MESH_STR_TAB_MESSAGES);
+        return inkcell_str(MESH_STR_TAB_MESSAGES);
     case MESH_UI_SCREEN_NODES:
-        return mesh_str(MESH_STR_TAB_NODES);
+        return inkcell_str(MESH_STR_TAB_NODES);
     case MESH_UI_SCREEN_WAYPOINTS:
-        return mesh_str(MESH_STR_TAB_WAYPOINTS);
+        return inkcell_str(MESH_STR_TAB_WAYPOINTS);
     case MESH_UI_SCREEN_DEVICES:
-        return mesh_str(MESH_STR_TAB_DEVICES);
+        return inkcell_str(MESH_STR_TAB_DEVICES);
     case MESH_UI_SCREEN_STATUS:
-        return mesh_str(MESH_STR_TAB_STATUS);
+        return inkcell_str(MESH_STR_TAB_STATUS);
     case MESH_UI_SCREEN_SETTINGS:
-        return mesh_str(MESH_STR_TAB_SETTINGS);
+        return inkcell_str(MESH_STR_TAB_SETTINGS);
     default:
-        return mesh_str(MESH_STR_COMMON_UNKNOWN_SHORT);
+        return inkcell_str(INKCELL_STR_COMMON_UNKNOWN_SHORT);
     }
 }
 
@@ -162,11 +163,11 @@ static bool mesh_ui_nav_close_thread(struct mesh_ui_nav *nav) {
  * through to the tabs and the two halves of the same gesture did different things.
  *
  * Both charts, and one span between them - see `trend_span`. The step itself is
- * mesh_ui_trend_span_step(), because the order the segments draw in is the strip's rather than
+ * inkcell_trend_span_step(), because the order the segments draw in is the strip's rather than
  * this file's.
  */
 static bool mesh_ui_nav_step_trend_span(struct mesh_ui_nav *nav, int delta) {
-    const uint8_t next = mesh_ui_trend_span_step(nav->trend_span, delta);
+    const uint8_t next = inkcell_trend_span_step(nav->trend_span, delta);
     if (next == nav->trend_span) {
         return false;
     }
@@ -284,8 +285,8 @@ static const struct mesh_ui_node_summary *mesh_ui_nav_node_at_row(const struct m
  * re-number.
  */
 static bool mesh_ui_nav_nodes_control_step(struct mesh_ui_nav *nav, uint32_t cursor,
-                                           enum mesh_ui_key key) {
-    const int delta = (key == MESH_UI_KEY_LEFT) ? -1 : +1;
+                                           enum inkcell_key key) {
+    const int delta = (key == INKCELL_KEY_LEFT) ? -1 : +1;
     if (cursor == MESH_UI_NODES_FILTER_ROW) {
         nav->node_filter =
             (uint8_t)mesh_ui_node_filter_step((enum mesh_ui_node_filter)nav->node_filter, delta);
@@ -307,8 +308,8 @@ static bool mesh_ui_nav_nodes_control_step(struct mesh_ui_nav *nav, uint32_t cur
  * Nodes tab is standing, not what is on the panel.
  *
  * And the row count is checked, which is the half that is not about overlays at all. A roster
- * with nothing in it answers 0 rows and the screen draws fb_draw_empty() - no filter, no sort,
- * no list - so row 0 is not the filter row there, it is a row that does not exist. Left and
+ * with nothing in it answers 0 rows and the screen draws inkcell_fb_draw_empty() - no filter, no
+ * sort, no list - so row 0 is not the filter row there, it is a row that does not exist. Left and
  * Right have to stay the tab switch on that screen, because it is the first one a client with
  * no radio attached shows and stepping a control nobody can see is the d-pad going dead on
  * exactly the screen a reader is trying to leave. It is the guard mesh_ui_nav_confirm() already
@@ -327,11 +328,11 @@ void mesh_ui_nav_conversation_name(const struct mesh_ui_nav *nav, char *out, siz
         return;
     }
     if (nav == NULL || !nav->thread_open) {
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_TAB_MESSAGES));
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_TAB_MESSAGES));
         return;
     }
     if (nav->inbox) {
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_MESSAGES_ALL_TRAFFIC));
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_MESSAGES_ALL_TRAFFIC));
         return;
     }
     snprintf(out, out_len, "%s", nav->target_name);
@@ -347,13 +348,14 @@ void mesh_ui_nav_init(struct mesh_ui_nav *nav) {
     nav->target_channel = 0U;
     nav->thread_open = false; /* land on the conversation list, the way a phone does */
     nav->inbox = false;
-    snprintf(nav->target_name, sizeof nav->target_name, "%s", mesh_str(MESH_STR_CHANNEL_PRIMARY));
+    snprintf(nav->target_name, sizeof nav->target_name, "%s",
+             inkcell_str(MESH_STR_CHANNEL_PRIMARY));
     nav->settings_section = MESH_UI_SETTINGS_NO_SECTION;
     nav->settings_parent = MESH_UI_SETTINGS_NO_SECTION;
     nav->settings_channel = MESH_UI_SETTINGS_NO_CHANNEL;
     /* Not zero, which is the narrowest span: a chart opens on everything it has, which is what
        it drew before there was a picker - see `trend_span`. */
-    nav->trend_span = (uint8_t)MESH_UI_TREND_SPAN_ALL;
+    nav->trend_span = (uint8_t)INKCELL_TREND_SPAN_ALL;
 }
 
 /* ---- message filter ----------------------------------------------------------------------- */
@@ -722,7 +724,7 @@ bool mesh_ui_nav_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_store *stor
              * top rather than guessing a height: a window of unknown size cannot be scrolled off
              * the end of anything.
              */
-            const uint32_t readings = mesh_ui_trend_readings(row.trend, nav->trend_span);
+            const uint32_t readings = inkcell_trend_readings(row.trend, nav->trend_span);
             const uint32_t rows = store->page_rows;
             const uint32_t last = (rows > 0U && readings > rows) ? readings - rows : 0U;
             if (nav->trend_scroll > last) {
@@ -1244,7 +1246,7 @@ static bool mesh_ui_nav_send_reaction(struct mesh_ui_nav *nav, struct mesh_ui_ac
     return true;
 }
 
-static bool mesh_ui_nav_reaction_key(struct mesh_ui_nav *nav, enum mesh_ui_key key,
+static bool mesh_ui_nav_reaction_key(struct mesh_ui_nav *nav, enum inkcell_key key,
                                      struct mesh_ui_action *action) {
     const uint32_t rows = mesh_ui_nav_reaction_row_count();
     if (nav->reaction_cursor >= rows && rows > 0U) {
@@ -1258,27 +1260,27 @@ static bool mesh_ui_nav_reaction_key(struct mesh_ui_nav *nav, enum mesh_ui_key k
         nav->message_delete_armed = false;
     }
     switch (key) {
-    case MESH_UI_KEY_UP:
+    case INKCELL_KEY_UP:
         if (nav->reaction_cursor == 0U) {
             return false;
         }
         nav->reaction_cursor--;
         nav->message_delete_armed = false;
         return true;
-    case MESH_UI_KEY_DOWN:
+    case INKCELL_KEY_DOWN:
         if (nav->reaction_cursor + 1U >= rows) {
             return false;
         }
         nav->reaction_cursor++;
         nav->message_delete_armed = false;
         return true;
-    case MESH_UI_KEY_A:
-    case MESH_UI_KEY_START:
+    case INKCELL_KEY_A:
+    case INKCELL_KEY_START:
         if (on_delete) {
             return mesh_ui_nav_delete_message(nav, action);
         }
         return mesh_ui_nav_send_reaction(nav, action, nav->reaction_cursor);
-    case MESH_UI_KEY_B:
+    case INKCELL_KEY_B:
         /* B, and only B - the compose sheet is opened by A and closed by B, and an overlay
            that also answered the key that raised it would be the one place in this UI where
            backing out is two different presses.
@@ -1297,39 +1299,39 @@ static bool mesh_ui_nav_reaction_key(struct mesh_ui_nav *nav, enum mesh_ui_key k
     }
 }
 
-static bool mesh_ui_nav_compose_key(struct mesh_ui_nav *nav, enum mesh_ui_key key,
+static bool mesh_ui_nav_compose_key(struct mesh_ui_nav *nav, enum inkcell_key key,
                                     struct mesh_ui_action *action) {
     const uint32_t rows = mesh_ui_nav_compose_row_count();
     if (nav->compose_cursor >= rows && rows > 0U) {
         nav->compose_cursor = rows - 1U;
     }
     switch (key) {
-    case MESH_UI_KEY_UP:
+    case INKCELL_KEY_UP:
         if (nav->compose_cursor == 0U) {
             return false;
         }
         nav->compose_cursor--;
         return true;
-    case MESH_UI_KEY_DOWN:
+    case INKCELL_KEY_DOWN:
         if (nav->compose_cursor + 1U >= rows) {
             return false;
         }
         nav->compose_cursor++;
         return true;
-    case MESH_UI_KEY_A:
-    case MESH_UI_KEY_START:
+    case INKCELL_KEY_A:
+    case INKCELL_KEY_START:
         if (nav->compose_cursor == MESH_UI_COMPOSE_ROW_DRAFT) {
             nav->keyboard_open = true;
             return true;
         }
         return mesh_ui_nav_send_canned(nav, action,
                                        nav->compose_cursor - MESH_UI_COMPOSE_FIRST_CANNED);
-    case MESH_UI_KEY_Y:
+    case INKCELL_KEY_Y:
         /* Y opened this; a second press types, which is what the row it lands on offers. */
         nav->compose_cursor = MESH_UI_COMPOSE_ROW_DRAFT;
         nav->keyboard_open = true;
         return true;
-    case MESH_UI_KEY_B:
+    case INKCELL_KEY_B:
         nav->compose_open = false;
         nav->reply_to = 0U;
         return true;
@@ -1484,7 +1486,7 @@ static bool mesh_ui_nav_node_action_run(struct mesh_ui_nav *nav, const struct me
  * sideways would be the one screen in the client where a nested level changes tab.
  */
 static bool mesh_ui_nav_node_actions_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
-                                         enum mesh_ui_key key, struct mesh_ui_action *action) {
+                                         enum inkcell_key key, struct mesh_ui_action *action) {
     const struct mesh_ui_node_summary *node =
         mesh_ui_node_detail_find(&store->handshake, nav->node_detail_node);
     if (node == NULL) {
@@ -1504,25 +1506,25 @@ static bool mesh_ui_nav_node_actions_key(struct mesh_ui_nav *nav, const struct m
         nav->node_actions_cursor = count - 1U;
     }
     switch (key) {
-    case MESH_UI_KEY_UP:
+    case INKCELL_KEY_UP:
         if (nav->node_actions_cursor == 0U) {
             return false;
         }
         nav->node_actions_cursor--;
         return true;
-    case MESH_UI_KEY_DOWN:
+    case INKCELL_KEY_DOWN:
         if (nav->node_actions_cursor + 1U >= count) {
             return false;
         }
         nav->node_actions_cursor++;
         return true;
-    case MESH_UI_KEY_LEFT:
-    case MESH_UI_KEY_RIGHT:
+    case INKCELL_KEY_LEFT:
+    case INKCELL_KEY_RIGHT:
         return false;
-    case MESH_UI_KEY_A:
+    case INKCELL_KEY_A:
         return mesh_ui_nav_node_action_run(nav, store, node, &verbs[nav->node_actions_cursor],
                                            action);
-    case MESH_UI_KEY_B:
+    case INKCELL_KEY_B:
         /* Back onto the detail, at the row that opened this - which is where cursor[NODES] has
            been sitting all along. */
         nav->node_actions_open = false;
@@ -1590,7 +1592,7 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
              * three keys, which is what keeps the forward step and the backward one from
              * becoming two opinions about the same two rows.
              */
-            if (mesh_ui_nav_nodes_control_step(nav, cursor, MESH_UI_KEY_A)) {
+            if (mesh_ui_nav_nodes_control_step(nav, cursor, INKCELL_KEY_A)) {
                 return true;
             }
             if (cursor == MESH_UI_NODES_MAP_ROW) {
@@ -1601,7 +1603,7 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
                  * broken. The Waypoints tab's "New waypoint here" row settled this rule.
                  */
                 if (!mesh_ui_map_has_markers(store)) {
-                    mesh_ui_nav_raise_toast(nav, mesh_str(MESH_STR_TOAST_MAP_NO_FIXES));
+                    mesh_ui_nav_raise_toast(nav, inkcell_str(MESH_STR_TOAST_MAP_NO_FIXES));
                     return true; /* the toast is nav state, so the frame has changed */
                 }
                 mesh_ui_nav_open_map(nav, store, 0U);
@@ -1811,7 +1813,7 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
                 /* The row itself does not change; the app's reply comes back as new state. */
                 return false;
             }
-            return mesh_ui_nav_settings_edit_key(nav, store, MESH_UI_KEY_A);
+            return mesh_ui_nav_settings_edit_key(nav, store, INKCELL_KEY_A);
         }
         if (cursor >= mesh_ui_settings_root_count()) {
             return false;
@@ -1880,20 +1882,20 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
  * reached it would step a value the user cannot see.
  */
 static bool mesh_ui_nav_help_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
-                                 enum mesh_ui_key key) {
+                                 enum inkcell_key key) {
     switch (key) {
-    case MESH_UI_KEY_B:
-    case MESH_UI_KEY_SELECT:
+    case INKCELL_KEY_B:
+    case INKCELL_KEY_SELECT:
         nav->help_open = false;
         nav->help_cursor = 0U;
         return true;
-    case MESH_UI_KEY_UP:
+    case INKCELL_KEY_UP:
         if (nav->help_cursor == 0U) {
             return false;
         }
         nav->help_cursor--;
         return true;
-    case MESH_UI_KEY_DOWN: {
+    case INKCELL_KEY_DOWN: {
         const uint32_t rows = mesh_ui_nav_help_row_count(nav, store);
         if (rows == 0U || nav->help_cursor + 1U >= rows) {
             return false;
@@ -1944,8 +1946,8 @@ static bool mesh_ui_nav_open_help(struct mesh_ui_nav *nav, const struct mesh_ui_
  * screen pretending to have state; B leaves, the way it leaves help, and the rest are ignored
  * so that a thumb resting on the pad does not dismiss the code somebody is trying to scan.
  */
-bool mesh_ui_nav_share_key(struct mesh_ui_nav *nav, enum mesh_ui_key key) {
-    if (key != MESH_UI_KEY_B) {
+bool mesh_ui_nav_share_key(struct mesh_ui_nav *nav, enum inkcell_key key) {
+    if (key != INKCELL_KEY_B) {
         return false;
     }
     nav->share_open = false;
@@ -1955,8 +1957,8 @@ bool mesh_ui_nav_share_key(struct mesh_ui_nav *nav, enum mesh_ui_key key) {
 /* B on the contact code sheet. The same screen shape as the share sheet and so the same rule:
    there is nothing on it to choose, so every key but the one that leaves is ignored rather than
    dismissing a code somebody is trying to scan. */
-bool mesh_ui_nav_contact_key(struct mesh_ui_nav *nav, enum mesh_ui_key key) {
-    if (key != MESH_UI_KEY_B) {
+bool mesh_ui_nav_contact_key(struct mesh_ui_nav *nav, enum inkcell_key key) {
+    if (key != INKCELL_KEY_B) {
         return false;
     }
     nav->contact_open = false;
@@ -1964,7 +1966,7 @@ bool mesh_ui_nav_contact_key(struct mesh_ui_nav *nav, enum mesh_ui_key key) {
 }
 
 bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
-                            enum mesh_ui_key key, struct mesh_ui_action *out_action) {
+                            enum inkcell_key key, struct mesh_ui_action *out_action) {
     if (out_action != NULL) {
         memset(out_action, 0, sizeof *out_action);
     }
@@ -2001,7 +2003,7 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
      * disagree - including about the settings discard question, which has no topic while it is
      * armed and therefore falls through to the section handler that stands it down.
      */
-    if (key == MESH_UI_KEY_SELECT && mesh_ui_nav_open_help(nav, store)) {
+    if (key == INKCELL_KEY_SELECT && mesh_ui_nav_open_help(nav, store)) {
         return true;
     }
     /* Ahead of the confirm overlay, because this one is the more urgent of the two questions:
@@ -2044,7 +2046,7 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
 
     /* One press arms Y on the Devices tab; anything else stands it back down. */
     if (nav->devices_forget_armed &&
-        (key != MESH_UI_KEY_Y || nav->screen != MESH_UI_SCREEN_DEVICES)) {
+        (key != INKCELL_KEY_Y || nav->screen != MESH_UI_SCREEN_DEVICES)) {
         nav->devices_forget_armed = false;
         changed = true;
     }
@@ -2052,14 +2054,14 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
        the cursor off it is enough to stand it down, so the arming cannot outlive the row the
        user was looking at. */
     if (nav->node_remove_armed &&
-        (key != MESH_UI_KEY_A || nav->screen != MESH_UI_SCREEN_NODES || !nav->node_actions_open)) {
+        (key != INKCELL_KEY_A || nav->screen != MESH_UI_SCREEN_NODES || !nav->node_actions_open)) {
         nav->node_remove_armed = false;
         changed = true;
     }
     /* The same again for the open place's delete row: only A on that row may re-arm it, and
        moving off it stands it down, so the arming cannot outlive the row it was made on. */
     if (nav->waypoint_delete_armed &&
-        (key != MESH_UI_KEY_A || nav->screen != MESH_UI_SCREEN_WAYPOINTS ||
+        (key != INKCELL_KEY_A || nav->screen != MESH_UI_SCREEN_WAYPOINTS ||
          !nav->waypoint_detail_open)) {
         nav->waypoint_delete_armed = false;
         changed = true;
@@ -2089,8 +2091,8 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
      * so the shortcut is redundant rather than absent.
      */
     if (nav->node_actions_open && nav->screen == MESH_UI_SCREEN_NODES &&
-        (key == MESH_UI_KEY_UP || key == MESH_UI_KEY_DOWN || key == MESH_UI_KEY_LEFT ||
-         key == MESH_UI_KEY_RIGHT || key == MESH_UI_KEY_A || key == MESH_UI_KEY_B)) {
+        (key == INKCELL_KEY_UP || key == INKCELL_KEY_DOWN || key == INKCELL_KEY_LEFT ||
+         key == INKCELL_KEY_RIGHT || key == INKCELL_KEY_A || key == INKCELL_KEY_B)) {
         return mesh_ui_nav_node_actions_key(nav, store, key, out_action) || changed;
     }
 
@@ -2098,7 +2100,7 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
        must not do is happen again. Anything else re-arms it, including the cursor move that
        walks onto another failed bubble - so a deliberate second press costs one other press
        and the kernel's autorepeat, which sends nothing but START, costs the mesh nothing. */
-    if (nav->resend_spent && key != MESH_UI_KEY_START) {
+    if (nav->resend_spent && key != INKCELL_KEY_START) {
         nav->resend_spent = false;
         changed = true;
     }
@@ -2106,7 +2108,7 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
        cursor move standing it down is the point: the row the question was asked about is the
        only row the answer may apply to. */
     if (nav->messages_delete_armed &&
-        (key != MESH_UI_KEY_X || nav->screen != MESH_UI_SCREEN_MESSAGES || nav->thread_open)) {
+        (key != INKCELL_KEY_X || nav->screen != MESH_UI_SCREEN_MESSAGES || nav->thread_open)) {
         nav->messages_delete_armed = false;
         changed = true;
     }
@@ -2150,14 +2152,14 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
      */
     if (nav->trend_open && nav->screen == MESH_UI_SCREEN_STATUS) {
         switch (key) {
-        case MESH_UI_KEY_LEFT:
-        case MESH_UI_KEY_RIGHT:
-            return mesh_ui_nav_step_trend_span(nav, key == MESH_UI_KEY_RIGHT ? 1 : -1);
-        case MESH_UI_KEY_L1:
-        case MESH_UI_KEY_R1:
-        case MESH_UI_KEY_SELECT:
+        case INKCELL_KEY_LEFT:
+        case INKCELL_KEY_RIGHT:
+            return mesh_ui_nav_step_trend_span(nav, key == INKCELL_KEY_RIGHT ? 1 : -1);
+        case INKCELL_KEY_L1:
+        case INKCELL_KEY_R1:
+        case INKCELL_KEY_SELECT:
             break; /* the tabs, and the help press: both mean here what they mean everywhere */
-        case MESH_UI_KEY_B:
+        case INKCELL_KEY_B:
             nav->trend_open = false;
             return true;
         default:
@@ -2176,22 +2178,22 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
     if (nav->node_trend != MESH_UI_HISTORY_NONE && nav->screen == MESH_UI_SCREEN_NODES &&
         nav->node_detail_open) {
         switch (key) {
-        case MESH_UI_KEY_LEFT:
-        case MESH_UI_KEY_RIGHT:
-            return mesh_ui_nav_step_trend_span(nav, key == MESH_UI_KEY_RIGHT ? 1 : -1);
+        case INKCELL_KEY_LEFT:
+        case INKCELL_KEY_RIGHT:
+            return mesh_ui_nav_step_trend_span(nav, key == INKCELL_KEY_RIGHT ? 1 : -1);
         /* The two presses the airtime chart does not have, because its readings are not a list -
            see the readings section of mesh/ui/trend.h. Down and Up move the window over the
            readings, and do nothing at all while the plot is up. */
-        case MESH_UI_KEY_Y:
+        case INKCELL_KEY_Y:
             return mesh_ui_nav_toggle_trend_table(nav);
-        case MESH_UI_KEY_UP:
-        case MESH_UI_KEY_DOWN:
-            return mesh_ui_nav_scroll_trend_table(nav, key == MESH_UI_KEY_DOWN ? 1 : -1);
-        case MESH_UI_KEY_L1:
-        case MESH_UI_KEY_R1:
-        case MESH_UI_KEY_SELECT:
+        case INKCELL_KEY_UP:
+        case INKCELL_KEY_DOWN:
+            return mesh_ui_nav_scroll_trend_table(nav, key == INKCELL_KEY_DOWN ? 1 : -1);
+        case INKCELL_KEY_L1:
+        case INKCELL_KEY_R1:
+        case INKCELL_KEY_SELECT:
             break; /* the tabs, and the help press: both mean here what they mean everywhere */
-        case MESH_UI_KEY_B:
+        case INKCELL_KEY_B:
             nav->node_trend = MESH_UI_HISTORY_NONE;
             nav->trend_scroll = 0U;
             return true;
@@ -2227,16 +2229,16 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
      * and because refusing the move has to spend the press the same way Left and Right do.
      */
     if (nav->node_detail_open && nav->screen == MESH_UI_SCREEN_NODES &&
-        (key == MESH_UI_KEY_LEFT || key == MESH_UI_KEY_RIGHT || key == MESH_UI_KEY_UP ||
-         key == MESH_UI_KEY_DOWN)) {
+        (key == INKCELL_KEY_LEFT || key == INKCELL_KEY_RIGHT || key == INKCELL_KEY_UP ||
+         key == INKCELL_KEY_DOWN)) {
         const struct mesh_ui_node_summary *node =
             mesh_ui_node_detail_find(&store->handshake, nav->node_detail_node);
         if (node != NULL) {
             const bool is_self = mesh_ui_nav_node_is_self(store, node);
             const uint32_t row = nav->cursor[MESH_UI_SCREEN_NODES];
-            const int delta = key == MESH_UI_KEY_RIGHT || key == MESH_UI_KEY_DOWN ? +1 : -1;
+            const int delta = key == INKCELL_KEY_RIGHT || key == INKCELL_KEY_DOWN ? +1 : -1;
             const uint32_t next =
-                key == MESH_UI_KEY_LEFT || key == MESH_UI_KEY_RIGHT
+                key == INKCELL_KEY_LEFT || key == INKCELL_KEY_RIGHT
                     ? mesh_ui_node_detail_group_step(
                           node, is_self, mesh_ui_store_traceroute_view(store, node->node_id),
                           &store->handshake, &store->history, store->page_rows, row, delta)
@@ -2267,7 +2269,7 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
      * press. The rows that edit here wear the same pencil for the same reason.
      */
     if (mesh_ui_nav_nodes_list_showing(nav, store) &&
-        (key == MESH_UI_KEY_LEFT || key == MESH_UI_KEY_RIGHT) &&
+        (key == INKCELL_KEY_LEFT || key == INKCELL_KEY_RIGHT) &&
         mesh_ui_nav_nodes_control_step(nav, nav->cursor[MESH_UI_SCREEN_NODES], key)) {
         return true;
     }
@@ -2276,7 +2278,7 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
         nav->settings_section != MESH_UI_SETTINGS_NO_SECTION) {
         /* A second press of anything but B stands the discard question down. */
         const bool was_armed = nav->settings_discard_armed;
-        if (key != MESH_UI_KEY_B) {
+        if (key != INKCELL_KEY_B) {
             nav->settings_discard_armed = false;
             changed = changed || was_armed;
             /*
@@ -2293,7 +2295,7 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
              * asking about is gone. The bar reads the nav before any of this runs, which is why
              * the rule lives there and the ordering fix lives here.
              */
-            if (was_armed && key == MESH_UI_KEY_SELECT) {
+            if (was_armed && key == INKCELL_KEY_SELECT) {
                 return true;
             }
         }
@@ -2305,25 +2307,25 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
     }
 
     switch (key) {
-    case MESH_UI_KEY_LEFT:
-    case MESH_UI_KEY_L1:
+    case INKCELL_KEY_LEFT:
+    case INKCELL_KEY_L1:
         return mesh_ui_nav_switch_screen(nav, -1) || changed;
-    case MESH_UI_KEY_RIGHT:
-    case MESH_UI_KEY_R1:
+    case INKCELL_KEY_RIGHT:
+    case INKCELL_KEY_R1:
         return mesh_ui_nav_switch_screen(nav, +1) || changed;
-    case MESH_UI_KEY_UP:
+    case INKCELL_KEY_UP:
         return mesh_ui_nav_move_cursor(nav, store, -1) || changed;
-    case MESH_UI_KEY_DOWN:
+    case INKCELL_KEY_DOWN:
         return mesh_ui_nav_move_cursor(nav, store, +1) || changed;
     /* A whole group at a time, for the screens that draw their groups as cards - the node detail
        here, and a settings section through mesh_ui_nav_settings_section_key() above. Safe to ask
        unconditionally: a screen with no headings has no boundaries and answers false, exactly as
        it draws no cards. See mesh_ui_nav_cursor_group(). */
-    case MESH_UI_KEY_L2:
+    case INKCELL_KEY_L2:
         return mesh_ui_nav_cursor_group(nav, store, -1) || changed;
-    case MESH_UI_KEY_R2:
+    case INKCELL_KEY_R2:
         return mesh_ui_nav_cursor_group(nav, store, +1) || changed;
-    case MESH_UI_KEY_START:
+    case INKCELL_KEY_START:
         /*
          * The conversation list is the second screen to spend START on something of its own,
          * and it is spent for the map's reason: there is no other key left. A opens, Y writes,
@@ -2372,9 +2374,9 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
             }
         }
         return mesh_ui_nav_confirm(nav, store, out_action) || changed;
-    case MESH_UI_KEY_A:
+    case INKCELL_KEY_A:
         return mesh_ui_nav_confirm(nav, store, out_action) || changed;
-    case MESH_UI_KEY_B:
+    case INKCELL_KEY_B:
         /* Back out of a thread to the conversation list; elsewhere B is a no-op so a stray
            press never drops the user somewhere unexpected. */
         if (nav->screen == MESH_UI_SCREEN_MESSAGES) {
@@ -2393,7 +2395,7 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
             return mesh_ui_nav_close_waypoint(nav) || changed;
         }
         return changed;
-    case MESH_UI_KEY_X:
+    case INKCELL_KEY_X:
         if (nav->screen == MESH_UI_SCREEN_MESSAGES && !nav->thread_open) {
             /* A conversation list without a way to clear a thread out fills up with every node
                that ever said hello. */
@@ -2452,7 +2454,7 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
             return changed;
         }
         return changed;
-    case MESH_UI_KEY_Y:
+    case INKCELL_KEY_Y:
         if (nav->screen == MESH_UI_SCREEN_DEVICES) {
             /* Forgetting a bond costs a re-pair with the node's PIN, so the first press only
                arms it and the backends say so. A press on any other row re-arms from there. */
@@ -2513,12 +2515,12 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
             return true;
         }
         return changed;
-    case MESH_UI_KEY_SELECT:
+    case INKCELL_KEY_SELECT:
         /* Already offered its chance above, before the overlays. Reaching here means there was
            nothing to explain, so the press is spent - and standing a notice down is the one
            thing it may still have done. */
         return changed;
-    case MESH_UI_KEY_NONE:
+    case INKCELL_KEY_NONE:
     default:
         return changed;
     }
@@ -2543,7 +2545,7 @@ bool mesh_ui_nav_open_passkey(struct mesh_ui_nav *nav, const char *label, uint32
     nav->keyboard_passkey = true;
     nav->pairing_confirm = confirm;
     snprintf(nav->pairing_label, sizeof nav->pairing_label, "%s",
-             label != NULL ? label : mesh_str(MESH_STR_PAIRING_NODE_FALLBACK));
+             label != NULL ? label : inkcell_str(MESH_STR_PAIRING_NODE_FALLBACK));
     /* A numeric comparison is answered by pressing Send on the number BlueZ handed us; a PIN
        is typed, so it starts empty. */
     if (confirm) {
@@ -2665,7 +2667,7 @@ bool mesh_ui_nav_close_verify_number(struct mesh_ui_nav *nav) {
  * the user never made. The exchange stays open and the core expires it (see
  * mesh/core/key_verification.h), or the user answers it when the sheet comes back.
  */
-uint8_t mesh_ui_nav_dialog_answer(const struct mesh_ui_store *store, enum mesh_ui_key key,
+uint8_t mesh_ui_nav_dialog_answer(const struct mesh_ui_store *store, enum inkcell_key key,
                                   uint8_t cursor) {
     const uint8_t here = cursor == 0U ? 0U : 1U;
     const uint8_t other = here == 0U ? 1U : 0U;
@@ -2692,13 +2694,13 @@ uint8_t mesh_ui_nav_dialog_answer(const struct mesh_ui_store *store, enum mesh_u
 }
 
 bool mesh_ui_nav_verify_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
-                            enum mesh_ui_key key, struct mesh_ui_action *action) {
+                            enum inkcell_key key, struct mesh_ui_action *action) {
     const uint8_t stage = store != NULL ? store->verification.stage : 0U;
     switch (key) {
-    case MESH_UI_KEY_UP:
-    case MESH_UI_KEY_DOWN:
-    case MESH_UI_KEY_LEFT:
-    case MESH_UI_KEY_RIGHT: {
+    case INKCELL_KEY_UP:
+    case INKCELL_KEY_DOWN:
+    case INKCELL_KEY_LEFT:
+    case INKCELL_KEY_RIGHT: {
         const uint8_t to = mesh_ui_nav_dialog_answer(store, key, nav->verify_cursor);
         if (to == nav->verify_cursor) {
             return false;
@@ -2706,8 +2708,8 @@ bool mesh_ui_nav_verify_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
         nav->verify_cursor = to;
         return true;
     }
-    case MESH_UI_KEY_A:
-    case MESH_UI_KEY_START: {
+    case INKCELL_KEY_A:
+    case INKCELL_KEY_START: {
         const bool comparing = stage == (uint8_t)MESH_UI_VERIFY_COMPARE;
         const bool accepted = nav->verify_cursor == 0U;
         /*
@@ -2723,7 +2725,7 @@ bool mesh_ui_nav_verify_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
         (void)mesh_ui_nav_close_verify(nav);
         return true;
     }
-    case MESH_UI_KEY_B:
+    case INKCELL_KEY_B:
         (void)mesh_ui_nav_close_verify(nav);
         return true;
     default:

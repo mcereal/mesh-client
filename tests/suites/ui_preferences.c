@@ -2,13 +2,14 @@
 
 /* Preferences on disk, and the list of radios the client remembers. */
 
+#include "inkcell/ui/theme.h"
+
 #include "framework/mesh_test.h"
 
 #include "mesh/app/app.h"
 #include "mesh/core/updater.h"
 #include "mesh/ui/preferences.h"
 #include "mesh/ui/store_device.h"
-#include "mesh/ui/theme.h"
 
 #include <stdbool.h>
 #include <stdio.h>
@@ -70,7 +71,7 @@ MESH_TEST_CASE(ui_preferences_roundtrip, unit) {
         record_failure(test_name, "an unknown theme id did not survive a roundtrip");
         return;
     }
-    if (mesh_ui_theme_resolve(loaded.theme) != mesh_ui_theme_default()) {
+    if (inkcell_theme_resolve(loaded.theme) != inkcell_theme_default()) {
         unlink(prefab_path);
         record_failure(test_name, "an unknown theme id should resolve to the default");
         return;

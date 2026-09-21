@@ -2,10 +2,11 @@
 
 #include "mesh/ui/controller.h"
 
-#include "mesh/ui/backend.h"
-#include "mesh/ui/latency.h"
+#include "inkcell/ui/backend.h"
+#include "inkcell/ui/latency.h"
+#include "inkcell/utils/log.h"
+
 #include "mesh/ui/nav.h"
-#include "mesh/utils/log.h"
 
 #include <errno.h>
 #include <stddef.h>
@@ -31,7 +32,7 @@ static void mesh_ui_controller_schedule_frame(struct mesh_ui_controller *control
         spec.it_value.tv_nsec = (long)MESH_UI_FRAME_INTERVAL_MS * 1000000L;
     }
     if (timerfd_settime(controller->frame_timer_fd, 0, &spec, NULL) < 0) {
-        mesh_log_warn("ui", "frame timerfd_settime failed: %s", strerror(errno));
+        inkcell_log_warn("ui", "frame timerfd_settime failed: %s", strerror(errno));
     }
 }
 
@@ -79,7 +80,7 @@ static int mesh_ui_controller_frame_callback(int fd, uint32_t events, void *user
 
     uint64_t expirations = 0U;
     if (read(fd, &expirations, sizeof expirations) < 0 && errno != EAGAIN) {
-        mesh_log_warn("ui", "frame timer read failed: %s", strerror(errno));
+        inkcell_log_warn("ui", "frame timer read failed: %s", strerror(errno));
     }
 
     if (mesh_ui_store_consume_updates(controller->store, &controller->snapshot)) {
@@ -106,12 +107,12 @@ static void mesh_ui_controller_setup_frame_timer(struct mesh_ui_controller *cont
 
     const int fd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
     if (fd < 0) {
-        mesh_log_warn("ui", "frame timerfd_create failed: %s", strerror(errno));
+        inkcell_log_warn("ui", "frame timerfd_create failed: %s", strerror(errno));
         return;
     }
     if (mesh_event_loop_add_fd(loop, fd, EPOLLIN, mesh_ui_controller_frame_callback, controller) <
         0) {
-        mesh_log_warn("ui", "Failed to watch the frame timer");
+        inkcell_log_warn("ui", "Failed to watch the frame timer");
         close(fd);
         return;
     }
@@ -119,7 +120,7 @@ static void mesh_ui_controller_setup_frame_timer(struct mesh_ui_controller *cont
 }
 
 int mesh_ui_controller_init(struct mesh_ui_controller *controller, struct mesh_ui_store *store,
-                            const struct mesh_ui_backend *backend, void *backend_userdata,
+                            const struct inkcell_backend *backend, void *backend_userdata,
                             struct mesh_event_loop *loop) {
     if (controller == NULL || store == NULL) {
         return -EINVAL;
@@ -135,8 +136,8 @@ int mesh_ui_controller_init(struct mesh_ui_controller *controller, struct mesh_u
     if (backend != NULL && backend->init != NULL) {
         int result = backend->init(&controller->backend_state, backend_userdata);
         if (result < 0) {
-            mesh_log_error("ui", "Backend init failed (%s): %d",
-                           backend->name != NULL ? backend->name : "unknown", result);
+            inkcell_log_error("ui", "Backend init failed (%s): %d",
+                              backend->name != NULL ? backend->name : "unknown", result);
             controller->backend = NULL;
             controller->backend_state = NULL;
             controller->backend_userdata = NULL;
@@ -148,7 +149,7 @@ int mesh_ui_controller_init(struct mesh_ui_controller *controller, struct mesh_u
         int add_result = mesh_event_loop_add_fd(loop, event_fd, EPOLLIN,
                                                 mesh_ui_controller_event_callback, controller);
         if (add_result < 0) {
-            mesh_log_error("ui", "Failed to register UI store fd: %d", add_result);
+            inkcell_log_error("ui", "Failed to register UI store fd: %d", add_result);
             if (controller->backend != NULL && controller->backend->shutdown != NULL) {
                 controller->backend->shutdown(controller->backend_state,
                                               controller->backend_userdata);
@@ -180,8 +181,8 @@ void mesh_ui_controller_set_action_handler(struct mesh_ui_controller *controller
     controller->action_userdata = userdata;
 }
 
-void mesh_ui_controller_handle_key(struct mesh_ui_controller *controller, enum mesh_ui_key key) {
-    if (controller == NULL || controller->store == NULL || key == MESH_UI_KEY_NONE) {
+void mesh_ui_controller_handle_key(struct mesh_ui_controller *controller, enum inkcell_key key) {
+    if (controller == NULL || controller->store == NULL || key == INKCELL_KEY_NONE) {
         return;
     }
 
@@ -208,7 +209,7 @@ void mesh_ui_controller_handle_key(struct mesh_ui_controller *controller, enum m
      * the map's fill loop asking for another turn. Charged to the press, that frame would be a
      * latency nobody ever waited.
      */
-    mesh_ui_latency_press_handled(repaints);
+    inkcell_latency_press_handled(repaints);
     if (action.type != MESH_UI_ACTION_NONE && controller->on_action != NULL) {
         controller->on_action(controller->action_userdata, &action);
     }

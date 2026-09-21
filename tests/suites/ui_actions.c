@@ -14,7 +14,7 @@
  *   - an armed destructive action says so. That was the one thing the old sentences got
  *     unmistakably right ("X again to delete this conversation") and the one most easily lost
  *     in a refactor to single verbs.
- *   - nothing overruns MESH_UI_ACTIONS_MAX, because the bar drops from the end and an overrun
+ *   - nothing overruns INKCELL_ACTIONS_MAX, because the bar drops from the end and an overrun
  *     is silent.
  *   - every action a table names carries a verb the catalog actually has.
  */
@@ -43,15 +43,15 @@ static void actions_snapshot(struct mesh_ui_snapshot *snapshot) {
     snapshot->nav.settings_channel = MESH_UI_SETTINGS_NO_CHANNEL;
 }
 
-/* Whether the bar offers `button`, and with which verb. MESH_STR_NONE when it does not. */
-static enum mesh_str_id actions_label_for(const struct mesh_ui_action_bar *bar,
-                                          enum mesh_ui_button button) {
+/* Whether the bar offers `button`, and with which verb. INKCELL_STR_NONE when it does not. */
+static enum inkcell_str_id actions_label_for(const struct inkcell_action_bar *bar,
+                                             enum inkcell_button button) {
     for (size_t i = 0; i < bar->count; ++i) {
         if (bar->items[i].button == button) {
             return bar->items[i].label;
         }
     }
-    return MESH_STR_NONE;
+    return INKCELL_STR_NONE;
 }
 
 /* One more row on the Devices tab, with the cursor left on it. */
@@ -71,22 +71,22 @@ static struct mesh_ui_device *actions_add_device(struct mesh_ui_snapshot *snapsh
 
 MESH_TEST_CASE(actions_screens_offer_their_own_presses, unit) {
     struct mesh_ui_snapshot snapshot;
-    struct mesh_ui_action_bar bar;
+    struct inkcell_action_bar bar;
 
     actions_snapshot(&snapshot);
     mesh_ui_actions_for(&snapshot, &bar);
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_A) != MESH_STR_ACTION_OPEN,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_A) != MESH_STR_ACTION_OPEN,
                       "A should open the conversation the cursor is on");
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_SHOULDERS) != MESH_STR_ACTION_TABS,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_SHOULDERS) != MESH_STR_ACTION_TABS,
                       "the shoulders move between tabs on every screen that is not an overlay");
 
     /* Both of these are properties of the row, so the tab needs one to offer either. */
     snapshot.nav.screen = MESH_UI_SCREEN_DEVICES;
     actions_add_device(&snapshot, "F4:12:FA:00:0A:22", MESH_UI_DEVICE_BLE);
     mesh_ui_actions_for(&snapshot, &bar);
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_A) != MESH_STR_ACTION_CONNECT,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_A) != MESH_STR_ACTION_CONNECT,
                       "A should connect on the Devices tab");
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_Y) != MESH_STR_ACTION_FORGET,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_Y) != MESH_STR_ACTION_FORGET,
                       "Y should forget a radio on the Devices tab");
 
     /*
@@ -97,36 +97,36 @@ MESH_TEST_CASE(actions_screens_offer_their_own_presses, unit) {
     snapshot.nav.screen = MESH_UI_SCREEN_STATUS;
     snapshot.handshake_valid = false;
     mesh_ui_actions_for(&snapshot, &bar);
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_QUIT) != MESH_STR_NONE,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_QUIT) != INKCELL_STR_NONE,
                       "Status should not repeat the quit hint while nothing is connected");
     /* And nothing else: with no radio its cards carry no verbs, so A means nothing here. */
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_A) != MESH_STR_NONE,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_A) != INKCELL_STR_NONE,
                       "Status with no radio should not offer a press it cannot answer");
 
     snapshot.device_count = 1U;
     snapshot.devices[0].connected = true;
     mesh_ui_actions_for(&snapshot, &bar);
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_QUIT) != MESH_STR_ACTION_QUIT,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_QUIT) != MESH_STR_ACTION_QUIT,
                       "Status should say how to leave once a radio is attached");
     /*
      * A names the verb the cursor is on rather than one word for the screen, which is the
      * compose sheet's rule and not the settings section's: the cards offer different verbs.
      * With one verb on offer there is nothing to choose between, so no direction keycap.
      */
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_A) != MESH_STR_ACTION_DISCONNECT,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_A) != MESH_STR_ACTION_DISCONNECT,
                       "A on the Link card's verb should say disconnect");
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_UP_DOWN) != MESH_STR_NONE,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_UP_DOWN) != INKCELL_STR_NONE,
                       "one verb needs no gesture for choosing between verbs");
 
     /* A radio that has answered the handshake adds the Radio card's refresh, and the bar
        renames A as the cursor moves onto it. */
     snapshot.handshake_valid = true;
     mesh_ui_actions_for(&snapshot, &bar);
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_UP_DOWN) != MESH_STR_ACTION_CHOOSE,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_UP_DOWN) != MESH_STR_ACTION_CHOOSE,
                       "two verbs want a way to choose between them");
     snapshot.nav.status_verb = (uint8_t)MESH_UI_STATUS_VERB_REFRESH;
     mesh_ui_actions_for(&snapshot, &bar);
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_A) != MESH_STR_ACTION_REFRESH,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_A) != MESH_STR_ACTION_REFRESH,
                       "A on the Radio card's verb should say refresh");
     record_success(test_name);
 }
@@ -136,12 +136,12 @@ MESH_TEST_CASE(actions_screens_offer_their_own_presses, unit) {
  *
  * Both halves matter. A thread whose cursor is on a message that arrived must not name START,
  * because START goes on standing in for A there and a keycap that does nothing is what this
- * table exists to prevent - and the bar must not run past MESH_UI_ACTIONS_MAX when it does
+ * table exists to prevent - and the bar must not run past INKCELL_ACTIONS_MAX when it does
  * appear, because a thread already names six presses without it and the bar drops from the end.
  */
 MESH_TEST_CASE(actions_resend_names_only_a_failed_bubble, unit) {
     struct mesh_ui_snapshot snapshot;
-    struct mesh_ui_action_bar bar;
+    struct inkcell_action_bar bar;
 
     actions_snapshot(&snapshot);
     snapshot.nav.thread_open = true;
@@ -152,46 +152,46 @@ MESH_TEST_CASE(actions_resend_names_only_a_failed_bubble, unit) {
     snapshot.messages.entries[0].direction = MESH_MESSAGE_INBOUND;
 
     mesh_ui_actions_for(&snapshot, &bar);
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_A) != MESH_STR_ACTION_REPLY,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_A) != MESH_STR_ACTION_REPLY,
                       "A answers the bubble under the cursor in a thread");
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_START) != MESH_STR_NONE,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_START) != INKCELL_STR_NONE,
                       "a message that arrived has nothing to send again");
 
     /* Our own, undelivered. */
     snapshot.messages.entries[0].direction = MESH_MESSAGE_OUTBOUND;
     snapshot.messages.entries[0].ack = MESH_MESSAGE_ACK_FAILED;
     mesh_ui_actions_for(&snapshot, &bar);
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_START) != MESH_STR_ACTION_RESEND,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_START) != MESH_STR_ACTION_RESEND,
                       "START should name the retry on a failed bubble");
-    MESH_TEST_FAIL_IF(bar.count > MESH_UI_ACTIONS_MAX,
+    MESH_TEST_FAIL_IF(bar.count > INKCELL_ACTIONS_MAX,
                       "the thread's bar should still fit with the retry on it");
 
     /* A retry already raised on this press: the keycap goes with it, so a held START never
        names a verb it will refuse. */
     snapshot.nav.resend_spent = true;
     mesh_ui_actions_for(&snapshot, &bar);
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_START) != MESH_STR_NONE,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_START) != INKCELL_STR_NONE,
                       "a spent retry should not be named on the bar");
     snapshot.nav.resend_spent = false;
 
     /* One this client sent and the mesh confirmed: back to nothing to do. */
     snapshot.messages.entries[0].ack = MESH_MESSAGE_ACK_DELIVERED;
     mesh_ui_actions_for(&snapshot, &bar);
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_START) != MESH_STR_NONE,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_START) != INKCELL_STR_NONE,
                       "a message that was acknowledged has nothing to send again");
 
     /* And all traffic offers it on no row, the way it offers no reply and no tapback. */
     snapshot.messages.entries[0].ack = MESH_MESSAGE_ACK_FAILED;
     snapshot.nav.inbox = true;
     mesh_ui_actions_for(&snapshot, &bar);
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_START) != MESH_STR_NONE,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_START) != INKCELL_STR_NONE,
                       "all traffic should name no retry");
     record_success(test_name);
 }
 
 MESH_TEST_CASE(actions_overlays_win_over_the_screen, unit) {
     struct mesh_ui_snapshot snapshot;
-    struct mesh_ui_action_bar bar;
+    struct inkcell_action_bar bar;
 
     /* Every overlay raised at once: they are answered in the order fb_render_snapshot() draws
        them, so the confirmation - the innermost - is the one the bar describes. */
@@ -201,16 +201,16 @@ MESH_TEST_CASE(actions_overlays_win_over_the_screen, unit) {
     snapshot.nav.picker_open = true;
     snapshot.nav.confirm_open = true;
     mesh_ui_actions_for(&snapshot, &bar);
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_A) != MESH_STR_ACTION_CONFIRM,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_A) != MESH_STR_ACTION_CONFIRM,
                       "a confirmation should outrank every other overlay");
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_SHOULDERS) != MESH_STR_NONE,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_SHOULDERS) != INKCELL_STR_NONE,
                       "an overlay should not offer the tabs it cannot reach");
 
     snapshot.nav.confirm_open = false;
     mesh_ui_actions_for(&snapshot, &bar);
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_A) != MESH_STR_ACTION_CHOOSE,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_A) != MESH_STR_ACTION_CHOOSE,
                       "the picker should outrank the keyboard under it");
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_SHOULDERS) != MESH_STR_ACTION_JUMP,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_SHOULDERS) != MESH_STR_ACTION_JUMP,
                       "the shoulders should jump ten rows inside a long picker");
 
     /* The keyboard's START is the one verb that changes with what is being typed: a message is
@@ -218,12 +218,12 @@ MESH_TEST_CASE(actions_overlays_win_over_the_screen, unit) {
     snapshot.nav.picker_open = false;
     snapshot.nav.keyboard_field = MESH_UI_FIELD_NONE;
     mesh_ui_actions_for(&snapshot, &bar);
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_START) != MESH_STR_ACTION_SEND,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_START) != MESH_STR_ACTION_SEND,
                       "START should send a message being composed");
 
     snapshot.nav.keyboard_field = (uint8_t)MESH_UI_FIELD_USER_LONG_NAME;
     mesh_ui_actions_for(&snapshot, &bar);
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_START) != MESH_STR_ACTION_DONE,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_START) != MESH_STR_ACTION_DONE,
                       "START should finish a settings field rather than send it");
     record_success(test_name);
 }
@@ -238,40 +238,40 @@ MESH_TEST_CASE(actions_overlays_win_over_the_screen, unit) {
  */
 MESH_TEST_CASE(actions_compose_names_the_row_under_the_cursor, unit) {
     struct mesh_ui_snapshot snapshot;
-    struct mesh_ui_action_bar bar;
+    struct inkcell_action_bar bar;
 
     actions_snapshot(&snapshot);
     snapshot.nav.compose_open = true;
     snapshot.nav.compose_cursor = MESH_UI_COMPOSE_ROW_DRAFT;
     mesh_ui_actions_for(&snapshot, &bar);
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_A) != MESH_STR_ACTION_TYPE,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_A) != MESH_STR_ACTION_TYPE,
                       "A opens the keyboard on the draft row, so the bar must not say send");
 
     snapshot.nav.compose_cursor = MESH_UI_COMPOSE_FIRST_CANNED;
     mesh_ui_actions_for(&snapshot, &bar);
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_A) != MESH_STR_ACTION_SEND,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_A) != MESH_STR_ACTION_SEND,
                       "A sends the canned message the cursor is on");
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_B) != MESH_STR_ACTION_BACK,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_B) != MESH_STR_ACTION_BACK,
                       "B leaves the compose sheet either way");
     record_success(test_name);
 }
 
 MESH_TEST_CASE(actions_arm_before_they_destroy, unit) {
     struct mesh_ui_snapshot snapshot;
-    struct mesh_ui_action_bar bar;
+    struct inkcell_action_bar bar;
 
     actions_snapshot(&snapshot);
     mesh_ui_actions_for(&snapshot, &bar);
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_X) != MESH_STR_ACTION_DELETE,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_X) != MESH_STR_ACTION_DELETE,
                       "X should offer to delete a conversation");
 
     snapshot.nav.messages_delete_armed = true;
     mesh_ui_actions_for(&snapshot, &bar);
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_X) != MESH_STR_ACTION_CONFIRM_DELETE,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_X) != MESH_STR_ACTION_CONFIRM_DELETE,
                       "an armed delete should say that the next press goes through with it");
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_B) != MESH_STR_ACTION_CANCEL,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_B) != MESH_STR_ACTION_CANCEL,
                       "an armed action should offer the way out of it");
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_SHOULDERS) != MESH_STR_NONE,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_SHOULDERS) != INKCELL_STR_NONE,
                       "an armed bar should say one thing, not four");
 
     /* On the sheet of verbs, because that is the only screen the remove row is on - the detail
@@ -283,11 +283,11 @@ MESH_TEST_CASE(actions_arm_before_they_destroy, unit) {
     snapshot.nav.node_actions_open = true;
     snapshot.nav.node_remove_armed = true;
     mesh_ui_actions_for(&snapshot, &bar);
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_A) != MESH_STR_ACTION_CONFIRM_REMOVE,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_A) != MESH_STR_ACTION_CONFIRM_REMOVE,
                       "an armed node removal should say so");
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_B) != MESH_STR_ACTION_CANCEL,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_B) != MESH_STR_ACTION_CANCEL,
                       "an armed action should offer the way out of it");
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_SHOULDERS) != MESH_STR_NONE,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_SHOULDERS) != INKCELL_STR_NONE,
                       "an armed bar should say one thing, not four");
 
     actions_snapshot(&snapshot);
@@ -295,7 +295,7 @@ MESH_TEST_CASE(actions_arm_before_they_destroy, unit) {
     actions_add_device(&snapshot, "F4:12:FA:00:0A:22", MESH_UI_DEVICE_BLE);
     snapshot.nav.devices_forget_armed = true;
     mesh_ui_actions_for(&snapshot, &bar);
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_Y) != MESH_STR_ACTION_CONFIRM_FORGET,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_Y) != MESH_STR_ACTION_CONFIRM_FORGET,
                       "an armed forget should say so");
 
     actions_snapshot(&snapshot);
@@ -303,9 +303,9 @@ MESH_TEST_CASE(actions_arm_before_they_destroy, unit) {
     snapshot.nav.settings_section = (uint8_t)MESH_UI_SETTINGS_DEVICE;
     snapshot.nav.settings_discard_armed = true;
     mesh_ui_actions_for(&snapshot, &bar);
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_B) != MESH_STR_ACTION_CONFIRM_DISCARD,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_B) != MESH_STR_ACTION_CONFIRM_DISCARD,
                       "an armed discard should say so");
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_Y) != MESH_STR_ACTION_SAVE,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_Y) != MESH_STR_ACTION_SAVE,
                       "the way to keep the edits should stay on the bar beside the way to lose "
                       "them");
     record_success(test_name);
@@ -323,7 +323,7 @@ MESH_TEST_CASE(actions_arm_before_they_destroy, unit) {
  */
 MESH_TEST_CASE(actions_excluded_section_offers_only_the_way_out, unit) {
     struct mesh_ui_snapshot snapshot;
-    struct mesh_ui_action_bar bar;
+    struct inkcell_action_bar bar;
 
     actions_snapshot(&snapshot);
     snapshot.nav.screen = MESH_UI_SCREEN_SETTINGS;
@@ -332,8 +332,8 @@ MESH_TEST_CASE(actions_excluded_section_offers_only_the_way_out, unit) {
 
     /* Waiting: the radio has not sent it, and X is the press that asks again. */
     mesh_ui_actions_for(&snapshot, &bar);
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_X) != MESH_STR_ACTION_REFRESH ||
-                          actions_label_for(&bar, MESH_UI_BUTTON_LEFT_RIGHT) !=
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_X) != MESH_STR_ACTION_REFRESH ||
+                          actions_label_for(&bar, INKCELL_BUTTON_LEFT_RIGHT) !=
                               MESH_STR_ACTION_EDIT,
                       "a section that has not arrived yet keeps the presses that fill it");
 
@@ -342,18 +342,18 @@ MESH_TEST_CASE(actions_excluded_section_offers_only_the_way_out, unit) {
     snapshot.settings.excluded_modules =
         mesh_ui_settings_section_excluded_bit(MESH_UI_SETTINGS_BLUETOOTH);
     mesh_ui_actions_for(&snapshot, &bar);
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_X) != MESH_STR_NONE ||
-                          actions_label_for(&bar, MESH_UI_BUTTON_LEFT_RIGHT) != MESH_STR_NONE ||
-                          actions_label_for(&bar, MESH_UI_BUTTON_A) != MESH_STR_NONE,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_X) != INKCELL_STR_NONE ||
+                          actions_label_for(&bar, INKCELL_BUTTON_LEFT_RIGHT) != INKCELL_STR_NONE ||
+                          actions_label_for(&bar, INKCELL_BUTTON_A) != INKCELL_STR_NONE,
                       "an excluded section should advertise no press that needs rows");
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_B) != MESH_STR_ACTION_BACK,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_B) != MESH_STR_ACTION_BACK,
                       "the way out is the one press that still works");
 
     /* And a radio that sends the section anyway has its bar back: the mask is not the last
        word, the rows are. */
     snapshot.settings.has_bluetooth = true;
     mesh_ui_actions_for(&snapshot, &bar);
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_LEFT_RIGHT) != MESH_STR_ACTION_EDIT,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_LEFT_RIGHT) != MESH_STR_ACTION_EDIT,
                       "a section the radio sent is editable whatever the mask says");
     record_success(test_name);
 }
@@ -368,7 +368,7 @@ MESH_TEST_CASE(actions_excluded_section_offers_only_the_way_out, unit) {
  */
 MESH_TEST_CASE(actions_back_arrow_follows_the_verb_not_the_key, unit) {
     struct mesh_ui_snapshot snapshot;
-    struct mesh_ui_action_bar bar;
+    struct inkcell_action_bar bar;
 
     MESH_TEST_FAIL_IF(mesh_ui_action_bar_goes_back(NULL), "no bar is not a bar offering a way out");
 
@@ -425,13 +425,13 @@ MESH_TEST_CASE(actions_back_arrow_follows_the_verb_not_the_key, unit) {
  * Every state the bar can be in, walked exhaustively rather than by hand.
  *
  * The bar drops actions it cannot fit, and it drops them silently - so a table that overran
- * MESH_UI_ACTIONS_MAX would lose its last entry on the device and nowhere else. The same walk
+ * INKCELL_ACTIONS_MAX would lose its last entry on the device and nowhere else. The same walk
  * catches a table naming a string id the catalog does not have, which is the other failure
  * that would only show up as a blank on screen.
  */
 MESH_TEST_CASE(actions_every_state_is_well_formed, unit) {
     struct mesh_ui_snapshot snapshot;
-    struct mesh_ui_action_bar bar;
+    struct inkcell_action_bar bar;
 
     for (unsigned flags = 0U; flags < 64U; ++flags) {
         for (int screen = 0; screen < MESH_UI_SCREEN_COUNT; ++screen) {
@@ -449,15 +449,15 @@ MESH_TEST_CASE(actions_every_state_is_well_formed, unit) {
             snapshot.nav.pairing_confirm = (flags & 16U) != 0U;
 
             mesh_ui_actions_for(&snapshot, &bar);
-            MESH_TEST_FAIL_IF(bar.count > MESH_UI_ACTIONS_MAX,
+            MESH_TEST_FAIL_IF(bar.count > INKCELL_ACTIONS_MAX,
                               "a table overran the bar and would lose its last action");
             MESH_TEST_FAIL_IF(bar.count == 0U, "every state should say what its buttons do");
             for (size_t i = 0; i < bar.count; ++i) {
-                MESH_TEST_FAIL_IF(bar.items[i].label == MESH_STR_NONE,
+                MESH_TEST_FAIL_IF(bar.items[i].label == INKCELL_STR_NONE,
                                   "an action should carry a verb");
-                MESH_TEST_FAIL_IF(mesh_str(bar.items[i].label)[0] == '\0',
+                MESH_TEST_FAIL_IF(inkcell_str(bar.items[i].label)[0] == '\0',
                                   "an action's verb should be in the catalog");
-                const char *cap = mesh_ui_button_cap(bar.items[i].button);
+                const char *cap = inkcell_button_cap(bar.items[i].button);
                 MESH_TEST_FAIL_IF(cap == NULL || cap[0] == '\0',
                                   "every button on the bar should have a keycap to draw");
             }
@@ -469,20 +469,20 @@ MESH_TEST_CASE(actions_every_state_is_well_formed, unit) {
 /* A cap is what is printed on the case, so it is never a catalog id and never empty - including
    for a button outside the enum, which a backend must be able to draw rather than crash on. */
 MESH_TEST_CASE(actions_keycaps_are_always_drawable, unit) {
-    for (int i = 0; i < MESH_UI_BUTTON_COUNT; ++i) {
-        const char *cap = mesh_ui_button_cap((enum mesh_ui_button)i);
+    for (int i = 0; i < INKCELL_BUTTON_COUNT; ++i) {
+        const char *cap = inkcell_button_cap((enum inkcell_button)i);
         MESH_TEST_FAIL_IF(cap == NULL || cap[0] == '\0', "every button should have a keycap");
     }
-    MESH_TEST_FAIL_IF(mesh_ui_button_cap((enum mesh_ui_button)MESH_UI_BUTTON_COUNT) == NULL,
+    MESH_TEST_FAIL_IF(inkcell_button_cap((enum inkcell_button)INKCELL_BUTTON_COUNT) == NULL,
                       "a button outside the enum should still return something to draw");
-    MESH_TEST_FAIL_IF(strcmp(mesh_ui_button_cap(MESH_UI_BUTTON_A), "A") != 0,
+    MESH_TEST_FAIL_IF(strcmp(inkcell_button_cap(INKCELL_BUTTON_A), "A") != 0,
                       "A's cap is what is printed beside it");
     record_success(test_name);
 }
 
 /* A snapshot that is not there is not a screen with default controls. */
 MESH_TEST_CASE(actions_no_snapshot_is_an_empty_bar, unit) {
-    struct mesh_ui_action_bar bar;
+    struct inkcell_action_bar bar;
     memset(&bar, 0xAB, sizeof bar);
     mesh_ui_actions_for(NULL, &bar);
     MESH_TEST_FAIL_IF(bar.count != 0U, "a missing snapshot should describe nothing");
@@ -506,13 +506,13 @@ MESH_TEST_CASE(actions_the_chart_offers_only_the_way_out, unit) {
     snapshot.nav.trend_open = true;
     snapshot.handshake_valid = true;
 
-    struct mesh_ui_action_bar bar;
+    struct inkcell_action_bar bar;
     mesh_ui_actions_for(&snapshot, &bar);
 
     bool has_back = false;
     for (size_t i = 0; i < bar.count; ++i) {
-        MESH_TEST_FAIL_IF(bar.items[i].button == MESH_UI_BUTTON_A, "a chart has nothing to open");
-        MESH_TEST_FAIL_IF(bar.items[i].button == MESH_UI_BUTTON_UP_DOWN,
+        MESH_TEST_FAIL_IF(bar.items[i].button == INKCELL_BUTTON_A, "a chart has nothing to open");
+        MESH_TEST_FAIL_IF(bar.items[i].button == INKCELL_BUTTON_UP_DOWN,
                           "a chart has no cursor to move");
         has_back = has_back || bar.items[i].label == MESH_STR_ACTION_BACK;
     }
@@ -530,7 +530,7 @@ MESH_TEST_CASE(actions_the_chart_offers_only_the_way_out, unit) {
     mesh_ui_actions_for(&snapshot, &bar);
     bool names_a_node_press = false;
     for (size_t i = 0; i < bar.count; ++i) {
-        names_a_node_press = names_a_node_press || bar.items[i].button == MESH_UI_BUTTON_A;
+        names_a_node_press = names_a_node_press || bar.items[i].button == INKCELL_BUTTON_A;
     }
     MESH_TEST_FAIL_IF(!names_a_node_press,
                       "a chart open on another tab must not silence this one's presses");
@@ -606,9 +606,9 @@ MESH_TEST_CASE(actions_node_detail_reads_this_nodes_route, unit) {
     MESH_TEST_FAIL_IF(row == count, "the battery row should carry the trend behind it");
 
     snapshot.nav.cursor[MESH_UI_SCREEN_NODES] = row;
-    struct mesh_ui_action_bar bar;
+    struct inkcell_action_bar bar;
     mesh_ui_actions_for(&snapshot, &bar);
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_A) != MESH_STR_ACTION_TREND,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_A) != MESH_STR_ACTION_TREND,
                       "the bar should name the press the row under the cursor really has");
     record_success(test_name);
 }
@@ -621,7 +621,7 @@ MESH_TEST_CASE(actions_node_detail_reads_this_nodes_route, unit) {
  */
 MESH_TEST_CASE(actions_devices_ask_the_row_under_the_cursor, unit) {
     struct mesh_ui_snapshot snapshot;
-    struct mesh_ui_action_bar bar;
+    struct inkcell_action_bar bar;
 
     /*
      * A list with nothing discovered still has the network row, so the cursor is standing on
@@ -632,19 +632,19 @@ MESH_TEST_CASE(actions_devices_ask_the_row_under_the_cursor, unit) {
     actions_snapshot(&snapshot);
     snapshot.nav.screen = MESH_UI_SCREEN_DEVICES;
     mesh_ui_actions_for(&snapshot, &bar);
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_A) != MESH_STR_ACTION_ADDRESS,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_A) != MESH_STR_ACTION_ADDRESS,
                       "an empty device list still offers the network address");
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_Y) != MESH_STR_NONE,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_Y) != INKCELL_STR_NONE,
                       "with no address set, Y would be a second way to the same keyboard");
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_X) != MESH_STR_ACTION_DISCONNECT,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_X) != MESH_STR_ACTION_DISCONNECT,
                       "X drops whichever link is up and does not depend on the row");
 
     /* Once an address is written down the row's A is the ordinary connect, and Y edits it. */
     snprintf(snapshot.network_host, sizeof snapshot.network_host, "192.168.1.50");
     mesh_ui_actions_for(&snapshot, &bar);
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_A) != MESH_STR_ACTION_CONNECT,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_A) != MESH_STR_ACTION_CONNECT,
                       "a configured network row is something A can open a link to");
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_Y) != MESH_STR_ACTION_ADDRESS,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_Y) != MESH_STR_ACTION_ADDRESS,
                       "Y on a configured network row edits the address");
 
     /* A USB node in its bootloader: no session to open, and no bond to forget either. */
@@ -654,17 +654,17 @@ MESH_TEST_CASE(actions_devices_ask_the_row_under_the_cursor, unit) {
         actions_add_device(&snapshot, "/dev/ttyUSB0", MESH_UI_DEVICE_SERIAL);
     boot->bootloader = true;
     mesh_ui_actions_for(&snapshot, &bar);
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_A) != MESH_STR_NONE,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_A) != INKCELL_STR_NONE,
                       "A must not offer to connect to a bootloader");
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_Y) != MESH_STR_NONE,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_Y) != INKCELL_STR_NONE,
                       "a USB port has no bond for Y to forget");
 
     /* The same port running firmware is connectable again - and still has nothing to forget. */
     boot->bootloader = false;
     mesh_ui_actions_for(&snapshot, &bar);
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_A) != MESH_STR_ACTION_CONNECT,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_A) != MESH_STR_ACTION_CONNECT,
                       "a USB node running firmware is something A can open a link to");
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_Y) != MESH_STR_NONE,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_Y) != INKCELL_STR_NONE,
                       "a USB port still has no bond to forget");
 
     /* The row we are already on: Y can still drop the bond, A has nothing left to do. */
@@ -674,9 +674,9 @@ MESH_TEST_CASE(actions_devices_ask_the_row_under_the_cursor, unit) {
         actions_add_device(&snapshot, "F4:12:FA:00:0A:11", MESH_UI_DEVICE_BLE);
     live->connected = true;
     mesh_ui_actions_for(&snapshot, &bar);
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_A) != MESH_STR_NONE,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_A) != INKCELL_STR_NONE,
                       "A must not offer to connect to the radio already connected");
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_Y) != MESH_STR_ACTION_FORGET,
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_Y) != MESH_STR_ACTION_FORGET,
                       "a bonded radio can still be forgotten while it is the one we are on");
 
     record_success(test_name);

@@ -2,8 +2,9 @@
 
 #include "mesh/core/resolve.h"
 
+#include "inkcell/utils/log.h"
+
 #include "mesh/core/event_loop.h"
-#include "mesh/utils/log.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -445,7 +446,7 @@ int mesh_resolve_start(struct mesh_resolve *resolve, const char *host, uint16_t 
         resolve_discard(resolve);
         return added;
     }
-    mesh_log_debug("resolve", "Looking up %s:%u", host, (unsigned)port);
+    inkcell_log_debug("resolve", "Looking up %s:%u", host, (unsigned)port);
     return 0;
 }
 

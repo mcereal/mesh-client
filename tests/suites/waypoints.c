@@ -9,6 +9,8 @@
  * ever the answer the geo module gives, so a screen cannot round it a second way.
  */
 
+#include "inkcell/utils/time.h"
+
 #include "framework/mesh_test.h"
 #include "support/session_fixture.h"
 #include "support/ui_fixture.h"
@@ -20,7 +22,6 @@
 #include "mesh/ui/store.h"
 #include "mesh/ui/units.h"
 #include "mesh/ui/waypoints.h"
-#include "mesh/utils/time.h"
 
 #include <pb_decode.h>
 #include <pb_encode.h>
@@ -917,7 +918,7 @@ MESH_TEST_CASE(waypoint_nav_opens_arms_and_closes, unit) {
         failure = "the Waypoints tab should be reachable with the shoulder buttons";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.waypoint_detail_open || store.nav.waypoint_detail_id != 42U) {
         failure = "A on a place should open it";
         goto cleanup;
@@ -930,23 +931,23 @@ MESH_TEST_CASE(waypoint_nav_opens_arms_and_closes, unit) {
         goto cleanup;
     }
     for (uint32_t i = 0; i + 1U < rows; ++i) {
-        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+        mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.waypoint_delete_armed || action.type != MESH_UI_ACTION_NONE) {
         failure = "the first press on delete should only arm it";
         goto cleanup;
     }
     /* Moving off the row stands it down: the row the question was asked about is the only row
        the answer may apply to. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
     if (store.nav.waypoint_delete_armed) {
         failure = "moving the cursor should stand the delete down";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (action.type != MESH_UI_ACTION_FORGET_WAYPOINT || action.number != 42U) {
         failure = "the second press should ask the app to forget that place";
         goto cleanup;
@@ -997,7 +998,7 @@ MESH_TEST_CASE(waypoint_nav_names_a_new_place, unit) {
         goto cleanup;
     }
     /* The only row is the one that makes a place. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.keyboard_open || !store.nav.keyboard_waypoint) {
         failure = "the new row should raise the keyboard";
         goto cleanup;
@@ -1008,19 +1009,19 @@ MESH_TEST_CASE(waypoint_nav_names_a_new_place, unit) {
     }
 
     /* Send with nothing typed refuses rather than broadcasting an unnamed place. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_START, &action);
     if (action.type != MESH_UI_ACTION_NONE || !store.nav.keyboard_open) {
         failure = "an empty name should not go out, and should leave the keyboard up";
         goto cleanup;
     }
 
     /* Type one character off the grid, then send. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (store.nav.draft[0] == '\0') {
         failure = "A on the keyboard should type";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_START, &action);
     if (action.type != MESH_UI_ACTION_SHARE_WAYPOINT || action.text[0] == '\0') {
         failure = "Send should ask the app to share the named place";
         goto cleanup;
@@ -1075,7 +1076,7 @@ MESH_TEST_CASE(waypoint_nav_refuses_a_new_place_with_no_fix, unit) {
     /* One turn of the loop before the press, which is what puts a clock on the store. */
     mesh_ui_store_tick(&store, 10000U);
     memset(&action, 0, sizeof action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (store.nav.keyboard_open) {
         failure = "a place with no coordinates should not open the keyboard";
         goto cleanup;

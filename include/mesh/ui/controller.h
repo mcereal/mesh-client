@@ -7,7 +7,7 @@
 extern "C" {
 #endif
 
-struct mesh_ui_backend;
+struct inkcell_backend;
 struct mesh_ui_action;
 
 /* Invoked from mesh_ui_controller_handle_key() when a press asks for something outside the
@@ -29,7 +29,7 @@ struct mesh_ui_controller {
     struct mesh_ui_store *store;
     struct mesh_ui_snapshot snapshot;
     bool snapshot_valid;
-    const struct mesh_ui_backend *backend;
+    const struct inkcell_backend *backend;
     void *backend_state;
     void *backend_userdata;
     struct mesh_event_loop *loop;
@@ -42,7 +42,7 @@ struct mesh_ui_controller {
 };
 
 int mesh_ui_controller_init(struct mesh_ui_controller *controller, struct mesh_ui_store *store,
-                            const struct mesh_ui_backend *backend, void *backend_userdata,
+                            const struct inkcell_backend *backend, void *backend_userdata,
                             struct mesh_event_loop *loop);
 void mesh_ui_controller_shutdown(struct mesh_ui_controller *controller);
 
@@ -51,7 +51,7 @@ void mesh_ui_controller_set_action_handler(struct mesh_ui_controller *controller
 
 /* Feed one logical button press through the store's navigation model. Repaints happen via
    the store's eventfd on the next loop turn; actions go to the handler above right away. */
-void mesh_ui_controller_handle_key(struct mesh_ui_controller *controller, enum mesh_ui_key key);
+void mesh_ui_controller_handle_key(struct mesh_ui_controller *controller, enum inkcell_key key);
 
 #ifdef __cplusplus
 }

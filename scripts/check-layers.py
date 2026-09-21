@@ -2,7 +2,7 @@
 """Fail when one area of the tree includes a header from an area it is not allowed to see.
 
 Every `.c` in this project compiles into one library, meshclient_core, so the linker has no
-opinion about direction: `src/geo/mercator.c` could include "mesh/ui/theme.h" tomorrow and the
+opinion about direction: `src/geo/mercator.c` could include "mesh/ui/store.h" tomorrow and the
 build would be delighted. The layering in docs/architecture.md - data one way, input the other -
 is a rule the compiler cannot see, in exactly the way "no prose in a renderer" is. This is the
 check that does, and check-strings.py is its sibling.

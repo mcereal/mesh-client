@@ -104,7 +104,7 @@ Data flows one direction; input goes the other way.
 
 ```
 link (transport) -> mesh_session -> mesh_app -> UI store -> controller -> backend
-evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_ui_action
+evdev -> inkcell_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_ui_action
 ```
 
 **The UI toolkit is [inkcell](https://github.com/mcereal/inkcell), a submodule at
@@ -124,10 +124,12 @@ inkcell never reaches into this client. Four things are pushed down instead, all
 | The loop | `struct inkcell_input_host` over `mesh_event_loop` - inkcell owns no loop |
 | The frame | `struct inkcell_fb_app` - inkcell calls up into `fb_app.c` once a frame |
 
-**`include/mesh/inkcell_compat.h` is temporary.** It bridges ~850 old `mesh_ui_*` names to their
-`inkcell_*` spellings so that moving the files did not have to rewrite every call site in the
-same commit. Nothing new should use a name in it; write the inkcell name, and take lines out of
-the list as a layer stops needing them.
+**Everything that moved is spelled the inkcell way.** The bridge header that stood in for ~850
+old `mesh_ui_*` names is gone: a symbol is `inkcell_*` when inkcell owns it and `mesh_*` when
+this client does, and which prefix a name carries is now the answer to who owns it. A few names
+the bridge had swept up were this client's own all along - `struct mesh_ui_action`,
+`mesh_ui_store_handle_key()`, `enum mesh_ui_setting_field`, `fb_render_status()` - and they read
+as this client's again.
 
 **`include/mesh/<area>/` is an area's public surface and is flat; `src/<area>/` subdivides by
 group.** So `store.h` is included as `mesh/ui/store.h` no matter which group under `src/ui/` its
@@ -148,9 +150,9 @@ see every other, because assembling them is what it is for. A new *top-level* di
 existing area does not, because a file's area is its first directory - `src/ui/store/store.c` is
 `ui`, exactly as `src/transport/ble/bluez_client.c` is `transport`.
 
-`src/ui/generated/` is the three glyph tables `scripts/gen-{emoji,icons,font}.py` write - 42k
-lines, a third of the tree, and none of it read by a human. It is out of `src/ui/` so that a
-count of this codebase is a count of what somebody wrote.
+The 42k lines of generated glyph tables that used to be a third of this tree are inkcell's now
+(`third_party/inkcell/src/generated/`), and so are the scripts that write them. Nothing under
+`src/` is machine-written any more.
 
 The one group that is several headers to one source is the UI store: `src/ui/store/store.c` defines
 what `store.h` and its seven subject headers (`store_device.h`, `store_node.h`,
@@ -178,7 +180,7 @@ publish and read back when that node's detail screen is opened. See
 | Messaging | `src/core/session/message.c`, `store_forward.c`, `waypoint.c` |
 | Key trust | `src/core/session/key_verification.c` - the out-of-band ceremony behind the padlock; `add_contact` lives in `radio_settings.c` |
 | Keyboard | the grid, the ring and the edits are inkcell's (`inkcell/ui/keyboard.h`); `src/ui/nav/nav_keyboard.c` is the seven jobs it is opened for and this client's emoji pages |
-| Channel sharing | `src/proto/channel_url.c` (the `meshtastic.org/e/#` link), `src/core/session/channel_share.c` (the radio's table either way), `src/utils/qr.c` (the code), `src/ui/views/channel_share.c` (what the two screens say) |
+| Channel sharing | `src/proto/channel_url.c` (the `meshtastic.org/e/#` link), `src/core/session/channel_share.c` (the radio's table either way), inkcell's `src/utils/qr.c` (the code), `src/ui/views/channel_share.c` (what the two screens say) |
 | Contact sharing | `src/proto/contact_url.c` (the `meshtastic.org/v/#` link), `src/core/session/contact_share.c` (this radio's record out, a stranger's in), `src/ui/views/contact_share.c` (what the two screens say); the wrapper both links share is `src/proto/link_url.h` |
 | App glue | `src/app/*.c` - the composition root: lifecycle/link, `_actions`, `_publish`, `_settings` |
 | Self-update | `src/core/update/updater.c`, `version.c`; HTTPS is `src/core/net/fetch.c` over `src/proto/http.c` |
@@ -189,11 +191,11 @@ publish and read back when that node's detail screen is opened. See
 | UI components | inkcell's `include/inkcell/ui/widgets/*.h` (button, chrome, list, item, bubble, card, control, meter, overlay); `inkcell/ui/widgets.h` is the umbrella, `inkcell/ui/fb_draw.h` the toolkit under it |
 | This client behind the frame | `src/ui/backends/fb_app.c` - the renderer inkcell calls, the move it cannot work out, the theme it is told |
 | Tables the UI reads | `src/ui/tables/` - `actions.c` (button verbs), `status.c` (card verbs), `help.c`, `devices.c`, `nodes.c`, `delivery.c`, `trust.c`, `chrome.c`, `trend.c` (the airtime chart; the frame around it is inkcell's), `duration.c`, `units.c` (metric/imperial lengths) |
-| Themes & fonts | inkcell's `src/theme/` - palette by role, shape scale, metrics |
+| Themes & fonts | inkcell's `src/theme/` and `src/generated/` - palette by role, shape scale, metrics, the glyph tables |
 | Strings | `src/i18n/strings.c` registers the catalog; the list is `include/mesh/i18n/catalog.def`, continuing inkcell's 15 |
 | Geography & map | `src/geo/` (the only directory that includes `<math.h>`), `src/map/`, `src/ui/views/map.c`, `src/ui/nav/nav_map.c`, `src/ui/backends/fb_map.c` |
 | Crash reports | `src/utils/crash.c` - local only, deliberately not a service |
-| Shared utils | `src/utils/` - `text`, `time`, `env`, `json`, `log`, `sha256`, `array` |
+| Shared utils | `src/utils/` - `json`, `sha256`, `base64`, `inflate`, `zip`, `crash`; `text`, `time`, `env`, `log`, `array` and `qr` are inkcell's |
 | Dev tools | `devtools/`, `scripts/` - UI capture, map packs, codegen |
 
 ### The groups inside `src/ui/` and `src/core/`
@@ -207,19 +209,17 @@ its include path - see the flat-header rule above.
 | `src/ui/nav/` | where the reader is and what a press does: `nav*.c`, `route.c`, `controller.c` |
 | `src/ui/settings/` | the settings model: fields, rows, the codec |
 | `src/ui/tables/` | the vocabulary tables a screen names rather than spells out |
-| `src/ui/theme/` | palette, shape scale, fonts, icons, emoji |
 | `src/ui/views/` | per-screen view models - what a screen says, not how it is drawn |
-| `src/ui/input/` | evdev to `mesh_ui_key`, and the Brick's button profile |
 | `src/ui/backends/` | the renderers. **`fb` is the device UI** |
-| `src/ui/generated/` | machine-written glyph tables |
 | `src/core/session/` | the Meshtastic conversation: session, messaging, admin, trust, sharing |
 | `src/core/firmware/` | the *radio's* firmware - a different binary on a different computer |
 | `src/core/net/` | one hostname, one socket, one TLS session, one broker |
 | `src/core/update/` | the *client* updating itself |
 | `src/core/runtime/` | the loop, signals, process config |
 
-`src/ui/layout.c` and `src/ui/anim.c` stay at the top of `src/ui/`: measuring in cells and the
-easing curves are what every group does, so neither belongs to one.
+The theme, the fonts, the glyph tables, the easing curves, the cell arithmetic and the evdev
+layer are no longer groups here at all - they went to inkcell, which is why every directory left
+under `src/ui/` is one that knows what a node, a channel or a waypoint is.
 
 Five subsystems are split across several files sharing one `*_internal.h` (`src/app/app_internal.h`,
 `src/ui/nav/nav_internal.h`, `src/ui/settings/settings_internal.h`, `src/ui/store/store_internal.h`,
@@ -231,15 +231,15 @@ be `static` if the group were one file, and nothing outside the group should inc
 These are authoring rules - breaking one compiles and looks fine.
 
 - **Nothing is spelled out in a renderer.** A screen names an *id* and something else answers: a
-  string (`MESH_STR_*` -> `src/i18n/strings.c`), an icon (`MESH_UI_ICON_*` -> `src/ui/theme/icon.c`), a
-  tone/family/role/shape (-> `src/ui/theme/theme.c`). No English prose, colour, margin, glyph size or
+  string (`MESH_STR_*` -> `src/i18n/strings.c`), an icon (`INKCELL_ICON_*` -> inkcell's
+  `icons.def`), a tone/family/role/shape (-> inkcell's `theme.c`). No prose, colour, margin, glyph size or
   corner radius belongs in `src/ui/backends/`. `scripts/check-strings.py` fails the build on prose.
 - **Button hints are (button, string id) pairs** in `src/ui/tables/actions.c`, never a sentence. A keycap
   is untranslated - it is what is printed on the case. A keycap that does nothing is a bug.
-- **A heading is `struct fb_app_bar`**, with slots; the back arrow is *derived* from the action
+- **A heading is `struct inkcell_fb_app_bar`**, with slots; the back arrow is *derived* from the action
   table, never declared.
 - **A list row is however many *steps* the list model says**, and the model is the authority; the
-  screen measures and hands `fb_list_begin_heights()` an array.
+  screen measures and hands `inkcell_fb_list_begin_heights()` an array.
 - **fb text is measured, never counted.** A `strlen` or `%-Ns` is a bug, and so is a cell count
   multiplied by the advance: the UI face is proportional, so `inkcell_fb_char_adv()` is a
   *nominal* width and an estimate. Measure with `inkcell_fb_text_width()`, wrap and fit against
@@ -247,9 +247,9 @@ These are authoring rules - breaking one compiles and looks fine.
   does reserve whole columns.
 - **A setting explains itself through `src/ui/tables/help.c`**, keyed per section (and per route for
   screens that are not lists of fields), never as a sentence on a screen.
-- **Adding a string, icon, theme or cache key is adding a table row** - `catalog.def`,
-  `icons.def`, `theme.c`, `store_keys.def`. A `.def` is not a header and `make format` does not
-  touch them.
+- **Adding a string or a cache key is adding a table row** - `catalog.def`, `store_keys.def`. A
+  `.def` is not a header and `make format` does not touch them. An icon or a theme is a row in
+  inkcell's `icons.def` or `theme.c`, which is a change to the toolkit and lands there first.
 
 ## Before you change something
 
@@ -273,11 +273,11 @@ The few that bite soonest:
 - **BLE is not Nordic UART** and carries no length framing: one bare protobuf per GATT
   write/read. Framing is a *stream* concern - serial and TCP - in `src/proto/stream_framing.c`.
 - **A QR code is black on white on every theme.** Several scanners will not read an inverted
-  one, so `MESH_UI_COLOR_CODE`/`_GROUND` are the one pair in `theme.c` that does not vary. There
+  one, so `INKCELL_COLOR_CODE`/`_GROUND` are the one pair in `theme.c` that does not vary. There
   is no *decoder* and there will not be one: the Brick has no camera, so a link arriving is
   typed in.
 - **The Brick's face buttons do not report by position.** A is `BTN_EAST`, B is `BTN_SOUTH`, the
-  button printed **Y (left)** is `BTN_NORTH`. See `src/ui/input/input_profile.c`.
+  button printed **Y (left)** is `BTN_NORTH`. See inkcell's `src/input/input_profile.c`.
 - **A radio reboot after a settings write is expected.** The link drops and auto-connect returns.
 - **The node roster deliberately outlives the connection**, and a NodeDB reset does not clear it.
 - **The framebuffer needs all three steps** - draw page 0, `FBIOPAN_DISPLAY`, mirror into page 1 -

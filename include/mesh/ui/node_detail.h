@@ -14,12 +14,13 @@
  * lives. The backend builds once per frame and the nav asks for the count.
  */
 
+#include "inkcell/ui/icon.h"
+#include "inkcell/ui/layout.h"
+#include "inkcell/ui/theme.h"
+
 #include "mesh/ui/history.h"
-#include "mesh/ui/icon.h"
-#include "mesh/ui/layout.h"
 #include "mesh/ui/store_handshake.h"
 #include "mesh/ui/store_node.h"
-#include "mesh/ui/theme.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -173,14 +174,14 @@ struct mesh_ui_node_item {
     uint8_t kind;   /* enum mesh_ui_node_row_kind */
     uint8_t action; /* enum mesh_ui_node_action */
     /*
-     * The symbol in the row's leading slot, or MESH_UI_ICON_NONE.
+     * The symbol in the row's leading slot, or INKCELL_ICON_NONE.
      *
      * Here rather than in the renderer for the reason settings.c's k_section_icons[] is there
      * and not in fb_screens_nodes.c: what a row is *about* is a property of the row, and a backend
      * that decided by switching on `action` would be a second table to keep in step with this
      * one. A row with nothing to say leaves it unset and the slot still holds its width, which
      * is what stops a list whose icons are optional from starting its text in two columns -
-     * see FB_LEADING_ICON.
+     * see INKCELL_FB_LEADING_ICON.
      *
      * A HEADING carries one too, and it is the group's subject rather than a row's: a backend
      * that draws these groups as cards draws it as the card's own icon, which is the cell the
@@ -188,17 +189,17 @@ struct mesh_ui_node_item {
      * twenty rows long. A flat list leaves that slot empty, and the group states its subject
      * either way - which of the two is happening is the renderer's business, not the builder's.
      */
-    uint8_t icon; /* enum mesh_ui_icon */
+    uint8_t icon; /* enum inkcell_icon */
     /*
      * The ink the row's words take: how much of a statement pressing it makes.
      *
-     * A plain fact is MESH_UI_TONE_NORMAL and an ordinary verb is the primary, which is what
+     * A plain fact is INKCELL_TONE_NORMAL and an ordinary verb is the primary, which is what
      * every row here used to be - so "Message this node" and "Remove from radio" were the same
      * colour and the only difference between them was the reading. The two that cost something
      * name the warning and the error family instead, on the same terms as the dialog that
      * confirms a reboot: a destructive control says so before it is pressed, not after.
      */
-    uint8_t tone; /* enum mesh_ui_tone */
+    uint8_t tone; /* enum inkcell_tone */
     /*
      * ACTION: the row is a boolean the press flips, and `on` is where it stands.
      *
@@ -237,13 +238,13 @@ struct mesh_ui_node_item {
      * normalised here, because the two ends and the two thresholds are one statement about the
      * reading and normalising would split it: a builder that handed over a fraction would have
      * had to convert the thresholds too, by arithmetic nothing could check against the ends it
-     * used. mesh_ui_scale_permille() does it once, where the bar is drawn.
+     * used. inkcell_scale_permille() does it once, where the bar is drawn.
      *
      * `banded` is the NULL a pointer would have carried; a row without one is a plain bar.
      */
     int32_t number;
-    struct mesh_ui_scale scale;
-    struct mesh_ui_band band;
+    struct inkcell_scale scale;
+    struct inkcell_band band;
     bool banded;
     /*
      * METER: what this reading has been doing, or NULL for one nothing has watched.
@@ -257,7 +258,7 @@ struct mesh_ui_node_item {
      * which rows have one so far. A trend is measured on the same `scale` the bar beside it is,
      * so a row with a trend and no ends to draw it between would be a line against nothing.
      */
-    const struct mesh_ui_series *trend;
+    const struct inkcell_series *trend;
     /*
      * METER: which reading that trend is of, and so which chart A on this row opens.
      *

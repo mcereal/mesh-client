@@ -45,14 +45,14 @@
  */
 
 static const struct mesh_ui_help_entry k_help_messages[] = {
-    {MESH_STR_NONE, MESH_STR_HELP_NOTE_MESSAGES},
+    {INKCELL_STR_NONE, MESH_STR_HELP_NOTE_MESSAGES},
     {MESH_STR_HELP_LABEL_MESSAGES_NEW, MESH_STR_HELP_NOTE_MESSAGES_NEW},
     {MESH_STR_HELP_LABEL_MESSAGES_DROP, MESH_STR_HELP_NOTE_MESSAGES_DROP},
     {MESH_STR_HELP_LABEL_MESSAGES_MUTE, MESH_STR_HELP_NOTE_MESSAGES_MUTE},
 };
 
 static const struct mesh_ui_help_entry k_help_thread[] = {
-    {MESH_STR_NONE, MESH_STR_HELP_NOTE_THREAD},
+    {INKCELL_STR_NONE, MESH_STR_HELP_NOTE_THREAD},
     {MESH_STR_HELP_LABEL_THREAD_HISTORY, MESH_STR_HELP_NOTE_THREAD_HISTORY},
     {MESH_STR_HELP_LABEL_THREAD_MARKS, MESH_STR_HELP_NOTE_THREAD_MARKS},
     {MESH_STR_HELP_LABEL_THREAD_REPLY, MESH_STR_HELP_NOTE_THREAD_REPLY},
@@ -61,13 +61,13 @@ static const struct mesh_ui_help_entry k_help_thread[] = {
 };
 
 static const struct mesh_ui_help_entry k_help_reaction[] = {
-    {MESH_STR_NONE, MESH_STR_HELP_NOTE_REACTION},
+    {INKCELL_STR_NONE, MESH_STR_HELP_NOTE_REACTION},
     {MESH_STR_HELP_LABEL_REACTION_SEND, MESH_STR_HELP_NOTE_REACTION_SEND},
     {MESH_STR_HELP_LABEL_REACTION_DELETE, MESH_STR_HELP_NOTE_REACTION_DELETE},
 };
 
 static const struct mesh_ui_help_entry k_help_nodes[] = {
-    {MESH_STR_NONE, MESH_STR_HELP_NOTE_NODES},
+    {INKCELL_STR_NONE, MESH_STR_HELP_NOTE_NODES},
     {MESH_STR_HELP_LABEL_NODES_FILTER, MESH_STR_HELP_NOTE_NODES_FILTER},
     {MESH_STR_HELP_LABEL_NODES_SORT, MESH_STR_HELP_NOTE_NODES_SORT},
     {MESH_STR_HELP_LABEL_NODES_PIN, MESH_STR_HELP_NOTE_NODES_PIN},
@@ -75,7 +75,7 @@ static const struct mesh_ui_help_entry k_help_nodes[] = {
 };
 
 static const struct mesh_ui_help_entry k_help_map[] = {
-    {MESH_STR_NONE, MESH_STR_HELP_NOTE_MAP},
+    {INKCELL_STR_NONE, MESH_STR_HELP_NOTE_MAP},
     {MESH_STR_HELP_LABEL_MAP_MOVE, MESH_STR_HELP_NOTE_MAP_MOVE},
     {MESH_STR_HELP_LABEL_MAP_PICK, MESH_STR_HELP_NOTE_MAP_PICK},
     {MESH_STR_HELP_LABEL_MAP_TRUST, MESH_STR_HELP_NOTE_MAP_TRUST},
@@ -104,7 +104,7 @@ static const struct mesh_ui_help_entry k_help_map[] = {
  * it does, and then the four kinds of reading down it.
  */
 static const struct mesh_ui_help_entry k_help_node[] = {
-    {MESH_STR_NONE, MESH_STR_HELP_NOTE_NODE},
+    {INKCELL_STR_NONE, MESH_STR_HELP_NOTE_NODE},
     {MESH_STR_HELP_LABEL_NODE_GROUPS, MESH_STR_HELP_NOTE_NODE_GROUPS},
     /* Where the verbs went, and the two that did not have to go anywhere. It is here rather than
        among the readings because it is the only press on this screen that leads somewhere the
@@ -139,14 +139,14 @@ static const struct mesh_ui_help_entry k_help_node_actions[] = {
 };
 
 static const struct mesh_ui_help_entry k_help_waypoints[] = {
-    {MESH_STR_NONE, MESH_STR_HELP_NOTE_WAYPOINTS},
+    {INKCELL_STR_NONE, MESH_STR_HELP_NOTE_WAYPOINTS},
     {MESH_STR_HELP_LABEL_WAYPOINT_NEW, MESH_STR_HELP_NOTE_WAYPOINT_NEW},
     {MESH_STR_HELP_LABEL_WAYPOINT_SHARE, MESH_STR_HELP_NOTE_WAYPOINT_SHARE},
     {MESH_STR_HELP_LABEL_WAYPOINT_DROP, MESH_STR_HELP_NOTE_WAYPOINT_DROP},
 };
 
 static const struct mesh_ui_help_entry k_help_devices[] = {
-    {MESH_STR_NONE, MESH_STR_HELP_NOTE_DEVICES},
+    {INKCELL_STR_NONE, MESH_STR_HELP_NOTE_DEVICES},
     {MESH_STR_HELP_LABEL_DEVICES_PAIR, MESH_STR_HELP_NOTE_DEVICES_PAIR},
     {MESH_STR_HELP_LABEL_DEVICES_FORGET, MESH_STR_HELP_NOTE_DEVICES_FORGET},
     /* The last row of the list, and the one thing on this screen a reader cannot work out by
@@ -163,14 +163,14 @@ static const struct mesh_ui_help_entry k_help_devices[] = {
  * field with a radio is actually stuck on. "1.1% busy, 0.1% tx, -120 dBm floor" is three figures
  * in three units with no room on the card to say what any of them is, and the card cannot grow
  * the room: this screen is the one column in the client that runs out of it (see
- * fb_draw_card_reserving()). A note is where the sentence goes when the row cannot hold one,
- * which is the same rule a settings field's note follows one screen over.
+ * inkcell_fb_draw_card_reserving()). A note is where the sentence goes when the row cannot hold
+ * one, which is the same rule a settings field's note follows one screen over.
  *
  * In the order the cards draw, as every other list about this screen is - the counts and the
  * airtime are the Mesh card, and the traffic totals are the Radio card under it.
  */
 static const struct mesh_ui_help_entry k_help_status[] = {
-    {MESH_STR_NONE, MESH_STR_HELP_NOTE_STATUS},
+    {INKCELL_STR_NONE, MESH_STR_HELP_NOTE_STATUS},
     {MESH_STR_HELP_LABEL_STATUS_COUNTS, MESH_STR_HELP_NOTE_STATUS_COUNTS},
     {MESH_STR_HELP_LABEL_STATUS_AIRTIME, MESH_STR_HELP_NOTE_STATUS_AIRTIME},
     {MESH_STR_HELP_LABEL_STATUS_FLOOR, MESH_STR_HELP_NOTE_STATUS_FLOOR},
@@ -191,7 +191,7 @@ static const struct mesh_ui_help_entry k_help_status[] = {
  * the only place it can be said is here, second, where somebody who opened help will read it.
  */
 static const struct mesh_ui_help_entry k_help_share[] = {
-    {MESH_STR_NONE, MESH_STR_HELP_NOTE_SHARE},
+    {INKCELL_STR_NONE, MESH_STR_HELP_NOTE_SHARE},
     {MESH_STR_HELP_LABEL_SHARE_KEYS, MESH_STR_HELP_NOTE_SHARE_KEYS},
     {MESH_STR_HELP_LABEL_SHARE_WHAT, MESH_STR_HELP_NOTE_SHARE_WHAT},
     {MESH_STR_HELP_LABEL_SHARE_IMPORT, MESH_STR_HELP_NOTE_SHARE_IMPORT},
@@ -206,7 +206,7 @@ static const struct mesh_ui_help_entry k_help_share[] = {
  * show" is not "proves who sent it", and the padlock in this client means the second thing.
  */
 static const struct mesh_ui_help_entry k_help_contact[] = {
-    {MESH_STR_NONE, MESH_STR_HELP_NOTE_CONTACT},
+    {INKCELL_STR_NONE, MESH_STR_HELP_NOTE_CONTACT},
     {MESH_STR_HELP_LABEL_CONTACT_SAFE, MESH_STR_HELP_NOTE_CONTACT_SAFE},
     {MESH_STR_HELP_LABEL_CONTACT_TRUST, MESH_STR_HELP_NOTE_CONTACT_TRUST},
     {MESH_STR_HELP_LABEL_CONTACT_IMPORT, MESH_STR_HELP_NOTE_CONTACT_IMPORT},
@@ -217,7 +217,7 @@ static const struct mesh_ui_help_entry k_help_contact[] = {
    one level in. What a reader arrives wanting to know here is what the axes mean, and the cards
    underneath have no axes. */
 static const struct mesh_ui_help_entry k_help_trend[] = {
-    {MESH_STR_NONE, MESH_STR_HELP_NOTE_TREND},
+    {INKCELL_STR_NONE, MESH_STR_HELP_NOTE_TREND},
     {MESH_STR_HELP_LABEL_TREND_AXES, MESH_STR_HELP_NOTE_TREND_AXES},
     {MESH_STR_HELP_LABEL_TREND_MARKS, MESH_STR_HELP_NOTE_TREND_MARKS},
     /* And the one press the screen has. It is last rather than first because a reader arrives
@@ -252,7 +252,7 @@ static const struct mesh_ui_help_entry k_help_node_chart[] = {
 struct help_feature {
     uint8_t screen; /* enum mesh_ui_screen */
     uint8_t level;  /* enum mesh_ui_route_level */
-    enum mesh_str_id subject;
+    enum inkcell_str_id subject;
     const struct mesh_ui_help_entry *entries;
     uint32_t count;
 };
@@ -390,12 +390,12 @@ static uint32_t help_section_items(const struct mesh_ui_settings *settings,
                                   items, MESH_UI_SETTINGS_ITEMS_MAX);
 }
 
-/* The note for one row, or MESH_STR_NONE. A row that is not a field - a heading, a read-only
+/* The note for one row, or INKCELL_STR_NONE. A row that is not a field - a heading, a read-only
    fact, an action - has no field to ask about and so has no note; the section's own paragraph
    is what covers those. */
-static enum mesh_str_id help_item_note(const struct mesh_ui_settings_item *item) {
+static enum inkcell_str_id help_item_note(const struct mesh_ui_settings_item *item) {
     if (item->field == MESH_UI_FIELD_NONE) {
-        return MESH_STR_NONE;
+        return INKCELL_STR_NONE;
     }
     return mesh_ui_settings_field_note(item->field);
 }
@@ -441,8 +441,8 @@ bool mesh_ui_help_topic(const struct mesh_ui_settings *settings,
         const struct help_feature *feature = help_feature_for(&place);
         return feature != NULL && help_feature_topic(feature, out);
     }
-    const enum mesh_str_id overview = mesh_ui_settings_section_note(section);
-    if (overview == MESH_STR_NONE) {
+    const enum inkcell_str_id overview = mesh_ui_settings_section_note(section);
+    if (overview == INKCELL_STR_NONE) {
         /* Every section is supposed to have one, and a test says so - but a section that
            somehow does not is a screen with nothing to say, and offering the press for it would
            be worse than not offering it. */
@@ -451,15 +451,15 @@ bool mesh_ui_help_topic(const struct mesh_ui_settings *settings,
 
     out->title = MESH_STR_HELP_TITLE;
     out->subject = mesh_ui_settings_section_label(section);
-    out->entries[out->count].label = MESH_STR_NONE;
+    out->entries[out->count].label = INKCELL_STR_NONE;
     out->entries[out->count].body = overview;
     out->count++;
 
     struct mesh_ui_settings_item items[MESH_UI_SETTINGS_ITEMS_MAX];
     const uint32_t rows = help_section_items(settings, handshake, nav, section, items);
     for (uint32_t i = 0U; i < rows && out->count < MESH_UI_HELP_ENTRIES_MAX; ++i) {
-        const enum mesh_str_id note = help_item_note(&items[i]);
-        if (note == MESH_STR_NONE) {
+        const enum inkcell_str_id note = help_item_note(&items[i]);
+        if (note == INKCELL_STR_NONE) {
             continue;
         }
         /* The row's own name, as an id rather than copied off the item: a topic is ids the
@@ -580,7 +580,7 @@ uint32_t mesh_ui_help_entry_for_row(const struct mesh_ui_settings *settings,
     for (uint32_t i = 0U; i <= row; ++i) {
         if (items[i].kind == MESH_UI_SETTING_HEADING) {
             landing = 0U;
-        } else if (help_item_note(&items[i]) != MESH_STR_NONE) {
+        } else if (help_item_note(&items[i]) != INKCELL_STR_NONE) {
             landing = entry;
             entry++;
         }

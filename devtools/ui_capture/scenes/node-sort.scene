@@ -5,7 +5,7 @@
 #
 #   - Two controls, one shape, two forms. Both rows are a label, a pencil and a value column -
 #     the Settings tab's field row - and what differs is only what fits in the column. Three
-#     filters are inside FB_SEGMENTED_MAX so all three are on the panel; five orders are outside
+#     filters are inside INKCELL_FB_SEGMENTED_MAX so all three are on the panel; five orders are outside
 #     it, so the sort is the word it is set to. The component measures and decides, which is why
 #     the filter above falls back to a word too at the largest glyph scales rather than to three
 #     pills with nothing in them.

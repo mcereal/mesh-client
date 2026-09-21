@@ -2,7 +2,7 @@
  * The catalog: every string the user reads, one line each.
  *
  * This file is included more than once, with the two macros defined differently each time -
- * once to build `enum mesh_str_id`, once to build the English table, once by
+ * once to build `enum inkcell_str_id`, once to build the English table, once by
  * scripts/gen-locale.py to build a translation template. That is why it has no include guard
  * and why it is not a .h: `make format` would reflow the table into something no translator
  * could scan, and there is nothing here for clang-format to be right about.
@@ -21,7 +21,7 @@
  *     "Off" under Bluetooth and "off" as a duration are one word in English and two in most
  *     other languages, and an id per job is what lets a translator tell them apart.
  *   - Keep the specifiers, their order and their types identical across locales.
- *     mesh_i18n_validate() enforces it; see docs/i18n.md.
+ *     inkcell_i18n_validate() enforces it; see docs/i18n.md.
  *
  * Comments here are addressed to translators as much as to the next maintainer. A string with
  * no context is a string that gets translated wrong.
@@ -87,7 +87,7 @@ MESH_STR_ENTRY(TAB_SETTINGS,              "Settings")
  * What the buttons do here, one verb per button.
  *
  * These used to be whole sentences - "A open node  X pin  Y write  L/R tabs" - because the
- * footer drew one line of text. It draws an action bar now (fb_draw_action_bar), which is a
+ * footer drew one line of text. It draws an action bar now (inkcell_fb_draw_action_bar), which is a
  * keycap and a label per action, so a sentence has nothing for it to iterate: it would either
  * draw the whole thing on every key or go looking for the button letters inside a translation,
  * and reading a translation back is the one thing this layer exists to prevent.
@@ -776,7 +776,7 @@ MESH_STR_ENTRY(TREND_EMPTY,               "Not enough readings in this span")
 /* The readings list, which is the plot's other face. The caption says what the left-hand column
    is measured from, because it is not the clock: a Brick has no RTC and the series are stamped
    with a monotonic one, so "ago" would be the one claim on this screen with nothing behind it -
-   see struct mesh_ui_trend_reading. */
+   see struct inkcell_trend_reading. */
 MESH_STR_ENTRY(TREND_READINGS_FROM,       "before the newest reading")
 /* A row of it: how long before that reading it was taken. The newest row is the reading it is
    measured from, so it says so rather than "0s". */
@@ -1119,7 +1119,7 @@ MESH_STR_ENTRY(HELP_OVERVIEW,             "About this screen")
  * Keep them under 200 characters. The help screen wraps them across a 3.2" panel, and a note
  * that runs past a screenful stops being read; settings_note_fits_the_panel holds the line.
  *
- * A locale may leave any of these untranslated: mesh_str_in() falls back to English per id, so
+ * A locale may leave any of these untranslated: inkcell_str_in() falls back to English per id, so
  * an omitted note reads in English while the rest of that language stays correct. They are the
  * one class of string in this catalog with that dispensation - see docs/i18n.md.
  */
@@ -3057,7 +3057,7 @@ MESH_STR_ENTRY(BANNER_RADIO_IN_LOADER_HINT, "It stays off the mesh until an upda
  * The Settings > About row naming the language in force.
  *
  * Only the label is here. The *name* of a language comes from `name` on struct
- * mesh_i18n_locale, which every locale must fill in with its own name for itself - "Deutsch",
+ * inkcell_i18n_locale, which every locale must fill in with its own name for itself - "Deutsch",
  * not "German". It is deliberately not a catalog entry: a catalog entry may be left
  * untranslated, and a locale whose name fell back to English would have About reporting the
  * wrong language.

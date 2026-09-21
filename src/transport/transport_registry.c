@@ -1,6 +1,6 @@
-#include "mesh/transport/transport.h"
+#include "inkcell/utils/log.h"
 
-#include "mesh/utils/log.h"
+#include "mesh/transport/transport.h"
 
 #include <errno.h>
 #include <string.h>
@@ -54,13 +54,13 @@ int mesh_transport_registry_start_all(struct mesh_transport_registry *registry,
     for (size_t i = 0; i < registry->count; ++i) {
         struct mesh_transport *transport = registry->transports[i];
         if (transport == NULL || transport->ops == NULL || transport->ops->start == NULL) {
-            mesh_log_warn("transport", "Skipping invalid transport at index %zu", i);
+            inkcell_log_warn("transport", "Skipping invalid transport at index %zu", i);
             continue;
         }
 
         int result = transport->ops->start(transport, config, loop);
         if (result < 0) {
-            mesh_log_error("transport", "Failed to start %s: %d", transport->name, result);
+            inkcell_log_error("transport", "Failed to start %s: %d", transport->name, result);
             mesh_transport_registry_stop_all(registry);
             return result;
         }

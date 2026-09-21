@@ -25,7 +25,7 @@ _Static_assert(MESH_UI_CHANNEL_URL_MAX >= MESH_CHANNEL_URL_MAX,
 /* The name to put in front of a person. An empty one is not a channel without a name: upstream
    reads it as the preset's own default channel, and every app shows it that way. */
 static const char *channel_name(const meshtastic_ChannelSettings *settings) {
-    return settings->name[0] != '\0' ? settings->name : mesh_str(MESH_STR_CHANNELS_DEFAULT_NAME);
+    return settings->name[0] != '\0' ? settings->name : inkcell_str(MESH_STR_CHANNELS_DEFAULT_NAME);
 }
 
 bool mesh_ui_channel_share_summary(const char *url, char *out, size_t out_len) {
@@ -37,8 +37,8 @@ bool mesh_ui_channel_share_summary(const char *url, char *out, size_t out_len) {
     if (url == NULL || url[0] == '\0' || !mesh_channel_url_decode(url, &set, NULL)) {
         return false;
     }
-    mesh_str_format_plural(out, out_len, MESH_STR_SHARE_SUMMARY_ONE, (uint32_t)set.settings_count,
-                           (unsigned)set.settings_count);
+    inkcell_str_format_plural(out, out_len, MESH_STR_SHARE_SUMMARY_ONE,
+                              (uint32_t)set.settings_count, (unsigned)set.settings_count);
     return true;
 }
 
@@ -60,12 +60,12 @@ bool mesh_ui_channel_import_sheet(const char *text, char *headline, size_t headl
         return false;
     }
     if (headline != NULL) {
-        mesh_str_format(headline, headline_len, MESH_STR_CONFIRM_TITLE_IMPORT,
-                        channel_name(&set.settings[0]));
+        inkcell_str_format(headline, headline_len, MESH_STR_CONFIRM_TITLE_IMPORT,
+                           channel_name(&set.settings[0]));
     }
     if (body != NULL) {
-        mesh_str_format_plural(body, body_len, MESH_STR_CONFIRM_TEXT_IMPORT_ONE,
-                               (uint32_t)set.settings_count, (unsigned)set.settings_count);
+        inkcell_str_format_plural(body, body_len, MESH_STR_CONFIRM_TEXT_IMPORT_ONE,
+                                  (uint32_t)set.settings_count, (unsigned)set.settings_count);
     }
     return true;
 }

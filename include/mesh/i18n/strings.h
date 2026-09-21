@@ -16,7 +16,7 @@
  *
  * What is deliberately *not* here:
  *
- *   - Log lines. mesh_log() output is for whoever is reading `deploy-logs`, and a bug report in
+ *   - Log lines. inkcell_log() output is for whoever is reading `deploy-logs`, and a bug report in
  *     a language the maintainer cannot read is worse than no bug report.
  *   - Names shared with the rest of Meshtastic: region codes ("EU 868"), hardware models
  *     ("Heltec V3"), modem presets ("Long Range - Fast"), device roles ("Router"). A setting
@@ -27,14 +27,12 @@
  *   - src/main.c's --help and the cli/stub backends, which are the headless developer surfaces
  *     and never reach the device screen.
  *   - The fifteen words inkcell itself prints - "now", "15m", the elapsed-time forms, the list
- *     count. Those are the toolkit's, and their old MESH_STR_ names are bridged below.
+ *     count. Those are the toolkit's, and a screen that wants one names it INKCELL_STR_*.
  *
  * See docs/i18n.md.
  */
 
 #include "inkcell/i18n/strings.h"
-
-#include "mesh/inkcell_compat.h"
 
 #include <stdarg.h>
 #include <stdbool.h>
@@ -48,7 +46,7 @@ extern "C" {
 /*
  * This client's ids, continuing inkcell's.
  *
- * **Anonymous, and `enum mesh_str_id` is inkcell's own type.** There is one index space here -
+ * **Anonymous, and `enum inkcell_str_id` is inkcell's own type.** There is one index space here -
  * an id *is* a table index into the one array mesh_i18n_register() hands over - and a second
  * enum type over it makes every one of the ~900 call sites an implicit conversion between two
  * enum types, which is 214 warnings under clang and a legitimate complaint: nothing says the
@@ -73,57 +71,16 @@ enum {
     MESH_STR_COUNT
 };
 
-/* The type an id is held in. One enum for one index space - see the note above. */
-#define mesh_str_id inkcell_str_id
-
 /*
- * The twenty-three ids that moved to inkcell, under the names this tree already used.
- *
- * Bridged rather than rewritten for the reason everything in inkcell_compat.h is, and these are
- * the ones that could not be generated with the rest: MESH_STR_* is still a live prefix - it is
- * what the 880 ids above are called - so a blanket rule would have rewritten this client's own
- * catalog along with the toolkit's.
- */
-#define MESH_STR_NONE INKCELL_STR_NONE
-#define MESH_STR_COMMON_UNKNOWN_SHORT INKCELL_STR_COMMON_UNKNOWN_SHORT
-#define MESH_STR_TIME_NOW INKCELL_STR_TIME_NOW
-#define MESH_STR_TIME_SECONDS_SHORT INKCELL_STR_TIME_SECONDS_SHORT
-#define MESH_STR_TIME_MINUTES_SHORT INKCELL_STR_TIME_MINUTES_SHORT
-#define MESH_STR_TIME_HOURS_SHORT INKCELL_STR_TIME_HOURS_SHORT
-#define MESH_STR_TIME_DAYS_SHORT INKCELL_STR_TIME_DAYS_SHORT
-#define MESH_STR_LIST_TITLE_COUNT INKCELL_STR_LIST_TITLE_COUNT
-#define MESH_STR_LIST_TITLE_COUNT_OLDER INKCELL_STR_LIST_TITLE_COUNT_OLDER
-#define MESH_STR_TREND_SPAN_15M INKCELL_STR_TREND_SPAN_15M
-#define MESH_STR_TREND_SPAN_1H INKCELL_STR_TREND_SPAN_1H
-#define MESH_STR_TREND_SPAN_6H INKCELL_STR_TREND_SPAN_6H
-#define MESH_STR_TREND_SPAN_ALL INKCELL_STR_TREND_SPAN_ALL
-#define MESH_STR_HINT_QUIT_MENU INKCELL_STR_HINT_QUIT_MENU
-#define MESH_STR_HINT_QUIT_KEY_CODE INKCELL_STR_HINT_QUIT_KEY_CODE
-/* The keyboard's own keycaps, which went with the grid. The submit key did not - see
-   KEY_DONE and KEY_SEND, which are still this client's. */
-#define MESH_STR_KEY_LAYER_UPPER INKCELL_STR_KEY_LAYER_UPPER
-#define MESH_STR_KEY_LAYER_SYMBOLS INKCELL_STR_KEY_LAYER_SYMBOLS
-#define MESH_STR_KEY_LAYER_LOWER INKCELL_STR_KEY_LAYER_LOWER
-#define MESH_STR_KEY_LAYER_EMOJI INKCELL_STR_KEY_LAYER_EMOJI
-#define MESH_STR_KEY_LAYER_EMOJI_MORE INKCELL_STR_KEY_LAYER_EMOJI_MORE
-#define MESH_STR_KEY_SPACE INKCELL_STR_KEY_SPACE
-#define MESH_STR_KEY_DELETE INKCELL_STR_KEY_DELETE
-#define MESH_STR_KEY_CANCEL INKCELL_STR_KEY_CANCEL
-
-/* The plural machinery is inkcell's; the count is about the mechanism, not about either
-   catalog, so it keeps its old name here. */
-#define MESH_STR_PLURAL_FORMS INKCELL_STR_PLURAL_FORMS
-
-/*
- * Hands this client's catalog to inkcell. Call once, before mesh_i18n_init().
+ * Hands this client's catalog to inkcell. Call once, before inkcell_i18n_init().
  *
  * Idempotent, so a test that re-registers is not a leak or a double free: the tables are static
  * and what this installs is a pointer to one structure.
  */
 void mesh_i18n_register(void);
 
-/* mesh_i18n_locale_count() and mesh_i18n_locale_at() still answer, through inkcell_compat.h:
-   they are inkcell's, reading the catalog registered above. */
+/* inkcell_i18n_locale_count() and inkcell_i18n_locale_at() answer for both halves: they are
+   inkcell's, reading the catalog registered above. */
 
 #ifdef __cplusplus
 }
