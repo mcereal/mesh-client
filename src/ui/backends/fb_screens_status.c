@@ -131,8 +131,8 @@ static void fb_status_card_actions(struct inkcell_fb_card *card,
  * either: inkcell_fb_draw_card() drops what does not fit and refuses a card outright when nothing
  * does, which is the check this screen used to write out per row, and in two different ways.
  */
-void fb_render_status(struct inkcell_backend_fb_state *state,
-                      const struct mesh_ui_snapshot *snapshot, struct inkcell_fb_layout *layout) {
+void fb_render_status(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
+                      struct inkcell_fb_layout *layout) {
     int y = layout->body_y;
     struct inkcell_fb_card card;
     /*

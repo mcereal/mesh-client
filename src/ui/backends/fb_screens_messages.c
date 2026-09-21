@@ -36,7 +36,7 @@
 
 /* Level one of the Messages tab: all traffic, the channels, whoever we have direct messages
    with, and the way to start a new one. One conversation cell a row - see inkcell/ui/widgets.h. */
-void fb_render_conversations(struct inkcell_backend_fb_state *state,
+void fb_render_conversations(struct inkcell_draw_state *state,
                              const struct mesh_ui_snapshot *snapshot,
                              struct inkcell_fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
@@ -190,7 +190,7 @@ struct inkcell_fb_thread_cache {
     uint8_t heights[2][MESH_UI_MAX_THREAD_MESSAGES];
 };
 
-void fb_thread_cache_free(struct inkcell_backend_fb_state *state) {
+void fb_thread_cache_free(struct inkcell_draw_state *state) {
     free(state->thread_cache);
     state->thread_cache = NULL;
 }
@@ -561,7 +561,7 @@ static void fb_thread_row_build(const struct mesh_ui_snapshot *snapshot,
 }
 
 /* A bubble's height, clamped into the byte the transcript window measures in. */
-static uint8_t fb_thread_height(const struct inkcell_backend_fb_state *state,
+static uint8_t fb_thread_height(const struct inkcell_draw_state *state,
                                 const struct inkcell_fb_layout *layout,
                                 const struct fb_thread_row *row) {
     const uint32_t rows = inkcell_fb_bubble_rows(state, layout, &row->bubble);
@@ -569,7 +569,7 @@ static uint8_t fb_thread_height(const struct inkcell_backend_fb_state *state,
 }
 
 static struct inkcell_fb_thread_cache *
-fb_thread_cache_get(struct inkcell_backend_fb_state *state, const struct mesh_ui_snapshot *snapshot,
+fb_thread_cache_get(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
                     const struct inkcell_fb_layout *layout, struct mesh_ui_message_view messages,
                     const uint32_t *indices, uint32_t count) {
     if (state->thread_cache_disabled) {
@@ -649,8 +649,8 @@ static void fb_thread_row_get(const struct mesh_ui_snapshot *snapshot,
     row->bubble.meta.clock = row->clock;
 }
 
-void fb_render_thread(struct inkcell_backend_fb_state *state,
-                      const struct mesh_ui_snapshot *snapshot, struct inkcell_fb_layout *layout) {
+void fb_render_thread(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
+                      struct inkcell_fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
 
     const struct mesh_ui_message_view messages = mesh_ui_snapshot_message_view(snapshot);

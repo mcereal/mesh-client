@@ -34,8 +34,7 @@
  * offering a choice that is already made. It is also what makes the delete safe to put here -
  * the thing about to be thrown away is quoted at the top of the screen it is thrown away from.
  */
-void fb_render_reactions(struct inkcell_backend_fb_state *state,
-                         const struct mesh_ui_snapshot *snapshot,
+void fb_render_reactions(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
                          struct inkcell_fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
     /*
@@ -116,8 +115,8 @@ void fb_render_reactions(struct inkcell_backend_fb_state *state,
 
 /* Compose overlay: it writes to the open thread, so the destination is a heading rather than
    an editable row. */
-void fb_render_compose(struct inkcell_backend_fb_state *state,
-                       const struct mesh_ui_snapshot *snapshot, struct inkcell_fb_layout *layout) {
+void fb_render_compose(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
+                       struct inkcell_fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
     char title[96];
     inkcell_str_format(title, sizeof title, MESH_STR_COMPOSE_TO_KIND, nav->target_name,
@@ -169,8 +168,8 @@ void fb_render_compose(struct inkcell_backend_fb_state *state,
 
 /* "Send to" list: channels, then nodes, cursor on the current target. Mutable state, like
    every inkcell_fb_list_item() caller. */
-void fb_render_picker(struct inkcell_backend_fb_state *state,
-                      const struct mesh_ui_snapshot *snapshot, struct inkcell_fb_layout *layout) {
+void fb_render_picker(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
+                      struct inkcell_fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
     struct mesh_ui_store view;
     mesh_ui_store_view(snapshot, &view);
@@ -246,7 +245,7 @@ void fb_render_picker(struct inkcell_backend_fb_state *state,
 }
 
 /* The on-screen keyboard takes the whole body: target, the draft so far, then the grid. */
-void fb_render_keyboard(const struct inkcell_backend_fb_state *state,
+void fb_render_keyboard(const struct inkcell_draw_state *state,
                         const struct mesh_ui_snapshot *snapshot, struct inkcell_fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
     const bool for_passkey = nav->keyboard_passkey;

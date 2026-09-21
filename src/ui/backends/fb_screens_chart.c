@@ -156,7 +156,7 @@ struct fb_chart_screen {
  * narrowed contains only part of the ring, and the older readings have to be left out rather than
  * stacked on the left-hand edge. See layout.h.
  */
-static void fb_render_chart(struct inkcell_backend_fb_state *state,
+static void fb_render_chart(struct inkcell_draw_state *state,
                             const struct mesh_ui_snapshot *snapshot,
                             struct inkcell_fb_layout *layout,
                             const struct fb_chart_screen *screen) {
@@ -164,7 +164,7 @@ static void fb_render_chart(struct inkcell_backend_fb_state *state,
 
     const uint8_t span_choice = snapshot->nav.trend_span;
     const int margin = inkcell_fb_margin(state);
-    const int body_w = (int)state->var.xres - margin * 2;
+    const int body_w = inkcell_fb_panel_width(state) - margin * 2;
     struct inkcell_trend frame;
     memset(&frame, 0, sizeof frame);
     struct mesh_ui_trend_airtime binned;
@@ -343,8 +343,8 @@ static void fb_render_chart(struct inkcell_backend_fb_state *state,
  * inside the channel's total, so a column and the line above it are two readings of one stretch
  * of air and can be compared by looking.
  */
-void fb_render_trend(struct inkcell_backend_fb_state *state,
-                     const struct mesh_ui_snapshot *snapshot, struct inkcell_fb_layout *layout) {
+void fb_render_trend(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
+                     struct inkcell_fb_layout *layout) {
     const struct fb_chart_screen screen = {
         /* No trail. The navigation bar above is already saying Status, and an overline says only
            what nothing else on the frame says. */
@@ -383,8 +383,7 @@ void fb_render_trend(struct inkcell_backend_fb_state *state,
  * us - draws the detail instead. mesh_ui_nav_clamp() closes the chart on the same condition a
  * publish later, so this is the frame in between rather than a state the client sits in.
  */
-void fb_render_node_trend(struct inkcell_backend_fb_state *state,
-                          const struct mesh_ui_snapshot *snapshot,
+void fb_render_node_trend(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
                           struct inkcell_fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
     const struct mesh_ui_handshake_state *hs = &snapshot->handshake;

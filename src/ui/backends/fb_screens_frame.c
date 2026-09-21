@@ -145,7 +145,7 @@ struct inkcell_fb_render_cache {
     const struct inkcell_theme *theme;
     const struct inkcell_i18n_locale *locale;
     int scale;
-    uint32_t width, height;
+    int width, height; /* the panel the memo was measured against */
     time_t second;
     bool valid;
     /* And what the layers were last told to say, which is a memo of a different kind: the one
@@ -168,8 +168,7 @@ struct inkcell_fb_render_cache {
     struct inkcell_focus_map focus;
 };
 
-struct fb_overlay_memo *fb_overlay_memo(struct inkcell_backend_fb_state *state,
-                                        enum fb_overlay_id id) {
+struct fb_overlay_memo *fb_overlay_memo(struct inkcell_draw_state *state, enum fb_overlay_id id) {
     struct inkcell_fb_render_cache *const cache = state != NULL ? state->render_cache : NULL;
     if (cache == NULL || (unsigned)id >= (sizeof cache->overlays / sizeof cache->overlays[0])) {
         return NULL;
@@ -177,7 +176,7 @@ struct fb_overlay_memo *fb_overlay_memo(struct inkcell_backend_fb_state *state,
     return &cache->overlays[id];
 }
 
-struct inkcell_scroll *fb_scroll(struct inkcell_backend_fb_state *state, enum fb_scroll_id id) {
+struct inkcell_scroll *fb_scroll(struct inkcell_draw_state *state, enum fb_scroll_id id) {
     struct inkcell_fb_render_cache *const cache = state != NULL ? state->render_cache : NULL;
     if (cache == NULL || (unsigned)id >= (unsigned)FB_SCROLL_COUNT) {
         return NULL;
@@ -185,14 +184,14 @@ struct inkcell_scroll *fb_scroll(struct inkcell_backend_fb_state *state, enum fb
     return &cache->scrolls[id];
 }
 
-void fb_scroll_report(struct inkcell_backend_fb_state *state, bool moving) {
+void fb_scroll_report(struct inkcell_draw_state *state, bool moving) {
     struct fb_app *const app = fb_app_of(state);
     if (app != NULL) {
         app->scrolling = moving;
     }
 }
 
-uint32_t fb_overlay_subject(struct inkcell_backend_fb_state *state, enum fb_overlay_id id, bool up,
+uint32_t fb_overlay_subject(struct inkcell_draw_state *state, enum fb_overlay_id id, bool up,
                             uint32_t subject) {
     struct fb_overlay_memo *const memo = fb_overlay_memo(state, id);
     if (memo == NULL) {
@@ -227,7 +226,7 @@ struct inkcell_fb_layout fb_layout_in(const struct inkcell_fb_layout *layout,
     return out;
 }
 
-bool fb_sheet_begin(struct inkcell_backend_fb_state *state, const struct inkcell_fb_layout *layout,
+bool fb_sheet_begin(struct inkcell_draw_state *state, const struct inkcell_fb_layout *layout,
                     enum fb_overlay_id id, bool up, const struct inkcell_fb_sheet *sheet,
                     int content_h, struct inkcell_overlay_frame *frame,
                     struct inkcell_fb_layout *out) {
@@ -243,7 +242,7 @@ bool fb_sheet_begin(struct inkcell_backend_fb_state *state, const struct inkcell
     const struct inkcell_fb_rect body = {
         .x = 0,
         .y = layout->nav_y,
-        .w = (int)state->var.xres,
+        .w = inkcell_fb_panel_width(state),
         .h = layout->footer_y - layout->nav_y,
     };
     if (!inkcell_fb_overlay_begin(state,
@@ -268,16 +267,16 @@ bool fb_sheet_begin(struct inkcell_backend_fb_state *state, const struct inkcell
     return true;
 }
 
-void fb_sheet_end(struct inkcell_backend_fb_state *state, struct inkcell_overlay_frame *frame) {
+void fb_sheet_end(struct inkcell_draw_state *state, struct inkcell_overlay_frame *frame) {
     inkcell_fb_overlay_end(state, frame);
 }
 
-void fb_render_cache_free(struct inkcell_backend_fb_state *state) {
+void fb_render_cache_free(struct inkcell_draw_state *state) {
     free(state->render_cache);
     state->render_cache = NULL;
 }
 
-static void fb_render_begin(struct inkcell_backend_fb_state *state,
+static void fb_render_begin(struct inkcell_draw_state *state,
                             const struct mesh_ui_snapshot *snapshot) {
     state->clip_active = false;
     /* Allocated whether or not partial redraw is on: what hangs off it is no longer only the
@@ -294,23 +293,23 @@ static void fb_render_begin(struct inkcell_backend_fb_state *state,
         state->clip_active =
             cache->valid && state->animation_damage.valid && cache->theme == state->theme &&
             cache->locale == inkcell_i18n_locale() && cache->scale == state->scale &&
-            cache->width == state->var.xres && cache->height == state->var.yres &&
-            cache->second == second && memcmp(&cache->snapshot, snapshot, sizeof *snapshot) == 0;
+            cache->width == inkcell_fb_panel_width(state) &&
+            cache->height == inkcell_fb_panel_height(state) && cache->second == second &&
+            memcmp(&cache->snapshot, snapshot, sizeof *snapshot) == 0;
         state->clip = state->animation_damage;
         cache->snapshot = *snapshot;
         cache->theme = state->theme;
         cache->locale = inkcell_i18n_locale();
         cache->scale = state->scale;
-        cache->width = state->var.xres;
-        cache->height = state->var.yres;
+        cache->width = inkcell_fb_panel_width(state);
+        cache->height = inkcell_fb_panel_height(state);
         cache->second = second;
         cache->valid = true;
     }
     state->animation_damage.valid = false;
 }
 
-void fb_render_snapshot(struct inkcell_backend_fb_state *state,
-                        const struct mesh_ui_snapshot *snapshot) {
+void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot) {
     /* The theme and the move are settled before this call, and what the *last* frame wanted of
        the basemap has already been forgotten: all three are inkcell calling up into fb_app.c,
        which is where the facts a snapshot does not carry are pushed down. */
@@ -337,7 +336,7 @@ void fb_render_snapshot(struct inkcell_backend_fb_state *state,
     layout.line = inkcell_fb_line_adv(state, state->scale);
     layout.cols = inkcell_fb_cols(state, state->scale);
     /* The same room as `cols`, in the unit anything laying out real text measures in. */
-    layout.body_w = (int)state->var.xres - 2 * inkcell_fb_margin(state);
+    layout.body_w = inkcell_fb_panel_width(state) - 2 * inkcell_fb_margin(state);
 
     inkcell_fb_draw_nav_bar(state, &layout, fb_tab_chips(snapshot), MESH_UI_SCREEN_COUNT,
                             (size_t)snapshot->nav.screen);
@@ -354,7 +353,7 @@ void fb_render_snapshot(struct inkcell_backend_fb_state *state,
      */
     inkcell_fb_draw_progress(state, &layout, mesh_ui_chrome_busy(snapshot));
 
-    layout.footer_y = (int)state->var.yres - inkcell_fb_action_bar_height(state, &layout);
+    layout.footer_y = inkcell_fb_panel_height(state) - inkcell_fb_action_bar_height(state, &layout);
     const int body_height = layout.footer_y - layout.body_y - inkcell_fb_gutter(state);
     layout.rows = body_height > 0 ? (uint32_t)(body_height / layout.line) : 0U;
 
@@ -410,7 +409,7 @@ void fb_render_snapshot(struct inkcell_backend_fb_state *state,
      */
     const int slide = inkcell_fb_transition_offset(state);
     if (slide != 0) {
-        inkcell_fb_animation_damage(state, 0, layout.nav_y, (int)state->var.xres,
+        inkcell_fb_animation_damage(state, 0, layout.nav_y, inkcell_fb_panel_width(state),
                                     layout.footer_y - layout.nav_y);
         inkcell_fb_shift_begin(state, slide, layout.nav_y, layout.footer_y);
     }

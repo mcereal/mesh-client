@@ -64,8 +64,8 @@ static bool settings_row_slider(const struct mesh_ui_settings_item *item,
    pending edit in place of the radio's value, marked with a dot until Y saves it. */
 /* Takes the state mutably, unlike its neighbours: the switches on the toggle rows step an
    animation kept on it. Nothing else here writes to the state. */
-void fb_render_settings(struct inkcell_backend_fb_state *state,
-                        const struct mesh_ui_snapshot *snapshot, struct inkcell_fb_layout *layout) {
+void fb_render_settings(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
+                        struct inkcell_fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
     const struct mesh_ui_settings *settings = &snapshot->settings;
     const struct mesh_ui_handshake_state *handshake =

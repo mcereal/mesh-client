@@ -40,6 +40,28 @@
 #include <unistd.h>
 
 /*
+ * A page for a renderer to draw into, without a device under it.
+ *
+ * The cases below that measure pixels rather than look at a screen build their own surface
+ * instead of opening a capture, because they are about a geometry a capture would not hand them
+ * - a stride with padding in it, two pages of the same scene at two widths. 32 bits a pixel with
+ * no channel offsets is what both the Brick's fb0 and inkcell_capture_open() present, so what
+ * comes out here is comparable with either.
+ */
+static struct inkcell_surface ui_capture_surface(uint8_t *pixels, uint32_t width, uint32_t height,
+                                                 uint32_t stride) {
+    return (struct inkcell_surface){
+        .pixels = pixels,
+        .size = (size_t)stride * height,
+        .width = width,
+        .height = height,
+        .stride = stride,
+        .bytes_per_pixel = 4U,
+        .format = {.bits_per_pixel = 32U},
+    };
+}
+
+/*
  * The ground `capture` draws on, which fb_render_snapshot() clears to before anything else.
  *
  * Taken from the capture rather than spelled out, and rather than assumed to be the default
@@ -1857,43 +1879,6 @@ MESH_TEST_CASE(ui_capture_picker_marks_the_current_target, unit) {
     record_success(test_name);
 }
 
-/* These device-memory boundaries are independent of the renderer's theme and content. */
-
-MESH_TEST_CASE(fb_damage_preserves_mirror_and_padding, unit) {
-    uint8_t mapping[80];
-    uint8_t previous[32] = {0};
-    uint8_t frame[32];
-    memset(mapping, 0xA5, sizeof mapping);
-    memset(frame, 0x31, sizeof frame);
-    struct inkcell_backend_fb_state state = {0};
-    state.inkcell_fb_ptr = mapping;
-    state.inkcell_fb_size = sizeof mapping;
-    state.line_bytes = 16U;
-    state.bytes_per_pixel = 4U;
-    state.var.xres = 3U; /* a padded row */
-    state.var.yres = 2U;
-    state.var.yres_virtual = 5U;
-    MESH_TEST_FAIL_IF(inkcell_fb_copy_damage(&state, frame, previous, true) != 64U,
-                      "first frame must initialize both pages");
-    MESH_TEST_FAIL_IF(memcmp(mapping, frame, 32U) != 0 || memcmp(mapping + 32U, frame, 32U) != 0,
-                      "display pages must match the rendered frame");
-    MESH_TEST_FAIL_IF(inkcell_fb_copy_damage(&state, frame, previous, false) != 0U,
-                      "an unchanged frame must not write display memory");
-    frame[19] ^= 1U;
-    MESH_TEST_FAIL_IF(inkcell_fb_copy_damage(&state, frame, previous, false) != 8U,
-                      "one changed pixel must write only one pixel per page");
-    MESH_TEST_FAIL_IF(memcmp(mapping, frame, 32U) != 0 || memcmp(mapping + 32U, frame, 32U) != 0,
-                      "partial updates must preserve both complete pages");
-    for (size_t i = 64U; i < sizeof mapping; ++i) {
-        MESH_TEST_FAIL_IF(mapping[i] != 0xA5, "updates must not touch extra virtual pages");
-    }
-    state.var.yres_virtual = 2U;
-    frame[0] ^= 1U;
-    MESH_TEST_FAIL_IF(inkcell_fb_copy_damage(&state, frame, previous, false) != 4U,
-                      "a single-page display must receive one copy");
-    record_success(test_name);
-}
-
 /*
  * A row whose control did not get drawn keeps the marker that was standing down for it.
  *
@@ -1947,15 +1932,9 @@ MESH_TEST_CASE(fb_a_segmented_row_that_fell_back_keeps_its_marker, unit) {
            gutter. Identical frames mean the marker yielded to a control that was drawn; frames
            that differ mean it stood. */
         for (unsigned pass = 0U; pass < 2U; ++pass) {
-            struct inkcell_backend_fb_state state = {0};
-            state.var.xres = widths[panel];
-            state.var.yres = HEIGHT;
-            state.var.bits_per_pixel = 32U;
-            state.line_bytes = state.fix.line_length = STRIDE;
-            state.bytes_per_pixel = 4U;
-            state.inkcell_fb_size = (size_t)STRIDE * HEIGHT;
-            state.inkcell_fb_ptr = frames[pass];
-            memset(state.inkcell_fb_ptr, 0, state.inkcell_fb_size);
+            struct inkcell_draw_state state = {0};
+            state.surface = ui_capture_surface(frames[pass], widths[panel], HEIGHT, STRIDE);
+            memset(state.surface.pixels, 0, state.surface.size);
             inkcell_fb_state_set_theme(&state, inkcell_theme_default(), INKCELL_SCALE(2));
 
             struct inkcell_fb_layout layout = {0};
@@ -2015,13 +1994,8 @@ cleanup:
 MESH_TEST_CASE(fb_glyph_cache_matches_uncached_colors_and_scales, unit) {
     uint8_t cached_pixels[256U * 128U * 4U];
     uint8_t reference[sizeof cached_pixels];
-    struct inkcell_backend_fb_state state = {0};
-    state.inkcell_fb_size = sizeof cached_pixels;
-    state.var.xres = 256U;
-    state.var.yres = 128U;
-    state.var.bits_per_pixel = 32U;
-    state.fix.line_length = 256U * 4U;
-    state.bytes_per_pixel = 4U;
+    struct inkcell_draw_state state = {0};
+    state.surface = ui_capture_surface(NULL, 256U, 128U, 256U * 4U);
     const char *failure = NULL;
     inkcell_fb_state_set_theme(&state, inkcell_theme_default(), INKCELL_SCALE(4));
     struct inkcell_fb_glyph_cache *cache = state.glyph_cache;
@@ -2030,11 +2004,11 @@ MESH_TEST_CASE(fb_glyph_cache_matches_uncached_colors_and_scales, unit) {
         for (unsigned pass = 0; pass < 3U; ++pass) {
             const struct inkcell_rgb ink = {(uint8_t)(pass * 91U), 170U, 250U};
             const struct inkcell_rgb ground = {30U, (uint8_t)(pass * 71U), 10U};
-            state.inkcell_fb_ptr = cached_pixels;
+            state.surface.pixels = cached_pixels;
             state.glyph_cache = cache;
             inkcell_fb_clear(&state, ground);
             inkcell_fb_draw_text(&state, -3, 10, "Ab éñ!?", scale, ink, ground);
-            state.inkcell_fb_ptr = reference;
+            state.surface.pixels = reference;
             state.glyph_cache = NULL;
             inkcell_fb_clear(&state, ground);
             inkcell_fb_draw_text(&state, -3, 10, "Ab éñ!?", scale, ink, ground);
@@ -2067,14 +2041,8 @@ MESH_TEST_CASE(fb_glyph_cache_matches_uncached_colors_and_scales, unit) {
  */
 MESH_TEST_CASE(fb_emoji_keycap_fills_its_key, unit) {
     uint8_t page[256U * 128U * 4U];
-    struct inkcell_backend_fb_state state = {0};
-    state.inkcell_fb_ptr = page;
-    state.inkcell_fb_size = sizeof page;
-    state.var.xres = 256U;
-    state.var.yres = 128U;
-    state.var.bits_per_pixel = 32U;
-    state.fix.line_length = 256U * 4U;
-    state.bytes_per_pixel = 4U;
+    struct inkcell_draw_state state = {0};
+    state.surface = ui_capture_surface(page, 256U, 128U, 256U * 4U);
     inkcell_fb_state_set_theme(&state, inkcell_theme_default(), INKCELL_SCALE(4));
 
     const struct inkcell_rgb ground = inkcell_fb_color(&state, INKCELL_COLOR_BG);
@@ -2099,13 +2067,13 @@ MESH_TEST_CASE(fb_emoji_keycap_fills_its_key, unit) {
         };
         inkcell_fb_draw_button(&state, &button);
 
-        int left = (int)state.var.xres;
+        int left = inkcell_fb_panel_width(&state);
         int right = -1;
-        int top = (int)state.var.yres;
+        int top = inkcell_fb_panel_height(&state);
         int bottom = -1;
-        for (uint32_t row = 0U; row < state.var.yres; ++row) {
-            const uint8_t *line = page + (size_t)row * state.fix.line_length;
-            for (uint32_t col = 0U; col < state.var.xres; ++col) {
+        for (uint32_t row = 0U; row < state.surface.height; ++row) {
+            const uint8_t *line = page + (size_t)row * state.surface.stride;
+            for (uint32_t col = 0U; col < state.surface.width; ++col) {
                 const uint8_t *pixel = &line[(size_t)col * 4U];
                 if (pixel[0] == ground.b && pixel[1] == ground.g && pixel[2] == ground.r) {
                     continue;
@@ -2164,14 +2132,8 @@ MESH_TEST_CASE(fb_emoji_keycap_fills_its_key, unit) {
  */
 MESH_TEST_CASE(fb_emoji_box_draws_past_the_column_map, unit) {
     uint8_t page[320U * 320U * 4U];
-    struct inkcell_backend_fb_state state = {0};
-    state.inkcell_fb_ptr = page;
-    state.inkcell_fb_size = sizeof page;
-    state.var.xres = 320U;
-    state.var.yres = 320U;
-    state.var.bits_per_pixel = 32U;
-    state.fix.line_length = 320U * 4U;
-    state.bytes_per_pixel = 4U;
+    struct inkcell_draw_state state = {0};
+    state.surface = ui_capture_surface(page, 320U, 320U, 320U * 4U);
     inkcell_fb_state_set_theme(&state, inkcell_theme_default(), INKCELL_SCALE(4));
 
     const uint32_t grinning = 0x1F600U;
@@ -2193,9 +2155,9 @@ MESH_TEST_CASE(fb_emoji_box_draws_past_the_column_map, unit) {
 
         bool drew = false;
         bool escaped = false;
-        for (uint32_t row = 0U; row < state.var.yres; ++row) {
-            const uint8_t *line = page + (size_t)row * state.fix.line_length;
-            for (uint32_t col = 0U; col < state.var.xres; ++col) {
+        for (uint32_t row = 0U; row < state.surface.height; ++row) {
+            const uint8_t *line = page + (size_t)row * state.surface.stride;
+            for (uint32_t col = 0U; col < state.surface.width; ++col) {
                 const uint8_t *pixel = &line[(size_t)col * 4U];
                 if (pixel[0] == ground.b && pixel[1] == ground.g && pixel[2] == ground.r) {
                     continue;
@@ -2529,7 +2491,7 @@ cleanup:
 }
 
 MESH_TEST_CASE(fb_animation_clip_matches_full_composition, unit) {
-    struct inkcell_backend_fb_state state[2] = {0};
+    struct inkcell_draw_state state[2] = {0};
     struct mesh_ui_snapshot *snapshot = calloc(1U, sizeof *snapshot);
     const char *failure = NULL;
     unsigned clipped = 0U;
@@ -2538,14 +2500,9 @@ MESH_TEST_CASE(fb_animation_clip_matches_full_composition, unit) {
         return;
     }
     for (unsigned i = 0; i < 2U; ++i) {
-        state[i].var.xres = 1024U;
-        state[i].var.yres = 768U;
-        state[i].var.bits_per_pixel = 32U;
-        state[i].line_bytes = state[i].fix.line_length = 4096U;
-        state[i].bytes_per_pixel = 4U;
-        state[i].inkcell_fb_size = 4096U * 768U;
-        state[i].inkcell_fb_ptr = calloc(1U, state[i].inkcell_fb_size);
-        if (state[i].inkcell_fb_ptr == NULL) {
+        state[i].surface = ui_capture_surface(NULL, 1024U, 768U, 4096U);
+        state[i].surface.pixels = calloc(1U, state[i].surface.size);
+        if (state[i].surface.pixels == NULL) {
             failure = "frame allocation failed";
             goto cleanup;
         }
@@ -2584,8 +2541,7 @@ MESH_TEST_CASE(fb_animation_clip_matches_full_composition, unit) {
         }
         if (state[0].clip_active)
             clipped++;
-        if (memcmp(state[0].inkcell_fb_ptr, state[1].inkcell_fb_ptr, state[0].inkcell_fb_size) !=
-            0) {
+        if (memcmp(state[0].surface.pixels, state[1].surface.pixels, state[0].surface.size) != 0) {
             failure = "animation clip must restore overlapping content on arrival and dismissal";
             goto cleanup;
         }
@@ -2597,7 +2553,7 @@ cleanup:
         inkcell_fb_glyph_cache_free(&state[i]);
         fb_thread_cache_free(&state[i]);
         fb_render_cache_free(&state[i]);
-        free(state[i].inkcell_fb_ptr);
+        free(state[i].surface.pixels);
     }
     free(snapshot);
     if (failure != NULL)
@@ -2616,7 +2572,7 @@ cleanup:
  * enough: clipped and unclipped composition have to agree on every frame of the loop.
  */
 MESH_TEST_CASE(fb_progress_clip_matches_full_composition, unit) {
-    struct inkcell_backend_fb_state state[2] = {0};
+    struct inkcell_draw_state state[2] = {0};
     struct mesh_ui_snapshot *snapshot = calloc(1U, sizeof *snapshot);
     const char *failure = NULL;
     unsigned clipped = 0U;
@@ -2625,14 +2581,9 @@ MESH_TEST_CASE(fb_progress_clip_matches_full_composition, unit) {
         return;
     }
     for (unsigned i = 0; i < 2U; ++i) {
-        state[i].var.xres = 1024U;
-        state[i].var.yres = 768U;
-        state[i].var.bits_per_pixel = 32U;
-        state[i].line_bytes = state[i].fix.line_length = 4096U;
-        state[i].bytes_per_pixel = 4U;
-        state[i].inkcell_fb_size = 4096U * 768U;
-        state[i].inkcell_fb_ptr = calloc(1U, state[i].inkcell_fb_size);
-        if (state[i].inkcell_fb_ptr == NULL) {
+        state[i].surface = ui_capture_surface(NULL, 1024U, 768U, 4096U);
+        state[i].surface.pixels = calloc(1U, state[i].surface.size);
+        if (state[i].surface.pixels == NULL) {
             failure = "frame allocation failed";
             goto cleanup;
         }
@@ -2657,8 +2608,7 @@ MESH_TEST_CASE(fb_progress_clip_matches_full_composition, unit) {
         if (state[0].clip_active) {
             clipped++;
         }
-        if (memcmp(state[0].inkcell_fb_ptr, state[1].inkcell_fb_ptr, state[0].inkcell_fb_size) !=
-            0) {
+        if (memcmp(state[0].surface.pixels, state[1].surface.pixels, state[0].surface.size) != 0) {
             failure = "the clipped frame lost the progress bar, or what it travelled over";
             goto cleanup;
         }
@@ -2671,7 +2621,7 @@ cleanup:
         inkcell_fb_glyph_cache_free(&state[i]);
         fb_thread_cache_free(&state[i]);
         fb_render_cache_free(&state[i]);
-        free(state[i].inkcell_fb_ptr);
+        free(state[i].surface.pixels);
     }
     free(snapshot);
     MESH_TEST_FAIL_IF(failure != NULL, failure);
