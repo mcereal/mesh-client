@@ -938,7 +938,10 @@ struct mesh_handshake_status mesh_tcp_transport_handshake_status(struct mesh_tra
 }
 
 struct mesh_transport *mesh_tcp_transport(void) {
-    static struct mesh_tcp_transport_state state = {.pending_fd = -1, .link = {.fd = -1}};
+    /* Both descriptors read as closed before start() runs; a zeroed struct would have fd 0,
+       which is stdin and is very much open. */
+    static struct mesh_tcp_transport_state state = {.pending_fd = -1,
+                                                    .link = {.stream = {.fd = -1}}};
     static struct mesh_transport transport = {
         .name = "tcp",
         .state = &state,

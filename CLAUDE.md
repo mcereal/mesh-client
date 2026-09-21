@@ -111,7 +111,8 @@ evdev -> inkcell_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 `third_party/inkwell`**, and it is the bottom of the stack: the epoll loop, the signals, the
 clock, the log, the environment knobs, the whole-file read, the UTF-8 helpers, semver ordering,
 the crash report, the codecs (base64, SHA-256, JSON, zip, HTTP/1.1, MQTT 3.1.1, deflate, PNG),
-the forked DNS resolver and the vocabulary a link fails in (`inkwell/net/reason.h`). None of it
+the forked DNS resolver, the byte stream under a link (`inkwell/net/stream.h`) and the
+vocabulary one fails in (`inkwell/net/reason.h`). None of it
 knows what a radio is - and none of it knows a word a user reads, which is what
 `inkwell/net/reason.h` is for: a transport reports a *reason* and a number, and
 `src/i18n/net_reason.c` is where this client turns that into a sentence. Its
@@ -186,7 +187,7 @@ publish and read back when that node's detail screen is opened. See
 | Area | Where |
 |---|---|
 | Event loop | inkwell's `src/runtime/loop.c` (`inkwell/runtime/loop.h`) - epoll, 32 fd sources, **no threads** |
-| Transports | `src/transport/` - registry, BLE (BlueZ/D-Bus), serial, TCP; `stream_link.c` is the half serial and TCP share. A link records `struct inkwell_net_failure` and `take_error()` is where it becomes words - see [`docs/transport.md`](docs/transport.md#how-a-failure-reaches-the-user) |
+| Transports | `src/transport/` - registry, BLE (BlueZ/D-Bus), serial, TCP; `stream_link.c` is the half serial and TCP share, and is now the frame parser and the session over inkwell's `inkwell/net/stream.h`. A link records `struct inkwell_net_failure` and `take_error()` is where it becomes words - see [`docs/transport.md`](docs/transport.md#how-a-failure-reaches-the-user) |
 | Session | `src/core/session/session.c` - handshake, node roster, channels, message log, packet ids |
 | Admin protocol | `src/core/session/radio_settings.c` - `AdminMessage` get/set queue, passkeys, NodeDB verbs |
 | Messaging | `src/core/session/message.c`, `store_forward.c`, `waypoint.c` |
