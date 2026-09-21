@@ -364,9 +364,6 @@ if(EXISTS ${PROJECT_SOURCE_DIR}/third_party/mbedtls/CMakeLists.txt)
     add_subdirectory(third_party/mbedtls EXCLUDE_FROM_ALL)
 
     target_compile_definitions(meshclient_core PUBLIC MESHCLIENT_HAVE_TLS)
-    # Mozilla's roots, written by scripts/gen-ca-roots.py. Only with TLS: without it there is
-    # nothing to verify, and 126 KB of certificates would be carried for nobody.
-    target_sources(meshclient_core PRIVATE src/core/generated/ca_roots.c)
     # `tfpsacrypto` is 4.x's name for what 3.x called `mbedcrypto`.
     target_link_libraries(meshclient_core PUBLIC mbedtls mbedx509 tfpsacrypto)
 else()
@@ -374,6 +371,17 @@ else()
         "third_party/mbedtls is missing: building without TLS, so MQTT will be plaintext only. "
         "Run `git submodule update --init --recursive` to enable it.")
 endif()
+
+# Mozilla's roots, written by scripts/gen-ca-roots.py.
+#
+# Compiled either way, and *outside* the block above on purpose. src/app/app.c hands this table
+# to the TLS client unconditionally - whether this build has Mbed TLS is not a question the
+# composition root should have to answer, which is the whole reason tls_client.c compiles to a
+# stub - so the symbols have to exist in both configurations or the no-TLS build will not link.
+# It used to be inside, and that is exactly how it broke. The 126 KB is still not carried without
+# TLS: ca_roots.c guards its own payload on MESHCLIENT_HAVE_TLS and defines an empty table
+# instead.
+target_sources(meshclient_core PRIVATE src/core/generated/ca_roots.c)
 
 set(NANOPB_GENERATED_DIR ${CMAKE_BINARY_DIR}/generated/nanopb)
 file(MAKE_DIRECTORY ${NANOPB_GENERATED_DIR})
