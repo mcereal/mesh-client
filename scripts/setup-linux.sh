@@ -8,6 +8,8 @@
 #   - ninja               the generator every build tree here is configured with
 #   - git submodules      nanopb, meshtastic/protobufs (CMake FATAL_ERRORs without them)
 #   - libdbus-1-dev       sets MESH_HAVE_DBUS; without it the BLE transport compiles out
+#   - libsdl2-dev         builds inkcell's window backend; without it MESHCLIENT_UI_BACKEND=sdl
+#                         reports itself unavailable and everything else is unchanged
 #   - python protobuf     needed by nanopb_generator to regenerate the .pb.c/.pb.h sources
 #   - libclang-rt-18-dev  clang's sanitizer runtimes; only the ASan/UBSan builds need them
 #
@@ -49,7 +51,8 @@ run_privileged() {
 # step looking for libclang_rt.asan-x86_64.a, on a host `make setup` reported as ready. The
 # container and CI both install it; a native Linux host is the only place that did not.
 APT_PACKAGES="build-essential clang clang-format libclang-rt-18-dev cmake ninja-build pkg-config
-              libdbus-1-dev dbus-daemon protobuf-compiler python3 python3-pip git zip"
+              libdbus-1-dev dbus-daemon libsdl2-dev protobuf-compiler python3 python3-pip git
+              zip"
 
 apt_install_done=0
 # Install the whole toolchain in one shot the first time anything turns out to be missing.
@@ -176,6 +179,15 @@ else
     ensure_apt_packages || true
 fi
 
+echo "==> libsdl2-dev"
+if pkg-config --exists sdl2 2>/dev/null; then
+    say "sdl2 $(pkg-config --modversion sdl2)"
+elif [ "$CHECK_ONLY" -eq 1 ]; then
+    say "missing: libsdl2-dev (MESHCLIENT_UI_BACKEND=sdl reports itself unavailable without it)"
+else
+    ensure_apt_packages || true
+fi
+
 echo "==> Python protobuf (nanopb generator)"
 if python3 -c 'import google.protobuf' >/dev/null 2>&1; then
     say "protobuf $(python3 -c 'import google.protobuf; print(google.protobuf.__version__)')"
@@ -227,6 +239,10 @@ fi
 if sanitizer_runtime_missing; then
     report_note "libclang-rt-18-dev is absent, so the ASan/UBSan builds will not link"
 fi
+# A note for the same reason: the build and the whole suite are fine without SDL2. All that is
+# lost is the window backend, which reports itself unavailable and is not the default anywhere.
+pkg-config --exists sdl2 2>/dev/null \
+    || report_note "libsdl2-dev is absent, so MESHCLIENT_UI_BACKEND=sdl has no window to open"
 pkg-config --exists dbus-1 2>/dev/null || report_missing "libdbus-1-dev"
 python3 -c 'import google.protobuf' >/dev/null 2>&1 || report_missing "python protobuf"
 # Fatal rather than a note: without these the Mbed TLS build cannot generate its sources, so

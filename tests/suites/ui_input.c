@@ -259,7 +259,7 @@ MESH_TEST_CASE(ui_input_key_mapping, unit) {
     inkcell_input_handle_event(&input, EV_KEY, KEY_ENTER, 2);
     inkcell_input_handle_event(&input, EV_KEY, BTN_SELECT, 1);
     inkcell_input_handle_event(&input, EV_SYN, 0, 0);
-    inkcell_input_handle_event(&input, EV_KEY, KEY_F1, 1); /* unmapped: nothing */
+    inkcell_input_handle_event(&input, EV_KEY, KEY_F12, 1); /* unmapped: nothing */
 
     /* BTN_SOUTH is the Brick's B and BTN_EAST its A (Nintendo layout). */
     const enum inkcell_key expected[] = {
@@ -290,6 +290,22 @@ MESH_TEST_CASE(ui_input_key_mapping, unit) {
     }
     if (inkcell_input_is_quit_key(BTN_SELECT) || inkcell_input_is_quit_key(BTN_START)) {
         failure = "SELECT/START are navigation keys, not quit keys";
+        goto cleanup;
+    }
+
+    /*
+     * The three caps a keyboard can reach now, and could not before.
+     *
+     * They are checked here because this client is what needs them: nav.c binds all three -
+     * START resends a message, SELECT opens the help sheet, X is the messages screen's verb -
+     * so before this, a run driven from a keyboard could walk every screen and reach none of
+     * those. They are pure mapping questions, so they are asked of the mapper rather than
+     * pushed through the handler like the sequence above.
+     */
+    if (inkcell_input_map_key(KEY_X) != INKCELL_KEY_X ||
+        inkcell_input_map_key(KEY_F1) != INKCELL_KEY_START ||
+        inkcell_input_map_key(KEY_F2) != INKCELL_KEY_SELECT) {
+        failure = "a keyboard must be able to reach X, START and SELECT";
         goto cleanup;
     }
 
@@ -883,6 +899,61 @@ static bool test_animation_moving(void *state, void *userdata) {
     (void)state;
     (void)userdata;
     return true;
+}
+
+/*
+ * A backend that refuses to open is not a controller that failed to start.
+ *
+ * The distinction the composition root depends on. mesh_ui_controller_init() drops a backend
+ * whose init() refused and returns success, because a run with no UI is still a run - but that
+ * means its return value cannot be read as "there is a panel", and a client that had a second
+ * backend to try would otherwise commit to the first and end up presenting nothing. With the
+ * SDL backend there is a second one to try and a dozen ways for a window to refuse after the
+ * library has said it is available, so this is the seam mesh_app_init() asks about before it
+ * decides the UI is settled.
+ */
+static int test_refusing_init(void **state, void *userdata) {
+    (void)state;
+    (void)userdata;
+    return -ENODEV;
+}
+
+MESH_TEST_CASE(ui_controller_reports_a_backend_that_would_not_open, unit) {
+    struct inkwell_loop loop;
+    struct mesh_ui_store store;
+    struct mesh_ui_controller controller;
+    const struct inkcell_backend refusing = {.name = "test-refusing", .init = test_refusing_init};
+    MESH_TEST_FAIL_IF(inkwell_loop_init(&loop) != 0, "loop init failed");
+    if (mesh_ui_store_init(&store) != 0) {
+        inkwell_loop_shutdown(&loop);
+        record_failure(test_name, "store init failed");
+        return;
+    }
+
+    const char *failure = NULL;
+    /* Success, deliberately: the controller is up and the store is being watched. */
+    if (mesh_ui_controller_init(&controller, &store, &refusing, NULL, &loop) != 0) {
+        failure = "a refused backend must not stop the controller starting";
+    } else if (mesh_ui_controller_has_backend(&controller)) {
+        failure = "...but the controller must not claim a backend that refused";
+    }
+    mesh_ui_controller_shutdown(&controller);
+
+    /* ...and one that opens says so, or the answer above means nothing. */
+    if (failure == NULL) {
+        const struct inkcell_backend opening = {.name = "test-opening"};
+        if (mesh_ui_controller_init(&controller, &store, &opening, NULL, &loop) != 0) {
+            failure = "controller init failed";
+        } else if (!mesh_ui_controller_has_backend(&controller)) {
+            failure = "a backend that opened must be reported as present";
+        }
+        mesh_ui_controller_shutdown(&controller);
+    }
+
+    mesh_ui_store_shutdown(&store);
+    inkwell_loop_shutdown(&loop);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }
 
 MESH_TEST_CASE(ui_controller_animation_reuses_snapshot_and_consumes_changes, unit) {

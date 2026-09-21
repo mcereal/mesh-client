@@ -147,8 +147,11 @@ from 2 s to 60 s; only an established link clears it. The USB and BLE preference
 | `MESHCLIENT_AUTOCONNECT` | `0` stops the foreground loop connecting on its own |
 | `MESHCLIENT_MQTT_PROXY` | `0` stops the client holding a broker connection for a radio that asks for one. The whole arrangement is otherwise the *radio's* decision — see [`mqtt.md`](mqtt.md) — so this is the only say the Brick has in it |
 | `MESHCLIENT_SCAN_RESUME_GRACE_MS` | how long a teardown keeps the BLE scan down, 0–60000, default 3000, so it is not restarted for the second between a drop and the reconnect |
-| `MESHCLIENT_UI_BACKEND` | `fb\|cli\|stub`; `fb` unless there is no `/dev/fb0` |
-| `MESHCLIENT_FB_SCALE` | framebuffer font multiplier, 2–6; default is the theme's (4) |
+| `MESHCLIENT_UI_BACKEND` | `fb\|sdl\|cli\|stub`; `fb` unless there is no `/dev/fb0`, and then `cli`. `sdl` is never reached by falling back — a window is a thing you ask for |
+| `MESHCLIENT_FB_SCALE` | font multiplier, 2–6; default is the theme's (4). Applies to whichever backend opened the panel, `sdl` included |
+| `MESHCLIENT_SDL_SIZE` | the window's geometry as `WxH`; default `1024x768`, which is the Brick's panel — so what comes up on a desktop is the geometry the device will draw |
+| `MESHCLIENT_SDL_VSYNC` | `1` waits for the scan-out before returning from a present. Off by default: this client has one thread, and waiting there is up to a frame in which no transport is serviced |
+| `MESHCLIENT_SDL_POLL_MS` | how often SDL's event queue is drained, 1–200, default 8. It is drained on a timer because SDL exposes no descriptor to wait on |
 | `MESHCLIENT_MAP_PACK` | the tile pack the map draws. Read once at startup |
 | `MESHCLIENT_THEME` | `dark\|light\|contrast\|colorblind`. Outranks Settings → About, which then shows it as a fact rather than a switch |
 | `MESHCLIENT_LANG` | which language the UI is drawn in. Outranks `LC_ALL`, `LC_MESSAGES`, `LANG`. See [`i18n.md`](i18n.md) |

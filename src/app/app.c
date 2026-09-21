@@ -263,6 +263,49 @@ static void mesh_app_ui_request_stop(void *ctx) {
     inkwell_loop_request_stop((struct inkwell_loop *)ctx);
 }
 
+/*
+ * The window backend, where there is a window to open.
+ *
+ * Off unless it is asked for by name. On the device the framebuffer is the UI - it is what the
+ * pak runs and the one that has been measured - and this is the backend for a development
+ * host, where until now the only way to see a screen was to render it to a GIF.
+ *
+ * Unlike the framebuffer's, this backend reads its own buttons: an SDL window's presses come
+ * off the same queue as its resize and its close box, so the thing that owns the window owns
+ * them. See `ui_backend_reads_input` for what that means for the evdev reader.
+ */
+static bool mesh_app_select_sdl(struct mesh_app *app, const struct inkcell_backend **backend,
+                                void **userdata) {
+    if (!inkcell_backend_sdl_is_available()) {
+        return false;
+    }
+
+    if (backend != NULL) {
+        *backend = inkcell_backend_sdl();
+    }
+    if (userdata != NULL) {
+        app->ui_sdl_context = (struct inkcell_backend_sdl_context){
+            .app = fb_app_vtable(),
+            /* The same three calls over inkwell_loop the evdev reader is handed, because SDL
+               has no descriptor of its own to watch and inkcell puts a timerfd here instead -
+               see inkcell/ui/sdl.h. */
+            .host = {.ctx = &app->loop,
+                     .add_fd = mesh_app_ui_add_fd,
+                     .remove_fd = mesh_app_ui_remove_fd,
+                     .request_stop = mesh_app_ui_request_stop},
+            .on_key = mesh_app_on_ui_key,
+            .key_userdata = app,
+            /* What the window manager puts on the title bar: the product's name, which is
+               not a word anybody translates - the same fact mesh_crash_install() states
+               about a crash report. */
+            .title = "MeshClient",
+        };
+        *userdata = &app->ui_sdl_context;
+    }
+    app->ui_backend_reads_input = true;
+    return true;
+}
+
 static bool mesh_app_select_fb(struct mesh_app *app, const struct inkcell_backend **backend,
                                void **userdata) {
     if (!inkcell_backend_fb_is_available()) {
@@ -295,13 +338,26 @@ static const struct inkcell_backend *mesh_app_select_backend(struct mesh_app *ap
     const struct inkcell_backend *backend = NULL;
     void *backend_userdata = NULL;
 
-    /* "cli" and "stub" are asked for explicitly; everything else - including no request at all -
-       resolves to the framebuffer, which is what the pak runs, and falls back to the CLI backend
-       only where there is no /dev/fb0 to draw on (a container, or a dev host). */
+    app->ui_backend_reads_input = false;
+
+    /* "cli", "stub" and "sdl" are asked for explicitly; everything else - including no request
+       at all - resolves to the framebuffer, which is what the pak runs, and falls back to the
+       CLI backend only where there is no /dev/fb0 to draw on (a container, or a dev host).
+       "sdl" is not in the fallback chain on purpose: a window is a thing somebody asks for, and
+       a client that silently opened one because the panel was missing would be a surprise on
+       any host with a display. */
     if (requested != NULL && strcasecmp(requested, "cli") == 0) {
         mesh_app_select_cli(app, &backend, &backend_userdata);
     } else if (requested != NULL && strcasecmp(requested, "stub") == 0) {
         mesh_app_select_stub(&backend, &backend_userdata);
+    } else if (requested != NULL && strcasecmp(requested, "sdl") == 0) {
+        if (!mesh_app_select_sdl(app, &backend, &backend_userdata)) {
+            inkwell_log_warn("ui", "No SDL window backend in this build or on this host; "
+                                   "using the default");
+            if (!mesh_app_select_fb(app, &backend, &backend_userdata)) {
+                mesh_app_select_cli(app, &backend, &backend_userdata);
+            }
+        }
     } else {
         if (requested != NULL && strcasecmp(requested, "fb") != 0 &&
             strcasecmp(requested, "auto") != 0) {
@@ -931,6 +987,35 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
     const struct inkcell_backend *ui_backend = mesh_app_select_backend(app, &backend_userdata);
     result = mesh_ui_controller_init(&app->ui_controller, &app->ui_store, ui_backend,
                                      backend_userdata, &app->loop);
+    /*
+     * Selected, and then it would not open.
+     *
+     * Choosing a backend and opening one are two different moments, and only the first can be
+     * answered by asking whether it is available: /dev/fb0 exists or it does not, but a window
+     * has a dozen ways to refuse after the library has said yes - no display to reach, a
+     * compositor that declined, a texture the driver would not make. The controller treats such
+     * a refusal as "this run has no UI", which is right for a headless run and wrong here,
+     * because it returns success and the fallback below never sees it.
+     *
+     * So ask, and if the choice did not open, go down the chain that would have been used had
+     * it never been offered. The retry is the default chain rather than mesh_app_select_backend()
+     * again: that would read the same environment variable and pick the same backend a second
+     * time.
+     */
+    if (result >= 0 && ui_backend != NULL && !mesh_ui_controller_has_backend(&app->ui_controller)) {
+        inkwell_log_warn("ui", "The %s backend would not open; falling back",
+                         ui_backend->name != NULL ? ui_backend->name : "selected");
+        mesh_ui_controller_shutdown(&app->ui_controller);
+        /* ...and whatever it was going to read its own buttons with is gone with it. */
+        app->ui_backend_reads_input = false;
+        ui_backend = NULL;
+        backend_userdata = NULL;
+        if (!mesh_app_select_fb(app, &ui_backend, &backend_userdata)) {
+            mesh_app_select_cli(app, &ui_backend, &backend_userdata);
+        }
+        result = mesh_ui_controller_init(&app->ui_controller, &app->ui_store, ui_backend,
+                                         backend_userdata, &app->loop);
+    }
     if (result < 0) {
         inkwell_log_warn("app", "UI backend init failed (%d); falling back to stub", result);
         result = mesh_ui_controller_init(&app->ui_controller, &app->ui_store,
@@ -1149,8 +1234,12 @@ int mesh_app_run(struct mesh_app *app) {
         .remove_fd = mesh_app_ui_remove_fd,
         .request_stop = mesh_app_ui_request_stop,
     };
-    inkcell_input_init(&app->ui_input, &ui_input_host);
-    inkcell_input_set_handler(&app->ui_input, mesh_app_on_ui_key, app);
+    /* Unless the backend is already reading them. A window delivers its own presses, and a
+       host where /dev/input is readable would otherwise hand every one of them over twice. */
+    if (!app->ui_backend_reads_input) {
+        inkcell_input_init(&app->ui_input, &ui_input_host);
+        inkcell_input_set_handler(&app->ui_input, mesh_app_on_ui_key, app);
+    }
 
     mesh_app_publish_ui_state(app);
 

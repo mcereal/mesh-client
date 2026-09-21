@@ -208,7 +208,7 @@ publish and read back when that node's detail screen is opened. See
 | MQTT proxy | inkwell's `inkwell/codec/mqtt.h` (the 3.1.1 wire format), `src/proto/mqtt_topic.c` (where a mesh lives on a broker), `src/core/net/mqtt_proxy.c` (one broker connection; it names no word a user reads), inkwell's `inkwell/net/tls.h` (Mbed TLS on the loop), `src/ui/tables/mqtt.c` (what this client says about either), `src/app/app_mqtt.c` (whether to hold one at all) |
 | Radio firmware | `src/core/firmware/` - `firmware*.c`, `uf2.c`, `esp_image.c`, `src/transport/*/{usb_msc,ble_ota,ble_hci}.c` - the *other* binary |
 | UI | `src/ui/` - see the group map below; **`fb` is the device UI** |
-| UI toolkit | `third_party/inkcell/` - theme, fonts, glyphs, layout, widgets, the fb backend, input |
+| UI toolkit | `third_party/inkcell/` - theme, fonts, glyphs, layout, widgets, the fb and SDL backends, input |
 | UI components | inkcell's `include/inkcell/ui/widgets/*.h` (button, chrome, list, item, bubble, card, control, meter, overlay); `inkcell/ui/widgets.h` is the umbrella, `inkcell/ui/fb_draw.h` the toolkit under it |
 | This client behind the frame | `src/ui/backends/fb_app.c` - the renderer inkcell calls, the move it cannot work out, the theme it is told |
 | Tables the UI reads | `src/ui/tables/` - `actions.c` (button verbs), `status.c` (card verbs), `help.c`, `devices.c`, `nodes.c`, `delivery.c`, `trust.c`, `chrome.c`, `trend.c` (the airtime chart; the frame around it is inkcell's), `duration.c`, `units.c` (metric/imperial lengths) |
@@ -231,7 +231,7 @@ its include path - see the flat-header rule above.
 | `src/ui/settings/` | the settings model: fields, rows, the codec |
 | `src/ui/tables/` | the vocabulary tables a screen names rather than spells out, including `mqtt.c`, which is what a broker failure and a connection state are *called* |
 | `src/ui/views/` | per-screen view models - what a screen says, not how it is drawn |
-| `src/ui/backends/` | the renderers. **`fb` is the device UI** |
+| `src/ui/backends/` | the renderers. **`fb` is the device UI**; `MESHCLIENT_UI_BACKEND=sdl` presents the same frames in a window on a dev host, and every file here is shared by both |
 | `src/core/session/` | the Meshtastic conversation: session, messaging, admin, trust, sharing |
 | `src/core/firmware/` | the *radio's* firmware - a different binary on a different computer |
 | `src/core/net/` | one broker connection. The hostname, the socket, the TLS session and the HTTPS request are inkwell's |
@@ -303,6 +303,9 @@ The few that bite soonest:
 - **The node roster deliberately outlives the connection**, and a NodeDB reset does not clear it.
 - **The framebuffer needs all three steps** - draw page 0, `FBIOPAN_DISPLAY`, mirror into page 1 -
   or the screen is black.
+- **The SDL backend is a presenter, not a GPU renderer**, and the pak does not carry it: the
+  cross container has no aarch64 SDL2, so a device build reports it unavailable and uses `fb`.
+  It is for running the UI on a dev host - see [`docs/ui.md`](docs/ui.md#and-the-window-behind-it).
 - **Never `TERM` or `kill $(pidof nextui.elf)`** on device: SDL turns it into a quit event and the
   Brick powers off. `deploy-start` uses `SIGKILL` deliberately.
 - **Only the release build is a release.** Do not stamp a local build to test the updater; lift

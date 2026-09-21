@@ -2,6 +2,7 @@
 
 #include "inkcell/ui/fb.h"
 #include "inkcell/ui/input.h"
+#include "inkcell/ui/sdl.h"
 #include "inkcell/ui/theme.h"
 
 #include "inkwell/runtime/loop.h"
@@ -60,12 +61,20 @@ struct mesh_app {
     struct mesh_ui_controller ui_controller;
     struct mesh_ui_backend_cli_context ui_cli_context;
     struct inkcell_backend_fb_context ui_fb_context;
+    struct inkcell_backend_sdl_context ui_sdl_context;
     struct mesh_ui_preferences ui_preferences;
     /* Conversation loaded from the cache at startup. The transport's log starts empty every
        run, so this is merged back in on publish; without it the first publish would erase the
        persisted history. */
     struct mesh_ui_message_list ui_messages_cached;
     struct inkcell_input ui_input;
+    /*
+     * Whether the backend reads its own buttons, which the SDL one does: a window's presses
+     * arrive in the same queue as its resize and its close box, so the thing that owns the
+     * window owns them. The evdev reader is then not started at all - on a development host
+     * both would see the same keyboard and every press would arrive twice.
+     */
+    bool ui_backend_reads_input;
     struct inkwell_signals signals;
     /* Self-update: HTTPS through the event loop above. Its state is flattened into the UI's
        client info on every publish, so the About section renders it without the UI ever seeing

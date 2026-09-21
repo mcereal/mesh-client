@@ -46,6 +46,19 @@ int mesh_ui_controller_init(struct mesh_ui_controller *controller, struct mesh_u
                             struct inkwell_loop *loop);
 void mesh_ui_controller_shutdown(struct mesh_ui_controller *controller);
 
+/*
+ * Whether the backend named at init actually opened.
+ *
+ * A backend whose init() refused is dropped and the controller carries on without one, drawing
+ * nothing - which is the right answer for a run that has no UI to speak of and the wrong one
+ * for a client that had another backend it could have used instead. init() returning 0
+ * therefore does not mean there is a panel, and this is the question that does.
+ *
+ * Asked by the composition root, which is the only layer that knows what the second choice
+ * would have been. False also for a controller opened with no backend at all.
+ */
+bool mesh_ui_controller_has_backend(const struct mesh_ui_controller *controller);
+
 void mesh_ui_controller_set_action_handler(struct mesh_ui_controller *controller,
                                            mesh_ui_action_handler handler, void *userdata);
 
