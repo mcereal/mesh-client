@@ -1,8 +1,9 @@
 #include "mesh/ui/backends/cli.h"
 
+#include "inkcell/utils/array.h"
+#include "inkcell/utils/log.h"
+
 #include "mesh/core/message.h"
-#include "mesh/utils/array.h"
-#include "mesh/utils/log.h"
 
 #include <errno.h>
 #include <inttypes.h>

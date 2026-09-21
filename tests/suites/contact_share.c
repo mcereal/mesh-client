@@ -18,6 +18,8 @@
  * padlock in this client is for.
  */
 
+#include "inkcell/utils/qr.h"
+
 #include "framework/mesh_test.h"
 
 #include "mesh/core/contact_share.h"
@@ -26,7 +28,6 @@
 #include "mesh/ui/contact_share.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
-#include "mesh/utils/qr.h"
 #include "support/session_fixture.h"
 #include "support/ui_fixture.h"
 

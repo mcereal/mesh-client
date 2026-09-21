@@ -2,13 +2,14 @@
 
 /* Navigating nodes and devices: favorites, disconnect/forget, PIN prompts. */
 
+#include "inkcell/ui/actions.h"
+
 #include "framework/mesh_test.h"
 #include "mesh/i18n/strings.h"
 #include "support/ui_fixture.h"
 
 /* For enum mesh_traceroute_state, which the UI's traceroute carries as a byte. */
 #include "mesh/core/session.h"
-#include "mesh/ui/actions.h"
 #include "mesh/ui/history.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/node_detail.h"

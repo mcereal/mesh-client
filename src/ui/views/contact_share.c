@@ -4,10 +4,11 @@
 
 #include "mesh/ui/contact_share.h"
 
+#include "inkcell/utils/text.h"
+
 #include "mesh/i18n/strings.h"
 #include "mesh/proto/contact_url.h"
 #include "mesh/ui/store_settings.h"
-#include "mesh/utils/text.h"
 
 #include <stdio.h>
 #include <string.h>

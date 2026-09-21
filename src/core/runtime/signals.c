@@ -2,8 +2,9 @@
 
 #include "mesh/core/signals.h"
 
+#include "inkcell/utils/log.h"
+
 #include "mesh/core/event_loop.h"
-#include "mesh/utils/log.h"
 
 #include <errno.h>
 #include <signal.h>

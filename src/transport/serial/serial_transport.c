@@ -1,14 +1,15 @@
 #define _GNU_SOURCE
 #define _POSIX_C_SOURCE 200809L
 
+#include "inkcell/utils/log.h"
+#include "inkcell/utils/time.h"
+
 #include "mesh/i18n/strings.h"
 #include "mesh/transport/serial.h"
 
 #include "mesh/core/config.h"
 #include "mesh/proto/stream_framing.h"
 #include "mesh/transport/stream_link.h"
-#include "mesh/utils/log.h"
-#include "mesh/utils/time.h"
 
 #include <errno.h>
 #include <stdarg.h>

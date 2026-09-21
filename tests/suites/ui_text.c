@@ -2,10 +2,10 @@
 
 /* Cell-based text measurement, the 5x7 font and the emoji tables. */
 
-#include "framework/mesh_test.h"
+#include "inkcell/ui/emoji.h"
+#include "inkcell/ui/font5x7.h"
 
-#include "mesh/ui/emoji.h"
-#include "mesh/ui/font5x7.h"
+#include "framework/mesh_test.h"
 
 #include <stdbool.h>
 #include <stdio.h>

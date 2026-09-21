@@ -1,10 +1,11 @@
 #ifndef MESH_UI_TRUST_H
 #define MESH_UI_TRUST_H
 
+#include "inkcell/ui/icon.h"
+#include "inkcell/ui/theme.h"
+
 #include "mesh/i18n/strings.h"
-#include "mesh/ui/icon.h"
 #include "mesh/ui/store_node.h"
-#include "mesh/ui/theme.h"
 
 #ifdef __cplusplus
 extern "C" {

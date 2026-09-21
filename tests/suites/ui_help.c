@@ -17,17 +17,18 @@
  * which is what help_keycap_and_press_agree does.
  */
 
+#include "inkcell/ui/actions.h"
+#include "inkcell/utils/text.h"
+
 #include "framework/mesh_test.h"
 #include "support/ui_fixture.h"
 
 #include "mesh/i18n/strings.h"
-#include "mesh/ui/actions.h"
 #include "mesh/ui/help.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/route.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
-#include "mesh/utils/text.h"
 
 #include <stdio.h>
 #include <string.h>

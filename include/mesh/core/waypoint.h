@@ -1,6 +1,6 @@
 #pragma once
 
-#include "mesh/utils/time.h"
+#include "inkcell/utils/time.h"
 
 #include "meshtastic/mesh.pb.h"
 
@@ -50,7 +50,7 @@ extern "C" {
 
 /* Spelled through a macro because of the extern "C" block above, which says this header may be
    included from C++ - and `_Static_assert` is a C keyword g++ rejects outright. The same bridge
-   mesh/ui/theme.h writes for the same reason, and written again here rather than shared: a
+   inkcell/ui/theme.h writes for the same reason, and written again here rather than shared: a
    three-line macro is not a module boundary, and a core header reaching into the UI's for one
    would be. */
 #ifdef __cplusplus

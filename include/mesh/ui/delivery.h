@@ -1,8 +1,9 @@
 #ifndef MESH_UI_DELIVERY_H
 #define MESH_UI_DELIVERY_H
 
+#include "inkcell/ui/icon.h"
+
 #include "mesh/i18n/strings.h"
-#include "mesh/ui/icon.h"
 
 #ifdef __cplusplus
 extern "C" {

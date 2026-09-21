@@ -12,7 +12,7 @@
  * why that pair is the one that does not vary.
  */
 
-#include "fb_widgets.h"
+#include "inkcell/ui/widgets.h"
 
 #include "fb_screens_internal.h"
 
@@ -48,7 +48,7 @@ static void fb_draw_code_body(struct inkcell_backend_fb_state *state,
     /*
      * The words go at the bottom of the body and the code gets everything above them, rather
      * than the code being placed first and the words taking what is left. The code's own size
-     * steps in whole pixels per module (fb_widgets.h), so where it ends depends on how many
+     * steps in whole pixels per module (inkcell/ui/widgets.h), so where it ends depends on how many
      * modules this particular link came out as - and a caption whose position moved with that
      * would sit at a different height on every radio.
      */
@@ -72,7 +72,7 @@ static void fb_draw_code_body(struct inkcell_backend_fb_state *state,
      * raised by a row of a list the other's screen is covering - so the second would never be
      * warm, and switching between them costs the one encode it should.
      *
-     * LOW correction on purpose - see mesh/utils/qr.h. More correction would push the same link
+     * LOW correction on purpose - see inkcell/utils/qr.h. More correction would push the same link
      * into a higher version and make every module smaller, and on a backlit panel with no print
      * noise to recover from, module size is what decides whether a phone reads it.
      */

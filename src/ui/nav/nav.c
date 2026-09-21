@@ -9,6 +9,9 @@
  * two dispatch into are the neighbouring nav_*.c files, through nav_internal.h.
  */
 
+#include "inkcell/utils/array.h"
+#include "inkcell/utils/text.h"
+
 #include "nav_internal.h"
 
 #include "mesh/core/message.h"
@@ -24,8 +27,6 @@
 #include "mesh/ui/status.h"
 #include "mesh/ui/trend.h"
 #include "mesh/ui/units.h"
-#include "mesh/utils/array.h"
-#include "mesh/utils/text.h"
 
 #include <stdio.h>
 #include <string.h>

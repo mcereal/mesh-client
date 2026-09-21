@@ -2,10 +2,11 @@
 
 #include "mesh/core/firmware_update.h"
 
+#include "inkcell/utils/log.h"
+#include "inkcell/utils/text.h"
+
 #include "mesh/i18n/strings.h"
 #include "mesh/transport/ble_hci.h"
-#include "mesh/utils/log.h"
-#include "mesh/utils/text.h"
 
 #include <errno.h>
 #include <stdlib.h>

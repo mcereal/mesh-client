@@ -1,7 +1,7 @@
 #include "mesh/core/key_verification.h"
 
-#include "mesh/utils/log.h"
-#include "mesh/utils/text.h"
+#include "inkcell/utils/log.h"
+#include "inkcell/utils/text.h"
 
 #include <string.h>
 

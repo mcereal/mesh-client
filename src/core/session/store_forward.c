@@ -1,7 +1,7 @@
 #include "mesh/core/store_forward.h"
 
-#include "mesh/utils/log.h"
-#include "mesh/utils/text.h"
+#include "inkcell/utils/log.h"
+#include "inkcell/utils/text.h"
 
 #include "meshtastic/portnums.pb.h"
 #include "meshtastic/storeforward.pb.h"

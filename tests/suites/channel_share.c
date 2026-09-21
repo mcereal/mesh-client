@@ -17,6 +17,9 @@
  * are what says which part broke when it does not.
  */
 
+#include "inkcell/utils/qr.h"
+#include "inkcell/utils/text.h"
+
 #include "framework/mesh_test.h"
 
 #include "mesh/core/channel_share.h"
@@ -25,9 +28,7 @@
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
 #include "mesh/utils/base64.h"
-#include "mesh/utils/qr.h"
 #include "mesh/utils/sha256.h"
-#include "mesh/utils/text.h"
 #include "support/ui_fixture.h"
 
 #include <stdio.h>

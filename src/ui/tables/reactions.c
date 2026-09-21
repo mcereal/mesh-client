@@ -1,6 +1,6 @@
 #include "mesh/ui/reactions.h"
 
-#include "mesh/utils/array.h"
+#include "inkcell/utils/array.h"
 
 /*
  * The eight, in the order the picker walks them: agreement first, because it is what almost

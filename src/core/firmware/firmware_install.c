@@ -2,10 +2,11 @@
 
 #include "mesh/core/firmware_install.h"
 
+#include "inkcell/utils/file.h"
+#include "inkcell/utils/log.h"
+#include "inkcell/utils/text.h"
+
 #include "mesh/transport/serial_usb.h"
-#include "mesh/utils/file.h"
-#include "mesh/utils/log.h"
-#include "mesh/utils/text.h"
 
 #include <errno.h>
 #include <stdio.h>

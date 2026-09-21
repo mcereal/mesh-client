@@ -2,6 +2,9 @@
 
 /* The settings model itself: rows, edits, key text, coordinates, About. */
 
+#include "inkcell/ui/layout.h"
+#include "inkcell/utils/text.h"
+
 #include "framework/mesh_test.h"
 #include "support/ui_fixture.h"
 
@@ -11,12 +14,10 @@
 /* For enum mesh_traceroute_state, which the UI's traceroute carries as a byte. */
 #include "mesh/core/session.h"
 #include "mesh/core/updater.h"
-#include "mesh/ui/layout.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/node_detail.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
-#include "mesh/utils/text.h"
 
 #include "meshtastic/config.pb.h"
 #include "meshtastic/mesh.pb.h"

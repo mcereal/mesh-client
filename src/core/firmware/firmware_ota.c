@@ -2,12 +2,13 @@
 
 #include "mesh/core/firmware_ota.h"
 
+#include "inkcell/utils/file.h"
+#include "inkcell/utils/log.h"
+#include "inkcell/utils/text.h"
+
 #include "mesh/transport/ble_bluez.h"
 #include "mesh/transport/ble_hci.h"
-#include "mesh/utils/file.h"
-#include "mesh/utils/log.h"
 #include "mesh/utils/sha256.h"
-#include "mesh/utils/text.h"
 
 #include <errno.h>
 #include <stdio.h>

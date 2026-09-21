@@ -2,11 +2,12 @@
 
 /* Encoding, ingesting and acking text messages. */
 
+#include "inkcell/utils/text.h"
+
 #include "framework/mesh_test.h"
 #include "support/proto_fixture.h"
 
 #include "mesh/core/message.h"
-#include "mesh/utils/text.h"
 
 #include <pb_decode.h>
 #include <pb_encode.h>

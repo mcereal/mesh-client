@@ -1,17 +1,18 @@
 #define _GNU_SOURCE
 #define _POSIX_C_SOURCE 200809L
 
+#include "inkcell/utils/array.h"
+#include "inkcell/utils/env.h"
+#include "inkcell/utils/log.h"
+#include "inkcell/utils/text.h"
+#include "inkcell/utils/time.h"
+
 #include "mesh/i18n/strings.h"
 #include "mesh/transport/ble.h"
 
 #include "mesh/core/config.h"
-#include "mesh/utils/log.h"
 
 #include "mesh/transport/ble_bluez.h"
-#include "mesh/utils/array.h"
-#include "mesh/utils/env.h"
-#include "mesh/utils/text.h"
-#include "mesh/utils/time.h"
 
 #include <errno.h>
 #include <inttypes.h>

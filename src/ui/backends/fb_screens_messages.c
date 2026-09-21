@@ -13,21 +13,21 @@
  * tall a message is and inkcell_transcript_window() says which of them are on screen.
  */
 
-#include "fb_widgets.h"
+#include "inkcell/ui/emoji.h"
+#include "inkcell/ui/layout.h"
+#include "inkcell/ui/widgets.h"
+#include "inkcell/utils/text.h"
+#include "inkcell/utils/time.h"
 
 #include "fb_screens_internal.h"
 
 #include "mesh/core/message.h"
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/delivery.h"
-#include "mesh/ui/emoji.h"
-#include "mesh/ui/layout.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/node_detail.h"
 #include "mesh/ui/reactions.h"
 #include "mesh/ui/trust.h"
-#include "mesh/utils/text.h"
-#include "mesh/utils/time.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -35,7 +35,7 @@
 #include <time.h>
 
 /* Level one of the Messages tab: all traffic, the channels, whoever we have direct messages
-   with, and the way to start a new one. One conversation cell a row - see fb_widgets.h. */
+   with, and the way to start a new one. One conversation cell a row - see inkcell/ui/widgets.h. */
 void fb_render_conversations(struct inkcell_backend_fb_state *state,
                              const struct mesh_ui_snapshot *snapshot,
                              struct inkcell_fb_layout *layout) {
@@ -568,11 +568,10 @@ static uint8_t fb_thread_height(const struct inkcell_backend_fb_state *state,
     return rows > 0xFFU ? 0xFFU : (uint8_t)rows;
 }
 
-static struct inkcell_fb_thread_cache *fb_thread_cache_get(struct inkcell_backend_fb_state *state,
-                                                   const struct mesh_ui_snapshot *snapshot,
-                                                   const struct inkcell_fb_layout *layout,
-                                                   struct mesh_ui_message_view messages,
-                                                   const uint32_t *indices, uint32_t count) {
+static struct inkcell_fb_thread_cache *
+fb_thread_cache_get(struct inkcell_backend_fb_state *state, const struct mesh_ui_snapshot *snapshot,
+                    const struct inkcell_fb_layout *layout, struct mesh_ui_message_view messages,
+                    const uint32_t *indices, uint32_t count) {
     if (state->thread_cache_disabled) {
         return NULL;
     }
@@ -632,7 +631,8 @@ static struct inkcell_fb_thread_cache *fb_thread_cache_get(struct inkcell_backen
 static void fb_thread_row_get(const struct mesh_ui_snapshot *snapshot,
                               struct mesh_ui_message_view messages, const uint32_t *indices,
                               uint32_t position, bool force_name,
-                              const struct inkcell_fb_thread_cache *cache, struct fb_thread_row *row) {
+                              const struct inkcell_fb_thread_cache *cache,
+                              struct fb_thread_row *row) {
     if (cache == NULL) {
         fb_thread_row_build(snapshot, messages, indices, position, force_name, row);
         return;

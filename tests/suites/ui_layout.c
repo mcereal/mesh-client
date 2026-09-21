@@ -9,11 +9,11 @@
  * loudly instead of only misbehaving on somebody's emoji-named radio.
  */
 
-#include "framework/mesh_test.h"
+#include "inkcell/ui/anim.h"
+#include "inkcell/ui/emoji.h"
+#include "inkcell/ui/layout.h"
 
-#include "mesh/ui/anim.h"
-#include "mesh/ui/emoji.h"
-#include "mesh/ui/layout.h"
+#include "framework/mesh_test.h"
 
 #include <string.h>
 

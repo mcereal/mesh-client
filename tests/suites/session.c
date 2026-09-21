@@ -2,6 +2,8 @@
 
 /* The session's node cache, stats, traceroute and node actions. */
 
+#include "inkcell/utils/text.h"
+
 #include "framework/mesh_test.h"
 #include "support/proto_fixture.h"
 #include "support/session_fixture.h"
@@ -11,7 +13,6 @@
 #include "mesh/core/session.h"
 #include "mesh/ui/store_node.h"
 #include "mesh/ui/store_settings.h"
-#include "mesh/utils/text.h"
 
 #include <pb_decode.h>
 #include <pb_encode.h>

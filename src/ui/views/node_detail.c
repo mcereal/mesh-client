@@ -1,9 +1,10 @@
 #include "mesh/ui/node_detail.h"
 
+#include "inkcell/utils/text.h"
+
 #include "mesh/geo/coords.h"
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/duration.h"
-#include "mesh/utils/text.h"
 
 /* session.h for the traceroute state enum: the UI struct carries it as a byte so store.h
    stays plain, but this file already pulls nanopb in through radio_settings.h, so naming the

@@ -27,6 +27,8 @@
  * save and comes back as nothing.
  */
 
+#include "inkcell/utils/array.h"
+
 #include "mesh/ui/store.h"
 
 #include "store_internal.h"
@@ -38,7 +40,6 @@
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store_fields.h"
 #include "mesh/ui/store_keys.h"
-#include "mesh/utils/array.h"
 
 #include <errno.h>
 #include <stdbool.h>

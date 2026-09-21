@@ -19,11 +19,12 @@
  * Build with scripts/fuzz.sh; see docs/testing.md.
  */
 
+#include "inkcell/utils/log.h"
+
 #include "fuzz_state.h"
 
 #include "mesh/core/message.h"
 #include "mesh/core/session.h"
-#include "mesh/utils/log.h"
 
 #include <stdint.h>
 #include <stdio.h>

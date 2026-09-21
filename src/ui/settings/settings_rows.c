@@ -9,6 +9,9 @@
  * which is what keeps "the radio just told us something new" from needing an invalidation path.
  */
 
+#include "inkcell/utils/array.h"
+#include "inkcell/utils/text.h"
+
 #include "settings_internal.h"
 
 #include "mesh/core/radio_settings.h"
@@ -26,8 +29,6 @@
 #include "mesh/core/version.h"
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/units.h"
-#include "mesh/utils/array.h"
-#include "mesh/utils/text.h"
 
 #include <inttypes.h>
 #include <stdio.h>

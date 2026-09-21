@@ -9,14 +9,14 @@
  * mesh_app_flatten_settings() over in app_publish.c.
  */
 
+#include "inkcell/utils/array.h"
+#include "inkcell/utils/log.h"
+#include "inkcell/utils/text.h"
+#include "inkcell/utils/time.h"
+
 #include "app_internal.h"
 
 #include "mesh/i18n/strings.h"
-
-#include "mesh/utils/array.h"
-#include "mesh/utils/log.h"
-#include "mesh/utils/text.h"
-#include "mesh/utils/time.h"
 
 #include <errno.h>
 #include <stdbool.h>

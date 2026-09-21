@@ -2,14 +2,14 @@
 
 /* Config defaults, the event loop's lifecycle, and transport registration. */
 
+#include "inkcell/utils/time.h"
+
 #include "framework/mesh_test.h"
 
 #include "mesh/core/config.h"
 #include "mesh/core/event_loop.h"
 #include "mesh/transport/ble.h"
 #include "mesh/transport/transport.h"
-
-#include "mesh/utils/time.h"
 
 #include <errno.h>
 #include <stddef.h>

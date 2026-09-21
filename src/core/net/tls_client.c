@@ -2,9 +2,10 @@
 
 #include "mesh/core/tls_client.h"
 
+#include "inkcell/utils/log.h"
+#include "inkcell/utils/text.h"
+
 #include "mesh/core/ca_roots.h"
-#include "mesh/utils/log.h"
-#include "mesh/utils/text.h"
 
 #include <errno.h>
 #include <stdio.h>

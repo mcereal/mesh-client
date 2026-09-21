@@ -16,9 +16,10 @@
 
 #include "inkcell/ui/trend.h"
 
+#include "inkcell/ui/layout.h"
+
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/history.h"
-#include "mesh/ui/layout.h"
 
 #include <stdbool.h>
 #include <stdint.h>

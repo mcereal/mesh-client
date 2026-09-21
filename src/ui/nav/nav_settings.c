@@ -9,10 +9,11 @@
  * dropped rather than recorded, which is what keeps "toggle it twice" from queueing a write.
  */
 
+#include "inkcell/utils/text.h"
+
 #include "nav_internal.h"
 
 #include "mesh/ui/settings.h"
-#include "mesh/utils/text.h"
 
 #include <stdio.h>
 #include <string.h>

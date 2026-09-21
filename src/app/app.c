@@ -9,6 +9,11 @@
  * The three neighbouring files hang off the seams in app_internal.h.
  */
 
+#include "inkcell/utils/env.h"
+#include "inkcell/utils/log.h"
+#include "inkcell/utils/text.h"
+#include "inkcell/utils/time.h"
+
 #include "app_internal.h"
 
 #include "mesh/core/version.h"
@@ -20,10 +25,6 @@
 #include "mesh/ui/backends/stub.h"
 #include "mesh/ui/preferences.h"
 #include "mesh/utils/crash.h"
-#include "mesh/utils/env.h"
-#include "mesh/utils/log.h"
-#include "mesh/utils/text.h"
-#include "mesh/utils/time.h"
 
 #include <errno.h>
 #include <stdbool.h>

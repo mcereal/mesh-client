@@ -3,9 +3,9 @@
 
 #include "mesh/transport/serial_usb.h"
 
-#include "mesh/utils/ioctl.h"
-#include "mesh/utils/log.h"
-#include "mesh/utils/text.h"
+#include "inkcell/utils/ioctl.h"
+#include "inkcell/utils/log.h"
+#include "inkcell/utils/text.h"
 
 #include <ctype.h>
 #include <dirent.h>

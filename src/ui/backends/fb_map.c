@@ -14,19 +14,20 @@
  * colour, radius and margin comes from the theme. This file is placement and ink.
  */
 
+#include "inkcell/ui/latency.h"
+#include "inkcell/ui/widgets.h"
+#include "inkcell/utils/log.h"
+#include "inkcell/utils/text.h"
+
 #include "fb_internal.h"
-#include "fb_widgets.h"
 
 #include "mesh/geo/coords.h"
 #include "mesh/i18n/strings.h"
 #include "mesh/map/tile_image.h"
-#include "mesh/ui/latency.h"
 #include "mesh/ui/map.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/units.h"
 #include "mesh/ui/waypoints.h"
-#include "mesh/utils/log.h"
-#include "mesh/utils/text.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -148,8 +149,8 @@ static int fb_map_marker_radius(const struct inkcell_backend_fb_state *state) {
     return radius < 3 ? 3 : radius;
 }
 
-/* A filled disc, which is the one shape this file draws that fb_widgets.h has no name for: a
-   rounded rectangle whose radius is half its shorter side is a circle, and
+/* A filled disc, which is the one shape this file draws that inkcell/ui/widgets.h has no name for:
+   a rounded rectangle whose radius is half its shorter side is a circle, and
    inkcell_fb_fill_round_rect() already clamps anything larger to exactly that. */
 static void fb_map_disc(const struct inkcell_backend_fb_state *state, int cx, int cy, int radius,
                         struct inkcell_rgb color) {

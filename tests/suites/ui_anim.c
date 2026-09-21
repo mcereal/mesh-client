@@ -8,9 +8,9 @@
  * here, frame by frame and to the permille, with no framebuffer anywhere near it.
  */
 
-#include "framework/mesh_test.h"
+#include "inkcell/ui/anim.h"
 
-#include "mesh/ui/anim.h"
+#include "framework/mesh_test.h"
 
 MESH_TEST_CASE(anim_easings_pin_both_ends, unit) {
     for (int ease = 0; ease < INKCELL_EASE_COUNT; ++ease) {

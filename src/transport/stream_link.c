@@ -3,7 +3,7 @@
 
 #include "mesh/transport/stream_link.h"
 
-#include "mesh/utils/log.h"
+#include "inkcell/utils/log.h"
 
 #include <errno.h>
 #include <string.h>

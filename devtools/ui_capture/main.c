@@ -70,6 +70,12 @@
  * the script starts on is emitted before any of them.
  */
 
+#include "inkcell/ui/fb_capture.h"
+#include "inkcell/ui/theme.h"
+#include "inkcell/utils/env.h"
+#include "inkcell/utils/text.h"
+#include "inkcell/utils/time.h"
+
 #include "mesh/core/firmware.h"
 #include "mesh/core/firmware_update.h"
 #include "mesh/core/message.h"
@@ -79,19 +85,14 @@
 #include "mesh/core/store_forward.h"
 #include "mesh/core/updater.h"
 #include "mesh/i18n/strings.h"
-#include "mesh/ui/backends/fb_capture.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/route.h"
-#include "mesh/utils/env.h"
 /* For the flag rows' masks: the fixture sets position_flags and the field table is what says
    which bit each row is, so the scene is filmed against the same answer the screen draws. */
 #include "mesh/proto/channel_url.h"
 #include "mesh/proto/contact_url.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
-#include "mesh/ui/theme.h"
-#include "mesh/utils/text.h"
-#include "mesh/utils/time.h"
 
 #include <errno.h>
 #include <stdbool.h>

@@ -9,6 +9,8 @@
  * ever the answer the geo module gives, so a screen cannot round it a second way.
  */
 
+#include "inkcell/utils/time.h"
+
 #include "framework/mesh_test.h"
 #include "support/session_fixture.h"
 #include "support/ui_fixture.h"
@@ -20,7 +22,6 @@
 #include "mesh/ui/store.h"
 #include "mesh/ui/units.h"
 #include "mesh/ui/waypoints.h"
-#include "mesh/utils/time.h"
 
 #include <pb_decode.h>
 #include <pb_encode.h>

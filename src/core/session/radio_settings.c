@@ -1,7 +1,8 @@
 #include "mesh/core/radio_settings.h"
 
-#include "mesh/utils/log.h"
-#include "mesh/utils/text.h"
+#include "inkcell/utils/log.h"
+#include "inkcell/utils/text.h"
+
 #include "meshtastic/portnums.pb.h"
 
 #include <pb_decode.h>

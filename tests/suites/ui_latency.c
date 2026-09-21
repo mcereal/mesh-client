@@ -10,9 +10,9 @@
  * roadmap and built on.
  */
 
-#include "framework/mesh_test.h"
+#include "inkcell/ui/latency.h"
 
-#include "mesh/ui/latency.h"
+#include "framework/mesh_test.h"
 
 #include <stdlib.h>
 #include <string.h>

@@ -15,13 +15,14 @@
  * doing" lives, and is the reason that function is longer than it looks like it should be.
  */
 
+#include "inkcell/utils/array.h"
+#include "inkcell/utils/text.h"
+
 #include "nav_internal.h"
 
 #include "mesh/ui/channel_share.h"
 #include "mesh/ui/contact_share.h"
 #include "mesh/ui/settings.h"
-#include "mesh/utils/array.h"
-#include "mesh/utils/text.h"
 
 #include <stdio.h>
 #include <stdlib.h>

@@ -19,12 +19,13 @@
  *   - every action a table names carries a verb the catalog actually has.
  */
 
+#include "inkcell/ui/actions.h"
+
 #include "framework/mesh_test.h"
 
 #include "mesh/core/message.h"
 /* For enum mesh_traceroute_state, which the UI's traceroute carries as a byte. */
 #include "mesh/core/session.h"
-#include "mesh/ui/actions.h"
 #include "mesh/ui/history.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/node_detail.h"

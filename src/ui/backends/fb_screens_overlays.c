@@ -10,7 +10,7 @@
  * about cryptography is the thing this file exists to not be.
  */
 
-#include "fb_widgets.h"
+#include "inkcell/ui/widgets.h"
 
 #include "fb_screens_internal.h"
 

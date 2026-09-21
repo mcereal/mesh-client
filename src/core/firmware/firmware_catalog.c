@@ -1,7 +1,8 @@
 #include "mesh/core/firmware_catalog.h"
 
+#include "inkcell/utils/text.h"
+
 #include "mesh/utils/json.h"
-#include "mesh/utils/text.h"
 
 #include <stdlib.h>
 #include <string.h>

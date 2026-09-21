@@ -1,7 +1,8 @@
 #include "mesh/ui/duration.h"
 
+#include "inkcell/utils/text.h"
+
 #include "mesh/i18n/strings.h"
-#include "mesh/utils/text.h"
 
 void mesh_ui_format_age(uint32_t stamp, uint32_t now, char *out, size_t out_len) {
     if (out == NULL || out_len == 0U) {

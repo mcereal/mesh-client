@@ -17,15 +17,16 @@
  * somewhere its own radio is not listening. The client's only say is the kill switch below.
  */
 
+#include "inkcell/utils/env.h"
+#include "inkcell/utils/log.h"
+#include "inkcell/utils/text.h"
+
 #include "app_internal.h"
 
 #include "mesh/core/mqtt_proxy.h"
 #include "mesh/core/session.h"
 #include "mesh/core/tls_client.h"
 #include "mesh/ui/store_mqtt.h"
-#include "mesh/utils/env.h"
-#include "mesh/utils/log.h"
-#include "mesh/utils/text.h"
 
 #include <stdio.h>
 #include <string.h>

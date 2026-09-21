@@ -2,7 +2,7 @@
 
 #include "mesh/ui/preferences.h"
 
-#include "mesh/utils/log.h"
+#include "inkcell/utils/log.h"
 
 #include <errno.h>
 #include <limits.h>

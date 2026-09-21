@@ -9,18 +9,18 @@
  * answered in include/mesh/ui/trend.h rather than here.
  */
 
-#include "fb_widgets.h"
+#include "inkcell/ui/layout.h"
+#include "inkcell/ui/widgets.h"
+#include "inkcell/utils/text.h"
 
 #include "fb_screens_internal.h"
 
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/duration.h"
 #include "mesh/ui/history.h"
-#include "mesh/ui/layout.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/node_detail.h"
 #include "mesh/ui/trend.h"
-#include "mesh/utils/text.h"
 
 #include <string.h>
 

@@ -8,11 +8,12 @@
  * because it is loaded once from disk and shared by every screen that can send.
  */
 
+#include "inkcell/utils/array.h"
+#include "inkcell/utils/text.h"
+
 #include "nav_internal.h"
 
 #include "mesh/i18n/strings.h"
-#include "mesh/utils/array.h"
-#include "mesh/utils/text.h"
 
 #include <errno.h>
 #include <stdio.h>

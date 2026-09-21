@@ -2,9 +2,9 @@
 
 /* The monochrome icon sprites: the table, the decoder, and the contract a screen relies on. */
 
-#include "framework/mesh_test.h"
+#include "inkcell/ui/icon.h"
 
-#include "mesh/ui/icon.h"
+#include "framework/mesh_test.h"
 
 #include <stdbool.h>
 #include <stdio.h>

@@ -2,13 +2,14 @@
 
 #include "mesh/core/updater.h"
 
+#include "inkcell/utils/env.h"
+#include "inkcell/utils/log.h"
+
 #include "mesh/i18n/strings.h"
 
 #include "mesh/core/event_loop.h"
 #include "mesh/core/tls_client.h"
 #include "mesh/core/version.h"
-#include "mesh/utils/env.h"
-#include "mesh/utils/log.h"
 #include "mesh/utils/sha256.h"
 
 #include <errno.h>

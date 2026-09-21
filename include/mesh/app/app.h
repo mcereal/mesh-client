@@ -1,5 +1,9 @@
 #pragma once
 
+#include "inkcell/ui/fb.h"
+#include "inkcell/ui/input.h"
+#include "inkcell/ui/theme.h"
+
 #include "mesh/core/config.h"
 #include "mesh/core/event_loop.h"
 #include "mesh/core/firmware.h"
@@ -10,15 +14,12 @@
 #include "mesh/core/updater.h"
 #include "mesh/transport/transport.h"
 #include "mesh/ui/backends/cli.h"
-#include "mesh/ui/backends/fb.h"
 #include "mesh/ui/controller.h"
-#include "mesh/ui/input.h"
 #include "mesh/ui/preferences.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
 #include "mesh/ui/store_archive.h"
 #include "mesh/ui/store_trends.h"
-#include "mesh/ui/theme.h"
 
 #include <stdint.h>
 

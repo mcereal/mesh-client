@@ -10,10 +10,11 @@
  * out of the same pass.
  */
 
+#include "inkcell/utils/text.h"
+
 #include "nav_internal.h"
 
 #include "mesh/core/message.h"
-#include "mesh/utils/text.h"
 
 #include <stdio.h>
 #include <string.h>

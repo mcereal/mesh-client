@@ -9,24 +9,23 @@
  * switching on a field id.
  */
 
+#include "inkcell/ui/anim.h"
+#include "inkcell/utils/array.h"
+#include "inkcell/utils/text.h"
+
 #include "settings_internal.h"
 
 #include "mesh/core/radio_settings.h"
-#include "mesh/utils/array.h"
-#include "mesh/utils/text.h"
 
 #include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
 
-#include "mesh/ui/anim.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/units.h"
 
 #include "mesh/core/radio_settings.h"
 #include "mesh/core/updater.h"
-#include "mesh/utils/array.h"
-#include "mesh/utils/text.h"
 
 #include <ctype.h>
 #include <stdio.h>

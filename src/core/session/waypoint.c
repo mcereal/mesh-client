@@ -1,9 +1,10 @@
 #include "mesh/core/waypoint.h"
 
+#include "inkcell/utils/log.h"
+#include "inkcell/utils/text.h"
+
 #include "mesh/core/message.h"
 #include "mesh/geo/coords.h"
-#include "mesh/utils/log.h"
-#include "mesh/utils/text.h"
 
 #include "meshtastic/portnums.pb.h"
 

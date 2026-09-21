@@ -2,12 +2,13 @@
 
 #include "mesh/ui/nodes.h"
 
+#include "inkcell/ui/theme.h"
+
 #include "mesh/ui/node_detail.h"
 #include "mesh/ui/store_handshake.h"
 #include "mesh/ui/store_node.h"
 
 #include "mesh/geo/vector.h"
-#include "mesh/ui/theme.h"
 
 #include <string.h>
 #include <strings.h> /* strcasecmp, which is here rather than in string.h */

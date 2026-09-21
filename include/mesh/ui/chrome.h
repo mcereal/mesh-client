@@ -1,9 +1,10 @@
 #ifndef MESH_UI_CHROME_H
 #define MESH_UI_CHROME_H
 
+#include "inkcell/ui/icon.h"
+#include "inkcell/ui/theme.h"
+
 #include "mesh/i18n/strings.h"
-#include "mesh/ui/icon.h"
-#include "mesh/ui/theme.h"
 
 #include <stdbool.h>
 

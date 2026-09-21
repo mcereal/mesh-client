@@ -3,8 +3,8 @@
 
 #include "mesh/transport/ble_hci.h"
 
-#include "mesh/utils/ioctl.h"
-#include "mesh/utils/log.h"
+#include "inkcell/utils/ioctl.h"
+#include "inkcell/utils/log.h"
 
 #include <ctype.h>
 #include <errno.h>

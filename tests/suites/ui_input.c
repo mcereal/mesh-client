@@ -2,21 +2,22 @@
 
 /* evdev key mapping, the Brick's face buttons, and controller dispatch. */
 
+#include "inkcell/ui/actions.h"
+#include "inkcell/ui/backend.h"
+#include "inkcell/ui/input.h"
+#include "inkcell/ui/input_profile.h"
+#include "inkcell/utils/array.h"
+
 #include "framework/mesh_test.h"
 #include "support/ui_fixture.h"
 
 #include "mesh/core/event_loop.h"
 #include "mesh/core/message.h"
-#include "mesh/ui/actions.h"
-#include "mesh/ui/backend.h"
 #include "mesh/ui/backends/cli.h"
 #include "mesh/ui/backends/stub.h"
 #include "mesh/ui/controller.h"
-#include "mesh/ui/input.h"
-#include "mesh/ui/input_profile.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/store.h"
-#include "mesh/utils/array.h"
 
 #include <errno.h>
 #include <linux/input.h>

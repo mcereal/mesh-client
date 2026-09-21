@@ -11,11 +11,12 @@
  * trend.
  */
 
+#include "inkcell/ui/anim.h"
+#include "inkcell/ui/layout.h"
+
 #include "framework/mesh_test.h"
 
-#include "mesh/ui/anim.h"
 #include "mesh/ui/history.h"
-#include "mesh/ui/layout.h"
 #include "mesh/ui/store.h"
 
 #include <stdio.h>

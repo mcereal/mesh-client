@@ -9,6 +9,9 @@
  * copy of the last four hours under the first" - is only true if all three agree.
  */
 
+#include "inkcell/utils/text.h"
+#include "inkcell/utils/time.h"
+
 #include "framework/mesh_test.h"
 #include "support/session_fixture.h"
 #include "support/ui_fixture.h"
@@ -18,8 +21,6 @@
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store_handshake.h"
 #include "mesh/ui/store_settings.h"
-#include "mesh/utils/text.h"
-#include "mesh/utils/time.h"
 
 #include "meshtastic/storeforward.pb.h"
 

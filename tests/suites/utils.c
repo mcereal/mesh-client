@@ -2,11 +2,12 @@
 
 /* Standalone utilities: SHA-256, UTF-8 handling and the clocks. */
 
+#include "inkcell/utils/text.h"
+#include "inkcell/utils/time.h"
+
 #include "framework/mesh_test.h"
 
 #include "mesh/utils/sha256.h"
-#include "mesh/utils/text.h"
-#include "mesh/utils/time.h"
 
 #include <stdio.h>
 #include <stdlib.h>

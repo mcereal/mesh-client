@@ -10,16 +10,16 @@
  * survive - and one of them, fb_air_band, is ruled across the chart this screen opens.
  */
 
-#include "fb_widgets.h"
+#include "inkcell/ui/layout.h"
+#include "inkcell/ui/widgets.h"
+#include "inkcell/utils/text.h"
 
 #include "fb_screens_internal.h"
 
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/history.h"
-#include "mesh/ui/layout.h"
 #include "mesh/ui/status.h"
 #include "mesh/ui/trust.h"
-#include "mesh/utils/text.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -126,7 +126,7 @@ static void fb_status_card_actions(struct inkcell_fb_card *card,
  * title would be the third time. The rows it frees are the ones the cards spend on their
  * headings.
  *
- * Cards are declared and then drawn (see fb_widgets.h), so a row that only exists when the
+ * Cards are declared and then drawn (see inkcell/ui/widgets.h), so a row that only exists when the
  * radio has reported something is an `if` around one call. Nothing here guards the footer
  * either: inkcell_fb_draw_card() drops what does not fit and refuses a card outright when nothing
  * does, which is the check this screen used to write out per row, and in two different ways.

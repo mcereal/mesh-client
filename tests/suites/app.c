@@ -2,6 +2,8 @@
 
 /* App glue: auto-connect policy, link routing, and settings writes built from UI state. */
 
+#include "inkcell/ui/theme.h"
+
 #include "../../src/app/app_internal.h"
 #include "framework/mesh_test.h"
 #include "support/proto_fixture.h"
@@ -28,7 +30,6 @@
 #include "mesh/ui/preferences.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
-#include "mesh/ui/theme.h"
 
 #include "meshtastic/admin.pb.h"
 #include "meshtastic/channel.pb.h"

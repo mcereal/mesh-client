@@ -2,11 +2,11 @@
 
 #include "mesh/core/firmware.h"
 
-#include "mesh/i18n/strings.h"
+#include "inkcell/utils/log.h"
+#include "inkcell/utils/text.h"
+#include "inkcell/utils/time.h"
 
-#include "mesh/utils/log.h"
-#include "mesh/utils/text.h"
-#include "mesh/utils/time.h"
+#include "mesh/i18n/strings.h"
 
 #include <errno.h>
 #include <stdio.h>

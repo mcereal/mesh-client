@@ -95,7 +95,7 @@ ALLOWED = {
     '"\\r\\n"': "line endings when reading canned.txt",
     # The keycaps in the action bar. These are printed on the Brick's case, so they read the
     # same in every language for the same reason a region code does; the verb beside each is
-    # the translated half. See include/mesh/ui/actions.h.
+    # the translated half. See inkcell/ui/actions.h.
     '"START"': "a keycap: what is printed on the button",
     '"SELECT"': "a keycap: what is printed on the button",
     '"MENU"': "a keycap: what is printed on the button",

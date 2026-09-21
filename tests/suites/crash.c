@@ -25,11 +25,12 @@
  * install bug `crash_install_re_aims_rather_than_ignoring_a_second_call` now pins.
  */
 
+#include "inkcell/utils/log.h"
+
 #include "framework/mesh_test.h"
 #include "support/fs_fixture.h"
 
 #include "mesh/utils/crash.h"
-#include "mesh/utils/log.h"
 
 #include <signal.h>
 #include <stdio.h>

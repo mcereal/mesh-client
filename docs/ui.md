@@ -290,10 +290,14 @@ cursor and gets a grid back for.
 
 | File | Layer | What belongs there |
 |---|---|---|
-| `fb_draw.c` | ink | pixels, glyphs, theme lookups, cell metrics |
-| `fb_widgets_*.c` | components | every component below (`fb_widgets.h` is the umbrella header) |
+| inkcell's `src/fb/fb_draw.c` | ink | pixels, glyphs, theme lookups, cell metrics |
+| inkcell's `src/fb/widgets_*.c` | components | every component below (`inkcell/ui/widgets.h` is the umbrella header) |
 | `fb_screens_*.c` | screens | one renderer per screen, one file each (see below) |
-| `fb.c` | device | `/dev/fb0`, the page flip, the backend vtable |
+| inkcell's `src/fb/fb.c` | device | `/dev/fb0`, the page flip, the backend vtable |
+
+The top and the bottom of that stack are inkcell's - a panel and a button were never about
+Meshtastic. What is in `src/ui/backends/` is the screens layer, plus `fb_app.c`, the frame
+inkcell calls up into, and `fb_map.c`.
 
 **A screen renderer should read as a description of its content** — what the list holds, what
 each row says, which rows are actions. If it is computing a pixel coordinate, a scroll offset or
@@ -323,7 +327,7 @@ places things at coordinates rather than describing rows, so it is not held to t
 The renderers the frame calls are declared in `fb_screens_internal.h`, along with the five places
 one screen reaches another: what a device is called, the one-line quote of a message, the airtime
 thresholds, a node's chart and the detail under it. Everything else in these files is `static`,
-and the header is not part of `fb_widgets.h` — nothing outside `fb_screens_*.c` includes it.
+and the header is not part of `inkcell/ui/widgets.h` — nothing outside `fb_screens_*.c` includes it.
 
 The list is the component that earns the most. Every screen is the same shape:
 
@@ -366,20 +370,20 @@ reference; what follows is the map.
 
 | Group | What is in it |
 |---|---|
-| `fb_widgets_button` | the button, the chip, a strip of chips, the badge — the shapes sized to their own label |
-| `fb_widgets_chrome` | the app bar and its trail, the navigation bar, the action bar, the banner, the progress bar, the empty state, the hairline |
-| `fb_widgets_list` | the list window, the card surfaces and rail under it, the subheader, the note row, the disc |
-| `fb_widgets_item` | one row and its slots, and the conversation cell |
-| `fb_widgets_bubble` | the transcript: a message, and the separator between two of them |
-| `fb_widgets_card` | a card, built row by row and then drawn |
-| `fb_widgets_control` | the switch, the checkbox and radio, the segmented button, the text field |
-| `fb_widgets_meter` | the meter, the slider, the signal staircase, the sparkline, the proportion bar, the chart |
-| `fb_widgets_overlay` | the dialog, the snackbar, the QR code |
+| `inkcell/ui/widgets/button.h` | the button, the chip, a strip of chips, the badge — the shapes sized to their own label |
+| `inkcell/ui/widgets/chrome.h` | the app bar and its trail, the navigation bar, the action bar, the banner, the progress bar, the empty state, the hairline |
+| `inkcell/ui/widgets/list.h` | the list window, the card surfaces and rail under it, the subheader, the note row, the disc |
+| `inkcell/ui/widgets/item.h` | one row and its slots, and the conversation cell |
+| `inkcell/ui/widgets/bubble.h` | the transcript: a message, and the separator between two of them |
+| `inkcell/ui/widgets/card.h` | a card, built row by row and then drawn |
+| `inkcell/ui/widgets/control.h` | the switch, the checkbox and radio, the segmented button, the text field |
+| `inkcell/ui/widgets/meter.h` | the meter, the slider, the signal staircase, the sparkline, the proportion bar, the chart |
+| `inkcell/ui/widgets/overlay.h` | the dialog, the snackbar, the QR code |
 
 Calls between them run one way — `button` is the leaf everything else reaches for — so a group's
 header names only the groups above it. The two exceptions to one-header-per-group are
-`fb_widgets.h`, which includes all nine for a caller that wants the lot, and
-`fb_widgets_list_internal.h`, the six answers the list window and the row it draws both need.
+`inkcell/ui/widgets.h`, which includes all nine for a caller that wants the lot, and inkcell's
+own `list_internal.h`, the six answers the list window and the row it draws both need.
 
 
 | Component | What it is |
@@ -481,7 +485,7 @@ Three things fall out of the split and are worth knowing:
 The detail's own row is a card of one above the first heading, and that is what made
 `fb_list_card_of()`'s top hairline a bug rather than a limitation: a card whose first row is the
 body's first row had nowhere to spend its top edge and lost it under the cursor on the row it opens
-with. The ceiling in `fb_widgets_list.c` is now that row's top *less the hairline*, which is room
+with. The ceiling in inkcell's `widgets_list.c` is now that row's top *less the hairline*, which is room
 the app bar already leaves.
 
 ### A stated fact and a control are two tiers, not one

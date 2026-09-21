@@ -1,5 +1,11 @@
 #define _POSIX_C_SOURCE 200809L
 
+#include "inkcell/ui/latency.h"
+#include "inkcell/utils/array.h"
+#include "inkcell/utils/log.h"
+#include "inkcell/utils/text.h"
+#include "inkcell/utils/time.h"
+
 #include "mesh/app/app.h"
 #include "mesh/core/config.h"
 #include "mesh/core/firmware_fetch.h"
@@ -14,12 +20,7 @@
 #include "mesh/transport/ble_hci.h"
 #include "mesh/transport/serial.h"
 #include "mesh/transport/tcp.h"
-#include "mesh/ui/latency.h"
-#include "mesh/utils/array.h"
-#include "mesh/utils/log.h"
 #include "mesh/utils/sha256.h"
-#include "mesh/utils/text.h"
-#include "mesh/utils/time.h"
 
 #include <errno.h>
 #include <getopt.h>

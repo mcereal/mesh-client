@@ -2,12 +2,13 @@
 
 #include "mesh/core/fetch.h"
 
+#include "inkcell/utils/log.h"
+#include "inkcell/utils/text.h"
+
 #include "mesh/core/event_loop.h"
 #include "mesh/core/tls_client.h"
 #include "mesh/core/version.h"
 #include "mesh/proto/http.h"
-#include "mesh/utils/log.h"
-#include "mesh/utils/text.h"
 
 #include <errno.h>
 #include <fcntl.h>

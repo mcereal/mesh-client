@@ -2,10 +2,10 @@
 
 #include "mesh/ui/store.h"
 
-#include "store_internal.h"
+#include "inkcell/utils/log.h"
+#include "inkcell/utils/text.h"
 
-#include "mesh/utils/log.h"
-#include "mesh/utils/text.h"
+#include "store_internal.h"
 
 #include "mesh/core/message.h"
 /* For enum mesh_traceroute_state, which the UI's traceroute carries as a byte: telling a trace

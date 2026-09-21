@@ -2,17 +2,18 @@
 
 /* Navigating conversations: tabs, unread counts, channels and the keyboard. */
 
+#include "inkcell/ui/emoji.h"
+#include "inkcell/utils/array.h"
+#include "inkcell/utils/text.h"
+
 #include "framework/mesh_test.h"
 #include "support/ui_fixture.h"
 
 #include "mesh/core/message.h"
-#include "mesh/ui/emoji.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/reactions.h"
 #include "mesh/ui/status.h"
 #include "mesh/ui/store.h"
-#include "mesh/utils/array.h"
-#include "mesh/utils/text.h"
 
 #include <stdbool.h>
 #include <stdio.h>

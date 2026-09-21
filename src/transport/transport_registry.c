@@ -1,6 +1,6 @@
-#include "mesh/transport/transport.h"
+#include "inkcell/utils/log.h"
 
-#include "mesh/utils/log.h"
+#include "mesh/transport/transport.h"
 
 #include <errno.h>
 #include <string.h>

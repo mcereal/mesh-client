@@ -10,12 +10,13 @@
  * number presets, text cap - is answered here so the nav never has to know what a field means.
  */
 
+#include "inkcell/ui/icon.h"
+#include "inkcell/ui/theme.h"
+
 #include "mesh/i18n/strings.h"
-#include "mesh/ui/icon.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/store_handshake.h"
 #include "mesh/ui/store_settings.h"
-#include "mesh/ui/theme.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -159,7 +160,7 @@ enum mesh_ui_setting_kind {
      * drawing is what a kind is for. A switch is a boolean that acts: flick it and the thing
      * it names is on. A flag is a boolean that is part of a set - one of the ten things a
      * position packet may carry - and the set is only readable as a set. That is the checkbox,
-     * and fb_widgets.h has said since the control was built that a square is "any of these"
+     * and inkcell/ui/widgets.h has said since the control was built that a square is "any of these"
      * where a circle is "one of these".
      *
      * The CLI backend draws the same "on"/"off" it draws for a toggle, because the difference

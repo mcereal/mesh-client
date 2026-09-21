@@ -20,6 +20,9 @@
  * `/dev/sda` hanging off the bootloader's device about a second later.
  */
 
+#include "inkcell/utils/text.h"
+#include "inkcell/utils/time.h"
+
 #include "framework/mesh_test.h"
 #include "support/fs_fixture.h"
 #include "support/uf2_fixture.h"
@@ -28,8 +31,6 @@
 #include "mesh/core/uf2.h"
 #include "mesh/transport/serial_usb.h"
 #include "mesh/transport/usb_msc.h"
-#include "mesh/utils/text.h"
-#include "mesh/utils/time.h"
 
 #include <dirent.h>
 #include <errno.h>

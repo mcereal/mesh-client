@@ -20,10 +20,11 @@
  * the frame changed. That is the same argument ui_theme.c makes for colours.
  */
 
+#include "inkcell/ui/font5x7.h"
+
 #include "framework/mesh_test.h"
 
 #include "mesh/i18n/strings.h"
-#include "mesh/ui/font5x7.h"
 #include "mesh/ui/nav.h"
 
 #include <stdio.h>

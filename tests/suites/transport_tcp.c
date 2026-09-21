@@ -2,6 +2,8 @@
 
 /* The network transport: target parsing, and the link against a loopback listener. */
 
+#include "inkcell/utils/time.h"
+
 #include "framework/mesh_test.h"
 #include "support/proto_fixture.h"
 #include "support/serial_fixture.h"
@@ -18,7 +20,6 @@
 #include "mesh/ui/preferences.h"
 #include "mesh/ui/store_device.h"
 #include "mesh/ui/store_message.h"
-#include "mesh/utils/time.h"
 
 #include <pb_decode.h>
 

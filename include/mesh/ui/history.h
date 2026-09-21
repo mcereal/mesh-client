@@ -35,7 +35,7 @@
  *     *about* is another.
  */
 
-#include "mesh/ui/layout.h"
+#include "inkcell/ui/layout.h"
 
 #include <stdbool.h>
 #include <stdint.h>

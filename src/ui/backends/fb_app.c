@@ -16,12 +16,12 @@
  *     frame a function of the snapshot.
  */
 
+#include "inkcell/ui/fb_capture.h"
+
 #include "fb_internal.h"
 
 #include "inkcell/ui/fb.h"
 #include "mesh/ui/store.h"
-
-#include "mesh/ui/backends/fb_capture.h"
 
 #include <errno.h>
 #include <stddef.h>

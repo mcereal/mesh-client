@@ -1,8 +1,8 @@
 #include "mesh/core/config.h"
 
-#include "mesh/utils/env.h"
-#include "mesh/utils/log.h"
-#include "mesh/utils/text.h"
+#include "inkcell/utils/env.h"
+#include "inkcell/utils/log.h"
+#include "inkcell/utils/text.h"
 
 #include <ctype.h>
 #include <limits.h>

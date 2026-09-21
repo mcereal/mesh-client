@@ -2,13 +2,14 @@
 
 /* Preferences on disk, and the list of radios the client remembers. */
 
+#include "inkcell/ui/theme.h"
+
 #include "framework/mesh_test.h"
 
 #include "mesh/app/app.h"
 #include "mesh/core/updater.h"
 #include "mesh/ui/preferences.h"
 #include "mesh/ui/store_device.h"
-#include "mesh/ui/theme.h"
 
 #include <stdbool.h>
 #include <stdio.h>

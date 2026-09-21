@@ -18,6 +18,8 @@
  * arrive" and "the bytes are for another board" must not be the same row.
  */
 
+#include "inkcell/utils/text.h"
+
 #include "framework/mesh_test.h"
 
 #include "support/data_fixture.h"
@@ -25,7 +27,6 @@
 
 #include "mesh/core/event_loop.h"
 #include "mesh/core/firmware_update.h"
-#include "mesh/utils/text.h"
 
 #include <errno.h>
 #include <stdio.h>

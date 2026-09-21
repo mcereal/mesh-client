@@ -18,11 +18,12 @@
 
 #include "mesh/ui/store_trends.h"
 
+#include "inkcell/utils/array.h"
+#include "inkcell/utils/log.h"
+#include "inkcell/utils/text.h"
+
 #include "mesh/ui/store_fields.h"
 #include "mesh/ui/store_keys.h"
-#include "mesh/utils/array.h"
-#include "mesh/utils/log.h"
-#include "mesh/utils/text.h"
 
 #include <dirent.h>
 #include <errno.h>

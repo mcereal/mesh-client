@@ -11,13 +11,13 @@
  * callers.
  */
 
-#include "fb_widgets.h"
+#include "inkcell/ui/layout.h"
+#include "inkcell/ui/widgets.h"
 
 #include "fb_screens_internal.h"
 
 #include "mesh/core/message.h"
 #include "mesh/i18n/strings.h"
-#include "mesh/ui/layout.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/reactions.h"
 #include "mesh/ui/settings.h"

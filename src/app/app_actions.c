@@ -16,6 +16,10 @@
  * adapter - is a column in the table rather than four lines repeated at the top of it.
  */
 
+#include "inkcell/utils/log.h"
+#include "inkcell/utils/text.h"
+#include "inkcell/utils/time.h"
+
 #include "app_internal.h"
 
 #include "mesh/core/version.h"
@@ -31,9 +35,6 @@
 #include "mesh/ui/node_detail.h"
 #include "mesh/ui/preferences.h"
 #include "mesh/utils/crash.h"
-#include "mesh/utils/log.h"
-#include "mesh/utils/text.h"
-#include "mesh/utils/time.h"
 
 #include <errno.h>
 #include <stdbool.h>

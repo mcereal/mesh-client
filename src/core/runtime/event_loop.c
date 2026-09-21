@@ -1,7 +1,7 @@
 #include "mesh/core/event_loop.h"
 
-#include "mesh/utils/log.h"
-#include "mesh/utils/time.h"
+#include "inkcell/utils/log.h"
+#include "inkcell/utils/time.h"
 
 #include <errno.h>
 #include <stdbool.h>

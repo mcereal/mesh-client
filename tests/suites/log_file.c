@@ -16,10 +16,10 @@
  * so an install whose launcher has never heard of any of this still gets its log bounded.
  */
 
+#include "inkcell/utils/log.h"
+
 #include "framework/mesh_test.h"
 #include "support/fs_fixture.h"
-
-#include "mesh/utils/log.h"
 
 #include <errno.h>
 #include <fcntl.h>

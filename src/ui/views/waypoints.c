@@ -11,14 +11,15 @@
 
 #include "mesh/ui/waypoints.h"
 
+#include "inkcell/utils/text.h"
+#include "inkcell/utils/time.h"
+
 #include "mesh/ui/store.h"
 
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/duration.h"
 #include "mesh/ui/node_detail.h"
 #include "mesh/ui/units.h"
-#include "mesh/utils/text.h"
-#include "mesh/utils/time.h"
 
 #include <stdio.h>
 #include <string.h>

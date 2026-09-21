@@ -2,6 +2,8 @@
 
 /* Bringing a BLE link up and watching it fall over: discovery, connect, drops. */
 
+#include "inkcell/utils/log.h"
+
 #include "framework/mesh_test.h"
 #include "support/ble_fixture.h"
 
@@ -12,7 +14,6 @@
 #include "mesh/transport/ble.h"
 #include "mesh/transport/ble_bluez.h"
 #include "mesh/transport/transport.h"
-#include "mesh/utils/log.h"
 
 #include <pb_decode.h>
 

@@ -16,12 +16,13 @@
 
 #include "mesh/ui/store_archive.h"
 
+#include "inkcell/utils/log.h"
+#include "inkcell/utils/text.h"
+
 #include "store_internal.h"
 
 #include "mesh/ui/nav.h"
 #include "mesh/ui/store_keys.h"
-#include "mesh/utils/log.h"
-#include "mesh/utils/text.h"
 
 #include <errno.h>
 #include <stdio.h>

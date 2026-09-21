@@ -1,6 +1,6 @@
 #include "mesh/ui/trust.h"
 
-#include "mesh/utils/text.h"
+#include "inkcell/utils/text.h"
 
 #include <stddef.h>
 

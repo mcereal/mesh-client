@@ -9,14 +9,14 @@
  * under the keycaps would be two radios as far as the reader is concerned.
  */
 
-#include "fb_widgets.h"
+#include "inkcell/ui/widgets.h"
+#include "inkcell/utils/text.h"
 
 #include "fb_screens_internal.h"
 
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/devices.h"
 #include "mesh/ui/nav.h"
-#include "mesh/utils/text.h"
 
 #include <stdio.h>
 #include <string.h>

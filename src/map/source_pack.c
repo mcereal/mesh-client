@@ -1,10 +1,11 @@
 #define _POSIX_C_SOURCE 200809L
 
+#include "inkcell/utils/log.h"
+
 #include "mesh/map/source.h"
 
 #include "mesh/geo/coords.h"
 #include "mesh/geo/mercator.h"
-#include "mesh/utils/log.h"
 
 #include <errno.h>
 #include <fcntl.h>

@@ -1,10 +1,11 @@
-#include "mesh/ui/actions.h"
+
+#include "inkcell/ui/actions.h"
+#include "inkcell/ui/input.h"
+#include "inkcell/ui/input_profile.h"
 
 #include "mesh/ui/devices.h"
 #include "mesh/ui/help.h"
 #include "mesh/ui/history.h"
-#include "mesh/ui/input.h"
-#include "mesh/ui/input_profile.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/node_detail.h"
 #include "mesh/ui/settings.h"

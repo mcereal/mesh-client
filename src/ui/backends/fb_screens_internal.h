@@ -3,7 +3,7 @@
 
 /* The screens are drawn with this client's half of the backend - the app context, the basemap,
    the snapshot - over inkcell's toolkit, which fb_internal.h pulls in. It used to arrive by way
-   of fb_widgets.h; now that the components are a library's, the path has to be said. */
+   of inkcell/ui/widgets.h; now that the components are a library's, the path has to be said. */
 #include "fb_internal.h"
 
 /*
@@ -29,8 +29,8 @@
  * `state` is mutable on all but one because an item may carry a control that animates, and
  * where such a control has got to is kept on the backend.
  *
- * Not public API, and not part of fb_widgets.h. It names no type of its own, so it is included
- * after fb_widgets.h, which is where the types below come from. Nothing outside
+ * Not public API, and not part of inkcell/ui/widgets.h. It names no type of its own, so it is
+ * included after inkcell/ui/widgets.h, which is where the types below come from. Nothing outside
  * src/ui/backends/fb_screens_*.c should include it.
  */
 

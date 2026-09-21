@@ -1,8 +1,8 @@
 #include "mesh/core/firmware_fetch.h"
 
-#include "mesh/utils/log.h"
-#include "mesh/utils/text.h"
-#include "mesh/utils/time.h"
+#include "inkcell/utils/log.h"
+#include "inkcell/utils/text.h"
+#include "inkcell/utils/time.h"
 
 #include <errno.h>
 #include <stdio.h>

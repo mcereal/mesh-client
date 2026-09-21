@@ -9,16 +9,16 @@
  * out; this draws them.
  */
 
-#include "fb_widgets.h"
+#include "inkcell/ui/layout.h"
+#include "inkcell/ui/widgets.h"
+#include "inkcell/utils/text.h"
+#include "inkcell/utils/time.h"
 
 #include "fb_screens_internal.h"
 
 #include "mesh/i18n/strings.h"
-#include "mesh/ui/layout.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/waypoints.h"
-#include "mesh/utils/text.h"
-#include "mesh/utils/time.h"
 
 #include <stdio.h>
 #include <string.h>

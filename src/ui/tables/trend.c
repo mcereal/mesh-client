@@ -11,7 +11,8 @@
 
 #include "mesh/ui/trend.h"
 
-#include "mesh/ui/anim.h"
+#include "inkcell/ui/anim.h"
+
 #include "mesh/ui/history.h"
 
 #include <stddef.h>

@@ -22,14 +22,15 @@
  * renderer without claiming this client has been run on any of them.
  */
 
+#include "inkcell/ui/fb_capture.h"
+#include "inkcell/ui/theme.h"
+
 #include "framework/mesh_test.h"
 #include "support/ui_fixture.h"
 
-#include "mesh/ui/backends/fb_capture.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
-#include "mesh/ui/theme.h"
 
 #include <stdio.h>
 #include <stdlib.h>

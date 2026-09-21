@@ -10,7 +10,7 @@
  * yet - and the measuring pass that has to agree with it step for step.
  */
 
-#include "fb_widgets.h"
+#include "inkcell/ui/widgets.h"
 
 #include "fb_screens_internal.h"
 
@@ -237,7 +237,7 @@ void fb_render_settings(struct inkcell_backend_fb_state *state,
             if (items[r].kind == MESH_UI_SETTING_HEADING) {
                 /* The heading stands on no card, in the break between the one that ended and the
                    one it opens - which is where the column gets the only air it has, and why the
-                   grouping costs no rows. See the card-list note in fb_widgets.h. */
+                   grouping costs no rows. See the card-list note in inkcell/ui/widgets.h. */
                 cards[r] = INKCELL_FB_LIST_NO_CARD;
                 card = (uint8_t)(card + 1U);
                 continue;
