@@ -214,6 +214,10 @@ void mesh_ui_controller_handle_key(struct mesh_ui_controller *controller, enum i
     }
 }
 
+bool mesh_ui_controller_has_backend(const struct mesh_ui_controller *controller) {
+    return controller != NULL && controller->backend != NULL;
+}
+
 void mesh_ui_controller_shutdown(struct mesh_ui_controller *controller) {
     if (controller == NULL) {
         return;

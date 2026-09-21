@@ -987,6 +987,35 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
     const struct inkcell_backend *ui_backend = mesh_app_select_backend(app, &backend_userdata);
     result = mesh_ui_controller_init(&app->ui_controller, &app->ui_store, ui_backend,
                                      backend_userdata, &app->loop);
+    /*
+     * Selected, and then it would not open.
+     *
+     * Choosing a backend and opening one are two different moments, and only the first can be
+     * answered by asking whether it is available: /dev/fb0 exists or it does not, but a window
+     * has a dozen ways to refuse after the library has said yes - no display to reach, a
+     * compositor that declined, a texture the driver would not make. The controller treats such
+     * a refusal as "this run has no UI", which is right for a headless run and wrong here,
+     * because it returns success and the fallback below never sees it.
+     *
+     * So ask, and if the choice did not open, go down the chain that would have been used had
+     * it never been offered. The retry is the default chain rather than mesh_app_select_backend()
+     * again: that would read the same environment variable and pick the same backend a second
+     * time.
+     */
+    if (result >= 0 && ui_backend != NULL && !mesh_ui_controller_has_backend(&app->ui_controller)) {
+        inkwell_log_warn("ui", "The %s backend would not open; falling back",
+                         ui_backend->name != NULL ? ui_backend->name : "selected");
+        mesh_ui_controller_shutdown(&app->ui_controller);
+        /* ...and whatever it was going to read its own buttons with is gone with it. */
+        app->ui_backend_reads_input = false;
+        ui_backend = NULL;
+        backend_userdata = NULL;
+        if (!mesh_app_select_fb(app, &ui_backend, &backend_userdata)) {
+            mesh_app_select_cli(app, &ui_backend, &backend_userdata);
+        }
+        result = mesh_ui_controller_init(&app->ui_controller, &app->ui_store, ui_backend,
+                                         backend_userdata, &app->loop);
+    }
     if (result < 0) {
         inkwell_log_warn("app", "UI backend init failed (%d); falling back to stub", result);
         result = mesh_ui_controller_init(&app->ui_controller, &app->ui_store,
