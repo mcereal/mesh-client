@@ -150,6 +150,10 @@ struct fb_render_cache {
        above is this frame compared with the last, and these outlive the answer that closed
        them. One per enum fb_overlay_id, indexed by it. See struct fb_overlay_memo. */
     struct fb_overlay_memo overlays[FB_OVERLAY_REACTIONS + 1];
+    /* And where the bodies that are positioned rather than windowed have got to. Kept here for
+       the same reason: a scroll is a fact about a screen that outlives one frame, and a screen
+       renderer is a function with nowhere of its own to put one. */
+    struct inkcell_scroll scrolls[FB_SCROLL_COUNT];
 };
 
 struct fb_overlay_memo *fb_overlay_memo(struct mesh_ui_backend_fb_state *state,
@@ -159,6 +163,21 @@ struct fb_overlay_memo *fb_overlay_memo(struct mesh_ui_backend_fb_state *state,
         return NULL;
     }
     return &cache->overlays[id];
+}
+
+struct inkcell_scroll *fb_scroll(struct mesh_ui_backend_fb_state *state, enum fb_scroll_id id) {
+    struct fb_render_cache *const cache = state != NULL ? state->render_cache : NULL;
+    if (cache == NULL || (unsigned)id >= (unsigned)FB_SCROLL_COUNT) {
+        return NULL;
+    }
+    return &cache->scrolls[id];
+}
+
+void fb_scroll_report(struct mesh_ui_backend_fb_state *state, bool moving) {
+    struct fb_app *const app = fb_app_of(state);
+    if (app != NULL) {
+        app->scrolling = moving;
+    }
 }
 
 uint32_t fb_overlay_subject(struct mesh_ui_backend_fb_state *state, enum fb_overlay_id id, bool up,
@@ -180,19 +199,11 @@ uint32_t fb_overlay_subject(struct mesh_ui_backend_fb_state *state, enum fb_over
 }
 
 /*
- * A layout for a region of the frame that is not the body.
- *
- * The components measure themselves against a layout, and a sheet's content is a layout's
- * worth of room that simply is not the body: the same line advance and the same columns, in a
- * shorter band that starts further down. Stated as a derivation rather than as a second kind
- * of thing, because the alternative - a list that takes a rectangle - would be every component
- * in the toolkit growing a second entry point for the one caller that draws into a panel.
- *
- * `nav_y` is the region's own top: there is no navigation bar inside a sheet, and nothing in
- * here may ask whether there is a screen behind it to go back to - that is the frame's
- * question and the frame has already answered it.
+ * See fb_screens_internal.h. `nav_y` is the region's own top: there is no navigation bar inside
+ * a sheet or a scrolled body, and nothing in either may ask whether there is a screen behind it
+ * to go back to - that is the frame's question and the frame has already answered it.
  */
-static struct fb_layout fb_layout_in(const struct fb_layout *layout, struct inkcell_fb_rect box) {
+struct fb_layout fb_layout_in(const struct fb_layout *layout, struct inkcell_fb_rect box) {
     struct fb_layout out = *layout;
     out.nav_y = box.y;
     out.body_y = box.y;

@@ -228,6 +228,46 @@ uint32_t fb_overlay_subject(struct mesh_ui_backend_fb_state *state, enum fb_over
                             uint32_t subject);
 
 /*
+ * What this client's scrolled bodies are called.
+ *
+ * A scroll is where a body has got to, in pixels, and it belongs to the screen rather than to
+ * the toolkit - so it is kept here beside the layers' own memory and handed out by id. One
+ * entry per body that is positioned rather than windowed; a list walking a row index at a time
+ * needs none.
+ */
+enum fb_scroll_id {
+    /* The help notes, whose heights are a property of their *words*: the one body in this
+       client that a row model genuinely cannot describe. */
+    FB_SCROLL_HELP,
+    FB_SCROLL_COUNT,
+};
+
+/*
+ * A layout for a region of the frame that is not the body: a sheet's content, a scrolled
+ * body's full extent.
+ *
+ * The components measure themselves against a layout, and either of those is a layout's worth
+ * of room that simply is not the body - the same line advance and the same columns, in a band
+ * of its own. Stated as a derivation rather than as a second kind of thing, because the
+ * alternative would be every component in the toolkit growing a second entry point for the one
+ * caller that draws into a panel.
+ */
+struct fb_layout fb_layout_in(const struct fb_layout *layout, struct inkcell_fb_rect box);
+
+/* The scroll kept for `id`, or NULL when there is nowhere to keep one - a frame with no memo
+   behind it, which a caller reads as "draw it settled". */
+struct inkcell_scroll *fb_scroll(struct mesh_ui_backend_fb_state *state, enum fb_scroll_id id);
+
+/*
+ * Says whether the body this frame drew is still travelling.
+ *
+ * Written by whoever drew a viewport and read back by fb_app_pending(), which is how a moving
+ * body asks for the next frame. A frame that draws no viewport says false, which is what stops
+ * the client repainting for a scroll that has gone away with its screen.
+ */
+void fb_scroll_report(struct mesh_ui_backend_fb_state *state, bool moving);
+
+/*
  * Opens a bottom sheet over the body and hands back a layout for what goes in it.
  *
  * `content_h` is the height the content would like; a sheet taller than the body is fitted to

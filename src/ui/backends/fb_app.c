@@ -72,7 +72,13 @@ static void fb_app_render(struct mesh_ui_backend_fb_state *state, const void *sn
 
 static bool fb_app_pending(void *ctx) {
     const struct fb_app *const app = (const struct fb_app *)ctx;
-    return app != NULL && app->basemap != NULL && app->basemap->pending;
+    if (app == NULL) {
+        return false;
+    }
+    /* A tile still to decode and a body still travelling are the same answer to inkcell's
+       question - the next frame will show something this one could not - and neither is an
+       entry in the animation table. See `scrolling` on struct fb_app. */
+    return app->scrolling || (app->basemap != NULL && app->basemap->pending);
 }
 
 static void fb_app_frame_begin(void *ctx) {
