@@ -18,7 +18,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/epoll.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -493,9 +492,18 @@ int mesh_updater_init(struct mesh_updater *updater, struct inkwell_loop *loop) {
     }
 
     /* The binary to replace. Without this there is nothing to install over, so the About
-       screen offers only the version rather than a broken update row. */
+       screen offers only the version rather than a broken update row.
+
+       /proc is Linux's, and off Linux that is the answer on purpose rather than an omission: a
+       macOS build is a development host, and every asset a release publishes is a Linux binary.
+       One installed over the running client would leave a program the next launch cannot
+       exec. */
+#if defined(__linux__)
     const ssize_t len =
         readlink("/proc/self/exe", updater->install_path, sizeof updater->install_path - 1U);
+#else
+    const ssize_t len = -1;
+#endif
     if (len > 0) {
         updater->install_path[len] = '\0';
         snprintf(updater->staged_path, sizeof updater->staged_path, "%s.update",

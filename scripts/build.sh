@@ -43,5 +43,13 @@ mesh_reset_stale_tree "${BUILD_DIR}"
 
 mkdir -p "${BUILD_DIR}"
 
-cmake --preset "${PRESET}" -B "${BUILD_DIR}" "$@"
+# On a Mac the generators' Python is the one scripts/setup-macos.sh put in .venv: Homebrew's own
+# has none of their modules and will not take them outside a venv. Named explicitly because
+# CMake would otherwise find Homebrew's first. Passed before "$@", so a caller can still override.
+EXTRA_ARGS=()
+if [[ "$(uname -s)" == "Darwin" && -x .venv/bin/python3 ]]; then
+    EXTRA_ARGS+=("-DPython3_EXECUTABLE=${PWD}/.venv/bin/python3")
+fi
+
+cmake --preset "${PRESET}" -B "${BUILD_DIR}" "${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}" "$@"
 cmake --build "${BUILD_DIR}"

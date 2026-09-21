@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Provision a native Linux host (or a Claude Code cloud session) for building mesh-client.
 #
-# The core is Linux-only (epoll/timerfd/eventfd), so on macOS everything goes through
-# scripts/docker.sh. On a Linux host the same build works natively once these are present:
+# The Mac counterpart is scripts/setup-macos.sh; `make setup` picks whichever this host is. On a
+# Linux host the build works natively once these are present:
 #
 #   - cmake >= 3.21       CMakePresets.json is version 3; below that nothing configures
 #   - ninja               the generator every build tree here is configured with

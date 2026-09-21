@@ -19,11 +19,11 @@
 #include "mesh/ui/nav.h"
 #include "mesh/ui/store.h"
 
+#include "inkcell/ui/input_codes.h"
+#include "inkwell/runtime/timer.h"
 #include <errno.h>
-#include <linux/input.h>
 #include <poll.h>
 #include <stdbool.h>
-#include <sys/timerfd.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -982,8 +982,7 @@ MESH_TEST_CASE(ui_controller_animation_reuses_snapshot_and_consumes_changes, uni
     mesh_ui_store_set_transport_status(&store, "initial");
     inkwell_loop_run(&loop, 0);
     for (unsigned pass = 0U; pass < 2U; ++pass) {
-        const struct itimerspec spec = {.it_value = {.tv_nsec = 1L}};
-        if (timerfd_settime(controller.frame_timer_fd, 0, &spec, NULL) < 0) {
+        if (inkwell_timer_arm_once(controller.frame_timer_fd, 1U) < 0) {
             failure = "frame timer could not be armed";
             break;
         }

@@ -157,6 +157,10 @@ int mesh_ble_hci_request_interval(int dev_id, const char *address,
         return -EINVAL;
     }
 
+#if !defined(__linux__)
+    /* The HCI socket is BlueZ's, and there is no BlueZ here. */
+    return -ENOTSUP;
+#else
     const int fd = socket(AF_BLUETOOTH, SOCK_RAW | SOCK_CLOEXEC, MESH_BTPROTO_HCI);
     if (fd < 0) {
         return -errno;
@@ -210,4 +214,5 @@ int mesh_ble_hci_request_interval(int dev_id, const char *address,
                          (unsigned)(params->min_interval * 125U % 100U), address, handle);
     }
     return error;
+#endif
 }

@@ -22,7 +22,6 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/eventfd.h>
 #include <unistd.h>
 
 void mesh_ui_store_mark_dirty(struct mesh_ui_store *store, mesh_ui_update_flags flags) {
@@ -32,12 +31,10 @@ void mesh_ui_store_mark_dirty(struct mesh_ui_store *store, mesh_ui_update_flags 
 
     store->pending_flags |= flags;
 
-    if (store->event_fd >= 0) {
-        const uint64_t value = 1U;
-        if (write(store->event_fd, &value, sizeof value) < 0) {
-            if (errno != EAGAIN) {
-                inkwell_log_warn("ui", "eventfd write failed: %s", strerror(errno));
-            }
+    if (store->event_wake.fd >= 0) {
+        const int signalled = inkwell_wake_signal(&store->event_wake);
+        if (signalled < 0) {
+            inkwell_log_warn("ui", "store wake write failed: %s", strerror(-signalled));
         }
     }
 }
@@ -50,12 +47,10 @@ int mesh_ui_store_init(struct mesh_ui_store *store) {
     memset(store, 0, sizeof *store);
     mesh_ui_nav_init(&store->nav);
     mesh_ui_history_reset(&store->history);
-    store->event_fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
-    if (store->event_fd < 0) {
-        const int err = -errno;
-        inkwell_log_error("ui", "eventfd create failed: %s", strerror(errno));
-        store->event_fd = -1;
-        return err;
+    const int opened = inkwell_wake_open(&store->event_wake);
+    if (opened < 0) {
+        inkwell_log_error("ui", "creating the store wake failed: %s", strerror(-opened));
+        return opened;
     }
 
     return 0;
@@ -66,10 +61,7 @@ void mesh_ui_store_shutdown(struct mesh_ui_store *store) {
         return;
     }
 
-    if (store->event_fd >= 0) {
-        close(store->event_fd);
-        store->event_fd = -1;
-    }
+    inkwell_wake_close(&store->event_wake);
     store->pending_flags = MESH_UI_UPDATE_NONE;
     store->device_count = 0U;
     store->network_host[0] = '\0';
@@ -242,7 +234,7 @@ int mesh_ui_store_event_fd(const struct mesh_ui_store *store) {
     if (store == NULL) {
         return -1;
     }
-    return store->event_fd;
+    return store->event_wake.fd;
 }
 
 void mesh_ui_store_set_discovery(struct mesh_ui_store *store, const struct mesh_ui_device *devices,
@@ -1198,7 +1190,8 @@ void mesh_ui_store_view(const struct mesh_ui_snapshot *snapshot, struct mesh_ui_
     view->read_state = snapshot->read_state;
     /* The radio's display units, which is what a waypoint's range is stated in. */
     view->settings = snapshot->settings;
-    view->event_fd = -1;
+    view->event_wake.fd = -1;
+    view->event_wake.write_fd = -1;
 }
 
 uint32_t mesh_ui_store_conversation_read_mark(const struct mesh_ui_store *store, uint8_t kind,
@@ -1385,11 +1378,10 @@ bool mesh_ui_store_consume_updates(struct mesh_ui_store *store, struct mesh_ui_s
         return false;
     }
 
-    if (store->event_fd >= 0) {
-        uint64_t value = 0;
-        ssize_t read_result = read(store->event_fd, &value, sizeof value);
-        if (read_result < 0 && errno != EAGAIN) {
-            inkwell_log_warn("ui", "eventfd read failed: %s", strerror(errno));
+    if (store->event_wake.fd >= 0) {
+        const int drained = inkwell_wake_drain(&store->event_wake);
+        if (drained < 0) {
+            inkwell_log_warn("ui", "store wake read failed: %s", strerror(-drained));
         }
     }
 

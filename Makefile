@@ -68,7 +68,7 @@ help:
 	@echo "  (transport auto-detects USB when a cable is attached; force with BRICK_TRANSPORT=ssh|adb)"
 
 setup:
-	./scripts/setup-linux.sh
+	@if [ "$$(uname -s)" = Darwin ]; then ./scripts/setup-macos.sh; else ./scripts/setup-linux.sh; fi
 
 build: debug
 
@@ -131,7 +131,13 @@ screenshots:
 # brace initialisers pack, mostly - which lands as churn that reads like a real diff and drifts
 # the tree every time it is run on a host with a different version. Refuse rather than rewrite:
 # the container always has the right one, and the override is there for when you mean it.
+# On a Mac, scripts/setup-macos.sh puts clang-format 18 in .venv, because Homebrew's is whatever
+# is newest and a different major rewrites files that are already correct.
+ifneq ($(wildcard .venv/bin/clang-format),)
+CLANG_FORMAT ?= .venv/bin/clang-format
+else
 CLANG_FORMAT ?= clang-format
+endif
 CLANG_FORMAT_MAJOR ?= 18
 
 format:

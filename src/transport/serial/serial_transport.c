@@ -15,7 +15,6 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/epoll.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -139,17 +138,17 @@ static int mesh_serial_fd_callback(int fd, uint32_t events, void *userdata) {
     struct mesh_serial_transport_state *state =
         (struct mesh_serial_transport_state *)transport->state;
 
-    if ((events & (uint32_t)(EPOLLERR | EPOLLHUP)) != 0U) {
+    if ((events & (uint32_t)(INKWELL_LOOP_ERR | INKWELL_LOOP_HUP)) != 0U) {
         mesh_serial_reset_link(state, "port hung up");
         return 0;
     }
-    if ((events & (uint32_t)EPOLLOUT) != 0U) {
+    if ((events & (uint32_t)INKWELL_LOOP_OUT) != 0U) {
         if (mesh_stream_link_flush(&state->link) == -EIO) {
             mesh_serial_reset_link(state, "write failed");
             return 0;
         }
     }
-    if ((events & (uint32_t)EPOLLIN) != 0U) {
+    if ((events & (uint32_t)INKWELL_LOOP_IN) != 0U) {
         (void)mesh_serial_transport_pump(transport);
     }
     return 0;

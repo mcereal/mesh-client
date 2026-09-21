@@ -31,6 +31,7 @@
  */
 
 #include "inkcell/ui/focus.h"
+#include "inkwell/runtime/wake.h"
 #include "mesh/ui/history.h"
 
 #include "mesh/ui/nav.h"
@@ -200,7 +201,7 @@ struct mesh_ui_store {
      * that has not adopted this, walk their own indices as they always did.
      */
     const struct inkcell_focus_map *focus;
-    int event_fd;
+    struct inkwell_wake event_wake;
     mesh_ui_update_flags pending_flags;
 };
 

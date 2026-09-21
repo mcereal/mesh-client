@@ -325,6 +325,13 @@ Two things to know before reaching for it:
   reports the backend unavailable and falls back to `fb` - which is the right default there
   regardless, and is what has actually been measured. See [`performance.md`](performance.md).
 
+On a Mac it runs natively: `make setup && make debug`, then the command above. The loop is kqueue
+there, and there is no framebuffer and no evdev, so the window is the only way the UI is seen and
+the keyboard the only way it is driven. A radio is reached over TCP (Settings, or
+`MESHCLIENT_TCP_HOST`); BLE needs BlueZ and a USB radio needs Linux's sysfs to be found, so
+neither is there. The updater finds no binary to replace, on purpose - every release asset is a
+Linux binary.
+
 `make ui-capture` is still the way to *review* a UI change, because a picture in a pull request
 is reviewable and a window on somebody's desk is not.
 

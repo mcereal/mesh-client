@@ -7,6 +7,7 @@
 #include "mesh/transport/ble_bluez.h"
 
 #include "inkwell/runtime/loop.h"
+#include "inkwell/runtime/timer.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -14,8 +15,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
-#include <sys/epoll.h>
-#include <sys/timerfd.h>
 #include <unistd.h>
 
 #define MESH_BLUEZ_READ_TIMEOUT_MS 3000
@@ -65,8 +64,7 @@ static void mesh_bluez_read_finish(struct mesh_bluez_client *client, int result)
 
 static int mesh_bluez_read_timeout(int fd, uint32_t events, void *userdata) {
     (void)events;
-    uint64_t count;
-    if (read(fd, &count, sizeof count) != sizeof count) {
+    if (inkwell_timer_read(fd) <= 0) {
         return 0;
     }
     struct mesh_bluez_client *client = userdata;
@@ -82,18 +80,16 @@ static int mesh_bluez_read_start_timer(struct mesh_bluez_client *client) {
     if (client->loop == NULL) {
         return 0;
     }
-    const int fd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
+    const int fd = inkwell_timer_open();
     if (fd < 0) {
-        const int error = -errno;
         mesh_bluez_client_read_cancel(client);
-        return error;
+        return fd;
     }
     client->read_timer_fd = fd;
-    int result = inkwell_loop_add_fd(client->loop, fd, EPOLLIN, mesh_bluez_read_timeout, client);
-    struct itimerspec spec = {0};
-    spec.it_value.tv_sec = MESH_BLUEZ_READ_TIMEOUT_MS / 1000;
-    if (result == 0 && timerfd_settime(fd, 0, &spec, NULL) < 0) {
-        result = -errno;
+    int result =
+        inkwell_loop_add_fd(client->loop, fd, INKWELL_LOOP_IN, mesh_bluez_read_timeout, client);
+    if (result == 0) {
+        result = inkwell_timer_arm_once(fd, MESH_BLUEZ_READ_TIMEOUT_MS);
     }
     if (result < 0) {
         mesh_bluez_client_read_cancel(client);
@@ -135,9 +131,8 @@ static void mesh_bluez_request_finish(struct mesh_bluez_pending *request, int re
 
 static int mesh_bluez_request_timeout(int fd, uint32_t events, void *userdata) {
     (void)events;
-    uint64_t count;
     struct mesh_bluez_pending *request = userdata;
-    if (read(fd, &count, sizeof count) == sizeof count && request->state == 1) {
+    if (inkwell_timer_read(fd) > 0 && request->state == 1) {
         mesh_bluez_request_finish(request, -ETIMEDOUT);
     }
     return 0;
@@ -153,17 +148,14 @@ static int mesh_bluez_request_send(struct mesh_bluez_client *client,
     request->deadline_ms = inkwell_time_monotonic_ms() + timeout_ms;
     int result = 0;
     if (client->loop != NULL) {
-        request->timer_fd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
+        request->timer_fd = inkwell_timer_open();
         if (request->timer_fd < 0) {
-            result = -errno;
+            result = request->timer_fd;
         } else {
-            result = inkwell_loop_add_fd(client->loop, request->timer_fd, EPOLLIN,
+            result = inkwell_loop_add_fd(client->loop, request->timer_fd, INKWELL_LOOP_IN,
                                          mesh_bluez_request_timeout, request);
-            struct itimerspec spec = {0};
-            spec.it_value.tv_sec = timeout_ms / 1000U;
-            spec.it_value.tv_nsec = (long)(timeout_ms % 1000U) * 1000000L;
-            if (result == 0 && timerfd_settime(request->timer_fd, 0, &spec, NULL) < 0) {
-                result = -errno;
+            if (result == 0) {
+                result = inkwell_timer_arm_once(request->timer_fd, timeout_ms);
             }
         }
     }
@@ -230,16 +222,16 @@ static int mesh_bluez_read_reply(DBusMessage *reply, uint8_t *out, size_t capaci
 static uint32_t mesh_bluez_watch_flags_to_events(unsigned int flags) {
     uint32_t events = 0U;
     if ((flags & DBUS_WATCH_READABLE) != 0U) {
-        events |= EPOLLIN;
+        events |= INKWELL_LOOP_IN;
     }
     if ((flags & DBUS_WATCH_WRITABLE) != 0U) {
-        events |= EPOLLOUT;
+        events |= INKWELL_LOOP_OUT;
     }
     if ((flags & DBUS_WATCH_ERROR) != 0U) {
-        events |= EPOLLERR;
+        events |= INKWELL_LOOP_ERR;
     }
     if ((flags & DBUS_WATCH_HANGUP) != 0U) {
-        events |= EPOLLHUP;
+        events |= INKWELL_LOOP_HUP;
     }
     return events;
 }
@@ -312,7 +304,7 @@ static int mesh_bluez_watch_sync(struct mesh_bluez_client *client, size_t index)
 
     /* libdbus has separate readable and writable watches for one socket. epoll has one
        registration per fd: combine the enabled watches, or queued nonblocking writes can
-       lose EPOLLOUT behind an EEXIST from the readable watch. */
+       lose INKWELL_LOOP_OUT behind an EEXIST from the readable watch. */
     uint32_t events = 0U;
     struct mesh_bluez_watch_entry *owner = NULL;
     for (size_t i = 0U; i < INKWELL_ARRAY_LEN(client->watches); ++i) {
@@ -444,16 +436,16 @@ static int mesh_bluez_watch_fd_callback(int fd, uint32_t events, void *userdata)
     }
 
     unsigned int flags = 0U;
-    if ((events & EPOLLIN) != 0U) {
+    if ((events & INKWELL_LOOP_IN) != 0U) {
         flags |= DBUS_WATCH_READABLE;
     }
-    if ((events & EPOLLOUT) != 0U) {
+    if ((events & INKWELL_LOOP_OUT) != 0U) {
         flags |= DBUS_WATCH_WRITABLE;
     }
-    if ((events & EPOLLERR) != 0U) {
+    if ((events & INKWELL_LOOP_ERR) != 0U) {
         flags |= DBUS_WATCH_ERROR;
     }
-    if ((events & EPOLLHUP) != 0U) {
+    if ((events & INKWELL_LOOP_HUP) != 0U) {
         flags |= DBUS_WATCH_HANGUP;
     }
 

@@ -18,6 +18,8 @@
 #include "mesh/i18n/strings.h"
 
 #include "inkwell/runtime/crash.h"
+#include "inkwell/runtime/loop.h"
+#include "inkwell/runtime/timer.h"
 #include "mesh/core/channel_share.h"
 #include "mesh/core/contact_share.h"
 #include "mesh/core/version.h"
@@ -35,8 +37,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/epoll.h>
-#include <sys/timerfd.h>
 #include <unistd.h>
 
 /* A fixed two-second batching window, not a sliding debounce: a busy radio must still
@@ -65,8 +65,7 @@ static void mesh_app_schedule_ui_cache(struct mesh_app *app);
 
 static int mesh_app_ui_cache_timer(int fd, uint32_t events, void *userdata) {
     (void)events;
-    uint64_t count;
-    if (read(fd, &count, sizeof count) != sizeof count) {
+    if (inkwell_timer_read(fd) <= 0) {
         return 0;
     }
     struct mesh_app *app = userdata;
@@ -81,12 +80,12 @@ static void mesh_app_schedule_ui_cache(struct mesh_app *app) {
         app->ui_cache_timer_armed) {
         return;
     }
-    const int fd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
+    const int fd = inkwell_timer_open();
     if (fd >= 0) {
-        int result = inkwell_loop_add_fd(&app->loop, fd, EPOLLIN, mesh_app_ui_cache_timer, app);
-        const struct itimerspec spec = {.it_value = {.tv_sec = 2}};
+        int result =
+            inkwell_loop_add_fd(&app->loop, fd, INKWELL_LOOP_IN, mesh_app_ui_cache_timer, app);
         if (result == 0) {
-            if (timerfd_settime(fd, 0, &spec, NULL) == 0) {
+            if (inkwell_timer_arm_once(fd, 2000U) == 0) {
                 app->ui_cache_timer_fd = fd;
                 app->ui_cache_timer_armed = true;
                 return;

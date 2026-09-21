@@ -22,11 +22,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/prctl.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+#if defined(__linux__)
+#include <sys/prctl.h>
+#endif
 
 /*
  * The server's certificate and key, generated for this file and used nowhere else - published
@@ -245,8 +248,11 @@ static void fixture_serve(mbedtls_ssl_context *ssl, int fd, const char *log_path
 
 static void fixture_child(int listen_fd, const char *log_path, https_fixture_handler handler,
                           void *userdata) {
-    /* Gone with the suite, whatever happens to it. */
+    /* Gone with the suite, whatever happens to it. Linux only: on macOS the teardown's kill is
+       the whole of it, so a suite that dies mid-case leaves a child to reap by hand. */
+#if defined(__linux__)
     (void)prctl(PR_SET_PDEATHSIG, SIGKILL);
+#endif
 
     mbedtls_ssl_config conf;
     mbedtls_x509_crt cert;
@@ -313,10 +319,12 @@ bool https_fixture_start(struct https_fixture *fixture, https_fixture_handler ha
         return false;
     }
 
-    const int fd = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    /* Blocking, so not inkwell_fd_socket(); close-on-exec by hand, which is portable. */
+    const int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) {
         return false;
     }
+    (void)fcntl(fd, F_SETFD, FD_CLOEXEC);
     fixture->listen_fd = fd;
     struct sockaddr_in address;
     memset(&address, 0, sizeof address);

@@ -36,7 +36,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
-#include <sys/epoll.h>
 
 /* ---- link routing --------------------------------------------------------------------- */
 
@@ -250,7 +249,7 @@ static void mesh_app_select_stub(const struct inkcell_backend **backend, void **
 static int mesh_app_ui_add_fd(void *ctx, int fd,
                               int (*callback)(int fd, uint32_t events, void *userdata),
                               void *userdata) {
-    return inkwell_loop_add_fd((struct inkwell_loop *)ctx, fd, EPOLLIN, callback, userdata);
+    return inkwell_loop_add_fd((struct inkwell_loop *)ctx, fd, INKWELL_LOOP_IN, callback, userdata);
 }
 
 static void mesh_app_ui_remove_fd(void *ctx, int fd) {

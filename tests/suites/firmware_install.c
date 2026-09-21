@@ -923,6 +923,9 @@ MESH_TEST_CASE(install_tells_a_radio_that_stayed_from_a_bootloader_that_never_ca
  * file does not vanish under its writer. What is being asked is the decision either produces:
  * a write that did not finish, plus a bootloader that is no longer on the bus.
  */
+/* Linux only: /dev/full is the drive that refuses, and there is no such device elsewhere - nor a
+   USB mass-storage install to test, which reads /proc/mounts to find the drive at all. */
+#if defined(__linux__)
 MESH_TEST_CASE(install_reads_a_write_that_ended_with_the_bootloader_as_the_board_restarting, unit) {
     /* A drive whose writes fail rather than a drive that disappears, because a suite cannot
        take a device away from a running child. `/dev/full` opens and then refuses every byte,
@@ -986,6 +989,7 @@ MESH_TEST_CASE(install_reads_a_write_that_ended_with_the_bootloader_as_the_board
                       "and a radio answering where the bootloader was is done, not a failure");
     record_success(test_name);
 }
+#endif
 
 /*
  * The cable pulled, which ends the same way and must not read the same way.

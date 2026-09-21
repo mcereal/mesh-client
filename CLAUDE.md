@@ -12,10 +12,20 @@ Meshtastic protobufs.
 
 ## Commands
 
-**The core is Linux-only** (`epoll`, `timerfd`, `eventfd`). On macOS, build and test through the
-containers; on a Linux host - including a Claude Code on the web session - `make setup`
-provisions the prerequisites and the plain targets work directly.
-`.claude/hooks/session-start.sh` runs that setup automatically for remote sessions.
+**Linux is the target; macOS is a development host.** On either, `make setup` provisions the
+prerequisites (`scripts/setup-linux.sh` or `scripts/setup-macos.sh`) and the plain targets work
+directly - `make test` passes natively on a Mac, and `MESHCLIENT_UI_BACKEND=sdl` puts the UI in a
+window. What a Mac does *not* have is the device half: the fb backend, evdev, BlueZ, usbfs and the
+mass-storage installer compile to refusals there, so a change to any of those is tested in the
+container (`make docker-test`) or on the Brick, and `make docker-pak` is still how the pak is
+built. `.claude/hooks/session-start.sh` runs the Linux setup automatically for remote sessions.
+
+**No kernel call is spelled out above inkwell.** Register `INKWELL_LOOP_IN`/`_OUT`, never
+`EPOLLIN`, and take a timer, a wake or a socket from `inkwell/runtime/timer.h`,
+`inkwell/runtime/wake.h` and `inkwell/base/fd.h` - `timerfd_create()`, `eventfd()` and
+`SOCK_NONBLOCK` compile on Linux and nowhere else, and the macOS CI job is what notices. Code that
+is genuinely Linux's (usbfs, the HCI socket, `/proc`) sits behind `#if defined(__linux__)` with a
+refusal in the `#else`.
 
 ```bash
 git submodule update --init --recursive   # inkwell + inkcell + nanopb + protobufs; Mbed TLS nests under inkwell
@@ -194,7 +204,7 @@ publish and read back when that node's detail screen is opened. See
 
 | Area | Where |
 |---|---|
-| Event loop | inkwell's `src/runtime/loop.c` (`inkwell/runtime/loop.h`) - epoll, 32 fd sources, **no threads** |
+| Event loop | inkwell's `src/runtime/loop.c` (`inkwell/runtime/loop.h`) - epoll (kqueue on a Mac), 32 fd sources, **no threads** |
 | Transports | `src/transport/` - registry, BLE (BlueZ/D-Bus), serial, TCP; `stream_link.c` is the half serial and TCP share, and is now the frame parser and the session over inkwell's `inkwell/net/stream.h`. A link records `struct inkwell_net_failure` and `take_error()` is where it becomes words - see [`docs/transport.md`](docs/transport.md#how-a-failure-reaches-the-user) |
 | Session | `src/core/session/session.c` - handshake, node roster, channels, message log, packet ids |
 | Admin protocol | `src/core/session/radio_settings.c` - `AdminMessage` get/set queue, passkeys, NodeDB verbs |
