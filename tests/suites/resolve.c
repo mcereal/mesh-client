@@ -12,8 +12,11 @@
  * OK carries none.
  *
  * Where a case does need a working resolver - telling "no such name" apart from "the lookup did
- * not work" is meaningless without one - it establishes that first, in the same case, by looking
- * up `localhost`. That is a precondition it can check rather than an assumption about CI.
+ * not work" is meaningless without one - it establishes that first, in the same case, and holds
+ * the resolver to the distinction only once a nameserver has demonstrably answered. That gate is
+ * a precondition the case checks rather than an assumption about CI, and getting the *name* in
+ * it wrong is how the case used to report on the network anyway: see
+ * resolve_reports_an_unknown_name().
  */
 
 #include "framework/mesh_test.h"
@@ -186,10 +189,21 @@ cleanup:
  * host" for this and "could not look up the name" for the other, and those ask the person
  * holding the device to do different things.
  *
- * Asking for NOT_FOUND only means anything where something is able to say no, so this resolves
- * `localhost` first and only holds the resolver to the distinction once that has answered. On a
- * machine with no resolver at all both lookups fail and the case checks the weaker thing that is
- * still true - a name that does not resolve yields no address.
+ * Asking for NOT_FOUND only means anything where something is able to say no, so this gates the
+ * strong assertion on a lookup that proves a nameserver answered. On a machine with no resolver
+ * the case checks the weaker thing that is still true - a name that does not resolve yields no
+ * address.
+ *
+ * **`localhost` is not that proof, which is the bug this gate used to have.** nsswitch answers
+ * it out of /etc/hosts (`hosts: files dns`) before it ever reaches a nameserver, so it succeeds
+ * on a machine with no DNS at all - and the case then demanded NOT_FOUND from a lookup that can
+ * only answer FAILED, because an unreachable resolver is EAI_AGAIN rather than EAI_NONAME. Run
+ * the suite under `unshare -rn` and that is exactly what happened, which is the whole class of
+ * failure the docstring at the top of this file says it is avoiding.
+ *
+ * So the gate is a name that has to come from DNS. `example.com` is reserved by RFC 2606 for
+ * this kind of use and is always in the public zone - and it is a *gate*, never an assertion:
+ * where it does not resolve, nothing here fails. No case in this file reports on the network.
  */
 MESH_TEST_CASE(resolve_reports_an_unknown_name, unit) {
     struct mesh_event_loop loop;
@@ -202,12 +216,13 @@ MESH_TEST_CASE(resolve_reports_an_unknown_name, unit) {
 
     struct resolve_probe working;
     memset(&working, 0, sizeof working);
-    if (mesh_resolve_start(&resolve, "localhost", 4403U, probe_record, &working, 0U) != 0 ||
+    if (mesh_resolve_start(&resolve, "example.com", 80U, probe_record, &working, 0U) != 0 ||
         !pump_until_done(&loop, &resolve, &working)) {
         record_failure(test_name, "the precondition lookup never reported");
         goto cleanup;
     }
-    const bool resolver_works = working.outcome == MESH_RESOLVE_OK;
+    /* A name out of /etc/hosts would prove nothing; see the note above. */
+    const bool dns_answers = working.outcome == MESH_RESOLVE_OK;
 
     struct resolve_probe probe;
     memset(&probe, 0, sizeof probe);
@@ -230,7 +245,7 @@ MESH_TEST_CASE(resolve_reports_an_unknown_name, unit) {
         record_failure(test_name, "a name that did not resolve must carry no address");
         goto cleanup;
     }
-    if (resolver_works && probe.outcome != MESH_RESOLVE_NOT_FOUND) {
+    if (dns_answers && probe.outcome != MESH_RESOLVE_NOT_FOUND) {
         record_failure(test_name, "a resolver that works should call an unknown name NOT_FOUND");
         goto cleanup;
     }
