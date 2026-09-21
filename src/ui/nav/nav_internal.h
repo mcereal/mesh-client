@@ -185,8 +185,26 @@ bool mesh_ui_nav_settings_section_key(struct mesh_ui_nav *nav, const struct mesh
                                       enum mesh_ui_key key, struct mesh_ui_action *action,
                                       bool *handled);
 /* One key while a confirm sheet is up. False when the key was not the sheet's to take. */
-bool mesh_ui_nav_confirm_key(struct mesh_ui_nav *nav, enum mesh_ui_key key,
-                             struct mesh_ui_action *action);
+/*
+ * Which of a dialog's two answers a press lands on, from where the cursor is now.
+ *
+ * Both dialogs used to toggle on every direction, which was right only because neither had any
+ * way to be wrong: the two answers sit side by side on one line when the words are short enough
+ * and are *stacked* when they are not, and which of those happened is a fact about the frame
+ * that was drawn. Left-right on a stacked pair is not the press that moves between them.
+ *
+ * So the press is resolved against the boxes the frame registered (`focus` on struct
+ * mesh_ui_store), and the toggle is what is left when there are none - a backend that draws no
+ * boxes, a test with no panel behind it, the frame before the first one. That fallback is the
+ * old behaviour exactly, which is what makes this safe to adopt one screen at a time.
+ *
+ * Returns the answer to put the cursor on; `cursor` back again is a press that goes nowhere.
+ */
+uint8_t mesh_ui_nav_dialog_answer(const struct mesh_ui_store *store, enum mesh_ui_key key,
+                                  uint8_t cursor);
+
+bool mesh_ui_nav_confirm_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                             enum mesh_ui_key key, struct mesh_ui_action *action);
 /* One key while the key-verification sheet is up. Reads the stage out of the store, because
    which answer each button gives depends on what the radio is asking. */
 bool mesh_ui_nav_verify_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,

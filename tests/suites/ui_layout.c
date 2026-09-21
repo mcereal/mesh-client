@@ -296,7 +296,7 @@ MESH_TEST_CASE(layout_list_scroll_counts_steps, unit) {
     static const uint8_t heights[] = {1U, 1U, 1U, 1U, 2U, 2U, 2U, 2U};
     struct mesh_ui_list top = mesh_ui_list_begin_heights(8U, 0U, 4U, heights);
     MESH_TEST_FAIL_IF(top.visible != 4U || top.used != 4U, "the short rows should all fit");
-    struct mesh_ui_scroll at_top = mesh_ui_list_scroll(&top, 120, 4);
+    struct inkcell_scroll_thumb at_top = inkcell_list_thumb(&top, 120, 4);
     MESH_TEST_FAIL_IF(at_top.length != 40, "the thumb should be the steps on screen, not the rows");
     MESH_TEST_FAIL_IF(at_top.offset != 0, "a list at its start reported an offset");
 
@@ -306,7 +306,7 @@ MESH_TEST_CASE(layout_list_scroll_counts_steps, unit) {
     struct mesh_ui_list bottom = mesh_ui_list_begin_heights(8U, 7U, 4U, heights);
     MESH_TEST_FAIL_IF(bottom.visible != 2U || bottom.used != 4U,
                       "two tall rows should fill a window of four steps");
-    struct mesh_ui_scroll at_bottom = mesh_ui_list_scroll(&bottom, 120, 4);
+    struct inkcell_scroll_thumb at_bottom = inkcell_list_thumb(&bottom, 120, 4);
     MESH_TEST_FAIL_IF(at_bottom.offset + at_bottom.length != 120,
                       "a list scrolled to its end left the thumb short of the track");
     record_success(test_name);
@@ -413,19 +413,19 @@ MESH_TEST_CASE(ui_layout_scroll_reports_the_window, unit) {
        screen calls this unconditionally, so "nothing off screen" has to be answerable with
        "draw nothing" rather than with a full-length thumb that says the opposite. */
     struct mesh_ui_list fits = mesh_ui_list_begin(6U, 0U, 10U);
-    struct mesh_ui_scroll none = mesh_ui_list_scroll(&fits, 400, 8);
+    struct inkcell_scroll_thumb none = inkcell_list_thumb(&fits, 400, 8);
     MESH_TEST_FAIL_IF(none.length != 0, "a list that fits asked for a thumb");
 
     struct mesh_ui_list empty = mesh_ui_list_begin(0U, 0U, 10U);
-    MESH_TEST_FAIL_IF(mesh_ui_list_scroll(&empty, 400, 8).length != 0,
+    MESH_TEST_FAIL_IF(inkcell_list_thumb(&empty, 400, 8).length != 0,
                       "an empty list asked for a thumb");
-    MESH_TEST_FAIL_IF(mesh_ui_list_scroll(NULL, 400, 8).length != 0, "a NULL list drew something");
+    MESH_TEST_FAIL_IF(inkcell_list_thumb(NULL, 400, 8).length != 0, "a NULL list drew something");
     struct mesh_ui_list any = mesh_ui_list_begin(40U, 0U, 10U);
-    MESH_TEST_FAIL_IF(mesh_ui_list_scroll(&any, 0, 8).length != 0, "a track of nothing drew");
+    MESH_TEST_FAIL_IF(inkcell_list_thumb(&any, 0, 8).length != 0, "a track of nothing drew");
 
     /* Ten of forty on screen: a quarter of the track, sitting at the top. */
     struct mesh_ui_list top = mesh_ui_list_begin(40U, 0U, 10U);
-    struct mesh_ui_scroll at_top = mesh_ui_list_scroll(&top, 400, 8);
+    struct inkcell_scroll_thumb at_top = inkcell_list_thumb(&top, 400, 8);
     MESH_TEST_FAIL_IF(at_top.length != 100, "the thumb is not the fraction on screen");
     MESH_TEST_FAIL_IF(at_top.offset != 0, "a list at its start reported an offset");
 
@@ -437,7 +437,7 @@ MESH_TEST_CASE(ui_layout_scroll_reports_the_window, unit) {
      * which is an indicator saying there is something below when there is not.
      */
     struct mesh_ui_list bottom = mesh_ui_list_begin(40U, 39U, 10U);
-    struct mesh_ui_scroll at_bottom = mesh_ui_list_scroll(&bottom, 400, 8);
+    struct inkcell_scroll_thumb at_bottom = inkcell_list_thumb(&bottom, 400, 8);
     MESH_TEST_FAIL_IF(at_bottom.offset + at_bottom.length != 400,
                       "a list scrolled to its end left the thumb short of the track");
 
@@ -449,7 +449,7 @@ MESH_TEST_CASE(ui_layout_scroll_reports_the_window, unit) {
        the cursor rather than nine. */
     struct mesh_ui_list middle = mesh_ui_list_begin(40U, 21U, 10U); /* first 15, travel 30 */
     MESH_TEST_FAIL_IF(middle.first != 15U, "the window did not start where the cursor put it");
-    struct mesh_ui_scroll at_middle = mesh_ui_list_scroll(&middle, 400, 8);
+    struct inkcell_scroll_thumb at_middle = inkcell_list_thumb(&middle, 400, 8);
     const int centre = (400 - at_middle.length) / 2;
     MESH_TEST_FAIL_IF(at_middle.offset < centre - 1 || at_middle.offset > centre + 1,
                       "a list halfway down did not put the thumb halfway along");
@@ -457,13 +457,13 @@ MESH_TEST_CASE(ui_layout_scroll_reports_the_window, unit) {
     /* A huge list floors the thumb rather than drawing a couple of pixels, and the floor never
        pushes it past the end of the track. */
     struct mesh_ui_list huge = mesh_ui_list_begin(4000U, 3999U, 10U);
-    struct mesh_ui_scroll tiny = mesh_ui_list_scroll(&huge, 400, 8);
+    struct inkcell_scroll_thumb tiny = inkcell_list_thumb(&huge, 400, 8);
     MESH_TEST_FAIL_IF(tiny.length != 8, "a very long list did not floor its thumb");
     MESH_TEST_FAIL_IF(tiny.offset + tiny.length > 400, "a floored thumb ran past the track");
 
     /* A window longer than the track cannot produce a thumb longer than the track. */
     struct mesh_ui_list stubby = mesh_ui_list_begin(12U, 0U, 10U);
-    struct mesh_ui_scroll clipped = mesh_ui_list_scroll(&stubby, 4, 40);
+    struct inkcell_scroll_thumb clipped = inkcell_list_thumb(&stubby, 4, 40);
     MESH_TEST_FAIL_IF(clipped.length > 4, "the thumb is longer than the track holding it");
     MESH_TEST_FAIL_IF(clipped.offset + clipped.length > 4, "the thumb ran past a short track");
     record_success(test_name);

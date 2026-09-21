@@ -156,6 +156,24 @@ void mesh_ui_route_describe(const struct mesh_ui_route *route, char *out, size_t
  */
 void mesh_ui_route_under_help(const struct mesh_ui_nav *nav, struct mesh_ui_route *out);
 
+/*
+ * The same, with the layers put down: where the reader is standing while something is drawn
+ * over it.
+ *
+ * Four of this client's overlays are layers now rather than screens - the settings confirm, the
+ * key-verification sheet, a node's verbs and the faces a message can be answered with. Each is
+ * still a level, because a level is what buys the back arrow and the B keycap, and none of them
+ * is a *move*: they arrive on a layer of their own over the body they are about, and a body
+ * that slid out sideways under an arriving panel would be two things travelling at once.
+ *
+ * Help is not among them. It replaces the body with its own, so going into it is going
+ * somewhere. Identical to mesh_ui_route_of() whenever none of the four is up.
+ *
+ * Read by whoever decides a transition; everything that asks where the user *is* - the crash
+ * report, the help topic, the capture harness - wants mesh_ui_route_of() and its levels.
+ */
+void mesh_ui_route_under_layers(const struct mesh_ui_nav *nav, struct mesh_ui_route *out);
+
 /* Whether two routes are the same place. Exact, field by field - see enum
    mesh_ui_route_level for why there is no hash here. */
 bool mesh_ui_route_same(const struct mesh_ui_route *a, const struct mesh_ui_route *b);

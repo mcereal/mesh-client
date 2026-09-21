@@ -59,6 +59,7 @@ void fb_render_conversations(struct mesh_ui_backend_fb_state *state,
      */
     struct fb_list list =
         fb_list_begin_rows(layout, count, nav->cursor[MESH_UI_SCREEN_MESSAGES], 2U);
+    inkcell_fb_list_glide(state, &list, FB_LIST_CONVERSATIONS);
     char age[8];
     char badge[8];
     uint32_t i;

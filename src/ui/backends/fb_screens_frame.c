@@ -19,6 +19,7 @@
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/actions.h"
 #include "mesh/ui/chrome.h"
+#include "mesh/ui/focus.h"
 #include "mesh/ui/input.h"
 #include "mesh/ui/layout.h"
 #include "mesh/ui/map.h"
@@ -146,7 +147,127 @@ struct fb_render_cache {
     uint32_t width, height;
     time_t second;
     bool valid;
+    /* And what the layers were last told to say, which is a memo of a different kind: the one
+       above is this frame compared with the last, and these outlive the answer that closed
+       them. One per enum fb_overlay_id, indexed by it. See struct fb_overlay_memo. */
+    struct fb_overlay_memo overlays[FB_OVERLAY_REACTIONS + 1];
+    /* And where the bodies that are positioned rather than windowed have got to. Kept here for
+       the same reason: a scroll is a fact about a screen that outlives one frame, and a screen
+       renderer is a function with nowhere of its own to put one. */
+    struct inkcell_scroll scrolls[FB_SCROLL_COUNT];
+    /*
+     * And the boxes the frame drew, which is the one memo here that is not a memory at all.
+     *
+     * It is rebuilt from nothing every frame - that is the whole of its honesty - and it is
+     * kept on the cache for the same reason the scrolls are: a press happens between two
+     * frames, so the map has to outlive the call that built it, and a renderer is a function
+     * with nowhere of its own to put one.
+     */
+    struct inkcell_focus_item focus_storage[MESH_UI_FOCUS_MAX];
+    struct inkcell_focus_map focus;
 };
+
+struct fb_overlay_memo *fb_overlay_memo(struct mesh_ui_backend_fb_state *state,
+                                        enum fb_overlay_id id) {
+    struct fb_render_cache *const cache = state != NULL ? state->render_cache : NULL;
+    if (cache == NULL || (unsigned)id >= (sizeof cache->overlays / sizeof cache->overlays[0])) {
+        return NULL;
+    }
+    return &cache->overlays[id];
+}
+
+struct inkcell_scroll *fb_scroll(struct mesh_ui_backend_fb_state *state, enum fb_scroll_id id) {
+    struct fb_render_cache *const cache = state != NULL ? state->render_cache : NULL;
+    if (cache == NULL || (unsigned)id >= (unsigned)FB_SCROLL_COUNT) {
+        return NULL;
+    }
+    return &cache->scrolls[id];
+}
+
+void fb_scroll_report(struct mesh_ui_backend_fb_state *state, bool moving) {
+    struct fb_app *const app = fb_app_of(state);
+    if (app != NULL) {
+        app->scrolling = moving;
+    }
+}
+
+uint32_t fb_overlay_subject(struct mesh_ui_backend_fb_state *state, enum fb_overlay_id id, bool up,
+                            uint32_t subject) {
+    struct fb_overlay_memo *const memo = fb_overlay_memo(state, id);
+    if (memo == NULL) {
+        /* No memo behind this frame: the layer is whatever the app says it is right now, which
+           is right while it is up and is the end of it when it is not. */
+        return up ? subject : 0U;
+    }
+    if (up && subject != 0U) {
+        memo->subject = subject;
+    } else if (!inkcell_fb_overlay_showing(state, (uint32_t)id)) {
+        /* Nothing of it left on the panel. Forgotten here rather than when the app let go of
+           it, which is the lifetime rule the layer itself follows one call down. */
+        memo->subject = 0U;
+    }
+    return memo->subject;
+}
+
+/*
+ * See fb_screens_internal.h. `nav_y` is the region's own top: there is no navigation bar inside
+ * a sheet or a scrolled body, and nothing in either may ask whether there is a screen behind it
+ * to go back to - that is the frame's question and the frame has already answered it.
+ */
+struct fb_layout fb_layout_in(const struct fb_layout *layout, struct inkcell_fb_rect box) {
+    struct fb_layout out = *layout;
+    out.nav_y = box.y;
+    out.body_y = box.y;
+    out.footer_y = box.y + box.h;
+    out.body_w = box.w;
+    out.rows = out.line > 0 ? (uint32_t)(box.h / out.line) : 0U;
+    out.back = false;
+    return out;
+}
+
+bool fb_sheet_begin(struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
+                    enum fb_overlay_id id, bool up, const struct inkcell_fb_sheet *sheet,
+                    int content_h, struct inkcell_overlay_frame *frame, struct fb_layout *out) {
+    if (state == NULL || layout == NULL || sheet == NULL || frame == NULL || out == NULL) {
+        return false;
+    }
+    /*
+     * The region a sheet belongs to, and therefore what its scrim dims: the body, and not the
+     * tab strip above it or the keycaps below. The dialog states the argument at length - the
+     * application has not been replaced, and the keycaps in particular are how the sheet gets
+     * closed.
+     */
+    const struct inkcell_fb_rect body = {
+        .x = 0,
+        .y = layout->nav_y,
+        .w = (int)state->var.xres,
+        .h = layout->footer_y - layout->nav_y,
+    };
+    if (!inkcell_fb_overlay_begin(state,
+                                  &(struct inkcell_overlay){
+                                      .id = (uint32_t)id,
+                                      .up = up,
+                                      .placement = INKCELL_OVERLAY_BOTTOM,
+                                      /* The whole way, from off the panel. A container that
+                                         slid in from just below its resting place reads as a
+                                         nudge; a sheet is something arriving. */
+                                      .travel = INKCELL_OVERLAY_TRAVEL_OFF_PANEL,
+                                      .w = body.w,
+                                      .h = inkcell_fb_sheet_height(state, sheet, content_h),
+                                      .bounds = body,
+                                      .scrim = true,
+                                      .modal = true,
+                                  },
+                                  frame)) {
+        return false;
+    }
+    *out = fb_layout_in(layout, inkcell_fb_draw_sheet(state, frame->box, sheet));
+    return true;
+}
+
+void fb_sheet_end(struct mesh_ui_backend_fb_state *state, struct inkcell_overlay_frame *frame) {
+    inkcell_fb_overlay_end(state, frame);
+}
 
 void fb_render_cache_free(struct mesh_ui_backend_fb_state *state) {
     free(state->render_cache);
@@ -156,7 +277,11 @@ void fb_render_cache_free(struct mesh_ui_backend_fb_state *state) {
 static void fb_render_begin(struct mesh_ui_backend_fb_state *state,
                             const struct mesh_ui_snapshot *snapshot) {
     state->clip_active = false;
-    if (!state->partial_disabled && state->render_cache == NULL) {
+    /* Allocated whether or not partial redraw is on: what hangs off it is no longer only the
+       comparison below. A capture renders with partial redraw disabled, and a dialog that could
+       not remember its own words there would be a dialog that never leaves in the one tool that
+       looks at it - see struct fb_dialog_memo. */
+    if (state->render_cache == NULL) {
         state->render_cache = calloc(1U, sizeof *state->render_cache);
     }
     struct fb_render_cache *cache = state->render_cache;
@@ -187,6 +312,19 @@ void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
        the basemap has already been forgotten: all three are inkcell calling up into fb_app.c,
        which is where the facts a snapshot does not carry are pushed down. */
     fb_render_begin(state, snapshot);
+
+    /*
+     * The frame's record of what it drew, opened before anything is.
+     *
+     * A screen that registers nothing simply leaves the map empty, and a press falls back to
+     * the arithmetic it always used - so this is pushed in for every frame rather than by the
+     * screens that have adopted it. What it costs an unregistered screen is one memset.
+     */
+    struct fb_render_cache *const cache = state->render_cache;
+    if (cache != NULL) {
+        inkcell_focus_begin(&cache->focus, cache->focus_storage, MESH_UI_FOCUS_MAX);
+        inkcell_fb_set_focus_map(state, &cache->focus);
+    }
 
     fb_clear(state, fb_color(state, MESH_UI_COLOR_BG));
 
@@ -281,21 +419,12 @@ void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
      */
     if (snapshot->nav.help_open) {
         fb_render_help(state, snapshot, &layout);
-    } else if (snapshot->nav.verify_open) {
-        /* Ahead of the settings confirm, the same way the key handler takes it first: a
-           verification is waiting on two people and a radio that gives up after five minutes,
-           while a confirm will wait. */
-        fb_render_verify(state, snapshot, &layout);
-    } else if (snapshot->nav.confirm_open) {
-        fb_render_confirm(state, snapshot, &layout);
     } else if (snapshot->nav.picker_open) {
         fb_render_picker(state, snapshot, &layout);
     } else if (snapshot->nav.keyboard_open) {
         fb_render_keyboard(state, snapshot, &layout);
     } else if (snapshot->nav.compose_open) {
         fb_render_compose(state, snapshot, &layout);
-    } else if (snapshot->nav.reaction_open) {
-        fb_render_reactions(state, snapshot, &layout);
     } else if (snapshot->nav.share_open) {
         /* Under every overlay above and over the tab's own screen, the same order nav.c takes
            the keys in: it is a level of the Settings tab raised by a row, not a question, and
@@ -347,6 +476,37 @@ void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
         }
     }
     fb_shift_end(state);
+
+    /*
+     * The layers, over whichever of the above raised them.
+     *
+     * Outside the chain rather than branches of it, and after the shift rather than inside it:
+     * what is drawn over a screen is not a place, so the screen it is about stays on the panel,
+     * dimmed behind a scrim, rather than being replaced by the asking. That is what a layer
+     * buys - and it is why all three are called on every frame instead of chosen between, since
+     * a layer that is leaving is no longer anything the snapshot says.
+     *
+     * The order is the stack, because drawn last is on top, and it is the order nav.c takes the
+     * keys in: the faces a message can be answered with are the shallowest of the three, and
+     * the verification sheet - which a radio can raise at any moment, over anything - is above
+     * the settings confirm that will wait.
+     *
+     * The node's sheet of verbs is not here. It belongs to one tab rather than to the frame,
+     * so fb_render_nodes() draws it over its own detail, where the order it stacks in is a
+     * fact about that tab.
+     *
+     * **None of the three is drawn over help**, which is the one thing about this order that is
+     * not a matter of taste. mesh_ui_nav_handle_key() gives help every press before it reaches
+     * any of these, so a layer drawn over an open help screen would be a panel the reader can
+     * see and cannot answer - and a verification sheet is the one that would be caught by it,
+     * since a radio raises that at a moment of its own choosing. What is drawn and what the
+     * press reaches have to be the same thing; each of the three reads `help_open` and treats
+     * it as the app no longer wanting it up, so one already on the panel walks out rather than
+     * being cut off mid-frame.
+     */
+    fb_render_reactions(state, snapshot, &layout);
+    fb_render_confirm(state, snapshot, &layout);
+    fb_render_verify(state, snapshot, &layout);
 
     struct mesh_ui_line summary;
     enum mesh_ui_tone summary_tone = MESH_UI_TONE_DIM;

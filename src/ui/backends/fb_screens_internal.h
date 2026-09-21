@@ -125,8 +125,173 @@ extern const struct mesh_ui_band fb_air_band;
 
 /* ---- what is drawn over a tab ------------------------------------------------------------ */
 
+/*
+ * What this client's layers are called, across frames.
+ *
+ * A layer's own memory - how far in it is - is kept on the backend under one of these, so the
+ * ids have to outlive a frame and be this client's to choose (inkcell/ui/overlay.h). Zero is
+ * INKCELL_OVERLAY_NONE and is not a layer.
+ *
+ * Only what is drawn *over* a screen is in here. A tab, a detail and a sheet that replaces the
+ * body are places, and a place is a route rather than a layer.
+ */
+enum fb_overlay_id {
+    /* "Save LoRa?", "Reboot the radio?" - the question a settings row raised. */
+    FB_OVERLAY_CONFIRM = 1,
+    /* The radio's half of the key-verification ceremony, which it can raise at any moment. */
+    FB_OVERLAY_VERIFY,
+    /* One node's verbs, over that node's detail. */
+    FB_OVERLAY_NODE_ACTIONS,
+    /* The faces one message can be answered with, over the transcript it is in. */
+    FB_OVERLAY_REACTIONS,
+};
+
+/*
+ * What this client's lists are called, for the glide.
+ *
+ * A window that moves a row moves every row in it by a row's height at once, which on this
+ * panel is the whole body flicking; a list that glides draws its content displaced and eases
+ * the displacement to nothing. What has to be remembered between frames is where the window
+ * was, and there is one slot - so an id is only ever compared with the one the last frame left
+ * behind, and a list that finds another's window in it takes it over without gliding.
+ *
+ * One per list rather than one per screen, because two of these screens draw a different list
+ * depending on what is open: a list inheriting the window of the one it replaced would glide
+ * from a place it was never at. Zero is not a list.
+ */
+enum fb_list_id {
+    FB_LIST_CONVERSATIONS = 1,
+    FB_LIST_NODES,
+    FB_LIST_NODE_DETAIL,
+    FB_LIST_NODE_ACTIONS,
+    FB_LIST_WAYPOINTS,
+    FB_LIST_WAYPOINT_DETAIL,
+    FB_LIST_DEVICES,
+    FB_LIST_SETTINGS,
+    FB_LIST_HELP,
+    FB_LIST_PICKER,
+    FB_LIST_REACTIONS,
+};
+
+/*
+ * The last question a layer was asked to put, so that it can finish leaving after the nav has
+ * stopped asking it.
+ *
+ * A layer is on the panel until its travel says otherwise, and the app has to keep describing
+ * its content for exactly that long - which the nav cannot do: mesh_ui_nav_confirm_close()
+ * clears `confirm_action` the moment an answer is given, and a verification sheet's stage is
+ * gone as soon as the exchange ends. Without this the two would vanish on the frame they were
+ * answered instead of going away, which is what they did when they were screens.
+ *
+ * It is a copy of the *words*, not of the snapshot: a dialog is an icon and four short strings,
+ * which is the one shape of overlay small enough to be copied. The snackbar keeps its text on
+ * the backend for the same reason and says as much in inkcell/ui/fb_draw.h; anything larger
+ * belongs to whoever can still describe it.
+ */
+struct fb_overlay_memo {
+    char headline[96];
+    char text[256];
+    char accept[48];
+    char cancel[48];
+    enum mesh_ui_icon icon;
+    uint32_t cursor;
+    bool destructive;
+    bool valid;
+    /*
+     * What the layer is *about*, for the overlays whose content is a lookup rather than a
+     * sentence: the node a sheet of verbs belongs to, the message a column of faces answers.
+     *
+     * The same job as the four strings above and a cheaper one. A sheet's rows are built from
+     * the roster and the catalog, both of which outlive the press - so all that has to survive
+     * the nav closing the sheet is which subject to build them for.
+     */
+    uint32_t subject;
+};
+
+/*
+ * The slot layer `id` describes itself into, or NULL when there is nowhere to keep one.
+ *
+ * NULL is a frame drawn with no memo behind it, which a caller reads as "describe it or do not
+ * draw it" - the dialog is still put, it simply cannot go away slowly.
+ */
+struct fb_overlay_memo *fb_overlay_memo(struct mesh_ui_backend_fb_state *state,
+                                        enum fb_overlay_id id);
+
+/*
+ * The subject to draw layer `id` for: `subject` while the app still wants it up, and the one
+ * it was last put with while it walks out.
+ *
+ * Zero is nothing to draw - a layer that never opened, or one whose subject left the roster
+ * under it. Writes through the memo, so a caller asks once a frame and uses the answer.
+ */
+uint32_t fb_overlay_subject(struct mesh_ui_backend_fb_state *state, enum fb_overlay_id id, bool up,
+                            uint32_t subject);
+
+/*
+ * What this client's scrolled bodies are called.
+ *
+ * A scroll is where a body has got to, in pixels, and it belongs to the screen rather than to
+ * the toolkit - so it is kept here beside the layers' own memory and handed out by id. One
+ * entry per body that is positioned rather than windowed; a list walking a row index at a time
+ * needs none.
+ */
+enum fb_scroll_id {
+    /* The help notes, whose heights are a property of their *words*: the one body in this
+       client that a row model genuinely cannot describe. */
+    FB_SCROLL_HELP,
+    FB_SCROLL_COUNT,
+};
+
+/*
+ * A layout for a region of the frame that is not the body: a sheet's content, a scrolled
+ * body's full extent.
+ *
+ * The components measure themselves against a layout, and either of those is a layout's worth
+ * of room that simply is not the body - the same line advance and the same columns, in a band
+ * of its own. Stated as a derivation rather than as a second kind of thing, because the
+ * alternative would be every component in the toolkit growing a second entry point for the one
+ * caller that draws into a panel.
+ */
+struct fb_layout fb_layout_in(const struct fb_layout *layout, struct inkcell_fb_rect box);
+
+/* The scroll kept for `id`, or NULL when there is nowhere to keep one - a frame with no memo
+   behind it, which a caller reads as "draw it settled". */
+struct inkcell_scroll *fb_scroll(struct mesh_ui_backend_fb_state *state, enum fb_scroll_id id);
+
+/*
+ * Says whether the body this frame drew is still travelling.
+ *
+ * Written by whoever drew a viewport and read back by fb_app_pending(), which is how a moving
+ * body asks for the next frame. A frame that draws no viewport says false, which is what stops
+ * the client repainting for a scroll that has gone away with its screen.
+ */
+void fb_scroll_report(struct mesh_ui_backend_fb_state *state, bool moving);
+
+/*
+ * Opens a bottom sheet over the body and hands back a layout for what goes in it.
+ *
+ * `content_h` is the height the content would like; a sheet taller than the body is fitted to
+ * it, so a screen asks for what it has rather than measuring the room first. `out` is the
+ * content rectangle as a layout - a list drawn through it lands inside the sheet, because a
+ * sheet is full bleed and its content lines up with the rows of the screen it came up over.
+ *
+ * Returns false once the sheet has finished leaving, which is when a screen stops describing
+ * it. Pairs with fb_sheet_end() on true, and nothing on false - the layer's own `if`.
+ */
+bool fb_sheet_begin(struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
+                    enum fb_overlay_id id, bool up, const struct inkcell_fb_sheet *sheet,
+                    int content_h, struct inkcell_overlay_frame *frame, struct fb_layout *out);
+void fb_sheet_end(struct mesh_ui_backend_fb_state *state, struct inkcell_overlay_frame *frame);
+
 void fb_render_help(struct mesh_ui_backend_fb_state *state, const struct mesh_ui_snapshot *snapshot,
                     struct fb_layout *layout);
+/*
+ * The two questions, each on a layer over the screen that raised it.
+ *
+ * Called on every frame rather than chosen between, because a layer that is leaving is not in
+ * the snapshot any more and the call is what walks it out - see struct fb_dialog_memo. Both are
+ * no-ops on a frame where the question is neither up nor still on its way out.
+ */
 void fb_render_confirm(struct mesh_ui_backend_fb_state *state,
                        const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout);
 void fb_render_verify(struct mesh_ui_backend_fb_state *state,

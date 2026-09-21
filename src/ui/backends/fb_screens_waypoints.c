@@ -73,6 +73,7 @@ static void fb_render_waypoint_detail(struct mesh_ui_backend_fb_state *state,
     }
     struct fb_list list =
         fb_list_begin_heights(layout, count, nav->cursor[MESH_UI_SCREEN_WAYPOINTS], heights);
+    inkcell_fb_list_glide(state, &list, FB_LIST_WAYPOINT_DETAIL);
     uint32_t i;
     while (fb_list_next(&list, &i)) {
         const struct mesh_ui_waypoint_item *item = &items[i];
@@ -168,6 +169,7 @@ void fb_render_waypoints(struct mesh_ui_backend_fb_state *state,
      */
     struct fb_list list =
         fb_list_begin_rows(layout, count, nav->cursor[MESH_UI_SCREEN_WAYPOINTS], 2U);
+    inkcell_fb_list_glide(state, &list, FB_LIST_WAYPOINTS);
     uint32_t i;
     while (fb_list_next(&list, &i)) {
         struct mesh_ui_waypoint_row waypoint;

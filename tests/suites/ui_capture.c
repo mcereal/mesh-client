@@ -4356,7 +4356,11 @@ MESH_TEST_CASE(ui_capture_node_detail_verbs_wear_their_colour_in_a_disc, unit) {
             mesh_ui_store_request_refresh(&store);
             (void)mesh_ui_store_consume_updates(&store, &snapshot);
         }
-        mesh_ui_capture_render(capture, &snapshot);
+        /* Until the sheet has arrived. It is a layer now rather than a screen, so its first
+           frame is a panel still off the bottom edge and what this would otherwise count is the
+           detail underneath it - seven accent discs and nothing destructive, which is exactly
+           what the detail has. */
+        render_until_still(capture, &snapshot);
 
         /* Wider than a glyph's own strokes at this size and well inside a disc, which is as
            wide as the row is tall. */
@@ -4378,9 +4382,9 @@ MESH_TEST_CASE(ui_capture_node_detail_verbs_wear_their_colour_in_a_disc, unit) {
         const uint32_t danger =
             bands_of(capture, pixels, width, height, stride, MESH_UI_COLOR_ERROR, min_run);
         /* Four, because one of the accent's bands is the navigation bar's own tab pill and the
-           card this is about holds several verbs. The sheet carries no heading - its app bar
-           names it - so the disc that used to be counted with them is gone, and four still
-           clears the verbs by a wide margin. */
+           sheet this is about holds several verbs. The sheet's own heading is a title and a
+           trailing word rather than a row, so no disc is counted for it, and four still clears
+           the verbs by a wide margin. */
         if (accent < 4U || danger < 1U) {
             snprintf(detail, sizeof detail,
                      "the node's verbs draw no tonal disc (%u accent bands, %u destructive, "
@@ -5394,5 +5398,98 @@ MESH_TEST_CASE(ui_capture_a_verbs_disc_clears_its_cards_edges, unit) {
     }
 
     MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * A dialog's two answers, and the press that moves between them.
+ *
+ * The pair is laid out side by side when the words fit on one line and *stacked* when they do
+ * not, and inkcell decides which from the words and the panel's width. The nav used to toggle
+ * on every direction, which was right only because it had no way to be wrong; what it does now
+ * is resolve the press against the boxes the frame registered, which is right for both layouts
+ * and for neither by accident.
+ *
+ * Two panels rather than one, because one layout proves nothing: the whole claim is that the
+ * same press gives different answers on two frames, and that the difference comes from the
+ * frame rather than from anything the nav remembered.
+ */
+static bool dialog_moves(uint32_t width, uint32_t height, enum mesh_ui_key key,
+                         const char **failure) {
+    struct mesh_ui_store store;
+    if (mesh_ui_store_init(&store) != 0) {
+        *failure = "store init failed";
+        return false;
+    }
+    mesh_test_nav_populate(&store);
+    /* Raised rather than walked to: which row opens a confirm is nav_settings.c's business and
+       is covered there. What is under test is the press once one is up. */
+    store.nav.screen = MESH_UI_SCREEN_SETTINGS;
+    store.nav.settings_section = MESH_UI_SETTINGS_ACTIONS;
+    store.nav.confirm_action = (uint8_t)MESH_UI_SETTINGS_ACTION_REBOOT;
+    store.nav.confirm_open = true;
+    store.nav.confirm_cursor = 0U;
+
+    struct mesh_ui_snapshot snapshot;
+    memset(&snapshot, 0, sizeof snapshot);
+    mesh_ui_store_request_refresh(&store);
+    if (!mesh_ui_store_consume_updates(&store, &snapshot)) {
+        mesh_ui_store_shutdown(&store);
+        *failure = "no snapshot to render";
+        return false;
+    }
+
+    struct mesh_ui_capture *capture = NULL;
+    if (mesh_ui_capture_open(&capture, width, height, 2) != 0) {
+        mesh_ui_store_shutdown(&store);
+        *failure = "capture open failed";
+        return false;
+    }
+    /* Until the layer has arrived: a dialog half way in is a dialog whose boxes are half way
+       in too, and the press is answered against where they came to rest. */
+    render_until_still(capture, &snapshot);
+
+    /* The seam: what the frame collected, handed to the model that answers the press. On the
+       device this is mesh_ui_controller_handle_key() reading it back through the backend. */
+    mesh_ui_store_set_focus_map(&store, mesh_ui_capture_state(capture)->focus);
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    mesh_ui_store_handle_key(&store, key, &action);
+    const bool moved = store.nav.confirm_cursor != 0U;
+
+    mesh_ui_capture_close(capture);
+    mesh_ui_store_shutdown(&store);
+    return moved;
+}
+
+MESH_TEST_CASE(ui_capture_a_dialog_answers_the_press_its_own_layout_was_given, unit) {
+    const char *failure = NULL;
+    /* Wide: the two answers share a line, so the press between them is sideways and the
+       vertical one goes nowhere. */
+    const bool wide_sideways =
+        dialog_moves(MESH_UI_CAPTURE_WIDTH, MESH_UI_CAPTURE_HEIGHT, MESH_UI_KEY_LEFT, &failure);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    MESH_TEST_FAIL_IF(!wide_sideways, "left should reach the other answer on a panel wide "
+                                      "enough to put them side by side");
+    const bool wide_vertical =
+        dialog_moves(MESH_UI_CAPTURE_WIDTH, MESH_UI_CAPTURE_HEIGHT, MESH_UI_KEY_DOWN, &failure);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    MESH_TEST_FAIL_IF(wide_vertical, "down should go nowhere when the answers are side by side");
+
+    /*
+     * Narrow: the same two answers, stacked, and the same two presses the other way round -
+     * from the geometry, without the nav being told which layout it got.
+     *
+     * 200 px is not a panel anything ships on; it is the width at which "Reboot now" and
+     * "Cancel" stop fitting on one line at this glyph scale, which is the only thing that
+     * decides the layout. A number chosen for a device would be a number that stops meaning
+     * anything the first time the type scale moves.
+     */
+    const bool narrow_vertical = dialog_moves(200U, 480U, MESH_UI_KEY_DOWN, &failure);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    MESH_TEST_FAIL_IF(!narrow_vertical, "down should reach the answer stacked under this one");
+    const bool narrow_sideways = dialog_moves(200U, 480U, MESH_UI_KEY_LEFT, &failure);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    MESH_TEST_FAIL_IF(narrow_sideways, "left should go nowhere when the answers are stacked");
     record_success(test_name);
 }

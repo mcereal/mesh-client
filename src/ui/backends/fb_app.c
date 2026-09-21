@@ -49,9 +49,15 @@ static void fb_app_render(struct mesh_ui_backend_fb_state *state, const void *sn
      * First sight adopts, the rule the animation table follows for an id it has not seen: a
      * screen that slid in on the frame the client came up would be announcing itself rather than
      * reporting a move.
+     *
+     * The route *under the layers*, because what is drawn over a screen is not a move: the two
+     * questions, a node's verbs and a message's faces all arrive on layers of their own over
+     * the body they are about, and a body that slid out from under an arriving panel would be
+     * two things travelling at once. Everything else that asks where the user is still wants
+     * the whole route.
      */
     struct mesh_ui_route route;
-    mesh_ui_route_of(&snapshot->nav, &route);
+    mesh_ui_route_under_layers(&snapshot->nav, &route);
     if (!app->route_valid) {
         app->route = route;
         app->route_valid = true;
@@ -66,7 +72,13 @@ static void fb_app_render(struct mesh_ui_backend_fb_state *state, const void *sn
 
 static bool fb_app_pending(void *ctx) {
     const struct fb_app *const app = (const struct fb_app *)ctx;
-    return app != NULL && app->basemap != NULL && app->basemap->pending;
+    if (app == NULL) {
+        return false;
+    }
+    /* A tile still to decode and a body still travelling are the same answer to inkcell's
+       question - the next frame will show something this one could not - and neither is an
+       entry in the animation table. See `scrolling` on struct fb_app. */
+    return app->scrolling || (app->basemap != NULL && app->basemap->pending);
 }
 
 static void fb_app_frame_begin(void *ctx) {

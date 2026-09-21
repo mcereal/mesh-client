@@ -79,6 +79,18 @@ struct fb_app {
     struct fb_basemap *basemap;
     struct mesh_ui_route route;
     bool route_valid;
+    /*
+     * Whether a body drawn on the last frame was still travelling.
+     *
+     * A scroll lives on the screen rather than on the backend's state - it is not keyed by
+     * anything the toolkit issued and a screen may have several - so
+     * inkcell_fb_state_animating() cannot see one, and says so at length in
+     * inkcell/ui/widgets/scroll.h. This is the half of that a screen owes back: the renderer
+     * writes it every frame it draws a viewport, and fb_app_pending() reports it alongside the
+     * basemap still filling. Without it a body eases to wherever the last frame it was asked
+     * for left it.
+     */
+    bool scrolling;
 };
 
 /* The app behind `state`, or NULL when nothing installed one. */

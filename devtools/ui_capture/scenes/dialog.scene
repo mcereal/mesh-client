@@ -9,15 +9,17 @@
 scene demo
 scale 4
 delay 200
+config
 
 tab settings
-key down 12
+key down 14
 key a
 hold 700
 
-# Radio actions: the row under the "Power" heading is Reboot, whose confirmation is destructive -
-# the warning icon and the headline take the bad tone rather than the accent.
-key down 1
+# Radio actions: the first row under the "Power" heading is Reboot, whose confirmation is
+# destructive - the warning icon and the headline take the bad tone rather than the accent. It
+# rises over the section rather than replacing it, and the rows behind it stay legible under the
+# scrim: what is being asked about is still on the panel.
 key a
 hold 1200
 key right

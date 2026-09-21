@@ -116,6 +116,7 @@ void fb_render_devices(struct mesh_ui_backend_fb_state *state,
     const bool nothing_found = (snapshot->device_count == 0U);
     struct fb_list list = fb_list_begin_rows(layout, rows + (nothing_found ? 1U : 0U),
                                              nav->cursor[MESH_UI_SCREEN_DEVICES], 2U);
+    inkcell_fb_list_glide(state, &list, FB_LIST_DEVICES);
     char attach[16];
     uint32_t i;
     while (fb_list_next(&list, &i)) {

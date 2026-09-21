@@ -296,6 +296,36 @@ void mesh_ui_route_of(const struct mesh_ui_nav *nav, struct mesh_ui_route *out) 
     out->level = MESH_UI_ROUTE_HELP;
 }
 
+void mesh_ui_route_under_layers(const struct mesh_ui_nav *nav, struct mesh_ui_route *out) {
+    if (out == NULL) {
+        return;
+    }
+    if (nav == NULL) {
+        memset(out, 0, sizeof *out);
+        return;
+    }
+    /*
+     * The same walk, asked of a nav with the four layers put down.
+     *
+     * This is not the second derivation the header refuses. That one was help.c wanting the
+     * place *under* help and working it out for itself, which is a second opinion about what a
+     * route is; this asks mesh_ui_route_of() the one question it answers, about a nav that
+     * differs from the real one in four booleans - and those four booleans are exactly the
+     * claim being made, which is that a layer is not a place you went to.
+     *
+     * A copy of the nav rather than four more branches in the walk, because two of these are
+     * counted in route_screen_depth() and two at the end of the walk: written as conditions
+     * they would be four edits in three functions, each of which has to stay in step with the
+     * list of things that are drawn on layers.
+     */
+    struct mesh_ui_nav without = *nav;
+    without.confirm_open = false;
+    without.verify_open = false;
+    without.reaction_open = false;
+    without.node_actions_open = false;
+    mesh_ui_route_of(&without, out);
+}
+
 bool mesh_ui_route_same(const struct mesh_ui_route *a, const struct mesh_ui_route *b) {
     if (a == NULL || b == NULL) {
         return a == b;
