@@ -22,6 +22,7 @@
 #include "mesh/transport/serial.h"
 #include "mesh/transport/tcp.h"
 #include "mesh/ui/backends/cli.h"
+#include "mesh/ui/backends/fb.h"
 #include "mesh/ui/backends/stub.h"
 #include "mesh/ui/preferences.h"
 #include "mesh/utils/crash.h"

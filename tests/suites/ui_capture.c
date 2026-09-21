@@ -11,7 +11,6 @@
  */
 
 #include "inkcell/ui/emoji.h"
-#include "inkcell/ui/fb_capture.h"
 #include "inkcell/ui/font.h"
 #include "inkcell/ui/theme.h"
 #include "inkcell/utils/time.h"
@@ -24,6 +23,7 @@
 #include "mesh/core/updater.h"
 #include "mesh/i18n/strings.h"
 #include "mesh/map/viewport.h"
+#include "mesh/ui/backends/fb_capture.h"
 #include "mesh/ui/history.h"
 #include "mesh/ui/map.h"
 #include "mesh/ui/nav.h"

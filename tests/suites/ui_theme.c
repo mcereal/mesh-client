@@ -15,13 +15,13 @@
  */
 
 #include "inkcell/ui/anim.h"
-#include "inkcell/ui/fb_capture.h"
 #include "inkcell/ui/font.h"
 #include "inkcell/ui/theme.h"
 
 #include "framework/mesh_test.h"
 #include "support/ui_fixture.h"
 
+#include "mesh/ui/backends/fb_capture.h"
 #include "mesh/ui/store.h"
 
 #include <stdio.h>

@@ -70,7 +70,6 @@
  * the script starts on is emitted before any of them.
  */
 
-#include "inkcell/ui/fb_capture.h"
 #include "inkcell/ui/theme.h"
 #include "inkcell/utils/env.h"
 #include "inkcell/utils/text.h"
@@ -85,6 +84,7 @@
 #include "mesh/core/store_forward.h"
 #include "mesh/core/updater.h"
 #include "mesh/i18n/strings.h"
+#include "mesh/ui/backends/fb_capture.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/route.h"
 /* For the flag rows' masks: the fixture sets position_flags and the field table is what says

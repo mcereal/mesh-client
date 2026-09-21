@@ -2,7 +2,7 @@
 
 /* A repeatable CPU benchmark, independent of a radio or framebuffer device. It deliberately
    reaches the drawing seam to compare the same rasterizer with and without its glyph cache. */
-#include "inkcell/ui/fb_capture.h"
+#include "mesh/ui/backends/fb_capture.h"
 
 #include "../../src/ui/backends/fb_internal.h"
 
