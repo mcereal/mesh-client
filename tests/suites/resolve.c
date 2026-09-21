@@ -28,7 +28,9 @@
 #include <errno.h>
 #include <netinet/in.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 struct resolve_probe {
     unsigned calls;
@@ -194,16 +196,33 @@ cleanup:
  * the case checks the weaker thing that is still true - a name that does not resolve yields no
  * address.
  *
- * **`localhost` is not that proof, which is the bug this gate used to have.** nsswitch answers
- * it out of /etc/hosts (`hosts: files dns`) before it ever reaches a nameserver, so it succeeds
- * on a machine with no DNS at all - and the case then demanded NOT_FOUND from a lookup that can
- * only answer FAILED, because an unreachable resolver is EAI_AGAIN rather than EAI_NONAME. Run
- * the suite under `unshare -rn` and that is exactly what happened, which is the whole class of
- * failure the docstring at the top of this file says it is avoiding.
+ * **The gate has to prove a *no*, not a *yes*.** `localhost` was the first attempt and was
+ * wrong twice over: nsswitch answers it out of /etc/hosts (`hosts: files dns`) before it ever
+ * reaches a nameserver, so it succeeded on a machine with no DNS at all - and the case then
+ * demanded NOT_FOUND from a lookup that can only answer FAILED, because an unreachable resolver
+ * is EAI_AGAIN rather than EAI_NONAME. Run the suite under `unshare -rn` and that is exactly
+ * what happened, which is the whole class of failure the docstring at the top of this file says
+ * it is avoiding.
  *
- * So the gate is a name that has to come from DNS. `example.com` is reserved by RFC 2606 for
- * this kind of use and is always in the public zone - and it is a *gate*, never an assertion:
- * where it does not resolve, nothing here fails. No case in this file reports on the network.
+ * A name that *does* resolve is a better gate but still the wrong shape, because it only proves
+ * a yes. Pin one in /etc/hosts, or leave it warm in a cache whose upstream has gone, and the
+ * gate opens again on a machine whose resolver cannot answer anything.
+ *
+ * So the gate is a name that has to cross the network and must not be there when it arrives.
+ * Only a nameserver that is genuinely reachable can say NXDOMAIN about it: /etc/hosts has no
+ * wildcards, and nothing caches a name it has never been asked. The label carries the pid so
+ * that no pinned entry can anticipate it, and it sits under a real delegated TLD rather than
+ * one of the RFC 2606 names - `example.com` and friends answer NODATA rather than NXDOMAIN, and
+ * a reserved TLD like `.invalid` is the one a stub resolver is allowed to answer by itself,
+ * which is the `localhost` mistake over again. Saying no to this lookup is the exact capability
+ * the assertion below depends on:
+ *
+ *     a reachable nameserver    -> NXDOMAIN   -> NOT_FOUND -> the gate opens
+ *     no resolver at all        -> EAI_AGAIN  -> FAILED    -> the gate stays shut
+ *     one that hijacks NXDOMAIN -> an address -> OK        -> the gate stays shut
+ *
+ * It is a *gate*, never an assertion: every way it can go wrong leaves it shut, and a shut gate
+ * fails nothing. No case in this file reports on the network.
  */
 MESH_TEST_CASE(resolve_reports_an_unknown_name, unit) {
     struct mesh_event_loop loop;
@@ -214,15 +233,19 @@ MESH_TEST_CASE(resolve_reports_an_unknown_name, unit) {
     struct mesh_resolve resolve;
     (void)mesh_resolve_init(&resolve, &loop);
 
+    /* Per-run, so that neither a cache nor a pinned /etc/hosts line can answer it. */
+    char gate[64];
+    (void)snprintf(gate, sizeof gate, "meshclient-no-such-name-%ld.com", (long)getpid());
+
     struct resolve_probe working;
     memset(&working, 0, sizeof working);
-    if (mesh_resolve_start(&resolve, "example.com", 80U, probe_record, &working, 0U) != 0 ||
+    if (mesh_resolve_start(&resolve, gate, 80U, probe_record, &working, 0U) != 0 ||
         !pump_until_done(&loop, &resolve, &working)) {
         record_failure(test_name, "the precondition lookup never reported");
         goto cleanup;
     }
-    /* A name out of /etc/hosts would prove nothing; see the note above. */
-    const bool dns_answers = working.outcome == MESH_RESOLVE_OK;
+    /* A *no* about a name that had to come from DNS; see the note above for why not a yes. */
+    const bool dns_answers = working.outcome == MESH_RESOLVE_NOT_FOUND;
 
     struct resolve_probe probe;
     memset(&probe, 0, sizeof probe);
