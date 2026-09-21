@@ -87,9 +87,9 @@ bool mesh_json_next_element(struct mesh_json *json);
  * consumed, so a caller that guessed wrong can still skip it.
  *
  * Strings are unescaped, \uXXXX included; a lone surrogate becomes '?' rather than a broken
- * sequence, because what comes out of here goes on to be measured in cells by src/utils/text.c.
- * A string longer than the buffer is truncated at a whole character and still consumed - the
- * cursor's job is to stay in step with the document, not with the caller's storage.
+ * sequence, because what comes out of here goes on to be measured in cells by inkcell's
+ * src/utils/text.c. A string longer than the buffer is truncated at a whole character and still
+ * consumed - the cursor's job is to stay in step with the document, not with the caller's storage.
  */
 bool mesh_json_read_string(struct mesh_json *json, char *out, size_t out_len);
 bool mesh_json_read_u64(struct mesh_json *json, uint64_t *out);

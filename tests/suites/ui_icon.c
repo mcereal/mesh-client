@@ -13,10 +13,10 @@
 /*
  * Every id the enum carries has sprite data behind it.
  *
- * The enum comes from include/mesh/ui/icons.def and the sprites are generated from the same
- * file, so the two can only disagree when somebody adds a line and does not re-run
- * scripts/gen-icons.py - which the compiler is perfectly happy with, and which shows up on the
- * panel as one icon drawn in place of another for every id after the new one.
+ * The enum comes from inkcell's include/inkcell/ui/icons.def and the sprites are generated from
+ * the same file, so the two can only disagree when somebody adds a line and does not re-run
+ * inkcell's scripts/gen-icons.py - which the compiler is perfectly happy with, and which shows
+ * up on the panel as one icon drawn in place of another for every id after the new one.
  */
 MESH_TEST_CASE(icon_table_covers_every_id, unit) {
     const struct inkcell_icon_table *table = &inkcell_icon_table;

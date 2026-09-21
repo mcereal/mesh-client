@@ -18,7 +18,7 @@
  * trailing run the difference between two hues of the same glyph is not a difference.
  *
  * Neither is a dedicated glyph. INKCELL_ICON_SECURITY is the Settings tab's Security section,
- * and it is doing a second job here, which include/mesh/ui/icons.def's rules say should be a
+ * and it is doing a second job here, which inkcell's icons.def rules say should be a
  * second id. It is not one because the sprite table is generated from a font that has moved
  * upstream since it was last rasterised, so adding a row would rewrite all 54 sprites in the
  * same commit as this feature - see the note in the pull request. The id to add when that is

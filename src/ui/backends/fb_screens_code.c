@@ -8,8 +8,8 @@
  * there is nothing to show, and not at all in the layout - which is the part that is easy to get
  * subtly wrong, so it is written once below and the two renderers are four lines each.
  *
- * A QR code is black on white on every theme; see INKCELL_COLOR_CODE in src/ui/theme/theme.c for
- * why that pair is the one that does not vary.
+ * A QR code is black on white on every theme; see INKCELL_COLOR_CODE in inkcell's src/theme/theme.c
+ * for why that pair is the one that does not vary.
  */
 
 #include "inkcell/ui/widgets.h"

@@ -235,8 +235,8 @@ MESH_TEST_CASE(ui_text_cell_kinds, unit) {
  * the fast path excludes), and nothing zero-width lives in ASCII (so no mark can attach to a
  * character whose successor byte is ASCII).
  *
- * Both are properties of generated data. scripts/gen-emoji.py is run by hand against whatever
- * Noto ships, so a future Unicode version could add a sequence led by some other ASCII
+ * Both are properties of generated data. inkcell's scripts/gen-emoji.py is run by hand against
+ * whatever Noto ships, so a future Unicode version could add a sequence led by some other ASCII
  * character and the fast path would silently stop drawing it. Fail here instead.
  */
 MESH_TEST_CASE(emoji_ascii_fast_path_precondition, unit) {

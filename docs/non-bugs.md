@@ -660,10 +660,10 @@ only a consequence of one of them, and neither is a thing a test could pin.
 
 ## Tables, strings and the build
 
-- **Neither `include/mesh/i18n/catalog.def` nor `include/mesh/ui/icons.def` is a header, and
-  `make format` does not touch either.** Each is included several times with the macros defined
-  differently, which keeps the enum, the table and the translation template from drifting apart.
-  `i18n_catalog_is_complete`, `icon_table_covers_every_id`.
+- **Neither `include/mesh/i18n/catalog.def` nor inkcell's `include/inkcell/ui/icons.def` is a
+  header, and `make format` does not touch either.** Each is included several times with the
+  macros defined differently, which keeps the enum, the table and the translation template from
+  drifting apart. `i18n_catalog_is_complete`, `icon_table_covers_every_id`.
 
 - **The framebuffer needs all three steps** - draw page 0, `FBIOPAN_DISPLAY`, mirror into page 1 -
   or the screen is black.
