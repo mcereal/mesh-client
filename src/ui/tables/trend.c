@@ -46,7 +46,7 @@ static uint32_t airtime_cadence(const struct mesh_ui_history *history, uint32_t 
     return count > 0U ? intervals[count / 2U] : 0U;
 }
 
-static void bins_finish(struct mesh_ui_trend_bins *bins, const int64_t *sums,
+static void bins_finish(struct inkcell_trend_bins *bins, const int64_t *sums,
                         const uint32_t *counts, const bool *breaks) {
     uint32_t last_present = 0U;
     bool any = false;
@@ -75,17 +75,17 @@ bool mesh_ui_trend_airtime(const struct mesh_ui_history *history, uint8_t span, 
 
     uint32_t to = mesh_ui_history_airtime_newest(history)->time;
     uint32_t from = mesh_ui_history_airtime_at(history, 0U)->time;
-    /* The span's cut, as mesh_ui_trend_frame() makes it: anchored on the newest reading and only
+    /* The span's cut, as inkcell_trend_frame() makes it: anchored on the newest reading and only
        ever narrowing. */
-    const uint32_t ms = mesh_ui_trend_span_ms(span);
+    const uint32_t ms = inkcell_trend_span_ms(span);
     if (ms > 0U && (to - from) > ms) {
         from = to - ms;
     }
 
-    uint32_t cap = max_bins > MESH_UI_TREND_BINS_MAX ? MESH_UI_TREND_BINS_MAX : max_bins;
+    uint32_t cap = max_bins > INKCELL_TREND_BINS_MAX ? INKCELL_TREND_BINS_MAX : max_bins;
     cap = cap < 2U ? 2U : cap;
     const uint32_t cadence = airtime_cadence(history, from, to);
-    const uint32_t bin = mesh_ui_trend_bin_ms(to - from, cadence, cap);
+    const uint32_t bin = inkcell_trend_bin_ms(to - from, cadence, cap);
     /*
      * How long a silence has to be before the line lifts over it: three of the readings' own
      * spacing, and never less than the radio's gap.
@@ -103,10 +103,10 @@ bool mesh_ui_trend_airtime(const struct mesh_ui_history *history, uint8_t span, 
     uint32_t count = (to - from + bin / 2U) / bin + 1U;
     count = count > cap ? cap : count;
 
-    int64_t util_sums[MESH_UI_TREND_BINS_MAX];
-    int64_t tx_sums[MESH_UI_TREND_BINS_MAX];
-    uint32_t counts[MESH_UI_TREND_BINS_MAX];
-    bool breaks[MESH_UI_TREND_BINS_MAX];
+    int64_t util_sums[INKCELL_TREND_BINS_MAX];
+    int64_t tx_sums[INKCELL_TREND_BINS_MAX];
+    uint32_t counts[INKCELL_TREND_BINS_MAX];
+    bool breaks[INKCELL_TREND_BINS_MAX];
     memset(util_sums, 0, sizeof util_sums);
     memset(tx_sums, 0, sizeof tx_sums);
     memset(counts, 0, sizeof counts);
@@ -160,6 +160,6 @@ bool mesh_ui_trend_airtime(const struct mesh_ui_history *history, uint8_t span, 
     out->frame.from = from;
     out->frame.to = to;
     /* The airtime domain is the identity one: readings already permille. */
-    out->frame.scale = mesh_ui_trend_domain((struct mesh_ui_scale){0, 0}, high);
+    out->frame.scale = inkcell_trend_domain((struct inkcell_scale){0, 0}, high);
     return true;
 }

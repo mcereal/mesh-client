@@ -10,7 +10,7 @@ material-design-icons/master/variablefont/MaterialSymbolsRounded%5BFILL%2CGRAD%2
     .venv/bin/python scripts/gen-icons.py MaterialSymbolsRounded.ttf src/ui/generated/icon_glyphs.c
 
 The icons and their glyph names come from include/mesh/ui/icons.def, which is also what builds
-`enum mesh_ui_icon` - so the enum and the sprites are generated from one list and cannot drift.
+`enum inkcell_icon` - so the enum and the sprites are generated from one list and cannot drift.
 
 Material Symbols is under the Apache License 2.0; licenses/Apache-2.0-MaterialSymbols.txt
 travels with the generated data.
@@ -52,7 +52,7 @@ AXES = {"FILL": 1.0, "GRAD": 0.0, "opsz": 20.0, "wght": 500.0}
 
 ORIGIN = (EM, EM)  # where the pen is put on the canvas, clear of every edge at any anchor
 
-ENTRY = re.compile(r'^MESH_ICON_ENTRY\(\s*(\w+)\s*,\s*"([^"]+)"\s*\)')
+ENTRY = re.compile(r'^INKCELL_ICON_ENTRY\(\s*(\w+)\s*,\s*"([^"]+)"\s*\)')
 
 
 def catalog(path):
@@ -132,7 +132,7 @@ def main():
     face = ImageFont.truetype(font_path, EM)
     face.set_variation_by_axes([AXES[axis.axisTag] for axis in TTFont(font_path, lazy=True)["fvar"].axes])
 
-    # MESH_UI_ICON_NONE is enum id 0 and draws nothing, so it gets a blank sprite rather than a
+    # INKCELL_ICON_NONE is enum id 0 and draws nothing, so it gets a blank sprite rather than a
     # special case in the decoder.
     box = window(face)
     sprites = [(("NONE", "-"), [0] * (SIZE * SIZE))]
@@ -182,13 +182,13 @@ def main():
 
         w("/* Where each icon's runs start, plus a final entry so the last icon has an end.\n")
         w("   One line per icon, named, because this is the table a bad merge shows up in. */\n")
-        w("static const uint32_t k_run_offsets[MESH_UI_ICON_COUNT + 1] = {\n")
+        w("static const uint32_t k_run_offsets[INKCELL_ICON_COUNT + 1] = {\n")
         for index, ((name, glyph), _) in enumerate(sprites):
-            w("    %-6s /* MESH_UI_ICON_%s (%s) */\n" % (str(offsets[index]) + ",", name, glyph))
+            w("    %-6s /* INKCELL_ICON_%s (%s) */\n" % (str(offsets[index]) + ",", name, glyph))
         w("    %-6s /* end */\n" % (str(offsets[-1]) + ","))
         w("};\n\n")
 
-        w("const struct mesh_ui_icon_table mesh_ui_icon_table = {\n")
+        w("const struct inkcell_icon_table inkcell_icon_table = {\n")
         w("    .runs = k_runs,\n")
         w("    .run_offsets = k_run_offsets,\n")
         w("};\n")

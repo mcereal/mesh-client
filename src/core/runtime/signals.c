@@ -23,7 +23,7 @@ static void mesh_signals_restore_mask(void) {
         return;
     }
     if (sigprocmask(SIG_SETMASK, &s_saved_mask, NULL) < 0) {
-        mesh_log_warn("signals", "Failed to restore signal mask: %s", strerror(errno));
+        inkcell_log_warn("signals", "Failed to restore signal mask: %s", strerror(errno));
     }
     s_mask_saved = false;
 }
@@ -42,7 +42,7 @@ static int mesh_signals_event_callback(int fd, uint32_t events, void *userdata) 
                 continue;
             }
             if (errno != EAGAIN && errno != EWOULDBLOCK) {
-                mesh_log_warn("signals", "signalfd read failed: %s", strerror(errno));
+                inkcell_log_warn("signals", "signalfd read failed: %s", strerror(errno));
             }
             break;
         }
@@ -50,7 +50,7 @@ static int mesh_signals_event_callback(int fd, uint32_t events, void *userdata) 
             break;
         }
 
-        mesh_log_info("signals", "Received signal %u; shutting down", info.ssi_signo);
+        inkcell_log_info("signals", "Received signal %u; shutting down", info.ssi_signo);
         mesh_event_loop_request_stop(signals->loop);
         break;
     }
@@ -76,14 +76,14 @@ int mesh_signals_init(struct mesh_signals *signals, struct mesh_event_loop *loop
        disposition running first. Every failure path below has to put the mask back: leaving
        them blocked with no signalfd to read them would make the process ignore SIGTERM. */
     if (sigprocmask(SIG_BLOCK, &mask, &s_saved_mask) < 0) {
-        mesh_log_warn("signals", "sigprocmask failed: %s", strerror(errno));
+        inkcell_log_warn("signals", "sigprocmask failed: %s", strerror(errno));
         return -errno;
     }
     s_mask_saved = true;
 
     signals->fd = signalfd(-1, &mask, SFD_NONBLOCK | SFD_CLOEXEC);
     if (signals->fd < 0) {
-        mesh_log_warn("signals", "signalfd failed: %s", strerror(errno));
+        inkcell_log_warn("signals", "signalfd failed: %s", strerror(errno));
         const int saved_errno = errno;
         mesh_signals_restore_mask();
         return -saved_errno;
@@ -92,7 +92,7 @@ int mesh_signals_init(struct mesh_signals *signals, struct mesh_event_loop *loop
     const int add_result =
         mesh_event_loop_add_fd(loop, signals->fd, EPOLLIN, mesh_signals_event_callback, signals);
     if (add_result < 0) {
-        mesh_log_warn("signals", "Failed to watch signalfd: %d", add_result);
+        inkcell_log_warn("signals", "Failed to watch signalfd: %d", add_result);
         close(signals->fd);
         signals->fd = -1;
         mesh_signals_restore_mask();

@@ -3,8 +3,8 @@
 #
 # Four things to watch, and the last is the one that would be a bug nobody could see.
 #
-#   - The row is a *Settings field*, drawn by the same `struct fb_list_item` an enum row on the
-#     Settings tab is: a label naming the axis, MESH_UI_ICON_EDIT in the gutter, and the set in
+#   - The row is a *Settings field*, drawn by the same `struct inkcell_fb_list_item` an enum row on the
+#     Settings tab is: a label naming the axis, INKCELL_ICON_EDIT in the gutter, and the set in
 #     the value column. It was a chip strip that filled the row on its own and carried no mark
 #     saying it could be pressed, which is what made the top of this screen read as a caption
 #     about the list rather than a control over it.

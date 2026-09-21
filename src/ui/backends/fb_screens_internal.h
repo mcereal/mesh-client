@@ -37,12 +37,13 @@
 /* ---- the Messages tab -------------------------------------------------------------------- */
 
 /* Level one: all traffic, the channels, and whoever we have direct messages with. */
-void fb_render_conversations(struct mesh_ui_backend_fb_state *state,
-                             const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout);
+void fb_render_conversations(struct inkcell_backend_fb_state *state,
+                             const struct mesh_ui_snapshot *snapshot,
+                             struct inkcell_fb_layout *layout);
 
 /* Level two: the open conversation, as a transcript of bubbles. */
-void fb_render_thread(struct mesh_ui_backend_fb_state *state,
-                      const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout);
+void fb_render_thread(struct inkcell_backend_fb_state *state,
+                      const struct mesh_ui_snapshot *snapshot, struct inkcell_fb_layout *layout);
 
 /*
  * One message in a line, for a screen that is *about* that message rather than showing it.
@@ -57,57 +58,60 @@ void fb_thread_quote(struct mesh_ui_message_view messages, uint32_t reply_id, ch
 
 /* ---- the sheets that put a message together ---------------------------------------------- */
 
-void fb_render_reactions(struct mesh_ui_backend_fb_state *state,
-                         const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout);
-void fb_render_compose(struct mesh_ui_backend_fb_state *state,
-                       const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout);
-void fb_render_picker(struct mesh_ui_backend_fb_state *state,
-                      const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout);
+void fb_render_reactions(struct inkcell_backend_fb_state *state,
+                         const struct mesh_ui_snapshot *snapshot, struct inkcell_fb_layout *layout);
+void fb_render_compose(struct inkcell_backend_fb_state *state,
+                       const struct mesh_ui_snapshot *snapshot, struct inkcell_fb_layout *layout);
+void fb_render_picker(struct inkcell_backend_fb_state *state,
+                      const struct mesh_ui_snapshot *snapshot, struct inkcell_fb_layout *layout);
 /* The one renderer that takes the state as const: the keyboard has no animated slot on it. */
-void fb_render_keyboard(const struct mesh_ui_backend_fb_state *state,
-                        const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout);
+void fb_render_keyboard(const struct inkcell_backend_fb_state *state,
+                        const struct mesh_ui_snapshot *snapshot, struct inkcell_fb_layout *layout);
 
 /* ---- the Nodes tab ----------------------------------------------------------------------- */
 
 /* The roster, or one node's detail over it. The map is fb_render_map() in fb_internal.h. */
-void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
-                     const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout);
+void fb_render_nodes(struct inkcell_backend_fb_state *state,
+                     const struct mesh_ui_snapshot *snapshot, struct inkcell_fb_layout *layout);
 
 /*
  * One node's detail. Drawn by the renderer above, and again by the chart below it: a chart whose
  * reading has gone - the node stopped reporting it, the history was forgotten under us - draws
  * the detail for the one frame before mesh_ui_nav_clamp() closes it.
  */
-void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
-                           const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout);
+void fb_render_node_detail(struct inkcell_backend_fb_state *state,
+                           const struct mesh_ui_snapshot *snapshot,
+                           struct inkcell_fb_layout *layout);
 
 /*
  * That node's verbs, over its detail - the screen the detail used to open with. See
  * include/mesh/ui/node_detail.h on MESH_UI_NODE_ACTION_OPEN_ACTIONS for why they moved.
  */
-void fb_render_node_actions(struct mesh_ui_backend_fb_state *state,
-                            const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout);
+void fb_render_node_actions(struct inkcell_backend_fb_state *state,
+                            const struct mesh_ui_snapshot *snapshot,
+                            struct inkcell_fb_layout *layout);
 
 /*
  * One of that node's readings over time, drawn over its detail.
  *
  * Filed with the Status tab's chart it is the twin of rather than with the list it is opened
- * from: both drive fb_draw_chart() over a whole body from one description, and that is the file
- * they belong to. See fb_screens_chart.c.
+ * from: both drive inkcell_fb_draw_chart() over a whole body from one description, and that is the
+ * file they belong to. See fb_screens_chart.c.
  */
-void fb_render_node_trend(struct mesh_ui_backend_fb_state *state,
-                          const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout);
+void fb_render_node_trend(struct inkcell_backend_fb_state *state,
+                          const struct mesh_ui_snapshot *snapshot,
+                          struct inkcell_fb_layout *layout);
 
 /* ---- the other tabs ---------------------------------------------------------------------- */
 
-void fb_render_waypoints(struct mesh_ui_backend_fb_state *state,
-                         const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout);
-void fb_render_devices(struct mesh_ui_backend_fb_state *state,
-                       const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout);
-void fb_render_status(struct mesh_ui_backend_fb_state *state,
-                      const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout);
-void fb_render_settings(struct mesh_ui_backend_fb_state *state,
-                        const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout);
+void fb_render_waypoints(struct inkcell_backend_fb_state *state,
+                         const struct mesh_ui_snapshot *snapshot, struct inkcell_fb_layout *layout);
+void fb_render_devices(struct inkcell_backend_fb_state *state,
+                       const struct mesh_ui_snapshot *snapshot, struct inkcell_fb_layout *layout);
+void fb_render_status(struct inkcell_backend_fb_state *state,
+                      const struct mesh_ui_snapshot *snapshot, struct inkcell_fb_layout *layout);
+void fb_render_settings(struct inkcell_backend_fb_state *state,
+                        const struct mesh_ui_snapshot *snapshot, struct inkcell_fb_layout *layout);
 
 /* What to call a device: the advertised name when it has one, otherwise whatever we addressed
    it by. The Devices tab's rows and the line under the keycaps name a radio the same way, which
@@ -121,7 +125,7 @@ const char *fb_device_label(const struct mesh_ui_device *device);
  * chart that card opens - so the amber the reader saw on the bar is the line they watch the
  * trend cross. A threshold that is drawn has to be the threshold that is compared.
  */
-extern const struct mesh_ui_band fb_air_band;
+extern const struct inkcell_band fb_air_band;
 
 /* ---- what is drawn over a tab ------------------------------------------------------------ */
 
@@ -193,7 +197,7 @@ struct fb_overlay_memo {
     char text[256];
     char accept[48];
     char cancel[48];
-    enum mesh_ui_icon icon;
+    enum inkcell_icon icon;
     uint32_t cursor;
     bool destructive;
     bool valid;
@@ -214,7 +218,7 @@ struct fb_overlay_memo {
  * NULL is a frame drawn with no memo behind it, which a caller reads as "describe it or do not
  * draw it" - the dialog is still put, it simply cannot go away slowly.
  */
-struct fb_overlay_memo *fb_overlay_memo(struct mesh_ui_backend_fb_state *state,
+struct fb_overlay_memo *fb_overlay_memo(struct inkcell_backend_fb_state *state,
                                         enum fb_overlay_id id);
 
 /*
@@ -224,7 +228,7 @@ struct fb_overlay_memo *fb_overlay_memo(struct mesh_ui_backend_fb_state *state,
  * Zero is nothing to draw - a layer that never opened, or one whose subject left the roster
  * under it. Writes through the memo, so a caller asks once a frame and uses the answer.
  */
-uint32_t fb_overlay_subject(struct mesh_ui_backend_fb_state *state, enum fb_overlay_id id, bool up,
+uint32_t fb_overlay_subject(struct inkcell_backend_fb_state *state, enum fb_overlay_id id, bool up,
                             uint32_t subject);
 
 /*
@@ -252,11 +256,12 @@ enum fb_scroll_id {
  * alternative would be every component in the toolkit growing a second entry point for the one
  * caller that draws into a panel.
  */
-struct fb_layout fb_layout_in(const struct fb_layout *layout, struct inkcell_fb_rect box);
+struct inkcell_fb_layout fb_layout_in(const struct inkcell_fb_layout *layout,
+                                      struct inkcell_fb_rect box);
 
 /* The scroll kept for `id`, or NULL when there is nowhere to keep one - a frame with no memo
    behind it, which a caller reads as "draw it settled". */
-struct inkcell_scroll *fb_scroll(struct mesh_ui_backend_fb_state *state, enum fb_scroll_id id);
+struct inkcell_scroll *fb_scroll(struct inkcell_backend_fb_state *state, enum fb_scroll_id id);
 
 /*
  * Says whether the body this frame drew is still travelling.
@@ -265,7 +270,7 @@ struct inkcell_scroll *fb_scroll(struct mesh_ui_backend_fb_state *state, enum fb
  * body asks for the next frame. A frame that draws no viewport says false, which is what stops
  * the client repainting for a scroll that has gone away with its screen.
  */
-void fb_scroll_report(struct mesh_ui_backend_fb_state *state, bool moving);
+void fb_scroll_report(struct inkcell_backend_fb_state *state, bool moving);
 
 /*
  * Opens a bottom sheet over the body and hands back a layout for what goes in it.
@@ -278,13 +283,14 @@ void fb_scroll_report(struct mesh_ui_backend_fb_state *state, bool moving);
  * Returns false once the sheet has finished leaving, which is when a screen stops describing
  * it. Pairs with fb_sheet_end() on true, and nothing on false - the layer's own `if`.
  */
-bool fb_sheet_begin(struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
+bool fb_sheet_begin(struct inkcell_backend_fb_state *state, const struct inkcell_fb_layout *layout,
                     enum fb_overlay_id id, bool up, const struct inkcell_fb_sheet *sheet,
-                    int content_h, struct inkcell_overlay_frame *frame, struct fb_layout *out);
-void fb_sheet_end(struct mesh_ui_backend_fb_state *state, struct inkcell_overlay_frame *frame);
+                    int content_h, struct inkcell_overlay_frame *frame,
+                    struct inkcell_fb_layout *out);
+void fb_sheet_end(struct inkcell_backend_fb_state *state, struct inkcell_overlay_frame *frame);
 
-void fb_render_help(struct mesh_ui_backend_fb_state *state, const struct mesh_ui_snapshot *snapshot,
-                    struct fb_layout *layout);
+void fb_render_help(struct inkcell_backend_fb_state *state, const struct mesh_ui_snapshot *snapshot,
+                    struct inkcell_fb_layout *layout);
 /*
  * The two questions, each on a layer over the screen that raised it.
  *
@@ -292,17 +298,17 @@ void fb_render_help(struct mesh_ui_backend_fb_state *state, const struct mesh_ui
  * the snapshot any more and the call is what walks it out - see struct fb_dialog_memo. Both are
  * no-ops on a frame where the question is neither up nor still on its way out.
  */
-void fb_render_confirm(struct mesh_ui_backend_fb_state *state,
-                       const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout);
-void fb_render_verify(struct mesh_ui_backend_fb_state *state,
-                      const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout);
+void fb_render_confirm(struct inkcell_backend_fb_state *state,
+                       const struct mesh_ui_snapshot *snapshot, struct inkcell_fb_layout *layout);
+void fb_render_verify(struct inkcell_backend_fb_state *state,
+                      const struct mesh_ui_snapshot *snapshot, struct inkcell_fb_layout *layout);
 /* The two code sheets: this radio's channels, and this radio's contact record. */
-void fb_render_share(struct mesh_ui_backend_fb_state *state,
-                     const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout);
-void fb_render_contact(struct mesh_ui_backend_fb_state *state,
-                       const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout);
+void fb_render_share(struct inkcell_backend_fb_state *state,
+                     const struct mesh_ui_snapshot *snapshot, struct inkcell_fb_layout *layout);
+void fb_render_contact(struct inkcell_backend_fb_state *state,
+                       const struct mesh_ui_snapshot *snapshot, struct inkcell_fb_layout *layout);
 /* The radio's airtime, over the Status cards that offered it. */
-void fb_render_trend(struct mesh_ui_backend_fb_state *state,
-                     const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout);
+void fb_render_trend(struct inkcell_backend_fb_state *state,
+                     const struct mesh_ui_snapshot *snapshot, struct inkcell_fb_layout *layout);
 
 #endif /* MESH_UI_BACKENDS_FB_SCREENS_INTERNAL_H */

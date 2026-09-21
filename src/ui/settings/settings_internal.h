@@ -40,11 +40,11 @@ enum mesh_ui_setting_text_limit {
  * What one editable field is: its label, how it is edited, and what values it will take.
  *
  * `label` and `zero_label` are catalog ids rather than text, so the table describes what a row
- * *is* and src/i18n answers what it is called. MESH_STR_NONE in zero_label means the field has
+ * *is* and src/i18n answers what it is called. INKCELL_STR_NONE in zero_label means the field has
  * no special name for 0 and the seconds formatter handles it.
  */
 struct field_spec {
-    enum mesh_str_id label;
+    enum inkcell_str_id label;
     enum mesh_ui_setting_kind kind;
     enum mesh_ui_settings_section section;
     /*
@@ -83,7 +83,7 @@ struct field_spec {
      * value of 0 on such a field is off the track rather than at the start of it.
      */
     bool preset_zero_aside;
-    enum mesh_str_id zero_label; /* NUMBER: what 0 means (seconds formatting) */
+    enum inkcell_str_id zero_label; /* NUMBER: what 0 means (seconds formatting) */
     /*
      * NUMBER: overrides the seconds default. `imperial` is the radio's display units, decoded
      * by mesh_ui_units_imperial(), and every formatter takes it whether or not it has anything
@@ -94,7 +94,7 @@ struct field_spec {
     void (*format)(uint32_t value, bool imperial, char *out, size_t out_len);
     uint32_t choices; /* KEY: MESH_UI_PSK_CHOICE_BIT mask Left/Right walk */
     /*
-     * What this setting does, in a sentence or two, for the help screen - and MESH_STR_NONE
+     * What this setting does, in a sentence or two, for the help screen - and INKCELL_STR_NONE
      * for a row whose label is already the whole explanation.
      *
      * Last in the struct rather than beside `label`, where it belongs by meaning, because
@@ -102,7 +102,7 @@ struct field_spec {
      * every one of the hundred and fifty rows below it, silently and in a way the compiler
      * would only catch where the types happened to disagree.
      *
-     * Every row states it, MESH_STR_NONE included, which is what makes that renumbering a
+     * Every row states it, INKCELL_STR_NONE included, which is what makes that renumbering a
      * diagnostic rather than a silence. Leaving it off and relying on the trailing member
      * being zeroed says the same thing to the language and nothing at all to a reader - and
      * it is a -Wmissing-field-initializers on each such row under clang, which is fifty-two
@@ -110,7 +110,7 @@ struct field_spec {
      *
      * See docs/help.md for what a note may say and how long it may be.
      */
-    enum mesh_str_id note;
+    enum inkcell_str_id note;
 };
 
 /* The spec for `field`, never NULL - an unknown field yields the MESH_UI_FIELD_NONE row. */

@@ -114,7 +114,7 @@ MESH_TEST_CASE(base64_key_text_is_the_padded_alphabet, unit) {
 
 /* ---- the QR encoder ------------------------------------------------------------------------ */
 
-static void qr_digest(const struct mesh_qr *qr, char *out, size_t out_len) {
+static void qr_digest(const struct inkcell_qr *qr, char *out, size_t out_len) {
     struct mesh_sha256 ctx;
     uint8_t digest[MESH_SHA256_DIGEST_LEN];
     mesh_sha256_init(&ctx);
@@ -127,13 +127,13 @@ static void qr_digest(const struct mesh_qr *qr, char *out, size_t out_len) {
 /* A finder pattern is a 7x7 ring the reader locks onto; three of them say which way up a code
    is. Checked here rather than only through the hash because "the corners are wrong" and "the
    payload is wrong" are different bugs and the hash cannot tell them apart. */
-static bool qr_finder_at(const struct mesh_qr *qr, int ox, int oy) {
+static bool qr_finder_at(const struct inkcell_qr *qr, int ox, int oy) {
     static const char *k_rows[7] = {
         "1111111", "1000001", "1011101", "1011101", "1011101", "1000001", "1111111",
     };
     for (int y = 0; y < 7; ++y) {
         for (int x = 0; x < 7; ++x) {
-            if (mesh_qr_dark(qr, ox + x, oy + y) != (k_rows[y][x] == '1')) {
+            if (inkcell_qr_dark(qr, ox + x, oy + y) != (k_rows[y][x] == '1')) {
                 return false;
             }
         }
@@ -143,13 +143,13 @@ static bool qr_finder_at(const struct mesh_qr *qr, int ox, int oy) {
 
 MESH_TEST_CASE(qr_structure_is_a_qr_code, unit) {
     static const char k_text[] = MESH_CHANNEL_URL_PREFIX "CgkSAQEqA0FRSQ";
-    struct mesh_qr qr;
+    struct inkcell_qr qr;
     MESH_TEST_FAIL_IF(
-        !mesh_qr_encode((const uint8_t *)k_text, strlen(k_text), MESH_QR_ECC_LOW, &qr),
+        !inkcell_qr_encode((const uint8_t *)k_text, strlen(k_text), INKCELL_QR_ECC_LOW, &qr),
         "a channel-sized URL did not encode");
 
     /* 21 + 4*(version - 1), so a size outside that series is not a QR code at all. */
-    MESH_TEST_FAIL_IF(qr.size < 21U || qr.size > MESH_QR_MAX_SIZE || (qr.size - 17U) % 4U != 0U,
+    MESH_TEST_FAIL_IF(qr.size < 21U || qr.size > INKCELL_QR_MAX_SIZE || (qr.size - 17U) % 4U != 0U,
                       "the matrix is not a legal size");
 
     const int size = (int)qr.size;
@@ -160,16 +160,17 @@ MESH_TEST_CASE(qr_structure_is_a_qr_code, unit) {
     /* The timing patterns run between the finders, alternating, starting dark. */
     for (int i = 8; i < size - 8; ++i) {
         const bool dark = i % 2 == 0;
-        MESH_TEST_FAIL_IF(mesh_qr_dark(&qr, i, 6) != dark, "the horizontal timing pattern broke");
-        MESH_TEST_FAIL_IF(mesh_qr_dark(&qr, 6, i) != dark, "the vertical timing pattern broke");
+        MESH_TEST_FAIL_IF(inkcell_qr_dark(&qr, i, 6) != dark,
+                          "the horizontal timing pattern broke");
+        MESH_TEST_FAIL_IF(inkcell_qr_dark(&qr, 6, i) != dark, "the vertical timing pattern broke");
     }
 
     /* The one module that is dark in every code ever made. */
-    MESH_TEST_FAIL_IF(!mesh_qr_dark(&qr, 8, size - 8), "the dark module is light");
+    MESH_TEST_FAIL_IF(!inkcell_qr_dark(&qr, 8, size - 8), "the dark module is light");
 
     /* Nothing outside the matrix, so a drawing loop that runs into the quiet zone is safe. */
-    MESH_TEST_FAIL_IF(mesh_qr_dark(&qr, -1, 0) || mesh_qr_dark(&qr, 0, size) ||
-                          mesh_qr_dark(NULL, 0, 0),
+    MESH_TEST_FAIL_IF(inkcell_qr_dark(&qr, -1, 0) || inkcell_qr_dark(&qr, 0, size) ||
+                          inkcell_qr_dark(NULL, 0, 0),
                       "a module outside the matrix read as dark");
     record_success(test_name);
 }
@@ -185,21 +186,21 @@ MESH_TEST_CASE(qr_matrices_are_pinned, unit) {
     static const char k_link[] = MESH_CHANNEL_URL_PREFIX "CgkSAQEqA0FRSQ";
     static const struct {
         const char *label;
-        enum mesh_qr_ecc ecc;
+        enum inkcell_qr_ecc ecc;
         uint8_t size;
         const char *digest;
     } k_cases[] = {
         /* Version 3 at either level: a one-channel link is what almost every share is. */
-        {"a channel link at low correction", MESH_QR_ECC_LOW, 29U,
+        {"a channel link at low correction", INKCELL_QR_ECC_LOW, 29U,
          "529e20d462f2ce3f8c3be54befe19654e4c00d24bd7db25a3de3e6527a228c47"},
-        {"the same link at medium", MESH_QR_ECC_MEDIUM, 29U,
+        {"the same link at medium", INKCELL_QR_ECC_MEDIUM, 29U,
          "701265f731173ebc5c6a9f660ceefa3d2cad4de9130e457de14e221e5f42fb66"},
     };
 
     for (size_t i = 0; i < sizeof k_cases / sizeof k_cases[0]; ++i) {
-        struct mesh_qr qr;
+        struct inkcell_qr qr;
         char reason[160];
-        if (!mesh_qr_encode((const uint8_t *)k_link, strlen(k_link), k_cases[i].ecc, &qr)) {
+        if (!inkcell_qr_encode((const uint8_t *)k_link, strlen(k_link), k_cases[i].ecc, &qr)) {
             snprintf(reason, sizeof reason, "%s did not encode", k_cases[i].label);
             record_failure(test_name, reason);
             return;
@@ -227,8 +228,8 @@ MESH_TEST_CASE(qr_matrices_are_pinned, unit) {
 MESH_TEST_CASE(qr_refuses_what_it_cannot_hold, unit) {
     static uint8_t k_huge[4096];
     memset(k_huge, 'A', sizeof k_huge);
-    struct mesh_qr qr;
-    MESH_TEST_FAIL_IF(mesh_qr_encode(k_huge, sizeof k_huge, MESH_QR_ECC_LOW, &qr),
+    struct inkcell_qr qr;
+    MESH_TEST_FAIL_IF(inkcell_qr_encode(k_huge, sizeof k_huge, INKCELL_QR_ECC_LOW, &qr),
                       "an oversized payload encoded anyway");
     MESH_TEST_FAIL_IF(qr.size != 0U, "a refused encode left a matrix behind");
 
@@ -236,11 +237,12 @@ MESH_TEST_CASE(qr_refuses_what_it_cannot_hold, unit) {
        fits, so a share can always be shown as a code rather than only as text. */
     static uint8_t k_longest[MESH_CHANNEL_URL_MAX - 1U];
     memset(k_longest, 'A', sizeof k_longest);
-    MESH_TEST_FAIL_IF(!mesh_qr_encode(k_longest, sizeof k_longest, MESH_QR_ECC_LOW, &qr),
+    MESH_TEST_FAIL_IF(!inkcell_qr_encode(k_longest, sizeof k_longest, INKCELL_QR_ECC_LOW, &qr),
                       "the longest possible channel link did not fit in a code");
 
-    MESH_TEST_FAIL_IF(mesh_qr_encode(NULL, 4U, MESH_QR_ECC_LOW, &qr), "NULL data encoded");
-    MESH_TEST_FAIL_IF(mesh_qr_encode(k_longest, 1U, MESH_QR_ECC_LOW, NULL), "NULL output encoded");
+    MESH_TEST_FAIL_IF(inkcell_qr_encode(NULL, 4U, INKCELL_QR_ECC_LOW, &qr), "NULL data encoded");
+    MESH_TEST_FAIL_IF(inkcell_qr_encode(k_longest, 1U, INKCELL_QR_ECC_LOW, NULL),
+                      "NULL output encoded");
     record_success(test_name);
 }
 
@@ -626,21 +628,21 @@ MESH_TEST_CASE(channel_share_rows_drive_the_two_screens, unit) {
     }
 
     /* ---- share: a row that opens a picture and nothing else ---- */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.share_open || action.type != MESH_UI_ACTION_NONE) {
         failure = "A on the share row should open the sheet and ask the app for nothing";
         goto cleanup;
     }
     /* Nothing on it moves, so nothing but B does anything - a thumb on the pad must not dismiss
        a code somebody is scanning. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.share_open) {
         failure = "the share sheet should ignore every key but B";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
     if (store.nav.share_open) {
         failure = "B should close the share sheet";
         goto cleanup;
@@ -659,8 +661,8 @@ MESH_TEST_CASE(channel_share_rows_drive_the_two_screens, unit) {
     }
 
     /* ---- import: a row, a keyboard, a sheet ---- */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.keyboard_open || !store.nav.keyboard_channel_url) {
         failure = "A on the import row should open the link keyboard";
         goto cleanup;
@@ -676,7 +678,7 @@ MESH_TEST_CASE(channel_share_rows_drive_the_two_screens, unit) {
      * would test the grid twice and this once.
      */
     snprintf(store.nav.draft, sizeof store.nav.draft, "%s", "not a link");
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_START, &action);
     if (!store.nav.keyboard_open || store.nav.confirm_open || store.nav.toast[0] == '\0') {
         failure = "a link that does not parse should stay on the keyboard and say so";
         goto cleanup;
@@ -690,11 +692,11 @@ MESH_TEST_CASE(channel_share_rows_drive_the_two_screens, unit) {
         failure = "the link did not encode";
         goto cleanup;
     }
-    if (!mesh_str_copy(store.nav.draft, sizeof store.nav.draft, link)) {
+    if (!inkcell_str_copy(store.nav.draft, sizeof store.nav.draft, link)) {
         failure = "the link did not fit the draft the keyboard fills";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_START, &action);
     if (store.nav.keyboard_open || !store.nav.confirm_open ||
         store.nav.confirm_action != (uint8_t)MESH_UI_SETTINGS_ACTION_IMPORT_CHANNELS ||
         store.nav.confirm_cursor != 1U) {
@@ -715,8 +717,8 @@ MESH_TEST_CASE(channel_share_rows_drive_the_two_screens, unit) {
 
     /* And the answer is the only thing that reaches the app - carrying the link itself, so the
        app can parse it against whatever the radio's table has become since. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action); /* onto the accept button */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action); /* onto the accept button */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (store.nav.confirm_open || action.type != MESH_UI_ACTION_IMPORT_CHANNELS ||
         strcmp(action.text, link) != 0) {
         failure = "the sheet's accept should hand the app the link";

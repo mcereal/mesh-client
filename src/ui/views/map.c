@@ -44,7 +44,7 @@ static void map_add(struct mesh_ui_map_view *view, enum mesh_ui_map_marker_kind 
     marker->stale = stale;
     marker->openable = openable;
     if (label != NULL) {
-        mesh_str_copy(marker->label, sizeof marker->label, label);
+        inkcell_str_copy(marker->label, sizeof marker->label, label);
     }
     if (kind == MESH_UI_MAP_MARKER_SELF) {
         view->has_self = true;
@@ -106,8 +106,8 @@ static bool map_roster_at(const struct mesh_ui_handshake_state *hs, uint32_t ind
     out->has_row = true;
     /* The short name, falling back to the long one - the same rule publish applies, and it is
        stated once on struct mesh_ui_map_node's `label`. */
-    mesh_str_copy(out->label, sizeof out->label,
-                  node->short_name[0] != '\0' ? node->short_name : node->long_name);
+    inkcell_str_copy(out->label, sizeof out->label,
+                     node->short_name[0] != '\0' ? node->short_name : node->long_name);
     return true;
 }
 
@@ -175,7 +175,7 @@ void mesh_ui_map_build(const struct mesh_ui_store *store, struct mesh_ui_map_vie
         /* A place whose sharer left the name empty is legal on the wire and is what the phone
            apps send for a pin dropped in a hurry; the list already has a word for it. */
         const char *name =
-            waypoint->name[0] != '\0' ? waypoint->name : mesh_str(MESH_STR_WAYPOINTS_UNNAMED);
+            waypoint->name[0] != '\0' ? waypoint->name : inkcell_str(MESH_STR_WAYPOINTS_UNNAMED);
         /*
          * `heard` rather than a precision: a waypoint is a point somebody chose rather than one
          * a receiver solved, so there is no rounding to report and nothing to be vague about.

@@ -99,7 +99,7 @@ int LLVMFuzzerInitialize(int *argc, char ***argv) {
     /* Nearly every input is a protobuf that does not decode, and the session says so at WARN.
        Left on, the run is a write() to stderr per input and the fuzzer spends its time in the
        terminal rather than in the parser. The log is not what this is testing. */
-    mesh_log_set_level(MESH_LOG_LEVEL_NONE);
+    inkcell_log_set_level(INKCELL_LOG_LEVEL_NONE);
     return 0;
 }
 

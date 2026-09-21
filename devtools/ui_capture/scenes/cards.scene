@@ -13,7 +13,7 @@ hold 900
 
 # The radio comes under pressure. Each of these is a row that only exists while something is
 # wrong, which is why this card is the one that can outgrow the panel - and why it is ordered
-# most-read first, so what fb_draw_card() drops is the free-heap figure and not the battery.
+# most-read first, so what inkcell_fb_draw_card() drops is the free-heap figure and not the battery.
 queue 6 16
 hold 700
 notice warn Duty cycle limit reached, transmit paused

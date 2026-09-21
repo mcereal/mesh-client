@@ -64,8 +64,8 @@ static bool settings_row_slider(const struct mesh_ui_settings_item *item,
    pending edit in place of the radio's value, marked with a dot until Y saves it. */
 /* Takes the state mutably, unlike its neighbours: the switches on the toggle rows step an
    animation kept on it. Nothing else here writes to the state. */
-void fb_render_settings(struct mesh_ui_backend_fb_state *state,
-                        const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
+void fb_render_settings(struct inkcell_backend_fb_state *state,
+                        const struct mesh_ui_snapshot *snapshot, struct inkcell_fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
     const struct mesh_ui_settings *settings = &snapshot->settings;
     const struct mesh_ui_handshake_state *handshake =
@@ -87,7 +87,7 @@ void fb_render_settings(struct mesh_ui_backend_fb_state *state,
      * What is left here is a level per slot. The separators are the component's, and it draws
      * them as chevrons.
      */
-    struct fb_app_bar bar = {.title = mesh_str(MESH_STR_SETTINGS_TITLE)};
+    struct inkcell_fb_app_bar bar = {.title = inkcell_str(MESH_STR_SETTINGS_TITLE)};
     char title[96];
     char unsaved[32];
     if (section_open) {
@@ -104,8 +104,8 @@ void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                Modules it is not in settings_parent - a channel is identified by its number
                rather than by a section of its own. */
             bar.trail[bar.trail_count++] = mesh_ui_settings_section_name(MESH_UI_SETTINGS_CHANNELS);
-            mesh_str_format(title, sizeof title, MESH_STR_SETTINGS_TITLE_CHANNEL,
-                            (unsigned)nav->settings_channel);
+            inkcell_str_format(title, sizeof title, MESH_STR_SETTINGS_TITLE_CHANNEL,
+                               (unsigned)nav->settings_channel);
             bar.title = title;
         } else {
             if (nav->settings_parent != MESH_UI_SETTINGS_NO_SECTION) {
@@ -120,13 +120,13 @@ void fb_render_settings(struct mesh_ui_backend_fb_state *state,
          * does not know about these yet, and leaving the section is what loses them.
          */
         if (nav->settings_edit_count > 0U) {
-            mesh_str_format(unsaved, sizeof unsaved, MESH_STR_SETTINGS_UNSAVED,
-                            (unsigned)nav->settings_edit_count);
+            inkcell_str_format(unsaved, sizeof unsaved, MESH_STR_SETTINGS_UNSAVED,
+                               (unsigned)nav->settings_edit_count);
             bar.badge = unsaved;
-            bar.badge_family = MESH_UI_FAMILY_WARNING;
+            bar.badge_family = INKCELL_FAMILY_WARNING;
         }
     }
-    fb_draw_app_bar(state, layout, &bar);
+    inkcell_fb_draw_app_bar(state, layout, &bar);
 
     /* Every other section describes the radio, but About describes this client, so the tab
        stays usable with nothing connected: the section list still draws (About is the only
@@ -135,8 +135,8 @@ void fb_render_settings(struct mesh_ui_backend_fb_state *state,
        radio, and each of its rows says "not loaded" on its own. */
     if (!settings->loaded && (handshake == NULL || !handshake->has_my_info) && section_open &&
         section != MESH_UI_SETTINGS_ABOUT && section != MESH_UI_SETTINGS_MODULES) {
-        fb_draw_empty(state, layout, MESH_UI_ICON_SETTINGS,
-                      mesh_str(MESH_STR_SETTINGS_EMPTY_DISCONNECT));
+        inkcell_fb_draw_empty(state, layout, INKCELL_ICON_SETTINGS,
+                              inkcell_str(MESH_STR_SETTINGS_EMPTY_DISCONNECT));
         return;
     }
 
@@ -164,9 +164,10 @@ void fb_render_settings(struct mesh_ui_backend_fb_state *state,
         /* Which of the two empty sections this is: one a refresh may fill in, and one it never
            will. Asked of the same predicate the section list asks, so the row and the screen
            behind it cannot disagree about why it is blank. */
-        fb_draw_empty(state, layout, MESH_UI_ICON_SETTINGS,
-                      mesh_str(mesh_ui_settings_availability_reason(
-                          mesh_ui_settings_section_availability(settings, handshake, section))));
+        inkcell_fb_draw_empty(
+            state, layout, INKCELL_ICON_SETTINGS,
+            inkcell_str(mesh_ui_settings_availability_reason(
+                mesh_ui_settings_section_availability(settings, handshake, section))));
         return;
     }
 
@@ -178,7 +179,7 @@ void fb_render_settings(struct mesh_ui_backend_fb_state *state,
      * setting's row already says what it is in its label column.
      */
     /* Label column: a fixed width so values line up, capped for narrow scales. */
-    const size_t label_cols = fb_field_label_cols(state, layout, 0U);
+    const size_t label_cols = inkcell_fb_field_label_cols(state, layout, 0U);
     /*
      * Which card each row stands on - measured here, in one pass, before anything is placed.
      *
@@ -199,7 +200,7 @@ void fb_render_settings(struct mesh_ui_backend_fb_state *state,
      */
     uint8_t cards[MESH_UI_SETTINGS_ITEMS_MAX];
     bool any_cards = false;
-    memset(cards, FB_LIST_NO_CARD, sizeof cards);
+    memset(cards, INKCELL_FB_LIST_NO_CARD, sizeof cards);
     if (section_open && mesh_ui_settings_section_groups(items, count) >= 2U) {
         /*
          * Every row of an open section stands on a card, and the headings are what break the
@@ -219,10 +220,10 @@ void fb_render_settings(struct mesh_ui_backend_fb_state *state,
          * What forced that split was the leading slot: a card of verbs indented every row past
          * a disc and a card of settings started at the card's own padding, so a card holding
          * both began its words in two columns. That is no longer true and has not been since
-         * the slot was made unconditional - `leading_slot` below is FB_LEADING_TONAL_SLOT for
-         * every row of every open section, and fb_item_measure() gives FB_LEADING_TONAL and
-         * FB_LEADING_TONAL_SLOT one gutter deliberately, so that a list can mix the two. A
-         * verb's disc now lands in the gutter its neighbours were already reserving, and the
+         * the slot was made unconditional - `leading_slot` below is INKCELL_FB_LEADING_TONAL_SLOT
+         * for every row of every open section, and fb_item_measure() gives INKCELL_FB_LEADING_TONAL
+         * and INKCELL_FB_LEADING_TONAL_SLOT one gutter deliberately, so that a list can mix the
+         * two. A verb's disc now lands in the gutter its neighbours were already reserving, and the
          * labels line up down the card. `ui_capture_a_section_starts_every_row_in_one_column`
          * is what holds that, and it was passing over the float for the same reason.
          *
@@ -237,7 +238,7 @@ void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                 /* The heading stands on no card, in the break between the one that ended and the
                    one it opens - which is where the column gets the only air it has, and why the
                    grouping costs no rows. See the card-list note in fb_widgets.h. */
-                cards[r] = FB_LIST_NO_CARD;
+                cards[r] = INKCELL_FB_LIST_NO_CARD;
                 card = (uint8_t)(card + 1U);
                 continue;
             }
@@ -311,9 +312,9 @@ void fb_render_settings(struct mesh_ui_backend_fb_state *state,
      * are answered by `rows_lead_with_icon` above: the section list and Modules are lists of
      * things to open rather than of settings, and neither has ever mixed the two.
      */
-    const struct fb_leading leading_slot = section_open
-                                               ? (struct fb_leading){.kind = FB_LEADING_TONAL_SLOT}
-                                               : (struct fb_leading){.kind = FB_LEADING_NONE};
+    const struct inkcell_fb_leading leading_slot =
+        section_open ? (struct inkcell_fb_leading){.kind = INKCELL_FB_LEADING_TONAL_SLOT}
+                     : (struct inkcell_fb_leading){.kind = INKCELL_FB_LEADING_NONE};
     /*
      * Which rows carry a slider, measured here and handed to the model before the first row is
      * placed - the node detail's arrangement, and the rule step 9 left behind: the screen
@@ -329,11 +330,11 @@ void fb_render_settings(struct mesh_ui_backend_fb_state *state,
     for (uint32_t r = 0; r < count; ++r) {
         heights[r] = (section_open && settings_row_slider(&items[r], NULL)) ? 2U : 1U;
     }
-    struct fb_list list = fb_list_begin_cards(layout, count, nav->cursor[MESH_UI_SCREEN_SETTINGS],
-                                              heights, any_cards ? cards : NULL);
+    struct inkcell_fb_list list = inkcell_fb_list_begin_cards(
+        layout, count, nav->cursor[MESH_UI_SCREEN_SETTINGS], heights, any_cards ? cards : NULL);
     inkcell_fb_list_glide(state, &list, FB_LIST_SETTINGS);
     uint32_t i;
-    while (fb_list_next(&list, &i)) {
+    while (inkcell_fb_list_next(&list, &i)) {
         if (section_open) {
             const struct mesh_ui_settings_item item = items[i];
             /* A heading names the group below it: dimmed, no marker, and no value column -
@@ -357,7 +358,7 @@ void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                  * margin over rows that begin a disc further in is the two-column seam the slot
                  * exists to close.
                  */
-                fb_list_subheader_icon(state, &list, i, item.label, leading_slot);
+                inkcell_fb_list_subheader_icon(state, &list, i, item.label, leading_slot);
                 continue;
             }
             /*
@@ -368,7 +369,7 @@ void fb_render_settings(struct mesh_ui_backend_fb_state *state,
              * chevron every row that opens something ends in, on the trailing edge rather than
              * in the gutter.
              */
-            const enum mesh_ui_icon marker = mesh_ui_settings_item_marker(&item);
+            const enum inkcell_icon marker = mesh_ui_settings_item_marker(&item);
             /*
              * Whether that mark stands down for a control drawn beside the value, which is this
              * backend's own decision and taken twice below: a small enum becomes a segmented
@@ -390,16 +391,16 @@ void fb_render_settings(struct mesh_ui_backend_fb_state *state,
             /* The rows of this kind that open a list - a channel slot, a module - as against
                the ones that step a value where they stand. A chevron promises a screen. */
             const bool opens = (item.kind == MESH_UI_SETTING_ACTION) && !item.cycle;
-            const enum mesh_ui_tone tone = item.conflict ? MESH_UI_TONE_WARNING
-                                           : item.dirty  ? MESH_UI_TONE_STRONG
-                                                         : MESH_UI_TONE_NORMAL;
+            const enum inkcell_tone tone = item.conflict ? INKCELL_TONE_WARNING
+                                           : item.dirty  ? INKCELL_TONE_STRONG
+                                                         : INKCELL_TONE_NORMAL;
             /* Empty on every list but Modules, and reserved on all of that one's rows - which
                is what the kind means, and why it is set from the list's answer rather than
                from whether this particular row filled it. */
-            const struct fb_leading leading =
-                rows_lead_with_icon
-                    ? (struct fb_leading){.kind = FB_LEADING_ICON, .icon = item.icon}
-                    : leading_slot;
+            const struct inkcell_fb_leading leading =
+                rows_lead_with_icon ? (struct inkcell_fb_leading){.kind = INKCELL_FB_LEADING_ICON,
+                                                                  .icon = item.icon}
+                                    : leading_slot;
             /*
              * Which of this row's two tiers recedes, asked of the model rather than of the
              * kind - see mesh_ui_settings_item_is_fact(). A reading puts the question in the
@@ -421,11 +422,11 @@ void fb_render_settings(struct mesh_ui_backend_fb_state *state,
              * opens something - every one of these opens a confirm sheet or a screen - and the
              * disc says what it is about, which is what the words were carrying alone.
              *
-             * The colour is the row's own tone, stated once. FB_LEADING_TONAL reads the family
-             * back out of it for the disc, `accent_edge` takes the same answer for the bar down
-             * a row that cannot be walked back, and the label keeps the ordinary ink either way -
-             * because a card where every verb shouts is a card where none of them does. This is
-             * word for word the node detail's action card, which is the point: there is one way
+             * The colour is the row's own tone, stated once. INKCELL_FB_LEADING_TONAL reads the
+             * family back out of it for the disc, `accent_edge` takes the same answer for the bar
+             * down a row that cannot be walked back, and the label keeps the ordinary ink either
+             * way - because a card where every verb shouts is a card where none of them does. This
+             * is word for word the node detail's action card, which is the point: there is one way
              * this client draws a verb.
              *
              * What rides the trailing edge instead of the chevron, when there is something to
@@ -437,8 +438,8 @@ void fb_render_settings(struct mesh_ui_backend_fb_state *state,
              */
             if (mesh_ui_settings_item_is_verb(&item)) {
                 const bool off = (item.kind == MESH_UI_SETTING_ACTION_OFF);
-                const enum mesh_ui_tone verb_tone = item.conflict ? MESH_UI_TONE_WARNING
-                                                    : item.dirty  ? MESH_UI_TONE_STRONG
+                const enum inkcell_tone verb_tone = item.conflict ? INKCELL_TONE_WARNING
+                                                    : item.dirty  ? INKCELL_TONE_STRONG
                                                                   : item.tone;
                 /*
                  * A verb with a value, in a section that has a column for one.
@@ -447,8 +448,8 @@ void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                  * ink, the chevron, the edge on a press with no way back - and only the value
                  * moves, into the column the fields around it are already writing in. `label`
                  * rather than `text` is the whole of the difference: it is what asks
-                 * fb_list_item() for a label column, and the column is measured once for the
-                 * screen, so the verb's value starts in the same cell a setting's does.
+                 * inkcell_fb_list_item() for a label column, and the column is measured once for
+                 * the screen, so the verb's value starts in the same cell a setting's does.
                  *
                  * MESH_UI_SETTING_ACTION only, and not the withdrawn one beside it: "not
                  * supported" is a reason rather than a value, it belongs against the trailing
@@ -466,19 +467,21 @@ void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                                                     (enum mesh_ui_settings_action)item.number);
                 if (section_has_field && item.kind == MESH_UI_SETTING_ACTION &&
                     item.value[0] != '\0') {
-                    const struct fb_list_item value_row = {
-                        .leading = {.kind = FB_LEADING_TONAL, .icon = item.icon},
+                    const struct inkcell_fb_list_item value_row = {
+                        .leading = {.kind = INKCELL_FB_LEADING_TONAL, .icon = item.icon},
                         .label = item.label,
                         .label_cols = label_cols,
                         .value = item.value,
                         .tone = verb_tone,
                         .label_plain = true,
-                        .trailing = verb_opens ? (struct fb_trailing){.kind = FB_TRAILING_ICON,
-                                                                      .icon = MESH_UI_ICON_CHEVRON}
-                                               : (struct fb_trailing){.kind = FB_TRAILING_NONE},
-                        .accent_edge = verb_tone == MESH_UI_TONE_ERROR,
+                        .trailing =
+                            verb_opens
+                                ? (struct inkcell_fb_trailing){.kind = INKCELL_FB_TRAILING_ICON,
+                                                               .icon = INKCELL_ICON_CHEVRON}
+                                : (struct inkcell_fb_trailing){.kind = INKCELL_FB_TRAILING_NONE},
+                        .accent_edge = verb_tone == INKCELL_TONE_ERROR,
                     };
-                    fb_list_item(state, &list, i, &value_row);
+                    inkcell_fb_list_item(state, &list, i, &value_row);
                     continue;
                 }
                 /*
@@ -492,22 +495,24 @@ void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                  * rather than a badge for the counts, and that is deliberate - a filled capsule
                  * is a count that *shouts*, which is right for unread messages and wrong for
                  * "English". A card where every row ends in a bubble is a column of colour
-                 * reporting nothing, which is the bar fb_draw_badge() is already held to.
+                 * reporting nothing, which is the bar inkcell_fb_draw_badge() is already held to.
                  *
                  * The chevron goes when a value takes the slot. That is the honest order of the
                  * two: the reader needs the figure before the press more than they need to be
                  * told there is a question after it, and the action bar names A either way.
                  */
-                const struct fb_list_item row = {
-                    .leading = {.kind = FB_LEADING_TONAL, .icon = item.icon},
+                const struct inkcell_fb_list_item row = {
+                    .leading = {.kind = INKCELL_FB_LEADING_TONAL, .icon = item.icon},
                     .text = item.label,
                     .tone = verb_tone,
                     .trailing =
                         item.value[0] != '\0'
-                            ? (struct fb_trailing){.kind = FB_TRAILING_TEXT, .text = item.value}
-                        : verb_opens ? (struct fb_trailing){.kind = FB_TRAILING_ICON,
-                                                            .icon = MESH_UI_ICON_CHEVRON}
-                                     : (struct fb_trailing){.kind = FB_TRAILING_NONE},
+                            ? (struct inkcell_fb_trailing){.kind = INKCELL_FB_TRAILING_TEXT,
+                                                           .text = item.value}
+                        : verb_opens
+                            ? (struct inkcell_fb_trailing){.kind = INKCELL_FB_TRAILING_ICON,
+                                                           .icon = INKCELL_ICON_CHEVRON}
+                            : (struct inkcell_fb_trailing){.kind = INKCELL_FB_TRAILING_NONE},
                     /* The tone goes to the disc and the edge, never to the words - which is
                        what the paragraph above claims and what this flag is what makes true.
                        Without it `tone` also inks the label, and a section where nine rows in
@@ -517,9 +522,9 @@ void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                     /* Only on a row whose press cannot be walked back, and only while it is one:
                        a withdrawn verb is an absent offer rather than a dangerous one, so it
                        keeps neither the red nor the bar. */
-                    .accent_edge = !off && verb_tone == MESH_UI_TONE_ERROR,
+                    .accent_edge = !off && verb_tone == INKCELL_TONE_ERROR,
                 };
-                fb_list_item(state, &list, i, &row);
+                inkcell_fb_list_item(state, &list, i, &row);
                 continue;
             }
             /*
@@ -541,13 +546,13 @@ void fb_render_settings(struct mesh_ui_backend_fb_state *state,
              */
             if (item.kind == MESH_UI_SETTING_METER) {
                 const bool unknown = item.number == MESH_UI_METER_UNKNOWN;
-                struct fb_meter meter = {
+                struct inkcell_fb_meter meter = {
                     .id = 0x03000000U | i,
-                    .kind = unknown ? FB_METER_INDETERMINATE : FB_METER_DETERMINATE,
+                    .kind = unknown ? INKCELL_FB_METER_INDETERMINATE : INKCELL_FB_METER_DETERMINATE,
                     .value = unknown ? 0 : (int32_t)item.number,
-                    .tone = MESH_UI_TONE_PRIMARY,
+                    .tone = INKCELL_TONE_PRIMARY,
                 };
-                const struct fb_list_item row = {
+                const struct inkcell_fb_list_item row = {
                     .leading = leading,
                     .label = item.label,
                     .label_cols = label_cols,
@@ -555,9 +560,9 @@ void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                     .marker_icon = marker,
                     .value = item.value,
                     .tone = tone,
-                    .trailing = {.kind = FB_TRAILING_METER, .meter = &meter},
+                    .trailing = {.kind = INKCELL_FB_TRAILING_METER, .meter = &meter},
                 };
-                fb_list_item(state, &list, i, &row);
+                inkcell_fb_list_item(state, &list, i, &row);
                 continue;
             }
             /*
@@ -572,13 +577,13 @@ void fb_render_settings(struct mesh_ui_backend_fb_state *state,
              * the switch, the meters and the slider.
              */
             if (item.kind == MESH_UI_SETTING_FLAG) {
-                struct fb_selection sel = {
+                struct inkcell_fb_selection sel = {
                     .id = 0x06000000U | ((uint32_t)nav->settings_channel << 16) |
                           (uint32_t)item.field,
                     .on = item.number != 0U,
                     .dim = item.field == MESH_UI_FIELD_NONE,
                 };
-                const struct fb_list_item row = {
+                const struct inkcell_fb_list_item row = {
                     .leading = leading,
                     .label = item.label,
                     .label_cols = label_cols,
@@ -589,13 +594,13 @@ void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                     .label_quiet = fact,
                     .marker_icon = marker,
                     .tone = tone,
-                    .trailing = {.kind = FB_TRAILING_CHECKBOX, .sel = &sel},
+                    .trailing = {.kind = INKCELL_FB_TRAILING_CHECKBOX, .sel = &sel},
                 };
-                fb_list_item(state, &list, i, &row);
+                inkcell_fb_list_item(state, &list, i, &row);
                 continue;
             }
             if (item.kind == MESH_UI_SETTING_TOGGLE) {
-                struct fb_switch sw = {
+                struct inkcell_fb_switch sw = {
                     .id = item.field != MESH_UI_FIELD_NONE
                               ? 0x01000000U | ((uint32_t)nav->settings_channel << 16) |
                                     (uint32_t)item.field
@@ -603,16 +608,16 @@ void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                     .on = item.number != 0U,
                     .dim = item.field == MESH_UI_FIELD_NONE,
                 };
-                const struct fb_list_item row = {
+                const struct inkcell_fb_list_item row = {
                     .leading = leading,
                     .label = item.label,
                     .label_cols = label_cols,
                     .label_quiet = fact,
                     .marker_icon = marker,
                     .tone = tone,
-                    .trailing = {.kind = FB_TRAILING_SWITCH, .sw = &sw},
+                    .trailing = {.kind = INKCELL_FB_TRAILING_SWITCH, .sw = &sw},
                 };
-                fb_list_item(state, &list, i, &row);
+                inkcell_fb_list_item(state, &list, i, &row);
                 continue;
             }
             /*
@@ -636,15 +641,15 @@ void fb_render_settings(struct mesh_ui_backend_fb_state *state,
              */
             struct mesh_ui_settings_track track;
             if (settings_row_slider(&item, &track)) {
-                struct fb_slider slider = {
+                struct inkcell_fb_slider slider = {
                     .id = 0x05000000U | ((uint32_t)nav->settings_channel << 16) |
                           (uint32_t)item.field,
                     .position = track.position,
                     .stops = track.stops,
                     .unplaced = track.unplaced,
-                    .tone = MESH_UI_TONE_PRIMARY,
+                    .tone = INKCELL_TONE_PRIMARY,
                 };
-                const struct fb_list_item row = {
+                const struct inkcell_fb_list_item row = {
                     .leading = leading,
                     .label = item.label,
                     .label_cols = label_cols,
@@ -658,7 +663,7 @@ void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                     .tone = tone,
                     .slider = &slider,
                 };
-                fb_list_item(state, &list, i, &row);
+                inkcell_fb_list_item(state, &list, i, &row);
                 continue;
             }
             /*
@@ -682,8 +687,8 @@ void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                offering a set it would then refuse. No row does this today - the two constrained
                ones are a region and a preset, both far wider than a segmented button - and the
                test is here so the first one that does cannot draw a lie. */
-            if (item.choices == 0U && choices >= 2U && choices <= FB_SEGMENTED_MAX) {
-                struct fb_segmented segmented = {
+            if (item.choices == 0U && choices >= 2U && choices <= INKCELL_FB_SEGMENTED_MAX) {
+                struct inkcell_fb_segmented segmented = {
                     .count = choices,
                     .active = item.number,
                     .value = item.value,
@@ -691,7 +696,7 @@ void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                 for (uint32_t c = 0U; c < choices; ++c) {
                     segmented.labels[c] = mesh_ui_settings_enum_name(item.field, c);
                 }
-                const struct fb_list_item row = {
+                const struct inkcell_fb_list_item row = {
                     .leading = leading,
                     .label = item.label,
                     .label_cols = label_cols,
@@ -700,12 +705,12 @@ void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                     /* No value column: the set is the value, and the word for the chosen one is
                        inside the control that decides which of the two forms to draw. */
                     .tone = tone,
-                    .trailing = {.kind = FB_TRAILING_SEGMENTED, .segmented = &segmented},
+                    .trailing = {.kind = INKCELL_FB_TRAILING_SEGMENTED, .segmented = &segmented},
                 };
-                fb_list_item(state, &list, i, &row);
+                inkcell_fb_list_item(state, &list, i, &row);
                 continue;
             }
-            const struct fb_list_item row = {
+            const struct inkcell_fb_list_item row = {
                 .leading = leading,
                 .label = item.label,
                 .label_cols = label_cols,
@@ -713,28 +718,28 @@ void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                 .marker_icon = marker,
                 .value = item.value,
                 .tone = tone,
-                .trailing = {.kind = FB_TRAILING_ICON,
-                             .icon = opens ? MESH_UI_ICON_CHEVRON : MESH_UI_ICON_NONE},
+                .trailing = {.kind = INKCELL_FB_TRAILING_ICON,
+                             .icon = opens ? INKCELL_ICON_CHEVRON : INKCELL_ICON_NONE},
             };
-            fb_list_item(state, &list, i, &row);
+            inkcell_fb_list_item(state, &list, i, &row);
         } else {
             const enum mesh_ui_settings_section section_row = mesh_ui_settings_root_at(i);
             const enum mesh_ui_settings_availability available =
                 mesh_ui_settings_section_availability(settings, handshake, section_row);
             const bool loaded = available == MESH_UI_SETTINGS_SECTION_READY;
-            const struct fb_list_item row = {
+            const struct inkcell_fb_list_item row = {
                 /* What the section is, in the slot the eye reaches first. The one list on this
                    screen that was a column of words with nothing to aim at. */
-                .leading = {.kind = FB_LEADING_ICON,
+                .leading = {.kind = INKCELL_FB_LEADING_ICON,
                             .icon = mesh_ui_settings_section_icon(section_row)},
                 .label = mesh_ui_settings_section_name(section_row),
                 .label_cols = label_cols,
-                .value = loaded ? "" : mesh_str(mesh_ui_settings_availability_label(available)),
-                .tone = loaded ? MESH_UI_TONE_NORMAL : MESH_UI_TONE_DIM,
+                .value = loaded ? "" : inkcell_str(mesh_ui_settings_availability_label(available)),
+                .tone = loaded ? INKCELL_TONE_NORMAL : INKCELL_TONE_DIM,
                 /* Every row here opens a section, which is what the section list *is*. */
-                .trailing = {.kind = FB_TRAILING_ICON, .icon = MESH_UI_ICON_CHEVRON},
+                .trailing = {.kind = INKCELL_FB_TRAILING_ICON, .icon = INKCELL_ICON_CHEVRON},
             };
-            fb_list_item(state, &list, i, &row);
+            inkcell_fb_list_item(state, &list, i, &row);
         }
     }
 }

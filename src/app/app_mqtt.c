@@ -103,13 +103,13 @@ bool mesh_app_mqtt_plan(const struct mesh_session *session, struct mesh_mqtt_pro
     }
 
     if (mqtt->address[0] != '\0') {
-        (void)mesh_str_copy(out->address, sizeof out->address, mqtt->address);
-        (void)mesh_str_copy(out->username, sizeof out->username, mqtt->username);
-        (void)mesh_str_copy(out->password, sizeof out->password, mqtt->password);
+        (void)inkcell_str_copy(out->address, sizeof out->address, mqtt->address);
+        (void)inkcell_str_copy(out->username, sizeof out->username, mqtt->username);
+        (void)inkcell_str_copy(out->password, sizeof out->password, mqtt->password);
     } else {
-        (void)mesh_str_copy(out->address, sizeof out->address, APP_MQTT_DEFAULT_ADDRESS);
-        (void)mesh_str_copy(out->username, sizeof out->username, APP_MQTT_DEFAULT_USERNAME);
-        (void)mesh_str_copy(out->password, sizeof out->password, APP_MQTT_DEFAULT_PASSWORD);
+        (void)inkcell_str_copy(out->address, sizeof out->address, APP_MQTT_DEFAULT_ADDRESS);
+        (void)inkcell_str_copy(out->username, sizeof out->username, APP_MQTT_DEFAULT_USERNAME);
+        (void)inkcell_str_copy(out->password, sizeof out->password, APP_MQTT_DEFAULT_PASSWORD);
     }
     out->tls_enabled = mqtt->tls_enabled;
 
@@ -172,7 +172,7 @@ size_t mesh_app_mqtt_filters(const struct mesh_session *session, char (*out)[MES
              * turn, so nothing flaps, and the count is what a status row can compare against the
              * channels the user can see.
              */
-            mesh_log_warn("mqtt", "Cannot build subscription %zu: %d", count, len);
+            inkcell_log_warn("mqtt", "Cannot build subscription %zu: %d", count, len);
             break;
         }
         count++;
@@ -260,8 +260,8 @@ static void app_mqtt_state_changed(void *userdata, enum mesh_mqtt_proxy_state st
      * screen is not being watched the retry loop would be silent about what it was retrying.
      */
     if (state == MESH_MQTT_PROXY_WAITING) {
-        mesh_log_warn("mqtt", "Broker %s: %s", mesh_mqtt_proxy_host(&app->mqtt),
-                      mesh_mqtt_proxy_last_error(&app->mqtt));
+        inkcell_log_warn("mqtt", "Broker %s: %s", mesh_mqtt_proxy_host(&app->mqtt),
+                         mesh_mqtt_proxy_last_error(&app->mqtt));
     }
 }
 
@@ -298,28 +298,28 @@ static void app_mqtt_start(struct mesh_app *app, const struct mesh_mqtt_proxy_co
     app->mqtt_planned.config = *want;
     app->mqtt_planned.filter_count = count;
     for (size_t i = 0U; i < count; ++i) {
-        (void)mesh_str_copy(app->mqtt_planned.filters[i], MESH_MQTT_FILTER_MAX, filters[i]);
+        (void)inkcell_str_copy(app->mqtt_planned.filters[i], MESH_MQTT_FILTER_MAX, filters[i]);
     }
     app->mqtt_planned.active = true;
 
     const int started = mesh_mqtt_proxy_start(&app->mqtt, want, app_mqtt_from_broker,
                                               app_mqtt_state_changed, app, now_ms);
     if (started < 0) {
-        mesh_log_warn("mqtt", "Cannot proxy to %s: %d", want->address, started);
+        inkcell_log_warn("mqtt", "Cannot proxy to %s: %d", want->address, started);
         return;
     }
 
     for (size_t i = 0U; i < count; ++i) {
         const int added = mesh_mqtt_proxy_subscribe(&app->mqtt, filters[i]);
         if (added < 0) {
-            mesh_log_warn("mqtt", "Cannot subscribe to %s: %d", filters[i], added);
+            inkcell_log_warn("mqtt", "Cannot subscribe to %s: %d", filters[i], added);
         }
     }
     /* Only now, so a refused start leaves the radio's messages counted as unhandled rather than
        published into nothing. */
     mesh_session_set_mqtt_handler(&app->session, app_mqtt_from_radio, app);
-    mesh_log_info("mqtt", "Proxying for the radio to %s, %zu subscription%s", want->address, count,
-                  count == 1U ? "" : "s");
+    inkcell_log_info("mqtt", "Proxying for the radio to %s, %zu subscription%s", want->address,
+                     count, count == 1U ? "" : "s");
 }
 
 void mesh_app_mqtt_init(struct mesh_app *app) {
@@ -336,9 +336,9 @@ void mesh_app_mqtt_init(struct mesh_app *app) {
      * on the Brick. That is the feature working as intended, and it is still worth being able to
      * say no to from a shell without editing a radio.
      */
-    app->mqtt_disabled = !mesh_env_bool("MQTT_PROXY", "MQTT client proxy", true);
+    app->mqtt_disabled = !inkcell_env_bool("MQTT_PROXY", "MQTT client proxy", true);
     if (app->mqtt_disabled) {
-        mesh_log_info("app", "MQTT client proxy disabled by MESHCLIENT_MQTT_PROXY");
+        inkcell_log_info("app", "MQTT client proxy disabled by MESHCLIENT_MQTT_PROXY");
     }
     (void)mesh_mqtt_proxy_init(&app->mqtt, &app->loop);
     /* The built-in roots, unless somebody named a bundle. See include/mesh/core/ca_roots.h. */
@@ -363,7 +363,7 @@ void mesh_app_mqtt_tick(struct mesh_app *app, uint64_t now_ms) {
 
     if (!wanted) {
         if (app->mqtt_planned.active) {
-            mesh_log_info("mqtt", "No longer proxying for this radio");
+            inkcell_log_info("mqtt", "No longer proxying for this radio");
             app_mqtt_stop(app);
         }
     } else {
@@ -412,7 +412,7 @@ void mesh_app_mqtt_publish_state(const struct mesh_app *app, struct mesh_ui_mqtt
     out->disabled = app->mqtt_disabled;
 
     const enum mesh_mqtt_proxy_state state = mesh_mqtt_proxy_state(&app->mqtt);
-    (void)mesh_str_copy(out->state, sizeof out->state, mesh_mqtt_proxy_state_string(state));
+    (void)inkcell_str_copy(out->state, sizeof out->state, mesh_mqtt_proxy_state_string(state));
     out->connected = state == MESH_MQTT_PROXY_READY;
     out->failing = state == MESH_MQTT_PROXY_WAITING;
 
@@ -423,9 +423,9 @@ void mesh_app_mqtt_publish_state(const struct mesh_app *app, struct mesh_ui_mqtt
      * until a start, which would leave the one row that says *where* blank on the one screen
      * that exists to say why.
      */
-    (void)mesh_str_copy(out->host, sizeof out->host, want.address);
-    (void)mesh_str_copy(out->last_error, sizeof out->last_error,
-                        mesh_mqtt_proxy_last_error(&app->mqtt));
+    (void)inkcell_str_copy(out->host, sizeof out->host, want.address);
+    (void)inkcell_str_copy(out->last_error, sizeof out->last_error,
+                           mesh_mqtt_proxy_last_error(&app->mqtt));
 
     const struct mesh_mqtt_proxy_stats stats = mesh_mqtt_proxy_stats(&app->mqtt);
     out->published = stats.published;

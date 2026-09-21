@@ -29,8 +29,8 @@
  * One picture, opened from two places: the radio's airtime over the Status cards, and one of a
  * node's readings over its detail. They were two renderers with the same forty lines in them -
  * take a window, project against a domain, word the two ends of the vertical, word the span,
- * divide the body, fill a struct fb_chart - and the forty lines were where the two screens could
- * quietly stop agreeing about what a chart is.
+ * divide the body, fill a struct inkcell_fb_chart - and the forty lines were where the two screens
+ * could quietly stop agreeing about what a chart is.
  *
  * So the frame is one function and what differs is a description handed to it. What differs is
  * genuinely small: which series, what the legend calls them, what domain they are measured on,
@@ -44,7 +44,7 @@
  * How the two ends of the vertical are put into words.
  *
  * The one thing about a chart that cannot be derived from its domain once the ceiling has been
- * contracted: mesh_ui_trend_domain() turns the identity domain into real permille ends, so
+ * contracted: inkcell_trend_domain() turns the identity domain into real permille ends, so
  * "already a fraction" stops being visible in the numbers. The caller states it, because the
  * caller is what chose the unit its readings travel in.
  */
@@ -73,25 +73,25 @@ enum fb_chart_axis {
 static void fb_chart_reading(uint8_t axis, int32_t value, char *out, size_t len) {
     switch ((enum fb_chart_axis)axis) {
     case FB_CHART_AXIS_CELSIUS:
-        mesh_str_format(out, len, MESH_STR_TREND_VALUE_CELSIUS, (double)value / 10.0);
+        inkcell_str_format(out, len, MESH_STR_TREND_VALUE_CELSIUS, (double)value / 10.0);
         return;
     /* The same words as the axis ends, because these two are kept in the units they are read in:
        there is no tenth to spend on the legend that the axis was not already showing. */
     case FB_CHART_AXIS_DECIBEL:
-        mesh_str_format(out, len, MESH_STR_NODE_TREND_AXIS_DB, value);
+        inkcell_str_format(out, len, MESH_STR_NODE_TREND_AXIS_DB, value);
         return;
     case FB_CHART_AXIS_DBM:
-        mesh_str_format(out, len, MESH_STR_NODE_TREND_AXIS_DBM, value);
+        inkcell_str_format(out, len, MESH_STR_NODE_TREND_AXIS_DBM, value);
         return;
     case FB_CHART_AXIS_PERMILLE:
         /* The Status card's own format, so the chart and the card round one figure one way. */
-        mesh_str_format(out, len, MESH_STR_STATUS_PERCENT, (double)value / 10.0);
+        inkcell_str_format(out, len, MESH_STR_STATUS_PERCENT, (double)value / 10.0);
         return;
     case FB_CHART_AXIS_PERCENT:
     default:
         break;
     }
-    mesh_str_format(out, len, MESH_STR_TREND_AXIS_PERCENT, (unsigned)(value > 0 ? value : 0));
+    inkcell_str_format(out, len, MESH_STR_TREND_AXIS_PERCENT, (unsigned)(value > 0 ? value : 0));
 }
 
 /* One end of the vertical, in the reading's own units. Whole numbers throughout: an axis end is
@@ -100,13 +100,13 @@ static void fb_chart_reading(uint8_t axis, int32_t value, char *out, size_t len)
 static void fb_chart_axis_end(uint8_t axis, int32_t value, char *out, size_t len) {
     switch ((enum fb_chart_axis)axis) {
     case FB_CHART_AXIS_CELSIUS:
-        mesh_str_format(out, len, MESH_STR_NODE_TREND_AXIS_CELSIUS, value / 10);
+        inkcell_str_format(out, len, MESH_STR_NODE_TREND_AXIS_CELSIUS, value / 10);
         return;
     case FB_CHART_AXIS_DECIBEL:
-        mesh_str_format(out, len, MESH_STR_NODE_TREND_AXIS_DB, value);
+        inkcell_str_format(out, len, MESH_STR_NODE_TREND_AXIS_DB, value);
         return;
     case FB_CHART_AXIS_DBM:
-        mesh_str_format(out, len, MESH_STR_NODE_TREND_AXIS_DBM, value);
+        inkcell_str_format(out, len, MESH_STR_NODE_TREND_AXIS_DBM, value);
         return;
     case FB_CHART_AXIS_PERMILLE:
         /* Rounded rather than truncated: the ladder's rungs are whole percents of the domain, so
@@ -119,7 +119,7 @@ static void fb_chart_axis_end(uint8_t axis, int32_t value, char *out, size_t len
     default:
         break;
     }
-    mesh_str_format(out, len, MESH_STR_TREND_AXIS_PERCENT, (unsigned)(value > 0 ? value : 0));
+    inkcell_str_format(out, len, MESH_STR_TREND_AXIS_PERCENT, (unsigned)(value > 0 ? value : 0));
 }
 
 /*
@@ -129,15 +129,15 @@ static void fb_chart_axis_end(uint8_t axis, int32_t value, char *out, size_t len
  * component with slots and taking it apart here would be this struct restating them.
  */
 struct fb_chart_screen {
-    struct fb_app_bar bar;
+    struct inkcell_fb_app_bar bar;
     /* Borrowed for the call, as every pointer in this file's descriptions is. */
-    const struct mesh_ui_series *series[FB_CHART_LINES];
-    enum mesh_str_id labels[FB_CHART_LINES];
+    const struct inkcell_series *series[INKCELL_FB_CHART_LINES];
+    enum inkcell_str_id labels[INKCELL_FB_CHART_LINES];
     uint32_t count;
     /* The domain the readings are measured on, before the ceiling is contracted to fit them. */
-    struct mesh_ui_scale domain;
+    struct inkcell_scale domain;
     /* Ruled across the plot, or NULL for a reading with no thresholds. */
-    const struct mesh_ui_band *band;
+    const struct inkcell_band *band;
     uint8_t axis; /* enum fb_chart_axis */
     /* The radio's airtime, binned (mesh_ui_trend_airtime()) - which replaces `series` and
        `domain`: line 0 is the channel as columns, line 1 our share as a line over them. */
@@ -148,23 +148,24 @@ struct fb_chart_screen {
  * The frame, drawn from that description.
  *
  * The order here is the whole of what makes the picture honest, and it is stated in
- * mesh_ui_trend_frame(): the reader's span cuts the window first, and the ceiling is then picked
+ * inkcell_trend_frame(): the reader's span cuts the window first, and the ceiling is then picked
  * from the readings *left inside it*. Done the other way round, narrowing the span to the last
  * quarter hour would leave the axis held open by a busy spell that is no longer on the panel.
  *
- * The projection is mesh_ui_series_project_within() rather than _over(): a window the reader
+ * The projection is inkcell_series_project_within() rather than _over(): a window the reader
  * narrowed contains only part of the ring, and the older readings have to be left out rather than
  * stacked on the left-hand edge. See layout.h.
  */
-static void fb_render_chart(struct mesh_ui_backend_fb_state *state,
-                            const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout,
+static void fb_render_chart(struct inkcell_backend_fb_state *state,
+                            const struct mesh_ui_snapshot *snapshot,
+                            struct inkcell_fb_layout *layout,
                             const struct fb_chart_screen *screen) {
-    fb_draw_app_bar(state, layout, &screen->bar);
+    inkcell_fb_draw_app_bar(state, layout, &screen->bar);
 
     const uint8_t span_choice = snapshot->nav.trend_span;
-    const int margin = fb_margin(state);
+    const int margin = inkcell_fb_margin(state);
     const int body_w = (int)state->var.xres - margin * 2;
-    struct mesh_ui_trend frame;
+    struct inkcell_trend frame;
     memset(&frame, 0, sizeof frame);
     struct mesh_ui_trend_airtime binned;
     memset(&binned, 0, sizeof binned);
@@ -172,21 +173,22 @@ static void fb_render_chart(struct mesh_ui_backend_fb_state *state,
     if (screen->airtime != NULL) {
         /* One bin per cell of the chart's own text across the body: as fine as the panel can
            show a column, and measured in cells rather than pixels. */
-        const int adv = fb_char_adv(state, layout->small);
-        const uint32_t max_bins = adv > 0 ? (uint32_t)(body_w / adv) : MESH_UI_TREND_BINS_MAX;
+        const int adv = inkcell_fb_char_adv(state, layout->small);
+        const uint32_t max_bins = adv > 0 ? (uint32_t)(body_w / adv) : INKCELL_TREND_BINS_MAX;
         framed = mesh_ui_trend_airtime(screen->airtime, span_choice, max_bins, &binned);
         frame = binned.frame;
     } else {
         framed =
-            mesh_ui_trend_frame(screen->series, screen->count, screen->domain, span_choice, &frame);
+            inkcell_trend_frame(screen->series, screen->count, screen->domain, span_choice, &frame);
     }
-    const struct mesh_ui_scale scale = framed ? frame.scale : screen->domain;
+    const struct inkcell_scale scale = framed ? frame.scale : screen->domain;
 
-    struct mesh_ui_polyline points[FB_CHART_LINES];
+    struct inkcell_polyline points[INKCELL_FB_CHART_LINES];
     memset(points, 0, sizeof points);
     for (uint32_t i = 0U;
-         framed && screen->airtime == NULL && i < screen->count && i < FB_CHART_LINES; ++i) {
-        mesh_ui_series_project_within(screen->series[i], scale, frame.from, frame.to, &points[i]);
+         framed && screen->airtime == NULL && i < screen->count && i < INKCELL_FB_CHART_LINES;
+         ++i) {
+        inkcell_series_project_within(screen->series[i], scale, frame.from, frame.to, &points[i]);
     }
 
     /* The ends in the reading's own units, off the domain the lines were actually placed on - so
@@ -194,7 +196,7 @@ static void fb_render_chart(struct mesh_ui_backend_fb_state *state,
        auto-scaling it would otherwise be. */
     char top[16];
     char bottom[16];
-    fb_chart_axis_end(screen->axis, scale.min == scale.max ? MESH_UI_ANIM_ONE : scale.max, top,
+    fb_chart_axis_end(screen->axis, scale.min == scale.max ? INKCELL_ANIM_ONE : scale.max, top,
                       sizeof top);
     fb_chart_axis_end(screen->axis, scale.min, bottom, sizeof bottom);
 
@@ -208,24 +210,25 @@ static void fb_render_chart(struct mesh_ui_backend_fb_state *state,
     if (framed) {
         char words[24];
         mesh_ui_format_duration((frame.to - frame.from) / 1000U, words, sizeof words);
-        mesh_str_format(span, sizeof span, MESH_STR_TREND_SPAN, words);
+        inkcell_str_format(span, sizeof span, MESH_STR_TREND_SPAN, words);
     }
 
     /* The picker itself: four words and which one is lit. What they mean is trend.h's. */
-    struct fb_segmented spans;
+    struct inkcell_fb_segmented spans;
     memset(&spans, 0, sizeof spans);
-    spans.count = (size_t)MESH_UI_TREND_SPAN_COUNT;
-    for (size_t i = 0U; i < spans.count && i < FB_SEGMENTED_MAX; ++i) {
-        spans.labels[i] = mesh_str(mesh_ui_trend_span_label((uint8_t)i));
+    spans.count = (size_t)INKCELL_TREND_SPAN_COUNT;
+    for (size_t i = 0U; i < spans.count && i < INKCELL_FB_SEGMENTED_MAX; ++i) {
+        spans.labels[i] = inkcell_str(inkcell_trend_span_label((uint8_t)i));
     }
     spans.active = (size_t)span_choice < spans.count ? (size_t)span_choice : spans.count - 1U;
     spans.value = spans.labels[spans.active];
 
-    const struct fb_rect plot_rect = {.x = margin,
-                                      .y = layout->body_y,
-                                      .w = body_w,
-                                      .h = layout->footer_y - fb_gutter(state) - layout->body_y};
-    struct fb_chart chart = {
+    const struct inkcell_fb_rect plot_rect = {.x = margin,
+                                              .y = layout->body_y,
+                                              .w = body_w,
+                                              .h = layout->footer_y - inkcell_fb_gutter(state) -
+                                                   layout->body_y};
+    struct inkcell_fb_chart chart = {
         .rect = plot_rect,
         .count = screen->count,
         .top = top,
@@ -250,9 +253,9 @@ static void fb_render_chart(struct mesh_ui_backend_fb_state *state,
      * outside the picture, and a legend entry saying otherwise is the frame contradicting the
      * plot.
      */
-    char readings[FB_CHART_LINES][24];
+    char readings[INKCELL_FB_CHART_LINES][24];
     memset(readings, 0, sizeof readings);
-    for (uint32_t i = 0U; i < screen->count && i < FB_CHART_LINES; ++i) {
+    for (uint32_t i = 0U; i < screen->count && i < INKCELL_FB_CHART_LINES; ++i) {
         chart.lines[i].label = screen->labels[i];
         if (screen->airtime != NULL) {
             const struct mesh_ui_airtime_sample *newest =
@@ -267,7 +270,7 @@ static void fb_render_chart(struct mesh_ui_backend_fb_state *state,
             continue;
         }
         chart.lines[i].points = &points[i];
-        const struct mesh_ui_sample *newest = mesh_ui_series_newest(screen->series[i]);
+        const struct inkcell_sample *newest = inkcell_series_newest(screen->series[i]);
         if (newest != NULL && points[i].count > 0U) {
             fb_chart_reading(screen->axis, newest->value, readings[i], sizeof readings[i]);
             chart.lines[i].value = readings[i];
@@ -276,27 +279,27 @@ static void fb_render_chart(struct mesh_ui_backend_fb_state *state,
     /*
      * The other face, when the reader has asked for the figures rather than the direction.
      *
-     * Built here rather than in fb_draw_chart() because only this side knows what the readings
-     * *are*: which series, which span, how far the list has been scrolled and what unit the
-     * values are worded in. The component is told how many rows it has room for and handed that
-     * many - the measure-then-draw split fb_chart_reading_rows() exists for, and the same one
-     * the note list is on.
+     * Built here rather than in inkcell_fb_draw_chart() because only this side knows what the
+     * readings *are*: which series, which span, how far the list has been scrolled and what unit
+     * the values are worded in. The component is told how many rows it has room for and handed that
+     * many - the measure-then-draw split inkcell_fb_chart_reading_rows() exists for, and the same
+     * one the note list is on.
      *
      * Only a node's chart has one. The airtime ring is six hours at a reading a minute and is
      * binned into columns precisely because reading by reading is the wrong grain for it - see
      * the readings section of include/mesh/ui/trend.h - so `screen->airtime` never gets here.
      */
-    char whens[MESH_UI_SERIES_MAX][24];
-    char figures[MESH_UI_SERIES_MAX][24];
-    struct fb_chart_reading rows[MESH_UI_SERIES_MAX];
+    char whens[INKCELL_SERIES_MAX][24];
+    char figures[INKCELL_SERIES_MAX][24];
+    struct inkcell_fb_chart_reading rows[INKCELL_SERIES_MAX];
     if (snapshot->nav.trend_table && screen->airtime == NULL && screen->count == 1U &&
         screen->series[0] != NULL) {
-        const uint32_t room =
-            fb_chart_reading_rows(state, layout, &plot_rect, chart.spans != NULL ? &spans : NULL);
+        const uint32_t room = inkcell_fb_chart_reading_rows(state, layout, &plot_rect,
+                                                            chart.spans != NULL ? &spans : NULL);
         /* What the nav pages this list by on the next press, and what the action bar asks before
            it names one. Told even when it is zero, which is a panel with no room for a row. */
         state->page_rows = room;
-        const uint32_t total = mesh_ui_trend_readings(screen->series[0], span_choice);
+        const uint32_t total = inkcell_trend_readings(screen->series[0], span_choice);
         uint32_t first = snapshot->nav.trend_scroll;
         /* The clamp has the same arithmetic and runs on the next publish; this is the frame in
            between, and it must not draw past the end of the window it was given. */
@@ -306,14 +309,14 @@ static void fb_render_chart(struct mesh_ui_backend_fb_state *state,
             first = 0U;
         }
         uint32_t drawn = 0U;
-        for (uint32_t i = 0U; i < room && drawn < MESH_UI_SERIES_MAX; ++i) {
-            struct mesh_ui_trend_reading reading;
-            if (!mesh_ui_trend_reading_at(screen->series[0], span_choice, first + i, &reading)) {
+        for (uint32_t i = 0U; i < room && drawn < INKCELL_SERIES_MAX; ++i) {
+            struct inkcell_trend_reading reading;
+            if (!inkcell_trend_reading_at(screen->series[0], span_choice, first + i, &reading)) {
                 break;
             }
             if (first + i == 0U) {
-                mesh_str_copy(whens[drawn], sizeof whens[drawn],
-                              mesh_str(MESH_STR_TREND_READINGS_NEWEST));
+                inkcell_str_copy(whens[drawn], sizeof whens[drawn],
+                                 inkcell_str(MESH_STR_TREND_READINGS_NEWEST));
             } else {
                 mesh_ui_format_duration(reading.before_ms / 1000U, whens[drawn],
                                         sizeof whens[drawn]);
@@ -326,10 +329,10 @@ static void fb_render_chart(struct mesh_ui_backend_fb_state *state,
         if (drawn > 0U) {
             chart.readings = rows;
             chart.reading_count = drawn;
-            chart.readings_note = mesh_str(MESH_STR_TREND_READINGS_FROM);
+            chart.readings_note = inkcell_str(MESH_STR_TREND_READINGS_FROM);
         }
     }
-    fb_draw_chart(state, layout, &chart);
+    inkcell_fb_draw_chart(state, layout, &chart);
 }
 
 /*
@@ -340,12 +343,12 @@ static void fb_render_chart(struct mesh_ui_backend_fb_state *state,
  * inside the channel's total, so a column and the line above it are two readings of one stretch
  * of air and can be compared by looking.
  */
-void fb_render_trend(struct mesh_ui_backend_fb_state *state,
-                     const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
+void fb_render_trend(struct inkcell_backend_fb_state *state,
+                     const struct mesh_ui_snapshot *snapshot, struct inkcell_fb_layout *layout) {
     const struct fb_chart_screen screen = {
         /* No trail. The navigation bar above is already saying Status, and an overline says only
            what nothing else on the frame says. */
-        .bar = {.title = mesh_str(MESH_STR_TREND_TITLE)},
+        .bar = {.title = inkcell_str(MESH_STR_TREND_TITLE)},
         .labels = {MESH_STR_TREND_SERIES_CHANNEL, MESH_STR_TREND_SERIES_TX},
         .count = 2U,
         .domain = {0, 0},
@@ -380,8 +383,9 @@ void fb_render_trend(struct mesh_ui_backend_fb_state *state,
  * us - draws the detail instead. mesh_ui_nav_clamp() closes the chart on the same condition a
  * publish later, so this is the frame in between rather than a state the client sits in.
  */
-void fb_render_node_trend(struct mesh_ui_backend_fb_state *state,
-                          const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
+void fb_render_node_trend(struct inkcell_backend_fb_state *state,
+                          const struct mesh_ui_snapshot *snapshot,
+                          struct inkcell_fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
     const struct mesh_ui_handshake_state *hs = &snapshot->handshake;
     const struct mesh_ui_node_summary *node = mesh_ui_node_detail_find(hs, nav->node_detail_node);
@@ -403,7 +407,7 @@ void fb_render_node_trend(struct mesh_ui_backend_fb_state *state,
     /* The reading names the screen; the node is on the trail, because the app bar's overline
        says only what nothing else on the frame says and the navigation bar is already saying
        Nodes. */
-    enum mesh_str_id title = MESH_STR_NODE_TREND_BATTERY;
+    enum inkcell_str_id title = MESH_STR_NODE_TREND_BATTERY;
     uint8_t axis =
         row->scale.min == row->scale.max ? FB_CHART_AXIS_PERMILLE : FB_CHART_AXIS_PERCENT;
     switch ((enum mesh_ui_history_reading)nav->node_trend) {
@@ -433,9 +437,9 @@ void fb_render_node_trend(struct mesh_ui_backend_fb_state *state,
                        : node->short_name[0] != '\0' ? node->short_name
                                                      : NULL;
     if (name != NULL) {
-        mesh_str_copy(trail, sizeof trail, name);
+        inkcell_str_copy(trail, sizeof trail, name);
     } else {
-        mesh_str_format(trail, sizeof trail, MESH_STR_NODE_VAL_USER_ID_HEX, node->node_id);
+        inkcell_str_format(trail, sizeof trail, MESH_STR_NODE_VAL_USER_ID_HEX, node->node_id);
     }
 
     const struct fb_chart_screen screen = {
@@ -443,7 +447,7 @@ void fb_render_node_trend(struct mesh_ui_backend_fb_state *state,
            frame: the title is the reading, and without this nothing on the panel would say which
            node's temperature is being drawn. The detail underneath spends its title line on the
            same name for the opposite reason - there, nothing else was competing for it. */
-        .bar = {.trail = {trail}, .trail_count = 1U, .title = mesh_str(title)},
+        .bar = {.trail = {trail}, .trail_count = 1U, .title = inkcell_str(title)},
         /*
          * One line, and so no legend to name it: the title says which reading this is, and a
          * legend repeating it would be the frame saying one thing twice. That is also the whole
@@ -451,7 +455,7 @@ void fb_render_node_trend(struct mesh_ui_backend_fb_state *state,
          * domain, and a temperature in degrees and a humidity in percent do not share one.
          */
         .series = {row->trend},
-        .labels = {MESH_STR_NONE},
+        .labels = {INKCELL_STR_NONE},
         .count = 1U,
         .domain = row->scale,
         /* The row's own band, so the amber the reader saw under the figure is a rule here they

@@ -50,40 +50,40 @@ static const char *firmware_list_url(void) {
 const char *mesh_firmware_state_name(enum mesh_firmware_state state) {
     switch (state) {
     case MESH_FIRMWARE_IDLE:
-        return mesh_str(MESH_STR_FW_STATE_IDLE);
+        return inkcell_str(MESH_STR_FW_STATE_IDLE);
     case MESH_FIRMWARE_IDENTIFYING:
-        return mesh_str(MESH_STR_FW_STATE_IDENTIFYING);
+        return inkcell_str(MESH_STR_FW_STATE_IDENTIFYING);
     case MESH_FIRMWARE_CHECKING:
-        return mesh_str(MESH_STR_FW_STATE_CHECKING);
+        return inkcell_str(MESH_STR_FW_STATE_CHECKING);
     case MESH_FIRMWARE_UP_TO_DATE:
-        return mesh_str(MESH_STR_FW_STATE_UP_TO_DATE);
+        return inkcell_str(MESH_STR_FW_STATE_UP_TO_DATE);
     case MESH_FIRMWARE_AVAILABLE:
-        return mesh_str(MESH_STR_FW_STATE_AVAILABLE);
+        return inkcell_str(MESH_STR_FW_STATE_AVAILABLE);
     case MESH_FIRMWARE_FAILED:
-        return mesh_str(MESH_STR_FW_STATE_FAILED);
+        return inkcell_str(MESH_STR_FW_STATE_FAILED);
     case MESH_FIRMWARE_STATE_COUNT:
     default:
-        return mesh_str(MESH_STR_COMMON_UNKNOWN_SHORT);
+        return inkcell_str(INKCELL_STR_COMMON_UNKNOWN_SHORT);
     }
 }
 
 const char *mesh_firmware_blocker_reason(enum mesh_firmware_blocker blocker) {
     switch (blocker) {
     case MESH_FIRMWARE_BLOCKER_NO_RADIO:
-        return mesh_str(MESH_STR_FW_NO_RADIO);
+        return inkcell_str(MESH_STR_FW_NO_RADIO);
     case MESH_FIRMWARE_BLOCKER_UNKNOWN_BOARD:
-        return mesh_str(MESH_STR_FW_BLOCK_UNKNOWN_BOARD);
+        return inkcell_str(MESH_STR_FW_BLOCK_UNKNOWN_BOARD);
     case MESH_FIRMWARE_BLOCKER_AMBIGUOUS:
-        return mesh_str(MESH_STR_FW_BLOCK_AMBIGUOUS);
+        return inkcell_str(MESH_STR_FW_BLOCK_AMBIGUOUS);
     case MESH_FIRMWARE_BLOCKER_UNSUPPORTED_BOARD:
-        return mesh_str(MESH_STR_FW_BLOCK_UNSUPPORTED);
+        return inkcell_str(MESH_STR_FW_BLOCK_UNSUPPORTED);
     case MESH_FIRMWARE_BLOCKER_NO_PATH:
-        return mesh_str(MESH_STR_FW_BLOCK_NO_PATH);
+        return inkcell_str(MESH_STR_FW_BLOCK_NO_PATH);
     case MESH_FIRMWARE_BLOCKER_WRONG_BUS:
         /* Which bus to go and use is a property of the board, not of the blocker, so the row
            that knows the board says it; this is the answer for a caller that has only the
            blocker to hand. */
-        return mesh_str(MESH_STR_FW_BLOCK_NO_PATH);
+        return inkcell_str(MESH_STR_FW_BLOCK_NO_PATH);
     case MESH_FIRMWARE_BLOCKER_NONE:
     case MESH_FIRMWARE_BLOCKER_COUNT:
     default:
@@ -101,7 +101,7 @@ const struct mesh_firmware_board *mesh_firmware_board(const struct mesh_firmware
 static void firmware_set(struct mesh_firmware *firmware, enum mesh_firmware_state state,
                          const char *message) {
     firmware->state = state;
-    mesh_str_copy(firmware->message, sizeof firmware->message, message != NULL ? message : "");
+    inkcell_str_copy(firmware->message, sizeof firmware->message, message != NULL ? message : "");
     firmware->revision++;
 }
 
@@ -160,20 +160,21 @@ static void firmware_recompute_blocker(struct mesh_firmware *firmware) {
  * row is one line.
  */
 static void firmware_fetch_failed(struct mesh_firmware *firmware,
-                                  const struct mesh_fetch_result *result, enum mesh_str_id what) {
+                                  const struct mesh_fetch_result *result,
+                                  enum inkcell_str_id what) {
     char message[MESH_FIRMWARE_MESSAGE_MAX];
     switch (result->outcome) {
     case MESH_FETCH_TIMED_OUT:
-        mesh_str_copy(message, sizeof message, mesh_str(MESH_STR_FW_TIMED_OUT));
+        inkcell_str_copy(message, sizeof message, inkcell_str(MESH_STR_FW_TIMED_OUT));
         break;
     case MESH_FETCH_NETWORK:
-        mesh_str_copy(message, sizeof message, mesh_str(MESH_STR_FW_UNREACHABLE));
+        inkcell_str_copy(message, sizeof message, inkcell_str(MESH_STR_FW_UNREACHABLE));
         break;
     case MESH_FETCH_TLS:
-        mesh_str_copy(message, sizeof message, mesh_str(MESH_STR_FW_TLS_UNVERIFIED));
+        inkcell_str_copy(message, sizeof message, inkcell_str(MESH_STR_FW_TLS_UNVERIFIED));
         break;
     case MESH_FETCH_HTTP_STATUS:
-        mesh_str_format(message, sizeof message, MESH_STR_FW_CHECK_HTTP, result->status);
+        inkcell_str_format(message, sizeof message, MESH_STR_FW_CHECK_HTTP, result->status);
         break;
     case MESH_FETCH_TOO_LARGE:
     case MESH_FETCH_PROTOCOL:
@@ -184,14 +185,14 @@ static void firmware_fetch_failed(struct mesh_firmware *firmware,
         /* Which document, not what was wrong with it: a reply past the cap and a reply that was
            not HTTP are one answer to the reader - the list did not arrive - and `what` already
            says which list. */
-        mesh_str_copy(message, sizeof message, mesh_str(what));
+        inkcell_str_copy(message, sizeof message, inkcell_str(what));
         break;
     }
     /* The whole of it in the log, where a sentence has room: the row gets the short form above,
        and which host and which error it was is the part that only ever helps somebody reading a
        log. */
-    mesh_log_warn("firmware", "%s failed: %s (%s: %s)", mesh_str(what), message,
-                  mesh_fetch_outcome_name(result->outcome), result->detail);
+    inkcell_log_warn("firmware", "%s failed: %s (%s: %s)", inkcell_str(what), message,
+                     mesh_fetch_outcome_name(result->outcome), result->detail);
     firmware_set(firmware, MESH_FIRMWARE_FAILED, message);
 }
 
@@ -218,10 +219,10 @@ static int firmware_start_index(struct mesh_firmware *firmware) {
     };
     const int result = mesh_fetch_start(&firmware->fetch, &request, firmware->now_ms);
     if (result != 0) {
-        firmware_set(firmware, MESH_FIRMWARE_FAILED, mesh_str(MESH_STR_UPDATE_START_FAILED));
+        firmware_set(firmware, MESH_FIRMWARE_FAILED, inkcell_str(MESH_STR_UPDATE_START_FAILED));
         return result;
     }
-    firmware_set(firmware, MESH_FIRMWARE_CHECKING, mesh_str(MESH_STR_FW_STATE_CHECKING));
+    firmware_set(firmware, MESH_FIRMWARE_CHECKING, inkcell_str(MESH_STR_FW_STATE_CHECKING));
     return 0;
 }
 
@@ -236,16 +237,17 @@ static void firmware_on_hardware(void *userdata, const struct mesh_fetch_result 
     }
     if (!mesh_firmware_boards_parse(result->body, result->len, firmware->hw_model,
                                     &firmware->boards)) {
-        firmware_set(firmware, MESH_FIRMWARE_FAILED, mesh_str(MESH_STR_FW_HARDWARE_UNREADABLE));
+        firmware_set(firmware, MESH_FIRMWARE_FAILED, inkcell_str(MESH_STR_FW_HARDWARE_UNREADABLE));
         return;
     }
     if (firmware->boards.found == 1U) {
-        mesh_log_info("firmware", "hw_model %u is %s (%s, %s)", (unsigned)firmware->hw_model,
-                      firmware->boards.entries[0].target, firmware->boards.entries[0].architecture,
-                      firmware->boards.entries[0].actively_supported ? "supported" : "retired");
+        inkcell_log_info("firmware", "hw_model %u is %s (%s, %s)", (unsigned)firmware->hw_model,
+                         firmware->boards.entries[0].target,
+                         firmware->boards.entries[0].architecture,
+                         firmware->boards.entries[0].actively_supported ? "supported" : "retired");
     } else {
-        mesh_log_info("firmware", "hw_model %u matches %u boards", (unsigned)firmware->hw_model,
-                      (unsigned)firmware->boards.found);
+        inkcell_log_info("firmware", "hw_model %u matches %u boards", (unsigned)firmware->hw_model,
+                         (unsigned)firmware->boards.found);
     }
     /* Straight on to the index, from inside this completion: the two documents are one press
        and a state in between that said "identified, now ask again" would be a row nobody could
@@ -264,18 +266,18 @@ static void firmware_on_index(void *userdata, const struct mesh_fetch_result *re
     }
     if (!mesh_firmware_release_parse(result->body, result->len, firmware->channel,
                                      &firmware->release)) {
-        firmware_set(firmware, MESH_FIRMWARE_FAILED, mesh_str(MESH_STR_FW_INDEX_UNREADABLE));
+        firmware_set(firmware, MESH_FIRMWARE_FAILED, inkcell_str(MESH_STR_FW_INDEX_UNREADABLE));
         return;
     }
 
     firmware_recompute_blocker(firmware);
-    mesh_log_info("firmware", "newest %s is %s (radio has %s)",
-                  firmware->channel == MESH_FIRMWARE_CHANNEL_ALPHA ? "alpha" : "stable",
-                  firmware->release.version,
-                  firmware->running[0] != '\0' ? firmware->running : "?");
+    inkcell_log_info("firmware", "newest %s is %s (radio has %s)",
+                     firmware->channel == MESH_FIRMWARE_CHANNEL_ALPHA ? "alpha" : "stable",
+                     firmware->release.version,
+                     firmware->running[0] != '\0' ? firmware->running : "?");
 
     if (mesh_firmware_version_compare(firmware->running, firmware->release.version) >= 0) {
-        firmware_set(firmware, MESH_FIRMWARE_UP_TO_DATE, mesh_str(MESH_STR_FW_STATE_UP_TO_DATE));
+        firmware_set(firmware, MESH_FIRMWARE_UP_TO_DATE, inkcell_str(MESH_STR_FW_STATE_UP_TO_DATE));
         return;
     }
     /*
@@ -343,7 +345,7 @@ bool mesh_firmware_set_channel(struct mesh_firmware *firmware, enum mesh_firmwar
     }
     firmware->channel = channel;
     mesh_firmware_forget(firmware);
-    mesh_log_info("firmware", "Firmware channel set to %s", mesh_firmware_channel_name(channel));
+    inkcell_log_info("firmware", "Firmware channel set to %s", mesh_firmware_channel_name(channel));
     return true;
 }
 
@@ -383,7 +385,7 @@ int mesh_firmware_check(struct mesh_firmware *firmware, uint32_t hw_model, const
     memset(&firmware->boards, 0, sizeof firmware->boards);
     memset(&firmware->release, 0, sizeof firmware->release);
     firmware->hw_model = hw_model;
-    mesh_str_copy(firmware->running, sizeof firmware->running, running != NULL ? running : "");
+    inkcell_str_copy(firmware->running, sizeof firmware->running, running != NULL ? running : "");
     firmware->now_ms = now_ms;
     /* The old answer is gone, so the refusal that went with it is too - recomputed now rather
        than when the documents land, or the rows would keep naming last check's board while
@@ -410,10 +412,10 @@ int mesh_firmware_check(struct mesh_firmware *firmware, uint32_t hw_model, const
     };
     const int result = mesh_fetch_start(&firmware->fetch, &request, now_ms);
     if (result != 0) {
-        firmware_set(firmware, MESH_FIRMWARE_FAILED, mesh_str(MESH_STR_UPDATE_START_FAILED));
+        firmware_set(firmware, MESH_FIRMWARE_FAILED, inkcell_str(MESH_STR_UPDATE_START_FAILED));
         return result;
     }
-    firmware_set(firmware, MESH_FIRMWARE_IDENTIFYING, mesh_str(MESH_STR_FW_STATE_IDENTIFYING));
+    firmware_set(firmware, MESH_FIRMWARE_IDENTIFYING, inkcell_str(MESH_STR_FW_STATE_IDENTIFYING));
     return 0;
 }
 

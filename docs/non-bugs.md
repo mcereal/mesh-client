@@ -129,13 +129,13 @@ only a consequence of one of them, and neither is a thing a test could pin.
 - **The filter and the sort are stepped by Left and Right, and the shoulders still walk the tabs.**
   The d-pad does mean two things on this screen - edit on the top two rows, next tab on every row
   under them - and that is the Settings tab's arrangement rather than a new one: a field row edits,
-  a row with no field walks the tabs, and `MESH_UI_ICON_EDIT` in the gutter is what tells them
+  a row with no field walks the tabs, and `INKCELL_ICON_EDIT` in the gutter is what tells them
   apart before the press. A still steps forward, for the reason it does on a Settings enum.
   It was A alone, on a chip strip wearing no marker, and the cost was a screen whose two controls
   were only discoverable by pressing every button on the case.
   `ui_nav_nodes_filter_steps_and_renumbers_the_rows`, `ui_nav_nodes_controls_take_the_d_pad`.
 - **A fixture that wants a tab presses the shoulder, not Right.** `mesh_test_open_tab()` walked the
-  ring with `MESH_UI_KEY_RIGHT` and hung on the first screen whose cursor was resting on a control
+  ring with `INKCELL_KEY_RIGHT` and hung on the first screen whose cursor was resting on a control
   - which, once the Nodes list took the axis, was the Nodes list every time. `ui_fixture.c`.
 - **A filter matches what the list *draws*, not one of the conditions behind it.** Both extra
   halves are corrections: a node dropped from the radio's database still passes `signal_heard()`,
@@ -151,7 +151,7 @@ only a consequence of one of them, and neither is a thing a test could pin.
   the end of a list the screen says is longer.
   `ui_nav_nodes_sort_permutes_but_never_selects`.
 - **A filter that keeps nothing keeps the lead rows above it.** The chip that emptied the list is
-  on the first row, so falling through to `fb_draw_empty()` would take away the control that puts
+  on the first row, so falling through to `inkcell_fb_draw_empty()` would take away the control that puts
   it back. `ui_nav_nodes_filter_that_keeps_nothing_keeps_its_own_rows`.
 - **`map_open` outlives a change of tab, and the key handler must still check `nav->screen`.** The
   flag says *where the Nodes tab is standing*, not *what the reader is looking at*; read as "a map
@@ -235,7 +235,7 @@ only a consequence of one of them, and neither is a thing a test could pin.
   not always 4, so a cache holding panel-format pixels would be the map layer including the
   framebuffer - and would make a cached tile the property of *one* backend, since the capture
   harness renders at four bytes a pixel whatever the device is doing. The blit converts per
-  drawn pixel, joining the switch `fb_fill_packed()` already makes.
+  drawn pixel, joining the switch `inkcell_fb_fill_packed()` already makes.
 
 ## Messages
 
@@ -344,7 +344,7 @@ only a consequence of one of them, and neither is a thing a test could pin.
 - **An expiry is only honoured once we know what time it is, and a tombstone always is.** With no
   RTC battery `time(NULL)` is a small positive number, so "has this expired?" is usually
   unanswerable - but "was this expiry a moment in 1970?" needs no clock, and that is what a
-  withdrawal is. Hence `mesh_time_wall_credible_s()`, which a *deadline* needs and an *age* does
+  withdrawal is. Hence `inkcell_time_wall_credible_s()`, which a *deadline* needs and an *age* does
   not. `waypoint_dated_expiry_is_honoured`, `time_wall_clock_credibility`.
 - **The waypoint book is a table keyed by id, not a ring.** Upstream *edits* by re-broadcasting
   the same id. The message log next door does the opposite on purpose: two packets are two things
@@ -433,7 +433,7 @@ only a consequence of one of them, and neither is a thing a test could pin.
   Ordered by when each verb was added, the trend sat after the Radio card's refresh while its card
   is the middle one. `ui_status_verbs_stay_in_card_order`.
 - **A column of cards reserves room for its last card, and the reservation yields rather than
-  erasing the card making it.** `fb_draw_card()` pays by refusing a card outright, which is worse
+  erasing the card making it.** `inkcell_fb_draw_card()` pays by refusing a card outright, which is worse
   than losing rows because a card carries *verbs* - so the cursor walked onto a button that was
   not on the frame. **How much to reserve is a reading rather than a constant**: one helper
   promises the card exists, the other that it can say everything.
@@ -447,7 +447,7 @@ only a consequence of one of them, and neither is a thing a test could pin.
   dismissal, because dismissal is a nav change and refusing it is what keeps the table to states
   that go away on their own. `ui_chrome_banner`.
 - **A font's cell height is not its cap height.** Anything sized to stand beside the text uses
-  `mesh_ui_font_cap()`. They are equal for `5x7` and not for a face with real ascenders, where the
+  `inkcell_font_cap()`. They are equal for `5x7` and not for a face with real ascenders, where the
   cell makes every icon a seventh too big. `ui_theme_fonts_cap_height`.
 
 - **A card's verbs are on its heading line, not in a row under its content.** Every phone puts
@@ -486,7 +486,7 @@ only a consequence of one of them, and neither is a thing a test could pin.
   `trend_rungs_are_fixed_rather_than_fitted`.
 - **A line is broken rather than sloped across a silence, and a *refused* reading breaks it too.**
   A node on external power reports punctually and reports something that is not a level, which no
-  clock can see - so `mesh_ui_series_break()` is how the source says so. `series_breaks`.
+  clock can see - so `inkcell_series_break()` is how the source says so. `series_breaks`.
 - **The radio's airtime pair is persisted and a node's trends are not, and the saved sample is an
   age rather than a stamp.** Starting empty at every launch left the Mesh card's chart unoffered
   for the first half hour of *every session*, and "a trend is what we watched" is answered by the
@@ -505,7 +505,7 @@ only a consequence of one of them, and neither is a thing a test could pin.
 - **The span picker only narrows, and it is anchored at the newest reading rather than at the
   clock.** Anchored at "now", a link that dropped twenty minutes ago answers every span but All
   with an empty plot. The window is cut **before** the ceiling is picked, which is why
-  `mesh_ui_trend_frame()` is one function. `trend_span_narrows_the_window_and_never_pads_it`,
+  `inkcell_trend_frame()` is one function. `trend_span_narrows_the_window_and_never_pads_it`,
   `trend_ceiling_follows_the_window_rather_than_the_ring`.
 - **A narrowed window drops the readings outside it rather than clamping them.** Holding an
   outside sample at the edge is right for a window taken from the series and wrong for one the
@@ -513,7 +513,7 @@ only a consequence of one of them, and neither is a thing a test could pin.
   colour that is not a reading of anything. `trend_projection_drops_readings_outside_the_window`.
 - **Two lines on one chart are projected over a window neither of them owns.** Stretched across
   its own span, a series that stopped reporting is drawn as though it were still arriving;
-  `mesh_ui_series_window()` is the union of the clocks. `series_share_one_window_across_a_chart`.
+  `inkcell_series_window()` is the union of the clocks. `series_share_one_window_across_a_chart`.
 - **`nav->trend_span` is one field for both charts, and that is a claim about what it is.** Every
   other level flag says where a tab is standing; a span is not a place, it is how the reader likes
   their charts read. `mesh_ui_nav_init()` sets `ALL` rather than leaving the zero, the narrowest.
@@ -540,7 +540,7 @@ only a consequence of one of them, and neither is a thing a test could pin.
   `num_packets_rx` is everything received, so new/dupe/bad are a *partition* of it and a divided
   bar is true. `num_tx_relay` is a **subset** of `num_packets_tx`, so the Sent row's three numbers
   add up to a whole that does not exist - and overlapping parts still sum to something, which is
-  `fb_draw_proportion()`'s one way of being wrong quietly. A negative remainder skips the row.
+  `inkcell_fb_draw_proportion()`'s one way of being wrong quietly. A negative remainder skips the row.
 - **Both chart screens are one renderer, and a third caller adds a description rather than a
   function.** `fb_render_chart()` takes a `struct fb_chart_screen` - the series, their labels, the
   domain, the band, and what unit the axis is *worded* in - and does everything else. The airtime

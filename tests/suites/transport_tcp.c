@@ -1219,7 +1219,7 @@ MESH_TEST_CASE(tcp_link_leaves_the_bluetooth_grace_short, unit) {
      * already holds. Ten seconds is past the short grace and well inside the long one, so which
      * of the two applies is the whole of what the next turn answers.
      */
-    const uint64_t now = mesh_time_monotonic_ms();
+    const uint64_t now = inkcell_time_monotonic_ms();
     app.autoconnect_tcp_retry_at_ms = now + 60000U;
     app.autoconnect_started_ms = now - 10000U;
     app.autoconnect_retry_at_ms = 0U;

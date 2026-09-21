@@ -172,7 +172,7 @@ int mesh_ble_hci_request_interval(int dev_id, const char *address,
     memset(&list, 0, sizeof list);
     list.dev_id = (uint16_t)dev_id;
     list.conn_num = MESH_HCI_CONN_MAX;
-    if (ioctl(fd, mesh_ioctl_request_of(MESH_HCIGETCONNLIST), &list) < 0) {
+    if (ioctl(fd, inkcell_ioctl_request_of(MESH_HCIGETCONNLIST), &list) < 0) {
         const int error = -errno;
         close(fd);
         return error;
@@ -199,9 +199,9 @@ int mesh_ble_hci_request_interval(int dev_id, const char *address,
     const int error = sent < 0 ? -errno : (sent == (ssize_t)len ? 0 : -EIO);
     close(fd);
     if (error == 0) {
-        mesh_log_info("ble", "Asked for a %u.%02u ms connection interval on %s (handle %d)",
-                      (unsigned)(params->min_interval * 125U / 100U),
-                      (unsigned)(params->min_interval * 125U % 100U), address, handle);
+        inkcell_log_info("ble", "Asked for a %u.%02u ms connection interval on %s (handle %d)",
+                         (unsigned)(params->min_interval * 125U / 100U),
+                         (unsigned)(params->min_interval * 125U % 100U), address, handle);
     }
     return error;
 }

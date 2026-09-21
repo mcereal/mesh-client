@@ -30,7 +30,7 @@ MESH_TEST_CASE(config_defaults, unit) {
 /*
  * The documented transport knobs still answer to their documented names.
  *
- * Worth a case of its own because the way this breaks is invisible: mesh_env_bool() takes a
+ * Worth a case of its own because the way this breaks is invisible: inkcell_env_bool() takes a
  * *suffix* and puts the application's prefix on it, so a caller passing the whole name asks for
  * MESHCLIENT_MESHCLIENT_DISABLE_BLE. That compiles, reads correctly at the call site, and
  * returns the fallback on every machine - so BLE stays on, the client looks fine, and the only
@@ -149,9 +149,9 @@ MESH_TEST_CASE(event_loop_run_returns_under_a_hot_source, unit) {
         return;
     }
 
-    const uint64_t started_ms = mesh_time_monotonic_ms();
+    const uint64_t started_ms = inkcell_time_monotonic_ms();
     const int result = mesh_event_loop_run(&loop, 100);
-    const uint64_t elapsed_ms = mesh_time_monotonic_ms() - started_ms;
+    const uint64_t elapsed_ms = inkcell_time_monotonic_ms() - started_ms;
 
     mesh_event_loop_remove_fd(&loop, fd);
     close(fd);

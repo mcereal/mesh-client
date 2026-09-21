@@ -37,8 +37,6 @@
 
 #include "inkcell/ui/fb_draw.h"
 
-#include "mesh/inkcell_compat.h"
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -104,7 +102,7 @@ struct mesh_ui_route {
 };
 
 /* Which way a move between two places went. */
-/* enum mesh_ui_transition moved to inkcell (inkcell/ui/fb_draw.h): how a screen travels is a
+/* enum inkcell_transition moved to inkcell (inkcell/ui/fb_draw.h): how a screen travels is a
    property of the look. What counts as "further in" is still this client's question, which is
    what mesh_ui_route_move() below answers. */
 
@@ -195,7 +193,7 @@ bool mesh_ui_route_same(const struct mesh_ui_route *a, const struct mesh_ui_rout
  * standing down onto the keyboard it displaced is - reads as forward, because something new
  * arrived.
  */
-enum mesh_ui_transition mesh_ui_route_move(const struct mesh_ui_route *from,
+enum inkcell_transition mesh_ui_route_move(const struct mesh_ui_route *from,
                                            const struct mesh_ui_route *to);
 
 #ifdef __cplusplus

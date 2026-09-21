@@ -290,7 +290,7 @@ static bool fetch_on_head(struct mesh_fetch *fetch) {
             fetch_fail(fetch, MESH_FETCH_PROTOCOL, "redirect off https to %.96s", next.host);
             return false;
         }
-        mesh_log_debug("fetch", "%d from %s to %s", status, conn->url.host, next.host);
+        inkcell_log_debug("fetch", "%d from %s to %s", status, conn->url.host, next.host);
         fetch_drop_socket(fetch, conn);
         conn->url = next;
         conn->redirects++;
@@ -682,7 +682,7 @@ void mesh_fetch_connect_to(struct mesh_fetch *fetch, const char *host, uint16_t 
     if (fetch == NULL) {
         return;
     }
-    if (host == NULL || !mesh_str_copy(fetch->connect_host, sizeof fetch->connect_host, host)) {
+    if (host == NULL || !inkcell_str_copy(fetch->connect_host, sizeof fetch->connect_host, host)) {
         fetch->connect_host[0] = '\0';
     }
     fetch->connect_port = port;
@@ -727,8 +727,8 @@ int mesh_fetch_start(struct mesh_fetch *fetch, const struct mesh_fetch_request *
     }
     bool agent = false;
     for (size_t i = 0U; i < MESH_FETCH_HEADERS_MAX && request->headers[i] != NULL; ++i) {
-        if (!mesh_str_copy(conn->headers[conn->header_count], MESH_FETCH_HEADER_MAX,
-                           request->headers[i])) {
+        if (!inkcell_str_copy(conn->headers[conn->header_count], MESH_FETCH_HEADER_MAX,
+                              request->headers[i])) {
             free(conn);
             return -EINVAL;
         }
@@ -741,7 +741,7 @@ int mesh_fetch_start(struct mesh_fetch *fetch, const struct mesh_fetch_request *
                  "User-Agent: meshclient/%s", mesh_version_string());
     }
     if (request->output_path != NULL &&
-        !mesh_str_copy(conn->output_path, sizeof conn->output_path, request->output_path)) {
+        !inkcell_str_copy(conn->output_path, sizeof conn->output_path, request->output_path)) {
         free(conn);
         return -EINVAL;
     }

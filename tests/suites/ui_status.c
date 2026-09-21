@@ -55,7 +55,7 @@ MESH_TEST_CASE(status_cursor_reaches_the_mesh_card_from_a_radios_reports, unit) 
     settings.stats.air_util_tx = 1.0f;
     mesh_ui_store_set_settings(&store, &settings);
     store.nav.status_verb = (uint8_t)MESH_UI_STATUS_VERB_DISCONNECT;
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     MESH_TEST_FAIL_IF(store.nav.status_verb != (uint8_t)MESH_UI_STATUS_VERB_REFRESH,
                       "one reading offers no chart, so Down goes on to the Radio card");
 
@@ -69,13 +69,13 @@ MESH_TEST_CASE(status_cursor_reaches_the_mesh_card_from_a_radios_reports, unit) 
     mesh_ui_store_set_settings(&store, &settings);
 
     store.nav.status_verb = (uint8_t)MESH_UI_STATUS_VERB_DISCONNECT;
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     MESH_TEST_FAIL_IF(store.nav.status_verb != (uint8_t)MESH_UI_STATUS_VERB_TREND,
                       "two reports at the radio's own cadence should put Down on the Mesh card");
 
     /* And A on it opens the chart rather than asking the radio for anything. */
     memset(&action, 0, sizeof action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     MESH_TEST_FAIL_IF(!store.nav.trend_open, "A on the Mesh card should open the chart");
     record_success(test_name);
 }
@@ -119,7 +119,7 @@ MESH_TEST_CASE(status_mesh_card_is_live_on_the_run_after, unit) {
 
     struct mesh_ui_action action;
     next.nav.status_verb = (uint8_t)MESH_UI_STATUS_VERB_DISCONNECT;
-    mesh_ui_store_handle_key(&next, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&next, INKCELL_KEY_DOWN, &action);
     MESH_TEST_FAIL_IF(next.nav.status_verb != (uint8_t)MESH_UI_STATUS_VERB_TREND,
                       "a relaunch should reach the Mesh card before the radio reports again");
 
@@ -186,7 +186,7 @@ MESH_TEST_CASE(ui_status_verbs_follow_the_link, unit) {
        one. An entry with no label is a button with no word on it. */
     mesh_ui_status_actions(&actions, true, true, true);
     for (uint32_t i = 0U; i < actions.count; ++i) {
-        MESH_TEST_FAIL_IF(actions.items[i].label == MESH_STR_NONE, "a verb with no word");
+        MESH_TEST_FAIL_IF(actions.items[i].label == INKCELL_STR_NONE, "a verb with no word");
     }
     record_success(test_name);
 }
@@ -393,13 +393,13 @@ MESH_TEST_CASE(ui_status_cursor_keeps_its_verb, unit) {
 
     while (store.nav.screen != MESH_UI_SCREEN_STATUS) {
         const enum mesh_ui_screen before = store.nav.screen;
-        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_R1, &action);
+        (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_R1, &action);
         if (store.nav.screen == before) {
             failure = "the shoulder stopped moving before the Status tab";
             goto cleanup;
         }
     }
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     if (store.nav.status_verb != (uint8_t)MESH_UI_STATUS_VERB_REFRESH) {
         failure = "Down should reach the Radio card's verb";
         goto cleanup;
@@ -423,13 +423,13 @@ MESH_TEST_CASE(ui_status_cursor_keeps_its_verb, unit) {
         goto cleanup;
     }
     memset(&action, 0, sizeof action);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (action.type != MESH_UI_ACTION_NONE) {
         failure = "A on a screen with no verbs must do nothing";
         goto cleanup;
     }
     /* Nor may a press that reaches nothing move the place being held. */
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     if (store.nav.status_verb != (uint8_t)MESH_UI_STATUS_VERB_REFRESH) {
         failure = "a screen with no buttons should hold the reader's place";
         goto cleanup;
@@ -444,7 +444,7 @@ MESH_TEST_CASE(ui_status_cursor_keeps_its_verb, unit) {
         goto cleanup;
     }
     memset(&action, 0, sizeof action);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (action.type != MESH_UI_ACTION_REFRESH_SETTINGS) {
         failure = "the cursor should come back on the verb it was left on";
         goto cleanup;
@@ -476,13 +476,13 @@ MESH_TEST_CASE(ui_status_a_new_verb_does_not_move_the_cursor, unit) {
 
     while (store.nav.screen != MESH_UI_SCREEN_STATUS) {
         const enum mesh_ui_screen before = store.nav.screen;
-        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_R1, &action);
+        (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_R1, &action);
         if (store.nav.screen == before) {
             failure = "the shoulder stopped moving before the Status tab";
             goto cleanup;
         }
     }
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     if (store.nav.status_verb != (uint8_t)MESH_UI_STATUS_VERB_REFRESH) {
         failure = "Down should reach the Radio card's verb";
         goto cleanup;
@@ -509,7 +509,7 @@ MESH_TEST_CASE(ui_status_a_new_verb_does_not_move_the_cursor, unit) {
         goto cleanup;
     }
     memset(&action, 0, sizeof action);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (action.type != MESH_UI_ACTION_REFRESH_SETTINGS || store.nav.trend_open) {
         failure = "A ran the verb that slid in rather than the one under the cursor";
         goto cleanup;
@@ -551,7 +551,7 @@ MESH_TEST_CASE(ui_status_trend_opens_swallows_and_closes, unit) {
 
     while (store.nav.screen != MESH_UI_SCREEN_STATUS) {
         const enum mesh_ui_screen before = store.nav.screen;
-        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_R1, &action);
+        (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_R1, &action);
         if (store.nav.screen == before) {
             failure = "the shoulder stopped moving before the Status tab";
             goto cleanup;
@@ -563,14 +563,14 @@ MESH_TEST_CASE(ui_status_trend_opens_swallows_and_closes, unit) {
     }
 
     /* One press, because Mesh is the middle card and the list runs in the cards' order. */
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     if (store.nav.status_verb != (uint8_t)MESH_UI_STATUS_VERB_TREND) {
         failure = "Down should reach the Mesh card's verb";
         goto cleanup;
     }
 
     memset(&action, 0, sizeof action);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.trend_open) {
         failure = "A on the trend verb should open the chart";
         goto cleanup;
@@ -583,9 +583,9 @@ MESH_TEST_CASE(ui_status_trend_opens_swallows_and_closes, unit) {
     /* Swallowed: the cursor must not move under the picture, and A must not run the verb the
        cursor would have landed on. */
     memset(&action, 0, sizeof action);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (store.nav.status_verb != (uint8_t)MESH_UI_STATUS_VERB_TREND || !store.nav.trend_open) {
         failure = "a chart has no cursor, so the d-pad must not move one";
         goto cleanup;
@@ -597,7 +597,7 @@ MESH_TEST_CASE(ui_status_trend_opens_swallows_and_closes, unit) {
 
     /* The shoulders still change tab, and the flag stays behind on the tab it belongs to: every
        tab keeps its own place, so coming back shows the chart that was left open. */
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_R1, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_R1, &action);
     if (store.nav.screen == MESH_UI_SCREEN_STATUS) {
         failure = "the shoulders should still walk the tab strip from a chart";
         goto cleanup;
@@ -606,9 +606,9 @@ MESH_TEST_CASE(ui_status_trend_opens_swallows_and_closes, unit) {
         failure = "a chart left open should still be open when its tab comes back";
         goto cleanup;
     }
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_L1, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_L1, &action);
 
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
     if (store.nav.trend_open) {
         failure = "B should leave the chart";
         goto cleanup;

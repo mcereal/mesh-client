@@ -205,7 +205,7 @@ def main():
         w("};\n\n")
 
         w("/* Single-codepoint emoji, sorted so a lookup can bisect. */\n")
-        w("static const struct mesh_emoji_single k_singles[] = {\n")
+        w("static const struct inkcell_emoji_single k_singles[] = {\n")
         for i in range(0, len(singles), 6):
             row = "".join("{0x%05X, %d}, " % s for s in singles[i : i + 6])
             w("    " + row.rstrip() + "\n")
@@ -218,13 +218,13 @@ def main():
             w("    " + " ".join("0x%05X," % c for c in tail[i : i + 8]) + "\n")
         w("};\n\n")
 
-        w("static const struct mesh_emoji_sequence k_sequences[] = {\n")
+        w("static const struct inkcell_emoji_sequence k_sequences[] = {\n")
         for i in range(0, len(seq_rows), 4):
             row = "".join("{0x%05X, %d, %d, %d}, " % s for s in seq_rows[i : i + 4])
             w("    " + row.rstrip() + "\n")
         w("};\n\n")
 
-        w("const struct mesh_emoji_table mesh_emoji_table = {\n")
+        w("const struct inkcell_emoji_table inkcell_emoji_table = {\n")
         w("    .palette = k_palette,\n")
         w("    .palette_size = %d,\n" % len(palette))
         w("    .runs = k_runs,\n")

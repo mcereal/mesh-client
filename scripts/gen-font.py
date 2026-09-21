@@ -245,12 +245,12 @@ def main():
         w("};\n\n")
 
         w("/* The glyphs, by ascending codepoint - which is what lets the lookup bisect. */\n")
-        w("static const struct mesh_ui_font_ui_glyph k_glyphs[] = {\n")
+        w("static const struct inkcell_font_ui_glyph k_glyphs[] = {\n")
         for codepoint, offset, x, y, gw, gh in entries:
             w("    {0x%04X, %6d, %2d, %2d, %2d, %2d},\n" % (codepoint, offset, x, y, gw, gh))
         w("};\n\n")
 
-        w("const struct mesh_ui_font_ui_table mesh_ui_font_ui_table = {\n")
+        w("const struct inkcell_font_ui_table inkcell_font_ui_table = {\n")
         w("    .pixels = k_pixels,\n")
         w("    .glyphs = k_glyphs,\n")
         w("    .count = %d,\n" % len(entries))

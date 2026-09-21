@@ -898,10 +898,10 @@ MESH_TEST_CASE(ui_canned_load, unit) {
         failure = "canned file not parsed as expected";
         goto cleanup;
     }
-    const char *previous_language = mesh_i18n_locale()->id;
-    (void)mesh_i18n_set_locale("es");
+    const char *previous_language = inkcell_i18n_locale()->id;
+    (void)inkcell_i18n_set_locale("es");
     const bool custom_preserved = strcmp(mesh_ui_canned_text(2), "Be there in 5") == 0;
-    (void)mesh_i18n_set_locale(previous_language);
+    (void)inkcell_i18n_set_locale(previous_language);
     if (!custom_preserved) {
         failure = "switching languages must preserve custom quick replies";
         goto cleanup;
@@ -952,9 +952,9 @@ MESH_TEST_CASE(ui_store_read_revision_moves_only_when_the_mark_does, unit) {
     struct mesh_ui_action action;
 
     /* Open BRVO's thread, which is what puts a mark down in the first place. */
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     (void)mesh_ui_store_consume_updates(&store, &snapshot);
     if (!store.nav.thread_open || store.read_state.count == 0U) {
         failure = "opening the thread should have left a read mark";
@@ -1018,11 +1018,11 @@ MESH_TEST_CASE(ui_store_forget_conversation, unit) {
     struct mesh_ui_action action;
 
     /* Open BRVO's thread so it picks up a read mark, then back out to the list. */
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     (void)mesh_ui_store_consume_updates(&store, &snapshot);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
     if (store.read_state.count == 0U) {
         failure = "opening the thread should have left a read mark";
         goto cleanup;

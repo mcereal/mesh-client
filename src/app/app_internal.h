@@ -28,7 +28,7 @@
 int mesh_app_link_connect(struct mesh_app *app, const char *identifier, uint8_t kind);
 
 /* Button presses from the evdev reader; installed on the UI input as its handler. */
-void mesh_app_on_ui_key(void *userdata, enum mesh_ui_key key);
+void mesh_app_on_ui_key(void *userdata, enum inkcell_key key);
 
 /* Records that this device is the one we are on: the head of the preferences' most-recently-
    used list, and the node auto-connect reaches for first. Sets app->ui_preferences_dirty when

@@ -49,7 +49,7 @@ enum status_need {
 struct status_entry {
     uint8_t card; /* enum mesh_ui_status_card */
     uint8_t verb; /* enum mesh_ui_status_verb */
-    enum mesh_str_id label;
+    enum inkcell_str_id label;
     uint8_t needs; /* enum status_need, ORed */
 };
 

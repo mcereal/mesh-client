@@ -30,7 +30,7 @@ ROOT = Path(__file__).resolve().parent.parent
 #
 # The transports are deliberately absent for a different reason, and are not an exception: everything they say to a
 # person goes out through mesh_ble_set_error() / mesh_serial_set_error(), whose first parameter
-# is an `enum mesh_str_id`. A string literal there does not compile, which is a stronger check
+# is an `enum inkcell_str_id`. A string literal there does not compile, which is a stronger check
 # than this one - and the rest of those files is D-Bus paths and BlueZ diagnostics, which this
 # script would only be able to tell apart from prose with a very long ALLOWED list.
 CHECKED = [
@@ -129,7 +129,7 @@ PATH_NAME = re.compile(r"^/[A-Za-z0-9_./%*+-]*$")
 # rather than to the end of the line, because the argument carrying the words is often not on
 # the first one. A log is read by a developer; an assertion's message is read by a compiler, in
 # a build that by definition did not produce a binary.
-SKIPPED_CALLS = ("mesh_log", "MESH_UI_STATIC_ASSERT", "_Static_assert", "static_assert")
+SKIPPED_CALLS = ("inkcell_log", "INKCELL_STATIC_ASSERT", "_Static_assert", "static_assert")
 
 
 def strip_comments(text):
@@ -163,7 +163,7 @@ def strip_comments(text):
 
 
 def findings(path):
-    """Every prose literal in `path`, skipping includes, mesh_log() calls and static assertions.
+    """Every prose literal in `path`, skipping includes, inkcell_log() calls and static assertions.
 
     A log call is skipped to its closing paren rather than to the end of its first line: the
     arguments that pick a word - `favorite ? "Pinned" : "Unpinned"` - are usually on the second.
@@ -218,7 +218,7 @@ def main():
     if problems:
         print(
             f"\n{len(problems)} hardcoded string(s). Add an entry to "
-            "include/mesh/i18n/catalog.def and use mesh_str(); see docs/i18n.md.\n"
+            "include/mesh/i18n/catalog.def and use inkcell_str(); see docs/i18n.md.\n"
             "If the string is genuinely not prose, list it in ALLOWED in this script with "
             "the reason.",
             file=sys.stderr,

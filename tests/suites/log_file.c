@@ -97,7 +97,7 @@ MESH_TEST_CASE(log_file_under_the_cap_is_left_alone, unit) {
     const long written = log_file_write_lines(path, 64U, 80U);
     MESH_TEST_FAIL_IF_CLEANUP(written <= 0, mesh_test_remove_tree(dir), "could not write a log");
 
-    const long reclaimed = mesh_log_file_compact(path);
+    const long reclaimed = inkcell_log_file_compact(path);
     const long after = log_file_size(path);
     mesh_test_remove_tree(dir);
 
@@ -114,17 +114,17 @@ MESH_TEST_CASE(log_file_over_the_cap_is_cut_to_its_newest_lines, unit) {
     snprintf(path, sizeof path, "%s/MeshClient.txt", dir);
     /* Comfortably past the cap, so there is an oldest half with nothing to keep it. */
     const unsigned width = 80U;
-    const unsigned lines = (unsigned)((MESH_LOG_FILE_MAX_BYTES / width) * 2U);
+    const unsigned lines = (unsigned)((INKCELL_LOG_FILE_MAX_BYTES / width) * 2U);
     const long written = log_file_write_lines(path, lines, width);
-    MESH_TEST_FAIL_IF_CLEANUP(written <= (long)MESH_LOG_FILE_MAX_BYTES, mesh_test_remove_tree(dir),
-                              "the fixture did not exceed the cap");
+    MESH_TEST_FAIL_IF_CLEANUP(written <= (long)INKCELL_LOG_FILE_MAX_BYTES,
+                              mesh_test_remove_tree(dir), "the fixture did not exceed the cap");
 
     /* The last line written, so "the newest survived" is asserted against a real line rather
        than against a number that drifts if the cap or the padding changes. */
     char newest[32];
     snprintf(newest, sizeof newest, "line-%08u", lines - 1U);
 
-    const long reclaimed = mesh_log_file_compact(path);
+    const long reclaimed = inkcell_log_file_compact(path);
     const long after = log_file_size(path);
     const bool kept_newest = log_file_contains(path, newest);
     const bool dropped_oldest = !log_file_contains(path, "line-00000000");
@@ -133,7 +133,7 @@ MESH_TEST_CASE(log_file_over_the_cap_is_cut_to_its_newest_lines, unit) {
     mesh_test_remove_tree(dir);
 
     MESH_TEST_FAIL_IF(reclaimed <= 0L, "an oversized log reported nothing reclaimed");
-    MESH_TEST_FAIL_IF(after > (long)MESH_LOG_FILE_KEEP_BYTES,
+    MESH_TEST_FAIL_IF(after > (long)INKCELL_LOG_FILE_KEEP_BYTES,
                       "the log was not cut back to the retained window");
     MESH_TEST_FAIL_IF(after + reclaimed != written, "reclaimed does not account for the shrinkage");
     MESH_TEST_FAIL_IF(!kept_newest, "the newest line did not survive the compaction");
@@ -154,13 +154,13 @@ MESH_TEST_CASE(log_file_keeps_the_inode_so_an_open_writer_follows, unit) {
     char path[256];
     snprintf(path, sizeof path, "%s/MeshClient.txt", dir);
     const unsigned width = 80U;
-    const unsigned lines = (unsigned)((MESH_LOG_FILE_MAX_BYTES / width) * 2U);
+    const unsigned lines = (unsigned)((INKCELL_LOG_FILE_MAX_BYTES / width) * 2U);
     MESH_TEST_FAIL_IF_CLEANUP(log_file_write_lines(path, lines, width) <= 0,
                               mesh_test_remove_tree(dir), "could not write a log");
 
     struct stat before;
     const bool statted = stat(path, &before) == 0;
-    const long reclaimed = mesh_log_file_compact(path);
+    const long reclaimed = inkcell_log_file_compact(path);
     struct stat after;
     const bool restatted = stat(path, &after) == 0;
     /* The rewrite works down one descriptor and writes nothing beside the log. This guards the
@@ -186,7 +186,7 @@ MESH_TEST_CASE(log_file_leaves_an_appending_writer_correct, unit) {
     char path[256];
     snprintf(path, sizeof path, "%s/MeshClient.txt", dir);
     const unsigned width = 80U;
-    const unsigned lines = (unsigned)((MESH_LOG_FILE_MAX_BYTES / width) * 2U);
+    const unsigned lines = (unsigned)((INKCELL_LOG_FILE_MAX_BYTES / width) * 2U);
     MESH_TEST_FAIL_IF_CLEANUP(log_file_write_lines(path, lines, width) <= 0,
                               mesh_test_remove_tree(dir), "could not write a log");
 
@@ -194,7 +194,7 @@ MESH_TEST_CASE(log_file_leaves_an_appending_writer_correct, unit) {
     const int writer = open(path, O_WRONLY | O_APPEND | O_CLOEXEC);
     MESH_TEST_FAIL_IF_CLEANUP(writer < 0, mesh_test_remove_tree(dir), "could not open an appender");
 
-    const long reclaimed = mesh_log_file_compact(path);
+    const long reclaimed = inkcell_log_file_compact(path);
 
     static const char after_line[] = "after-the-compaction\n";
     const ssize_t put = write(writer, after_line, sizeof after_line - 1U);
@@ -210,7 +210,7 @@ MESH_TEST_CASE(log_file_leaves_an_appending_writer_correct, unit) {
     MESH_TEST_FAIL_IF(!landed, "the appender's line did not reach the compacted log");
     /* O_APPEND positions each write at the current end, so the line lands after the retained
        tail rather than at the offset the writer held before - no hole, nothing lost. */
-    MESH_TEST_FAIL_IF(size > (long)MESH_LOG_FILE_KEEP_BYTES + (long)sizeof after_line,
+    MESH_TEST_FAIL_IF(size > (long)INKCELL_LOG_FILE_KEEP_BYTES + (long)sizeof after_line,
                       "the appender wrote past the end, which means it kept its old offset");
     record_success(test_name);
 }
@@ -221,7 +221,7 @@ MESH_TEST_CASE(log_file_absent_is_not_an_error_and_is_not_created, unit) {
 
     char path[256];
     snprintf(path, sizeof path, "%s/never-was-a-log.txt", dir);
-    const long reclaimed = mesh_log_file_compact(path);
+    const long reclaimed = inkcell_log_file_compact(path);
     const bool created = access(path, F_OK) == 0;
     mesh_test_remove_tree(dir);
 
@@ -238,11 +238,11 @@ MESH_TEST_CASE(log_file_one_enormous_line_is_left_alone, unit) {
     snprintf(path, sizeof path, "%s/MeshClient.txt", dir);
     /* No newline anywhere in the retained window, so there is no line boundary to start from and
        nothing worth keeping. The file is left as it is rather than emptied. */
-    const long written = log_file_write_lines(path, 1U, (unsigned)MESH_LOG_FILE_MAX_BYTES * 2U);
-    MESH_TEST_FAIL_IF_CLEANUP(written <= (long)MESH_LOG_FILE_MAX_BYTES, mesh_test_remove_tree(dir),
-                              "the fixture did not exceed the cap");
+    const long written = log_file_write_lines(path, 1U, (unsigned)INKCELL_LOG_FILE_MAX_BYTES * 2U);
+    MESH_TEST_FAIL_IF_CLEANUP(written <= (long)INKCELL_LOG_FILE_MAX_BYTES,
+                              mesh_test_remove_tree(dir), "the fixture did not exceed the cap");
 
-    const long reclaimed = mesh_log_file_compact(path);
+    const long reclaimed = inkcell_log_file_compact(path);
     const long after = log_file_size(path);
     mesh_test_remove_tree(dir);
 
@@ -268,7 +268,7 @@ MESH_TEST_CASE(log_file_refuses_anything_but_a_regular_file, unit) {
     snprintf(path, sizeof path, "%s/MeshClient.txt", dir);
     const bool made = mkfifo(path, 0600) == 0;
 
-    const long reclaimed = made ? mesh_log_file_compact(path) : -1L;
+    const long reclaimed = made ? inkcell_log_file_compact(path) : -1L;
     struct stat info;
     const bool still_a_fifo = stat(path, &info) == 0 && S_ISFIFO(info.st_mode);
     mesh_test_remove_tree(dir);
@@ -289,22 +289,22 @@ MESH_TEST_CASE(log_file_path_is_derived_from_home, unit) {
 
     /* What launch.sh exports: the pak's own userdata directory. The log is its sibling. */
     (void)setenv("HOME", "/mnt/SDCARD/.userdata/tg5040/MeshClient", 1);
-    char path[MESH_LOG_FILE_PATH_MAX];
-    const bool derived = mesh_log_file_default_path(path, sizeof path);
+    char path[INKCELL_LOG_FILE_PATH_MAX];
+    const bool derived = inkcell_log_file_default_path(path, sizeof path);
     const bool matched =
         derived && strcmp(path, "/mnt/SDCARD/.userdata/tg5040/logs/MeshClient.txt") == 0;
 
     /* A trailing slash must not make the pak name empty. */
     (void)setenv("HOME", "/mnt/SDCARD/.userdata/tg5040/MeshClient/", 1);
-    char slashed[MESH_LOG_FILE_PATH_MAX];
-    const bool derived_slashed = mesh_log_file_default_path(slashed, sizeof slashed);
+    char slashed[INKCELL_LOG_FILE_PATH_MAX];
+    const bool derived_slashed = inkcell_log_file_default_path(slashed, sizeof slashed);
     const bool matched_slashed =
         derived_slashed && strcmp(slashed, "/mnt/SDCARD/.userdata/tg5040/logs/MeshClient.txt") == 0;
 
     /* Nothing to derive from is an answer, not a guess. */
     (void)unsetenv("HOME");
-    char unset[MESH_LOG_FILE_PATH_MAX];
-    const bool derived_unset = mesh_log_file_default_path(unset, sizeof unset);
+    char unset[INKCELL_LOG_FILE_PATH_MAX];
+    const bool derived_unset = inkcell_log_file_default_path(unset, sizeof unset);
 
     if (home_copy[0] != '\0') {
         (void)setenv("HOME", home_copy, 1);
@@ -348,8 +348,8 @@ MESH_TEST_CASE(log_file_path_refuses_a_home_that_is_not_the_pak_userdata_dir, un
     const char *offender = NULL;
     for (size_t i = 0; i < sizeof strangers / sizeof strangers[0]; ++i) {
         (void)setenv("HOME", strangers[i], 1);
-        char path[MESH_LOG_FILE_PATH_MAX];
-        if (mesh_log_file_default_path(path, sizeof path)) {
+        char path[INKCELL_LOG_FILE_PATH_MAX];
+        if (inkcell_log_file_default_path(path, sizeof path)) {
             derived_any = true;
             offender = strangers[i];
             break;
@@ -358,15 +358,15 @@ MESH_TEST_CASE(log_file_path_refuses_a_home_that_is_not_the_pak_userdata_dir, un
 
     /* The device layout still works, so the guard is a shape check and not a refusal to derive. */
     (void)setenv("HOME", "/mnt/SDCARD/.userdata/tg5040/MeshClient", 1);
-    char device[MESH_LOG_FILE_PATH_MAX];
-    const bool device_ok = mesh_log_file_default_path(device, sizeof device) &&
+    char device[INKCELL_LOG_FILE_PATH_MAX];
+    const bool device_ok = inkcell_log_file_default_path(device, sizeof device) &&
                            strcmp(device, "/mnt/SDCARD/.userdata/tg5040/logs/MeshClient.txt") == 0;
 
     /* And an explicit override is not subject to the shape at all. */
     (void)setenv("HOME", "/home/user", 1);
     (void)setenv("MESHCLIENT_LOG_FILE", "/tmp/anywhere.txt", 1);
-    char override[MESH_LOG_FILE_PATH_MAX];
-    const bool override_ok = mesh_log_file_default_path(override, sizeof override) &&
+    char override[INKCELL_LOG_FILE_PATH_MAX];
+    const bool override_ok = inkcell_log_file_default_path(override, sizeof override) &&
                              strcmp(override, "/tmp/anywhere.txt") == 0;
 
     (void)unsetenv("MESHCLIENT_LOG_FILE");
@@ -390,8 +390,8 @@ MESH_TEST_CASE(log_file_path_override_wins, unit) {
 
     (void)setenv("HOME", "/mnt/SDCARD/.userdata/tg5040/MeshClient", 1);
     (void)setenv("MESHCLIENT_LOG_FILE", "/tmp/somewhere-else.txt", 1);
-    char path[MESH_LOG_FILE_PATH_MAX];
-    const bool derived = mesh_log_file_default_path(path, sizeof path);
+    char path[INKCELL_LOG_FILE_PATH_MAX];
+    const bool derived = inkcell_log_file_default_path(path, sizeof path);
     const bool matched = derived && strcmp(path, "/tmp/somewhere-else.txt") == 0;
 
     (void)unsetenv("MESHCLIENT_LOG_FILE");

@@ -12,8 +12,6 @@
 #include "inkcell/ui/key.h"
 #include "inkcell/ui/keyboard.h"
 
-#include "mesh/inkcell_compat.h"
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -22,7 +20,7 @@ struct mesh_ui_store;
 
 /* Logical buttons moved to inkcell (inkcell/ui/key.h): which physical button reports which
    press is a fact about a piece of plastic, and the navigation model never sees a keycode
-   either way. The MESH_UI_KEY_* names are bridged in inkcell_compat.h. */
+   either way. The names are INKCELL_KEY_*. */
 
 /* Tabs, in the order LEFT/RIGHT (and L1/R1) walk them. Compose is not one: it is an overlay
    over the open conversation, so it can never be reached with a stale destination. */
@@ -274,7 +272,7 @@ struct mesh_ui_nav {
      *
      * This is what makes one press one send, and it has to live here because the nav is the
      * only thing that can. A button going *down* and the kernel's autorepeat arrive as the
-     * same event - mesh_ui_input_handle_event() drops `value == 2` only for the four
+     * same event - inkcell_input_handle_event() drops `value == 2` only for the four
      * directions, because those are repeated by our own timer instead, and a face button keeps
      * whatever the kernel does with it. Every other press in this client either changes what
      * is on screen or arms something, so a repeat lands somewhere different; a resend leaves
@@ -447,7 +445,7 @@ struct mesh_ui_nav {
      */
     bool trend_open;
     /*
-     * How far back both charts look: `enum mesh_ui_trend_span`, stepped by Left and Right.
+     * How far back both charts look: `enum inkcell_trend_span`, stepped by Left and Right.
      *
      * One field for the two chart screens rather than one each, and that is a claim about what
      * this is. A span is not *where the reader is* - which is what every other field on this
@@ -460,7 +458,7 @@ struct mesh_ui_nav {
      * not persisted: the history it slices is not persisted either, so a span restored across a
      * restart would be a choice made about readings that no longer exist.
      *
-     * MESH_UI_TREND_SPAN_ALL rather than zero at rest - mesh_ui_nav_init() says so - because ALL
+     * INKCELL_TREND_SPAN_ALL rather than zero at rest - mesh_ui_nav_init() says so - because ALL
      * is what these screens did before there was a picker, and a reader who never touches Left
      * or Right should see what the screen has always shown them.
      */
@@ -938,7 +936,7 @@ bool mesh_ui_nav_close_verify_number(struct mesh_ui_nav *nav);
    asks the app to do something, *out_action is filled in (may be NULL to discard). The store
    is read for list sizes and to resolve node names; it is not modified. */
 bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
-                            enum mesh_ui_key key, struct mesh_ui_action *out_action);
+                            enum inkcell_key key, struct mesh_ui_action *out_action);
 
 /* Keeps cursors inside their lists after the data changed. Returns true if anything moved. */
 bool mesh_ui_nav_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_store *store);

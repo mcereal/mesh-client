@@ -334,10 +334,10 @@ bool mesh_ui_route_same(const struct mesh_ui_route *a, const struct mesh_ui_rout
            a->slot == b->slot && a->subject == b->subject;
 }
 
-enum mesh_ui_transition mesh_ui_route_move(const struct mesh_ui_route *from,
+enum inkcell_transition mesh_ui_route_move(const struct mesh_ui_route *from,
                                            const struct mesh_ui_route *to) {
     if (from == NULL || to == NULL || mesh_ui_route_same(from, to)) {
-        return MESH_UI_TRANSITION_NONE;
+        return INKCELL_TRANSITION_NONE;
     }
 
     /*
@@ -359,14 +359,14 @@ enum mesh_ui_transition mesh_ui_route_move(const struct mesh_ui_route *from,
         const unsigned span = (unsigned)MESH_UI_SCREEN_COUNT;
         const unsigned rightwards = (span + to->screen - from->screen) % span;
         const unsigned leftwards = (span + from->screen - to->screen) % span;
-        return rightwards <= leftwards ? MESH_UI_TRANSITION_FORWARD : MESH_UI_TRANSITION_BACK;
+        return rightwards <= leftwards ? INKCELL_TRANSITION_FORWARD : INKCELL_TRANSITION_BACK;
     }
 
     /* Within one tab, the hierarchy decides: in is forward and out is back. */
     if (to->depth != from->depth) {
-        return to->depth > from->depth ? MESH_UI_TRANSITION_FORWARD : MESH_UI_TRANSITION_BACK;
+        return to->depth > from->depth ? INKCELL_TRANSITION_FORWARD : INKCELL_TRANSITION_BACK;
     }
-    return MESH_UI_TRANSITION_FORWARD;
+    return INKCELL_TRANSITION_FORWARD;
 }
 
 /* ---- naming a place ---------------------------------------------------------------------------

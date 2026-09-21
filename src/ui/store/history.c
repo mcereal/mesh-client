@@ -34,7 +34,7 @@ static bool mesh_ui_history_pool_held(const struct mesh_ui_history *history, uin
 static uint8_t mesh_ui_history_pool_take(struct mesh_ui_history *history) {
     for (uint32_t i = 0U; i < MESH_UI_HISTORY_SERIES; ++i) {
         if (!mesh_ui_history_pool_held(history, (uint8_t)i)) {
-            mesh_ui_series_reset(&history->pool[i], MESH_UI_HISTORY_NODE_GAP_MS);
+            inkcell_series_reset(&history->pool[i], MESH_UI_HISTORY_NODE_GAP_MS);
             return (uint8_t)i;
         }
     }
@@ -50,7 +50,7 @@ static void mesh_ui_history_clear_node(struct mesh_ui_history *history,
         const uint8_t at = slot->series[reading];
         slot->series[reading] = MESH_UI_HISTORY_NO_SERIES;
         if (at < MESH_UI_HISTORY_SERIES) {
-            mesh_ui_series_reset(&history->pool[at], MESH_UI_HISTORY_NODE_GAP_MS);
+            inkcell_series_reset(&history->pool[at], MESH_UI_HISTORY_NODE_GAP_MS);
         }
     }
 }
@@ -116,7 +116,7 @@ static uint8_t mesh_ui_history_held(const struct mesh_ui_history_node *slot,
  * trend being pushed to. Every other exhaustion costs the least recently heard node, which is
  * the rule the node table itself has always been on.
  */
-static struct mesh_ui_series *mesh_ui_history_series_for(struct mesh_ui_history *history,
+static struct inkcell_series *mesh_ui_history_series_for(struct mesh_ui_history *history,
                                                          struct mesh_ui_history_node *slot,
                                                          enum mesh_ui_history_reading reading) {
     const uint8_t held = mesh_ui_history_held(slot, reading);
@@ -188,7 +188,7 @@ void mesh_ui_history_reset(struct mesh_ui_history *history) {
         }
     }
     for (uint32_t i = 0U; i < MESH_UI_HISTORY_SERIES; ++i) {
-        mesh_ui_series_reset(&history->pool[i], MESH_UI_HISTORY_NODE_GAP_MS);
+        inkcell_series_reset(&history->pool[i], MESH_UI_HISTORY_NODE_GAP_MS);
     }
 }
 
@@ -202,7 +202,7 @@ static int16_t airtime_permille(int32_t value) {
     return (int16_t)(value > 1000 ? 1000 : value);
 }
 
-/* mesh_ui_series_push()'s rules on the airtime ring: a clock going backwards empties it, the
+/* inkcell_series_push()'s rules on the airtime ring: a clock going backwards empties it, the
    oldest is what the newest costs, and a pending break is spent on the sample it lands on. */
 static void airtime_push(struct mesh_ui_airtime *log, uint32_t time, int32_t utilization,
                          int32_t tx) {
@@ -369,17 +369,17 @@ void mesh_ui_history_note_battery(struct mesh_ui_history *history, uint32_t now_
         const uint8_t at = mesh_ui_history_held(known, MESH_UI_HISTORY_BATTERY);
         if (at != MESH_UI_HISTORY_NO_SERIES && history->pool[at].count > 0U) {
             known->seen = mesh_ui_history_stamp(history, now_ms);
-            mesh_ui_series_break(&history->pool[at]);
+            inkcell_series_break(&history->pool[at]);
         }
         return;
     }
     const uint32_t stamp = mesh_ui_history_stamp(history, now_ms);
     struct mesh_ui_history_node *slot = mesh_ui_history_slot(history, node_id);
     slot->seen = stamp;
-    struct mesh_ui_series *battery =
+    struct inkcell_series *battery =
         mesh_ui_history_series_for(history, slot, MESH_UI_HISTORY_BATTERY);
     if (battery != NULL) {
-        mesh_ui_series_push(battery, stamp, (int32_t)battery_level);
+        inkcell_series_push(battery, stamp, (int32_t)battery_level);
     }
 }
 
@@ -429,17 +429,17 @@ void mesh_ui_history_note_environment(struct mesh_ui_history *history, uint32_t 
      * external-power case, which arrives *punctually* and so is invisible to the clock.
      */
     if (has_temperature) {
-        struct mesh_ui_series *series =
+        struct inkcell_series *series =
             mesh_ui_history_series_for(history, slot, MESH_UI_HISTORY_TEMPERATURE);
         if (series != NULL) {
-            mesh_ui_series_push(series, stamp, temperature_decidegrees);
+            inkcell_series_push(series, stamp, temperature_decidegrees);
         }
     }
     if (has_humidity) {
-        struct mesh_ui_series *series =
+        struct inkcell_series *series =
             mesh_ui_history_series_for(history, slot, MESH_UI_HISTORY_HUMIDITY);
         if (series != NULL) {
-            mesh_ui_series_push(series, stamp, humidity_permille);
+            inkcell_series_push(series, stamp, humidity_permille);
         }
     }
 }
@@ -455,20 +455,20 @@ void mesh_ui_history_note_signal(struct mesh_ui_history *history, uint32_t now_m
     /* Both under one stamp, so the pair is one packet. There is no break to arm on a radio that
        reports no RSSI: an absent reading is exactly the silence `gap_ms` was written for, and a
        series that never gets one simply never exists. */
-    struct mesh_ui_series *snr = mesh_ui_history_series_for(history, slot, MESH_UI_HISTORY_SNR);
+    struct inkcell_series *snr = mesh_ui_history_series_for(history, slot, MESH_UI_HISTORY_SNR);
     if (snr != NULL) {
-        mesh_ui_series_push(snr, stamp, snr_db);
+        inkcell_series_push(snr, stamp, snr_db);
     }
     if (has_rssi) {
-        struct mesh_ui_series *rssi =
+        struct inkcell_series *rssi =
             mesh_ui_history_series_for(history, slot, MESH_UI_HISTORY_RSSI);
         if (rssi != NULL) {
-            mesh_ui_series_push(rssi, stamp, rssi_dbm);
+            inkcell_series_push(rssi, stamp, rssi_dbm);
         }
     }
 }
 
-const struct mesh_ui_series *mesh_ui_history_series(const struct mesh_ui_history *history,
+const struct inkcell_series *mesh_ui_history_series(const struct mesh_ui_history *history,
                                                     uint32_t node_id,
                                                     enum mesh_ui_history_reading reading) {
     if (history == NULL || node_id == 0U) {
@@ -485,7 +485,7 @@ const struct mesh_ui_series *mesh_ui_history_series(const struct mesh_ui_history
         if (at == MESH_UI_HISTORY_NO_SERIES) {
             return NULL;
         }
-        const struct mesh_ui_series *series = &history->pool[at];
+        const struct inkcell_series *series = &history->pool[at];
         /*
          * An empty series is the same answer as no slot at all: nothing has been kept. Whether
          * what *is* kept can be drawn is a further question and deliberately not this one - the
@@ -517,7 +517,7 @@ bool mesh_ui_history_node_newest(const struct mesh_ui_history *history, uint32_t
             if (at == MESH_UI_HISTORY_NO_SERIES) {
                 continue;
             }
-            const struct mesh_ui_sample *sample = mesh_ui_series_newest(&history->pool[at]);
+            const struct inkcell_sample *sample = inkcell_series_newest(&history->pool[at]);
             if (sample == NULL) {
                 continue;
             }
@@ -554,7 +554,7 @@ void mesh_ui_history_restore_node(struct mesh_ui_history *history, uint32_t node
         return;
     }
     struct mesh_ui_history_node *slot = mesh_ui_history_slot(history, node_id);
-    struct mesh_ui_series *series = mesh_ui_history_series_for(history, slot, reading);
+    struct inkcell_series *series = mesh_ui_history_series_for(history, slot, reading);
     if (series == NULL) {
         return;
     }
@@ -562,9 +562,9 @@ void mesh_ui_history_restore_node(struct mesh_ui_history *history, uint32_t node
        on mains, say - so it is put back with the reading that carried it rather than recomputed,
        exactly as mesh_ui_history_restore_airtime() does. */
     if (gap) {
-        mesh_ui_series_break(series);
+        inkcell_series_break(series);
     }
-    mesh_ui_series_push(series, time_ms, value);
+    inkcell_series_push(series, time_ms, value);
     /* The slot is as fresh as the newest thing in it, so a node whose trend was just read off the
        card is not the one the next eviction takes. */
     if (slot->seen < time_ms) {
@@ -586,7 +586,7 @@ void mesh_ui_history_resume_node(struct mesh_ui_history *history, uint32_t node_
     for (uint32_t reading = 0U; reading < MESH_UI_HISTORY_READING_COUNT; ++reading) {
         const uint8_t at = mesh_ui_history_held(slot, (enum mesh_ui_history_reading)reading);
         if (at != MESH_UI_HISTORY_NO_SERIES) {
-            mesh_ui_series_break(&history->pool[at]);
+            inkcell_series_break(&history->pool[at]);
         }
     }
 }

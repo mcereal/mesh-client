@@ -44,7 +44,7 @@
 
 /* The most records one publish can have to write for one node: every reading this history keeps,
    each with a full ring behind it. What that costs is the gather buffer below. */
-#define MESH_UI_TRENDS_BATCH_MAX ((MESH_UI_HISTORY_READING_COUNT - 1U) * MESH_UI_SERIES_MAX)
+#define MESH_UI_TRENDS_BATCH_MAX ((MESH_UI_HISTORY_READING_COUNT - 1U) * INKCELL_SERIES_MAX)
 
 /*
  * One node's file, as `<dir>/n1a2b3c4d.trend`.
@@ -139,7 +139,7 @@ struct trend_record {
  *
  * What is dropped off the front is not counted, because nothing asks. The archive counts it so a
  * transcript can say there is more behind the top of it; a trend that reached further back than
- * the series can hold has nowhere to say so, and MESH_UI_SERIES_MAX is the smaller bound anyway.
+ * the series can hold has nowhere to say so, and INKCELL_SERIES_MAX is the smaller bound anyway.
  */
 struct trend_reader {
     struct trend_record *entries;
@@ -206,8 +206,8 @@ static bool trend_read_value(const char *value, struct trend_record *out) {
         MESH_UI_STORE_FIELD(&out->value),
         MESH_UI_STORE_FIELD(&out->gap),
     };
-    return mesh_ui_store_fields_read(value, fields, MESH_ARRAY_LEN(fields)) ==
-           MESH_ARRAY_LEN(fields);
+    return mesh_ui_store_fields_read(value, fields, INKCELL_ARRAY_LEN(fields)) ==
+           INKCELL_ARRAY_LEN(fields);
 }
 
 /* Whether this build has a series to put the record on. */
@@ -323,10 +323,10 @@ static void trends_compact(const char *path) {
     }
     if (result != 0) {
         (void)unlink(temp);
-        mesh_log_warn("ui", "Could not compact trend log %s: %d", path, result);
+        inkcell_log_warn("ui", "Could not compact trend log %s: %d", path, result);
         return;
     }
-    mesh_log_info("ui", "Compacted trend log %s to %u readings", path, (unsigned)count);
+    inkcell_log_info("ui", "Compacted trend log %s to %u readings", path, (unsigned)count);
 }
 
 /* ---- the public half ------------------------------------------------------------------------ */
@@ -341,10 +341,10 @@ int mesh_ui_trends_init(struct mesh_ui_trends *trends, const char *dir) {
     }
     if (mkdir(dir, 0700) != 0 && errno != EEXIST) {
         const int failed = -errno;
-        mesh_log_warn("ui", "Trend log unavailable at %s: %d", dir, failed);
+        inkcell_log_warn("ui", "Trend log unavailable at %s: %d", dir, failed);
         return failed;
     }
-    mesh_str_copy(trends->dir, sizeof trends->dir, dir);
+    inkcell_str_copy(trends->dir, sizeof trends->dir, dir);
     /* Truncation would put the files somewhere other than where the caller asked, so it disables
        the log rather than writing to a shortened path. */
     if (strcmp(trends->dir, dir) != 0) {
@@ -370,7 +370,8 @@ bool mesh_ui_trends_note_radio(struct mesh_ui_trends *trends, uint32_t roster_ow
     const int dropped = mesh_ui_trends_forget(trends);
     trends->has_owner = true;
     if (dropped > 0) {
-        mesh_log_info("ui", "Dropped %d trend log(s) for the radio that was swapped out", dropped);
+        inkcell_log_info("ui", "Dropped %d trend log(s) for the radio that was swapped out",
+                         dropped);
     }
     return true;
 }
@@ -398,13 +399,13 @@ static uint32_t trends_gather(const struct mesh_ui_history *history,
     uint32_t count = 0U;
     for (uint32_t reading = MESH_UI_HISTORY_NONE + 1U; reading < MESH_UI_HISTORY_READING_COUNT;
          ++reading) {
-        const struct mesh_ui_series *series =
+        const struct inkcell_series *series =
             mesh_ui_history_series(history, node_id, (enum mesh_ui_history_reading)reading);
         if (series == NULL) {
             continue;
         }
         for (uint32_t i = 0U; i < series->count; ++i) {
-            const struct mesh_ui_sample *sample = mesh_ui_series_at(series, i);
+            const struct inkcell_sample *sample = inkcell_series_at(series, i);
             if (sample == NULL || (state->written && sample->time <= state->written_at)) {
                 continue;
             }
@@ -458,7 +459,7 @@ int mesh_ui_trends_append(struct mesh_ui_trends *trends, const struct mesh_ui_hi
             if (newest < state->written_at) {
                 /*
                  * The clock went backwards, which on a uint32 of milliseconds is the wrap 41 days
-                 * of running reaches (MESH_UI_HISTORY_EPOCH_MS). mesh_ui_series_push() has
+                 * of running reaches (MESH_UI_HISTORY_EPOCH_MS). inkcell_series_push() has
                  * already emptied what it holds, so this node's trend is a fresh start - and a
                  * high-water mark left up near the top of the range would read every reading
                  * after the wrap as one already written, and quietly stop persisting the node
@@ -486,7 +487,7 @@ int mesh_ui_trends_append(struct mesh_ui_trends *trends, const struct mesh_ui_hi
         }
         FILE *file = fopen(path, "a");
         if (file == NULL) {
-            mesh_log_warn("ui", "Could not append to trend log %s: %d", path, -errno);
+            inkcell_log_warn("ui", "Could not append to trend log %s: %d", path, -errno);
             continue;
         }
         /*
@@ -552,7 +553,7 @@ int mesh_ui_trends_append(struct mesh_ui_trends *trends, const struct mesh_ui_hi
         }
         if (result != 0) {
             /* `state` is untouched, so these readings are written again on the next publish. */
-            mesh_log_warn("ui", "Could not append to trend log %s: %d", path, result);
+            inkcell_log_warn("ui", "Could not append to trend log %s: %d", path, result);
             continue;
         }
         state->written = chain_open;

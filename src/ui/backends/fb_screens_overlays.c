@@ -50,17 +50,18 @@
  * press's business, and inkcell_scroll_reveal() is what turns that into a position. What the
  * pixels buy is how the body gets there.
  */
-void fb_render_help(struct mesh_ui_backend_fb_state *state, const struct mesh_ui_snapshot *snapshot,
-                    struct fb_layout *layout) {
+void fb_render_help(struct inkcell_backend_fb_state *state, const struct mesh_ui_snapshot *snapshot,
+                    struct inkcell_fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
     struct mesh_ui_help_topic topic;
     if (!mesh_ui_help_topic(&snapshot->settings,
                             snapshot->handshake_valid ? &snapshot->handshake : NULL, nav, &topic)) {
         /* Reachable only if the section emptied under an open help screen - a disconnect
            between the press and this frame. Saying so beats drawing an empty list. */
-        fb_draw_app_bar(state, layout,
-                        &(const struct fb_app_bar){.title = mesh_str(MESH_STR_HELP_TITLE)});
-        fb_draw_empty(state, layout, MESH_UI_ICON_ABOUT, mesh_str(MESH_STR_HELP_TITLE));
+        inkcell_fb_draw_app_bar(
+            state, layout,
+            &(const struct inkcell_fb_app_bar){.title = inkcell_str(MESH_STR_HELP_TITLE)});
+        inkcell_fb_draw_empty(state, layout, INKCELL_ICON_ABOUT, inkcell_str(MESH_STR_HELP_TITLE));
         fb_scroll_report(state, false);
         return;
     }
@@ -78,10 +79,11 @@ void fb_render_help(struct mesh_ui_backend_fb_state *state, const struct mesh_ui
     for (uint32_t i = 0; i < topic.count; ++i) {
         /* The opening paragraph is about the whole screen and names no row, so it gets the one
            heading this screen writes rather than a field's label. */
-        headings[i] = topic.entries[i].label != MESH_STR_NONE ? mesh_str(topic.entries[i].label)
-                                                              : mesh_str(MESH_STR_HELP_OVERVIEW);
-        bodies[i] = mesh_str(topic.entries[i].body);
-        const uint32_t rows = fb_list_note_steps(state, headings[i], bodies[i]);
+        headings[i] = topic.entries[i].label != INKCELL_STR_NONE
+                          ? inkcell_str(topic.entries[i].label)
+                          : inkcell_str(MESH_STR_HELP_OVERVIEW);
+        bodies[i] = inkcell_str(topic.entries[i].body);
+        const uint32_t rows = inkcell_fb_list_note_steps(state, headings[i], bodies[i]);
         steps[i] = rows > UINT8_MAX ? UINT8_MAX : (uint8_t)rows;
         tops[i] = content_h;
         heights[i] = (int)steps[i] * layout->line;
@@ -119,8 +121,8 @@ void fb_render_help(struct mesh_ui_backend_fb_state *state, const struct mesh_ui
      * help is about settings - which stopped being true the moment a tab acquired a topic.
      */
     const struct inkcell_fb_large_title bar = {
-        .title = mesh_str(MESH_STR_HELP_TITLE),
-        .detail = topic.subject != MESH_STR_NONE ? mesh_str(topic.subject) : NULL,
+        .title = inkcell_str(MESH_STR_HELP_TITLE),
+        .detail = topic.subject != INKCELL_STR_NONE ? inkcell_str(topic.subject) : NULL,
     };
     inkcell_fb_draw_large_title(state, layout, &bar, inkcell_scroll_offset(scroll, state->now_ms));
 
@@ -139,12 +141,13 @@ void fb_render_help(struct mesh_ui_backend_fb_state *state, const struct mesh_ui
          * job is to be tall enough to hold it - which is the shape the header calls "the one
          * thing this costs".
          */
-        struct fb_layout inner = fb_layout_in(
+        struct inkcell_fb_layout inner = fb_layout_in(
             layout, (struct inkcell_fb_rect){.x = 0, .y = 0, .w = body.w, .h = content_h});
-        struct fb_list list = fb_list_begin_heights(&inner, topic.count, cursor, steps);
+        struct inkcell_fb_list list =
+            inkcell_fb_list_begin_heights(&inner, topic.count, cursor, steps);
         uint32_t i;
-        while (fb_list_next(&list, &i)) {
-            fb_list_note(state, &list, i, headings[i], bodies[i]);
+        while (inkcell_fb_list_next(&list, &i)) {
+            inkcell_fb_list_note(state, &list, i, headings[i], bodies[i]);
         }
         inkcell_fb_viewport_end(state, &view);
         /* Outside the viewport, because a rail is beside the window rather than in it - and
@@ -163,14 +166,15 @@ void fb_render_help(struct mesh_ui_backend_fb_state *state, const struct mesh_ui
  * change of language. A memo holding a pointer into either would be a panel drawing whatever
  * is at that address a frame later.
  */
-static void fb_dialog_remember(struct fb_overlay_memo *memo, const struct fb_dialog *dialog) {
+static void fb_dialog_remember(struct fb_overlay_memo *memo,
+                               const struct inkcell_fb_dialog *dialog) {
     if (memo == NULL || dialog == NULL) {
         return;
     }
-    (void)mesh_str_copy(memo->headline, sizeof memo->headline, dialog->headline);
-    (void)mesh_str_copy(memo->text, sizeof memo->text, dialog->text);
-    (void)mesh_str_copy(memo->accept, sizeof memo->accept, dialog->accept);
-    (void)mesh_str_copy(memo->cancel, sizeof memo->cancel, dialog->cancel);
+    (void)inkcell_str_copy(memo->headline, sizeof memo->headline, dialog->headline);
+    (void)inkcell_str_copy(memo->text, sizeof memo->text, dialog->text);
+    (void)inkcell_str_copy(memo->accept, sizeof memo->accept, dialog->accept);
+    (void)inkcell_str_copy(memo->cancel, sizeof memo->cancel, dialog->cancel);
     memo->icon = dialog->icon;
     memo->cursor = dialog->cursor;
     memo->destructive = dialog->destructive;
@@ -185,8 +189,8 @@ static void fb_dialog_remember(struct fb_overlay_memo *memo, const struct fb_dia
  * below are otherwise the same call, so it is written once: what differs between them is where
  * their words come from, which is the half of a screen that is worth reading.
  */
-static void fb_put_dialog(struct mesh_ui_backend_fb_state *state, struct fb_layout *layout,
-                          enum fb_overlay_id id, bool up, const struct fb_dialog *dialog) {
+static void fb_put_dialog(struct inkcell_backend_fb_state *state, struct inkcell_fb_layout *layout,
+                          enum fb_overlay_id id, bool up, const struct inkcell_fb_dialog *dialog) {
     struct fb_overlay_memo *const memo = fb_overlay_memo(state, id);
     if (dialog != NULL) {
         fb_dialog_remember(memo, dialog);
@@ -197,8 +201,8 @@ static void fb_put_dialog(struct mesh_ui_backend_fb_state *state, struct fb_layo
            would have taken is released by never being asked for. */
         return;
     }
-    const struct fb_dialog remembered = {
-        .icon = memo != NULL ? memo->icon : MESH_UI_ICON_NONE,
+    const struct inkcell_fb_dialog remembered = {
+        .icon = memo != NULL ? memo->icon : INKCELL_ICON_NONE,
         .headline = memo != NULL ? memo->headline : "",
         .text = memo != NULL ? memo->text : "",
         .accept = memo != NULL ? memo->accept : "",
@@ -206,7 +210,7 @@ static void fb_put_dialog(struct mesh_ui_backend_fb_state *state, struct fb_layo
         .cursor = memo != NULL ? memo->cursor : 0U,
         .destructive = memo != NULL && memo->destructive,
     };
-    struct fb_dialog put_copy = dialog != NULL ? *dialog : remembered;
+    struct inkcell_fb_dialog put_copy = dialog != NULL ? *dialog : remembered;
     /*
      * What the d-pad calls the two answers: accept, and cancel one past it.
      *
@@ -217,7 +221,7 @@ static void fb_put_dialog(struct mesh_ui_backend_fb_state *state, struct fb_layo
      * anything else either.
      */
     put_copy.action_focus_id = MESH_UI_FOCUS_DIALOG;
-    const struct fb_dialog *const put = &put_copy;
+    const struct inkcell_fb_dialog *const put = &put_copy;
     if (!inkcell_fb_draw_dialog(state, layout, put, (uint32_t)id, up) && memo != NULL) {
         /* All the way out. What it asked is not the next question, and a memo kept past the
            travel it was for would be the words a fresh layer arrives holding. */
@@ -228,8 +232,8 @@ static void fb_put_dialog(struct mesh_ui_backend_fb_state *state, struct fb_layo
 /* "Save <section>?" for the sections whose write can cut this client off, and "Reboot the
    radio?" and its siblings for the Radio actions section. Which of the two it is standing in
    front of is nav->confirm_action; all three strings come from settings.c. */
-void fb_render_confirm(struct mesh_ui_backend_fb_state *state,
-                       const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
+void fb_render_confirm(struct inkcell_backend_fb_state *state,
+                       const struct mesh_ui_snapshot *snapshot, struct inkcell_fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
     /* Not over help, which takes every press - see the note at the tail of
        fb_render_snapshot(). */
@@ -273,12 +277,12 @@ void fb_render_confirm(struct mesh_ui_backend_fb_state *state,
      * panel's own headline and the two answers are buttons on it, which is the shape that says
      * "this is being asked of you" rather than "here is another list to walk".
      */
-    const struct fb_dialog dialog = {
-        .icon = MESH_UI_ICON_WARNING,
+    const struct inkcell_fb_dialog dialog = {
+        .icon = INKCELL_ICON_WARNING,
         .headline = title,
         .text = text,
         .accept = mesh_ui_settings_confirm_accept(confirmed),
-        .cancel = mesh_str(MESH_STR_COMMON_CANCEL),
+        .cancel = inkcell_str(MESH_STR_COMMON_CANCEL),
         .cursor = nav->confirm_cursor,
         /* A radio action cannot be taken back - a reboot drops the link, a NodeDB reset empties
            the roster - while a section save is only the settings the user has just been
@@ -303,8 +307,8 @@ void fb_render_confirm(struct mesh_ui_backend_fb_state *state,
  * without having compared anything, and no colour on a button prevents that. What does is the
  * paragraph under the headline, which is why the panel keeps one at every stage.
  */
-void fb_render_verify(struct mesh_ui_backend_fb_state *state,
-                      const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
+void fb_render_verify(struct inkcell_backend_fb_state *state,
+                      const struct mesh_ui_snapshot *snapshot, struct inkcell_fb_layout *layout) {
     struct mesh_ui_verify_sheet sheet;
     char headline[96];
     char text[256];
@@ -326,12 +330,12 @@ void fb_render_verify(struct mesh_ui_backend_fb_state *state,
         return;
     }
 
-    const struct fb_dialog dialog = {
+    const struct inkcell_fb_dialog dialog = {
         .icon = sheet.icon,
         .headline = headline,
         .text = text,
-        .accept = mesh_str(sheet.accept),
-        .cancel = mesh_str(sheet.cancel),
+        .accept = inkcell_str(sheet.accept),
+        .cancel = inkcell_str(sheet.cancel),
         .cursor = snapshot->nav.verify_cursor,
         .destructive = false,
     };

@@ -8,7 +8,7 @@
  * there is nothing to show, and not at all in the layout - which is the part that is easy to get
  * subtly wrong, so it is written once below and the two renderers are four lines each.
  *
- * A QR code is black on white on every theme; see MESH_UI_COLOR_CODE in src/ui/theme/theme.c for
+ * A QR code is black on white on every theme; see INKCELL_COLOR_CODE in src/ui/theme/theme.c for
  * why that pair is the one that does not vary.
  */
 
@@ -42,8 +42,9 @@
  * hold every line, the lines that fit are the ones that fit, and the code above is what that
  * reader was meant to use anyway.
  */
-static void fb_draw_code_body(struct mesh_ui_backend_fb_state *state, struct fb_layout *layout,
-                              const char *url, const char *summary, const char *no_code) {
+static void fb_draw_code_body(struct inkcell_backend_fb_state *state,
+                              struct inkcell_fb_layout *layout, const char *url,
+                              const char *summary, const char *no_code) {
     /*
      * The words go at the bottom of the body and the code gets everything above them, rather
      * than the code being placed first and the words taking what is left. The code's own size
@@ -77,77 +78,81 @@ static void fb_draw_code_body(struct mesh_ui_backend_fb_state *state, struct fb_
      */
     _Static_assert(MESH_UI_CONTACT_URL_MAX <= MESH_UI_CHANNEL_URL_MAX,
                    "the shared code cache is keyed by the longer of the two links");
-    static struct mesh_qr code;
+    static struct inkcell_qr code;
     static char encoded_from[MESH_UI_CHANNEL_URL_MAX];
     if (strcmp(encoded_from, url) != 0) {
         /* A refused encode zeroes the matrix, so the failure needs no flag of its own: a code
-           of no size is what fb_qr_side() answers 0 for. */
-        (void)mesh_qr_encode((const uint8_t *)url, strlen(url), MESH_QR_ECC_LOW, &code);
+           of no size is what inkcell_fb_qr_side() answers 0 for. */
+        (void)inkcell_qr_encode((const uint8_t *)url, strlen(url), INKCELL_QR_ECC_LOW, &code);
         snprintf(encoded_from, sizeof encoded_from, "%s", url);
     }
-    const struct fb_qr qr = {
+    const struct inkcell_fb_qr qr = {
         .code = code.size > 0U ? &code : NULL,
         .box = {.x = 0,
                 .y = layout->body_y,
                 .w = (int)state->var.xres,
                 .h = text_y - layout->body_y},
     };
-    if (fb_qr_side(&qr) > 0) {
-        fb_draw_qr(state, &qr);
+    if (inkcell_fb_qr_side(&qr) > 0) {
+        inkcell_fb_draw_qr(state, &qr);
     } else {
         /* No code: say so where the code would have been. Both bounds are tested
            (tests/suites/channel_share.c, tests/suites/contact_share.c), so this is a frame that
            should not happen rather than one the screen pretends cannot. */
-        (void)fb_draw_wrapped(state, layout->body_y, no_code, (size_t)layout->body_w, 2,
-                              fb_tone_color(state, MESH_UI_TONE_DIM),
-                              fb_color(state, MESH_UI_COLOR_BG));
+        (void)inkcell_fb_draw_wrapped(state, layout->body_y, no_code, (size_t)layout->body_w, 2,
+                                      inkcell_fb_tone_color(state, INKCELL_TONE_DIM),
+                                      inkcell_fb_color(state, INKCELL_COLOR_BG));
     }
 
     int y = text_y;
-    y += fb_draw_wrapped(state, y, summary, (size_t)layout->body_w, 2,
-                         fb_tone_color(state, MESH_UI_TONE_NORMAL),
-                         fb_color(state, MESH_UI_COLOR_BG)) *
+    y += inkcell_fb_draw_wrapped(state, y, summary, (size_t)layout->body_w, 2,
+                                 inkcell_fb_tone_color(state, INKCELL_TONE_NORMAL),
+                                 inkcell_fb_color(state, INKCELL_COLOR_BG)) *
          layout->line;
     const int left = (layout->footer_y - y) / layout->line;
     if (left > 0) {
-        (void)fb_draw_wrapped(state, y, url, (size_t)layout->body_w, left,
-                              fb_tone_color(state, MESH_UI_TONE_DIM),
-                              fb_color(state, MESH_UI_COLOR_BG));
+        (void)inkcell_fb_draw_wrapped(state, y, url, (size_t)layout->body_w, left,
+                                      inkcell_fb_tone_color(state, INKCELL_TONE_DIM),
+                                      inkcell_fb_color(state, INKCELL_COLOR_BG));
     }
 }
 
 /* The share sheet: this radio's channel set as a code, for a phone that is about to join. */
-void fb_render_share(struct mesh_ui_backend_fb_state *state,
-                     const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
-    fb_draw_app_bar(state, layout,
-                    &(const struct fb_app_bar){.title = mesh_str(MESH_STR_SHARE_TITLE)});
+void fb_render_share(struct inkcell_backend_fb_state *state,
+                     const struct mesh_ui_snapshot *snapshot, struct inkcell_fb_layout *layout) {
+    inkcell_fb_draw_app_bar(
+        state, layout,
+        &(const struct inkcell_fb_app_bar){.title = inkcell_str(MESH_STR_SHARE_TITLE)});
 
     const char *const url = snapshot->settings.share_url;
     char summary[96];
     if (!mesh_ui_channel_share_summary(url, summary, sizeof summary)) {
         /* The row that opens this screen is only offered when there is a link, so getting here
            means the radio dropped its table between the press and this frame. */
-        fb_draw_empty(state, layout, MESH_UI_ICON_CHANNEL, mesh_str(MESH_STR_SHARE_NOTHING));
+        inkcell_fb_draw_empty(state, layout, INKCELL_ICON_CHANNEL,
+                              inkcell_str(MESH_STR_SHARE_NOTHING));
         return;
     }
-    fb_draw_code_body(state, layout, url, summary, mesh_str(MESH_STR_SHARE_NO_CODE));
+    fb_draw_code_body(state, layout, url, summary, inkcell_str(MESH_STR_SHARE_NO_CODE));
 }
 
 /* The contact code sheet: this radio's own identity as a code, for a phone that is about to add
    it. The same screen as the one above with a different thing in the square - which is the whole
    of why the body is a function and this is four lines. */
-void fb_render_contact(struct mesh_ui_backend_fb_state *state,
-                       const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
-    fb_draw_app_bar(state, layout,
-                    &(const struct fb_app_bar){.title = mesh_str(MESH_STR_CONTACT_TITLE)});
+void fb_render_contact(struct inkcell_backend_fb_state *state,
+                       const struct mesh_ui_snapshot *snapshot, struct inkcell_fb_layout *layout) {
+    inkcell_fb_draw_app_bar(
+        state, layout,
+        &(const struct inkcell_fb_app_bar){.title = inkcell_str(MESH_STR_CONTACT_TITLE)});
 
     const char *const url = snapshot->settings.contact_url;
     char summary[160];
     if (!mesh_ui_contact_share_summary(url, summary, sizeof summary)) {
         /* As above: the row is only offered when there is a link, so this is the radio dropping
            its owner record between the press and this frame. */
-        fb_draw_empty(state, layout, MESH_UI_ICON_RADIO, mesh_str(MESH_STR_CONTACT_NOTHING));
+        inkcell_fb_draw_empty(state, layout, INKCELL_ICON_RADIO,
+                              inkcell_str(MESH_STR_CONTACT_NOTHING));
         return;
     }
-    fb_draw_code_body(state, layout, url, summary, mesh_str(MESH_STR_CONTACT_NO_CODE));
+    fb_draw_code_body(state, layout, url, summary, inkcell_str(MESH_STR_CONTACT_NO_CODE));
 }

@@ -288,9 +288,9 @@ MESH_TEST_CASE(ui_chrome_banner_says_the_radio_is_in_its_loader, unit) {
                       "a radio stuck in its loader is worth saying on every screen");
     MESH_TEST_FAIL_IF(banner.kind != (uint8_t)MESH_UI_BANNER_RADIO_IN_LOADER,
                       "the wrong banner for a radio in its loader");
-    MESH_TEST_FAIL_IF(banner.family != MESH_UI_FAMILY_WARNING,
+    MESH_TEST_FAIL_IF(banner.family != INKCELL_FAMILY_WARNING,
                       "nothing is broken, so it is a warning rather than an error");
-    MESH_TEST_FAIL_IF(banner.supporting == MESH_STR_NONE,
+    MESH_TEST_FAIL_IF(banner.supporting == INKCELL_STR_NONE,
                       "and it has to say what resolves it, or it is a banner that cannot");
 
     /* Ahead of the updater's, which is the whole point of there being an order. */
@@ -322,10 +322,10 @@ MESH_TEST_CASE(ui_chrome_banner_reports_a_crash_from_the_previous_run, unit) {
                       "a client that stopped on its own is worth saying on every screen");
     MESH_TEST_FAIL_IF(banner.kind != (uint8_t)MESH_UI_BANNER_CRASH_REPORT,
                       "the wrong banner for a waiting crash report");
-    MESH_TEST_FAIL_IF(banner.family != MESH_UI_FAMILY_ERROR,
+    MESH_TEST_FAIL_IF(banner.family != INKCELL_FAMILY_ERROR,
                       "something was plainly broken, which is what separates this from the "
                       "loader's warning");
-    MESH_TEST_FAIL_IF(banner.supporting == MESH_STR_NONE,
+    MESH_TEST_FAIL_IF(banner.supporting == INKCELL_STR_NONE,
                       "it has to name where the report is, or it is a banner that cannot resolve");
 
     /*
@@ -410,7 +410,7 @@ MESH_TEST_CASE(ui_chrome_banner_names_the_radio_being_configured, unit) {
     MESH_TEST_FAIL_IF(banner.detail == NULL || strcmp(banner.detail, "Hill repeater") != 0,
                       "which radio is the whole of what the reader needs, and it is a name off "
                       "the mesh rather than a word - so it rides in the detail slot");
-    MESH_TEST_FAIL_IF(banner.supporting == MESH_STR_NONE,
+    MESH_TEST_FAIL_IF(banner.supporting == INKCELL_STR_NONE,
                       "it has to name what comes back, or it is a banner that cannot resolve");
 
     /* Ahead of every other entry, including the two that are about a radio in trouble. */

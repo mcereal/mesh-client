@@ -66,7 +66,7 @@ static bool help_store_open(struct mesh_ui_store *store, enum mesh_ui_settings_s
            mesh_test_settings_open(store, section);
 }
 
-static void press(struct mesh_ui_store *store, enum mesh_ui_key key) {
+static void press(struct mesh_ui_store *store, enum inkcell_key key) {
     struct mesh_ui_action action;
     memset(&action, 0, sizeof action);
     (void)mesh_ui_store_handle_key(store, key, &action);
@@ -86,10 +86,10 @@ static void help_snapshot(const struct mesh_ui_store *store, struct mesh_ui_snap
 static bool bar_offers_help(const struct mesh_ui_store *store) {
     struct mesh_ui_snapshot snapshot;
     help_snapshot(store, &snapshot);
-    struct mesh_ui_action_bar bar;
+    struct inkcell_action_bar bar;
     mesh_ui_actions_for(&snapshot, &bar);
     for (size_t i = 0; i < bar.count; ++i) {
-        if (bar.items[i].button == MESH_UI_BUTTON_SELECT) {
+        if (bar.items[i].button == INKCELL_BUTTON_SELECT) {
             return true;
         }
     }
@@ -113,21 +113,21 @@ static bool topic_for(const struct mesh_ui_store *store, struct mesh_ui_help_top
 MESH_TEST_CASE(help_every_section_has_a_note, unit) {
     for (int i = 0; i < (int)MESH_UI_SETTINGS_SECTION_COUNT; ++i) {
         const enum mesh_ui_settings_section section = (enum mesh_ui_settings_section)i;
-        const enum mesh_str_id note = mesh_ui_settings_section_note(section);
-        if (note == MESH_STR_NONE) {
+        const enum inkcell_str_id note = mesh_ui_settings_section_note(section);
+        if (note == INKCELL_STR_NONE) {
             char reason[128];
             snprintf(reason, sizeof reason, "section %s has no note",
                      mesh_ui_settings_section_name(section));
             record_failure(test_name, reason);
             return;
         }
-        MESH_TEST_FAIL_IF(mesh_str_in(mesh_i18n_locale_english(), note)[0] == '\0',
+        MESH_TEST_FAIL_IF(inkcell_str_in(inkcell_i18n_locale_english(), note)[0] == '\0',
                           "a section's note is empty");
     }
     /* Out of range answers "nothing to say" rather than reading past the table. */
     MESH_TEST_FAIL_IF(mesh_ui_settings_section_note(
                           (enum mesh_ui_settings_section)MESH_UI_SETTINGS_SECTION_COUNT) !=
-                          MESH_STR_NONE,
+                          INKCELL_STR_NONE,
                       "a section past the end has a note");
     record_success(test_name);
 }
@@ -142,13 +142,13 @@ MESH_TEST_CASE(help_every_section_has_a_note, unit) {
  */
 MESH_TEST_CASE(help_notes_fit_the_panel, unit) {
     for (int i = 0; i < (int)MESH_STR_COUNT; ++i) {
-        const enum mesh_str_id id = (enum mesh_str_id)i;
-        const char *name = mesh_str_id_name(id);
+        const enum inkcell_str_id id = (enum inkcell_str_id)i;
+        const char *name = inkcell_str_id_name(id);
         if (name == NULL ||
             (strncmp(name, "SETTINGS_NOTE_", 14) != 0 && strncmp(name, "HELP_NOTE_", 10) != 0)) {
             continue;
         }
-        const size_t len = strlen(mesh_str_in(mesh_i18n_locale_english(), id));
+        const size_t len = strlen(inkcell_str_in(inkcell_i18n_locale_english(), id));
         if (len > HELP_NOTE_MAX) {
             char reason[160];
             snprintf(reason, sizeof reason, "%s is %u characters, over the %u cap", name,
@@ -199,19 +199,19 @@ MESH_TEST_CASE(help_field_notes_are_optional, unit) {
         {MESH_UI_FIELD_NEIGHBOR_INTERVAL, "the neighbor info interval"},
     };
     for (size_t i = 0; i < sizeof k_explained / sizeof k_explained[0]; ++i) {
-        if (mesh_ui_settings_field_note(k_explained[i].field) == MESH_STR_NONE) {
+        if (mesh_ui_settings_field_note(k_explained[i].field) == INKCELL_STR_NONE) {
             char reason[128];
             snprintf(reason, sizeof reason, "%s has no note", k_explained[i].name);
             record_failure(test_name, reason);
             return;
         }
     }
-    MESH_TEST_FAIL_IF(mesh_ui_settings_field_note(MESH_UI_FIELD_USER_LONG_NAME) != MESH_STR_NONE,
+    MESH_TEST_FAIL_IF(mesh_ui_settings_field_note(MESH_UI_FIELD_USER_LONG_NAME) != INKCELL_STR_NONE,
                       "a self-explanatory field acquired a note");
-    MESH_TEST_FAIL_IF(mesh_ui_settings_field_note(MESH_UI_FIELD_NONE) != MESH_STR_NONE,
+    MESH_TEST_FAIL_IF(mesh_ui_settings_field_note(MESH_UI_FIELD_NONE) != INKCELL_STR_NONE,
                       "the no-field row has a note");
     MESH_TEST_FAIL_IF(mesh_ui_settings_field_note(
-                          (enum mesh_ui_setting_field)MESH_UI_FIELD_COUNT) != MESH_STR_NONE,
+                          (enum mesh_ui_setting_field)MESH_UI_FIELD_COUNT) != INKCELL_STR_NONE,
                       "a field past the end has a note");
     record_success(test_name);
 }
@@ -259,12 +259,12 @@ MESH_TEST_CASE(help_field_notes_reach_every_explained_section, unit) {
         for (int f = 0; f < (int)MESH_UI_FIELD_COUNT && !found; ++f) {
             const enum mesh_ui_setting_field field = (enum mesh_ui_setting_field)f;
             found = mesh_ui_settings_field_section(field) == k_explained[i] &&
-                    mesh_ui_settings_field_note(field) != MESH_STR_NONE;
+                    mesh_ui_settings_field_note(field) != INKCELL_STR_NONE;
         }
         if (!found) {
             char reason[128];
             snprintf(reason, sizeof reason, "%s explains none of its rows",
-                     mesh_str_id_name(mesh_ui_settings_section_label(k_explained[i])));
+                     inkcell_str_id_name(mesh_ui_settings_section_label(k_explained[i])));
             record_failure(test_name, reason);
             return;
         }
@@ -281,7 +281,7 @@ MESH_TEST_CASE(help_field_notes_reach_every_explained_section, unit) {
  * "Enabled" and five called "Interval", External notification three called "Pin" - would draw
  * as paragraphs a reader cannot tell apart, on the one screen whose whole job is to be read.
  *
- * That is why those rows keep MESH_STR_NONE and their sections say it once in the overview
+ * That is why those rows keep INKCELL_STR_NONE and their sections say it once in the overview
  * instead, and this is the check that keeps the decision from being quietly undone by somebody
  * filling in the obvious gap. The paragraph half is the same rule from the other side: one note
  * is written about one row, so two rows naming one id is a copy-paste rather than a choice.
@@ -289,12 +289,12 @@ MESH_TEST_CASE(help_field_notes_reach_every_explained_section, unit) {
 MESH_TEST_CASE(help_note_labels_are_unique_in_a_section, unit) {
     for (int a = 0; a < (int)MESH_UI_FIELD_COUNT; ++a) {
         const enum mesh_ui_setting_field first = (enum mesh_ui_setting_field)a;
-        if (mesh_ui_settings_field_note(first) == MESH_STR_NONE) {
+        if (mesh_ui_settings_field_note(first) == INKCELL_STR_NONE) {
             continue;
         }
         for (int b = a + 1; b < (int)MESH_UI_FIELD_COUNT; ++b) {
             const enum mesh_ui_setting_field second = (enum mesh_ui_setting_field)b;
-            if (mesh_ui_settings_field_note(second) == MESH_STR_NONE ||
+            if (mesh_ui_settings_field_note(second) == INKCELL_STR_NONE ||
                 mesh_ui_settings_field_section(first) != mesh_ui_settings_field_section(second)) {
                 continue;
             }
@@ -303,17 +303,17 @@ MESH_TEST_CASE(help_note_labels_are_unique_in_a_section, unit) {
                a reader sees the word and not the id behind it. Read out of the English table so
                the answer does not move with whichever locale is in force. */
             const bool same_label =
-                strcmp(
-                    mesh_str_in(mesh_i18n_locale_english(), mesh_ui_settings_field_label_id(first)),
-                    mesh_str_in(mesh_i18n_locale_english(),
-                                mesh_ui_settings_field_label_id(second))) == 0;
+                strcmp(inkcell_str_in(inkcell_i18n_locale_english(),
+                                      mesh_ui_settings_field_label_id(first)),
+                       inkcell_str_in(inkcell_i18n_locale_english(),
+                                      mesh_ui_settings_field_label_id(second))) == 0;
             const bool same_note =
                 mesh_ui_settings_field_note(first) == mesh_ui_settings_field_note(second);
             if (same_label || same_note) {
                 char reason[160];
                 snprintf(reason, sizeof reason, "%s and %s share a %s in one section",
-                         mesh_str_id_name(mesh_ui_settings_field_label_id(first)),
-                         mesh_str_id_name(mesh_ui_settings_field_label_id(second)),
+                         inkcell_str_id_name(mesh_ui_settings_field_label_id(first)),
+                         inkcell_str_id_name(mesh_ui_settings_field_label_id(second)),
                          same_label ? "heading" : "paragraph");
                 record_failure(test_name, reason);
                 return;
@@ -334,13 +334,13 @@ MESH_TEST_CASE(help_topic_leads_with_the_section_overview, unit) {
     struct mesh_ui_help_topic topic;
     MESH_TEST_FAIL_IF(!topic_for(&store, &topic), "LoRa has no topic");
     MESH_TEST_FAIL_IF(topic.count < 2U, "LoRa's topic has no field notes in it");
-    MESH_TEST_FAIL_IF(topic.entries[0].label != MESH_STR_NONE,
+    MESH_TEST_FAIL_IF(topic.entries[0].label != INKCELL_STR_NONE,
                       "the opening paragraph is attributed to a row");
     MESH_TEST_FAIL_IF(topic.entries[0].body != mesh_ui_settings_section_note(MESH_UI_SETTINGS_LORA),
                       "the opening paragraph is not the section's note");
     for (uint32_t i = 1; i < topic.count; ++i) {
-        MESH_TEST_FAIL_IF(topic.entries[i].label == MESH_STR_NONE, "a field note names no row");
-        MESH_TEST_FAIL_IF(topic.entries[i].body == MESH_STR_NONE, "an entry has no paragraph");
+        MESH_TEST_FAIL_IF(topic.entries[i].label == INKCELL_STR_NONE, "a field note names no row");
+        MESH_TEST_FAIL_IF(topic.entries[i].body == INKCELL_STR_NONE, "an entry has no paragraph");
     }
     record_success(test_name);
 }
@@ -374,15 +374,15 @@ MESH_TEST_CASE(help_opens_where_the_cursor_was, unit) {
     uint32_t entry = 1U;    /* the paragraph the next explained row will be */
     uint32_t expected = 0U; /* the entry this row resolves to; 0 is the section's overview */
     for (uint32_t row = 0; row < rows; ++row) {
-        const enum mesh_str_id note = items[row].field != MESH_UI_FIELD_NONE
-                                          ? mesh_ui_settings_field_note(items[row].field)
-                                          : MESH_STR_NONE;
+        const enum inkcell_str_id note = items[row].field != MESH_UI_FIELD_NONE
+                                             ? mesh_ui_settings_field_note(items[row].field)
+                                             : INKCELL_STR_NONE;
         /* A heading is where "the paragraphs above this row" stops, which is the rule
            help_stops_at_a_subheading holds for Telemetry - LoRa grew headings of its own with
            the advanced group, so the rule applies one section further along. */
         if (items[row].kind == MESH_UI_SETTING_HEADING) {
             expected = 0U;
-        } else if (note != MESH_STR_NONE) {
+        } else if (note != INKCELL_STR_NONE) {
             expected = entry;
             entry++;
             saw_a_field_note = true;
@@ -398,7 +398,7 @@ MESH_TEST_CASE(help_opens_where_the_cursor_was, unit) {
             record_failure(test_name, "the cursor could not reach a row");
             return;
         }
-        press(&store, MESH_UI_KEY_SELECT);
+        press(&store, INKCELL_KEY_SELECT);
         MESH_TEST_FAIL_IF(!store.nav.help_open, "SELECT did not open help");
 
         if (store.nav.help_cursor != expected) {
@@ -409,11 +409,11 @@ MESH_TEST_CASE(help_opens_where_the_cursor_was, unit) {
             return;
         }
         /* A row that has a note lands on its *own* paragraph, not merely on some paragraph. */
-        if (note != MESH_STR_NONE && topic.entries[store.nav.help_cursor].body != note) {
+        if (note != INKCELL_STR_NONE && topic.entries[store.nav.help_cursor].body != note) {
             record_failure(test_name, "a row did not open its own paragraph");
             return;
         }
-        press(&store, MESH_UI_KEY_B);
+        press(&store, INKCELL_KEY_B);
     }
     MESH_TEST_FAIL_IF(!saw_a_field_note, "LoRa had no explained row, so nothing was proved");
     record_success(test_name);
@@ -454,7 +454,7 @@ MESH_TEST_CASE(help_opens_on_the_overview_across_a_subheading, unit) {
             continue;
         }
         const bool noted = items[row].field != MESH_UI_FIELD_NONE &&
-                           mesh_ui_settings_field_note(items[row].field) != MESH_STR_NONE;
+                           mesh_ui_settings_field_note(items[row].field) != INKCELL_STR_NONE;
         seen_note = seen_note || noted;
 
         const uint32_t entry =
@@ -484,13 +484,13 @@ MESH_TEST_CASE(help_opens_on_the_overview_across_a_subheading, unit) {
 MESH_TEST_CASE(help_closes_onto_the_row_it_was_opened_from, unit) {
     struct mesh_ui_store store;
     MESH_TEST_FAIL_IF(!help_store_open(&store, MESH_UI_SETTINGS_LORA), "LoRa did not open");
-    press(&store, MESH_UI_KEY_DOWN);
-    press(&store, MESH_UI_KEY_DOWN);
+    press(&store, INKCELL_KEY_DOWN);
+    press(&store, INKCELL_KEY_DOWN);
     const uint32_t was = store.nav.cursor[MESH_UI_SCREEN_SETTINGS];
 
-    press(&store, MESH_UI_KEY_SELECT);
+    press(&store, INKCELL_KEY_SELECT);
     MESH_TEST_FAIL_IF(!store.nav.help_open, "SELECT did not open help");
-    press(&store, MESH_UI_KEY_B);
+    press(&store, INKCELL_KEY_B);
     MESH_TEST_FAIL_IF(store.nav.help_open, "B did not leave help");
     MESH_TEST_FAIL_IF(store.nav.settings_section != (uint8_t)MESH_UI_SETTINGS_LORA,
                       "B left the section as well as the help screen");
@@ -499,9 +499,9 @@ MESH_TEST_CASE(help_closes_onto_the_row_it_was_opened_from, unit) {
 
     /* SELECT is a toggle: the key that opens the screen is a key the user still has under their
        thumb when they want it gone. */
-    press(&store, MESH_UI_KEY_SELECT);
+    press(&store, INKCELL_KEY_SELECT);
     MESH_TEST_FAIL_IF(!store.nav.help_open, "SELECT did not re-open help");
-    press(&store, MESH_UI_KEY_SELECT);
+    press(&store, INKCELL_KEY_SELECT);
     MESH_TEST_FAIL_IF(store.nav.help_open, "SELECT did not close help");
     record_success(test_name);
 }
@@ -511,16 +511,16 @@ MESH_TEST_CASE(help_closes_onto_the_row_it_was_opened_from, unit) {
 MESH_TEST_CASE(help_cursor_stops_at_both_ends, unit) {
     struct mesh_ui_store store;
     MESH_TEST_FAIL_IF(!help_store_open(&store, MESH_UI_SETTINGS_LORA), "LoRa did not open");
-    press(&store, MESH_UI_KEY_SELECT);
+    press(&store, INKCELL_KEY_SELECT);
 
     struct mesh_ui_help_topic topic;
     MESH_TEST_FAIL_IF(!topic_for(&store, &topic), "LoRa has no topic");
     MESH_TEST_FAIL_IF(topic.count < 2U, "not enough paragraphs to scroll");
 
-    press(&store, MESH_UI_KEY_UP);
+    press(&store, INKCELL_KEY_UP);
     MESH_TEST_FAIL_IF(store.nav.help_cursor != 0U, "Up wrapped off the top");
     for (uint32_t i = 0; i < topic.count + 3U; ++i) {
-        press(&store, MESH_UI_KEY_DOWN);
+        press(&store, INKCELL_KEY_DOWN);
     }
     MESH_TEST_FAIL_IF(store.nav.help_cursor != topic.count - 1U,
                       "Down ran past the last paragraph");
@@ -535,15 +535,15 @@ MESH_TEST_CASE(help_is_a_route_level, unit) {
 
     struct mesh_ui_route before;
     mesh_ui_route_of(&store.nav, &before);
-    press(&store, MESH_UI_KEY_SELECT);
+    press(&store, INKCELL_KEY_SELECT);
     struct mesh_ui_route after;
     mesh_ui_route_of(&store.nav, &after);
 
     MESH_TEST_FAIL_IF(after.level != MESH_UI_ROUTE_HELP, "help is not its own level");
     MESH_TEST_FAIL_IF(after.depth != before.depth + 1U, "help did not go a level deeper");
-    MESH_TEST_FAIL_IF(mesh_ui_route_move(&before, &after) != MESH_UI_TRANSITION_FORWARD,
+    MESH_TEST_FAIL_IF(mesh_ui_route_move(&before, &after) != INKCELL_TRANSITION_FORWARD,
                       "opening help did not read as a move inwards");
-    MESH_TEST_FAIL_IF(mesh_ui_route_move(&after, &before) != MESH_UI_TRANSITION_BACK,
+    MESH_TEST_FAIL_IF(mesh_ui_route_move(&after, &before) != INKCELL_TRANSITION_BACK,
                       "leaving help did not read as a move outwards");
     record_success(test_name);
 }
@@ -585,9 +585,9 @@ MESH_TEST_CASE(help_keycap_and_press_agree, unit) {
                      row < mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS) &&
                      store.nav.settings_edit_count == 0U;
                      ++row) {
-                    press(&store, MESH_UI_KEY_RIGHT);
+                    press(&store, INKCELL_KEY_RIGHT);
                     if (store.nav.settings_edit_count == 0U) {
-                        press(&store, MESH_UI_KEY_DOWN);
+                        press(&store, INKCELL_KEY_DOWN);
                     }
                 }
                 if (store.nav.settings_edit_count == 0U) {
@@ -595,14 +595,14 @@ MESH_TEST_CASE(help_keycap_and_press_agree, unit) {
                 }
             }
             if (state == 2) {
-                press(&store, MESH_UI_KEY_B); /* arms the discard question */
+                press(&store, INKCELL_KEY_B); /* arms the discard question */
                 if (!store.nav.settings_discard_armed) {
                     continue;
                 }
             }
 
             const bool offered = bar_offers_help(&store);
-            press(&store, MESH_UI_KEY_SELECT);
+            press(&store, INKCELL_KEY_SELECT);
             if (offered != store.nav.help_open) {
                 char reason[192];
                 snprintf(reason, sizeof reason, "%s (%s): the bar says %s and the press says %s",
@@ -627,16 +627,16 @@ MESH_TEST_CASE(help_stands_down_an_armed_question_without_opening, unit) {
     struct mesh_ui_store store;
     MESH_TEST_FAIL_IF(!help_store_open(&store, MESH_UI_SETTINGS_LORA), "LoRa did not open");
 
-    press(&store, MESH_UI_KEY_RIGHT); /* an edit on the first row */
+    press(&store, INKCELL_KEY_RIGHT); /* an edit on the first row */
     MESH_TEST_FAIL_IF(store.nav.settings_edit_count == 0U, "the row did not take an edit");
     /* With the edit in hand and nothing armed, help is offered and works. */
     MESH_TEST_FAIL_IF(!bar_offers_help(&store), "an edited section stopped offering help");
 
-    press(&store, MESH_UI_KEY_B);
+    press(&store, INKCELL_KEY_B);
     MESH_TEST_FAIL_IF(!store.nav.settings_discard_armed, "B did not arm the discard question");
     MESH_TEST_FAIL_IF(bar_offers_help(&store), "an armed question still offered the help press");
 
-    press(&store, MESH_UI_KEY_SELECT);
+    press(&store, INKCELL_KEY_SELECT);
     MESH_TEST_FAIL_IF(store.nav.help_open, "SELECT opened help over an armed question");
     MESH_TEST_FAIL_IF(store.nav.settings_discard_armed,
                       "SELECT did not stand the question down the way any other press does");
@@ -645,7 +645,7 @@ MESH_TEST_CASE(help_stands_down_an_armed_question_without_opening, unit) {
 
     /* And now that the question is gone, the same key opens help. */
     MESH_TEST_FAIL_IF(!bar_offers_help(&store), "help was not offered once the question was down");
-    press(&store, MESH_UI_KEY_SELECT);
+    press(&store, INKCELL_KEY_SELECT);
     MESH_TEST_FAIL_IF(!store.nav.help_open, "SELECT did not open help after the question went");
     record_success(test_name);
 }
@@ -698,21 +698,22 @@ MESH_TEST_CASE(help_every_tab_explains_itself, unit) {
         struct mesh_ui_help_topic topic;
         MESH_TEST_FAIL_IF(!topic_for(&store, &topic), "a tab has no topic");
         MESH_TEST_FAIL_IF(topic.count < 2U, "a tab's topic is only an overview");
-        MESH_TEST_FAIL_IF(topic.subject == MESH_STR_NONE, "a topic does not name its screen");
-        MESH_TEST_FAIL_IF(topic.entries[0].label != MESH_STR_NONE,
+        MESH_TEST_FAIL_IF(topic.subject == INKCELL_STR_NONE, "a topic does not name its screen");
+        MESH_TEST_FAIL_IF(topic.entries[0].label != INKCELL_STR_NONE,
                           "the opening paragraph is attributed to a row");
         for (uint32_t e = 1; e < topic.count; ++e) {
-            MESH_TEST_FAIL_IF(topic.entries[e].label == MESH_STR_NONE,
+            MESH_TEST_FAIL_IF(topic.entries[e].label == INKCELL_STR_NONE,
                               "a paragraph has no heading");
-            MESH_TEST_FAIL_IF(topic.entries[e].body == MESH_STR_NONE, "a heading has no paragraph");
+            MESH_TEST_FAIL_IF(topic.entries[e].body == INKCELL_STR_NONE,
+                              "a heading has no paragraph");
         }
 
-        press(&store, MESH_UI_KEY_SELECT);
+        press(&store, INKCELL_KEY_SELECT);
         MESH_TEST_FAIL_IF(!store.nav.help_open, "SELECT did not open a tab's help");
         /* A feature opens at the top: its paragraphs are about the screen, not about the row
            the cursor happened to be on. */
         MESH_TEST_FAIL_IF(store.nav.help_cursor != 0U, "a feature topic did not open at the top");
-        press(&store, MESH_UI_KEY_B);
+        press(&store, INKCELL_KEY_B);
         MESH_TEST_FAIL_IF(store.nav.help_open, "B did not leave a tab's help");
         MESH_TEST_FAIL_IF(store.nav.screen != k_screens[i], "leaving help left the tab as well");
     }
@@ -758,9 +759,9 @@ MESH_TEST_CASE(help_the_chart_explains_its_axes, unit) {
     /* And SELECT still opens it, which is the press the bar is naming: a screen the action bar
        offers help on and the help table cannot answer for is a keycap that does nothing. */
     MESH_TEST_FAIL_IF(!bar_offers_help(&store), "the chart did not offer the help press");
-    press(&store, MESH_UI_KEY_SELECT);
+    press(&store, INKCELL_KEY_SELECT);
     MESH_TEST_FAIL_IF(!store.nav.help_open, "SELECT did not open the chart's help");
-    press(&store, MESH_UI_KEY_B);
+    press(&store, INKCELL_KEY_B);
     MESH_TEST_FAIL_IF(store.nav.help_open, "B did not leave the chart's help");
     MESH_TEST_FAIL_IF(!store.nav.trend_open, "leaving help left the chart as well");
     mesh_ui_store_shutdown(&store);
@@ -781,7 +782,7 @@ MESH_TEST_CASE(help_follows_the_route_into_a_level, unit) {
     struct mesh_ui_help_topic list;
     MESH_TEST_FAIL_IF(!topic_for(&store, &list), "the conversation list has no topic");
 
-    press(&store, MESH_UI_KEY_A); /* the all-traffic row, which is the first one */
+    press(&store, INKCELL_KEY_A); /* the all-traffic row, which is the first one */
     MESH_TEST_FAIL_IF(!store.nav.thread_open, "A did not open a transcript");
 
     struct mesh_ui_help_topic thread;
@@ -797,9 +798,9 @@ MESH_TEST_CASE(help_follows_the_route_into_a_level, unit) {
     MESH_TEST_FAIL_IF(!topic_for(&nodes, &roster), "the roster has no topic");
     /* Off the list's filter and map rows, each of which is a level of its own. */
     for (uint32_t lead = 0; lead < MESH_UI_NODES_LEAD_ROWS; ++lead) {
-        press(&nodes, MESH_UI_KEY_DOWN);
+        press(&nodes, INKCELL_KEY_DOWN);
     }
-    press(&nodes, MESH_UI_KEY_A);
+    press(&nodes, INKCELL_KEY_A);
     MESH_TEST_FAIL_IF(!nodes.nav.node_detail_open, "A did not open a node");
     struct mesh_ui_help_topic detail;
     MESH_TEST_FAIL_IF(!topic_for(&nodes, &detail), "a node detail has no topic");
@@ -819,20 +820,20 @@ MESH_TEST_CASE(help_follows_the_route_into_a_level, unit) {
 MESH_TEST_CASE(help_explains_the_tapback_picker, unit) {
     struct mesh_ui_store store;
     MESH_TEST_FAIL_IF(!help_store_tab(&store, MESH_UI_SCREEN_MESSAGES), "Messages did not open");
-    press(&store, MESH_UI_KEY_DOWN); /* off all-traffic, onto a conversation */
-    press(&store, MESH_UI_KEY_A);
+    press(&store, INKCELL_KEY_DOWN); /* off all-traffic, onto a conversation */
+    press(&store, INKCELL_KEY_A);
     MESH_TEST_FAIL_IF(!store.nav.thread_open || store.nav.inbox, "no conversation opened");
-    press(&store, MESH_UI_KEY_X);
+    press(&store, INKCELL_KEY_X);
     MESH_TEST_FAIL_IF(!store.nav.reaction_open, "X did not raise the tapback picker");
 
     MESH_TEST_FAIL_IF(!bar_offers_help(&store), "the tapback picker offered no help press");
     struct mesh_ui_help_topic topic;
     MESH_TEST_FAIL_IF(!topic_for(&store, &topic), "the tapback picker has no topic");
-    press(&store, MESH_UI_KEY_SELECT);
+    press(&store, INKCELL_KEY_SELECT);
     MESH_TEST_FAIL_IF(!store.nav.help_open, "SELECT did not explain the tapback picker");
     /* And B goes back to the picker rather than out of it: help is a level over the overlay,
        not a screen that replaced it. */
-    press(&store, MESH_UI_KEY_B);
+    press(&store, INKCELL_KEY_B);
     MESH_TEST_FAIL_IF(store.nav.help_open, "B did not leave help");
     MESH_TEST_FAIL_IF(!store.nav.reaction_open, "leaving help closed the picker underneath it");
     record_success(test_name);
@@ -853,10 +854,10 @@ MESH_TEST_CASE(help_is_refused_while_a_question_is_armed, unit) {
     struct mesh_ui_store devices;
     MESH_TEST_FAIL_IF(!help_store_tab(&devices, MESH_UI_SCREEN_DEVICES), "Devices did not open");
     MESH_TEST_FAIL_IF(!bar_offers_help(&devices), "Devices did not offer help to begin with");
-    press(&devices, MESH_UI_KEY_Y);
+    press(&devices, INKCELL_KEY_Y);
     MESH_TEST_FAIL_IF(!devices.nav.devices_forget_armed, "Y did not arm the forget question");
     MESH_TEST_FAIL_IF(bar_offers_help(&devices), "an armed forget still offered the help press");
-    press(&devices, MESH_UI_KEY_SELECT);
+    press(&devices, INKCELL_KEY_SELECT);
     MESH_TEST_FAIL_IF(devices.nav.help_open, "SELECT opened help over an armed forget");
     MESH_TEST_FAIL_IF(devices.nav.devices_forget_armed,
                       "SELECT did not stand the question down the way any other press does");
@@ -864,11 +865,11 @@ MESH_TEST_CASE(help_is_refused_while_a_question_is_armed, unit) {
 
     struct mesh_ui_store messages;
     MESH_TEST_FAIL_IF(!help_store_tab(&messages, MESH_UI_SCREEN_MESSAGES), "Messages did not open");
-    press(&messages, MESH_UI_KEY_DOWN);
-    press(&messages, MESH_UI_KEY_X);
+    press(&messages, INKCELL_KEY_DOWN);
+    press(&messages, INKCELL_KEY_X);
     MESH_TEST_FAIL_IF(!messages.nav.messages_delete_armed, "X did not arm the delete question");
     MESH_TEST_FAIL_IF(bar_offers_help(&messages), "an armed delete still offered the help press");
-    press(&messages, MESH_UI_KEY_SELECT);
+    press(&messages, INKCELL_KEY_SELECT);
     MESH_TEST_FAIL_IF(messages.nav.help_open, "SELECT opened help over an armed delete");
     MESH_TEST_FAIL_IF(messages.nav.messages_delete_armed, "SELECT left the question armed");
     record_success(test_name);
@@ -892,10 +893,10 @@ MESH_TEST_CASE(help_is_not_offered_over_an_overlay_on_a_section, unit) {
     struct mesh_ui_store keyboard;
     MESH_TEST_FAIL_IF(!help_store_open(&keyboard, MESH_UI_SETTINGS_USER), "User did not open");
     MESH_TEST_FAIL_IF(!bar_offers_help(&keyboard), "the section did not offer help to begin with");
-    press(&keyboard, MESH_UI_KEY_A); /* the long name row opens the keyboard */
+    press(&keyboard, INKCELL_KEY_A); /* the long name row opens the keyboard */
     MESH_TEST_FAIL_IF(!keyboard.nav.keyboard_open, "A did not raise the keyboard");
     MESH_TEST_FAIL_IF(bar_offers_help(&keyboard), "the keyboard offered the help press");
-    press(&keyboard, MESH_UI_KEY_SELECT);
+    press(&keyboard, INKCELL_KEY_SELECT);
     MESH_TEST_FAIL_IF(keyboard.nav.help_open, "SELECT opened help over the keyboard");
     MESH_TEST_FAIL_IF(!keyboard.nav.keyboard_open, "SELECT closed the keyboard instead");
 
@@ -912,14 +913,14 @@ MESH_TEST_CASE(help_is_not_offered_over_an_overlay_on_a_section, unit) {
          row < mesh_ui_nav_row_count(&confirm.nav, &confirm, MESH_UI_SCREEN_SETTINGS) &&
          !confirm.nav.confirm_open;
          ++row) {
-        press(&confirm, MESH_UI_KEY_A);
+        press(&confirm, INKCELL_KEY_A);
         if (!confirm.nav.confirm_open) {
-            press(&confirm, MESH_UI_KEY_DOWN);
+            press(&confirm, INKCELL_KEY_DOWN);
         }
     }
     MESH_TEST_FAIL_IF(!confirm.nav.confirm_open, "no row raised the confirm dialog");
     MESH_TEST_FAIL_IF(bar_offers_help(&confirm), "the confirm dialog offered the help press");
-    press(&confirm, MESH_UI_KEY_SELECT);
+    press(&confirm, INKCELL_KEY_SELECT);
     MESH_TEST_FAIL_IF(confirm.nav.help_open, "SELECT opened help over the confirm dialog");
     MESH_TEST_FAIL_IF(!confirm.nav.confirm_open, "SELECT answered the question instead");
     record_success(test_name);
@@ -938,17 +939,17 @@ MESH_TEST_CASE(help_is_not_offered_where_there_is_nothing_to_say, unit) {
     struct mesh_ui_store store;
     MESH_TEST_FAIL_IF(!help_store_tab(&store, MESH_UI_SCREEN_SETTINGS), "Settings did not open");
     MESH_TEST_FAIL_IF(bar_offers_help(&store), "the list of sections offered help");
-    press(&store, MESH_UI_KEY_SELECT);
+    press(&store, INKCELL_KEY_SELECT);
     MESH_TEST_FAIL_IF(store.nav.help_open, "SELECT opened help on the list of sections");
 
     /* The send-to picker, raised by Y on the conversation list: a question with a list of
        answers, and the screen underneath it is the one with the explanation. */
     struct mesh_ui_store picker;
     MESH_TEST_FAIL_IF(!help_store_tab(&picker, MESH_UI_SCREEN_MESSAGES), "Messages did not open");
-    press(&picker, MESH_UI_KEY_Y);
+    press(&picker, INKCELL_KEY_Y);
     MESH_TEST_FAIL_IF(!picker.nav.picker_open, "Y did not raise the picker");
     MESH_TEST_FAIL_IF(bar_offers_help(&picker), "the picker offered help");
-    press(&picker, MESH_UI_KEY_SELECT);
+    press(&picker, INKCELL_KEY_SELECT);
     MESH_TEST_FAIL_IF(picker.nav.help_open, "SELECT opened help over the picker");
     MESH_TEST_FAIL_IF(!picker.nav.picker_open, "SELECT closed the picker instead");
     record_success(test_name);
@@ -999,7 +1000,8 @@ MESH_TEST_CASE(help_does_not_offer_a_key_that_does_nothing, unit) {
                    both read, and the section is rebuilt from it on every draw and press. */
                 struct mesh_ui_settings admin = store.settings;
                 admin.admin_dest = 0x7001U;
-                mesh_str_copy(admin.admin_dest_name, sizeof admin.admin_dest_name, "Weather Hut");
+                inkcell_str_copy(admin.admin_dest_name, sizeof admin.admin_dest_name,
+                                 "Weather Hut");
                 mesh_ui_store_set_settings(&store, &admin);
             }
 
@@ -1015,7 +1017,7 @@ MESH_TEST_CASE(help_does_not_offer_a_key_that_does_nothing, unit) {
             }
 
             const uint32_t before = store.nav.cursor[MESH_UI_SCREEN_SETTINGS];
-            press(&store, MESH_UI_KEY_R2);
+            press(&store, INKCELL_KEY_R2);
             const bool key_moves = store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != before;
 
             if (offers_hint != key_moves) {

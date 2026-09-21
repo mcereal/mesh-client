@@ -131,16 +131,16 @@ enum mesh_ui_banner_kind {
  */
 struct mesh_ui_banner {
     uint8_t kind; /* enum mesh_ui_banner_kind */
-    enum mesh_ui_icon icon;
-    enum mesh_str_id text;       /* the headline: what is true */
-    enum mesh_str_id supporting; /* what to do about it; MESH_STR_NONE for nothing */
+    enum inkcell_icon icon;
+    enum inkcell_str_id text;       /* the headline: what is true */
+    enum inkcell_str_id supporting; /* what to do about it; INKCELL_STR_NONE for nothing */
     /* Points into `snapshot`, so it lives exactly as long as the snapshot the call was made
        with - which is the frame being drawn. Never NULL; empty when there is nothing to show. */
     const char *detail;
-    /* The container's fill, taken with its ink from mesh_ui_theme_paint(). A family rather than
+    /* The container's fill, taken with its ink from inkcell_theme_paint(). A family rather than
        a tone because a banner fills something, and a fill and the words on it are a pair every
        theme was validated as a pair. */
-    enum mesh_ui_family family;
+    enum inkcell_family family;
 };
 
 /*
@@ -151,7 +151,7 @@ struct mesh_ui_banner {
  * component roadmap expected:
  *
  *   **A banner says only what nothing else on the frame says.** This is the overline's rule
- *   (see fb_draw_app_bar) arriving somewhere else. It is what refuses "radio disconnected",
+ *   (see inkcell_fb_draw_app_bar) arriving somewhere else. It is what refuses "radio disconnected",
  *   which the status line under the keycaps already reports on every frame, and it is why the
  *   update banner stands down inside Settings > About - the section it is pointing at states
  *   the same thing in more detail, so a banner over it would be the client telling you

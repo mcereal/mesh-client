@@ -2,12 +2,10 @@
 #define MESH_SHIM_UI_ACTIONS_H
 
 /* Moved to inkcell (third_party/inkcell). This is the old path, kept so the layers above did
-   not all have to change in the commit that moved the file; inkcell_compat.h bridges the
-   names. Include the inkcell header directly in new code. */
+   not all have to change in the commit that moved the file. Include the inkcell header
+   directly in new code. */
 
 #include "inkcell/ui/actions.h"
-
-#include "mesh/inkcell_compat.h"
 
 struct mesh_ui_snapshot;
 
@@ -27,6 +25,6 @@ struct mesh_ui_snapshot;
  * `out` is fully overwritten; a NULL snapshot yields an empty bar rather than a default one,
  * because there is no state to be describing.
  */
-void mesh_ui_actions_for(const struct mesh_ui_snapshot *snapshot, struct mesh_ui_action_bar *out);
+void mesh_ui_actions_for(const struct mesh_ui_snapshot *snapshot, struct inkcell_action_bar *out);
 
 #endif /* MESH_SHIM_UI_ACTIONS_H */

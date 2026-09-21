@@ -93,7 +93,7 @@ def template(entries, out):
         "#\n"
         "# Keep every %-specifier, in the same order and of the same type, as the msgid has.\n"
         "# The words around them are yours to reorder; the specifiers are what the code passes\n"
-        "# and mesh_i18n_validate() rejects a mismatch before it can crash anything.\n"
+        "# and inkcell_i18n_validate() rejects a mismatch before it can crash anything.\n"
         "#\n"
         "# msgctxt is the catalog id. It, not the English, is what identifies a string.\n"
         "\n"
@@ -120,7 +120,7 @@ def stub(entries, language, out):
  * catalog grows, add the new ids here; anything missing is not an error, it reads as English.
  *
  * Keep every %-specifier the English has, in the same order and of the same type. The words
- * around them are yours. mesh_i18n_validate() checks this over every locale in the tests.
+ * around them are yours. inkcell_i18n_validate() checks this over every locale in the tests.
  *
  * To ship it: add the file to CMakeLists.txt and a row to k_locales in src/i18n/strings.c.
  * See docs/i18n.md.

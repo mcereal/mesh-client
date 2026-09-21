@@ -247,7 +247,7 @@ int mesh_message_encode_text(const struct mesh_message_text_request *request, ui
 
     pb_ostream_t stream = pb_ostream_from_buffer(out, out_len);
     if (!pb_encode(&stream, meshtastic_ToRadio_fields, &to_radio)) {
-        mesh_log_error("message", "Failed to encode text message: %s", PB_GET_ERROR(&stream));
+        inkcell_log_error("message", "Failed to encode text message: %s", PB_GET_ERROR(&stream));
         return -EIO;
     }
 
@@ -263,7 +263,7 @@ int mesh_message_encode_text(const struct mesh_message_text_request *request, ui
  * the *mapping* here and letting each caller pick the locale is what avoids a second table
  * that would drift out of step with this one.
  */
-static enum mesh_str_id mesh_message_ack_error_id(uint8_t error) {
+static enum inkcell_str_id mesh_message_ack_error_id(uint8_t error) {
     switch ((meshtastic_Routing_Error)error) {
     case meshtastic_Routing_Error_NONE:
         return MESH_STR_ACK_DELIVERED;
@@ -311,7 +311,7 @@ static enum mesh_str_id mesh_message_ack_error_id(uint8_t error) {
 
 /* What a bubble shows, in the reader's language. */
 const char *mesh_message_ack_error_to_string(uint8_t error) {
-    return mesh_str(mesh_message_ack_error_id(error));
+    return inkcell_str(mesh_message_ack_error_id(error));
 }
 
 /* Routing replies carry the id of the message they are answering in Data.request_id. */
@@ -323,7 +323,8 @@ static int mesh_message_handle_routing(struct mesh_message_log *log, const mesht
     meshtastic_Routing routing = meshtastic_Routing_init_default;
     pb_istream_t stream = pb_istream_from_buffer(data->payload.bytes, data->payload.size);
     if (!pb_decode(&stream, meshtastic_Routing_fields, &routing)) {
-        mesh_log_debug("message", "Ignoring undecodable Routing reply for id %u", data->request_id);
+        inkcell_log_debug("message", "Ignoring undecodable Routing reply for id %u",
+                          data->request_id);
         return 0;
     }
 
@@ -337,15 +338,16 @@ static int mesh_message_handle_routing(struct mesh_message_log *log, const mesht
                                   delivered ? MESH_MESSAGE_ACK_DELIVERED : MESH_MESSAGE_ACK_FAILED,
                                   (uint8_t)routing.error_reason)) {
         if (delivered) {
-            mesh_log_info("message", "Message %u delivered", data->request_id);
+            inkcell_log_info("message", "Message %u delivered", data->request_id);
         } else {
             /* English, whatever the UI is set to: this line is read by whoever is tailing
                the device log, and a diagnostic that changes language with the handheld's
                settings is a diagnostic that cannot be searched for. */
-            mesh_log_warn("message", "Message %u failed: %s (Routing_Error %u)", data->request_id,
-                          mesh_str_in(mesh_i18n_locale_english(),
-                                      mesh_message_ack_error_id((uint8_t)routing.error_reason)),
-                          (unsigned)routing.error_reason);
+            inkcell_log_warn(
+                "message", "Message %u failed: %s (Routing_Error %u)", data->request_id,
+                inkcell_str_in(inkcell_i18n_locale_english(),
+                               mesh_message_ack_error_id((uint8_t)routing.error_reason)),
+                (unsigned)routing.error_reason);
         }
     }
     return 0;
@@ -412,7 +414,8 @@ int mesh_message_ingest(struct mesh_message_log *log, const meshtastic_MeshPacke
     /* `emoji` is a fixed32 used as a flag: non-zero means the payload is an emoji reacting to
        reply_id rather than something to read on its own line. */
     message.is_reaction = (data->emoji != 0U);
-    mesh_text_sanitise(data->payload.bytes, data->payload.size, message.text, sizeof(message.text));
+    inkcell_text_sanitise(data->payload.bytes, data->payload.size, message.text,
+                          sizeof(message.text));
 
     if (message.text[0] == '\0') {
         return 0;
@@ -446,9 +449,9 @@ int mesh_message_ingest(struct mesh_message_log *log, const meshtastic_MeshPacke
     }
 
     static const char *const k_kind_names[] = {"text", "alert", "detection"};
-    mesh_log_info("message", "%s %s from 0x%08x on channel %u (%zu chars)",
-                  message.direction == MESH_MESSAGE_OUTBOUND ? "Echoed" : "Received",
-                  message.is_reaction ? "reaction" : k_kind_names[message.kind], message.from,
-                  (unsigned)message.channel, strlen(message.text));
+    inkcell_log_info("message", "%s %s from 0x%08x on channel %u (%zu chars)",
+                     message.direction == MESH_MESSAGE_OUTBOUND ? "Echoed" : "Received",
+                     message.is_reaction ? "reaction" : k_kind_names[message.kind], message.from,
+                     (unsigned)message.channel, strlen(message.text));
     return 1;
 }

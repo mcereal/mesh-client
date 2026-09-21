@@ -20,14 +20,14 @@
 /* Every case switches the probe on and starts from nothing: it is file-static state shared by
    the whole binary, and the suites run in one process. */
 static void begin(void) {
-    mesh_ui_latency_enable();
-    mesh_ui_latency_reset();
+    inkcell_latency_enable();
+    inkcell_latency_reset();
 }
 
-static struct mesh_ui_latency_counts counted(void) {
-    struct mesh_ui_latency_counts counts;
+static struct inkcell_latency_counts counted(void) {
+    struct inkcell_latency_counts counts;
     memset(&counts, 0, sizeof counts);
-    mesh_ui_latency_counts(&counts);
+    inkcell_latency_counts(&counts);
     return counts;
 }
 
@@ -35,24 +35,24 @@ static struct mesh_ui_latency_counts counted(void) {
    it. The stamp is taken from the probe's own clock so the arithmetic is the one the client
    does. */
 static void press_answered(uint64_t age_us) {
-    mesh_ui_latency_event(mesh_ui_latency_now_us() - age_us);
-    mesh_ui_latency_press();
-    mesh_ui_latency_press_handled(true);
-    mesh_ui_latency_frame_begin();
-    mesh_ui_latency_frame_drawn(4096U);
-    mesh_ui_latency_frame_end(4096U);
+    inkcell_latency_event(inkcell_latency_now_us() - age_us);
+    inkcell_latency_press();
+    inkcell_latency_press_handled(true);
+    inkcell_latency_frame_begin();
+    inkcell_latency_frame_drawn(4096U);
+    inkcell_latency_frame_end(4096U);
 }
 
 MESH_TEST_CASE(latency_reset_leaves_nothing_behind, unit) {
-    mesh_ui_latency_enable();
-    mesh_ui_latency_reset();
+    inkcell_latency_enable();
+    inkcell_latency_reset();
     /* There is no way back to "off" once a run has asked for it - the knob is read once - so
        what this checks is that a reset leaves nothing behind, which is the state a client that
        never enabled it is in. */
-    const struct mesh_ui_latency_counts counts = counted();
+    const struct inkcell_latency_counts counts = counted();
     MESH_TEST_FAIL_IF(counts.frames != 0U || counts.presses != 0U,
                       "a reset should leave no samples behind");
-    MESH_TEST_FAIL_IF(mesh_ui_latency_metric(MESH_UI_LATENCY_PRESS)->count != 0U,
+    MESH_TEST_FAIL_IF(inkcell_latency_metric(INKCELL_LATENCY_PRESS)->count != 0U,
                       "and no histogram either");
     record_success(test_name);
 }
@@ -68,8 +68,8 @@ MESH_TEST_CASE(latency_measures_a_press_from_the_kernels_stamp, unit) {
     begin();
     press_answered(8000U);
 
-    const struct mesh_ui_latency_histogram *const press =
-        mesh_ui_latency_metric(MESH_UI_LATENCY_PRESS);
+    const struct inkcell_latency_histogram *const press =
+        inkcell_latency_metric(INKCELL_LATENCY_PRESS);
     MESH_TEST_FAIL_IF(press->count != 1U, "the press should have been recorded once");
     MESH_TEST_FAIL_IF(press->min_us < 8000U,
                       "a press stamped 8 ms ago cannot have been answered in less");
@@ -88,20 +88,20 @@ MESH_TEST_CASE(latency_measures_a_press_from_the_kernels_stamp, unit) {
  */
 MESH_TEST_CASE(latency_does_not_charge_an_inert_press_to_the_next_frame, unit) {
     begin();
-    mesh_ui_latency_event(mesh_ui_latency_now_us() - 5000U);
-    mesh_ui_latency_press();
-    mesh_ui_latency_press_handled(false);
+    inkcell_latency_event(inkcell_latency_now_us() - 5000U);
+    inkcell_latency_press();
+    inkcell_latency_press_handled(false);
 
     /* Something else draws, a moment later. */
-    mesh_ui_latency_frame_begin();
-    mesh_ui_latency_frame_drawn(4096U);
-    mesh_ui_latency_frame_end(4096U);
+    inkcell_latency_frame_begin();
+    inkcell_latency_frame_drawn(4096U);
+    inkcell_latency_frame_end(4096U);
 
-    const struct mesh_ui_latency_counts counts = counted();
+    const struct inkcell_latency_counts counts = counted();
     MESH_TEST_FAIL_IF(counts.presses != 0U, "a press that repaints nothing is not timed");
     MESH_TEST_FAIL_IF(counts.inert != 1U, "but it is counted, so the run says how many there were");
     MESH_TEST_FAIL_IF(counts.frames != 1U, "the frame that did happen still happened");
-    MESH_TEST_FAIL_IF(mesh_ui_latency_metric(MESH_UI_LATENCY_PRESS)->count != 0U,
+    MESH_TEST_FAIL_IF(inkcell_latency_metric(INKCELL_LATENCY_PRESS)->count != 0U,
                       "and it must not have been charged to the press");
     record_success(test_name);
 }
@@ -116,17 +116,17 @@ MESH_TEST_CASE(latency_does_not_charge_an_inert_press_to_the_next_frame, unit) {
  */
 MESH_TEST_CASE(latency_does_not_count_a_repeat_as_a_press, unit) {
     begin();
-    mesh_ui_latency_press(); /* no mesh_ui_latency_event() before it */
-    mesh_ui_latency_press_handled(true);
-    mesh_ui_latency_frame_begin();
-    mesh_ui_latency_frame_drawn(4096U);
-    mesh_ui_latency_frame_end(4096U);
+    inkcell_latency_press(); /* no inkcell_latency_event() before it */
+    inkcell_latency_press_handled(true);
+    inkcell_latency_frame_begin();
+    inkcell_latency_frame_drawn(4096U);
+    inkcell_latency_frame_end(4096U);
 
-    const struct mesh_ui_latency_counts counts = counted();
+    const struct inkcell_latency_counts counts = counted();
     MESH_TEST_FAIL_IF(counts.presses != 0U, "a repeat is not a press this probe can time");
     MESH_TEST_FAIL_IF(counts.inert != 0U, "nor is it an inert one - it is not a press at all");
     MESH_TEST_FAIL_IF(counts.frames != 1U, "the frame it drew still happened");
-    MESH_TEST_FAIL_IF(mesh_ui_latency_metric(MESH_UI_LATENCY_PRESS)->count != 0U,
+    MESH_TEST_FAIL_IF(inkcell_latency_metric(INKCELL_LATENCY_PRESS)->count != 0U,
                       "and nothing should have been charged to it");
     record_success(test_name);
 }
@@ -140,22 +140,22 @@ MESH_TEST_CASE(latency_does_not_count_a_repeat_as_a_press, unit) {
  */
 MESH_TEST_CASE(latency_charges_a_coalesced_frame_to_the_oldest_press, unit) {
     begin();
-    const uint64_t now = mesh_ui_latency_now_us();
-    mesh_ui_latency_event(now - 30000U);
-    mesh_ui_latency_press();
-    mesh_ui_latency_press_handled(true);
-    mesh_ui_latency_event(now - 1000U);
-    mesh_ui_latency_press();
-    mesh_ui_latency_press_handled(true);
-    mesh_ui_latency_frame_begin();
-    mesh_ui_latency_frame_drawn(4096U);
-    mesh_ui_latency_frame_end(4096U);
+    const uint64_t now = inkcell_latency_now_us();
+    inkcell_latency_event(now - 30000U);
+    inkcell_latency_press();
+    inkcell_latency_press_handled(true);
+    inkcell_latency_event(now - 1000U);
+    inkcell_latency_press();
+    inkcell_latency_press_handled(true);
+    inkcell_latency_frame_begin();
+    inkcell_latency_frame_drawn(4096U);
+    inkcell_latency_frame_end(4096U);
 
-    const struct mesh_ui_latency_counts counts = counted();
+    const struct inkcell_latency_counts counts = counted();
     MESH_TEST_FAIL_IF(counts.presses != 2U, "both presses arrived");
     MESH_TEST_FAIL_IF(counts.coalesced != 1U, "and one of them shared the frame the other got");
-    const struct mesh_ui_latency_histogram *const press =
-        mesh_ui_latency_metric(MESH_UI_LATENCY_PRESS);
+    const struct inkcell_latency_histogram *const press =
+        inkcell_latency_metric(INKCELL_LATENCY_PRESS);
     MESH_TEST_FAIL_IF(press->count != 1U, "one frame is one latency");
     MESH_TEST_FAIL_IF(press->max_us < 30000U, "measured from the press that waited longest");
     record_success(test_name);
@@ -168,11 +168,11 @@ MESH_TEST_CASE(latency_charges_a_coalesced_frame_to_the_oldest_press, unit) {
  */
 MESH_TEST_CASE(latency_drops_a_press_no_frame_answered, unit) {
     begin();
-    press_answered(MESH_UI_LATENCY_PRESS_TIMEOUT_US + 500000U);
+    press_answered(INKCELL_LATENCY_PRESS_TIMEOUT_US + 500000U);
 
-    const struct mesh_ui_latency_counts counts = counted();
+    const struct inkcell_latency_counts counts = counted();
     MESH_TEST_FAIL_IF(counts.unanswered != 1U, "the press should be recorded as unanswered");
-    MESH_TEST_FAIL_IF(mesh_ui_latency_metric(MESH_UI_LATENCY_PRESS)->count != 0U,
+    MESH_TEST_FAIL_IF(inkcell_latency_metric(INKCELL_LATENCY_PRESS)->count != 0U,
                       "and must not appear in the percentiles");
     record_success(test_name);
 }
@@ -187,18 +187,18 @@ MESH_TEST_CASE(latency_drops_a_press_no_frame_answered, unit) {
  */
 MESH_TEST_CASE(latency_expires_a_pending_press_when_the_run_ends, unit) {
     begin();
-    mesh_ui_latency_event(mesh_ui_latency_now_us() - 2000U);
-    mesh_ui_latency_press();
-    mesh_ui_latency_press_handled(true);
+    inkcell_latency_event(inkcell_latency_now_us() - 2000U);
+    inkcell_latency_press();
+    inkcell_latency_press_handled(true);
 
     MESH_TEST_FAIL_IF(counted().unanswered != 0U, "nothing has ended yet");
-    mesh_ui_latency_report("test");
+    inkcell_latency_report("test");
     MESH_TEST_FAIL_IF(counted().unanswered != 1U, "the report should have expired it");
-    MESH_TEST_FAIL_IF(mesh_ui_latency_metric(MESH_UI_LATENCY_PRESS)->count != 0U,
+    MESH_TEST_FAIL_IF(inkcell_latency_metric(INKCELL_LATENCY_PRESS)->count != 0U,
                       "without inventing a latency for it");
 
     /* And a second report does not count it twice. */
-    mesh_ui_latency_report("test");
+    inkcell_latency_report("test");
     MESH_TEST_FAIL_IF(counted().unanswered != 1U, "expiring is not something that repeats");
     record_success(test_name);
 }
@@ -208,16 +208,16 @@ MESH_TEST_CASE(latency_expires_a_pending_press_when_the_run_ends, unit) {
    number, which is the one reading a histogram cannot survive. */
 MESH_TEST_CASE(latency_refuses_a_stamp_that_is_not_on_its_own_clock, unit) {
     begin();
-    mesh_ui_latency_event(mesh_ui_latency_now_us() + 60000000U);
-    mesh_ui_latency_press();
-    mesh_ui_latency_press_handled(true);
-    mesh_ui_latency_frame_begin();
-    mesh_ui_latency_frame_drawn(4096U);
-    mesh_ui_latency_frame_end(4096U);
+    inkcell_latency_event(inkcell_latency_now_us() + 60000000U);
+    inkcell_latency_press();
+    inkcell_latency_press_handled(true);
+    inkcell_latency_frame_begin();
+    inkcell_latency_frame_drawn(4096U);
+    inkcell_latency_frame_end(4096U);
 
     MESH_TEST_FAIL_IF(counted().presses != 0U,
                       "a wall-clock stamp is not a press this probe can time");
-    MESH_TEST_FAIL_IF(mesh_ui_latency_metric(MESH_UI_LATENCY_PRESS)->count != 0U,
+    MESH_TEST_FAIL_IF(inkcell_latency_metric(INKCELL_LATENCY_PRESS)->count != 0U,
                       "and nothing should have been charged to it");
     record_success(test_name);
 }
@@ -227,18 +227,18 @@ MESH_TEST_CASE(latency_refuses_a_stamp_that_is_not_on_its_own_clock, unit) {
    lying about to be charged to some later press's frame. */
 MESH_TEST_CASE(latency_keeps_one_candidate_press_at_a_time, unit) {
     begin();
-    const uint64_t now = mesh_ui_latency_now_us();
-    mesh_ui_latency_event(now - 90000U);
-    mesh_ui_latency_press(); /* never confirmed */
-    mesh_ui_latency_event(now - 3000U);
-    mesh_ui_latency_press();
-    mesh_ui_latency_press_handled(true);
-    mesh_ui_latency_frame_begin();
-    mesh_ui_latency_frame_drawn(4096U);
-    mesh_ui_latency_frame_end(4096U);
+    const uint64_t now = inkcell_latency_now_us();
+    inkcell_latency_event(now - 90000U);
+    inkcell_latency_press(); /* never confirmed */
+    inkcell_latency_event(now - 3000U);
+    inkcell_latency_press();
+    inkcell_latency_press_handled(true);
+    inkcell_latency_frame_begin();
+    inkcell_latency_frame_drawn(4096U);
+    inkcell_latency_frame_end(4096U);
 
-    const struct mesh_ui_latency_histogram *const press =
-        mesh_ui_latency_metric(MESH_UI_LATENCY_PRESS);
+    const struct inkcell_latency_histogram *const press =
+        inkcell_latency_metric(INKCELL_LATENCY_PRESS);
     MESH_TEST_FAIL_IF(press->count != 1U, "only the confirmed press is timed");
     MESH_TEST_FAIL_IF(press->max_us > 60000U, "and it is the recent one, not the abandoned one");
     record_success(test_name);
@@ -248,16 +248,16 @@ MESH_TEST_CASE(latency_keeps_one_candidate_press_at_a_time, unit) {
    read is the card's and the decode is the CPU's. */
 MESH_TEST_CASE(latency_keeps_the_read_and_the_decode_apart, unit) {
     begin();
-    mesh_ui_latency_frame_begin();
-    mesh_ui_latency_tile(800U, 1240U);
-    mesh_ui_latency_frame_drawn(4096U);
-    mesh_ui_latency_frame_end(4096U);
+    inkcell_latency_frame_begin();
+    inkcell_latency_tile(800U, 1240U);
+    inkcell_latency_frame_drawn(4096U);
+    inkcell_latency_frame_end(4096U);
 
-    MESH_TEST_FAIL_IF(mesh_ui_latency_metric(MESH_UI_LATENCY_READ)->max_us != 800U,
+    MESH_TEST_FAIL_IF(inkcell_latency_metric(INKCELL_LATENCY_READ)->max_us != 800U,
                       "the read should be recorded as itself");
-    MESH_TEST_FAIL_IF(mesh_ui_latency_metric(MESH_UI_LATENCY_DECODE)->max_us != 1240U,
+    MESH_TEST_FAIL_IF(inkcell_latency_metric(INKCELL_LATENCY_DECODE)->max_us != 1240U,
                       "and so should the decode");
-    const struct mesh_ui_latency_counts counts = counted();
+    const struct inkcell_latency_counts counts = counted();
     MESH_TEST_FAIL_IF(counts.frames != 1U || counts.tile_frames != 1U,
                       "the frame that read a tile should be counted as one");
     record_success(test_name);
@@ -267,11 +267,11 @@ MESH_TEST_CASE(latency_keeps_the_read_and_the_decode_apart, unit) {
    the fill loop reads at most one per frame and most frames read none. */
 MESH_TEST_CASE(latency_counts_a_frame_with_no_tile_in_it, unit) {
     begin();
-    mesh_ui_latency_frame_begin();
-    mesh_ui_latency_frame_drawn(4096U);
-    mesh_ui_latency_frame_end(4096U);
+    inkcell_latency_frame_begin();
+    inkcell_latency_frame_drawn(4096U);
+    inkcell_latency_frame_end(4096U);
 
-    const struct mesh_ui_latency_counts counts = counted();
+    const struct inkcell_latency_counts counts = counted();
     MESH_TEST_FAIL_IF(counts.frames != 1U, "the frame happened");
     MESH_TEST_FAIL_IF(counts.tile_frames != 0U, "and it read no tile");
     record_success(test_name);
@@ -287,20 +287,20 @@ MESH_TEST_CASE(latency_counts_a_frame_with_no_tile_in_it, unit) {
  */
 MESH_TEST_CASE(latency_percentiles_stay_inside_the_readings, unit) {
     begin();
-    mesh_ui_latency_frame_begin();
+    inkcell_latency_frame_begin();
     for (unsigned int i = 0U; i < 100U; ++i) {
-        mesh_ui_latency_tile(1000U + i * 10U, 1U);
+        inkcell_latency_tile(1000U + i * 10U, 1U);
     }
-    mesh_ui_latency_frame_drawn(4096U);
-    mesh_ui_latency_frame_end(4096U);
+    inkcell_latency_frame_drawn(4096U);
+    inkcell_latency_frame_end(4096U);
 
-    const struct mesh_ui_latency_histogram *const read =
-        mesh_ui_latency_metric(MESH_UI_LATENCY_READ);
+    const struct inkcell_latency_histogram *const read =
+        inkcell_latency_metric(INKCELL_LATENCY_READ);
     MESH_TEST_FAIL_IF(read->count != 100U, "every reading should be in there");
     MESH_TEST_FAIL_IF(read->min_us != 1000U || read->max_us != 1990U,
                       "min and max are kept exactly rather than bucketed");
-    const uint32_t p50 = mesh_ui_latency_percentile(read, 50U);
-    const uint32_t p99 = mesh_ui_latency_percentile(read, 99U);
+    const uint32_t p50 = inkcell_latency_percentile(read, 50U);
+    const uint32_t p99 = inkcell_latency_percentile(read, 99U);
     MESH_TEST_FAIL_IF(p50 < read->min_us || p50 > read->max_us,
                       "p50 should be inside the readings");
     MESH_TEST_FAIL_IF(p99 < p50 || p99 > read->max_us, "and p99 above it and still inside");
@@ -312,16 +312,16 @@ MESH_TEST_CASE(latency_percentiles_stay_inside_the_readings, unit) {
    frame that took a second is the most interesting frame of the run. */
 MESH_TEST_CASE(latency_keeps_a_reading_past_the_last_bucket, unit) {
     begin();
-    mesh_ui_latency_frame_begin();
-    mesh_ui_latency_tile(5000000U, 1U);
-    mesh_ui_latency_frame_drawn(4096U);
-    mesh_ui_latency_frame_end(4096U);
+    inkcell_latency_frame_begin();
+    inkcell_latency_tile(5000000U, 1U);
+    inkcell_latency_frame_drawn(4096U);
+    inkcell_latency_frame_end(4096U);
 
-    const struct mesh_ui_latency_histogram *const read =
-        mesh_ui_latency_metric(MESH_UI_LATENCY_READ);
+    const struct inkcell_latency_histogram *const read =
+        inkcell_latency_metric(INKCELL_LATENCY_READ);
     MESH_TEST_FAIL_IF(read->count != 1U, "an overflowing reading is still a reading");
     MESH_TEST_FAIL_IF(read->max_us != 5000000U, "and the maximum is exact, not a bucket edge");
-    MESH_TEST_FAIL_IF(mesh_ui_latency_percentile(read, 100U) != 5000000U,
+    MESH_TEST_FAIL_IF(inkcell_latency_percentile(read, 100U) != 5000000U,
                       "p100 of one reading is that reading");
     record_success(test_name);
 }
@@ -336,15 +336,15 @@ MESH_TEST_CASE(latency_keeps_a_reading_past_the_last_bucket, unit) {
  */
 MESH_TEST_CASE(latency_does_not_call_an_unwritten_frame_a_flip, unit) {
     begin();
-    mesh_ui_latency_frame_begin();
-    mesh_ui_latency_frame_drawn(0U);
-    mesh_ui_latency_frame_end(0U);
+    inkcell_latency_frame_begin();
+    inkcell_latency_frame_drawn(0U);
+    inkcell_latency_frame_end(0U);
 
-    MESH_TEST_FAIL_IF(mesh_ui_latency_metric(MESH_UI_LATENCY_FLIP)->count != 0U,
+    MESH_TEST_FAIL_IF(inkcell_latency_metric(INKCELL_LATENCY_FLIP)->count != 0U,
                       "a frame that wrote nothing did not flip");
-    MESH_TEST_FAIL_IF(mesh_ui_latency_metric(MESH_UI_LATENCY_DRAW)->count != 1U,
+    MESH_TEST_FAIL_IF(inkcell_latency_metric(INKCELL_LATENCY_DRAW)->count != 1U,
                       "but it was still drawn, and the drawing is what it cost");
-    MESH_TEST_FAIL_IF(mesh_ui_latency_metric(MESH_UI_LATENCY_FRAME)->count != 1U,
+    MESH_TEST_FAIL_IF(inkcell_latency_metric(INKCELL_LATENCY_FRAME)->count != 1U,
                       "and it is still a frame");
     MESH_TEST_FAIL_IF(counted().written != 0U, "and it put no bytes on the panel");
     record_success(test_name);
@@ -353,14 +353,14 @@ MESH_TEST_CASE(latency_does_not_call_an_unwritten_frame_a_flip, unit) {
 /* The draw and the flip are the two halves of a frame, and neither is the whole of it. */
 MESH_TEST_CASE(latency_splits_a_frame_into_the_draw_and_the_flip, unit) {
     begin();
-    mesh_ui_latency_frame_begin();
-    mesh_ui_latency_frame_drawn(65536U);
-    mesh_ui_latency_frame_end(65536U);
+    inkcell_latency_frame_begin();
+    inkcell_latency_frame_drawn(65536U);
+    inkcell_latency_frame_end(65536U);
 
-    const uint32_t frame = mesh_ui_latency_metric(MESH_UI_LATENCY_FRAME)->max_us;
-    const uint32_t draw = mesh_ui_latency_metric(MESH_UI_LATENCY_DRAW)->max_us;
-    const uint32_t flip = mesh_ui_latency_metric(MESH_UI_LATENCY_FLIP)->max_us;
-    MESH_TEST_FAIL_IF(mesh_ui_latency_metric(MESH_UI_LATENCY_FLIP)->count != 1U,
+    const uint32_t frame = inkcell_latency_metric(INKCELL_LATENCY_FRAME)->max_us;
+    const uint32_t draw = inkcell_latency_metric(INKCELL_LATENCY_DRAW)->max_us;
+    const uint32_t flip = inkcell_latency_metric(INKCELL_LATENCY_FLIP)->max_us;
+    MESH_TEST_FAIL_IF(inkcell_latency_metric(INKCELL_LATENCY_FLIP)->count != 1U,
                       "a frame that wrote bytes flipped");
     MESH_TEST_FAIL_IF(draw > frame || flip > frame,
                       "neither half may be larger than the frame it is half of");
@@ -373,8 +373,8 @@ MESH_TEST_CASE(latency_splits_a_frame_into_the_draw_and_the_flip, unit) {
 MESH_TEST_CASE(latency_percentile_of_nothing_is_nothing, unit) {
     begin();
     MESH_TEST_FAIL_IF(
-        mesh_ui_latency_percentile(mesh_ui_latency_metric(MESH_UI_LATENCY_PRESS), 50U) != 0U,
+        inkcell_latency_percentile(inkcell_latency_metric(INKCELL_LATENCY_PRESS), 50U) != 0U,
         "no readings, no percentile");
-    MESH_TEST_FAIL_IF(mesh_ui_latency_percentile(NULL, 50U) != 0U, "and no histogram either");
+    MESH_TEST_FAIL_IF(inkcell_latency_percentile(NULL, 50U) != 0U, "and no histogram either");
     record_success(test_name);
 }

@@ -76,9 +76,9 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
     }
 
     /* A on BRVO's row opens that conversation; only its messages are in view. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    if (!mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action) ||
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    if (!mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action) ||
         action.type != MESH_UI_ACTION_NONE) {
         failure = "opening a conversation should change the screen without an action";
         goto cleanup;
@@ -97,27 +97,27 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
 
     /* Y writes: straight to the keyboard, with no overlay behind it, so B lands back on the
        thread rather than on the canned list. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_Y, &action);
     if (!store.nav.keyboard_open || store.nav.compose_open ||
         store.nav.screen != MESH_UI_SCREEN_MESSAGES) {
         failure = "Y in a conversation should open the keyboard, not the compose overlay";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
     if (store.nav.keyboard_open || store.nav.compose_open || !store.nav.thread_open) {
         failure = "B on an empty draft should leave the thread showing";
         goto cleanup;
     }
 
     /* A replies: the canned list over the thread, which needs no destination of its own. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.compose_open || store.nav.keyboard_open ||
         store.nav.compose_cursor != MESH_UI_COMPOSE_FIRST_CANNED ||
         store.nav.screen != MESH_UI_SCREEN_MESSAGES) {
         failure = "A in a conversation should open the compose overlay";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (action.type != MESH_UI_ACTION_SEND_TEXT || action.dest != 0x3000U || action.channel != 0U ||
         strcmp(action.text, mesh_ui_canned_text(0)) != 0 || store.nav.compose_open ||
         !store.nav.thread_open) {
@@ -126,7 +126,7 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
     }
 
     /* B leaves the thread for the conversation list, on the row it was opened from. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
     if (store.nav.thread_open || store.nav.cursor[MESH_UI_SCREEN_MESSAGES] != 2U) {
         failure = "B should return to BRVO's row in the conversation list";
         goto cleanup;
@@ -134,9 +134,9 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
 
     /* The all-traffic row is a view over everything: A there drills into the conversation the
        selected line belongs to rather than guessing a destination. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.thread_open || !store.nav.inbox ||
         mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_MESSAGES) != 2U) {
         failure = "all traffic should show every message";
@@ -147,74 +147,74 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
         failure = "opening a thread should park the cursor on the newest line";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action); /* the broadcast from ALFA */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action); /* the broadcast from ALFA */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.thread_open || store.nav.inbox ||
         store.nav.target_node != MESH_MESSAGE_BROADCAST_ADDR || store.nav.target_channel != 0U) {
         failure = "A in all traffic should open the conversation the line belongs to";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
 
     /* Y on the list (and A on the New message row) opens the picker, which both retargets and
        opens the conversation; what lands over it is whichever key asked. LEFT/RIGHT page the
        picker instead of switching tabs. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_Y, &action);
     if (!store.nav.picker_open ||
         store.nav.picker_follow != (uint8_t)MESH_UI_PICKER_FOLLOW_KEYBOARD ||
         mesh_ui_nav_picker_count(&store) != 3U) {
         failure = "Y on the conversation list should open the send-to picker";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_LEFT, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
     if (store.nav.screen != MESH_UI_SCREEN_MESSAGES || !store.nav.picker_open) {
         failure = "LEFT/RIGHT in the picker must page, not switch tabs";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
     if (store.nav.picker_open || store.nav.picker_follow != (uint8_t)MESH_UI_PICKER_FOLLOW_NONE ||
         store.nav.thread_open) {
         failure = "B should cancel the picker and leave the list showing";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action); /* the New message row */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action); /* the New message row */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.picker_open || store.nav.picker_cursor != 0U) {
         failure = "the New message row should open the picker";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (store.nav.picker_open || store.nav.target_node != 0x2000U ||
         strcmp(store.nav.target_name, "ALFA") != 0 || !store.nav.thread_open ||
         !store.nav.compose_open || store.nav.keyboard_open) {
         failure = "picking from the New message row should land on the quick replies";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action); /* close compose */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action); /* close the thread */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action); /* close compose */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action); /* close the thread */
     if (store.nav.compose_open || store.nav.thread_open) {
         failure = "B should back out of the overlay and then the thread";
         goto cleanup;
     }
 
     /* Tabs wrap in both directions; L1/R1 mirror Left/Right. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_LEFT, &action);
     if (store.nav.screen != MESH_UI_SCREEN_SETTINGS) {
         failure = "LEFT from the first tab should wrap to the last";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_R1, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_R1, &action);
     if (store.nav.screen != MESH_UI_SCREEN_MESSAGES) {
         failure = "R1 from the last tab should wrap to the first";
         goto cleanup;
     }
 
     /* Nodes tab: A opens the node's detail; the detail's first row opens its conversation. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
     if (store.nav.screen != MESH_UI_SCREEN_NODES) {
         failure = "RIGHT should reach Nodes";
         goto cleanup;
@@ -222,34 +222,34 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
     /* The list's first two rows are the filter chips and the map, not nodes - so it takes
        MESH_UI_NODES_LEAD_ROWS steps down to reach one. */
     for (uint32_t lead = 0; lead < MESH_UI_NODES_LEAD_ROWS; ++lead) {
-        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+        mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     }
     /* Our own node has a detail too - it is the one battery the user can do something about -
        but no "Message this node" row, so A inside it does nothing. */
-    if (!mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action) || !store.nav.node_detail_open) {
+    if (!mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action) || !store.nav.node_detail_open) {
         failure = "A on our own node should open its detail";
         goto cleanup;
     }
-    if (mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action) || store.nav.thread_open) {
+    if (mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action) || store.nav.thread_open) {
         failure = "our own node's detail should offer nothing to message";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
     if (store.nav.node_detail_open ||
         store.nav.cursor[MESH_UI_SCREEN_NODES] != MESH_UI_NODES_LEAD_ROWS) {
         failure = "B should back out of the detail onto the node it came from";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action); /* clamps at the last row */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action); /* clamps at the last row */
     /* Three nodes under the two lead rows, so the last row is one before their sum. */
     const uint32_t last_node_row = MESH_UI_NODES_LEAD_ROWS + 3U - 1U;
     if (store.nav.cursor[MESH_UI_SCREEN_NODES] != last_node_row) {
         failure = "DOWN must clamp at the last node";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     /* Row 0 of the detail is the row that opens the node's verbs, and it is a row the cursor
        may stand on - so opening a node lands on it rather than one under it. */
     if (!store.nav.node_detail_open || store.nav.node_detail_node != 0x3000U ||
@@ -258,12 +258,12 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
         failure = "A on a node should open that node's detail";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.node_actions_open || store.nav.node_actions_cursor != 0U) {
         failure = "the detail's first row should open the node's verbs, at the top of them";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (store.nav.screen != MESH_UI_SCREEN_MESSAGES || !store.nav.thread_open ||
         store.nav.compose_open || store.nav.target_node != 0x3000U ||
         strcmp(store.nav.target_name, "BRVO") != 0) {
@@ -272,40 +272,40 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
     }
     /* Y goes one step further and opens the keyboard over it, from either level: the hint on
        both screens says "write", and writing is typing. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);     /* back to the list */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action); /* Nodes, as we left it */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);     /* back to the list */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action); /* Nodes, as we left it */
     /* Which is the sheet of verbs, still open behind the conversation the last press opened.
        Y is not named there - "write" is a row on that screen - so this leaves it first, which is
        what the reader pressing Y from a node's detail has done too. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
     if (store.nav.node_actions_open || !store.nav.node_detail_open) {
         failure = "B on the sheet should land back on the detail, not on the list";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_Y, &action);
     if (store.nav.screen != MESH_UI_SCREEN_MESSAGES || !store.nav.thread_open ||
         !store.nav.keyboard_open || store.nav.compose_open || store.nav.target_node != 0x3000U) {
         failure = "Y in a node's detail should open its conversation ready to type";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action); /* Nodes */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);     /* close the detail */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action); /* Nodes */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);     /* close the detail */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_Y, &action);
     if (store.nav.screen != MESH_UI_SCREEN_MESSAGES || !store.nav.keyboard_open ||
         store.nav.compose_open || store.nav.target_node != 0x3000U) {
         failure = "Y on the node list should open its conversation ready to type";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action); /* Nodes */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action); /* Nodes */
 
     /* Waypoints sits between Nodes and Devices, and its list is never empty - the row that
        makes a place is always there, so Right lands on a screen with something under the
        cursor even on a mesh that has shared nothing. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
     if (store.nav.screen != MESH_UI_SCREEN_WAYPOINTS ||
         mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_WAYPOINTS) != 1U) {
         failure = "RIGHT from Nodes should reach Waypoints, which always offers its new row";
@@ -313,18 +313,18 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
     }
 
     /* Devices tab: A connects to an unconnected device and does nothing on the connected one. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
     if (store.nav.screen != MESH_UI_SCREEN_DEVICES) {
         failure = "RIGHT from Waypoints should reach Devices";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (action.type != MESH_UI_ACTION_NONE) {
         failure = "A on the connected device should not reconnect";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (action.type != MESH_UI_ACTION_CONNECT ||
         strcmp(action.identifier, "AA:BB:CC:DD:EE:02") != 0) {
         failure = "A on another device should request a connect";
@@ -336,42 +336,42 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
      * a radio attached and a completed handshake, so both are on offer - Disconnect on the Link
      * card and Refresh on the Radio card - and Down steps from one card's button to the other's.
      */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
     if (store.nav.screen != MESH_UI_SCREEN_STATUS ||
         mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_STATUS) != 2U ||
         store.nav.status_verb != (uint8_t)MESH_UI_STATUS_VERB_DISCONNECT) {
         failure = "Status should offer the two verbs its cards carry";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (action.type != MESH_UI_ACTION_DISCONNECT ||
         strcmp(action.identifier, "AA:BB:CC:DD:EE:01") != 0) {
         failure = "A on the Link card should drop the link it names";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (store.nav.status_verb != (uint8_t)MESH_UI_STATUS_VERB_REFRESH ||
         action.type != MESH_UI_ACTION_REFRESH_SETTINGS) {
         failure = "A on the Radio card should re-read the configuration";
         goto cleanup;
     }
     /* And the cursor stops there: two verbs, no third card to step onto. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     if (store.nav.status_verb != (uint8_t)MESH_UI_STATUS_VERB_REFRESH) {
         failure = "DOWN must clamp at the last verb on Status";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
 
     /* Back in the all-traffic thread, a cursor on the newest line follows new traffic; one
        that was moved up stays where it was. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action); /* Settings */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action); /* wraps to Messages */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action); /* back to row 0 */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);  /* the all-traffic row */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action); /* Settings */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action); /* wraps to Messages */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action); /* back to row 0 */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);  /* the all-traffic row */
     if (!store.nav.thread_open || !store.nav.inbox) {
         failure = "expected the all-traffic thread";
         goto cleanup;
@@ -391,7 +391,7 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
         failure = "cursor at the tail should follow a new message";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
     more.entries[more.count] = more.entries[1];
     more.entries[more.count].packet_id = 14U;
     more.count++;
@@ -433,7 +433,7 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
         goto cleanup;
     }
     mesh_ui_store_set_toast(&store, 7000U, "Connecting");
-    if (!mesh_ui_store_handle_key(&store, MESH_UI_KEY_SELECT, &action) ||
+    if (!mesh_ui_store_handle_key(&store, INKCELL_KEY_SELECT, &action) ||
         store.nav.toast[0] != '\0') {
         failure = "any key should dismiss a toast";
         goto cleanup;
@@ -462,19 +462,19 @@ MESH_TEST_CASE(ui_nav_conversation_isolation, unit) {
     struct mesh_ui_action action;
 
     /* Park the conversation list on #Primary (row 1) without opening it. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     if (store.nav.thread_open || store.nav.cursor[MESH_UI_SCREEN_MESSAGES] != 1U) {
         failure = "expected the conversation list on row 1";
         goto cleanup;
     }
 
     /* Walking to Nodes and back changes nothing about what Messages shows. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
     /* Past the lead rows and our own node, onto BRVO. */
     for (uint32_t lead = 0; lead < MESH_UI_NODES_LEAD_ROWS + 2U; ++lead) {
-        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+        mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_LEFT, &action);
     if (store.nav.thread_open || store.nav.cursor[MESH_UI_SCREEN_MESSAGES] != 1U) {
         failure = "visiting Nodes must not change what Messages shows";
         goto cleanup;
@@ -482,16 +482,16 @@ MESH_TEST_CASE(ui_nav_conversation_isolation, unit) {
 
     /* Opening a node's conversation from Nodes (through its detail) is one B away from the list
        again, and the list comes back where it was rather than on the node just visited. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action); /* open the detail */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action); /* its "Actions" row */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action); /* "Message this node" */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action); /* open the detail */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action); /* its "Actions" row */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action); /* "Message this node" */
     if (!store.nav.thread_open || store.nav.target_node != 0x3000U ||
         store.nav.screen != MESH_UI_SCREEN_MESSAGES) {
         failure = "A on a node should open its conversation on the Messages tab";
         goto cleanup;
     }
-    if (!mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action)) {
+    if (!mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action)) {
         failure = "B should leave the conversation";
         goto cleanup;
     }
@@ -500,7 +500,7 @@ MESH_TEST_CASE(ui_nav_conversation_isolation, unit) {
         goto cleanup;
     }
     /* Nothing is left to back out of, so a second B is inert rather than surprising. */
-    if (mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action)) {
+    if (mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action)) {
         failure = "B on the conversation list should be a no-op";
         goto cleanup;
     }
@@ -551,9 +551,9 @@ MESH_TEST_CASE(ui_nav_unread, unit) {
     }
 
     /* Opening BRVO clears only BRVO. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     (void)mesh_ui_store_consume_updates(&store, &snapshot);
     if (!mesh_ui_nav_conversation_at(&store, 2U, &conversation) || conversation.unread != 0U) {
         failure = "opening a conversation should clear its badge";
@@ -593,10 +593,10 @@ MESH_TEST_CASE(ui_nav_unread, unit) {
     }
 
     /* All traffic is a view: opening it marks nothing read. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     (void)mesh_ui_store_consume_updates(&store, &snapshot);
     if (!store.nav.inbox) {
         failure = "expected the all-traffic thread";
@@ -699,9 +699,9 @@ MESH_TEST_CASE(kb_face_buttons_follow_the_pad, unit) {
     mesh_test_open_tab(&store, MESH_UI_SCREEN_MESSAGES);
     /* Past the all-traffic row, which has no one destination to write to, and into a
        conversation; Y there is the way straight to the keyboard. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_Y, &action);
     if (!store.nav.keyboard_open) {
         failure = "Y should open the keyboard on an open thread";
         goto cleanup;
@@ -709,32 +709,32 @@ MESH_TEST_CASE(kb_face_buttons_follow_the_pad, unit) {
 
     /* A trigger shifts, and A takes the capital and drops back - the same one-capital rule the
        layer key had, now on a button that says "shift" on the bar. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_R2, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_R2, &action);
     if (store.nav.kb.layer != INKCELL_KB_UPPER) {
         failure = "R2 should shift";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (strcmp(store.nav.draft, "Q") != 0 || store.nav.kb.layer != INKCELL_KB_LOWER) {
         failure = "shift should apply to one character and then fall back";
         goto cleanup;
     }
     /* And a second press of shift undoes the first, rather than arming a capital nobody can
        now get rid of without typing one. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_L2, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_L2, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_L2, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_L2, &action);
     if (store.nav.kb.layer != INKCELL_KB_LOWER) {
         failure = "a second shift should disarm the first";
         goto cleanup;
     }
 
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action); /* q */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action); /* q */
     if (strcmp(store.nav.draft, "Qq") != 0) {
         failure = "A should type the cell under the cursor";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
     if (strcmp(store.nav.draft, "Q") != 0) {
         failure = "X should delete a character";
         goto cleanup;
@@ -742,7 +742,7 @@ MESH_TEST_CASE(kb_face_buttons_follow_the_pad, unit) {
 
     /* B leaves, and the draft survives it: the compose sheet is where it lands, with what was
        typed still on the draft row. The grid's own cancel key is what throws text away. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
     if (store.nav.keyboard_open || strcmp(store.nav.draft, "Q") != 0 ||
         store.nav.screen != MESH_UI_SCREEN_MESSAGES) {
         failure = "B should leave the keyboard and keep the draft";
@@ -751,9 +751,9 @@ MESH_TEST_CASE(kb_face_buttons_follow_the_pad, unit) {
 
     /* X with nothing to delete is not a way out. It was, when B did both jobs, and carrying
        that over would mean a backspace that sometimes closes the screen. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action); /* back to the keyboard */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_Y, &action); /* back to the keyboard */
     store.nav.draft[0] = '\0';
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
     if (!store.nav.keyboard_open) {
         failure = "X on an empty draft should not close the keyboard";
         goto cleanup;
@@ -831,9 +831,9 @@ MESH_TEST_CASE(ui_nav_channels_and_keyboard, unit) {
     }
 
     /* Opening #Team filters the log down to its own broadcast. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.thread_open || store.nav.target_channel != 1U ||
         strcmp(store.nav.target_name, "#Team") != 0 ||
         mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_MESSAGES) != 1U) {
@@ -864,8 +864,8 @@ MESH_TEST_CASE(ui_nav_channels_and_keyboard, unit) {
     }
 
     /* A canned reply sent from the #Team thread carries channel 1, with no To: row involved. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (action.type != MESH_UI_ACTION_SEND_TEXT || action.dest != MESH_MESSAGE_BROADCAST_ADDR ||
         action.channel != 1U) {
         failure = "canned send should target the open thread's channel";
@@ -874,48 +874,48 @@ MESH_TEST_CASE(ui_nav_channels_and_keyboard, unit) {
 
     /* Keyboard: type "Hi", a space, delete it, a space again, START sends "Hi ". The draft row
        is the overlay's own way in, and it keeps the overlay behind it. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action); /* draft row */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action); /* draft row */
     if (store.nav.compose_cursor != MESH_UI_COMPOSE_ROW_DRAFT) {
         failure = "expected the draft row";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.keyboard_open || !store.nav.compose_open || store.nav.kb.row != 0U ||
         store.nav.kb.col != 0U) {
         failure = "A on the draft row should open the keyboard at the top-left";
         goto cleanup;
     }
     /* LEFT/RIGHT move within the grid while the keyboard is open, never switch tabs. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_LEFT, &action);
     if (store.nav.kb.col != INKCELL_KB_COLS - 1U || store.nav.screen != MESH_UI_SCREEN_MESSAGES) {
         failure = "LEFT should wrap to the last column";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action); /* back to col 0 */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action); /* row 2: asdfghjkl' */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action); /* back to col 0 */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action); /* row 2: asdfghjkl' */
     for (int i = 0; i < 5; ++i) {
-        mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+        mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_L2, &action); /* shift */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);  /* H */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_L2, &action); /* shift */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);  /* H */
     if (strcmp(store.nav.draft, "H") != 0 || store.nav.kb.layer != INKCELL_KB_LOWER) {
         failure = "shift should apply to one character";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action); /* row 1: qwertyuiop */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action); /* col 7: i */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action); /* space */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action); /* delete it */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action); /* row 1: qwertyuiop */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action); /* col 7: i */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_Y, &action); /* space */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action); /* delete it */
     if (strcmp(store.nav.draft, "Hi") != 0) {
         failure = "typing/deleting produced the wrong draft";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_Y, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_START, &action);
     if (action.type != MESH_UI_ACTION_SEND_TEXT || strcmp(action.text, "Hi ") != 0 ||
         action.channel != 1U || store.nav.keyboard_open || store.nav.draft[0] != '\0' ||
         store.nav.screen != MESH_UI_SCREEN_MESSAGES) {
@@ -926,28 +926,28 @@ MESH_TEST_CASE(ui_nav_channels_and_keyboard, unit) {
     /* The action row: moving down from column 9 lands on the last (cancel) key; the mapping
        comes back to a sensible column. Cancel drops the draft and closes the keyboard. B on
        an empty draft also closes it. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);    /* keyboard open, row 0 col 0 */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);    /* '1' */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action); /* col 9 */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);   /* wraps to the action row */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);    /* keyboard open, row 0 col 0 */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);    /* '1' */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_LEFT, &action); /* col 9 */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);   /* wraps to the action row */
     if (store.nav.kb.row != INKCELL_KB_CHAR_ROWS || store.nav.kb.col != INKCELL_KB_ACTIONS - 1U) {
         failure = "column should map onto the action row";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action); /* cancel */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action); /* cancel */
     if (store.nav.keyboard_open || store.nav.draft[0] != '\0' || !store.nav.compose_open) {
         failure = "cancel should discard the draft and leave the compose overlay showing";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action); /* reopen (cursor still on draft) */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action); /* reopen (cursor still on draft) */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
     if (store.nav.keyboard_open) {
         failure = "B with an empty draft should close the keyboard";
         goto cleanup;
     }
-    if (mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action) == false &&
+    if (mesh_ui_store_handle_key(&store, INKCELL_KEY_START, &action) == false &&
         action.type != MESH_UI_ACTION_NONE) {
         failure = "unexpected action";
         goto cleanup;
@@ -981,22 +981,22 @@ MESH_TEST_CASE(ui_nav_reply_and_react_name_their_target, unit) {
     memset(&action, 0, sizeof action);
 
     /* Into BRVO's conversation, whose one message is packet 12. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.thread_open || store.nav.target_node != 0x3000U) {
         failure = "the test needs BRVO's thread open";
         goto cleanup;
     }
 
     /* A aims at the bubble under the cursor, and the canned row that follows carries it. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.compose_open || store.nav.reply_to != 12U) {
         failure = "A should open the compose sheet aimed at the message under the cursor";
         goto cleanup;
     }
     memset(&action, 0, sizeof action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (action.type != MESH_UI_ACTION_SEND_TEXT || action.reply_id != 12U || action.is_reaction) {
         failure = "a canned reply should name the message it answers and not be a reaction";
         goto cleanup;
@@ -1008,21 +1008,21 @@ MESH_TEST_CASE(ui_nav_reply_and_react_name_their_target, unit) {
 
     /* Y writes to the conversation, which is a different thing and says so on the wire. */
     memset(&action, 0, sizeof action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_Y, &action);
     if (!store.nav.keyboard_open || store.nav.reply_to != 0U) {
         failure = "Y should open the keyboard with nothing to answer";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
 
     /* X is the tapback: the emoji list, aimed at the same bubble. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
     if (!store.nav.reaction_open || store.nav.reply_to != 12U || store.nav.reaction_cursor != 0U) {
         failure = "X should open the tapback picker on the message under the cursor";
         goto cleanup;
     }
     memset(&action, 0, sizeof action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (action.type != MESH_UI_ACTION_SEND_TEXT || !action.is_reaction || action.reply_id != 12U ||
         action.dest != 0x3000U || strcmp(action.text, mesh_ui_reaction_emoji(0)) != 0) {
         failure = "A on a tapback row should send it as a reaction about that message";
@@ -1039,7 +1039,7 @@ MESH_TEST_CASE(ui_nav_reply_and_react_name_their_target, unit) {
     messages.entries[1].packet_id = 0U;
     mesh_ui_store_set_messages(&store, &messages);
     memset(&action, 0, sizeof action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
     if (store.nav.reaction_open || action.type != MESH_UI_ACTION_NONE) {
         failure = "a message with no packet id should not open the tapback picker";
         goto cleanup;
@@ -1089,9 +1089,9 @@ MESH_TEST_CASE(ui_nav_resend_repeats_a_failed_message, unit) {
     memset(&action, 0, sizeof action);
 
     /* Into BRVO's conversation: their message, then ours under it. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.thread_open || store.nav.target_node != 0x3000U) {
         failure = "the test needs BRVO's thread open";
         goto cleanup;
@@ -1100,7 +1100,7 @@ MESH_TEST_CASE(ui_nav_resend_repeats_a_failed_message, unit) {
     /* A thread reads from its newest line, so the first press inside one settles the cursor
        there - here that is our own message, and it did not arrive. */
     memset(&action, 0, sizeof action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     if (store.nav.cursor[MESH_UI_SCREEN_MESSAGES] != 1U) {
         failure = "the test needs the cursor on our own failed message";
         goto cleanup;
@@ -1113,7 +1113,7 @@ MESH_TEST_CASE(ui_nav_resend_repeats_a_failed_message, unit) {
     }
 
     memset(&action, 0, sizeof action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_START, &action);
     if (action.type != MESH_UI_ACTION_RESEND) {
         failure = "START on a failed bubble should ask the app to send it again";
         goto cleanup;
@@ -1146,27 +1146,27 @@ MESH_TEST_CASE(ui_nav_resend_repeats_a_failed_message, unit) {
     /* One line up is their message, which arrived: there is nothing to retry on it, so START
        goes on standing in for A and opens the compose sheet. */
     memset(&action, 0, sizeof action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
     if (store.nav.cursor[MESH_UI_SCREEN_MESSAGES] != 0U ||
         mesh_ui_nav_resendable(&store.nav, mesh_ui_message_list_view(&store.messages)) != NULL) {
         failure = "a message we received is not one this client can send again";
         goto cleanup;
     }
     memset(&action, 0, sizeof action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_START, &action);
     if (action.type != MESH_UI_ACTION_NONE || !store.nav.compose_open) {
         failure = "START on a bubble with nothing to retry should still stand in for A";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
 
     /* All traffic offers it on no row at all: it is a transcript of several conversations, and
        the verbs about one bubble live in the conversation itself. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
     memset(&action, 0, sizeof action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action); /* the all-traffic row */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action); /* the all-traffic row */
     if (!store.nav.inbox) {
         failure = "the test needs the all-traffic view open";
         goto cleanup;
@@ -1188,7 +1188,7 @@ cleanup:
  *
  * A button going down and the kernel's autorepeat reach the nav as the same event: only the
  * four directions are filtered, because those are repeated by our own timer instead
- * (mesh_ui_input_handle_event). Every other press in this client either changes the screen or
+ * (inkcell_input_handle_event). Every other press in this client either changes the screen or
  * arms something, so a repeat lands somewhere different - a retry is the first one that leaves
  * the cursor exactly where it was, on a bubble that is still failed until the store catches
  * up. Held, it would put the same words on the air thirty times a second, each a DM asking for
@@ -1216,17 +1216,17 @@ MESH_TEST_CASE(ui_nav_resend_is_one_press_one_send, unit) {
     struct mesh_ui_action action;
     memset(&action, 0, sizeof action);
 
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     if (!store.nav.thread_open || store.nav.cursor[MESH_UI_SCREEN_MESSAGES] != 1U) {
         failure = "the test needs the cursor on our own failed message";
         goto cleanup;
     }
 
     memset(&action, 0, sizeof action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_START, &action);
     if (action.type != MESH_UI_ACTION_RESEND || !store.nav.resend_spent) {
         failure = "the first START should send and spend the press";
         goto cleanup;
@@ -1238,7 +1238,7 @@ MESH_TEST_CASE(ui_nav_resend_is_one_press_one_send, unit) {
      * exactly the moment the guard exists for.
      */
     memset(&action, 0, sizeof action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_START, &action);
     if (action.type != MESH_UI_ACTION_NONE) {
         failure = "a held START should not send the same message twice";
         goto cleanup;
@@ -1260,20 +1260,20 @@ MESH_TEST_CASE(ui_nav_resend_is_one_press_one_send, unit) {
      * the screen changing under it.
      */
     memset(&action, 0, sizeof action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     if (store.nav.resend_spent || store.nav.cursor[MESH_UI_SCREEN_MESSAGES] != 1U) {
         failure = "a press that is not START should re-arm the retry where it stands";
         goto cleanup;
     }
     memset(&action, 0, sizeof action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_START, &action);
     if (action.type != MESH_UI_ACTION_RESEND) {
         failure = "a deliberate second retry should still send";
         goto cleanup;
     }
 
     /* And leaving the conversation takes the latch with it, so the next thread opens armed. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
     if (store.nav.thread_open || store.nav.resend_spent) {
         failure = "closing the thread should stand the retry down";
         goto cleanup;
@@ -1463,15 +1463,15 @@ MESH_TEST_CASE(ui_nav_delete_conversation, unit) {
 
     /* Neither of the two rows that are not conversations answers to X at all. */
     memset(&action, 0, sizeof action);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
     if (store.nav.messages_delete_armed || action.type != MESH_UI_ACTION_NONE) {
         failure = "X on the all-traffic row should do nothing";
         goto cleanup;
     }
 
     /* Down twice to BRVO. */
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     if (!mesh_ui_nav_conversation_at(&store, store.nav.cursor[MESH_UI_SCREEN_MESSAGES],
                                      &conversation) ||
         conversation.kind != MESH_UI_CONVERSATION_DIRECT) {
@@ -1480,7 +1480,7 @@ MESH_TEST_CASE(ui_nav_delete_conversation, unit) {
     }
 
     memset(&action, 0, sizeof action);
-    if (!mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action) ||
+    if (!mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action) ||
         !store.nav.messages_delete_armed || action.type != MESH_UI_ACTION_NONE) {
         failure = "the first X should arm the delete and ask for nothing";
         goto cleanup;
@@ -1491,18 +1491,18 @@ MESH_TEST_CASE(ui_nav_delete_conversation, unit) {
     }
 
     /* Any other press stands it down, and the arming does not survive to the next X. */
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
     if (store.nav.messages_delete_armed) {
         failure = "moving the cursor should stand the delete down";
         goto cleanup;
     }
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
 
     /* Arm again, then carry it out. */
     memset(&action, 0, sizeof action);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
     memset(&action, 0, sizeof action);
-    if (!mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action) ||
+    if (!mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action) ||
         action.type != MESH_UI_ACTION_DELETE_CONVERSATION) {
         failure = "the second X should ask the app to delete the conversation";
         goto cleanup;
@@ -1525,9 +1525,9 @@ MESH_TEST_CASE(ui_nav_delete_conversation, unit) {
     }
 
     /* Inside a thread X means nothing, so the list's delete cannot be reached from there. */
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     memset(&action, 0, sizeof action);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
     if (store.nav.messages_delete_armed || action.type != MESH_UI_ACTION_NONE) {
         failure = "X inside an open thread should do nothing";
         goto cleanup;
@@ -1681,16 +1681,16 @@ MESH_TEST_CASE(ui_nav_mute_conversation, unit) {
 
     /* START on "All traffic" is not a press: it is a view over the conversations, not one. */
     memset(&action, 0, sizeof action);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_START, &action);
     if (action.type == MESH_UI_ACTION_MUTE_CONVERSATION) {
         failure = "the all-traffic row has no mute to offer";
         goto cleanup;
     }
 
     /* START on the channel asks the app to flip it, naming the row it was pressed on. */
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     memset(&action, 0, sizeof action);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_START, &action);
     if (action.type != MESH_UI_ACTION_MUTE_CONVERSATION ||
         action.number != (uint32_t)MESH_UI_CONVERSATION_CHANNEL) {
         failure = "START on a channel should ask for that channel's mute";
@@ -1826,9 +1826,9 @@ MESH_TEST_CASE(ui_nav_unread_divider_marks_where_the_reader_was, unit) {
 
     /* Nothing read yet, so there is no line to rule: a divider above the first bubble would
        separate the transcript from nothing. */
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (store.nav.thread_unread_from != 0U) {
         failure = "a conversation opened for the first time has no read mark to rule under";
         goto cleanup;
@@ -1847,13 +1847,13 @@ MESH_TEST_CASE(ui_nav_unread_divider_marks_where_the_reader_was, unit) {
     }
 
     /* Leave, let something arrive, come back: now the line has somewhere to go. */
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (store.nav.thread_unread_from != 12U) {
         failure = "reopening a read conversation should rule the line under what was read";
         goto cleanup;
     }
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
     if (store.nav.thread_unread_from != 0U) {
         failure = "leaving a thread should forget where its line was";
         goto cleanup;
@@ -1895,9 +1895,9 @@ MESH_TEST_CASE(ui_nav_read_mark_skips_a_reaction, unit) {
     snprintf(reaction->text, sizeof reaction->text, "%s", "\xF0\x9F\x91\x8D");
     mesh_ui_store_set_messages(&store, &messages);
 
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     (void)mesh_ui_store_consume_updates(&store, &snapshot);
 
     if (mesh_ui_store_conversation_read_mark(&store, (uint8_t)MESH_UI_CONVERSATION_DIRECT, 0x3000U,
@@ -2013,11 +2013,11 @@ MESH_TEST_CASE(ui_nav_unmuting_drops_a_mark_with_nothing_in_it, unit) {
     struct mesh_ui_action action;
 
     /* One genuine read mark first, so there is something for a careless eviction to lose. */
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     (void)mesh_ui_store_consume_updates(&store, &snapshot);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
     if (store.read_state.count != 1U) {
         failure = "opening a conversation should leave one mark behind";
         goto cleanup;
@@ -2067,9 +2067,9 @@ MESH_TEST_CASE(ui_nav_delete_message, unit) {
     struct mesh_ui_action action;
 
     /* Down twice to BRVO's conversation and open it. */
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.thread_open || store.nav.inbox) {
         failure = "expected BRVO's thread to be open";
         goto cleanup;
@@ -2077,7 +2077,7 @@ MESH_TEST_CASE(ui_nav_delete_message, unit) {
 
     /* X on the bubble raises the sheet. */
     memset(&action, 0, sizeof action);
-    if (!mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action) || !store.nav.reaction_open) {
+    if (!mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action) || !store.nav.reaction_open) {
         failure = "X on a bubble should open the sheet of verbs about it";
         goto cleanup;
     }
@@ -2095,7 +2095,7 @@ MESH_TEST_CASE(ui_nav_delete_message, unit) {
         goto cleanup;
     }
     for (uint32_t i = store.nav.reaction_cursor; i + 1U < rows; ++i) {
-        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+        (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     }
     if (!mesh_ui_nav_reaction_row_is_delete(store.nav.reaction_cursor)) {
         failure = "the cursor should have reached the delete row";
@@ -2104,7 +2104,7 @@ MESH_TEST_CASE(ui_nav_delete_message, unit) {
 
     /* One press arms and sends nothing - in particular, no reaction goes on the air. */
     memset(&action, 0, sizeof action);
-    if (!mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action) ||
+    if (!mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action) ||
         !store.nav.message_delete_armed || action.type != MESH_UI_ACTION_NONE) {
         failure = "the first A should arm the delete and ask for nothing";
         goto cleanup;
@@ -2112,7 +2112,7 @@ MESH_TEST_CASE(ui_nav_delete_message, unit) {
 
     /* B stands it down without closing the sheet: B means "not that" at every level. */
     memset(&action, 0, sizeof action);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
     if (store.nav.message_delete_armed || !store.nav.reaction_open) {
         failure = "B should cancel the arming before it closes the sheet";
         goto cleanup;
@@ -2120,19 +2120,19 @@ MESH_TEST_CASE(ui_nav_delete_message, unit) {
 
     /* Arming and then moving off the row stands it down too, so a press somewhere else cannot
        finish a delete that was started here. */
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
     if (store.nav.message_delete_armed) {
         failure = "moving off the delete row should stand it down";
         goto cleanup;
     }
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
 
     /* Arm, then carry it out. */
     memset(&action, 0, sizeof action);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     memset(&action, 0, sizeof action);
-    if (!mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action) ||
+    if (!mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action) ||
         action.type != MESH_UI_ACTION_DELETE_MESSAGE) {
         failure = "the second A should ask the app to delete the message";
         goto cleanup;

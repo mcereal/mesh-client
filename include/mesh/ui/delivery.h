@@ -25,9 +25,9 @@ extern "C" {
  * ink the pairing already covers.
  */
 struct mesh_ui_delivery {
-    /* MESH_UI_ICON_NONE when the state is not worth a mark: an inbound message, or one of ours
+    /* INKCELL_ICON_NONE when the state is not worth a mark: an inbound message, or one of ours
        sent without want_ack, where there is nothing to be waiting for. */
-    enum mesh_ui_icon icon;
+    enum inkcell_icon icon;
     /*
      * The same state in words, from the catalog.
      *
@@ -42,7 +42,7 @@ struct mesh_ui_delivery {
      * bearing: they are JSON fields, where a value that changed with the handheld's locale
      * would be a bug rather than a translation.
      */
-    enum mesh_str_id word;
+    enum inkcell_str_id word;
 };
 
 /*

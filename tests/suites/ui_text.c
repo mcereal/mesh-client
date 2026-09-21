@@ -18,23 +18,24 @@
 /* The font has to answer for every codepoint, and has to say which answers are real: the
    difference decides whether a name reads as itself or as a row of boxes. */
 MESH_TEST_CASE(font5x7_coverage, unit) {
-    struct mesh_font_glyph glyph;
+    struct inkcell_font_glyph glyph;
 
-    MESH_TEST_FAIL_IF(!mesh_font5x7_glyph('A', &glyph) || glyph.columns[0] == 0U,
+    MESH_TEST_FAIL_IF(!inkcell_font5x7_glyph('A', &glyph) || glyph.columns[0] == 0U,
                       "ASCII 'A' should have a glyph");
     /* An unaccented letter never reaches into the line gap. */
-    for (int col = 0; col < MESH_FONT_WIDTH; ++col) {
+    for (int col = 0; col < INKCELL_FONT_WIDTH; ++col) {
         MESH_TEST_FAIL_IF(glyph.above[col] != 0U, "'A' should not draw above its cell");
     }
 
     /* Lowercase leaves rows 0 and 1 clear, so an accent fits inside the cell: e-acute is the
        'e' glyph with extra bits in those rows and nothing hanging above. */
-    struct mesh_font_glyph base;
-    struct mesh_font_glyph accented;
-    MESH_TEST_FAIL_IF(!mesh_font5x7_glyph('e', &base) || !mesh_font5x7_glyph(0x00E9U, &accented),
+    struct inkcell_font_glyph base;
+    struct inkcell_font_glyph accented;
+    MESH_TEST_FAIL_IF(!inkcell_font5x7_glyph('e', &base) ||
+                          !inkcell_font5x7_glyph(0x00E9U, &accented),
                       "e and e-acute should both have glyphs");
     bool mark_in_cell = false;
-    for (int col = 0; col < MESH_FONT_WIDTH; ++col) {
+    for (int col = 0; col < INKCELL_FONT_WIDTH; ++col) {
         if ((accented.columns[col] & ~base.columns[col]) != 0U) {
             mark_in_cell = true;
         }
@@ -46,9 +47,9 @@ MESH_TEST_CASE(font5x7_coverage, unit) {
     MESH_TEST_FAIL_IF(!mark_in_cell, "e-acute should differ from e");
 
     /* Capitals occupy all seven rows, so their mark goes into the gap above instead. */
-    MESH_TEST_FAIL_IF(!mesh_font5x7_glyph(0x00C9U, &accented), "E-acute should have a glyph");
+    MESH_TEST_FAIL_IF(!inkcell_font5x7_glyph(0x00C9U, &accented), "E-acute should have a glyph");
     bool mark_above = false;
-    for (int col = 0; col < MESH_FONT_WIDTH; ++col) {
+    for (int col = 0; col < INKCELL_FONT_WIDTH; ++col) {
         if (accented.above[col] != 0U) {
             mark_above = true;
         }
@@ -74,10 +75,10 @@ MESH_TEST_CASE(font5x7_coverage, unit) {
         {"satellite antenna emoji", 0x1F4E1U, false},
         {"cjk", 0x4E2DU, false},
     };
-    struct mesh_font_glyph tofu;
-    (void)mesh_font5x7_glyph(0x1F600U, &tofu);
+    struct inkcell_font_glyph tofu;
+    (void)inkcell_font5x7_glyph(0x1F600U, &tofu);
     bool tofu_visible = false;
-    for (int col = 0; col < MESH_FONT_WIDTH; ++col) {
+    for (int col = 0; col < INKCELL_FONT_WIDTH; ++col) {
         if (tofu.columns[col] != 0U) {
             tofu_visible = true;
         }
@@ -88,8 +89,8 @@ MESH_TEST_CASE(font5x7_coverage, unit) {
     }
 
     for (size_t i = 0; i < sizeof cases / sizeof cases[0]; ++i) {
-        if (mesh_font5x7_glyph(cases[i].codepoint, &glyph) != cases[i].covered ||
-            mesh_font5x7_has_glyph(cases[i].codepoint) != cases[i].covered) {
+        if (inkcell_font5x7_glyph(cases[i].codepoint, &glyph) != cases[i].covered ||
+            inkcell_font5x7_has_glyph(cases[i].codepoint) != cases[i].covered) {
             record_failure(test_name, cases[i].label);
             return;
         }
@@ -132,23 +133,23 @@ MESH_TEST_CASE(ui_text_cells, unit) {
     };
 
     for (size_t i = 0; i < sizeof cases / sizeof cases[0]; ++i) {
-        MESH_TEST_FAIL_IF(mesh_ui_text_cells(cases[i].text) != cases[i].cells, cases[i].label);
+        MESH_TEST_FAIL_IF(inkcell_text_cells(cases[i].text) != cases[i].cells, cases[i].label);
         /* The offset of the last cell has to land on the NUL, or measuring and clipping
            disagree and a clipped line loses or keeps half a character. */
-        const size_t end = mesh_ui_text_cell_offset(cases[i].text, cases[i].cells);
+        const size_t end = inkcell_text_cell_offset(cases[i].text, cases[i].cells);
         MESH_TEST_FAIL_IF(cases[i].text[end] != '\0', cases[i].label);
     }
 
     /* Clipping never lands inside a cell: two of three trees survive whole. */
     char line[32];
     snprintf(line, sizeof line, "%s", "\xF0\x9F\x8C\xB2\xF0\x9F\x8F\xA0\xF0\x9F\x9A\x97");
-    mesh_ui_text_cell_truncate(line, 2U);
+    inkcell_text_cell_truncate(line, 2U);
     MESH_TEST_FAIL_IF(strcmp(line, "\xF0\x9F\x8C\xB2\xF0\x9F\x8F\xA0") != 0,
                       "truncate split a cell");
 
     /* A flag is never split into the two letters it is spelled with. */
     snprintf(line, sizeof line, "%s", "\xF0\x9F\x87\xB5\xF0\x9F\x87\xB7x");
-    mesh_ui_text_cell_truncate(line, 1U);
+    inkcell_text_cell_truncate(line, 1U);
     MESH_TEST_FAIL_IF(strcmp(line, "\xF0\x9F\x87\xB5\xF0\x9F\x87\xB7") != 0,
                       "truncate split a flag into regional indicators");
 
@@ -178,7 +179,7 @@ MESH_TEST_CASE(ui_text_cell_kinds, unit) {
     };
 
     for (size_t i = 0; i < sizeof cases / sizeof cases[0]; ++i) {
-        const struct mesh_ui_text_cell cell = mesh_ui_text_cell_next(cases[i].text);
+        const struct inkcell_text_cell cell = inkcell_text_cell_next(cases[i].text);
         MESH_TEST_FAIL_IF(cell.is_emoji != cases[i].is_emoji || cell.bytes != cases[i].bytes,
                           cases[i].label);
     }
@@ -186,13 +187,13 @@ MESH_TEST_CASE(ui_text_cell_kinds, unit) {
     /* Every sprite id a match hands back has to be in range and decode to something. */
     uint16_t sprite = 0;
     const uint32_t tree[] = {0x1F332U};
-    MESH_TEST_FAIL_IF(mesh_emoji_match(tree, 1U, &sprite) != 1U, "the evergreen should match");
-    uint8_t pixels[MESH_EMOJI_SIZE * MESH_EMOJI_SIZE];
-    mesh_emoji_decode(sprite, pixels);
+    MESH_TEST_FAIL_IF(inkcell_emoji_match(tree, 1U, &sprite) != 1U, "the evergreen should match");
+    uint8_t pixels[INKCELL_EMOJI_SIZE * INKCELL_EMOJI_SIZE];
+    inkcell_emoji_decode(sprite, pixels);
     bool opaque = false;
     for (size_t i = 0; i < sizeof pixels; ++i) {
         uint8_t rgb[3];
-        if (mesh_emoji_color(pixels[i], rgb)) {
+        if (inkcell_emoji_color(pixels[i], rgb)) {
             opaque = true;
         }
     }
@@ -203,7 +204,7 @@ MESH_TEST_CASE(ui_text_cell_kinds, unit) {
 
     /* Nothing in the Latin ranges the text font covers may be stolen by the emoji table. */
     for (uint32_t cp = 0x20U; cp < 0x180U; ++cp) {
-        if (!mesh_font5x7_has_glyph(cp)) {
+        if (!inkcell_font5x7_has_glyph(cp)) {
             continue;
         }
         char utf8[5] = {0};
@@ -213,7 +214,7 @@ MESH_TEST_CASE(ui_text_cell_kinds, unit) {
             utf8[0] = (char)(0xC0U | (cp >> 6));
             utf8[1] = (char)(0x80U | (cp & 0x3FU));
         }
-        if (mesh_ui_text_cell_next(utf8).is_emoji) {
+        if (inkcell_text_cell_next(utf8).is_emoji) {
             record_failure(test_name, "the emoji table stole a character the font can draw");
             return;
         }
@@ -226,7 +227,7 @@ MESH_TEST_CASE(ui_text_cell_kinds, unit) {
    went out of sync with the runtime would otherwise read past the run array on some rare
    emoji nobody tests by hand. */
 /*
- * The precondition behind the ASCII fast path in mesh_ui_text_cell_next().
+ * The precondition behind the ASCII fast path in inkcell_text_cell_next().
  *
  * That path answers a plain-ASCII character followed by an ASCII byte without consulting the
  * emoji tables at all, which is only sound while two things hold: nothing in the tables is led
@@ -239,7 +240,7 @@ MESH_TEST_CASE(ui_text_cell_kinds, unit) {
  * character and the fast path would silently stop drawing it. Fail here instead.
  */
 MESH_TEST_CASE(emoji_ascii_fast_path_precondition, unit) {
-    const struct mesh_emoji_table *table = &mesh_emoji_table;
+    const struct inkcell_emoji_table *table = &inkcell_emoji_table;
 
     for (uint32_t cp = 0x20U; cp <= 0x7EU; ++cp) {
         const bool keycap_lead = (cp >= (uint32_t)'0' && cp <= (uint32_t)'9') ||
@@ -261,14 +262,14 @@ MESH_TEST_CASE(emoji_ascii_fast_path_precondition, unit) {
     /* A combining mark, selector, ZWJ or skin tone in ASCII would let a second cell attach to
        a character the fast path has already answered for. */
     for (uint32_t cp = 0U; cp < 0x80U; ++cp) {
-        MESH_TEST_FAIL_IF(mesh_emoji_is_zero_width(cp), "a zero-width codepoint lives in ASCII");
+        MESH_TEST_FAIL_IF(inkcell_emoji_is_zero_width(cp), "a zero-width codepoint lives in ASCII");
     }
 
     /* And the path itself: every other printable ASCII character is one non-emoji cell of one
        byte, whatever follows it, as long as what follows is ASCII too. */
     for (uint32_t cp = 0x20U; cp <= 0x7EU; ++cp) {
         char text[3] = {(char)cp, 'x', '\0'};
-        const struct mesh_ui_text_cell cell = mesh_ui_text_cell_next(text);
+        const struct inkcell_text_cell cell = inkcell_text_cell_next(text);
         if (cp >= (uint32_t)'0' && cp <= (uint32_t)'9') {
             continue;
         }
@@ -283,7 +284,7 @@ MESH_TEST_CASE(emoji_ascii_fast_path_precondition, unit) {
 }
 
 MESH_TEST_CASE(emoji_table_integrity, unit) {
-    const struct mesh_emoji_table *table = &mesh_emoji_table;
+    const struct inkcell_emoji_table *table = &inkcell_emoji_table;
 
     MESH_TEST_FAIL_IF(table->single_count == 0U || table->sequence_count == 0U,
                       "the emoji table is empty");
@@ -294,8 +295,8 @@ MESH_TEST_CASE(emoji_table_integrity, unit) {
     }
 
     for (uint32_t i = 1; i < table->sequence_count; ++i) {
-        const struct mesh_emoji_sequence *previous = &table->sequences[i - 1U];
-        const struct mesh_emoji_sequence *current = &table->sequences[i];
+        const struct inkcell_emoji_sequence *previous = &table->sequences[i - 1U];
+        const struct inkcell_emoji_sequence *current = &table->sequences[i];
         MESH_TEST_FAIL_IF(previous->first > current->first,
                           "sequences are not sorted by their first codepoint");
         /* Longest first within a leading codepoint is what makes the match greedy. */
@@ -303,15 +304,15 @@ MESH_TEST_CASE(emoji_table_integrity, unit) {
                           "sequences are not ordered longest first");
     }
 
-    uint8_t pixels[MESH_EMOJI_SIZE * MESH_EMOJI_SIZE];
+    uint8_t pixels[INKCELL_EMOJI_SIZE * INKCELL_EMOJI_SIZE];
     for (uint32_t i = 0; i < table->single_count; ++i) {
-        mesh_emoji_decode(table->singles[i].sprite, pixels);
+        inkcell_emoji_decode(table->singles[i].sprite, pixels);
     }
     for (uint32_t i = 0; i < table->sequence_count; ++i) {
-        const struct mesh_emoji_sequence *entry = &table->sequences[i];
+        const struct inkcell_emoji_sequence *entry = &table->sequences[i];
         MESH_TEST_FAIL_IF(entry->length < 2U || entry->length > EMOJI_TEST_MAX_SEQUENCE,
                           "a sequence has an implausible length");
-        mesh_emoji_decode(entry->sprite, pixels);
+        inkcell_emoji_decode(entry->sprite, pixels);
     }
 
     record_success(test_name);

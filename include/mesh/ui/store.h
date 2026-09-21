@@ -336,7 +336,7 @@ uint32_t mesh_ui_store_forget_message(struct mesh_ui_store *store, uint8_t kind,
 /* Navigation. A key press moves the cursor or switches tabs and, for A on an actionable row,
    fills *out_action for the caller to carry out (connect, send). Returns true when the frame
    needs repainting; the store has already signalled its eventfd in that case. */
-bool mesh_ui_store_handle_key(struct mesh_ui_store *store, enum mesh_ui_key key,
+bool mesh_ui_store_handle_key(struct mesh_ui_store *store, enum inkcell_key key,
                               struct mesh_ui_action *out_action);
 /* Show a transient one-line notice on the backends ("Sent to ABCD"). */
 void mesh_ui_store_set_toast(struct mesh_ui_store *store, uint64_t now_ms, const char *text);

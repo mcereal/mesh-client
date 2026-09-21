@@ -116,7 +116,7 @@ static bool mesh_ui_nav_waypoint_list_confirm(struct mesh_ui_nav *nav,
              * (mesh_app_on_ui_action), which is the path a node's "New waypoint here" takes;
              * this is the same refusal one step earlier, where the nav can see it coming.
              */
-            mesh_ui_nav_raise_toast(nav, mesh_str(MESH_STR_TOAST_WAYPOINT_NO_FIX));
+            mesh_ui_nav_raise_toast(nav, inkcell_str(MESH_STR_TOAST_WAYPOINT_NO_FIX));
             return true; /* the toast is nav state, so the frame has changed */
         }
         mesh_ui_nav_open_waypoint_keyboard(nav, 0U);

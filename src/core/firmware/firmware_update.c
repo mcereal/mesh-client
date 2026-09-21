@@ -31,45 +31,45 @@ static const char *firmware_update_staging(void) {
 const char *mesh_firmware_update_state_name(enum mesh_firmware_update_state state) {
     switch (state) {
     case MESH_FIRMWARE_UPDATE_IDLE:
-        return mesh_str(MESH_STR_FW_UPDATE_IDLE);
+        return inkcell_str(MESH_STR_FW_UPDATE_IDLE);
     case MESH_FIRMWARE_UPDATE_RESOLVING:
-        return mesh_str(MESH_STR_FW_UPDATE_RESOLVING);
+        return inkcell_str(MESH_STR_FW_UPDATE_RESOLVING);
     case MESH_FIRMWARE_UPDATE_DOWNLOADING:
-        return mesh_str(MESH_STR_FW_UPDATE_DOWNLOADING);
+        return inkcell_str(MESH_STR_FW_UPDATE_DOWNLOADING);
     case MESH_FIRMWARE_UPDATE_READY:
-        return mesh_str(MESH_STR_FW_UPDATE_READY);
+        return inkcell_str(MESH_STR_FW_UPDATE_READY);
     case MESH_FIRMWARE_UPDATE_ARMING:
-        return mesh_str(MESH_STR_FW_UPDATE_ARMING);
+        return inkcell_str(MESH_STR_FW_UPDATE_ARMING);
     case MESH_FIRMWARE_UPDATE_WAITING:
-        return mesh_str(MESH_STR_FW_UPDATE_WAITING);
+        return inkcell_str(MESH_STR_FW_UPDATE_WAITING);
     case MESH_FIRMWARE_UPDATE_WRITING:
-        return mesh_str(MESH_STR_FW_UPDATE_WRITING);
+        return inkcell_str(MESH_STR_FW_UPDATE_WRITING);
     case MESH_FIRMWARE_UPDATE_RESTARTING:
-        return mesh_str(MESH_STR_FW_UPDATE_RESTARTING);
+        return inkcell_str(MESH_STR_FW_UPDATE_RESTARTING);
     case MESH_FIRMWARE_UPDATE_DONE:
-        return mesh_str(MESH_STR_FW_UPDATE_DONE);
+        return inkcell_str(MESH_STR_FW_UPDATE_DONE);
     case MESH_FIRMWARE_UPDATE_FAILED:
-        return mesh_str(MESH_STR_FW_UPDATE_FAILED);
+        return inkcell_str(MESH_STR_FW_UPDATE_FAILED);
     case MESH_FIRMWARE_UPDATE_STATE_COUNT:
     default:
-        return mesh_str(MESH_STR_COMMON_UNKNOWN_SHORT);
+        return inkcell_str(INKCELL_STR_COMMON_UNKNOWN_SHORT);
     }
 }
 
 const char *mesh_firmware_update_error_name(enum mesh_firmware_update_error error) {
     switch (error) {
     case MESH_FIRMWARE_UPDATE_ERROR_UNAVAILABLE:
-        return mesh_str(MESH_STR_FW_UPDATE_ERR_UNAVAILABLE);
+        return inkcell_str(MESH_STR_FW_UPDATE_ERR_UNAVAILABLE);
     case MESH_FIRMWARE_UPDATE_ERROR_DOWNLOAD:
-        return mesh_str(MESH_STR_FW_UPDATE_ERR_DOWNLOAD);
+        return inkcell_str(MESH_STR_FW_UPDATE_ERR_DOWNLOAD);
     case MESH_FIRMWARE_UPDATE_ERROR_WRONG_IMAGE:
-        return mesh_str(MESH_STR_FW_UPDATE_ERR_WRONG_IMAGE);
+        return inkcell_str(MESH_STR_FW_UPDATE_ERR_WRONG_IMAGE);
     case MESH_FIRMWARE_UPDATE_ERROR_NO_RADIO:
-        return mesh_str(MESH_STR_FW_UPDATE_ERR_NO_RADIO);
+        return inkcell_str(MESH_STR_FW_UPDATE_ERR_NO_RADIO);
     case MESH_FIRMWARE_UPDATE_ERROR_REFUSED:
-        return mesh_str(MESH_STR_FW_UPDATE_ERR_REFUSED);
+        return inkcell_str(MESH_STR_FW_UPDATE_ERR_REFUSED);
     case MESH_FIRMWARE_UPDATE_ERROR_HANDOVER:
-        return mesh_str(MESH_STR_FW_UPDATE_ERR_HANDOVER);
+        return inkcell_str(MESH_STR_FW_UPDATE_ERR_HANDOVER);
     case MESH_FIRMWARE_UPDATE_ERROR_NONE:
     case MESH_FIRMWARE_UPDATE_ERROR_COUNT:
     default:
@@ -82,12 +82,13 @@ const char *mesh_firmware_update_error_name(enum mesh_firmware_update_error erro
 static void update_set(struct mesh_firmware_update *update, enum mesh_firmware_update_state state,
                        const char *detail) {
     if (update->state != state) {
-        mesh_log_info("firmware-update", "%s -> %s", mesh_firmware_update_state_name(update->state),
-                      mesh_firmware_update_state_name(state));
+        inkcell_log_info("firmware-update", "%s -> %s",
+                         mesh_firmware_update_state_name(update->state),
+                         mesh_firmware_update_state_name(state));
     }
     update->state = state;
     if (detail != NULL) {
-        mesh_str_copy(update->detail, sizeof update->detail, detail);
+        inkcell_str_copy(update->detail, sizeof update->detail, detail);
     }
     update->revision++;
 }
@@ -278,7 +279,7 @@ static void update_begin_ble(struct mesh_firmware_update *update, const char *im
     if (result < 0) {
         update_close_bluez(update);
         update_finish(update, MESH_FIRMWARE_UPDATE_ERROR_HANDOVER,
-                      mesh_str(MESH_STR_FW_UPDATE_ERR_NO_ADAPTER));
+                      inkcell_str(MESH_STR_FW_UPDATE_ERR_NO_ADAPTER));
         return;
     }
 
@@ -309,7 +310,7 @@ static void update_begin_handover(struct mesh_firmware_update *update) {
     char image_path[MESH_FETCH_PATH_MAX];
     if (mesh_firmware_fetch_image_path(&update->image, image_path, sizeof image_path) == NULL) {
         update_finish(update, MESH_FIRMWARE_UPDATE_ERROR_DOWNLOAD,
-                      mesh_str(MESH_STR_FW_UPDATE_ERR_NO_IMAGE));
+                      inkcell_str(MESH_STR_FW_UPDATE_ERR_NO_IMAGE));
         return;
     }
     if (update->path == MESH_FIRMWARE_PATH_USB) {
@@ -425,7 +426,7 @@ int mesh_firmware_update_start(struct mesh_firmware_update *update,
         board->path == MESH_FIRMWARE_PATH_NONE) {
         update->error = MESH_FIRMWARE_UPDATE_ERROR_UNAVAILABLE;
         update_set(update, MESH_FIRMWARE_UPDATE_FAILED,
-                   mesh_str(MESH_STR_FW_UPDATE_ERR_UNAVAILABLE));
+                   inkcell_str(MESH_STR_FW_UPDATE_ERR_UNAVAILABLE));
         return -ENOTSUP;
     }
 
@@ -433,8 +434,8 @@ int mesh_firmware_update_start(struct mesh_firmware_update *update,
     update->path = board->path;
     update->hw_model = board->hw_model;
     update->release = *release;
-    mesh_str_copy(update->where, sizeof update->where, where != NULL ? where : "");
-    mesh_str_copy(update->staging, sizeof update->staging, firmware_update_staging());
+    inkcell_str_copy(update->where, sizeof update->where, where != NULL ? where : "");
+    inkcell_str_copy(update->staging, sizeof update->staging, firmware_update_staging());
     update->hooks = *hooks;
     update->on_done = on_done;
     update->userdata = userdata;
@@ -447,8 +448,8 @@ int mesh_firmware_update_start(struct mesh_firmware_update *update,
         update_set(update, MESH_FIRMWARE_UPDATE_FAILED, update->image.message);
         return started;
     }
-    mesh_log_info("firmware-update", "Installing %s %s over %s", board->target, release->version,
-                  update->path == MESH_FIRMWARE_PATH_USB ? "USB" : "BLE");
+    inkcell_log_info("firmware-update", "Installing %s %s over %s", board->target, release->version,
+                     update->path == MESH_FIRMWARE_PATH_USB ? "USB" : "BLE");
     update_set(update, MESH_FIRMWARE_UPDATE_RESOLVING, release->version);
     return 0;
 }
@@ -470,7 +471,8 @@ void mesh_firmware_update_cancel(struct mesh_firmware_update *update) {
     update_close_bluez(update);
     if (mesh_firmware_update_busy(update)) {
         update->error = MESH_FIRMWARE_UPDATE_ERROR_HANDOVER;
-        update_set(update, MESH_FIRMWARE_UPDATE_FAILED, mesh_str(MESH_STR_FW_UPDATE_ERR_CANCELLED));
+        update_set(update, MESH_FIRMWARE_UPDATE_FAILED,
+                   inkcell_str(MESH_STR_FW_UPDATE_ERR_CANCELLED));
     }
 }
 
@@ -523,7 +525,7 @@ void mesh_firmware_update_tick(struct mesh_firmware_update *update, uint64_t now
             update_begin_handover(update);
         } else if (now_ms >= update->deadline_ms) {
             update_finish(update, MESH_FIRMWARE_UPDATE_ERROR_NO_RADIO,
-                          mesh_str(MESH_STR_FW_UPDATE_ERR_NO_RADIO));
+                          inkcell_str(MESH_STR_FW_UPDATE_ERR_NO_RADIO));
         }
         break;
     }

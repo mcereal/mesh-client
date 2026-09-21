@@ -124,7 +124,7 @@ int mesh_stream_link_flush(struct mesh_stream_link *link) {
             }
             /* EPIPE lands here rather than as a dead process, which is what MSG_NOSIGNAL above
                bought: the far end went away and the owner gets to say so in its own words. */
-            mesh_log_warn(link->tag, "write failed: %s", strerror(errno));
+            inkcell_log_warn(link->tag, "write failed: %s", strerror(errno));
             return -EIO;
         }
 
@@ -190,21 +190,21 @@ static void mesh_stream_link_on_text(const uint8_t *text, size_t len, void *ctx)
         if (byte == '\n' || byte == '\r') {
             if (out > 0U) {
                 line[out] = '\0';
-                mesh_log_debug(link->tag, "radio: %s", line);
+                inkcell_log_debug(link->tag, "radio: %s", line);
                 out = 0U;
             }
             continue;
         }
         if (out + 1U >= sizeof line) {
             line[out] = '\0';
-            mesh_log_debug(link->tag, "radio: %s", line);
+            inkcell_log_debug(link->tag, "radio: %s", line);
             out = 0U;
         }
         line[out++] = (byte >= 0x20U && byte < 0x7FU) ? (char)byte : '.';
     }
     if (out > 0U) {
         line[out] = '\0';
-        mesh_log_debug(link->tag, "radio: %s", line);
+        inkcell_log_debug(link->tag, "radio: %s", line);
     }
 }
 
@@ -243,7 +243,7 @@ int mesh_stream_link_pump(struct mesh_stream_link *link) {
         if (errno == EINTR) {
             continue;
         }
-        mesh_log_warn(link->tag, "read failed: %s", strerror(errno));
+        inkcell_log_warn(link->tag, "read failed: %s", strerror(errno));
         return -EIO;
     }
 

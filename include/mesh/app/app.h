@@ -58,13 +58,13 @@ struct mesh_app {
     struct mesh_ui_store ui_store;
     struct mesh_ui_controller ui_controller;
     struct mesh_ui_backend_cli_context ui_cli_context;
-    struct mesh_ui_backend_fb_context ui_fb_context;
+    struct inkcell_backend_fb_context ui_fb_context;
     struct mesh_ui_preferences ui_preferences;
     /* Conversation loaded from the cache at startup. The transport's log starts empty every
        run, so this is merged back in on publish; without it the first publish would erase the
        persisted history. */
     struct mesh_ui_message_list ui_messages_cached;
-    struct mesh_ui_input ui_input;
+    struct inkcell_input ui_input;
     struct mesh_signals signals;
     /* Self-update: HTTPS through the event loop above. Its state is flattened into the UI's
        client info on every publish, so the About section renders it without the UI ever seeing
@@ -121,7 +121,7 @@ struct mesh_app {
      * which is how a switch reaches the framebuffer without anything pushing at the backend.
      * Never NULL after mesh_app_init(); every theme lookup falls back to the default anyway.
      */
-    const struct mesh_ui_theme *ui_theme;
+    const struct inkcell_theme *ui_theme;
     /* MESHCLIENT_THEME named it, so the Settings row is a fact rather than a switch. */
     bool ui_theme_from_env;
     char ui_preferences_path[256];

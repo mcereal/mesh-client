@@ -45,17 +45,17 @@ enum mesh_ui_key_trust {
 enum mesh_ui_key_trust mesh_ui_key_trust_of(const struct mesh_ui_node_summary *node);
 
 /*
- * The mark for a state, or MESH_UI_ICON_NONE for NONE - there is no glyph for the absence of
+ * The mark for a state, or INKCELL_ICON_NONE for NONE - there is no glyph for the absence of
  * encryption, and one would put a mark on every broadcast on the mesh.
  *
  * The two that have one are a padlock and a shield, which is a *shape* difference rather than a
  * colour one, for the reason src/ui/tables/delivery.c gives: the transcript's marks are drawn in
  * the ink the theme pairing already covers, so they stay out of the contrast contract.
  */
-enum mesh_ui_icon mesh_ui_key_trust_icon(enum mesh_ui_key_trust trust);
+enum inkcell_icon mesh_ui_key_trust_icon(enum mesh_ui_key_trust trust);
 
 /* The state in words, for a row that has room for them. */
-enum mesh_str_id mesh_ui_key_trust_label(enum mesh_ui_key_trust trust);
+enum inkcell_str_id mesh_ui_key_trust_label(enum mesh_ui_key_trust trust);
 
 /*
  * The ink a row saying it takes.
@@ -65,7 +65,7 @@ enum mesh_str_id mesh_ui_key_trust_label(enum mesh_ui_key_trust trust);
  * warning about the mesh working normally. NONE is not coloured either - it is the answer for
  * every node that has never sent a NodeInfo, which is not that node's fault or the user's.
  */
-enum mesh_ui_tone mesh_ui_key_trust_tone(enum mesh_ui_key_trust trust);
+enum inkcell_tone mesh_ui_key_trust_tone(enum mesh_ui_key_trust trust);
 
 /*
  * The verification sheet: one question, assembled from the exchange the radio has open.
@@ -80,9 +80,9 @@ enum mesh_ui_tone mesh_ui_key_trust_tone(enum mesh_ui_key_trust trust);
  * and one of them carries digits. The two button labels are catalog strings and are not.
  */
 struct mesh_ui_verify_sheet {
-    enum mesh_ui_icon icon;
-    enum mesh_str_id accept;
-    enum mesh_str_id cancel;
+    enum inkcell_icon icon;
+    enum inkcell_str_id accept;
+    enum inkcell_str_id cancel;
     /* The answer that acts is the one that says the characters did *not* match: it is the
        destructive half of a comparison, and the dialog colours itself from this. A sheet with
        nothing to refuse - the two waiting stages - is not destructive. */

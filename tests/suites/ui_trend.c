@@ -27,12 +27,12 @@
 #include <string.h>
 
 /* The airtime domain: both readings are already permille, which is the identity scale. */
-static const struct mesh_ui_scale k_permille = {0, 0};
+static const struct inkcell_scale k_permille = {0, 0};
 
-static void push_every(struct mesh_ui_series *series, uint32_t from, uint32_t step, uint32_t count,
+static void push_every(struct inkcell_series *series, uint32_t from, uint32_t step, uint32_t count,
                        int32_t value) {
     for (uint32_t i = 0U; i < count; ++i) {
-        mesh_ui_series_push(series, from + i * step, value);
+        inkcell_series_push(series, from + i * step, value);
     }
 }
 
@@ -46,10 +46,10 @@ static void push_every(struct mesh_ui_series *series, uint32_t from, uint32_t st
  * in, and the axis label is what says so.
  */
 MESH_TEST_CASE(trend_contracts_the_ceiling_to_a_quiet_mesh, unit) {
-    const struct mesh_ui_scale zoomed = mesh_ui_trend_domain(k_permille, 11);
+    const struct inkcell_scale zoomed = inkcell_trend_domain(k_permille, 11);
     MESH_TEST_FAIL_IF(zoomed.min != 0, "the floor may not move");
     MESH_TEST_FAIL_IF(zoomed.max != 20, "1.1% should be drawn on the 2% rung");
-    MESH_TEST_FAIL_IF(mesh_ui_scale_permille(zoomed, 11) < 500,
+    MESH_TEST_FAIL_IF(inkcell_scale_permille(zoomed, 11) < 500,
                       "the reading should sit in the body of the plot rather than on its floor");
     record_success(test_name);
 }
@@ -63,15 +63,15 @@ MESH_TEST_CASE(trend_contracts_the_ceiling_to_a_quiet_mesh, unit) {
  * two percent. Readings anywhere inside one rung come back on the same ceiling.
  */
 MESH_TEST_CASE(trend_rungs_are_fixed_rather_than_fitted, unit) {
-    const struct mesh_ui_scale a = mesh_ui_trend_domain(k_permille, 11);
-    const struct mesh_ui_scale b = mesh_ui_trend_domain(k_permille, 19);
+    const struct inkcell_scale a = inkcell_trend_domain(k_permille, 11);
+    const struct inkcell_scale b = inkcell_trend_domain(k_permille, 19);
     MESH_TEST_FAIL_IF(a.max != b.max, "two readings inside one rung should share a ceiling");
 
     /* A battery is the case the rule was written for: full-ish readings keep the whole domain, so
        an overnight fall of two percent is drawn as two percent of it. */
-    const struct mesh_ui_scale battery = mesh_ui_trend_domain((struct mesh_ui_scale){0, 100}, 90);
+    const struct inkcell_scale battery = inkcell_trend_domain((struct inkcell_scale){0, 100}, 90);
     MESH_TEST_FAIL_IF(battery.max != 100, "a nearly full battery should keep its own domain");
-    MESH_TEST_FAIL_IF(mesh_ui_scale_permille(battery, 88) > 900,
+    MESH_TEST_FAIL_IF(inkcell_scale_permille(battery, 88) > 900,
                       "a two-percent fall should be two percent of the plot");
     record_success(test_name);
 }
@@ -84,18 +84,18 @@ MESH_TEST_CASE(trend_rungs_are_fixed_rather_than_fitted, unit) {
  * nothing to contract to. And a domain with no width has no span to divide.
  */
 MESH_TEST_CASE(trend_leaves_a_domain_it_cannot_contract, unit) {
-    const struct mesh_ui_scale descending = {20, -20};
-    MESH_TEST_FAIL_IF(mesh_ui_trend_domain(descending, 0).max != descending.max ||
-                          mesh_ui_trend_domain(descending, 0).min != descending.min,
+    const struct inkcell_scale descending = {20, -20};
+    MESH_TEST_FAIL_IF(inkcell_trend_domain(descending, 0).max != descending.max ||
+                          inkcell_trend_domain(descending, 0).min != descending.min,
                       "a descending domain should be left alone");
 
-    const struct mesh_ui_scale full = mesh_ui_trend_domain((struct mesh_ui_scale){0, 100}, 100);
+    const struct inkcell_scale full = inkcell_trend_domain((struct inkcell_scale){0, 100}, 100);
     MESH_TEST_FAIL_IF(full.max != 100, "a reading at the ceiling should keep the ceiling");
 
-    const struct mesh_ui_scale narrow = {7, 7};
+    const struct inkcell_scale narrow = {7, 7};
     /* The identity domain, which is the one min == max case that is not a mistake: it means the
        readings are already permille, so it contracts against 1000 and comes back stated. */
-    MESH_TEST_FAIL_IF(mesh_ui_trend_domain(narrow, 3).min != 7,
+    MESH_TEST_FAIL_IF(inkcell_trend_domain(narrow, 3).min != 7,
                       "the identity domain's floor is still its floor");
     record_success(test_name);
 }
@@ -111,28 +111,28 @@ MESH_TEST_CASE(trend_leaves_a_domain_it_cannot_contract, unit) {
  * readings along the floor.
  */
 MESH_TEST_CASE(trend_ceiling_ignores_a_reading_nothing_draws, unit) {
-    struct mesh_ui_series series;
-    mesh_ui_series_reset(&series, 60U * 1000U);
+    struct inkcell_series series;
+    inkcell_series_reset(&series, 60U * 1000U);
     /* Three readings a few seconds apart: one line, all of it low. */
     push_every(&series, 1000U, 5U * 1000U, 3U, 11);
     /* Then a silence past the gap, and a single high reading with nothing after it. */
-    mesh_ui_series_push(&series, 1000U + 10U * 60U * 1000U, 300);
+    inkcell_series_push(&series, 1000U + 10U * 60U * 1000U, 300);
 
-    MESH_TEST_FAIL_IF(!mesh_ui_series_starts_segment(&series, 3U),
+    MESH_TEST_FAIL_IF(!inkcell_series_starts_segment(&series, 3U),
                       "a reading after a long silence starts a segment");
-    MESH_TEST_FAIL_IF(mesh_ui_series_starts_segment(&series, 1U),
+    MESH_TEST_FAIL_IF(inkcell_series_starts_segment(&series, 1U),
                       "a reading a few seconds after the last one continues it");
 
-    const struct mesh_ui_series *const list[] = {&series};
-    struct mesh_ui_trend frame;
-    MESH_TEST_FAIL_IF(!mesh_ui_trend_frame(list, 1U, k_permille, MESH_UI_TREND_SPAN_ALL, &frame),
+    const struct inkcell_series *const list[] = {&series};
+    struct inkcell_trend frame;
+    MESH_TEST_FAIL_IF(!inkcell_trend_frame(list, 1U, k_permille, INKCELL_TREND_SPAN_ALL, &frame),
                       "four readings should frame");
     MESH_TEST_FAIL_IF(frame.scale.max > 20,
                       "an isolated reading held the ceiling open over the line that is drawn");
 
     /* And the same reading, once something continues it, is on a line and does count. */
-    mesh_ui_series_push(&series, 1000U + 10U * 60U * 1000U + 5U * 1000U, 290);
-    MESH_TEST_FAIL_IF(!mesh_ui_trend_frame(list, 1U, k_permille, MESH_UI_TREND_SPAN_ALL, &frame),
+    inkcell_series_push(&series, 1000U + 10U * 60U * 1000U + 5U * 1000U, 290);
+    MESH_TEST_FAIL_IF(!inkcell_trend_frame(list, 1U, k_permille, INKCELL_TREND_SPAN_ALL, &frame),
                       "five readings should frame");
     MESH_TEST_FAIL_IF(frame.scale.max < 300, "a reading on a line has to fit under the ceiling");
     record_success(test_name);
@@ -142,16 +142,16 @@ MESH_TEST_CASE(trend_ceiling_ignores_a_reading_nothing_draws, unit) {
    ends - a press that did nothing at the end of a set of four would be a keycap the action bar is
    still naming. */
 MESH_TEST_CASE(trend_span_steps_and_wraps, unit) {
-    MESH_TEST_FAIL_IF(mesh_ui_trend_span_step(MESH_UI_TREND_SPAN_15M, 1) != MESH_UI_TREND_SPAN_1H,
+    MESH_TEST_FAIL_IF(inkcell_trend_span_step(INKCELL_TREND_SPAN_15M, 1) != INKCELL_TREND_SPAN_1H,
                       "Right should widen the span");
-    MESH_TEST_FAIL_IF(mesh_ui_trend_span_step(MESH_UI_TREND_SPAN_15M, -1) != MESH_UI_TREND_SPAN_ALL,
+    MESH_TEST_FAIL_IF(inkcell_trend_span_step(INKCELL_TREND_SPAN_15M, -1) != INKCELL_TREND_SPAN_ALL,
                       "Left off the first segment should wrap to the last");
-    MESH_TEST_FAIL_IF(mesh_ui_trend_span_step(MESH_UI_TREND_SPAN_ALL, 1) != MESH_UI_TREND_SPAN_15M,
+    MESH_TEST_FAIL_IF(inkcell_trend_span_step(INKCELL_TREND_SPAN_ALL, 1) != INKCELL_TREND_SPAN_15M,
                       "Right off the last segment should wrap to the first");
     /* A byte off the nav that names no span is the widest one, which is the answer that cannot
        mislead: it shows every reading there is. */
-    MESH_TEST_FAIL_IF(mesh_ui_trend_span_ms(99U) != 0U, "an unknown span should be ALL");
-    MESH_TEST_FAIL_IF(mesh_ui_trend_span_ms(MESH_UI_TREND_SPAN_1H) != 60U * 60U * 1000U,
+    MESH_TEST_FAIL_IF(inkcell_trend_span_ms(99U) != 0U, "an unknown span should be ALL");
+    MESH_TEST_FAIL_IF(inkcell_trend_span_ms(INKCELL_TREND_SPAN_1H) != 60U * 60U * 1000U,
                       "an hour should be an hour");
     record_success(test_name);
 }
@@ -166,25 +166,25 @@ MESH_TEST_CASE(trend_span_steps_and_wraps, unit) {
  * line crushed into the last twentieth of it.
  */
 MESH_TEST_CASE(trend_span_narrows_the_window_and_never_pads_it, unit) {
-    struct mesh_ui_series series;
-    mesh_ui_series_reset(&series, 0U);
+    struct inkcell_series series;
+    inkcell_series_reset(&series, 0U);
     /* An hour of readings, one every five minutes. */
     push_every(&series, 1000U, 5U * 60U * 1000U, 13U, 40);
 
-    const struct mesh_ui_series *const list[] = {&series};
-    struct mesh_ui_trend frame;
+    const struct inkcell_series *const list[] = {&series};
+    struct inkcell_trend frame;
 
-    MESH_TEST_FAIL_IF(!mesh_ui_trend_frame(list, 1U, k_permille, MESH_UI_TREND_SPAN_ALL, &frame),
+    MESH_TEST_FAIL_IF(!inkcell_trend_frame(list, 1U, k_permille, INKCELL_TREND_SPAN_ALL, &frame),
                       "an hour of readings should frame");
     MESH_TEST_FAIL_IF(frame.to - frame.from != 60U * 60U * 1000U,
                       "ALL should be the readings' own span");
 
-    MESH_TEST_FAIL_IF(!mesh_ui_trend_frame(list, 1U, k_permille, MESH_UI_TREND_SPAN_15M, &frame),
+    MESH_TEST_FAIL_IF(!inkcell_trend_frame(list, 1U, k_permille, INKCELL_TREND_SPAN_15M, &frame),
                       "a narrowed span should still frame");
     MESH_TEST_FAIL_IF(frame.to - frame.from != 15U * 60U * 1000U,
                       "a quarter hour should be a quarter hour");
 
-    MESH_TEST_FAIL_IF(!mesh_ui_trend_frame(list, 1U, k_permille, MESH_UI_TREND_SPAN_6H, &frame),
+    MESH_TEST_FAIL_IF(!inkcell_trend_frame(list, 1U, k_permille, INKCELL_TREND_SPAN_6H, &frame),
                       "a span wider than the readings should still frame");
     MESH_TEST_FAIL_IF(frame.to - frame.from != 60U * 60U * 1000U,
                       "a span wider than the readings should leave the window at the readings");
@@ -200,18 +200,18 @@ MESH_TEST_CASE(trend_span_narrows_the_window_and_never_pads_it, unit) {
  * component's way of being wrong quietly.
  */
 MESH_TEST_CASE(trend_ceiling_follows_the_window_rather_than_the_ring, unit) {
-    struct mesh_ui_series series;
-    mesh_ui_series_reset(&series, 0U);
+    struct inkcell_series series;
+    inkcell_series_reset(&series, 0U);
     /* Half an hour of a busy mesh, then a quarter hour of a quiet one. */
     push_every(&series, 1000U, 5U * 60U * 1000U, 6U, 300);
     push_every(&series, 1000U + 30U * 60U * 1000U, 5U * 60U * 1000U, 4U, 11);
 
-    const struct mesh_ui_series *const list[] = {&series};
-    struct mesh_ui_trend all;
-    struct mesh_ui_trend recent;
-    MESH_TEST_FAIL_IF(!mesh_ui_trend_frame(list, 1U, k_permille, MESH_UI_TREND_SPAN_ALL, &all),
+    const struct inkcell_series *const list[] = {&series};
+    struct inkcell_trend all;
+    struct inkcell_trend recent;
+    MESH_TEST_FAIL_IF(!inkcell_trend_frame(list, 1U, k_permille, INKCELL_TREND_SPAN_ALL, &all),
                       "the whole record should frame");
-    MESH_TEST_FAIL_IF(!mesh_ui_trend_frame(list, 1U, k_permille, MESH_UI_TREND_SPAN_15M, &recent),
+    MESH_TEST_FAIL_IF(!inkcell_trend_frame(list, 1U, k_permille, INKCELL_TREND_SPAN_15M, &recent),
                       "the last quarter hour should frame");
     MESH_TEST_FAIL_IF(all.scale.max < 300, "the busy spell should hold the axis open");
     MESH_TEST_FAIL_IF(recent.scale.max >= all.scale.max,
@@ -223,25 +223,25 @@ MESH_TEST_CASE(trend_ceiling_follows_the_window_rather_than_the_ring, unit) {
  * And what a narrowed window does to the readings it left behind: they are dropped, not stacked
  * on the left-hand edge.
  *
- * mesh_ui_series_project_over() holds a sample outside the window at the edge it fell off, which
+ * inkcell_series_project_over() holds a sample outside the window at the edge it fell off, which
  * is right for a window taken from the series themselves - nothing is ever outside one. Over a
  * window the reader narrowed it draws every older reading at one x: a vertical stroke up the side
  * of the plot, in the data's own colour, that is not a reading of anything.
  */
 MESH_TEST_CASE(trend_projection_drops_readings_outside_the_window, unit) {
-    struct mesh_ui_series series;
-    mesh_ui_series_reset(&series, 0U);
+    struct inkcell_series series;
+    inkcell_series_reset(&series, 0U);
     push_every(&series, 1000U, 5U * 60U * 1000U, 13U, 40);
 
-    const struct mesh_ui_series *const list[] = {&series};
-    struct mesh_ui_trend frame;
-    MESH_TEST_FAIL_IF(!mesh_ui_trend_frame(list, 1U, k_permille, MESH_UI_TREND_SPAN_15M, &frame),
+    const struct inkcell_series *const list[] = {&series};
+    struct inkcell_trend frame;
+    MESH_TEST_FAIL_IF(!inkcell_trend_frame(list, 1U, k_permille, INKCELL_TREND_SPAN_15M, &frame),
                       "a narrowed span should frame");
 
-    struct mesh_ui_polyline clipped;
-    struct mesh_ui_polyline clamped;
-    mesh_ui_series_project_within(&series, k_permille, frame.from, frame.to, &clipped);
-    mesh_ui_series_project_over(&series, k_permille, frame.from, frame.to, &clamped);
+    struct inkcell_polyline clipped;
+    struct inkcell_polyline clamped;
+    inkcell_series_project_within(&series, k_permille, frame.from, frame.to, &clipped);
+    inkcell_series_project_over(&series, k_permille, frame.from, frame.to, &clamped);
 
     MESH_TEST_FAIL_IF(clipped.count != 4U, "a quarter hour of five-minute readings is four points");
     MESH_TEST_FAIL_IF(clamped.count != series.count, "the clamping projection keeps every sample");
@@ -266,20 +266,20 @@ MESH_TEST_CASE(trend_projection_drops_readings_outside_the_window, unit) {
 /* A series with nothing inside the window comes back empty rather than as a line of clamped
    points - which is what lets the chart know there is nothing to draw and say so. */
 MESH_TEST_CASE(trend_projection_of_an_empty_window_is_empty, unit) {
-    struct mesh_ui_series series;
-    mesh_ui_series_reset(&series, 0U);
-    /* Both at one tick of the client's clock, which is also the case mesh_ui_series_window()
+    struct inkcell_series series;
+    inkcell_series_reset(&series, 0U);
+    /* Both at one tick of the client's clock, which is also the case inkcell_series_window()
        refuses: two readings the clock could not separate are not an axis. */
-    mesh_ui_series_push(&series, 1000U, 40);
-    mesh_ui_series_push(&series, 1000U, 45);
+    inkcell_series_push(&series, 1000U, 40);
+    inkcell_series_push(&series, 1000U, 45);
 
-    struct mesh_ui_polyline points;
-    mesh_ui_series_project_within(&series, k_permille, 500000U, 600000U, &points);
+    struct inkcell_polyline points;
+    inkcell_series_project_within(&series, k_permille, 500000U, 600000U, &points);
     MESH_TEST_FAIL_IF(points.count != 0U, "a window past every reading should hold no points");
 
-    const struct mesh_ui_series *const list[] = {&series};
-    struct mesh_ui_trend frame;
-    MESH_TEST_FAIL_IF(mesh_ui_trend_frame(list, 1U, k_permille, MESH_UI_TREND_SPAN_ALL, &frame),
+    const struct inkcell_series *const list[] = {&series};
+    struct inkcell_trend frame;
+    MESH_TEST_FAIL_IF(inkcell_trend_frame(list, 1U, k_permille, INKCELL_TREND_SPAN_ALL, &frame),
                       "readings a tick apart are not a window to lay an axis along");
     record_success(test_name);
 }
@@ -295,7 +295,7 @@ MESH_TEST_CASE(trend_projection_of_an_empty_window_is_empty, unit) {
 MESH_TEST_CASE(trend_span_is_one_choice_across_both_charts, unit) {
     struct mesh_ui_nav nav;
     mesh_ui_nav_init(&nav);
-    MESH_TEST_FAIL_IF(nav.trend_span != (uint8_t)MESH_UI_TREND_SPAN_ALL,
+    MESH_TEST_FAIL_IF(nav.trend_span != (uint8_t)INKCELL_TREND_SPAN_ALL,
                       "a chart should open on everything it has");
     record_success(test_name);
 }
@@ -326,14 +326,14 @@ static bool open_airtime_chart(struct mesh_ui_store *store) {
 
     while (store->nav.screen != MESH_UI_SCREEN_STATUS) {
         const enum mesh_ui_screen before = store->nav.screen;
-        (void)mesh_ui_store_handle_key(store, MESH_UI_KEY_R1, &action);
+        (void)mesh_ui_store_handle_key(store, INKCELL_KEY_R1, &action);
         if (store->nav.screen == before) {
             return false;
         }
     }
-    (void)mesh_ui_store_handle_key(store, MESH_UI_KEY_DOWN, &action);
+    (void)mesh_ui_store_handle_key(store, INKCELL_KEY_DOWN, &action);
     memset(&action, 0, sizeof action);
-    (void)mesh_ui_store_handle_key(store, MESH_UI_KEY_A, &action);
+    (void)mesh_ui_store_handle_key(store, INKCELL_KEY_A, &action);
     return store->nav.trend_open;
 }
 
@@ -354,7 +354,7 @@ MESH_TEST_CASE(trend_left_and_right_walk_the_span_not_the_tabs, unit) {
     memset(&action, 0, sizeof action);
 
     const uint8_t before = store.nav.trend_span;
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_LEFT, &action);
     if (store.nav.screen != MESH_UI_SCREEN_STATUS) {
         failure = "Left on a chart changed tab instead of walking the span";
         goto cleanup;
@@ -363,7 +363,7 @@ MESH_TEST_CASE(trend_left_and_right_walk_the_span_not_the_tabs, unit) {
         failure = "Left on a chart should walk the span picker";
         goto cleanup;
     }
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
     if (store.nav.trend_span != before) {
         failure = "Right should walk back to where Left came from";
         goto cleanup;
@@ -373,7 +373,7 @@ MESH_TEST_CASE(trend_left_and_right_walk_the_span_not_the_tabs, unit) {
         goto cleanup;
     }
     /* And the shoulders, which are what pay for the d-pad being spent here. */
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_R1, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_R1, &action);
     if (store.nav.screen == MESH_UI_SCREEN_STATUS) {
         failure = "the shoulders should still walk the tab strip from a chart";
         goto cleanup;
@@ -411,14 +411,14 @@ MESH_TEST_CASE(trend_action_bar_names_the_span_press, unit) {
             snapshot->nav.node_trend = (uint8_t)MESH_UI_HISTORY_BATTERY;
         }
 
-        struct mesh_ui_action_bar bar;
+        struct inkcell_action_bar bar;
         mesh_ui_actions_for(snapshot, &bar);
         bool named = false;
         bool tabs = false;
         for (size_t i = 0U; i < bar.count; ++i) {
-            named = named || (bar.items[i].button == MESH_UI_BUTTON_LEFT_RIGHT &&
+            named = named || (bar.items[i].button == INKCELL_BUTTON_LEFT_RIGHT &&
                               bar.items[i].label == MESH_STR_ACTION_SPAN);
-            tabs = tabs || bar.items[i].button == MESH_UI_BUTTON_SHOULDERS;
+            tabs = tabs || bar.items[i].button == INKCELL_BUTTON_SHOULDERS;
         }
         if (!named) {
             failure = "a chart's bar should name the span press";
@@ -449,51 +449,51 @@ MESH_TEST_CASE(trend_action_bar_names_the_span_press, unit) {
  * while readings arrive, and the scroll the nav holds is an index into this order.
  */
 MESH_TEST_CASE(trend_readings_list_the_window_newest_first, unit) {
-    struct mesh_ui_series series;
-    mesh_ui_series_reset(&series, 0U);
+    struct inkcell_series series;
+    inkcell_series_reset(&series, 0U);
     for (uint32_t i = 0U; i < 5U; ++i) {
-        mesh_ui_series_push(&series, 1000U + i * 60U * 1000U, (int32_t)(10 + i));
+        inkcell_series_push(&series, 1000U + i * 60U * 1000U, (int32_t)(10 + i));
     }
 
-    MESH_TEST_FAIL_IF(mesh_ui_trend_readings(&series, MESH_UI_TREND_SPAN_ALL) != 5U,
+    MESH_TEST_FAIL_IF(inkcell_trend_readings(&series, INKCELL_TREND_SPAN_ALL) != 5U,
                       "ALL holds every reading");
 
-    struct mesh_ui_trend_reading row;
-    MESH_TEST_FAIL_IF(!mesh_ui_trend_reading_at(&series, MESH_UI_TREND_SPAN_ALL, 0U, &row),
+    struct inkcell_trend_reading row;
+    MESH_TEST_FAIL_IF(!inkcell_trend_reading_at(&series, INKCELL_TREND_SPAN_ALL, 0U, &row),
                       "row 0 should be there");
     MESH_TEST_FAIL_IF(row.value != 14, "row 0 is the newest reading");
     MESH_TEST_FAIL_IF(row.before_ms != 0U, "and nothing came before it");
 
-    MESH_TEST_FAIL_IF(!mesh_ui_trend_reading_at(&series, MESH_UI_TREND_SPAN_ALL, 2U, &row),
+    MESH_TEST_FAIL_IF(!inkcell_trend_reading_at(&series, INKCELL_TREND_SPAN_ALL, 2U, &row),
                       "row 2 should be there");
     MESH_TEST_FAIL_IF(row.value != 12, "the rows count back from the newest");
     MESH_TEST_FAIL_IF(row.before_ms != 2U * 60U * 1000U,
                       "measured from the newest reading rather than from a clock");
 
-    MESH_TEST_FAIL_IF(mesh_ui_trend_reading_at(&series, MESH_UI_TREND_SPAN_ALL, 5U, &row),
+    MESH_TEST_FAIL_IF(inkcell_trend_reading_at(&series, INKCELL_TREND_SPAN_ALL, 5U, &row),
                       "past the end is not a row");
 
     /* The span cuts this list exactly as it cuts the plot: four minutes of readings, and a
        quarter of an hour holds all of them while a narrower window would not. */
-    MESH_TEST_FAIL_IF(mesh_ui_trend_readings(&series, MESH_UI_TREND_SPAN_15M) != 5U,
+    MESH_TEST_FAIL_IF(inkcell_trend_readings(&series, INKCELL_TREND_SPAN_15M) != 5U,
                       "a window wider than the readings holds them all");
 
     /* And the one place the list says more than the picture: a single reading is no window at
-       all to mesh_ui_series_window(), and is a perfectly good row. */
-    struct mesh_ui_series one;
-    mesh_ui_series_reset(&one, 0U);
-    mesh_ui_series_push(&one, 4000U, 7);
-    MESH_TEST_FAIL_IF(mesh_ui_trend_readings(&one, MESH_UI_TREND_SPAN_ALL) != 1U,
+       all to inkcell_series_window(), and is a perfectly good row. */
+    struct inkcell_series one;
+    inkcell_series_reset(&one, 0U);
+    inkcell_series_push(&one, 4000U, 7);
+    MESH_TEST_FAIL_IF(inkcell_trend_readings(&one, INKCELL_TREND_SPAN_ALL) != 1U,
                       "one reading is one row");
-    MESH_TEST_FAIL_IF(!mesh_ui_trend_reading_at(&one, MESH_UI_TREND_SPAN_ALL, 0U, &row) ||
+    MESH_TEST_FAIL_IF(!inkcell_trend_reading_at(&one, INKCELL_TREND_SPAN_ALL, 0U, &row) ||
                           row.value != 7,
                       "and it is the reading that was taken");
 
-    struct mesh_ui_series empty;
-    mesh_ui_series_reset(&empty, 0U);
-    MESH_TEST_FAIL_IF(mesh_ui_trend_readings(&empty, MESH_UI_TREND_SPAN_ALL) != 0U,
+    struct inkcell_series empty;
+    inkcell_series_reset(&empty, 0U);
+    MESH_TEST_FAIL_IF(inkcell_trend_readings(&empty, INKCELL_TREND_SPAN_ALL) != 0U,
                       "nothing kept is no rows");
-    MESH_TEST_FAIL_IF(mesh_ui_trend_readings(NULL, MESH_UI_TREND_SPAN_ALL) != 0U,
+    MESH_TEST_FAIL_IF(inkcell_trend_readings(NULL, INKCELL_TREND_SPAN_ALL) != 0U,
                       "and neither is no series");
     record_success(test_name);
 }
@@ -514,7 +514,7 @@ MESH_TEST_CASE(trend_airtime_chart_has_no_readings_list, unit) {
     struct mesh_ui_action action;
     memset(&action, 0, sizeof action);
 
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_Y, &action);
     if (store.nav.trend_table) {
         failure = "Y on the airtime chart should not list anything";
         goto cleanup;
@@ -527,11 +527,11 @@ MESH_TEST_CASE(trend_airtime_chart_has_no_readings_list, unit) {
     }
     snapshot->nav = store.nav;
     snapshot->history = store.history;
-    struct mesh_ui_action_bar bar;
+    struct inkcell_action_bar bar;
     mesh_ui_actions_for(snapshot, &bar);
     for (size_t i = 0U; i < bar.count; ++i) {
-        if (bar.items[i].button == MESH_UI_BUTTON_Y ||
-            bar.items[i].button == MESH_UI_BUTTON_UP_DOWN) {
+        if (bar.items[i].button == INKCELL_BUTTON_Y ||
+            bar.items[i].button == INKCELL_BUTTON_UP_DOWN) {
             failure = "the bar named a press the airtime chart does not have";
             break;
         }
@@ -546,15 +546,15 @@ cleanup:
 
 MESH_TEST_CASE(trend_bin_follows_the_cadence_and_the_room, unit) {
     const uint32_t minute = 60U * 1000U;
-    MESH_TEST_FAIL_IF(mesh_ui_trend_bin_ms(60U * minute, minute, 80U) != minute,
+    MESH_TEST_FAIL_IF(inkcell_trend_bin_ms(60U * minute, minute, 80U) != minute,
                       "an hour of minutes should be one-minute columns");
-    MESH_TEST_FAIL_IF(mesh_ui_trend_bin_ms(15U * minute, minute + 400U, 80U) != minute,
+    MESH_TEST_FAIL_IF(inkcell_trend_bin_ms(15U * minute, minute + 400U, 80U) != minute,
                       "a report a little late is still a one-minute cadence");
-    MESH_TEST_FAIL_IF(mesh_ui_trend_bin_ms(6U * 60U * minute, minute, 80U) != 5U * minute,
+    MESH_TEST_FAIL_IF(inkcell_trend_bin_ms(6U * 60U * minute, minute, 80U) != 5U * minute,
                       "six hours should widen to fit the room");
-    MESH_TEST_FAIL_IF(mesh_ui_trend_bin_ms(6U * 60U * minute, 16U * minute, 80U) != 15U * minute,
+    MESH_TEST_FAIL_IF(inkcell_trend_bin_ms(6U * 60U * minute, 16U * minute, 80U) != 15U * minute,
                       "a LocalStats-only radio should get columns as wide as its reports");
-    MESH_TEST_FAIL_IF(mesh_ui_trend_bin_ms(0U, 0U, 80U) != 1000U,
+    MESH_TEST_FAIL_IF(inkcell_trend_bin_ms(0U, 0U, 80U) != 1000U,
                       "nothing to measure is the narrowest rung");
     record_success(test_name);
 }
@@ -583,7 +583,7 @@ MESH_TEST_CASE(trend_airtime_bins_each_report_into_its_own_column, unit) {
 
     struct mesh_ui_trend_airtime binned;
     const bool framed =
-        mesh_ui_trend_airtime(history, (uint8_t)MESH_UI_TREND_SPAN_ALL, 80U, &binned);
+        mesh_ui_trend_airtime(history, (uint8_t)INKCELL_TREND_SPAN_ALL, 80U, &binned);
     bool every_minute_present = true;
     bool every_value_kept = true;
     for (uint32_t i = 0U; framed && i < binned.utilization.count; ++i) {
@@ -616,7 +616,7 @@ MESH_TEST_CASE(trend_airtime_averages_and_lifts_the_pen_at_a_silence, unit) {
     note_minutes(history, 60000U, 12U, pair, 4);
     struct mesh_ui_trend_airtime binned;
     MESH_TEST_FAIL_IF_CLEANUP(
-        !mesh_ui_trend_airtime(history, (uint8_t)MESH_UI_TREND_SPAN_ALL, 8U, &binned),
+        !mesh_ui_trend_airtime(history, (uint8_t)INKCELL_TREND_SPAN_ALL, 8U, &binned),
         free(history), "the readings should frame a chart");
     bool averaged = binned.bin_ms == 2U * 60000U;
     for (uint32_t i = 1U; averaged && i + 1U < binned.utilization.count; ++i) {
@@ -631,10 +631,10 @@ MESH_TEST_CASE(trend_airtime_averages_and_lifts_the_pen_at_a_silence, unit) {
         mesh_ui_history_note_metrics_airtime(history, stamps[i] * minute, 10, 5);
     }
     MESH_TEST_FAIL_IF_CLEANUP(
-        !mesh_ui_trend_airtime(history, (uint8_t)MESH_UI_TREND_SPAN_ALL, 80U, &binned),
+        !mesh_ui_trend_airtime(history, (uint8_t)INKCELL_TREND_SPAN_ALL, 80U, &binned),
         free(history), "the readings should frame a chart");
     free(history);
-    const struct mesh_ui_trend_bins *tx = &binned.tx;
+    const struct inkcell_trend_bins *tx = &binned.tx;
 
     MESH_TEST_FAIL_IF(!averaged, "a bin of two readings should be their mean");
     MESH_TEST_FAIL_IF(tx->count != 17U, "seventeen minutes of window is seventeen columns");
@@ -656,7 +656,7 @@ MESH_TEST_CASE(trend_airtime_span_cuts_the_bins, unit) {
     }
     struct mesh_ui_trend_airtime binned;
     const bool framed =
-        mesh_ui_trend_airtime(history, (uint8_t)MESH_UI_TREND_SPAN_15M, 80U, &binned);
+        mesh_ui_trend_airtime(history, (uint8_t)INKCELL_TREND_SPAN_15M, 80U, &binned);
     free(history);
     MESH_TEST_FAIL_IF(!framed, "the readings should frame a chart");
     MESH_TEST_FAIL_IF(binned.frame.to - binned.frame.from != 15U * 60000U,
@@ -689,9 +689,9 @@ MESH_TEST_CASE(trend_airtime_lifts_the_pen_over_a_silence_inside_wide_bins, unit
     }
     struct mesh_ui_trend_airtime binned;
     MESH_TEST_FAIL_IF_CLEANUP(
-        !mesh_ui_trend_airtime(history, (uint8_t)MESH_UI_TREND_SPAN_ALL, 13U, &binned),
+        !mesh_ui_trend_airtime(history, (uint8_t)INKCELL_TREND_SPAN_ALL, 13U, &binned),
         free(history), "the readings should frame a chart");
-    const struct mesh_ui_trend_bins wide = binned.tx;
+    const struct inkcell_trend_bins wide = binned.tx;
     const uint32_t wide_bin = binned.bin_ms;
 
     /* A quarter-hour radio: every reading well past the three-minute gap, and one line. */
@@ -700,7 +700,7 @@ MESH_TEST_CASE(trend_airtime_lifts_the_pen_over_a_silence_inside_wide_bins, unit
         mesh_ui_history_note_airtime(history, minute + r * 16U * minute, 10, 5);
     }
     MESH_TEST_FAIL_IF_CLEANUP(
-        !mesh_ui_trend_airtime(history, (uint8_t)MESH_UI_TREND_SPAN_ALL, 80U, &binned),
+        !mesh_ui_trend_airtime(history, (uint8_t)INKCELL_TREND_SPAN_ALL, 80U, &binned),
         free(history), "the readings should frame a chart");
     free(history);
     bool quarter_hour_joined = true;

@@ -124,7 +124,7 @@ static void stand_on_network_row(struct mesh_ui_store *store) {
     store->nav.cursor[MESH_UI_SCREEN_DEVICES] = 0U;
     const uint32_t rows = mesh_ui_devices_row_count(store->devices, store->device_count);
     for (uint32_t i = 1U; i < rows; ++i) {
-        mesh_ui_store_handle_key(store, MESH_UI_KEY_DOWN, &action);
+        mesh_ui_store_handle_key(store, INKCELL_KEY_DOWN, &action);
     }
 }
 
@@ -142,7 +142,7 @@ MESH_TEST_CASE(devices_network_row_types_an_address, unit) {
     stand_on_network_row(&store);
 
     struct mesh_ui_action action;
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.keyboard_open || !store.nav.keyboard_network ||
         action.type != MESH_UI_ACTION_NONE) {
         mesh_ui_store_shutdown(&store);
@@ -154,7 +154,7 @@ MESH_TEST_CASE(devices_network_row_types_an_address, unit) {
     snprintf(store.nav.draft, sizeof store.nav.draft, "10.0.0.7:4403");
     store.nav.kb.row = INKCELL_KB_CHAR_ROWS;
     store.nav.kb.col = (uint8_t)INKCELL_KB_ACTION_SUBMIT;
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
 
     const bool ok = (action.type == MESH_UI_ACTION_CONNECT) &&
                     action.kind == (uint8_t)MESH_UI_DEVICE_TCP &&
@@ -174,7 +174,7 @@ MESH_TEST_CASE(devices_network_row_connects_to_a_configured_host, unit) {
     stand_on_network_row(&store);
 
     struct mesh_ui_action action;
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     const bool ok = (action.type == MESH_UI_ACTION_CONNECT) &&
                     action.kind == (uint8_t)MESH_UI_DEVICE_TCP &&
                     strcmp(action.identifier, "192.168.1.50") == 0 && !store.nav.keyboard_open;
@@ -198,7 +198,7 @@ MESH_TEST_CASE(devices_network_row_clears_to_forget, unit) {
     stand_on_network_row(&store);
 
     struct mesh_ui_action action;
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_Y, &action);
     if (!store.nav.keyboard_network || strcmp(store.nav.draft, "192.168.1.50") != 0) {
         mesh_ui_store_shutdown(&store);
         record_failure(test_name, "Y should open the keyboard on the address it is editing");
@@ -215,7 +215,7 @@ MESH_TEST_CASE(devices_network_row_clears_to_forget, unit) {
     store.nav.draft[0] = '\0';
     store.nav.kb.row = INKCELL_KB_CHAR_ROWS;
     store.nav.kb.col = (uint8_t)INKCELL_KB_ACTION_SUBMIT;
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
 
     const bool ok = (action.type == MESH_UI_ACTION_FORGET) &&
                     action.kind == (uint8_t)MESH_UI_DEVICE_TCP && !store.nav.keyboard_open;
@@ -239,14 +239,14 @@ MESH_TEST_CASE(devices_network_keyboard_gives_back_the_draft, unit) {
     stand_on_network_row(&store);
 
     struct mesh_ui_action action;
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (store.nav.draft[0] != '\0') {
         mesh_ui_store_shutdown(&store);
         record_failure(test_name, "the network keyboard should start empty, not on the draft");
         return;
     }
     /* B with nothing left to delete closes the keyboard. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
 
     const bool ok = !store.nav.keyboard_open && !store.nav.keyboard_network &&
                     strcmp(store.nav.draft, "half a message") == 0 &&

@@ -63,9 +63,9 @@ static const char *const k_id_names[MESH_STR_COUNT] = {
  * bad translation.
  */
 _Static_assert(sizeof k_english / sizeof k_english[0] == (size_t)MESH_STR_COUNT,
-               "the English table and enum mesh_str_id disagree about how many ids there are");
+               "the English table and enum inkcell_str_id disagree about how many ids there are");
 _Static_assert(sizeof k_id_names / sizeof k_id_names[0] == (size_t)MESH_STR_COUNT,
-               "the id-name table and enum mesh_str_id disagree about how many ids there are");
+               "the id-name table and enum inkcell_str_id disagree about how many ids there are");
 
 /* ---- locales ------------------------------------------------------------------------------- */
 
@@ -109,7 +109,7 @@ static const struct inkcell_i18n_catalog k_catalog = {
 
 void mesh_i18n_register(void) { inkcell_i18n_set_catalog(&k_catalog); }
 
-/* mesh_i18n_locale_count() and mesh_i18n_locale_at() are not defined here: they are
+/* inkcell_i18n_locale_count() and inkcell_i18n_locale_at() are not defined here: they are
    inkcell_i18n_locale_count() and inkcell_i18n_locale_at() under their old names, and once the
    catalog above is registered those answer out of k_locales. Defining them here as well is a
    duplicate symbol, which is what the linker said the first time. */

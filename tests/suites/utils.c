@@ -22,11 +22,11 @@ MESH_TEST_CASE(text_utf8_helpers, unit) {
     /* One four-byte emoji is one character. This is the bug the whole change is about: the
        framebuffer used to walk bytes, so a node named with a single emoji drew four cells. */
     const char *emoji = "\xF0\x9F\x93\xA1";
-    MESH_TEST_FAIL_IF(mesh_text_utf8_length(emoji) != 1U,
+    MESH_TEST_FAIL_IF(inkcell_text_utf8_length(emoji) != 1U,
                       "a four-byte emoji should be one character");
 
     uint32_t codepoint = 0U;
-    MESH_TEST_FAIL_IF(mesh_text_utf8_next(emoji, &codepoint) != 4U || codepoint != 0x1F4E1U,
+    MESH_TEST_FAIL_IF(inkcell_text_utf8_next(emoji, &codepoint) != 4U || codepoint != 0x1F4E1U,
                       "emoji did not decode to U+1F4E1");
 
     struct {
@@ -45,21 +45,21 @@ MESH_TEST_CASE(text_utf8_helpers, unit) {
          4U},
     };
     for (size_t i = 0; i < sizeof lengths / sizeof lengths[0]; ++i) {
-        MESH_TEST_FAIL_IF(mesh_text_utf8_length(lengths[i].text) != lengths[i].chars,
+        MESH_TEST_FAIL_IF(inkcell_text_utf8_length(lengths[i].text) != lengths[i].chars,
                           lengths[i].label);
     }
 
     /* Truncation lands on a character boundary, never inside a sequence. */
     char line[32];
     snprintf(line, sizeof line, "%s", "\xF0\x9F\x8C\xB2\xF0\x9F\x8F\xA0\xF0\x9F\x9A\x97");
-    mesh_text_utf8_truncate(line, 2U);
+    inkcell_text_utf8_truncate(line, 2U);
     MESH_TEST_FAIL_IF(strcmp(line, "\xF0\x9F\x8C\xB2\xF0\x9F\x8F\xA0") != 0,
                       "truncate split a character");
 
     /* And a copy into a buffer too small for the next character stops before it, rather than
        leaving a half sequence behind. */
     char narrow[6];
-    mesh_text_sanitise_str("\xF0\x9F\x8C\xB2\xF0\x9F\x8F\xA0", narrow, sizeof narrow);
+    inkcell_text_sanitise_str("\xF0\x9F\x8C\xB2\xF0\x9F\x8F\xA0", narrow, sizeof narrow);
     MESH_TEST_FAIL_IF(strcmp(narrow, "\xF0\x9F\x8C\xB2") != 0,
                       "sanitise split a character at the buffer boundary");
 
@@ -148,12 +148,12 @@ MESH_TEST_CASE(sha256_vectors, unit) {
  */
 MESH_TEST_CASE(time_wall_clock_pins_and_releases, unit) {
     const uint32_t pinned = 1767200000U;
-    mesh_time_wall_set_fixed(pinned);
-    MESH_TEST_FAIL_IF_CLEANUP(mesh_time_wall_s() != pinned, mesh_time_wall_set_fixed(0U),
+    inkcell_time_wall_set_fixed(pinned);
+    MESH_TEST_FAIL_IF_CLEANUP(inkcell_time_wall_s() != pinned, inkcell_time_wall_set_fixed(0U),
                               "the pinned clock did not read back");
 
-    mesh_time_wall_set_fixed(0U);
-    const uint32_t live = mesh_time_wall_s();
+    inkcell_time_wall_set_fixed(0U);
+    const uint32_t live = inkcell_time_wall_s();
     /* Any date after this file was written; the point is that it is the real clock again and
        not the epoch. */
     MESH_TEST_FAIL_IF(live < 1700000000U, "clearing the pin did not restore the real clock");
@@ -171,21 +171,21 @@ MESH_TEST_CASE(time_wall_clock_pins_and_releases, unit) {
  */
 MESH_TEST_CASE(time_wall_clock_credibility, unit) {
     /* 1970, which is where a machine that has not been told the date starts. */
-    mesh_time_wall_set_fixed(42U);
-    const uint32_t machine = mesh_time_wall_s();
-    const uint32_t credible = mesh_time_wall_credible_s();
-    mesh_time_wall_set_fixed(0U);
+    inkcell_time_wall_set_fixed(42U);
+    const uint32_t machine = inkcell_time_wall_s();
+    const uint32_t credible = inkcell_time_wall_credible_s();
+    inkcell_time_wall_set_fixed(0U);
     MESH_TEST_FAIL_IF(machine != 42U, "the machine's clock is whatever it says");
     MESH_TEST_FAIL_IF(credible != 0U, "1970 is not a date to measure a deadline against");
 
     /* One second under the floor is still not a clock, and the floor itself is not either. */
-    mesh_time_wall_set_fixed(MESH_TIME_CLOCK_MIN_EPOCH);
-    const uint32_t at_floor = mesh_time_wall_credible_s();
-    mesh_time_wall_set_fixed(MESH_TIME_CLOCK_MIN_EPOCH + 1U);
-    const uint32_t over_floor = mesh_time_wall_credible_s();
-    mesh_time_wall_set_fixed(0U);
+    inkcell_time_wall_set_fixed(INKCELL_TIME_CLOCK_MIN_EPOCH);
+    const uint32_t at_floor = inkcell_time_wall_credible_s();
+    inkcell_time_wall_set_fixed(INKCELL_TIME_CLOCK_MIN_EPOCH + 1U);
+    const uint32_t over_floor = inkcell_time_wall_credible_s();
+    inkcell_time_wall_set_fixed(0U);
     MESH_TEST_FAIL_IF(at_floor != 0U, "the floor itself is not a credible clock");
-    MESH_TEST_FAIL_IF(over_floor != MESH_TIME_CLOCK_MIN_EPOCH + 1U,
+    MESH_TEST_FAIL_IF(over_floor != INKCELL_TIME_CLOCK_MIN_EPOCH + 1U,
                       "a second past the floor is a clock, and is passed through unchanged");
 
     record_success(test_name);

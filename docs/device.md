@@ -158,7 +158,7 @@ reports by position**:
 
 **L2 and R2 are triggers, not buttons** — there is no `BTN_TL2` in the key bitmap at all. They are
 digital in practice (255 on press, 0 on release), which is what lets the client treat them as
-ordinary logical keys: `mesh_ui_input_map_trigger()` reads the two axes, and a latch turns the
+ordinary logical keys: `inkcell_input_map_trigger()` reads the two axes, and a latch turns the
 squeeze into one press rather than one per value an analogue pad would report on the way up. **F1 and F2 are the stick clicks**: a 360 pad
 has two sticks and the Brick has none, so TrimUI spent those codes on the middle buttons.
 

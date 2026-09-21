@@ -47,14 +47,14 @@ int mesh_ui_preferences_default_path(char *buffer, size_t buffer_len) {
     struct stat st;
     if (stat(buffer, &st) < 0) {
         if (errno != ENOENT) {
-            mesh_log_warn("ui", "Failed to stat %s: %s", buffer, strerror(errno));
+            inkcell_log_warn("ui", "Failed to stat %s: %s", buffer, strerror(errno));
         }
         if (mkdir(buffer, 0700) < 0 && errno != EEXIST) {
-            mesh_log_warn("ui", "Failed to create %s: %s", buffer, strerror(errno));
+            inkcell_log_warn("ui", "Failed to create %s: %s", buffer, strerror(errno));
             return -errno;
         }
     } else if (!S_ISDIR(st.st_mode)) {
-        mesh_log_warn("ui", "%s exists but is not a directory", buffer);
+        inkcell_log_warn("ui", "%s exists but is not a directory", buffer);
         return -ENOTDIR;
     }
 
@@ -398,18 +398,18 @@ static int ensure_parent_directory(const char *path) {
     struct stat st;
     if (stat(directory, &st) == 0) {
         if (!S_ISDIR(st.st_mode)) {
-            mesh_log_warn("ui", "%s exists but is not a directory", directory);
+            inkcell_log_warn("ui", "%s exists but is not a directory", directory);
             return -ENOTDIR;
         }
         return 0;
     }
 
     if (errno != ENOENT) {
-        mesh_log_warn("ui", "Failed to stat %s: %s", directory, strerror(errno));
+        inkcell_log_warn("ui", "Failed to stat %s: %s", directory, strerror(errno));
     }
 
     if (mkdir(directory, 0700) < 0 && errno != EEXIST) {
-        mesh_log_warn("ui", "Failed to create %s: %s", directory, strerror(errno));
+        inkcell_log_warn("ui", "Failed to create %s: %s", directory, strerror(errno));
         return -errno;
     }
 
@@ -428,7 +428,7 @@ int mesh_ui_preferences_save(const struct mesh_ui_preferences *prefs, const char
 
     FILE *file = fopen(path, "w");
     if (file == NULL) {
-        mesh_log_warn("ui", "Failed to open %s for writing: %s", path, strerror(errno));
+        inkcell_log_warn("ui", "Failed to open %s for writing: %s", path, strerror(errno));
         return -errno;
     }
 

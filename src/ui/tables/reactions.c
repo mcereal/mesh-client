@@ -15,7 +15,7 @@
  */
 static const struct {
     const char *emoji;
-    enum mesh_str_id label;
+    enum inkcell_str_id label;
 } k_reactions[] = {
     {"\xF0\x9F\x91\x8D", MESH_STR_REACTION_THUMBS_UP},   /* U+1F44D thumbs up */
     {"\xF0\x9F\x91\x8E", MESH_STR_REACTION_THUMBS_DOWN}, /* U+1F44E thumbs down */
@@ -27,18 +27,18 @@ static const struct {
     {"\xE2\x80\xBC", MESH_STR_REACTION_IMPORTANT},       /* U+203C double exclamation mark */
 };
 
-size_t mesh_ui_reaction_count(void) { return MESH_ARRAY_LEN(k_reactions); }
+size_t mesh_ui_reaction_count(void) { return INKCELL_ARRAY_LEN(k_reactions); }
 
 const char *mesh_ui_reaction_emoji(size_t index) {
-    if (index >= MESH_ARRAY_LEN(k_reactions)) {
+    if (index >= INKCELL_ARRAY_LEN(k_reactions)) {
         return "";
     }
     return k_reactions[index].emoji;
 }
 
-enum mesh_str_id mesh_ui_reaction_label(size_t index) {
-    if (index >= MESH_ARRAY_LEN(k_reactions)) {
-        return MESH_STR_NONE;
+enum inkcell_str_id mesh_ui_reaction_label(size_t index) {
+    if (index >= INKCELL_ARRAY_LEN(k_reactions)) {
+        return INKCELL_STR_NONE;
     }
     return k_reactions[index].label;
 }

@@ -76,7 +76,7 @@ MESH_TEST_CASE(ui_nav_node_trend_opens_from_its_row, unit) {
 
     struct mesh_ui_action action;
     memset(&action, 0, sizeof action);
-    (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_A, &action);
+    (void)mesh_ui_nav_handle_key(&nav, &store, INKCELL_KEY_A, &action);
     MESH_TEST_FAIL_IF(nav.node_trend != MESH_UI_HISTORY_TEMPERATURE,
                       "A on the row should open that reading's chart");
     MESH_TEST_FAIL_IF(action.type != MESH_UI_ACTION_NONE,
@@ -84,12 +84,12 @@ MESH_TEST_CASE(ui_nav_node_trend_opens_from_its_row, unit) {
 
     /* The swallow: the picture has nothing to move, so Down must not reach the rows under it. */
     const uint32_t cursor = nav.cursor[MESH_UI_SCREEN_NODES];
-    (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_DOWN, &action);
+    (void)mesh_ui_nav_handle_key(&nav, &store, INKCELL_KEY_DOWN, &action);
     MESH_TEST_FAIL_IF(nav.cursor[MESH_UI_SCREEN_NODES] != cursor,
                       "the chart should swallow the d-pad rather than walk the rows beneath it");
     MESH_TEST_FAIL_IF(nav.node_trend != MESH_UI_HISTORY_TEMPERATURE, "and stay open under it");
 
-    (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_B, &action);
+    (void)mesh_ui_nav_handle_key(&nav, &store, INKCELL_KEY_B, &action);
     MESH_TEST_FAIL_IF(nav.node_trend != MESH_UI_HISTORY_NONE, "B should close the chart");
     MESH_TEST_FAIL_IF(!nav.node_detail_open, "and land back on the detail rather than the list");
 
@@ -161,13 +161,13 @@ MESH_TEST_CASE(ui_nav_node_trend_lists_its_readings, unit) {
     }
     /* Up and Down do nothing while the picture is up, and are still swallowed rather than
        reaching the rows underneath. */
-    (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_DOWN, &action);
+    (void)mesh_ui_nav_handle_key(&nav, &store, INKCELL_KEY_DOWN, &action);
     if (nav.trend_scroll != 0U) {
         failure = "a picture has nothing to scroll";
         goto cleanup;
     }
 
-    (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_Y, &action);
+    (void)mesh_ui_nav_handle_key(&nav, &store, INKCELL_KEY_Y, &action);
     if (!nav.trend_table) {
         failure = "Y should turn the chart into its readings";
         goto cleanup;
@@ -177,13 +177,13 @@ MESH_TEST_CASE(ui_nav_node_trend_lists_its_readings, unit) {
         goto cleanup;
     }
 
-    (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_DOWN, &action);
-    (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_DOWN, &action);
+    (void)mesh_ui_nav_handle_key(&nav, &store, INKCELL_KEY_DOWN, &action);
+    (void)mesh_ui_nav_handle_key(&nav, &store, INKCELL_KEY_DOWN, &action);
     if (nav.trend_scroll != 2U) {
         failure = "Down should move the window over the readings";
         goto cleanup;
     }
-    (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_UP, &action);
+    (void)mesh_ui_nav_handle_key(&nav, &store, INKCELL_KEY_UP, &action);
     if (nav.trend_scroll != 1U) {
         failure = "and Up should move it back";
         goto cleanup;
@@ -191,7 +191,7 @@ MESH_TEST_CASE(ui_nav_node_trend_lists_its_readings, unit) {
 
     /* Past the end, then clamped: eight readings in a window of four leaves four to scroll. */
     for (uint32_t i = 0U; i < 20U; ++i) {
-        (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_DOWN, &action);
+        (void)mesh_ui_nav_handle_key(&nav, &store, INKCELL_KEY_DOWN, &action);
     }
     (void)mesh_ui_nav_clamp(&nav, &store);
     if (nav.trend_scroll != 4U) {
@@ -200,7 +200,7 @@ MESH_TEST_CASE(ui_nav_node_trend_lists_its_readings, unit) {
     }
 
     /* And the span picker resets it, because a different span is a different set of rows. */
-    (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_LEFT, &action);
+    (void)mesh_ui_nav_handle_key(&nav, &store, INKCELL_KEY_LEFT, &action);
     if (nav.trend_scroll != 0U) {
         failure = "picking another span should put the list back at its newest reading";
         goto cleanup;
@@ -224,13 +224,13 @@ MESH_TEST_CASE(ui_nav_node_trend_lists_its_readings, unit) {
         snapshot->handshake_valid = true;
         snapshot->history = store.history;
         snapshot->page_rows = 4U;
-        struct mesh_ui_action_bar bar;
+        struct inkcell_action_bar bar;
         bool named_y = false;
         bool named_scroll = false;
         mesh_ui_actions_for(snapshot, &bar);
         for (size_t i = 0U; i < bar.count; ++i) {
-            named_y = named_y || bar.items[i].button == MESH_UI_BUTTON_Y;
-            named_scroll = named_scroll || bar.items[i].button == MESH_UI_BUTTON_UP_DOWN;
+            named_y = named_y || bar.items[i].button == INKCELL_BUTTON_Y;
+            named_scroll = named_scroll || bar.items[i].button == INKCELL_BUTTON_UP_DOWN;
         }
         /* Eight readings in a body of four: more than fits, so both presses are real. */
         const bool overflowed = named_y && named_scroll;
@@ -240,7 +240,7 @@ MESH_TEST_CASE(ui_nav_node_trend_lists_its_readings, unit) {
         named_scroll = false;
         mesh_ui_actions_for(snapshot, &bar);
         for (size_t i = 0U; i < bar.count; ++i) {
-            named_scroll = named_scroll || bar.items[i].button == MESH_UI_BUTTON_UP_DOWN;
+            named_scroll = named_scroll || bar.items[i].button == INKCELL_BUTTON_UP_DOWN;
         }
         const bool quiet = !named_scroll;
         free(snapshot);
@@ -256,7 +256,7 @@ MESH_TEST_CASE(ui_nav_node_trend_lists_its_readings, unit) {
 
     /* Y again is the picture, and closing the chart leaves no scroll behind for the next one. */
     nav.trend_scroll = 3U;
-    (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_Y, &action);
+    (void)mesh_ui_nav_handle_key(&nav, &store, INKCELL_KEY_Y, &action);
     if (nav.trend_table || nav.trend_scroll != 0U) {
         failure = "Y should turn it back, and take the position with it";
         goto cleanup;
@@ -308,7 +308,7 @@ MESH_TEST_CASE(ui_nav_node_trend_keeps_the_row_it_was_opened_from, unit) {
 
     struct mesh_ui_action action;
     memset(&action, 0, sizeof action);
-    (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_A, &action);
+    (void)mesh_ui_nav_handle_key(&nav, &store, INKCELL_KEY_A, &action);
     MESH_TEST_FAIL_IF(nav.node_trend != MESH_UI_HISTORY_TEMPERATURE, "A should open the chart");
 
     /* The publish that follows the press, which is where this used to be lost. */
@@ -316,7 +316,7 @@ MESH_TEST_CASE(ui_nav_node_trend_keeps_the_row_it_was_opened_from, unit) {
     MESH_TEST_FAIL_IF(nav.cursor[MESH_UI_SCREEN_NODES] != row,
                       "a clamp under an open chart must not reset the detail's cursor");
 
-    (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_B, &action);
+    (void)mesh_ui_nav_handle_key(&nav, &store, INKCELL_KEY_B, &action);
     MESH_TEST_FAIL_IF(nav.cursor[MESH_UI_SCREEN_NODES] != row,
                       "B out of a chart should land on the row it was opened from");
 
@@ -478,7 +478,7 @@ MESH_TEST_CASE(ui_nav_node_trend_closes_when_it_empties, unit) {
     struct mesh_ui_action action;
     memset(&action, 0, sizeof action);
     nav.node_trend = MESH_UI_HISTORY_NONE;
-    (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_B, &action);
+    (void)mesh_ui_nav_handle_key(&nav, &store, INKCELL_KEY_B, &action);
     MESH_TEST_FAIL_IF(nav.node_detail_open, "B off the detail should close it");
     MESH_TEST_FAIL_IF(nav.node_trend != MESH_UI_HISTORY_NONE,
                       "and no chart may outlive the detail it was a level of");
@@ -512,12 +512,12 @@ MESH_TEST_CASE(ui_nav_node_actions_lets_the_other_presses_through, unit) {
     memset(&action, 0, sizeof action);
 
     /* Onto a node that is not us, in to its detail, and in again to its verbs. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
     for (uint32_t step = 0; step < MESH_UI_NODES_LEAD_ROWS + 1U; ++step) {
-        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+        mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.node_detail_open || !store.nav.node_actions_open) {
         failure = "two presses of A should reach the node's verbs";
         goto cleanup;
@@ -525,12 +525,12 @@ MESH_TEST_CASE(ui_nav_node_actions_lets_the_other_presses_through, unit) {
     const uint32_t node_id = store.nav.node_detail_node;
 
     /* SELECT explains this screen, which is the topic keyed on its own route. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_SELECT, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_SELECT, &action);
     if (!store.nav.help_open) {
         failure = "SELECT should open the sheet's help, as the bar says it does";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
     if (store.nav.help_open || !store.nav.node_actions_open) {
         failure = "B should close the help and leave the sheet where it was";
         goto cleanup;
@@ -539,9 +539,9 @@ MESH_TEST_CASE(ui_nav_node_actions_lets_the_other_presses_through, unit) {
     /* X and Y still reach the node, which they find by id rather than by the cursor - so the
        sheet's own cursor standing on some other verb changes nothing about them. */
     memset(&action, 0, sizeof action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     memset(&action, 0, sizeof action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
     if (action.type != MESH_UI_ACTION_TOGGLE_FAVORITE || action.dest != node_id) {
         failure = "X on the sheet should still pin the node the sheet is about";
         goto cleanup;
@@ -549,14 +549,14 @@ MESH_TEST_CASE(ui_nav_node_actions_lets_the_other_presses_through, unit) {
 
     /* And the shoulders change tab, which is the press the bar names last and the one a blanket
        return took away. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_R1, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_R1, &action);
     if (store.nav.screen == MESH_UI_SCREEN_NODES) {
         failure = "a shoulder should still change tab from inside the sheet";
         goto cleanup;
     }
     /* And the tab is left as it was found, so coming back lands on the verbs rather than on the
        list - the same thing an open detail or an open map does. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_L1, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_L1, &action);
     if (store.nav.screen != MESH_UI_SCREEN_NODES || !store.nav.node_actions_open) {
         failure = "coming back to the tab should land on the sheet it was left on";
         goto cleanup;
@@ -651,7 +651,7 @@ MESH_TEST_CASE(ui_nav_node_detail_walks_its_groups, unit) {
     seen[visited++] = nav.cursor[MESH_UI_SCREEN_NODES];
     for (uint32_t i = 1U; i < groups; ++i) {
         const uint32_t before = nav.cursor[MESH_UI_SCREEN_NODES];
-        (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_RIGHT, &action);
+        (void)mesh_ui_nav_handle_key(&nav, &store, INKCELL_KEY_RIGHT, &action);
         const uint32_t at = nav.cursor[MESH_UI_SCREEN_NODES];
         MESH_TEST_FAIL_IF(at <= before, "Right should move forward to the next group");
         MESH_TEST_FAIL_IF(items[at].kind == MESH_UI_NODE_ROW_HEADING,
@@ -666,7 +666,7 @@ MESH_TEST_CASE(ui_nav_node_detail_walks_its_groups, unit) {
 
     /* The last group: Right has nowhere to go and spends the press rather than changing tab. */
     const uint32_t last = nav.cursor[MESH_UI_SCREEN_NODES];
-    (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_RIGHT, &action);
+    (void)mesh_ui_nav_handle_key(&nav, &store, INKCELL_KEY_RIGHT, &action);
     MESH_TEST_FAIL_IF(nav.cursor[MESH_UI_SCREEN_NODES] != last,
                       "Right past the last group should stay put");
     MESH_TEST_FAIL_IF(nav.screen != MESH_UI_SCREEN_NODES,
@@ -675,11 +675,11 @@ MESH_TEST_CASE(ui_nav_node_detail_walks_its_groups, unit) {
     /* Left off the top of a group goes to the group before, so the walk comes back the way it
        went. */
     for (uint32_t i = visited; i-- > 1U;) {
-        (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_LEFT, &action);
+        (void)mesh_ui_nav_handle_key(&nav, &store, INKCELL_KEY_LEFT, &action);
         MESH_TEST_FAIL_IF(nav.cursor[MESH_UI_SCREEN_NODES] != seen[i - 1U],
                           "Left should retrace the groups Right walked");
     }
-    (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_LEFT, &action);
+    (void)mesh_ui_nav_handle_key(&nav, &store, INKCELL_KEY_LEFT, &action);
     MESH_TEST_FAIL_IF(nav.cursor[MESH_UI_SCREEN_NODES] != seen[0],
                       "Left at the first group should stay put");
     MESH_TEST_FAIL_IF(nav.screen != MESH_UI_SCREEN_NODES,
@@ -690,17 +690,17 @@ MESH_TEST_CASE(ui_nav_node_detail_walks_its_groups, unit) {
      * Asked of the environment card, which is the group with two stops in it now that the verbs
      * are a screen of their own: its temperature and its humidity have both been watched, so each
      * is a press and Down moves between them without leaving the card. */
-    while (mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_RIGHT, &action)) {
+    while (mesh_ui_nav_handle_key(&nav, &store, INKCELL_KEY_RIGHT, &action)) {
     }
     const uint32_t top = nav.cursor[MESH_UI_SCREEN_NODES];
-    (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_DOWN, &action);
+    (void)mesh_ui_nav_handle_key(&nav, &store, INKCELL_KEY_DOWN, &action);
     MESH_TEST_FAIL_IF(nav.cursor[MESH_UI_SCREEN_NODES] == top, "Down should move within a group");
-    (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_LEFT, &action);
+    (void)mesh_ui_nav_handle_key(&nav, &store, INKCELL_KEY_LEFT, &action);
     MESH_TEST_FAIL_IF(nav.cursor[MESH_UI_SCREEN_NODES] != top,
                       "Left from inside a group should go to the top of it");
 
     /* The shoulders are deliberately not taken, which is what pays for the d-pad here. */
-    (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_R1, &action);
+    (void)mesh_ui_nav_handle_key(&nav, &store, INKCELL_KEY_R1, &action);
     MESH_TEST_FAIL_IF(nav.screen == MESH_UI_SCREEN_NODES,
                       "the shoulders should still change tab from inside a node");
 
@@ -834,12 +834,12 @@ MESH_TEST_CASE(ui_nav_node_detail_walks_its_stops, unit) {
             }
             /* What the window really shows from this stop, measured the way the renderer opens
                it - a span taller than the window is not all on screen. */
-            const struct mesh_ui_list window =
-                mesh_ui_list_begin_span(count, at, span.first, span.last, rows, heights);
+            const struct inkcell_list window =
+                inkcell_list_begin_span(count, at, span.first, span.last, rows, heights);
             for (uint32_t r = window.first; r < window.first + window.visible; ++r) {
                 covered[r] = true;
             }
-            if (!mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_DOWN, &action)) {
+            if (!mesh_ui_nav_handle_key(&nav, &store, INKCELL_KEY_DOWN, &action)) {
                 break;
             }
             MESH_TEST_FAIL_IF(nav.cursor[MESH_UI_SCREEN_NODES] <= at, "Down should move forward");
@@ -862,11 +862,11 @@ MESH_TEST_CASE(ui_nav_node_detail_walks_its_stops, unit) {
 
         /* Up retraces the walk, and spends the press at the top. */
         for (uint32_t i = visited; i-- > 1U;) {
-            (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_UP, &action);
+            (void)mesh_ui_nav_handle_key(&nav, &store, INKCELL_KEY_UP, &action);
             MESH_TEST_FAIL_IF(nav.cursor[MESH_UI_SCREEN_NODES] != stops[i - 1U],
                               "Up should retrace the stops Down walked");
         }
-        (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_UP, &action);
+        (void)mesh_ui_nav_handle_key(&nav, &store, INKCELL_KEY_UP, &action);
         MESH_TEST_FAIL_IF(nav.cursor[MESH_UI_SCREEN_NODES] != stops[0],
                           "Up at the top should stay");
     }
@@ -958,7 +958,7 @@ static bool detail_draws_a_route(const struct mesh_ui_store *store,
         NULL, false, items, MESH_UI_NODE_ITEMS_MAX);
     for (uint32_t i = 0U; i < count; ++i) {
         if (items[i].kind == MESH_UI_NODE_ROW_HEADING &&
-            strcmp(items[i].label, mesh_str(MESH_STR_NODE_HEAD_ROUTE_OUT)) == 0) {
+            strcmp(items[i].label, inkcell_str(MESH_STR_NODE_HEAD_ROUTE_OUT)) == 0) {
             return true;
         }
     }
@@ -1048,25 +1048,25 @@ MESH_TEST_CASE(ui_nav_node_favorite, unit) {
        first node. Counted from MESH_UI_NODES_LEAD_ROWS rather than written out, so a third lead
        row arrives here as a compile-time fact rather than as a mystery failure. */
     for (uint32_t lead = 0; lead < MESH_UI_NODES_LEAD_ROWS; ++lead) {
-        mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+        mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
         if (action.type != MESH_UI_ACTION_NONE) {
             mesh_ui_store_shutdown(&store);
             record_failure(test_name, "X on a lead row should do nothing");
             return;
         }
-        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+        mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     }
 
     /* Our own node cannot be pinned: it already outranks everything. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
     if (action.type != MESH_UI_ACTION_NONE) {
         mesh_ui_store_shutdown(&store);
         record_failure(test_name, "X on our own node should do nothing");
         return;
     }
 
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
     if (action.type != MESH_UI_ACTION_TOGGLE_FAVORITE || action.dest != 0x3000U ||
         action.number != 1U) {
         mesh_ui_store_shutdown(&store);
@@ -1078,7 +1078,7 @@ MESH_TEST_CASE(ui_nav_node_favorite, unit) {
     handshake.nodes[1].is_favorite = true;
     mesh_ui_store_set_handshake(&store, &handshake);
     mesh_ui_store_consume_updates(&store, NULL);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
     if (action.type != MESH_UI_ACTION_TOGGLE_FAVORITE || action.number != 0U) {
         mesh_ui_store_shutdown(&store);
         record_failure(test_name, "X on a pinned node should ask for an unpin");
@@ -1086,13 +1086,13 @@ MESH_TEST_CASE(ui_nav_node_favorite, unit) {
     }
 
     /* And the sheet's own row does the same thing, wherever it happens to sit. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action); /* open the detail */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action); /* open the detail */
     if (!store.nav.node_detail_open) {
         mesh_ui_store_shutdown(&store);
         record_failure(test_name, "A should open the detail");
         return;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action); /* and its "Actions" row */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action); /* and its "Actions" row */
     if (!store.nav.node_actions_open) {
         mesh_ui_store_shutdown(&store);
         record_failure(test_name, "the detail's first row should open the node's verbs");
@@ -1115,9 +1115,9 @@ MESH_TEST_CASE(ui_nav_node_favorite, unit) {
     /* Walk to it rather than counting presses from 0, which is the habit rather than a need
        here: every row of this screen is a stop, so the two happen to agree. */
     while (store.nav.node_actions_cursor < favorite_row &&
-           mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action)) {
+           mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action)) {
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (action.type != MESH_UI_ACTION_TOGGLE_FAVORITE || action.dest != 0x3000U ||
         action.number != 0U || store.nav.thread_open) {
         mesh_ui_store_shutdown(&store);
@@ -1165,9 +1165,9 @@ MESH_TEST_CASE(ui_nav_node_detail_follows_the_node, unit) {
     store.nav.screen = MESH_UI_SCREEN_NODES;
     /* Past the filter and map rows, then past our own node, onto the second node in the list. */
     for (uint32_t step = 0; step < MESH_UI_NODES_LEAD_ROWS + 1U; ++step) {
-        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+        mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.node_detail_open || store.nav.node_detail_node != 0x3000U) {
         mesh_ui_store_shutdown(&store);
         record_failure(test_name, "A on the second row should open that node");
@@ -1247,7 +1247,7 @@ MESH_TEST_CASE(ui_nav_devices_disconnect_forget, unit) {
     store.nav.screen = MESH_UI_SCREEN_DEVICES;
 
     struct mesh_ui_action action;
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
     if (action.type != MESH_UI_ACTION_DISCONNECT ||
         strcmp(action.identifier, devices[0].identifier) != 0) {
         mesh_ui_store_shutdown(&store);
@@ -1256,13 +1256,13 @@ MESH_TEST_CASE(ui_nav_devices_disconnect_forget, unit) {
     }
 
     /* One press of Y only arms it: a bond dropped by accident costs a re-pair. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_Y, &action);
     if (action.type != MESH_UI_ACTION_NONE || !store.nav.devices_forget_armed) {
         mesh_ui_store_shutdown(&store);
         record_failure(test_name, "the first Y should only arm the forget");
         return;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_Y, &action);
     if (action.type != MESH_UI_ACTION_FORGET ||
         strcmp(action.identifier, devices[0].identifier) != 0 || store.nav.devices_forget_armed) {
         mesh_ui_store_shutdown(&store);
@@ -1271,15 +1271,15 @@ MESH_TEST_CASE(ui_nav_devices_disconnect_forget, unit) {
     }
 
     /* Anything else stands it down, and a USB port has no bond to forget at all. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_Y, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     if (store.nav.devices_forget_armed) {
         mesh_ui_store_shutdown(&store);
         record_failure(test_name, "moving the cursor should stand the forget down");
         return;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_Y, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_Y, &action);
     if (action.type != MESH_UI_ACTION_NONE) {
         mesh_ui_store_shutdown(&store);
         record_failure(test_name, "a USB port has nothing to forget");
@@ -1311,7 +1311,7 @@ MESH_TEST_CASE(ui_nav_passkey_prompt, unit) {
         const uint8_t col = (uint8_t)((*c == '0') ? 9 : (*c - '1'));
         store.nav.kb.row = 0U;
         store.nav.kb.col = col;
-        mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+        mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     }
     if (strcmp(store.nav.draft, pin) != 0) {
         mesh_ui_store_shutdown(&store);
@@ -1319,7 +1319,7 @@ MESH_TEST_CASE(ui_nav_passkey_prompt, unit) {
         return;
     }
 
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_START, &action);
     if (action.type != MESH_UI_ACTION_SUBMIT_PASSKEY || strcmp(action.text, pin) != 0) {
         mesh_ui_store_shutdown(&store);
         record_failure(test_name, "Send should submit the PIN");
@@ -1342,14 +1342,14 @@ MESH_TEST_CASE(ui_nav_passkey_prompt, unit) {
     for (int i = 0; i < 8; ++i) {
         store.nav.kb.row = 0U;
         store.nav.kb.col = 0U; /* "1" */
-        mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+        mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     }
     if (strcmp(store.nav.draft, "111111") != 0) {
         mesh_ui_store_shutdown(&store);
         record_failure(test_name, "the prompt should stop at six digits");
         return;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_START, &action);
     if (action.type != MESH_UI_ACTION_SUBMIT_PASSKEY || strcmp(action.text, "111111") != 0) {
         mesh_ui_store_shutdown(&store);
         record_failure(test_name, "six digits should be what is submitted");
@@ -1401,7 +1401,7 @@ MESH_TEST_CASE(ui_nav_passkey_prompt, unit) {
 
     /* B with nothing typed abandons the bond rather than silently leaving BlueZ waiting. */
     mesh_ui_store_open_passkey_prompt(&store, "NodePin", 0U, false);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
     if (action.type != MESH_UI_ACTION_CANCEL_PAIRING || store.nav.keyboard_passkey) {
         mesh_ui_store_shutdown(&store);
         record_failure(test_name, "B should cancel the pairing");
@@ -1415,7 +1415,7 @@ MESH_TEST_CASE(ui_nav_passkey_prompt, unit) {
         record_failure(test_name, "a confirmation should pre-fill its digits");
         return;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_START, &action);
     if (action.type != MESH_UI_ACTION_SUBMIT_PASSKEY || strcmp(action.text, "123456") != 0) {
         mesh_ui_store_shutdown(&store);
         record_failure(test_name, "Send should confirm the displayed number");
@@ -1448,12 +1448,12 @@ MESH_TEST_CASE(ui_nav_node_mute_remove, unit) {
     mesh_test_nav_populate(&store);
 
     struct mesh_ui_action action;
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action); /* Nodes */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action); /* Nodes */
     /* Past the lead rows, then past our own node, onto one that is not us. */
     for (uint32_t step = 0; step < MESH_UI_NODES_LEAD_ROWS + 1U; ++step) {
-        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+        mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.node_detail_open) {
         failure = "A should open the node detail";
         goto cleanup;
@@ -1465,7 +1465,7 @@ MESH_TEST_CASE(ui_nav_node_mute_remove, unit) {
         goto cleanup;
     }
 
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.node_actions_open) {
         failure = "the detail's first row should open the node's verbs";
         goto cleanup;
@@ -1497,30 +1497,30 @@ MESH_TEST_CASE(ui_nav_node_mute_remove, unit) {
     }
 
     while (store.nav.node_actions_cursor < mute_row &&
-           mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action)) {
+           mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action)) {
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (action.type != MESH_UI_ACTION_TOGGLE_MUTE || action.dest != node->node_id) {
         failure = "A on the mute row should emit a toggle for that node";
         goto cleanup;
     }
 
     /* Remove: the first press only arms, and moving off the row stands it down again. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.node_remove_armed || action.type != MESH_UI_ACTION_NONE) {
         failure = "the first press on remove should only arm it";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
     if (store.nav.node_remove_armed) {
         failure = "moving off the remove row should stand it down";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (store.nav.node_remove_armed || action.type != MESH_UI_ACTION_REMOVE_NODE ||
         action.dest != node->node_id) {
         failure = "the second press should emit the removal";
@@ -1600,7 +1600,7 @@ MESH_TEST_CASE(ui_nav_nodes_filter_steps_and_renumbers_the_rows, unit) {
     /* A steps the filter and leaves the cursor where it is - this row is the one row the press
        cannot re-number. Left and Right do the same thing and are what the row and the bar name;
        ui_nav_nodes_controls_take_the_d_pad holds that half. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_filter != MESH_UI_NODE_FILTER_DIRECT,
                               mesh_ui_store_shutdown(&store), "A steps the filter on");
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.cursor[MESH_UI_SCREEN_NODES] != MESH_UI_NODES_FILTER_ROW,
@@ -1620,31 +1620,31 @@ MESH_TEST_CASE(ui_nav_nodes_filter_steps_and_renumbers_the_rows, unit) {
      * only question the mapping exists to answer.
      */
     for (uint32_t lead = 0; lead < MESH_UI_NODES_LEAD_ROWS; ++lead) {
-        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+        mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     MESH_TEST_FAIL_IF_CLEANUP(!store.nav.node_detail_open || store.nav.node_detail_node != 0x2000U,
                               mesh_ui_store_shutdown(&store),
                               "the first row under a Direct filter is the node that was heard");
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
 
     /* On to Pinned, which keeps the other one - so the same row is now a different node. */
     store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_FILTER_ROW;
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_filter != MESH_UI_NODE_FILTER_PINNED,
                               mesh_ui_store_shutdown(&store), "and on to Pinned");
     for (uint32_t lead = 0; lead < MESH_UI_NODES_LEAD_ROWS; ++lead) {
-        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+        mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     MESH_TEST_FAIL_IF_CLEANUP(!store.nav.node_detail_open || store.nav.node_detail_node != 0x3000U,
                               mesh_ui_store_shutdown(&store),
                               "the same row under a Pinned filter is the pinned node");
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
 
     /* Three filters, so a third press is back where it started. */
     store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_FILTER_ROW;
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_filter != MESH_UI_NODE_FILTER_ALL,
                               mesh_ui_store_shutdown(&store), "and wraps back to All");
 
@@ -1677,7 +1677,7 @@ MESH_TEST_CASE(ui_nav_nodes_controls_take_the_d_pad, unit) {
     store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_FILTER_ROW;
 
     /* Forward, and the cursor has not moved off the row that did it. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_filter != MESH_UI_NODE_FILTER_DIRECT,
                               mesh_ui_store_shutdown(&store), "Right steps the filter on");
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.screen != MESH_UI_SCREEN_NODES,
@@ -1687,25 +1687,25 @@ MESH_TEST_CASE(ui_nav_nodes_controls_take_the_d_pad, unit) {
                               mesh_ui_store_shutdown(&store), "and stays on the row it pressed");
 
     /* And back the way it came, which is the half A never had. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_LEFT, &action);
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_filter != MESH_UI_NODE_FILTER_ALL,
                               mesh_ui_store_shutdown(&store), "Left steps the filter back");
 
     /* Left off the first of the set wraps rather than leaving the tab, for the same reason
        Right off the last one does: the row is a ring and the shoulders are the way out. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_LEFT, &action);
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_filter != MESH_UI_NODE_FILTER_PINNED,
                               mesh_ui_store_shutdown(&store), "and wraps rather than escaping");
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.screen != MESH_UI_SCREEN_NODES,
                               mesh_ui_store_shutdown(&store), "still on the Nodes tab");
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action); /* back to All */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action); /* back to All */
 
     /* The sort row, the same axis over a set of five. */
     store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_SORT_ROW;
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_sort != MESH_UI_NODE_SORT_HEARD,
                               mesh_ui_store_shutdown(&store), "Right steps the sort on");
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_LEFT, &action);
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_sort != MESH_UI_NODE_SORT_DEFAULT,
                               mesh_ui_store_shutdown(&store), "Left steps the sort back");
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.cursor[MESH_UI_SCREEN_NODES] != MESH_UI_NODES_SORT_ROW,
@@ -1717,14 +1717,14 @@ MESH_TEST_CASE(ui_nav_nodes_controls_take_the_d_pad, unit) {
      */
     store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_FILTER_ROW;
     const uint8_t filter_before = store.nav.node_filter;
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_R1, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_R1, &action);
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.screen == MESH_UI_SCREEN_NODES,
                               mesh_ui_store_shutdown(&store),
                               "the shoulder leaves the tab from a control row");
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_filter != filter_before,
                               mesh_ui_store_shutdown(&store),
                               "and does not also step the control it was standing on");
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_L1, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_L1, &action);
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.screen != MESH_UI_SCREEN_NODES,
                               mesh_ui_store_shutdown(&store), "and back again");
 
@@ -1733,7 +1733,7 @@ MESH_TEST_CASE(ui_nav_nodes_controls_take_the_d_pad, unit) {
      * arrangement rests on: the axis is spent on two rows, not on the screen.
      */
     store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_LEAD_ROWS;
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.screen == MESH_UI_SCREEN_NODES,
                               mesh_ui_store_shutdown(&store),
                               "Right on a node row is still the tab switch");
@@ -1769,7 +1769,7 @@ MESH_TEST_CASE(ui_nav_nodes_an_empty_roster_keeps_the_tab_switch, unit) {
                               "an empty roster is a list with no rows at all");
 
     const uint8_t filter_before = store.nav.node_filter;
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_filter != filter_before,
                               mesh_ui_store_shutdown(&store),
                               "Right must not step a filter that is not on the panel");
@@ -1823,14 +1823,14 @@ MESH_TEST_CASE(ui_nav_nodes_filter_that_keeps_nothing_keeps_its_own_rows, unit) 
     /* And both of them still work: the map row opens, and A on the filter row puts the roster
        back. Walked in that order because the map is the row a stranded reader reaches first. */
     for (uint32_t lead = 0; lead < MESH_UI_NODES_MAP_ROW; ++lead) {
-        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+        mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     }
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.cursor[MESH_UI_SCREEN_NODES] != MESH_UI_NODES_MAP_ROW,
                               mesh_ui_store_shutdown(&store),
                               "the cursor can still reach the map row");
 
     store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_FILTER_ROW;
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_filter != MESH_UI_NODE_FILTER_ALL,
                               mesh_ui_store_shutdown(&store),
                               "and A wraps Pinned back round to All");
@@ -2024,10 +2024,10 @@ MESH_TEST_CASE(ui_nav_nodes_sort_steps_and_renumbers_the_rows, unit) {
 
     /* Down onto the sort row, and A steps it. The cursor stays: everything the press moves is
        below the row it was pressed on. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.cursor[MESH_UI_SCREEN_NODES] != MESH_UI_NODES_SORT_ROW,
                               mesh_ui_store_shutdown(&store), "the sort row is under the filter's");
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_sort != MESH_UI_NODE_SORT_HEARD,
                               mesh_ui_store_shutdown(&store), "A steps the filter on");
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.cursor[MESH_UI_SCREEN_NODES] != MESH_UI_NODES_SORT_ROW,
@@ -2044,33 +2044,33 @@ MESH_TEST_CASE(ui_nav_nodes_sort_steps_and_renumbers_the_rows, unit) {
      * opens the node the row drew.
      */
     for (uint32_t lead = 0; lead < MESH_UI_NODES_LEAD_ROWS - 1U; ++lead) {
-        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+        mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     MESH_TEST_FAIL_IF_CLEANUP(!store.nav.node_detail_open || store.nav.node_detail_node != 0x2001U,
                               mesh_ui_store_shutdown(&store),
                               "Recent puts the node that spoke last over the node that is pinned");
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
 
     /* On to Name, where the same row is a different node again - and case is folded, so a
        lower-case name does not sort below every capital one. */
     store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_SORT_ROW;
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_sort != MESH_UI_NODE_SORT_NAME,
                               mesh_ui_store_shutdown(&store), "and on to Name");
     for (uint32_t lead = 0; lead < MESH_UI_NODES_LEAD_ROWS - 1U; ++lead) {
-        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+        mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     MESH_TEST_FAIL_IF_CLEANUP(!store.nav.node_detail_open || store.nav.node_detail_node != 0x2002U,
                               mesh_ui_store_shutdown(&store),
                               "A to Z is the reader's alphabet, not the byte order of the case");
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
 
     /* Five chips, so the fifth press is back where it started. */
     store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_SORT_ROW;
     for (uint32_t press = 0; press < (uint32_t)MESH_UI_NODE_SORT_COUNT - 2U; ++press) {
-        mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+        mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     }
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_sort != MESH_UI_NODE_SORT_DEFAULT,
                               mesh_ui_store_shutdown(&store), "and wraps back to the app's order");

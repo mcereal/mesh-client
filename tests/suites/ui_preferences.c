@@ -70,7 +70,7 @@ MESH_TEST_CASE(ui_preferences_roundtrip, unit) {
         record_failure(test_name, "an unknown theme id did not survive a roundtrip");
         return;
     }
-    if (mesh_ui_theme_resolve(loaded.theme) != mesh_ui_theme_default()) {
+    if (inkcell_theme_resolve(loaded.theme) != inkcell_theme_default()) {
         unlink(prefab_path);
         record_failure(test_name, "an unknown theme id should resolve to the default");
         return;

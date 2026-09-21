@@ -42,9 +42,9 @@ void mesh_ui_nav_channel_name(const struct mesh_ui_store *store, uint8_t index, 
     } else if (index == 0U) {
         /* An unnamed slot 0 is the default primary channel; the firmware shows the modem
            preset name there, which we do not track. */
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CHANNEL_PRIMARY));
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CHANNEL_PRIMARY));
     } else {
-        mesh_str_format(out, out_len, MESH_STR_CHANNEL_NUMBERED, (unsigned)index);
+        inkcell_str_format(out, out_len, MESH_STR_CHANNEL_NUMBERED, (unsigned)index);
     }
 }
 
@@ -175,39 +175,39 @@ void mesh_ui_nav_picker_open(struct mesh_ui_nav *nav, const struct mesh_ui_store
 }
 
 bool mesh_ui_nav_picker_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
-                            enum mesh_ui_key key) {
+                            enum inkcell_key key) {
     const uint32_t count = mesh_ui_nav_picker_count(store);
     if (nav->picker_cursor >= count && count > 0U) {
         nav->picker_cursor = count - 1U;
     }
     switch (key) {
-    case MESH_UI_KEY_UP:
+    case INKCELL_KEY_UP:
         if (nav->picker_cursor == 0U) {
             return false;
         }
         nav->picker_cursor--;
         return true;
-    case MESH_UI_KEY_DOWN:
+    case INKCELL_KEY_DOWN:
         if (nav->picker_cursor + 1U >= count) {
             return false;
         }
         nav->picker_cursor++;
         return true;
-    case MESH_UI_KEY_LEFT:
-    case MESH_UI_KEY_L1:
+    case INKCELL_KEY_LEFT:
+    case INKCELL_KEY_L1:
         /* Page up: a 130-node mesh is not walked one row at a time. */
         nav->picker_cursor = nav->picker_cursor > 10U ? nav->picker_cursor - 10U : 0U;
         return true;
-    case MESH_UI_KEY_RIGHT:
-    case MESH_UI_KEY_R1:
+    case INKCELL_KEY_RIGHT:
+    case INKCELL_KEY_R1:
         if (count == 0U) {
             return false;
         }
         nav->picker_cursor =
             nav->picker_cursor + 10U < count ? nav->picker_cursor + 10U : count - 1U;
         return true;
-    case MESH_UI_KEY_A:
-    case MESH_UI_KEY_START: {
+    case INKCELL_KEY_A:
+    case INKCELL_KEY_START: {
         uint32_t node = 0U;
         uint8_t channel = 0U;
         if (mesh_ui_nav_picker_row(store, nav->picker_cursor, &node, &channel, NULL, 0U)) {
@@ -225,7 +225,7 @@ bool mesh_ui_nav_picker_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
         nav->picker_follow = (uint8_t)MESH_UI_PICKER_FOLLOW_NONE;
         return true;
     }
-    case MESH_UI_KEY_B:
+    case INKCELL_KEY_B:
         nav->picker_open = false;
         nav->picker_follow = (uint8_t)MESH_UI_PICKER_FOLLOW_NONE;
         return true;
@@ -337,7 +337,7 @@ static void mesh_ui_nav_conversation_summarise(const struct mesh_ui_store *store
         conversation->message_count++;
         /* Oldest first, so the last match seen is the newest. The preview is one list row;
            anything longer is the thread's business. */
-        mesh_str_copy(conversation->preview, sizeof conversation->preview, message->text);
+        inkcell_str_copy(conversation->preview, sizeof conversation->preview, message->text);
         conversation->last_time = message->rx_time;
         conversation->preview_outbound = (message->direction == MESH_MESSAGE_OUTBOUND);
 
@@ -497,17 +497,17 @@ static void mesh_ui_nav_conversation_avatar(struct mesh_ui_conversation *out) {
     case MESH_UI_CONVERSATION_ALL:
         /* Not a person and not a place: the one row that is a view over the others gets a
            mark rather than initials, and the backend tints it with the accent. */
-        mesh_str_copy(out->initials, sizeof out->initials, "*");
+        inkcell_str_copy(out->initials, sizeof out->initials, "*");
         out->tint = 0U;
         return;
     case MESH_UI_CONVERSATION_NEW:
-        mesh_str_copy(out->initials, sizeof out->initials, "+");
+        inkcell_str_copy(out->initials, sizeof out->initials, "+");
         out->tint = 0U;
         return;
     case MESH_UI_CONVERSATION_CHANNEL:
         /* A channel is a place, and '#' is what says so everywhere else on this screen. The
            slot rather than the name seeds it, so renaming a channel keeps its colour. */
-        mesh_str_copy(out->initials, sizeof out->initials, "#");
+        inkcell_str_copy(out->initials, sizeof out->initials, "#");
         out->tint = mesh_ui_nav_channel_tint(out->channel);
         return;
     case MESH_UI_CONVERSATION_DIRECT:
@@ -528,7 +528,7 @@ void mesh_ui_nav_target_avatar(const struct mesh_ui_store *store, uint32_t node,
         return;
     }
     if (node == MESH_MESSAGE_BROADCAST_ADDR) {
-        mesh_str_copy(out_initials, out_len, "#");
+        inkcell_str_copy(out_initials, out_len, "#");
         if (out_tint != NULL) {
             *out_tint = mesh_ui_nav_channel_tint(channel);
         }
@@ -557,7 +557,7 @@ bool mesh_ui_nav_conversation_at(const struct mesh_ui_store *store, uint32_t ind
 
     if (index == 0U) {
         out->kind = MESH_UI_CONVERSATION_ALL;
-        snprintf(out->name, sizeof out->name, "%s", mesh_str(MESH_STR_MESSAGES_ALL_TRAFFIC));
+        snprintf(out->name, sizeof out->name, "%s", inkcell_str(MESH_STR_MESSAGES_ALL_TRAFFIC));
         mesh_ui_nav_conversation_summarise(store, out);
         /* All traffic is a view, not a conversation: it keeps no mark of its own (opening it
            marks nothing read), so its badge is what the rows below it still owe. */
@@ -583,7 +583,7 @@ bool mesh_ui_nav_conversation_at(const struct mesh_ui_store *store, uint32_t ind
     }
     if (index == 1U + channels + directs) {
         out->kind = MESH_UI_CONVERSATION_NEW;
-        snprintf(out->name, sizeof out->name, "%s", mesh_str(MESH_STR_MESSAGES_NEW));
+        snprintf(out->name, sizeof out->name, "%s", inkcell_str(MESH_STR_MESSAGES_NEW));
         mesh_ui_nav_conversation_avatar(out);
         return true;
     }
@@ -643,7 +643,7 @@ bool mesh_ui_nav_delete_conversation(struct mesh_ui_nav *nav, const struct mesh_
         /* The name off the row rather than one the app resolves again: what the toast should
            say is what the user was looking at when they pressed X, and a channel's name lives
            in the handshake's channel table that only this layer walks. */
-        mesh_str_copy(action->text, sizeof action->text, conversation.name);
+        inkcell_str_copy(action->text, sizeof action->text, conversation.name);
     }
     /* The frame changes when the app publishes the shorter log, not here: saying "deleted"
        before the messages have gone is how a failed delete comes to look like a successful
@@ -676,7 +676,7 @@ bool mesh_ui_nav_mute_conversation(struct mesh_ui_nav *nav, const struct mesh_ui
         action->channel = conversation.channel;
         /* The name off the row, for the toast - the delete's reasoning exactly: a channel's
            name lives in the handshake's channel table that only this layer walks. */
-        mesh_str_copy(action->text, sizeof action->text, conversation.name);
+        inkcell_str_copy(action->text, sizeof action->text, conversation.name);
     }
     return false;
 }

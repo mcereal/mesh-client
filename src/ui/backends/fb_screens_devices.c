@@ -35,16 +35,16 @@ const char *fb_device_label(const struct mesh_ui_device *device) {
  * honest in the meantime - what this row is, is the link itself, which is exactly the one kind
  * here that was never discovered and never advertised.
  */
-static enum mesh_ui_icon fb_device_icon(const struct mesh_ui_device *device) {
+static enum inkcell_icon fb_device_icon(const struct mesh_ui_device *device) {
     switch ((enum mesh_ui_device_kind)device->kind) {
     case MESH_UI_DEVICE_SERIAL:
-        return MESH_UI_ICON_USB;
+        return INKCELL_ICON_USB;
     case MESH_UI_DEVICE_TCP:
-        return MESH_UI_ICON_LINK;
+        return INKCELL_ICON_LINK;
     case MESH_UI_DEVICE_BLE:
         break;
     }
-    return MESH_UI_ICON_BLUETOOTH;
+    return INKCELL_ICON_BLUETOOTH;
 }
 
 /*
@@ -56,45 +56,46 @@ static enum mesh_ui_icon fb_device_icon(const struct mesh_ui_device *device) {
  * capsule: the badge slot reports what a link is *doing*, and this row is a button until an
  * address exists.
  */
-static void fb_devices_network_row(struct mesh_ui_backend_fb_state *state, struct fb_list *list,
-                                   uint32_t index, const struct mesh_ui_devices_row *entry) {
+static void fb_devices_network_row(struct inkcell_backend_fb_state *state,
+                                   struct inkcell_fb_list *list, uint32_t index,
+                                   const struct mesh_ui_devices_row *entry) {
     const bool configured = (entry->host[0] != '\0');
-    const struct fb_list_item row = {
-        .leading = {.kind = FB_LEADING_AVATAR,
-                    .icon = MESH_UI_ICON_LINK,
+    const struct inkcell_fb_list_item row = {
+        .leading = {.kind = INKCELL_FB_LEADING_AVATAR,
+                    .icon = INKCELL_ICON_LINK,
                     .tint = index,
-                    .role = MESH_UI_COLOR_COUNT},
+                    .role = INKCELL_COLOR_COUNT},
         /* The address itself is the name once there is one, exactly as it is on the row
            discovery publishes for a live network link: a host has no advertisement coming, so
            what it is reachable at is what it is called. */
-        .text = configured ? entry->host : mesh_str(MESH_STR_DEVICES_NETWORK_ROW),
+        .text = configured ? entry->host : inkcell_str(MESH_STR_DEVICES_NETWORK_ROW),
         /* Dim while there is nothing to connect to, for the reason the Nodes tab's map row is
            dim with no markers on it: it is a button among things, and one that does not yet
            lead anywhere. */
-        .tone = configured ? MESH_UI_TONE_NORMAL : MESH_UI_TONE_DIM,
-        .trailing = {.kind = FB_TRAILING_TEXT,
-                     .text = configured ? mesh_str(MESH_STR_DEVICES_TRAILING_NETWORK) : ""},
-        .supporting =
-            mesh_str(configured ? MESH_STR_DEVICES_NETWORK_READY : MESH_STR_DEVICES_NETWORK_UNSET),
-        .supporting_tone = MESH_UI_TONE_DIM,
+        .tone = configured ? INKCELL_TONE_NORMAL : INKCELL_TONE_DIM,
+        .trailing = {.kind = INKCELL_FB_TRAILING_TEXT,
+                     .text = configured ? inkcell_str(MESH_STR_DEVICES_TRAILING_NETWORK) : ""},
+        .supporting = inkcell_str(configured ? MESH_STR_DEVICES_NETWORK_READY
+                                             : MESH_STR_DEVICES_NETWORK_UNSET),
+        .supporting_tone = INKCELL_TONE_DIM,
         .supporting_quiet = true,
         .divider = true,
     };
-    fb_list_item(state, list, index, &row);
+    inkcell_fb_list_item(state, list, index, &row);
 }
 
-/* Takes the state mutably, like every fb_list_item() caller: the item is the component that
+/* Takes the state mutably, like every inkcell_fb_list_item() caller: the item is the component that
    can carry an animated slot, so the whole entry point takes the table it would step. */
-void fb_render_devices(struct mesh_ui_backend_fb_state *state,
-                       const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
+void fb_render_devices(struct inkcell_backend_fb_state *state,
+                       const struct mesh_ui_snapshot *snapshot, struct inkcell_fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
     /* The heading counts the radios, not the rows: the network row is a control, and a Devices
        tab reading "Devices 1" with nothing found would be the arithmetic-no-screen-should-show
        rule the Nodes title states. */
     char title[96];
-    fb_title_count(title, sizeof title, mesh_str(MESH_STR_TAB_DEVICES),
-                   (uint32_t)snapshot->device_count, 0U);
-    fb_draw_app_bar(state, layout, &(const struct fb_app_bar){.title = title});
+    inkcell_fb_title_count(title, sizeof title, inkcell_str(MESH_STR_TAB_DEVICES),
+                           (uint32_t)snapshot->device_count, 0U);
+    inkcell_fb_draw_app_bar(state, layout, &(const struct inkcell_fb_app_bar){.title = title});
 
     /*
      * Two body rows an item: the radio's name with how it is attached against the right edge,
@@ -114,18 +115,19 @@ void fb_render_devices(struct mesh_ui_backend_fb_state *state,
      */
     const uint32_t rows = mesh_ui_devices_row_count(snapshot->devices, snapshot->device_count);
     const bool nothing_found = (snapshot->device_count == 0U);
-    struct fb_list list = fb_list_begin_rows(layout, rows + (nothing_found ? 1U : 0U),
-                                             nav->cursor[MESH_UI_SCREEN_DEVICES], 2U);
+    struct inkcell_fb_list list = inkcell_fb_list_begin_rows(
+        layout, rows + (nothing_found ? 1U : 0U), nav->cursor[MESH_UI_SCREEN_DEVICES], 2U);
     inkcell_fb_list_glide(state, &list, FB_LIST_DEVICES);
     char attach[16];
     uint32_t i;
-    while (fb_list_next(&list, &i)) {
+    while (inkcell_fb_list_next(&list, &i)) {
         struct mesh_ui_devices_row entry;
         if (!mesh_ui_devices_row(snapshot->devices, snapshot->device_count, snapshot->network_host,
                                  i, &entry)) {
             /* The row that is not a row: what the client is still doing, where the radios
                would be. Dim because there is nothing here to press. */
-            fb_list_row(state, &list, i, mesh_str(MESH_STR_DEVICES_EMPTY), MESH_UI_TONE_DIM);
+            inkcell_fb_list_row(state, &list, i, inkcell_str(MESH_STR_DEVICES_EMPTY),
+                                INKCELL_TONE_DIM);
             continue;
         }
         if (entry.type == (uint8_t)MESH_UI_DEVICES_ROW_NETWORK) {
@@ -135,7 +137,7 @@ void fb_render_devices(struct mesh_ui_backend_fb_state *state,
         const struct mesh_ui_device *device = entry.device;
         const char *name = device->name[0] != '\0' ? device->name : device->identifier;
         if (name[0] == '\0') {
-            name = mesh_str(MESH_STR_DEVICES_UNNAMED);
+            name = inkcell_str(MESH_STR_DEVICES_UNNAMED);
         }
         /*
          * What pressing A on this row would do. An unpaired BLE node is the case worth
@@ -161,58 +163,58 @@ void fb_render_devices(struct mesh_ui_backend_fb_state *state,
          * there.
          */
         const char *status = "";
-        enum mesh_ui_family status_family = MESH_UI_FAMILY_PRIMARY;
+        enum inkcell_family status_family = INKCELL_FAMILY_PRIMARY;
         bool status_badge = true;
         if (device->connected) {
-            status = mesh_str(MESH_STR_DEVICES_BADGE_CONNECTED);
-            status_family = MESH_UI_FAMILY_SUCCESS;
+            status = inkcell_str(MESH_STR_DEVICES_BADGE_CONNECTED);
+            status_family = INKCELL_FAMILY_SUCCESS;
         } else if (device->busy) {
-            status = mesh_str(MESH_STR_DEVICES_BADGE_WORKING);
+            status = inkcell_str(MESH_STR_DEVICES_BADGE_WORKING);
         } else if (device->bootloader) {
             /* Ahead of the BLE arms because it is the one refusal a USB row can carry, and
                warning for the same reason `needs pairing` is: the row will not connect as it
                stands, and there is something the user can do about it. */
-            status = mesh_str(MESH_STR_DEVICES_BADGE_BOOTLOADER);
-            status_family = MESH_UI_FAMILY_WARNING;
+            status = inkcell_str(MESH_STR_DEVICES_BADGE_BOOTLOADER);
+            status_family = INKCELL_FAMILY_WARNING;
         } else if (device->kind == (uint8_t)MESH_UI_DEVICE_BLE && !device->paired) {
-            status = mesh_str(MESH_STR_DEVICES_BADGE_NEEDS_PAIR);
-            status_family = MESH_UI_FAMILY_WARNING;
+            status = inkcell_str(MESH_STR_DEVICES_BADGE_NEEDS_PAIR);
+            status_family = INKCELL_FAMILY_WARNING;
         } else if (device->kind == (uint8_t)MESH_UI_DEVICE_BLE) {
-            status = mesh_str(MESH_STR_DEVICES_BADGE_PAIRED);
+            status = inkcell_str(MESH_STR_DEVICES_BADGE_PAIRED);
             status_badge = false;
         }
 
         /* A USB port has no RSSI to show, so it says which bus it is instead - the supporting
            line answers "how is this attached" either way. */
         if (device->kind == (uint8_t)MESH_UI_DEVICE_SERIAL) {
-            mesh_str_copy(attach, sizeof attach, mesh_str(MESH_STR_DEVICES_TRAILING_USB));
+            inkcell_str_copy(attach, sizeof attach, inkcell_str(MESH_STR_DEVICES_TRAILING_USB));
         } else if (device->kind == (uint8_t)MESH_UI_DEVICE_TCP) {
             /* Ahead of the in-range arm, which a network link would otherwise fall into and
                answer "not in range" - a sentence about earshot, said of the one link that has
                none to be outside of. */
-            mesh_str_copy(attach, sizeof attach, mesh_str(MESH_STR_DEVICES_TRAILING_NETWORK));
+            inkcell_str_copy(attach, sizeof attach, inkcell_str(MESH_STR_DEVICES_TRAILING_NETWORK));
         } else if (!device->in_range) {
             /* A bond BlueZ holds for a radio it cannot hear has no reading behind it, and the
                0 that leaves in the struct would draw as the strongest node on the screen. */
-            mesh_str_copy(attach, sizeof attach, mesh_str(MESH_STR_DEVICES_TRAILING_AWAY));
+            inkcell_str_copy(attach, sizeof attach, inkcell_str(MESH_STR_DEVICES_TRAILING_AWAY));
         } else {
-            mesh_str_format(attach, sizeof attach, MESH_STR_DEVICES_TRAILING_RSSI,
-                            (int)device->rssi);
+            inkcell_str_format(attach, sizeof attach, MESH_STR_DEVICES_TRAILING_RSSI,
+                               (int)device->rssi);
         }
 
         const bool armed = nav->devices_forget_armed && nav->devices_forget_row == i;
-        enum mesh_ui_tone tone = MESH_UI_TONE_NORMAL;
+        enum inkcell_tone tone = INKCELL_TONE_NORMAL;
         if (device->connected) {
-            tone = MESH_UI_TONE_SUCCESS;
+            tone = INKCELL_TONE_SUCCESS;
         } else if (armed) {
-            tone = MESH_UI_TONE_ERROR;
+            tone = INKCELL_TONE_ERROR;
         }
         /* A row armed to be forgotten says so in every part of itself, the resting state
            included: the capsule reports the link, which is a different fact, but a red row
            carrying a green pill is two rows' worth of statement in one and the press being
            asked about is the destructive one. */
         if (armed) {
-            status_family = MESH_UI_FAMILY_ERROR;
+            status_family = INKCELL_FAMILY_ERROR;
             status_badge = true;
         }
 
@@ -222,15 +224,15 @@ void fb_render_devices(struct mesh_ui_backend_fb_state *state,
            What it carries is the transport, not initials: the name is already the next thing
            on the row, and which bus a radio is on is the one fact about it the words do not
            repeat. */
-        const struct fb_list_item row = {
+        const struct inkcell_fb_list_item row = {
             .leading =
                 {
-                    .kind = FB_LEADING_AVATAR,
+                    .kind = INKCELL_FB_LEADING_AVATAR,
                     .icon = fb_device_icon(device),
                     .tint = i,
-                    .role = device->connected ? MESH_UI_COLOR_SUCCESS
-                            : armed           ? MESH_UI_COLOR_ERROR
-                                              : MESH_UI_COLOR_COUNT,
+                    .role = device->connected ? INKCELL_COLOR_SUCCESS
+                            : armed           ? INKCELL_COLOR_ERROR
+                                              : INKCELL_COLOR_COUNT,
                 },
             .text = name,
             .tone = tone,
@@ -246,18 +248,19 @@ void fb_render_devices(struct mesh_ui_backend_fb_state *state,
              * string.
              */
             .trailing = status_badge
-                            ? (struct fb_trailing){.kind = FB_TRAILING_BADGE,
-                                                   .family = status_family,
-                                                   .text = status}
-                            : (struct fb_trailing){.kind = FB_TRAILING_TEXT, .text = status},
+                            ? (struct inkcell_fb_trailing){.kind = INKCELL_FB_TRAILING_BADGE,
+                                                           .family = status_family,
+                                                           .text = status}
+                            : (struct inkcell_fb_trailing){.kind = INKCELL_FB_TRAILING_TEXT,
+                                                           .text = status},
             .supporting = attach,
-            .supporting_tone = MESH_UI_TONE_DIM,
+            .supporting_tone = INKCELL_TONE_DIM,
             /* A figure is something the eye glances at on its way past, on the ground and under
                the cursor alike - which is what the trailing slot it used to sit in already did
                for it, and what it keeps here. */
             .supporting_quiet = true,
             .divider = true,
         };
-        fb_list_item(state, &list, i, &row);
+        inkcell_fb_list_item(state, &list, i, &row);
     }
 }

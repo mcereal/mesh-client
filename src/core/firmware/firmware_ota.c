@@ -152,7 +152,7 @@ static void ota_discovery(struct mesh_firmware_ota *ota, bool on) {
         if (result == 0) {
             ota->discovering = true;
         } else {
-            mesh_log_warn("firmware", "Could not start a scan: %d", result);
+            inkcell_log_warn("firmware", "Could not start a scan: %d", result);
         }
     } else if (!on && ota->discovering) {
         (void)mesh_bluez_client_stop_discovery(ota->client, ota->adapter_path);
@@ -198,13 +198,13 @@ static void ota_fail(struct mesh_firmware_ota *ota, enum mesh_firmware_ota_error
        the banner will ask. */
     ota->state = MESH_FIRMWARE_OTA_FAILED;
     ota->error = error;
-    mesh_log_error("firmware", "The BLE install failed: %s%s%s%s",
-                   mesh_firmware_ota_error_name(error), ota->reason[0] != '\0' ? " (" : "",
-                   ota->reason, ota->reason[0] != '\0' ? ")" : "");
+    inkcell_log_error("firmware", "The BLE install failed: %s%s%s%s",
+                      mesh_firmware_ota_error_name(error), ota->reason[0] != '\0' ? " (" : "",
+                      ota->reason, ota->reason[0] != '\0' ? ")" : "");
     if (mesh_firmware_ota_radio_in_loader(ota)) {
-        mesh_log_error("firmware", "The radio is in its OTA loader, off the mesh, and stays "
-                                   "there until it is sent this image; the same install started "
-                                   "again resumes it");
+        inkcell_log_error("firmware", "The radio is in its OTA loader, off the mesh, and stays "
+                                      "there until it is sent this image; the same install started "
+                                      "again resumes it");
     }
     ota_finish(ota, MESH_FIRMWARE_OTA_FAILED, error);
 }
@@ -226,8 +226,8 @@ static void ota_enter_waiting(struct mesh_firmware_ota *ota, uint64_t now_ms) {
     ota->next_poll_ms = now_ms;
     ota->ambiguity_logged = false;
     ota_discovery(ota, true);
-    mesh_log_info("firmware", "Looking for the OTA loader%s%s", ota->radio_address[0] ? " of " : "",
-                  ota->radio_address);
+    inkcell_log_info("firmware", "Looking for the OTA loader%s%s",
+                     ota->radio_address[0] ? " of " : "", ota->radio_address);
 }
 
 /* The transfer, or the connect, broke. Try the loader again while there are tries left. */
@@ -239,8 +239,8 @@ static void ota_retry(struct mesh_firmware_ota *ota, enum mesh_firmware_ota_erro
         ota_fail(ota, error);
         return;
     }
-    mesh_log_warn("firmware", "Trying the loader again (%u of %u) after: %s", ota->attempts + 1U,
-                  MESH_FIRMWARE_OTA_ATTEMPTS, mesh_firmware_ota_error_name(error));
+    inkcell_log_warn("firmware", "Trying the loader again (%u of %u) after: %s", ota->attempts + 1U,
+                     MESH_FIRMWARE_OTA_ATTEMPTS, mesh_firmware_ota_error_name(error));
     ota_enter_waiting(ota, now_ms);
 }
 
@@ -251,8 +251,8 @@ static void ota_tick_arming(struct mesh_firmware_ota *ota, uint64_t now_ms) {
     /* Nothing said, either way. The notification can lose the race with the reboot it
        announces, so silence is not a refusal - the loader turning up is the answer that counts,
        and waiting's own clock is what gives up. */
-    mesh_log_warn("firmware", "The radio did not answer the OTA request; looking for a loader "
-                              "anyway");
+    inkcell_log_warn("firmware", "The radio did not answer the OTA request; looking for a loader "
+                                 "anyway");
     ota_enter_waiting(ota, now_ms);
 }
 
@@ -261,7 +261,7 @@ ota_pick_loader(struct mesh_firmware_ota *ota, const struct mesh_bluez_device_in
                 size_t count) {
     char expected[MESH_FIRMWARE_OTA_ADDRESS_MAX] = {0};
     if (ota->loader_address[0] != '\0') {
-        mesh_str_copy(expected, sizeof expected, ota->loader_address);
+        inkcell_str_copy(expected, sizeof expected, ota->loader_address);
     } else if (ota->radio_address[0] != '\0') {
         (void)mesh_firmware_ota_offset_address(ota->radio_address, 1, expected, sizeof expected);
     }
@@ -287,14 +287,14 @@ ota_pick_loader(struct mesh_firmware_ota *ota, const struct mesh_bluez_device_in
            nothing if it is somebody else's: that loader holds another image's hash and refuses
            ours in so many words. */
         if (expected[0] != '\0') {
-            mesh_log_warn("firmware", "The only loader in range is %s, not %s as expected",
-                          heard->address, expected);
+            inkcell_log_warn("firmware", "The only loader in range is %s, not %s as expected",
+                             heard->address, expected);
         }
         return heard;
     }
     if (heard_count > 1U && !ota->ambiguity_logged) {
-        mesh_log_warn("firmware", "%zu OTA loaders in range and none at %s; waiting", heard_count,
-                      expected[0] != '\0' ? expected : "a known address");
+        inkcell_log_warn("firmware", "%zu OTA loaders in range and none at %s; waiting",
+                         heard_count, expected[0] != '\0' ? expected : "a known address");
         ota->ambiguity_logged = true;
     }
     return NULL;
@@ -303,7 +303,7 @@ ota_pick_loader(struct mesh_firmware_ota *ota, const struct mesh_bluez_device_in
 static void ota_begin_connect(struct mesh_firmware_ota *ota,
                               const struct mesh_bluez_device_info *loader, uint64_t now_ms) {
     ota->loader_seen = true;
-    mesh_str_copy(ota->loader_address, sizeof ota->loader_address, loader->address);
+    inkcell_str_copy(ota->loader_address, sizeof ota->loader_address, loader->address);
     ota_device_path(ota->adapter_path, ota->loader_address, ota->loader_path,
                     sizeof ota->loader_path);
     if (ota->radio_address[0] == '\0') {
@@ -312,8 +312,8 @@ static void ota_begin_connect(struct mesh_firmware_ota *ota,
         (void)mesh_firmware_ota_offset_address(ota->loader_address, -1, ota->radio_address,
                                                sizeof ota->radio_address);
     }
-    mesh_log_info("firmware", "Found the OTA loader at %s (%s, %d dBm)", loader->address,
-                  loader->name[0] != '\0' ? loader->name : "unnamed", (int)loader->rssi);
+    inkcell_log_info("firmware", "Found the OTA loader at %s (%s, %d dBm)", loader->address,
+                     loader->name[0] != '\0' ? loader->name : "unnamed", (int)loader->rssi);
 
     ota->state = MESH_FIRMWARE_OTA_CONNECTING;
     ota->deadline_ms = now_ms + OTA_CONNECT_TIMEOUT_MS;
@@ -336,7 +336,7 @@ static void ota_begin_connect(struct mesh_firmware_ota *ota,
      */
     const int result = mesh_bluez_client_connect_begin(ota->client, ota->loader_path);
     if (result < 0) {
-        mesh_log_warn("firmware", "Connect to the loader would not start: %d", result);
+        inkcell_log_warn("firmware", "Connect to the loader would not start: %d", result);
         /* The scan stays up for the retry, which is about to want it. */
         ota_retry(ota, MESH_FIRMWARE_OTA_ERROR_CONNECT, now_ms);
         return;
@@ -369,7 +369,7 @@ static void ota_tick_connecting(struct mesh_firmware_ota *ota, uint64_t now_ms) 
         int result = 0;
         const int polled = mesh_bluez_client_connect_poll(ota->client, &result);
         if (polled == 1 && result < 0) {
-            mesh_log_warn("firmware", "The loader refused the connection: %d", result);
+            inkcell_log_warn("firmware", "The loader refused the connection: %d", result);
             ota_retry(ota, MESH_FIRMWARE_OTA_ERROR_CONNECT, now_ms);
             return;
         }
@@ -380,10 +380,10 @@ static void ota_tick_connecting(struct mesh_firmware_ota *ota, uint64_t now_ms) 
             if (ota->request_interval != NULL) {
                 const int asked = ota->request_interval(ota->hci_dev, ota->loader_address);
                 if (asked != 0) {
-                    mesh_log_warn("firmware",
-                                  "Could not ask for a fast connection interval (%d); the "
-                                  "transfer will run at whatever the link has",
-                                  asked);
+                    inkcell_log_warn("firmware",
+                                     "Could not ask for a fast connection interval (%d); the "
+                                     "transfer will run at whatever the link has",
+                                     asked);
                 }
             }
         }
@@ -417,9 +417,9 @@ static void ota_tick_connecting(struct mesh_firmware_ota *ota, uint64_t now_ms) 
 }
 
 static void ota_enter_restarting(struct mesh_firmware_ota *ota, uint64_t now_ms) {
-    mesh_log_info("firmware", "Flashed %zu bytes at %u B/s; waiting for the radio to restart",
-                  ota->image_len,
-                  (unsigned)mesh_ble_ota_bytes_per_second(&ota->conversation, now_ms));
+    inkcell_log_info("firmware", "Flashed %zu bytes at %u B/s; waiting for the radio to restart",
+                     ota->image_len,
+                     (unsigned)mesh_ble_ota_bytes_per_second(&ota->conversation, now_ms));
     ota_release_loader(ota);
     if (ota->radio_address[0] == '\0') {
         ota->radio_seen = false;
@@ -439,7 +439,7 @@ static void ota_tick_sending(struct mesh_firmware_ota *ota, uint64_t now_ms) {
         ota_enter_restarting(ota, now_ms);
         return;
     case MESH_BLE_OTA_FAILED:
-        mesh_str_copy(ota->reason, sizeof ota->reason, ota->conversation.reason);
+        inkcell_str_copy(ota->reason, sizeof ota->reason, ota->conversation.reason);
         switch (ota->conversation.error) {
         case MESH_BLE_OTA_ERROR_REFUSED:
             /* The loader's own no: another image's hash, a partition it could not begin.
@@ -464,8 +464,8 @@ static void ota_tick_sending(struct mesh_firmware_ota *ota, uint64_t now_ms) {
         bool connected = true;
         if (mesh_bluez_client_device_connected(ota->client, ota->loader_path, &connected) == 0 &&
             !connected) {
-            mesh_log_warn("firmware", "Lost the loader at %u%%",
-                          mesh_ble_ota_progress(&ota->conversation));
+            inkcell_log_warn("firmware", "Lost the loader at %u%%",
+                             mesh_ble_ota_progress(&ota->conversation));
             ota->connected = false;
             ota_retry(ota, MESH_FIRMWARE_OTA_ERROR_TRANSFER, now_ms);
         }
@@ -490,7 +490,7 @@ static void ota_tick_restarting(struct mesh_firmware_ota *ota, uint64_t now_ms) 
         }
     }
     if (back) {
-        mesh_log_info("firmware", "The radio is back at %s", ota->radio_address);
+        inkcell_log_info("firmware", "The radio is back at %s", ota->radio_address);
         ota->radio_seen = true;
         ota_finish(ota, MESH_FIRMWARE_OTA_DONE, MESH_FIRMWARE_OTA_ERROR_NONE);
         return;
@@ -520,26 +520,27 @@ int mesh_firmware_ota_start(struct mesh_firmware_ota *ota,
 
     uint16_t chip = 0U;
     if (!mesh_esp_chip_for_architecture(params->architecture, &chip)) {
-        mesh_log_error("firmware", "'%s' is not an ESP32; it has no BLE install",
-                       params->architecture != NULL ? params->architecture : "?");
+        inkcell_log_error("firmware", "'%s' is not an ESP32; it has no BLE install",
+                          params->architecture != NULL ? params->architecture : "?");
         ota_refuse(ota, MESH_FIRMWARE_OTA_ERROR_UNAVAILABLE);
         return -EINVAL;
     }
 
-    ota->image = mesh_file_read(params->image_path, MESH_FIRMWARE_OTA_IMAGE_MAX, &ota->image_len);
+    ota->image =
+        inkcell_file_read(params->image_path, MESH_FIRMWARE_OTA_IMAGE_MAX, &ota->image_len);
     if (ota->image == NULL) {
-        mesh_log_error("firmware", "The staged image could not be read: %s", params->image_path);
+        inkcell_log_error("firmware", "The staged image could not be read: %s", params->image_path);
         ota_refuse(ota, MESH_FIRMWARE_OTA_ERROR_UNAVAILABLE);
         return -EIO;
     }
     const enum mesh_esp_image_verdict verdict =
         mesh_esp_image_validate(ota->image, ota->image_len, chip, &ota->esp);
     if (verdict != MESH_ESP_IMAGE_OK) {
-        mesh_log_error("firmware",
-                       "The staged image is not an application for chip %#x: %s "
-                       "(it says chip %#x)",
-                       (unsigned)chip, mesh_esp_image_verdict_name(verdict),
-                       (unsigned)ota->esp.chip_id);
+        inkcell_log_error("firmware",
+                          "The staged image is not an application for chip %#x: %s "
+                          "(it says chip %#x)",
+                          (unsigned)chip, mesh_esp_image_verdict_name(verdict),
+                          (unsigned)ota->esp.chip_id);
         ota_refuse(ota, MESH_FIRMWARE_OTA_ERROR_WRONG_IMAGE);
         return -EINVAL;
     }
@@ -549,10 +550,10 @@ int mesh_firmware_ota_start(struct mesh_firmware_ota *ota,
     mesh_sha256_final(&hasher, ota->sha256);
 
     ota->client = params->client;
-    mesh_str_copy(ota->adapter_path, sizeof ota->adapter_path, params->adapter_path);
+    inkcell_str_copy(ota->adapter_path, sizeof ota->adapter_path, params->adapter_path);
     ota->hci_dev = mesh_ble_hci_adapter_index(params->adapter_path);
     if (params->radio_address != NULL && params->radio_address[0] != '\0') {
-        mesh_str_copy(ota->radio_address, sizeof ota->radio_address, params->radio_address);
+        inkcell_str_copy(ota->radio_address, sizeof ota->radio_address, params->radio_address);
     }
     ota->request_interval = params->request_interval;
     ota->on_done = params->on_done;
@@ -565,18 +566,18 @@ int mesh_firmware_ota_start(struct mesh_firmware_ota *ota,
     if (params->arm != NULL) {
         const int armed = params->arm(params->arm_userdata, ota->sha256);
         if (armed != 0) {
-            mesh_log_error("firmware", "The radio would not take the OTA request: %s",
-                           strerror(-armed));
+            inkcell_log_error("firmware", "The radio would not take the OTA request: %s",
+                              strerror(-armed));
             ota_refuse(ota, MESH_FIRMWARE_OTA_ERROR_ARM);
             return armed;
         }
         ota->state = MESH_FIRMWARE_OTA_ARMING;
-        mesh_log_info("firmware", "Asked the radio into its OTA loader for %zu bytes, sha256 %s",
-                      ota->image_len, hex);
+        inkcell_log_info("firmware", "Asked the radio into its OTA loader for %zu bytes, sha256 %s",
+                         ota->image_len, hex);
     } else {
         ota->state = MESH_FIRMWARE_OTA_WAITING;
-        mesh_log_info("firmware", "Resuming at the loader with %zu bytes, sha256 %s",
-                      ota->image_len, hex);
+        inkcell_log_info("firmware", "Resuming at the loader with %zu bytes, sha256 %s",
+                         ota->image_len, hex);
     }
     /* The clocks start on the first tick, which is where the time comes from. */
     return 0;
@@ -590,14 +591,14 @@ void mesh_firmware_ota_radio_said(struct mesh_firmware_ota *ota, const char *tex
     }
     switch (mesh_firmware_ota_classify(text)) {
     case MESH_FIRMWARE_OTA_ANSWER_GO_AHEAD:
-        mesh_log_info("firmware", "The radio is rebooting into its OTA loader");
+        inkcell_log_info("firmware", "The radio is rebooting into its OTA loader");
         /* Arming ends on the next tick rather than on its clock. Only a flag here, because
            entering waiting starts a scan and needs the time, which a tick has and this does
            not. */
         ota->go_ahead = true;
         break;
     case MESH_FIRMWARE_OTA_ANSWER_REFUSED:
-        mesh_str_copy(ota->reason, sizeof ota->reason, text);
+        inkcell_str_copy(ota->reason, sizeof ota->reason, text);
         ota_fail(ota, MESH_FIRMWARE_OTA_ERROR_REFUSED);
         break;
     default:

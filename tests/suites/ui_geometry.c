@@ -78,21 +78,21 @@ static const struct geometry k_geometries[] = {
  * being recognised as a surface by coincidence. Repainting the palette broke the coincidence and
  * not the frame.
  */
-static const enum mesh_ui_color k_grounds[] = {
-    MESH_UI_COLOR_BG,
-    MESH_UI_COLOR_SURFACE_LOW,
-    MESH_UI_COLOR_SURFACE,
-    MESH_UI_COLOR_SURFACE_HIGH,
-    MESH_UI_COLOR_SURFACE_SEL,
-    MESH_UI_COLOR_SURFACE_ACTIVE,
-    MESH_UI_COLOR_SURFACE_INVERSE,
-    MESH_UI_COLOR_RULE,
-    MESH_UI_COLOR_RULE_STRONG,
+static const enum inkcell_color k_grounds[] = {
+    INKCELL_COLOR_BG,
+    INKCELL_COLOR_SURFACE_LOW,
+    INKCELL_COLOR_SURFACE,
+    INKCELL_COLOR_SURFACE_HIGH,
+    INKCELL_COLOR_SURFACE_SEL,
+    INKCELL_COLOR_SURFACE_ACTIVE,
+    INKCELL_COLOR_SURFACE_INVERSE,
+    INKCELL_COLOR_RULE,
+    INKCELL_COLOR_RULE_STRONG,
 };
 
-static bool pixel_is_ground(const struct mesh_ui_theme *theme, const uint8_t *pixel) {
+static bool pixel_is_ground(const struct inkcell_theme *theme, const uint8_t *pixel) {
     for (size_t i = 0; i < sizeof k_grounds / sizeof k_grounds[0]; ++i) {
-        const struct mesh_ui_rgb ground = mesh_ui_theme_color(theme, k_grounds[i]);
+        const struct inkcell_rgb ground = inkcell_theme_color(theme, k_grounds[i]);
         /* 32 bpp, B,G,R,X in memory - what the capture fabricates and what fb0 holds. */
         if (pixel[0] == ground.b && pixel[1] == ground.g && pixel[2] == ground.r) {
             return true;
@@ -102,7 +102,7 @@ static bool pixel_is_ground(const struct mesh_ui_theme *theme, const uint8_t *pi
 }
 
 /* Whether anything is written - as opposed to filled - inside this band of rows. */
-static bool band_has_ink(const struct mesh_ui_theme *theme, const uint8_t *pixels, uint32_t width,
+static bool band_has_ink(const struct inkcell_theme *theme, const uint8_t *pixels, uint32_t width,
                          size_t stride, uint32_t from_row, uint32_t to_row) {
     for (uint32_t y = from_row; y < to_row; ++y) {
         const uint8_t *row = pixels + (size_t)y * stride;
@@ -116,7 +116,7 @@ static bool band_has_ink(const struct mesh_ui_theme *theme, const uint8_t *pixel
 }
 
 /* The same question of a column, which is what an overhanging label lands in. */
-static bool column_has_ink(const struct mesh_ui_theme *theme, const uint8_t *pixels,
+static bool column_has_ink(const struct inkcell_theme *theme, const uint8_t *pixels,
                            uint32_t height, size_t stride, uint32_t column) {
     for (uint32_t y = 0U; y < height; ++y) {
         if (!pixel_is_ground(theme, pixels + (size_t)y * stride + (size_t)column * 4U)) {
@@ -169,18 +169,18 @@ MESH_TEST_CASE(ui_geometry_every_screen_keeps_its_chrome, unit) {
                 break;
             }
 
-            struct mesh_ui_capture *capture = NULL;
+            struct inkcell_capture *capture = NULL;
             if (mesh_ui_capture_open(&capture, geometry->width, geometry->height, 0) != 0) {
                 failure = "capture open failed";
                 break;
             }
-            mesh_ui_capture_render(capture, &snapshot);
+            inkcell_capture_render(capture, &snapshot);
 
             uint32_t width = 0U;
             uint32_t height = 0U;
             size_t stride = 0U;
-            const uint8_t *pixels = mesh_ui_capture_pixels(capture, &width, &height, &stride);
-            const struct mesh_ui_theme *theme = mesh_ui_capture_theme(capture);
+            const uint8_t *pixels = inkcell_capture_pixels(capture, &width, &height, &stride);
+            const struct inkcell_theme *theme = inkcell_capture_theme(capture);
 
             /*
              * An eighth of the panel at each end, which is more than either bar takes at any
@@ -215,7 +215,7 @@ MESH_TEST_CASE(ui_geometry_every_screen_keeps_its_chrome, unit) {
                 failure = detail;
             }
 
-            mesh_ui_capture_close(capture);
+            inkcell_capture_close(capture);
         }
     }
 
@@ -267,7 +267,7 @@ MESH_TEST_CASE(ui_geometry_overlays_stay_inside_the_panel, unit) {
                 break;
             }
 
-            struct mesh_ui_capture *capture = NULL;
+            struct inkcell_capture *capture = NULL;
             if (mesh_ui_capture_open(&capture, geometry->width, geometry->height, 0) != 0) {
                 failure = "capture open failed";
                 break;
@@ -276,11 +276,11 @@ MESH_TEST_CASE(ui_geometry_overlays_stay_inside_the_panel, unit) {
             uint32_t width = 0U;
             uint32_t height = 0U;
             size_t stride = 0U;
-            const uint8_t *pixels = mesh_ui_capture_pixels(capture, &width, &height, &stride);
-            const struct mesh_ui_theme *theme = mesh_ui_capture_theme(capture);
+            const uint8_t *pixels = inkcell_capture_pixels(capture, &width, &height, &stride);
+            const struct inkcell_theme *theme = inkcell_capture_theme(capture);
             const size_t page_bytes = stride * (size_t)height;
 
-            mesh_ui_capture_render(capture, &snapshot);
+            inkcell_capture_render(capture, &snapshot);
 
             /*
              * The screen underneath, so the overlay can be shown to be on the frame.
@@ -300,16 +300,16 @@ MESH_TEST_CASE(ui_geometry_overlays_stay_inside_the_panel, unit) {
             plain.nav.compose_open = false;
             plain.nav.keyboard_open = false;
 
-            struct mesh_ui_capture *beneath = NULL;
+            struct inkcell_capture *beneath = NULL;
             if (mesh_ui_capture_open(&beneath, geometry->width, geometry->height, 0) != 0) {
                 failure = "capture open failed";
-                mesh_ui_capture_close(capture);
+                inkcell_capture_close(capture);
                 break;
             }
-            mesh_ui_capture_render(beneath, &plain);
+            inkcell_capture_render(beneath, &plain);
             const bool overlay_drew =
-                memcmp(mesh_ui_capture_pixels(beneath, NULL, NULL, NULL), pixels, page_bytes) != 0;
-            mesh_ui_capture_close(beneath);
+                memcmp(inkcell_capture_pixels(beneath, NULL, NULL, NULL), pixels, page_bytes) != 0;
+            inkcell_capture_close(beneath);
 
             if (!overlay_drew) {
                 snprintf(detail, sizeof detail, "%s (%ux%u): %s never reached the frame",
@@ -325,7 +325,7 @@ MESH_TEST_CASE(ui_geometry_overlays_stay_inside_the_panel, unit) {
                 failure = detail;
             }
 
-            mesh_ui_capture_close(capture);
+            inkcell_capture_close(capture);
         }
     }
 

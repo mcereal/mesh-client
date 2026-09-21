@@ -186,24 +186,24 @@ static int mesh_ui_backend_cli_init(void **state, void *userdata) {
     }
     if (context != NULL) {
         const char *console_candidates[] = {"/dev/tty0", "/dev/tty1", "/dev/tty", "/dev/console"};
-        for (size_t i = 0; i < MESH_ARRAY_LEN(console_candidates); ++i) {
+        for (size_t i = 0; i < INKCELL_ARRAY_LEN(console_candidates); ++i) {
             const char *path = console_candidates[i];
             FILE *stream = fopen(path, "w");
             if (stream != NULL) {
                 setvbuf(stream, NULL, _IONBF, 0);
                 context->tty_stream = stream;
-                mesh_log_info("ui", "CLI backend writing to %s", path);
+                inkcell_log_info("ui", "CLI backend writing to %s", path);
                 break;
             }
         }
         if (context->tty_stream == NULL) {
-            mesh_log_warn("ui", "CLI backend could not open a console for output");
+            inkcell_log_warn("ui", "CLI backend could not open a console for output");
         }
     }
     if (state != NULL) {
         *state = context;
     }
-    mesh_log_info("ui", "CLI UI backend active");
+    inkcell_log_info("ui", "CLI UI backend active");
     return 0;
 }
 
@@ -256,8 +256,8 @@ static void mesh_ui_backend_cli_present(void *state, const void *snapshot_ptr, v
     }
 }
 
-const struct mesh_ui_backend *mesh_ui_backend_cli(void) {
-    static const struct mesh_ui_backend k_backend = {
+const struct inkcell_backend *mesh_ui_backend_cli(void) {
+    static const struct inkcell_backend k_backend = {
         .name = "cli",
         .init = mesh_ui_backend_cli_init,
         .shutdown = mesh_ui_backend_cli_shutdown,

@@ -107,7 +107,7 @@
 
 struct uicap {
     struct mesh_ui_store store;
-    struct mesh_ui_capture *capture;
+    struct inkcell_capture *capture;
     struct mesh_ui_snapshot snapshot;
     const char *out_dir;
     const char *prefix;
@@ -267,7 +267,7 @@ static void uicap_scene_demo(struct uicap *cap) {
     snprintf(handshake.primary_channel, sizeof handshake.primary_channel, "%s", "LongFast");
     snprintf(handshake.my_short_name, sizeof handshake.my_short_name, "%s", "HOME");
 
-    const uint32_t now = mesh_time_wall_s();
+    const uint32_t now = inkcell_time_wall_s();
     handshake.node_count = (uint32_t)(sizeof seeds / sizeof seeds[0]);
     for (uint32_t i = 0U; i < handshake.node_count; ++i) {
         struct mesh_ui_node_summary *node = &handshake.nodes[i];
@@ -656,7 +656,7 @@ static void uicap_scene_empty(struct uicap *cap) {
  */
 static void uicap_advance(struct uicap *cap, unsigned ms) {
     cap->now_ms += ms;
-    mesh_ui_capture_advance(cap->capture, ms);
+    inkcell_capture_advance(cap->capture, ms);
     /* The housekeeping the event loop does on every turn, which for the store is one thing: a
        transient notice expiring. Without it the scene's clock ran but nothing timed out, so a
        `toast` stayed up for the rest of the script and a notice sliding *away* - the half of
@@ -678,12 +678,12 @@ static void uicap_emit_delay(struct uicap *cap, unsigned delay_ms) {
         mesh_ui_store_request_refresh(&cap->store);
         (void)mesh_ui_store_consume_updates(&cap->store, &cap->snapshot);
     }
-    mesh_ui_capture_render(cap->capture, &cap->snapshot);
+    inkcell_capture_render(cap->capture, &cap->snapshot);
 
     char path[1024];
     cap->frame_count++;
     snprintf(path, sizeof path, "%s/%s-%04u.ppm", cap->out_dir, cap->prefix, cap->frame_count);
-    const int status = mesh_ui_capture_write_ppm(cap->capture, path);
+    const int status = inkcell_capture_write_ppm(cap->capture, path);
     if (status != 0) {
         fprintf(stderr, "uicap: cannot write %s: %s\n", path, strerror(-status));
         exit(1);
@@ -706,7 +706,7 @@ static void uicap_emit_delay(struct uicap *cap, unsigned delay_ms) {
      * does not have and the clip should not invent. The frame the transition lands on is not
      * animating any more, so it keeps the scene's delay and a `hold` after it still works.
      */
-    if (mesh_ui_capture_animating(cap->capture) && delay_ms > UICAP_FRAME_MS) {
+    if (inkcell_capture_animating(cap->capture) && delay_ms > UICAP_FRAME_MS) {
         delay_ms = UICAP_FRAME_MS;
     }
     cap->delays[cap->frame_count - 1U] = delay_ms;
@@ -721,7 +721,7 @@ static void uicap_emit(struct uicap *cap) { uicap_emit_delay(cap, cap->delay_ms)
  * Plays out whatever the last frame left moving.
  *
  * A press that flips a switch does not finish on the frame that handled it - the knob is a few
- * pixels into a slide. The renderer says so (mesh_ui_capture_animating), so the harness keeps
+ * pixels into a slide. The renderer says so (inkcell_capture_animating), so the harness keeps
  * stepping the clock and drawing until it stops, exactly as the event loop's frame timer does
  * on the device. That is what makes an animation reviewable in a GIF without a single scene
  * script having to know an animation exists.
@@ -739,7 +739,7 @@ static void uicap_emit(struct uicap *cap) { uicap_emit_delay(cap, cap->delay_ms)
 
 static void uicap_settle(struct uicap *cap) {
     for (unsigned i = 0U; i < UICAP_MAX_ANIM_FRAMES; ++i) {
-        if (!mesh_ui_capture_animating(cap->capture)) {
+        if (!inkcell_capture_animating(cap->capture)) {
             return;
         }
         uicap_advance(cap, UICAP_FRAME_MS);
@@ -760,7 +760,7 @@ static void uicap_settle(struct uicap *cap) {
  * client fact the harness genuinely owns, so it fills that one and leaves the rest alone.
  */
 static void uicap_publish_theme(struct uicap *cap) {
-    const struct mesh_ui_theme *theme = mesh_ui_capture_theme(cap->capture);
+    const struct inkcell_theme *theme = inkcell_capture_theme(cap->capture);
     if (theme == NULL) {
         return;
     }
@@ -769,28 +769,28 @@ static void uicap_publish_theme(struct uicap *cap) {
     snprintf(settings.client.theme_name, sizeof settings.client.theme_name, "%s", theme->name);
     /* Only when the capture really is drawing what MESHCLIENT_THEME named: a scene that picked
        its own theme is not being held by the environment, whatever the environment says. */
-    settings.client.theme_from_env = (mesh_ui_theme_env() == theme);
+    settings.client.theme_from_env = (inkcell_theme_env() == theme);
     /* The About row that names the language. mesh_app_publish_ui_state() fills this in on the
        device; the harness has no app behind it, so a capture of About would otherwise be one
        row short of what a Brick draws. */
-    settings.client.language_from_env = mesh_i18n_is_overridden();
+    settings.client.language_from_env = inkcell_i18n_is_overridden();
     snprintf(settings.client.language_name, sizeof settings.client.language_name, "%s",
-             mesh_i18n_locale()->name);
+             inkcell_i18n_locale()->name);
     mesh_ui_store_set_settings(&cap->store, &settings);
 }
 
 static void uicap_apply_theme(struct uicap *cap, const char *name, unsigned line_number) {
-    const struct mesh_ui_theme *theme = mesh_ui_theme_by_id(name);
+    const struct inkcell_theme *theme = inkcell_theme_by_id(name);
     if (theme == NULL) {
         fprintf(stderr, "uicap: line %u: no theme called '%s'. Try:", line_number, name);
-        for (size_t i = 0; i < mesh_ui_theme_count(); ++i) {
-            fprintf(stderr, " %s", mesh_ui_theme_at(i)->id);
+        for (size_t i = 0; i < inkcell_theme_count(); ++i) {
+            fprintf(stderr, " %s", inkcell_theme_at(i)->id);
         }
         fputc('\n', stderr);
         exit(1);
     }
-    mesh_ui_capture_set_theme(cap->capture, theme);
-    mesh_ui_capture_set_scale(cap->capture, cap->scale);
+    inkcell_capture_set_theme(cap->capture, theme);
+    inkcell_capture_set_scale(cap->capture, cap->scale);
     uicap_publish_theme(cap);
 }
 
@@ -802,7 +802,7 @@ static void uicap_start(struct uicap *cap) {
     if (cap->theme_id != NULL) {
         uicap_apply_theme(cap, cap->theme_id, 0U);
     }
-    mesh_ui_capture_set_scale(cap->capture, cap->scale);
+    inkcell_capture_set_scale(cap->capture, cap->scale);
     if (strcmp(cap->scene, "demo") == 0) {
         uicap_scene_demo(cap);
     } else if (strcmp(cap->scene, "empty") == 0) {
@@ -833,23 +833,23 @@ static void uicap_hold(struct uicap *cap, unsigned extra_ms) {
 
 struct uicap_key_name {
     const char *name;
-    enum mesh_ui_key key;
+    enum inkcell_key key;
 };
 
-static enum mesh_ui_key uicap_key_from_name(const char *name) {
+static enum inkcell_key uicap_key_from_name(const char *name) {
     static const struct uicap_key_name names[] = {
-        {"up", MESH_UI_KEY_UP},       {"down", MESH_UI_KEY_DOWN},     {"left", MESH_UI_KEY_LEFT},
-        {"right", MESH_UI_KEY_RIGHT}, {"a", MESH_UI_KEY_A},           {"b", MESH_UI_KEY_B},
-        {"x", MESH_UI_KEY_X},         {"y", MESH_UI_KEY_Y},           {"l1", MESH_UI_KEY_L1},
-        {"r1", MESH_UI_KEY_R1},       {"l2", MESH_UI_KEY_L2},         {"r2", MESH_UI_KEY_R2},
-        {"start", MESH_UI_KEY_START}, {"select", MESH_UI_KEY_SELECT},
+        {"up", INKCELL_KEY_UP},       {"down", INKCELL_KEY_DOWN},     {"left", INKCELL_KEY_LEFT},
+        {"right", INKCELL_KEY_RIGHT}, {"a", INKCELL_KEY_A},           {"b", INKCELL_KEY_B},
+        {"x", INKCELL_KEY_X},         {"y", INKCELL_KEY_Y},           {"l1", INKCELL_KEY_L1},
+        {"r1", INKCELL_KEY_R1},       {"l2", INKCELL_KEY_L2},         {"r2", INKCELL_KEY_R2},
+        {"start", INKCELL_KEY_START}, {"select", INKCELL_KEY_SELECT},
     };
     for (size_t i = 0U; i < sizeof names / sizeof names[0]; ++i) {
         if (strcmp(names[i].name, name) == 0) {
             return names[i].key;
         }
     }
-    return MESH_UI_KEY_NONE;
+    return INKCELL_KEY_NONE;
 }
 
 /* The ids come from src/ui/nav/route.c rather than from a copy here: a scene file naming a tab and
@@ -865,10 +865,10 @@ static int uicap_screen_from_name(const char *name) {
     return -1;
 }
 
-static void uicap_press(struct uicap *cap, enum mesh_ui_key key) {
+static void uicap_press(struct uicap *cap, enum inkcell_key key) {
     struct mesh_ui_action action;
     memset(&action, 0, sizeof action);
-    mesh_ui_store_set_page_rows(&cap->store, mesh_ui_capture_page_rows(cap->capture));
+    mesh_ui_store_set_page_rows(&cap->store, inkcell_capture_page_rows(cap->capture));
     (void)mesh_ui_store_handle_key(&cap->store, key, &action);
     uicap_emit(cap);
     uicap_settle(cap);
@@ -891,7 +891,7 @@ static void uicap_tab(struct uicap *cap, int screen) {
         if (current == screen) {
             return;
         }
-        uicap_press(cap, current < screen ? MESH_UI_KEY_R1 : MESH_UI_KEY_L1);
+        uicap_press(cap, current < screen ? INKCELL_KEY_R1 : INKCELL_KEY_L1);
     }
     die("tab: could not reach that tab (an overlay is open)");
 }
@@ -923,7 +923,7 @@ static void uicap_append_message(struct uicap *cap, bool outbound, enum mesh_mes
     memset(entry, 0, sizeof *entry);
     entry->packet_id = cap->next_packet_id++;
     entry->peer = peer;
-    entry->rx_time = mesh_time_wall_s();
+    entry->rx_time = inkcell_time_wall_s();
     snprintf(entry->peer_name, sizeof entry->peer_name, "%s", name);
     snprintf(entry->text, sizeof entry->text, "%s", text);
     entry->direction = outbound ? (uint8_t)MESH_MESSAGE_OUTBOUND : (uint8_t)MESH_MESSAGE_INBOUND;
@@ -1078,7 +1078,7 @@ static void uicap_append_reaction(struct uicap *cap, const char *name, const cha
     memset(entry, 0, sizeof *entry);
     entry->packet_id = cap->next_packet_id++;
     entry->peer = peer;
-    entry->rx_time = mesh_time_wall_s();
+    entry->rx_time = inkcell_time_wall_s();
     entry->channel = channel;
     entry->broadcast = broadcast;
     snprintf(entry->peer_name, sizeof entry->peer_name, "%s", name);
@@ -1261,7 +1261,7 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
                     line_number);
             exit(1);
         }
-        mesh_time_wall_set_fixed((uint32_t)pinned);
+        inkcell_time_wall_set_fixed((uint32_t)pinned);
         return;
     }
 
@@ -1318,8 +1318,8 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
             fprintf(stderr, "uicap: line %u: 'key' needs a button\n", line_number);
             exit(1);
         }
-        const enum mesh_ui_key key = uicap_key_from_name(name);
-        if (key == MESH_UI_KEY_NONE) {
+        const enum inkcell_key key = uicap_key_from_name(name);
+        if (key == INKCELL_KEY_NONE) {
             fprintf(stderr, "uicap: line %u: no button called '%s'\n", line_number, name);
             exit(1);
         }
@@ -1769,12 +1769,12 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
              * a node seeded two hours back is at the clock inside thirteen pushes and every
              * packet after that is dropped as a repeat - a scene that silently stops recording
              * half way through, and a list that is mysteriously short. An eighth still has room
-             * to move after two dozen, which is MESH_UI_SERIES_MAX.
+             * to move after two dozen, which is INKCELL_SERIES_MAX.
              *
              * A node already at the clock cannot be freshened, and that is the honest answer
              * rather than a gap: nothing is more recent than now.
              */
-            const uint32_t heard_now = mesh_time_wall_s();
+            const uint32_t heard_now = inkcell_time_wall_s();
             const uint32_t behind =
                 node->last_heard < heard_now ? heard_now - node->last_heard : 0U;
             if (behind > 0U) {
@@ -1907,7 +1907,7 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
             exit(1);
         }
         settings.notice.seq++;
-        settings.notice.received = mesh_time_wall_s();
+        settings.notice.received = inkcell_time_wall_s();
         snprintf(settings.notice.text, sizeof settings.notice.text, "%s", uicap_tail(rest));
         mesh_ui_store_set_settings(&cap->store, &settings);
         uicap_emit(cap);
@@ -2086,8 +2086,8 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
          * moves it on from here.
          */
         settings.fw_supported = true;
-        mesh_str_copy(settings.fw_channel, sizeof settings.fw_channel,
-                      mesh_firmware_channel_name(MESH_FIRMWARE_CHANNEL_STABLE));
+        inkcell_str_copy(settings.fw_channel, sizeof settings.fw_channel,
+                         mesh_firmware_channel_name(MESH_FIRMWARE_CHANNEL_STABLE));
 
         /* The two LoRa rows that read as unconfigured rather than as defaults: a region of
            "Unset" is a radio that will not transmit, and an empty timezone is the row's dash. */
@@ -2443,7 +2443,7 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
             mqtt.subscriptions = 3U;
         }
         if (strcmp(what, "connected") == 0) {
-            snprintf(mqtt.state, sizeof mqtt.state, "%s", mesh_str(MESH_STR_MQTT_STATE_READY));
+            snprintf(mqtt.state, sizeof mqtt.state, "%s", inkcell_str(MESH_STR_MQTT_STATE_READY));
             mqtt.connected = true;
             mqtt.connections = 1U;
             mqtt.published = 412U;
@@ -2451,7 +2451,7 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         } else if (strcmp(what, "flapping") == 0) {
             /* Connected *now*, and for the ninth time. The one state a single frame cannot
                otherwise show, since every frame of it says "Connected". */
-            snprintf(mqtt.state, sizeof mqtt.state, "%s", mesh_str(MESH_STR_MQTT_STATE_READY));
+            snprintf(mqtt.state, sizeof mqtt.state, "%s", inkcell_str(MESH_STR_MQTT_STATE_READY));
             mqtt.connected = true;
             mqtt.connections = 9U;
             mqtt.published = 96U;
@@ -2460,7 +2460,7 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
             snprintf(mqtt.last_error, sizeof mqtt.last_error, "%s",
                      "mqtt.meshtastic.org closed the connection");
         } else if (strcmp(what, "refused") == 0) {
-            snprintf(mqtt.state, sizeof mqtt.state, "%s", mesh_str(MESH_STR_MQTT_STATE_WAITING));
+            snprintf(mqtt.state, sizeof mqtt.state, "%s", inkcell_str(MESH_STR_MQTT_STATE_WAITING));
             mqtt.failing = true;
             mqtt.dropped = 23U;
             snprintf(mqtt.last_error, sizeof mqtt.last_error, "%s",
@@ -2468,13 +2468,13 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         } else if (strcmp(what, "silent") == 0) {
             /* The fault with no error behind it: connected, publishing, and subscribed to
                nothing because every channel has downlink off. */
-            snprintf(mqtt.state, sizeof mqtt.state, "%s", mesh_str(MESH_STR_MQTT_STATE_READY));
+            snprintf(mqtt.state, sizeof mqtt.state, "%s", inkcell_str(MESH_STR_MQTT_STATE_READY));
             mqtt.connected = true;
             mqtt.connections = 1U;
             mqtt.subscriptions = 0U;
             mqtt.published = 340U;
         } else if (strcmp(what, "disabled") == 0) {
-            snprintf(mqtt.state, sizeof mqtt.state, "%s", mesh_str(MESH_STR_MQTT_STATE_OFF));
+            snprintf(mqtt.state, sizeof mqtt.state, "%s", inkcell_str(MESH_STR_MQTT_STATE_OFF));
             mqtt.disabled = true;
             mqtt.subscriptions = 0U;
             mqtt.unhandled = 57U;
@@ -2494,7 +2494,7 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         uicap_start(cap);
         struct mesh_ui_settings settings = cap->store.settings;
         settings.stats.valid = true;
-        settings.stats.time = mesh_time_wall_s();
+        settings.stats.time = inkcell_time_wall_s();
         settings.stats.uptime_seconds = 806400U;
         settings.stats.channel_utilization = 11.5F;
         settings.stats.air_util_tx = 3.2F;
@@ -2721,7 +2721,7 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         uicap_start(cap);
         struct mesh_ui_settings settings = cap->store.settings;
         settings.fw_supported = true;
-        mesh_str_copy(settings.fw_channel, sizeof settings.fw_channel, which);
+        inkcell_str_copy(settings.fw_channel, sizeof settings.fw_channel, which);
         mesh_ui_store_set_settings(&cap->store, &settings);
         uicap_emit(cap);
         uicap_settle(cap);
@@ -2765,29 +2765,29 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         /* The channel the rows read. Left at the harness's default unless a scene says
            otherwise - see the `firmware-channel` verb. */
         if (settings.fw_channel[0] == '\0') {
-            mesh_str_copy(settings.fw_channel, sizeof settings.fw_channel,
-                          mesh_firmware_channel_name(MESH_FIRMWARE_CHANNEL_STABLE));
+            inkcell_str_copy(settings.fw_channel, sizeof settings.fw_channel,
+                             mesh_firmware_channel_name(MESH_FIRMWARE_CHANNEL_STABLE));
         }
         settings.fw_state = (uint8_t)(checking  ? MESH_FIRMWARE_CHECKING
                                       : behind  ? MESH_FIRMWARE_AVAILABLE
                                       : current ? MESH_FIRMWARE_UP_TO_DATE
                                                 : MESH_FIRMWARE_FAILED);
-        mesh_str_copy(settings.fw_latest, sizeof settings.fw_latest, "2.7.26.54e0d8d");
-        mesh_str_copy(settings.fw_board, sizeof settings.fw_board, "Heltec Mesh Node T114");
+        inkcell_str_copy(settings.fw_latest, sizeof settings.fw_latest, "2.7.26.54e0d8d");
+        inkcell_str_copy(settings.fw_board, sizeof settings.fw_board, "Heltec Mesh Node T114");
         /* The value column's value, exactly as the module would have set it: the state's own
            word, or - once there is a release worth having - the version on its own. */
         if (behind) {
-            mesh_str_copy(settings.fw_message, sizeof settings.fw_message, settings.fw_latest);
+            inkcell_str_copy(settings.fw_message, sizeof settings.fw_message, settings.fw_latest);
         } else if (failed) {
-            mesh_str_copy(settings.fw_message, sizeof settings.fw_message,
-                          mesh_str(MESH_STR_FW_INDEX_UNREADABLE));
+            inkcell_str_copy(settings.fw_message, sizeof settings.fw_message,
+                             inkcell_str(MESH_STR_FW_INDEX_UNREADABLE));
         } else {
-            mesh_str_copy(settings.fw_message, sizeof settings.fw_message,
-                          mesh_firmware_state_name((enum mesh_firmware_state)settings.fw_state));
+            inkcell_str_copy(settings.fw_message, sizeof settings.fw_message,
+                             mesh_firmware_state_name((enum mesh_firmware_state)settings.fw_state));
         }
         /* The refusal, which is a different answer from the state above it and is the half a
            picture of this screen is actually for. */
-        enum mesh_str_id reason = MESH_STR_NONE;
+        enum inkcell_str_id reason = INKCELL_STR_NONE;
         if (why != NULL) {
             if (strcmp(why, "usb") == 0) {
                 reason = MESH_STR_FW_BLOCK_CONNECT_USB;
@@ -2804,8 +2804,8 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
                 exit(1);
             }
         }
-        mesh_str_copy(settings.fw_blocker_reason, sizeof settings.fw_blocker_reason,
-                      reason != MESH_STR_NONE ? mesh_str(reason) : "");
+        inkcell_str_copy(settings.fw_blocker_reason, sizeof settings.fw_blocker_reason,
+                         reason != INKCELL_STR_NONE ? inkcell_str(reason) : "");
         mesh_ui_store_set_settings(&cap->store, &settings);
         uicap_emit(cap);
         uicap_settle(cap);
@@ -2859,13 +2859,13 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         settings.fw_supported = true;
         settings.fw_state = (uint8_t)MESH_FIRMWARE_AVAILABLE;
         if (settings.fw_latest[0] == '\0') {
-            mesh_str_copy(settings.fw_latest, sizeof settings.fw_latest, "2.7.26.54e0d8d");
-            mesh_str_copy(settings.fw_message, sizeof settings.fw_message, settings.fw_latest);
-            mesh_str_copy(settings.fw_board, sizeof settings.fw_board, "Heltec Mesh Node T114");
+            inkcell_str_copy(settings.fw_latest, sizeof settings.fw_latest, "2.7.26.54e0d8d");
+            inkcell_str_copy(settings.fw_message, sizeof settings.fw_message, settings.fw_latest);
+            inkcell_str_copy(settings.fw_board, sizeof settings.fw_board, "Heltec Mesh Node T114");
         }
         if (settings.fw_channel[0] == '\0') {
-            mesh_str_copy(settings.fw_channel, sizeof settings.fw_channel,
-                          mesh_firmware_channel_name(MESH_FIRMWARE_CHANNEL_STABLE));
+            inkcell_str_copy(settings.fw_channel, sizeof settings.fw_channel,
+                             mesh_firmware_channel_name(MESH_FIRMWARE_CHANNEL_STABLE));
         }
         settings.fw_blocker_reason[0] = '\0';
         settings.fw_bus =
@@ -2882,8 +2882,8 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
            radio's words rather than the category. */
         if (state == MESH_FIRMWARE_UPDATE_FAILED) {
             settings.fw_update_error = (uint8_t)MESH_FIRMWARE_UPDATE_ERROR_REFUSED;
-            mesh_str_copy(settings.fw_update_detail, sizeof settings.fw_update_detail,
-                          "No OTA partition");
+            inkcell_str_copy(settings.fw_update_detail, sizeof settings.fw_update_detail,
+                             "No OTA partition");
         }
         /* And a radio left in its loader is what raises the banner, which is the one state of
            this feature that is visible from every other screen. */
@@ -3060,7 +3060,7 @@ int main(int argc, char **argv) {
      */
     inkcell_env_set_prefix("MESHCLIENT");
     mesh_i18n_register();
-    mesh_i18n_init();
+    inkcell_i18n_init();
     struct uicap cap;
     memset(&cap, 0, sizeof cap);
     cap.out_dir = "capture";
@@ -3072,8 +3072,8 @@ int main(int argc, char **argv) {
 
     bool reference = false;
     const char *script_path = NULL;
-    uint32_t width = MESH_UI_CAPTURE_WIDTH;
-    uint32_t height = MESH_UI_CAPTURE_HEIGHT;
+    uint32_t width = INKCELL_CAPTURE_WIDTH;
+    uint32_t height = INKCELL_CAPTURE_HEIGHT;
     for (int i = 1; i < argc; ++i) {
         const char *arg = argv[i];
         const char *value = i + 1 < argc ? argv[i + 1] : NULL;
@@ -3117,7 +3117,7 @@ int main(int argc, char **argv) {
         die("cannot allocate the off-screen page");
     }
 
-    mesh_ui_capture_set_reference(cap.capture, reference);
+    inkcell_capture_set_reference(cap.capture, reference);
 
     FILE *script = stdin;
     if (script_path != NULL && strcmp(script_path, "-") != 0) {
@@ -3155,7 +3155,7 @@ int main(int argc, char **argv) {
     fclose(manifest);
 
     free(cap.delays);
-    mesh_ui_capture_close(cap.capture);
+    inkcell_capture_close(cap.capture);
     mesh_ui_store_shutdown(&cap.store);
 
     if (!cap.quiet) {

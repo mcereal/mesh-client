@@ -74,36 +74,36 @@ MESH_TEST_CASE(key_trust_reads_the_key_and_the_bit, unit) {
  * distinctness case exists to prevent, with more riding on it.
  */
 MESH_TEST_CASE(key_trust_marks_are_distinct_and_drawable, unit) {
-    const enum mesh_ui_icon none = mesh_ui_key_trust_icon(MESH_UI_KEY_TRUST_NONE);
-    const enum mesh_ui_icon unverified = mesh_ui_key_trust_icon(MESH_UI_KEY_TRUST_UNVERIFIED);
-    const enum mesh_ui_icon verified = mesh_ui_key_trust_icon(MESH_UI_KEY_TRUST_VERIFIED);
+    const enum inkcell_icon none = mesh_ui_key_trust_icon(MESH_UI_KEY_TRUST_NONE);
+    const enum inkcell_icon unverified = mesh_ui_key_trust_icon(MESH_UI_KEY_TRUST_UNVERIFIED);
+    const enum inkcell_icon verified = mesh_ui_key_trust_icon(MESH_UI_KEY_TRUST_VERIFIED);
 
-    MESH_TEST_FAIL_IF(mesh_ui_icon_is_valid(none),
+    MESH_TEST_FAIL_IF(inkcell_icon_is_valid(none),
                       "no key should carry no mark; there is nothing to draw a padlock about");
-    MESH_TEST_FAIL_IF(!mesh_ui_icon_is_valid(unverified), "an unverified key has no mark");
-    MESH_TEST_FAIL_IF(!mesh_ui_icon_is_valid(verified), "a verified key has no mark");
+    MESH_TEST_FAIL_IF(!inkcell_icon_is_valid(unverified), "an unverified key has no mark");
+    MESH_TEST_FAIL_IF(!inkcell_icon_is_valid(verified), "a verified key has no mark");
     MESH_TEST_FAIL_IF(unverified == verified,
                       "verified and unverified share a mark, so the padlock cannot tell them "
                       "apart");
     /* Sprites this build can find, rather than ids past the end of the generated table - which
        is what an icons.def edit committed without rerunning gen-icons.py leaves behind. */
-    MESH_TEST_FAIL_IF(mesh_ui_icon_name(unverified)[0] == '\0',
+    MESH_TEST_FAIL_IF(inkcell_icon_name(unverified)[0] == '\0',
                       "the unverified mark names a sprite this build cannot draw");
-    MESH_TEST_FAIL_IF(mesh_ui_icon_name(verified)[0] == '\0',
+    MESH_TEST_FAIL_IF(inkcell_icon_name(verified)[0] == '\0',
                       "the verified mark names a sprite this build cannot draw");
 
     for (int trust = MESH_UI_KEY_TRUST_NONE; trust <= MESH_UI_KEY_TRUST_VERIFIED; ++trust) {
         char detail[96];
         snprintf(detail, sizeof detail, "trust %d has no word", trust);
         MESH_TEST_FAIL_IF(
-            mesh_str(mesh_ui_key_trust_label((enum mesh_ui_key_trust)trust))[0] == '\0', detail);
+            inkcell_str(mesh_ui_key_trust_label((enum mesh_ui_key_trust)trust))[0] == '\0', detail);
     }
     /* An unverified key is the ordinary case on a working mesh. Colouring it would teach the
        user to ignore the colour by the end of the first day, which is the judgement in
        mesh/ui/trust.h and the one thing about that table worth pinning. */
-    MESH_TEST_FAIL_IF(mesh_ui_key_trust_tone(MESH_UI_KEY_TRUST_UNVERIFIED) != MESH_UI_TONE_NORMAL,
+    MESH_TEST_FAIL_IF(mesh_ui_key_trust_tone(MESH_UI_KEY_TRUST_UNVERIFIED) != INKCELL_TONE_NORMAL,
                       "an unverified key should be drawn as the ordinary case");
-    MESH_TEST_FAIL_IF(mesh_ui_key_trust_tone(MESH_UI_KEY_TRUST_VERIFIED) == MESH_UI_TONE_NORMAL,
+    MESH_TEST_FAIL_IF(mesh_ui_key_trust_tone(MESH_UI_KEY_TRUST_VERIFIED) == INKCELL_TONE_NORMAL,
                       "a verified key should be drawn as the thing somebody did");
     record_success(test_name);
 }
@@ -733,8 +733,8 @@ MESH_TEST_CASE(key_trust_sheet_answers_every_stage, unit) {
         snprintf(detail, sizeof detail, "stage %u has no explanation", (unsigned)sheets[i]);
         MESH_TEST_FAIL_IF(text[0] == '\0', detail);
         snprintf(detail, sizeof detail, "stage %u has an unlabelled answer", (unsigned)sheets[i]);
-        MESH_TEST_FAIL_IF(mesh_str(sheet.accept)[0] == '\0' || mesh_str(sheet.cancel)[0] == '\0',
-                          detail);
+        MESH_TEST_FAIL_IF(
+            inkcell_str(sheet.accept)[0] == '\0' || inkcell_str(sheet.cancel)[0] == '\0', detail);
         MESH_TEST_FAIL_IF(sheet.accept == sheet.cancel, "a stage offers the same answer twice");
     }
 
@@ -859,7 +859,7 @@ MESH_TEST_CASE(key_trust_node_detail_offers_the_key_rows, unit) {
         bool in_nodedb;
         bool expect_verify;
         bool expect_add;
-        enum mesh_str_id expect_state;
+        enum inkcell_str_id expect_state;
     } cases[] = {
         {"no key", false, false, true, false, false, MESH_STR_TRUST_NONE},
         {"key, on the radio", true, false, true, true, false, MESH_STR_TRUST_UNVERIFIED},
@@ -898,7 +898,7 @@ MESH_TEST_CASE(key_trust_node_detail_offers_the_key_rows, unit) {
         for (uint32_t row = 0; row < count; ++row) {
             const struct mesh_ui_node_item *item = &items[row];
             if (item->kind == (uint8_t)MESH_UI_NODE_ROW_INFO &&
-                strcmp(item->value, mesh_str(cases[i].expect_state)) == 0) {
+                strcmp(item->value, inkcell_str(cases[i].expect_state)) == 0) {
                 saw_state = true;
             }
         }
@@ -949,16 +949,16 @@ MESH_TEST_CASE(key_trust_sheet_presses_answer_the_right_way, unit) {
     MESH_TEST_FAIL_IF(!nav.verify_open, "the sheet did not open");
     MESH_TEST_FAIL_IF(nav.verify_cursor != 0U, "the sheet should open on the answer that acts");
     memset(&action, 0, sizeof action);
-    (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_A, &action);
+    (void)mesh_ui_nav_handle_key(&nav, &store, INKCELL_KEY_A, &action);
     MESH_TEST_FAIL_IF(action.type != MESH_UI_ACTION_VERIFY_ANSWER || action.number != 1U,
                       "A on \"they match\" did not verify the key");
     MESH_TEST_FAIL_IF(nav.verify_open, "answering left the sheet up");
 
     key_trust_open_sheet(&store, &nav, MESH_UI_VERIFY_COMPARE);
-    (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_DOWN, NULL);
+    (void)mesh_ui_nav_handle_key(&nav, &store, INKCELL_KEY_DOWN, NULL);
     MESH_TEST_FAIL_IF(nav.verify_cursor != 1U, "the d-pad does not move between the two answers");
     memset(&action, 0, sizeof action);
-    (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_A, &action);
+    (void)mesh_ui_nav_handle_key(&nav, &store, INKCELL_KEY_A, &action);
     MESH_TEST_FAIL_IF(action.type != MESH_UI_ACTION_VERIFY_ANSWER || action.number != 0U,
                       "A on \"they do not\" did not refuse the key");
 
@@ -970,7 +970,7 @@ MESH_TEST_CASE(key_trust_sheet_presses_answer_the_right_way, unit) {
      */
     key_trust_open_sheet(&store, &nav, MESH_UI_VERIFY_COMPARE);
     memset(&action, 0, sizeof action);
-    (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_B, &action);
+    (void)mesh_ui_nav_handle_key(&nav, &store, INKCELL_KEY_B, &action);
     MESH_TEST_FAIL_IF(action.type != MESH_UI_ACTION_NONE, "B answered the comparison");
     MESH_TEST_FAIL_IF(nav.verify_open, "B did not close the sheet");
 
@@ -985,7 +985,7 @@ MESH_TEST_CASE(key_trust_sheet_presses_answer_the_right_way, unit) {
         char detail[96];
         key_trust_open_sheet(&store, &nav, waiting[i]);
         memset(&action, 0, sizeof action);
-        (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_A, &action);
+        (void)mesh_ui_nav_handle_key(&nav, &store, INKCELL_KEY_A, &action);
         snprintf(detail, sizeof detail,
                  "stage %u: getting out of the way told the radio "
                  "something",
@@ -995,9 +995,9 @@ MESH_TEST_CASE(key_trust_sheet_presses_answer_the_right_way, unit) {
         MESH_TEST_FAIL_IF(nav.verify_open, detail);
 
         key_trust_open_sheet(&store, &nav, waiting[i]);
-        (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_RIGHT, NULL);
+        (void)mesh_ui_nav_handle_key(&nav, &store, INKCELL_KEY_RIGHT, NULL);
         memset(&action, 0, sizeof action);
-        (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_A, &action);
+        (void)mesh_ui_nav_handle_key(&nav, &store, INKCELL_KEY_A, &action);
         snprintf(detail, sizeof detail, "stage %u: stopping did not stand the ceremony down",
                  (unsigned)waiting[i]);
         MESH_TEST_FAIL_IF(action.type != MESH_UI_ACTION_VERIFY_ANSWER || action.number != 0U,
@@ -1039,13 +1039,13 @@ MESH_TEST_CASE(key_trust_number_keyboard_takes_six_digits, unit) {
     /* Four was this prompt's cap until a real radio read out "727 628": the firmware's number
        runs to 999999, and four digits of it were sent as the whole. */
     snprintf(nav.draft, sizeof nav.draft, "7276");
-    (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_START, &action);
+    (void)mesh_ui_nav_handle_key(&nav, &store, INKCELL_KEY_START, &action);
     MESH_TEST_FAIL_IF(action.type != MESH_UI_ACTION_NONE, "four digits were sent as a number");
     MESH_TEST_FAIL_IF(!nav.keyboard_open, "a refused number closed the prompt anyway");
 
     memset(&action, 0, sizeof action);
     snprintf(nav.draft, sizeof nav.draft, "727628");
-    (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_START, &action);
+    (void)mesh_ui_nav_handle_key(&nav, &store, INKCELL_KEY_START, &action);
     MESH_TEST_FAIL_IF(action.type != MESH_UI_ACTION_VERIFY_NUMBER, "six digits were not sent");
     MESH_TEST_FAIL_IF(strcmp(action.text, "727628") != 0, "the digits did not survive the press");
     MESH_TEST_FAIL_IF(nav.keyboard_open, "the prompt stayed up after being answered");
@@ -1056,7 +1056,7 @@ MESH_TEST_CASE(key_trust_number_keyboard_takes_six_digits, unit) {
     mesh_ui_store_open_verify_number(&store);
     nav = store.nav;
     memset(&action, 0, sizeof action);
-    (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_B, &action);
+    (void)mesh_ui_nav_handle_key(&nav, &store, INKCELL_KEY_B, &action);
     MESH_TEST_FAIL_IF(action.type != MESH_UI_ACTION_VERIFY_ANSWER || action.number != 0U,
                       "backing out of the number prompt left the other end waiting");
 
@@ -1079,7 +1079,7 @@ MESH_TEST_CASE(key_trust_number_keyboard_takes_six_digits, unit) {
  * this row model; a label elsewhere is measured against its own.
  */
 MESH_TEST_CASE(key_trust_node_action_labels_fit_their_row, unit) {
-    static const enum mesh_str_id kLabels[] = {
+    static const enum inkcell_str_id kLabels[] = {
         MESH_STR_NODE_ACT_MESSAGE,       MESH_STR_NODE_ACT_PIN,
         MESH_STR_NODE_ACT_REQUEST_INFO,  MESH_STR_NODE_ACT_REQUEST_POSITION,
         MESH_STR_NODE_ACT_REQUEST_TELEM, MESH_STR_NODE_ACT_MUTE,
@@ -1088,10 +1088,10 @@ MESH_TEST_CASE(key_trust_node_action_labels_fit_their_row, unit) {
         MESH_STR_NODE_ACT_VERIFY_KEY,    MESH_STR_NODE_ACT_VERIFY_AGAIN,
         MESH_STR_NODE_ACT_ADD_CONTACT,   MESH_STR_NODE_KEY_TRUST,
     };
-    for (size_t locale = 0; locale < mesh_i18n_locale_count(); ++locale) {
-        const struct mesh_i18n_locale *const which = mesh_i18n_locale_at(locale);
+    for (size_t locale = 0; locale < inkcell_i18n_locale_count(); ++locale) {
+        const struct inkcell_i18n_locale *const which = inkcell_i18n_locale_at(locale);
         for (size_t i = 0; i < sizeof kLabels / sizeof kLabels[0]; ++i) {
-            const char *const text = mesh_str_in(which, kLabels[i]);
+            const char *const text = inkcell_str_in(which, kLabels[i]);
             if (strlen(text) < MESH_UI_NODE_LABEL_MAX) {
                 continue;
             }
@@ -1099,7 +1099,7 @@ MESH_TEST_CASE(key_trust_node_action_labels_fit_their_row, unit) {
                fourteen verbs is a bisect rather than a failure message. */
             char reason[160];
             snprintf(reason, sizeof reason, "%s: %s is %u bytes, over the %u-byte row label",
-                     which->id, mesh_str_id_name(kLabels[i]), (unsigned)strlen(text),
+                     which->id, inkcell_str_id_name(kLabels[i]), (unsigned)strlen(text),
                      (unsigned)MESH_UI_NODE_LABEL_MAX - 1U);
             record_failure(test_name, reason);
             return;

@@ -21,7 +21,7 @@
 /* Short, unambiguous, and what you actually want to say with no keyboard. Replaceable through
    mesh_ui_canned_load(), and translated: a canned reply is the one piece of text this client
    puts on the air, so it has to be in the language the sender speaks. */
-static const enum mesh_str_id k_default_canned[] = {
+static const enum inkcell_str_id k_default_canned[] = {
     MESH_STR_CANNED_OK,        MESH_STR_CANNED_YES,           MESH_STR_CANNED_NO,
     MESH_STR_CANNED_ON_MY_WAY, MESH_STR_CANNED_WHERE_ARE_YOU, MESH_STR_CANNED_IM_HERE,
     MESH_STR_CANNED_CALL_ME,   MESH_STR_CANNED_NEED_HELP,     MESH_STR_CANNED_HEADING_BACK,
@@ -36,9 +36,10 @@ static bool s_canned_custom;
 static void mesh_ui_canned_defaults(void) {
     s_canned_custom = false;
     s_canned_count = 0U;
-    for (size_t i = 0; i < MESH_ARRAY_LEN(k_default_canned) && s_canned_count < MESH_UI_CANNED_MAX;
-         ++i) {
-        snprintf(s_canned[s_canned_count], sizeof s_canned[0], "%s", mesh_str(k_default_canned[i]));
+    for (size_t i = 0;
+         i < INKCELL_ARRAY_LEN(k_default_canned) && s_canned_count < MESH_UI_CANNED_MAX; ++i) {
+        snprintf(s_canned[s_canned_count], sizeof s_canned[0], "%s",
+                 inkcell_str(k_default_canned[i]));
         s_canned_count++;
     }
     s_canned_loaded = true;
@@ -60,7 +61,7 @@ const char *mesh_ui_canned_text(size_t index) {
     if (index >= s_canned_count) {
         return "";
     }
-    return s_canned_custom ? s_canned[index] : mesh_str(k_default_canned[index]);
+    return s_canned_custom ? s_canned[index] : inkcell_str(k_default_canned[index]);
 }
 
 int mesh_ui_canned_load(const char *path) {
@@ -89,7 +90,7 @@ int mesh_ui_canned_load(const char *path) {
         if (!clean || line[0] == '\0' || line[0] == '#') {
             continue;
         }
-        mesh_str_copy(staged[count], sizeof staged[0], line);
+        inkcell_str_copy(staged[count], sizeof staged[0], line);
         count++;
     }
     fclose(file);

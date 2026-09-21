@@ -386,8 +386,8 @@ int mesh_map_source_open_pack(const char *path, struct mesh_map_source *out) {
     out->has = pack_has;
     out->close = pack_close;
     out->context = pack;
-    mesh_log_info("map", "Opened tile pack %s: %u tiles, zoom %u-%u", path, count,
-                  (unsigned)out->info.min_zoom, (unsigned)out->info.max_zoom);
+    inkcell_log_info("map", "Opened tile pack %s: %u tiles, zoom %u-%u", path, count,
+                     (unsigned)out->info.min_zoom, (unsigned)out->info.max_zoom);
     return 0;
 }
 

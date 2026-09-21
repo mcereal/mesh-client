@@ -33,7 +33,7 @@ _Static_assert(MESH_UI_CONTACT_URL_MAX >= MESH_CONTACT_URL_MAX,
  * which is a coupling nothing gains from.
  */
 static void contact_id(const meshtastic_SharedContact *contact, char *out, size_t out_len) {
-    mesh_str_format(out, out_len, MESH_STR_NODE_VAL_USER_ID_HEX, contact->node_num);
+    inkcell_str_format(out, out_len, MESH_STR_NODE_VAL_USER_ID_HEX, contact->node_num);
 }
 
 /* The name to put in front of a person: what they call themselves, what they call themselves
@@ -42,14 +42,14 @@ static void contact_id(const meshtastic_SharedContact *contact, char *out, size_
    key, and the name arrives with the node's first NodeInfo. */
 static void contact_name(const meshtastic_SharedContact *contact, char *out, size_t out_len) {
     if (contact->has_user && contact->user.long_name[0] != '\0') {
-        mesh_str_copy(out, out_len, contact->user.long_name);
+        inkcell_str_copy(out, out_len, contact->user.long_name);
         return;
     }
     if (contact->has_user && contact->user.short_name[0] != '\0') {
-        mesh_str_copy(out, out_len, contact->user.short_name);
+        inkcell_str_copy(out, out_len, contact->user.short_name);
         return;
     }
-    mesh_str_copy(out, out_len, mesh_str(MESH_STR_CONTACT_NO_NAME));
+    inkcell_str_copy(out, out_len, inkcell_str(MESH_STR_CONTACT_NO_NAME));
 }
 
 bool mesh_ui_contact_share_summary(const char *url, char *out, size_t out_len) {
@@ -65,7 +65,7 @@ bool mesh_ui_contact_share_summary(const char *url, char *out, size_t out_len) {
     char id[sizeof contact.user.id];
     contact_name(&contact, name, sizeof name);
     contact_id(&contact, id, sizeof id);
-    mesh_str_format(out, out_len, MESH_STR_CONTACT_SUMMARY, name, id);
+    inkcell_str_format(out, out_len, MESH_STR_CONTACT_SUMMARY, name, id);
     return true;
 }
 
@@ -102,7 +102,7 @@ bool mesh_ui_contact_import_sheet(const char *text, char *headline, size_t headl
     if (headline != NULL) {
         char name[sizeof contact.user.long_name];
         contact_name(&contact, name, sizeof name);
-        mesh_str_format(headline, headline_len, MESH_STR_CONFIRM_TITLE_ADD_CONTACT, name);
+        inkcell_str_format(headline, headline_len, MESH_STR_CONFIRM_TITLE_ADD_CONTACT, name);
     }
     if (body != NULL) {
         /* The paragraph names the *number* where the headline named the name. A link is a
@@ -110,7 +110,7 @@ bool mesh_ui_contact_import_sheet(const char *text, char *headline, size_t headl
            entry this write lands on - so it is the half worth reading before saying yes. */
         char id[sizeof contact.user.id];
         contact_id(&contact, id, sizeof id);
-        mesh_str_format(body, body_len, MESH_STR_CONFIRM_TEXT_ADD_CONTACT, id);
+        inkcell_str_format(body, body_len, MESH_STR_CONFIRM_TEXT_ADD_CONTACT, id);
     }
     return true;
 }

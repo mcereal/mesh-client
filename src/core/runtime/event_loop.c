@@ -27,7 +27,7 @@ static int wake_callback(int fd, uint32_t events, void *userdata) {
     uint64_t value = 0;
     ssize_t result = read(fd, &value, sizeof value);
     if (result < 0 && errno != EAGAIN) {
-        mesh_log_warn("loop", "wake read failed: %s", strerror(errno));
+        inkcell_log_warn("loop", "wake read failed: %s", strerror(errno));
     }
     loop->running = false;
     loop->stop_requested = true;
@@ -45,13 +45,13 @@ int mesh_event_loop_init(struct mesh_event_loop *loop) {
 
     loop->epoll_fd = epoll_create1(EPOLL_CLOEXEC);
     if (loop->epoll_fd < 0) {
-        mesh_log_error("loop", "epoll_create1 failed: %s", strerror(errno));
+        inkcell_log_error("loop", "epoll_create1 failed: %s", strerror(errno));
         return -errno;
     }
 
     loop->wake_fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
     if (loop->wake_fd < 0) {
-        mesh_log_error("loop", "eventfd failed: %s", strerror(errno));
+        inkcell_log_error("loop", "eventfd failed: %s", strerror(errno));
         close(loop->epoll_fd);
         loop->epoll_fd = -1;
         return -errno;
@@ -59,7 +59,7 @@ int mesh_event_loop_init(struct mesh_event_loop *loop) {
 
     int result = mesh_event_loop_add_fd(loop, loop->wake_fd, EPOLLIN, wake_callback, loop);
     if (result < 0) {
-        mesh_log_error("loop", "Failed to register wake FD: %d", result);
+        inkcell_log_error("loop", "Failed to register wake FD: %d", result);
         close(loop->wake_fd);
         close(loop->epoll_fd);
         loop->wake_fd = -1;
@@ -134,7 +134,7 @@ int mesh_event_loop_add_fd(struct mesh_event_loop *loop, int fd, uint32_t events
     if (epoll_ctl(loop->epoll_fd, EPOLL_CTL_ADD, fd, &event) < 0) {
         int error = -errno;
         source->active = false;
-        mesh_log_error("loop", "epoll_ctl add failed: %s", strerror(errno));
+        inkcell_log_error("loop", "epoll_ctl add failed: %s", strerror(errno));
         return error;
     }
 
@@ -159,7 +159,7 @@ int mesh_event_loop_update_fd(struct mesh_event_loop *loop, int fd, uint32_t eve
     event.data.ptr = source;
 
     if (epoll_ctl(loop->epoll_fd, EPOLL_CTL_MOD, fd, &event) < 0) {
-        mesh_log_error("loop", "epoll_ctl mod failed: %s", strerror(errno));
+        inkcell_log_error("loop", "epoll_ctl mod failed: %s", strerror(errno));
         return -errno;
     }
 
@@ -177,7 +177,7 @@ int mesh_event_loop_remove_fd(struct mesh_event_loop *loop, int fd) {
     }
 
     if (epoll_ctl(loop->epoll_fd, EPOLL_CTL_DEL, fd, NULL) < 0) {
-        mesh_log_error("loop", "epoll_ctl del failed: %s", strerror(errno));
+        inkcell_log_error("loop", "epoll_ctl del failed: %s", strerror(errno));
         return -errno;
     }
 
@@ -216,13 +216,13 @@ int mesh_event_loop_run(struct mesh_event_loop *loop, int timeout_ms) {
      * timeout now gets control back within it whether the loop fell idle or not.
      */
     const bool bounded = timeout_ms > 0;
-    const uint64_t deadline_ms = bounded ? mesh_time_monotonic_ms() + (uint64_t)timeout_ms : 0U;
+    const uint64_t deadline_ms = bounded ? inkcell_time_monotonic_ms() + (uint64_t)timeout_ms : 0U;
 
     struct epoll_event events[8];
     while (loop->running) {
         int wait_ms = timeout_ms;
         if (bounded) {
-            const uint64_t now = mesh_time_monotonic_ms();
+            const uint64_t now = inkcell_time_monotonic_ms();
             wait_ms = now >= deadline_ms ? 0 : (int)(deadline_ms - now);
         }
         int ready =
@@ -231,7 +231,7 @@ int mesh_event_loop_run(struct mesh_event_loop *loop, int timeout_ms) {
             if (errno == EINTR) {
                 continue;
             }
-            mesh_log_error("loop", "epoll_wait failed: %s", strerror(errno));
+            inkcell_log_error("loop", "epoll_wait failed: %s", strerror(errno));
             loop->running = false;
             return -errno;
         }
@@ -249,7 +249,7 @@ int mesh_event_loop_run(struct mesh_event_loop *loop, int timeout_ms) {
             source->callback(source->fd, events[i].events, source->userdata);
         }
 
-        if (bounded && mesh_time_monotonic_ms() >= deadline_ms) {
+        if (bounded && inkcell_time_monotonic_ms() >= deadline_ms) {
             break;
         }
     }
@@ -269,7 +269,7 @@ void mesh_event_loop_request_stop(struct mesh_event_loop *loop) {
         const uint64_t value = 1;
         ssize_t written = write(loop->wake_fd, &value, sizeof value);
         if (written < 0 && errno != EAGAIN) {
-            mesh_log_warn("loop", "wake write failed: %s", strerror(errno));
+            inkcell_log_warn("loop", "wake write failed: %s", strerror(errno));
         }
     }
 }

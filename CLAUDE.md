@@ -104,7 +104,7 @@ Data flows one direction; input goes the other way.
 
 ```
 link (transport) -> mesh_session -> mesh_app -> UI store -> controller -> backend
-evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_ui_action
+evdev -> inkcell_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_ui_action
 ```
 
 **The UI toolkit is [inkcell](https://github.com/mcereal/inkcell), a submodule at
@@ -124,10 +124,12 @@ inkcell never reaches into this client. Four things are pushed down instead, all
 | The loop | `struct inkcell_input_host` over `mesh_event_loop` - inkcell owns no loop |
 | The frame | `struct inkcell_fb_app` - inkcell calls up into `fb_app.c` once a frame |
 
-**`include/mesh/inkcell_compat.h` is temporary.** It bridges ~850 old `mesh_ui_*` names to their
-`inkcell_*` spellings so that moving the files did not have to rewrite every call site in the
-same commit. Nothing new should use a name in it; write the inkcell name, and take lines out of
-the list as a layer stops needing them.
+**Everything that moved is spelled the inkcell way.** The bridge header that stood in for ~850
+old `mesh_ui_*` names is gone: a symbol is `inkcell_*` when inkcell owns it and `mesh_*` when
+this client does, and which prefix a name carries is now the answer to who owns it. A few names
+the bridge had swept up were this client's own all along - `struct mesh_ui_action`,
+`mesh_ui_store_handle_key()`, `enum mesh_ui_setting_field`, `fb_render_status()` - and they read
+as this client's again.
 
 **`include/mesh/<area>/` is an area's public surface and is flat; `src/<area>/` subdivides by
 group.** So `store.h` is included as `mesh/ui/store.h` no matter which group under `src/ui/` its
@@ -209,7 +211,7 @@ its include path - see the flat-header rule above.
 | `src/ui/tables/` | the vocabulary tables a screen names rather than spells out |
 | `src/ui/theme/` | palette, shape scale, fonts, icons, emoji |
 | `src/ui/views/` | per-screen view models - what a screen says, not how it is drawn |
-| `src/ui/input/` | evdev to `mesh_ui_key`, and the Brick's button profile |
+| `src/ui/input/` | evdev to `inkcell_key`, and the Brick's button profile |
 | `src/ui/backends/` | the renderers. **`fb` is the device UI** |
 | `src/ui/generated/` | machine-written glyph tables |
 | `src/core/session/` | the Meshtastic conversation: session, messaging, admin, trust, sharing |
@@ -231,15 +233,15 @@ be `static` if the group were one file, and nothing outside the group should inc
 These are authoring rules - breaking one compiles and looks fine.
 
 - **Nothing is spelled out in a renderer.** A screen names an *id* and something else answers: a
-  string (`MESH_STR_*` -> `src/i18n/strings.c`), an icon (`MESH_UI_ICON_*` -> `src/ui/theme/icon.c`), a
+  string (`MESH_STR_*` -> `src/i18n/strings.c`), an icon (`INKCELL_ICON_*` -> `src/ui/theme/icon.c`), a
   tone/family/role/shape (-> `src/ui/theme/theme.c`). No English prose, colour, margin, glyph size or
   corner radius belongs in `src/ui/backends/`. `scripts/check-strings.py` fails the build on prose.
 - **Button hints are (button, string id) pairs** in `src/ui/tables/actions.c`, never a sentence. A keycap
   is untranslated - it is what is printed on the case. A keycap that does nothing is a bug.
-- **A heading is `struct fb_app_bar`**, with slots; the back arrow is *derived* from the action
+- **A heading is `struct inkcell_fb_app_bar`**, with slots; the back arrow is *derived* from the action
   table, never declared.
 - **A list row is however many *steps* the list model says**, and the model is the authority; the
-  screen measures and hands `fb_list_begin_heights()` an array.
+  screen measures and hands `inkcell_fb_list_begin_heights()` an array.
 - **fb text is measured, never counted.** A `strlen` or `%-Ns` is a bug, and so is a cell count
   multiplied by the advance: the UI face is proportional, so `inkcell_fb_char_adv()` is a
   *nominal* width and an estimate. Measure with `inkcell_fb_text_width()`, wrap and fit against
@@ -273,7 +275,7 @@ The few that bite soonest:
 - **BLE is not Nordic UART** and carries no length framing: one bare protobuf per GATT
   write/read. Framing is a *stream* concern - serial and TCP - in `src/proto/stream_framing.c`.
 - **A QR code is black on white on every theme.** Several scanners will not read an inverted
-  one, so `MESH_UI_COLOR_CODE`/`_GROUND` are the one pair in `theme.c` that does not vary. There
+  one, so `INKCELL_COLOR_CODE`/`_GROUND` are the one pair in `theme.c` that does not vary. There
   is no *decoder* and there will not be one: the Brick has no camera, so a link arriving is
   typed in.
 - **The Brick's face buttons do not report by position.** A is `BTN_EAST`, B is `BTN_SOUTH`, the

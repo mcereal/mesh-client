@@ -105,7 +105,7 @@ bool mesh_ui_chrome_banner(const struct mesh_ui_snapshot *snapshot, struct mesh_
         out->kind = (uint8_t)MESH_UI_BANNER_REMOTE_ADMIN;
         /* The tab's own mark, because what has moved is which radio that tab is about - not the
            warning rune, which on this frame would be claiming something is wrong. */
-        out->icon = MESH_UI_ICON_SETTINGS;
+        out->icon = INKCELL_ICON_SETTINGS;
         out->text = MESH_STR_BANNER_REMOTE_ADMIN;
         out->supporting = MESH_STR_BANNER_REMOTE_ADMIN_HINT;
         /* The node's name, as a runtime string beside the words rather than inside them - the
@@ -113,7 +113,7 @@ bool mesh_ui_chrome_banner(const struct mesh_ui_snapshot *snapshot, struct mesh_
         out->detail = snapshot->settings.admin_dest_name;
         /* Warning for the loader entry's reason: nothing is broken, and something is true that
            the reader would be sorry not to have known. */
-        out->family = MESH_UI_FAMILY_WARNING;
+        out->family = INKCELL_FAMILY_WARNING;
         return true;
     }
 
@@ -125,12 +125,12 @@ bool mesh_ui_chrome_banner(const struct mesh_ui_snapshot *snapshot, struct mesh_
      */
     if (snapshot->settings.fw_radio_in_loader && !mesh_ui_chrome_on_about_radio(&snapshot->nav)) {
         out->kind = (uint8_t)MESH_UI_BANNER_RADIO_IN_LOADER;
-        out->icon = MESH_UI_ICON_WARNING;
+        out->icon = INKCELL_ICON_WARNING;
         out->text = MESH_STR_BANNER_RADIO_IN_LOADER;
         out->supporting = MESH_STR_BANNER_RADIO_IN_LOADER_HINT;
         /* Warning rather than error: nothing is broken and the radio is fine. What is true is
            that it is not on the mesh and will not be until somebody finishes this. */
-        out->family = MESH_UI_FAMILY_WARNING;
+        out->family = INKCELL_FAMILY_WARNING;
         return true;
     }
 
@@ -151,10 +151,10 @@ bool mesh_ui_chrome_banner(const struct mesh_ui_snapshot *snapshot, struct mesh_
      */
     if (client->crash_report_waiting) {
         out->kind = (uint8_t)MESH_UI_BANNER_CRASH_REPORT;
-        out->icon = MESH_UI_ICON_WARNING;
+        out->icon = INKCELL_ICON_WARNING;
         out->text = MESH_STR_BANNER_CRASH_REPORT;
         out->supporting = MESH_STR_BANNER_CRASH_REPORT_HINT;
-        out->family = MESH_UI_FAMILY_ERROR;
+        out->family = INKCELL_FAMILY_ERROR;
         return true;
     }
 
@@ -166,13 +166,13 @@ bool mesh_ui_chrome_banner(const struct mesh_ui_snapshot *snapshot, struct mesh_
      */
     if (client->update_state == (uint8_t)MESH_UPDATE_READY) {
         out->kind = (uint8_t)MESH_UI_BANNER_UPDATE_READY;
-        out->icon = MESH_UI_ICON_ABOUT;
+        out->icon = INKCELL_ICON_ABOUT;
         out->text = MESH_STR_BANNER_UPDATE_READY;
         out->supporting = MESH_STR_BANNER_UPDATE_READY_HINT;
         out->detail = client->update_latest;
         /* Success rather than primary: this one is a job that finished, and the difference
            between "done" and "there is something to do" is worth a family. */
-        out->family = MESH_UI_FAMILY_SUCCESS;
+        out->family = INKCELL_FAMILY_SUCCESS;
         return true;
     }
     /*
@@ -183,11 +183,11 @@ bool mesh_ui_chrome_banner(const struct mesh_ui_snapshot *snapshot, struct mesh_
      */
     if (client->update_state == (uint8_t)MESH_UPDATE_AVAILABLE && client->update_can_install) {
         out->kind = (uint8_t)MESH_UI_BANNER_UPDATE_AVAILABLE;
-        out->icon = MESH_UI_ICON_ABOUT;
+        out->icon = INKCELL_ICON_ABOUT;
         out->text = MESH_STR_BANNER_UPDATE_AVAILABLE;
         out->supporting = MESH_STR_BANNER_UPDATE_AVAILABLE_HINT;
         out->detail = client->update_latest;
-        out->family = MESH_UI_FAMILY_PRIMARY;
+        out->family = INKCELL_FAMILY_PRIMARY;
         return true;
     }
 

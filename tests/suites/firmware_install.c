@@ -389,7 +389,7 @@ MESH_TEST_CASE(usb_msc_knows_one_drive_spelled_two_ways, unit) {
     const bool have = find_device("2-1:1.1", &device) && mesh_usb_msc_find(&device, &target) == 0;
     const size_t count = target.mount_count;
     char point[MESH_USB_MSC_PATH_MAX];
-    mesh_str_copy(point, sizeof point, count > 0U ? target.mounts[0] : "");
+    inkcell_str_copy(point, sizeof point, count > 0U ? target.mounts[0] : "");
     fixture_close(&fixture);
 
     MESH_TEST_FAIL_IF(!have, "the drive should be found");
@@ -437,9 +437,9 @@ MESH_TEST_CASE(usb_msc_refuses_a_drive_it_could_only_half_unmount, unit) {
 
 /* Drives a write to completion, or gives up. Real time, because the child is a real child. */
 static bool write_settle(struct mesh_usb_msc_write *write) {
-    const uint64_t give_up = mesh_time_monotonic_ms() + 10000U;
-    while (write->state == MESH_USB_MSC_WRITE_RUNNING && mesh_time_monotonic_ms() < give_up) {
-        mesh_usb_msc_write_tick(write, mesh_time_monotonic_ms());
+    const uint64_t give_up = inkcell_time_monotonic_ms() + 10000U;
+    while (write->state == MESH_USB_MSC_WRITE_RUNNING && inkcell_time_monotonic_ms() < give_up) {
+        mesh_usb_msc_write_tick(write, inkcell_time_monotonic_ms());
     }
     return write->state == MESH_USB_MSC_WRITE_DONE;
 }
@@ -475,7 +475,7 @@ MESH_TEST_CASE(usb_msc_write_lands_every_byte, unit) {
     struct mesh_usb_msc_write write;
     memset(&write, 0, sizeof write);
     const int started =
-        mesh_usb_msc_write_start(&write, NULL, image, len, path, mesh_time_monotonic_ms());
+        mesh_usb_msc_write_start(&write, NULL, image, len, path, inkcell_time_monotonic_ms());
     MESH_TEST_FAIL_IF_CLEANUP(started != 0, (free(image), fixture_close(&fixture)),
                               "the write should start");
     const bool done = write_settle(&write);
@@ -510,9 +510,9 @@ MESH_TEST_CASE(usb_msc_write_reports_a_drive_it_cannot_open, unit) {
     const uint8_t image[64] = {0};
     struct mesh_usb_msc_write write;
     memset(&write, 0, sizeof write);
-    const int started =
-        mesh_usb_msc_write_start(&write, NULL, image, sizeof image,
-                                 "/proc/meshclient/definitely-not-here", mesh_time_monotonic_ms());
+    const int started = mesh_usb_msc_write_start(&write, NULL, image, sizeof image,
+                                                 "/proc/meshclient/definitely-not-here",
+                                                 inkcell_time_monotonic_ms());
     const enum mesh_usb_msc_write_state state = write.state;
     mesh_usb_msc_write_cancel(&write);
 
@@ -679,7 +679,7 @@ MESH_TEST_CASE(install_writes_the_image_and_waits_for_the_board_to_restart, unit
        would have the write time out before it started. Each nudge is what walks past the poll
        gate, which is the only thing here that cares how much time passed. */
     uint64_t offset = 1000U;
-    mesh_firmware_install_tick(&install, mesh_time_monotonic_ms() + offset);
+    mesh_firmware_install_tick(&install, inkcell_time_monotonic_ms() + offset);
     MESH_TEST_FAIL_IF_CLEANUP(install.state != MESH_FIRMWARE_INSTALL_ARMING,
                               (mesh_firmware_install_cancel(&install), fixture_close(&fixture)),
                               "a radio still answering means the reset has not happened yet");
@@ -690,7 +690,7 @@ MESH_TEST_CASE(install_writes_the_image_and_waits_for_the_board_to_restart, unit
                               (mesh_firmware_install_cancel(&install), fixture_close(&fixture)),
                               "could not take the radio off the bus");
     offset += 1000U;
-    mesh_firmware_install_tick(&install, mesh_time_monotonic_ms() + offset);
+    mesh_firmware_install_tick(&install, inkcell_time_monotonic_ms() + offset);
     MESH_TEST_FAIL_IF_CLEANUP(install.state != MESH_FIRMWARE_INSTALL_WAITING,
                               (mesh_firmware_install_cancel(&install), fixture_close(&fixture)),
                               "a port that went away is the reply this verb has");
@@ -699,7 +699,7 @@ MESH_TEST_CASE(install_writes_the_image_and_waits_for_the_board_to_restart, unit
                               (mesh_firmware_install_cancel(&install), fixture_close(&fixture)),
                               "could not put the bootloader on the bus");
     offset += 1000U;
-    mesh_firmware_install_tick(&install, mesh_time_monotonic_ms() + offset);
+    mesh_firmware_install_tick(&install, inkcell_time_monotonic_ms() + offset);
     MESH_TEST_FAIL_IF_CLEANUP(install.state != MESH_FIRMWARE_INSTALL_WAITING,
                               (mesh_firmware_install_cancel(&install), fixture_close(&fixture)),
                               "a bootloader with no drive yet is still a wait");
@@ -708,15 +708,16 @@ MESH_TEST_CASE(install_writes_the_image_and_waits_for_the_board_to_restart, unit
                               (mesh_firmware_install_cancel(&install), fixture_close(&fixture)),
                               "could not publish the drive");
     offset += 1000U;
-    mesh_firmware_install_tick(&install, mesh_time_monotonic_ms() + offset);
+    mesh_firmware_install_tick(&install, inkcell_time_monotonic_ms() + offset);
     MESH_TEST_FAIL_IF_CLEANUP(install.state != MESH_FIRMWARE_INSTALL_WRITING,
                               (mesh_firmware_install_cancel(&install), fixture_close(&fixture)),
                               "the drive arriving is what starts the write");
 
     /* The write is a real child, so this half runs on the real clock. */
-    const uint64_t give_up = mesh_time_monotonic_ms() + 10000U;
-    while (install.state == MESH_FIRMWARE_INSTALL_WRITING && mesh_time_monotonic_ms() < give_up) {
-        mesh_firmware_install_tick(&install, mesh_time_monotonic_ms() + offset);
+    const uint64_t give_up = inkcell_time_monotonic_ms() + 10000U;
+    while (install.state == MESH_FIRMWARE_INSTALL_WRITING &&
+           inkcell_time_monotonic_ms() < give_up) {
+        mesh_firmware_install_tick(&install, inkcell_time_monotonic_ms() + offset);
     }
     MESH_TEST_FAIL_IF_CLEANUP(install.state != MESH_FIRMWARE_INSTALL_RESTARTING,
                               (mesh_firmware_install_cancel(&install), fixture_close(&fixture)),
@@ -732,7 +733,7 @@ MESH_TEST_CASE(install_writes_the_image_and_waits_for_the_board_to_restart, unit
                               (mesh_firmware_install_cancel(&install), fixture_close(&fixture)),
                               "could not take the bootloader off the bus");
     offset += 1000U;
-    mesh_firmware_install_tick(&install, mesh_time_monotonic_ms() + offset);
+    mesh_firmware_install_tick(&install, inkcell_time_monotonic_ms() + offset);
     MESH_TEST_FAIL_IF_CLEANUP(install.state != MESH_FIRMWARE_INSTALL_RESTARTING,
                               (mesh_firmware_install_cancel(&install), fixture_close(&fixture)),
                               "an empty bus is still a wait: the board has not come back yet");
@@ -742,7 +743,7 @@ MESH_TEST_CASE(install_writes_the_image_and_waits_for_the_board_to_restart, unit
                               (mesh_firmware_install_cancel(&install), fixture_close(&fixture)),
                               "could not put the radio back on the bus");
     offset += 1000U;
-    mesh_firmware_install_tick(&install, mesh_time_monotonic_ms() + offset);
+    mesh_firmware_install_tick(&install, inkcell_time_monotonic_ms() + offset);
 
     /* What actually landed on the drive. */
     char device_path[128];
@@ -948,7 +949,7 @@ MESH_TEST_CASE(install_reads_a_write_that_ended_with_the_bootloader_as_the_board
                                                           MESH_UF2_FAMILY_NRF52840, NULL, NULL,
                                                           install_done, &run) != 0,
                               fixture_close(&fixture), "the install should start");
-    mesh_firmware_install_tick(&install, mesh_time_monotonic_ms());
+    mesh_firmware_install_tick(&install, inkcell_time_monotonic_ms());
     MESH_TEST_FAIL_IF_CLEANUP(install.state != MESH_FIRMWARE_INSTALL_WRITING,
                               (mesh_firmware_install_cancel(&install), fixture_close(&fixture)),
                               "the drive is there, so the write should be running");
@@ -958,9 +959,10 @@ MESH_TEST_CASE(install_reads_a_write_that_ended_with_the_bootloader_as_the_board
                               (mesh_firmware_install_cancel(&install), fixture_close(&fixture)),
                               "could not take the bootloader off the bus");
 
-    const uint64_t give_up = mesh_time_monotonic_ms() + 10000U;
-    while (install.state == MESH_FIRMWARE_INSTALL_WRITING && mesh_time_monotonic_ms() < give_up) {
-        mesh_firmware_install_tick(&install, mesh_time_monotonic_ms());
+    const uint64_t give_up = inkcell_time_monotonic_ms() + 10000U;
+    while (install.state == MESH_FIRMWARE_INSTALL_WRITING &&
+           inkcell_time_monotonic_ms() < give_up) {
+        mesh_firmware_install_tick(&install, inkcell_time_monotonic_ms());
     }
     const enum mesh_firmware_install_state after_write = install.state;
     const bool wrote_nothing = install.write.written < install.write.total;
@@ -969,7 +971,7 @@ MESH_TEST_CASE(install_reads_a_write_that_ended_with_the_bootloader_as_the_board
     MESH_TEST_FAIL_IF_CLEANUP(!usb_radio(fixture.usb, "2-1"),
                               (mesh_firmware_install_cancel(&install), fixture_close(&fixture)),
                               "could not put the radio back on the bus");
-    mesh_firmware_install_tick(&install, mesh_time_monotonic_ms() + 1000U);
+    mesh_firmware_install_tick(&install, inkcell_time_monotonic_ms() + 1000U);
     const struct install_run recovered = run;
     mesh_firmware_install_cancel(&install);
     fixture_close(&fixture);
@@ -1010,7 +1012,7 @@ MESH_TEST_CASE(install_does_not_call_a_pulled_cable_a_finished_install, unit) {
                                                           MESH_UF2_FAMILY_NRF52840, NULL, NULL,
                                                           install_done, &run) != 0,
                               fixture_close(&fixture), "the install should start");
-    mesh_firmware_install_tick(&install, mesh_time_monotonic_ms());
+    mesh_firmware_install_tick(&install, inkcell_time_monotonic_ms());
     MESH_TEST_FAIL_IF_CLEANUP(install.state != MESH_FIRMWARE_INSTALL_WRITING,
                               (mesh_firmware_install_cancel(&install), fixture_close(&fixture)),
                               "the drive is there, so the write should be running");
@@ -1020,7 +1022,7 @@ MESH_TEST_CASE(install_does_not_call_a_pulled_cable_a_finished_install, unit) {
                               "could not take the board off the bus");
 
     /* Nothing comes back, however long it is given. */
-    uint64_t now = mesh_time_monotonic_ms() + 120000U;
+    uint64_t now = inkcell_time_monotonic_ms() + 120000U;
     for (unsigned tick = 0; tick < 80U && !run.finished; ++tick) {
         mesh_firmware_install_tick(&install, now);
         now += 1000U;
@@ -1063,14 +1065,14 @@ MESH_TEST_CASE(install_refuses_to_call_it_done_while_the_bootloader_is_still_the
                                                           install_done, &run) != 0,
                               fixture_close(&fixture), "the install should start");
 
-    const uint64_t give_up = mesh_time_monotonic_ms() + 15000U;
-    uint64_t now = mesh_time_monotonic_ms();
-    while (!run.finished && mesh_time_monotonic_ms() < give_up) {
+    const uint64_t give_up = inkcell_time_monotonic_ms() + 15000U;
+    uint64_t now = inkcell_time_monotonic_ms();
+    while (!run.finished && inkcell_time_monotonic_ms() < give_up) {
         mesh_firmware_install_tick(&install, now);
         /* Real time while the child runs, and a jump once it is done so the restart window
            expires without the suite sitting through twenty seconds of it. */
         now = install.state == MESH_FIRMWARE_INSTALL_RESTARTING ? now + 5000U
-                                                                : mesh_time_monotonic_ms();
+                                                                : inkcell_time_monotonic_ms();
     }
     const struct install_run stuck = run;
     mesh_firmware_install_cancel(&install);
