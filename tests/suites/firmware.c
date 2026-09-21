@@ -11,7 +11,7 @@
 
 #include "framework/mesh_test.h"
 
-#include "mesh/core/event_loop.h"
+#include "inkwell/runtime/loop.h"
 #include "mesh/core/firmware.h"
 #include "mesh/ui/store_settings.h"
 
@@ -86,7 +86,7 @@ static void firmware_serve(void *userdata, const struct https_fixture_request *r
    rather than four copies. */
 struct firmware_harness {
     struct https_fixture server;
-    struct mesh_event_loop loop;
+    struct inkwell_loop loop;
     struct mesh_firmware firmware;
     bool loop_up;
     bool firmware_up;
@@ -100,7 +100,7 @@ static bool firmware_harness_up(struct firmware_harness *harness) {
     setenv("MESHCLIENT_FIRMWARE_HARDWARE_URL", "https://example.invalid/hardware", 1);
     setenv("MESHCLIENT_FIRMWARE_LIST_URL", "https://example.invalid/list", 1);
 
-    if (mesh_event_loop_init(&harness->loop) != 0) {
+    if (inkwell_loop_init(&harness->loop) != 0) {
         return false;
     }
     harness->loop_up = true;
@@ -117,7 +117,7 @@ static void firmware_harness_down(struct firmware_harness *harness) {
         mesh_firmware_shutdown(&harness->firmware);
     }
     if (harness->loop_up) {
-        mesh_event_loop_shutdown(&harness->loop);
+        inkwell_loop_shutdown(&harness->loop);
     }
     unsetenv("MESHCLIENT_FIRMWARE_HARDWARE_URL");
     unsetenv("MESHCLIENT_FIRMWARE_LIST_URL");
@@ -132,7 +132,7 @@ static bool firmware_settle(struct firmware_harness *harness) {
             harness->firmware.state != MESH_FIRMWARE_CHECKING) {
             return true;
         }
-        (void)mesh_event_loop_run(&harness->loop, 10);
+        (void)inkwell_loop_run(&harness->loop, 10);
         mesh_firmware_tick(&harness->firmware, 0U);
     }
     return false;

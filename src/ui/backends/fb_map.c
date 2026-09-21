@@ -16,8 +16,8 @@
 
 #include "inkcell/ui/latency.h"
 #include "inkcell/ui/widgets.h"
-#include "inkcell/utils/log.h"
-#include "inkcell/utils/text.h"
+#include "inkwell/base/log.h"
+#include "inkwell/base/text.h"
 
 #include "fb_internal.h"
 
@@ -492,9 +492,9 @@ static void fb_map_draw_selection(const struct inkcell_backend_fb_state *state,
     char note[48];
     note[0] = '\0';
     if (marker->kind == MESH_UI_MAP_MARKER_SELF) {
-        inkcell_str_copy(note, sizeof note, inkcell_str(MESH_STR_MAP_SELECTED_SELF));
+        inkwell_str_copy(note, sizeof note, inkcell_str(MESH_STR_MAP_SELECTED_SELF));
     } else if (marker->stale) {
-        inkcell_str_copy(note, sizeof note, inkcell_str(MESH_STR_MAP_SELECTED_OFF_RADIO));
+        inkwell_str_copy(note, sizeof note, inkcell_str(MESH_STR_MAP_SELECTED_OFF_RADIO));
     } else if (mesh_ui_settings_precision_metres(marker->precision_bits) > 0U) {
         char footprint[24];
         mesh_ui_settings_format_precision(marker->precision_bits, imperial, footprint,
@@ -511,7 +511,7 @@ static void fb_map_draw_selection(const struct inkcell_backend_fb_state *state,
         inkcell_str_format(line, sizeof line, MESH_STR_MAP_SELECTED_RANGE, marker->label,
                            range[0] != '\0' ? range : note);
     } else {
-        inkcell_str_copy(line, sizeof line, marker->label);
+        inkwell_str_copy(line, sizeof line, marker->label);
     }
 
     const struct inkcell_paint paint = inkcell_fb_paint(state, fb_map_marker_family(marker),
@@ -599,7 +599,7 @@ int fb_basemap_open(struct inkcell_backend_fb_state *state, const char *path) {
 
     basemap->open = true;
     fb_app_of(state)->basemap = basemap;
-    inkcell_log_info("ui", "Map pack %s: %s, %u tiles, zoom %u-%u, holding up to %zu KiB of them",
+    inkwell_log_info("ui", "Map pack %s: %s, %u tiles, zoom %u-%u, holding up to %zu KiB of them",
                      path, basemap->source.info.name[0] != '\0' ? basemap->source.info.name : path,
                      basemap->source.info.tiles, (unsigned)basemap->source.info.min_zoom,
                      (unsigned)basemap->source.info.max_zoom,
@@ -632,7 +632,7 @@ void fb_basemap_open_default(struct inkcell_backend_fb_state *state) {
     if (opened < 0) {
         /* Named and unreadable is worth a line, though: somebody pointed the client at a file,
            and the map about to draw a bare graticule is the only other evidence they get. */
-        inkcell_log_warn("ui", "Map pack %s could not be opened: %s", named, strerror(-opened));
+        inkwell_log_warn("ui", "Map pack %s could not be opened: %s", named, strerror(-opened));
     }
 }
 
@@ -777,7 +777,7 @@ static bool fb_map_draw_basemap(struct inkcell_backend_fb_state *state,
     }
     mesh_map_tile_cache_note_absent(&basemap->cache, next);
     if (length != 0) {
-        inkcell_log_warn("ui", "Map tile z%u/%u/%u will not draw: %s", (unsigned)next.zoom, next.x,
+        inkwell_log_warn("ui", "Map tile z%u/%u/%u will not draw: %s", (unsigned)next.zoom, next.x,
                          next.y, strerror(length < 0 ? -length : -decoded));
     }
     return drew;

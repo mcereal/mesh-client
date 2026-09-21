@@ -22,3 +22,6 @@
 	# trunk. Ordinary `git submodule update` ignores this line - the pinned SHA is what checks
 	# out - and only `--remote` and Dependabot read it.
 	branch = main
+[submodule "third_party/inkwell"]
+	path = third_party/inkwell
+	url = https://github.com/mcereal/inkwell

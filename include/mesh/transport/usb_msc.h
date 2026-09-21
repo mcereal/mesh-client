@@ -47,7 +47,7 @@
 extern "C" {
 #endif
 
-struct mesh_event_loop;
+struct inkwell_loop;
 
 /* How many mountpoints one drive may be found at. The Brick manages two - `/mnt/exUDISK` from
    `/etc/config/fstab` and `/mnt/SDCARD` from the TrimUI patch that runs when the first one
@@ -133,7 +133,7 @@ enum mesh_usb_msc_write_state {
 };
 
 struct mesh_usb_msc_write {
-    struct mesh_event_loop *loop; /* borrowed; may be NULL, and then progress arrives on tick */
+    struct inkwell_loop *loop; /* borrowed; may be NULL, and then progress arrives on tick */
     enum mesh_usb_msc_write_state state;
     /* -errno when the state is FAILED. */
     int error;
@@ -169,7 +169,7 @@ struct mesh_usb_msc_write {
  *
  * Returns 0, or -errno. On 0 the state is RUNNING and the caller ticks until it is not.
  */
-int mesh_usb_msc_write_start(struct mesh_usb_msc_write *write, struct mesh_event_loop *loop,
+int mesh_usb_msc_write_start(struct mesh_usb_msc_write *write, struct inkwell_loop *loop,
                              const uint8_t *image, size_t len, const char *device_path,
                              uint64_t now_ms);
 

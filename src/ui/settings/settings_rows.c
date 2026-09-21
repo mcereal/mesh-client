@@ -9,8 +9,8 @@
  * which is what keeps "the radio just told us something new" from needing an invalidation path.
  */
 
-#include "inkcell/utils/array.h"
-#include "inkcell/utils/text.h"
+#include "inkwell/base/array.h"
+#include "inkwell/base/text.h"
 
 #include "settings_internal.h"
 
@@ -101,7 +101,7 @@ static void item_text(struct item_list *list, enum inkcell_str_id label,
                       enum mesh_ui_setting_kind kind, const char *value) {
     struct mesh_ui_settings_item *item = item_add(list, label, kind);
     if (item != NULL) {
-        inkcell_str_copy(item->value, sizeof item->value, value);
+        inkwell_str_copy(item->value, sizeof item->value, value);
     }
 }
 
@@ -119,7 +119,7 @@ static void item_toggle(struct item_list *list, enum inkcell_str_id label, bool 
     if (item == NULL) {
         return;
     }
-    inkcell_str_copy(item->value, sizeof item->value,
+    inkwell_str_copy(item->value, sizeof item->value,
                      inkcell_str(value ? MESH_STR_COMMON_ON : MESH_STR_COMMON_OFF));
     item->number = value ? 1U : 0U;
 }
@@ -137,7 +137,7 @@ static void item_meter(struct item_list *list, enum inkcell_str_id label, const 
     if (item == NULL) {
         return;
     }
-    inkcell_str_copy(item->value, sizeof item->value, value);
+    inkwell_str_copy(item->value, sizeof item->value, value);
     item->number = permille;
 }
 
@@ -282,7 +282,7 @@ static struct mesh_ui_settings_item *item_field(struct item_list *list,
         } else if (field_unit(field) != INKCELL_STR_NONE) {
             inkcell_str_format(item->value, sizeof item->value, field_unit(field), item->text);
         } else {
-            inkcell_str_copy(item->value, sizeof item->value, item->text);
+            inkwell_str_copy(item->value, sizeof item->value, item->text);
         }
         break;
     default:
@@ -459,7 +459,7 @@ static void item_action_named(struct item_list *list, const char *label, const c
     if (item == NULL) {
         return;
     }
-    inkcell_str_copy(item->value, sizeof item->value, value);
+    inkwell_str_copy(item->value, sizeof item->value, value);
     item->number = (uint32_t)action;
     item->tone = mesh_ui_settings_action_tone(action);
     /*
@@ -489,7 +489,7 @@ static void item_action_off_named(struct item_list *list, const char *label, con
                                   enum mesh_ui_settings_action action) {
     struct mesh_ui_settings_item *item = item_add_named(list, label, MESH_UI_SETTING_ACTION_OFF);
     if (item != NULL) {
-        inkcell_str_copy(item->value, sizeof item->value, reason);
+        inkwell_str_copy(item->value, sizeof item->value, reason);
         item->number = (uint32_t)action;
         item->icon = mesh_ui_settings_action_icon(action);
         item->tone = INKCELL_TONE_DIM;
@@ -723,7 +723,7 @@ static void build_about(const struct mesh_ui_settings *s, struct item_list *list
             inkcell_str_format(working, sizeof working, MESH_STR_ABOUT_WORKING_PERCENT,
                                (unsigned)(level / 10U));
         } else {
-            inkcell_str_copy(working, sizeof working,
+            inkwell_str_copy(working, sizeof working,
                              inkcell_str(state == MESH_UPDATE_DOWNLOADING
                                              ? MESH_STR_ABOUT_WORKING_DOWNLOAD
                                              : MESH_STR_ABOUT_WORKING_CHECK));
@@ -853,7 +853,7 @@ static bool build_radio_firmware_running(const struct mesh_ui_settings *s, struc
         snprintf(value, sizeof value, "%s %u%%", mesh_firmware_update_state_name(state),
                  (unsigned)s->fw_update_progress);
     } else {
-        inkcell_str_copy(value, sizeof value, mesh_firmware_update_state_name(state));
+        inkwell_str_copy(value, sizeof value, mesh_firmware_update_state_name(state));
     }
     item_meter(list, MESH_STR_FW_INSTALLING, value, level);
     /* What is being installed, so the one row that is left still names the release. The
@@ -1647,7 +1647,7 @@ static void build_modules(const struct mesh_ui_settings *s,
                has not sent yet, or one its firmware was built without. The second is the reason
                this is a state rather than a bool - it is the row that should stop somebody
                pressing X at it. */
-            inkcell_str_copy(item->value, sizeof item->value,
+            inkwell_str_copy(item->value, sizeof item->value,
                              inkcell_str(mesh_ui_settings_availability_label(state)));
             continue;
         }
@@ -1710,7 +1710,7 @@ static void build_modules(const struct mesh_ui_settings *s,
         default:
             break;
         }
-        inkcell_str_copy(item->value, sizeof item->value,
+        inkwell_str_copy(item->value, sizeof item->value,
                          inkcell_str(enabled ? MESH_STR_COMMON_ON : MESH_STR_COMMON_OFF));
     }
 }
@@ -1753,10 +1753,10 @@ static void store_forward_progress(const struct mesh_ui_store_forward *sf, char 
                                    size_t out_len) {
     switch ((enum mesh_store_forward_state)sf->state) {
     case MESH_STORE_FORWARD_SEEKING:
-        inkcell_str_copy(out, out_len, inkcell_str(MESH_STR_SF_SEEKING));
+        inkwell_str_copy(out, out_len, inkcell_str(MESH_STR_SF_SEEKING));
         return;
     case MESH_STORE_FORWARD_REQUESTED:
-        inkcell_str_copy(out, out_len, inkcell_str(MESH_STR_SF_WAITING));
+        inkwell_str_copy(out, out_len, inkcell_str(MESH_STR_SF_WAITING));
         return;
     case MESH_STORE_FORWARD_REPLAYING:
         /* The router announces a count and then trickles the messages out, so this is a
@@ -1778,19 +1778,19 @@ static void store_forward_progress(const struct mesh_ui_store_forward *sf, char 
         }
         return;
     case MESH_STORE_FORWARD_EMPTY:
-        inkcell_str_copy(out, out_len, inkcell_str(MESH_STR_SF_NOTHING_MISSED));
+        inkwell_str_copy(out, out_len, inkcell_str(MESH_STR_SF_NOTHING_MISSED));
         return;
     case MESH_STORE_FORWARD_BUSY:
-        inkcell_str_copy(out, out_len, inkcell_str(MESH_STR_SF_BUSY));
+        inkwell_str_copy(out, out_len, inkcell_str(MESH_STR_SF_BUSY));
         return;
     case MESH_STORE_FORWARD_NO_ROUTER:
-        inkcell_str_copy(out, out_len, inkcell_str(MESH_STR_SF_NO_ROUTER));
+        inkwell_str_copy(out, out_len, inkcell_str(MESH_STR_SF_NO_ROUTER));
         return;
     case MESH_STORE_FORWARD_TIMEOUT:
-        inkcell_str_copy(out, out_len, inkcell_str(MESH_STR_SF_NO_REPLY));
+        inkwell_str_copy(out, out_len, inkcell_str(MESH_STR_SF_NO_REPLY));
         return;
     case MESH_STORE_FORWARD_FAILED:
-        inkcell_str_copy(out, out_len, inkcell_str(MESH_STR_SF_FAILED));
+        inkwell_str_copy(out, out_len, inkcell_str(MESH_STR_SF_FAILED));
         return;
     case MESH_STORE_FORWARD_IDLE:
     default:
@@ -1834,7 +1834,7 @@ static void build_store_forward(const struct mesh_ui_settings *s,
                 inkcell_str_format(item->value, sizeof item->value, MESH_STR_SF_ROUTER_SECONDARY,
                                    sf->router_name);
             } else {
-                inkcell_str_copy(item->value, sizeof item->value, sf->router_name);
+                inkwell_str_copy(item->value, sizeof item->value, sf->router_name);
             }
         }
     }
@@ -2122,7 +2122,7 @@ static void build_beacon(const struct mesh_ui_settings *s, struct item_list *lis
         record[TARGET_CHANNEL] = s->beacon_targets[i].channel;
     }
     item_record_group(list, MESH_UI_FIELD_GROUP_BEACON_TARGETS, MESH_UI_BEACON_TARGET_FIELDS,
-                      MESH_STR_HEAD_BEACON_TARGET, targets, INKCELL_ARRAY_LEN(targets), rows);
+                      MESH_STR_HEAD_BEACON_TARGET, targets, INKWELL_ARRAY_LEN(targets), rows);
     /*
      * And each target's own pair, which the radio really does switch to for the length of one
      * transmission - so an illegal combination here is this node transmitting where it may not.

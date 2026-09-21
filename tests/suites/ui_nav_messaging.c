@@ -3,8 +3,8 @@
 /* Navigating conversations: tabs, unread counts, channels and the keyboard. */
 
 #include "inkcell/ui/emoji.h"
-#include "inkcell/utils/array.h"
-#include "inkcell/utils/text.h"
+#include "inkwell/base/array.h"
+#include "inkwell/base/text.h"
 
 #include "framework/mesh_test.h"
 #include "support/ui_fixture.h"

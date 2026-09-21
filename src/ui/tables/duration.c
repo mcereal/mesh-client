@@ -1,6 +1,6 @@
 #include "mesh/ui/duration.h"
 
-#include "inkcell/utils/text.h"
+#include "inkwell/base/text.h"
 
 #include "mesh/i18n/strings.h"
 
@@ -9,7 +9,7 @@ void mesh_ui_format_age(uint32_t stamp, uint32_t now, char *out, size_t out_len)
         return;
     }
     if (stamp == 0U || now == 0U || stamp > now) {
-        inkcell_str_copy(out, out_len, inkcell_str(INKCELL_STR_COMMON_UNKNOWN_SHORT));
+        inkwell_str_copy(out, out_len, inkcell_str(INKCELL_STR_COMMON_UNKNOWN_SHORT));
         return;
     }
     const uint32_t seconds = now - stamp;

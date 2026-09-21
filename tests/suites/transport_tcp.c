@@ -2,15 +2,15 @@
 
 /* The network transport: target parsing, and the link against a loopback listener. */
 
-#include "inkcell/utils/time.h"
+#include "inkwell/base/time.h"
 
 #include "framework/mesh_test.h"
 #include "support/proto_fixture.h"
 #include "support/serial_fixture.h"
 
+#include "inkwell/runtime/loop.h"
 #include "mesh/app/app.h"
 #include "mesh/core/config.h"
-#include "mesh/core/event_loop.h"
 #include "mesh/core/session.h"
 #include "mesh/proto/stream_framing.h"
 #include "mesh/transport/ble.h"
@@ -278,7 +278,7 @@ MESH_TEST_CASE(tcp_target_max_agrees_with_the_config, unit) {
 MESH_TEST_CASE(tcp_transport_connect_loopback, unit) {
     struct tcp_test_radio radio;
     tcp_test_radio_init(&radio);
-    struct mesh_event_loop loop;
+    struct inkwell_loop loop;
     bool loop_up = false;
     struct mesh_transport *transport = mesh_tcp_transport();
     bool started = false;
@@ -287,7 +287,7 @@ MESH_TEST_CASE(tcp_transport_connect_loopback, unit) {
         record_failure(test_name, "could not listen on the loopback");
         goto cleanup;
     }
-    if (mesh_event_loop_init(&loop) != 0) {
+    if (inkwell_loop_init(&loop) != 0) {
         record_failure(test_name, "event loop init failed");
         goto cleanup;
     }
@@ -319,7 +319,7 @@ MESH_TEST_CASE(tcp_transport_connect_loopback, unit) {
     /* A loopback connect usually completes inside connect(); when it does not, the socket
        becomes writable and the loop finishes it. Either way one turn is enough. */
     if (mesh_tcp_transport_connected_target(transport) == NULL) {
-        (void)mesh_event_loop_run(&loop, 200);
+        (void)inkwell_loop_run(&loop, 200);
     }
     if (mesh_tcp_transport_connected_target(transport) == NULL ||
         strcmp(mesh_tcp_transport_connected_target(transport), radio.target) != 0) {
@@ -416,7 +416,7 @@ cleanup:
         transport->ops->stop(transport);
     }
     if (loop_up) {
-        mesh_event_loop_shutdown(&loop);
+        inkwell_loop_shutdown(&loop);
     }
     tcp_test_radio_close(&radio);
 }
@@ -438,7 +438,7 @@ cleanup:
 MESH_TEST_CASE(tcp_heartbeat_golden_frame, unit) {
     struct tcp_test_radio radio;
     tcp_test_radio_init(&radio);
-    struct mesh_event_loop loop;
+    struct inkwell_loop loop;
     bool loop_up = false;
     struct mesh_transport *transport = mesh_tcp_transport();
     bool started = false;
@@ -447,7 +447,7 @@ MESH_TEST_CASE(tcp_heartbeat_golden_frame, unit) {
         record_failure(test_name, "could not listen on the loopback");
         goto cleanup;
     }
-    if (mesh_event_loop_init(&loop) != 0) {
+    if (inkwell_loop_init(&loop) != 0) {
         record_failure(test_name, "event loop init failed");
         goto cleanup;
     }
@@ -465,7 +465,7 @@ MESH_TEST_CASE(tcp_heartbeat_golden_frame, unit) {
         goto cleanup;
     }
     if (mesh_tcp_transport_connected_target(transport) == NULL) {
-        (void)mesh_event_loop_run(&loop, 200);
+        (void)inkwell_loop_run(&loop, 200);
     }
     if (mesh_tcp_transport_connected_target(transport) == NULL || !tcp_test_radio_accept(&radio)) {
         record_failure(test_name, "the link should be up before the heartbeat goes out");
@@ -496,7 +496,7 @@ cleanup:
         transport->ops->stop(transport);
     }
     if (loop_up) {
-        mesh_event_loop_shutdown(&loop);
+        inkwell_loop_shutdown(&loop);
     }
     tcp_test_radio_close(&radio);
 }
@@ -505,7 +505,7 @@ cleanup:
 MESH_TEST_CASE(tcp_transport_link_drop, unit) {
     struct tcp_test_radio radio;
     tcp_test_radio_init(&radio);
-    struct mesh_event_loop loop;
+    struct inkwell_loop loop;
     bool loop_up = false;
     struct mesh_transport *transport = mesh_tcp_transport();
     bool started = false;
@@ -514,7 +514,7 @@ MESH_TEST_CASE(tcp_transport_link_drop, unit) {
         record_failure(test_name, "could not listen on the loopback");
         goto cleanup;
     }
-    if (mesh_event_loop_init(&loop) != 0) {
+    if (inkwell_loop_init(&loop) != 0) {
         record_failure(test_name, "event loop init failed");
         goto cleanup;
     }
@@ -532,7 +532,7 @@ MESH_TEST_CASE(tcp_transport_link_drop, unit) {
         goto cleanup;
     }
     if (mesh_tcp_transport_connected_target(transport) == NULL) {
-        (void)mesh_event_loop_run(&loop, 200);
+        (void)inkwell_loop_run(&loop, 200);
     }
     if (mesh_tcp_transport_connected_target(transport) == NULL || !tcp_test_radio_accept(&radio)) {
         record_failure(test_name, "the link should be up before it is dropped");
@@ -587,7 +587,7 @@ cleanup:
         transport->ops->stop(transport);
     }
     if (loop_up) {
-        mesh_event_loop_shutdown(&loop);
+        inkwell_loop_shutdown(&loop);
     }
     tcp_test_radio_close(&radio);
 }
@@ -607,7 +607,7 @@ cleanup:
 MESH_TEST_CASE(tcp_transport_survives_a_peer_that_vanished, unit) {
     struct tcp_test_radio radio;
     tcp_test_radio_init(&radio);
-    struct mesh_event_loop loop;
+    struct inkwell_loop loop;
     bool loop_up = false;
     struct mesh_transport *transport = mesh_tcp_transport();
     bool started = false;
@@ -616,7 +616,7 @@ MESH_TEST_CASE(tcp_transport_survives_a_peer_that_vanished, unit) {
         record_failure(test_name, "could not listen on the loopback");
         goto cleanup;
     }
-    if (mesh_event_loop_init(&loop) != 0) {
+    if (inkwell_loop_init(&loop) != 0) {
         record_failure(test_name, "event loop init failed");
         goto cleanup;
     }
@@ -634,7 +634,7 @@ MESH_TEST_CASE(tcp_transport_survives_a_peer_that_vanished, unit) {
         goto cleanup;
     }
     if (mesh_tcp_transport_connected_target(transport) == NULL) {
-        (void)mesh_event_loop_run(&loop, 200);
+        (void)inkwell_loop_run(&loop, 200);
     }
     if (mesh_tcp_transport_connected_target(transport) == NULL || !tcp_test_radio_accept(&radio)) {
         record_failure(test_name, "the link should be up before the peer goes away");
@@ -676,7 +676,7 @@ cleanup:
         transport->ops->stop(transport);
     }
     if (loop_up) {
-        mesh_event_loop_shutdown(&loop);
+        inkwell_loop_shutdown(&loop);
     }
     tcp_test_radio_close(&radio);
 }
@@ -691,8 +691,8 @@ cleanup:
  * listening on both.
  */
 MESH_TEST_CASE(tcp_transport_connects_by_name, unit) {
-    struct mesh_event_loop loop;
-    if (mesh_event_loop_init(&loop) != 0) {
+    struct inkwell_loop loop;
+    if (inkwell_loop_init(&loop) != 0) {
         record_failure(test_name, "the loop did not start");
         return;
     }
@@ -725,7 +725,7 @@ MESH_TEST_CASE(tcp_transport_connects_by_name, unit) {
 
     for (unsigned turn = 0U; turn < 200U && mesh_tcp_transport_connected_target(transport) == NULL;
          ++turn) {
-        (void)mesh_event_loop_run(&loop, 20);
+        (void)inkwell_loop_run(&loop, 20);
         transport->ops->tick(transport);
     }
 
@@ -755,7 +755,7 @@ cleanup:
     if (started) {
         transport->ops->stop(transport);
     }
-    mesh_event_loop_shutdown(&loop);
+    inkwell_loop_shutdown(&loop);
     tcp_test_radio_close(&radio);
 }
 
@@ -773,8 +773,8 @@ cleanup:
  * the machine running it.
  */
 MESH_TEST_CASE(tcp_transport_takes_a_name, unit) {
-    struct mesh_event_loop loop;
-    if (mesh_event_loop_init(&loop) != 0) {
+    struct inkwell_loop loop;
+    if (inkwell_loop_init(&loop) != 0) {
         record_failure(test_name, "the loop did not start");
         return;
     }
@@ -807,7 +807,7 @@ MESH_TEST_CASE(tcp_transport_takes_a_name, unit) {
     }
 
     for (unsigned turn = 0U; turn < 200U && mesh_tcp_transport_is_connecting(transport); ++turn) {
-        (void)mesh_event_loop_run(&loop, 50);
+        (void)inkwell_loop_run(&loop, 50);
         transport->ops->tick(transport);
     }
     if (mesh_tcp_transport_is_connecting(transport)) {
@@ -834,7 +834,7 @@ cleanup:
     if (started) {
         transport->ops->stop(transport);
     }
-    mesh_event_loop_shutdown(&loop);
+    inkwell_loop_shutdown(&loop);
 }
 
 /*
@@ -1046,7 +1046,7 @@ MESH_TEST_CASE(tcp_connect_routes_to_the_network_transport, unit) {
 
     struct mesh_transport *transport = mesh_tcp_transport();
     if (mesh_tcp_transport_connected_target(transport) == NULL) {
-        (void)mesh_event_loop_run(&app.loop, 200);
+        (void)inkwell_loop_run(&app.loop, 200);
     }
     if (mesh_tcp_transport_connected_target(transport) == NULL) {
         failure = "the press should have reached the network transport";
@@ -1189,7 +1189,7 @@ MESH_TEST_CASE(tcp_link_leaves_the_bluetooth_grace_short, unit) {
 
     struct mesh_transport *tcp = mesh_tcp_transport();
     if (mesh_tcp_transport_connected_target(tcp) == NULL) {
-        (void)mesh_event_loop_run(&app.loop, 200);
+        (void)inkwell_loop_run(&app.loop, 200);
     }
     if (mesh_tcp_transport_connected_target(tcp) == NULL) {
         failure = "the press should have reached the network transport";
@@ -1220,7 +1220,7 @@ MESH_TEST_CASE(tcp_link_leaves_the_bluetooth_grace_short, unit) {
      * already holds. Ten seconds is past the short grace and well inside the long one, so which
      * of the two applies is the whole of what the next turn answers.
      */
-    const uint64_t now = inkcell_time_monotonic_ms();
+    const uint64_t now = inkwell_time_monotonic_ms();
     app.autoconnect_tcp_retry_at_ms = now + 60000U;
     app.autoconnect_started_ms = now - 10000U;
     app.autoconnect_retry_at_ms = 0U;
@@ -1388,7 +1388,7 @@ MESH_TEST_CASE(tcp_link_is_published_as_a_network_device, unit) {
         goto cleanup;
     }
     if (mesh_tcp_transport_connected_target(transport) == NULL) {
-        (void)mesh_event_loop_run(&app.loop, 200);
+        (void)inkwell_loop_run(&app.loop, 200);
     }
     if (mesh_tcp_transport_connected_target(transport) == NULL) {
         failure = "the link should be connected";

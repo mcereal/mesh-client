@@ -4,13 +4,13 @@
 #include "inkcell/ui/input.h"
 #include "inkcell/ui/theme.h"
 
+#include "inkwell/runtime/loop.h"
+#include "inkwell/runtime/signals.h"
 #include "mesh/core/config.h"
-#include "mesh/core/event_loop.h"
 #include "mesh/core/firmware.h"
 #include "mesh/core/firmware_update.h"
 #include "mesh/core/mqtt_proxy.h"
 #include "mesh/core/session.h"
-#include "mesh/core/signals.h"
 #include "mesh/core/updater.h"
 #include "mesh/transport/transport.h"
 #include "mesh/ui/backends/cli.h"
@@ -50,7 +50,7 @@ struct mesh_app_mqtt_plan {
 struct mesh_app {
     struct mesh_app_publish_cache *publish_cache;
     struct mesh_app_config config;
-    struct mesh_event_loop loop;
+    struct inkwell_loop loop;
     struct mesh_transport_registry transport_registry;
     /* One conversation, whichever link carries it. Every transport is pointed at this before
        start, so switching between BLE and USB keeps the message log and reuses one node cache
@@ -66,7 +66,7 @@ struct mesh_app {
        persisted history. */
     struct mesh_ui_message_list ui_messages_cached;
     struct inkcell_input ui_input;
-    struct mesh_signals signals;
+    struct inkwell_signals signals;
     /* Self-update: HTTPS through the event loop above. Its state is flattened into the UI's
        client info on every publish, so the About section renders it without the UI ever seeing
        a connection. */

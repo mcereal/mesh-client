@@ -1,7 +1,7 @@
 #include "mesh/core/message.h"
 
-#include "inkcell/utils/log.h"
-#include "inkcell/utils/text.h"
+#include "inkwell/base/log.h"
+#include "inkwell/base/text.h"
 
 #include "mesh/i18n/strings.h"
 
@@ -247,7 +247,7 @@ int mesh_message_encode_text(const struct mesh_message_text_request *request, ui
 
     pb_ostream_t stream = pb_ostream_from_buffer(out, out_len);
     if (!pb_encode(&stream, meshtastic_ToRadio_fields, &to_radio)) {
-        inkcell_log_error("message", "Failed to encode text message: %s", PB_GET_ERROR(&stream));
+        inkwell_log_error("message", "Failed to encode text message: %s", PB_GET_ERROR(&stream));
         return -EIO;
     }
 
@@ -323,7 +323,7 @@ static int mesh_message_handle_routing(struct mesh_message_log *log, const mesht
     meshtastic_Routing routing = meshtastic_Routing_init_default;
     pb_istream_t stream = pb_istream_from_buffer(data->payload.bytes, data->payload.size);
     if (!pb_decode(&stream, meshtastic_Routing_fields, &routing)) {
-        inkcell_log_debug("message", "Ignoring undecodable Routing reply for id %u",
+        inkwell_log_debug("message", "Ignoring undecodable Routing reply for id %u",
                           data->request_id);
         return 0;
     }
@@ -338,12 +338,12 @@ static int mesh_message_handle_routing(struct mesh_message_log *log, const mesht
                                   delivered ? MESH_MESSAGE_ACK_DELIVERED : MESH_MESSAGE_ACK_FAILED,
                                   (uint8_t)routing.error_reason)) {
         if (delivered) {
-            inkcell_log_info("message", "Message %u delivered", data->request_id);
+            inkwell_log_info("message", "Message %u delivered", data->request_id);
         } else {
             /* English, whatever the UI is set to: this line is read by whoever is tailing
                the device log, and a diagnostic that changes language with the handheld's
                settings is a diagnostic that cannot be searched for. */
-            inkcell_log_warn(
+            inkwell_log_warn(
                 "message", "Message %u failed: %s (Routing_Error %u)", data->request_id,
                 inkcell_str_in(inkcell_i18n_locale_english(),
                                mesh_message_ack_error_id((uint8_t)routing.error_reason)),
@@ -414,7 +414,7 @@ int mesh_message_ingest(struct mesh_message_log *log, const meshtastic_MeshPacke
     /* `emoji` is a fixed32 used as a flag: non-zero means the payload is an emoji reacting to
        reply_id rather than something to read on its own line. */
     message.is_reaction = (data->emoji != 0U);
-    inkcell_text_sanitise(data->payload.bytes, data->payload.size, message.text,
+    inkwell_text_sanitise(data->payload.bytes, data->payload.size, message.text,
                           sizeof(message.text));
 
     if (message.text[0] == '\0') {
@@ -449,7 +449,7 @@ int mesh_message_ingest(struct mesh_message_log *log, const meshtastic_MeshPacke
     }
 
     static const char *const k_kind_names[] = {"text", "alert", "detection"};
-    inkcell_log_info("message", "%s %s from 0x%08x on channel %u (%zu chars)",
+    inkwell_log_info("message", "%s %s from 0x%08x on channel %u (%zu chars)",
                      message.direction == MESH_MESSAGE_OUTBOUND ? "Echoed" : "Received",
                      message.is_reaction ? "reaction" : k_kind_names[message.kind], message.from,
                      (unsigned)message.channel, strlen(message.text));

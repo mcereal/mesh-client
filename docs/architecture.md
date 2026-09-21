@@ -60,7 +60,11 @@ depends on: a pak is `/Tools/tg5040/<Name>.pak/` with a `launch.sh`; logs go to
 `/.userdata/$PLATFORM/logs/<pak>.txt`; state lives under `/.userdata/$PLATFORM/<pak>/`, which
 `launch.sh` sets as `$HOME`.
 
-## `src/core/runtime/event_loop.c`
+## The event loop (inkwell's `src/runtime/loop.c`)
+
+The loop is [inkwell](https://github.com/mcereal/inkwell)'s, reached through
+`inkwell/runtime/loop.h`. It answers to no radio, which is exactly why it moved: a loop, a clock
+and a log line are a platform's, not an application's.
 
 An epoll loop over a fixed table of 32 fd sources: D-Bus watches, the timerfd discovery refresh,
 the UI store eventfd, the serial tty, a fetch's socket. **No threads anywhere. Do
@@ -71,7 +75,7 @@ not add them.**
 Nothing may block the loop, and two things a client has to do are blocking by nature.
 
 **A name lookup forks.** `getaddrinfo()` blocks, POSIX offers no non-blocking form, and
-`getaddrinfo_a()` starts threads. `src/core/net/resolve.c` forks a child that blocks in it and writes
+`getaddrinfo_a()` starts threads. inkwell's `src/net/resolve.c` forks a child that blocks in it and writes
 one fixed-size record back through a pipe the loop owns. The child does not exec, so it is no
 program the device has to have. An address literal costs no child at all. See
 [`docs/transport.md`](transport.md#a-name-costs-a-fork).
@@ -79,7 +83,7 @@ program the device has to have. An address literal costs no child at all. See
 **TLS does not.** `src/core/net/tls_client.c` drives Mbed TLS through BIO callbacks over a
 non-blocking socket, reporting `-EAGAIN` back out to the loop rather than waiting. Two things sit
 on it: the MQTT proxy's broker connection, and `src/core/net/fetch.c`, which is every HTTPS request
-the client makes - HTTP/1.1 from the codec in `src/proto/http.c` over that session. See
+the client makes - HTTP/1.1 from inkwell's codec (`inkwell/codec/http.h`) over that session. See
 [`docs/mqtt.md`](mqtt.md#tls) and the updater section below.
 
 ## `src/core/session/session.c` — the Meshtastic conversation
@@ -510,7 +514,7 @@ executable safe is not the transport but the digest:
   beta; the `per_page=1` cap also keeps the reply a single release object, so the scanner cannot
   pair one release's tag with another's asset.
 - The asset URL is refused unless it sits under *this* repository's `releases/download/` path.
-- The bytes must hash (`src/utils/sha256.c`, self-contained) to the `digest` that metadata
+- The bytes must hash (inkwell's `inkwell/codec/sha256.h`, self-contained) to the `digest` that metadata
   carried. A release with no digest is refused rather than installed unverified.
 - The install is `rename()` within one directory, so it is atomic, and Linux keeps the running
   image alive off its inode — which is why the last state is READY rather than a self-restart.

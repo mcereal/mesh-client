@@ -1,7 +1,7 @@
 #ifndef MESH_TEST_BLE_OTA_FIXTURE_H
 #define MESH_TEST_BLE_OTA_FIXTURE_H
 
-#include "mesh/utils/sha256.h"
+#include "inkwell/codec/sha256.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -35,8 +35,8 @@ struct mesh_test_ota_loader {
     /* What it saw. */
     bool downloading;
     size_t expected_size;
-    char expected_hex[MESH_SHA256_HEX_LEN];
-    struct mesh_sha256 hasher;
+    char expected_hex[INKWELL_SHA256_HEX_LEN];
+    struct inkwell_sha256 hasher;
     size_t received;
     size_t acks;
     size_t writes;

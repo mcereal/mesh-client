@@ -2,13 +2,13 @@
 
 /* Bringing a BLE link up and watching it fall over: discovery, connect, drops. */
 
-#include "inkcell/utils/log.h"
+#include "inkwell/base/log.h"
 
 #include "framework/mesh_test.h"
 #include "support/ble_fixture.h"
 
+#include "inkwell/runtime/loop.h"
 #include "mesh/core/config.h"
-#include "mesh/core/event_loop.h"
 #include "mesh/core/message.h"
 #include "mesh/core/session.h"
 #include "mesh/transport/ble.h"
@@ -57,8 +57,8 @@ MESH_TEST_CASE(ble_transport_status_transitions, unit) {
     struct mesh_app_config config = mesh_app_config_default();
     config.enable_ble = false;
 
-    struct mesh_event_loop loop;
-    mesh_event_loop_init(&loop);
+    struct inkwell_loop loop;
+    inkwell_loop_init(&loop);
 
     ble->ops->start(ble, &config, &loop);
     const char *disabled_status = ble->ops->status(ble);
@@ -81,7 +81,7 @@ MESH_TEST_CASE(ble_transport_status_transitions, unit) {
     }
 
     ble->ops->stop(ble);
-    mesh_event_loop_shutdown(&loop);
+    inkwell_loop_shutdown(&loop);
     record_success(test_name);
 }
 
@@ -241,7 +241,7 @@ MESH_TEST_CASE(ble_transport_connect_mock, unit) {
         goto cleanup;
     }
     for (int spin = 0; spin < 20 && rig.read_index < 6U; ++spin) {
-        mesh_event_loop_run(&rig.loop, 10);
+        inkwell_loop_run(&rig.loop, 10);
         ble->ops->tick(ble);
     }
 
@@ -1024,8 +1024,8 @@ MESH_TEST_CASE(ble_roster_is_logged_on_change_not_on_every_refresh, unit) {
                       "could not add a second advertiser");
     MESH_TEST_FAIL_IF(mesh_test_ble_rig_start(&rig) != 0, "the BLE transport did not start");
 
-    const enum inkcell_log_level saved_level = inkcell_log_get_level();
-    inkcell_log_set_level(INKCELL_LOG_LEVEL_DEBUG);
+    const enum inkwell_log_level saved_level = inkwell_log_get_level();
+    inkwell_log_set_level(INKWELL_LOG_LEVEL_DEBUG);
 
     /* Starting the transport enumerated once and announced what it found, so the roster has
        already been logged by the time this case gets a look in - which is what makes the next
@@ -1048,7 +1048,7 @@ MESH_TEST_CASE(ble_roster_is_logged_on_change_not_on_every_refresh, unit) {
     /* And having been logged, it goes quiet again rather than repeating from then on. */
     const int settled = ble_refresh_counting_log_lines(rig.ble, "AA:BB:CC:DD:EE:01");
 
-    inkcell_log_set_level(saved_level);
+    inkwell_log_set_level(saved_level);
     mesh_test_ble_rig_close(&rig);
 
     MESH_TEST_FAIL_IF(unchanged < 0 || rssi_only < 0 || renamed < 0 || departed < 0 || settled < 0,

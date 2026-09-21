@@ -1,6 +1,6 @@
 #pragma once
 
-#include "mesh/core/event_loop.h"
+#include "inkwell/runtime/loop.h"
 #include "mesh/ui/store.h"
 
 #ifdef __cplusplus
@@ -32,7 +32,7 @@ struct mesh_ui_controller {
     const struct inkcell_backend *backend;
     void *backend_state;
     void *backend_userdata;
-    struct mesh_event_loop *loop;
+    struct inkwell_loop *loop;
     bool registered;
     /* Armed after a frame the backend says is still moving, disarmed the moment it settles.
        -1 when the timer could not be created, which costs animation and nothing else. */
@@ -43,7 +43,7 @@ struct mesh_ui_controller {
 
 int mesh_ui_controller_init(struct mesh_ui_controller *controller, struct mesh_ui_store *store,
                             const struct inkcell_backend *backend, void *backend_userdata,
-                            struct mesh_event_loop *loop);
+                            struct inkwell_loop *loop);
 void mesh_ui_controller_shutdown(struct mesh_ui_controller *controller);
 
 void mesh_ui_controller_set_action_handler(struct mesh_ui_controller *controller,

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "mesh/core/event_loop.h"
+#include "inkwell/runtime/loop.h"
 #include "mesh/core/session.h"
 #include "mesh/proto/stream_framing.h"
 
@@ -65,7 +65,7 @@ struct mesh_stream_link {
     enum mesh_stream_link_kind kind;
     bool fd_registered;
     bool want_write; /* EPOLLOUT is armed because the write queue has a remainder */
-    struct mesh_event_loop *loop;
+    struct inkwell_loop *loop;
 
     struct mesh_stream_parser parser;
     size_t frames_received;
@@ -108,7 +108,7 @@ void mesh_stream_link_set_session(struct mesh_stream_link *link, struct mesh_ses
  * wants. Returns 0, or a negative errno with the descriptor left alone for the caller to close.
  */
 int mesh_stream_link_open(struct mesh_stream_link *link, int fd, enum mesh_stream_link_kind kind,
-                          struct mesh_event_loop *loop, mesh_event_callback callback,
+                          struct inkwell_loop *loop, inkwell_loop_callback callback,
                           void *userdata);
 /* Unwatches and closes the descriptor, resets the parser, and fails every queued packet against
    the session. Safe on a closed link. */

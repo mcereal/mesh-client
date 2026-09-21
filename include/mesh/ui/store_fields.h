@@ -70,7 +70,7 @@ struct mesh_ui_store_field {
  * at the call site.
  *
  * A macro rather than the small static helper the style guide asks for, for the reason
- * INKCELL_ARRAY_LEN is one: the type differs at every call site, and C17 has no other way to
+ * INKWELL_ARRAY_LEN is one: the type differs at every call site, and C17 has no other way to
  * dispatch on it. The associations are the exact-width typedefs, so a target where one of them
  * is spelled differently - `uint32_t` as `unsigned long` - fails to compile here rather than
  * anywhere subtler.

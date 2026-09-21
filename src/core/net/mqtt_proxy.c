@@ -3,8 +3,8 @@
 
 #include "mesh/core/mqtt_proxy.h"
 
-#include "inkcell/utils/log.h"
-#include "inkcell/utils/text.h"
+#include "inkwell/base/log.h"
+#include "inkwell/base/text.h"
 
 #include "mesh/i18n/strings.h"
 #include "mesh/proto/mqtt_packet.h"
@@ -84,7 +84,7 @@ static void mqtt_fail(struct mesh_mqtt_proxy *proxy, enum inkcell_str_id text, .
     }
     proxy->retry_at_ms = proxy->now_ms + delay;
     mqtt_set_state(proxy, MESH_MQTT_PROXY_WAITING);
-    inkcell_log_warn("mqtt", "%s; retrying in %llums", proxy->last_error,
+    inkwell_log_warn("mqtt", "%s; retrying in %llums", proxy->last_error,
                      (unsigned long long)delay);
 }
 
@@ -114,7 +114,7 @@ static void mqtt_arm(struct mesh_mqtt_proxy *proxy) {
     }
     proxy->want_write = want_write;
     const uint32_t events = (uint32_t)EPOLLIN | (want_write ? (uint32_t)EPOLLOUT : 0U);
-    (void)mesh_event_loop_update_fd(proxy->loop, proxy->fd, events);
+    (void)inkwell_loop_update_fd(proxy->loop, proxy->fd, events);
 }
 
 /*
@@ -269,7 +269,7 @@ static void mqtt_pump_subscribes(struct mesh_mqtt_proxy *proxy) {
     const int len =
         mesh_mqtt_encode_subscribe(packet, sizeof packet, id, proxy->filters[proxy->filter_sent]);
     if (len < 0) {
-        inkcell_log_warn("mqtt", "Cannot subscribe to %s: %d", proxy->filters[proxy->filter_sent],
+        inkwell_log_warn("mqtt", "Cannot subscribe to %s: %d", proxy->filters[proxy->filter_sent],
                          len);
         proxy->filter_sent++;
         mqtt_pump_subscribes(proxy);
@@ -280,7 +280,7 @@ static void mqtt_pump_subscribes(struct mesh_mqtt_proxy *proxy) {
         /* A full buffer, not a dead socket. Not retried here: the next SUBACK or the next
            reconnect comes back through this function, and a buffer this full on a connection
            this new is already odd. */
-        inkcell_log_warn("mqtt", "No room to send a subscription");
+        inkwell_log_warn("mqtt", "No room to send a subscription");
         return;
     }
     if (queued < 0) {
@@ -338,7 +338,7 @@ static bool mqtt_on_connack(struct mesh_mqtt_proxy *proxy, const uint8_t *body, 
     proxy->stats.connections++;
     proxy->last_error[0] = '\0';
     mqtt_set_state(proxy, MESH_MQTT_PROXY_READY);
-    inkcell_log_info("mqtt", "Connected to %s as %s", proxy->host, proxy->config.client_id);
+    inkwell_log_info("mqtt", "Connected to %s as %s", proxy->host, proxy->config.client_id);
 
     /* A clean session means the broker remembers no subscriptions, so the whole set goes out
        again on every reconnection rather than only on the first. */
@@ -358,7 +358,7 @@ static bool mqtt_on_suback(struct mesh_mqtt_proxy *proxy, const uint8_t *body, s
     if (id != proxy->subscribe_id) {
         /* Not ours, or a duplicate. Ignored rather than fatal: nothing about the connection is
            wrong, and dropping it would cost every other subscription too. */
-        inkcell_log_debug("mqtt", "Unexpected SUBACK %u", (unsigned)id);
+        inkwell_log_debug("mqtt", "Unexpected SUBACK %u", (unsigned)id);
         return true;
     }
     if (code == MESH_MQTT_SUBACK_FAILURE) {
@@ -368,7 +368,7 @@ static bool mqtt_on_suback(struct mesh_mqtt_proxy *proxy, const uint8_t *body, s
          * is worth saying out loud, because the symptom is a channel whose traffic simply never
          * arrives and nothing else would ever mention it.
          */
-        inkcell_log_warn("mqtt", "%s refused the subscription to %s", proxy->host,
+        inkwell_log_warn("mqtt", "%s refused the subscription to %s", proxy->host,
                          proxy->filters[proxy->filter_sent]);
     }
     proxy->filter_sent++;
@@ -399,7 +399,7 @@ static bool mqtt_on_publish(struct mesh_mqtt_proxy *proxy, uint8_t flags, const 
     char topic[MESH_MQTT_TOPIC_MAX];
     if (message.topic_len >= sizeof topic) {
         proxy->stats.skipped++;
-        inkcell_log_debug("mqtt", "Dropped a message on a topic too long to forward (%zu bytes)",
+        inkwell_log_debug("mqtt", "Dropped a message on a topic too long to forward (%zu bytes)",
                           message.topic_len);
         return true;
     }
@@ -432,7 +432,7 @@ static bool mqtt_handle(struct mesh_mqtt_proxy *proxy, const struct mesh_mqtt_he
     case MESH_MQTT_UNSUBACK:
         /* Answers to things this client never sends. Ignored rather than fatal - a broker that
            volunteers one is odd, not broken, and the stream is still in sync. */
-        inkcell_log_debug("mqtt", "Ignoring an unexpected packet type %u", (unsigned)header->type);
+        inkwell_log_debug("mqtt", "Ignoring an unexpected packet type %u", (unsigned)header->type);
         return true;
     case MESH_MQTT_CONNECT:
     case MESH_MQTT_SUBSCRIBE:
@@ -491,7 +491,7 @@ static bool mqtt_consume(struct mesh_mqtt_proxy *proxy) {
             at += header.header_len;
             proxy->skip_remaining = header.remaining;
             proxy->stats.skipped++;
-            inkcell_log_debug("mqtt", "Skipping a %zu-byte message", header.remaining);
+            inkwell_log_debug("mqtt", "Skipping a %zu-byte message", header.remaining);
             continue;
         }
         if (proxy->in_len - at < header.header_len + header.remaining) {
@@ -751,8 +751,8 @@ static void mqtt_open(struct mesh_mqtt_proxy *proxy, const struct sockaddr_stora
 
     proxy->fd = fd;
     proxy->want_write = true;
-    if (mesh_event_loop_add_fd(proxy->loop, fd, (uint32_t)(EPOLLIN | EPOLLOUT), mqtt_fd_callback,
-                               proxy) < 0) {
+    if (inkwell_loop_add_fd(proxy->loop, fd, (uint32_t)(EPOLLIN | EPOLLOUT), mqtt_fd_callback,
+                            proxy) < 0) {
         proxy->fd = -1;
         close(fd);
         mqtt_fail(proxy, MESH_STR_LINK_MQTT_UNREACHABLE, proxy->host, strerror(ENOMEM));
@@ -763,7 +763,7 @@ static void mqtt_open(struct mesh_mqtt_proxy *proxy, const struct sockaddr_stora
     mqtt_set_state(proxy, MESH_MQTT_PROXY_CONNECTING);
 }
 
-static void mqtt_on_resolved(void *userdata, const struct mesh_resolve_result *result) {
+static void mqtt_on_resolved(void *userdata, const struct inkwell_resolve_result *result) {
     struct mesh_mqtt_proxy *proxy = (struct mesh_mqtt_proxy *)userdata;
     /* A lookup that lands after the attempt it belonged to was abandoned. Cancelling normally
        prevents this; the guard is what makes it true rather than nearly true. */
@@ -771,15 +771,15 @@ static void mqtt_on_resolved(void *userdata, const struct mesh_resolve_result *r
         return;
     }
     switch (result->outcome) {
-    case MESH_RESOLVE_OK:
+    case INKWELL_RESOLVE_OK:
         mqtt_open(proxy, &result->address, result->address_len);
         return;
-    case MESH_RESOLVE_NOT_FOUND:
+    case INKWELL_RESOLVE_NOT_FOUND:
         mqtt_fail(proxy, MESH_STR_LINK_MQTT_UNKNOWN_HOST, proxy->host);
         return;
-    case MESH_RESOLVE_TIMED_OUT:
-    case MESH_RESOLVE_FAILED:
-    case MESH_RESOLVE_OUTCOME_COUNT:
+    case INKWELL_RESOLVE_TIMED_OUT:
+    case INKWELL_RESOLVE_FAILED:
+    case INKWELL_RESOLVE_OUTCOME_COUNT:
     default:
         mqtt_fail(proxy, MESH_STR_LINK_MQTT_LOOKUP_FAILED, proxy->host);
         return;
@@ -797,13 +797,13 @@ static void mqtt_attempt(struct mesh_mqtt_proxy *proxy) {
 
     struct sockaddr_storage address;
     socklen_t address_len = 0;
-    if (mesh_resolve_literal(proxy->host, proxy->port, &address, &address_len)) {
+    if (inkwell_resolve_literal(proxy->host, proxy->port, &address, &address_len)) {
         mqtt_open(proxy, &address, address_len);
         return;
     }
 
-    const int started = mesh_resolve_start(&proxy->resolve, proxy->host, proxy->port,
-                                           mqtt_on_resolved, proxy, proxy->now_ms);
+    const int started = inkwell_resolve_start(&proxy->resolve, proxy->host, proxy->port,
+                                              mqtt_on_resolved, proxy, proxy->now_ms);
     if (started < 0) {
         mqtt_fail(proxy, MESH_STR_LINK_MQTT_LOOKUP_FAILED, proxy->host);
         return;
@@ -820,11 +820,11 @@ static void mqtt_attempt(struct mesh_mqtt_proxy *proxy) {
  * to set - which is why this one does not set a state at all.
  */
 static void mqtt_close(struct mesh_mqtt_proxy *proxy) {
-    mesh_resolve_cancel(&proxy->resolve);
+    inkwell_resolve_cancel(&proxy->resolve);
     mesh_tls_client_stop(&proxy->tls);
     if (proxy->fd >= 0) {
         if (proxy->fd_registered && proxy->loop != NULL) {
-            (void)mesh_event_loop_remove_fd(proxy->loop, proxy->fd);
+            (void)inkwell_loop_remove_fd(proxy->loop, proxy->fd);
         }
         close(proxy->fd);
     }
@@ -847,7 +847,7 @@ static void mqtt_close(struct mesh_mqtt_proxy *proxy) {
 
 /* ------------------------------------------------------------------ the public face */
 
-int mesh_mqtt_proxy_init(struct mesh_mqtt_proxy *proxy, struct mesh_event_loop *loop) {
+int mesh_mqtt_proxy_init(struct mesh_mqtt_proxy *proxy, struct inkwell_loop *loop) {
     if (proxy == NULL) {
         return -EINVAL;
     }
@@ -855,7 +855,7 @@ int mesh_mqtt_proxy_init(struct mesh_mqtt_proxy *proxy, struct mesh_event_loop *
     proxy->loop = loop;
     proxy->fd = -1;
     proxy->state = MESH_MQTT_PROXY_OFF;
-    (void)mesh_resolve_init(&proxy->resolve, loop);
+    (void)inkwell_resolve_init(&proxy->resolve, loop);
     return 0;
 }
 
@@ -864,7 +864,7 @@ void mesh_mqtt_proxy_shutdown(struct mesh_mqtt_proxy *proxy) {
         return;
     }
     mqtt_close(proxy);
-    mesh_resolve_shutdown(&proxy->resolve);
+    inkwell_resolve_shutdown(&proxy->resolve);
     proxy->state = MESH_MQTT_PROXY_OFF;
 }
 
@@ -876,7 +876,7 @@ void mesh_mqtt_proxy_set_ca_bundle(struct mesh_mqtt_proxy *proxy, const char *pa
         proxy->ca_bundle[0] = '\0';
         return;
     }
-    (void)inkcell_str_copy(proxy->ca_bundle, sizeof proxy->ca_bundle, path);
+    (void)inkwell_str_copy(proxy->ca_bundle, sizeof proxy->ca_bundle, path);
 }
 
 int mesh_mqtt_proxy_start(struct mesh_mqtt_proxy *proxy,
@@ -915,7 +915,7 @@ int mesh_mqtt_proxy_start(struct mesh_mqtt_proxy *proxy,
     proxy->failures = 0U;
     proxy->retry_at_ms = 0U;
     proxy->last_error[0] = '\0';
-    (void)inkcell_str_copy(proxy->host, sizeof proxy->host, host);
+    (void)inkwell_str_copy(proxy->host, sizeof proxy->host, host);
 
     /*
      * A target that named no port gets the one that goes with the scheme rather than a single
@@ -1036,14 +1036,14 @@ void mesh_mqtt_proxy_tick(struct mesh_mqtt_proxy *proxy, uint64_t now_ms) {
      * The clock, read once and kept.
      *
      * Everything inside this module - a deadline, the keepalive, the backoff - reads
-     * `proxy->now_ms` rather than calling inkcell_time_monotonic_ms() where it happens to be. That
+     * `proxy->now_ms` rather than calling inkwell_time_monotonic_ms() where it happens to be. That
      * matters because half of those are *set* from an fd callback and compared here: two calls
      * to the real clock are two different numbers, and a test driving a synthetic one would have
      * been comparing its own clock against the machine's. One source, set here, slightly stale
      * inside a callback and monotonic either way.
      */
     proxy->now_ms = now_ms;
-    mesh_resolve_tick(&proxy->resolve, now_ms);
+    inkwell_resolve_tick(&proxy->resolve, now_ms);
 
     if (proxy->state == MESH_MQTT_PROXY_OFF) {
         return;

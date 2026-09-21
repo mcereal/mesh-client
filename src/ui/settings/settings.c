@@ -10,8 +10,8 @@
  */
 
 #include "inkcell/ui/anim.h"
-#include "inkcell/utils/array.h"
-#include "inkcell/utils/text.h"
+#include "inkwell/base/array.h"
+#include "inkwell/base/text.h"
 
 #include "settings_internal.h"
 
@@ -472,20 +472,20 @@ static const enum mesh_ui_settings_section k_modules[] = {
     MESH_UI_SETTINGS_CANNED,
 };
 
-uint32_t mesh_ui_settings_root_count(void) { return (uint32_t)INKCELL_ARRAY_LEN(k_root); }
+uint32_t mesh_ui_settings_root_count(void) { return (uint32_t)INKWELL_ARRAY_LEN(k_root); }
 
 enum mesh_ui_settings_section mesh_ui_settings_root_at(uint32_t row) {
-    return row < INKCELL_ARRAY_LEN(k_root) ? k_root[row] : MESH_UI_SETTINGS_ABOUT;
+    return row < INKWELL_ARRAY_LEN(k_root) ? k_root[row] : MESH_UI_SETTINGS_ABOUT;
 }
 
-uint32_t mesh_ui_settings_module_count(void) { return (uint32_t)INKCELL_ARRAY_LEN(k_modules); }
+uint32_t mesh_ui_settings_module_count(void) { return (uint32_t)INKWELL_ARRAY_LEN(k_modules); }
 
 enum mesh_ui_settings_section mesh_ui_settings_module_at(uint32_t row) {
-    return row < INKCELL_ARRAY_LEN(k_modules) ? k_modules[row] : MESH_UI_SETTINGS_MQTT;
+    return row < INKWELL_ARRAY_LEN(k_modules) ? k_modules[row] : MESH_UI_SETTINGS_MQTT;
 }
 
 bool mesh_ui_settings_section_is_module(enum mesh_ui_settings_section section) {
-    for (size_t i = 0; i < INKCELL_ARRAY_LEN(k_modules); ++i) {
+    for (size_t i = 0; i < INKWELL_ARRAY_LEN(k_modules); ++i) {
         if (k_modules[i] == section) {
             return true;
         }
@@ -646,7 +646,7 @@ static const char *compass_name(uint32_t orientation) {
         MESH_STR_ENUM_COMPASS_0_FLIP,   MESH_STR_ENUM_COMPASS_90_FLIP,
         MESH_STR_ENUM_COMPASS_180_FLIP, MESH_STR_ENUM_COMPASS_270_FLIP,
     };
-    return inkcell_str(orientation < INKCELL_ARRAY_LEN(k_names) ? k_names[orientation]
+    return inkcell_str(orientation < INKWELL_ARRAY_LEN(k_names) ? k_names[orientation]
                                                                 : INKCELL_STR_COMMON_UNKNOWN_SHORT);
 }
 
@@ -663,7 +663,7 @@ static const char *oled_name(uint32_t oled) {
         MESH_STR_ENUM_OLED_AUTO,   MESH_STR_ENUM_OLED_SSD1306,    MESH_STR_ENUM_OLED_SH1106,
         MESH_STR_ENUM_OLED_SH1107, MESH_STR_ENUM_OLED_SH1107_128, MESH_STR_ENUM_OLED_SH1107_ROT,
     };
-    return inkcell_str(oled < INKCELL_ARRAY_LEN(k_names) ? k_names[oled]
+    return inkcell_str(oled < INKWELL_ARRAY_LEN(k_names) ? k_names[oled]
                                                          : INKCELL_STR_COMMON_UNKNOWN_SHORT);
 }
 
@@ -675,7 +675,7 @@ static const char *displaymode_name(uint32_t mode) {
         MESH_STR_ENUM_DISPLAYMODE_INVERTED,
         MESH_STR_ENUM_DISPLAYMODE_COLOR,
     };
-    return inkcell_str(mode < INKCELL_ARRAY_LEN(k_names) ? k_names[mode]
+    return inkcell_str(mode < INKWELL_ARRAY_LEN(k_names) ? k_names[mode]
                                                          : INKCELL_STR_COMMON_UNKNOWN_SHORT);
 }
 
@@ -687,7 +687,7 @@ static const char *trigger_name(uint32_t trigger) {
         MESH_STR_ENUM_TRIGGER_FALLING,    MESH_STR_ENUM_TRIGGER_RISING,
         MESH_STR_ENUM_TRIGGER_EITHER_LOW, MESH_STR_ENUM_TRIGGER_EITHER_HIGH,
     };
-    return inkcell_str(trigger < INKCELL_ARRAY_LEN(k_names) ? k_names[trigger]
+    return inkcell_str(trigger < INKWELL_ARRAY_LEN(k_names) ? k_names[trigger]
                                                             : INKCELL_STR_COMMON_UNKNOWN_SHORT);
 }
 
@@ -699,7 +699,7 @@ static const char *ui_theme_name(uint32_t theme) {
         MESH_STR_ENUM_UI_THEME_LIGHT,
         MESH_STR_ENUM_UI_THEME_RED,
     };
-    return inkcell_str(theme < INKCELL_ARRAY_LEN(k_names) ? k_names[theme]
+    return inkcell_str(theme < INKWELL_ARRAY_LEN(k_names) ? k_names[theme]
                                                           : INKCELL_STR_COMMON_UNKNOWN_SHORT);
 }
 
@@ -709,7 +709,7 @@ static const char *ui_compass_name(uint32_t mode) {
         MESH_STR_ENUM_UI_COMPASS_FIXED,
         MESH_STR_ENUM_UI_COMPASS_FREEZE,
     };
-    return inkcell_str(mode < INKCELL_ARRAY_LEN(k_names) ? k_names[mode]
+    return inkcell_str(mode < INKWELL_ARRAY_LEN(k_names) ? k_names[mode]
                                                          : INKCELL_STR_COMMON_UNKNOWN_SHORT);
 }
 
@@ -721,7 +721,7 @@ static const char *ui_gps_format_name(uint32_t format) {
         MESH_STR_ENUM_UI_GPS_MGRS, MESH_STR_ENUM_UI_GPS_OLC, MESH_STR_ENUM_UI_GPS_OSGR,
         MESH_STR_ENUM_UI_GPS_MLS,
     };
-    return inkcell_str(format < INKCELL_ARRAY_LEN(k_names) ? k_names[format]
+    return inkcell_str(format < INKWELL_ARRAY_LEN(k_names) ? k_names[format]
                                                            : INKCELL_STR_COMMON_UNKNOWN_SHORT);
 }
 
@@ -749,7 +749,7 @@ static const char *tak_team_name(uint32_t team) {
         MESH_STR_ENUM_TAK_TEAM_GREEN,     MESH_STR_ENUM_TAK_TEAM_DARK_GREEN,
         MESH_STR_ENUM_TAK_TEAM_BROWN,
     };
-    return inkcell_str(team < INKCELL_ARRAY_LEN(k_names) ? k_names[team]
+    return inkcell_str(team < INKWELL_ARRAY_LEN(k_names) ? k_names[team]
                                                          : INKCELL_STR_COMMON_UNKNOWN_SHORT);
 }
 
@@ -761,7 +761,7 @@ static const char *tak_role_name(uint32_t role) {
         MESH_STR_ENUM_TAK_ROLE_FORWARD_OBS, MESH_STR_ENUM_TAK_ROLE_RTO,
         MESH_STR_ENUM_TAK_ROLE_K9,
     };
-    return inkcell_str(role < INKCELL_ARRAY_LEN(k_names) ? k_names[role]
+    return inkcell_str(role < INKWELL_ARRAY_LEN(k_names) ? k_names[role]
                                                          : INKCELL_STR_COMMON_UNKNOWN_SHORT);
 }
 
@@ -771,7 +771,7 @@ static const char *rebroadcast_name(uint32_t mode) {
         MESH_STR_ENUM_REBROADCAST_LOCAL, MESH_STR_ENUM_REBROADCAST_KNOWN,
         MESH_STR_ENUM_REBROADCAST_NONE,  MESH_STR_ENUM_REBROADCAST_CORE,
     };
-    return inkcell_str(mode < INKCELL_ARRAY_LEN(k_names) ? k_names[mode]
+    return inkcell_str(mode < INKWELL_ARRAY_LEN(k_names) ? k_names[mode]
                                                          : INKCELL_STR_COMMON_UNKNOWN_SHORT);
 }
 
@@ -1192,11 +1192,11 @@ static void format_count(uint32_t value, bool imperial, char *out, size_t out_le
  * limit under MESH_UI_FIELD_LORA_HOPS and a pin under MESH_UI_FIELD_DETECT_PIN, and a leading 0
  * is "never" on one field and "the firmware decides" on the next.
  */
-#define SCALE_PRESETS(array) (array), INKCELL_ARRAY_LEN(array), true, false
+#define SCALE_PRESETS(array) (array), INKWELL_ARRAY_LEN(array), true, false
 /* The same, for a list whose leading 0 is "the firmware's own default" or "as much as this
    radio has" rather than the bottom of the scale: the track spans what follows it. */
-#define SCALE_PRESETS_AFTER_ZERO(array) (array), INKCELL_ARRAY_LEN(array), true, true
-#define NAMED_PRESETS(array) (array), INKCELL_ARRAY_LEN(array), false, false
+#define SCALE_PRESETS_AFTER_ZERO(array) (array), INKWELL_ARRAY_LEN(array), true, true
+#define NAMED_PRESETS(array) (array), INKWELL_ARRAY_LEN(array), false, false
 #define NO_PRESETS NULL, 0U, false, false
 
 /*

@@ -4,7 +4,7 @@
 
 #include "mesh/proto/channel_url.h"
 
-#include "mesh/utils/base64.h"
+#include "inkwell/codec/base64.h"
 
 #include "link_url.h"
 
@@ -33,8 +33,8 @@ size_t mesh_channel_url_encode(const meshtastic_ChannelSet *set, bool add, char 
         return 0U;
     }
     memcpy(out, MESH_CHANNEL_URL_PREFIX, prefix_len);
-    const size_t payload = mesh_base64_encode(encoded, stream.bytes_written, true, out + prefix_len,
-                                              out_len - prefix_len);
+    const size_t payload = inkwell_base64_encode(encoded, stream.bytes_written, true,
+                                                 out + prefix_len, out_len - prefix_len);
     if (payload == 0U) {
         out[0] = '\0';
         return 0U;
@@ -71,7 +71,7 @@ bool mesh_channel_url_decode(const char *text, meshtastic_ChannelSet *out, bool 
 
     uint8_t decoded[meshtastic_ChannelSet_size];
     size_t len = 0U;
-    if (!mesh_base64_decode(payload, chars, MESH_BASE64_ANY, decoded, sizeof decoded, &len)) {
+    if (!inkwell_base64_decode(payload, chars, INKWELL_BASE64_ANY, decoded, sizeof decoded, &len)) {
         return false;
     }
 

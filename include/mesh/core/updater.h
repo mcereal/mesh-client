@@ -33,7 +33,7 @@
 extern "C" {
 #endif
 
-struct mesh_event_loop;
+struct inkwell_loop;
 
 /* Where an update attempt has got to. The About screen renders this directly. */
 enum mesh_update_state {
@@ -146,7 +146,7 @@ struct mesh_updater {
 
 /* `loop` may be NULL, in which case the updater reports itself unavailable. Returns 0, or
    -errno. */
-int mesh_updater_init(struct mesh_updater *updater, struct mesh_event_loop *loop);
+int mesh_updater_init(struct mesh_updater *updater, struct inkwell_loop *loop);
 void mesh_updater_shutdown(struct mesh_updater *updater);
 
 /* True when this build has TLS and the running binary's path is known, i.e. when check and

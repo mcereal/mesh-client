@@ -1,11 +1,11 @@
 #define _GNU_SOURCE
 #define _POSIX_C_SOURCE 200809L
 
-#include "inkcell/utils/array.h"
-#include "inkcell/utils/env.h"
-#include "inkcell/utils/log.h"
-#include "inkcell/utils/text.h"
-#include "inkcell/utils/time.h"
+#include "inkwell/base/array.h"
+#include "inkwell/base/env.h"
+#include "inkwell/base/log.h"
+#include "inkwell/base/text.h"
+#include "inkwell/base/time.h"
 
 #include "mesh/i18n/strings.h"
 #include "mesh/transport/ble.h"
@@ -107,7 +107,7 @@ struct mesh_ble_transport_state {
     int refresh_timer_fd;
     int drain_wake_fd; /* eventfd: continue a FromRadio drain on the next loop turn */
     uint64_t last_refresh_ms;
-    struct mesh_event_loop *loop;
+    struct inkwell_loop *loop;
     enum mesh_ble_link_state link_state;
     char connected_address[32];
     char connected_device_path[128];
@@ -249,7 +249,7 @@ static void mesh_ble_requests_ready(void *userdata) {
     const uint64_t one = 1U;
     if (state->drain_wake_fd >= 0) {
         if (write(state->drain_wake_fd, &one, sizeof one) < 0 && errno != EAGAIN) {
-            inkcell_log_warn("ble", "request wake write failed: %s", strerror(errno));
+            inkwell_log_warn("ble", "request wake write failed: %s", strerror(errno));
         }
     }
 }
@@ -267,7 +267,7 @@ static void mesh_ble_tick(struct mesh_transport *transport) {
     }
 
     struct mesh_ble_transport_state *state = (struct mesh_ble_transport_state *)transport->state;
-    uint64_t now = inkcell_time_monotonic_ms();
+    uint64_t now = inkwell_time_monotonic_ms();
     if (state != NULL && state->client_initialised) {
         mesh_bluez_client_process(&state->bluez);
         /* bluetoothd is not a given. It can arrive after we did - the first launch after the
@@ -331,7 +331,7 @@ static int mesh_ble_drain_wake_callback(int fd, uint32_t events, void *userdata)
     uint64_t value = 0;
     ssize_t read_result = read(fd, &value, sizeof(value));
     if (read_result < 0 && errno != EAGAIN) {
-        inkcell_log_warn("ble", "drain wake read failed: %s", strerror(errno));
+        inkwell_log_warn("ble", "drain wake read failed: %s", strerror(errno));
     }
     struct mesh_ble_transport_state *state = (struct mesh_ble_transport_state *)transport->state;
     if (state != NULL) {
@@ -345,7 +345,7 @@ static int mesh_ble_drain_wake_callback(int fd, uint32_t events, void *userdata)
         }
     }
     if (state != NULL && state->drain_pending &&
-        inkcell_time_monotonic_ms() >= state->drain_retry_at_ms) {
+        inkwell_time_monotonic_ms() >= state->drain_retry_at_ms) {
         mesh_ble_drain_from_radio(state);
     }
     return 0;
@@ -353,19 +353,19 @@ static int mesh_ble_drain_wake_callback(int fd, uint32_t events, void *userdata)
 
 static int mesh_ble_setup_drain_wake(struct mesh_transport *transport,
                                      struct mesh_ble_transport_state *state,
-                                     struct mesh_event_loop *loop) {
+                                     struct inkwell_loop *loop) {
     if (loop == NULL) {
         return 0;
     }
     state->drain_wake_fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
     if (state->drain_wake_fd < 0) {
-        inkcell_log_warn("ble", "eventfd create failed: %s", strerror(errno));
+        inkwell_log_warn("ble", "eventfd create failed: %s", strerror(errno));
         return -errno;
     }
-    int add_result = mesh_event_loop_add_fd(loop, state->drain_wake_fd, EPOLLIN,
-                                            mesh_ble_drain_wake_callback, transport);
+    int add_result = inkwell_loop_add_fd(loop, state->drain_wake_fd, EPOLLIN,
+                                         mesh_ble_drain_wake_callback, transport);
     if (add_result < 0) {
-        inkcell_log_warn("ble", "Failed to add drain wake fd: %d", add_result);
+        inkwell_log_warn("ble", "Failed to add drain wake fd: %d", add_result);
         close(state->drain_wake_fd);
         state->drain_wake_fd = -1;
         return add_result;
@@ -376,7 +376,7 @@ static int mesh_ble_setup_drain_wake(struct mesh_transport *transport,
 static void mesh_ble_teardown_drain_wake(struct mesh_ble_transport_state *state) {
     if (state->drain_wake_fd >= 0) {
         if (state->loop != NULL) {
-            mesh_event_loop_remove_fd(state->loop, state->drain_wake_fd);
+            inkwell_loop_remove_fd(state->loop, state->drain_wake_fd);
         }
         close(state->drain_wake_fd);
         state->drain_wake_fd = -1;
@@ -385,17 +385,17 @@ static void mesh_ble_teardown_drain_wake(struct mesh_ble_transport_state *state)
 
 static void mesh_ble_schedule_drain(struct mesh_ble_transport_state *state, uint64_t delay_ms) {
     state->drain_pending = true;
-    state->drain_retry_at_ms = delay_ms == 0U ? 0U : inkcell_time_monotonic_ms() + delay_ms;
+    state->drain_retry_at_ms = delay_ms == 0U ? 0U : inkwell_time_monotonic_ms() + delay_ms;
     if (delay_ms == 0U && state->drain_wake_fd >= 0) {
         uint64_t one = 1U;
         if (write(state->drain_wake_fd, &one, sizeof(one)) < 0 && errno != EAGAIN) {
-            inkcell_log_warn("ble", "drain wake write failed: %s", strerror(errno));
+            inkwell_log_warn("ble", "drain wake write failed: %s", strerror(errno));
         }
     }
     /* A delayed retry is picked up by tick() instead - deliberately, because an eventfd has no
        clock and a busy-wait until the delay elapsed is exactly what the delay is avoiding. That
        makes the retry only as prompt as the caller's own timeout, which is the contract
-       mesh_event_loop_run() now actually keeps: it used to return only on an idle epoll, so a
+       inkwell_loop_run() now actually keeps: it used to return only on an idle epoll, so a
        UI that was animating - the progress bar this stalled handshake is what raises - held the
        loop and no tick ever ran. A single failed read then wedged the link permanently. */
 }
@@ -409,7 +409,7 @@ static int mesh_ble_refresh_timer_callback(int fd, uint32_t events, void *userda
     uint64_t expirations = 0;
     ssize_t read_result = read(fd, &expirations, sizeof(expirations));
     if (read_result < 0 && errno != EAGAIN) {
-        inkcell_log_warn("ble", "refresh timer read failed: %s", strerror(errno));
+        inkwell_log_warn("ble", "refresh timer read failed: %s", strerror(errno));
     }
     mesh_ble_refresh_devices_periodic(transport);
     return 0;
@@ -417,14 +417,14 @@ static int mesh_ble_refresh_timer_callback(int fd, uint32_t events, void *userda
 
 static int mesh_ble_setup_refresh_timer(struct mesh_transport *transport,
                                         struct mesh_ble_transport_state *state,
-                                        struct mesh_event_loop *loop) {
+                                        struct inkwell_loop *loop) {
     if (loop == NULL) {
         return 0;
     }
 
     state->refresh_timer_fd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
     if (state->refresh_timer_fd < 0) {
-        inkcell_log_warn("ble", "timerfd_create failed: %s", strerror(errno));
+        inkwell_log_warn("ble", "timerfd_create failed: %s", strerror(errno));
         return -errno;
     }
 
@@ -433,16 +433,16 @@ static int mesh_ble_setup_refresh_timer(struct mesh_transport *transport,
     spec.it_value.tv_sec = 5;
     spec.it_interval.tv_sec = 5;
     if (timerfd_settime(state->refresh_timer_fd, 0, &spec, NULL) < 0) {
-        inkcell_log_warn("ble", "timerfd_settime failed: %s", strerror(errno));
+        inkwell_log_warn("ble", "timerfd_settime failed: %s", strerror(errno));
         close(state->refresh_timer_fd);
         state->refresh_timer_fd = -1;
         return -errno;
     }
 
-    int add_result = mesh_event_loop_add_fd(loop, state->refresh_timer_fd, EPOLLIN,
-                                            mesh_ble_refresh_timer_callback, transport);
+    int add_result = inkwell_loop_add_fd(loop, state->refresh_timer_fd, EPOLLIN,
+                                         mesh_ble_refresh_timer_callback, transport);
     if (add_result < 0) {
-        inkcell_log_warn("ble", "Failed to add refresh timer fd: %d", add_result);
+        inkwell_log_warn("ble", "Failed to add refresh timer fd: %d", add_result);
         close(state->refresh_timer_fd);
         state->refresh_timer_fd = -1;
         return add_result;
@@ -455,7 +455,7 @@ static int mesh_ble_setup_refresh_timer(struct mesh_transport *transport,
 static void mesh_ble_teardown_refresh_timer(struct mesh_ble_transport_state *state) {
     if (state->refresh_timer_fd >= 0) {
         if (state->loop != NULL) {
-            mesh_event_loop_remove_fd(state->loop, state->refresh_timer_fd);
+            inkwell_loop_remove_fd(state->loop, state->refresh_timer_fd);
         }
         close(state->refresh_timer_fd);
         state->refresh_timer_fd = -1;
@@ -473,7 +473,7 @@ static void mesh_ble_enter_wait(struct mesh_ble_transport_state *state,
         return;
     }
     snprintf(state->waiting_reason, sizeof state->waiting_reason, "%s", reason);
-    inkcell_log_warn("ble", "%s", reason);
+    inkwell_log_warn("ble", "%s", reason);
 }
 
 /* Scanning is a function of the link, not something a call site switches on and off.
@@ -513,7 +513,7 @@ static void mesh_ble_sync_discovery(struct mesh_ble_transport_state *state) {
         return;
     }
     const bool wanted = state->link_state == MESH_BLE_LINK_DISCONNECTED &&
-                        inkcell_time_monotonic_ms() >= state->scan_resume_at_ms;
+                        inkwell_time_monotonic_ms() >= state->scan_resume_at_ms;
     if (wanted == state->discovery_active) {
         return;
     }
@@ -524,12 +524,12 @@ static void mesh_ble_sync_discovery(struct mesh_ble_transport_state *state) {
         /* Not fatal either way: scanning that would not stop costs throughput, and scanning that
            would not start leaves the device list as stale as it already was. Both are retried on
            the next tick. */
-        inkcell_log_debug("ble", "%s failed on %s: %s", wanted ? "StartDiscovery" : "StopDiscovery",
+        inkwell_log_debug("ble", "%s failed on %s: %s", wanted ? "StartDiscovery" : "StopDiscovery",
                           state->adapter_path, strerror(-result));
         return;
     }
     state->discovery_active = wanted;
-    inkcell_log_debug("ble", wanted ? "Scanning resumed" : "Scanning held while the link is up");
+    inkwell_log_debug("ble", wanted ? "Scanning resumed" : "Scanning held while the link is up");
 }
 
 /* Everything between "BlueZ is on the bus" and "scanning": adapter, pairing agent, discovery,
@@ -587,7 +587,7 @@ static void mesh_ble_bring_up(struct mesh_transport *transport) {
        fails the way it always did, with "needs pairing" on screen. */
     int agent_result = mesh_bluez_client_register_agent(&state->bluez);
     if (agent_result < 0) {
-        inkcell_log_warn("ble", "No pairing agent (%d); PIN-mode nodes must be paired out of band",
+        inkwell_log_warn("ble", "No pairing agent (%d); PIN-mode nodes must be paired out of band",
                          agent_result);
     }
 
@@ -608,13 +608,13 @@ static void mesh_ble_bring_up(struct mesh_transport *transport) {
        first attempt already made rather than leaking a second timer. */
     if (state->refresh_timer_fd < 0 &&
         mesh_ble_setup_refresh_timer(transport, state, state->loop) < 0) {
-        inkcell_log_debug("ble", "Refresh timer unavailable; continuing without periodic updates");
+        inkwell_log_debug("ble", "Refresh timer unavailable; continuing without periodic updates");
     }
     if (state->drain_wake_fd < 0 && mesh_ble_setup_drain_wake(transport, state, state->loop) < 0) {
-        inkcell_log_debug("ble", "Drain wake unavailable; FromRadio drains continue from tick()");
+        inkwell_log_debug("ble", "Drain wake unavailable; FromRadio drains continue from tick()");
     }
 
-    inkcell_log_info("ble", "Scanning for Meshtastic nodes via %s", state->adapter_path);
+    inkwell_log_info("ble", "Scanning for Meshtastic nodes via %s", state->adapter_path);
 }
 
 /* bluetoothd left the bus under a ready transport - Bluetooth toggled off in NextUI, a resume
@@ -647,11 +647,11 @@ static void mesh_ble_demote(struct mesh_ble_transport_state *state) {
     state->next_bluez_poll_ms = 0U;
     /* Pre-loaded so the retry that follows does not log the same thing again. */
     snprintf(state->waiting_reason, sizeof state->waiting_reason, "%s", k_ble_no_bluez);
-    inkcell_log_warn("ble", "BlueZ left the bus; waiting for it to come back");
+    inkwell_log_warn("ble", "BlueZ left the bus; waiting for it to come back");
 }
 
 static int mesh_ble_start(struct mesh_transport *transport, const struct mesh_app_config *config,
-                          struct mesh_event_loop *loop) {
+                          struct inkwell_loop *loop) {
     if (transport == NULL || config == NULL) {
         return -EINVAL;
     }
@@ -671,7 +671,7 @@ static int mesh_ble_start(struct mesh_transport *transport, const struct mesh_ap
     /* Read once rather than per turn. It is a knob because the right value follows the
        auto-connect retry, which is the app's to choose, and because a bench needs to be able to
        turn the hold off outright. */
-    state->scan_resume_grace_ms = (uint64_t)inkcell_env_int("SCAN_RESUME_GRACE_MS", 0, 60000,
+    state->scan_resume_grace_ms = (uint64_t)inkwell_env_int("SCAN_RESUME_GRACE_MS", 0, 60000,
                                                             (long)MESH_BLE_SCAN_RESUME_GRACE_MS);
     state->waiting_reason[0] = '\0';
     state->drain_retry_at_ms = 0U;
@@ -700,7 +700,7 @@ static int mesh_ble_start(struct mesh_transport *transport, const struct mesh_ap
     mesh_ble_clear_write_queue(state);
 
     if (!config->enable_ble) {
-        inkcell_log_info("ble", "BLE transport disabled by configuration");
+        inkwell_log_info("ble", "BLE transport disabled by configuration");
         state->state = MESH_BLE_STATE_DISABLED;
         return 0;
     }
@@ -708,13 +708,13 @@ static int mesh_ble_start(struct mesh_transport *transport, const struct mesh_ap
     const int init_result = mesh_bluez_client_init(&state->bluez);
     if (init_result < 0) {
         if (init_result == -ENOSYS) {
-            inkcell_log_warn("ble",
+            inkwell_log_warn("ble",
                              "BLE transport built without D-Bus support; skipping BlueZ startup");
             state->state = MESH_BLE_STATE_IDLE;
             return 0;
         }
 
-        inkcell_log_warn("ble", "Failed to initialise BlueZ client: %s", strerror(-init_result));
+        inkwell_log_warn("ble", "Failed to initialise BlueZ client: %s", strerror(-init_result));
         state->state = MESH_BLE_STATE_IDLE;
         return 0;
     }
@@ -725,7 +725,7 @@ static int mesh_ble_start(struct mesh_transport *transport, const struct mesh_ap
     if (loop != NULL) {
         int attach_result = mesh_bluez_client_attach_loop(&state->bluez, loop);
         if (attach_result < 0) {
-            inkcell_log_warn("ble", "Failed to attach BlueZ client to event loop: %d",
+            inkwell_log_warn("ble", "Failed to attach BlueZ client to event loop: %d",
                              attach_result);
         }
     }
@@ -737,7 +737,7 @@ static int mesh_ble_start(struct mesh_transport *transport, const struct mesh_ap
 
     mesh_ble_bring_up(transport);
     if (state->state == MESH_BLE_STATE_READY && config->preferred_ble_device[0] != '\0') {
-        inkcell_log_info("ble", "Attempting to connect to preferred device '%s'",
+        inkwell_log_info("ble", "Attempting to connect to preferred device '%s'",
                          config->preferred_ble_device);
     }
 
@@ -753,7 +753,7 @@ static void mesh_ble_stop(struct mesh_transport *transport) {
     if (state->discovery_active && state->adapter_path[0] != '\0') {
         int stop_result = mesh_bluez_client_stop_discovery(&state->bluez, state->adapter_path);
         if (stop_result < 0) {
-            inkcell_log_warn("ble", "StopDiscovery failed on %s: %s", state->adapter_path,
+            inkwell_log_warn("ble", "StopDiscovery failed on %s: %s", state->adapter_path,
                              strerror(-stop_result));
         }
     }
@@ -797,7 +797,7 @@ static void mesh_ble_stop(struct mesh_transport *transport) {
     mesh_session_detach(state->session);
     mesh_ble_clear_write_queue(state);
     state->loop = NULL;
-    inkcell_log_info("ble", "BLE transport stopped");
+    inkwell_log_info("ble", "BLE transport stopped");
 }
 
 static const char *mesh_ble_status(const struct mesh_transport *transport) {
@@ -907,8 +907,8 @@ const struct mesh_bluez_device_info *mesh_ble_transport_devices(struct mesh_tran
 
 /* The remembered roster is indexed by the live one's count, so a `logged` array shorter than
    `devices` would be written past its end the first time sixteen radios were in the room. */
-_Static_assert(INKCELL_ARRAY_LEN(((struct mesh_ble_transport_state *)0)->logged) >=
-                   INKCELL_ARRAY_LEN(((struct mesh_ble_transport_state *)0)->devices),
+_Static_assert(INKWELL_ARRAY_LEN(((struct mesh_ble_transport_state *)0)->logged) >=
+                   INKWELL_ARRAY_LEN(((struct mesh_ble_transport_state *)0)->devices),
                "the logged roster must hold as many devices as the enumeration can find");
 
 static size_t mesh_ble_reload_devices(struct mesh_ble_transport_state *state) {
@@ -926,16 +926,16 @@ static size_t mesh_ble_reload_devices(struct mesh_ble_transport_state *state) {
 
     size_t device_count = 0;
     int list_result = mesh_bluez_client_list_meshtastic(
-        &state->bluez, state->devices, INKCELL_ARRAY_LEN(state->devices), &device_count);
+        &state->bluez, state->devices, INKWELL_ARRAY_LEN(state->devices), &device_count);
     if (list_result < 0) {
-        inkcell_log_debug("ble", "Device enumeration failed: %s", strerror(-list_result));
+        inkwell_log_debug("ble", "Device enumeration failed: %s", strerror(-list_result));
         state->device_count = 0;
         state->logged_count = 0U;
         return 0U;
     }
 
     if (device_count != state->device_count) {
-        inkcell_log_info("ble", "Discovered %zu meshtastic device(s)", device_count);
+        inkwell_log_info("ble", "Discovered %zu meshtastic device(s)", device_count);
     }
     state->device_count = device_count;
 
@@ -964,13 +964,13 @@ static size_t mesh_ble_reload_devices(struct mesh_ble_transport_state *state) {
 
     if (roster_changed) {
         for (size_t i = 0; i < device_count; ++i) {
-            inkcell_log_debug("ble", "  %s (%s) RSSI=%d", state->devices[i].name,
+            inkwell_log_debug("ble", "  %s (%s) RSSI=%d", state->devices[i].name,
                               state->devices[i].address, (int)state->devices[i].rssi);
         }
         for (size_t i = 0; i < device_count; ++i) {
-            inkcell_str_copy(state->logged[i].address, sizeof state->logged[i].address,
+            inkwell_str_copy(state->logged[i].address, sizeof state->logged[i].address,
                              state->devices[i].address);
-            inkcell_str_copy(state->logged[i].name, sizeof state->logged[i].name,
+            inkwell_str_copy(state->logged[i].name, sizeof state->logged[i].name,
                              state->devices[i].name);
             state->logged[i].paired = state->devices[i].paired;
             state->logged[i].in_range = state->devices[i].in_range;
@@ -1054,7 +1054,7 @@ static int mesh_ble_flush_write_queue(struct mesh_ble_transport_state *state) {
             return 0;
         }
         if (result < 0) {
-            inkcell_log_warn("ble", "ToRadio write failed: %d; dropping link", result);
+            inkwell_log_warn("ble", "ToRadio write failed: %d; dropping link", result);
             mesh_ble_reset_link(state, "write failed");
             return result;
         }
@@ -1073,13 +1073,13 @@ static int mesh_ble_queue_packet(struct mesh_ble_transport_state *state, const u
     }
 
     if (len > MESH_BLE_MAX_PACKET_SIZE) {
-        inkcell_log_warn("ble", "ToRadio packet of %zu bytes exceeds %u byte limit", len,
+        inkwell_log_warn("ble", "ToRadio packet of %zu bytes exceeds %u byte limit", len,
                          (unsigned)MESH_BLE_MAX_PACKET_SIZE);
         return -EMSGSIZE;
     }
 
     if (state->write_queue_len >= MESH_BLE_MAX_OUTBOUND_PACKETS) {
-        inkcell_log_warn("ble", "write queue full, dropping %zu byte packet", len);
+        inkwell_log_warn("ble", "write queue full, dropping %zu byte packet", len);
         return -ENOSPC;
     }
 
@@ -1122,7 +1122,7 @@ static void mesh_ble_drain_from_radio(struct mesh_ble_transport_state *state) {
         if (result < 0) {
             state->drain_failures += 1U;
             if (state->drain_failures >= MESH_BLE_DRAIN_MAX_FAILURES) {
-                inkcell_log_error("ble",
+                inkwell_log_error("ble",
                                   "FromRadio read failed %u times in a row (%s); dropping link",
                                   state->drain_failures, strerror(-result));
                 mesh_ble_reset_link(state, "FromRadio unreadable");
@@ -1130,7 +1130,7 @@ static void mesh_ble_drain_from_radio(struct mesh_ble_transport_state *state) {
             }
             /* The FromNum notification already told us a packet is waiting; do not lose it. */
             uint64_t delay = (uint64_t)MESH_BLE_DRAIN_RETRY_BASE_MS << (state->drain_failures - 1U);
-            inkcell_log_warn("ble", "FromRadio read failed (%s); retrying in %" PRIu64 " ms",
+            inkwell_log_warn("ble", "FromRadio read failed (%s); retrying in %" PRIu64 " ms",
                              strerror(-result), delay);
             mesh_ble_schedule_drain(state, delay);
             return;
@@ -1146,7 +1146,7 @@ static void mesh_ble_drain_from_radio(struct mesh_ble_transport_state *state) {
 
         state->frames_received += 1U;
         state->bytes_received += len;
-        inkcell_log_debug("ble", "FromRadio packet (%zu bytes)", len);
+        inkwell_log_debug("ble", "FromRadio packet (%zu bytes)", len);
         mesh_session_handle_from_radio(state->session, packet, len);
     }
 
@@ -1170,7 +1170,7 @@ static void mesh_ble_notification_handler(const uint8_t *data, size_t len, void 
     for (size_t i = 0; i < len && i < 4U; ++i) {
         from_num |= (uint32_t)data[i] << (8U * i);
     }
-    inkcell_log_trace("ble", "FromNum notification (%u)", from_num);
+    inkwell_log_trace("ble", "FromNum notification (%u)", from_num);
     if (state->bluez.read_state != 0) {
         state->drain_again = true;
     }
@@ -1284,7 +1284,7 @@ static int mesh_ble_do_connect(struct mesh_ble_transport_state *state, const cha
     snprintf(state->connected_address, sizeof(state->connected_address), "%s", address);
     snprintf(state->connected_device_path, sizeof(state->connected_device_path), "%s", device_path);
     state->connect_pending = true;
-    state->connect_started_ms = inkcell_time_monotonic_ms();
+    state->connect_started_ms = inkwell_time_monotonic_ms();
     state->next_services_poll_ms = 0U;
     state->services_wait_logged = false;
 
@@ -1302,14 +1302,14 @@ static void mesh_ble_poll_connecting(struct mesh_ble_transport_state *state) {
         return;
     }
 
-    uint64_t now = inkcell_time_monotonic_ms();
+    uint64_t now = inkwell_time_monotonic_ms();
 
     if (state->connect_pending) {
         int connect_result = 0;
         int poll = mesh_bluez_client_connect_poll(&state->bluez, &connect_result);
         if (poll == 0) {
             if (now - state->connect_started_ms >= MESH_BLE_CONNECT_TIMEOUT_MS) {
-                inkcell_log_warn("ble", "%s: no reply to Connect after %u ms",
+                inkwell_log_warn("ble", "%s: no reply to Connect after %u ms",
                                  state->connected_address, MESH_BLE_CONNECT_TIMEOUT_MS);
                 mesh_ble_set_error(state, MESH_STR_LINK_NO_ANSWER,
                                    mesh_ble_short_label(state->connected_address));
@@ -1353,11 +1353,11 @@ static void mesh_ble_poll_connecting(struct mesh_ble_transport_state *state) {
      * error that says so.
      */
     if (result == -ETIMEDOUT) {
-        inkcell_log_debug("ble", "%s: ServicesResolved poll timed out; reissuing",
+        inkwell_log_debug("ble", "%s: ServicesResolved poll timed out; reissuing",
                           state->connected_address);
         resolved = false;
     } else if (result < 0) {
-        inkcell_log_warn("ble", "ServicesResolved query failed for %s (%d)",
+        inkwell_log_warn("ble", "ServicesResolved query failed for %s (%d)",
                          state->connected_address, result);
         mesh_ble_set_error(state, MESH_STR_LINK_DISCOVERY_FAILED,
                            mesh_ble_short_label(state->connected_address));
@@ -1367,7 +1367,7 @@ static void mesh_ble_poll_connecting(struct mesh_ble_transport_state *state) {
 
     if (!resolved) {
         if (now - state->connect_started_ms >= MESH_BLE_SERVICES_TIMEOUT_MS) {
-            inkcell_log_warn("ble", "%s: GATT services still unresolved after %u ms",
+            inkwell_log_warn("ble", "%s: GATT services still unresolved after %u ms",
                              state->connected_address, MESH_BLE_SERVICES_TIMEOUT_MS);
             mesh_ble_set_error(state, MESH_STR_LINK_NO_GATT,
                                mesh_ble_short_label(state->connected_address));
@@ -1375,7 +1375,7 @@ static void mesh_ble_poll_connecting(struct mesh_ble_transport_state *state) {
             return;
         }
         if (!state->services_wait_logged) {
-            inkcell_log_info("ble", "Link to %s is up; waiting for GATT service discovery",
+            inkwell_log_info("ble", "Link to %s is up; waiting for GATT service discovery",
                              state->connected_address);
             state->services_wait_logged = true;
         }
@@ -1395,18 +1395,18 @@ static int mesh_ble_complete_connect(struct mesh_ble_transport_state *state) {
     int result =
         mesh_bluez_client_find_meshtastic_characteristics(&state->bluez, device_path, &chars);
     if (result < 0) {
-        inkcell_log_warn("ble", "%s does not expose the Meshtastic service characteristics (%d)",
+        inkwell_log_warn("ble", "%s does not expose the Meshtastic service characteristics (%d)",
                          address, result);
         mesh_ble_set_error(state, MESH_STR_LINK_NOT_MESHTASTIC, mesh_ble_short_label(address));
         return result;
     }
-    inkcell_log_debug("ble", "ToRadio %s", chars.toradio_path);
-    inkcell_log_debug("ble", "FromRadio %s", chars.fromradio_path);
-    inkcell_log_debug("ble", "FromNum %s", chars.fromnum_path);
+    inkwell_log_debug("ble", "ToRadio %s", chars.toradio_path);
+    inkwell_log_debug("ble", "FromRadio %s", chars.fromradio_path);
+    inkwell_log_debug("ble", "FromNum %s", chars.fromnum_path);
 
     result = mesh_bluez_client_subscribe(&state->bluez, chars.fromnum_path, MESH_BLE_FROMNUM_UUID);
     if (result < 0) {
-        inkcell_log_warn("ble", "FromNum StartNotify failed (%d); is the node paired?", result);
+        inkwell_log_warn("ble", "FromNum StartNotify failed (%d); is the node paired?", result);
         /* The overwhelmingly common cause, and the only one the user can act on: a node in PIN
            pairing mode has to be bonded with BlueZ out of band before its characteristics will
            notify. Say so instead of printing an errno. */
@@ -1437,9 +1437,9 @@ static int mesh_ble_complete_connect(struct mesh_ble_transport_state *state) {
     mesh_session_attach(state->session, mesh_ble_session_send, state);
     int handshake_result = mesh_session_begin_handshake(state->session);
     if (handshake_result < 0) {
-        inkcell_log_warn("ble", "Failed to request config sync: %d", handshake_result);
+        inkwell_log_warn("ble", "Failed to request config sync: %d", handshake_result);
     }
-    inkcell_log_info("ble", "Connected to %s", address);
+    inkwell_log_info("ble", "Connected to %s", address);
     /* The node may already have packets queued, and a FromNum notify can race the subscription. */
     mesh_ble_drain_from_radio(state);
     return 0;
@@ -1454,7 +1454,7 @@ static void mesh_ble_reset_link(struct mesh_ble_transport_state *state, const ch
     if (state->client_initialised && state->connected_device_path[0] != '\0') {
         int result = mesh_bluez_client_disconnect(&state->bluez, state->connected_device_path);
         if (result < 0) {
-            inkcell_log_debug("ble", "Disconnect during link reset returned %d", result);
+            inkwell_log_debug("ble", "Disconnect during link reset returned %d", result);
         }
     }
     if (state->connect_pending) {
@@ -1465,7 +1465,7 @@ static void mesh_ble_reset_link(struct mesh_ble_transport_state *state, const ch
     state->next_link_poll_ms = 0U;
     /* Every way a link ends comes through here, which is why the scan hold is armed here rather
        than at the several call sites that would each have to remember to. */
-    state->scan_resume_at_ms = inkcell_time_monotonic_ms() + state->scan_resume_grace_ms;
+    state->scan_resume_at_ms = inkwell_time_monotonic_ms() + state->scan_resume_grace_ms;
     state->notifications_enabled = false;
     state->drain_pending = false;
     state->drain_retry_at_ms = 0U;
@@ -1476,7 +1476,7 @@ static void mesh_ble_reset_link(struct mesh_ble_transport_state *state, const ch
     memset(&state->chars, 0, sizeof(state->chars));
     mesh_session_detach(state->session);
     mesh_ble_clear_write_queue(state);
-    inkcell_log_info("ble", "Disconnected from Meshtastic node (%s)", reason);
+    inkwell_log_info("ble", "Disconnected from Meshtastic node (%s)", reason);
 }
 
 /* ---- pairing ---------------------------------------------------------------------------------
@@ -1534,9 +1534,9 @@ static int mesh_ble_begin_pair(struct mesh_ble_transport_state *state, const cha
     state->pair_then_connect = then_connect;
     state->pair_attended = attended;
     state->pair_refused_pin = false;
-    state->pair_started_ms = inkcell_time_monotonic_ms();
+    state->pair_started_ms = inkwell_time_monotonic_ms();
     snprintf(state->pairing_address, sizeof(state->pairing_address), "%s", address);
-    inkcell_log_info("ble", "Pairing with %s", address);
+    inkwell_log_info("ble", "Pairing with %s", address);
     /* With the mock (and with a node that needs no PIN) this can already be done. */
     mesh_ble_poll_pairing(state);
     return 0;
@@ -1567,7 +1567,7 @@ static void mesh_ble_service_agent(struct mesh_ble_transport_state *state) {
         return;
     }
     if (state->link_state != MESH_BLE_LINK_PAIRING) {
-        inkcell_log_warn("ble", "Refusing a pairing request nobody asked for (%s)",
+        inkwell_log_warn("ble", "Refusing a pairing request nobody asked for (%s)",
                          request.device_path);
         (void)mesh_bluez_client_agent_reject(&state->bluez);
         return;
@@ -1580,7 +1580,7 @@ static void mesh_ble_service_agent(struct mesh_ble_transport_state *state) {
         (void)mesh_bluez_client_agent_confirm(&state->bluez);
         return;
     }
-    inkcell_log_info("ble", "%s wants a PIN; connect to it from the Devices tab to enter one",
+    inkwell_log_info("ble", "%s wants a PIN; connect to it from the Devices tab to enter one",
                      state->pairing_address);
     state->pair_refused_pin = true;
     snprintf(state->pair_needs_pin_address, sizeof(state->pair_needs_pin_address), "%s",
@@ -1602,11 +1602,11 @@ static void mesh_ble_poll_pairing(struct mesh_ble_transport_state *state) {
            clock is stopped, or a PIN prompt left on screen would cancel itself. */
         struct mesh_bluez_agent_request request;
         if (mesh_bluez_client_agent_request(&state->bluez, &request)) {
-            state->pair_started_ms = inkcell_time_monotonic_ms();
+            state->pair_started_ms = inkwell_time_monotonic_ms();
             return;
         }
-        if (inkcell_time_monotonic_ms() - state->pair_started_ms >= MESH_BLE_PAIR_TIMEOUT_MS) {
-            inkcell_log_warn("ble", "Pairing with %s timed out", state->pairing_address);
+        if (inkwell_time_monotonic_ms() - state->pair_started_ms >= MESH_BLE_PAIR_TIMEOUT_MS) {
+            inkwell_log_warn("ble", "Pairing with %s timed out", state->pairing_address);
             mesh_ble_set_error(state, MESH_STR_LINK_PAIRING_TIMEOUT,
                                mesh_ble_short_label(state->pairing_address));
             mesh_bluez_client_pair_cancel(&state->bluez);
@@ -1616,7 +1616,7 @@ static void mesh_ble_poll_pairing(struct mesh_ble_transport_state *state) {
     }
 
     if (poll < 0 || pair_result < 0) {
-        inkcell_log_warn("ble", "Pairing with %s failed (%d)", state->pairing_address, pair_result);
+        inkwell_log_warn("ble", "Pairing with %s failed (%d)", state->pairing_address, pair_result);
         if (state->pair_refused_pin) {
             /* We are the ones who said no: the node wanted a PIN and nobody was there to type
                it. Saying "wrong PIN" here would send the user looking for a typo. */
@@ -1639,11 +1639,11 @@ static void mesh_ble_poll_pairing(struct mesh_ble_transport_state *state) {
         /* Trusted is what keeps the next connect from needing the agent (and the PIN) again. */
         int trusted = mesh_bluez_client_set_trusted(&state->bluez, device_path, true);
         if (trusted < 0) {
-            inkcell_log_debug("ble", "Could not mark %s trusted (%d)", state->pairing_address,
+            inkwell_log_debug("ble", "Could not mark %s trusted (%d)", state->pairing_address,
                               trusted);
         }
     }
-    inkcell_log_info("ble", "Paired with %s", state->pairing_address);
+    inkwell_log_info("ble", "Paired with %s", state->pairing_address);
 
     char address[sizeof(state->pairing_address)];
     snprintf(address, sizeof(address), "%s", state->pairing_address);
@@ -1652,12 +1652,12 @@ static void mesh_ble_poll_pairing(struct mesh_ble_transport_state *state) {
     /* The Paired flag the UI shows comes from BlueZ, so re-read the list rather than guessing
        at it - and the connect below needs the node to still be in that list. */
     (void)mesh_ble_reload_devices(state);
-    state->last_refresh_ms = inkcell_time_monotonic_ms();
+    state->last_refresh_ms = inkwell_time_monotonic_ms();
 
     if (then_connect) {
         int result = mesh_ble_do_connect(state, address, false);
         if (result < 0 && result != -EALREADY && result != -EINPROGRESS) {
-            inkcell_log_warn("ble", "Connect after pairing with %s failed (%d)", address, result);
+            inkwell_log_warn("ble", "Connect after pairing with %s failed (%d)", address, result);
         }
     }
 }
@@ -1712,10 +1712,10 @@ int mesh_ble_transport_forget(struct mesh_transport *transport, const char *addr
     if (strcmp(address, state->pair_needs_pin_address) == 0) {
         state->pair_needs_pin_address[0] = '\0';
     }
-    inkcell_log_info("ble", "Forgot %s", address);
+    inkwell_log_info("ble", "Forgot %s", address);
     /* BlueZ has dropped its record; the node reappears on the next advertisement, unpaired. */
     (void)mesh_ble_reload_devices(state);
-    state->last_refresh_ms = inkcell_time_monotonic_ms();
+    state->last_refresh_ms = inkwell_time_monotonic_ms();
     return 0;
 }
 
@@ -1777,7 +1777,7 @@ int mesh_ble_transport_submit_passkey(struct mesh_transport *transport, uint32_t
     if (result == 0) {
         /* BlueZ can take several seconds from here; the clock restarts now that it is its turn
            to work again. */
-        state->pair_started_ms = inkcell_time_monotonic_ms();
+        state->pair_started_ms = inkwell_time_monotonic_ms();
         mesh_ble_poll_pairing(state);
     }
     return result;
@@ -1795,7 +1795,7 @@ int mesh_ble_transport_cancel_pairing(struct mesh_transport *transport) {
         (void)mesh_bluez_client_agent_reject(&state->bluez);
         return -ENOENT;
     }
-    inkcell_log_info("ble", "Pairing with %s cancelled", state->pairing_address);
+    inkwell_log_info("ble", "Pairing with %s cancelled", state->pairing_address);
     mesh_bluez_client_pair_cancel(&state->bluez);
     mesh_ble_end_pairing(state);
     return 0;
@@ -1820,14 +1820,14 @@ int mesh_ble_transport_check_link(struct mesh_transport *transport) {
            failure put a line in the log every two seconds for the whole life of a link and
            buried the reads that actually did fail. */
         if (result != -EAGAIN) {
-            inkcell_log_debug("ble", "Could not read Device1.Connected: %d", result);
+            inkwell_log_debug("ble", "Could not read Device1.Connected: %d", result);
         }
         return result;
     }
     if (connected) {
         return 1;
     }
-    inkcell_log_warn("ble", "BlueZ reports %s disconnected", state->connected_address);
+    inkwell_log_warn("ble", "BlueZ reports %s disconnected", state->connected_address);
     mesh_ble_reset_link(state, "link dropped");
     return 0;
 }

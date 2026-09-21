@@ -1,6 +1,6 @@
 #pragma once
 
-#include "inkcell/utils/time.h"
+#include "inkwell/base/time.h"
 
 #include "meshtastic/mesh.pb.h"
 
@@ -93,7 +93,7 @@ MESH_WAYPOINT_STATIC_ASSERT(MESH_WAYPOINT_DESCRIPTION_MAX + 1U ==
  * clock at all, and that is the case a delete is. So a tombstone is honoured always, and a real
  * expiry only once we know what time it is.
  */
-#define MESH_WAYPOINT_TOMBSTONE_BEFORE INKCELL_TIME_CLOCK_MIN_EPOCH
+#define MESH_WAYPOINT_TOMBSTONE_BEFORE INKWELL_TIME_CLOCK_MIN_EPOCH
 
 /* One shared place, in the client's own terms rather than nanopb's. */
 struct mesh_waypoint {
@@ -174,8 +174,8 @@ bool mesh_waypoint_book_forget(struct mesh_waypoint_book *book, uint32_t id);
 /*
  * Drops every entry whose own expiry has passed. Returns how many went.
  *
- * `now` is a *credible* wall clock or 0 - inkcell_time_wall_credible_s()'s answer, not
- * inkcell_time_wall_s()'s. With 0 this removes nothing, which is the honest reading: a place with
+ * `now` is a *credible* wall clock or 0 - inkwell_time_wall_credible_s()'s answer, not
+ * inkwell_time_wall_s()'s. With 0 this removes nothing, which is the honest reading: a place with
  * a date on it outlives a client that cannot read dates, and the mesh's own copy is the
  * authority. A tombstone needs no clock and is handled at ingest, where it arrives.
  */

@@ -11,11 +11,11 @@
  * A leaf - nothing outside the public header in include/mesh/ui/settings.h.
  */
 
-#include "inkcell/utils/text.h"
+#include "inkwell/base/text.h"
 
 #include "mesh/ui/settings.h"
 
-#include "mesh/utils/base64.h"
+#include "inkwell/codec/base64.h"
 
 #include <ctype.h>
 #include <stdio.h>
@@ -276,7 +276,7 @@ void mesh_ui_settings_key_text(const uint8_t *key, size_t len, char *out, size_t
     /* The standard alphabet, padded: this is the form the Meshtastic apps show a key in and the
        form mesh_ui_settings_key_parse() reads back. The URL-safe one belongs to a channel URL
        and nowhere near a field somebody types into. */
-    (void)mesh_base64_encode(key, len, false, out, out_len);
+    (void)inkwell_base64_encode(key, len, false, out, out_len);
 }
 
 static bool parse_hex(const char *text, size_t digits, uint8_t *out, size_t out_cap,
@@ -319,6 +319,6 @@ bool mesh_ui_settings_key_parse(const char *text, uint8_t *out, size_t out_cap, 
     }
     /* Padded, and every character accounted for: a key is a fixed number of bytes, a mistyped
        one decodes to a plausible wrong key, and nothing on the wire says so - the radio simply
-       stops hearing the mesh. See mesh/utils/base64.h. */
-    return mesh_base64_decode(text, chars, MESH_BASE64_PADDED, out, out_cap, out_len);
+       stops hearing the mesh. See inkwell/codec/base64.h. */
+    return inkwell_base64_decode(text, chars, INKWELL_BASE64_PADDED, out, out_cap, out_len);
 }

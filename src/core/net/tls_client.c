@@ -2,8 +2,8 @@
 
 #include "mesh/core/tls_client.h"
 
-#include "inkcell/utils/log.h"
-#include "inkcell/utils/text.h"
+#include "inkwell/base/log.h"
+#include "inkwell/base/text.h"
 
 #include "mesh/core/ca_roots.h"
 
@@ -40,7 +40,7 @@ int mesh_tls_client_start(struct mesh_tls_client *tls, int fd, const char *hostn
     }
     memset(tls, 0, sizeof *tls);
     tls->fd = -1;
-    inkcell_str_copy(tls->error, sizeof tls->error, "this build has no TLS");
+    inkwell_str_copy(tls->error, sizeof tls->error, "this build has no TLS");
     return -ENOTSUP;
 }
 
@@ -166,7 +166,7 @@ static bool tls_load_roots(struct mesh_tls_client *tls) {
             return false;
         }
     }
-    inkcell_log_debug("tls", "%zu built-in roots loaded", mesh_ca_root_count);
+    inkwell_log_debug("tls", "%zu built-in roots loaded", mesh_ca_root_count);
     tls_roots_ready = true;
     return true;
 }
@@ -287,7 +287,7 @@ int mesh_tls_client_start(struct mesh_tls_client *tls, int fd, const char *hostn
 
     struct mesh_tls_state *state = calloc(1U, sizeof *state);
     if (state == NULL) {
-        inkcell_str_copy(tls->error, sizeof tls->error, "out of memory");
+        inkwell_str_copy(tls->error, sizeof tls->error, "out of memory");
         return -ENOMEM;
     }
     tls->state = state;
@@ -337,7 +337,7 @@ int mesh_tls_client_start(struct mesh_tls_client *tls, int fd, const char *hostn
             return -EIO;
         }
         if (rc > 0) {
-            inkcell_log_debug("tls", "%d certificate(s) in %s did not parse", rc, ca_bundle);
+            inkwell_log_debug("tls", "%d certificate(s) in %s did not parse", rc, ca_bundle);
         }
         roots = &state->ca;
     }
@@ -385,7 +385,7 @@ int mesh_tls_client_handshake(struct mesh_tls_client *tls) {
     if (rc == 0) {
         tls->wants_write = false;
         tls->state->handshaked = true;
-        inkcell_log_info("tls", "%s over %s", mbedtls_ssl_get_ciphersuite(&tls->state->ssl),
+        inkwell_log_info("tls", "%s over %s", mbedtls_ssl_get_ciphersuite(&tls->state->ssl),
                          mbedtls_ssl_get_version(&tls->state->ssl));
         return 0;
     }
@@ -405,9 +405,9 @@ int mesh_tls_client_handshake(struct mesh_tls_client *tls) {
             /* No prefix: mbedtls_x509_crt_verify_info() already opens with "The certificate",
                and the string this ends up in is bounded for a status row - a prefix costs
                characters at the far end, where the reason actually is. */
-            inkcell_str_copy(tls->error, sizeof tls->error, why);
+            inkwell_str_copy(tls->error, sizeof tls->error, why);
         } else {
-            inkcell_str_copy(tls->error, sizeof tls->error, "the certificate did not check out");
+            inkwell_str_copy(tls->error, sizeof tls->error, "the certificate did not check out");
         }
         tls->wants_write = false;
         return -EPROTO;

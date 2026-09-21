@@ -13,7 +13,7 @@
 
 #include "framework/mesh_test.h"
 
-#include "mesh/core/event_loop.h"
+#include "inkwell/runtime/loop.h"
 #include "mesh/core/fetch.h"
 
 #include <errno.h>
@@ -160,7 +160,7 @@ static void probe_record(void *userdata, const struct mesh_fetch_result *result)
 
 struct fetch_harness {
     struct https_fixture server;
-    struct mesh_event_loop loop;
+    struct inkwell_loop loop;
     struct mesh_fetch fetch;
     struct fetch_probe probe;
     bool loop_up;
@@ -172,7 +172,7 @@ static bool harness_start(struct fetch_harness *h) {
     if (!https_fixture_start(&h->server, fetch_serve, NULL)) {
         return false;
     }
-    if (mesh_event_loop_init(&h->loop) != 0) {
+    if (inkwell_loop_init(&h->loop) != 0) {
         return false;
     }
     h->loop_up = true;
@@ -190,7 +190,7 @@ static void harness_stop(struct fetch_harness *h) {
         mesh_fetch_shutdown(&h->fetch);
     }
     if (h->loop_up) {
-        mesh_event_loop_shutdown(&h->loop);
+        inkwell_loop_shutdown(&h->loop);
     }
     https_fixture_stop(&h->server);
 }
@@ -198,7 +198,7 @@ static void harness_stop(struct fetch_harness *h) {
 /* Pumps the loop until the probe has seen `wanted` completions, or the budget runs out. */
 static bool harness_wait(struct fetch_harness *h, unsigned wanted) {
     for (int turn = 0; turn < 1000 && h->probe.calls < wanted; ++turn) {
-        (void)mesh_event_loop_run(&h->loop, 10);
+        (void)inkwell_loop_run(&h->loop, 10);
         mesh_fetch_tick(&h->fetch, 0U);
     }
     return h->probe.calls >= wanted;
@@ -580,7 +580,7 @@ MESH_TEST_CASE(fetch_tries_the_next_address, unit) {
     /* Past each address's allowance in turn, and well inside the request's own. */
     uint64_t now = 0U;
     for (int turn = 0; turn < 600 && h.probe.calls == 0U; ++turn) {
-        (void)mesh_event_loop_run(&h.loop, 10);
+        (void)inkwell_loop_run(&h.loop, 10);
         if (turn % 20 == 19) {
             now += 4000U;
         }
@@ -624,7 +624,7 @@ MESH_TEST_CASE(fetch_gives_up_on_a_server_that_does_not_answer, unit) {
         goto cleanup;
     }
     for (int turn = 0; turn < 20; ++turn) {
-        (void)mesh_event_loop_run(&h.loop, 10);
+        (void)inkwell_loop_run(&h.loop, 10);
         mesh_fetch_tick(&h.fetch, 0U);
     }
     if (h.probe.calls != 0U) {

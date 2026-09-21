@@ -12,7 +12,7 @@
 
 #include "mesh/ui/map.h"
 
-#include "inkcell/utils/text.h"
+#include "inkwell/base/text.h"
 
 #include "mesh/geo/coords.h"
 #include "mesh/i18n/strings.h"
@@ -45,7 +45,7 @@ static void map_add(struct mesh_ui_map_view *view, enum mesh_ui_map_marker_kind 
     marker->stale = stale;
     marker->openable = openable;
     if (label != NULL) {
-        inkcell_str_copy(marker->label, sizeof marker->label, label);
+        inkwell_str_copy(marker->label, sizeof marker->label, label);
     }
     if (kind == MESH_UI_MAP_MARKER_SELF) {
         view->has_self = true;
@@ -107,7 +107,7 @@ static bool map_roster_at(const struct mesh_ui_handshake_state *hs, uint32_t ind
     out->has_row = true;
     /* The short name, falling back to the long one - the same rule publish applies, and it is
        stated once on struct mesh_ui_map_node's `label`. */
-    inkcell_str_copy(out->label, sizeof out->label,
+    inkwell_str_copy(out->label, sizeof out->label,
                      node->short_name[0] != '\0' ? node->short_name : node->long_name);
     return true;
 }

@@ -74,7 +74,6 @@ add_library(meshclient_core
     src/core/session/contact_share.c
     src/core/runtime/config.c
     src/core/firmware/esp_image.c
-    src/core/runtime/event_loop.c
     src/core/net/fetch.c
     src/core/firmware/firmware.c
     src/core/firmware/firmware_catalog.c
@@ -88,9 +87,7 @@ add_library(meshclient_core
     src/core/session/waypoint.c
     src/core/session/radio_settings.c
     src/core/net/mqtt_proxy.c
-    src/core/net/resolve.c
     src/core/session/session.c
-    src/core/runtime/signals.c
     src/core/session/store_forward.c
     src/core/net/tls_client.c
     src/core/firmware/uf2.c
@@ -107,7 +104,6 @@ add_library(meshclient_core
     src/transport/serial/usb_msc.c
     src/transport/tcp/tcp_transport.c
     src/proto/channel_url.c
-    src/proto/http.c
     src/proto/contact_url.c
     src/proto/mqtt_packet.c
     src/proto/mqtt_topic.c
@@ -120,13 +116,9 @@ add_library(meshclient_core
     src/map/tile_cache.c
     src/map/tile_image.c
     src/map/viewport.c
-    src/utils/base64.c
     src/utils/crash.c
     src/utils/inflate.c
-    src/utils/json.c
-    src/utils/sha256.c
     src/utils/wuffs.c
-    src/utils/zip.c
     src/i18n/strings.c
     src/i18n/locale_es.c
     src/ui/tables/trend.c
@@ -245,7 +237,10 @@ if(MESHCLIENT_UPDATE_ASSET)
         MESHCLIENT_UPDATE_ASSET="${MESHCLIENT_UPDATE_ASSET}")
 endif()
 
-target_link_libraries(meshclient_core PUBLIC inkcell::inkcell)
+# inkwell as well as inkcell, and PUBLIC for the same reason inkcell is: this client's own
+# public headers hand out inkwell types - an inkwell_loop is in half the init signatures here -
+# so anything compiling against mesh/ needs inkwell's include path too.
+target_link_libraries(meshclient_core PUBLIC inkcell::inkcell inkwell::inkwell)
 target_link_libraries(meshclient_core PRIVATE meshclient_options)
 
 # Wuffs, for the map's PNG decoder and the firmware download's inflate. See
@@ -315,7 +310,30 @@ set(BUILD_STATIC_LIBS ON CACHE BOOL "Build static nanopb" FORCE)
 # The UI toolkit this client was built out of. Its tests and devtools are off here - they run in
 # its own repository and its own CI - and it installs nothing.
 set(INKCELL_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+# inkwell first, so this client's pin is the one the whole tree builds: inkcell carries a
+# submodule of its own and brings it in only when no target of that name exists yet.
+set(INKWELL_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+add_subdirectory(third_party/inkwell)
 add_subdirectory(third_party/inkcell)
+
+# inkwell compiles the way this client's own sources do, which matters for exactly two builds.
+#
+# The loop, the codecs and the resolver used to be files in meshclient_core, so they picked up
+# `meshclient_options` - and with it `-fsanitize=address`, `-fsanitize=undefined` and, under
+# MESHCLIENT_ENABLE_FUZZERS, `-fsanitize=fuzzer-no-link`. A separate library does not inherit
+# any of that. Left alone, moving them out would have quietly turned two things off: the
+# sanitizer job would stop checking the code that parses what a server sends, and
+# meshclient_fuzz_http and _zip would fuzz a parser with no coverage instrumentation in it -
+# a fuzzer with no feedback, which is a random number generator with a corpus.
+#
+# So inkwell gets the same options target. PRIVATE, because these are how it is compiled here
+# and not something a consumer of this build inherits.
+#
+# inkcell is deliberately not given the same treatment in this commit: its code was never in
+# meshclient_core, so this is not a regression there, and instrumenting five thousand lines of
+# widget code that has never been through this client's sanitizer job belongs in a change of
+# its own rather than riding along with an extraction.
+target_link_libraries(inkwell PRIVATE meshclient_options)
 
 add_subdirectory(third_party/nanopb)
 target_link_libraries(meshclient_core PUBLIC protobuf-nanopb-static)

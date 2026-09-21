@@ -35,7 +35,7 @@
 extern "C" {
 #endif
 
-struct mesh_event_loop;
+struct inkwell_loop;
 
 /* One line for the UI: what happened, or why it did not. */
 #define MESH_FIRMWARE_MESSAGE_MAX 96U
@@ -134,7 +134,7 @@ struct mesh_firmware {
 
 /* `loop` may be NULL, in which case the module reports itself unavailable. Returns 0, or
    -errno. */
-int mesh_firmware_init(struct mesh_firmware *firmware, struct mesh_event_loop *loop);
+int mesh_firmware_init(struct mesh_firmware *firmware, struct inkwell_loop *loop);
 void mesh_firmware_shutdown(struct mesh_firmware *firmware);
 
 /* True when a fetcher was found, i.e. when a check could do anything at all. */

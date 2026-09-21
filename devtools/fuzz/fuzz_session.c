@@ -19,7 +19,7 @@
  * Build with scripts/fuzz.sh; see docs/testing.md.
  */
 
-#include "inkcell/utils/log.h"
+#include "inkwell/base/log.h"
 
 #include "fuzz_state.h"
 
@@ -100,7 +100,7 @@ int LLVMFuzzerInitialize(int *argc, char ***argv) {
     /* Nearly every input is a protobuf that does not decode, and the session says so at WARN.
        Left on, the run is a write() to stderr per input and the fuzzer spends its time in the
        terminal rather than in the parser. The log is not what this is testing. */
-    inkcell_log_set_level(INKCELL_LOG_LEVEL_NONE);
+    inkwell_log_set_level(INKWELL_LOG_LEVEL_NONE);
     return 0;
 }
 

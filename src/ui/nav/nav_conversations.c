@@ -10,7 +10,7 @@
  * out of the same pass.
  */
 
-#include "inkcell/utils/text.h"
+#include "inkwell/base/text.h"
 
 #include "nav_internal.h"
 
@@ -338,7 +338,7 @@ static void mesh_ui_nav_conversation_summarise(const struct mesh_ui_store *store
         conversation->message_count++;
         /* Oldest first, so the last match seen is the newest. The preview is one list row;
            anything longer is the thread's business. */
-        inkcell_str_copy(conversation->preview, sizeof conversation->preview, message->text);
+        inkwell_str_copy(conversation->preview, sizeof conversation->preview, message->text);
         conversation->last_time = message->rx_time;
         conversation->preview_outbound = (message->direction == MESH_MESSAGE_OUTBOUND);
 
@@ -498,17 +498,17 @@ static void mesh_ui_nav_conversation_avatar(struct mesh_ui_conversation *out) {
     case MESH_UI_CONVERSATION_ALL:
         /* Not a person and not a place: the one row that is a view over the others gets a
            mark rather than initials, and the backend tints it with the accent. */
-        inkcell_str_copy(out->initials, sizeof out->initials, "*");
+        inkwell_str_copy(out->initials, sizeof out->initials, "*");
         out->tint = 0U;
         return;
     case MESH_UI_CONVERSATION_NEW:
-        inkcell_str_copy(out->initials, sizeof out->initials, "+");
+        inkwell_str_copy(out->initials, sizeof out->initials, "+");
         out->tint = 0U;
         return;
     case MESH_UI_CONVERSATION_CHANNEL:
         /* A channel is a place, and '#' is what says so everywhere else on this screen. The
            slot rather than the name seeds it, so renaming a channel keeps its colour. */
-        inkcell_str_copy(out->initials, sizeof out->initials, "#");
+        inkwell_str_copy(out->initials, sizeof out->initials, "#");
         out->tint = mesh_ui_nav_channel_tint(out->channel);
         return;
     case MESH_UI_CONVERSATION_DIRECT:
@@ -529,7 +529,7 @@ void mesh_ui_nav_target_avatar(const struct mesh_ui_store *store, uint32_t node,
         return;
     }
     if (node == MESH_MESSAGE_BROADCAST_ADDR) {
-        inkcell_str_copy(out_initials, out_len, "#");
+        inkwell_str_copy(out_initials, out_len, "#");
         if (out_tint != NULL) {
             *out_tint = mesh_ui_nav_channel_tint(channel);
         }
@@ -644,7 +644,7 @@ bool mesh_ui_nav_delete_conversation(struct mesh_ui_nav *nav, const struct mesh_
         /* The name off the row rather than one the app resolves again: what the toast should
            say is what the user was looking at when they pressed X, and a channel's name lives
            in the handshake's channel table that only this layer walks. */
-        inkcell_str_copy(action->text, sizeof action->text, conversation.name);
+        inkwell_str_copy(action->text, sizeof action->text, conversation.name);
     }
     /* The frame changes when the app publishes the shorter log, not here: saying "deleted"
        before the messages have gone is how a failed delete comes to look like a successful
@@ -677,7 +677,7 @@ bool mesh_ui_nav_mute_conversation(struct mesh_ui_nav *nav, const struct mesh_ui
         action->channel = conversation.channel;
         /* The name off the row, for the toast - the delete's reasoning exactly: a channel's
            name lives in the handshake's channel table that only this layer walks. */
-        inkcell_str_copy(action->text, sizeof action->text, conversation.name);
+        inkwell_str_copy(action->text, sizeof action->text, conversation.name);
     }
     return false;
 }

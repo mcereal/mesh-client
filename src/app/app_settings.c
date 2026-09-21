@@ -9,10 +9,10 @@
  * mesh_app_flatten_settings() over in app_publish.c.
  */
 
-#include "inkcell/utils/array.h"
-#include "inkcell/utils/log.h"
-#include "inkcell/utils/text.h"
-#include "inkcell/utils/time.h"
+#include "inkwell/base/array.h"
+#include "inkwell/base/log.h"
+#include "inkwell/base/text.h"
+#include "inkwell/base/time.h"
 
 #include "app_internal.h"
 
@@ -76,7 +76,7 @@ static int apply_channel_key(meshtastic_ChannelSettings *settings,
         const size_t len = edit->number == MESH_UI_PSK_RANDOM_128 ? 16U : 32U;
         const int result = mesh_app_random_key(settings->psk.bytes, len);
         if (result < 0) {
-            inkcell_log_error("ui", "No random bytes for a channel key: %d", result);
+            inkwell_log_error("ui", "No random bytes for a channel key: %d", result);
             return -EIO;
         }
         settings->psk.size = (pb_size_t)len;
@@ -184,7 +184,7 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
             field < (uint32_t)first + run) {
             const uint32_t offset = field - (uint32_t)first;
             const uint32_t record = offset / MESH_UI_BEACON_TARGET_FIELDS;
-            if (record >= INKCELL_ARRAY_LEN(beacon->broadcast_targets)) {
+            if (record >= INKWELL_ARRAY_LEN(beacon->broadcast_targets)) {
                 return -ENOTSUP;
             }
             /* Editing the third row of a radio that only sent one target grows the list, with
@@ -220,10 +220,10 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
 
     switch ((enum mesh_ui_setting_field)edit->field) {
     case MESH_UI_FIELD_USER_LONG_NAME:
-        inkcell_str_copy(owner->long_name, sizeof owner->long_name, edit->text);
+        inkwell_str_copy(owner->long_name, sizeof owner->long_name, edit->text);
         break;
     case MESH_UI_FIELD_USER_SHORT_NAME:
-        inkcell_str_copy(owner->short_name, sizeof owner->short_name, edit->text);
+        inkwell_str_copy(owner->short_name, sizeof owner->short_name, edit->text);
         break;
     case MESH_UI_FIELD_USER_LICENSED:
         owner->is_licensed = on;
@@ -236,7 +236,7 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
         device->role = (meshtastic_Config_DeviceConfig_Role)edit->number;
         break;
     case MESH_UI_FIELD_DEVICE_TZDEF:
-        inkcell_str_copy(device->tzdef, sizeof device->tzdef, edit->text);
+        inkwell_str_copy(device->tzdef, sizeof device->tzdef, edit->text);
         break;
     case MESH_UI_FIELD_DEVICE_REBROADCAST:
         device->rebroadcast_mode = (meshtastic_Config_DeviceConfig_RebroadcastMode)edit->number;
@@ -334,16 +334,16 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
         mqtt->proxy_to_client_enabled = on;
         break;
     case MESH_UI_FIELD_MQTT_ADDRESS:
-        inkcell_str_copy(mqtt->address, sizeof mqtt->address, edit->text);
+        inkwell_str_copy(mqtt->address, sizeof mqtt->address, edit->text);
         break;
     case MESH_UI_FIELD_MQTT_USERNAME:
-        inkcell_str_copy(mqtt->username, sizeof mqtt->username, edit->text);
+        inkwell_str_copy(mqtt->username, sizeof mqtt->username, edit->text);
         break;
     case MESH_UI_FIELD_MQTT_PASSWORD:
-        inkcell_str_copy(mqtt->password, sizeof mqtt->password, edit->text);
+        inkwell_str_copy(mqtt->password, sizeof mqtt->password, edit->text);
         break;
     case MESH_UI_FIELD_MQTT_ROOT:
-        inkcell_str_copy(mqtt->root, sizeof mqtt->root, edit->text);
+        inkwell_str_copy(mqtt->root, sizeof mqtt->root, edit->text);
         break;
     case MESH_UI_FIELD_MQTT_ENCRYPTION:
         mqtt->encryption_enabled = on;
@@ -487,13 +487,13 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
         ambient->blue = (uint8_t)edit->number;
         break;
     case MESH_UI_FIELD_STATUS_TEXT:
-        inkcell_str_copy(status->node_status, sizeof status->node_status, edit->text);
+        inkwell_str_copy(status->node_status, sizeof status->node_status, edit->text);
         break;
     case MESH_UI_FIELD_DETECT_ENABLED:
         detect->enabled = on;
         break;
     case MESH_UI_FIELD_DETECT_NAME:
-        inkcell_str_copy(detect->name, sizeof detect->name, edit->text);
+        inkwell_str_copy(detect->name, sizeof detect->name, edit->text);
         break;
     case MESH_UI_FIELD_DETECT_MIN_BROADCAST:
         detect->minimum_broadcast_secs = edit->number;
@@ -578,7 +578,7 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
         beacon->broadcast_interval_secs = edit->number;
         break;
     case MESH_UI_FIELD_BEACON_MESSAGE:
-        inkcell_str_copy(beacon->broadcast_message, sizeof beacon->broadcast_message, edit->text);
+        inkwell_str_copy(beacon->broadcast_message, sizeof beacon->broadcast_message, edit->text);
         break;
     /* Either row of the offered channel brings the submessage with it - a ChannelSettings that
        is absent carries neither the name nor the key, the same pairing the two module_settings
@@ -586,7 +586,7 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
        name: see the block at the end of mesh_app_build_settings_write(). */
     case MESH_UI_FIELD_BEACON_OFFER_NAME:
         beacon->has_broadcast_offer_channel = true;
-        inkcell_str_copy(beacon->broadcast_offer_channel.name,
+        inkwell_str_copy(beacon->broadcast_offer_channel.name,
                          sizeof beacon->broadcast_offer_channel.name, edit->text);
         break;
     case MESH_UI_FIELD_BEACON_OFFER_KEY:
@@ -601,7 +601,7 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
             (meshtastic_Config_LoRaConfig_ModemPreset)(edit->number != 0U ? edit->number - 1U : 0U);
         break;
     case MESH_UI_FIELD_CHANNEL_NAME:
-        inkcell_str_copy(channel->name, sizeof channel->name, edit->text);
+        inkwell_str_copy(channel->name, sizeof channel->name, edit->text);
         break;
     case MESH_UI_FIELD_CHANNEL_ROLE:
         write->payload.channel.role =
@@ -736,7 +736,7 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
         case MESH_UI_PSK_RANDOM_256: {
             const int result = mesh_app_random_key(security->private_key.bytes, 32U);
             if (result < 0) {
-                inkcell_log_error("ui", "No random bytes for a private key: %d", result);
+                inkwell_log_error("ui", "No random bytes for a private key: %d", result);
                 return -EIO;
             }
             /* Curve25519 clamping, as the firmware does for the key it generates itself. */
@@ -862,7 +862,7 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
     case MESH_UI_FIELD_CANNED_5:
         break;
     default:
-        inkcell_log_warn("ui", "Ignoring edit to unknown settings field %u", (unsigned)edit->field);
+        inkwell_log_warn("ui", "Ignoring edit to unknown settings field %u", (unsigned)edit->field);
         break;
     }
     return 0;
@@ -904,7 +904,7 @@ static bool mesh_app_build_canned_list(const char *held, const struct mesh_ui_ac
                 (enum mesh_ui_setting_field)(MESH_UI_FIELD_CANNED_0 + i);
             for (uint8_t e = 0; e < action->edit_count && e < MESH_UI_SETTINGS_EDITS_MAX; ++e) {
                 if ((enum mesh_ui_setting_field)action->edits[e].field == field) {
-                    inkcell_str_copy(text, sizeof text, action->edits[e].text);
+                    inkwell_str_copy(text, sizeof text, action->edits[e].text);
                     break;
                 }
             }
@@ -1203,7 +1203,7 @@ int mesh_app_build_settings_write(const struct mesh_radio_settings *radio,
             &out->payload.module_config.payload_variant.mesh_beacon;
         pb_size_t kept = 0U;
         for (pb_size_t i = 0; i < beacon->broadcast_targets_count &&
-                              i < INKCELL_ARRAY_LEN(beacon->broadcast_targets);
+                              i < INKWELL_ARRAY_LEN(beacon->broadcast_targets);
              ++i) {
             const meshtastic_ModuleConfig_MeshBeaconConfig_BroadcastTarget *target =
                 &beacon->broadcast_targets[i];
@@ -1216,7 +1216,7 @@ int mesh_app_build_settings_write(const struct mesh_radio_settings *radio,
             }
             kept++;
         }
-        for (pb_size_t i = kept; i < INKCELL_ARRAY_LEN(beacon->broadcast_targets); ++i) {
+        for (pb_size_t i = kept; i < INKWELL_ARRAY_LEN(beacon->broadcast_targets); ++i) {
             memset(&beacon->broadcast_targets[i], 0, sizeof beacon->broadcast_targets[i]);
         }
         beacon->broadcast_targets_count = kept;
@@ -1325,7 +1325,7 @@ void mesh_app_save_fixed_position(struct mesh_app *app, const struct mesh_ui_act
         snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NOT_ON_EARTH));
     } else {
         inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_FAILED_KEPT, result);
-        inkcell_log_warn("ui", "Fixed position write failed: %d", result);
+        inkwell_log_warn("ui", "Fixed position write failed: %d", result);
     }
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
 }
@@ -1347,7 +1347,7 @@ void mesh_app_save_ham_mode(struct mesh_app *app, const struct mesh_ui_action *a
     char toast[MESH_UI_NAV_TOAST_MAX];
     const struct mesh_ui_settings *ui = &app->ui_store.settings;
     char call_sign[MESH_UI_SETTING_TEXT_MAX];
-    inkcell_str_copy(call_sign, sizeof call_sign, ui->is_licensed ? ui->long_name : "");
+    inkwell_str_copy(call_sign, sizeof call_sign, ui->is_licensed ? ui->long_name : "");
     int64_t frequency = ui->override_frequency_scaled;
     int32_t tx_power = ui->tx_power;
     bool bad = false;
@@ -1356,7 +1356,7 @@ void mesh_app_save_ham_mode(struct mesh_app *app, const struct mesh_ui_action *a
         const struct mesh_ui_setting_edit *edit = &action->edits[i];
         switch ((enum mesh_ui_setting_field)edit->field) {
         case MESH_UI_FIELD_LORA_HAM_CALL_SIGN:
-            inkcell_str_copy(call_sign, sizeof call_sign, edit->text);
+            inkwell_str_copy(call_sign, sizeof call_sign, edit->text);
             break;
         case MESH_UI_FIELD_LORA_HAM_FREQUENCY:
             bad = bad || !mesh_ui_settings_decimal_parse(edit->text, MESH_UI_FREQUENCY_DIGITS,
@@ -1396,7 +1396,7 @@ void mesh_app_save_ham_mode(struct mesh_app *app, const struct mesh_ui_action *a
         snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_ALREADY_REQUESTED));
     } else {
         inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_FAILED_KEPT, result);
-        inkcell_log_warn("ui", "Ham mode write failed: %d", result);
+        inkwell_log_warn("ui", "Ham mode write failed: %d", result);
     }
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
 }
@@ -1430,7 +1430,7 @@ void mesh_app_save_settings(struct mesh_app *app, const struct mesh_ui_action *a
            written by its own row, and clearing it here would drop it unsaved. */
         mesh_ui_store_settings_edits_consumed(&app->ui_store, MESH_UI_SETTING_CONSUMER_SECTION);
         inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_SAVING_SECTION, section_name);
-        inkcell_log_info("ui", "Saving %s: %u edits, %d admin requests", section_name,
+        inkwell_log_info("ui", "Saving %s: %u edits, %d admin requests", section_name,
                          (unsigned)action->edit_count, result);
     } else if (result == -ENOTCONN) {
         snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NOT_CONNECTED_KEPT));
@@ -1444,7 +1444,7 @@ void mesh_app_save_settings(struct mesh_app *app, const struct mesh_ui_action *a
         snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_TOO_LONG_KEPT));
     } else {
         inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_SAVE_FAILED_KEPT, result);
-        inkcell_log_warn("ui", "Saving %s failed: %d", section_name, result);
+        inkwell_log_warn("ui", "Saving %s failed: %d", section_name, result);
     }
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
 }
@@ -1457,7 +1457,7 @@ void mesh_app_track_settings_save(struct mesh_app *app, const struct mesh_radio_
         return;
     }
     char toast[MESH_UI_NAV_TOAST_MAX];
-    const uint64_t now = inkcell_time_monotonic_ms();
+    const uint64_t now = inkwell_time_monotonic_ms();
     if (radio != NULL && radio->writes_failed > app->settings_writes_failed_seen) {
         switch (radio->last_write_error) {
         case meshtastic_Routing_Error_ADMIN_BAD_SESSION_KEY:
@@ -1477,15 +1477,15 @@ void mesh_app_track_settings_save(struct mesh_app *app, const struct mesh_radio_
                                app->settings_save_section, (int)radio->last_write_error);
             break;
         }
-        inkcell_log_warn("ui", "Save of %s failed: error %d", app->settings_save_section,
+        inkwell_log_warn("ui", "Save of %s failed: error %d", app->settings_save_section,
                          (int)radio->last_write_error);
     } else if (radio != NULL && radio->writes_acked > app->settings_writes_acked_seen) {
         inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_SAVED_MAY_RESTART,
                            app->settings_save_section);
-        inkcell_log_info("ui", "Save of %s acknowledged", app->settings_save_section);
+        inkwell_log_info("ui", "Save of %s acknowledged", app->settings_save_section);
     } else if (!link_connected) {
         snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_RESTARTING_APPLY));
-        inkcell_log_info("ui", "Link dropped while saving %s; assuming reboot",
+        inkwell_log_info("ui", "Link dropped while saving %s; assuming reboot",
                          app->settings_save_section);
     } else {
         return; /* still waiting */

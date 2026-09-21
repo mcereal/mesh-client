@@ -2,15 +2,15 @@
 
 #include "mesh/core/updater.h"
 
-#include "inkcell/utils/env.h"
-#include "inkcell/utils/log.h"
+#include "inkwell/base/env.h"
+#include "inkwell/base/log.h"
 
 #include "mesh/i18n/strings.h"
 
-#include "mesh/core/event_loop.h"
+#include "inkwell/codec/sha256.h"
+#include "inkwell/runtime/loop.h"
 #include "mesh/core/tls_client.h"
 #include "mesh/core/version.h"
-#include "mesh/utils/sha256.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -472,7 +472,7 @@ static void updater_fetch_failed(struct mesh_updater *updater,
         snprintf(message, sizeof message, "%s", inkcell_str(MESH_STR_UPDATE_BAD_REPLY));
         break;
     }
-    inkcell_log_warn("update", "Fetch failed in state %s: %s (%s)",
+    inkwell_log_warn("update", "Fetch failed in state %s: %s (%s)",
                      mesh_update_state_name(updater->state),
                      mesh_fetch_outcome_name(result->outcome), result->detail);
     updater_set(updater, MESH_UPDATE_FAILED, message);
@@ -480,7 +480,7 @@ static void updater_fetch_failed(struct mesh_updater *updater,
 
 /* ---- steps ------------------------------------------------------------------------------ */
 
-int mesh_updater_init(struct mesh_updater *updater, struct mesh_event_loop *loop) {
+int mesh_updater_init(struct mesh_updater *updater, struct inkwell_loop *loop) {
     if (updater == NULL) {
         return -EINVAL;
     }
@@ -503,7 +503,7 @@ int mesh_updater_init(struct mesh_updater *updater, struct mesh_event_loop *loop
         updater->install_path[0] = '\0';
     }
 
-    updater->allow_dev_from_env = inkcell_env_bool("UPDATE_ALLOW_DEV", "dev updates", false);
+    updater->allow_dev_from_env = inkwell_env_bool("UPDATE_ALLOW_DEV", "dev updates", false);
     updater->allow_dev = updater->allow_dev_from_env;
 
     if (!mesh_tls_available()) {
@@ -520,7 +520,7 @@ int mesh_updater_init(struct mesh_updater *updater, struct mesh_event_loop *loop
                  inkcell_str(MESH_STR_UPDATE_DEV_ENABLED));
     }
     const char *const ca_override = mesh_tls_ca_override();
-    inkcell_log_info(
+    inkwell_log_info(
         "update", "Updater ready: tls=%s binary=%s version=%s channel=%s allow_dev=%s cacert=%s",
         mesh_tls_available() ? "yes" : "no",
         updater->install_path[0] != '\0' ? updater->install_path : "unknown", mesh_version_string(),
@@ -554,7 +554,7 @@ bool mesh_updater_set_channel(struct mesh_updater *updater, enum mesh_update_cha
     }
     updater->channel = channel;
     updater_invalidate_check(updater, inkcell_str(MESH_STR_UPDATE_CHANNEL_CHANGED));
-    inkcell_log_info("update", "Update channel set to %s",
+    inkwell_log_info("update", "Update channel set to %s",
                      mesh_update_channel_name(mesh_updater_effective_channel(updater)));
     return true;
 }
@@ -574,7 +574,7 @@ bool mesh_updater_set_allow_dev(struct mesh_updater *updater, bool allow) {
         snprintf(updater->message, sizeof updater->message, "%s",
                  inkcell_str(allow ? MESH_STR_UPDATE_DEV_ENABLED : MESH_STR_UPDATE_DEV_DISABLED));
     }
-    inkcell_log_info("update", "Dev updates %s", allow ? "enabled" : "disabled");
+    inkwell_log_info("update", "Dev updates %s", allow ? "enabled" : "disabled");
     return true;
 }
 
@@ -655,7 +655,7 @@ static void updater_on_check_done(void *userdata, const struct mesh_fetch_result
     snprintf(updater->asset_url, sizeof updater->asset_url, "%s", url);
     snprintf(updater->asset_sha256, sizeof updater->asset_sha256, "%s", sha256);
     updater->asset_size = size;
-    inkcell_log_info("update", "Latest release %s (running %s), asset %llu bytes", tag,
+    inkwell_log_info("update", "Latest release %s (running %s), asset %llu bytes", tag,
                      mesh_version_string(), (unsigned long long)size);
 
     if (!mesh_updater_can_install(updater)) {
@@ -761,7 +761,7 @@ static void updater_stamp_pak_json(const struct mesh_updater *updater) {
         return;
     }
     if (access(json_path, W_OK) != 0) {
-        inkcell_log_warn("update", "%s is not writable; leaving its version alone", json_path);
+        inkwell_log_warn("update", "%s is not writable; leaving its version alone", json_path);
         return;
     }
     char temp_path[sizeof json_path + 8U];
@@ -776,7 +776,7 @@ static void updater_stamp_pak_json(const struct mesh_updater *updater) {
     const bool oversized = !feof(file);
     fclose(file);
     if (length == 0U || oversized) {
-        inkcell_log_warn("update", "%s is not a pak.json we can rewrite", json_path);
+        inkwell_log_warn("update", "%s is not a pak.json we can rewrite", json_path);
         return;
     }
     buffer[length] = '\0';
@@ -790,13 +790,13 @@ static void updater_stamp_pak_json(const struct mesh_updater *updater) {
     }
     char *end = value != NULL ? strchr(value + 1, '"') : NULL;
     if (end == NULL) {
-        inkcell_log_warn("update", "%s has no version field to stamp", json_path);
+        inkwell_log_warn("update", "%s has no version field to stamp", json_path);
         return;
     }
 
     file = fopen(temp_path, "wb");
     if (file == NULL) {
-        inkcell_log_warn("update", "Could not write %s: %s", temp_path, strerror(errno));
+        inkwell_log_warn("update", "Could not write %s: %s", temp_path, strerror(errno));
         return;
     }
     const size_t head = (size_t)(value + 1 - buffer);
@@ -806,16 +806,16 @@ static void updater_stamp_pak_json(const struct mesh_updater *updater) {
                        fwrite(end, 1U, tail, file) == tail;
     const bool closed = fclose(file) == 0;
     if (!wrote || !closed) {
-        inkcell_log_warn("update", "Could not write %s", temp_path);
+        inkwell_log_warn("update", "Could not write %s", temp_path);
         (void)unlink(temp_path);
         return;
     }
     if (rename(temp_path, json_path) != 0) {
-        inkcell_log_warn("update", "Could not replace %s: %s", json_path, strerror(errno));
+        inkwell_log_warn("update", "Could not replace %s: %s", json_path, strerror(errno));
         (void)unlink(temp_path);
         return;
     }
-    inkcell_log_info("update", "Stamped %s with v%s", json_path, updater->latest);
+    inkwell_log_info("update", "Stamped %s with v%s", json_path, updater->latest);
 }
 
 static void updater_on_download_done(void *userdata, const struct mesh_fetch_result *result) {
@@ -843,17 +843,17 @@ static void updater_on_download_done(void *userdata, const struct mesh_fetch_res
         return;
     }
 
-    uint8_t digest[MESH_SHA256_DIGEST_LEN];
-    const int hashed = mesh_sha256_file(updater->staged_path, digest);
+    uint8_t digest[INKWELL_SHA256_DIGEST_LEN];
+    const int hashed = inkwell_sha256_file(updater->staged_path, digest);
     if (hashed != 0) {
         updater_set(updater, MESH_UPDATE_FAILED, inkcell_str(MESH_STR_UPDATE_HASH_FAILED));
         (void)unlink(updater->staged_path);
         return;
     }
-    char hex[MESH_SHA256_HEX_LEN];
-    mesh_sha256_hex(digest, hex, sizeof hex);
+    char hex[INKWELL_SHA256_HEX_LEN];
+    inkwell_sha256_hex(digest, hex, sizeof hex);
     if (strcmp(hex, updater->asset_sha256) != 0) {
-        inkcell_log_warn("update", "Checksum mismatch: got %s, expected %s", hex,
+        inkwell_log_warn("update", "Checksum mismatch: got %s, expected %s", hex,
                          updater->asset_sha256);
         updater_set(updater, MESH_UPDATE_FAILED, inkcell_str(MESH_STR_UPDATE_CHECKSUM_MISMATCH));
         (void)unlink(updater->staged_path);
@@ -876,7 +876,7 @@ static void updater_on_download_done(void *userdata, const struct mesh_fetch_res
         return;
     }
 
-    inkcell_log_info("update", "Installed %s over %s", updater->latest, updater->install_path);
+    inkwell_log_info("update", "Installed %s over %s", updater->latest, updater->install_path);
     updater_stamp_pak_json(updater);
     char message[MESH_UPDATE_MESSAGE_MAX];
     inkcell_str_format(message, sizeof message, MESH_STR_UPDATE_INSTALLED, updater->latest);

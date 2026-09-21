@@ -21,7 +21,7 @@
  * Build with scripts/fuzz.sh; see docs/testing.md.
  */
 
-#include "mesh/proto/http.h"
+#include "inkwell/codec/http.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -37,7 +37,7 @@ static void fuzz_broke(const char *what) {
 }
 
 struct fuzz_run {
-    struct mesh_http_response response;
+    struct inkwell_http_response response;
     uint8_t body[FUZZ_BODY_MAX];
     size_t body_len;
     size_t consumed;
@@ -46,7 +46,7 @@ struct fuzz_run {
 
 static void fuzz_parse(struct fuzz_run *run, const uint8_t *data, size_t size, bool head,
                        size_t step) {
-    mesh_http_response_init(&run->response, head);
+    inkwell_http_response_init(&run->response, head);
     run->body_len = 0U;
     run->consumed = 0U;
 
@@ -61,7 +61,7 @@ static void fuzz_parse(struct fuzz_run *run, const uint8_t *data, size_t size, b
             const uint8_t *const in = data + at + used;
             const size_t avail = window - used;
             const size_t consumed =
-                mesh_http_response_feed(&run->response, in, avail, &body, &body_len);
+                inkwell_http_response_feed(&run->response, in, avail, &body, &body_len);
 
             if (consumed > avail) {
                 fuzz_broke("consumed more than it was given");
@@ -76,8 +76,8 @@ static void fuzz_parse(struct fuzz_run *run, const uint8_t *data, size_t size, b
                 run->body_len += keep;
             }
             if (consumed == 0U) {
-                if (!mesh_http_response_done(&run->response) &&
-                    !mesh_http_response_failed(&run->response)) {
+                if (!inkwell_http_response_done(&run->response) &&
+                    !inkwell_http_response_failed(&run->response)) {
                     fuzz_broke("a live parser consumed nothing");
                 }
                 stopped = true;
@@ -88,53 +88,53 @@ static void fuzz_parse(struct fuzz_run *run, const uint8_t *data, size_t size, b
         at += used;
     }
     run->consumed = at;
-    run->finished = mesh_http_response_finish(&run->response);
+    run->finished = inkwell_http_response_finish(&run->response);
 
-    const struct mesh_http_response *response = &run->response;
-    if (response->head_len >= MESH_HTTP_HEAD_MAX || response->head[response->head_len] != '\0') {
+    const struct inkwell_http_response *response = &run->response;
+    if (response->head_len >= INKWELL_HTTP_HEAD_MAX || response->head[response->head_len] != '\0') {
         fuzz_broke("a head that is not bounded and terminated");
     }
-    if (response->framing == MESH_HTTP_FRAMING_LENGTH &&
+    if (response->framing == INKWELL_HTTP_FRAMING_LENGTH &&
         response->body_received > response->content_length) {
         fuzz_broke("more body than Content-Length");
     }
-    if (mesh_http_response_done(response) && response->framing == MESH_HTTP_FRAMING_LENGTH &&
+    if (inkwell_http_response_done(response) && response->framing == INKWELL_HTTP_FRAMING_LENGTH &&
         response->body_received != response->content_length) {
         fuzz_broke("done with a Content-Length body short");
     }
-    if (response->framing == MESH_HTTP_FRAMING_NONE && response->body_received != 0U) {
+    if (response->framing == INKWELL_HTTP_FRAMING_NONE && response->body_received != 0U) {
         fuzz_broke("a body where there is none");
     }
-    if (mesh_http_response_done(response) == mesh_http_response_failed(response)) {
+    if (inkwell_http_response_done(response) == inkwell_http_response_failed(response)) {
         fuzz_broke("after finish, a response is exactly one of done and failed");
     }
 }
 
 /* Oracle 3: the next request, from whatever Location this reply named. */
-static void fuzz_redirect(const struct mesh_http_response *response) {
+static void fuzz_redirect(const struct inkwell_http_response *response) {
     const char *value = NULL;
     size_t len = 0U;
-    if (!mesh_http_response_header(response, "location", &value, &len)) {
+    if (!inkwell_http_response_header(response, "location", &value, &len)) {
         return;
     }
     if (value < response->head || value + len > response->head + response->head_len) {
         fuzz_broke("a header value outside the head");
     }
-    static char location[MESH_HTTP_HEAD_MAX];
+    static char location[INKWELL_HTTP_HEAD_MAX];
     memcpy(location, value, len);
     location[len] = '\0';
 
-    struct mesh_http_url base;
-    if (!mesh_http_url_parse("https://github.com/o/r/releases/download/v1/a.bin?x=1", &base)) {
+    struct inkwell_http_url base;
+    if (!inkwell_http_url_parse("https://github.com/o/r/releases/download/v1/a.bin?x=1", &base)) {
         fuzz_broke("the base URL did not parse");
     }
-    static struct mesh_http_url next;
-    if (!mesh_http_url_resolve(&base, location, &next)) {
+    static struct inkwell_http_url next;
+    if (!inkwell_http_url_resolve(&base, location, &next)) {
         return;
     }
-    static char request[MESH_HTTP_URL_MAX + 512U];
+    static char request[INKWELL_HTTP_URL_MAX + 512U];
     const int written =
-        mesh_http_request_format(request, sizeof request, MESH_HTTP_GET, &next, NULL, 0U);
+        inkwell_http_request_format(request, sizeof request, INKWELL_HTTP_GET, &next, NULL, 0U);
     if (written < 0) {
         return;
     }

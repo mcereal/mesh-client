@@ -1,4 +1,4 @@
-#include "inkcell/utils/log.h"
+#include "inkwell/base/log.h"
 
 #include "mesh/transport/transport.h"
 
@@ -42,7 +42,7 @@ int mesh_transport_registry_register(struct mesh_transport_registry *registry,
 
 int mesh_transport_registry_start_all(struct mesh_transport_registry *registry,
                                       const struct mesh_app_config *config,
-                                      struct mesh_event_loop *loop) {
+                                      struct inkwell_loop *loop) {
     if (registry == NULL || config == NULL || loop == NULL) {
         return -EINVAL;
     }
@@ -54,13 +54,13 @@ int mesh_transport_registry_start_all(struct mesh_transport_registry *registry,
     for (size_t i = 0; i < registry->count; ++i) {
         struct mesh_transport *transport = registry->transports[i];
         if (transport == NULL || transport->ops == NULL || transport->ops->start == NULL) {
-            inkcell_log_warn("transport", "Skipping invalid transport at index %zu", i);
+            inkwell_log_warn("transport", "Skipping invalid transport at index %zu", i);
             continue;
         }
 
         int result = transport->ops->start(transport, config, loop);
         if (result < 0) {
-            inkcell_log_error("transport", "Failed to start %s: %d", transport->name, result);
+            inkwell_log_error("transport", "Failed to start %s: %d", transport->name, result);
             mesh_transport_registry_stop_all(registry);
             return result;
         }

@@ -1,7 +1,7 @@
 #pragma once
 
-#include "mesh/core/event_loop.h"
-#include "mesh/core/resolve.h"
+#include "inkwell/net/resolve.h"
+#include "inkwell/runtime/loop.h"
 #include "mesh/core/tls_client.h"
 
 #include <netinet/in.h>
@@ -26,7 +26,7 @@ extern "C" {
  * message) and this module's business is the socket underneath them.
  *
  * **Everything is on the one epoll loop.** The socket is non-blocking, the name lookup is
- * mesh_resolve's forked child, and TLS is a state machine over the same descriptor. There is no
+ * inkwell_resolve's forked child, and TLS is a state machine over the same descriptor. There is no
  * thread here and there is nowhere for one to go.
  *
  * **Nothing is queued across a disconnect.** A publish that arrives while the broker is
@@ -168,7 +168,7 @@ struct mesh_mqtt_proxy_stats {
 };
 
 struct mesh_mqtt_proxy {
-    struct mesh_event_loop *loop;
+    struct inkwell_loop *loop;
     enum mesh_mqtt_proxy_state state;
     struct mesh_mqtt_proxy_config config;
 
@@ -176,7 +176,7 @@ struct mesh_mqtt_proxy {
     char host[MESH_MQTT_ADDRESS_MAX];
     uint16_t port;
 
-    struct mesh_resolve resolve;
+    struct inkwell_resolve resolve;
     int fd;
     bool fd_registered;
     bool want_write; /* EPOLLOUT is armed because something is waiting to go out */
@@ -264,7 +264,7 @@ struct mesh_mqtt_proxy {
  * what a caller that has no loop, and a test that means to spawn nothing, both want.
  * Returns 0, or -EINVAL.
  */
-int mesh_mqtt_proxy_init(struct mesh_mqtt_proxy *proxy, struct mesh_event_loop *loop);
+int mesh_mqtt_proxy_init(struct mesh_mqtt_proxy *proxy, struct inkwell_loop *loop);
 
 /* Drops any connection without reporting it and releases everything held. */
 void mesh_mqtt_proxy_shutdown(struct mesh_mqtt_proxy *proxy);

@@ -1,7 +1,7 @@
 #include "mesh/core/waypoint.h"
 
-#include "inkcell/utils/log.h"
-#include "inkcell/utils/text.h"
+#include "inkwell/base/log.h"
+#include "inkwell/base/text.h"
 
 #include "mesh/core/message.h"
 #include "mesh/geo/coords.h"
@@ -145,7 +145,7 @@ uint32_t mesh_waypoint_book_prune(struct mesh_waypoint_book *book, uint32_t now)
         if (mesh_waypoint_state(entry, now) == MESH_WAYPOINT_LIVE) {
             continue;
         }
-        inkcell_log_info("waypoint", "Waypoint %u \"%s\" has expired", entry->id, entry->name);
+        inkwell_log_info("waypoint", "Waypoint %u \"%s\" has expired", entry->id, entry->name);
         (void)mesh_waypoint_book_forget(book, entry->id);
         removed++;
     }
@@ -166,14 +166,14 @@ int mesh_waypoint_ingest(struct mesh_waypoint_book *book, const meshtastic_MeshP
     meshtastic_Waypoint decoded = meshtastic_Waypoint_init_default;
     pb_istream_t stream = pb_istream_from_buffer(data->payload.bytes, data->payload.size);
     if (!pb_decode(&stream, meshtastic_Waypoint_fields, &decoded)) {
-        inkcell_log_debug("waypoint", "Bad WAYPOINT_APP from 0x%08x: %s", packet->from,
+        inkwell_log_debug("waypoint", "Bad WAYPOINT_APP from 0x%08x: %s", packet->from,
                           PB_GET_ERROR(&stream));
         return 0;
     }
     if (decoded.id == 0U) {
         /* Without an id there is nothing to key on: two copies would be two places, and an edit
            would be a third. */
-        inkcell_log_debug("waypoint", "Ignoring a waypoint with no id from 0x%08x", packet->from);
+        inkwell_log_debug("waypoint", "Ignoring a waypoint with no id from 0x%08x", packet->from);
         return 0;
     }
 
@@ -198,8 +198,8 @@ int mesh_waypoint_ingest(struct mesh_waypoint_book *book, const meshtastic_MeshP
     }
     /* nanopb NUL-terminates a decoded string field, but the bytes inside it came off the air
        and can be anything; sanitising is what lets a backend draw them without re-checking. */
-    inkcell_text_sanitise_str(decoded.name, waypoint.name, sizeof waypoint.name);
-    inkcell_text_sanitise_str(decoded.description, waypoint.description,
+    inkwell_text_sanitise_str(decoded.name, waypoint.name, sizeof waypoint.name);
+    inkwell_text_sanitise_str(decoded.description, waypoint.description,
                               sizeof waypoint.description);
 
     /*
@@ -213,7 +213,7 @@ int mesh_waypoint_ingest(struct mesh_waypoint_book *book, const meshtastic_MeshP
     const enum mesh_waypoint_state state = mesh_waypoint_state(&waypoint, heard);
     if (state != MESH_WAYPOINT_LIVE) {
         const bool had = mesh_waypoint_book_forget(book, waypoint.id);
-        inkcell_log_info("waypoint", "Waypoint %u %s%s", waypoint.id,
+        inkwell_log_info("waypoint", "Waypoint %u %s%s", waypoint.id,
                          state == MESH_WAYPOINT_DELETED ? "withdrawn" : "arrived expired",
                          had ? "; dropped the copy we held" : "");
         return had ? 1 : 0;
@@ -223,7 +223,7 @@ int mesh_waypoint_ingest(struct mesh_waypoint_book *book, const meshtastic_MeshP
     if (mesh_waypoint_book_store(book, &waypoint) == NULL) {
         return -ENOMEM;
     }
-    inkcell_log_info("waypoint", "%s waypoint %u \"%s\" from 0x%08x on channel %u",
+    inkwell_log_info("waypoint", "%s waypoint %u \"%s\" from 0x%08x on channel %u",
                      known ? "Updated" : "Received", waypoint.id, waypoint.name, packet->from,
                      (unsigned)waypoint.channel);
     return 1;
@@ -250,13 +250,13 @@ int mesh_waypoint_encode(const struct mesh_waypoint_request *request, uint8_t *o
         payload.has_longitude_i = true;
         payload.longitude_i = waypoint->longitude_i;
     }
-    inkcell_str_copy(payload.name, sizeof payload.name, waypoint->name);
-    inkcell_str_copy(payload.description, sizeof payload.description, waypoint->description);
+    inkwell_str_copy(payload.name, sizeof payload.name, waypoint->name);
+    inkwell_str_copy(payload.description, sizeof payload.description, waypoint->description);
 
     uint8_t body[MESH_MESSAGE_TEXT_MAX];
     pb_ostream_t body_stream = pb_ostream_from_buffer(body, sizeof body);
     if (!pb_encode(&body_stream, meshtastic_Waypoint_fields, &payload)) {
-        inkcell_log_error("waypoint", "Failed to encode waypoint %u: %s", waypoint->id,
+        inkwell_log_error("waypoint", "Failed to encode waypoint %u: %s", waypoint->id,
                           PB_GET_ERROR(&body_stream));
         return -EIO;
     }
@@ -277,7 +277,7 @@ int mesh_waypoint_encode(const struct mesh_waypoint_request *request, uint8_t *o
 
     pb_ostream_t stream = pb_ostream_from_buffer(out, out_len);
     if (!pb_encode(&stream, meshtastic_ToRadio_fields, &to_radio)) {
-        inkcell_log_error("waypoint", "Failed to encode waypoint packet: %s",
+        inkwell_log_error("waypoint", "Failed to encode waypoint packet: %s",
                           PB_GET_ERROR(&stream));
         return -EIO;
     }

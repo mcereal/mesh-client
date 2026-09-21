@@ -86,7 +86,7 @@ int mesh_test_ble_rig_start(struct mesh_test_ble_rig *rig) {
     mesh_test_ble_rig_reload(rig);
     if (!rig->loop_ready) {
         rig->config = mesh_app_config_default();
-        const int result = mesh_event_loop_init(&rig->loop);
+        const int result = inkwell_loop_init(&rig->loop);
         if (result != 0) {
             return result;
         }
@@ -121,7 +121,7 @@ void mesh_test_ble_rig_close(struct mesh_test_ble_rig *rig) {
         rig->started = false;
     }
     if (rig->loop_ready) {
-        mesh_event_loop_shutdown(&rig->loop);
+        inkwell_loop_shutdown(&rig->loop);
         rig->loop_ready = false;
     }
     mesh_bluez_client_mock_disable();

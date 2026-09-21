@@ -1,6 +1,6 @@
 #include "mesh/ui/node_detail.h"
 
-#include "inkcell/utils/text.h"
+#include "inkwell/base/text.h"
 
 #include "mesh/geo/coords.h"
 #include "mesh/i18n/strings.h"
@@ -591,7 +591,7 @@ static void node_rows_relay_name(const struct mesh_ui_handshake_state *roster, u
     if (match != NULL) {
         const char *name = match->short_name[0] != '\0' ? match->short_name : match->long_name;
         if (name[0] != '\0') {
-            inkcell_str_copy(out, out_len, name);
+            inkwell_str_copy(out, out_len, name);
             return;
         }
     }
@@ -1065,7 +1065,7 @@ static void node_rows_neighbor_name(const struct mesh_ui_handshake_state *roster
             const char *name = roster->nodes[i].short_name[0] != '\0' ? roster->nodes[i].short_name
                                                                       : roster->nodes[i].long_name;
             if (name[0] != '\0') {
-                inkcell_str_copy(out, out_len, name);
+                inkwell_str_copy(out, out_len, name);
                 return;
             }
             break;

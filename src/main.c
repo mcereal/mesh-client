@@ -1,11 +1,12 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "inkcell/ui/latency.h"
-#include "inkcell/utils/array.h"
-#include "inkcell/utils/log.h"
-#include "inkcell/utils/text.h"
-#include "inkcell/utils/time.h"
+#include "inkwell/base/array.h"
+#include "inkwell/base/log.h"
+#include "inkwell/base/text.h"
+#include "inkwell/base/time.h"
 
+#include "inkwell/codec/sha256.h"
 #include "mesh/app/app.h"
 #include "mesh/core/config.h"
 #include "mesh/core/firmware_fetch.h"
@@ -20,7 +21,6 @@
 #include "mesh/transport/ble_hci.h"
 #include "mesh/transport/serial.h"
 #include "mesh/transport/tcp.h"
-#include "mesh/utils/sha256.h"
 
 #include <errno.h>
 #include <getopt.h>
@@ -133,7 +133,7 @@ static size_t await_ble_discovery(struct mesh_app *app) {
     struct mesh_bluez_device_info devices[16];
     for (unsigned waited = 0U;; waited += MESH_CLI_DISCOVERY_POLL_MS) {
         const size_t count =
-            mesh_ble_transport_get_devices(ble, devices, INKCELL_ARRAY_LEN(devices));
+            mesh_ble_transport_get_devices(ble, devices, INKWELL_ARRAY_LEN(devices));
         size_t heard = 0U;
         for (size_t i = 0; i < count; ++i) {
             if (devices[i].in_range) {
@@ -394,7 +394,7 @@ static int fetch_radio_firmware(struct mesh_app *app, struct cli_firmware_fetch 
     request.response_max = 512U * 1024U;
     request.on_done = cli_firmware_index;
     request.userdata = run;
-    if (mesh_fetch_start(run->fetcher, &request, inkcell_time_monotonic_ms()) != 0) {
+    if (mesh_fetch_start(run->fetcher, &request, inkwell_time_monotonic_ms()) != 0) {
         fprintf(stderr, "Could not start the release index fetch.\n");
         return -EIO;
     }
@@ -402,8 +402,8 @@ static int fetch_radio_firmware(struct mesh_app *app, struct cli_firmware_fetch 
     unsigned last = 101U;
     enum mesh_firmware_fetch_state last_state = MESH_FIRMWARE_FETCH_STATE_COUNT;
     for (int turn = 0; turn < 60000 && !run->finished; ++turn) {
-        (void)mesh_event_loop_run(&app->loop, 10);
-        const uint64_t now = inkcell_time_monotonic_ms();
+        (void)inkwell_loop_run(&app->loop, 10);
+        const uint64_t now = inkwell_time_monotonic_ms();
         mesh_fetch_tick(run->fetcher, now);
         if (run->resolved) {
             mesh_firmware_fetch_tick(&run->fetch, now);
@@ -477,7 +477,7 @@ static int cli_install_arm(void *userdata) {
        before. */
     for (int turn = 0; turn < 200; ++turn) {
         mesh_transport_registry_tick(&run->app->transport_registry);
-        (void)mesh_event_loop_run(&run->app->loop, 10);
+        (void)inkwell_loop_run(&run->app->loop, 10);
     }
     return 0;
 }
@@ -551,7 +551,7 @@ static bool cli_await_fresh_handshake(struct mesh_app *app, const struct mesh_cl
             return true;
         }
         mesh_transport_registry_tick(&app->transport_registry);
-        (void)mesh_event_loop_run(&app->loop, 50);
+        (void)inkwell_loop_run(&app->loop, 50);
     }
     return false;
 }
@@ -571,7 +571,7 @@ static bool cli_settle_admin_queue(struct mesh_app *app, const struct mesh_cli_l
             return true;
         }
         mesh_transport_registry_tick(&app->transport_registry);
-        (void)mesh_event_loop_run(&app->loop, 50);
+        (void)inkwell_loop_run(&app->loop, 50);
     }
     return false;
 }
@@ -625,7 +625,7 @@ static int install_radio_firmware_ble(struct mesh_app *app,
         cli_select_named_ble_link(app, ble_devices, &link) && connect_and_sync(app, &link) >= 0;
     char radio_address[MESH_FIRMWARE_OTA_ADDRESS_MAX] = {0};
     if (have_radio) {
-        inkcell_str_copy(radio_address, sizeof radio_address, link.peer.identifier);
+        inkwell_str_copy(radio_address, sizeof radio_address, link.peer.identifier);
         cli_print_radio("Radio:   ", &link);
         /*
          * The image names a board and the radio says which board it is, and the two are compared
@@ -663,7 +663,7 @@ static int install_radio_firmware_ble(struct mesh_app *app,
     } else {
         uint8_t scratch[6];
         if (mesh_ble_hci_parse_address(app->config.preferred_ble_device, scratch)) {
-            inkcell_str_copy(radio_address, sizeof radio_address, app->config.preferred_ble_device);
+            inkwell_str_copy(radio_address, sizeof radio_address, app->config.preferred_ble_device);
         }
         /* Nothing to arm, so the transport has nothing to do and must not scan beside us. */
         mesh_transport_registry_stop_all(&app->transport_registry);
@@ -720,8 +720,8 @@ static int install_radio_firmware_ble(struct mesh_app *app,
         }
         return result;
     }
-    char hex[MESH_SHA256_HEX_LEN];
-    mesh_sha256_hex(ota.sha256, hex, sizeof hex);
+    char hex[INKWELL_SHA256_HEX_LEN];
+    inkwell_sha256_hex(ota.sha256, hex, sizeof hex);
     printf("SHA-256:  %s\n", hex);
     fflush(stdout);
 
@@ -730,8 +730,8 @@ static int install_radio_firmware_ble(struct mesh_app *app,
     enum mesh_ble_ota_state last_step = MESH_BLE_OTA_STATE_COUNT;
     unsigned last_progress = 101U;
     while (mesh_firmware_ota_busy(&ota)) {
-        (void)mesh_event_loop_run(&app->loop, 20);
-        const uint64_t now = inkcell_time_monotonic_ms();
+        (void)inkwell_loop_run(&app->loop, 20);
+        const uint64_t now = inkwell_time_monotonic_ms();
         if (link_up) {
             mesh_transport_registry_tick(&app->transport_registry);
             const struct mesh_client_notification *const note =
@@ -785,7 +785,7 @@ static int install_radio_firmware_ble(struct mesh_app *app,
     }
     const bool confirm = ok && ota.radio_seen;
     char confirm_address[MESH_FIRMWARE_OTA_ADDRESS_MAX];
-    inkcell_str_copy(confirm_address, sizeof confirm_address, ota.radio_address);
+    inkwell_str_copy(confirm_address, sizeof confirm_address, ota.radio_address);
     mesh_firmware_ota_cancel(&ota);
     mesh_bluez_client_shutdown(&client);
     if (link_up) {
@@ -794,7 +794,7 @@ static int install_radio_firmware_ble(struct mesh_app *app,
     }
 
     if (confirm) {
-        inkcell_str_copy(app->config.preferred_ble_device, sizeof app->config.preferred_ble_device,
+        inkwell_str_copy(app->config.preferred_ble_device, sizeof app->config.preferred_ble_device,
                          confirm_address);
         if (mesh_transport_registry_start_all(&app->transport_registry, &app->config, &app->loop) ==
             0) {
@@ -882,7 +882,7 @@ static int install_radio_firmware(struct mesh_app *app, const char *target, cons
          * so a label would make it wait out its timeout and report that no bootloader came.
          */
         const char *const id = mesh_serial_transport_connected_id(link.transport);
-        inkcell_str_copy(port, sizeof port, id != NULL ? id : "");
+        inkwell_str_copy(port, sizeof port, id != NULL ? id : "");
         printf("Radio:    %s on %s\n", link.peer.name, port[0] != '\0' ? port : "?");
     } else {
         printf("No radio on USB. Double-tap the reset button to put the board in its "
@@ -909,8 +909,8 @@ static int install_radio_firmware(struct mesh_app *app, const char *target, cons
     enum mesh_firmware_install_state last_state = MESH_FIRMWARE_INSTALL_STATE_COUNT;
     unsigned last_progress = 101U;
     while (mesh_firmware_install_busy(&install)) {
-        (void)mesh_event_loop_run(&app->loop, 50);
-        const uint64_t now = inkcell_time_monotonic_ms();
+        (void)inkwell_loop_run(&app->loop, 50);
+        const uint64_t now = inkwell_time_monotonic_ms();
         /* The registry keeps ticking on purpose: the radio's port disappearing is what the
            transport notices, and the client noticing is what phase 3's own "has it come back
            yet" is written against. */
@@ -992,29 +992,29 @@ static void print_usage(const char *program) {
             program);
 }
 
-static enum inkcell_log_level parse_log_level(const char *value, enum inkcell_log_level fallback) {
+static enum inkwell_log_level parse_log_level(const char *value, enum inkwell_log_level fallback) {
     if (value == NULL) {
         return fallback;
     }
 
     if (strcasecmp(value, "trace") == 0) {
-        return INKCELL_LOG_LEVEL_TRACE;
+        return INKWELL_LOG_LEVEL_TRACE;
     }
     if (strcasecmp(value, "debug") == 0) {
-        return INKCELL_LOG_LEVEL_DEBUG;
+        return INKWELL_LOG_LEVEL_DEBUG;
     }
     if (strcasecmp(value, "info") == 0) {
-        return INKCELL_LOG_LEVEL_INFO;
+        return INKWELL_LOG_LEVEL_INFO;
     }
     if (strcasecmp(value, "warn") == 0 || strcasecmp(value, "warning") == 0) {
-        return INKCELL_LOG_LEVEL_WARN;
+        return INKWELL_LOG_LEVEL_WARN;
     }
     if (strcasecmp(value, "error") == 0) {
-        return INKCELL_LOG_LEVEL_ERROR;
+        return INKWELL_LOG_LEVEL_ERROR;
     }
 
-    inkcell_log_warn("main", "Unknown log level '%s', keeping %s", value,
-                     inkcell_log_level_to_string(fallback));
+    inkwell_log_warn("main", "Unknown log level '%s', keeping %s", value,
+                     inkwell_log_level_to_string(fallback));
     return fallback;
 }
 
@@ -1079,7 +1079,7 @@ int main(int argc, char **argv) {
             break;
         case 'p':
             if (optarg != NULL) {
-                inkcell_str_copy(config.preferred_ble_device, sizeof config.preferred_ble_device,
+                inkwell_str_copy(config.preferred_ble_device, sizeof config.preferred_ble_device,
                                  optarg);
             }
             break;
@@ -1089,7 +1089,7 @@ int main(int argc, char **argv) {
             }
             break;
         case 'l':
-            inkcell_log_set_level(parse_log_level(optarg, inkcell_log_get_level()));
+            inkwell_log_set_level(parse_log_level(optarg, inkwell_log_get_level()));
             break;
         case 1:
             list_devices = true;
@@ -1147,7 +1147,7 @@ int main(int argc, char **argv) {
             break;
         case 12:
             if (optarg != NULL) {
-                inkcell_str_copy(config.preferred_tcp_host, sizeof config.preferred_tcp_host,
+                inkwell_str_copy(config.preferred_tcp_host, sizeof config.preferred_tcp_host,
                                  optarg);
             }
             break;
@@ -1190,12 +1190,12 @@ int main(int argc, char **argv) {
        is an append that no previous run ever cut back, so the run that inherits an oversized one
        is the run that trims it. It is `launch.sh` that owns the file, which is exactly why this
        is here rather than there - the launcher does not ship through self-update and this does. */
-    inkcell_log_file_compact_default();
+    inkwell_log_file_compact_default();
 
     struct mesh_app app;
     int result = mesh_app_init(&app, &config);
     if (result < 0) {
-        inkcell_log_error("main", "Failed to initialise mesh client: %d", result);
+        inkwell_log_error("main", "Failed to initialise mesh client: %d", result);
         return EXIT_FAILURE;
     }
 
@@ -1231,7 +1231,7 @@ int main(int argc, char **argv) {
     if (list_devices || show_status || send_text != NULL) {
         result = mesh_transport_registry_start_all(&app.transport_registry, &app.config, &app.loop);
         if (result < 0) {
-            inkcell_log_error("main", "Failed to start transports: %d", result);
+            inkwell_log_error("main", "Failed to start transports: %d", result);
         } else if (list_devices) {
             list_all_devices(&app);
             mesh_transport_registry_stop_all(&app.transport_registry);
@@ -1275,7 +1275,7 @@ int main(int argc, char **argv) {
     } else {
         result = mesh_app_run(&app);
         if (result < 0) {
-            inkcell_log_error("main", "mesh_app_run failed: %d", result);
+            inkwell_log_error("main", "mesh_app_run failed: %d", result);
         }
         /* Before the shutdown, so a report exists even if tearing the transports down takes a
            while - and only after an interactive run, which is the only one that draws. */
@@ -1324,14 +1324,14 @@ select_preferred_device(const struct mesh_transport *ble, const struct mesh_app_
                 (strcasecmp(scratch[i].address, config->preferred_ble_device) == 0 ||
                  strcasecmp(scratch[i].name, config->preferred_ble_device) == 0)) {
                 if (!scratch[i].in_range) {
-                    inkcell_log_warn("main",
+                    inkwell_log_warn("main",
                                      "Nothing heard in this scan; trying bonded device '%s'",
                                      config->preferred_ble_device);
                 }
                 return &scratch[i];
             }
         }
-        inkcell_log_warn("main",
+        inkwell_log_warn("main",
                          "Preferred device '%s' not in range; falling back to strongest RSSI",
                          config->preferred_ble_device);
     }
@@ -1413,7 +1413,7 @@ static int select_serial_link(struct mesh_app *app, const char *requested,
             }
         }
         if (named && target == NULL) {
-            inkcell_log_error("main", "No USB serial port matches '%s'", wanted);
+            inkwell_log_error("main", "No USB serial port matches '%s'", wanted);
             return -ENODEV;
         }
         if (!named && target != NULL && !mesh_serial_device_is_radio(target)) {
@@ -1432,7 +1432,7 @@ static int select_serial_link(struct mesh_app *app, const char *requested,
         }
     }
     if (target == NULL) {
-        inkcell_log_error("main", "Every USB serial port is a node in its bootloader; "
+        inkwell_log_error("main", "Every USB serial port is a node in its bootloader; "
                                   "press reset on the board to run its firmware");
         return -ENODEV;
     }
@@ -1459,7 +1459,7 @@ static int select_serial_link(struct mesh_app *app, const char *requested,
 static int select_tcp_link(struct mesh_app *app, struct mesh_cli_link *link) {
     struct mesh_transport *tcp = mesh_tcp_transport();
     if (app->config.preferred_tcp_host[0] == '\0') {
-        inkcell_log_error("main", "No host to connect to; pass --tcp-host");
+        inkwell_log_error("main", "No host to connect to; pass --tcp-host");
         return -ENODEV;
     }
 
@@ -1483,7 +1483,7 @@ static int select_tcp_link(struct mesh_app *app, struct mesh_cli_link *link) {
 static int connect_and_sync(struct mesh_app *app, const struct mesh_cli_link *link) {
     int connect_result = link->connect(link->transport, link->peer.identifier);
     if (connect_result < 0 && connect_result != -EALREADY) {
-        inkcell_log_error("main", "Failed to connect to %s: %d", link->peer.identifier,
+        inkwell_log_error("main", "Failed to connect to %s: %d", link->peer.identifier,
                           connect_result);
         return connect_result;
     }
@@ -1495,9 +1495,9 @@ static int connect_and_sync(struct mesh_app *app, const struct mesh_cli_link *li
            wake settle. Poll briefly at first so that costs milliseconds, not a full timeout. */
         const int timeout_ms =
             i < 3 && app->config.idle_timeout_ms > 100 ? 100 : app->config.idle_timeout_ms;
-        int run_result = mesh_event_loop_run(&app->loop, timeout_ms);
+        int run_result = inkwell_loop_run(&app->loop, timeout_ms);
         if (run_result < 0) {
-            inkcell_log_warn("main", "Event loop returned error %d while waiting for handshake",
+            inkwell_log_warn("main", "Event loop returned error %d while waiting for handshake",
                              run_result);
             break;
         }
@@ -1520,9 +1520,9 @@ static int connect_and_sync(struct mesh_app *app, const struct mesh_cli_link *li
                 link->transport->ops->take_error(link->transport, failure, sizeof failure)) {
                 /* The transport's own line usually names the peer already, so this does not
                    say it twice. */
-                inkcell_log_error("main", "Connect failed: %s", failure);
+                inkwell_log_error("main", "Connect failed: %s", failure);
             } else {
-                inkcell_log_error("main", "Lost the link to %s before the handshake completed",
+                inkwell_log_error("main", "Lost the link to %s before the handshake completed",
                                   link->peer.identifier);
             }
             return -ECONNREFUSED;
@@ -1589,7 +1589,7 @@ static int send_text_message(struct mesh_app *app, const struct mesh_cli_link *l
     int send_result =
         mesh_session_send_text(link->session, dest, channel, text, want_ack, &packet_id);
     if (send_result < 0) {
-        inkcell_log_error("main", "Failed to send message: %d", send_result);
+        inkwell_log_error("main", "Failed to send message: %d", send_result);
         link->disconnect(link->transport);
         return send_result;
     }
@@ -1606,9 +1606,9 @@ static int send_text_message(struct mesh_app *app, const struct mesh_cli_link *l
     enum mesh_message_ack final_ack = MESH_MESSAGE_ACK_NONE;
     for (int i = 0; i < max_iterations; ++i) {
         mesh_transport_registry_tick(&app->transport_registry);
-        int run_result = mesh_event_loop_run(&app->loop, app->config.idle_timeout_ms);
+        int run_result = inkwell_loop_run(&app->loop, app->config.idle_timeout_ms);
         if (run_result < 0) {
-            inkcell_log_warn("main", "Event loop returned error %d while sending", run_result);
+            inkwell_log_warn("main", "Event loop returned error %d while sending", run_result);
             break;
         }
 
@@ -1691,7 +1691,7 @@ static int print_status(struct mesh_app *app, const struct mesh_cli_link *link, 
     if (output_path != NULL) {
         output_file = fopen(output_path, "w");
         if (output_file == NULL) {
-            inkcell_log_error("main", "Failed to open %s: %s", output_path, strerror(errno));
+            inkwell_log_error("main", "Failed to open %s: %s", output_path, strerror(errno));
             link->disconnect(link->transport);
             return -errno;
         }

@@ -3,7 +3,7 @@
 /* The settings model itself: rows, edits, key text, coordinates, About. */
 
 #include "inkcell/ui/layout.h"
-#include "inkcell/utils/text.h"
+#include "inkwell/base/text.h"
 
 #include "framework/mesh_test.h"
 #include "support/ui_fixture.h"
@@ -2868,7 +2868,7 @@ MESH_TEST_CASE(settings_withdrawn_verbs_keep_the_section_shape, unit) {
         MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, &up, NULL, 0U, MESH_UI_SETTINGS_ACTIONS,
                                                  MESH_UI_SETTINGS_NO_CHANNEL, row, &item),
                           "a row should exist over a live link");
-        inkcell_str_copy(live[row], sizeof live[row], item.label);
+        inkwell_str_copy(live[row], sizeof live[row], item.label);
     }
 
     char message[160];

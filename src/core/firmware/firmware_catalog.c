@@ -1,8 +1,8 @@
 #include "mesh/core/firmware_catalog.h"
 
-#include "inkcell/utils/text.h"
+#include "inkwell/base/text.h"
 
-#include "mesh/utils/json.h"
+#include "inkwell/codec/json.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -60,32 +60,32 @@ enum mesh_firmware_path mesh_firmware_path_for_architecture(const char *architec
  * is skipped and a missing one leaves its field at whatever init gave it. The only thing that
  * makes a board *usable* is a target, and that is checked by the caller.
  */
-static bool catalog_read_board(struct mesh_json *json, struct mesh_firmware_board *board) {
+static bool catalog_read_board(struct inkwell_json *json, struct mesh_firmware_board *board) {
     memset(board, 0, sizeof *board);
-    if (!mesh_json_enter_object(json)) {
+    if (!inkwell_json_enter_object(json)) {
         return false;
     }
     char key[32];
-    while (mesh_json_next_key(json, key, sizeof key)) {
+    while (inkwell_json_next_key(json, key, sizeof key)) {
         bool read = false;
         if (strcmp(key, "hwModel") == 0) {
             uint64_t model = 0U;
-            read = mesh_json_read_u64(json, &model);
+            read = inkwell_json_read_u64(json, &model);
             board->hw_model = (uint32_t)model;
         } else if (strcmp(key, "platformioTarget") == 0) {
-            read = mesh_json_read_string(json, board->target, sizeof board->target);
+            read = inkwell_json_read_string(json, board->target, sizeof board->target);
         } else if (strcmp(key, "displayName") == 0) {
-            read = mesh_json_read_string(json, board->name, sizeof board->name);
+            read = inkwell_json_read_string(json, board->name, sizeof board->name);
         } else if (strcmp(key, "architecture") == 0) {
-            read = mesh_json_read_string(json, board->architecture, sizeof board->architecture);
+            read = inkwell_json_read_string(json, board->architecture, sizeof board->architecture);
         } else if (strcmp(key, "activelySupported") == 0) {
-            read = mesh_json_read_bool(json, &board->actively_supported);
+            read = inkwell_json_read_bool(json, &board->actively_supported);
         } else if (strcmp(key, "requiresDfu") == 0) {
-            read = mesh_json_read_bool(json, &board->requires_dfu);
+            read = inkwell_json_read_bool(json, &board->requires_dfu);
         }
         /* A key we wanted whose value was the wrong type still has to be stepped over, or the
            walk desynchronises and every board after it reads as garbage. */
-        if (!read && !mesh_json_skip_value(json)) {
+        if (!read && !inkwell_json_skip_value(json)) {
             return false;
         }
     }
@@ -100,12 +100,12 @@ bool mesh_firmware_boards_parse(const char *json_text, size_t len, uint32_t hw_m
     }
     memset(out, 0, sizeof *out);
 
-    struct mesh_json json;
-    mesh_json_init(&json, json_text, len);
-    if (!mesh_json_enter_array(&json)) {
+    struct inkwell_json json;
+    inkwell_json_init(&json, json_text, len);
+    if (!inkwell_json_enter_array(&json)) {
         return false;
     }
-    while (mesh_json_next_element(&json)) {
+    while (inkwell_json_next_element(&json)) {
         struct mesh_firmware_board board;
         if (!catalog_read_board(&json, &board)) {
             return false;
@@ -139,37 +139,37 @@ bool mesh_firmware_release_parse(const char *json_text, size_t len,
     }
     memset(out, 0, sizeof *out);
 
-    struct mesh_json json;
-    mesh_json_init(&json, json_text, len);
-    if (!mesh_json_object_find(&json, "releases")) {
+    struct inkwell_json json;
+    inkwell_json_init(&json, json_text, len);
+    if (!inkwell_json_object_find(&json, "releases")) {
         return false;
     }
-    if (!mesh_json_object_find(&json, catalog_channel_key(channel))) {
+    if (!inkwell_json_object_find(&json, catalog_channel_key(channel))) {
         return false;
     }
-    if (!mesh_json_enter_array(&json)) {
+    if (!inkwell_json_enter_array(&json)) {
         return false;
     }
-    if (!mesh_json_next_element(&json)) {
+    if (!inkwell_json_next_element(&json)) {
         return false; /* the channel exists and is empty */
     }
 
     /* The newest, which is the first: the index is ordered by upstream and these versions end
        in a build hash, so re-sorting them here would be sorting on something unordered. */
-    if (!mesh_json_enter_object(&json)) {
+    if (!inkwell_json_enter_object(&json)) {
         return false;
     }
     char key[32];
     char tag[MESH_FIRMWARE_VERSION_MAX + 2U];
     tag[0] = '\0';
-    while (mesh_json_next_key(&json, key, sizeof key)) {
+    while (inkwell_json_next_key(&json, key, sizeof key)) {
         bool read = false;
         if (strcmp(key, "id") == 0) {
-            read = mesh_json_read_string(&json, tag, sizeof tag);
+            read = inkwell_json_read_string(&json, tag, sizeof tag);
         } else if (strcmp(key, "zip_url") == 0) {
-            read = mesh_json_read_string(&json, out->manifest_url, sizeof out->manifest_url);
+            read = inkwell_json_read_string(&json, out->manifest_url, sizeof out->manifest_url);
         }
-        if (!read && !mesh_json_skip_value(&json)) {
+        if (!read && !inkwell_json_skip_value(&json)) {
             return false;
         }
     }
@@ -186,7 +186,7 @@ bool mesh_firmware_release_parse(const char *json_text, size_t len,
     if (version[0] == '\0') {
         return false;
     }
-    inkcell_str_copy(out->version, sizeof out->version, version);
+    inkwell_str_copy(out->version, sizeof out->version, version);
     /*
      * The index calls it `zip_url` and for a current release it is a `.json` - the per-release
      * manifest. Older entries really do point at a per-platform zip, and one of those is not
@@ -209,16 +209,16 @@ bool mesh_firmware_platform_parse(const char *json_text, size_t len, const char 
     }
     out[0] = '\0';
 
-    struct mesh_json json;
-    mesh_json_init(&json, json_text, len);
-    if (!mesh_json_object_find(&json, "targets")) {
+    struct inkwell_json json;
+    inkwell_json_init(&json, json_text, len);
+    if (!inkwell_json_object_find(&json, "targets")) {
         return false;
     }
-    if (!mesh_json_enter_array(&json)) {
+    if (!inkwell_json_enter_array(&json)) {
         return false;
     }
-    while (mesh_json_next_element(&json)) {
-        if (!mesh_json_enter_object(&json)) {
+    while (inkwell_json_next_element(&json)) {
+        if (!inkwell_json_enter_object(&json)) {
             return false;
         }
         char key[32];
@@ -226,14 +226,14 @@ bool mesh_firmware_platform_parse(const char *json_text, size_t len, const char 
         char platform[MESH_FIRMWARE_ARCH_MAX];
         board[0] = '\0';
         platform[0] = '\0';
-        while (mesh_json_next_key(&json, key, sizeof key)) {
+        while (inkwell_json_next_key(&json, key, sizeof key)) {
             bool read = false;
             if (strcmp(key, "board") == 0) {
-                read = mesh_json_read_string(&json, board, sizeof board);
+                read = inkwell_json_read_string(&json, board, sizeof board);
             } else if (strcmp(key, "platform") == 0) {
-                read = mesh_json_read_string(&json, platform, sizeof platform);
+                read = inkwell_json_read_string(&json, platform, sizeof platform);
             }
-            if (!read && !mesh_json_skip_value(&json)) {
+            if (!read && !inkwell_json_skip_value(&json)) {
                 return false;
             }
         }
@@ -244,7 +244,7 @@ bool mesh_firmware_platform_parse(const char *json_text, size_t len, const char 
              * would let a later duplicate - the shape a bad merge produces - overwrite the
              * answer with whichever copy was last.
              */
-            inkcell_str_copy(out, out_len, platform);
+            inkwell_str_copy(out, out_len, platform);
             return true;
         }
     }
@@ -299,35 +299,35 @@ int mesh_firmware_version_compare(const char *left, const char *right) {
 /* Reads one entry of the manifest's `files` array. Same rule as a board: every key is
    optional, an unknown one is skipped, and a wanted key whose value is the wrong type still
    has to be stepped over or the walk desynchronises. */
-static bool catalog_read_image(struct mesh_json *json, struct mesh_firmware_image *image) {
+static bool catalog_read_image(struct inkwell_json *json, struct mesh_firmware_image *image) {
     memset(image, 0, sizeof *image);
-    if (!mesh_json_enter_object(json)) {
+    if (!inkwell_json_enter_object(json)) {
         return false;
     }
     char key[32];
-    while (mesh_json_next_key(json, key, sizeof key)) {
+    while (inkwell_json_next_key(json, key, sizeof key)) {
         bool read = false;
         if (strcmp(key, "name") == 0) {
-            read = mesh_json_read_string(json, image->name, sizeof image->name);
+            read = inkwell_json_read_string(json, image->name, sizeof image->name);
         } else if (strcmp(key, "md5") == 0) {
-            read = mesh_json_read_string(json, image->md5, sizeof image->md5);
+            read = inkwell_json_read_string(json, image->md5, sizeof image->md5);
         } else if (strcmp(key, "part_name") == 0) {
-            read = mesh_json_read_string(json, image->part, sizeof image->part);
+            read = inkwell_json_read_string(json, image->part, sizeof image->part);
         } else if (strcmp(key, "bytes") == 0) {
-            read = mesh_json_read_u64(json, &image->bytes);
+            read = inkwell_json_read_u64(json, &image->bytes);
         }
-        if (!read && !mesh_json_skip_value(json)) {
+        if (!read && !inkwell_json_skip_value(json)) {
             return false;
         }
     }
     return true;
 }
 
-static bool catalog_read_files(struct mesh_json *json, struct mesh_firmware_manifest *out) {
-    if (!mesh_json_enter_array(json)) {
+static bool catalog_read_files(struct inkwell_json *json, struct mesh_firmware_manifest *out) {
+    if (!inkwell_json_enter_array(json)) {
         return false;
     }
-    while (mesh_json_next_element(json)) {
+    while (inkwell_json_next_element(json)) {
         struct mesh_firmware_image image;
         if (!catalog_read_image(json, &image)) {
             return false;
@@ -353,28 +353,28 @@ bool mesh_firmware_manifest_parse(const char *json_text, size_t len,
     }
     memset(out, 0, sizeof *out);
 
-    struct mesh_json json;
-    mesh_json_init(&json, json_text, len);
-    if (!mesh_json_enter_object(&json)) {
+    struct inkwell_json json;
+    inkwell_json_init(&json, json_text, len);
+    if (!inkwell_json_enter_object(&json)) {
         return false;
     }
     char key[32];
-    while (mesh_json_next_key(&json, key, sizeof key)) {
+    while (inkwell_json_next_key(&json, key, sizeof key)) {
         bool read = false;
         if (strcmp(key, "version") == 0) {
-            read = mesh_json_read_string(&json, out->version, sizeof out->version);
+            read = inkwell_json_read_string(&json, out->version, sizeof out->version);
         } else if (strcmp(key, "platformioTarget") == 0) {
-            read = mesh_json_read_string(&json, out->target, sizeof out->target);
+            read = inkwell_json_read_string(&json, out->target, sizeof out->target);
         } else if (strcmp(key, "mcu") == 0) {
-            read = mesh_json_read_string(&json, out->mcu, sizeof out->mcu);
+            read = inkwell_json_read_string(&json, out->mcu, sizeof out->mcu);
         } else if (strcmp(key, "architecture") == 0) {
-            read = mesh_json_read_string(&json, out->architecture, sizeof out->architecture);
+            read = inkwell_json_read_string(&json, out->architecture, sizeof out->architecture);
         } else if (strcmp(key, "hwModel") == 0) {
             uint64_t model = 0U;
-            read = mesh_json_read_u64(&json, &model);
+            read = inkwell_json_read_u64(&json, &model);
             out->hw_model = (uint32_t)model;
         } else if (strcmp(key, "requiresDfu") == 0) {
-            read = mesh_json_read_bool(&json, &out->requires_dfu);
+            read = inkwell_json_read_bool(&json, &out->requires_dfu);
         } else if (strcmp(key, "files") == 0) {
             /*
              * Fatal rather than skipped, unlike every other key here. A failed scalar read
@@ -388,7 +388,7 @@ bool mesh_firmware_manifest_parse(const char *json_text, size_t len,
             }
             read = true;
         }
-        if (!read && !mesh_json_skip_value(&json)) {
+        if (!read && !inkwell_json_skip_value(&json)) {
             return false;
         }
     }

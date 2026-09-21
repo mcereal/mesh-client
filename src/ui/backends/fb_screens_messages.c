@@ -16,8 +16,8 @@
 #include "inkcell/ui/emoji.h"
 #include "inkcell/ui/layout.h"
 #include "inkcell/ui/widgets.h"
-#include "inkcell/utils/text.h"
-#include "inkcell/utils/time.h"
+#include "inkwell/base/text.h"
+#include "inkwell/base/time.h"
 
 #include "fb_screens_internal.h"
 
@@ -206,7 +206,7 @@ static void fb_format_day(uint32_t rx_time, char *out, size_t out_len) {
     if (localtime_r(&stamp, &when) == NULL) {
         return;
     }
-    const time_t now = (time_t)inkcell_time_wall_s();
+    const time_t now = (time_t)inkwell_time_wall_s();
     struct tm today;
     if (now > 0 && localtime_r(&now, &today) != NULL) {
         if (when.tm_year == today.tm_year && when.tm_yday == today.tm_yday) {
@@ -312,7 +312,7 @@ static void fb_thread_reactions(struct mesh_ui_message_view messages, uint32_t p
             if (kinds == FB_THREAD_REACTION_KINDS) {
                 continue; /* a fifth kind; the four already shown are the story */
             }
-            inkcell_str_copy(seen[kinds].glyph, sizeof seen[kinds].glyph, glyph);
+            inkwell_str_copy(seen[kinds].glyph, sizeof seen[kinds].glyph, glyph);
             seen[kinds].count = 0U;
             kinds++;
         }
@@ -330,7 +330,7 @@ static void fb_thread_reactions(struct mesh_ui_message_view messages, uint32_t p
             inkcell_line_printf(&line, "%s%s", i > 0U ? " " : "", seen[i].glyph);
         }
     }
-    inkcell_str_copy(out, out_len, inkcell_line_text(&line));
+    inkwell_str_copy(out, out_len, inkcell_line_text(&line));
 }
 
 /*
@@ -353,9 +353,9 @@ void fb_thread_quote(struct mesh_ui_message_view messages, uint32_t reply_id, ch
         if (target->packet_id != reply_id || target->is_reaction) {
             continue;
         }
-        /* Sanitised rather than copied: this truncates, and inkcell_str_copy truncates by bytes -
+        /* Sanitised rather than copied: this truncates, and inkwell_str_copy truncates by bytes -
            which on a message ending in an emoji would cut a character in half. */
-        inkcell_text_sanitise_str(target->text, out, out_len);
+        inkwell_text_sanitise_str(target->text, out, out_len);
         return;
     }
 }
@@ -417,7 +417,7 @@ static void fb_thread_row_build(const struct mesh_ui_snapshot *snapshot,
      */
     if (nav->thread_unread_from != 0U && previous != NULL &&
         previous->packet_id == nav->thread_unread_from) {
-        inkcell_str_copy(row->separator, sizeof row->separator,
+        inkwell_str_copy(row->separator, sizeof row->separator,
                          inkcell_str(MESH_STR_THREAD_UNREAD_FROM_HERE));
         row->bubble.separator_tone = INKCELL_TONE_PRIMARY;
     }
@@ -475,7 +475,7 @@ static void fb_thread_row_build(const struct mesh_ui_snapshot *snapshot,
         } else if (message->kind == (uint8_t)MESH_MESSAGE_KIND_DETECTION) {
             inkcell_line_printf(&line, "%s", inkcell_str(MESH_STR_BUBBLE_SENSOR));
         }
-        inkcell_str_copy(row->name, sizeof row->name, inkcell_line_text(&line));
+        inkwell_str_copy(row->name, sizeof row->name, inkcell_line_text(&line));
     }
 
     /*
@@ -549,7 +549,7 @@ static void fb_thread_row_build(const struct mesh_ui_snapshot *snapshot,
      * wrong place to find out that it did, so the generic word stands in for it.
      */
     if (row->bubble.failed) {
-        inkcell_str_copy(row->note, sizeof row->note,
+        inkwell_str_copy(row->note, sizeof row->note,
                          message->ack_error != 0U
                              ? mesh_message_ack_error_to_string(message->ack_error)
                              : inkcell_str(delivery.word));
@@ -584,7 +584,7 @@ fb_thread_cache_get(struct inkcell_backend_fb_state *state, const struct mesh_ui
     }
     /* Include local calendar and zone, so midnight and a timezone change invalidate labels. */
     char calendar[80] = {0};
-    const time_t now = (time_t)inkcell_time_wall_s();
+    const time_t now = (time_t)inkwell_time_wall_s();
     struct tm local;
     if (localtime_r(&now, &local) != NULL) {
         (void)strftime(calendar, sizeof calendar, "%Y-%m-%d %Z %z", &local);

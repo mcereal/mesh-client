@@ -1,7 +1,7 @@
 #include "mesh/ui/backends/cli.h"
 
-#include "inkcell/utils/array.h"
-#include "inkcell/utils/log.h"
+#include "inkwell/base/array.h"
+#include "inkwell/base/log.h"
 
 #include "mesh/core/message.h"
 
@@ -187,24 +187,24 @@ static int mesh_ui_backend_cli_init(void **state, void *userdata) {
     }
     if (context != NULL) {
         const char *console_candidates[] = {"/dev/tty0", "/dev/tty1", "/dev/tty", "/dev/console"};
-        for (size_t i = 0; i < INKCELL_ARRAY_LEN(console_candidates); ++i) {
+        for (size_t i = 0; i < INKWELL_ARRAY_LEN(console_candidates); ++i) {
             const char *path = console_candidates[i];
             FILE *stream = fopen(path, "w");
             if (stream != NULL) {
                 setvbuf(stream, NULL, _IONBF, 0);
                 context->tty_stream = stream;
-                inkcell_log_info("ui", "CLI backend writing to %s", path);
+                inkwell_log_info("ui", "CLI backend writing to %s", path);
                 break;
             }
         }
         if (context->tty_stream == NULL) {
-            inkcell_log_warn("ui", "CLI backend could not open a console for output");
+            inkwell_log_warn("ui", "CLI backend could not open a console for output");
         }
     }
     if (state != NULL) {
         *state = context;
     }
-    inkcell_log_info("ui", "CLI UI backend active");
+    inkwell_log_info("ui", "CLI UI backend active");
     return 0;
 }
 

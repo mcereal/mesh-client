@@ -2,9 +2,9 @@
 
 #include "mesh/core/firmware_download.h"
 
-#include "inkcell/utils/log.h"
-#include "inkcell/utils/text.h"
-#include "inkcell/utils/time.h"
+#include "inkwell/base/log.h"
+#include "inkwell/base/text.h"
+#include "inkwell/base/time.h"
 
 #include "mesh/utils/inflate.h"
 
@@ -172,7 +172,7 @@ static bool download_range(struct mesh_firmware_download *download, const char *
     request.timeout_ms = timeout_ms;
     request.on_done = download_on_fetch;
     request.userdata = download;
-    return mesh_fetch_start(download->fetch, &request, inkcell_time_monotonic_ms()) == 0;
+    return mesh_fetch_start(download->fetch, &request, inkwell_time_monotonic_ms()) == 0;
 }
 
 static void download_step_window(struct mesh_firmware_download *download) {
@@ -180,7 +180,7 @@ static void download_step_window(struct mesh_firmware_download *download) {
      * The largest tail a conforming zip can need, or the whole file when it is smaller than
      * that - which no release zip is, but a 404 page dressed as one might be.
      */
-    const uint64_t want = (uint64_t)MESH_ZIP_TAIL_WINDOW;
+    const uint64_t want = (uint64_t)INKWELL_ZIP_TAIL_WINDOW;
     download->window_offset = download->zip_size > want ? download->zip_size - want : 0U;
     download->window_len = (size_t)(download->zip_size - download->window_offset);
     download->state = MESH_FIRMWARE_DOWNLOAD_READING;
@@ -203,7 +203,7 @@ static void download_step_central(struct mesh_firmware_download *download) {
 static void download_step_header(struct mesh_firmware_download *download) {
     download->state = MESH_FIRMWARE_DOWNLOAD_LOCATING;
     if (!download_range(download, DOWNLOAD_FILE_HEADER, download->entry.local_header_offset,
-                        download->entry.local_header_offset + MESH_ZIP_LOCAL_HEADER_SIZE - 1U,
+                        download->entry.local_header_offset + INKWELL_ZIP_LOCAL_HEADER_SIZE - 1U,
                         DOWNLOAD_STEP_TIMEOUT_MS)) {
         download_fail(download, MESH_FIRMWARE_DOWNLOAD_ERROR_STAGING);
     }
@@ -239,13 +239,13 @@ static void download_read_directory(struct mesh_firmware_download *download, con
         central_size = (uint32_t)len;
         entries = (uint32_t)UINT16_MAX;
     } else {
-        struct mesh_zip_end end;
-        if (!mesh_zip_find_end(window, len, download->window_offset, &end)) {
+        struct inkwell_zip_end end;
+        if (!inkwell_zip_find_end(window, len, download->window_offset, &end)) {
             free(window);
             download_fail(download, MESH_FIRMWARE_DOWNLOAD_ERROR_NOT_A_ZIP);
             return;
         }
-        central = mesh_zip_central_slice(&end, window, len, download->window_offset);
+        central = inkwell_zip_central_slice(&end, window, len, download->window_offset);
         central_size = end.central_size;
         entries = end.entries;
         download->central_offset = end.central_offset;
@@ -260,17 +260,17 @@ static void download_read_directory(struct mesh_firmware_download *download, con
             download->window_len = (size_t)end.central_size;
             download->central_offset = end.central_offset;
             free(window);
-            inkcell_log_info("firmware", "Central directory is %u bytes; fetching it on its own",
+            inkwell_log_info("firmware", "Central directory is %u bytes; fetching it on its own",
                              (unsigned)end.central_size);
             download_step_central(download);
             return;
         }
     }
 
-    const enum mesh_zip_search search =
-        mesh_zip_find_member(central, central_size, entries, download->member, &download->entry);
+    const enum inkwell_zip_search search =
+        inkwell_zip_find_member(central, central_size, entries, download->member, &download->entry);
     free(window);
-    if (search == MESH_ZIP_MALFORMED) {
+    if (search == INKWELL_ZIP_MALFORMED) {
         /*
          * Deliberately not NO_MEMBER. The walk stopped being a walk, which says nothing about
          * whether the file we want is in there - and NO_MEMBER is the row that tells somebody
@@ -280,12 +280,12 @@ static void download_read_directory(struct mesh_firmware_download *download, con
         download_fail(download, MESH_FIRMWARE_DOWNLOAD_ERROR_NOT_A_ZIP);
         return;
     }
-    if (search != MESH_ZIP_FOUND) {
+    if (search != INKWELL_ZIP_FOUND) {
         download_fail(download, MESH_FIRMWARE_DOWNLOAD_ERROR_NO_MEMBER);
         return;
     }
-    if (download->entry.method != MESH_ZIP_METHOD_DEFLATE &&
-        download->entry.method != MESH_ZIP_METHOD_STORE) {
+    if (download->entry.method != INKWELL_ZIP_METHOD_DEFLATE &&
+        download->entry.method != INKWELL_ZIP_METHOD_STORE) {
         download_fail(download, MESH_FIRMWARE_DOWNLOAD_ERROR_UNSUPPORTED);
         return;
     }
@@ -309,14 +309,14 @@ static void download_read_directory(struct mesh_firmware_download *download, con
     }
     if (download->entry.compressed_size > DOWNLOAD_MEMBER_MAX ||
         download->entry.uncompressed_size > DOWNLOAD_MEMBER_MAX) {
-        inkcell_log_error("firmware", "%s claims %u bytes in the zip and %u out; refusing it",
+        inkwell_log_error("firmware", "%s claims %u bytes in the zip and %u out; refusing it",
                           download->entry.name, (unsigned)download->entry.compressed_size,
                           (unsigned)download->entry.uncompressed_size);
         download_fail(download, MESH_FIRMWARE_DOWNLOAD_ERROR_UNSUPPORTED);
         return;
     }
     download->located = true;
-    inkcell_log_info("firmware", "%s is %u bytes in the zip, %u out", download->entry.name,
+    inkwell_log_info("firmware", "%s is %u bytes in the zip, %u out", download->entry.name,
                      (unsigned)download->entry.compressed_size,
                      (unsigned)download->entry.uncompressed_size);
     download_step_header(download);
@@ -330,7 +330,7 @@ static void download_read_header(struct mesh_firmware_download *download) {
         return;
     }
     const bool placed =
-        mesh_zip_local_data_start(header, len, &download->entry, &download->data_offset);
+        inkwell_zip_local_data_start(header, len, &download->entry, &download->data_offset);
     free(header);
     if (!placed) {
         download_fail(download, MESH_FIRMWARE_DOWNLOAD_ERROR_NOT_A_ZIP);
@@ -342,7 +342,7 @@ static void download_read_header(struct mesh_firmware_download *download) {
 static void download_on_fetch(void *userdata, const struct mesh_fetch_result *result) {
     struct mesh_firmware_download *const download = (struct mesh_firmware_download *)userdata;
     if (result->outcome != MESH_FETCH_OK) {
-        inkcell_log_error("firmware", "A range read failed (outcome %d, status %d)",
+        inkwell_log_error("firmware", "A range read failed (outcome %d, status %d)",
                           (int)result->outcome, result->status);
         download_fail(download, MESH_FIRMWARE_DOWNLOAD_ERROR_NETWORK);
         return;
@@ -351,12 +351,12 @@ static void download_on_fetch(void *userdata, const struct mesh_fetch_result *re
     case MESH_FIRMWARE_DOWNLOAD_MEASURING: {
         uint64_t size = 0U;
         if (!mesh_fetch_content_length(result->body, result->len, &size) ||
-            size < MESH_ZIP_LOCAL_HEADER_SIZE) {
+            size < INKWELL_ZIP_LOCAL_HEADER_SIZE) {
             download_fail(download, MESH_FIRMWARE_DOWNLOAD_ERROR_NOT_A_ZIP);
             return;
         }
         download->zip_size = size;
-        inkcell_log_info("firmware", "The release zip is %llu bytes", (unsigned long long)size);
+        inkwell_log_info("firmware", "The release zip is %llu bytes", (unsigned long long)size);
         download_step_window(download);
         break;
     }
@@ -407,7 +407,7 @@ static bool download_write_image(const struct mesh_firmware_download *download,
  *
  * The length and the CRC32 the directory carried are the download's integrity check: there is
  * no separate verify step because this *is* one. Both come from the **central** directory,
- * never the local header, which at 2.8.0 says zero for all three - see mesh/utils/zip.h.
+ * never the local header, which at 2.8.0 says zero for all three - see inkwell/codec/zip.h.
  *
  * A stored member takes the same check with the inflate skipped, so there is one path to the
  * CRC rather than two, and a release that stops compressing an image that does not compress
@@ -428,7 +428,7 @@ static void download_inflate(struct mesh_firmware_download *download) {
          * so this is the only place that is caught - and it is the network's fault, which means
          * the answer is "try again" rather than "give up".
          */
-        inkcell_log_error("firmware", "The member arrived %zu bytes long, not %u", len,
+        inkwell_log_error("firmware", "The member arrived %zu bytes long, not %u", len,
                           (unsigned)download->entry.compressed_size);
         free(member);
         download_fail(download, MESH_FIRMWARE_DOWNLOAD_ERROR_NETWORK);
@@ -438,7 +438,7 @@ static void download_inflate(struct mesh_firmware_download *download) {
     const size_t want = (size_t)download->entry.uncompressed_size;
     uint8_t *image = member;
     size_t produced = len;
-    if (download->entry.method == MESH_ZIP_METHOD_DEFLATE) {
+    if (download->entry.method == INKWELL_ZIP_METHOD_DEFLATE) {
         image = malloc(want);
         if (image == NULL) {
             free(member);
@@ -453,7 +453,7 @@ static void download_inflate(struct mesh_firmware_download *download) {
             return;
         }
         if (inflated != MESH_INFLATE_OK) {
-            inkcell_log_error("firmware", "The member is not a deflate stream that fits %zu bytes",
+            inkwell_log_error("firmware", "The member is not a deflate stream that fits %zu bytes",
                               want);
             free(image);
             download_fail(download, MESH_FIRMWARE_DOWNLOAD_ERROR_INFLATE);
@@ -469,7 +469,7 @@ static void download_inflate(struct mesh_firmware_download *download) {
     }
     if (produced != want || crc != download->entry.crc32) {
         /* The bytes arrived and they are not the bytes the central directory described. */
-        inkcell_log_error("firmware", "The image is %zu bytes with CRC %08x, not %zu with %08x",
+        inkwell_log_error("firmware", "The image is %zu bytes with CRC %08x, not %zu with %08x",
                           produced, (unsigned)crc, want, (unsigned)download->entry.crc32);
         free(image);
         download_fail(download, MESH_FIRMWARE_DOWNLOAD_ERROR_INFLATE);
@@ -482,7 +482,7 @@ static void download_inflate(struct mesh_firmware_download *download) {
         download_fail(download, MESH_FIRMWARE_DOWNLOAD_ERROR_STAGING);
         return;
     }
-    inkcell_log_info("firmware", "Staged %zu bytes of firmware", produced);
+    inkwell_log_info("firmware", "Staged %zu bytes of firmware", produced);
     download_finish(download, MESH_FIRMWARE_DOWNLOAD_READY, MESH_FIRMWARE_DOWNLOAD_ERROR_NONE);
 }
 
@@ -507,9 +507,9 @@ int mesh_firmware_download_start(struct mesh_firmware_download *download, struct
 
     memset(download, 0, sizeof *download);
     download->fetch = fetch;
-    inkcell_str_copy(download->zip_url, sizeof download->zip_url, zip_url);
-    inkcell_str_copy(download->member, sizeof download->member, member);
-    inkcell_str_copy(download->staging, sizeof download->staging, staging_dir);
+    inkwell_str_copy(download->zip_url, sizeof download->zip_url, zip_url);
+    inkwell_str_copy(download->member, sizeof download->member, member);
+    inkwell_str_copy(download->staging, sizeof download->staging, staging_dir);
     download->on_done = on_done;
     download->userdata = userdata;
     download->state = MESH_FIRMWARE_DOWNLOAD_MEASURING;
@@ -525,7 +525,7 @@ int mesh_firmware_download_start(struct mesh_firmware_download *download, struct
     request.timeout_ms = DOWNLOAD_STEP_TIMEOUT_MS;
     request.on_done = download_on_fetch;
     request.userdata = download;
-    const int started = mesh_fetch_start(fetch, &request, inkcell_time_monotonic_ms());
+    const int started = mesh_fetch_start(fetch, &request, inkwell_time_monotonic_ms());
     if (started != 0) {
         download->state = MESH_FIRMWARE_DOWNLOAD_IDLE;
         download->on_done = NULL;

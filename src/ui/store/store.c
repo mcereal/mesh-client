@@ -2,8 +2,8 @@
 
 #include "mesh/ui/store.h"
 
-#include "inkcell/utils/log.h"
-#include "inkcell/utils/text.h"
+#include "inkwell/base/log.h"
+#include "inkwell/base/text.h"
 
 #include "store_internal.h"
 
@@ -36,7 +36,7 @@ void mesh_ui_store_mark_dirty(struct mesh_ui_store *store, mesh_ui_update_flags 
         const uint64_t value = 1U;
         if (write(store->event_fd, &value, sizeof value) < 0) {
             if (errno != EAGAIN) {
-                inkcell_log_warn("ui", "eventfd write failed: %s", strerror(errno));
+                inkwell_log_warn("ui", "eventfd write failed: %s", strerror(errno));
             }
         }
     }
@@ -53,7 +53,7 @@ int mesh_ui_store_init(struct mesh_ui_store *store) {
     store->event_fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
     if (store->event_fd < 0) {
         const int err = -errno;
-        inkcell_log_error("ui", "eventfd create failed: %s", strerror(errno));
+        inkwell_log_error("ui", "eventfd create failed: %s", strerror(errno));
         store->event_fd = -1;
         return err;
     }
@@ -277,11 +277,11 @@ void mesh_ui_store_set_network_host(struct mesh_ui_store *store, const char *hos
         return;
     }
     char next[MESH_UI_NETWORK_HOST_MAX];
-    inkcell_str_copy(next, sizeof next, host != NULL ? host : "");
+    inkwell_str_copy(next, sizeof next, host != NULL ? host : "");
     if (strcmp(store->network_host, next) == 0) {
         return;
     }
-    inkcell_str_copy(store->network_host, sizeof store->network_host, next);
+    inkwell_str_copy(store->network_host, sizeof store->network_host, next);
     mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_DISCOVERY);
 }
 
@@ -1187,7 +1187,7 @@ void mesh_ui_store_view(const struct mesh_ui_snapshot *snapshot, struct mesh_ui_
     memset(view, 0, sizeof *view);
     memcpy(view->devices, snapshot->devices, sizeof view->devices);
     view->device_count = snapshot->device_count;
-    inkcell_str_copy(view->network_host, sizeof view->network_host, snapshot->network_host);
+    inkwell_str_copy(view->network_host, sizeof view->network_host, snapshot->network_host);
     view->handshake = snapshot->handshake;
     view->handshake_valid = snapshot->handshake_valid;
     view->messages = snapshot->messages;
@@ -1389,7 +1389,7 @@ bool mesh_ui_store_consume_updates(struct mesh_ui_store *store, struct mesh_ui_s
         uint64_t value = 0;
         ssize_t read_result = read(store->event_fd, &value, sizeof value);
         if (read_result < 0 && errno != EAGAIN) {
-            inkcell_log_warn("ui", "eventfd read failed: %s", strerror(errno));
+            inkwell_log_warn("ui", "eventfd read failed: %s", strerror(errno));
         }
     }
 
@@ -1404,7 +1404,7 @@ bool mesh_ui_store_consume_updates(struct mesh_ui_store *store, struct mesh_ui_s
 
     snapshot->update_flags = store->pending_flags;
     snapshot->device_count = store->device_count;
-    inkcell_str_copy(snapshot->network_host, sizeof snapshot->network_host, store->network_host);
+    inkwell_str_copy(snapshot->network_host, sizeof snapshot->network_host, store->network_host);
     if (store->device_count > 0U) {
         memcpy(snapshot->devices, store->devices,
                store->device_count * sizeof(struct mesh_ui_device));

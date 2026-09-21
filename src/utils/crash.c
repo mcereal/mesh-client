@@ -10,8 +10,8 @@
 
 #include "mesh/utils/crash.h"
 
-#include "inkcell/utils/text.h"
-#include "inkcell/utils/time.h"
+#include "inkwell/base/text.h"
+#include "inkwell/base/time.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -419,7 +419,7 @@ static void crash_report(int fd, int signal_number, const siginfo_t *info, void 
        it is the only one of the two that means anything: there is no RTC battery, so a device
        that has not reached a network boots into 1970 and says so below. */
     crash_puts(fd, "uptime ms    ");
-    crash_write_unsigned(fd, (uint64_t)inkcell_time_monotonic_ms());
+    crash_write_unsigned(fd, (uint64_t)inkwell_time_monotonic_ms());
     crash_puts(fd, "\nwall clock   ");
     crash_write_unsigned(fd, (uint64_t)time(NULL));
     crash_puts(fd, " (seconds since 1970; a device with no RTC reads small here)\n");
@@ -634,7 +634,7 @@ bool mesh_crash_report_path(char *out, size_t out_len) {
     if (g_report_path[0] == '\0') {
         return false;
     }
-    inkcell_str_copy(out, out_len, g_report_path);
+    inkwell_str_copy(out, out_len, g_report_path);
     return true;
 }
 
@@ -660,7 +660,7 @@ void mesh_crash_note(enum mesh_crash_note_slot slot, const char *value) {
         return;
     }
     /* MESH_CRASH_NOTE_MAX rather than sizeof, so the sentinel byte at the end stays zero. */
-    inkcell_str_copy(g_notes[slot], MESH_CRASH_NOTE_MAX, value);
+    inkwell_str_copy(g_notes[slot], MESH_CRASH_NOTE_MAX, value);
 }
 
 void mesh_crash_log_line(const char *line) {
@@ -669,7 +669,7 @@ void mesh_crash_log_line(const char *line) {
     }
     const unsigned index = (unsigned)g_log_next;
     /* MESH_CRASH_LOG_LINE_MAX rather than sizeof, for the sentinel; see g_notes above. */
-    inkcell_str_copy(g_log[index], MESH_CRASH_LOG_LINE_MAX, line);
+    inkwell_str_copy(g_log[index], MESH_CRASH_LOG_LINE_MAX, line);
     g_log_next = (sig_atomic_t)((index + 1U) % MESH_CRASH_LOG_LINES);
     if ((unsigned)g_log_filled < MESH_CRASH_LOG_LINES) {
         g_log_filled = (sig_atomic_t)((unsigned)g_log_filled + 1U);

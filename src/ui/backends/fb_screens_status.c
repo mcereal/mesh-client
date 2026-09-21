@@ -12,7 +12,7 @@
 
 #include "inkcell/ui/layout.h"
 #include "inkcell/ui/widgets.h"
-#include "inkcell/utils/text.h"
+#include "inkwell/base/text.h"
 
 #include "fb_screens_internal.h"
 
@@ -447,12 +447,12 @@ void fb_render_status(struct inkcell_backend_fb_state *state,
         const float tx_value =
             air_from_stats ? stats->air_util_tx : (metrics != NULL ? metrics->air_util_tx : 0.0f);
         char util[32];
-        inkcell_str_copy(util, sizeof util, inkcell_str(INKCELL_STR_COMMON_UNKNOWN_SHORT));
+        inkwell_str_copy(util, sizeof util, inkcell_str(INKCELL_STR_COMMON_UNKNOWN_SHORT));
         if (have_util) {
             inkcell_str_format(util, sizeof util, MESH_STR_STATUS_PERCENT, (double)util_value);
         }
         char tx[32];
-        inkcell_str_copy(tx, sizeof tx, inkcell_str(INKCELL_STR_COMMON_UNKNOWN_SHORT));
+        inkwell_str_copy(tx, sizeof tx, inkcell_str(INKCELL_STR_COMMON_UNKNOWN_SHORT));
         if (have_tx) {
             inkcell_str_format(tx, sizeof tx, MESH_STR_STATUS_PERCENT, (double)tx_value);
         }
@@ -689,7 +689,7 @@ void fb_render_status(struct inkcell_backend_fb_state *state,
         if (have_battery) {
             /* 101 is upstream's "running off USB", not a 101% battery. */
             if (metrics->battery_level > 100U) {
-                inkcell_str_copy(buffer, sizeof buffer, inkcell_str(MESH_STR_STATUS_BATTERY_USB));
+                inkwell_str_copy(buffer, sizeof buffer, inkcell_str(MESH_STR_STATUS_BATTERY_USB));
             } else {
                 inkcell_str_format(buffer, sizeof buffer, MESH_STR_STATUS_BATTERY_PERCENT,
                                    (unsigned)metrics->battery_level);
@@ -705,7 +705,7 @@ void fb_render_status(struct inkcell_backend_fb_state *state,
              * radio that has sent LocalStats and not yet sent DeviceMetrics: uptime is in both
              * reports and battery is only in the second.
              */
-            inkcell_str_copy(buffer, sizeof buffer, inkcell_str(MESH_STR_STATUS_BATTERY_UNKNOWN));
+            inkwell_str_copy(buffer, sizeof buffer, inkcell_str(MESH_STR_STATUS_BATTERY_UNKNOWN));
         }
         second[0] = '\0';
         if (have_uptime) {

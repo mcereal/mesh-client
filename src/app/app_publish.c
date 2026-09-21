@@ -9,9 +9,9 @@
  * dirty flags and the ranking cut rather than a full rebuild each time.
  */
 
-#include "inkcell/utils/log.h"
-#include "inkcell/utils/text.h"
-#include "inkcell/utils/time.h"
+#include "inkwell/base/log.h"
+#include "inkwell/base/text.h"
+#include "inkwell/base/time.h"
 
 #include "app_internal.h"
 
@@ -46,14 +46,14 @@ void mesh_app_flush_ui_cache(struct mesh_app *app) {
         if (result == 0) {
             app->ui_handshake_cache_dirty = false;
         } else {
-            inkcell_log_debug("app", "Failed to persist handshake cache: %d", result);
+            inkwell_log_debug("app", "Failed to persist handshake cache: %d", result);
         }
     }
 }
 
 void mesh_app_close_ui_cache_timer(struct mesh_app *app) {
     if (app->ui_cache_timer_armed) {
-        mesh_event_loop_remove_fd(&app->loop, app->ui_cache_timer_fd);
+        inkwell_loop_remove_fd(&app->loop, app->ui_cache_timer_fd);
         close(app->ui_cache_timer_fd);
         app->ui_cache_timer_armed = false;
         app->ui_cache_timer_fd = -1;
@@ -82,7 +82,7 @@ static void mesh_app_schedule_ui_cache(struct mesh_app *app) {
     }
     const int fd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
     if (fd >= 0) {
-        int result = mesh_event_loop_add_fd(&app->loop, fd, EPOLLIN, mesh_app_ui_cache_timer, app);
+        int result = inkwell_loop_add_fd(&app->loop, fd, EPOLLIN, mesh_app_ui_cache_timer, app);
         const struct itimerspec spec = {.it_value = {.tv_sec = 2}};
         if (result == 0) {
             if (timerfd_settime(fd, 0, &spec, NULL) == 0) {
@@ -90,7 +90,7 @@ static void mesh_app_schedule_ui_cache(struct mesh_app *app) {
                 app->ui_cache_timer_armed = true;
                 return;
             }
-            mesh_event_loop_remove_fd(&app->loop, fd);
+            inkwell_loop_remove_fd(&app->loop, fd);
         }
         close(fd);
     }
@@ -151,11 +151,11 @@ void mesh_app_format_peer_name(const struct mesh_handshake_status *status, uint3
             /* The names are already sanitised; the copy still has to respect character
                boundaries because peer_name is far shorter than long_name. */
             if (status->nodes[i].short_name[0] != '\0') {
-                inkcell_text_sanitise_str(status->nodes[i].short_name, out, out_len);
+                inkwell_text_sanitise_str(status->nodes[i].short_name, out, out_len);
                 return;
             }
             if (status->nodes[i].long_name[0] != '\0') {
-                inkcell_text_sanitise_str(status->nodes[i].long_name, out, out_len);
+                inkwell_text_sanitise_str(status->nodes[i].long_name, out, out_len);
                 return;
             }
             break;
@@ -248,11 +248,11 @@ void mesh_app_format_relay_name(const struct mesh_handshake_status *status, uint
     }
 
     if (match != NULL && match->short_name[0] != '\0') {
-        inkcell_text_sanitise_str(match->short_name, out, out_len);
+        inkwell_text_sanitise_str(match->short_name, out, out_len);
         return;
     }
     if (match != NULL && match->long_name[0] != '\0') {
-        inkcell_text_sanitise_str(match->long_name, out, out_len);
+        inkwell_text_sanitise_str(match->long_name, out, out_len);
         return;
     }
     inkcell_str_format(out, out_len, MESH_STR_NODE_VAL_RELAY_HEX, (unsigned)last_byte);
@@ -372,9 +372,9 @@ static void mesh_app_restore_node(const struct mesh_ui_node_summary *src,
                                   struct mesh_node_summary *dst) {
     memset(dst, 0, sizeof *dst);
     dst->node_id = src->node_id;
-    (void)inkcell_str_copy(dst->long_name, sizeof dst->long_name, src->long_name);
-    (void)inkcell_str_copy(dst->short_name, sizeof dst->short_name, src->short_name);
-    (void)inkcell_str_copy(dst->user_id, sizeof dst->user_id, src->user_id);
+    (void)inkwell_str_copy(dst->long_name, sizeof dst->long_name, src->long_name);
+    (void)inkwell_str_copy(dst->short_name, sizeof dst->short_name, src->short_name);
+    (void)inkwell_str_copy(dst->user_id, sizeof dst->user_id, src->user_id);
     dst->has_user = src->has_user;
     dst->in_nodedb = src->in_nodedb;
     dst->last_heard = src->last_heard;
@@ -527,7 +527,7 @@ void mesh_app_seed_nodes_from_cache(struct mesh_app *app) {
         ++seeded;
     }
     if (seeded > 0U) {
-        inkcell_log_info("app", "Restored %u node%s from the cached roster", seeded,
+        inkwell_log_info("app", "Restored %u node%s from the cached roster", seeded,
                          seeded == 1U ? "" : "s");
     }
     /* What the roster already knew before any radio was attached. Without this baseline the
@@ -614,8 +614,8 @@ static void mesh_app_publish_waypoints(struct mesh_app *app,
         target->channel = source->channel;
         target->ours = source->ours || (me != 0U && source->from == me);
         target->editable = (source->locked_to == 0U) || (me != 0U && source->locked_to == me);
-        inkcell_str_copy(target->name, sizeof target->name, source->name);
-        inkcell_str_copy(target->description, sizeof target->description, source->description);
+        inkwell_str_copy(target->name, sizeof target->name, source->name);
+        inkwell_str_copy(target->description, sizeof target->description, source->description);
         if (source->from != 0U) {
             mesh_app_format_peer_name(status, source->from, target->from_name,
                                       sizeof target->from_name);
@@ -692,7 +692,7 @@ static void mesh_app_publish_thread(struct mesh_app *app, bool messages_changed)
             /* The card could not be read. An empty *valid* window rather than none, so the
                conversation still draws from this session's traffic and the failed read is not
                retried on every message that arrives. */
-            inkcell_log_debug("app", "Could not read the transcript for this conversation: %d",
+            inkwell_log_debug("app", "Could not read the transcript for this conversation: %d",
                               result);
             memset(&window, 0, sizeof window);
             window.kind = kind;
@@ -764,7 +764,7 @@ static void mesh_app_publish_trends(struct mesh_app *app) {
     const int restored = mesh_ui_trends_restore(&app->ui_trends, open, &app->ui_store.history,
                                                 (uint32_t)app->ui_store.now_ms);
     if (restored < 0) {
-        inkcell_log_debug("app", "Could not read the trend log for this node: %d", restored);
+        inkwell_log_debug("app", "Could not read the trend log for this node: %d", restored);
     }
 }
 
@@ -940,7 +940,7 @@ static void mesh_app_flatten_radio_notice(const struct mesh_client_notification 
     dst->time = src->time;
     dst->received = src->received;
     dst->level = src->level;
-    inkcell_str_copy(dst->text, sizeof dst->text, src->text);
+    inkwell_str_copy(dst->text, sizeof dst->text, src->text);
 }
 
 static void mesh_app_flatten_queue_status(const struct mesh_queue_status *src,
@@ -999,7 +999,7 @@ static void mesh_app_flatten_client_info(const struct mesh_app *app,
     if (app->ui_preferences_path[0] != '\0') {
         /* A path longer than the display field is clipped rather than refused: it is shown
            for orientation, not used to open anything. */
-        inkcell_str_copy(dst->data_dir, sizeof dst->data_dir, app->ui_preferences_path);
+        inkwell_str_copy(dst->data_dir, sizeof dst->data_dir, app->ui_preferences_path);
         char *slash = strrchr(dst->data_dir, '/');
         if (slash != NULL && slash != dst->data_dir) {
             *slash = '\0';
@@ -1117,14 +1117,14 @@ static void mesh_app_flatten_firmware(struct mesh_app *app, struct mesh_ui_setti
 
     dst->fw_supported = mesh_firmware_available(firmware);
     dst->fw_busy = mesh_firmware_busy(firmware);
-    inkcell_str_copy(dst->fw_channel, sizeof dst->fw_channel,
+    inkwell_str_copy(dst->fw_channel, sizeof dst->fw_channel,
                      mesh_firmware_channel_name(firmware->channel));
     dst->fw_state = (uint8_t)firmware->state;
-    inkcell_str_copy(dst->fw_message, sizeof dst->fw_message, firmware->message);
-    inkcell_str_copy(dst->fw_latest, sizeof dst->fw_latest, firmware->release.version);
+    inkwell_str_copy(dst->fw_message, sizeof dst->fw_message, firmware->message);
+    inkwell_str_copy(dst->fw_latest, sizeof dst->fw_latest, firmware->release.version);
 
     const struct mesh_firmware_board *const board = mesh_firmware_board(firmware);
-    inkcell_str_copy(dst->fw_board, sizeof dst->fw_board, board != NULL ? board->name : "");
+    inkwell_str_copy(dst->fw_board, sizeof dst->fw_board, board != NULL ? board->name : "");
 
     /*
      * The wrong-bus refusal is the one the module cannot phrase on its own: which bus to go and
@@ -1132,12 +1132,12 @@ static void mesh_app_flatten_firmware(struct mesh_app *app, struct mesh_ui_setti
      * module already knows.
      */
     if (firmware->blocker == MESH_FIRMWARE_BLOCKER_WRONG_BUS && board != NULL) {
-        inkcell_str_copy(dst->fw_blocker_reason, sizeof dst->fw_blocker_reason,
+        inkwell_str_copy(dst->fw_blocker_reason, sizeof dst->fw_blocker_reason,
                          inkcell_str(board->path == MESH_FIRMWARE_PATH_USB
                                          ? MESH_STR_FW_BLOCK_CONNECT_USB
                                          : MESH_STR_FW_BLOCK_CONNECT_BLE));
     } else {
-        inkcell_str_copy(dst->fw_blocker_reason, sizeof dst->fw_blocker_reason,
+        inkwell_str_copy(dst->fw_blocker_reason, sizeof dst->fw_blocker_reason,
                          mesh_firmware_blocker_reason(firmware->blocker));
     }
 
@@ -1149,7 +1149,7 @@ static void mesh_app_flatten_firmware(struct mesh_app *app, struct mesh_ui_setti
     dst->fw_update_state = (uint8_t)update->state;
     dst->fw_update_error = (uint8_t)update->error;
     dst->fw_update_progress = (uint8_t)mesh_firmware_update_progress(update);
-    inkcell_str_copy(dst->fw_update_detail, sizeof dst->fw_update_detail, update->detail);
+    inkwell_str_copy(dst->fw_update_detail, sizeof dst->fw_update_detail, update->detail);
     dst->fw_radio_in_loader = mesh_firmware_update_radio_in_loader(update);
     /*
      * Whether the press is offered at all.
@@ -1179,7 +1179,7 @@ static void mesh_app_flatten_firmware(struct mesh_app *app, struct mesh_ui_setti
     if (!dst->fw_can_install && firmware->state == MESH_FIRMWARE_AVAILABLE &&
         firmware->blocker == MESH_FIRMWARE_BLOCKER_NONE && dst->fw_blocker_reason[0] == '\0' &&
         firmware->release.manifest_url[0] == '\0') {
-        inkcell_str_copy(dst->fw_blocker_reason, sizeof dst->fw_blocker_reason,
+        inkwell_str_copy(dst->fw_blocker_reason, sizeof dst->fw_blocker_reason,
                          inkcell_str(MESH_STR_FW_BLOCK_NO_ASSETS));
     }
     /*
@@ -1530,7 +1530,7 @@ static void mesh_app_flatten_settings(const struct mesh_radio_settings *src,
     }
     if (src->has_status_message) {
         dst->has_status_message = true;
-        inkcell_str_copy(dst->status_message, sizeof dst->status_message,
+        inkwell_str_copy(dst->status_message, sizeof dst->status_message,
                          src->status_message.node_status);
     }
     if (src->has_detection_sensor) {
@@ -1539,7 +1539,7 @@ static void mesh_app_flatten_settings(const struct mesh_radio_settings *src,
         dst->detection_minimum_broadcast_secs = src->detection_sensor.minimum_broadcast_secs;
         dst->detection_state_broadcast_secs = src->detection_sensor.state_broadcast_secs;
         dst->detection_send_bell = src->detection_sensor.send_bell;
-        inkcell_str_copy(dst->detection_name, sizeof dst->detection_name,
+        inkwell_str_copy(dst->detection_name, sizeof dst->detection_name,
                          src->detection_sensor.name);
         dst->detection_monitor_pin = src->detection_sensor.monitor_pin;
         dst->detection_trigger_type = (uint8_t)src->detection_sensor.detection_trigger_type;
@@ -1659,11 +1659,11 @@ static void mesh_app_flatten_settings(const struct mesh_radio_settings *src,
     }
     if (src->has_canned_messages) {
         dst->has_canned_messages = true;
-        inkcell_str_copy(dst->canned_messages, sizeof dst->canned_messages, src->canned_messages);
+        inkwell_str_copy(dst->canned_messages, sizeof dst->canned_messages, src->canned_messages);
     }
     if (src->has_ringtone) {
         dst->has_ringtone = true;
-        inkcell_str_copy(dst->ringtone, sizeof dst->ringtone, src->ringtone);
+        inkwell_str_copy(dst->ringtone, sizeof dst->ringtone, src->ringtone);
     }
     if (src->has_connection_status) {
         const meshtastic_DeviceConnectionStatus *conn = &src->connection_status;
@@ -1765,7 +1765,7 @@ static void mesh_app_report_delivery(struct mesh_app *app) {
             char toast[MESH_UI_NAV_TOAST_MAX];
             inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_NOT_DELIVERED, watch->peer,
                                mesh_message_ack_error_to_string(message->ack_error));
-            mesh_ui_store_set_toast(&app->ui_store, inkcell_time_monotonic_ms(), toast);
+            mesh_ui_store_set_toast(&app->ui_store, inkwell_time_monotonic_ms(), toast);
         }
     }
     app->ui_sent_watch_count = kept;
@@ -1787,7 +1787,7 @@ static void mesh_app_report_radio_notices(struct mesh_app *app) {
             app->config.run_mode == MESH_APP_RUN_FOREGROUND) {
             /* The radio's words verbatim: it is describing a decision the firmware took, and
                nothing this side of the link knows how to say it better. */
-            mesh_ui_store_set_toast(&app->ui_store, inkcell_time_monotonic_ms(), notice->text);
+            mesh_ui_store_set_toast(&app->ui_store, inkwell_time_monotonic_ms(), notice->text);
         }
     }
 
@@ -1798,7 +1798,7 @@ static void mesh_app_report_radio_notices(struct mesh_app *app) {
            exists so a screen that empties and refills looks like an event rather than a
            glitch. */
         if (reboots != 0U && app->config.run_mode == MESH_APP_RUN_FOREGROUND) {
-            mesh_ui_store_set_toast(&app->ui_store, inkcell_time_monotonic_ms(),
+            mesh_ui_store_set_toast(&app->ui_store, inkwell_time_monotonic_ms(),
                                     inkcell_str(MESH_STR_TOAST_RADIO_RESTARTED));
         }
     }
@@ -1829,7 +1829,7 @@ static void mesh_app_report_key_verification(struct mesh_app *app) {
                                expired.remote_name[0] != '\0'
                                    ? expired.remote_name
                                    : inkcell_str(MESH_STR_COMMON_UNKNOWN));
-            mesh_ui_store_set_toast(&app->ui_store, inkcell_time_monotonic_ms(), toast);
+            mesh_ui_store_set_toast(&app->ui_store, inkwell_time_monotonic_ms(), toast);
         }
     }
 
@@ -1844,8 +1844,8 @@ static void mesh_app_report_key_verification(struct mesh_app *app) {
     published.we_initiated = live->we_initiated;
     published.remote_node = live->remote_node;
     published.security_number = live->security_number;
-    (void)inkcell_str_copy(published.remote_name, sizeof published.remote_name, live->remote_name);
-    (void)inkcell_str_copy(published.characters, sizeof published.characters, live->characters);
+    (void)inkwell_str_copy(published.remote_name, sizeof published.remote_name, live->remote_name);
+    (void)inkwell_str_copy(published.characters, sizeof published.characters, live->characters);
     mesh_ui_store_set_verification(&app->ui_store, &published);
 
     const bool moved = live->seq != app->ui_verify_seq_seen;
@@ -1939,9 +1939,9 @@ static void mesh_app_report_alerts(struct mesh_app *app) {
        it is. */
     const int prefix = inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_ALERT_FROM, peer);
     if (prefix > 0 && (size_t)prefix < sizeof toast) {
-        (void)inkcell_str_copy(toast + prefix, sizeof toast - (size_t)prefix, newest->text);
+        (void)inkwell_str_copy(toast + prefix, sizeof toast - (size_t)prefix, newest->text);
     }
-    mesh_ui_store_set_toast(&app->ui_store, inkcell_time_monotonic_ms(), toast);
+    mesh_ui_store_set_toast(&app->ui_store, inkwell_time_monotonic_ms(), toast);
 }
 
 /*
@@ -2080,9 +2080,9 @@ static void mesh_app_report_direct_messages(struct mesh_app *app) {
         const int prefix =
             inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_MESSAGE_FROM, peer);
         if (prefix > 0 && (size_t)prefix < sizeof toast) {
-            (void)inkcell_str_copy(toast + prefix, sizeof toast - (size_t)prefix, entry->text);
+            (void)inkwell_str_copy(toast + prefix, sizeof toast - (size_t)prefix, entry->text);
         }
-        mesh_ui_store_post_toast(&app->ui_store, inkcell_time_monotonic_ms(), toast);
+        mesh_ui_store_post_toast(&app->ui_store, inkwell_time_monotonic_ms(), toast);
     }
 }
 
@@ -2122,8 +2122,8 @@ static void mesh_app_report_off_radio_nodes(struct mesh_app *app) {
     }
     char toast[MESH_UI_NAV_TOAST_MAX];
     inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_NODES_OFF_RADIO, now);
-    mesh_ui_store_set_toast(&app->ui_store, inkcell_time_monotonic_ms(), toast);
-    inkcell_log_info("app", "Roster and NodeDB diverged: %u off radio, was %u", now, before);
+    mesh_ui_store_set_toast(&app->ui_store, inkwell_time_monotonic_ms(), toast);
+    inkwell_log_info("app", "Roster and NodeDB diverged: %u off radio, was %u", now, before);
 }
 
 void mesh_app_publish_ui_state(struct mesh_app *app) {
@@ -2131,7 +2131,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
         return;
     }
 
-    mesh_ui_store_tick(&app->ui_store, inkcell_time_monotonic_ms());
+    mesh_ui_store_tick(&app->ui_store, inkwell_time_monotonic_ms());
     mesh_app_report_delivery(app);
     mesh_app_report_radio_notices(app);
     mesh_app_report_alerts(app);
@@ -2183,7 +2183,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
     const bool link_connected = (connected_address != NULL && connected_address[0] != '\0');
     if (app->ui_link_was_connected && !link_connected &&
         app->config.run_mode == MESH_APP_RUN_FOREGROUND) {
-        mesh_ui_store_set_toast(&app->ui_store, inkcell_time_monotonic_ms(),
+        mesh_ui_store_set_toast(&app->ui_store, inkwell_time_monotonic_ms(),
                                 inkcell_str(MESH_STR_TOAST_LINK_LOST));
     }
     app->ui_link_was_connected = link_connected;
@@ -2226,10 +2226,10 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
         struct mesh_ui_device *slot = &ui_devices[device_count];
         /* Both sources are fixed-size arrays BlueZ filled in, not strings we can prove are
            terminated - a full 64-byte name with no NUL would send `%s` reading on into the next
-           device in the array. inkcell_str_copy stops at the destination's size either way, which
+           device in the array. inkwell_str_copy stops at the destination's size either way, which
            is what it was written for. */
-        inkcell_str_copy(slot->identifier, sizeof slot->identifier, ble_devices[i].address);
-        inkcell_str_copy(slot->name, sizeof slot->name, ble_devices[i].name);
+        inkwell_str_copy(slot->identifier, sizeof slot->identifier, ble_devices[i].address);
+        inkwell_str_copy(slot->name, sizeof slot->name, ble_devices[i].name);
         slot->kind = (uint8_t)MESH_UI_DEVICE_BLE;
         int16_t rssi = ble_devices[i].rssi;
         if (rssi < INT8_MIN) {
@@ -2327,7 +2327,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
                 if (ui_devices[i].kind == (uint8_t)MESH_UI_DEVICE_BLE &&
                     ui_devices[i].name[0] != '\0' &&
                     strcmp(ui_devices[i].identifier, request.address) == 0) {
-                    inkcell_str_copy(label, sizeof label, ui_devices[i].name);
+                    inkwell_str_copy(label, sizeof label, ui_devices[i].name);
                     break;
                 }
             }
@@ -2544,9 +2544,9 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
                with the one mesh_ui_node_detail_find() gives. */
             dst->has_row = (i < copy_count);
             /* The short name, falling back to the long one - the rule is stated on the field.
-               inkcell_str_copy rather than snprintf because the long name is longer than a label
+               inkwell_str_copy rather than snprintf because the long name is longer than a label
                and cutting it is the expected case, not an overflow to be warned about. */
-            inkcell_str_copy(dst->label, sizeof(dst->label),
+            inkwell_str_copy(dst->label, sizeof(dst->label),
                              src->short_name[0] != '\0' ? src->short_name : src->long_name);
         }
         ui_handshake.map_node_count = (uint32_t)map_count;

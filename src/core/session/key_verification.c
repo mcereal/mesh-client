@@ -1,7 +1,7 @@
 #include "mesh/core/key_verification.h"
 
-#include "inkcell/utils/log.h"
-#include "inkcell/utils/text.h"
+#include "inkwell/base/log.h"
+#include "inkwell/base/text.h"
 
 #include <string.h>
 
@@ -40,7 +40,7 @@ static void adopt_name(struct mesh_key_verification *state, const char *name) {
     if (name == NULL || name[0] == '\0') {
         return;
     }
-    inkcell_text_sanitise_str(name, state->remote_name, sizeof state->remote_name);
+    inkwell_text_sanitise_str(name, state->remote_name, sizeof state->remote_name);
 }
 
 void mesh_key_verification_reset(struct mesh_key_verification *state) {
@@ -73,7 +73,7 @@ bool mesh_key_verification_begin(struct mesh_key_verification *state, uint32_t n
         return false;
     }
     if (mesh_key_verification_active(state) && state->remote_node != node_id) {
-        inkcell_log_info("verify", "Dropping the exchange with 0x%08x to start one with 0x%08x",
+        inkwell_log_info("verify", "Dropping the exchange with 0x%08x to start one with 0x%08x",
                          state->remote_node, node_id);
     }
     mesh_key_verification_reset(state);
@@ -96,7 +96,7 @@ static void adopt(struct mesh_key_verification *state, uint64_t nonce, const cha
                   bool initiated, uint32_t now) {
     if (!mesh_key_verification_active(state) || state->nonce != nonce) {
         if (mesh_key_verification_active(state)) {
-            inkcell_log_info("verify", "Exchange %llu replaces %llu (node 0x%08x)",
+            inkwell_log_info("verify", "Exchange %llu replaces %llu (node 0x%08x)",
                              (unsigned long long)nonce, (unsigned long long)state->nonce,
                              state->remote_node);
         }
@@ -166,7 +166,7 @@ bool mesh_key_verification_on_final(struct mesh_key_verification *state, uint64_
        than the end that is waiting for an answer. */
     const bool initiated = mesh_key_verification_active(state) ? state->we_initiated : false;
     adopt(state, nonce, name, initiated, now);
-    inkcell_text_sanitise_str(characters, state->characters, sizeof state->characters);
+    inkwell_text_sanitise_str(characters, state->characters, sizeof state->characters);
     /* The number has been read out and typed by now; keeping it on the sheet beside the
        characters would be two things to compare where there is one. */
     state->security_number = 0U;
@@ -209,7 +209,7 @@ bool mesh_key_verification_tick(struct mesh_key_verification *state, uint32_t no
     if (now - state->changed < MESH_KEY_VERIFICATION_TIMEOUT_SECONDS) {
         return false;
     }
-    inkcell_log_info("verify", "Giving up on the exchange with 0x%08x after %us",
+    inkwell_log_info("verify", "Giving up on the exchange with 0x%08x after %us",
                      state->remote_node, (unsigned)(now - state->changed));
     return mesh_key_verification_settle(state, out);
 }

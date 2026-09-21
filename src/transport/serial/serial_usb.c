@@ -3,9 +3,9 @@
 
 #include "mesh/transport/serial_usb.h"
 
-#include "inkcell/utils/ioctl.h"
-#include "inkcell/utils/log.h"
-#include "inkcell/utils/text.h"
+#include "inkwell/base/ioctl.h"
+#include "inkwell/base/log.h"
+#include "inkwell/base/text.h"
 
 #include <ctype.h>
 #include <dirent.h>
@@ -143,7 +143,7 @@ static bool sysfs_driver(const char *dir, char *out, size_t out_len) {
     target[len] = '\0';
     const char *base = strrchr(target, '/');
     /* Explicit precision: sysfs paths are PATH_MAX, the field they land in is not. */
-    inkcell_str_copy(out, out_len, base != NULL ? base + 1 : target);
+    inkwell_str_copy(out, out_len, base != NULL ? base + 1 : target);
     return true;
 }
 
@@ -307,7 +307,7 @@ size_t mesh_serial_usb_scan(struct mesh_serial_device_info *out, size_t capacity
 
     DIR *dir = opendir(sysfs_usb_root());
     if (dir == NULL) {
-        inkcell_log_debug("serial", "No USB sysfs at %s: %s", sysfs_usb_root(), strerror(errno));
+        inkwell_log_debug("serial", "No USB sysfs at %s: %s", sysfs_usb_root(), strerror(errno));
         return 0U;
     }
 
@@ -345,7 +345,7 @@ size_t mesh_serial_usb_scan(struct mesh_serial_device_info *out, size_t capacity
 
         struct mesh_serial_device_info *info = &out[count];
         memset(info, 0, sizeof *info);
-        inkcell_str_copy(info->id, sizeof info->id, entry->d_name);
+        inkwell_str_copy(info->id, sizeof info->id, entry->d_name);
         info->bound = find_interface_tty(iface_dir, info->path, sizeof info->path);
         info->control_interface = facts.control_interface;
         info->needs_line_state =
@@ -417,7 +417,7 @@ int mesh_serial_usb_bind(struct mesh_serial_device_info *device) {
 
     FILE *new_id = fopen(MESH_SERIAL_GENERIC_NEW_ID, "we");
     if (new_id == NULL) {
-        inkcell_log_warn("serial", "Cannot open %s: %s", MESH_SERIAL_GENERIC_NEW_ID,
+        inkwell_log_warn("serial", "Cannot open %s: %s", MESH_SERIAL_GENERIC_NEW_ID,
                          strerror(errno));
         return -errno;
     }
@@ -426,11 +426,11 @@ int mesh_serial_usb_bind(struct mesh_serial_device_info *device) {
         fprintf(new_id, "%04x %04x\n", (unsigned)device->vendor_id, (unsigned)device->product_id);
     const int flushed = fclose(new_id);
     if (printed < 0 || flushed != 0) {
-        inkcell_log_warn("serial", "new_id write for %04x:%04x failed: %s", device->vendor_id,
+        inkwell_log_warn("serial", "new_id write for %04x:%04x failed: %s", device->vendor_id,
                          device->product_id, strerror(errno));
         return -EIO;
     }
-    inkcell_log_info("serial", "Bound %04x:%04x to the generic usbserial driver", device->vendor_id,
+    inkwell_log_info("serial", "Bound %04x:%04x to the generic usbserial driver", device->vendor_id,
                      device->product_id);
 
     char iface_dir[PATH_MAX];
@@ -444,13 +444,13 @@ int mesh_serial_usb_bind(struct mesh_serial_device_info *device) {
         if (find_interface_tty(iface_dir, device->path, sizeof device->path)) {
             device->bound = true;
             device->needs_line_state = device->control_interface >= 0;
-            inkcell_log_info("serial", "%s is now %s", device->id, device->path);
+            inkwell_log_info("serial", "%s is now %s", device->id, device->path);
             return 0;
         }
         mesh_serial_sleep_ms(MESH_SERIAL_BIND_POLL_MS);
     }
 
-    inkcell_log_warn("serial", "No tty appeared for %s after %u ms", device->id,
+    inkwell_log_warn("serial", "No tty appeared for %s after %u ms", device->id,
                      MESH_SERIAL_BIND_TIMEOUT_MS);
     return -ENODEV;
 }
@@ -476,16 +476,16 @@ int mesh_serial_usb_set_line_state(const struct mesh_serial_device_info *device,
 
     const int fd = open(usbfs_path, O_RDWR | O_CLOEXEC);
     if (fd < 0) {
-        inkcell_log_warn("serial", "Cannot open %s: %s", usbfs_path, strerror(errno));
+        inkwell_log_warn("serial", "Cannot open %s: %s", usbfs_path, strerror(errno));
         return -errno;
     }
 
     /* The control interface has no driver (the generic one refused it), so claiming it is what
        lets usbfs deliver the request. */
     unsigned int iface = (unsigned int)device->control_interface;
-    bool claimed = ioctl(fd, inkcell_ioctl_request_of(USBDEVFS_CLAIMINTERFACE), &iface) == 0;
+    bool claimed = ioctl(fd, inkwell_ioctl_request_of(USBDEVFS_CLAIMINTERFACE), &iface) == 0;
     if (!claimed) {
-        inkcell_log_debug("serial", "Claim of interface %u on %s failed: %s", iface, usbfs_path,
+        inkwell_log_debug("serial", "Claim of interface %u on %s failed: %s", iface, usbfs_path,
                           strerror(errno));
     }
 
@@ -500,16 +500,16 @@ int mesh_serial_usb_set_line_state(const struct mesh_serial_device_info *device,
     transfer.data = NULL;
 
     int result = 0;
-    if (ioctl(fd, inkcell_ioctl_request_of(USBDEVFS_CONTROL), &transfer) < 0) {
+    if (ioctl(fd, inkwell_ioctl_request_of(USBDEVFS_CONTROL), &transfer) < 0) {
         result = -errno;
-        inkcell_log_warn("serial", "SET_CONTROL_LINE_STATE on %s failed: %s", usbfs_path,
+        inkwell_log_warn("serial", "SET_CONTROL_LINE_STATE on %s failed: %s", usbfs_path,
                          strerror(errno));
     } else {
-        inkcell_log_info("serial", "Asserted DTR on %s interface %u", usbfs_path, iface);
+        inkwell_log_info("serial", "Asserted DTR on %s interface %u", usbfs_path, iface);
     }
 
     if (claimed) {
-        (void)ioctl(fd, inkcell_ioctl_request_of(USBDEVFS_RELEASEINTERFACE), &iface);
+        (void)ioctl(fd, inkwell_ioctl_request_of(USBDEVFS_RELEASEINTERFACE), &iface);
     }
     close(fd);
     return result;
@@ -578,7 +578,7 @@ int mesh_serial_port_set_dtr(int fd, bool on) {
         return -EINVAL;
     }
     int bits = TIOCM_DTR;
-    if (ioctl(fd, inkcell_ioctl_request_of(on ? TIOCMBIS : TIOCMBIC), &bits) < 0) {
+    if (ioctl(fd, inkwell_ioctl_request_of(on ? TIOCMBIS : TIOCMBIC), &bits) < 0) {
         return -errno;
     }
     return 0;

@@ -12,11 +12,11 @@
 #include "framework/mesh_test.h"
 #include "support/ble_ota_fixture.h"
 
+#include "inkwell/codec/sha256.h"
 #include "mesh/core/esp_image.h"
 #include "mesh/transport/ble_bluez.h"
 #include "mesh/transport/ble_hci.h"
 #include "mesh/transport/ble_ota.h"
-#include "mesh/utils/sha256.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -35,7 +35,7 @@ struct ota_rig {
     struct mesh_test_ota_loader loader;
     struct mesh_bluez_mock_config mock;
     uint8_t *image;
-    uint8_t sha256[MESH_SHA256_DIGEST_LEN];
+    uint8_t sha256[INKWELL_SHA256_DIGEST_LEN];
     uint64_t now;
 };
 
@@ -56,10 +56,10 @@ static bool rig_open(struct ota_rig *rig, unsigned write_fail_after) {
     if (rig->image == NULL) {
         return false;
     }
-    struct mesh_sha256 hasher;
-    mesh_sha256_init(&hasher);
-    mesh_sha256_update(&hasher, rig->image, RIG_IMAGE_LEN);
-    mesh_sha256_final(&hasher, rig->sha256);
+    struct inkwell_sha256 hasher;
+    inkwell_sha256_init(&hasher);
+    inkwell_sha256_update(&hasher, rig->image, RIG_IMAGE_LEN);
+    inkwell_sha256_final(&hasher, rig->sha256);
     rig->now = 1000U;
     return mesh_ble_ota_attach(&rig->ota, &rig->client, RIG_LOADER_PATH) == 0;
 }
@@ -112,8 +112,8 @@ MESH_TEST_CASE(ble_ota_sends_an_image, unit) {
     rig_run(&rig, 60000U);
 
     char expected[128];
-    char hex[MESH_SHA256_HEX_LEN];
-    mesh_sha256_hex(rig.sha256, hex, sizeof hex);
+    char hex[INKWELL_SHA256_HEX_LEN];
+    inkwell_sha256_hex(rig.sha256, hex, sizeof hex);
     snprintf(expected, sizeof expected, "OTA %u %s\n", RIG_IMAGE_LEN, hex);
     MESH_TEST_FAIL_IF_CLEANUP(
         rig.loader.command_count != 2U || strcmp(rig.loader.commands[0], "VERSION\n") != 0 ||

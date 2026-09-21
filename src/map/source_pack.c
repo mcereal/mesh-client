@@ -1,6 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 
-#include "inkcell/utils/log.h"
+#include "inkwell/base/log.h"
 
 #include "mesh/map/source.h"
 
@@ -387,7 +387,7 @@ int mesh_map_source_open_pack(const char *path, struct mesh_map_source *out) {
     out->has = pack_has;
     out->close = pack_close;
     out->context = pack;
-    inkcell_log_info("map", "Opened tile pack %s: %u tiles, zoom %u-%u", path, count,
+    inkwell_log_info("map", "Opened tile pack %s: %u tiles, zoom %u-%u", path, count,
                      (unsigned)out->info.min_zoom, (unsigned)out->info.max_zoom);
     return 0;
 }

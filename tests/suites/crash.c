@@ -25,7 +25,7 @@
  * install bug `crash_install_re_aims_rather_than_ignoring_a_second_call` now pins.
  */
 
-#include "inkcell/utils/log.h"
+#include "inkwell/base/log.h"
 
 #include "framework/mesh_test.h"
 #include "support/fs_fixture.h"
@@ -159,21 +159,21 @@ MESH_TEST_CASE(crash_report_keeps_the_newest_log_lines, unit) {
 
 MESH_TEST_CASE(crash_log_ring_takes_what_the_logger_formats, unit) {
     /*
-     * The tap is in inkcell_log_message_v(), so a line reaches the ring already carrying its level
+     * The tap is in inkwell_log_message_v(), so a line reaches the ring already carrying its level
      * and its component. Checked through the logger rather than through mesh_crash_log_line()
      * directly, because what would break here is the wiring rather than the ring.
      */
-    const enum inkcell_log_level restore = inkcell_log_get_level();
-    inkcell_log_set_level(INKCELL_LOG_LEVEL_INFO);
-    inkcell_log_info("crashtest", "a marker worth %d cents", 42);
+    const enum inkwell_log_level restore = inkwell_log_get_level();
+    inkwell_log_set_level(INKWELL_LOG_LEVEL_INFO);
+    inkwell_log_info("crashtest", "a marker worth %d cents", 42);
 
     char dir[] = "/tmp/mesh_crash_tapXXXXXX";
-    MESH_TEST_FAIL_IF_CLEANUP(!crash_test_tempdir(dir), inkcell_log_set_level(restore),
+    MESH_TEST_FAIL_IF_CLEANUP(!crash_test_tempdir(dir), inkwell_log_set_level(restore),
                               "mkdtemp failed");
     char path[256];
     snprintf(path, sizeof path, "%s/report.txt", dir);
     FILE *file = fopen(path, "we");
-    MESH_TEST_FAIL_IF_CLEANUP(file == NULL, inkcell_log_set_level(restore);
+    MESH_TEST_FAIL_IF_CLEANUP(file == NULL, inkwell_log_set_level(restore);
                               mesh_test_remove_tree(dir), "could not open a report");
     mesh_crash_write_report(fileno(file), 6);
     (void)fclose(file);
@@ -181,7 +181,7 @@ MESH_TEST_CASE(crash_log_ring_takes_what_the_logger_formats, unit) {
     static char body[16384];
     const bool read = crash_test_slurp(path, body, sizeof body);
     mesh_test_remove_tree(dir);
-    inkcell_log_set_level(restore);
+    inkwell_log_set_level(restore);
     MESH_TEST_FAIL_IF(!read, "report was unreadable or longer than the buffer");
     MESH_TEST_FAIL_IF(strstr(body, "a marker worth 42 cents") == NULL,
                       "the logger's line never reached the ring");
@@ -192,9 +192,9 @@ MESH_TEST_CASE(crash_log_ring_takes_what_the_logger_formats, unit) {
      * The two have to agree: a report holding lines the log does not is a report that disagrees
      * with the file it is meant to be pasted beside.
      */
-    inkcell_log_set_level(INKCELL_LOG_LEVEL_ERROR);
-    inkcell_log_debug("crashtest", "this line is below the level");
-    inkcell_log_set_level(restore);
+    inkwell_log_set_level(INKWELL_LOG_LEVEL_ERROR);
+    inkwell_log_debug("crashtest", "this line is below the level");
+    inkwell_log_set_level(restore);
 
     char second[256];
     snprintf(second, sizeof second, "%s", path);
@@ -286,8 +286,8 @@ static pid_t crash_test_fork_child(const char *dir, enum crash_child_mode mode) 
     }
     mesh_crash_note(MESH_CRASH_NOTE_VERSION, "child-build");
     mesh_crash_note(MESH_CRASH_NOTE_ROUTE, "status/trend");
-    inkcell_log_set_level(INKCELL_LOG_LEVEL_INFO);
-    inkcell_log_info("child", "the last thing the child did");
+    inkwell_log_set_level(INKWELL_LOG_LEVEL_INFO);
+    inkwell_log_info("child", "the last thing the child did");
 
     switch (mode) {
     case CRASH_CHILD_SEGV:
