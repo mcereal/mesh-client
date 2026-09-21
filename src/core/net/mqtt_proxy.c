@@ -3,6 +3,7 @@
 
 #include "mesh/core/mqtt_proxy.h"
 
+#include "inkwell/base/fd.h"
 #include "inkwell/base/log.h"
 #include "inkwell/base/text.h"
 
@@ -15,7 +16,6 @@
 #include <netinet/tcp.h>
 #include <stdarg.h>
 #include <string.h>
-#include <sys/epoll.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -184,7 +184,8 @@ static void mqtt_arm(struct mesh_mqtt_proxy *proxy) {
         return;
     }
     proxy->want_write = want_write;
-    const uint32_t events = (uint32_t)EPOLLIN | (want_write ? (uint32_t)EPOLLOUT : 0U);
+    const uint32_t events =
+        (uint32_t)INKWELL_LOOP_IN | (want_write ? (uint32_t)INKWELL_LOOP_OUT : 0U);
     (void)inkwell_loop_update_fd(proxy->loop, proxy->fd, events);
 }
 
@@ -624,10 +625,10 @@ static void mqtt_read_ready(struct mesh_mqtt_proxy *proxy) {
                 return;
             }
             /* Which way it is blocked, remembered rather than assumed: a TLS read that stopped
-               because it has something to send is woken by EPOLLOUT, and mqtt_fd_callback()
+               because it has something to send is woken by INKWELL_LOOP_OUT, and mqtt_fd_callback()
                reads the flag to know that a writable socket means *this* rather than the write
                queue. Without it the read is never retried, since nothing new arrives to raise
-               EPOLLIN and epoll reports a writable socket forever. */
+               INKWELL_LOOP_IN and epoll reports a writable socket forever. */
             proxy->read_wants_write = proxy->tls.state != NULL && proxy->tls.wants_write;
             mqtt_arm(proxy);
             return;
@@ -756,13 +757,13 @@ static int mqtt_fd_callback(int fd, uint32_t events, void *userdata) {
     if (proxy->state == MESH_MQTT_PROXY_CONNECTING) {
         /* EPOLLERR here is the ordinary refusal - nothing listening on that port - and
            getsockopt() is what turns it into the errno that says so. */
-        if ((events & (uint32_t)(EPOLLOUT | EPOLLERR | EPOLLHUP)) != 0U) {
+        if ((events & (uint32_t)(INKWELL_LOOP_OUT | INKWELL_LOOP_ERR | INKWELL_LOOP_HUP)) != 0U) {
             mqtt_finish_connect(proxy);
         }
         return 0;
     }
 
-    if ((events & (uint32_t)(EPOLLERR | EPOLLHUP)) != 0U) {
+    if ((events & (uint32_t)(INKWELL_LOOP_ERR | INKWELL_LOOP_HUP)) != 0U) {
         mqtt_fail_net(proxy, INKWELL_NET_CLOSED, 0);
         return 0;
     }
@@ -774,9 +775,9 @@ static int mqtt_fd_callback(int fd, uint32_t events, void *userdata) {
         return 0;
     }
 
-    bool read_now = (events & (uint32_t)EPOLLIN) != 0U;
+    bool read_now = (events & (uint32_t)INKWELL_LOOP_IN) != 0U;
 
-    if ((events & (uint32_t)EPOLLOUT) != 0U) {
+    if ((events & (uint32_t)INKWELL_LOOP_OUT) != 0U) {
         /*
          * A writable socket is two different pieces of news, and the flag says which. Usually it
          * is the write queue's turn; but a TLS read that stopped mid-record because it has an
@@ -802,9 +803,9 @@ static int mqtt_fd_callback(int fd, uint32_t events, void *userdata) {
 /* Opens the socket and starts the connect. `address` already carries the port. */
 static void mqtt_open(struct mesh_mqtt_proxy *proxy, const struct sockaddr_storage *address,
                       socklen_t address_len) {
-    const int fd = socket(address->ss_family, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+    const int fd = inkwell_fd_socket(address->ss_family, SOCK_STREAM, 0);
     if (fd < 0) {
-        mqtt_fail_net(proxy, inkwell_net_reason_from_errno(errno), -errno);
+        mqtt_fail_net(proxy, inkwell_net_reason_from_errno(-fd), fd);
         return;
     }
     /* MQTT packets are small and a reply often follows a request immediately, which is exactly
@@ -821,8 +822,8 @@ static void mqtt_open(struct mesh_mqtt_proxy *proxy, const struct sockaddr_stora
 
     proxy->fd = fd;
     proxy->want_write = true;
-    if (inkwell_loop_add_fd(proxy->loop, fd, (uint32_t)(EPOLLIN | EPOLLOUT), mqtt_fd_callback,
-                            proxy) < 0) {
+    if (inkwell_loop_add_fd(proxy->loop, fd, (uint32_t)(INKWELL_LOOP_IN | INKWELL_LOOP_OUT),
+                            mqtt_fd_callback, proxy) < 0) {
         proxy->fd = -1;
         close(fd);
         mqtt_fail_net(proxy, inkwell_net_reason_from_errno(ENOMEM), -ENOMEM);

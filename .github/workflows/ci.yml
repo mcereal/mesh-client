@@ -80,6 +80,30 @@ jobs:
             dist/MeshClient.pak/**
           if-no-files-found: ignore
 
+  # macOS is a development host, not a target: inkwell's loop is kqueue there, the device half
+  # (fb, evdev, BlueZ, usbfs) compiles to refusals, and the UI runs in an SDL window. The suite
+  # is the same suite. This job is what catches a Linux-only call - timerfd_create(), EPOLLIN,
+  # SOCK_NONBLOCK - arriving above inkwell, which compiles fine on every other job here.
+  macos:
+    name: Build and test (macOS)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      # The same script a developer runs: Homebrew's packages and a .venv with the generators'
+      # Python, which scripts/build.sh then finds by path.
+      - name: Install dependencies
+        run: ./scripts/setup-macos.sh
+
+      - name: Build (Debug)
+        run: make debug
+
+      - name: Run tests
+        run: make test
+
   # The device build, on every pull request. It used to run only in semantic-release.yml, which
   # fires on a push to main - so a change that compiles on glibc/x86-64 and not on musl/aarch64
   # was green in review, red at release time, and red on a protected branch. This job is the

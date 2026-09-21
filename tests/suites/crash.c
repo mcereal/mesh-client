@@ -25,6 +25,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 MESH_TEST_CASE(crash_report_carries_this_clients_identity, unit) {
     char dir[] = "/tmp/mesh_crash_identityXXXXXX";

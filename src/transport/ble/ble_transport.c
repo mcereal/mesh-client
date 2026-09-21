@@ -6,6 +6,9 @@
 #include "inkwell/base/log.h"
 #include "inkwell/base/text.h"
 #include "inkwell/base/time.h"
+#include "inkwell/runtime/loop.h"
+#include "inkwell/runtime/timer.h"
+#include "inkwell/runtime/wake.h"
 
 #include "mesh/i18n/strings.h"
 #include "mesh/transport/ble.h"
@@ -20,9 +23,6 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/epoll.h>
-#include <sys/eventfd.h>
-#include <sys/timerfd.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -35,7 +35,7 @@
 /* Transient ReadValue failures are retried with exponential backoff, then the link is dropped. */
 #define MESH_BLE_DRAIN_RETRY_BASE_MS 250U
 #define MESH_BLE_DRAIN_MAX_FAILURES 5U
-/* Device-list refresh from tick() is rate limited; the 5 s timerfd is the steady-state refresher.
+/* Device-list refresh from tick() is rate limited; the 5 s timer is the steady-state refresher.
  */
 #define MESH_BLE_TICK_REFRESH_MIN_MS 1000U
 /* BlueZ's Connect returns as soon as the link is up; the GATT characteristics only appear once
@@ -105,7 +105,7 @@ struct mesh_ble_transport_state {
     struct mesh_ble_logged_device logged[16];
     size_t logged_count;
     int refresh_timer_fd;
-    int drain_wake_fd; /* eventfd: continue a FromRadio drain on the next loop turn */
+    struct inkwell_wake drain_wake; /* continue a FromRadio drain on the next loop turn */
     uint64_t last_refresh_ms;
     struct inkwell_loop *loop;
     enum mesh_ble_link_state link_state;
@@ -245,10 +245,10 @@ static void mesh_ble_sync_discovery(struct mesh_ble_transport_state *state);
 
 static void mesh_ble_requests_ready(void *userdata) {
     struct mesh_ble_transport_state *state = userdata;
-    const uint64_t one = 1U;
-    if (state->drain_wake_fd >= 0) {
-        if (write(state->drain_wake_fd, &one, sizeof one) < 0 && errno != EAGAIN) {
-            inkwell_log_warn("ble", "request wake write failed: %s", strerror(errno));
+    if (state->drain_wake.fd >= 0) {
+        const int signalled = inkwell_wake_signal(&state->drain_wake);
+        if (signalled < 0) {
+            inkwell_log_warn("ble", "request wake write failed: %s", strerror(-signalled));
         }
     }
 }
@@ -307,7 +307,7 @@ static void mesh_ble_tick(struct mesh_transport *transport) {
                 mesh_ble_reset_link(state, "radio stopped answering");
             }
         }
-        /* Fallback for the eventfd wake, and the path that services delayed retries. */
+        /* Fallback for the drain wake, and the path that services delayed retries. */
         if (state->drain_pending && now >= state->drain_retry_at_ms) {
             mesh_ble_drain_from_radio(state);
         }
@@ -322,17 +322,19 @@ static void mesh_ble_tick(struct mesh_transport *transport) {
 }
 
 static int mesh_ble_drain_wake_callback(int fd, uint32_t events, void *userdata) {
+    (void)fd;
     (void)events;
     struct mesh_transport *transport = (struct mesh_transport *)userdata;
     if (transport == NULL) {
         return 0;
     }
-    uint64_t value = 0;
-    ssize_t read_result = read(fd, &value, sizeof(value));
-    if (read_result < 0 && errno != EAGAIN) {
-        inkwell_log_warn("ble", "drain wake read failed: %s", strerror(errno));
-    }
     struct mesh_ble_transport_state *state = (struct mesh_ble_transport_state *)transport->state;
+    if (state != NULL) {
+        const int drained = inkwell_wake_drain(&state->drain_wake);
+        if (drained < 0) {
+            inkwell_log_warn("ble", "drain wake read failed: %s", strerror(-drained));
+        }
+    }
     if (state != NULL) {
         (void)mesh_ble_flush_write_queue(state);
         if (state->bluez.requests[1].state == 2 && state->link_state == MESH_BLE_LINK_CONNECTING) {
@@ -356,42 +358,40 @@ static int mesh_ble_setup_drain_wake(struct mesh_transport *transport,
     if (loop == NULL) {
         return 0;
     }
-    state->drain_wake_fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
-    if (state->drain_wake_fd < 0) {
-        inkwell_log_warn("ble", "eventfd create failed: %s", strerror(errno));
-        return -errno;
+    const int opened = inkwell_wake_open(&state->drain_wake);
+    if (opened < 0) {
+        inkwell_log_warn("ble", "creating the drain wake failed: %s", strerror(-opened));
+        return opened;
     }
-    int add_result = inkwell_loop_add_fd(loop, state->drain_wake_fd, EPOLLIN,
+    int add_result = inkwell_loop_add_fd(loop, state->drain_wake.fd, INKWELL_LOOP_IN,
                                          mesh_ble_drain_wake_callback, transport);
     if (add_result < 0) {
         inkwell_log_warn("ble", "Failed to add drain wake fd: %d", add_result);
-        close(state->drain_wake_fd);
-        state->drain_wake_fd = -1;
+        inkwell_wake_close(&state->drain_wake);
         return add_result;
     }
     return 0;
 }
 
 static void mesh_ble_teardown_drain_wake(struct mesh_ble_transport_state *state) {
-    if (state->drain_wake_fd >= 0) {
+    if (state->drain_wake.fd >= 0) {
         if (state->loop != NULL) {
-            inkwell_loop_remove_fd(state->loop, state->drain_wake_fd);
+            inkwell_loop_remove_fd(state->loop, state->drain_wake.fd);
         }
-        close(state->drain_wake_fd);
-        state->drain_wake_fd = -1;
+        inkwell_wake_close(&state->drain_wake);
     }
 }
 
 static void mesh_ble_schedule_drain(struct mesh_ble_transport_state *state, uint64_t delay_ms) {
     state->drain_pending = true;
     state->drain_retry_at_ms = delay_ms == 0U ? 0U : inkwell_time_monotonic_ms() + delay_ms;
-    if (delay_ms == 0U && state->drain_wake_fd >= 0) {
-        uint64_t one = 1U;
-        if (write(state->drain_wake_fd, &one, sizeof(one)) < 0 && errno != EAGAIN) {
-            inkwell_log_warn("ble", "drain wake write failed: %s", strerror(errno));
+    if (delay_ms == 0U && state->drain_wake.fd >= 0) {
+        const int signalled = inkwell_wake_signal(&state->drain_wake);
+        if (signalled < 0) {
+            inkwell_log_warn("ble", "drain wake write failed: %s", strerror(-signalled));
         }
     }
-    /* A delayed retry is picked up by tick() instead - deliberately, because an eventfd has no
+    /* A delayed retry is picked up by tick() instead - deliberately, because a wake has no
        clock and a busy-wait until the delay elapsed is exactly what the delay is avoiding. That
        makes the retry only as prompt as the caller's own timeout, which is the contract
        inkwell_loop_run() now actually keeps: it used to return only on an idle epoll, so a
@@ -405,10 +405,9 @@ static int mesh_ble_refresh_timer_callback(int fd, uint32_t events, void *userda
     if (transport == NULL) {
         return 0;
     }
-    uint64_t expirations = 0;
-    ssize_t read_result = read(fd, &expirations, sizeof(expirations));
-    if (read_result < 0 && errno != EAGAIN) {
-        inkwell_log_warn("ble", "refresh timer read failed: %s", strerror(errno));
+    const int64_t expired = inkwell_timer_read(fd);
+    if (expired < 0) {
+        inkwell_log_warn("ble", "refresh timer read failed: %s", strerror((int)-expired));
     }
     mesh_ble_refresh_devices_periodic(transport);
     return 0;
@@ -421,24 +420,20 @@ static int mesh_ble_setup_refresh_timer(struct mesh_transport *transport,
         return 0;
     }
 
-    state->refresh_timer_fd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
-    if (state->refresh_timer_fd < 0) {
-        inkwell_log_warn("ble", "timerfd_create failed: %s", strerror(errno));
-        return -errno;
+    const int fd = inkwell_timer_open();
+    if (fd < 0) {
+        inkwell_log_warn("ble", "creating the refresh timer failed: %s", strerror(-fd));
+        return fd;
     }
-
-    struct itimerspec spec;
-    memset(&spec, 0, sizeof(spec));
-    spec.it_value.tv_sec = 5;
-    spec.it_interval.tv_sec = 5;
-    if (timerfd_settime(state->refresh_timer_fd, 0, &spec, NULL) < 0) {
-        inkwell_log_warn("ble", "timerfd_settime failed: %s", strerror(errno));
-        close(state->refresh_timer_fd);
-        state->refresh_timer_fd = -1;
-        return -errno;
+    const int armed = inkwell_timer_arm_every(fd, 5000U);
+    if (armed < 0) {
+        inkwell_log_warn("ble", "arming the refresh timer failed: %s", strerror(-armed));
+        close(fd);
+        return armed;
     }
+    state->refresh_timer_fd = fd;
 
-    int add_result = inkwell_loop_add_fd(loop, state->refresh_timer_fd, EPOLLIN,
+    int add_result = inkwell_loop_add_fd(loop, state->refresh_timer_fd, INKWELL_LOOP_IN,
                                          mesh_ble_refresh_timer_callback, transport);
     if (add_result < 0) {
         inkwell_log_warn("ble", "Failed to add refresh timer fd: %d", add_result);
@@ -609,7 +604,7 @@ static void mesh_ble_bring_up(struct mesh_transport *transport) {
         mesh_ble_setup_refresh_timer(transport, state, state->loop) < 0) {
         inkwell_log_debug("ble", "Refresh timer unavailable; continuing without periodic updates");
     }
-    if (state->drain_wake_fd < 0 && mesh_ble_setup_drain_wake(transport, state, state->loop) < 0) {
+    if (state->drain_wake.fd < 0 && mesh_ble_setup_drain_wake(transport, state, state->loop) < 0) {
         inkwell_log_debug("ble", "Drain wake unavailable; FromRadio drains continue from tick()");
     }
 
@@ -663,7 +658,8 @@ static int mesh_ble_start(struct mesh_transport *transport, const struct mesh_ap
     state->device_count = 0;
     state->logged_count = 0U;
     state->refresh_timer_fd = -1;
-    state->drain_wake_fd = -1;
+    state->drain_wake.fd = -1;
+    state->drain_wake.write_fd = -1;
     state->last_refresh_ms = 0U;
     state->next_bluez_poll_ms = 0U;
     state->scan_resume_at_ms = 0U;

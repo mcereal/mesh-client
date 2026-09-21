@@ -164,9 +164,16 @@ MESH_TEST_CASE(updater_lifecycle, unit) {
         return;
     }
     /* init reads /proc/self/exe, so the staged name must sit beside the running binary - the
-       rename that installs it is only atomic within one directory. */
-    if (updater.install_path[0] == '\0' ||
-        strncmp(updater.staged_path, updater.install_path, strlen(updater.install_path)) != 0) {
+       rename that installs it is only atomic within one directory. Off Linux there is no
+       binary to replace, deliberately: see mesh_updater_init(). */
+#if defined(__linux__)
+    const bool placed =
+        updater.install_path[0] != '\0' &&
+        strncmp(updater.staged_path, updater.install_path, strlen(updater.install_path)) == 0;
+#else
+    const bool placed = updater.install_path[0] == '\0';
+#endif
+    if (!placed) {
         mesh_updater_shutdown(&updater);
         inkwell_loop_shutdown(&loop);
         record_failure(test_name, "the staged path should sit next to the installed one");

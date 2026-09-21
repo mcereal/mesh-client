@@ -5,34 +5,31 @@
 #include "inkcell/ui/backend.h"
 #include "inkcell/ui/latency.h"
 #include "inkwell/base/log.h"
+#include "inkwell/runtime/loop.h"
+#include "inkwell/runtime/timer.h"
 
 #include "mesh/ui/nav.h"
 
 #include <errno.h>
 #include <stddef.h>
 #include <string.h>
-#include <sys/epoll.h>
-#include <sys/timerfd.h>
 #include <unistd.h>
 
 /*
  * Asks for one more frame in MESH_UI_FRAME_INTERVAL_MS, or stops asking.
  *
- * An all-zero it_value disarms, so "still moving" and "settled" are the same call with a
- * different answer from the backend - there is no separate stop path to forget to take.
+ * A zero delay disarms, so "still moving" and "settled" are the same call with a different
+ * answer from the backend - there is no separate stop path to forget to take.
  */
 static void mesh_ui_controller_schedule_frame(struct mesh_ui_controller *controller, bool moving) {
     if (controller->frame_timer_fd < 0) {
         return;
     }
 
-    struct itimerspec spec;
-    memset(&spec, 0, sizeof spec);
-    if (moving) {
-        spec.it_value.tv_nsec = (long)MESH_UI_FRAME_INTERVAL_MS * 1000000L;
-    }
-    if (timerfd_settime(controller->frame_timer_fd, 0, &spec, NULL) < 0) {
-        inkwell_log_warn("ui", "frame timerfd_settime failed: %s", strerror(errno));
+    const int armed = inkwell_timer_arm_once(controller->frame_timer_fd,
+                                             moving ? (uint32_t)MESH_UI_FRAME_INTERVAL_MS : 0U);
+    if (armed < 0) {
+        inkwell_log_warn("ui", "arming the frame timer failed: %s", strerror(-armed));
     }
 }
 
@@ -57,7 +54,7 @@ static int mesh_ui_controller_event_callback(int fd, uint32_t events, void *user
         return 0;
     }
 
-    if ((events & EPOLLIN) == 0U) {
+    if ((events & INKWELL_LOOP_IN) == 0U) {
         return 0;
     }
 
@@ -74,13 +71,13 @@ static int mesh_ui_controller_event_callback(int fd, uint32_t events, void *user
    timer/store readiness in the same epoll batch cannot render stale data. */
 static int mesh_ui_controller_frame_callback(int fd, uint32_t events, void *userdata) {
     struct mesh_ui_controller *controller = (struct mesh_ui_controller *)userdata;
-    if (controller == NULL || (events & EPOLLIN) == 0U) {
+    if (controller == NULL || (events & INKWELL_LOOP_IN) == 0U) {
         return 0;
     }
 
-    uint64_t expirations = 0U;
-    if (read(fd, &expirations, sizeof expirations) < 0 && errno != EAGAIN) {
-        inkwell_log_warn("ui", "frame timer read failed: %s", strerror(errno));
+    const int64_t expired = inkwell_timer_read(fd);
+    if (expired < 0) {
+        inkwell_log_warn("ui", "frame timer read failed: %s", strerror((int)-expired));
     }
 
     if (mesh_ui_store_consume_updates(controller->store, &controller->snapshot)) {
@@ -105,12 +102,13 @@ static void mesh_ui_controller_setup_frame_timer(struct mesh_ui_controller *cont
         return;
     }
 
-    const int fd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
+    const int fd = inkwell_timer_open();
     if (fd < 0) {
-        inkwell_log_warn("ui", "frame timerfd_create failed: %s", strerror(errno));
+        inkwell_log_warn("ui", "creating the frame timer failed: %s", strerror(-fd));
         return;
     }
-    if (inkwell_loop_add_fd(loop, fd, EPOLLIN, mesh_ui_controller_frame_callback, controller) < 0) {
+    if (inkwell_loop_add_fd(loop, fd, INKWELL_LOOP_IN, mesh_ui_controller_frame_callback,
+                            controller) < 0) {
         inkwell_log_warn("ui", "Failed to watch the frame timer");
         close(fd);
         return;
@@ -145,7 +143,7 @@ int mesh_ui_controller_init(struct mesh_ui_controller *controller, struct mesh_u
 
     const int event_fd = mesh_ui_store_event_fd(store);
     if (loop != NULL && event_fd >= 0) {
-        int add_result = inkwell_loop_add_fd(loop, event_fd, EPOLLIN,
+        int add_result = inkwell_loop_add_fd(loop, event_fd, INKWELL_LOOP_IN,
                                              mesh_ui_controller_event_callback, controller);
         if (add_result < 0) {
             inkwell_log_error("ui", "Failed to register UI store fd: %d", add_result);

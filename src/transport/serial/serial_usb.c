@@ -12,7 +12,6 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
-#include <linux/usbdevice_fs.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -21,6 +20,12 @@
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
+
+/* usbfs is Linux's. Off Linux the sysfs scan below finds no tree and so no device, and the one
+   call that needs usbfs refuses; a port named by path still opens through termios. */
+#if defined(__linux__)
+#include <linux/usbdevice_fs.h>
+#endif
 
 #define MESH_SERIAL_SYSFS_USB_DEFAULT "/sys/bus/usb/devices"
 #define MESH_SERIAL_GENERIC_NEW_ID "/sys/bus/usb-serial/drivers/generic/new_id"
@@ -470,6 +475,11 @@ int mesh_serial_usb_set_line_state(const struct mesh_serial_device_info *device,
         return -ENOTSUP;
     }
 
+#if !defined(__linux__)
+    (void)dtr;
+    (void)rts;
+    return -ENOTSUP;
+#else
     char usbfs_path[PATH_MAX];
     snprintf(usbfs_path, sizeof usbfs_path, "/dev/bus/usb/%03u/%03u", (unsigned)device->busnum,
              (unsigned)device->devnum);
@@ -513,6 +523,7 @@ int mesh_serial_usb_set_line_state(const struct mesh_serial_device_info *device,
     }
     close(fd);
     return result;
+#endif
 }
 
 int mesh_serial_port_open(const char *path) {

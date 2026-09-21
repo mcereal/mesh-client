@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #define _POSIX_C_SOURCE 200809L
 
+#include "inkwell/base/fd.h"
 #include "inkwell/base/log.h"
 #include "inkwell/base/text.h"
 #include "inkwell/base/time.h"
@@ -23,7 +24,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/epoll.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -376,23 +376,23 @@ static int mesh_tcp_fd_callback(int fd, uint32_t events, void *userdata) {
     if (state->link_state == MESH_TCP_LINK_CONNECTING) {
         /* EPOLLERR here is the ordinary refusal - nothing is listening on that port - and
            getsockopt() is what turns it into the errno to say so. Both arms go the same way. */
-        if ((events & (uint32_t)(EPOLLOUT | EPOLLERR | EPOLLHUP)) != 0U) {
+        if ((events & (uint32_t)(INKWELL_LOOP_OUT | INKWELL_LOOP_ERR | INKWELL_LOOP_HUP)) != 0U) {
             mesh_tcp_finish_connect(state, transport);
         }
         return 0;
     }
 
-    if ((events & (uint32_t)(EPOLLERR | EPOLLHUP)) != 0U) {
+    if ((events & (uint32_t)(INKWELL_LOOP_ERR | INKWELL_LOOP_HUP)) != 0U) {
         mesh_tcp_reset_link(state, "the connection dropped");
         return 0;
     }
-    if ((events & (uint32_t)EPOLLOUT) != 0U) {
+    if ((events & (uint32_t)INKWELL_LOOP_OUT) != 0U) {
         if (mesh_stream_link_flush(&state->link) == -EIO) {
             mesh_tcp_reset_link(state, "write failed");
             return 0;
         }
     }
-    if ((events & (uint32_t)EPOLLIN) != 0U) {
+    if ((events & (uint32_t)INKWELL_LOOP_IN) != 0U) {
         (void)mesh_tcp_transport_pump(transport);
     }
     return 0;
@@ -448,9 +448,9 @@ static int mesh_tcp_open(struct mesh_tcp_transport_state *state, struct mesh_tra
                          const struct sockaddr_storage *address, socklen_t address_len) {
     const char *const target = state->target;
 
-    const int fd = socket(address->ss_family, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+    const int fd = inkwell_fd_socket(address->ss_family, SOCK_STREAM, 0);
     if (fd < 0) {
-        const int error = errno;
+        const int error = -fd;
         inkwell_log_warn("tcp", "Cannot open a socket: %s", strerror(error));
         mesh_tcp_fail(state, inkwell_net_reason_from_errno(error), -error, target);
         return -error;
@@ -490,7 +490,7 @@ static int mesh_tcp_open(struct mesh_tcp_transport_state *state, struct mesh_tra
          * descriptor is handed over.
          */
         const int added =
-            inkwell_loop_add_fd(state->loop, fd, EPOLLOUT, mesh_tcp_fd_callback, transport);
+            inkwell_loop_add_fd(state->loop, fd, INKWELL_LOOP_OUT, mesh_tcp_fd_callback, transport);
         if (added < 0) {
             inkwell_log_warn("tcp", "Cannot watch %s: %d", target, added);
             close(fd);

@@ -385,13 +385,28 @@ MESH_TEST_CASE(tcp_transport_connect_loopback, unit) {
         goto cleanup;
     }
 
-    if (mesh_tcp_transport_pump(transport) <= 0) {
+    /* Pumped until the frame is whole rather than once. Linux hands loopback bytes across
+       inside write(), so one pump used to be enough; macOS queues them for an input thread, and
+       a read straight after the write can find the socket still empty. */
+    int pumped = 0;
+    const struct mesh_handshake_status *status = NULL;
+    for (int attempt = 0; attempt < 100; ++attempt) {
+        const int read_now = mesh_tcp_transport_pump(transport);
+        if (read_now < 0) {
+            break;
+        }
+        pumped += read_now;
+        status = mesh_session_handshake(mesh_tcp_transport_session(transport));
+        if (status != NULL && status->has_my_info) {
+            break;
+        }
+        mesh_test_serial_sleep_ms(10);
+    }
+    if (pumped <= 0) {
         record_failure(test_name, "pump should have read the reply");
         goto cleanup;
     }
 
-    const struct mesh_handshake_status *status =
-        mesh_session_handshake(mesh_tcp_transport_session(transport));
     if (status == NULL || !status->has_my_info || status->my_info.my_node_num != 0x433D1A2CU) {
         record_failure(test_name, "MyNodeInfo did not reach the session");
         goto cleanup;

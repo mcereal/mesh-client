@@ -23,7 +23,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#if !defined(__APPLE__)
 #include <sys/random.h>
+#endif
 
 /*
  * What the two LoRa frequency rows will take.
@@ -37,8 +40,13 @@
 #define MESH_LORA_TRIM_MAX_HZ 1000000
 
 /* A fresh channel key. getrandom() blocks until the kernel pool is seeded, which on the Brick
-   it long since is; anything else is an error we surface rather than a weak key. */
+   it long since is; anything else is an error we surface rather than a weak key. macOS has no
+   getrandom(), and arc4random_buf() is its kernel CSPRNG with no way to fail. */
 static int mesh_app_random_key(uint8_t *out, size_t len) {
+#if defined(__APPLE__)
+    arc4random_buf(out, len);
+    return 0;
+#else
     size_t have = 0U;
     while (have < len) {
         const ssize_t got = getrandom(out + have, len - have, 0U);
@@ -51,6 +59,7 @@ static int mesh_app_random_key(uint8_t *out, size_t len) {
         have += (size_t)got;
     }
     return 0;
+#endif
 }
 
 /*

@@ -14,8 +14,6 @@
 #include <errno.h>
 #include <stddef.h>
 #include <stdlib.h>
-#include <sys/epoll.h>
-#include <sys/timerfd.h>
 #include <unistd.h>
 
 MESH_TEST_CASE(config_defaults, unit) {

@@ -11,7 +11,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/epoll.h>
 #include <sys/eventfd.h>
 #include <sys/timerfd.h>
 #include <unistd.h>
@@ -186,7 +185,7 @@ int main(void) {
     client.read_ready = ready;
     client.read_userdata = &completions;
     int input_fd = eventfd(0U, EFD_NONBLOCK | EFD_CLOEXEC);
-    inkwell_loop_add_fd(&loop, input_fd, EPOLLIN, input, &inputs);
+    inkwell_loop_add_fd(&loop, input_fd, INKWELL_LOOP_IN, input, &inputs);
     const char *failure = NULL;
     uint8_t bytes[512];
     size_t length;

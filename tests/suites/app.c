@@ -10,7 +10,10 @@
 #include "support/serial_fixture.h"
 #include "support/session_fixture.h"
 #include <poll.h>
+#if defined(__linux__)
 #include <sys/timerfd.h>
+#endif
+#include "inkwell/runtime/timer.h"
 
 #include "mesh/app/app.h"
 #include "mesh/core/config.h"
@@ -2959,20 +2962,29 @@ MESH_TEST_CASE(app_cache_batches_and_retries_persistence, unit) {
     app->ui_handshake_cache_dirty = true;
     mesh_app_publish_ui_state(app);
     const int timer = app->ui_cache_timer_fd;
+    /* The deadline not moving is read off the timerfd, which is the one thing about a timer that
+       only Linux will say; elsewhere the case still holds that the second update neither writes
+       nor makes a second timer. */
+#if defined(__linux__)
     struct itimerspec before, after;
     timerfd_gettime(timer, &before);
+#endif
     app->ui_store.read_state.revision++;
     mesh_app_publish_ui_state(app);
+#if defined(__linux__)
     timerfd_gettime(timer, &after);
+    const bool deadline_moved = after.it_value.tv_sec > before.it_value.tv_sec ||
+                                (after.it_value.tv_sec == before.it_value.tv_sec &&
+                                 after.it_value.tv_nsec > before.it_value.tv_nsec);
+#else
+    const bool deadline_moved = false;
+#endif
     if (!app->ui_cache_timer_armed || timer != app->ui_cache_timer_fd || access(path, F_OK) == 0 ||
-        after.it_value.tv_sec > before.it_value.tv_sec ||
-        (after.it_value.tv_sec == before.it_value.tv_sec &&
-         after.it_value.tv_nsec > before.it_value.tv_nsec)) {
+        deadline_moved) {
         failure = "updates must share a fixed batching deadline without writing immediately";
         goto cleanup;
     }
-    const struct itimerspec expire = {.it_value = {.tv_nsec = 1L}};
-    timerfd_settime(timer, 0, &expire, NULL);
+    (void)inkwell_timer_arm_once(timer, 1U);
     struct pollfd ready_fd = {.fd = timer, .events = POLLIN};
     (void)poll(&ready_fd, 1, 1000);
     inkwell_loop_run(&app->loop, 0);
@@ -2990,7 +3002,7 @@ MESH_TEST_CASE(app_cache_batches_and_retries_persistence, unit) {
     snprintf(app->ui_handshake_cache_path, sizeof app->ui_handshake_cache_path, "/dev/full/cache");
     app->ui_handshake_cache_dirty = true;
     mesh_app_publish_ui_state(app);
-    timerfd_settime(app->ui_cache_timer_fd, 0, &expire, NULL);
+    (void)inkwell_timer_arm_once(app->ui_cache_timer_fd, 1U);
     ready_fd.fd = app->ui_cache_timer_fd;
     (void)poll(&ready_fd, 1, 1000);
     inkwell_loop_run(&app->loop, 0);

@@ -17,11 +17,20 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/epoll.h>
 #include <sys/mount.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+/* umount2() is Linux's spelling and unmount() the BSDs'. Nothing reaches it off Linux - there is
+   no /proc/mounts there to find a drive in - but it has to compile. */
+static int usb_msc_unmount(const char *point) {
+#if defined(__linux__)
+    return umount2(point, 0);
+#else
+    return unmount(point, 0);
+#endif
+}
 
 #define MESH_USB_MSC_SYSFS_BLOCK_DEFAULT "/sys/block"
 #define MESH_USB_MSC_PROC_MOUNTS_DEFAULT "/proc/mounts"
@@ -336,7 +345,7 @@ int mesh_usb_msc_unmount(struct mesh_usb_msc_target *target) {
        the shadow off is also the restore: what it was hiding is still mounted underneath. */
     while (target->mount_count > 0U) {
         const char *const point = target->mounts[target->mount_count - 1U];
-        if (umount2(point, 0) != 0 && errno != EINVAL && errno != ENOENT) {
+        if (usb_msc_unmount(point) != 0 && errno != EINVAL && errno != ENOENT) {
             const int err = -errno;
             inkwell_log_error("firmware", "Could not unmount %s from %s: %s", target->device, point,
                               strerror(-err));
@@ -528,8 +537,8 @@ int mesh_usb_msc_write_start(struct mesh_usb_msc_write *write, struct inkwell_lo
     if (flags >= 0) {
         (void)fcntl(write->progress_fd, F_SETFL, flags | O_NONBLOCK);
     }
-    if (loop != NULL &&
-        inkwell_loop_add_fd(loop, write->progress_fd, EPOLLIN, write_on_progress, write) != 0) {
+    if (loop != NULL && inkwell_loop_add_fd(loop, write->progress_fd, INKWELL_LOOP_IN,
+                                            write_on_progress, write) != 0) {
         /* Not fatal: without the loop the tick still drains the pipe, it just does so at
            whatever rate the caller ticks. */
         write->loop = NULL;
