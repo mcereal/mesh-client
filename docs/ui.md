@@ -23,13 +23,13 @@ evdev -> inkcell_input -> mesh_ui_controller_handle_key -> mesh_ui_store_handle_
   `present`): `fb.c` (the device UI), `cli.c` (a terminal fallback), `stub.c` (tests).
   **Backends are stateless** — they draw the cursor from `snapshot->nav`. A new platform
   implements the backend interface and leaves the store and controller untouched.
-- **`src/ui/layout.c`** holds the backend-agnostic primitives: `struct inkcell_line` (a string
+- **inkcell's `src/layout.c`** holds the backend-agnostic primitives: `struct inkcell_line` (a string
   builder that only ever measures in drawn cells), `struct inkcell_list` (the
   cursor-clamp-and-scroll-window arithmetic, measured in **steps** rather than items),
   `struct inkcell_wrap` (cell-measured word wrap) and `inkcell_transcript_window` (the
   bottom-anchored window variable-height items need). None touches a framebuffer, a font or a
   snapshot, so all are unit tested directly in `tests/suites/ui_layout.c`.
-- **`src/ui/theme/theme.c`** and **`src/ui/theme/font.c`** hold what the UI *looks* like. Nothing that draws
+- **inkcell's `src/theme/theme.c`** and **`src/theme/font.c`** hold what the UI *looks* like. Nothing that draws
   holds a colour or a margin of its own — see [Themes](#themes).
 - **`src/ui/nav/`** owns the tab/cursor/compose-target model (`struct mesh_ui_nav`, carried in
   every snapshot and clamped against the lists on each consume) and return a `mesh_ui_action`.
@@ -195,7 +195,7 @@ detail came to describe itself with the first node's trace.
 
 ## Input
 
-`src/ui/input/input.c` reads every `/dev/input/event*` and maps evdev codes to `enum inkcell_key`.
+inkcell's `src/input/input.c` reads every `/dev/input/event*` and maps evdev codes to `enum inkcell_key`.
 Quit keys stop the loop before mapping.
 
 **The Brick's face buttons do not report by position.** A is `BTN_EAST` (305), B is `BTN_SOUTH`
@@ -781,10 +781,10 @@ and tinted at draw time, so changing a colour does not regenerate them.
 
 | File | What it is |
 |---|---|
-| `src/ui/theme/font_ui.c` | `"ui"`, JetBrains Mono, the default face — generated |
-| `src/ui/theme/font5x7.c` | `"5x7"`, the pixel face. ASCII plus composed accented Latin |
-| `src/ui/theme/emoji.c` + `generated/emoji_glyphs.c` | emoji, generated |
-| `src/ui/theme/icon.c` + `generated/icon_glyphs.c` | the icon set; `icons.def` is the table |
+| inkcell's `src/theme/font_ui.c` | `"ui"`, JetBrains Mono, the default face — generated |
+| inkcell's `src/theme/font5x7.c` | `"5x7"`, the pixel face. ASCII plus composed accented Latin |
+| inkcell's `src/theme/emoji.c` + `src/generated/emoji_glyphs.c` | emoji, generated |
+| inkcell's `src/theme/icon.c` + `src/generated/icon_glyphs.c` | the icon set; `icons.def` is the table |
 
 `scripts/gen-{emoji,icons,font,locale}.py` are **not part of the build** — run them by hand and
 commit the result.
@@ -792,7 +792,7 @@ commit the result.
 ## Themes
 
 Everything that makes the UI look like something — palette, margin, glyph multiplier, font — is
-one table in `src/ui/theme/theme.c`. `MESHCLIENT_THEME` picks one (`dark`, `light`, `contrast`,
+one table in inkcell's `src/theme/theme.c`. `MESHCLIENT_THEME` picks one (`dark`, `light`, `contrast`,
 `colorblind`).
 
 Four vocabularies, most abstract to least:
@@ -880,7 +880,7 @@ column gives way. A "large text" theme is that struct with a different `scale`.
 
 ### Adding a theme
 
-Add an entry to `k_themes` in `src/ui/theme/theme.c` — id, name, font id, a colour per role, metrics.
+Add an entry to `k_themes` in inkcell's `src/theme/theme.c` — id, name, font id, a colour per role, metrics.
 That is the whole change. `inkcell_theme_validate()` then holds it to a readability contract the
 suite runs over every registered theme: body text on its ground **4.5:1** (WCAG AA), secondary
 text **3:1**, a hairline only has to be visible.
@@ -907,7 +907,7 @@ A UI change wants a picture, and most want a moving one: the interesting part is
 *transition*. `scripts/ui-capture.sh` drives the HUD through a scripted sequence of presses and
 renders each frame into memory. **Nothing about it is a mock** — `mesh_ui_store_handle_key()` and
 `fb_render_snapshot()` are the ones that ship, drawing into a malloc'd page instead of an mmap of
-`/dev/fb0` (`src/ui/backends/fb_capture.c`). Only the radio is invented, so it works from a
+`/dev/fb0` (inkcell's `src/fb/fb_capture.c`). Only the radio is invented, so it works from a
 container, a CI runner or a cloud session.
 
 ```bash

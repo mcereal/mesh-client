@@ -113,7 +113,7 @@ only a consequence of one of them, and neither is a thing a test could pin.
 
 - **The Brick's face buttons do not report by position.** A is `BTN_EAST` (305), B is
   `BTN_SOUTH` (304), the button printed **Y (left)** is `BTN_NORTH` (307), X (top) is `BTN_WEST`
-  (308). That is the `brick` row of `src/ui/input/input_profile.c`, **not a default the rest of the
+  (308). That is the `brick` row of inkcell's `src/input/input_profile.c`, **not a default the rest of the
   client may assume**: the `xbox` row is the ordinary convention, where A is the code the Brick
   calls B. The two disagree about exactly the buttons that confirm and go back, which is why one
   row holds the codes *and* the keycaps - correcting one without the other is invisible, because
@@ -691,11 +691,10 @@ only a consequence of one of them, and neither is a thing a test could pin.
 - **`launch.sh` does not ship through self-update.** Only the bare binary does. Changing it
   forces a pak reinstall, so treat it as a compatibility boundary. That is why the CA roots are
   compiled into the binary rather than shipped beside it.
-- **`scripts/gen-emoji.py` is not part of the build.** Run it by hand and commit the result.
-  The same goes for `scripts/gen-icons.py`, which rasterises the icon set out of Material
-  Symbols, for `scripts/gen-font.py`, which rasterises the `ui` face out of JetBrains Mono, for
-  `scripts/gen-locale.py`, which turns the string catalog into a translation template or a
-  locale skeleton, and for `scripts/gen-ca-roots.py`, which compiles
-  `third_party/mozilla-ca/cacert.pem` into the root table.
+- **`scripts/gen-locale.py` is not part of the build.** Run it by hand and commit the result.
+  It turns the string catalog into a translation template or a locale skeleton. The same goes
+  for `scripts/gen-ca-roots.py`, which compiles `third_party/mozilla-ca/cacert.pem` into the
+  root table. The glyph generators went with the glyphs: emoji, icons and the `ui` face are
+  inkcell's, and so are the scripts that rasterise them.
 - **`devtools/` is not `Tools/`.** `Tools/` holds the device-facing pak assets, and macOS
   filesystems are case-insensitive by default, so a `tools/` directory would collide with it.

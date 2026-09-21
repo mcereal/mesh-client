@@ -180,7 +180,7 @@ these two describe no real diamond. An Xbox pad's X is on the **left** and repor
 either profile by reading the compass name as a position and you get A and B right and silently
 swap X and Y. `tests/suites/ui_input.c` asserts both by number.
 
-That is why the codes and the keycaps are **one table**: `src/ui/input/input_profile.c` holds a row per
+That is why the codes and the keycaps are **one table**: inkcell's `src/input/input_profile.c` holds a row per
 device, and `MESHCLIENT_INPUT_PROFILE` (`brick` or `xbox`) picks one for both the key mapping and
 the action bar's caps. Correcting one without the other is invisible — the binding still works,
 it just does the other thing, and the bar goes on promising the first.

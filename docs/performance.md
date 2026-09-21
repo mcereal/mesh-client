@@ -30,7 +30,7 @@ times change even when the renderer is identical.
 ## A press to the panel, on the device
 
 `--trace-latency` (or `MESHCLIENT_LATENCY_TRACE=1`) switches on the probe in
-[`src/ui/views/latency.c`](../src/ui/views/latency.c), off otherwise. Six readings, printed as percentiles on
+inkcell's `src/latency.c`, off otherwise. Six readings, printed as percentiles on
 exit: `press` (the kernel's evdev timestamp to the end of the `present()` that answered it),
 `frame`, `draw`, `flip`, `read` (a tile off the card) and `decode`.
 
@@ -40,7 +40,7 @@ Three things about it are decisions rather than details:
   event at all, and that wait is the whole of what an integrated number adds to a standalone one.
   The reader asks evdev for `CLOCK_MONOTONIC` stamps (`EVIOCSCLOCKID`); a device that refuses is
   not counted rather than counted wrongly.
-- **A key repeat is not a press.** `src/ui/input/input.c` generates repeat off its own timerfd, so a
+- **A key repeat is not a press.** inkcell's `src/input/input.c` generates repeat off its own timerfd, so a
   held direction has no evdev event behind it. Counted from "now" it would report zero queueing
   delay on exactly the presses a held pan is made of.
 - **It keeps histograms, not samples.** A fill frame is twenty times as common as a press, so a
