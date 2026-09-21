@@ -19,8 +19,19 @@ struct mesh_ui_snapshot;
    this writes, never declared separately - see docs/ui.md. */
 void mesh_ui_actions_for(const struct mesh_ui_snapshot *snapshot, struct inkcell_action_bar *out);
 
-/* Whether `bar` offers a way out - a B that leaves rather than one that does something on the
-   screen it is on. What the heading's back arrow is derived from. */
+/*
+ * Whether `bar` offers a way out - what the top app bar's leading arrow is derived from, and the
+ * one question about a bar that something other than the bar asks.
+ *
+ * Answered from the table rather than by the screen renderers because the table is already the
+ * place that decides it, and a second opinion is how a screen that grows a press ends up with
+ * two places to remember it. Reading it off the bar also makes the arrow exactly as conditional
+ * as the press is, which a flag on a screen would not be: a settings section with edits pending
+ * offers B as *discard*, not as back, and it is right that no arrow appears there.
+ *
+ * It lives here rather than in inkcell because the answer is "does this bar carry
+ * MESH_STR_ACTION_BACK", and which verb means leave is a row in this client's catalog.
+ */
 bool mesh_ui_action_bar_goes_back(const struct inkcell_action_bar *bar);
 
 #endif /* MESH_UI_ACTIONS_H */
