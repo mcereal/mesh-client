@@ -13,6 +13,7 @@
 #include "inkcell/ui/emoji.h"
 #include "inkcell/ui/font.h"
 #include "inkcell/ui/theme.h"
+#include "inkcell/ui/widgets.h"
 #include "inkcell/utils/time.h"
 
 #include "framework/mesh_test.h"
@@ -32,7 +33,6 @@
 #include "mesh/ui/store.h"
 
 #include "../../src/ui/backends/fb_internal.h"
-#include "inkcell/ui/widgets.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -94,9 +94,9 @@ MESH_TEST_CASE(ui_capture_renders_a_snapshot, unit) {
                               mesh_ui_store_shutdown(&store), "no snapshot to render");
 
     struct inkcell_capture *capture = NULL;
-    MESH_TEST_FAIL_IF_CLEANUP(
-        mesh_ui_capture_open(&capture, INKCELL_CAPTURE_WIDTH, INKCELL_CAPTURE_HEIGHT, 4) != 0,
-        mesh_ui_store_shutdown(&store), "capture open failed");
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, INKCELL_CAPTURE_WIDTH,
+                                                   INKCELL_CAPTURE_HEIGHT, INKCELL_SCALE(4)) != 0,
+                              mesh_ui_store_shutdown(&store), "capture open failed");
 
     uint32_t width = 0U;
     uint32_t height = 0U;
@@ -190,9 +190,9 @@ MESH_TEST_CASE(ui_capture_draws_the_status_cards, unit) {
                               mesh_ui_store_shutdown(&store), "no snapshot to render");
 
     struct inkcell_capture *capture = NULL;
-    MESH_TEST_FAIL_IF_CLEANUP(
-        mesh_ui_capture_open(&capture, INKCELL_CAPTURE_WIDTH, INKCELL_CAPTURE_HEIGHT, 4) != 0,
-        mesh_ui_store_shutdown(&store), "capture open failed");
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, INKCELL_CAPTURE_WIDTH,
+                                                   INKCELL_CAPTURE_HEIGHT, INKCELL_SCALE(4)) != 0,
+                              mesh_ui_store_shutdown(&store), "capture open failed");
 
     uint32_t width = 0U;
     uint32_t height = 0U;
@@ -370,9 +370,9 @@ MESH_TEST_CASE(ui_capture_status_keeps_the_last_card_when_the_one_above_overflow
     mesh_ui_history_note_airtime(&snapshot.history, 400000U, 580, 190);
 
     struct inkcell_capture *capture = NULL;
-    MESH_TEST_FAIL_IF_CLEANUP(
-        mesh_ui_capture_open(&capture, INKCELL_CAPTURE_WIDTH, INKCELL_CAPTURE_HEIGHT, 4) != 0,
-        mesh_ui_store_shutdown(&store), "capture open failed");
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, INKCELL_CAPTURE_WIDTH,
+                                                   INKCELL_CAPTURE_HEIGHT, INKCELL_SCALE(4)) != 0,
+                              mesh_ui_store_shutdown(&store), "capture open failed");
 
     uint32_t width = 0U;
     uint32_t height = 0U;
@@ -427,9 +427,9 @@ MESH_TEST_CASE(ui_capture_draws_the_card_variants, unit) {
                               mesh_ui_store_shutdown(&store), "no snapshot to render");
 
     struct inkcell_capture *capture = NULL;
-    MESH_TEST_FAIL_IF_CLEANUP(
-        mesh_ui_capture_open(&capture, INKCELL_CAPTURE_WIDTH, INKCELL_CAPTURE_HEIGHT, 4) != 0,
-        mesh_ui_store_shutdown(&store), "capture open failed");
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, INKCELL_CAPTURE_WIDTH,
+                                                   INKCELL_CAPTURE_HEIGHT, INKCELL_SCALE(4)) != 0,
+                              mesh_ui_store_shutdown(&store), "capture open failed");
 
     uint32_t width = 0U;
     uint32_t height = 0U;
@@ -553,9 +553,9 @@ MESH_TEST_CASE(ui_capture_draws_the_conversation_items, unit) {
                               mesh_ui_store_shutdown(&store), "no snapshot to render");
 
     struct inkcell_capture *capture = NULL;
-    MESH_TEST_FAIL_IF_CLEANUP(
-        mesh_ui_capture_open(&capture, INKCELL_CAPTURE_WIDTH, INKCELL_CAPTURE_HEIGHT, 4) != 0,
-        mesh_ui_store_shutdown(&store), "capture open failed");
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, INKCELL_CAPTURE_WIDTH,
+                                                   INKCELL_CAPTURE_HEIGHT, INKCELL_SCALE(4)) != 0,
+                              mesh_ui_store_shutdown(&store), "capture open failed");
 
     uint32_t width = 0U;
     uint32_t height = 0U;
@@ -658,9 +658,9 @@ MESH_TEST_CASE(ui_capture_progress_costs_no_row_and_the_banner_costs_rows, unit)
     mesh_test_nav_populate(&store);
 
     struct inkcell_capture *capture = NULL;
-    MESH_TEST_FAIL_IF_CLEANUP(
-        mesh_ui_capture_open(&capture, INKCELL_CAPTURE_WIDTH, INKCELL_CAPTURE_HEIGHT, 4) != 0,
-        mesh_ui_store_shutdown(&store), "capture open failed");
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, INKCELL_CAPTURE_WIDTH,
+                                                   INKCELL_CAPTURE_HEIGHT, INKCELL_SCALE(4)) != 0,
+                              mesh_ui_store_shutdown(&store), "capture open failed");
 
     uint32_t width = 0U;
     uint32_t height = 0U;
@@ -750,9 +750,9 @@ MESH_TEST_CASE(ui_capture_slides_the_snackbar_in_and_out, unit) {
     mesh_test_nav_populate(&store);
 
     struct inkcell_capture *capture = NULL;
-    MESH_TEST_FAIL_IF_CLEANUP(
-        mesh_ui_capture_open(&capture, INKCELL_CAPTURE_WIDTH, INKCELL_CAPTURE_HEIGHT, 4) != 0,
-        mesh_ui_store_shutdown(&store), "capture open failed");
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, INKCELL_CAPTURE_WIDTH,
+                                                   INKCELL_CAPTURE_HEIGHT, INKCELL_SCALE(4)) != 0,
+                              mesh_ui_store_shutdown(&store), "capture open failed");
 
     uint32_t width = 0U;
     uint32_t height = 0U;
@@ -942,9 +942,9 @@ MESH_TEST_CASE(ui_capture_slides_a_screen_in_and_settles, unit) {
     (void)mesh_ui_store_consume_updates(&store, &settling);
 
     struct inkcell_capture *capture = NULL;
-    MESH_TEST_FAIL_IF_CLEANUP(
-        mesh_ui_capture_open(&capture, INKCELL_CAPTURE_WIDTH, INKCELL_CAPTURE_HEIGHT, 4) != 0,
-        mesh_ui_store_shutdown(&store), "capture open failed");
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, INKCELL_CAPTURE_WIDTH,
+                                                   INKCELL_CAPTURE_HEIGHT, INKCELL_SCALE(4)) != 0,
+                              mesh_ui_store_shutdown(&store), "capture open failed");
 
     uint32_t width = 0U;
     uint32_t height = 0U;
@@ -1043,7 +1043,7 @@ MESH_TEST_CASE(ui_capture_follows_the_nav, unit) {
     mesh_test_nav_populate(&store);
 
     struct inkcell_capture *capture = NULL;
-    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, 320U, 240U, 2) != 0,
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, 320U, 240U, INKCELL_SCALE(2)) != 0,
                               mesh_ui_store_shutdown(&store), "capture open failed");
 
     uint32_t width = 0U;
@@ -1104,9 +1104,9 @@ MESH_TEST_CASE(ui_capture_app_bar_badges_unsaved_edits, unit) {
                               mesh_ui_store_shutdown(&store), "could not open a settings section");
 
     struct inkcell_capture *capture = NULL;
-    MESH_TEST_FAIL_IF_CLEANUP(
-        mesh_ui_capture_open(&capture, INKCELL_CAPTURE_WIDTH, INKCELL_CAPTURE_HEIGHT, 4) != 0,
-        mesh_ui_store_shutdown(&store), "capture open failed");
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, INKCELL_CAPTURE_WIDTH,
+                                                   INKCELL_CAPTURE_HEIGHT, INKCELL_SCALE(4)) != 0,
+                              mesh_ui_store_shutdown(&store), "capture open failed");
 
     uint32_t width = 0U;
     uint32_t height = 0U;
@@ -1188,9 +1188,9 @@ MESH_TEST_CASE(ui_capture_draws_against_the_pinned_clock, unit) {
                               mesh_ui_store_shutdown(&store), "no snapshot to render");
 
     struct inkcell_capture *capture = NULL;
-    MESH_TEST_FAIL_IF_CLEANUP(
-        mesh_ui_capture_open(&capture, INKCELL_CAPTURE_WIDTH, INKCELL_CAPTURE_HEIGHT, 4) != 0,
-        mesh_ui_store_shutdown(&store), "capture open failed");
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, INKCELL_CAPTURE_WIDTH,
+                                                   INKCELL_CAPTURE_HEIGHT, INKCELL_SCALE(4)) != 0,
+                              mesh_ui_store_shutdown(&store), "capture open failed");
 
     uint32_t width = 0U;
     uint32_t height = 0U;
@@ -1236,7 +1236,8 @@ MESH_TEST_CASE(ui_capture_draws_against_the_pinned_clock, unit) {
 
 MESH_TEST_CASE(ui_capture_writes_a_ppm, unit) {
     struct inkcell_capture *capture = NULL;
-    MESH_TEST_FAIL_IF(mesh_ui_capture_open(&capture, 64U, 32U, 2) != 0, "capture open failed");
+    MESH_TEST_FAIL_IF(mesh_ui_capture_open(&capture, 64U, 32U, INKCELL_SCALE(2)) != 0,
+                      "capture open failed");
 
     struct mesh_ui_snapshot snapshot;
     memset(&snapshot, 0, sizeof snapshot);
@@ -1398,8 +1399,8 @@ MESH_TEST_CASE(ui_capture_dialog_marks_the_selected_answer, unit) {
                 failure = "no snapshot carrying the confirm overlay";
                 break;
             }
-            if (mesh_ui_capture_open(&capture, INKCELL_CAPTURE_WIDTH, INKCELL_CAPTURE_HEIGHT, 4) !=
-                0) {
+            if (mesh_ui_capture_open(&capture, INKCELL_CAPTURE_WIDTH, INKCELL_CAPTURE_HEIGHT,
+                                     INKCELL_SCALE(4)) != 0) {
                 failure = "capture open failed";
                 break;
             }
@@ -1659,7 +1660,7 @@ MESH_TEST_CASE(ui_capture_segmented_marks_the_chosen_value, unit) {
     for (size_t t = 0; t < inkcell_theme_count() && failure == NULL; ++t) {
         const struct inkcell_theme *theme = inkcell_theme_at(t);
         for (int scale = INKCELL_SCALE_MIN; scale <= INKCELL_SCALE_MAX && failure == NULL;
-             ++scale) {
+             scale += INKCELL_SCALE(1)) {
             uint8_t *frames[2] = {NULL, NULL};
             uint32_t width = 0U;
             uint32_t height = 0U;
@@ -1764,7 +1765,8 @@ MESH_TEST_CASE(ui_capture_segmented_refuses_an_unknown_value, unit) {
             if (!mesh_test_settings_open(&store, MESH_UI_SETTINGS_BLUETOOTH)) {
                 failure = "could not open Settings > Bluetooth";
             } else {
-                frames[pass] = capture_frame(&store, theme, 4, &width, &height, &stride);
+                frames[pass] =
+                    capture_frame(&store, theme, INKCELL_SCALE(4), &width, &height, &stride);
                 if (frames[pass] == NULL) {
                     failure = "capture failed";
                 }
@@ -1821,7 +1823,7 @@ MESH_TEST_CASE(ui_capture_picker_marks_the_current_target, unit) {
                the target moves one row without the list itself changing. */
             store.nav.target_node = MESH_MESSAGE_BROADCAST_ADDR;
             store.nav.target_channel = (uint8_t)pass;
-            frames[pass] = capture_frame(&store, theme, 4, &width, &height, &stride);
+            frames[pass] = capture_frame(&store, theme, INKCELL_SCALE(4), &width, &height, &stride);
             if (frames[pass] == NULL) {
                 failure = "capture failed";
             }
@@ -1954,7 +1956,7 @@ MESH_TEST_CASE(fb_a_segmented_row_that_fell_back_keeps_its_marker, unit) {
             state.inkcell_fb_size = (size_t)STRIDE * HEIGHT;
             state.inkcell_fb_ptr = frames[pass];
             memset(state.inkcell_fb_ptr, 0, state.inkcell_fb_size);
-            inkcell_fb_state_set_theme(&state, inkcell_theme_default(), 2);
+            inkcell_fb_state_set_theme(&state, inkcell_theme_default(), INKCELL_SCALE(2));
 
             struct inkcell_fb_layout layout = {0};
             layout.footer_y = (int)HEIGHT;
@@ -2021,9 +2023,10 @@ MESH_TEST_CASE(fb_glyph_cache_matches_uncached_colors_and_scales, unit) {
     state.fix.line_length = 256U * 4U;
     state.bytes_per_pixel = 4U;
     const char *failure = NULL;
-    inkcell_fb_state_set_theme(&state, inkcell_theme_default(), 4);
+    inkcell_fb_state_set_theme(&state, inkcell_theme_default(), INKCELL_SCALE(4));
     struct inkcell_fb_glyph_cache *cache = state.glyph_cache;
-    for (int scale = 2; scale <= 6 && failure == NULL; ++scale) {
+    for (int scale = INKCELL_SCALE_MIN; scale <= INKCELL_SCALE_MAX && failure == NULL;
+         scale += INKCELL_SCALE(1)) {
         for (unsigned pass = 0; pass < 3U; ++pass) {
             const struct inkcell_rgb ink = {(uint8_t)(pass * 91U), 170U, 250U};
             const struct inkcell_rgb ground = {30U, (uint8_t)(pass * 71U), 10U};
@@ -2072,11 +2075,11 @@ MESH_TEST_CASE(fb_emoji_keycap_fills_its_key, unit) {
     state.var.bits_per_pixel = 32U;
     state.fix.line_length = 256U * 4U;
     state.bytes_per_pixel = 4U;
-    inkcell_fb_state_set_theme(&state, inkcell_theme_default(), 4);
+    inkcell_fb_state_set_theme(&state, inkcell_theme_default(), INKCELL_SCALE(4));
 
     const struct inkcell_rgb ground = inkcell_fb_color(&state, INKCELL_COLOR_BG);
     const struct inkcell_fb_rect key = {.x = 20, .y = 10, .w = 120, .h = 100};
-    const int cell = inkcell_fb_char_adv(&state, 4);
+    const int cell = inkcell_fb_char_adv(&state, INKCELL_SCALE(4));
     const char *failure = NULL;
 
     /* An extent per pass: the drawn ink's bounding box, which for a sprite on a key that lays
@@ -2091,7 +2094,7 @@ MESH_TEST_CASE(fb_emoji_keycap_fills_its_key, unit) {
             .variant = INKCELL_FB_BUTTON_TEXT,
             .shape = INKCELL_SHAPE_SM,
             .idle_tone = INKCELL_TONE_NORMAL,
-            .scale = 4,
+            .scale = INKCELL_SCALE(4),
             .emoji_face = (pass == 0U),
         };
         inkcell_fb_draw_button(&state, &button);
@@ -2169,7 +2172,7 @@ MESH_TEST_CASE(fb_emoji_box_draws_past_the_column_map, unit) {
     state.var.bits_per_pixel = 32U;
     state.fix.line_length = 320U * 4U;
     state.bytes_per_pixel = 4U;
-    inkcell_fb_state_set_theme(&state, inkcell_theme_default(), 4);
+    inkcell_fb_state_set_theme(&state, inkcell_theme_default(), INKCELL_SCALE(4));
 
     const uint32_t grinning = 0x1F600U;
     uint16_t sprite = 0;
@@ -2310,7 +2313,7 @@ MESH_TEST_CASE(ui_capture_bubble_contains_its_own_ink, unit) {
     for (size_t t = 0; t < inkcell_theme_count() && failure == NULL; ++t) {
         const struct inkcell_theme *theme = inkcell_theme_at(t);
         for (int scale = INKCELL_SCALE_MIN; scale <= INKCELL_SCALE_MAX && failure == NULL;
-             ++scale) {
+             scale += INKCELL_SCALE(1)) {
             for (size_t a = 0; a < sizeof acks / sizeof acks[0] && failure == NULL; ++a) {
                 /* Cursor 0 is on the only bubble there is; anything past it is the same
                    transcript at rest. Both, because the cursor changes the fill and lays an
@@ -2395,7 +2398,7 @@ MESH_TEST_CASE(ui_capture_bubble_contains_its_own_ink, unit) {
                         uint32_t right = row_right[y];
                         /* A row the bubble does not cover, or covers only in a corner's
                            stepping - neither says anything about containment. */
-                        if (left >= right || right - left < (uint32_t)(4 * scale)) {
+                        if (left >= right || right - left < (uint32_t)inkcell_scale_px(4, scale)) {
                             continue;
                         }
                         rows += 1U;
@@ -2456,8 +2459,8 @@ MESH_TEST_CASE(fb_transcript_cache_matches_reference_after_mutations, unit) {
     struct inkcell_capture *cached = NULL, *reference = NULL;
     struct mesh_ui_snapshot *snapshot = calloc(1U, sizeof *snapshot);
     const char *failure = NULL;
-    if (snapshot == NULL || mesh_ui_capture_open(&cached, 1024U, 768U, 4) != 0 ||
-        mesh_ui_capture_open(&reference, 1024U, 768U, 4) != 0) {
+    if (snapshot == NULL || mesh_ui_capture_open(&cached, 1024U, 768U, INKCELL_SCALE(4)) != 0 ||
+        mesh_ui_capture_open(&reference, 1024U, 768U, INKCELL_SCALE(4)) != 0) {
         failure = "capture allocation failed";
         goto cleanup;
     }
@@ -2497,8 +2500,8 @@ MESH_TEST_CASE(fb_transcript_cache_matches_reference_after_mutations, unit) {
         if (pass == 6U)
             inkcell_i18n_set_locale("es");
         if (pass == 7U) {
-            inkcell_capture_set_scale(cached, 3);
-            inkcell_capture_set_scale(reference, 3);
+            inkcell_capture_set_scale(cached, INKCELL_SCALE(3));
+            inkcell_capture_set_scale(reference, INKCELL_SCALE(3));
         }
         if (pass == 8U)
             snapshot->nav.inbox = false;
@@ -2546,7 +2549,7 @@ MESH_TEST_CASE(fb_animation_clip_matches_full_composition, unit) {
             failure = "frame allocation failed";
             goto cleanup;
         }
-        inkcell_fb_state_set_theme(&state[i], inkcell_theme_default(), 4);
+        inkcell_fb_state_set_theme(&state[i], inkcell_theme_default(), INKCELL_SCALE(4));
     }
     state[1].partial_disabled = true;
     snapshot->nav.screen = MESH_UI_SCREEN_MESSAGES;
@@ -2564,8 +2567,8 @@ MESH_TEST_CASE(fb_animation_clip_matches_full_composition, unit) {
         if (frame == 25U)
             snapshot->nav.screen = MESH_UI_SCREEN_NODES;
         if (frame == 30U) {
-            inkcell_fb_state_set_theme(&state[0], inkcell_theme_default(), 3);
-            inkcell_fb_state_set_theme(&state[1], inkcell_theme_default(), 3);
+            inkcell_fb_state_set_theme(&state[0], inkcell_theme_default(), INKCELL_SCALE(3));
+            inkcell_fb_state_set_theme(&state[1], inkcell_theme_default(), INKCELL_SCALE(3));
         }
         for (unsigned i = 0U; i < 2U; ++i) {
             inkcell_fb_state_set_now(&state[i], 1000U + frame * 16U);
@@ -2633,7 +2636,7 @@ MESH_TEST_CASE(fb_progress_clip_matches_full_composition, unit) {
             failure = "frame allocation failed";
             goto cleanup;
         }
-        inkcell_fb_state_set_theme(&state[i], inkcell_theme_default(), 4);
+        inkcell_fb_state_set_theme(&state[i], inkcell_theme_default(), INKCELL_SCALE(4));
     }
     state[1].partial_disabled = true;
 
@@ -2702,7 +2705,7 @@ MESH_TEST_CASE(ui_capture_slider_places_the_value, unit) {
     for (size_t t = 0; t < inkcell_theme_count() && failure == NULL; ++t) {
         const struct inkcell_theme *theme = inkcell_theme_at(t);
         for (int scale = INKCELL_SCALE_MIN; scale <= INKCELL_SCALE_MAX && failure == NULL;
-             ++scale) {
+             scale += INKCELL_SCALE(1)) {
             uint8_t *frames[2] = {NULL, NULL};
             uint32_t width = 0U;
             uint32_t height = 0U;
@@ -2809,7 +2812,8 @@ MESH_TEST_CASE(ui_capture_slider_refuses_a_word, unit) {
             if (!mesh_test_settings_open(&store, MESH_UI_SETTINGS_DISPLAY)) {
                 failure = "could not open Settings > Display";
             } else {
-                frames[pass] = capture_frame(&store, theme, 4, &width, &height, &stride);
+                frames[pass] =
+                    capture_frame(&store, theme, INKCELL_SCALE(4), &width, &height, &stride);
                 if (frames[pass] == NULL) {
                     failure = "capture failed";
                 }
@@ -2935,7 +2939,7 @@ MESH_TEST_CASE(ui_capture_slider_stops_survive_the_fill, unit) {
         if (!mesh_test_settings_open(&store, MESH_UI_SETTINGS_DISPLAY)) {
             failure = "could not open Settings > Display";
         } else {
-            frame = capture_frame(&store, theme, 4, &width, &height, &stride);
+            frame = capture_frame(&store, theme, INKCELL_SCALE(4), &width, &height, &stride);
             if (frame == NULL) {
                 failure = "capture failed";
             }
@@ -3028,7 +3032,8 @@ MESH_TEST_CASE(ui_capture_map_keeps_its_ink_off_the_chrome, unit) {
     snapshot->handshake.nodes[1].position.longitude_i = -1223320000;
     snapshot->handshake.nodes[1].position.precision_bits = 19U;
 
-    const int scale = 4; /* what the Brick draws at, and what the bands below are true for */
+    const int scale =
+        INKCELL_SCALE(4); /* what the Brick draws at, and what the bands below are true for */
     const uint8_t zoom = 16U;
     mesh_map_viewport_init(&snapshot->nav.map_viewport, 476180000, -1223320000, zoom);
 
@@ -3183,7 +3188,7 @@ MESH_TEST_CASE(ui_capture_map_draws_a_basemap_one_tile_at_a_time, unit) {
     const int32_t latitude_i = 476180000;
     const int32_t longitude_i = -1223320000;
     const uint8_t zoom = 15U;
-    const int scale = 4;
+    const int scale = INKCELL_SCALE(4);
 
     struct mesh_map_tile_key keys[35];
     const size_t tiles = mesh_test_map_keys_around(latitude_i, longitude_i, zoom, 7, 5, keys,
@@ -3328,7 +3333,7 @@ MESH_TEST_CASE(ui_capture_map_stops_asking_once_it_is_left, unit) {
     const int32_t latitude_i = 476180000;
     const int32_t longitude_i = -1223320000;
     const uint8_t zoom = 15U;
-    const int scale = 4;
+    const int scale = INKCELL_SCALE(4);
 
     struct mesh_map_tile_key keys[35];
     const size_t tiles = mesh_test_map_keys_around(latitude_i, longitude_i, zoom, 7, 5, keys,
@@ -3408,7 +3413,7 @@ MESH_TEST_CASE(ui_capture_map_forgets_the_pack_it_swapped_out, unit) {
     const int32_t latitude_i = 476180000;
     const int32_t longitude_i = -1223320000;
     const uint8_t zoom = 15U;
-    const int scale = 4;
+    const int scale = INKCELL_SCALE(4);
 
     struct mesh_map_tile_key keys[35];
     const size_t tiles = mesh_test_map_keys_around(latitude_i, longitude_i, zoom, 7, 5, keys,
@@ -3521,7 +3526,8 @@ MESH_TEST_CASE(ui_capture_chart_keeps_its_ink_off_the_chrome, unit) {
     snapshot->nav.trend_open = true;
     snapshot->handshake_valid = true;
 
-    const int scale = 4; /* what the Brick draws at, and what the bands below are true for */
+    const int scale =
+        INKCELL_SCALE(4); /* what the Brick draws at, and what the bands below are true for */
     const uint32_t top_band = 96U;
     const uint32_t bottom_band = 56U;
 
@@ -3618,9 +3624,9 @@ MESH_TEST_CASE(ui_capture_nav_bar_badges_unread_messages, unit) {
     }
 
     struct inkcell_capture *capture = NULL;
-    MESH_TEST_FAIL_IF_CLEANUP(
-        mesh_ui_capture_open(&capture, INKCELL_CAPTURE_WIDTH, INKCELL_CAPTURE_HEIGHT, 4) != 0,
-        mesh_ui_store_shutdown(&store), "capture open failed");
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, INKCELL_CAPTURE_WIDTH,
+                                                   INKCELL_CAPTURE_HEIGHT, INKCELL_SCALE(4)) != 0,
+                              mesh_ui_store_shutdown(&store), "capture open failed");
 
     uint32_t width = 0U;
     uint32_t height = 0U;
@@ -4092,7 +4098,8 @@ MESH_TEST_CASE(ui_capture_node_detail_cards_survive_the_cursor, unit) {
        window at the smallest scale cannot at the largest, and a rail that stopped being drawn
        at all is what this catches. */
     bool rail_seen = false;
-    for (int scale = INKCELL_SCALE_MIN; scale <= INKCELL_SCALE_MAX && failure == NULL; ++scale) {
+    for (int scale = INKCELL_SCALE_MIN; scale <= INKCELL_SCALE_MAX && failure == NULL;
+         scale += INKCELL_SCALE(1)) {
         struct inkcell_capture *capture = NULL;
         if (mesh_ui_capture_open(&capture, INKCELL_CAPTURE_WIDTH, INKCELL_CAPTURE_HEIGHT, scale) !=
             0) {
@@ -4333,7 +4340,8 @@ MESH_TEST_CASE(ui_capture_node_detail_verbs_wear_their_colour_in_a_disc, unit) {
                               "the fixture's node offers no row to remove it");
     const char *failure = NULL;
     static char detail[192];
-    for (int scale = INKCELL_SCALE_MIN; scale <= INKCELL_SCALE_MAX && failure == NULL; ++scale) {
+    for (int scale = INKCELL_SCALE_MIN; scale <= INKCELL_SCALE_MAX && failure == NULL;
+         scale += INKCELL_SCALE(1)) {
         struct inkcell_capture *capture = NULL;
         if (mesh_ui_capture_open(&capture, INKCELL_CAPTURE_WIDTH, INKCELL_CAPTURE_HEIGHT, scale) !=
             0) {
@@ -4371,7 +4379,7 @@ MESH_TEST_CASE(ui_capture_node_detail_verbs_wear_their_colour_in_a_disc, unit) {
 
         /* Wider than a glyph's own strokes at this size and well inside a disc, which is as
            wide as the row is tall. */
-        const uint32_t min_run = (uint32_t)(4 * scale);
+        const uint32_t min_run = (uint32_t)inkcell_scale_px(4, scale);
         const uint32_t accent = bands_of(capture, pixels, width, height, stride,
                                          INKCELL_COLOR_PRIMARY_CONTAINER, min_run);
         /*
@@ -4483,7 +4491,8 @@ MESH_TEST_CASE(ui_capture_node_detail_states_its_labels_quietly, unit) {
 
     const char *failure = NULL;
     static char detail[160];
-    for (int scale = INKCELL_SCALE_MIN; scale <= INKCELL_SCALE_MAX && failure == NULL; ++scale) {
+    for (int scale = INKCELL_SCALE_MIN; scale <= INKCELL_SCALE_MAX && failure == NULL;
+         scale += INKCELL_SCALE(1)) {
         struct inkcell_capture *capture = NULL;
         if (mesh_ui_capture_open(&capture, INKCELL_CAPTURE_WIDTH, INKCELL_CAPTURE_HEIGHT, scale) !=
             0) {
@@ -4592,7 +4601,8 @@ MESH_TEST_CASE(ui_capture_settings_marks_both_halves_of_an_unsaved_row, unit) {
     (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
 
     static char detail[192];
-    for (int scale = INKCELL_SCALE_MIN; scale <= INKCELL_SCALE_MAX && failure == NULL; ++scale) {
+    for (int scale = INKCELL_SCALE_MIN; scale <= INKCELL_SCALE_MAX && failure == NULL;
+         scale += INKCELL_SCALE(1)) {
         uint32_t width = 0U;
         uint32_t height = 0U;
         size_t stride = 0U;
@@ -4683,7 +4693,8 @@ static const char *render_section(enum mesh_ui_settings_section section,
     if (!mesh_ui_store_consume_updates(store, &snapshot)) {
         return "no snapshot to render";
     }
-    if (mesh_ui_capture_open(capture, INKCELL_CAPTURE_WIDTH, INKCELL_CAPTURE_HEIGHT, 4) != 0) {
+    if (mesh_ui_capture_open(capture, INKCELL_CAPTURE_WIDTH, INKCELL_CAPTURE_HEIGHT,
+                             INKCELL_SCALE(4)) != 0) {
         return "capture open failed";
     }
     inkcell_capture_render(*capture, &snapshot);
@@ -4862,7 +4873,7 @@ static uint32_t settings_text_column(const uint8_t *frame, uint32_t width, uint3
     /* A glyph's left bearing is the only thing two rows of the same column may differ by. The
        failure this is about is a whole step - nine of these - so the allowance can be generous
        and still catch it. */
-    const uint32_t bearing = (uint32_t)(3 * scale);
+    const uint32_t bearing = (uint32_t)inkcell_scale_px(3, scale);
     uint32_t band_left = width;
     uint32_t band_rows = 0U;
     uint32_t bands = 0U;
@@ -4915,7 +4926,7 @@ static uint32_t settings_text_column(const uint8_t *frame, uint32_t width, uint3
          * column - so counted as a row it reports the card's own left edge and nothing about
          * where any word starts.
          */
-        const uint32_t tall = band_rows >= (uint32_t)(2 * scale);
+        const uint32_t tall = band_rows >= (uint32_t)inkcell_scale_px(2, scale);
         band_rows = 0U;
         if (band_left == width || !tall) {
             band_left = width;
@@ -4977,7 +4988,7 @@ MESH_TEST_CASE(ui_capture_a_section_starts_every_row_in_one_column, unit) {
     for (size_t t = 0; t < inkcell_theme_count() && failure == NULL; ++t) {
         const struct inkcell_theme *theme = inkcell_theme_at(t);
         for (int scale = INKCELL_SCALE_MIN; scale <= INKCELL_SCALE_MAX && failure == NULL;
-             ++scale) {
+             scale += INKCELL_SCALE(1)) {
             struct mesh_ui_store store;
             if (mesh_ui_store_init(&store) != 0) {
                 failure = "store init failed";
@@ -5017,7 +5028,7 @@ MESH_TEST_CASE(ui_capture_a_section_starts_every_row_in_one_column, unit) {
                 uint32_t lefts[64];
                 uint32_t bands = 0U;
                 uint32_t agreed = 0U;
-                const uint32_t bearing = (uint32_t)(3 * scale);
+                const uint32_t bearing = (uint32_t)inkcell_scale_px(3, scale);
                 const uint32_t column = settings_text_column(
                     frame, width, height, stride, theme, scale, lefts,
                     (uint32_t)(sizeof lefts / sizeof lefts[0]), &bands, &agreed);
@@ -5092,8 +5103,8 @@ MESH_TEST_CASE(ui_capture_every_section_starts_in_the_same_column, unit) {
     for (size_t t = 0; t < inkcell_theme_count() && failure == NULL; ++t) {
         const struct inkcell_theme *theme = inkcell_theme_at(t);
         for (int scale = INKCELL_SCALE_MIN; scale <= INKCELL_SCALE_MAX && failure == NULL;
-             ++scale) {
-            const uint32_t bearing = (uint32_t)(3 * scale);
+             scale += INKCELL_SCALE(1)) {
+            const uint32_t bearing = (uint32_t)inkcell_scale_px(3, scale);
             uint32_t columns[sizeof k_sections / sizeof k_sections[0]];
             size_t measured = 0U;
 
@@ -5225,7 +5236,7 @@ MESH_TEST_CASE(ui_capture_a_verbs_disc_clears_its_cards_edges, unit) {
     for (size_t t = 0; t < inkcell_theme_count() && failure == NULL; ++t) {
         const struct inkcell_theme *theme = inkcell_theme_at(t);
         for (int scale = INKCELL_SCALE_MIN; scale <= INKCELL_SCALE_MAX && failure == NULL;
-             ++scale) {
+             scale += INKCELL_SCALE(1)) {
             struct mesh_ui_store store;
             if (mesh_ui_store_init(&store) != 0) {
                 failure = "store init failed";
@@ -5447,7 +5458,7 @@ static bool dialog_moves(uint32_t width, uint32_t height, enum inkcell_key key,
     }
 
     struct inkcell_capture *capture = NULL;
-    if (mesh_ui_capture_open(&capture, width, height, 2) != 0) {
+    if (mesh_ui_capture_open(&capture, width, height, INKCELL_SCALE(2)) != 0) {
         mesh_ui_store_shutdown(&store);
         *failure = "capture open failed";
         return false;

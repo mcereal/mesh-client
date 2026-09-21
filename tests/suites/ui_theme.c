@@ -426,7 +426,7 @@ MESH_TEST_CASE(ui_theme_states_its_geometry, unit) {
     const int scale = inkcell_theme_scale(shaped);
     const struct inkcell_metrics *shaped_metrics = inkcell_theme_metrics(shaped);
     for (int shape = INKCELL_SHAPE_NONE; shape < INKCELL_SHAPE_FULL; ++shape) {
-        const int want = (int)shaped_metrics->shape[shape] * scale;
+        const int want = inkcell_scale_px((int)shaped_metrics->shape[shape], scale);
         MESH_TEST_FAIL_IF(inkcell_theme_radius(shaped, (enum inkcell_shape)shape, scale) != want,
                           "a shape's radius is not its step count times the glyph scale");
     }
@@ -468,7 +468,7 @@ MESH_TEST_CASE(ui_theme_states_its_type_scale, unit) {
     for (size_t i = 0; i < inkcell_theme_count(); ++i) {
         const struct inkcell_theme *theme = inkcell_theme_at(i);
 
-        for (int scale = INKCELL_SCALE_MIN; scale <= INKCELL_SCALE_MAX; ++scale) {
+        for (int scale = INKCELL_SCALE_MIN; scale <= INKCELL_SCALE_MAX; scale += INKCELL_SCALE(1)) {
             const int title = inkcell_theme_type_scale(theme, INKCELL_TYPE_TITLE, scale);
             const int body = inkcell_theme_type_scale(theme, INKCELL_TYPE_BODY, scale);
             const int label = inkcell_theme_type_scale(theme, INKCELL_TYPE_LABEL, scale);
@@ -510,13 +510,14 @@ MESH_TEST_CASE(ui_theme_states_its_type_scale, unit) {
     /* Out of range answers the body scale rather than reading past the table, and NULL is the
        default theme as everywhere else in this header. */
     const struct inkcell_theme *theme = inkcell_theme_default();
-    const int body = inkcell_theme_type_scale(theme, INKCELL_TYPE_BODY, 4);
-    MESH_TEST_FAIL_IF(inkcell_theme_type_scale(theme, (enum inkcell_type) - 1, 4) != body,
+    const int body = inkcell_theme_type_scale(theme, INKCELL_TYPE_BODY, INKCELL_SCALE(4));
+    MESH_TEST_FAIL_IF(inkcell_theme_type_scale(theme, (enum inkcell_type) - 1, INKCELL_SCALE(4)) !=
+                          body,
                       "a negative type role read something");
-    MESH_TEST_FAIL_IF(inkcell_theme_type_scale(theme, INKCELL_TYPE_COUNT, 4) != body,
+    MESH_TEST_FAIL_IF(inkcell_theme_type_scale(theme, INKCELL_TYPE_COUNT, INKCELL_SCALE(4)) != body,
                       "a type role past the end read something");
-    MESH_TEST_FAIL_IF(inkcell_theme_type_scale(NULL, INKCELL_TYPE_TITLE, 4) !=
-                          inkcell_theme_type_scale(theme, INKCELL_TYPE_TITLE, 4),
+    MESH_TEST_FAIL_IF(inkcell_theme_type_scale(NULL, INKCELL_TYPE_TITLE, INKCELL_SCALE(4)) !=
+                          inkcell_theme_type_scale(theme, INKCELL_TYPE_TITLE, INKCELL_SCALE(4)),
                       "a NULL theme did not fall back to the default");
     record_success(test_name);
 }
@@ -542,7 +543,7 @@ MESH_TEST_CASE(ui_theme_states_its_spacing, unit) {
             /* Nothing in the scale is a whole row: these are gaps between things, not rows.
                Four steps is already taller than the glyph cell at any scale, so a table that
                reaches it is a theme spending body rows on its own furniture. */
-            MESH_TEST_FAIL_IF(gap > 4 * scale,
+            MESH_TEST_FAIL_IF(gap > inkcell_scale_px(4, scale),
                               "a theme's spacing step is as tall as the row it separates");
             previous = gap;
         }
@@ -557,10 +558,10 @@ MESH_TEST_CASE(ui_theme_states_its_spacing, unit) {
     const struct inkcell_theme *theme = inkcell_theme_default();
     MESH_TEST_FAIL_IF(inkcell_theme_space(theme, (enum inkcell_space) - 1, 4) != 0,
                       "a negative spacing token read something");
-    MESH_TEST_FAIL_IF(inkcell_theme_space(theme, INKCELL_SPACE_COUNT, 4) != 0,
+    MESH_TEST_FAIL_IF(inkcell_theme_space(theme, INKCELL_SPACE_COUNT, INKCELL_SCALE(4)) != 0,
                       "a spacing token past the end read something");
-    MESH_TEST_FAIL_IF(inkcell_theme_space(NULL, INKCELL_SPACE_SM, 4) !=
-                          inkcell_theme_space(theme, INKCELL_SPACE_SM, 4),
+    MESH_TEST_FAIL_IF(inkcell_theme_space(NULL, INKCELL_SPACE_SM, INKCELL_SCALE(4)) !=
+                          inkcell_theme_space(theme, INKCELL_SPACE_SM, INKCELL_SCALE(4)),
                       "a NULL theme did not fall back to the default");
     record_success(test_name);
 }
@@ -700,7 +701,7 @@ MESH_TEST_CASE(ui_theme_scale_is_clamped, unit) {
                       "a NULL theme did not fall back to the default and clamp");
 
     /* Chrome is smaller than the body but never below the floor, whatever the body is at. */
-    for (int scale = INKCELL_SCALE_MIN; scale <= INKCELL_SCALE_MAX; ++scale) {
+    for (int scale = INKCELL_SCALE_MIN; scale <= INKCELL_SCALE_MAX; scale += INKCELL_SCALE(1)) {
         const int chrome = inkcell_theme_type_scale(theme, INKCELL_TYPE_LABEL, scale);
         MESH_TEST_FAIL_IF(chrome < INKCELL_SCALE_MIN, "chrome text fell below the minimum scale");
         MESH_TEST_FAIL_IF(chrome > scale, "chrome text is bigger than the body text");
@@ -732,9 +733,10 @@ MESH_TEST_CASE(ui_theme_fonts_measure, unit) {
                           "a font asks for a sampling this layer does not have");
 
         /* Advances have to grow with the multiplier, or every measurement above breaks. */
-        MESH_TEST_FAIL_IF(inkcell_font_advance(font, 2) <= inkcell_font_advance(font, 1),
+        MESH_TEST_FAIL_IF(inkcell_font_advance(font, INKCELL_SCALE(2)) <=
+                              inkcell_font_advance(font, INKCELL_SCALE(1)),
                           "the character advance does not grow with the scale");
-        MESH_TEST_FAIL_IF(inkcell_font_line(font, 1) < (int)font->height,
+        MESH_TEST_FAIL_IF(inkcell_font_line(font, INKCELL_SCALE(1)) < (int)font->height,
                           "the line advance does not clear the cell");
 
         /* A glyph the font has, and one nothing has: both are drawable, one is the tofu. */
@@ -827,10 +829,10 @@ MESH_TEST_CASE(ui_theme_fonts_agree_on_coverage, unit) {
 MESH_TEST_CASE(ui_theme_fonts_cap_height, unit) {
     for (size_t i = 0; i < inkcell_font_count(); ++i) {
         const struct inkcell_font *font = inkcell_font_at(i);
-        for (int scale = INKCELL_SCALE_MIN; scale <= INKCELL_SCALE_MAX; ++scale) {
+        for (int scale = INKCELL_SCALE_MIN; scale <= INKCELL_SCALE_MAX; scale += INKCELL_SCALE(1)) {
             const int cap = inkcell_font_cap(font, scale);
             MESH_TEST_FAIL_IF(cap <= 0, "a font's capitals have no height");
-            MESH_TEST_FAIL_IF(cap > (int)font->height * scale,
+            MESH_TEST_FAIL_IF(cap > inkcell_scale_px((int)font->height, scale),
                               "a font's capitals are taller than its cell");
         }
 
@@ -891,7 +893,7 @@ MESH_TEST_CASE(ui_theme_switch_repaints_the_frame, unit) {
                               mesh_ui_store_shutdown(&store), "no snapshot to render");
 
     struct inkcell_capture *capture = NULL;
-    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, 320U, 240U, 2) != 0,
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, 320U, 240U, INKCELL_SCALE(2)) != 0,
                               mesh_ui_store_shutdown(&store), "capture open failed");
 
     uint32_t width = 0U;
@@ -910,7 +912,7 @@ MESH_TEST_CASE(ui_theme_switch_repaints_the_frame, unit) {
 
     const struct inkcell_theme *first = inkcell_theme_at(0U);
     inkcell_capture_set_theme(capture, first);
-    inkcell_capture_set_scale(capture, 2);
+    inkcell_capture_set_scale(capture, INKCELL_SCALE(2));
     inkcell_capture_render(capture, &snapshot);
     MESH_TEST_FAIL_IF_CLEANUP(
         !ground_is(pixels, stride, width, height, inkcell_theme_color(first, INKCELL_COLOR_BG)),
@@ -920,7 +922,7 @@ MESH_TEST_CASE(ui_theme_switch_repaints_the_frame, unit) {
     for (size_t i = 1U; i < inkcell_theme_count(); ++i) {
         const struct inkcell_theme *theme = inkcell_theme_at(i);
         inkcell_capture_set_theme(capture, theme);
-        inkcell_capture_set_scale(capture, 2);
+        inkcell_capture_set_scale(capture, INKCELL_SCALE(2));
         MESH_TEST_FAIL_IF_CLEANUP(inkcell_capture_theme(capture) != theme, THEME_CLEANUP,
                                   "the capture did not take the theme it was given");
         inkcell_capture_render(capture, &snapshot);
@@ -935,7 +937,7 @@ MESH_TEST_CASE(ui_theme_switch_repaints_the_frame, unit) {
     /* And back: a theme switch is not one-way, and the frame it produces is the frame that
        theme produced before - which is what makes a switcher safe to leave in a menu. */
     inkcell_capture_set_theme(capture, first);
-    inkcell_capture_set_scale(capture, 2);
+    inkcell_capture_set_scale(capture, INKCELL_SCALE(2));
     inkcell_capture_render(capture, &snapshot);
     MESH_TEST_FAIL_IF_CLEANUP(memcmp(reference, pixels, page_bytes) != 0, THEME_CLEANUP,
                               "switching back did not reproduce the first frame");
@@ -967,10 +969,10 @@ MESH_TEST_CASE(ui_theme_follows_the_snapshot, unit) {
                               mesh_ui_store_shutdown(&store), "no snapshot to render");
 
     struct inkcell_capture *capture = NULL;
-    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, 320U, 240U, 2) != 0,
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, 320U, 240U, INKCELL_SCALE(2)) != 0,
                               mesh_ui_store_shutdown(&store), "capture open failed");
     inkcell_capture_set_theme(capture, inkcell_theme_default());
-    inkcell_capture_set_scale(capture, 2);
+    inkcell_capture_set_scale(capture, INKCELL_SCALE(2));
 
     uint32_t width = 0U;
     uint32_t height = 0U;
@@ -1018,7 +1020,7 @@ MESH_TEST_CASE(ui_theme_follows_the_snapshot, unit) {
     memcpy(pinned, pixels, page_bytes);
 
     inkcell_capture_set_theme(capture, last);
-    inkcell_capture_set_scale(capture, 2);
+    inkcell_capture_set_scale(capture, INKCELL_SCALE(2));
     inkcell_capture_render(capture, &snapshot);
     const bool scale_held = (memcmp(pinned, pixels, page_bytes) == 0);
     free(pinned);

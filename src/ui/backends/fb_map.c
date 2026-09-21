@@ -149,8 +149,8 @@ static int fb_map_marker_radius(const struct inkcell_backend_fb_state *state) {
     return radius < 3 ? 3 : radius;
 }
 
-/* A filled disc, which is the one shape this file draws that inkcell/ui/widgets.h has no name for:
-   a rounded rectangle whose radius is half its shorter side is a circle, and
+/* A filled disc, which is the one shape this file draws that fb_widgets.h has no name for: a
+   rounded rectangle whose radius is half its shorter side is a circle, and
    inkcell_fb_fill_round_rect() already clamps anything larger to exactly that. */
 static void fb_map_disc(const struct inkcell_backend_fb_state *state, int cx, int cy, int radius,
                         struct inkcell_rgb color) {
@@ -382,7 +382,7 @@ static void fb_map_draw_attribution(const struct inkcell_backend_fb_state *state
        width taken as a cell count times the nominal advance puts a proportional run either
        over the edge or short of it. */
     const int width = inkcell_fb_text_width(state, attribution, scale);
-    const int height = (int)inkcell_fb_font(state)->height * scale;
+    const int height = inkcell_scale_px((int)inkcell_fb_font(state)->height, scale);
     const int x = body->x + body->w - pad - width;
     const int y = body->y + body->h - pad - height;
     /* Half the body, so a long credit is dropped rather than drawn across the ruler it would
@@ -1018,7 +1018,7 @@ void fb_render_map(struct inkcell_backend_fb_state *state, const struct mesh_ui_
          * reserving a rectangle a line above where it landed - collisions tested against nothing,
          * and once there was a halo to draw, a halo in the wrong place.
          */
-        const int text_h = (int)inkcell_fb_font(state)->height * scale;
+        const int text_h = inkcell_scale_px((int)inkcell_fb_font(state)->height, scale);
         const struct fb_map_box label = {
             .x = cx + radius + inkcell_fb_space_at(state, INKCELL_SPACE_XS, scale),
             .y = cy - text_h / 2,

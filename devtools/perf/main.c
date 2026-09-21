@@ -2,10 +2,9 @@
 
 /* A repeatable CPU benchmark, independent of a radio or framebuffer device. It deliberately
    reaches the drawing seam to compare the same rasterizer with and without its glyph cache. */
-#include "mesh/ui/backends/fb_capture.h"
-
 #include "../../src/ui/backends/fb_internal.h"
 
+#include "mesh/ui/backends/fb_capture.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -35,8 +34,8 @@ static bool benchmark_transcript(bool animate) {
     uint8_t *pixels = malloc(1024U * 768U * 4U);
     bool identical = false;
     if (snapshot == NULL || pixels == NULL ||
-        mesh_ui_capture_open(&capture[0], 1024U, 768U, 4) != 0 ||
-        mesh_ui_capture_open(&capture[1], 1024U, 768U, 4) != 0)
+        mesh_ui_capture_open(&capture[0], 1024U, 768U, INKCELL_SCALE(4)) != 0 ||
+        mesh_ui_capture_open(&capture[1], 1024U, 768U, INKCELL_SCALE(4)) != 0)
         goto cleanup;
     inkcell_capture_set_reference(capture[0], true);
     snapshot->nav.screen = MESH_UI_SCREEN_MESSAGES;
@@ -101,7 +100,7 @@ int main(void) {
         free(reference);
         return 1;
     }
-    inkcell_fb_state_set_theme(&state, inkcell_theme_default(), 4);
+    inkcell_fb_state_set_theme(&state, inkcell_theme_default(), INKCELL_SCALE(4));
     struct inkcell_fb_glyph_cache *cache = state.glyph_cache;
     const unsigned frames = 300U;
     double elapsed[2];

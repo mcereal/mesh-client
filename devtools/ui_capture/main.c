@@ -1208,7 +1208,9 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         if (strcmp(command, "scene") == 0) {
             cap->scene = strdup(value);
         } else if (strcmp(command, "scale") == 0) {
-            cap->scale = (int)uicap_number(value, "scale");
+            /* In whole steps, as the usage above says. A scale counts quarters of one
+               inside - the conversion belongs where the outside world states a number. */
+            cap->scale = INKCELL_SCALE((int)uicap_number(value, "scale"));
         } else {
             cap->delay_ms = uicap_number(value, "delay");
         }
@@ -3085,7 +3087,7 @@ int main(int argc, char **argv) {
         } else if (strcmp(arg, "--prefix") == 0 && value != NULL) {
             cap.prefix = argv[++i];
         } else if (strcmp(arg, "--scale") == 0 && value != NULL) {
-            cap.scale = (int)uicap_number(argv[++i], "--scale");
+            cap.scale = INKCELL_SCALE((int)uicap_number(argv[++i], "--scale"));
         } else if (strcmp(arg, "--delay") == 0 && value != NULL) {
             cap.delay_ms = uicap_number(argv[++i], "--delay");
         } else if (strcmp(arg, "--geometry") == 0 && value != NULL) {
