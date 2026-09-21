@@ -62,7 +62,7 @@ static void fb_node_title(const struct mesh_ui_node_summary *node, char *out, si
  * by a second copy of this would be a second opinion about what a destructive row looks like,
  * which is the drift node_detail.c's `tone` and `icon` fields exist to prevent one layer down.
  */
-static void fb_node_action_row(struct inkcell_backend_fb_state *state, struct inkcell_fb_list *list,
+static void fb_node_action_row(struct inkcell_draw_state *state, struct inkcell_fb_list *list,
                                uint32_t index, const struct mesh_ui_node_item *item,
                                uint32_t node_id) {
     /*
@@ -127,7 +127,7 @@ static void fb_node_action_row(struct inkcell_backend_fb_state *state, struct in
 
 /* Mutable state, as every screen drawing a inkcell_fb_list_item is: an item may carry a control
    that animates, and where such a control has got to is kept on the backend. */
-void fb_render_node_detail(struct inkcell_backend_fb_state *state,
+void fb_render_node_detail(struct inkcell_draw_state *state,
                            const struct mesh_ui_snapshot *snapshot,
                            struct inkcell_fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
@@ -409,7 +409,7 @@ void fb_render_node_detail(struct inkcell_backend_fb_state *state,
  * Settings tab's shape for a level inside a level and says whose verbs these are without
  * spending a row on it.
  */
-void fb_render_node_actions(struct inkcell_backend_fb_state *state,
+void fb_render_node_actions(struct inkcell_draw_state *state,
                             const struct mesh_ui_snapshot *snapshot,
                             struct inkcell_fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
@@ -484,8 +484,8 @@ void fb_render_node_actions(struct inkcell_backend_fb_state *state,
     fb_sheet_end(state, &frame);
 }
 
-void fb_render_nodes(struct inkcell_backend_fb_state *state,
-                     const struct mesh_ui_snapshot *snapshot, struct inkcell_fb_layout *layout) {
+void fb_render_nodes(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
+                     struct inkcell_fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
     if (nav->node_detail_open) {
         /* The chart over the detail, the way the detail is drawn over the list. The reading is

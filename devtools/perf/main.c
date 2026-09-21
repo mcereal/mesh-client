@@ -16,7 +16,7 @@ static double now_ms(void) {
     return (double)now.tv_sec * 1000.0 + (double)now.tv_nsec / 1000000.0;
 }
 
-static void render_text(struct inkcell_backend_fb_state *state) {
+static void render_text(struct inkcell_draw_state *state) {
     const struct inkcell_rgb ground = inkcell_fb_color(state, INKCELL_COLOR_BG);
     const struct inkcell_rgb ink = inkcell_fb_color(state, INKCELL_COLOR_TEXT);
     inkcell_fb_clear(state, ground);
@@ -85,18 +85,25 @@ cleanup:
     return identical;
 }
 
+#define PERF_WIDTH 1024U
+#define PERF_HEIGHT 768U
+
 int main(void) {
-    struct inkcell_backend_fb_state state = {0};
-    state.var.xres = 1024U;
-    state.var.yres = 768U;
-    state.var.bits_per_pixel = 32U;
-    state.bytes_per_pixel = 4U;
-    state.line_bytes = state.fix.line_length = state.var.xres * 4U;
-    state.inkcell_fb_size = (size_t)state.line_bytes * state.var.yres;
-    state.inkcell_fb_ptr = calloc(1U, state.inkcell_fb_size);
-    uint8_t *reference = malloc(state.inkcell_fb_size);
-    if (state.inkcell_fb_ptr == NULL || reference == NULL) {
-        free(state.inkcell_fb_ptr);
+    struct inkcell_draw_state state = {0};
+    /* The Brick's panel, 32 bits a pixel with no channel offsets - what both fb0 and the
+       capture harness present, so a measurement here is a measurement of the device's work. */
+    state.surface = (struct inkcell_surface){
+        .size = (size_t)PERF_WIDTH * 4U * PERF_HEIGHT,
+        .width = PERF_WIDTH,
+        .height = PERF_HEIGHT,
+        .stride = PERF_WIDTH * 4U,
+        .bytes_per_pixel = 4U,
+        .format = {.bits_per_pixel = 32U},
+    };
+    state.surface.pixels = calloc(1U, state.surface.size);
+    uint8_t *reference = malloc(state.surface.size);
+    if (state.surface.pixels == NULL || reference == NULL) {
+        free(state.surface.pixels);
         free(reference);
         return 1;
     }
@@ -113,16 +120,16 @@ int main(void) {
         }
         elapsed[pass] = now_ms() - start;
         if (pass == 0U) {
-            memcpy(reference, state.inkcell_fb_ptr, state.inkcell_fb_size);
+            memcpy(reference, state.surface.pixels, state.surface.size);
         }
     }
-    const bool identical = memcmp(reference, state.inkcell_fb_ptr, state.inkcell_fb_size) == 0;
+    const bool identical = memcmp(reference, state.surface.pixels, state.surface.size) == 0;
     printf("1024x768 text workload, %u frames, font %s\n", frames, inkcell_fb_font(&state)->id);
     printf("uncached %.3f ms/frame; cached %.3f ms/frame; %.2fx; pixels %s\n", elapsed[0] / frames,
            elapsed[1] / frames, elapsed[0] / elapsed[1], identical ? "identical" : "DIFFERENT");
     state.glyph_cache = cache;
     inkcell_fb_glyph_cache_free(&state);
     free(reference);
-    free(state.inkcell_fb_ptr);
+    free(state.surface.pixels);
     return benchmark_transcript(false) && benchmark_transcript(true) && identical ? 0 : 1;
 }

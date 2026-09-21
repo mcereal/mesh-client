@@ -42,9 +42,8 @@
  * hold every line, the lines that fit are the ones that fit, and the code above is what that
  * reader was meant to use anyway.
  */
-static void fb_draw_code_body(struct inkcell_backend_fb_state *state,
-                              struct inkcell_fb_layout *layout, const char *url,
-                              const char *summary, const char *no_code) {
+static void fb_draw_code_body(struct inkcell_draw_state *state, struct inkcell_fb_layout *layout,
+                              const char *url, const char *summary, const char *no_code) {
     /*
      * The words go at the bottom of the body and the code gets everything above them, rather
      * than the code being placed first and the words taking what is left. The code's own size
@@ -90,7 +89,7 @@ static void fb_draw_code_body(struct inkcell_backend_fb_state *state,
         .code = code.size > 0U ? &code : NULL,
         .box = {.x = 0,
                 .y = layout->body_y,
-                .w = (int)state->var.xres,
+                .w = inkcell_fb_panel_width(state),
                 .h = text_y - layout->body_y},
     };
     if (inkcell_fb_qr_side(&qr) > 0) {
@@ -118,8 +117,8 @@ static void fb_draw_code_body(struct inkcell_backend_fb_state *state,
 }
 
 /* The share sheet: this radio's channel set as a code, for a phone that is about to join. */
-void fb_render_share(struct inkcell_backend_fb_state *state,
-                     const struct mesh_ui_snapshot *snapshot, struct inkcell_fb_layout *layout) {
+void fb_render_share(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
+                     struct inkcell_fb_layout *layout) {
     inkcell_fb_draw_app_bar(
         state, layout,
         &(const struct inkcell_fb_app_bar){.title = inkcell_str(MESH_STR_SHARE_TITLE)});
@@ -139,8 +138,8 @@ void fb_render_share(struct inkcell_backend_fb_state *state,
 /* The contact code sheet: this radio's own identity as a code, for a phone that is about to add
    it. The same screen as the one above with a different thing in the square - which is the whole
    of why the body is a function and this is four lines. */
-void fb_render_contact(struct inkcell_backend_fb_state *state,
-                       const struct mesh_ui_snapshot *snapshot, struct inkcell_fb_layout *layout) {
+void fb_render_contact(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
+                       struct inkcell_fb_layout *layout) {
     inkcell_fb_draw_app_bar(
         state, layout,
         &(const struct inkcell_fb_app_bar){.title = inkcell_str(MESH_STR_CONTACT_TITLE)});

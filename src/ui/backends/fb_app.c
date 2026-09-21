@@ -27,12 +27,11 @@
 #include <stdint.h>
 #include <stdlib.h>
 
-struct fb_app *fb_app_of(const struct inkcell_backend_fb_state *state) {
+struct fb_app *fb_app_of(const struct inkcell_draw_state *state) {
     return state != NULL ? (struct fb_app *)state->app.ctx : NULL;
 }
 
-static void fb_app_render(struct inkcell_backend_fb_state *state, const void *snapshot_ptr,
-                          void *ctx) {
+static void fb_app_render(struct inkcell_draw_state *state, const void *snapshot_ptr, void *ctx) {
     const struct mesh_ui_snapshot *const snapshot = (const struct mesh_ui_snapshot *)snapshot_ptr;
     struct fb_app *const app = (struct fb_app *)ctx;
     if (state == NULL || snapshot == NULL || app == NULL) {
@@ -99,7 +98,7 @@ static void fb_app_frame_begin(void *ctx) {
  * closing a pack is what fb_basemap_close() does and it is written against the state like
  * everything else in fb_map.c.
  */
-static void fb_app_drop_caches(struct inkcell_backend_fb_state *state, void *ctx) {
+static void fb_app_drop_caches(struct inkcell_draw_state *state, void *ctx) {
     (void)ctx;
     if (state == NULL) {
         return;
@@ -116,7 +115,7 @@ static void fb_app_drop_caches(struct inkcell_backend_fb_state *state, void *ctx
  * it. Getting that wrong left every frame after the first reference render drawing a map with
  * nothing under it.
  */
-static void fb_app_close(struct inkcell_backend_fb_state *state, void *ctx) {
+static void fb_app_close(struct inkcell_draw_state *state, void *ctx) {
     fb_app_drop_caches(state, ctx);
     fb_basemap_close(state);
     free(ctx);
@@ -147,7 +146,7 @@ int mesh_ui_capture_open(struct inkcell_capture **out, uint32_t width, uint32_t 
  * behind it.
  */
 int mesh_ui_capture_open_map_pack(struct inkcell_capture *capture, const char *path) {
-    struct inkcell_backend_fb_state *const state = inkcell_capture_state(capture);
+    struct inkcell_draw_state *const state = inkcell_capture_state(capture);
     if (state == NULL) {
         return -EINVAL;
     }

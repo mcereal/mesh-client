@@ -31,7 +31,7 @@
  * point. src/ui/views/waypoints.c works both out; this draws them.
  */
 
-static void fb_render_waypoint_detail(struct inkcell_backend_fb_state *state,
+static void fb_render_waypoint_detail(struct inkcell_draw_state *state,
                                       const struct mesh_ui_snapshot *snapshot,
                                       struct inkcell_fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
@@ -145,8 +145,7 @@ static void fb_render_waypoint_detail(struct inkcell_backend_fb_state *state,
     }
 }
 
-void fb_render_waypoints(struct inkcell_backend_fb_state *state,
-                         const struct mesh_ui_snapshot *snapshot,
+void fb_render_waypoints(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
                          struct inkcell_fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
     if (nav->waypoint_detail_open) {

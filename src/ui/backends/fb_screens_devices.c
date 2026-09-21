@@ -56,9 +56,8 @@ static enum inkcell_icon fb_device_icon(const struct mesh_ui_device *device) {
  * capsule: the badge slot reports what a link is *doing*, and this row is a button until an
  * address exists.
  */
-static void fb_devices_network_row(struct inkcell_backend_fb_state *state,
-                                   struct inkcell_fb_list *list, uint32_t index,
-                                   const struct mesh_ui_devices_row *entry) {
+static void fb_devices_network_row(struct inkcell_draw_state *state, struct inkcell_fb_list *list,
+                                   uint32_t index, const struct mesh_ui_devices_row *entry) {
     const bool configured = (entry->host[0] != '\0');
     const struct inkcell_fb_list_item row = {
         .leading = {.kind = INKCELL_FB_LEADING_AVATAR,
@@ -86,8 +85,8 @@ static void fb_devices_network_row(struct inkcell_backend_fb_state *state,
 
 /* Takes the state mutably, like every inkcell_fb_list_item() caller: the item is the component that
    can carry an animated slot, so the whole entry point takes the table it would step. */
-void fb_render_devices(struct inkcell_backend_fb_state *state,
-                       const struct mesh_ui_snapshot *snapshot, struct inkcell_fb_layout *layout) {
+void fb_render_devices(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
+                       struct inkcell_fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
     /* The heading counts the radios, not the rows: the network row is a control, and a Devices
        tab reading "Devices 1" with nothing found would be the arithmetic-no-screen-should-show

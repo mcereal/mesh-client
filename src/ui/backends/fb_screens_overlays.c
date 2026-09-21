@@ -50,7 +50,7 @@
  * press's business, and inkcell_scroll_reveal() is what turns that into a position. What the
  * pixels buy is how the body gets there.
  */
-void fb_render_help(struct inkcell_backend_fb_state *state, const struct mesh_ui_snapshot *snapshot,
+void fb_render_help(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
                     struct inkcell_fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
     struct mesh_ui_help_topic topic;
@@ -129,7 +129,7 @@ void fb_render_help(struct inkcell_backend_fb_state *state, const struct mesh_ui
     const struct inkcell_fb_rect body = {
         .x = 0,
         .y = layout->body_y,
-        .w = (int)state->var.xres,
+        .w = inkcell_fb_panel_width(state),
         .h = layout->footer_y - layout->body_y,
     };
     struct inkcell_fb_viewport view;
@@ -189,7 +189,7 @@ static void fb_dialog_remember(struct fb_overlay_memo *memo,
  * below are otherwise the same call, so it is written once: what differs between them is where
  * their words come from, which is the half of a screen that is worth reading.
  */
-static void fb_put_dialog(struct inkcell_backend_fb_state *state, struct inkcell_fb_layout *layout,
+static void fb_put_dialog(struct inkcell_draw_state *state, struct inkcell_fb_layout *layout,
                           enum fb_overlay_id id, bool up, const struct inkcell_fb_dialog *dialog) {
     struct fb_overlay_memo *const memo = fb_overlay_memo(state, id);
     if (dialog != NULL) {
@@ -232,8 +232,8 @@ static void fb_put_dialog(struct inkcell_backend_fb_state *state, struct inkcell
 /* "Save <section>?" for the sections whose write can cut this client off, and "Reboot the
    radio?" and its siblings for the Radio actions section. Which of the two it is standing in
    front of is nav->confirm_action; all three strings come from settings.c. */
-void fb_render_confirm(struct inkcell_backend_fb_state *state,
-                       const struct mesh_ui_snapshot *snapshot, struct inkcell_fb_layout *layout) {
+void fb_render_confirm(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
+                       struct inkcell_fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
     /* Not over help, which takes every press - see the note at the tail of
        fb_render_snapshot(). */
@@ -307,8 +307,8 @@ void fb_render_confirm(struct inkcell_backend_fb_state *state,
  * without having compared anything, and no colour on a button prevents that. What does is the
  * paragraph under the headline, which is why the panel keeps one at every stage.
  */
-void fb_render_verify(struct inkcell_backend_fb_state *state,
-                      const struct mesh_ui_snapshot *snapshot, struct inkcell_fb_layout *layout) {
+void fb_render_verify(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
+                      struct inkcell_fb_layout *layout) {
     struct mesh_ui_verify_sheet sheet;
     char headline[96];
     char text[256];
