@@ -50,13 +50,14 @@ static void fb_app_render(struct mesh_ui_backend_fb_state *state, const void *sn
      * screen that slid in on the frame the client came up would be announcing itself rather than
      * reporting a move.
      *
-     * The route *under the question*, because the two questions are not moves: a confirm and a
-     * verification sheet arrive on layers of their own over the body they are asking about, and
-     * a body that slid out from under an arriving panel would be two things travelling at once.
-     * Everything else that asks where the user is still wants the whole route.
+     * The route *under the layers*, because what is drawn over a screen is not a move: the two
+     * questions, a node's verbs and a message's faces all arrive on layers of their own over
+     * the body they are about, and a body that slid out from under an arriving panel would be
+     * two things travelling at once. Everything else that asks where the user is still wants
+     * the whole route.
      */
     struct mesh_ui_route route;
-    mesh_ui_route_under_question(&snapshot->nav, &route);
+    mesh_ui_route_under_layers(&snapshot->nav, &route);
     if (!app->route_valid) {
         app->route = route;
         app->route_valid = true;

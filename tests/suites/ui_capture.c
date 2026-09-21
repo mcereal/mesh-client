@@ -4356,7 +4356,11 @@ MESH_TEST_CASE(ui_capture_node_detail_verbs_wear_their_colour_in_a_disc, unit) {
             mesh_ui_store_request_refresh(&store);
             (void)mesh_ui_store_consume_updates(&store, &snapshot);
         }
-        mesh_ui_capture_render(capture, &snapshot);
+        /* Until the sheet has arrived. It is a layer now rather than a screen, so its first
+           frame is a panel still off the bottom edge and what this would otherwise count is the
+           detail underneath it - seven accent discs and nothing destructive, which is exactly
+           what the detail has. */
+        render_until_still(capture, &snapshot);
 
         /* Wider than a glyph's own strokes at this size and well inside a disc, which is as
            wide as the row is tall. */
@@ -4378,9 +4382,9 @@ MESH_TEST_CASE(ui_capture_node_detail_verbs_wear_their_colour_in_a_disc, unit) {
         const uint32_t danger =
             bands_of(capture, pixels, width, height, stride, MESH_UI_COLOR_ERROR, min_run);
         /* Four, because one of the accent's bands is the navigation bar's own tab pill and the
-           card this is about holds several verbs. The sheet carries no heading - its app bar
-           names it - so the disc that used to be counted with them is gone, and four still
-           clears the verbs by a wide margin. */
+           sheet this is about holds several verbs. The sheet's own heading is a title and a
+           trailing word rather than a row, so no disc is counted for it, and four still clears
+           the verbs by a wide margin. */
         if (accent < 4U || danger < 1U) {
             snprintf(detail, sizeof detail,
                      "the node's verbs draw no tonal disc (%u accent bands, %u destructive, "

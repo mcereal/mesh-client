@@ -407,22 +407,24 @@ void fb_render_node_actions(struct mesh_ui_backend_fb_state *state,
                             const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
     const struct mesh_ui_handshake_state *hs = &snapshot->handshake;
-    const struct mesh_ui_node_summary *node = mesh_ui_node_detail_find(hs, nav->node_detail_node);
+    /*
+     * Whose verbs these are, which outlives the nav closing the sheet.
+     *
+     * mesh_ui_nav_close_node_detail() clears the node when the *detail* goes, and the sheet is
+     * a level of that detail - so B on the sheet leaves the node where it was and B twice in
+     * quick succession does not. The subject is remembered for exactly as long as there is
+     * some of the sheet left on the panel; see fb_overlay_subject().
+     */
+    const bool up = nav->node_actions_open;
+    const uint32_t which =
+        fb_overlay_subject(state, FB_OVERLAY_NODE_ACTIONS, up, nav->node_detail_node);
+    const struct mesh_ui_node_summary *node = mesh_ui_node_detail_find(hs, which);
     if (node == NULL) {
         /* The node left the roster under the open sheet; the nav closes both levels on the next
-           publish. Until then this says what the detail says in the same case. */
-        fb_draw_app_bar(state, layout,
-                        &(const struct fb_app_bar){.title = mesh_str(MESH_STR_TAB_NODES)});
-        fb_draw_empty(state, layout, MESH_UI_ICON_NODES, mesh_str(MESH_STR_NODES_GONE));
+           publish. Nothing is drawn, which is now an answer a layer can give: the detail
+           underneath is still on the panel and says so itself. */
         return;
     }
-
-    char name[96];
-    fb_node_title(node, name, sizeof name);
-    fb_draw_app_bar(state, layout,
-                    &(const struct fb_app_bar){.trail = {name},
-                                               .trail_count = 1U,
-                                               .title = mesh_str(MESH_STR_NODE_HEAD_ACTIONS)});
 
     struct mesh_ui_node_item items[MESH_UI_NODE_ACTIONS_MAX];
     const uint32_t count =
@@ -430,7 +432,27 @@ void fb_render_node_actions(struct mesh_ui_backend_fb_state *state,
                                    mesh_ui_snapshot_traceroute_view(snapshot, node->node_id),
                                    nav->node_remove_armed, items, MESH_UI_NODE_ACTIONS_MAX);
     if (count == 0U) {
-        fb_draw_empty(state, layout, MESH_UI_ICON_ACTIONS, mesh_str(MESH_STR_NODES_DETAIL_EMPTY));
+        return;
+    }
+
+    /*
+     * The sheet the comments have been calling it since the verbs moved off the detail.
+     *
+     * It was a screen: an app bar, the node's name on the trail over the word "Actions", and
+     * the detail it is about replaced by a column of verbs. What a reader picked the verb
+     * *for* was the row they had been looking at, and it was gone. Now it comes up from the
+     * bottom edge over that detail, dimmed and still there, with the node's name as the
+     * sheet's own title - the trail that had to spell out the level it was standing at.
+     */
+    char name[96];
+    fb_node_title(node, name, sizeof name);
+    const struct inkcell_fb_sheet sheet = {.title = name,
+                                           .detail = mesh_str(MESH_STR_NODE_HEAD_ACTIONS)};
+
+    struct inkcell_overlay_frame frame;
+    struct fb_layout inner;
+    if (!fb_sheet_begin(state, layout, FB_OVERLAY_NODE_ACTIONS, up, &sheet,
+                        (int)count * layout->line, &frame, &inner)) {
         return;
     }
 
@@ -446,12 +468,13 @@ void fb_render_node_actions(struct mesh_ui_backend_fb_state *state,
        control and gets the row highlight, which is the `card` half of the detail's span being
        false for exactly the rows this screen is made of. */
     struct fb_list list =
-        fb_list_begin_focus(layout, count, cursor, heights, cards, cursor, cursor, false);
+        fb_list_begin_focus(&inner, count, cursor, heights, cards, cursor, cursor, false);
     inkcell_fb_list_glide(state, &list, FB_LIST_NODE_ACTIONS);
     uint32_t i;
     while (fb_list_next(&list, &i)) {
         fb_node_action_row(state, &list, i, &items[i], node->node_id);
     }
+    fb_sheet_end(state, &frame);
 }
 
 void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
@@ -462,15 +485,19 @@ void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
            checked rather than a flag because it *is* the flag: MESH_UI_HISTORY_NONE is closed. */
         if (nav->node_trend != MESH_UI_HISTORY_NONE) {
             fb_render_node_trend(state, snapshot, layout);
-        } else if (nav->node_actions_open) {
-            /* The verbs, over the detail. Below the chart rather than above it because the two
-               cannot both be up - a chart opens from a reading and the sheet from the one action
-               row - so the order states which is the deeper level rather than resolving a race:
-               the chart is opened *through* the detail's own rows, the sheet replaces them. */
-            fb_render_node_actions(state, snapshot, layout);
         } else {
             fb_render_node_detail(state, snapshot, layout);
         }
+        /*
+         * And the verbs, on a layer over whichever of the two is up rather than in place of
+         * the detail. Called on every frame because a sheet that is leaving is not in the
+         * snapshot any more - the dialogs above it work the same way and for the same reason.
+         *
+         * Below the chart rather than above it because the two cannot both be up - a chart
+         * opens from a reading and the sheet from the one action row - so what this order
+         * states is which is the deeper level rather than a race being resolved.
+         */
+        fb_render_node_actions(state, snapshot, layout);
         return;
     }
     if (!snapshot->handshake_valid || snapshot->handshake.node_count == 0U) {

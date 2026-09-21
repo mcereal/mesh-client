@@ -140,6 +140,10 @@ enum fb_overlay_id {
     FB_OVERLAY_CONFIRM = 1,
     /* The radio's half of the key-verification ceremony, which it can raise at any moment. */
     FB_OVERLAY_VERIFY,
+    /* One node's verbs, over that node's detail. */
+    FB_OVERLAY_NODE_ACTIONS,
+    /* The faces one message can be answered with, over the transcript it is in. */
+    FB_OVERLAY_REACTIONS,
 };
 
 /*
@@ -166,6 +170,7 @@ enum fb_list_id {
     FB_LIST_SETTINGS,
     FB_LIST_HELP,
     FB_LIST_PICKER,
+    FB_LIST_REACTIONS,
 };
 
 /*
@@ -183,7 +188,7 @@ enum fb_list_id {
  * the backend for the same reason and says as much in inkcell/ui/fb_draw.h; anything larger
  * belongs to whoever can still describe it.
  */
-struct fb_dialog_memo {
+struct fb_overlay_memo {
     char headline[96];
     char text[256];
     char accept[48];
@@ -192,6 +197,15 @@ struct fb_dialog_memo {
     uint32_t cursor;
     bool destructive;
     bool valid;
+    /*
+     * What the layer is *about*, for the overlays whose content is a lookup rather than a
+     * sentence: the node a sheet of verbs belongs to, the message a column of faces answers.
+     *
+     * The same job as the four strings above and a cheaper one. A sheet's rows are built from
+     * the roster and the catalog, both of which outlive the press - so all that has to survive
+     * the nav closing the sheet is which subject to build them for.
+     */
+    uint32_t subject;
 };
 
 /*
@@ -200,8 +214,34 @@ struct fb_dialog_memo {
  * NULL is a frame drawn with no memo behind it, which a caller reads as "describe it or do not
  * draw it" - the dialog is still put, it simply cannot go away slowly.
  */
-struct fb_dialog_memo *fb_dialog_memo(struct mesh_ui_backend_fb_state *state,
-                                      enum fb_overlay_id id);
+struct fb_overlay_memo *fb_overlay_memo(struct mesh_ui_backend_fb_state *state,
+                                        enum fb_overlay_id id);
+
+/*
+ * The subject to draw layer `id` for: `subject` while the app still wants it up, and the one
+ * it was last put with while it walks out.
+ *
+ * Zero is nothing to draw - a layer that never opened, or one whose subject left the roster
+ * under it. Writes through the memo, so a caller asks once a frame and uses the answer.
+ */
+uint32_t fb_overlay_subject(struct mesh_ui_backend_fb_state *state, enum fb_overlay_id id, bool up,
+                            uint32_t subject);
+
+/*
+ * Opens a bottom sheet over the body and hands back a layout for what goes in it.
+ *
+ * `content_h` is the height the content would like; a sheet taller than the body is fitted to
+ * it, so a screen asks for what it has rather than measuring the room first. `out` is the
+ * content rectangle as a layout - a list drawn through it lands inside the sheet, because a
+ * sheet is full bleed and its content lines up with the rows of the screen it came up over.
+ *
+ * Returns false once the sheet has finished leaving, which is when a screen stops describing
+ * it. Pairs with fb_sheet_end() on true, and nothing on false - the layer's own `if`.
+ */
+bool fb_sheet_begin(struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
+                    enum fb_overlay_id id, bool up, const struct inkcell_fb_sheet *sheet,
+                    int content_h, struct inkcell_overlay_frame *frame, struct fb_layout *out);
+void fb_sheet_end(struct mesh_ui_backend_fb_state *state, struct inkcell_overlay_frame *frame);
 
 void fb_render_help(struct mesh_ui_backend_fb_state *state, const struct mesh_ui_snapshot *snapshot,
                     struct fb_layout *layout);

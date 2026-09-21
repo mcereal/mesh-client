@@ -148,17 +148,103 @@ struct fb_render_cache {
     bool valid;
     /* And what the layers were last told to say, which is a memo of a different kind: the one
        above is this frame compared with the last, and these outlive the answer that closed
-       them. One per enum fb_overlay_id, indexed by it. See struct fb_dialog_memo. */
-    struct fb_dialog_memo dialogs[FB_OVERLAY_VERIFY + 1];
+       them. One per enum fb_overlay_id, indexed by it. See struct fb_overlay_memo. */
+    struct fb_overlay_memo overlays[FB_OVERLAY_REACTIONS + 1];
 };
 
-struct fb_dialog_memo *fb_dialog_memo(struct mesh_ui_backend_fb_state *state,
-                                      enum fb_overlay_id id) {
+struct fb_overlay_memo *fb_overlay_memo(struct mesh_ui_backend_fb_state *state,
+                                        enum fb_overlay_id id) {
     struct fb_render_cache *const cache = state != NULL ? state->render_cache : NULL;
-    if (cache == NULL || (unsigned)id >= (sizeof cache->dialogs / sizeof cache->dialogs[0])) {
+    if (cache == NULL || (unsigned)id >= (sizeof cache->overlays / sizeof cache->overlays[0])) {
         return NULL;
     }
-    return &cache->dialogs[id];
+    return &cache->overlays[id];
+}
+
+uint32_t fb_overlay_subject(struct mesh_ui_backend_fb_state *state, enum fb_overlay_id id, bool up,
+                            uint32_t subject) {
+    struct fb_overlay_memo *const memo = fb_overlay_memo(state, id);
+    if (memo == NULL) {
+        /* No memo behind this frame: the layer is whatever the app says it is right now, which
+           is right while it is up and is the end of it when it is not. */
+        return up ? subject : 0U;
+    }
+    if (up && subject != 0U) {
+        memo->subject = subject;
+    } else if (!inkcell_fb_overlay_showing(state, (uint32_t)id)) {
+        /* Nothing of it left on the panel. Forgotten here rather than when the app let go of
+           it, which is the lifetime rule the layer itself follows one call down. */
+        memo->subject = 0U;
+    }
+    return memo->subject;
+}
+
+/*
+ * A layout for a region of the frame that is not the body.
+ *
+ * The components measure themselves against a layout, and a sheet's content is a layout's
+ * worth of room that simply is not the body: the same line advance and the same columns, in a
+ * shorter band that starts further down. Stated as a derivation rather than as a second kind
+ * of thing, because the alternative - a list that takes a rectangle - would be every component
+ * in the toolkit growing a second entry point for the one caller that draws into a panel.
+ *
+ * `nav_y` is the region's own top: there is no navigation bar inside a sheet, and nothing in
+ * here may ask whether there is a screen behind it to go back to - that is the frame's
+ * question and the frame has already answered it.
+ */
+static struct fb_layout fb_layout_in(const struct fb_layout *layout, struct inkcell_fb_rect box) {
+    struct fb_layout out = *layout;
+    out.nav_y = box.y;
+    out.body_y = box.y;
+    out.footer_y = box.y + box.h;
+    out.body_w = box.w;
+    out.rows = out.line > 0 ? (uint32_t)(box.h / out.line) : 0U;
+    out.back = false;
+    return out;
+}
+
+bool fb_sheet_begin(struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
+                    enum fb_overlay_id id, bool up, const struct inkcell_fb_sheet *sheet,
+                    int content_h, struct inkcell_overlay_frame *frame, struct fb_layout *out) {
+    if (state == NULL || layout == NULL || sheet == NULL || frame == NULL || out == NULL) {
+        return false;
+    }
+    /*
+     * The region a sheet belongs to, and therefore what its scrim dims: the body, and not the
+     * tab strip above it or the keycaps below. The dialog states the argument at length - the
+     * application has not been replaced, and the keycaps in particular are how the sheet gets
+     * closed.
+     */
+    const struct inkcell_fb_rect body = {
+        .x = 0,
+        .y = layout->nav_y,
+        .w = (int)state->var.xres,
+        .h = layout->footer_y - layout->nav_y,
+    };
+    if (!inkcell_fb_overlay_begin(state,
+                                  &(struct inkcell_overlay){
+                                      .id = (uint32_t)id,
+                                      .up = up,
+                                      .placement = INKCELL_OVERLAY_BOTTOM,
+                                      /* The whole way, from off the panel. A container that
+                                         slid in from just below its resting place reads as a
+                                         nudge; a sheet is something arriving. */
+                                      .travel = INKCELL_OVERLAY_TRAVEL_OFF_PANEL,
+                                      .w = body.w,
+                                      .h = inkcell_fb_sheet_height(state, sheet, content_h),
+                                      .bounds = body,
+                                      .scrim = true,
+                                      .modal = true,
+                                  },
+                                  frame)) {
+        return false;
+    }
+    *out = fb_layout_in(layout, inkcell_fb_draw_sheet(state, frame->box, sheet));
+    return true;
+}
+
+void fb_sheet_end(struct mesh_ui_backend_fb_state *state, struct inkcell_overlay_frame *frame) {
+    inkcell_fb_overlay_end(state, frame);
 }
 
 void fb_render_cache_free(struct mesh_ui_backend_fb_state *state) {
@@ -304,8 +390,6 @@ void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
         fb_render_keyboard(state, snapshot, &layout);
     } else if (snapshot->nav.compose_open) {
         fb_render_compose(state, snapshot, &layout);
-    } else if (snapshot->nav.reaction_open) {
-        fb_render_reactions(state, snapshot, &layout);
     } else if (snapshot->nav.share_open) {
         /* Under every overlay above and over the tab's own screen, the same order nav.c takes
            the keys in: it is a level of the Settings tab raised by a row, not a question, and
@@ -359,19 +443,24 @@ void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
     fb_shift_end(state);
 
     /*
-     * The two questions, over whichever of the above raised them.
+     * The layers, over whichever of the above raised them.
      *
-     * Outside the chain rather than a branch of it, and after the shift rather than inside it:
-     * a question is not a place, so the screen it is about stays on the panel, dimmed behind a
-     * scrim, rather than being replaced by the asking. That is what a layer buys - and it is
-     * why both are called on every frame instead of chosen between, since a layer that is
-     * leaving is no longer anything the snapshot says.
+     * Outside the chain rather than branches of it, and after the shift rather than inside it:
+     * what is drawn over a screen is not a place, so the screen it is about stays on the panel,
+     * dimmed behind a scrim, rather than being replaced by the asking. That is what a layer
+     * buys - and it is why all three are called on every frame instead of chosen between, since
+     * a layer that is leaving is no longer anything the snapshot says.
      *
-     * The confirm first so that the verification sheet is over it, which is the order nav.c
-     * takes the keys in and the order a stack of layers reads: drawn last is on top. They
-     * cannot both be up in practice - the app closes the sheet whenever the exchange ends -
-     * and this says which wins if they ever are.
+     * The order is the stack, because drawn last is on top, and it is the order nav.c takes the
+     * keys in: the faces a message can be answered with are the shallowest of the three, and
+     * the verification sheet - which a radio can raise at any moment, over anything - is above
+     * the settings confirm that will wait.
+     *
+     * The node's sheet of verbs is not here. It belongs to one tab rather than to the frame,
+     * so fb_render_nodes() draws it over its own detail, where the order it stacks in is a
+     * fact about that tab.
      */
+    fb_render_reactions(state, snapshot, &layout);
     fb_render_confirm(state, snapshot, &layout);
     fb_render_verify(state, snapshot, &layout);
 

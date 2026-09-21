@@ -37,14 +37,45 @@
 void fb_render_reactions(struct mesh_ui_backend_fb_state *state,
                          const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
+    /*
+     * Which message is being answered, which the sheet keeps for as long as it is on the panel.
+     *
+     * The rows are the same nine whatever the message is - the faces come out of
+     * src/ui/views/reactions.c and the delete out of the catalog - so all that has to outlive
+     * the press is the packet id the quote is drawn from.
+     */
+    const bool up = nav->reaction_open;
+    const uint32_t reply_to = fb_overlay_subject(state, FB_OVERLAY_REACTIONS, up, nav->reply_to);
+    if (reply_to == 0U) {
+        return;
+    }
+
     char target[96] = {0};
-    fb_thread_quote(mesh_ui_snapshot_message_view(snapshot), nav->reply_to, target, sizeof target);
+    fb_thread_quote(mesh_ui_snapshot_message_view(snapshot), reply_to, target, sizeof target);
     char title[160];
     mesh_str_format(title, sizeof title, MESH_STR_MESSAGE_ACTIONS, target);
-    fb_draw_app_bar(state, layout, &(const struct fb_app_bar){.title = title});
 
+    /*
+     * A sheet over the transcript rather than a screen in place of it.
+     *
+     * The message being answered was quoted into the app bar because the transcript it came
+     * out of had been taken away - the heading was standing in for a bubble that was still
+     * two hundred milliseconds ago. It comes up over that bubble now, and the quote is the
+     * sheet's own title for the same reason it was the app bar's: the reader picked this
+     * message out of the thread, and a sheet naming a different one is a sheet about some
+     * other message.
+     */
     const uint32_t count = mesh_ui_nav_reaction_row_count();
-    struct fb_list list = fb_list_begin(layout, count, nav->reaction_cursor);
+    const struct inkcell_fb_sheet sheet = {.title = title};
+    struct inkcell_overlay_frame frame;
+    struct fb_layout inner;
+    if (!fb_sheet_begin(state, layout, FB_OVERLAY_REACTIONS, up, &sheet, (int)count * layout->line,
+                        &frame, &inner)) {
+        return;
+    }
+
+    struct fb_list list = fb_list_begin(&inner, count, nav->reaction_cursor);
+    inkcell_fb_list_glide(state, &list, FB_LIST_REACTIONS);
     uint32_t i;
     while (fb_list_next(&list, &i)) {
         /* The delete takes an icon rather than an emoji, and the danger role rather than the
@@ -77,6 +108,7 @@ void fb_render_reactions(struct mesh_ui_backend_fb_state *state,
         };
         fb_list_item(state, &list, i, &row);
     }
+    fb_sheet_end(state, &frame);
 }
 
 /* Compose overlay: it writes to the open thread, so the destination is a heading rather than

@@ -96,7 +96,7 @@ void fb_render_help(struct mesh_ui_backend_fb_state *state, const struct mesh_ui
  * change of language. A memo holding a pointer into either would be a panel drawing whatever
  * is at that address a frame later.
  */
-static void fb_dialog_remember(struct fb_dialog_memo *memo, const struct fb_dialog *dialog) {
+static void fb_dialog_remember(struct fb_overlay_memo *memo, const struct fb_dialog *dialog) {
     if (memo == NULL || dialog == NULL) {
         return;
     }
@@ -120,7 +120,7 @@ static void fb_dialog_remember(struct fb_dialog_memo *memo, const struct fb_dial
  */
 static void fb_put_dialog(struct mesh_ui_backend_fb_state *state, struct fb_layout *layout,
                           enum fb_overlay_id id, bool up, const struct fb_dialog *dialog) {
-    struct fb_dialog_memo *const memo = fb_dialog_memo(state, id);
+    struct fb_overlay_memo *const memo = fb_overlay_memo(state, id);
     if (dialog != NULL) {
         fb_dialog_remember(memo, dialog);
     }
