@@ -791,6 +791,16 @@ Everything that makes the UI look like something — palette, margin, glyph mult
 one table in `src/ui/theme/theme.c`. `MESHCLIENT_THEME` picks one (`dark`, `light`, `contrast`,
 `colorblind`).
 
+**A scale is not a pixel count.** It counts quarters of a glyph step (`INKCELL_SCALE_UNIT`), so
+that a type role can sit half a step above the body rather than a whole one — which is what lets
+the type scale grow past three roles. `INKCELL_SCALE(4)` is the body size the Brick draws at, and
+is what a literal `4` used to mean. Anything turning a scale into pixels goes through
+`inkcell_scale_px(steps, scale)`, and the very common "one step" case — a fill's hairline inset, a
+baseline's lift over a highlight — through `inkcell_step_px(scale)`. A bare scale in a pixel
+expression compiles and draws four times too large, so it is worth looking for when a renderer
+here comes out wrong by a factor. The knobs are unchanged: `MESHCLIENT_FB_SCALE` and uicap's
+`scale N` still take 2–6.
+
 Four vocabularies, most abstract to least:
 
 | Layer | What it is | Who speaks it |
