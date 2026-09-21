@@ -139,7 +139,7 @@ struct mesh_ui_client_info {
      * stop being able to say where the next one will go.
      *
      * Both are read once at startup rather than from a stat() per frame; see
-     * mesh_crash_report_waiting() for why a client must not learn mid-run that it has crashed.
+     * inkwell_crash_report_waiting() for why a client must not learn mid-run that it has crashed.
      */
     char crash_report_path[MESH_UI_CLIENT_PATH_MAX];
     bool crash_report_waiting;

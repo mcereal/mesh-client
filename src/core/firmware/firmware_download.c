@@ -6,7 +6,7 @@
 #include "inkwell/base/text.h"
 #include "inkwell/base/time.h"
 
-#include "mesh/utils/inflate.h"
+#include "inkwell/codec/inflate.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -445,14 +445,15 @@ static void download_inflate(struct mesh_firmware_download *download) {
             download_fail(download, MESH_FIRMWARE_DOWNLOAD_ERROR_STAGING);
             return;
         }
-        const enum mesh_inflate_result inflated = mesh_inflate(member, len, image, want, &produced);
+        const enum inkwell_inflate_result inflated =
+            inkwell_inflate(member, len, image, want, &produced);
         free(member);
-        if (inflated == MESH_INFLATE_NO_MEMORY) {
+        if (inflated == INKWELL_INFLATE_NO_MEMORY) {
             free(image);
             download_fail(download, MESH_FIRMWARE_DOWNLOAD_ERROR_STAGING);
             return;
         }
-        if (inflated != MESH_INFLATE_OK) {
+        if (inflated != INKWELL_INFLATE_OK) {
             inkwell_log_error("firmware", "The member is not a deflate stream that fits %zu bytes",
                               want);
             free(image);
@@ -462,7 +463,7 @@ static void download_inflate(struct mesh_firmware_download *download) {
     }
 
     uint32_t crc = 0U;
-    if (!mesh_crc32(image, produced, &crc)) {
+    if (!inkwell_crc32(image, produced, &crc)) {
         free(image);
         download_fail(download, MESH_FIRMWARE_DOWNLOAD_ERROR_STAGING);
         return;

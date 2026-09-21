@@ -18,7 +18,7 @@ place. Nothing about it needs a phone any more.
 
 | File | What it is |
 |---|---|
-| `src/proto/mqtt_packet.c` | the MQTT 3.1.1 wire format, and nothing else |
+| inkwell's `src/codec/mqtt.c` | the MQTT 3.1.1 wire format, and nothing else - it was never about a mesh, so it is the platform layer's |
 | `src/core/net/mqtt_proxy.c` | one broker connection: resolve, connect, subscribe, publish, keepalive, backoff |
 | `src/core/net/tls_client.c` | Mbed TLS over a non-blocking descriptor |
 | `src/proto/mqtt_topic.c` | where a mesh lives on a broker, matched to the firmware |
@@ -377,7 +377,7 @@ others is an ordinary configuration, and dropping the link would cost every filt
 
 ## Testing
 
-`tests/suites/mqtt_packet.c` checks the codec against byte arrays written out from the
+inkwell's `tests/suites/codec_mqtt.c` checks the codec against byte arrays written out from the
 specification, because a codec tested only by round-tripping its own output agrees with itself
 and can still be wrong about the wire.
 

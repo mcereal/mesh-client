@@ -147,11 +147,12 @@ format:
 	fi
 	$(CLANG_FORMAT) -i $$(git ls-files '*.[ch]' ':!:third_party/*')
 
-# third_party/ is excluded and that is not tidiness: a vendored file is upstream's, and
-# reformatting one rewrites every line of a 3.6 MB generated source into a diff nobody can read
-# - which is also what scripts/check-vendor.py then refuses, because the digest no longer
-# matches the README that vouches for it. The submodules were never reachable here (git
-# ls-files does not descend into one); the vendored file is, and was, once.
+# third_party/ is excluded and that is not tidiness: what is under it is somebody else's, or
+# our configuration of it, and neither is normalised to this tree's style. Nothing there is a
+# vendored *file* any more - Wuffs and its digest check went down to inkwell with the decoders
+# that used it - but the rule stays, because a vendored file is exactly the kind of thing that
+# arrives again and reformatting one rewrites millions of lines into a diff nobody can read.
+# The submodules were never reachable here in any case: git ls-files does not descend into one.
 
 clean:
 	rm -rf $(BUILD_ROOT)/debug $(BUILD_ROOT)/release $(BUILD_ROOT)/relwithdebinfo

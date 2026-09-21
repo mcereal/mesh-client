@@ -4,6 +4,7 @@
 
 #include "framework/mesh_test.h"
 
+#include "inkwell/base/version.h"
 #include "inkwell/codec/sha256.h"
 #include "inkwell/runtime/loop.h"
 #include "mesh/core/updater.h"
@@ -47,49 +48,16 @@ static bool updater_wait_past(struct inkwell_loop *loop, struct mesh_updater *up
 
 /* ---- client version and self-update ------------------------------------------------------- */
 
+/*
+ * What this build says it is, and what it will therefore accept as an update.
+ *
+ * The ordering itself is not here any more - it is arithmetic over two strings and it lives in
+ * inkwell's base_version suite, which has the whole table of pairs. What is left is the half
+ * only this build can answer: that a version was baked in at all, and that
+ * mesh_version_is_newer_than_running() binds that version to the comparison rather than
+ * answering about some other pair of strings.
+ */
 MESH_TEST_CASE(version_compare, unit) {
-    /* Ordering: each pair must compare strictly less-than in the given direction. */
-    static const struct {
-        const char *lower;
-        const char *higher;
-    } k_ordered[] = {
-        {"1.0.0", "1.0.1"},
-        {"1.0.9", "1.1.0"},
-        {"1.9.0", "2.0.0"},
-        {"1.2.0", "1.10.0"},     /* not string order */
-        {"1.2.0-rc.1", "1.2.0"}, /* a prerelease precedes its release */
-        {"1.2.0-beta.1", "1.2.0-beta.2"},
-        {"1.2.0-beta.2", "1.2.0-beta.10"}, /* numeric identifiers compare numerically */
-        {"1.2.0-beta", "1.2.0-rc"},
-        {"1.2.0-rc.1", "1.2.0-rc.1.1"}, /* a longer run of identifiers outranks its prefix */
-        {"garbage", "1.0.0"},           /* unparseable can never look newer */
-    };
-    for (size_t i = 0; i < sizeof k_ordered / sizeof k_ordered[0]; ++i) {
-        MESH_TEST_FAIL_IF(mesh_version_compare(k_ordered[i].lower, k_ordered[i].higher) >= 0,
-                          k_ordered[i].lower);
-        MESH_TEST_FAIL_IF(mesh_version_compare(k_ordered[i].higher, k_ordered[i].lower) <= 0,
-                          "the reverse comparison should be positive");
-    }
-
-    /* Equality, including the forms a GitHub tag and CMake spell differently. */
-    static const char *const k_equal[][2] = {
-        {"1.2.3", "1.2.3"},
-        {"v1.2.3", "1.2.3"},
-        {"V1.2.3", "v1.2.3"},
-        {"1.2", "1.2.0"},
-        {"1", "1.0.0"},
-        {"1.2.3+build7", "1.2.3"}, /* build metadata is not part of precedence */
-        {"1.2.3-rc.1+build7", "1.2.3-rc.1"},
-    };
-    for (size_t i = 0; i < sizeof k_equal / sizeof k_equal[0]; ++i) {
-        MESH_TEST_FAIL_IF(mesh_version_compare(k_equal[i][0], k_equal[i][1]) != 0, k_equal[i][0]);
-    }
-
-    MESH_TEST_FAIL_IF(mesh_version_compare(NULL, NULL) != 0 ||
-                          mesh_version_compare("1.0.0", NULL) <= 0 ||
-                          mesh_version_compare(NULL, "1.0.0") >= 0,
-                      "NULL should be handled and sort below a real version");
-
     /* The build under test always reports something, release-stamped or not. Whether it is
      *offered* an update is a separate question, covered by version_build_stamp. */
     MESH_TEST_FAIL_IF(mesh_version_string()[0] == '\0',
@@ -786,7 +754,7 @@ MESH_TEST_CASE(version_build_stamp, unit) {
     /* And "-dev" is a prerelease of the version it names, so it sorts below the real thing. */
     char base[MESH_UPDATE_VERSION_MAX];
     snprintf(base, sizeof base, "%.*s", (int)(len - 4U), version);
-    MESH_TEST_FAIL_IF(mesh_version_compare(version, base) >= 0,
+    MESH_TEST_FAIL_IF(inkwell_version_compare(version, base) >= 0,
                       "a -dev build should sort below the release it precedes");
     /* No release, however new, is ever offered to an unstamped build. */
     MESH_TEST_FAIL_IF(mesh_version_is_newer_than_running("999.0.0"),

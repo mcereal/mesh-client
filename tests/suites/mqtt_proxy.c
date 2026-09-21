@@ -16,9 +16,9 @@
 
 #include "framework/mesh_test.h"
 
+#include "inkwell/codec/mqtt.h"
 #include "inkwell/runtime/loop.h"
 #include "mesh/core/mqtt_proxy.h"
-#include "mesh/proto/mqtt_packet.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -370,10 +370,10 @@ static void broker_pump(struct fake_broker *broker) {
  * Takes one whole MQTT packet off what the broker has received, or reports that there is not one
  * yet. `body` points into the broker's own buffer and is valid until the next call.
  */
-static bool broker_take(struct fake_broker *broker, struct mesh_mqtt_header *header,
+static bool broker_take(struct fake_broker *broker, struct inkwell_mqtt_header *header,
                         const uint8_t **body) {
     broker_pump(broker);
-    if (mesh_mqtt_decode_header(broker->in, broker->in_len, header) <= 0) {
+    if (inkwell_mqtt_decode_header(broker->in, broker->in_len, header) <= 0) {
         return false;
     }
     const size_t whole = header->header_len + header->remaining;
@@ -495,7 +495,7 @@ static bool probe_until_state(struct proxy_probe *probe, enum mesh_mqtt_proxy_st
 }
 
 /* Turns until the broker has a whole packet, so a case never has to guess how many it takes. */
-static bool probe_until_packet(struct proxy_probe *probe, struct mesh_mqtt_header *header,
+static bool probe_until_packet(struct proxy_probe *probe, struct inkwell_mqtt_header *header,
                                const uint8_t **body, unsigned turns) {
     for (unsigned turn = 0U; turn < turns; ++turn) {
         if (broker_take(&probe->broker, header, body)) {
@@ -538,12 +538,12 @@ static bool probe_connect(struct proxy_probe *probe) {
                               probe->now_ms) != 0) {
         return false;
     }
-    struct mesh_mqtt_header header;
+    struct inkwell_mqtt_header header;
     const uint8_t *body = NULL;
-    if (!probe_until_packet(probe, &header, &body, 100U) || header.type != MESH_MQTT_CONNECT) {
+    if (!probe_until_packet(probe, &header, &body, 100U) || header.type != INKWELL_MQTT_CONNECT) {
         return false;
     }
-    broker_connack(&probe->broker, MESH_MQTT_CONNACK_ACCEPTED);
+    broker_connack(&probe->broker, INKWELL_MQTT_CONNACK_ACCEPTED);
     return probe_until_state(probe, MESH_MQTT_PROXY_READY, 100U);
 }
 
@@ -567,13 +567,13 @@ MESH_TEST_CASE(mqtt_proxy_greets_a_broker, unit) {
         goto cleanup;
     }
 
-    struct mesh_mqtt_header header;
+    struct inkwell_mqtt_header header;
     const uint8_t *body = NULL;
     if (!probe_until_packet(&probe, &header, &body, 100U)) {
         record_failure(test_name, "the broker never saw a CONNECT");
         goto cleanup;
     }
-    if (header.type != MESH_MQTT_CONNECT) {
+    if (header.type != INKWELL_MQTT_CONNECT) {
         record_failure(test_name, "the first packet should be a CONNECT");
         goto cleanup;
     }
@@ -595,7 +595,7 @@ MESH_TEST_CASE(mqtt_proxy_greets_a_broker, unit) {
         record_failure(test_name, "a sent CONNECT is not an accepted one");
         goto cleanup;
     }
-    broker_connack(&probe.broker, MESH_MQTT_CONNACK_ACCEPTED);
+    broker_connack(&probe.broker, INKWELL_MQTT_CONNACK_ACCEPTED);
     if (!probe_until_state(&probe, MESH_MQTT_PROXY_READY, 100U)) {
         record_failure(test_name, "the proxy should reach READY after a CONNACK");
         goto cleanup;
@@ -632,13 +632,13 @@ MESH_TEST_CASE(mqtt_proxy_reports_a_refused_login, unit) {
         goto cleanup;
     }
 
-    struct mesh_mqtt_header header;
+    struct inkwell_mqtt_header header;
     const uint8_t *body = NULL;
     if (!probe_until_packet(&probe, &header, &body, 100U)) {
         record_failure(test_name, "the broker never saw a CONNECT");
         goto cleanup;
     }
-    broker_connack(&probe.broker, MESH_MQTT_CONNACK_BAD_CREDENTIALS);
+    broker_connack(&probe.broker, INKWELL_MQTT_CONNACK_BAD_CREDENTIALS);
 
     if (!probe_until_state(&probe, MESH_MQTT_PROXY_WAITING, 100U)) {
         record_failure(test_name, "a refused login should end the attempt");
@@ -745,13 +745,13 @@ MESH_TEST_CASE(mqtt_proxy_subscribes_one_filter_at_a_time, unit) {
         goto cleanup;
     }
 
-    struct mesh_mqtt_header header;
+    struct inkwell_mqtt_header header;
     const uint8_t *body = NULL;
     if (!probe_until_packet(&probe, &header, &body, 100U)) {
         record_failure(test_name, "the broker never saw a SUBSCRIBE");
         goto cleanup;
     }
-    if (header.type != MESH_MQTT_SUBSCRIBE || header.flags != 0x02U) {
+    if (header.type != INKWELL_MQTT_SUBSCRIBE || header.flags != 0x02U) {
         record_failure(test_name, "a SUBSCRIBE carries the 0b0010 flags nibble");
         goto cleanup;
     }
@@ -762,7 +762,7 @@ MESH_TEST_CASE(mqtt_proxy_subscribes_one_filter_at_a_time, unit) {
 
     /* The second must NOT be on the wire yet: one at a time is what makes a refusal
        attributable to the filter that caused it. */
-    struct mesh_mqtt_header second;
+    struct inkwell_mqtt_header second;
     const uint8_t *second_body = NULL;
     probe_turn(&probe, 10U);
     if (broker_take(&probe.broker, &second, &second_body)) {
@@ -776,7 +776,8 @@ MESH_TEST_CASE(mqtt_proxy_subscribes_one_filter_at_a_time, unit) {
         record_failure(test_name, "the SUBACK should release the next filter");
         goto cleanup;
     }
-    if (second.type != MESH_MQTT_SUBSCRIBE || !holds(second_body, second.remaining, "Secondary")) {
+    if (second.type != INKWELL_MQTT_SUBSCRIBE ||
+        !holds(second_body, second.remaining, "Secondary")) {
         record_failure(test_name, "the second filter should follow the first");
         goto cleanup;
     }
@@ -806,17 +807,17 @@ MESH_TEST_CASE(mqtt_proxy_survives_a_refused_filter, unit) {
         goto cleanup;
     }
 
-    struct mesh_mqtt_header header;
+    struct inkwell_mqtt_header header;
     const uint8_t *body = NULL;
     if (!probe_until_packet(&probe, &header, &body, 100U)) {
         record_failure(test_name, "the broker never saw a SUBSCRIBE");
         goto cleanup;
     }
     const uint16_t id = (uint16_t)(((uint16_t)body[0] << 8) | (uint16_t)body[1]);
-    broker_suback(&probe.broker, id, MESH_MQTT_SUBACK_FAILURE);
+    broker_suback(&probe.broker, id, INKWELL_MQTT_SUBACK_FAILURE);
 
-    if (!probe_until_packet(&probe, &header, &body, 100U) || header.type != MESH_MQTT_SUBSCRIBE ||
-        !holds(body, header.remaining, "Allowed")) {
+    if (!probe_until_packet(&probe, &header, &body, 100U) ||
+        header.type != INKWELL_MQTT_SUBSCRIBE || !holds(body, header.remaining, "Allowed")) {
         record_failure(test_name, "a refused filter should not stop the next one");
         goto cleanup;
     }
@@ -863,15 +864,15 @@ MESH_TEST_CASE(mqtt_proxy_publishes_what_the_radio_gives_it, unit) {
         goto cleanup;
     }
 
-    struct mesh_mqtt_header header;
+    struct inkwell_mqtt_header header;
     const uint8_t *body = NULL;
     if (!probe_until_packet(&probe, &header, &body, 100U)) {
         record_failure(test_name, "the broker never saw the PUBLISH");
         goto cleanup;
     }
-    struct mesh_mqtt_incoming message;
-    if (header.type != MESH_MQTT_PUBLISH ||
-        mesh_mqtt_decode_publish(header.flags, body, header.remaining, &message) != 0) {
+    struct inkwell_mqtt_incoming message;
+    if (header.type != INKWELL_MQTT_PUBLISH ||
+        inkwell_mqtt_decode_publish(header.flags, body, header.remaining, &message) != 0) {
         record_failure(test_name, "the broker should see a well-formed PUBLISH");
         goto cleanup;
     }
@@ -919,8 +920,8 @@ MESH_TEST_CASE(mqtt_proxy_delivers_what_the_broker_sends, unit) {
 
     uint8_t packet[256];
     static const uint8_t payload[] = {0xC0U, 0xFFU, 0xEEU};
-    const int len = mesh_mqtt_encode_publish(packet, sizeof packet, "msh/2/e/LongFast/!b", payload,
-                                             sizeof payload, false);
+    const int len = inkwell_mqtt_encode_publish(packet, sizeof packet, "msh/2/e/LongFast/!b",
+                                                payload, sizeof payload, false);
     if (len < 0) {
         record_failure(test_name, "the fixture could not build a PUBLISH");
         goto cleanup;
@@ -976,12 +977,12 @@ MESH_TEST_CASE(mqtt_proxy_skips_an_oversized_message, unit) {
     static uint8_t big[6000];
     memset(big, 0x5AU, sizeof big);
     uint8_t oversized[sizeof big + 64U];
-    const int big_len = mesh_mqtt_encode_publish(oversized, sizeof oversized, "msh/2/e/big", big,
-                                                 sizeof big, false);
+    const int big_len = inkwell_mqtt_encode_publish(oversized, sizeof oversized, "msh/2/e/big", big,
+                                                    sizeof big, false);
     uint8_t small[128];
     static const uint8_t payload[] = {0x11U, 0x22U};
-    const int small_len = mesh_mqtt_encode_publish(small, sizeof small, "msh/2/e/small", payload,
-                                                   sizeof payload, false);
+    const int small_len = inkwell_mqtt_encode_publish(small, sizeof small, "msh/2/e/small", payload,
+                                                      sizeof payload, false);
     if (big_len < 0 || small_len < 0) {
         record_failure(test_name, "the fixture could not build its packets");
         goto cleanup;
@@ -1032,9 +1033,9 @@ MESH_TEST_CASE(mqtt_proxy_pings_a_quiet_broker, unit) {
     /* Nothing has been said in either direction for longer than the ping interval. The broker
        drops a client that has gone silent, and a mesh can be quiet for hours. */
     probe.now_ms += MESH_MQTT_PING_INTERVAL_MS + 1U;
-    struct mesh_mqtt_header header;
+    struct inkwell_mqtt_header header;
     const uint8_t *body = NULL;
-    if (!probe_until_packet(&probe, &header, &body, 50U) || header.type != MESH_MQTT_PINGREQ) {
+    if (!probe_until_packet(&probe, &header, &body, 50U) || header.type != INKWELL_MQTT_PINGREQ) {
         record_failure(test_name, "a quiet connection should send a PINGREQ");
         goto cleanup;
     }
@@ -1105,13 +1106,13 @@ MESH_TEST_CASE(mqtt_proxy_reconnects_after_a_hangup, unit) {
     probe.now_ms += MESH_MQTT_BACKOFF_BASE_MS + 1U;
     mesh_mqtt_proxy_tick(&probe.proxy, probe.now_ms);
 
-    struct mesh_mqtt_header header;
+    struct inkwell_mqtt_header header;
     const uint8_t *body = NULL;
-    if (!probe_until_packet(&probe, &header, &body, 100U) || header.type != MESH_MQTT_CONNECT) {
+    if (!probe_until_packet(&probe, &header, &body, 100U) || header.type != INKWELL_MQTT_CONNECT) {
         record_failure(test_name, "the proxy should try again after the backoff");
         goto cleanup;
     }
-    broker_connack(&probe.broker, MESH_MQTT_CONNACK_ACCEPTED);
+    broker_connack(&probe.broker, INKWELL_MQTT_CONNACK_ACCEPTED);
     if (!probe_until_state(&probe, MESH_MQTT_PROXY_READY, 100U)) {
         record_failure(test_name, "the second attempt should connect");
         goto cleanup;
@@ -1150,9 +1151,10 @@ MESH_TEST_CASE(mqtt_proxy_says_goodbye, unit) {
         goto cleanup;
     }
 
-    struct mesh_mqtt_header header;
+    struct inkwell_mqtt_header header;
     const uint8_t *body = NULL;
-    if (!probe_until_packet(&probe, &header, &body, 20U) || header.type != MESH_MQTT_DISCONNECT) {
+    if (!probe_until_packet(&probe, &header, &body, 20U) ||
+        header.type != INKWELL_MQTT_DISCONNECT) {
         record_failure(test_name, "a deliberate stop should send a DISCONNECT");
         goto cleanup;
     }
@@ -1239,13 +1241,13 @@ MESH_TEST_CASE(mqtt_proxy_connects_over_tls, unit) {
         goto cleanup;
     }
 
-    struct mesh_mqtt_header header;
+    struct inkwell_mqtt_header header;
     const uint8_t *body = NULL;
-    if (!probe_until_packet(&probe, &header, &body, 400U) || header.type != MESH_MQTT_CONNECT) {
+    if (!probe_until_packet(&probe, &header, &body, 400U) || header.type != INKWELL_MQTT_CONNECT) {
         record_failure(test_name, "the CONNECT should arrive through the TLS session");
         goto cleanup;
     }
-    broker_connack(&probe.broker, MESH_MQTT_CONNACK_ACCEPTED);
+    broker_connack(&probe.broker, INKWELL_MQTT_CONNACK_ACCEPTED);
     if (!probe_until_state(&probe, MESH_MQTT_PROXY_READY, 400U)) {
         record_failure(test_name, "the proxy should reach READY over TLS");
         goto cleanup;
@@ -1259,9 +1261,9 @@ MESH_TEST_CASE(mqtt_proxy_connects_over_tls, unit) {
         record_failure(test_name, "a publish over TLS should be taken");
         goto cleanup;
     }
-    struct mesh_mqtt_incoming message;
-    if (!probe_until_packet(&probe, &header, &body, 400U) || header.type != MESH_MQTT_PUBLISH ||
-        mesh_mqtt_decode_publish(header.flags, body, header.remaining, &message) != 0 ||
+    struct inkwell_mqtt_incoming message;
+    if (!probe_until_packet(&probe, &header, &body, 400U) || header.type != INKWELL_MQTT_PUBLISH ||
+        inkwell_mqtt_decode_publish(header.flags, body, header.remaining, &message) != 0 ||
         message.payload_len != sizeof payload ||
         memcmp(message.payload, payload, sizeof payload) != 0) {
         record_failure(test_name, "the published payload should arrive intact over TLS");
@@ -1270,8 +1272,8 @@ MESH_TEST_CASE(mqtt_proxy_connects_over_tls, unit) {
 
     uint8_t inbound[128];
     static const uint8_t reply[] = {0xD4U, 0xE5U};
-    const int len = mesh_mqtt_encode_publish(inbound, sizeof inbound, "msh/2/e/tls/!d", reply,
-                                             sizeof reply, false);
+    const int len = inkwell_mqtt_encode_publish(inbound, sizeof inbound, "msh/2/e/tls/!d", reply,
+                                                sizeof reply, false);
     if (len < 0) {
         record_failure(test_name, "the fixture could not build a PUBLISH");
         goto cleanup;
@@ -1335,13 +1337,13 @@ MESH_TEST_CASE(mqtt_proxy_reads_past_a_session_ticket, unit) {
         goto cleanup;
     }
 
-    struct mesh_mqtt_header header;
+    struct inkwell_mqtt_header header;
     const uint8_t *body = NULL;
-    if (!probe_until_packet(&probe, &header, &body, 400U) || header.type != MESH_MQTT_CONNECT) {
+    if (!probe_until_packet(&probe, &header, &body, 400U) || header.type != INKWELL_MQTT_CONNECT) {
         record_failure(test_name, "the CONNECT should arrive through the TLS session");
         goto cleanup;
     }
-    broker_connack(&probe.broker, MESH_MQTT_CONNACK_ACCEPTED);
+    broker_connack(&probe.broker, INKWELL_MQTT_CONNACK_ACCEPTED);
 
     /* The whole bug in one assertion: the tickets must not have cost us the connection. */
     if (!probe_until_state(&probe, MESH_MQTT_PROXY_READY, 400U)) {
@@ -1353,8 +1355,8 @@ MESH_TEST_CASE(mqtt_proxy_reads_past_a_session_ticket, unit) {
        inbound message still arrives afterwards. */
     uint8_t inbound[128];
     static const uint8_t reply[] = {0x5AU, 0x6BU, 0x7CU};
-    const int len = mesh_mqtt_encode_publish(inbound, sizeof inbound, "msh/2/e/ticket/!e", reply,
-                                             sizeof reply, false);
+    const int len = inkwell_mqtt_encode_publish(inbound, sizeof inbound, "msh/2/e/ticket/!e", reply,
+                                                sizeof reply, false);
     if (len < 0) {
         record_failure(test_name, "the fixture could not build a PUBLISH");
         goto cleanup;
@@ -1419,13 +1421,13 @@ MESH_TEST_CASE(mqtt_proxy_survives_a_run_of_tickets, unit) {
         goto cleanup;
     }
 
-    struct mesh_mqtt_header header;
+    struct inkwell_mqtt_header header;
     const uint8_t *body = NULL;
-    if (!probe_until_packet(&probe, &header, &body, 400U) || header.type != MESH_MQTT_CONNECT) {
+    if (!probe_until_packet(&probe, &header, &body, 400U) || header.type != INKWELL_MQTT_CONNECT) {
         record_failure(test_name, "the CONNECT should arrive through the TLS session");
         goto cleanup;
     }
-    broker_connack(&probe.broker, MESH_MQTT_CONNACK_ACCEPTED);
+    broker_connack(&probe.broker, INKWELL_MQTT_CONNACK_ACCEPTED);
     if (!probe_until_state(&probe, MESH_MQTT_PROXY_READY, 400U)) {
         record_failure(test_name, "a dozen tickets should not stop the proxy connecting");
         goto cleanup;
@@ -1433,8 +1435,8 @@ MESH_TEST_CASE(mqtt_proxy_survives_a_run_of_tickets, unit) {
 
     uint8_t inbound[128];
     static const uint8_t reply[] = {0x11U, 0x22U};
-    const int len = mesh_mqtt_encode_publish(inbound, sizeof inbound, "msh/2/e/run/!f", reply,
-                                             sizeof reply, false);
+    const int len = inkwell_mqtt_encode_publish(inbound, sizeof inbound, "msh/2/e/run/!f", reply,
+                                                sizeof reply, false);
     if (len < 0) {
         record_failure(test_name, "the fixture could not build a PUBLISH");
         goto cleanup;

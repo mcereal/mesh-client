@@ -109,9 +109,10 @@ evdev -> inkcell_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 
 **The systems layer is [inkwell](https://github.com/mcereal/inkwell), a submodule at
 `third_party/inkwell`**, and it is the bottom of the stack: the epoll loop, the signals, the
-clock, the log, the environment knobs, the whole-file read, the UTF-8 helpers, and the codecs
-(base64, SHA-256, JSON, zip, HTTP/1.1) and the forked DNS resolver. None of it knows what a
-radio is. `add_subdirectory(third_party/inkwell)` comes *first* in `CMakeLists.txt`, before
+clock, the log, the environment knobs, the whole-file read, the UTF-8 helpers, semver ordering,
+the crash report, the codecs (base64, SHA-256, JSON, zip, HTTP/1.1, MQTT 3.1.1, deflate, PNG)
+and the forked DNS resolver. None of it knows what a radio is, and its `docs/extraction.md` is
+the running map of what is still on the wrong side of that line. `add_subdirectory(third_party/inkwell)` comes *first* in `CMakeLists.txt`, before
 inkcell, so this client's pin is the one the whole tree builds - inkcell carries a submodule of
 its own and brings it in only when no target of that name exists yet.
 
@@ -192,7 +193,7 @@ publish and read back when that node's detail screen is opened. See
 | Contact sharing | `src/proto/contact_url.c` (the `meshtastic.org/v/#` link), `src/core/session/contact_share.c` (this radio's record out, a stranger's in), `src/ui/views/contact_share.c` (what the two screens say); the wrapper both links share is `src/proto/link_url.h` |
 | App glue | `src/app/*.c` - the composition root: lifecycle/link, `_actions`, `_publish`, `_settings` |
 | Self-update | `src/core/update/updater.c`, `version.c`; HTTPS is `src/core/net/fetch.c` over inkwell's `inkwell/codec/http.h` |
-| MQTT proxy | `src/proto/mqtt_packet.c` (the wire format), `src/proto/mqtt_topic.c` (where a mesh lives on a broker), `src/core/net/mqtt_proxy.c` (one broker connection), `src/core/net/tls_client.c` (Mbed TLS on the loop), `src/app/app_mqtt.c` (whether to hold one at all) |
+| MQTT proxy | inkwell's `inkwell/codec/mqtt.h` (the 3.1.1 wire format), `src/proto/mqtt_topic.c` (where a mesh lives on a broker), `src/core/net/mqtt_proxy.c` (one broker connection), `src/core/net/tls_client.c` (Mbed TLS on the loop), `src/app/app_mqtt.c` (whether to hold one at all) |
 | Radio firmware | `src/core/firmware/` - `firmware*.c`, `uf2.c`, `esp_image.c`, `src/transport/*/{usb_msc,ble_ota,ble_hci}.c` - the *other* binary |
 | UI | `src/ui/` - see the group map below; **`fb` is the device UI** |
 | UI toolkit | `third_party/inkcell/` - theme, fonts, glyphs, layout, widgets, the fb backend, input |
@@ -202,8 +203,8 @@ publish and read back when that node's detail screen is opened. See
 | Themes & fonts | inkcell's `src/theme/` and `src/generated/` - palette by role, shape scale, metrics, the glyph tables |
 | Strings | `src/i18n/strings.c` registers the catalog; the list is `include/mesh/i18n/catalog.def`, continuing inkcell's 15 |
 | Geography & map | `src/geo/` (the only directory that includes `<math.h>`), `src/map/`, `src/ui/views/map.c`, `src/ui/nav/nav_map.c`, `src/ui/backends/fb_map.c` |
-| Crash reports | `src/utils/crash.c` - local only, deliberately not a service |
-| Shared utils | `src/utils/` - `inflate` and `crash` are all that is left here; `json`, `sha256`, `base64`, `zip` and `http` are inkwell's `codec/`, `text`, `time`, `env`, `log`, `array` and `file` its `base/`, and `qr` is inkcell's |
+| Crash reports | inkwell's `inkwell/runtime/crash.h` writes them; `src/utils/crash.c` is this client's name, issues URL and note labels on one |
+| Shared utils | `src/utils/` - the crash seam is all that is left here; `json`, `sha256`, `base64`, `zip`, `http`, `inflate` and `png` are inkwell's `codec/`, `text`, `time`, `env`, `log`, `array`, `file` and `version` its `base/`, the crash reporter its `runtime/`, and `qr` is inkcell's |
 | Dev tools | `devtools/`, `scripts/` - UI capture, map packs, codegen |
 
 ### The groups inside `src/ui/` and `src/core/`

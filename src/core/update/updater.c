@@ -4,6 +4,7 @@
 
 #include "inkwell/base/env.h"
 #include "inkwell/base/log.h"
+#include "inkwell/base/version.h"
 
 #include "mesh/i18n/strings.h"
 
@@ -675,7 +676,7 @@ static void updater_on_check_done(void *userdata, const struct mesh_fetch_result
      */
     const bool newer = mesh_version_is_release()
                            ? mesh_version_is_newer_than_running(tag)
-                           : mesh_version_compare(tag, mesh_version_string()) > 0;
+                           : inkwell_version_compare(tag, mesh_version_string()) > 0;
     if (!newer) {
         updater_set(updater, MESH_UPDATE_UP_TO_DATE, inkcell_str(MESH_STR_UPDATE_LATEST_RUNNING));
         return;

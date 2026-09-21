@@ -219,11 +219,12 @@ only a consequence of one of them, and neither is a thing a test could pin.
   across a swap, every pixel is a real tile in the right place - so nothing looks wrong.
   `map_tile_cache_clear_drops_tiles_and_holes`, `ui_capture_map_forgets_the_pack_it_swapped_out`.
 - **The tile decoder's memory is static, constant, and sized for a colour type no pack contains.**
-  A decode on an event loop must not pause to find memory. Both blocks are **asked for and checked
-  rather than known** - Wuffs' struct size is not stable across versions, and the scratch scales
-  with the *file's* colour type - so it is sized for 8-bit RGBA (262,400 bytes) rather than the
-  palette a builder usually emits (65,792), because a palette-sized buffer refuses every 24-bit
-  tile with the constant looking perfectly reasonable. `tile_image`.
+  A decode on an event loop must not pause to find memory. The decoder is inkwell's and takes both
+  blocks from here, and the scratch scales with the *file's* colour type - so it is sized for
+  8-bit RGBA (262,400 bytes) rather than the palette a builder usually emits (65,792), because a
+  palette-sized buffer refuses every 24-bit tile with the constant looking perfectly reasonable.
+  `tile_image_holds_a_bounded_amount_of_memory`, and inkwell's
+  `png_refuses_a_file_deeper_than_its_scratch` for the refusal itself.
 
 - **A marker's name is drawn five times.** A glyph carries coverage, not a mask, so text is
   blended against a colour the caller says it has just filled - which is a guess the moment a name
@@ -674,10 +675,10 @@ only a consequence of one of them, and neither is a thing a test could pin.
   Do not "gentle" the kill, and never `kill $(pidof nextui.elf)` in a device shell.
 - **The pak is built without `--gc-sections`, so a third-party module ships whole.**
   `scripts/cross-build.sh` uses plain `-Os` with no `-ffunction-sections`, so any code compiled
-  into an object file is code that ships. It is why `third_party/wuffs-config/mesh_wuffs.h` names Wuffs' BASE
-  **sub-modules** rather than BASE, and why the decoder costs 335 KB where the spike's probe -
-  which did collect sections - predicted 106 KB. Read a size measurement's build flags before
-  believing it about this binary.
+  into an object file is code that ships. It is why inkwell's
+  `third_party/wuffs-config/inkwell_wuffs.h` names Wuffs' BASE **sub-modules** rather than BASE,
+  and why the decoder costs 335 KB where the spike's probe - which did collect sections -
+  predicted 106 KB. Read a size measurement's build flags before believing it about this binary.
 - **Only the release build is a release.** Do not stamp a local build to test the updater; lift
   the guard (`MESHCLIENT_UPDATE_ALLOW_DEV=1`, or Settings → About → Dev updates).
 - **`main` is deliberately missing from the release workflow's `push` trigger.** It reads as a
