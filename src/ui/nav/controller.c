@@ -31,6 +31,7 @@ static void mesh_ui_controller_schedule_frame(struct mesh_ui_controller *control
     if (armed < 0) {
         inkwell_log_warn("ui", "arming the frame timer failed: %s", strerror(-armed));
     }
+    controller->frame_armed = moving && armed >= 0;
 }
 
 /* Whether the backend says the frame it just drew has not finished moving. */
@@ -75,6 +76,7 @@ static int mesh_ui_controller_frame_callback(int fd, uint32_t events, void *user
         return 0;
     }
 
+    controller->frame_armed = false;
     const int64_t expired = inkwell_timer_read(fd);
     if (expired < 0) {
         inkwell_log_warn("ui", "frame timer read failed: %s", strerror((int)-expired));
@@ -246,8 +248,13 @@ void mesh_ui_controller_shutdown(struct mesh_ui_controller *controller) {
     controller->loop = NULL;
 }
 
+/*
+ * A frame already on its way is the frame asked for, so it is left where it is. Re-arming is a
+ * one-shot timer's deadline moved back, and a window resizing faster than the frame interval
+ * would move it back every time - no frame until the resizing stopped.
+ */
 void mesh_ui_controller_request_frame(struct mesh_ui_controller *controller) {
-    if (controller != NULL) {
+    if (controller != NULL && !controller->frame_armed) {
         mesh_ui_controller_schedule_frame(controller, true);
     }
 }

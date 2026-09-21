@@ -37,6 +37,9 @@ struct mesh_ui_controller {
     /* Armed after a frame the backend says is still moving, disarmed the moment it settles.
        -1 when the timer could not be created, which costs animation and nothing else. */
     int frame_timer_fd;
+    /* Whether that timer holds a deadline that has not fired - what lets a request for a
+       frame join one already on its way rather than push it back. */
+    bool frame_armed;
     mesh_ui_action_handler on_action;
     void *action_userdata;
 };
