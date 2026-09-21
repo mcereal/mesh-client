@@ -87,12 +87,75 @@ void fb_render_help(struct mesh_ui_backend_fb_state *state, const struct mesh_ui
     }
 }
 
+/*
+ * Writes what a dialog says into the slot it is remembered in.
+ *
+ * The strings are copied rather than pointed at: `headline` and `text` are composed into a
+ * caller's buffer, and the two answers come out of the catalog, which is reloaded under a
+ * change of language. A memo holding a pointer into either would be a panel drawing whatever
+ * is at that address a frame later.
+ */
+static void fb_dialog_remember(struct fb_dialog_memo *memo, const struct fb_dialog *dialog) {
+    if (memo == NULL || dialog == NULL) {
+        return;
+    }
+    (void)mesh_str_copy(memo->headline, sizeof memo->headline, dialog->headline);
+    (void)mesh_str_copy(memo->text, sizeof memo->text, dialog->text);
+    (void)mesh_str_copy(memo->accept, sizeof memo->accept, dialog->accept);
+    (void)mesh_str_copy(memo->cancel, sizeof memo->cancel, dialog->cancel);
+    memo->icon = dialog->icon;
+    memo->cursor = dialog->cursor;
+    memo->destructive = dialog->destructive;
+    memo->valid = true;
+}
+
+/*
+ * Puts `dialog` on layer `id`, and keeps putting the last one while the layer walks out.
+ *
+ * `up` is whether the nav still wants the question, and `dialog` is NULL on a frame where it
+ * cannot be described - which is most of the frames a layer spends leaving. The two questions
+ * below are otherwise the same call, so it is written once: what differs between them is where
+ * their words come from, which is the half of a screen that is worth reading.
+ */
+static void fb_put_dialog(struct mesh_ui_backend_fb_state *state, struct fb_layout *layout,
+                          enum fb_overlay_id id, bool up, const struct fb_dialog *dialog) {
+    struct fb_dialog_memo *const memo = fb_dialog_memo(state, id);
+    if (dialog != NULL) {
+        fb_dialog_remember(memo, dialog);
+    }
+    if (dialog == NULL && (memo == NULL || !memo->valid)) {
+        /* Nothing to say and nothing remembered: a layer that never opened, or one drawn on a
+           frame with no memo behind it. Not drawing is the only honest answer, and the slot it
+           would have taken is released by never being asked for. */
+        return;
+    }
+    const struct fb_dialog remembered = {
+        .icon = memo != NULL ? memo->icon : MESH_UI_ICON_NONE,
+        .headline = memo != NULL ? memo->headline : "",
+        .text = memo != NULL ? memo->text : "",
+        .accept = memo != NULL ? memo->accept : "",
+        .cancel = memo != NULL ? memo->cancel : "",
+        .cursor = memo != NULL ? memo->cursor : 0U,
+        .destructive = memo != NULL && memo->destructive,
+    };
+    const struct fb_dialog *const put = dialog != NULL ? dialog : &remembered;
+    if (!inkcell_fb_draw_dialog(state, layout, put, (uint32_t)id, up) && memo != NULL) {
+        /* All the way out. What it asked is not the next question, and a memo kept past the
+           travel it was for would be the words a fresh layer arrives holding. */
+        memo->valid = false;
+    }
+}
+
 /* "Save <section>?" for the sections whose write can cut this client off, and "Reboot the
    radio?" and its siblings for the Radio actions section. Which of the two it is standing in
    front of is nav->confirm_action; all three strings come from settings.c. */
 void fb_render_confirm(struct mesh_ui_backend_fb_state *state,
                        const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
+    if (!nav->confirm_open) {
+        fb_put_dialog(state, layout, FB_OVERLAY_CONFIRM, false, NULL);
+        return;
+    }
     const enum mesh_ui_settings_section section =
         (enum mesh_ui_settings_section)nav->settings_section;
     const enum mesh_ui_settings_action confirmed =
@@ -141,7 +204,7 @@ void fb_render_confirm(struct mesh_ui_backend_fb_state *state,
            editing. The two deserve different-coloured answers. */
         .destructive = confirmed != (uint8_t)MESH_UI_SETTINGS_ACTION_NONE,
     };
-    fb_draw_dialog(state, layout, &dialog);
+    fb_put_dialog(state, layout, FB_OVERLAY_CONFIRM, true, &dialog);
 }
 
 /*
@@ -164,12 +227,18 @@ void fb_render_verify(struct mesh_ui_backend_fb_state *state,
     struct mesh_ui_verify_sheet sheet;
     char headline[96];
     char text[256];
-    if (!mesh_ui_verify_sheet_of(&snapshot->verification, &sheet, headline, sizeof headline, text,
+    if (!snapshot->nav.verify_open ||
+        !mesh_ui_verify_sheet_of(&snapshot->verification, &sheet, headline, sizeof headline, text,
                                  sizeof text)) {
-        /* The exchange ended between the press and this frame - a link that dropped, or the
-           other end standing down. Saying so beats an empty panel, and the app closes the sheet
-           on the next publish. */
-        fb_draw_empty(state, layout, MESH_UI_ICON_SECURITY, mesh_str(MESH_STR_TRUST_UNVERIFIED));
+        /*
+         * Either the sheet is not up, or the exchange ended between the press and this frame -
+         * a link that dropped, or the other end standing down. Both are the same thing to draw:
+         * the stage it was last at, walking out. What the panel underneath says about an
+         * exchange that has gone is the screen's business rather than this layer's, which is
+         * the difference a layer makes - this used to have to draw an empty body and say so,
+         * because it had taken the body away from a screen that could.
+         */
+        fb_put_dialog(state, layout, FB_OVERLAY_VERIFY, false, NULL);
         return;
     }
 
@@ -182,5 +251,5 @@ void fb_render_verify(struct mesh_ui_backend_fb_state *state,
         .cursor = snapshot->nav.verify_cursor,
         .destructive = false,
     };
-    fb_draw_dialog(state, layout, &dialog);
+    fb_put_dialog(state, layout, FB_OVERLAY_VERIFY, true, &dialog);
 }

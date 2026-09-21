@@ -49,9 +49,14 @@ static void fb_app_render(struct mesh_ui_backend_fb_state *state, const void *sn
      * First sight adopts, the rule the animation table follows for an id it has not seen: a
      * screen that slid in on the frame the client came up would be announcing itself rather than
      * reporting a move.
+     *
+     * The route *under the question*, because the two questions are not moves: a confirm and a
+     * verification sheet arrive on layers of their own over the body they are asking about, and
+     * a body that slid out from under an arriving panel would be two things travelling at once.
+     * Everything else that asks where the user is still wants the whole route.
      */
     struct mesh_ui_route route;
-    mesh_ui_route_of(&snapshot->nav, &route);
+    mesh_ui_route_under_question(&snapshot->nav, &route);
     if (!app->route_valid) {
         app->route = route;
         app->route_valid = true;

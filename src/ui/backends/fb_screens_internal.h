@@ -125,8 +125,67 @@ extern const struct mesh_ui_band fb_air_band;
 
 /* ---- what is drawn over a tab ------------------------------------------------------------ */
 
+/*
+ * What this client's layers are called, across frames.
+ *
+ * A layer's own memory - how far in it is - is kept on the backend under one of these, so the
+ * ids have to outlive a frame and be this client's to choose (inkcell/ui/overlay.h). Zero is
+ * INKCELL_OVERLAY_NONE and is not a layer.
+ *
+ * Only what is drawn *over* a screen is in here. A tab, a detail and a sheet that replaces the
+ * body are places, and a place is a route rather than a layer.
+ */
+enum fb_overlay_id {
+    /* "Save LoRa?", "Reboot the radio?" - the question a settings row raised. */
+    FB_OVERLAY_CONFIRM = 1,
+    /* The radio's half of the key-verification ceremony, which it can raise at any moment. */
+    FB_OVERLAY_VERIFY,
+};
+
+/*
+ * The last question a layer was asked to put, so that it can finish leaving after the nav has
+ * stopped asking it.
+ *
+ * A layer is on the panel until its travel says otherwise, and the app has to keep describing
+ * its content for exactly that long - which the nav cannot do: mesh_ui_nav_confirm_close()
+ * clears `confirm_action` the moment an answer is given, and a verification sheet's stage is
+ * gone as soon as the exchange ends. Without this the two would vanish on the frame they were
+ * answered instead of going away, which is what they did when they were screens.
+ *
+ * It is a copy of the *words*, not of the snapshot: a dialog is an icon and four short strings,
+ * which is the one shape of overlay small enough to be copied. The snackbar keeps its text on
+ * the backend for the same reason and says as much in inkcell/ui/fb_draw.h; anything larger
+ * belongs to whoever can still describe it.
+ */
+struct fb_dialog_memo {
+    char headline[96];
+    char text[256];
+    char accept[48];
+    char cancel[48];
+    enum mesh_ui_icon icon;
+    uint32_t cursor;
+    bool destructive;
+    bool valid;
+};
+
+/*
+ * The slot layer `id` describes itself into, or NULL when there is nowhere to keep one.
+ *
+ * NULL is a frame drawn with no memo behind it, which a caller reads as "describe it or do not
+ * draw it" - the dialog is still put, it simply cannot go away slowly.
+ */
+struct fb_dialog_memo *fb_dialog_memo(struct mesh_ui_backend_fb_state *state,
+                                      enum fb_overlay_id id);
+
 void fb_render_help(struct mesh_ui_backend_fb_state *state, const struct mesh_ui_snapshot *snapshot,
                     struct fb_layout *layout);
+/*
+ * The two questions, each on a layer over the screen that raised it.
+ *
+ * Called on every frame rather than chosen between, because a layer that is leaving is not in
+ * the snapshot any more and the call is what walks it out - see struct fb_dialog_memo. Both are
+ * no-ops on a frame where the question is neither up nor still on its way out.
+ */
 void fb_render_confirm(struct mesh_ui_backend_fb_state *state,
                        const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout);
 void fb_render_verify(struct mesh_ui_backend_fb_state *state,

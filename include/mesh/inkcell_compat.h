@@ -458,7 +458,6 @@
 #define mesh_ui_list_is_cursor inkcell_list_is_cursor
 #define mesh_ui_list_item_height inkcell_list_item_height
 #define mesh_ui_list_next inkcell_list_next
-#define mesh_ui_list_scroll inkcell_list_scroll
 #define mesh_ui_metrics inkcell_metrics
 #define mesh_ui_motion inkcell_motion
 #define mesh_ui_paint inkcell_paint
@@ -470,7 +469,6 @@
 #define mesh_ui_sample inkcell_sample
 #define mesh_ui_scale inkcell_scale
 #define mesh_ui_scale_permille inkcell_scale_permille
-#define mesh_ui_scroll inkcell_scroll
 #define mesh_ui_series inkcell_series
 #define mesh_ui_series_at inkcell_series_at
 #define mesh_ui_series_break inkcell_series_break

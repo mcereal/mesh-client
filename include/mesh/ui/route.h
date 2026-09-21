@@ -156,6 +156,25 @@ void mesh_ui_route_describe(const struct mesh_ui_route *route, char *out, size_t
  */
 void mesh_ui_route_under_help(const struct mesh_ui_nav *nav, struct mesh_ui_route *out);
 
+/*
+ * The same, with the two questions taken off it: where the reader is standing while one is
+ * being asked of them.
+ *
+ * A confirm and a verification sheet are levels for the three things a level buys - the back
+ * arrow, the B keycap, a line in a crash report - and they are not *moves*. Both are drawn on a
+ * layer over the screen that raised them now (inkcell/ui/overlay.h), so the body underneath is
+ * still the body the question is about: sliding it out sideways while the panel rises over it
+ * would be the frame saying the reader had gone somewhere, at the one moment they have not.
+ *
+ * Help is still on it, and that is the difference between the two: help replaces the body with
+ * its own, so going into it is going somewhere. Identical to mesh_ui_route_of() whenever
+ * neither question is up.
+ *
+ * Read by whoever decides a transition; everything that asks where the user *is* - the crash
+ * report, the help topic, the capture harness - wants mesh_ui_route_of() and its levels.
+ */
+void mesh_ui_route_under_question(const struct mesh_ui_nav *nav, struct mesh_ui_route *out);
+
 /* Whether two routes are the same place. Exact, field by field - see enum
    mesh_ui_route_level for why there is no hash here. */
 bool mesh_ui_route_same(const struct mesh_ui_route *a, const struct mesh_ui_route *b);

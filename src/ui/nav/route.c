@@ -186,7 +186,10 @@ static void route_screen_place(const struct mesh_ui_nav *nav, struct mesh_ui_rou
     }
 }
 
-void mesh_ui_route_under_help(const struct mesh_ui_nav *nav, struct mesh_ui_route *out) {
+/* The walk as far as the overlays that are places, which is all of them but the two questions
+   and help. Split out so that mesh_ui_route_under_question() below is this walk and not a
+   second copy of it - the same reasoning that keeps help out of the walk. */
+static void route_walk(const struct mesh_ui_nav *nav, struct mesh_ui_route *out) {
     if (out == NULL) {
         return;
     }
@@ -242,6 +245,14 @@ void mesh_ui_route_under_help(const struct mesh_ui_nav *nav, struct mesh_ui_rout
         out->slot = nav->picker_follow;
         out->subject = 0U;
     }
+}
+
+void mesh_ui_route_under_help(const struct mesh_ui_nav *nav, struct mesh_ui_route *out) {
+    route_walk(nav, out);
+    if (out == NULL || nav == NULL) {
+        return;
+    }
+
     if (nav->confirm_open) {
         out->depth++;
         out->level = MESH_UI_ROUTE_CONFIRM;
@@ -287,13 +298,25 @@ void mesh_ui_route_under_help(const struct mesh_ui_nav *nav, struct mesh_ui_rout
  * as well. Overwriting them with the settings section did the first and would have broken the
  * second on the day a node detail acquired a topic.
  */
-void mesh_ui_route_of(const struct mesh_ui_nav *nav, struct mesh_ui_route *out) {
-    mesh_ui_route_under_help(nav, out);
+/* Help, on whatever it was handed. Both routes below end this way and the two lines are worth
+   naming once, because the rule they carry - help is a level, and it is the topmost one - is
+   the same rule on both. */
+static void route_add_help(const struct mesh_ui_nav *nav, struct mesh_ui_route *out) {
     if (out == NULL || nav == NULL || !nav->help_open) {
         return;
     }
     out->depth++;
     out->level = MESH_UI_ROUTE_HELP;
+}
+
+void mesh_ui_route_of(const struct mesh_ui_nav *nav, struct mesh_ui_route *out) {
+    mesh_ui_route_under_help(nav, out);
+    route_add_help(nav, out);
+}
+
+void mesh_ui_route_under_question(const struct mesh_ui_nav *nav, struct mesh_ui_route *out) {
+    route_walk(nav, out);
+    route_add_help(nav, out);
 }
 
 bool mesh_ui_route_same(const struct mesh_ui_route *a, const struct mesh_ui_route *b) {

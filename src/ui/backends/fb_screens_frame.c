@@ -146,7 +146,20 @@ struct fb_render_cache {
     uint32_t width, height;
     time_t second;
     bool valid;
+    /* And what the layers were last told to say, which is a memo of a different kind: the one
+       above is this frame compared with the last, and these outlive the answer that closed
+       them. One per enum fb_overlay_id, indexed by it. See struct fb_dialog_memo. */
+    struct fb_dialog_memo dialogs[FB_OVERLAY_VERIFY + 1];
 };
+
+struct fb_dialog_memo *fb_dialog_memo(struct mesh_ui_backend_fb_state *state,
+                                      enum fb_overlay_id id) {
+    struct fb_render_cache *const cache = state != NULL ? state->render_cache : NULL;
+    if (cache == NULL || (unsigned)id >= (sizeof cache->dialogs / sizeof cache->dialogs[0])) {
+        return NULL;
+    }
+    return &cache->dialogs[id];
+}
 
 void fb_render_cache_free(struct mesh_ui_backend_fb_state *state) {
     free(state->render_cache);
@@ -156,7 +169,11 @@ void fb_render_cache_free(struct mesh_ui_backend_fb_state *state) {
 static void fb_render_begin(struct mesh_ui_backend_fb_state *state,
                             const struct mesh_ui_snapshot *snapshot) {
     state->clip_active = false;
-    if (!state->partial_disabled && state->render_cache == NULL) {
+    /* Allocated whether or not partial redraw is on: what hangs off it is no longer only the
+       comparison below. A capture renders with partial redraw disabled, and a dialog that could
+       not remember its own words there would be a dialog that never leaves in the one tool that
+       looks at it - see struct fb_dialog_memo. */
+    if (state->render_cache == NULL) {
         state->render_cache = calloc(1U, sizeof *state->render_cache);
     }
     struct fb_render_cache *cache = state->render_cache;
@@ -281,13 +298,6 @@ void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
      */
     if (snapshot->nav.help_open) {
         fb_render_help(state, snapshot, &layout);
-    } else if (snapshot->nav.verify_open) {
-        /* Ahead of the settings confirm, the same way the key handler takes it first: a
-           verification is waiting on two people and a radio that gives up after five minutes,
-           while a confirm will wait. */
-        fb_render_verify(state, snapshot, &layout);
-    } else if (snapshot->nav.confirm_open) {
-        fb_render_confirm(state, snapshot, &layout);
     } else if (snapshot->nav.picker_open) {
         fb_render_picker(state, snapshot, &layout);
     } else if (snapshot->nav.keyboard_open) {
@@ -347,6 +357,23 @@ void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
         }
     }
     fb_shift_end(state);
+
+    /*
+     * The two questions, over whichever of the above raised them.
+     *
+     * Outside the chain rather than a branch of it, and after the shift rather than inside it:
+     * a question is not a place, so the screen it is about stays on the panel, dimmed behind a
+     * scrim, rather than being replaced by the asking. That is what a layer buys - and it is
+     * why both are called on every frame instead of chosen between, since a layer that is
+     * leaving is no longer anything the snapshot says.
+     *
+     * The confirm first so that the verification sheet is over it, which is the order nav.c
+     * takes the keys in and the order a stack of layers reads: drawn last is on top. They
+     * cannot both be up in practice - the app closes the sheet whenever the exchange ends -
+     * and this says which wins if they ever are.
+     */
+    fb_render_confirm(state, snapshot, &layout);
+    fb_render_verify(state, snapshot, &layout);
 
     struct mesh_ui_line summary;
     enum mesh_ui_tone summary_tone = MESH_UI_TONE_DIM;
