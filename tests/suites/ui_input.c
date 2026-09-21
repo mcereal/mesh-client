@@ -259,7 +259,7 @@ MESH_TEST_CASE(ui_input_key_mapping, unit) {
     inkcell_input_handle_event(&input, EV_KEY, KEY_ENTER, 2);
     inkcell_input_handle_event(&input, EV_KEY, BTN_SELECT, 1);
     inkcell_input_handle_event(&input, EV_SYN, 0, 0);
-    inkcell_input_handle_event(&input, EV_KEY, KEY_F1, 1); /* unmapped: nothing */
+    inkcell_input_handle_event(&input, EV_KEY, KEY_F12, 1); /* unmapped: nothing */
 
     /* BTN_SOUTH is the Brick's B and BTN_EAST its A (Nintendo layout). */
     const enum inkcell_key expected[] = {
@@ -290,6 +290,22 @@ MESH_TEST_CASE(ui_input_key_mapping, unit) {
     }
     if (inkcell_input_is_quit_key(BTN_SELECT) || inkcell_input_is_quit_key(BTN_START)) {
         failure = "SELECT/START are navigation keys, not quit keys";
+        goto cleanup;
+    }
+
+    /*
+     * The three caps a keyboard can reach now, and could not before.
+     *
+     * They are checked here because this client is what needs them: nav.c binds all three -
+     * START resends a message, SELECT opens the help sheet, X is the messages screen's verb -
+     * so before this, a run driven from a keyboard could walk every screen and reach none of
+     * those. They are pure mapping questions, so they are asked of the mapper rather than
+     * pushed through the handler like the sequence above.
+     */
+    if (inkcell_input_map_key(KEY_X) != INKCELL_KEY_X ||
+        inkcell_input_map_key(KEY_F1) != INKCELL_KEY_START ||
+        inkcell_input_map_key(KEY_F2) != INKCELL_KEY_SELECT) {
+        failure = "a keyboard must be able to reach X, START and SELECT";
         goto cleanup;
     }
 

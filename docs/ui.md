@@ -299,6 +299,35 @@ The top and the bottom of that stack are inkcell's - a panel and a button were n
 Meshtastic. What is in `src/ui/backends/` is the screens layer, plus `fb_app.c`, the frame
 inkcell calls up into, and `fb_map.c`.
 
+### ...and the window behind it
+
+Only the bottom row of that table is the framebuffer's. Everything above it draws into a
+`struct inkcell_surface` - a pointer, a stride and a channel layout - and cannot tell what is
+presenting the result, which is what lets `MESHCLIENT_UI_BACKEND=sdl` put the same frames in an
+SDL window on a development host:
+
+```bash
+MESHCLIENT_UI_BACKEND=sdl ./build/debug/meshclient -f
+```
+
+It is the same rasteriser, the same components and the same screen renderers; what differs is
+that changed rows become texture uploads instead of `memcpy`s into `/dev/fb0`. Drive it with the
+arrows, Enter (A), Backspace (B), Space (Y), `x` (X), F1 (START), F2 (SELECT) and Escape to
+quit - the same table a USB keyboard on the device goes through, so a keycap means here what it
+means there. No pad: SDL's controller mapping and inkcell's device profile would be two answers
+to the same question.
+
+Two things to know before reaching for it:
+
+- **It is a presenter, not a GPU renderer.** The glyphs and the anti-aliasing are still the
+  CPU's work. What moves to the GPU is the blit and the scale.
+- **The pak does not carry it.** The cross container has no aarch64 SDL2, so a device build
+  reports the backend unavailable and falls back to `fb` - which is the right default there
+  regardless, and is what has actually been measured. See [`performance.md`](performance.md).
+
+`make ui-capture` is still the way to *review* a UI change, because a picture in a pull request
+is reviewable and a window on somebody's desk is not.
+
 **A screen renderer should read as a description of its content** — what the list holds, what
 each row says, which rows are actions. If it is computing a pixel coordinate, a scroll offset or
 a padding width, that belongs in a component instead.
