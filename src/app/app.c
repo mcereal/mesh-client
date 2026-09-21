@@ -262,6 +262,11 @@ static void mesh_app_ui_request_stop(void *ctx) {
     inkwell_loop_request_stop((struct inkwell_loop *)ctx);
 }
 
+/* The window asking for a frame it cannot draw without the snapshot. */
+static void mesh_app_ui_request_frame(void *userdata) {
+    mesh_ui_controller_request_frame(&((struct mesh_app *)userdata)->ui_controller);
+}
+
 /*
  * The window backend, where there is a window to open.
  *
@@ -298,6 +303,11 @@ static bool mesh_app_select_sdl(struct mesh_app *app, const struct inkcell_backe
                not a word anybody translates - the same fact mesh_crash_install() states
                about a crash report. */
             .title = "MeshClient",
+            /* The frame opens with the tab strip, so on a Mac the window's buttons can sit in
+               it - see inkcell/ui/sdl.h. */
+            .unified_titlebar = true,
+            .request_frame = mesh_app_ui_request_frame,
+            .frame_userdata = app,
         };
         *userdata = &app->ui_sdl_context;
     }

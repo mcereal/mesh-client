@@ -37,6 +37,9 @@ struct mesh_ui_controller {
     /* Armed after a frame the backend says is still moving, disarmed the moment it settles.
        -1 when the timer could not be created, which costs animation and nothing else. */
     int frame_timer_fd;
+    /* Whether that timer holds a deadline that has not fired - what lets a request for a
+       frame join one already on its way rather than push it back. */
+    bool frame_armed;
     mesh_ui_action_handler on_action;
     void *action_userdata;
 };
@@ -65,6 +68,11 @@ void mesh_ui_controller_set_action_handler(struct mesh_ui_controller *controller
 /* Feed one logical button press through the store's navigation model. Repaints happen via
    the store's eventfd on the next loop turn; actions go to the handler above right away. */
 void mesh_ui_controller_handle_key(struct mesh_ui_controller *controller, enum inkcell_key key);
+
+/* One more frame of the last snapshot, for a backend whose window changed under it - the SDL
+   window moving its tabs clear of the title-bar buttons after a resize. The store has nothing
+   new to say, so this is the frame timer's path rather than the store's. */
+void mesh_ui_controller_request_frame(struct mesh_ui_controller *controller);
 
 #ifdef __cplusplus
 }
