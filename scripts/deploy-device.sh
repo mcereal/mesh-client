@@ -45,7 +45,8 @@
 #                      /tmp/meshclient-ui.sock` and print the answers - `key down a; shot
 #                      /tmp/x.ppm`. See include/mesh/app/control.h; scripts/ui-drive.sh --brick
 #                      is the front end that also brings the shots back as PNGs.
-#   pull -- REMOTE LOCAL  Copy one file off the device.
+#   pull -- [--rm] REMOTE LOCAL
+#                      Copy one file off the device; --rm deletes it there afterwards.
 #   shell              Interactive shell on the device
 #   setup-key          Install ~/.ssh/id_*.pub into the device's authorized_keys (SSH only)
 #
@@ -510,6 +511,19 @@ cmd_start() {
     done
     # One client at a time: a second one fights the first for the radio link and the panel.
     cmd_stop || die "could not stop the running MeshClient"
+    # A control socket a killed client left behind. The client refuses to bind over anything
+    # already at its path rather than guess what it is; here, with every client stopped, a socket
+    # at that path can only be a stale one.
+    local i ui_control=""
+    for ((i = 0; i < ${#PASSTHRU[@]}; i++)); do
+        case "${PASSTHRU[${i}]}" in
+            --ui-control) ui_control="${PASSTHRU[$((i + 1))]:-}" ;;
+            --ui-control=*) ui_control="${PASSTHRU[${i}]#--ui-control=}" ;;
+        esac
+    done
+    if [[ -n "${ui_control}" ]]; then
+        remote_exec "if [ -S $(sq "${ui_control}") ]; then rm -f $(sq "${ui_control}"); fi" >/dev/null
+    fi
     echo "Starting ${PAK_NAME} through NextUI's launch loop, as Tools > ${PAK_NAME} does"
     out="$(remote_exec "$(start_script "${next_cmd}")")"
     if [[ ${DRY_RUN} -eq 1 ]]; then
@@ -956,10 +970,19 @@ cmd_ui_send() {
 }
 
 cmd_pull() {
-    [[ ${#PASSTHRU[@]} -eq 2 ]] || die "pull: pull -- REMOTE LOCAL"
-    local dest="${PASSTHRU[1]}"
+    local remove=0
+    local -a args=(${PASSTHRU[@]+"${PASSTHRU[@]}"})
+    if [[ "${args[0]:-}" == --rm ]]; then
+        remove=1
+        args=("${args[@]:1}")
+    fi
+    [[ ${#args[@]} -eq 2 ]] || die "pull: pull -- [--rm] REMOTE LOCAL"
+    local dest="${args[1]}"
     [[ "${dest}" == /* ]] || dest="${INVOKE_DIR}/${dest}"
-    remote_pull_file "${PASSTHRU[0]}" "${dest}"
+    remote_pull_file "${args[0]}" "${dest}"
+    if [[ ${remove} -eq 1 ]]; then
+        remote_exec "rm -f $(sq "${args[0]}")" >/dev/null
+    fi
 }
 
 cmd_shell() {

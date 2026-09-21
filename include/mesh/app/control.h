@@ -72,9 +72,9 @@ struct mesh_app_control {
 };
 
 /*
- * Listens on `path`, replacing a socket a previous run left there - and refusing to replace
- * anything that is not a socket. Returns 0 or a negative errno; the client runs without the
- * socket either way.
+ * Listens on `path`. Anything already there is refused (-EADDRINUSE) rather than removed, a
+ * socket a killed run left behind included - see the note in app_control.c. Returns 0 or a
+ * negative errno; the client runs without the socket either way.
  */
 int mesh_app_control_open(struct mesh_app_control *control, struct inkwell_loop *loop,
                           struct mesh_ui_controller *controller, const char *path);

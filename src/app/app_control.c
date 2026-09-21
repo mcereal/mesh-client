@@ -309,19 +309,6 @@ static int mesh_app_control_on_timer(int fd, uint32_t events, void *userdata) {
     return 0;
 }
 
-/* Whether `path` is free to bind: nothing there, or a socket a previous run left behind. A
-   regular file at the path is somebody's, and is not ours to delete. */
-static int mesh_app_control_clear_path(const char *path) {
-    struct stat info;
-    if (lstat(path, &info) < 0) {
-        return errno == ENOENT ? 0 : -errno;
-    }
-    if (!S_ISSOCK(info.st_mode)) {
-        return -EEXIST;
-    }
-    return unlink(path) < 0 ? -errno : 0;
-}
-
 int mesh_app_control_open(struct mesh_app_control *control, struct inkwell_loop *loop,
                           struct mesh_ui_controller *controller, const char *path) {
     if (control == NULL || loop == NULL || controller == NULL || path == NULL || path[0] == '\0') {
@@ -341,11 +328,13 @@ int mesh_app_control_open(struct mesh_app_control *control, struct inkwell_loop 
     snprintf(control->path, sizeof control->path, "%s", path);
     memcpy(address.sun_path, path, strlen(path) + 1U);
 
-    int result = mesh_app_control_clear_path(path);
-    if (result < 0) {
-        return result;
-    }
-
+    /*
+     * Nothing already at the path is removed - not even a socket a killed run left behind. Looking
+     * at a path and then unlinking it is a race: whatever was looked at may not be what gets
+     * unlinked. So a stale socket is refused here like anything else, and cleared by whatever
+     * knows no client is running - scripts/ui-drive.sh, and deploy-device.sh after its stop.
+     */
+    int result = 0;
     const int fd = inkwell_fd_socket(AF_UNIX, SOCK_STREAM, 0);
     if (fd < 0) {
         return fd;
@@ -392,7 +381,8 @@ void mesh_app_control_close(struct mesh_app_control *control) {
         inkwell_loop_remove_fd(control->loop, control->listen_fd);
         close(control->listen_fd);
         control->listen_fd = -1;
-        (void)mesh_app_control_clear_path(control->path);
+        /* Ours: bound by this run, which is the only file this ever removes. */
+        (void)unlink(control->path);
     }
     control->loop = NULL;
 }

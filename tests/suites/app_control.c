@@ -15,6 +15,7 @@
 #include "inkcell/ui/fb_draw.h"
 #include "inkwell/runtime/loop.h"
 #include "mesh/app/control.h"
+#include "mesh/core/config.h"
 #include "mesh/ui/controller.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/store.h"
@@ -271,8 +272,18 @@ MESH_TEST_CASE(app_control_does_not_replace_a_file_that_is_not_a_socket, unit) {
     mesh_ui_store_shutdown(&store);
     inkwell_loop_shutdown(&loop);
 
-    MESH_TEST_FAIL_IF(opened != -EEXIST, "a regular file at the path must be refused");
+    MESH_TEST_FAIL_IF(opened >= 0, "a regular file at the path must be refused");
     MESH_TEST_FAIL_IF(!kept, "...and left where it was");
+    record_success(test_name);
+}
+
+/* Read before any flag or variable could set it, so a launch that asks for no socket gets none
+   rather than whatever the stack held. */
+MESH_TEST_CASE(app_control_is_off_in_the_default_config, unit) {
+    struct mesh_app_config config;
+    memset(&config, 0xA5, sizeof config);
+    config = mesh_app_config_default();
+    MESH_TEST_FAIL_IF(config.ui_control_path[0] != '\0', "the default config must open no socket");
     record_success(test_name);
 }
 

@@ -85,6 +85,14 @@ cmd_start() {
 
     [[ -x "${BIN}" ]] || die "${BIN} not found; run 'make debug'"
     local_alive && die "a client is already listening at ${SOCKET}; '$0 stop' first"
+    # Nothing answered, so a socket here is one a killed client left behind. The client will not
+    # bind over it - it refuses anything already at its path - so it is cleared here, and only
+    # when it is a socket: any other file at the path is somebody's.
+    if [[ -S "${SOCKET}" ]]; then
+        rm -f "${SOCKET}"
+    elif [[ -e "${SOCKET}" ]]; then
+        die "${SOCKET} exists and is not a socket; set MESHCLIENT_UI_CONTROL to another path"
+    fi
     if [[ -z "${backend}" ]]; then
         if [[ "$(uname -s)" == Darwin || -n "${DISPLAY:-}" || -n "${WAYLAND_DISPLAY:-}" ]]; then
             backend=sdl
@@ -126,7 +134,8 @@ cmd_send() {
             out="${rest}"
             [[ "${out}" == /* ]] || out="${INVOKE_DIR}/${out}"
             if [[ ${BRICK} -eq 1 ]]; then
-                remote+=("/tmp/ui-drive-${n}.ppm")
+                # Named for this run, so a shot that failed cannot be answered by an older file.
+                remote+=("/tmp/ui-drive-$$-${n}.ppm")
             else
                 remote+=("${tmpdir}/${n}.ppm")
             fi
@@ -137,16 +146,21 @@ cmd_send() {
         rewritten+="${part};"
     done
 
+    local answers
     if [[ ${BRICK} -eq 1 ]]; then
-        "${DEPLOY}" ui-send -- "${rewritten}" || status=$?
+        answers="$("${DEPLOY}" ui-send -- "${rewritten}")" || status=$?
     else
-        local_send "${rewritten}" || status=$?
+        answers="$(local_send "${rewritten}")" || status=$?
     fi
+    [[ -z "${answers}" ]] || printf '%s\n' "${answers}"
 
     local i
     for ((i = 0; i < n; i++)); do
+        # Only a shot the client said it took. Anything else - an error, or a send that stopped
+        # before reaching it - leaves nothing to bring back.
+        grep -qF "shot ${remote[${i}]}: ok" <<<"${answers}" || continue
         if [[ ${BRICK} -eq 1 ]]; then
-            "${DEPLOY}" pull -- "${remote[${i}]}" "${tmpdir}/${i}.ppm" 2>/dev/null || continue
+            "${DEPLOY}" pull -- --rm "${remote[${i}]}" "${tmpdir}/${i}.ppm" 2>/dev/null || continue
             remote[${i}]="${tmpdir}/${i}.ppm"
         fi
         [[ -s "${remote[${i}]}" ]] || continue

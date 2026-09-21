@@ -25,6 +25,7 @@ struct mesh_app_config mesh_app_config_default(void) {
      */
     config.enable_tcp = true;
     config.preferred_tcp_host[0] = '\0';
+    config.ui_control_path[0] = '\0';
     return config;
 }
 
