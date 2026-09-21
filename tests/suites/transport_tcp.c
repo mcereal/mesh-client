@@ -891,6 +891,91 @@ cleanup:
 }
 
 /* Disabled by configuration is a refusal with its own reason, not a silent no-op. */
+/*
+ * What the sentences actually say, which nothing else here checks.
+ *
+ * Every other error case in this suite asserts that *a* sentence came back and that it came back
+ * once. That was enough while the transport formatted its own text at the moment of failure; it
+ * is not enough now that it records `enum inkwell_net_reason` and a number, and the words are
+ * built later by the table in src/i18n/net_reason.c. A reason mapped to the wrong catalog entry
+ * still produces a non-empty string, and so does one formatted with the wrong number of
+ * arguments - "%.24s: %.20s" handed a single subject prints whatever was next on the stack.
+ *
+ * So this case pins the two things the conversion can silently get wrong: which entry a reason
+ * reaches, and its arity.
+ */
+MESH_TEST_CASE(tcp_error_text_matches_the_reason, unit) {
+    struct inkwell_loop loop;
+    bool loop_up = false;
+    struct mesh_transport *transport = mesh_tcp_transport();
+    bool started = false;
+    char error[MESH_TRANSPORT_ERROR_MAX];
+
+    if (inkwell_loop_init(&loop) != 0) {
+        record_failure(test_name, "event loop init failed");
+        goto cleanup;
+    }
+    loop_up = true;
+
+    struct mesh_app_config config = mesh_app_config_default();
+    if (transport->ops->start(transport, &config, &loop) != 0) {
+        record_failure(test_name, "tcp start failed");
+        goto cleanup;
+    }
+    started = true;
+
+    /* A target that will not parse: this link's own sentence, carrying what was typed. */
+    if (mesh_tcp_transport_connect(transport, "192.168.1.50:not-a-port") != -EINVAL) {
+        record_failure(test_name, "a malformed target should be refused");
+        goto cleanup;
+    }
+    if (!transport->ops->take_error(transport, error, sizeof error)) {
+        record_failure(test_name, "a malformed target should say so");
+        goto cleanup;
+    }
+    if (strstr(error, "192.168.1.50:not-a-port") == NULL) {
+        record_failure(test_name, "the sentence should carry the target the user typed");
+        goto cleanup;
+    }
+
+    /*
+     * Port 1 on the loopback: nothing listens there, so this is ECONNREFUSED - the reason with
+     * two arguments, and the only one in this file whose arity can go wrong. The sentence has to
+     * carry both the target and the C library's own word for the errno.
+     */
+    (void)mesh_tcp_transport_connect(transport, "127.0.0.1:1");
+    for (unsigned turn = 0U; turn < 100U && mesh_tcp_transport_is_connecting(transport); ++turn) {
+        (void)inkwell_loop_run(&loop, 20);
+        transport->ops->tick(transport);
+    }
+    if (mesh_tcp_transport_is_connecting(transport)) {
+        record_failure(test_name, "the refused connect never settled");
+        goto cleanup;
+    }
+    if (!transport->ops->take_error(transport, error, sizeof error)) {
+        record_failure(test_name, "a refused connect should say so");
+        goto cleanup;
+    }
+    if (strstr(error, "127.0.0.1:1") == NULL) {
+        record_failure(test_name, "the sentence should carry the target");
+        goto cleanup;
+    }
+    if (strstr(error, strerror(ECONNREFUSED)) == NULL) {
+        record_failure(test_name, "the sentence should carry the errno the kernel gave");
+        goto cleanup;
+    }
+
+    record_success(test_name);
+
+cleanup:
+    if (started) {
+        transport->ops->stop(transport);
+    }
+    if (loop_up) {
+        inkwell_loop_shutdown(&loop);
+    }
+}
+
 MESH_TEST_CASE(tcp_transport_refuses_when_disabled, unit) {
     struct mesh_transport *transport = mesh_tcp_transport();
     struct mesh_app_config config = mesh_app_config_default();

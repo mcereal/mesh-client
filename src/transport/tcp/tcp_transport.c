@@ -5,6 +5,8 @@
 #include "inkwell/base/text.h"
 #include "inkwell/base/time.h"
 
+#include "inkwell/net/reason.h"
+#include "mesh/i18n/net_reason.h"
 #include "mesh/i18n/strings.h"
 #include "mesh/transport/tcp.h"
 
@@ -114,22 +116,78 @@ struct mesh_tcp_transport_state {
     /* Owned only when nothing was injected; `session` is what the code uses. */
     struct mesh_session own_session;
     struct mesh_session *session;
-    /* Why the last connect attempt failed, in words, waiting to be shown once. */
-    char last_error[MESH_TRANSPORT_ERROR_MAX];
+    /*
+     * Why the last connect attempt failed, waiting to be shown once - as a reason and a number
+     * rather than as a sentence, because the sentence is this client's to write and not the
+     * link's. take_error() below is where the two become words.
+     *
+     * Two fields and not one because there are two kinds of failure here, and the split is the
+     * extraction seam made visible. `failure` is inkwell's vocabulary for getting to a host,
+     * which every link that reaches a network fails in the same ways; `own_failure` is the
+     * three this link says itself - a policy that refused to try, a target only this link knows
+     * the shape of, and a radio that did not finish the handshake once the socket was up. The
+     * socket half is what eventually moves down to inkwell, and it only ever sets the first.
+     */
+    struct inkwell_net_failure failure;
+    enum inkcell_str_id own_failure;
+    bool own_failure_set;
+    /* Whichever of the target or the host the failure was about, copied because the fields it
+       came from are cleared as the attempt is torn down - and it is the user's own typed text
+       echoed back, never a word this code chose. */
+    char failure_subject[MESH_TCP_TARGET_MAX];
 };
 
 static void mesh_tcp_reset_link(struct mesh_tcp_transport_state *state, const char *reason);
 
-/* Records a failure for the UI to pick up. First one wins until it is read. */
-static void mesh_tcp_set_error(struct mesh_tcp_transport_state *state, enum inkcell_str_id text,
-                               ...) {
-    if (state == NULL || state->last_error[0] != '\0') {
+static void mesh_tcp_clear_error(struct mesh_tcp_transport_state *state) {
+    if (state == NULL) {
         return;
     }
-    va_list args;
-    va_start(args, text);
-    (void)inkcell_str_vformat(state->last_error, sizeof state->last_error, text, args);
-    va_end(args);
+    state->failure.reason = INKWELL_NET_OK;
+    state->failure.detail = 0;
+    state->own_failure_set = false;
+    state->failure_subject[0] = '\0';
+}
+
+/* True while a failure is recorded and has not been read. */
+static bool mesh_tcp_has_error(const struct mesh_tcp_transport_state *state) {
+    return state != NULL && (inkwell_net_failed(&state->failure) || state->own_failure_set);
+}
+
+static void mesh_tcp_set_subject(struct mesh_tcp_transport_state *state, const char *subject) {
+    inkwell_str_copy(state->failure_subject, sizeof state->failure_subject,
+                     subject != NULL ? subject : "");
+}
+
+/*
+ * Records a failure for the UI to pick up. First one wins until it is read, which is what keeps
+ * the sentence the one that explains the attempt rather than the one from whatever tore it down
+ * afterwards.
+ *
+ * `detail` is the number behind the reason - a negative errno for UNREACHABLE - and 0 where the
+ * reason says everything. `subject` is the target or host the failure is about, as the user
+ * wrote it.
+ */
+static void mesh_tcp_fail(struct mesh_tcp_transport_state *state, enum inkwell_net_reason reason,
+                          int detail, const char *subject) {
+    if (state == NULL || mesh_tcp_has_error(state)) {
+        return;
+    }
+    state->failure.reason = reason;
+    state->failure.detail = detail;
+    mesh_tcp_set_subject(state, subject);
+}
+
+/* The same, for the three failures that are this link's own and have no reason in inkwell's
+   vocabulary. See the note on `own_failure` in the state above. */
+static void mesh_tcp_fail_own(struct mesh_tcp_transport_state *state, enum inkcell_str_id text,
+                              const char *subject) {
+    if (state == NULL || mesh_tcp_has_error(state)) {
+        return;
+    }
+    state->own_failure = text;
+    state->own_failure_set = true;
+    mesh_tcp_set_subject(state, subject);
 }
 
 static const char *mesh_tcp_state_to_string(enum mesh_tcp_state state) {
@@ -270,7 +328,7 @@ static void mesh_tcp_finish_connect(struct mesh_tcp_transport_state *state,
     }
     if (error != 0) {
         inkwell_log_warn("tcp", "Cannot reach %s: %s", state->target, strerror(error));
-        mesh_tcp_set_error(state, MESH_STR_LINK_TCP_UNREACHABLE, state->target, strerror(error));
+        mesh_tcp_fail(state, inkwell_net_reason_from_errno(error), -error, state->target);
         mesh_tcp_reset_link(state, "connect failed");
         return;
     }
@@ -299,7 +357,7 @@ static void mesh_tcp_finish_connect(struct mesh_tcp_transport_state *state,
     const int handshake = mesh_session_begin_handshake(state->session);
     if (handshake < 0) {
         inkwell_log_warn("tcp", "Failed to request config sync: %d", handshake);
-        mesh_tcp_set_error(state, MESH_STR_LINK_TCP_NO_ANSWER, state->target);
+        mesh_tcp_fail_own(state, MESH_STR_LINK_TCP_NO_ANSWER, state->target);
         mesh_tcp_reset_link(state, "handshake failed");
         return;
     }
@@ -394,7 +452,7 @@ static int mesh_tcp_open(struct mesh_tcp_transport_state *state, struct mesh_tra
     if (fd < 0) {
         const int error = errno;
         inkwell_log_warn("tcp", "Cannot open a socket: %s", strerror(error));
-        mesh_tcp_set_error(state, MESH_STR_LINK_TCP_UNREACHABLE, target, strerror(error));
+        mesh_tcp_fail(state, inkwell_net_reason_from_errno(error), -error, target);
         return -error;
     }
     mesh_tcp_adopt_target(state);
@@ -417,7 +475,7 @@ static int mesh_tcp_open(struct mesh_tcp_transport_state *state, struct mesh_tra
     if (connected < 0 && errno != EINPROGRESS) {
         const int error = errno;
         inkwell_log_warn("tcp", "Cannot reach %s: %s", target, strerror(error));
-        mesh_tcp_set_error(state, MESH_STR_LINK_TCP_UNREACHABLE, target, strerror(error));
+        mesh_tcp_fail(state, inkwell_net_reason_from_errno(error), -error, target);
         close(fd);
         state->target[0] = '\0';
         return -error;
@@ -471,7 +529,7 @@ static int mesh_tcp_open(struct mesh_tcp_transport_state *state, struct mesh_tra
  *
  * Nothing is returned to anybody here: the press that asked for this was answered when the
  * lookup started, so a failure at this point reaches the user the way a failed connect does -
- * through `last_error`, picked up by whichever screen asks next.
+ * through the recorded failure, picked up by whichever screen asks next.
  */
 static void mesh_tcp_on_resolved(void *userdata, const struct inkwell_resolve_result *result) {
     struct mesh_transport *transport = (struct mesh_transport *)userdata;
@@ -501,16 +559,17 @@ static void mesh_tcp_on_resolved(void *userdata, const struct inkwell_resolve_re
         switch (result->outcome) {
         case INKWELL_RESOLVE_NOT_FOUND:
             inkwell_log_warn("tcp", "No address for %s", host);
-            mesh_tcp_set_error(state, MESH_STR_LINK_TCP_UNKNOWN_HOST, host);
+            mesh_tcp_fail(state, inkwell_net_reason_from_resolve(result->outcome), 0, host);
             break;
         case INKWELL_RESOLVE_TIMED_OUT:
             inkwell_log_warn("tcp", "Looking up %s took too long", host);
-            mesh_tcp_set_error(state, MESH_STR_LINK_TCP_LOOKUP_FAILED, host);
+            mesh_tcp_fail(state, inkwell_net_reason_from_resolve(result->outcome), 0, host);
             break;
         default:
             inkwell_log_warn("tcp", "Cannot look up %s: %s", host,
                              result->error != 0 ? gai_strerror(result->error) : "no resolver");
-            mesh_tcp_set_error(state, MESH_STR_LINK_TCP_LOOKUP_FAILED, host);
+            mesh_tcp_fail(state, inkwell_net_reason_from_resolve(result->outcome), result->error,
+                          host);
             break;
         }
         state->link_state = MESH_TCP_LINK_DISCONNECTED;
@@ -533,10 +592,10 @@ int mesh_tcp_transport_connect(struct mesh_transport *transport, const char *tar
     }
     struct mesh_tcp_transport_state *state = (struct mesh_tcp_transport_state *)transport->state;
     /* A new attempt supersedes whatever the last one failed with. */
-    state->last_error[0] = '\0';
+    mesh_tcp_clear_error(state);
 
     if (state->state == MESH_TCP_STATE_DISABLED) {
-        mesh_tcp_set_error(state, MESH_STR_LINK_TCP_DISABLED);
+        mesh_tcp_fail_own(state, MESH_STR_LINK_TCP_DISABLED, "");
         return -ENODEV;
     }
     if (state->link_state != MESH_TCP_LINK_DISCONNECTED) {
@@ -547,7 +606,7 @@ int mesh_tcp_transport_connect(struct mesh_transport *transport, const char *tar
     uint16_t port = 0U;
     if (mesh_tcp_target_split(target, host, sizeof host, &port) < 0) {
         inkwell_log_warn("tcp", "'%s' is not an address and port", target);
-        mesh_tcp_set_error(state, MESH_STR_LINK_TCP_BAD_TARGET, target);
+        mesh_tcp_fail_own(state, MESH_STR_LINK_TCP_BAD_TARGET, target);
         return -EINVAL;
     }
 
@@ -569,13 +628,13 @@ int mesh_tcp_transport_connect(struct mesh_transport *transport, const char *tar
      * A name. The lookup is a forked child and the answer arrives on a later loop turn, so what
      * this returns is "under way" rather than "connected" - and unlike the literal path there is
      * no refusal to hand back, because nothing has been tried yet. Whatever goes wrong from here
-     * is reported through `last_error`; see mesh_tcp_on_resolved().
+     * is reported through the recorded failure; see mesh_tcp_on_resolved().
      */
     const int started = inkwell_resolve_start(&state->resolve, host, port, mesh_tcp_on_resolved,
                                               transport, inkwell_time_monotonic_ms());
     if (started < 0) {
         inkwell_log_warn("tcp", "Cannot look up %s: %d", host, started);
-        mesh_tcp_set_error(state, MESH_STR_LINK_TCP_LOOKUP_FAILED, host);
+        mesh_tcp_fail(state, INKWELL_NET_LOOKUP_FAILED, 0, host);
         state->target[0] = '\0';
         return started;
     }
@@ -631,7 +690,7 @@ static void mesh_tcp_tick(struct mesh_transport *transport) {
     if (state->link_state == MESH_TCP_LINK_CONNECTING) {
         if (state->connect_deadline_ms != 0U && now >= state->connect_deadline_ms) {
             inkwell_log_warn("tcp", "%s did not answer in time", state->target);
-            mesh_tcp_set_error(state, MESH_STR_LINK_TCP_TIMEOUT, state->target);
+            mesh_tcp_fail(state, INKWELL_NET_TIMED_OUT, 0, state->target);
             mesh_tcp_reset_link(state, "connect timed out");
         }
         return;
@@ -751,11 +810,33 @@ static bool mesh_tcp_take_error(struct mesh_transport *transport, char *out, siz
         return false;
     }
     struct mesh_tcp_transport_state *state = (struct mesh_tcp_transport_state *)transport->state;
-    if (state->last_error[0] == '\0') {
+    if (!mesh_tcp_has_error(state)) {
         return false;
     }
-    inkwell_str_copy(out, out_len, state->last_error);
-    state->last_error[0] = '\0';
+
+    enum inkcell_str_id text = MESH_STR_LINK_TCP_DISABLED;
+    if (state->own_failure_set) {
+        text = state->own_failure;
+    } else if (!mesh_net_reason_str(state->failure.reason, &text)) {
+        /* A reason with nothing to say about it. Unreachable today - every reason this file
+           records has a sentence - but a new one in inkwell would land here rather than print
+           whatever `text` was left holding. */
+        mesh_tcp_clear_error(state);
+        return false;
+    }
+
+    /*
+     * The one reason whose sentence takes a second argument. The arity has to match the catalog
+     * entry - "%.24s: %.20s" against a subject and the C library's word for the errno - and the
+     * cases in tests/suites/transport_tcp.c are what hold the pair together.
+     */
+    if (!state->own_failure_set && state->failure.reason == INKWELL_NET_UNREACHABLE) {
+        (void)inkcell_str_format(out, out_len, text, state->failure_subject,
+                                 strerror(-state->failure.detail));
+    } else {
+        (void)inkcell_str_format(out, out_len, text, state->failure_subject);
+    }
+    mesh_tcp_clear_error(state);
     return true;
 }
 

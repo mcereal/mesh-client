@@ -17,6 +17,39 @@ session never sees GATT, ttys or framing; a link never decodes a protobuf.**
 Serial and TCP are one wire format — `0x94 0xC3`-framed protobufs over a byte stream — and differ
 only in how the descriptor is obtained, so the identical half is `src/transport/stream_link.c`.
 
+## How a failure reaches the user
+
+`take_error()` hands back one sentence, once, and the screen that asked shows it. What changed
+is where the sentence is *made*.
+
+The network transport records a failure as `struct inkwell_net_failure` — inkwell's
+`enum inkwell_net_reason` and a number — and builds no text at all at the moment it fails.
+`take_error()` turns the pair into words, through the table in
+[`src/i18n/net_reason.c`](../src/i18n/net_reason.c). That table is the whole of this client's
+half of the boundary: inkwell reports *why*, and this client decides what to say about it, in
+whatever language is in force.
+
+The reason it is worth the indirection is that every link that reaches a host fails in the same
+ways. "No such host" used to be in `catalog.def` twice — once under `LINK_TCP_` and once under
+`LINK_MQTT_` — and translated twice in every language, because a string id belongs to one caller
+and a reason belongs to nobody. Four entries collapsed to one set the day the transports had a
+reason to report instead.
+
+Two things the table settles rather than inkwell:
+
+- **Collapsing.** inkwell keeps a lookup that failed apart from a lookup that timed out, because
+  it can tell them apart. This client says one sentence about both, because there is one thing
+  for a reader to do about it. That is a decision about words and it belongs with the words.
+- **Arity.** `LINK_UNREACHABLE` is `"%.24s: %.20s"` — a subject and the C library's own word for
+  the errno. A reason mapped to the wrong entry still produces a non-empty string, so
+  `tcp_error_text_matches_the_reason` in `tests/suites/transport_tcp.c` checks the text rather
+  than its presence.
+
+The three failures that are **not** any link's — network links switched off, a target only this
+link knows the shape of, and a radio that did not answer the handshake once the socket was up —
+stay as string ids in the transport. That split is the extraction seam drawn in advance: the
+socket half is what eventually moves down to inkwell, and it only ever records a reason.
+
 ## Bluetooth LE
 
 Meshtastic does **not** use the Nordic UART Service. The service is

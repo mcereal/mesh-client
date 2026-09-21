@@ -284,7 +284,7 @@ static void mqtt_pump_subscribes(struct mesh_mqtt_proxy *proxy) {
         return;
     }
     if (queued < 0) {
-        mqtt_fail(proxy, MESH_STR_LINK_MQTT_DROPPED, proxy->host);
+        mqtt_fail(proxy, MESH_STR_LINK_CLOSED, proxy->host);
         return;
     }
     proxy->subscribe_id = id;
@@ -562,15 +562,15 @@ static void mqtt_read_ready(struct mesh_mqtt_proxy *proxy) {
             return;
         }
         if (got == -ENOTCONN || got == -ECONNRESET) {
-            mqtt_fail(proxy, MESH_STR_LINK_MQTT_DROPPED, proxy->host);
+            mqtt_fail(proxy, MESH_STR_LINK_CLOSED, proxy->host);
             return;
         }
         if (got < 0) {
             if (proxy->tls.state != NULL) {
-                mqtt_fail(proxy, MESH_STR_LINK_MQTT_TLS, proxy->host,
+                mqtt_fail(proxy, MESH_STR_LINK_TLS, proxy->host,
                           mesh_tls_client_error(&proxy->tls));
             } else {
-                mqtt_fail(proxy, MESH_STR_LINK_MQTT_UNREACHABLE, proxy->host, strerror(-got));
+                mqtt_fail(proxy, MESH_STR_LINK_UNREACHABLE, proxy->host, strerror(-got));
             }
             return;
         }
@@ -617,7 +617,7 @@ static void mqtt_send_connect(struct mesh_mqtt_proxy *proxy) {
         return;
     }
     if (mqtt_queue(proxy, packet, (size_t)len) < 0) {
-        mqtt_fail(proxy, MESH_STR_LINK_MQTT_UNREACHABLE, proxy->host, strerror(ENOBUFS));
+        mqtt_fail(proxy, MESH_STR_LINK_UNREACHABLE, proxy->host, strerror(ENOBUFS));
         return;
     }
     proxy->deadline_ms = proxy->now_ms + MESH_MQTT_HANDSHAKE_TIMEOUT_MS;
@@ -633,7 +633,7 @@ static void mqtt_secure(struct mesh_mqtt_proxy *proxy) {
         return;
     }
     if (rc < 0) {
-        mqtt_fail(proxy, MESH_STR_LINK_MQTT_TLS, proxy->host, mesh_tls_client_error(&proxy->tls));
+        mqtt_fail(proxy, MESH_STR_LINK_TLS, proxy->host, mesh_tls_client_error(&proxy->tls));
         return;
     }
     mqtt_send_connect(proxy);
@@ -647,7 +647,7 @@ static void mqtt_finish_connect(struct mesh_mqtt_proxy *proxy) {
         error = errno;
     }
     if (error != 0) {
-        mqtt_fail(proxy, MESH_STR_LINK_MQTT_UNREACHABLE, proxy->host, strerror(error));
+        mqtt_fail(proxy, MESH_STR_LINK_UNREACHABLE, proxy->host, strerror(error));
         return;
     }
 
@@ -668,7 +668,7 @@ static void mqtt_finish_connect(struct mesh_mqtt_proxy *proxy) {
         return;
     }
     if (started < 0) {
-        mqtt_fail(proxy, MESH_STR_LINK_MQTT_TLS, proxy->host, mesh_tls_client_error(&proxy->tls));
+        mqtt_fail(proxy, MESH_STR_LINK_TLS, proxy->host, mesh_tls_client_error(&proxy->tls));
         return;
     }
     proxy->deadline_ms = proxy->now_ms + MESH_MQTT_HANDSHAKE_TIMEOUT_MS;
@@ -693,7 +693,7 @@ static int mqtt_fd_callback(int fd, uint32_t events, void *userdata) {
     }
 
     if ((events & (uint32_t)(EPOLLERR | EPOLLHUP)) != 0U) {
-        mqtt_fail(proxy, MESH_STR_LINK_MQTT_DROPPED, proxy->host);
+        mqtt_fail(proxy, MESH_STR_LINK_CLOSED, proxy->host);
         return 0;
     }
 
@@ -719,7 +719,7 @@ static int mqtt_fd_callback(int fd, uint32_t events, void *userdata) {
         }
         const int flushed = mqtt_flush(proxy);
         if (flushed < 0) {
-            mqtt_fail(proxy, MESH_STR_LINK_MQTT_DROPPED, proxy->host);
+            mqtt_fail(proxy, MESH_STR_LINK_CLOSED, proxy->host);
             return 0;
         }
     }
@@ -734,7 +734,7 @@ static void mqtt_open(struct mesh_mqtt_proxy *proxy, const struct sockaddr_stora
                       socklen_t address_len) {
     const int fd = socket(address->ss_family, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
     if (fd < 0) {
-        mqtt_fail(proxy, MESH_STR_LINK_MQTT_UNREACHABLE, proxy->host, strerror(errno));
+        mqtt_fail(proxy, MESH_STR_LINK_UNREACHABLE, proxy->host, strerror(errno));
         return;
     }
     /* MQTT packets are small and a reply often follows a request immediately, which is exactly
@@ -745,7 +745,7 @@ static void mqtt_open(struct mesh_mqtt_proxy *proxy, const struct sockaddr_stora
     if (connect(fd, (const struct sockaddr *)address, address_len) < 0 && errno != EINPROGRESS) {
         const int error = errno;
         close(fd);
-        mqtt_fail(proxy, MESH_STR_LINK_MQTT_UNREACHABLE, proxy->host, strerror(error));
+        mqtt_fail(proxy, MESH_STR_LINK_UNREACHABLE, proxy->host, strerror(error));
         return;
     }
 
@@ -755,7 +755,7 @@ static void mqtt_open(struct mesh_mqtt_proxy *proxy, const struct sockaddr_stora
                             proxy) < 0) {
         proxy->fd = -1;
         close(fd);
-        mqtt_fail(proxy, MESH_STR_LINK_MQTT_UNREACHABLE, proxy->host, strerror(ENOMEM));
+        mqtt_fail(proxy, MESH_STR_LINK_UNREACHABLE, proxy->host, strerror(ENOMEM));
         return;
     }
     proxy->fd_registered = true;
@@ -775,13 +775,13 @@ static void mqtt_on_resolved(void *userdata, const struct inkwell_resolve_result
         mqtt_open(proxy, &result->address, result->address_len);
         return;
     case INKWELL_RESOLVE_NOT_FOUND:
-        mqtt_fail(proxy, MESH_STR_LINK_MQTT_UNKNOWN_HOST, proxy->host);
+        mqtt_fail(proxy, MESH_STR_LINK_UNKNOWN_HOST, proxy->host);
         return;
     case INKWELL_RESOLVE_TIMED_OUT:
     case INKWELL_RESOLVE_FAILED:
     case INKWELL_RESOLVE_OUTCOME_COUNT:
     default:
-        mqtt_fail(proxy, MESH_STR_LINK_MQTT_LOOKUP_FAILED, proxy->host);
+        mqtt_fail(proxy, MESH_STR_LINK_LOOKUP_FAILED, proxy->host);
         return;
     }
 }
@@ -805,7 +805,7 @@ static void mqtt_attempt(struct mesh_mqtt_proxy *proxy) {
     const int started = inkwell_resolve_start(&proxy->resolve, proxy->host, proxy->port,
                                               mqtt_on_resolved, proxy, proxy->now_ms);
     if (started < 0) {
-        mqtt_fail(proxy, MESH_STR_LINK_MQTT_LOOKUP_FAILED, proxy->host);
+        mqtt_fail(proxy, MESH_STR_LINK_LOOKUP_FAILED, proxy->host);
         return;
     }
     proxy->deadline_ms = 0U; /* the resolver enforces its own */
@@ -1020,7 +1020,7 @@ int mesh_mqtt_proxy_publish(struct mesh_mqtt_proxy *proxy, const char *topic,
         /* A failed *write* is fatal to the connection; a full buffer is not. The first says the
            socket is gone, the second says it has not drained yet. */
         if (queued != -ENOSPC) {
-            mqtt_fail(proxy, MESH_STR_LINK_MQTT_DROPPED, proxy->host);
+            mqtt_fail(proxy, MESH_STR_LINK_CLOSED, proxy->host);
         }
         return queued;
     }
@@ -1058,7 +1058,7 @@ void mesh_mqtt_proxy_tick(struct mesh_mqtt_proxy *proxy, uint64_t now_ms) {
     /* A deadline on every state that is waiting for the far end to do something, so none of them
        can park on a socket that will never answer. */
     if (proxy->deadline_ms != 0U && now_ms >= proxy->deadline_ms) {
-        mqtt_fail(proxy, MESH_STR_LINK_MQTT_TIMEOUT, proxy->host);
+        mqtt_fail(proxy, MESH_STR_LINK_TIMEOUT, proxy->host);
         return;
     }
 
@@ -1085,7 +1085,7 @@ void mesh_mqtt_proxy_tick(struct mesh_mqtt_proxy *proxy, uint64_t now_ms) {
        carried out of WiFi range, most often. */
     if (proxy->last_heard_ms != 0U && now_ms > proxy->last_heard_ms &&
         now_ms - proxy->last_heard_ms > MESH_MQTT_SILENCE_TIMEOUT_MS) {
-        mqtt_fail(proxy, MESH_STR_LINK_MQTT_TIMEOUT, proxy->host);
+        mqtt_fail(proxy, MESH_STR_LINK_TIMEOUT, proxy->host);
         return;
     }
 
@@ -1093,7 +1093,7 @@ void mesh_mqtt_proxy_tick(struct mesh_mqtt_proxy *proxy, uint64_t now_ms) {
         uint8_t packet[2];
         const int len = inkwell_mqtt_encode_empty(packet, sizeof packet, INKWELL_MQTT_PINGREQ);
         if (len > 0 && mqtt_queue(proxy, packet, (size_t)len) < 0) {
-            mqtt_fail(proxy, MESH_STR_LINK_MQTT_DROPPED, proxy->host);
+            mqtt_fail(proxy, MESH_STR_LINK_CLOSED, proxy->host);
         }
     }
 }
