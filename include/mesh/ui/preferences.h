@@ -67,8 +67,8 @@ struct mesh_ui_preferences {
        DEFAULT, which is what a prefs file written before the setting existed reads as - so
        the inference the updater used to make on its own stays in force until someone picks. */
     uint8_t update_channel;
-    /* Which look the UI is drawn with (a theme id from src/ui/theme/theme.c, e.g. "light"). Empty
-       means nobody has picked, which is what a prefs file written before the setting existed
+    /* Which look the UI is drawn with (a theme id from inkcell's src/theme/theme.c, e.g. "light").
+       Empty means nobody has picked, which is what a prefs file written before the setting existed
        reads as - the default theme then applies, exactly as before. Stored by name rather
        than by index so reordering the theme table cannot move somebody onto another one. */
     char theme[16];

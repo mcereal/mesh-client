@@ -10,7 +10,7 @@ Both read include/mesh/i18n/catalog.def, which is the only description of the ca
 - the enum, the English table and these outputs are all expansions of that one list, so they
 cannot drift.
 
-Neither is part of the build. Run one by hand when you want it, the way scripts/gen-emoji.py
+Neither is part of the build. Run one by hand when you want it, the way inkcell's scripts/gen-emoji.py
 is run by hand; a stub is committed once and then edited like any other source file.
 
   ./scripts/gen-locale.py template -o meshclient.pot

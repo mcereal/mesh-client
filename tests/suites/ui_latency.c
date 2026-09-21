@@ -109,9 +109,9 @@ MESH_TEST_CASE(latency_does_not_charge_an_inert_press_to_the_next_frame, unit) {
 /*
  * A repeat has no kernel stamp, so it is not counted at all.
  *
- * src/ui/input/input.c generates key repeat from its own timerfd - the d-pad is an absolute axis
- * and never repeats itself - so a held direction reaches the store with no evdev event behind it.
- * Counted from "now" it would report a queueing delay of zero on exactly the presses a held pan
+ * inkcell's src/input/input.c generates key repeat from its own timerfd - the d-pad is an absolute
+ * axis and never repeats itself - so a held direction reaches the store with no evdev event behind
+ * it. Counted from "now" it would report a queueing delay of zero on exactly the presses a held pan
  * is made of, which is the fill loop's worst case reported as its best.
  */
 MESH_TEST_CASE(latency_does_not_count_a_repeat_as_a_press, unit) {

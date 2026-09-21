@@ -42,7 +42,7 @@ void fb_render_reactions(struct inkcell_backend_fb_state *state,
      * Which message is being answered, which the sheet keeps for as long as it is on the panel.
      *
      * The rows are the same nine whatever the message is - the faces come out of
-     * src/ui/views/reactions.c and the delete out of the catalog - so all that has to outlive
+     * src/ui/tables/reactions.c and the delete out of the catalog - so all that has to outlive
      * the press is the packet id the quote is drawn from.
      */
     /* Not over help, which takes every press - see the note at the tail of
