@@ -245,3 +245,9 @@ void mesh_ui_controller_shutdown(struct mesh_ui_controller *controller) {
     controller->store = NULL;
     controller->loop = NULL;
 }
+
+void mesh_ui_controller_request_frame(struct mesh_ui_controller *controller) {
+    if (controller != NULL) {
+        mesh_ui_controller_schedule_frame(controller, true);
+    }
+}

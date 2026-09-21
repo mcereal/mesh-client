@@ -332,6 +332,13 @@ the keyboard the only way it is driven. A radio is reached over TCP (Settings, o
 neither is there. The updater finds no binary to replace, on purpose - every release asset is a
 Linux binary.
 
+The Mac window has no title bar of its own: the frame runs up under it, the close, minimise and
+zoom buttons sit in the tab strip, and the strip drags the window (`unified_titlebar` in
+`src/app/app.c`, the rest in inkcell's `src/sdl/sdl_cocoa.m`). That costs the first tab a shift
+to clear the buttons - `top_leading_inset`, which is 0 on the device and in a capture - so the
+window is the Brick's layout everywhere but there. The window holds the panel's 4:3 as it is
+resized, which is what keeps the strip at its top edge.
+
 `make ui-capture` is still the way to *review* a UI change, because a picture in a pull request
 is reviewable and a window on somebody's desk is not.
 
