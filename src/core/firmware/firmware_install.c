@@ -369,9 +369,9 @@ int mesh_firmware_install_start(struct mesh_firmware_install *install, struct in
         (void)install_port_of(port_id, install->port, sizeof install->port);
     }
 
-    const enum mesh_uf2_verdict verdict =
-        mesh_uf2_validate(image, len, expect_family, &install->uf2);
-    if (verdict != MESH_UF2_OK) {
+    const enum inkwell_uf2_verdict verdict =
+        inkwell_uf2_validate(image, len, expect_family, &install->uf2);
+    if (verdict != INKWELL_UF2_OK) {
         inkwell_log_error("firmware", "The staged image is not a UF2 for this board (verdict %d)",
                           (int)verdict);
         install_refuse(install, MESH_FIRMWARE_INSTALL_ERROR_WRONG_IMAGE);

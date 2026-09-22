@@ -521,13 +521,13 @@ int mesh_firmware_ota_start(struct mesh_firmware_ota *ota,
         ota_refuse(ota, MESH_FIRMWARE_OTA_ERROR_UNAVAILABLE);
         return -EIO;
     }
-    const enum mesh_esp_image_verdict verdict =
-        mesh_esp_image_validate(ota->image, ota->image_len, chip, &ota->esp);
-    if (verdict != MESH_ESP_IMAGE_OK) {
+    const enum inkwell_esp_image_verdict verdict =
+        inkwell_esp_image_validate(ota->image, ota->image_len, chip, &ota->esp);
+    if (verdict != INKWELL_ESP_IMAGE_OK) {
         inkwell_log_error("firmware",
                           "The staged image is not an application for chip %#x: %s "
                           "(it says chip %#x)",
-                          (unsigned)chip, mesh_esp_image_verdict_name(verdict),
+                          (unsigned)chip, inkwell_esp_image_verdict_name(verdict),
                           (unsigned)ota->esp.chip_id);
         ota_refuse(ota, MESH_FIRMWARE_OTA_ERROR_WRONG_IMAGE);
         return -EINVAL;

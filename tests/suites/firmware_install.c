@@ -664,9 +664,9 @@ MESH_TEST_CASE(install_writes_the_image_and_waits_for_the_board_to_restart, unit
     struct mesh_firmware_install install;
     memset(&install, 0, sizeof install);
 
-    const int started =
-        mesh_firmware_install_start(&install, NULL, image_path, "2-1:1.1", MESH_UF2_FAMILY_NRF52840,
-                                    install_arm, &run, install_done, &run);
+    const int started = mesh_firmware_install_start(&install, NULL, image_path, "2-1:1.1",
+                                                    INKWELL_UF2_FAMILY_NRF52840, install_arm, &run,
+                                                    install_done, &run);
     MESH_TEST_FAIL_IF_CLEANUP(started != 0, fixture_close(&fixture), "the install should start");
     MESH_TEST_FAIL_IF_CLEANUP(install.state != MESH_FIRMWARE_INSTALL_ARMING,
                               (mesh_firmware_install_cancel(&install), fixture_close(&fixture)),
@@ -800,7 +800,7 @@ MESH_TEST_CASE(install_refuses_an_image_that_is_not_for_this_board, unit) {
     struct mesh_firmware_install install;
     memset(&install, 0, sizeof install);
     const int wrong_family = mesh_firmware_install_start(
-        &install, NULL, image_path, "2-1:1.1", MESH_UF2_FAMILY_RP2040, NULL, NULL, NULL, NULL);
+        &install, NULL, image_path, "2-1:1.1", INKWELL_UF2_FAMILY_RP2040, NULL, NULL, NULL, NULL);
     const enum mesh_firmware_install_error wrong_error = install.error;
 
     memset(&install, 0, sizeof install);
@@ -814,7 +814,7 @@ MESH_TEST_CASE(install_refuses_an_image_that_is_not_for_this_board, unit) {
     memset(&install, 0, sizeof install);
     const int missing =
         mesh_firmware_install_start(&install, NULL, "/nowhere/at/all.uf2", "2-1:1.1",
-                                    MESH_UF2_FAMILY_NRF52840, NULL, NULL, NULL, NULL);
+                                    INKWELL_UF2_FAMILY_NRF52840, NULL, NULL, NULL, NULL);
     const enum mesh_firmware_install_error missing_error = install.error;
     const enum mesh_firmware_install_state missing_state = install.state;
     fixture_close(&fixture);
@@ -860,7 +860,7 @@ MESH_TEST_CASE(install_tells_a_radio_that_stayed_from_a_bootloader_that_never_ca
     struct mesh_firmware_install install;
     memset(&install, 0, sizeof install);
     MESH_TEST_FAIL_IF_CLEANUP(mesh_firmware_install_start(&install, NULL, image_path, "2-1:1.1",
-                                                          MESH_UF2_FAMILY_NRF52840, install_arm,
+                                                          INKWELL_UF2_FAMILY_NRF52840, install_arm,
                                                           &run, install_done, &run) != 0,
                               fixture_close(&fixture), "the install should start");
     for (uint64_t now = 1000U; now <= 61000U && !run.finished; now += 1000U) {
@@ -873,9 +873,9 @@ MESH_TEST_CASE(install_tells_a_radio_that_stayed_from_a_bootloader_that_never_ca
     memset(&run, 0, sizeof run);
     run.arm_result = -ENOTCONN;
     memset(&install, 0, sizeof install);
-    const int refused =
-        mesh_firmware_install_start(&install, NULL, image_path, "2-1:1.1", MESH_UF2_FAMILY_NRF52840,
-                                    install_arm, &run, install_done, &run);
+    const int refused = mesh_firmware_install_start(&install, NULL, image_path, "2-1:1.1",
+                                                    INKWELL_UF2_FAMILY_NRF52840, install_arm, &run,
+                                                    install_done, &run);
     const enum mesh_firmware_install_error refused_error = install.error;
     mesh_firmware_install_cancel(&install);
 
@@ -885,7 +885,7 @@ MESH_TEST_CASE(install_tells_a_radio_that_stayed_from_a_bootloader_that_never_ca
     memset(&run, 0, sizeof run);
     memset(&install, 0, sizeof install);
     MESH_TEST_FAIL_IF_CLEANUP(mesh_firmware_install_start(&install, NULL, image_path, "",
-                                                          MESH_UF2_FAMILY_NRF52840, NULL, NULL,
+                                                          INKWELL_UF2_FAMILY_NRF52840, NULL, NULL,
                                                           install_done, &run) != 0,
                               fixture_close(&fixture), "an unarmed install should start too");
     MESH_TEST_FAIL_IF_CLEANUP(install.state != MESH_FIRMWARE_INSTALL_WAITING,
@@ -950,7 +950,7 @@ MESH_TEST_CASE(install_reads_a_write_that_ended_with_the_bootloader_as_the_board
     struct mesh_firmware_install install;
     memset(&install, 0, sizeof install);
     MESH_TEST_FAIL_IF_CLEANUP(mesh_firmware_install_start(&install, NULL, image_path, "2-1:1.1",
-                                                          MESH_UF2_FAMILY_NRF52840, NULL, NULL,
+                                                          INKWELL_UF2_FAMILY_NRF52840, NULL, NULL,
                                                           install_done, &run) != 0,
                               fixture_close(&fixture), "the install should start");
     mesh_firmware_install_tick(&install, inkwell_time_monotonic_ms());
@@ -1014,7 +1014,7 @@ MESH_TEST_CASE(install_does_not_call_a_pulled_cable_a_finished_install, unit) {
     struct mesh_firmware_install install;
     memset(&install, 0, sizeof install);
     MESH_TEST_FAIL_IF_CLEANUP(mesh_firmware_install_start(&install, NULL, image_path, "2-1:1.1",
-                                                          MESH_UF2_FAMILY_NRF52840, NULL, NULL,
+                                                          INKWELL_UF2_FAMILY_NRF52840, NULL, NULL,
                                                           install_done, &run) != 0,
                               fixture_close(&fixture), "the install should start");
     mesh_firmware_install_tick(&install, inkwell_time_monotonic_ms());
@@ -1066,7 +1066,7 @@ MESH_TEST_CASE(install_refuses_to_call_it_done_while_the_bootloader_is_still_the
     struct mesh_firmware_install install;
     memset(&install, 0, sizeof install);
     MESH_TEST_FAIL_IF_CLEANUP(mesh_firmware_install_start(&install, NULL, image_path, "2-1:1.1",
-                                                          MESH_UF2_FAMILY_NRF52840, NULL, NULL,
+                                                          INKWELL_UF2_FAMILY_NRF52840, NULL, NULL,
                                                           install_done, &run) != 0,
                               fixture_close(&fixture), "the install should start");
 

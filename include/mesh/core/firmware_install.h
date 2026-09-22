@@ -132,7 +132,7 @@ struct mesh_firmware_install {
      */
     uint8_t *image;
     size_t image_len;
-    struct mesh_uf2_info uf2;
+    struct inkwell_uf2_info uf2;
 
     /* Which USB device the bootloader has to appear on ("2-1"), derived from the port the radio
        was on. Empty means any bootloader will do, which is what a board already sitting in one

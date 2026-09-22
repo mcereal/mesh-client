@@ -23,7 +23,7 @@ uint8_t *mesh_test_uf2_whole(size_t blocks, size_t *out_len) {
     if (bytes == NULL) {
         return NULL;
     }
-    const size_t wanted = blocks * MESH_UF2_BLOCK_SIZE;
+    const size_t wanted = blocks * INKWELL_UF2_BLOCK_SIZE;
     if (len < wanted) {
         free(bytes);
         return NULL;
@@ -36,7 +36,7 @@ uint8_t *mesh_test_uf2_whole(size_t blocks, size_t *out_len) {
     memcpy(image, bytes, wanted);
     free(bytes);
     for (size_t i = 0; i < blocks; ++i) {
-        mesh_test_uf2_set_num_blocks(image + (i * MESH_UF2_BLOCK_SIZE), (uint32_t)blocks);
+        mesh_test_uf2_set_num_blocks(image + (i * INKWELL_UF2_BLOCK_SIZE), (uint32_t)blocks);
     }
     if (out_len != NULL) {
         *out_len = wanted;

@@ -111,7 +111,7 @@ struct mesh_firmware_fetch {
     struct mesh_firmware_image image;
     enum mesh_firmware_path path;
     /* Only filled in on the USB path, where the image is a UF2 and can be read. */
-    struct mesh_uf2_info uf2;
+    struct inkwell_uf2_info uf2;
 
     mesh_firmware_fetch_done_fn on_done;
     void *userdata;

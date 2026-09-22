@@ -243,9 +243,9 @@ static void fetch_check_image(struct mesh_firmware_fetch *fetch) {
                                          ? fetch->expect_architecture
                                          : fetch->manifest.architecture;
     const uint32_t family = mesh_uf2_family_for_architecture(architecture);
-    const enum mesh_uf2_verdict verdict = mesh_uf2_validate(bytes, got, family, &fetch->uf2);
+    const enum inkwell_uf2_verdict verdict = inkwell_uf2_validate(bytes, got, family, &fetch->uf2);
     free(bytes);
-    if (verdict != MESH_UF2_OK) {
+    if (verdict != INKWELL_UF2_OK) {
         char message[MESH_FIRMWARE_FETCH_MESSAGE_MAX];
         snprintf(message, sizeof message, "the image is not a UF2 for this board (verdict %d)",
                  (int)verdict);

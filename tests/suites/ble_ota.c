@@ -52,7 +52,7 @@ static bool rig_open(struct ota_rig *rig, unsigned write_fail_after) {
     if (inkwell_ble_open(&rig->client) != 0) {
         return false;
     }
-    rig->image = mesh_test_esp_image(RIG_IMAGE_LEN, MESH_ESP_CHIP_ESP32_S3);
+    rig->image = mesh_test_esp_image(RIG_IMAGE_LEN, INKWELL_ESP_CHIP_ESP32_S3);
     if (rig->image == NULL) {
         return false;
     }
