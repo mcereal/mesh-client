@@ -87,6 +87,14 @@ not touch one.** What is Meshtastic's about it is `src/transport/ble/ble_gatt.c`
 characteristic UUIDs, and the lookup of all four at once. Built without D-Bus headers, inkwell
 links a backend that refuses every call and the transport reports `disabled`.
 
+On a Mac the same transport stands on inkwell's CoreBluetooth backend, and three things read
+differently there. A node's address is the UUID macOS gives it - stable on that Mac, meaningless
+on any other, and never the radio's MAC. Every node lists as `paired`, because macOS bonds on
+demand with a dialog of its own and there is no pair step for the client to take. And macOS asks
+the user about Bluetooth on behalf of the app that launched the binary - Terminal, from a shell -
+with the sentence in the `Info.plist` linked into it (`src/app/Info.plist.in`); until that is
+allowed the transport waits in "Bluetooth is starting".
+
 `ble_transport.c` is the link: a state machine (`disabled` → `waiting-for-bluez` →
 `waiting-for-adapter` → `running`), service-UUID filtering, an outbound queue, and the
 FromNum-notify → FromRadio-read drain.

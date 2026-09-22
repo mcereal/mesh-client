@@ -278,7 +278,12 @@ static void mesh_ble_tick(struct mesh_transport *transport) {
         if (now >= state->next_bluez_poll_ms) {
             state->next_bluez_poll_ms = now + MESH_BLE_BLUEZ_POLL_MS;
             if (state->state == MESH_BLE_STATE_READY) {
-                if (inkwell_ble_check_ready(&state->central) == -ENODEV) {
+                /* Gone (-ENODEV), or - on a Mac - Bluetooth access revoked in System Settings
+                   under a running client (-EACCES). Either way the adapter, the device list and
+                   the link belonged to a stack we can no longer talk to, and bring_up() is what
+                   notices it coming back. */
+                const int ready = inkwell_ble_check_ready(&state->central);
+                if (ready == -ENODEV || ready == -EACCES) {
                     mesh_ble_demote(state);
                 }
             } else {
@@ -459,7 +464,8 @@ static void mesh_ble_teardown_refresh_timer(struct mesh_ble_transport_state *sta
     }
 }
 
-static const char k_ble_no_bluez[] = "BlueZ service not present; waiting for bluetoothd";
+/* bluetoothd not on the bus, or - on a Mac - the radio switched off. */
+static const char k_ble_no_bluez[] = "No Bluetooth stack answering; waiting for it";
 
 /* Parks the transport in a waiting state. The reason is logged only when it changes, because
    tick() retries every couple of seconds and the same warning every 2 s buries the log. */
@@ -549,6 +555,12 @@ static void mesh_ble_bring_up(struct mesh_transport *transport) {
             snprintf(reason, sizeof reason, "BlueZ client not connected");
         } else if (ready_result == -ENOSYS) {
             snprintf(reason, sizeof reason, "BlueZ readiness check unsupported on this build");
+        } else if (ready_result == -EAGAIN) {
+            /* CoreBluetooth before it has reported whether the radio is on. */
+            snprintf(reason, sizeof reason, "Bluetooth is starting");
+        } else if (ready_result == -EACCES) {
+            snprintf(reason, sizeof reason,
+                     "Bluetooth access denied; allow it under Privacy & Security > Bluetooth");
         } else {
             snprintf(reason, sizeof reason, "Error talking to BlueZ: %s", strerror(-ready_result));
         }
@@ -642,7 +654,7 @@ static void mesh_ble_demote(struct mesh_ble_transport_state *state) {
     state->next_bluez_poll_ms = 0U;
     /* Pre-loaded so the retry that follows does not log the same thing again. */
     snprintf(state->waiting_reason, sizeof state->waiting_reason, "%s", k_ble_no_bluez);
-    inkwell_log_warn("ble", "BlueZ left the bus; waiting for it to come back");
+    inkwell_log_warn("ble", "The Bluetooth stack stopped answering; waiting for it to come back");
 }
 
 static int mesh_ble_start(struct mesh_transport *transport, const struct mesh_app_config *config,

@@ -286,6 +286,18 @@ add_executable(meshclient src/main.c)
 
 target_link_libraries(meshclient PRIVATE meshclient_core meshclient_options)
 
+# A bare binary on macOS has no bundle, so the Info.plist that says why it wants Bluetooth is
+# linked into its __TEXT segment instead. CoreBluetooth is refused without a usage string, and
+# macOS asks the user about the app that launched the binary - Terminal, usually - with this
+# sentence in the dialog.
+if(APPLE)
+    configure_file(src/app/Info.plist.in ${CMAKE_CURRENT_BINARY_DIR}/Info.plist @ONLY)
+    target_link_options(meshclient PRIVATE
+        "LINKER:-sectcreate,__TEXT,__info_plist,${CMAKE_CURRENT_BINARY_DIR}/Info.plist")
+    set_property(TARGET meshclient APPEND PROPERTY LINK_DEPENDS
+                 ${CMAKE_CURRENT_BINARY_DIR}/Info.plist)
+endif()
+
 set(nanopb_BUILD_GENERATOR OFF CACHE BOOL "Disable nanopb generator build" FORCE)
 set(nanopb_BUILD_RUNTIME ON CACHE BOOL "Enable nanopb runtime" FORCE)
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "Use static nanopb" FORCE)
