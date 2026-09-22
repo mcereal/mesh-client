@@ -44,11 +44,11 @@ is ignored for them.
 
 ## Picking a transport
 
-BLE is the default. `--serial[=ID]` takes a sysfs interface id (`1-1:1.1`) or a device node, and
-without one uses the first port found. `--tcp-host ADDR[:PORT]` reaches an ESP32 with its network
-module enabled, or `meshtasticd` on any Linux box; the port defaults to 4403. It takes an address
-or a name — a name is resolved in a forked child rather than on the loop, so it costs a fork and
-a round trip rather than a frozen UI ([`transport.md`](transport.md#a-name-costs-a-fork)).
+BLE is the default. `--serial[=ID]` takes a sysfs interface id (`1-1:1.1`) or a device node
+(`/dev/ttyUSB0`, or `/dev/cu.usbserial-0001` on a Mac), and without one uses the first port found.
+`--tcp-host ADDR[:PORT]` reaches an ESP32 with its network module enabled, or `meshtasticd` on any
+Linux box; the port defaults to 4403. It takes an address or a name — a name is resolved in a
+forked child rather than on the loop, so it costs a fork and a round trip rather than a frozen UI ([`transport.md`](transport.md#a-name-costs-a-fork)).
 
 `--serial` outranks `--tcp-host`. `--disable-ble` / `--disable-serial` / `--disable-tcp` turn a
 transport off entirely.
