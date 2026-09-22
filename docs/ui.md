@@ -326,6 +326,12 @@ goes nowhere. The wheel is Up and Down, a hint in the action bar is its key, and
 back button is B (inkcell's `inkcell/ui/pointer.h`). `tests/suites/ui_click.c` clicks the
 real frame.
 
+A window draws that action bar as a toolbar rather than as keycaps (inkcell's
+`inkcell_draw_state.pointer`): each face-button verb is a button of its own, with no letter on
+it, and whatever the pointer already has somewhere else is left out - "L/R tabs" (the tabs are
+clicked), the arrows (the wheel), quit (the close box), and Back wherever the header's arrow is
+drawn, which is B to a click. `pointer` in a capture scene draws the same frame.
+
 Two things to know before reaching for it:
 
 - **It is a presenter, not a GPU renderer.** The glyphs and the anti-aliasing are still the

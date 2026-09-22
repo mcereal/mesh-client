@@ -34,4 +34,12 @@ void mesh_ui_actions_for(const struct mesh_ui_snapshot *snapshot, struct inkcell
  */
 bool mesh_ui_action_bar_goes_back(const struct inkcell_action_bar *bar);
 
+/*
+ * Takes "L/R tabs" out of `bar`, for a frame drawn for a pointer: the tabs are clicked there, and
+ * the entry is the one on every bar that says nothing about this screen. The shoulders' other
+ * jobs - the keyboard's panels, the picker's jump - stay, since nothing else on those screens
+ * does them.
+ */
+void mesh_ui_actions_drop_tabs(struct inkcell_action_bar *bar);
+
 #endif /* MESH_UI_ACTIONS_H */
