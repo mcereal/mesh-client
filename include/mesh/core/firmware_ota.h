@@ -158,7 +158,7 @@ struct mesh_firmware_ota {
     uint8_t *image;
     size_t image_len;
     uint8_t sha256[32];
-    struct mesh_esp_image_info esp;
+    struct inkwell_esp_image_info esp;
 
     char radio_address[MESH_FIRMWARE_OTA_ADDRESS_MAX];
     char loader_address[MESH_FIRMWARE_OTA_ADDRESS_MAX];

@@ -169,45 +169,17 @@ static void rig_run(struct fw_rig *rig, enum mesh_firmware_ota_state until, uint
     }
 }
 
-MESH_TEST_CASE(esp_image_reads_a_real_header, unit) {
-    /* The header is the release's own bytes; see the fixture. */
-    uint8_t image[64];
-    memset(image, 0, sizeof image);
-    memcpy(image, mesh_test_esp_header, sizeof mesh_test_esp_header);
-    struct mesh_esp_image_info info;
-    MESH_TEST_FAIL_IF(mesh_esp_image_validate(image, sizeof image, MESH_ESP_CHIP_ESP32_S3, &info) !=
-                              MESH_ESP_IMAGE_OK ||
-                          info.chip_id != MESH_ESP_CHIP_ESP32_S3 || info.segments != 7U,
-                      "the Heltec V3's 2.7.26 image is an ESP32-S3 application of seven segments");
-    MESH_TEST_FAIL_IF(mesh_esp_image_validate(image, sizeof image, MESH_ESP_CHIP_ESP32, &info) !=
-                              MESH_ESP_IMAGE_WRONG_CHIP ||
-                          info.chip_id != MESH_ESP_CHIP_ESP32_S3,
-                      "and not an ESP32 one - chip 0 is a real chip, not a wildcard - and a "
-                      "refusal still says which chip it was for");
-    MESH_TEST_FAIL_IF(mesh_esp_image_validate(image, MESH_ESP_IMAGE_MIN_LEN - 1U,
-                                              MESH_ESP_CHIP_ESP32_S3,
-                                              NULL) != MESH_ESP_IMAGE_TOO_SHORT,
-                      "a header cut short is too short");
-    image[32] ^= 0xFFU;
-    MESH_TEST_FAIL_IF(mesh_esp_image_validate(image, sizeof image, MESH_ESP_CHIP_ESP32_S3, NULL) !=
-                          MESH_ESP_IMAGE_NOT_AN_APP,
-                      "no app descriptor is not an application: a bootloader, a factory image");
-    image[32] ^= 0xFFU;
-    image[0] = 0xE8U;
-    MESH_TEST_FAIL_IF(mesh_esp_image_validate(image, sizeof image, MESH_ESP_CHIP_ESP32_S3, NULL) !=
-                          MESH_ESP_IMAGE_BAD_MAGIC,
-                      "no 0xE9 is not an ESP32 image at all");
-
+MESH_TEST_CASE(esp_image_resolves_release_architectures, unit) {
     uint16_t chip = 0xFFFFU;
     MESH_TEST_FAIL_IF(!mesh_esp_chip_for_architecture("esp32-s3", &chip) ||
-                          chip != MESH_ESP_CHIP_ESP32_S3,
+                          chip != INKWELL_ESP_CHIP_ESP32_S3,
                       "deviceHardware's spelling");
     chip = 0xFFFFU;
     MESH_TEST_FAIL_IF(!mesh_esp_chip_for_architecture("esp32s3", &chip) ||
-                          chip != MESH_ESP_CHIP_ESP32_S3,
+                          chip != INKWELL_ESP_CHIP_ESP32_S3,
                       "and the release manifest's, which is the one that bites");
     MESH_TEST_FAIL_IF(!mesh_esp_chip_for_architecture("esp32", &chip) ||
-                          chip != MESH_ESP_CHIP_ESP32,
+                          chip != INKWELL_ESP_CHIP_ESP32,
                       "the original ESP32 is chip 0");
     MESH_TEST_FAIL_IF(mesh_esp_chip_for_architecture("nrf52840", &chip) ||
                           mesh_esp_chip_for_architecture(NULL, &chip),
@@ -261,7 +233,7 @@ MESH_TEST_CASE(firmware_ota_offsets_addresses, unit) {
 
 MESH_TEST_CASE(firmware_ota_installs_over_ble, unit) {
     struct fw_rig rig;
-    MESH_TEST_FAIL_IF_CLEANUP(!rig_open(&rig, MESH_ESP_CHIP_ESP32_S3), rig_close(&rig),
+    MESH_TEST_FAIL_IF_CLEANUP(!rig_open(&rig, INKWELL_ESP_CHIP_ESP32_S3), rig_close(&rig),
                               "the rig should open");
     const struct mesh_firmware_ota_params params = rig_params(&rig, true);
     MESH_TEST_FAIL_IF_CLEANUP(mesh_firmware_ota_start(&rig.ota, &params) != 0 ||
@@ -313,7 +285,7 @@ MESH_TEST_CASE(firmware_ota_installs_over_ble, unit) {
 
 MESH_TEST_CASE(firmware_ota_radio_refusal_leaves_it_running, unit) {
     struct fw_rig rig;
-    MESH_TEST_FAIL_IF_CLEANUP(!rig_open(&rig, MESH_ESP_CHIP_ESP32_S3), rig_close(&rig),
+    MESH_TEST_FAIL_IF_CLEANUP(!rig_open(&rig, INKWELL_ESP_CHIP_ESP32_S3), rig_close(&rig),
                               "the rig should open");
     const struct mesh_firmware_ota_params params = rig_params(&rig, true);
     MESH_TEST_FAIL_IF_CLEANUP(mesh_firmware_ota_start(&rig.ota, &params) != 0, rig_close(&rig),
@@ -336,13 +308,13 @@ MESH_TEST_CASE(firmware_ota_radio_refusal_leaves_it_running, unit) {
 
 MESH_TEST_CASE(firmware_ota_refuses_an_image_for_another_chip, unit) {
     struct fw_rig rig;
-    MESH_TEST_FAIL_IF_CLEANUP(!rig_open(&rig, MESH_ESP_CHIP_ESP32_C3), rig_close(&rig),
+    MESH_TEST_FAIL_IF_CLEANUP(!rig_open(&rig, INKWELL_ESP_CHIP_ESP32_C3), rig_close(&rig),
                               "the rig should open");
     const struct mesh_firmware_ota_params params = rig_params(&rig, true);
     MESH_TEST_FAIL_IF_CLEANUP(mesh_firmware_ota_start(&rig.ota, &params) != -EINVAL ||
                                   rig.ota.state != MESH_FIRMWARE_OTA_FAILED ||
                                   rig.ota.error != MESH_FIRMWARE_OTA_ERROR_WRONG_IMAGE ||
-                                  rig.ota.esp.chip_id != MESH_ESP_CHIP_ESP32_C3,
+                                  rig.ota.esp.chip_id != INKWELL_ESP_CHIP_ESP32_C3,
                               rig_close(&rig),
                               "a C3 image for an S3 radio is refused, saying which chip it was");
     MESH_TEST_FAIL_IF_CLEANUP(rig.armed != 0U || rig.done_calls != 0U, rig_close(&rig),
@@ -353,7 +325,7 @@ MESH_TEST_CASE(firmware_ota_refuses_an_image_for_another_chip, unit) {
 
 MESH_TEST_CASE(firmware_ota_resumes_a_radio_already_in_its_loader, unit) {
     struct fw_rig rig;
-    MESH_TEST_FAIL_IF_CLEANUP(!rig_open(&rig, MESH_ESP_CHIP_ESP32_S3), rig_close(&rig),
+    MESH_TEST_FAIL_IF_CLEANUP(!rig_open(&rig, INKWELL_ESP_CHIP_ESP32_S3), rig_close(&rig),
                               "the rig should open");
     /* The client was quit mid-transfer: no radio to ask, a loader advertising. */
     rig.devices[1].rssi = -58;
@@ -377,7 +349,7 @@ MESH_TEST_CASE(firmware_ota_resumes_a_radio_already_in_its_loader, unit) {
 
 MESH_TEST_CASE(firmware_ota_retries_a_broken_transfer, unit) {
     struct fw_rig rig;
-    MESH_TEST_FAIL_IF_CLEANUP(!rig_open(&rig, MESH_ESP_CHIP_ESP32_S3), rig_close(&rig),
+    MESH_TEST_FAIL_IF_CLEANUP(!rig_open(&rig, INKWELL_ESP_CHIP_ESP32_S3), rig_close(&rig),
                               "the rig should open");
     rig.devices[1].rssi = -60;
     rig.loader.ack_limit = 3U;
@@ -402,7 +374,7 @@ MESH_TEST_CASE(firmware_ota_retries_a_broken_transfer, unit) {
 
 MESH_TEST_CASE(firmware_ota_gives_up_and_says_where_the_radio_is, unit) {
     struct fw_rig rig;
-    MESH_TEST_FAIL_IF_CLEANUP(!rig_open(&rig, MESH_ESP_CHIP_ESP32_S3), rig_close(&rig),
+    MESH_TEST_FAIL_IF_CLEANUP(!rig_open(&rig, INKWELL_ESP_CHIP_ESP32_S3), rig_close(&rig),
                               "the rig should open");
     rig.devices[1].rssi = -60;
     rig.loader.ack_limit = 2U;
@@ -423,7 +395,7 @@ MESH_TEST_CASE(firmware_ota_gives_up_and_says_where_the_radio_is, unit) {
 
 MESH_TEST_CASE(firmware_ota_loader_refusal_is_final, unit) {
     struct fw_rig rig;
-    MESH_TEST_FAIL_IF_CLEANUP(!rig_open(&rig, MESH_ESP_CHIP_ESP32_S3), rig_close(&rig),
+    MESH_TEST_FAIL_IF_CLEANUP(!rig_open(&rig, INKWELL_ESP_CHIP_ESP32_S3), rig_close(&rig),
                               "the rig should open");
     rig.devices[1].rssi = -60;
     rig.loader.refuse_start = true;
@@ -464,7 +436,7 @@ MESH_TEST_CASE(firmware_ota_loader_refusal_is_final, unit) {
  */
 MESH_TEST_CASE(firmware_ota_connects_before_it_drops_the_scan, unit) {
     struct fw_rig rig;
-    MESH_TEST_FAIL_IF_CLEANUP(!rig_open_ex(&rig, MESH_ESP_CHIP_ESP32_S3, true), rig_close(&rig),
+    MESH_TEST_FAIL_IF_CLEANUP(!rig_open_ex(&rig, INKWELL_ESP_CHIP_ESP32_S3, true), rig_close(&rig),
                               "the rig should open");
     const struct mesh_firmware_ota_params params = rig_params(&rig, true);
     MESH_TEST_FAIL_IF_CLEANUP(mesh_firmware_ota_start(&rig.ota, &params) != 0, rig_close(&rig),
