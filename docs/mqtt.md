@@ -19,7 +19,7 @@ place. Nothing about it needs a phone any more.
 | File | What it is |
 |---|---|
 | inkwell's `src/codec/mqtt.c` | the MQTT 3.1.1 wire format, and nothing else - it was never about a mesh, so it is the platform layer's |
-| `src/core/net/mqtt_proxy.c` | one broker connection: resolve, connect, subscribe, publish, keepalive, backoff |
+| inkwell's `src/net/mqtt.c` | one broker connection: resolve, connect, subscribe, publish, keepalive, backoff |
 | inkwell's `src/net/tls.c` (`inkwell/net/tls.h`) | Mbed TLS over a non-blocking descriptor - it was never about a mesh either |
 | `src/proto/mqtt_topic.c` | where a mesh lives on a broker, matched to the firmware |
 | `src/core/session/session.c` | the two hooks: the radio's message out, the broker's message back |
@@ -34,8 +34,8 @@ sight, and the client is the state machine that owns a socket.
 
 ## How a failure reaches the user
 
-`src/core/net/mqtt_proxy.c` names no word a user reads. A failed attempt is recorded as
-`struct mesh_mqtt_proxy_failure` and the sentence is written later, by
+inkwell's `src/net/mqtt.c` names no word a user reads. A failed attempt is recorded as
+`struct inkwell_mqtt_client_failure` and the sentence is written later, by
 [`src/ui/tables/mqtt.c`](../src/ui/tables/mqtt.c), when a screen asks.
 
 The record is two halves and exactly one is set:
@@ -43,20 +43,19 @@ The record is two halves and exactly one is set:
 | Half | What it covers |
 |---|---|
 | `net` — `struct inkwell_net_failure` | getting to a host: unreachable, unknown host, lookup failed or timed out, the connect or the silence deadline, a peer that closed, TLS. inkwell's vocabulary, shared with the TCP link |
-| `refusal` — `enum mesh_mqtt_refusal` | what the broker answered, and the two this refuses before asking: a bad address, a build with no TLS, a peer not speaking MQTT, and the CONNACK codes |
+| `refusal` — `enum inkwell_mqtt_refusal` | what the broker answered, and the two this refuses before asking: a bad address, a build with no TLS, a peer not speaking MQTT, and the CONNACK codes |
 
 The split is not tidiness. Everything in the left column is the same for any link that reaches a
 network, which is why it is inkwell's and why the TCP transport reports in the same words; the
-right column is MQTT's and stays with MQTT. When the proxy moves down to inkwell — it has no
-application include left that would stop it — the left half goes as it is, and the table that
-turns either half into a sentence stays here.
+right column is MQTT's and moved with the connection manager. The table that turns either half
+into a translated sentence remains here in the application.
 
 Two things need something the record cannot hold, and both are taken off the proxy at the moment
 the sentence is written:
 
 - **A bad address is shown as the address**, not the host. A target that would not parse never
-  became a host, so `mesh_mqtt_proxy_host()` is empty exactly when that sentence is needed.
-- **A TLS failure carries `mesh_mqtt_proxy_tls_error()`** — Mbed TLS's own account of what went
+  became a host, so `inkwell_mqtt_client_host()` is empty exactly when that sentence is needed.
+- **A TLS failure carries `inkwell_mqtt_client_tls_error()`** — Mbed TLS's own account of what went
   wrong. No number rebuilds it, and it is untranslated for the same reason the C library's word
   for an errno is.
 
@@ -179,7 +178,7 @@ Any of the five things a CONNECT carries moving — address, username, password,
 TLS — drops the connection and remakes it, as does any change to the filter set.
 
 A new *filter* could be added to a live connection, but the set can also **shrink**, and
-`mesh_mqtt_proxy_clear_filters()` deliberately does not unsubscribe on the wire: a channel whose
+`inkwell_mqtt_client_clear_filters()` deliberately does not unsubscribe on the wire: a channel whose
 downlink was just turned off would keep delivering until the connection went away by itself.
 Reconnecting is also nearly free in practice, since every way this set can change is a settings
 write, and a settings write reboots the radio and takes the link with it.
@@ -268,15 +267,15 @@ silently never arrive.
 
 ## An oversized message is skipped, not buffered
 
-`mesh_mqtt_decode_header()` decodes a packet's fixed header without its body, and this is the
+`inkwell_mqtt_decode_header()` decodes a packet's fixed header without its body, and this is the
 reason. A broker may retain a message far larger than anything a radio could accept — a
 `MqttClientProxyMessage` holds a 60-byte topic and a 435-byte payload — but the bytes still have
 to come off the stream in order. MQTT has no resynchronisation: one packet read at the wrong
 offset and every packet after it is plausible nonsense.
 
-So a body past `MESH_MQTT_PACKET_MAX` is *counted* off the stream without ever being held, and
+So a body past `INKWELL_MQTT_CLIENT_PACKET_MAX` is *counted* off the stream without ever being held, and
 the inbound buffer stays sized for what the radio can take rather than for the 256 MB a remaining
-length can describe. `mqtt_proxy_skips_an_oversized_message` sends a 6 KB message followed by an
+length can describe. `mqtt_client_skips_an_oversized_message` sends a 6 KB message followed by an
 ordinary one and checks that the ordinary one arrives intact — one byte out either way and it
 would not.
 
@@ -312,22 +311,23 @@ the way up. Two things about that are easy to get wrong and are handled delibera
   Answering it with `-EAGAIN` is the other tempting fix and fails the same way as the bullet
   above: the broker's CONNACK usually shares the flight with the ticket, so it is already inside
   the session with an empty socket underneath. `inkwell_tls_client_read()` retries the read instead.
-  `mqtt_proxy_reads_past_a_session_ticket` holds this, and the fixture broker issues real tickets
+  `mqtt_client_reads_past_a_session_ticket` holds this, and the fixture broker issues real tickets
   so the handshake tests exercise the post-handshake path at all — an Mbed TLS server with no
   ticket callback configured sends none, which is why a real handshake under test still missed it.
   That retry is bounded by `MESH_TLS_TICKETS_PER_READ`, because `MQTT_READS_PER_TURN` counts
   calls *into* inkwell's `net/tls.c` and cannot bound work that never returns from one; hitting the cap
   hands back `-EAGAIN` with `more_to_read` set, and the proxy resumes on its own next turn, in
   `GREETING` as well as `READY`. Mbed TLS reports at most one ticket per read in practice, so the
-  cap is defensive rather than exercised — `mqtt_proxy_survives_a_run_of_tickets` says so.
+  cap is defensive rather than exercised — `mqtt_client_survives_a_run_of_tickets` says so.
 
 ### Certificates are always verified
 
 There is no insecure mode and no argument that turns one on, and no state with nothing to verify
 against: Mozilla's roots are compiled into the binary (`include/mesh/core/ca_roots.h`), so the
-Brick having no `/etc/ssl` does not matter. `mqtt_proxy_verifies_against_built_in_roots_without_a_bundle`
-holds that line, and `mqtt_proxy_refuses_an_unknown_certificate` holds the other half, because a
-client that trusts everything passes a "TLS works" test just as well as one that does not.
+Brick having no `/etc/ssl` does not matter. In inkwell,
+`fetch_checks_against_the_roots_the_application_registered` holds the shared root-registration
+path, and `mqtt_client_refuses_an_unknown_certificate` holds the MQTT side. A client that trusts
+everything passes a "TLS works" test just as well as one that does not.
 
 **The roots ship with the binary**, which is the point of compiling them in: a file in the pak
 does not ship through self-update, so an install updated in place would keep its first pak's roots
@@ -342,7 +342,7 @@ decision about how this product ships; verifying against them is not.
 
 `SSL_CERT_FILE` names a bundle to use *instead* — for a broker behind a private CA. A path that
 is set and unusable fails naming the path rather than falling back
-(`mqtt_proxy_names_a_missing_bundle`).
+(`mqtt_client_names_a_missing_bundle`).
 
 Refreshing the roots is re-downloading `third_party/mozilla-ca/cacert.pem` from
 [curl.se/ca](https://curl.se/ca/cacert.pem) and running `scripts/gen-ca-roots.py`; `make test`
@@ -379,9 +379,9 @@ key exchanges without forward secrecy, and the sub-256-bit NIST curves.
 
 Kept, against the instinct to trim: `MBEDTLS_ERROR_C`, because `mbedtls_strerror()` is what turns
 a handshake failure into a sentence and `-0x2700` on a handheld is not an answer — it is also
-the one diagnostic `mesh_mqtt_proxy_tls_error()` exists to carry, for the reason in
+the one diagnostic `inkwell_mqtt_client_tls_error()` exists to carry, for the reason in
 [how a failure reaches the user](#how-a-failure-reaches-the-user) below; and
-`MBEDTLS_SSL_SRV_C`, because it is what lets `tests/suites/mqtt_proxy.c` stand a real broker on a
+`MBEDTLS_SSL_SRV_C`, because it is what lets inkwell's `tests/suites/net_mqtt.c` stand a real broker on a
 loopback socket and complete a real handshake against it, with no network and no `openssl` in the
 container.
 
@@ -426,7 +426,7 @@ inkwell's `tests/suites/codec_mqtt.c` checks the codec against byte arrays writt
 specification, because a codec tested only by round-tripping its own output agrees with itself
 and can still be wrong about the wire.
 
-`tests/suites/mqtt_proxy.c` stands a real listening socket on loopback and speaks MQTT back at
+inkwell's `tests/suites/net_mqtt.c` stands a real listening socket on loopback and speaks MQTT back at
 the proxy by hand — a real non-blocking connect, real partial reads, a real EOF when the broker
 hangs up. The clock is synthetic throughout, which is the only reason the five-second backoff and
 the ninety-second silence timeout are testable at all. The TLS cases run a real Mbed TLS server

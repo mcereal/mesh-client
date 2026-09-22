@@ -24,7 +24,7 @@
 #include "support/session_fixture.h"
 #include <errno.h>
 
-#include "mesh/core/mqtt_proxy.h"
+#include "inkwell/net/mqtt.h"
 #include "mesh/core/radio_settings.h"
 #include "mesh/core/session.h"
 #include "mesh/ui/settings.h"
@@ -69,7 +69,7 @@ MESH_TEST_CASE(mqtt_app_waits_for_the_whole_config_sync, unit) {
     const meshtastic_ModuleConfig_MQTTConfig mqtt = proxying_config();
     session_synced(&session, &mqtt, 0xABCD1234U);
 
-    struct mesh_mqtt_proxy_config plan;
+    struct inkwell_mqtt_client_config plan;
     if (!mesh_app_mqtt_plan(&session, &plan)) {
         record_failure(test_name, "a synced radio asking to be proxied for should be proxied for");
         return;
@@ -93,7 +93,7 @@ MESH_TEST_CASE(mqtt_app_stands_the_connection_down_when_the_radio_goes, unit) {
     const meshtastic_ModuleConfig_MQTTConfig mqtt = proxying_config();
     session_synced(&session, &mqtt, 0x11223344U);
 
-    struct mesh_mqtt_proxy_config plan;
+    struct inkwell_mqtt_client_config plan;
     if (!mesh_app_mqtt_plan(&session, &plan)) {
         record_failure(test_name, "the radio should be proxied for while it is here");
         return;
@@ -129,7 +129,7 @@ MESH_TEST_CASE(mqtt_app_leaves_a_radio_that_reaches_its_own_broker_alone, unit) 
     mqtt.proxy_to_client_enabled = false;
     session_synced(&session, &mqtt, 0x11223344U);
 
-    struct mesh_mqtt_proxy_config plan;
+    struct inkwell_mqtt_client_config plan;
     if (mesh_app_mqtt_plan(&session, &plan)) {
         record_failure(test_name, "a radio with its own connection should be left alone");
         return;
@@ -160,7 +160,7 @@ MESH_TEST_CASE(mqtt_app_takes_the_public_brokers_credentials_with_its_address, u
     snprintf(mqtt.password, sizeof mqtt.password, "%s", "their-secret");
     session_synced(&session, &mqtt, 0x0A0B0C0DU);
 
-    struct mesh_mqtt_proxy_config plan;
+    struct inkwell_mqtt_client_config plan;
     if (!mesh_app_mqtt_plan(&session, &plan)) {
         record_failure(test_name, "the radio asked to be proxied for");
         return;
@@ -189,7 +189,7 @@ MESH_TEST_CASE(mqtt_app_honours_an_empty_username_on_someone_elses_broker, unit)
     mqtt.tls_enabled = true;
     session_synced(&session, &mqtt, 0x0A0B0C0DU);
 
-    struct mesh_mqtt_proxy_config plan;
+    struct inkwell_mqtt_client_config plan;
     if (!mesh_app_mqtt_plan(&session, &plan)) {
         record_failure(test_name, "the radio asked to be proxied for");
         return;
@@ -219,7 +219,7 @@ MESH_TEST_CASE(mqtt_app_names_itself_apart_from_the_radio_it_proxies_for, unit) 
     const meshtastic_ModuleConfig_MQTTConfig mqtt = proxying_config();
     session_synced(&session, &mqtt, 0xABCD1234U);
 
-    struct mesh_mqtt_proxy_config plan;
+    struct inkwell_mqtt_client_config plan;
     if (!mesh_app_mqtt_plan(&session, &plan)) {
         record_failure(test_name, "the radio asked to be proxied for");
         return;
@@ -246,14 +246,14 @@ MESH_TEST_CASE(mqtt_app_names_itself_apart_from_the_radio_it_proxies_for, unit) 
 /* ------------------------------------------------------------------ noticing a change */
 
 MESH_TEST_CASE(mqtt_app_reconnects_only_when_something_it_dialled_moved, unit) {
-    struct mesh_mqtt_proxy_config have;
+    struct inkwell_mqtt_client_config have;
     memset(&have, 0, sizeof have);
     snprintf(have.address, sizeof have.address, "%s", "broker.example");
     snprintf(have.username, sizeof have.username, "%s", "meshdev");
     snprintf(have.password, sizeof have.password, "%s", "large4cats");
     snprintf(have.client_id, sizeof have.client_id, "%s", "meshclient-!abcd1234");
 
-    struct mesh_mqtt_proxy_config want = have;
+    struct inkwell_mqtt_client_config want = have;
     if (mesh_app_mqtt_config_differs(&have, &want)) {
         record_failure(test_name, "an unchanged config should not drop a working connection");
         return;
@@ -309,8 +309,8 @@ MESH_TEST_CASE(mqtt_app_collects_every_filter_the_session_derives, unit) {
     (void)mesh_test_feed_channel(&session, 1U, "weather", true);
     (void)mesh_test_feed_channel(&session, 2U, "private", false);
 
-    char filters[MESH_MQTT_FILTERS_MAX][MESH_MQTT_FILTER_MAX];
-    const size_t count = mesh_app_mqtt_filters(&session, filters, MESH_MQTT_FILTERS_MAX);
+    char filters[INKWELL_MQTT_CLIENT_FILTERS_MAX][INKWELL_MQTT_CLIENT_FILTER_MAX];
+    const size_t count = mesh_app_mqtt_filters(&session, filters, INKWELL_MQTT_CLIENT_FILTERS_MAX);
     /* Two downlink channels and the one PKI topic they earn between them. */
     if (count != 3U) {
         record_failure(test_name, "two downlink channels should yield three filters");
@@ -329,7 +329,7 @@ MESH_TEST_CASE(mqtt_app_collects_every_filter_the_session_derives, unit) {
     session_synced(&publisher, &mqtt, 0xABCD1234U);
     (void)mesh_test_feed_lora(&publisher, meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST, true);
     (void)mesh_test_feed_channel(&publisher, 0U, "", false);
-    if (mesh_app_mqtt_filters(&publisher, filters, MESH_MQTT_FILTERS_MAX) != 0U) {
+    if (mesh_app_mqtt_filters(&publisher, filters, INKWELL_MQTT_CLIENT_FILTERS_MAX) != 0U) {
         record_failure(test_name, "a radio that wants no downlink should subscribe to nothing");
         return;
     }
@@ -351,7 +351,7 @@ MESH_TEST_CASE(mqtt_app_stops_at_the_table_it_was_given, unit) {
      * the caller's array is the one outcome that is not a missed subscription but a corrupted
      * stack.
      */
-    char filters[2][MESH_MQTT_FILTER_MAX];
+    char filters[2][INKWELL_MQTT_CLIENT_FILTER_MAX];
     const size_t count = mesh_app_mqtt_filters(&session, filters, 2U);
     if (count != 2U) {
         record_failure(test_name, "the cap should be the cap");
@@ -369,11 +369,11 @@ MESH_TEST_CASE(mqtt_app_stops_at_the_table_it_was_given, unit) {
 /*
  * The tick, driven against a proxy with no event loop.
  *
- * mesh_mqtt_proxy_init(proxy, NULL) is documented as leaving the proxy permanently OFF, which is
- * what makes this safe to run in a test: mesh_mqtt_proxy_start() refuses with -ENOTSUP before it
- * resolves a name or opens anything. That refusal is also the case worth covering, because the
- * real one it stands in for - an address the radio holds that is not a host - fails exactly the
- * same way and would otherwise be retried, and logged, on every turn of the event loop.
+ * inkwell_mqtt_client_init(proxy, NULL) is documented as leaving the proxy permanently OFF, which
+ * is what makes this safe to run in a test: inkwell_mqtt_client_start() refuses with -ENOTSUP
+ * before it resolves a name or opens anything. That refusal is also the case worth covering,
+ * because the real one it stands in for - an address the radio holds that is not a host - fails
+ * exactly the same way and would otherwise be retried, and logged, on every turn of the event loop.
  *
  * `app` is static because struct mesh_app is far too large for a stack frame, and only the four
  * fields mesh_app_mqtt_tick() touches are set up: it reads the session, the proxy, the recorded
@@ -388,10 +388,10 @@ MESH_TEST_CASE(mqtt_app_does_not_redial_a_broker_it_was_already_refused, unit) {
     (void)mesh_test_feed_lora(&app.session, meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST,
                               true);
     (void)mesh_test_feed_channel(&app.session, 0U, "", true);
-    (void)mesh_mqtt_proxy_init(&app.mqtt, NULL);
+    (void)inkwell_mqtt_client_init(&app.mqtt, NULL);
 
     mesh_app_mqtt_tick(&app, 1000U);
-    if (mesh_mqtt_proxy_state(&app.mqtt) != MESH_MQTT_PROXY_OFF) {
+    if (inkwell_mqtt_client_state(&app.mqtt) != INKWELL_MQTT_CLIENT_OFF) {
         record_failure(test_name, "a proxy with no loop should not have started");
         return;
     }
@@ -408,13 +408,14 @@ MESH_TEST_CASE(mqtt_app_does_not_redial_a_broker_it_was_already_refused, unit) {
     }
 
     /* Nothing about the radio moved, so nothing is tried again. */
-    char filters[MESH_MQTT_FILTERS_MAX][MESH_MQTT_FILTER_MAX];
-    struct mesh_mqtt_proxy_config want;
+    char filters[INKWELL_MQTT_CLIENT_FILTERS_MAX][INKWELL_MQTT_CLIENT_FILTER_MAX];
+    struct inkwell_mqtt_client_config want;
     if (!mesh_app_mqtt_plan(&app.session, &want)) {
         record_failure(test_name, "the radio still wants a proxy");
         return;
     }
-    const size_t count = mesh_app_mqtt_filters(&app.session, filters, MESH_MQTT_FILTERS_MAX);
+    const size_t count =
+        mesh_app_mqtt_filters(&app.session, filters, INKWELL_MQTT_CLIENT_FILTERS_MAX);
     if (mesh_app_mqtt_plan_changed(&app.mqtt_planned, &want, filters, count)) {
         record_failure(test_name, "an unchanged radio should not be dialled again");
         return;
@@ -449,7 +450,7 @@ MESH_TEST_CASE(mqtt_app_does_not_redial_a_broker_it_was_already_refused, unit) {
         record_failure(test_name, "a link that dropped should clear what was planned");
         return;
     }
-    mesh_mqtt_proxy_shutdown(&app.mqtt);
+    inkwell_mqtt_client_shutdown(&app.mqtt);
     record_success(test_name);
 }
 
@@ -459,18 +460,18 @@ MESH_TEST_CASE(mqtt_app_does_not_redial_a_broker_it_was_already_refused, unit) {
  * The four numbers mesh/ui/store_mqtt.h restates on the far side of the seam.
  *
  * That header is nanopb-free and names no core module by construction, so it cannot say
- * `MESH_MQTT_ADDRESS_MAX` and has to carry its own copy - the same arrangement
+ * `INKWELL_MQTT_CLIENT_ADDRESS_MAX` and has to carry its own copy - the same arrangement
  * MESH_UI_NETWORK_HOST_MAX and MESH_WAYPOINT_NAME_MAX already have. What holds a restated
  * constant honest is a case like this one: the failure it prevents is a broker name that is
  * fine everywhere in the client and clipped on the one screen that exists to name it.
  */
 MESH_TEST_CASE(mqtt_status_limits_agree_across_the_seam, unit) {
-    if (MESH_UI_MQTT_HOST_MAX < MESH_MQTT_ADDRESS_MAX) {
+    if (MESH_UI_MQTT_HOST_MAX < INKWELL_MQTT_CLIENT_ADDRESS_MAX) {
         record_failure(test_name, "the published host should hold any address the radio can");
         return;
     }
-    struct mesh_mqtt_proxy probe;
-    (void)mesh_mqtt_proxy_init(&probe, NULL);
+    struct inkwell_mqtt_client probe;
+    (void)inkwell_mqtt_client_init(&probe, NULL);
 
     /*
      * Every sentence mesh_ui_mqtt_failure_text() can produce, at the longest broker address the
@@ -486,9 +487,9 @@ MESH_TEST_CASE(mqtt_status_limits_agree_across_the_seam, unit) {
     memcpy(probe.config.address, probe.host, sizeof probe.config.address);
 
     char rendered[MESH_UI_MQTT_ERROR_MAX * 4U];
-    for (int refusal = 1; refusal < (int)MESH_MQTT_REFUSAL_COUNT; ++refusal) {
+    for (int refusal = 1; refusal < (int)INKWELL_MQTT_REFUSAL_COUNT; ++refusal) {
         memset(&probe.failure, 0, sizeof probe.failure);
-        probe.failure.refusal = (enum mesh_mqtt_refusal)refusal;
+        probe.failure.refusal = (enum inkwell_mqtt_refusal)refusal;
         probe.failure.code = 255U;
         mesh_ui_mqtt_failure_text(&probe, rendered, sizeof rendered);
         if (rendered[0] == '\0' || strlen(rendered) >= MESH_UI_MQTT_ERROR_MAX) {
@@ -517,8 +518,8 @@ MESH_TEST_CASE(mqtt_status_limits_agree_across_the_seam, unit) {
 
     /* Every sentence the state table can produce, including the default arm: a state added to
        the enum without a string still comes back as something, and that has to fit too. */
-    for (int state = 0; state <= (int)MESH_MQTT_PROXY_STATE_COUNT; ++state) {
-        const char *text = mesh_ui_mqtt_state_str((enum mesh_mqtt_proxy_state)state);
+    for (int state = 0; state <= (int)INKWELL_MQTT_CLIENT_STATE_COUNT; ++state) {
+        const char *text = mesh_ui_mqtt_state_str((enum inkwell_mqtt_client_state)state);
         if (text == NULL || strlen(text) >= MESH_UI_MQTT_STATE_MAX) {
             record_failure(test_name, "a connection state does not fit the published field");
             goto done;
@@ -527,7 +528,7 @@ MESH_TEST_CASE(mqtt_status_limits_agree_across_the_seam, unit) {
     record_success(test_name);
 
 done:
-    mesh_mqtt_proxy_shutdown(&probe);
+    inkwell_mqtt_client_shutdown(&probe);
 }
 
 MESH_TEST_CASE(mqtt_status_says_nothing_about_a_radio_that_never_asked, unit) {
@@ -536,7 +537,7 @@ MESH_TEST_CASE(mqtt_status_says_nothing_about_a_radio_that_never_asked, unit) {
     meshtastic_ModuleConfig_MQTTConfig mqtt = proxying_config();
     mqtt.proxy_to_client_enabled = false;
     session_synced(&app.session, &mqtt, 0xABCD1234U);
-    (void)mesh_mqtt_proxy_init(&app.mqtt, NULL);
+    (void)inkwell_mqtt_client_init(&app.mqtt, NULL);
 
     struct mesh_ui_mqtt_state ui;
     /* Deliberately dirty, so a publish that forgot to clear the record would be caught rather
@@ -557,7 +558,7 @@ MESH_TEST_CASE(mqtt_status_says_nothing_about_a_radio_that_never_asked, unit) {
         record_failure(test_name, "the record should be cleared, not left as it was found");
         return;
     }
-    mesh_mqtt_proxy_shutdown(&app.mqtt);
+    inkwell_mqtt_client_shutdown(&app.mqtt);
     record_success(test_name);
 }
 
@@ -569,7 +570,7 @@ MESH_TEST_CASE(mqtt_status_names_the_broker_the_radio_did_not, unit) {
     (void)mesh_test_feed_lora(&app.session, meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST,
                               true);
     (void)mesh_test_feed_channel(&app.session, 0U, "", true);
-    (void)mesh_mqtt_proxy_init(&app.mqtt, NULL);
+    (void)inkwell_mqtt_client_init(&app.mqtt, NULL);
     mesh_app_mqtt_tick(&app, 1000U);
 
     struct mesh_ui_mqtt_state ui;
@@ -601,7 +602,7 @@ MESH_TEST_CASE(mqtt_status_names_the_broker_the_radio_did_not, unit) {
         record_failure(test_name, "a proxy that never started is neither connected nor failing");
         return;
     }
-    mesh_mqtt_proxy_shutdown(&app.mqtt);
+    inkwell_mqtt_client_shutdown(&app.mqtt);
     record_success(test_name);
 }
 
@@ -610,7 +611,7 @@ MESH_TEST_CASE(mqtt_status_tells_the_clients_refusal_from_the_radios_silence, un
     memset(&app, 0, sizeof app);
     const meshtastic_ModuleConfig_MQTTConfig mqtt = proxying_config();
     session_synced(&app.session, &mqtt, 0xABCD1234U);
-    (void)mesh_mqtt_proxy_init(&app.mqtt, NULL);
+    (void)inkwell_mqtt_client_init(&app.mqtt, NULL);
     app.mqtt_disabled = true;
     /* The radio offering messages nobody is taking, which is what this looks like from its side
        and is the only number that moves while the client is declining. */
@@ -632,7 +633,7 @@ MESH_TEST_CASE(mqtt_status_tells_the_clients_refusal_from_the_radios_silence, un
         record_failure(test_name, "what the radio offered and nobody took should be carried");
         return;
     }
-    mesh_mqtt_proxy_shutdown(&app.mqtt);
+    inkwell_mqtt_client_shutdown(&app.mqtt);
     record_success(test_name);
 }
 

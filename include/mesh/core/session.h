@@ -536,7 +536,7 @@ typedef int (*mesh_session_send_fn)(void *ctx, const uint8_t *packet, size_t len
  *
  * Called from the link's read path, which is the event loop. A handler that cannot take the
  * message now must drop it rather than block: the alternative is a queue of mesh traffic to
- * replay at a broker minutes later, which mesh/core/mqtt_proxy.h declines for the same reason.
+ * replay at a broker minutes later, which inkwell/net/mqtt.h declines for the same reason.
  */
 typedef void (*mesh_session_mqtt_fn)(void *ctx, const char *topic, const uint8_t *payload,
                                      size_t len, bool retained);

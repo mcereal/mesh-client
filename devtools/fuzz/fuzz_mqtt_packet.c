@@ -18,7 +18,7 @@
  *      the check that catches a topic length read as larger than the bytes behind it - a
  *      one-line mistake whose symptom is reading somebody else's memory into a topic.
  *
- * The reader loop here is the one src/core/net/mqtt_proxy.c runs, deliberately: decode a header,
+ * The reader loop here mirrors inkwell's `src/net/mqtt.c`: decode a header,
  * skip what is too big, take what fits, advance. Fuzzing the decoder without that loop would
  * miss the case that actually matters, which is a skip that miscounts and leaves every packet
  * after it read at the wrong offset.
@@ -27,6 +27,7 @@
  */
 
 #include "inkwell/codec/mqtt.h"
+#include "inkwell/net/mqtt.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -34,7 +35,7 @@
 #include <string.h>
 
 /* The same bound the proxy uses: a body larger than this is skipped rather than buffered. */
-#define FUZZ_BODY_MAX 1024U
+#define FUZZ_BODY_MAX INKWELL_MQTT_CLIENT_PACKET_MAX
 
 static void fuzz_broke(const char *what) {
     fprintf(stderr, "mqtt codec contract broken: %s\n", what);

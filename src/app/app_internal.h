@@ -104,24 +104,24 @@ bool mesh_app_firmware_settle_bond(struct mesh_app *app, const char *connected, 
  * and `out` is zeroed either way. Mirrors the firmware's own defaulting rules - which are not
  * obvious and are explained where they are applied. Exposed for tests.
  */
-bool mesh_app_mqtt_plan(const struct mesh_session *session, struct mesh_mqtt_proxy_config *out);
+bool mesh_app_mqtt_plan(const struct mesh_session *session, struct inkwell_mqtt_client_config *out);
 
 /* Whether a connection already open on `have` would have to be torn down to become `want`.
    Exposed for tests. */
-bool mesh_app_mqtt_config_differs(const struct mesh_mqtt_proxy_config *have,
-                                  const struct mesh_mqtt_proxy_config *want);
+bool mesh_app_mqtt_config_differs(const struct inkwell_mqtt_client_config *have,
+                                  const struct inkwell_mqtt_client_config *want);
 
 /* Whether what the proxy was last told to do differs from this, which is the whole of the
    decision to reconnect. `filters` is not const because C will not convert `char (*)[N]` to
    `const char (*)[N]`. Exposed for tests. */
 bool mesh_app_mqtt_plan_changed(const struct mesh_app_mqtt_plan *planned,
-                                const struct mesh_mqtt_proxy_config *want,
-                                char (*filters)[MESH_MQTT_FILTER_MAX], size_t count);
+                                const struct inkwell_mqtt_client_config *want,
+                                char (*filters)[INKWELL_MQTT_CLIENT_FILTER_MAX], size_t count);
 
 /* Fills `out` with the topic filters this radio's configuration says to subscribe to and returns
    how many. Stops at `cap`, and at the first filter that cannot be built. Exposed for tests. */
-size_t mesh_app_mqtt_filters(const struct mesh_session *session, char (*out)[MESH_MQTT_FILTER_MAX],
-                             size_t cap);
+size_t mesh_app_mqtt_filters(const struct mesh_session *session,
+                             char (*out)[INKWELL_MQTT_CLIENT_FILTER_MAX], size_t cap);
 
 /* Brings the proxy up with the event loop and the CA bundle the updater resolved. Call from
    mesh_app_init() once both exist. */

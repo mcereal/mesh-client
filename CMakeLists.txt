@@ -86,7 +86,6 @@ add_library(meshclient_core
     src/core/session/message.c
     src/core/session/waypoint.c
     src/core/session/radio_settings.c
-    src/core/net/mqtt_proxy.c
     src/core/session/session.c
     src/core/session/store_forward.c
     src/core/firmware/uf2.c

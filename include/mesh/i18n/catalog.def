@@ -2586,7 +2586,7 @@ MESH_STR_ENTRY(LINK_MQTT_REFUSED,         "%.24s refused the connection (%u)")
 MESH_STR_ENTRY(LINK_MQTT_NO_TLS,          "%.32s needs TLS and this build has none")
 
 /*
- * Where the broker connection has got to, one string per state of `enum mesh_mqtt_proxy_state`.
+ * Where the broker connection has got to, one string per state of `enum inkwell_mqtt_client_state`.
  *
  * They are a set rather than a sentence with a variable in it because each is a different length
  * of wait and a different thing to do about it. "Signing in" in particular is worth its own

@@ -4,7 +4,7 @@
  * The broker connection, held on behalf of whichever radio is attached.
  *
  * The three modules under this one each know a piece and none of them knows the whole: the proxy
- * (mesh/core/mqtt_proxy.h) owns one socket and refuses to invent an address, the topic builder
+ * (inkwell/net/mqtt.h) owns one socket and refuses to invent an address, the topic builder
  * (mesh/proto/mqtt_topic.h) owns the wire format and has never seen a radio, and the session
  * (mesh/core/session.h) owns the link and hands over messages without an opinion about where
  * they go. What is left is the decision itself - *whether* to be connected, to *what*, and with
@@ -23,9 +23,9 @@
 
 #include "app_internal.h"
 
+#include "inkwell/net/mqtt.h"
 #include "inkwell/net/reason.h"
 #include "inkwell/net/tls.h"
-#include "mesh/core/mqtt_proxy.h"
 #include "mesh/core/session.h"
 #include "mesh/ui/mqtt.h"
 #include "mesh/ui/store_mqtt.h"
@@ -54,7 +54,8 @@
 #define APP_MQTT_DEFAULT_USERNAME "meshdev"
 #define APP_MQTT_DEFAULT_PASSWORD "large4cats"
 
-bool mesh_app_mqtt_plan(const struct mesh_session *session, struct mesh_mqtt_proxy_config *out) {
+bool mesh_app_mqtt_plan(const struct mesh_session *session,
+                        struct inkwell_mqtt_client_config *out) {
     if (out == NULL) {
         return false;
     }
@@ -137,8 +138,8 @@ bool mesh_app_mqtt_plan(const struct mesh_session *session, struct mesh_mqtt_pro
     return true;
 }
 
-bool mesh_app_mqtt_config_differs(const struct mesh_mqtt_proxy_config *have,
-                                  const struct mesh_mqtt_proxy_config *want) {
+bool mesh_app_mqtt_config_differs(const struct inkwell_mqtt_client_config *have,
+                                  const struct inkwell_mqtt_client_config *want) {
     if (have == NULL || want == NULL) {
         return have != want;
     }
@@ -154,14 +155,15 @@ bool mesh_app_mqtt_config_differs(const struct mesh_mqtt_proxy_config *have,
            strcmp(have->client_id, want->client_id) != 0 || have->tls_enabled != want->tls_enabled;
 }
 
-size_t mesh_app_mqtt_filters(const struct mesh_session *session, char (*out)[MESH_MQTT_FILTER_MAX],
-                             size_t cap) {
+size_t mesh_app_mqtt_filters(const struct mesh_session *session,
+                             char (*out)[INKWELL_MQTT_CLIENT_FILTER_MAX], size_t cap) {
     if (session == NULL || out == NULL) {
         return 0U;
     }
     size_t count = 0U;
     while (count < cap) {
-        const int len = mesh_session_mqtt_filter(session, count, out[count], MESH_MQTT_FILTER_MAX);
+        const int len =
+            mesh_session_mqtt_filter(session, count, out[count], INKWELL_MQTT_CLIENT_FILTER_MAX);
         if (len == 0) {
             break;
         }
@@ -192,8 +194,8 @@ size_t mesh_app_mqtt_filters(const struct mesh_session *session, char (*out)[MES
  * Every caller passes a local array it is done writing to.
  */
 bool mesh_app_mqtt_plan_changed(const struct mesh_app_mqtt_plan *planned,
-                                const struct mesh_mqtt_proxy_config *want,
-                                char (*filters)[MESH_MQTT_FILTER_MAX], size_t count) {
+                                const struct inkwell_mqtt_client_config *want,
+                                char (*filters)[INKWELL_MQTT_CLIENT_FILTER_MAX], size_t count) {
     if (planned == NULL || want == NULL) {
         return true;
     }
@@ -227,7 +229,7 @@ static void app_mqtt_from_radio(void *ctx, const char *topic, const uint8_t *pay
      * per position report for as long as the link is down. A log line per message would bury the
      * one line that says why.
      */
-    (void)mesh_mqtt_proxy_publish(&app->mqtt, topic, payload, len, retained);
+    (void)inkwell_mqtt_client_publish(&app->mqtt, topic, payload, len, retained);
 }
 
 /* One message from the broker, on a topic this radio's configuration asked for. */
@@ -248,7 +250,7 @@ static void app_mqtt_from_broker(void *userdata, const char *topic, const uint8_
     }
 }
 
-static void app_mqtt_state_changed(void *userdata, enum mesh_mqtt_proxy_state state) {
+static void app_mqtt_state_changed(void *userdata, enum inkwell_mqtt_client_state state) {
     struct mesh_app *app = (struct mesh_app *)userdata;
     if (app == NULL) {
         return;
@@ -262,7 +264,7 @@ static void app_mqtt_state_changed(void *userdata, enum mesh_mqtt_proxy_state st
      * goes into `last_error` for the Status card and nothing prints it, so on a device whose
      * screen is not being watched the retry loop would be silent about what it was retrying.
      */
-    if (state == MESH_MQTT_PROXY_WAITING) {
+    if (state == INKWELL_MQTT_CLIENT_WAITING) {
         /*
          * The reason's name, not the sentence a screen would show. This line used to print the
          * translated text, so a Spanish device wrote its retry loop in Spanish - and a log is
@@ -270,9 +272,9 @@ static void app_mqtt_state_changed(void *userdata, enum mesh_mqtt_proxy_state st
          * the same reason with its detail and its backoff; this is the app's own note that the
          * loop is running at all.
          */
-        const struct mesh_mqtt_proxy_failure failure = mesh_mqtt_proxy_failure(&app->mqtt);
-        inkwell_log_warn("mqtt", "Broker %s: %s", mesh_mqtt_proxy_host(&app->mqtt),
-                         mesh_mqtt_failure_name(&failure));
+        const struct inkwell_mqtt_client_failure failure = inkwell_mqtt_client_failure(&app->mqtt);
+        inkwell_log_warn("mqtt", "Broker %s: %s", inkwell_mqtt_client_host(&app->mqtt),
+                         inkwell_mqtt_client_failure_name(&failure));
     }
 }
 
@@ -285,13 +287,14 @@ static void app_mqtt_stop(struct mesh_app *app) {
      * sentence - "the broker would not take it" rather than "nobody is proxying".
      */
     mesh_session_set_mqtt_handler(&app->session, NULL, NULL);
-    mesh_mqtt_proxy_stop(&app->mqtt);
-    mesh_mqtt_proxy_clear_filters(&app->mqtt);
+    inkwell_mqtt_client_stop(&app->mqtt);
+    inkwell_mqtt_client_clear_filters(&app->mqtt);
     memset(&app->mqtt_planned, 0, sizeof app->mqtt_planned);
 }
 
-static void app_mqtt_start(struct mesh_app *app, const struct mesh_mqtt_proxy_config *want,
-                           char (*filters)[MESH_MQTT_FILTER_MAX], size_t count, uint64_t now_ms) {
+static void app_mqtt_start(struct mesh_app *app, const struct inkwell_mqtt_client_config *want,
+                           char (*filters)[INKWELL_MQTT_CLIENT_FILTER_MAX], size_t count,
+                           uint64_t now_ms) {
     /* Through stop() rather than straight into start(), which closes the socket without saying
        anything: a reconfiguration is deliberate, and a broker told nothing holds the session
        open until the keepalive expires and fires any will message it was given. */
@@ -309,19 +312,20 @@ static void app_mqtt_start(struct mesh_app *app, const struct mesh_mqtt_proxy_co
     app->mqtt_planned.config = *want;
     app->mqtt_planned.filter_count = count;
     for (size_t i = 0U; i < count; ++i) {
-        (void)inkwell_str_copy(app->mqtt_planned.filters[i], MESH_MQTT_FILTER_MAX, filters[i]);
+        (void)inkwell_str_copy(app->mqtt_planned.filters[i], INKWELL_MQTT_CLIENT_FILTER_MAX,
+                               filters[i]);
     }
     app->mqtt_planned.active = true;
 
-    const int started = mesh_mqtt_proxy_start(&app->mqtt, want, app_mqtt_from_broker,
-                                              app_mqtt_state_changed, app, now_ms);
+    const int started = inkwell_mqtt_client_start(&app->mqtt, want, app_mqtt_from_broker,
+                                                  app_mqtt_state_changed, app, now_ms);
     if (started < 0) {
         inkwell_log_warn("mqtt", "Cannot proxy to %s: %d", want->address, started);
         return;
     }
 
     for (size_t i = 0U; i < count; ++i) {
-        const int added = mesh_mqtt_proxy_subscribe(&app->mqtt, filters[i]);
+        const int added = inkwell_mqtt_client_subscribe(&app->mqtt, filters[i]);
         if (added < 0) {
             inkwell_log_warn("mqtt", "Cannot subscribe to %s: %d", filters[i], added);
         }
@@ -351,9 +355,9 @@ void mesh_app_mqtt_init(struct mesh_app *app) {
     if (app->mqtt_disabled) {
         inkwell_log_info("app", "MQTT client proxy disabled by MESHCLIENT_MQTT_PROXY");
     }
-    (void)mesh_mqtt_proxy_init(&app->mqtt, &app->loop);
+    (void)inkwell_mqtt_client_init(&app->mqtt, &app->loop);
     /* The built-in roots, unless somebody named a bundle. See include/mesh/core/ca_roots.h. */
-    mesh_mqtt_proxy_set_ca_bundle(&app->mqtt, inkwell_tls_ca_override());
+    inkwell_mqtt_client_set_ca_bundle(&app->mqtt, inkwell_tls_ca_override());
 }
 
 void mesh_app_mqtt_shutdown(struct mesh_app *app) {
@@ -361,7 +365,7 @@ void mesh_app_mqtt_shutdown(struct mesh_app *app) {
         return;
     }
     mesh_session_set_mqtt_handler(&app->session, NULL, NULL);
-    mesh_mqtt_proxy_shutdown(&app->mqtt);
+    inkwell_mqtt_client_shutdown(&app->mqtt);
 }
 
 void mesh_app_mqtt_tick(struct mesh_app *app, uint64_t now_ms) {
@@ -369,7 +373,7 @@ void mesh_app_mqtt_tick(struct mesh_app *app, uint64_t now_ms) {
         return;
     }
 
-    struct mesh_mqtt_proxy_config want;
+    struct inkwell_mqtt_client_config want;
     const bool wanted = !app->mqtt_disabled && mesh_app_mqtt_plan(&app->session, &want);
 
     if (!wanted) {
@@ -378,13 +382,14 @@ void mesh_app_mqtt_tick(struct mesh_app *app, uint64_t now_ms) {
             app_mqtt_stop(app);
         }
     } else {
-        char filters[MESH_MQTT_FILTERS_MAX][MESH_MQTT_FILTER_MAX];
-        const size_t count = mesh_app_mqtt_filters(&app->session, filters, MESH_MQTT_FILTERS_MAX);
+        char filters[INKWELL_MQTT_CLIENT_FILTERS_MAX][INKWELL_MQTT_CLIENT_FILTER_MAX];
+        const size_t count =
+            mesh_app_mqtt_filters(&app->session, filters, INKWELL_MQTT_CLIENT_FILTERS_MAX);
         /*
          * A changed subscription set is a reconnect, not an added subscription, because the set
-         * can *shrink*: mesh_mqtt_proxy_clear_filters() deliberately does not unsubscribe on the
-         * wire, so a channel whose downlink the user just turned off would keep delivering until
-         * the connection went away by itself. Dropping and remaking is the cheap option in
+         * can *shrink*: inkwell_mqtt_client_clear_filters() deliberately does not unsubscribe on
+         * the wire, so a channel whose downlink the user just turned off would keep delivering
+         * until the connection went away by itself. Dropping and remaking is the cheap option in
          * practice - every way this set can change is a settings write, and a settings write
          * reboots the radio and takes the link with it anyway.
          */
@@ -395,7 +400,7 @@ void mesh_app_mqtt_tick(struct mesh_app *app, uint64_t now_ms) {
 
     /* Unconditionally, including while OFF: the proxy's own tick is what drives the resolver
        and the retry backoff, neither of which has a descriptor to be woken by. */
-    mesh_mqtt_proxy_tick(&app->mqtt, now_ms);
+    inkwell_mqtt_client_tick(&app->mqtt, now_ms);
 }
 
 void mesh_app_mqtt_publish_state(const struct mesh_app *app, struct mesh_ui_mqtt_state *out) {
@@ -415,29 +420,29 @@ void mesh_app_mqtt_publish_state(const struct mesh_app *app, struct mesh_ui_mqtt
      * apart. Asking it again here rather than caching the last answer costs a few string
      * compares and means the card cannot disagree with the tick that acted on it.
      */
-    struct mesh_mqtt_proxy_config want;
+    struct inkwell_mqtt_client_config want;
     out->wanted = mesh_app_mqtt_plan(&app->session, &want);
     if (!out->wanted) {
         return;
     }
     out->disabled = app->mqtt_disabled;
 
-    const enum mesh_mqtt_proxy_state state = mesh_mqtt_proxy_state(&app->mqtt);
+    const enum inkwell_mqtt_client_state state = inkwell_mqtt_client_state(&app->mqtt);
     (void)inkwell_str_copy(out->state, sizeof out->state, mesh_ui_mqtt_state_str(state));
-    out->connected = state == MESH_MQTT_PROXY_READY;
-    out->failing = state == MESH_MQTT_PROXY_WAITING;
+    out->connected = state == INKWELL_MQTT_CLIENT_READY;
+    out->failing = state == INKWELL_MQTT_CLIENT_WAITING;
 
     /*
      * The broker from the plan rather than from the proxy, so the row is answerable before
      * anything has connected and while the client is disabled - both of which are exactly when
-     * somebody is reading this card. mesh_mqtt_proxy_host() is the parsed host and is empty
+     * somebody is reading this card. inkwell_mqtt_client_host() is the parsed host and is empty
      * until a start, which would leave the one row that says *where* blank on the one screen
      * that exists to say why.
      */
     (void)inkwell_str_copy(out->host, sizeof out->host, want.address);
     mesh_ui_mqtt_failure_text(&app->mqtt, out->last_error, sizeof out->last_error);
 
-    const struct mesh_mqtt_proxy_stats stats = mesh_mqtt_proxy_stats(&app->mqtt);
+    const struct inkwell_mqtt_client_stats stats = inkwell_mqtt_client_stats(&app->mqtt);
     out->published = stats.published;
     out->received = stats.received;
     out->dropped = stats.dropped;
