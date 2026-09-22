@@ -23,11 +23,8 @@ extern "C" {
  * What this reaches: an ESP32 node on WiFi with its network module enabled, and `meshtasticd` on
  * anything that runs Linux. Both listen on MESH_TCP_DEFAULT_PORT.
  *
- * What it deliberately does not do is resolve a hostname. `getaddrinfo()` blocks, this client is
- * one epoll loop with no threads in it, and a DNS lookup that takes five seconds is five seconds
- * of frozen UI - so an address is a numeric literal here, v4 or v6, and a name is refused in
- * words rather than paid for in a stall. Resolving one needs the forked-child shape
- * inkwell's `net/fetch.c` already uses for HTTPS; see docs/transport.md.
+ * Resolving and the non-blocking connect live in inkwell's generic TCP connector. The target
+ * syntax, remembered-host policy, Meshtastic framing and handshake remain this application's.
  */
 
 /* Upstream's port for the TCP client API, shared by the firmware and by meshtasticd. */
@@ -50,7 +47,7 @@ struct mesh_transport *mesh_tcp_transport(void);
  *   -EBUSY    a connect is already running or a link is already up
  *   -EINVAL   `target` is not an address and a port this client can parse
  *
- * A name that is not a numeric address lands on -EINVAL, and take_error() says which.
+ * A name is resolved asynchronously when an event loop is available.
  */
 int mesh_tcp_transport_connect(struct mesh_transport *transport, const char *target);
 int mesh_tcp_transport_disconnect(struct mesh_transport *transport);
