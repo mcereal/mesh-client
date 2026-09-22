@@ -41,8 +41,8 @@
  * *about* a bus, and phase 4's BLE half will sit on the bluez client for the same reason.
  */
 
+#include "inkwell/io/usb_storage.h"
 #include "mesh/core/uf2.h"
-#include "mesh/transport/usb_msc.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -139,8 +139,8 @@ struct mesh_firmware_install {
        needs and what the install path never passes. */
     char port[64];
 
-    struct mesh_usb_msc_target target;
-    struct mesh_usb_msc_write write;
+    struct inkwell_usb_storage_target target;
+    struct inkwell_usb_storage_write write;
 
     /* When the current step gives up, and when the USB tree is next worth reading. */
     uint64_t deadline_ms;
