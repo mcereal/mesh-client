@@ -54,7 +54,8 @@ struct inkwell_ble_central;
 /* Tries at the loader before giving up on it. Each one re-erases and resends the whole image,
    because that is what the loader does with a link that came back. */
 #define MESH_FIRMWARE_OTA_ATTEMPTS 3U
-#define MESH_FIRMWARE_OTA_ADDRESS_MAX 32U
+/* A BLE address as the central spells it: a MAC on BlueZ, a 36-character UUID on macOS. */
+#define MESH_FIRMWARE_OTA_ADDRESS_MAX INKWELL_BLE_ADDRESS_MAX
 #define MESH_FIRMWARE_OTA_PATH_MAX 128U
 #define MESH_FIRMWARE_OTA_REASON_MAX 128U
 

@@ -744,6 +744,58 @@ cleanup:
     record_success(test_name);
 }
 
+/* On a Mac the stack does not leave; the user takes Bluetooth away from the app in System
+   Settings, and CoreBluetooth starts answering -EACCES under a running transport. That has to
+   demote it exactly as a departed bluetoothd does, and giving access back has to bring it up. */
+MESH_TEST_CASE(ble_transport_demotes_when_access_is_revoked, unit) {
+    const char *failure = NULL;
+
+    struct mesh_test_ble_rig rig;
+    mesh_test_ble_rig_init(&rig, "AA:BB:CC:DD:EE:01", "NodeOne", -45);
+    struct mesh_transport *const ble = rig.ble;
+
+    if (mesh_test_ble_rig_start(&rig) != 0) {
+        failure = "ble start failed";
+        goto cleanup;
+    }
+    if (strcmp(ble->ops->status(ble), "running") != 0) {
+        failure = "the transport should start ready";
+        goto cleanup;
+    }
+
+    rig.mock.check_ready_result = -EACCES;
+    mesh_test_ble_rig_reload(&rig);
+    ble->ops->tick(ble);
+
+    if (strcmp(ble->ops->status(ble), "running") == 0) {
+        failure = "revoked access should demote the transport";
+        goto cleanup;
+    }
+    struct inkwell_ble_device discovered[4];
+    if (mesh_ble_transport_get_devices(ble, discovered, 4U) != 0U) {
+        failure = "devices found before access was revoked should be dropped";
+        goto cleanup;
+    }
+
+    rig.mock.check_ready_result = 0;
+    mesh_test_ble_rig_reload(&rig);
+    ble->ops->tick(ble);
+
+    if (strcmp(ble->ops->status(ble), "running") != 0) {
+        failure = "the transport should come back once access is restored";
+        goto cleanup;
+    }
+    if (mesh_ble_transport_get_devices(ble, discovered, 4U) != 1U) {
+        failure = "discovery should be running again after access is restored";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_test_ble_rig_close(&rig);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
 /* Everything cached about BlueZ dies with it. A bond in flight and the pairing agent are the two
    that reset_link() does not cover: a stale pair_state answers every later Pair with -EBUSY, and
    a stale agent registration makes register_agent() a no-op against a daemon that never saw it,
