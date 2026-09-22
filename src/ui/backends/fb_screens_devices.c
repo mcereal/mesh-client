@@ -16,6 +16,7 @@
 
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/devices.h"
+#include "mesh/ui/focus.h"
 #include "mesh/ui/nav.h"
 
 #include <stdio.h>
@@ -117,6 +118,7 @@ void fb_render_devices(struct inkcell_draw_state *state, const struct mesh_ui_sn
     struct inkcell_fb_list list = inkcell_fb_list_begin_rows(
         layout, rows + (nothing_found ? 1U : 0U), nav->cursor[MESH_UI_SCREEN_DEVICES], 2U);
     inkcell_fb_list_glide(state, &list, FB_LIST_DEVICES);
+    inkcell_fb_list_focus(&list, (uint32_t)MESH_UI_FOCUS_ROWS);
     char attach[16];
     uint32_t i;
     while (inkcell_fb_list_next(&list, &i)) {

@@ -70,6 +70,10 @@ void mesh_ui_controller_set_action_handler(struct mesh_ui_controller *controller
    the store's eventfd on the next loop turn; actions go to the handler above right away. */
 void mesh_ui_controller_handle_key(struct mesh_ui_controller *controller, enum inkcell_key key);
 
+/* The same for a click on `target`, an id the last frame registered - a tab, a row, a dialog's
+   answer (mesh/ui/focus.h). What a window's pointer hands on; see inkcell/ui/pointer.h. */
+void mesh_ui_controller_handle_click(struct mesh_ui_controller *controller, uint32_t target);
+
 /* One more frame of the last snapshot, for a backend whose window changed under it - the SDL
    window moving its tabs clear of the title-bar buttons after a resize. The store has nothing
    new to say, so this is the frame timer's path rather than the store's. */

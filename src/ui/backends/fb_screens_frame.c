@@ -110,6 +110,8 @@ static const struct inkcell_fb_chip *fb_tab_chips(const struct mesh_ui_snapshot 
         chips[i].icon = fb_screen_icon(screen);
         chips[i].label = mesh_ui_screen_name(screen);
         chips[i].badge = (screen == MESH_UI_SCREEN_MESSAGES) ? unread : "";
+        /* What a click on the tab names - see src/ui/nav/nav_click.c. */
+        chips[i].focus_id = (uint32_t)MESH_UI_FOCUS_TABS + (uint32_t)i;
     }
     return chips;
 }

@@ -871,8 +871,8 @@ static bool mesh_ui_nav_switch_screen(struct mesh_ui_nav *nav, int delta) {
  * A screen with no headings answers false for every row, which is what makes this a question
  * the mover can ask unconditionally.
  */
-static bool mesh_ui_nav_row_is_heading(const struct mesh_ui_nav *nav,
-                                       const struct mesh_ui_store *store, uint32_t row) {
+bool mesh_ui_nav_row_is_heading(const struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                                uint32_t row) {
     if (nav == NULL || store == NULL) {
         return false;
     }

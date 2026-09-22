@@ -317,6 +317,15 @@ quit - the same table a USB keyboard on the device goes through, so a keycap mea
 means there. No pad: SDL's controller mapping and inkcell's device profile would be two answers
 to the same question.
 
+The mouse works too, and adds no second model of the screen: it clicks the boxes the frame
+already registers for the d-pad (`mesh/ui/focus.h`). A tab switches to it, a row is the cursor
+on it and A, and a dialog's answer is answered - `src/ui/nav/nav_click.c`, which turns each
+click into the presses it stands for so every guard a key meets, a click meets. Two exceptions:
+a bubble in a thread is only selected, since A there writes a reply, and a click under a sheet
+goes nowhere. The wheel is Up and Down, a hint in the action bar is its key, and the mouse's
+back button is B (inkcell's `inkcell/ui/pointer.h`). `tests/suites/ui_click.c` clicks the
+real frame.
+
 Two things to know before reaching for it:
 
 - **It is a presenter, not a GPU renderer.** The glyphs and the anti-aliasing are still the
@@ -327,13 +336,13 @@ Two things to know before reaching for it:
 
 On a Mac it runs natively: `make setup && make debug`, then the command above. The loop is kqueue
 there, and there is no framebuffer and no evdev, so the window is the only way the UI is seen and
-the keyboard the only way it is driven. A radio is reached over TCP (Settings, or
+the keyboard and mouse the only way it is driven. A radio is reached over TCP (Settings, or
 `MESHCLIENT_TCP_HOST`); BLE needs BlueZ and a USB radio needs Linux's sysfs to be found, so
 neither is there. The updater finds no binary to replace, on purpose - every release asset is a
 Linux binary.
 
 The Mac window has no title bar of its own: the frame runs up under it, the close, minimise and
-zoom buttons sit in the tab strip, and the strip drags the window (`unified_titlebar` in
+zoom buttons sit in the tab strip, and the strip drags the window everywhere but on a tab (`unified_titlebar` in
 `src/app/app.c`, the rest in inkcell's `src/sdl/sdl_cocoa.m`). That costs the first tab a shift
 to clear the buttons - `top_leading_inset`, which is 0 on the device and in a capture - so the
 window is the Brick's layout everywhere but there. The window holds the panel's 4:3 as it is

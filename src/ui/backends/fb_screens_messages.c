@@ -24,6 +24,7 @@
 #include "mesh/core/message.h"
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/delivery.h"
+#include "mesh/ui/focus.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/node_detail.h"
 #include "mesh/ui/reactions.h"
@@ -62,6 +63,7 @@ void fb_render_conversations(struct inkcell_draw_state *state,
     struct inkcell_fb_list list =
         inkcell_fb_list_begin_rows(layout, count, nav->cursor[MESH_UI_SCREEN_MESSAGES], 2U);
     inkcell_fb_list_glide(state, &list, FB_LIST_CONVERSATIONS);
+    inkcell_fb_list_focus(&list, (uint32_t)MESH_UI_FOCUS_ROWS);
     char age[8];
     char badge[8];
     uint32_t i;
@@ -751,6 +753,15 @@ void fb_render_thread(struct inkcell_draw_state *state, const struct mesh_ui_sna
         fb_thread_row_get(snapshot, messages, indices, i, settled && i == named, cache, &row);
         row.bubble.selected = (i == cursor);
         inkcell_fb_draw_bubble(state, layout, y, &row.bubble);
+        /* A click selects a bubble - see src/ui/nav/nav_click.c. The whole band it stands in
+           rather than the bubble's own box, so the air beside a short message is still it. */
+        inkcell_fb_target_register(state, (uint32_t)MESH_UI_FOCUS_ROWS + i,
+                                   &(const struct inkcell_fb_rect){
+                                       .x = inkcell_fb_content_x(state),
+                                       .y = y,
+                                       .w = inkcell_fb_content_w(state),
+                                       .h = (int)heights[i] * layout->line,
+                                   });
         y += (int)heights[i] * layout->line;
     }
 }

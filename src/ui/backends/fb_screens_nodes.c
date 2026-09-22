@@ -18,6 +18,7 @@
 #include "fb_screens_internal.h"
 
 #include "mesh/i18n/strings.h"
+#include "mesh/ui/focus.h"
 #include "mesh/ui/history.h"
 #include "mesh/ui/map.h"
 #include "mesh/ui/nav.h"
@@ -477,6 +478,7 @@ void fb_render_node_actions(struct inkcell_draw_state *state,
     struct inkcell_fb_list list =
         inkcell_fb_list_begin_focus(&inner, count, cursor, heights, cards, cursor, cursor, false);
     inkcell_fb_list_glide(state, &list, FB_LIST_NODE_ACTIONS);
+    inkcell_fb_list_focus(&list, (uint32_t)MESH_UI_FOCUS_SHEET_ROWS);
     uint32_t i;
     while (inkcell_fb_list_next(&list, &i)) {
         fb_node_action_row(state, &list, i, &items[i], node->node_id);
@@ -633,6 +635,7 @@ void fb_render_nodes(struct inkcell_draw_state *state, const struct mesh_ui_snap
     struct inkcell_fb_list list = inkcell_fb_list_begin_heights(
         layout, rows, nav->cursor[MESH_UI_SCREEN_NODES], node_heights);
     inkcell_fb_list_glide(state, &list, FB_LIST_NODES);
+    inkcell_fb_list_focus(&list, (uint32_t)MESH_UI_FOCUS_ROWS);
     /*
      * The filter and the sort are one control group, drawn as two Settings field rows.
      *

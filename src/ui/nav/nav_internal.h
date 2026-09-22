@@ -32,6 +32,10 @@ void mesh_ui_nav_open_compose(struct mesh_ui_nav *nav);
    back on the conversation rather than on the canned list. */
 void mesh_ui_nav_open_keyboard(struct mesh_ui_nav *nav);
 
+/* Whether row `row` of the screen the nav is on is a group title the cursor may not stand on. */
+bool mesh_ui_nav_row_is_heading(const struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                                uint32_t row);
+
 /* ---- nav_conversations.c ----------------------------------------------------------------- */
 
 /* Channel `index`'s display name, falling back to "Channel N". */

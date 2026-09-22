@@ -32,10 +32,20 @@ enum mesh_ui_focus_id {
     /* A dialog's answers, in the dialog's own numbering: 0 is accept and 1 is cancel, which is
        what nav.confirm_cursor and nav.verify_cursor already carry. */
     MESH_UI_FOCUS_DIALOG = 1,
-    /* The rows of whichever list this frame drew, `base + index`. One block, because one list
-       is drawn per frame and an index means nothing outside the list it belongs to. */
+    /* The tab strip, `base + enum mesh_ui_screen`. */
+    MESH_UI_FOCUS_TABS = 0x0800,
+    /* The rows of the list the screen drew, `base + index` - the index the list's own cursor
+       holds. One block, because one screen list is drawn per frame and an index means nothing
+       outside the list it belongs to. */
     MESH_UI_FOCUS_ROWS = 0x1000,
+    /* The rows of a sheet drawn over it - the tapbacks, a node's verbs. A block of their own,
+       because the list under a sheet is still on the frame and still registered, and a click
+       has to say which of the two it landed on. */
+    MESH_UI_FOCUS_SHEET_ROWS = 0x2000,
 };
+
+/* How many ids one block holds: a list longer than this registers only its first rows. */
+#define MESH_UI_FOCUS_BLOCK 0x1000U
 
 /* How many boxes one frame may register. A list registers only the rows in its window, so this
    is a panel's worth of rows and the chrome around them rather than a count of anything the

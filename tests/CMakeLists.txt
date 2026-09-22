@@ -63,6 +63,7 @@ set(MESHCLIENT_TEST_SUITES
     suites/ui_actions.c
     suites/ui_anim.c
     suites/ui_capture.c
+    suites/ui_click.c
     suites/ui_chrome.c
     suites/ui_delivery.c
     suites/ui_devices.c

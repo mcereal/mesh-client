@@ -92,6 +92,37 @@ bool mesh_ui_store_handle_key(struct mesh_ui_store *store, enum inkcell_key key,
     return changed;
 }
 
+bool mesh_ui_store_handle_click(struct mesh_ui_store *store, uint32_t target,
+                                struct mesh_ui_action *out_action) {
+    if (store == NULL) {
+        if (out_action != NULL) {
+            memset(out_action, 0, sizeof *out_action);
+        }
+        return false;
+    }
+    /*
+     * A click names a row by its place on the frame the reader saw, and that frame is only the
+     * store's while nothing is pending. Once a device list is re-sorted or a conversation
+     * arrives, row 2 is somebody else - so the click is dropped rather than answered against a
+     * list the reader never saw. A key has no such problem: it names a direction, not a row.
+     * The frame that makes the store current again is one loop turn away.
+     */
+    if (store->pending_flags != MESH_UI_UPDATE_NONE) {
+        if (out_action != NULL) {
+            memset(out_action, 0, sizeof *out_action);
+        }
+        return false;
+    }
+    /* The key's order, for the key's reasons: a click is answered as presses. */
+    mesh_ui_nav_clamp(&store->nav, store);
+    const bool changed = mesh_ui_nav_handle_click(&store->nav, store, target, out_action);
+    mesh_ui_nav_date_toast(&store->nav, store->now_ms);
+    if (changed) {
+        mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_NAV);
+    }
+    return changed;
+}
+
 void mesh_ui_store_set_toast(struct mesh_ui_store *store, uint64_t now_ms, const char *text) {
     if (store == NULL) {
         return;
