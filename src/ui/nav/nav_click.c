@@ -18,12 +18,16 @@
  *     A there answers the message, and a reader clicking to see which message they are on has
  *     not asked to write anything.
  *   - **A dialog's answer** is the dialog's cursor on it and A.
+ *   - **A right-click on a row** is the cursor on it and that row's menu, at the pointer. The
+ *     menu's verbs are the action bar's, so a click on one is the press the bar names for it.
  *
  * A click on anything that is not the top of the frame goes nowhere. The screen's rows are
  * still registered under a sheet, because the sheet was drawn over them rather than instead of
  * them; a click that reached one would be a press on a list the reader has been told is not
  * the thing in front of them.
  */
+
+#include "inkcell/ui/actions.h"
 
 #include "mesh/ui/focus.h"
 #include "mesh/ui/nav.h"
@@ -116,6 +120,15 @@ static uint32_t *mesh_ui_nav_click_cursor(struct mesh_ui_nav *nav, uint32_t bloc
     return &nav->cursor[nav->screen];
 }
 
+/* What a cursor moved by a pointer owes the rows it left: see mesh_ui_nav_click_row(). */
+static void mesh_ui_nav_click_stand_down(struct mesh_ui_nav *nav) {
+    nav->node_remove_armed = false;
+    nav->waypoint_delete_armed = false;
+    nav->message_delete_armed = false;
+    nav->messages_delete_armed = false;
+    nav->devices_forget_armed = false;
+}
+
 static bool mesh_ui_nav_click_row(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                                   uint32_t block, uint32_t index,
                                   struct mesh_ui_action *out_action) {
@@ -138,11 +151,7 @@ static bool mesh_ui_nav_click_row(struct mesh_ui_nav *nav, const struct mesh_ui_
      * mesh_ui_nav_handle_key() cannot see the move: it has to be said here, before A arrives.
      */
     if (moved) {
-        nav->node_remove_armed = false;
-        nav->waypoint_delete_armed = false;
-        nav->message_delete_armed = false;
-        nav->messages_delete_armed = false;
-        nav->devices_forget_armed = false;
+        mesh_ui_nav_click_stand_down(nav);
     }
     /* The frame drew the row, so it was in range then; the store may have moved on since. */
     mesh_ui_nav_clamp(nav, store);
@@ -176,6 +185,25 @@ bool mesh_ui_nav_handle_click(struct mesh_ui_nav *nav, const struct mesh_ui_stor
     if (nav == NULL || store == NULL) {
         return false;
     }
+    /*
+     * An open menu takes the click whatever it landed on: the frame registered one target
+     * under the whole of it, so a click off its verbs is that target and puts it down. A verb
+     * is its button's press, made after the menu is down so the press meets the screen it was
+     * offered for.
+     */
+    if (nav->context_open) {
+        nav->context_open = false;
+        if (target >= (uint32_t)MESH_UI_FOCUS_MENU &&
+            target < (uint32_t)MESH_UI_FOCUS_MENU + (uint32_t)INKCELL_BUTTON_COUNT) {
+            enum inkcell_key keys[2];
+            const size_t count = inkcell_button_keys(
+                (enum inkcell_button)(target - (uint32_t)MESH_UI_FOCUS_MENU), keys);
+            if (count == 1U) {
+                (void)mesh_ui_nav_handle_key(nav, store, keys[0], out_action);
+            }
+        }
+        return true;
+    }
     if (target == (uint32_t)MESH_UI_FOCUS_DIALOG || target == (uint32_t)MESH_UI_FOCUS_DIALOG + 1U) {
         return mesh_ui_nav_click_dialog(nav, store, (uint8_t)(target - MESH_UI_FOCUS_DIALOG),
                                         out_action);
@@ -192,4 +220,36 @@ bool mesh_ui_nav_handle_click(struct mesh_ui_nav *nav, const struct mesh_ui_stor
         }
     }
     return false;
+}
+
+bool mesh_ui_nav_handle_context(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                                uint32_t target, int x, int y) {
+    if (nav == NULL || store == NULL) {
+        return false;
+    }
+    if (nav->context_open) {
+        nav->context_open = false;
+        return true;
+    }
+    if (target < (uint32_t)MESH_UI_FOCUS_ROWS ||
+        target >= (uint32_t)MESH_UI_FOCUS_ROWS + MESH_UI_FOCUS_BLOCK) {
+        return false;
+    }
+    /* Only the screen's own list: a picker or a compose form is a question being answered,
+       and its rows have one verb each, which the click already is. */
+    bool activate = true;
+    uint32_t *const cursor = mesh_ui_nav_click_cursor(nav, (uint32_t)MESH_UI_FOCUS_ROWS, &activate);
+    const uint32_t index = target - (uint32_t)MESH_UI_FOCUS_ROWS;
+    if (cursor != &nav->cursor[nav->screen] || mesh_ui_nav_row_is_heading(nav, store, index)) {
+        return false;
+    }
+    if (*cursor != index) {
+        *cursor = index;
+        mesh_ui_nav_click_stand_down(nav);
+    }
+    mesh_ui_nav_clamp(nav, store);
+    nav->context_open = true;
+    nav->context_x = (int32_t)x;
+    nav->context_y = (int32_t)y;
+    return true;
 }

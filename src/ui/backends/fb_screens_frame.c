@@ -228,6 +228,66 @@ struct inkcell_fb_layout fb_layout_in(const struct inkcell_fb_layout *layout,
     return out;
 }
 
+/*
+ * A right-click menu: the row's own verbs, at the pointer.
+ *
+ * The verbs are the action bar's - `actions`, the one table's answer for the row the cursor is
+ * on - so the menu cannot offer what a press would not do. Only the face buttons that act on
+ * something: B is a way back, not a verb about the row, and help is about the screen. Each item
+ * sits at its button's index, which is what numbers it (MESH_UI_FOCUS_MENU + button) and so
+ * what the nav presses when it is clicked.
+ *
+ * Drawn over everything, the action bar included, with one target under the whole panel first,
+ * so a click that misses the menu lands on that and puts it down.
+ */
+static void fb_render_context(struct inkcell_draw_state *state,
+                              const struct mesh_ui_snapshot *snapshot,
+                              const struct inkcell_action_bar *actions) {
+    struct inkcell_fb_menu_item items[INKCELL_BUTTON_COUNT];
+    memset(items, 0, sizeof items);
+    size_t offered = 0U;
+    for (size_t i = 0; i < actions->count; ++i) {
+        const enum inkcell_button button = actions->items[i].button;
+        if (button == INKCELL_BUTTON_A || button == INKCELL_BUTTON_X ||
+            button == INKCELL_BUTTON_Y || button == INKCELL_BUTTON_START) {
+            items[button].label = inkcell_str(actions->items[i].label);
+            offered += 1U;
+        }
+    }
+    const struct inkcell_fb_menu menu = {
+        .items = items,
+        .count = INKCELL_BUTTON_COUNT,
+        .cursor = UINT32_MAX,
+        .focus_base = (uint32_t)MESH_UI_FOCUS_MENU,
+    };
+    const struct inkcell_fb_rect panel = {
+        .x = 0, .y = 0, .w = inkcell_fb_panel_width(state), .h = inkcell_fb_panel_height(state)};
+    const struct inkcell_fb_rect box = inkcell_fb_menu_box(state, &menu, panel.w);
+    struct inkcell_overlay_frame frame;
+    if (!inkcell_fb_overlay_begin(state,
+                                  &(struct inkcell_overlay){
+                                      .id = (uint32_t)FB_OVERLAY_CONTEXT,
+                                      .up = snapshot->nav.context_open && offered > 0U,
+                                      .placement = INKCELL_OVERLAY_ANCHOR,
+                                      .travel = INKCELL_OVERLAY_TRAVEL_NEAR,
+                                      .w = box.w,
+                                      .h = box.h,
+                                      .anchor = {.x = snapshot->nav.context_x,
+                                                 .y = snapshot->nav.context_y,
+                                                 .w = 0,
+                                                 .h = 0},
+                                      .modal = true,
+                                  },
+                                  &frame)) {
+        return;
+    }
+    if (snapshot->nav.context_open) {
+        inkcell_fb_target_register(state, (uint32_t)MESH_UI_FOCUS_MENU_DISMISS, &panel);
+    }
+    inkcell_fb_draw_menu(state, frame.box, &menu);
+    inkcell_fb_overlay_end(state, &frame);
+}
+
 bool fb_sheet_begin(struct inkcell_draw_state *state, const struct inkcell_fb_layout *layout,
                     enum fb_overlay_id id, bool up, const struct inkcell_fb_sheet *sheet,
                     int content_h, struct inkcell_overlay_frame *frame,
@@ -526,6 +586,7 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
         .status_tone = summary_tone,
     };
     inkcell_fb_draw_action_bar(state, &layout, &bar);
+    fb_render_context(state, snapshot, &actions);
 
     /*
      * Last, because it is over the UI rather than in it: a notice that a screen could paint

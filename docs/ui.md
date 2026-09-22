@@ -332,6 +332,12 @@ it, and whatever the pointer already has somewhere else is left out - "L/R tabs"
 clicked), the arrows (the wheel), quit (the close box), and Back wherever the header's arrow is
 drawn, which is B to a click. `pointer` in a capture scene draws the same frame.
 
+A right-click (or a control-click) on a row of the screen's list selects it and opens that
+row's menu at the pointer: its A, X, Y and Start verbs, read off the same action table the bar
+is, so the menu offers exactly what a press would do. A verb is its button's press
+(`MESH_UI_FOCUS_MENU + button`); a key, or a click anywhere off the menu, puts it down and does
+nothing else. `context row N` in a capture scene opens one.
+
 Two things to know before reaching for it:
 
 - **It is a presenter, not a GPU renderer.** The glyphs and the anti-aliasing are still the

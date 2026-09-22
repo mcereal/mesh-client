@@ -32,6 +32,12 @@ enum mesh_ui_focus_id {
     /* A dialog's answers, in the dialog's own numbering: 0 is accept and 1 is cancel, which is
        what nav.confirm_cursor and nav.verify_cursor already carry. */
     MESH_UI_FOCUS_DIALOG = 1,
+    /* A right-click menu's verbs, `base + enum inkcell_button` - the button, not the row, so a
+       click on one names the press it stands for without the nav keeping the menu's contents. */
+    MESH_UI_FOCUS_MENU = 0x0400,
+    /* Everything under an open menu, as one target: a click that lands off the menu puts it
+       down rather than reaching whatever is drawn beneath. */
+    MESH_UI_FOCUS_MENU_DISMISS = 0x04FF,
     /* The tab strip, `base + enum mesh_ui_screen`. */
     MESH_UI_FOCUS_TABS = 0x0800,
     /* The rows of the list the screen drew, `base + index` - the index the list's own cursor

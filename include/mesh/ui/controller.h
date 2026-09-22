@@ -74,6 +74,11 @@ void mesh_ui_controller_handle_key(struct mesh_ui_controller *controller, enum i
    answer (mesh/ui/focus.h). What a window's pointer hands on; see inkcell/ui/pointer.h. */
 void mesh_ui_controller_handle_click(struct mesh_ui_controller *controller, uint32_t target);
 
+/* A secondary click - a right-click - on `target` at (x, y) in the frame's pixels: a row's menu,
+   or an open one put down. NONE is a click on nothing, which still puts one down. */
+void mesh_ui_controller_handle_context(struct mesh_ui_controller *controller, uint32_t target,
+                                       int x, int y);
+
 /* One more frame of the last snapshot, for a backend whose window changed under it - the SDL
    window moving its tabs clear of the title-bar buttons after a resize. The store has nothing
    new to say, so this is the frame timer's path rather than the store's. */

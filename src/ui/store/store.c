@@ -123,6 +123,19 @@ bool mesh_ui_store_handle_click(struct mesh_ui_store *store, uint32_t target,
     return changed;
 }
 
+bool mesh_ui_store_handle_context(struct mesh_ui_store *store, uint32_t target, int x, int y) {
+    /* Dropped against a stale frame for the click's reason: it names a row by its place. */
+    if (store == NULL || store->pending_flags != MESH_UI_UPDATE_NONE) {
+        return false;
+    }
+    mesh_ui_nav_clamp(&store->nav, store);
+    const bool changed = mesh_ui_nav_handle_context(&store->nav, store, target, x, y);
+    if (changed) {
+        mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_NAV);
+    }
+    return changed;
+}
+
 void mesh_ui_store_set_toast(struct mesh_ui_store *store, uint64_t now_ms, const char *text) {
     if (store == NULL) {
         return;
@@ -1459,6 +1472,21 @@ bool mesh_ui_store_consume_updates(struct mesh_ui_store *store, struct mesh_ui_s
     snapshot->mqtt = store->mqtt;
 
     memcpy(snapshot->transport_status, store->transport_status, sizeof snapshot->transport_status);
+
+    /*
+     * A right-click menu is about the row it was opened on, and holds that row only as an index -
+     * which a republished list is free to give to somebody else: the roster reranks, a
+     * conversation that just heard something jumps to the top. So new data under an open menu
+     * puts it down rather than letting its verb land on whoever holds the index now. The link
+     * line and the broker state move no row, and would only close it for nothing.
+     */
+    if (store->nav.context_open &&
+        (store->pending_flags &
+         ~(uint32_t)(MESH_UI_UPDATE_NAV | MESH_UI_UPDATE_TRANSPORT | MESH_UI_UPDATE_MQTT)) != 0U) {
+        store->nav.context_open = false;
+        store->pending_flags |= MESH_UI_UPDATE_NAV;
+        snapshot->update_flags = store->pending_flags;
+    }
 
     /* Data changes (a node dropping out, a message arriving) move or invalidate cursors; fix
        them up here so every backend draws a cursor that points at a real row. */

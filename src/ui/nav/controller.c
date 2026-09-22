@@ -231,6 +231,15 @@ void mesh_ui_controller_handle_click(struct mesh_ui_controller *controller, uint
     }
 }
 
+void mesh_ui_controller_handle_context(struct mesh_ui_controller *controller, uint32_t target,
+                                       int x, int y) {
+    if (controller == NULL || controller->store == NULL) {
+        return;
+    }
+    mesh_ui_controller_read_frame(controller);
+    inkcell_latency_press_handled(mesh_ui_store_handle_context(controller->store, target, x, y));
+}
+
 bool mesh_ui_controller_has_backend(const struct mesh_ui_controller *controller) {
     return controller != NULL && controller->backend != NULL;
 }

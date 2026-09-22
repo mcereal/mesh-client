@@ -682,6 +682,18 @@ struct mesh_ui_nav {
        bond dropped by accident costs the user a re-pair with the PIN. */
     bool devices_forget_armed;
     uint32_t devices_forget_row;
+    /*
+     * A window's right-click menu over the row under the cursor: that row's verbs, at the
+     * pointer. The verbs are not held here - the frame reads them off the action table for the
+     * row the cursor is on, the same answer the action bar gives - so what is kept is only that
+     * it is up and where the click was, in the frame's pixels, for the menu to hang from.
+     *
+     * Any key puts it down and does nothing else, and so does a click anywhere but one of its
+     * verbs: a menu is dismissed by looking away from it, not answered.
+     */
+    bool context_open;
+    int32_t context_x;
+    int32_t context_y;
 };
 
 enum mesh_ui_action_type {
@@ -945,6 +957,14 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
  */
 bool mesh_ui_nav_handle_click(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                               uint32_t target, struct mesh_ui_action *out_action);
+
+/*
+ * A secondary click on `target` at (`x`, `y`): on a row of the screen's own list, the cursor goes
+ * to it and the row's menu opens there. Anywhere else it puts an open menu down. Returns true
+ * when the visible state changed; it never raises an action, since opening a menu does nothing.
+ */
+bool mesh_ui_nav_handle_context(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                                uint32_t target, int x, int y);
 
 /* Keeps cursors inside their lists after the data changed. Returns true if anything moved. */
 bool mesh_ui_nav_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_store *store);
