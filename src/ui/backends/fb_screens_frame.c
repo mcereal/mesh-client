@@ -394,6 +394,9 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
     struct inkcell_action_bar actions;
     mesh_ui_actions_for(snapshot, &actions);
     layout.back = mesh_ui_action_bar_goes_back(&actions);
+    if (state->pointer) {
+        mesh_ui_actions_drop_tabs(&actions);
+    }
 
     /*
      * And whether this frame is part of a move between two places, which is the one thing about

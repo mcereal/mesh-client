@@ -24,6 +24,8 @@
  *   theme NAME             dark|light|contrast|colorblind - before the first frame it picks
  *                          the look, after it switches and emits one, so a single script can
  *                          show the same screen in every theme
+ *   pointer                draw the frame a window with a mouse gets: verbs as buttons, no
+ *                          keycap letters, and nothing the wheel or the back arrow already does
  *   tab NAME               walk Left/Right to messages|nodes|devices|status|settings
  *   config                 a radio that has answered the config handshake
  *   syncing                a config replay still running, partway through the roster
@@ -1261,6 +1263,14 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         }
         uicap_apply_theme(cap, value, line_number);
         uicap_emit(cap);
+        return;
+    }
+
+    if (strcmp(command, "pointer") == 0) {
+        inkcell_capture_state(cap->capture)->pointer = true;
+        if (cap->started) {
+            uicap_emit(cap);
+        }
         return;
     }
 
