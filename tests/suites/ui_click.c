@@ -34,7 +34,11 @@ static const struct inkcell_focus_map *click_render(struct mesh_ui_store *store,
                                                     struct inkcell_capture *capture) {
     struct mesh_ui_snapshot snapshot;
     memset(&snapshot, 0, sizeof snapshot);
-    mesh_ui_store_request_refresh(store);
+    /* A refresh only when there is nothing to publish: it marks every list as new, which is
+       news an open right-click menu is put down by. */
+    if (store->pending_flags == MESH_UI_UPDATE_NONE) {
+        mesh_ui_store_request_refresh(store);
+    }
     (void)mesh_ui_store_consume_updates(store, &snapshot);
     inkcell_capture_render(capture, &snapshot);
     for (int i = 0; i < 100 && inkcell_capture_animating(capture); ++i) {
@@ -341,6 +345,15 @@ MESH_TEST_CASE(ui_click_a_right_click_menu_is_the_rows_own_presses, unit) {
             !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_MENU_DISMISS, &action) ||
             store.nav.context_open || action.type != MESH_UI_ACTION_NONE,
         click_close(&store, capture), "a click off the menu should put it down and press nothing");
+
+    /* New data under an open menu puts it down: the row it was opened on is held only as an
+       index, which a republished list may have given to somebody else. */
+    MESH_TEST_FAIL_IF_CLEANUP(!click_context(&store, capture, (uint32_t)MESH_UI_FOCUS_ROWS + 1U),
+                              click_close(&store, capture), "the menu should open again");
+    mesh_ui_store_set_network_host(&store, "10.0.0.9");
+    (void)click_render(&store, capture);
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.context_open, click_close(&store, capture),
+                              "a device list republished under the menu should put it down");
 
     /* NodeTwo is not connected, so its A is Connect - and the menu's first verb is that A. */
     MESH_TEST_FAIL_IF_CLEANUP(
