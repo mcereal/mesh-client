@@ -25,6 +25,7 @@
 #include "mesh/i18n/strings.h"
 #include "mesh/map/viewport.h"
 #include "mesh/ui/backends/fb_capture.h"
+#include "mesh/ui/focus.h"
 #include "mesh/ui/history.h"
 #include "mesh/ui/map.h"
 #include "mesh/ui/nav.h"
@@ -5441,7 +5442,7 @@ MESH_TEST_CASE(ui_capture_a_verbs_disc_clears_its_cards_edges, unit) {
  * same press gives different answers on two frames, and that the difference comes from the
  * frame rather than from anything the nav remembered.
  */
-static bool dialog_moves(uint32_t width, uint32_t height, enum inkcell_key key,
+static bool dialog_moves(uint32_t width, uint32_t height, uint8_t cursor, enum inkcell_key key,
                          const char **failure) {
     struct mesh_ui_store store;
     if (mesh_ui_store_init(&store) != 0) {
@@ -5455,7 +5456,7 @@ static bool dialog_moves(uint32_t width, uint32_t height, enum inkcell_key key,
     store.nav.settings_section = MESH_UI_SETTINGS_ACTIONS;
     store.nav.confirm_action = (uint8_t)MESH_UI_SETTINGS_ACTION_REBOOT;
     store.nav.confirm_open = true;
-    store.nav.confirm_cursor = 0U;
+    store.nav.confirm_cursor = cursor;
 
     struct mesh_ui_snapshot snapshot;
     memset(&snapshot, 0, sizeof snapshot);
@@ -5482,7 +5483,7 @@ static bool dialog_moves(uint32_t width, uint32_t height, enum inkcell_key key,
     struct mesh_ui_action action;
     memset(&action, 0, sizeof action);
     mesh_ui_store_handle_key(&store, key, &action);
-    const bool moved = store.nav.confirm_cursor != 0U;
+    const bool moved = store.nav.confirm_cursor != cursor;
 
     inkcell_capture_close(capture);
     mesh_ui_store_shutdown(&store);
@@ -5494,12 +5495,12 @@ MESH_TEST_CASE(ui_capture_a_dialog_answers_the_press_its_own_layout_was_given, u
     /* Wide: the two answers share a line, so the press between them is sideways and the
        vertical one goes nowhere. */
     const bool wide_sideways =
-        dialog_moves(INKCELL_CAPTURE_WIDTH, INKCELL_CAPTURE_HEIGHT, INKCELL_KEY_LEFT, &failure);
+        dialog_moves(INKCELL_CAPTURE_WIDTH, INKCELL_CAPTURE_HEIGHT, 0U, INKCELL_KEY_LEFT, &failure);
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     MESH_TEST_FAIL_IF(!wide_sideways, "left should reach the other answer on a panel wide "
                                       "enough to put them side by side");
     const bool wide_vertical =
-        dialog_moves(INKCELL_CAPTURE_WIDTH, INKCELL_CAPTURE_HEIGHT, INKCELL_KEY_DOWN, &failure);
+        dialog_moves(INKCELL_CAPTURE_WIDTH, INKCELL_CAPTURE_HEIGHT, 0U, INKCELL_KEY_DOWN, &failure);
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     MESH_TEST_FAIL_IF(wide_vertical, "down should go nowhere when the answers are side by side");
 
@@ -5512,11 +5513,64 @@ MESH_TEST_CASE(ui_capture_a_dialog_answers_the_press_its_own_layout_was_given, u
      * decides the layout. A number chosen for a device would be a number that stops meaning
      * anything the first time the type scale moves.
      */
-    const bool narrow_vertical = dialog_moves(200U, 480U, INKCELL_KEY_DOWN, &failure);
+    const bool narrow_vertical = dialog_moves(200U, 480U, 0U, INKCELL_KEY_DOWN, &failure);
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     MESH_TEST_FAIL_IF(!narrow_vertical, "down should reach the answer stacked under this one");
-    const bool narrow_sideways = dialog_moves(200U, 480U, INKCELL_KEY_LEFT, &failure);
+    const bool narrow_sideways = dialog_moves(200U, 480U, 0U, INKCELL_KEY_LEFT, &failure);
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     MESH_TEST_FAIL_IF(narrow_sideways, "left should go nowhere when the answers are stacked");
+    const bool wide_accept = dialog_moves(INKCELL_CAPTURE_WIDTH, INKCELL_CAPTURE_HEIGHT, 1U,
+                                          INKCELL_KEY_RIGHT, &failure);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    MESH_TEST_FAIL_IF(!wide_accept, "right should reach accept from the default cancel answer");
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(ui_capture_a_dialog_falls_back_before_its_first_frame, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+
+    struct inkcell_focus_item items[2];
+    struct inkcell_focus_map map;
+    inkcell_focus_begin(&map, items, 2U);
+    mesh_ui_store_set_focus_map(&store, &map);
+    store.nav.screen = MESH_UI_SCREEN_SETTINGS;
+    store.nav.confirm_open = true;
+    store.nav.confirm_cursor = 1U;
+
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
+    const bool moved = store.nav.confirm_cursor == 0U;
+
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(!moved, "a stale underlying frame should not trap focus on Cancel");
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(ui_capture_a_dialog_ignores_the_rows_behind_it, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+
+    struct inkcell_focus_item items[3];
+    struct inkcell_focus_map map;
+    inkcell_focus_begin(&map, items, 3U);
+    /* The rectangles measured on the first-run LoRa save: the row behind spans the buttons'
+       vertical centre and used to win the unfiltered search from Cancel to the right. */
+    (void)inkcell_focus_add(&map, (uint32_t)MESH_UI_FOCUS_ROWS + 9U, 8, 493, 1000, 36);
+    (void)inkcell_focus_add(&map, (uint32_t)MESH_UI_FOCUS_DIALOG + 1U, 616, 481, 146, 44);
+    (void)inkcell_focus_add(&map, (uint32_t)MESH_UI_FOCUS_DIALOG, 770, 481, 230, 44);
+    mesh_ui_store_set_focus_map(&store, &map);
+    store.nav.screen = MESH_UI_SCREEN_SETTINGS;
+    store.nav.confirm_open = true;
+    store.nav.confirm_cursor = 1U;
+
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
+    const bool moved = store.nav.confirm_cursor == 0U;
+
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(!moved, "a modal should resolve focus without the dimmed rows behind it");
     record_success(test_name);
 }

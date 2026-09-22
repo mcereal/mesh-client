@@ -74,6 +74,10 @@ watches the USB tree for the bootloader, unmounts the drive from wherever the pl
 writes the `.uf2` blocks, and waits for the reset. nRF52 and RP2040 have **no over-the-air path**
 and must be on USB; an ESP32 target goes over BLE instead, where the radio reboots into its OTA
 loader (a second peripheral at its address plus one) and the client streams the image to it.
+`--serial` is therefore refused for an ESP32 install instead of being silently ignored. A blank
+ESP32 still needs one factory flash before mesh-client can update it; factory flashing requires
+the release's factory image, OTA loader and filesystem at the offsets in its `.mt.json`, not just
+the app image used for BLE updates.
 
 - **Stage outside `/mnt/SDCARD`.** The nRF52 bootloader's ghost FAT gets mounted over the card,
   taking the pak, the binary and the log with it. Use `/mnt/UDISK`. The image is read into memory

@@ -1232,6 +1232,13 @@ MESH_TEST_CASE(session_radio_announcements, unit) {
                       "the re-run handshake is not in flight");
     MESH_TEST_FAIL_IF(session.reboot_notices != 1U,
                       "the reboot counter did not survive the handshake reset it triggers");
+    MESH_TEST_FAIL_IF(session.reboot_generation != 1U,
+                      "the first reboot did not advance the persistent generation");
+
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &rebooted),
+                      "encode second rebooted failed");
+    MESH_TEST_FAIL_IF(session.reboot_notices != 1U || session.reboot_generation != 2U,
+                      "a second reboot was lost across its handshake reset");
 
     /* The reboot cleared the per-connection state, notification and queue included: they
        described the process that just died. */
@@ -1246,6 +1253,8 @@ MESH_TEST_CASE(session_radio_announcements, unit) {
     /* And a dropped link forgets the counter, so the next radio's first reboot is its first. */
     mesh_session_detach(&session);
     MESH_TEST_FAIL_IF(session.reboot_notices != 0U, "the reboot counter survived the link drop");
+    MESH_TEST_FAIL_IF(session.reboot_generation != 2U,
+                      "the persistent reboot generation was lost on link drop");
 
     /*
      * RSSI rides on the packet alongside SNR and answers a different question: how loud the
