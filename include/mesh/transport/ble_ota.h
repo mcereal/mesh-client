@@ -104,6 +104,8 @@ struct mesh_ble_ota {
     char notify_handle[INKWELL_BLE_HANDLE_MAX];
     uint16_t mtu; /* 0 when BlueZ reported none */
     size_t chunk;
+    /* The characteristics are found and the subscribe is waiting on the stack. */
+    bool attaching;
 
     enum mesh_ble_ota_state state;
     enum mesh_ble_ota_error error;
@@ -147,7 +149,9 @@ size_t mesh_ble_ota_chunk_for_mtu(uint16_t mtu);
 
 /*
  * Finds the loader's two characteristics on `address`, reads the link's MTU, subscribes
- * to the notifications and takes the client's notification handler. Returns 0 or -errno.
+ * to the notifications and takes the client's notification handler. Returns 0 or -errno, and
+ * -EAGAIN while the subscribe is waiting on the stack: call it again, with the same arguments,
+ * until it answers something else.
  */
 int mesh_ble_ota_attach(struct mesh_ble_ota *ota, struct inkwell_ble_central *client,
                         const char *address);

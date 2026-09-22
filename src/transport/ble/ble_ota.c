@@ -288,10 +288,30 @@ static bool ota_handle(struct mesh_ble_ota *ota, const struct mesh_ble_ota_event
 /* ---- the public half -----------------------------------------------------------------------
  */
 
+/* The subscribe that ends an attach, asked again until the stack has answered it. */
+static int ota_finish_attach(struct mesh_ble_ota *ota) {
+    const int result = inkwell_ble_subscribe(ota->client, ota->notify_handle);
+    if (result == -EAGAIN) {
+        return -EAGAIN;
+    }
+    ota->attaching = false;
+    if (result < 0) {
+        inkwell_ble_set_notification_handler(ota->client, NULL, NULL);
+        inkwell_log_warn("ble_ota", "Could not subscribe to the loader's answers: %d", result);
+        return result;
+    }
+    inkwell_log_info("ble_ota", "Loader attached: MTU %u, %zu-byte chunks", (unsigned)ota->mtu,
+                     ota->chunk);
+    return 0;
+}
+
 int mesh_ble_ota_attach(struct mesh_ble_ota *ota, struct inkwell_ble_central *client,
                         const char *address) {
     if (ota == NULL || client == NULL || address == NULL) {
         return -EINVAL;
+    }
+    if (ota->attaching && ota->client == client) {
+        return ota_finish_attach(ota);
     }
     memset(ota, 0, sizeof *ota);
     ota->client = client;
@@ -320,15 +340,8 @@ int mesh_ble_ota_attach(struct mesh_ble_ota *ota, struct inkwell_ble_central *cl
     }
 
     inkwell_ble_set_notification_handler(client, ota_notification, ota);
-    result = inkwell_ble_subscribe(client, ota->notify_handle);
-    if (result < 0) {
-        inkwell_ble_set_notification_handler(client, NULL, NULL);
-        inkwell_log_warn("ble_ota", "Could not subscribe to the loader's answers: %d", result);
-        return result;
-    }
-    inkwell_log_info("ble_ota", "Loader attached: MTU %u, %zu-byte chunks", (unsigned)ota->mtu,
-                     ota->chunk);
-    return 0;
+    ota->attaching = true;
+    return ota_finish_attach(ota);
 }
 
 int mesh_ble_ota_begin(struct mesh_ble_ota *ota, const uint8_t *image, size_t image_len,
@@ -398,6 +411,7 @@ void mesh_ble_ota_detach(struct mesh_ble_ota *ota) {
     inkwell_ble_set_notification_handler(ota->client, NULL, NULL);
     inkwell_ble_requests_cancel(ota->client);
     ota->write_data = NULL;
+    ota->attaching = false;
 }
 
 unsigned mesh_ble_ota_progress(const struct mesh_ble_ota *ota) {

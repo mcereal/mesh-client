@@ -102,6 +102,30 @@ MESH_TEST_CASE(ble_ota_chunk_follows_the_mtu, unit) {
     record_success(test_name);
 }
 
+/* An attach whose subscribe the stack answers late says -EAGAIN until it has, and is then
+   attached exactly as a quick one is. */
+MESH_TEST_CASE(ble_ota_attach_waits_for_the_subscribe, unit) {
+    const struct inkwell_ble_mock_config mock = {.mtu = RIG_MTU, .subscribe_pending_polls = 2U};
+    inkwell_ble_mock_enable(&mock);
+    struct inkwell_ble_central client;
+    struct mesh_ble_ota ota;
+    memset(&ota, 0, sizeof ota);
+    (void)inkwell_ble_open(&client);
+    const int first = mesh_ble_ota_attach(&ota, &client, RIG_LOADER);
+    const int second = mesh_ble_ota_attach(&ota, &client, RIG_LOADER);
+    const int third = mesh_ble_ota_attach(&ota, &client, RIG_LOADER);
+    const size_t chunk = ota.chunk;
+    mesh_ble_ota_detach(&ota);
+    inkwell_ble_close(&client);
+    inkwell_ble_mock_disable();
+
+    MESH_TEST_FAIL_IF(first != -EAGAIN || second != -EAGAIN,
+                      "an attach did not wait for its subscribe");
+    MESH_TEST_FAIL_IF(third != 0 || chunk != RIG_CHUNK,
+                      "a late subscribe did not finish the attach");
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(ble_ota_sends_an_image, unit) {
     struct ota_rig rig;
     MESH_TEST_FAIL_IF_CLEANUP(!rig_open(&rig, 0U), rig_close(&rig), "the rig should open");

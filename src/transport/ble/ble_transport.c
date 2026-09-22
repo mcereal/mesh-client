@@ -118,6 +118,9 @@ struct mesh_ble_transport_state {
     uint64_t next_services_poll_ms; /* earliest next ServicesResolved poll */
     bool services_wait_logged;
     bool connect_pending; /* Device1.Connect sent, reply not yet seen */
+    /* The characteristics are found and FromNum's subscribe is waiting on the stack - which on
+       a node whose bond went stale can be a pairing, and on macOS the user answering a dialog. */
+    bool subscribe_pending;
     /* In-flight pairing: which node, and whether a connect should follow it (the Devices tab
        asks for one press, so an unpaired node pairs and then connects). */
     char pairing_address[INKWELL_BLE_ADDRESS_MAX];
@@ -344,7 +347,8 @@ static int mesh_ble_drain_wake_callback(int fd, uint32_t events, void *userdata)
     }
     if (state != NULL) {
         (void)mesh_ble_flush_write_queue(state);
-        if (state->central.requests[1].state == 2 &&
+        /* A services query or the subscribe after it has its answer. */
+        if ((state->central.requests[1].state == 2 || state->central.requests[3].state == 2) &&
             state->link_state == MESH_BLE_LINK_CONNECTING) {
             state->next_services_poll_ms = 0U;
             mesh_ble_poll_connecting(state);
@@ -1266,6 +1270,7 @@ static int mesh_ble_do_connect(struct mesh_ble_transport_state *state, const cha
     snprintf(state->connected_address, sizeof(state->connected_address), "%s", address);
     snprintf(state->link_address, sizeof(state->link_address), "%s", address);
     state->connect_pending = true;
+    state->subscribe_pending = false;
     state->connect_started_ms = inkwell_time_monotonic_ms();
     state->next_services_poll_ms = 0U;
     state->services_wait_logged = false;
@@ -1309,6 +1314,15 @@ static void mesh_ble_poll_connecting(struct mesh_ble_transport_state *state) {
         }
         /* Link is up; service discovery starts now, so time it from here. */
         state->connect_started_ms = now;
+    }
+
+    /* The subscribe has a deadline of its own, inside the central; this only asks again. */
+    if (state->subscribe_pending) {
+        const int completed = mesh_ble_complete_connect(state);
+        if (completed < 0 && completed != -EAGAIN) {
+            mesh_ble_reset_link(state, "characteristic setup failed");
+        }
+        return;
     }
 
     if (now < state->next_services_poll_ms) {
@@ -1363,27 +1377,40 @@ static void mesh_ble_poll_connecting(struct mesh_ble_transport_state *state) {
         return;
     }
 
-    if (mesh_ble_complete_connect(state) < 0) {
+    const int completed = mesh_ble_complete_connect(state);
+    if (completed < 0 && completed != -EAGAIN) {
         mesh_ble_reset_link(state, "characteristic setup failed");
     }
 }
 
+/* Finds the characteristics and subscribes to FromNum: 0 once the link is up, -EAGAIN while the
+   subscribe waits on the stack (poll_connecting() calls again), or the failure. */
 static int mesh_ble_complete_connect(struct mesh_ble_transport_state *state) {
     const char *address = state->connected_address;
 
-    struct mesh_ble_meshtastic_chars chars;
-    int result = mesh_ble_find_meshtastic_characteristics(&state->central, address, &chars);
-    if (result < 0) {
-        inkwell_log_warn("ble", "%s does not expose the Meshtastic service characteristics (%d)",
-                         address, result);
-        mesh_ble_set_error(state, MESH_STR_LINK_NOT_MESHTASTIC, mesh_ble_short_label(address));
-        return result;
+    if (!state->subscribe_pending) {
+        struct mesh_ble_meshtastic_chars chars;
+        const int found =
+            mesh_ble_find_meshtastic_characteristics(&state->central, address, &chars);
+        if (found < 0) {
+            inkwell_log_warn("ble",
+                             "%s does not expose the Meshtastic service characteristics (%d)",
+                             address, found);
+            mesh_ble_set_error(state, MESH_STR_LINK_NOT_MESHTASTIC, mesh_ble_short_label(address));
+            return found;
+        }
+        inkwell_log_debug("ble", "ToRadio %s", chars.toradio);
+        inkwell_log_debug("ble", "FromRadio %s", chars.fromradio);
+        inkwell_log_debug("ble", "FromNum %s", chars.fromnum);
+        state->chars = chars;
+        state->subscribe_pending = true;
     }
-    inkwell_log_debug("ble", "ToRadio %s", chars.toradio);
-    inkwell_log_debug("ble", "FromRadio %s", chars.fromradio);
-    inkwell_log_debug("ble", "FromNum %s", chars.fromnum);
 
-    result = inkwell_ble_subscribe(&state->central, chars.fromnum);
+    const int result = inkwell_ble_subscribe(&state->central, state->chars.fromnum);
+    if (result == -EAGAIN) {
+        return -EAGAIN;
+    }
+    state->subscribe_pending = false;
     if (result < 0) {
         inkwell_log_warn("ble", "FromNum StartNotify failed (%d); is the node paired?", result);
         /* The overwhelmingly common cause, and the only one the user can act on: a node in PIN
@@ -1405,7 +1432,6 @@ static int mesh_ble_complete_connect(struct mesh_ble_transport_state *state) {
 
     state->link_state = MESH_BLE_LINK_CONNECTED;
     state->notifications_enabled = true;
-    state->chars = chars;
     state->drain_pending = false;
     state->drain_retry_at_ms = 0U;
     state->drain_failures = 0U;
@@ -1441,6 +1467,7 @@ static void mesh_ble_reset_link(struct mesh_ble_transport_state *state, const ch
     }
     state->link_state = MESH_BLE_LINK_DISCONNECTED;
     state->connect_pending = false;
+    state->subscribe_pending = false;
     state->next_link_poll_ms = 0U;
     /* Every way a link ends comes through here, which is why the scan hold is armed here rather
        than at the several call sites that would each have to remember to. */
