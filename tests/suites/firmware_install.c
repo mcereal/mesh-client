@@ -478,7 +478,7 @@ MESH_TEST_CASE(usb_msc_write_lands_every_byte, unit) {
                               "could not publish the drive node");
 
     struct inkwell_usb_storage_write write;
-    memset(&write, 0, sizeof write);
+    inkwell_usb_storage_write_init(&write);
     const int started = inkwell_usb_storage_write_start(&write, NULL, image, len, path,
                                                         inkwell_time_monotonic_ms());
     MESH_TEST_FAIL_IF_CLEANUP(started != 0, (free(image), fixture_close(&fixture)),
@@ -514,7 +514,7 @@ MESH_TEST_CASE(usb_msc_write_lands_every_byte, unit) {
 MESH_TEST_CASE(usb_msc_write_reports_a_drive_it_cannot_open, unit) {
     const uint8_t image[64] = {0};
     struct inkwell_usb_storage_write write;
-    memset(&write, 0, sizeof write);
+    inkwell_usb_storage_write_init(&write);
     const int started = inkwell_usb_storage_write_start(&write, NULL, image, sizeof image,
                                                         "/proc/meshclient/definitely-not-here",
                                                         inkwell_time_monotonic_ms());
@@ -581,15 +581,14 @@ MESH_TEST_CASE(usb_msc_claim_opens_what_is_there_and_creates_nothing, unit) {
 }
 
 /*
- * A cancel on a struct that was zeroed and never started.
+ * A cancel on a writer that was initialized but never started.
  *
- * This is the download's `kill(0)` bug asked of the second child: a zeroed struct holds 0 where
- * a pid goes and 0 where an fd goes, and 0 means "the whole process group" to kill() and
- * "stdin" to close(). An app that cleans up its modules cleans this one up too.
+ * An idle writer owns neither a child nor an fd. Cleanup must leave stdin and the process
+ * group untouched even when no write was started.
  */
 MESH_TEST_CASE(usb_msc_write_survives_a_cancel_it_never_started, unit) {
     struct inkwell_usb_storage_write write;
-    memset(&write, 0, sizeof write);
+    inkwell_usb_storage_write_init(&write);
     inkwell_usb_storage_write_cancel(&write);
     inkwell_usb_storage_write_tick(&write, 1000U);
     inkwell_usb_storage_write_cancel(&write);
@@ -603,6 +602,14 @@ MESH_TEST_CASE(usb_msc_write_survives_a_cancel_it_never_started, unit) {
 
 /* ---- the install ---------------------------------------------------------------------------
  */
+
+MESH_TEST_CASE(install_cancel_before_start_keeps_stdin, unit) {
+    struct mesh_firmware_install install = {0};
+    mesh_firmware_install_cancel(&install);
+    MESH_TEST_FAIL_IF(fcntl(STDIN_FILENO, F_GETFD) < 0,
+                      "cancel on a zeroed install must leave stdin open");
+    record_success(test_name);
+}
 
 struct install_run {
     bool finished;

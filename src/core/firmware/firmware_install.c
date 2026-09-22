@@ -338,6 +338,7 @@ int mesh_firmware_install_start(struct mesh_firmware_install *install, struct in
     /* From here every return fills in `state` and `error`, which is what lets a caller print
        why rather than "could not start the install: none". */
     memset(install, 0, sizeof *install);
+    inkwell_usb_storage_write_init(&install->write);
 
     /*
      * A family of 0 does not mean "any family". It means the architecture has no UF2 path at
@@ -433,7 +434,10 @@ void mesh_firmware_install_cancel(struct mesh_firmware_install *install) {
     if (install == NULL) {
         return;
     }
-    install_release(install);
+    /* A zeroed install is cancellable before start; its writer has not been initialized yet. */
+    if (install->state != MESH_FIRMWARE_INSTALL_IDLE) {
+        install_release(install);
+    }
     install->on_done = NULL;
     install->userdata = NULL;
     install->state = MESH_FIRMWARE_INSTALL_IDLE;
