@@ -24,16 +24,16 @@ extern "C" {
 #endif
 
 /*
- * The broker's name as it will be drawn: MESH_MQTT_ADDRESS_MAX said again on this side of the
- * seam, which is the arrangement MESH_UI_NETWORK_HOST_MAX already has and for the same reason -
- * this header names no core module, and pulling mesh/core/mqtt_proxy.h in to reach one number
+ * The broker's name as it will be drawn: INKWELL_MQTT_CLIENT_ADDRESS_MAX said again on this side of
+ * the seam, which is the arrangement MESH_UI_NETWORK_HOST_MAX already has and for the same reason -
+ * this header names no core module, and pulling inkwell/net/mqtt.h in to reach one number
  * would drag the TLS client and the resolver into every screen that draws a card.
  * mqtt_status_limits_agree_across_the_seam holds the two honest.
  */
-#define MESH_UI_MQTT_HOST_MAX 64U
-/* MESH_MQTT_PROXY_STATE_COUNT sentences, the longest of which is "Securing the connection". */
+#define MESH_UI_MQTT_HOST_MAX 256U
+/* INKWELL_MQTT_CLIENT_STATE_COUNT sentences, the longest of which is "Securing the connection". */
 #define MESH_UI_MQTT_STATE_MAX 48U
-/* mesh_mqtt_proxy.last_error, which is a whole sentence naming a host and a reason. */
+/* inkwell_mqtt_client.last_error, which is a whole sentence naming a host and a reason. */
 #define MESH_UI_MQTT_ERROR_MAX 128U
 
 struct mesh_ui_mqtt_state {
@@ -58,7 +58,7 @@ struct mesh_ui_mqtt_state {
      * Where the connection is, as a sentence the core's own table produced.
      *
      * Resolved rather than published as an id, the way `transport_status` is: the mapping from
-     * state to words lives next to the enum in mesh/core/mqtt_proxy.h, on the argument that a
+     * state to words lives next to the enum in inkwell/net/mqtt.h, on the argument that a
      * screen naming the ids itself would enumerate those states a second time and the two would
      * drift. Carrying the words across the seam is what lets that stay true.
      */

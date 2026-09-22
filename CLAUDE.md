@@ -228,7 +228,7 @@ publish and read back when that node's detail screen is opened. See
 | Contact sharing | `src/proto/contact_url.c` (the `meshtastic.org/v/#` link), `src/core/session/contact_share.c` (this radio's record out, a stranger's in), `src/ui/views/contact_share.c` (what the two screens say); the wrapper both links share is `src/proto/link_url.h` |
 | App glue | `src/app/*.c` - the composition root: lifecycle/link, `_actions`, `_publish`, `_settings` |
 | Self-update | `src/core/update/updater.c`, `version.c`; HTTPS is inkwell's `inkwell/net/fetch.h` over its `inkwell/codec/http.h` |
-| MQTT proxy | inkwell's `inkwell/codec/mqtt.h` (the 3.1.1 wire format), `src/proto/mqtt_topic.c` (where a mesh lives on a broker), `src/core/net/mqtt_proxy.c` (one broker connection; it names no word a user reads), inkwell's `inkwell/net/tls.h` (Mbed TLS on the loop), `src/ui/tables/mqtt.c` (what this client says about either), `src/app/app_mqtt.c` (whether to hold one at all) |
+| MQTT proxy | inkwell's `inkwell/codec/mqtt.h` (the 3.1.1 wire format) and `inkwell/net/mqtt.h` (one broker connection on the loop), `src/proto/mqtt_topic.c` (where a mesh lives on a broker), `src/ui/tables/mqtt.c` (what this client says about states and failures), `src/app/app_mqtt.c` (whether to hold one and which Meshtastic topics to use) |
 | Radio firmware | `src/core/firmware/` - `firmware*.c`, `uf2.c`, `esp_image.c`, `src/transport/*/{usb_msc,ble_ota,ble_hci}.c` - the *other* binary |
 | UI | `src/ui/` - see the group map below; **`fb` is the device UI** |
 | UI toolkit | `third_party/inkcell/` - theme, fonts, glyphs, layout, widgets, the fb and SDL backends, input |

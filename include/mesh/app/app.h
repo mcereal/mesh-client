@@ -6,13 +6,13 @@
 #include "inkcell/ui/sdl.h"
 #include "inkcell/ui/theme.h"
 
+#include "inkwell/net/mqtt.h"
 #include "inkwell/runtime/loop.h"
 #include "inkwell/runtime/signals.h"
 #include "mesh/app/control.h"
 #include "mesh/core/config.h"
 #include "mesh/core/firmware.h"
 #include "mesh/core/firmware_update.h"
-#include "mesh/core/mqtt_proxy.h"
 #include "mesh/core/session.h"
 #include "mesh/core/updater.h"
 #include "mesh/transport/transport.h"
@@ -42,8 +42,8 @@ struct mesh_app_publish_cache;
  * would retry a refusal at the frequency of the event loop.
  */
 struct mesh_app_mqtt_plan {
-    struct mesh_mqtt_proxy_config config;
-    char filters[MESH_MQTT_FILTERS_MAX][MESH_MQTT_FILTER_MAX];
+    struct inkwell_mqtt_client_config config;
+    char filters[INKWELL_MQTT_CLIENT_FILTERS_MAX][INKWELL_MQTT_CLIENT_FILTER_MAX];
     size_t filter_count;
     /* Something has been handed to the proxy. False before the first one and after a stop, which
        is what makes "no plan" and "a plan for no subscriptions at all" different states. */
@@ -274,7 +274,7 @@ struct mesh_app {
      * it. Everything about it - whether to be connected, to what, with which subscriptions - is
      * derived from the radio's own MQTTConfig every loop turn; see src/app/app_mqtt.c.
      */
-    struct mesh_mqtt_proxy mqtt;
+    struct inkwell_mqtt_client mqtt;
     /* What it was last told to do; see struct mesh_app_mqtt_plan. */
     struct mesh_app_mqtt_plan mqtt_planned;
     /*

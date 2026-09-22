@@ -1,6 +1,6 @@
 #pragma once
 
-#include "mesh/core/mqtt_proxy.h"
+#include "inkwell/net/mqtt.h"
 
 #include <stddef.h>
 
@@ -11,8 +11,8 @@ extern "C" {
 /*
  * What this client says about a broker connection.
  *
- * `src/core/net/mqtt_proxy.c` holds one socket to one broker and does not name a single word a
- * user reads: a failure is `struct mesh_mqtt_proxy_failure` and a state is an enum. This is the
+ * inkwell's `src/net/mqtt.c` holds one socket to one broker and does not name a single word a
+ * user reads: a failure is `struct inkwell_mqtt_client_failure` and a state is an enum. This is the
  * other side of that line - the two tables that turn either into a sentence, in whichever
  * language is in force.
  *
@@ -21,8 +21,8 @@ extern "C" {
  * application; what to say about one does not.
  */
 
-/* The state as a sentence: one entry per `enum mesh_mqtt_proxy_state`, never NULL. */
-const char *mesh_ui_mqtt_state_str(enum mesh_mqtt_proxy_state state);
+/* The state as a sentence: one entry per `enum inkwell_mqtt_client_state`, never NULL. */
+const char *mesh_ui_mqtt_state_str(enum inkwell_mqtt_client_state state);
 
 /*
  * Why the last attempt failed, written into `out`, or "" when none has.
@@ -33,7 +33,7 @@ const char *mesh_ui_mqtt_state_str(enum mesh_mqtt_proxy_state state);
  *
  * Always NUL-terminates when out_len > 0.
  */
-void mesh_ui_mqtt_failure_text(const struct mesh_mqtt_proxy *proxy, char *out, size_t out_len);
+void mesh_ui_mqtt_failure_text(const struct inkwell_mqtt_client *proxy, char *out, size_t out_len);
 
 #ifdef __cplusplus
 }

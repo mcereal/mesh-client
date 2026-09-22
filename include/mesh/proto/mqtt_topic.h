@@ -35,7 +35,7 @@ extern "C" {
 
 /*
  * The longest filter these can build: a 31-character root, "/2/e/", an 11-character channel id,
- * and "/+". `MESH_MQTT_FILTER_MAX` in mesh/core/mqtt_proxy.h is comfortably above it.
+ * and "/+". `INKWELL_MQTT_CLIENT_FILTER_MAX` in inkwell/net/mqtt.h is comfortably above it.
  */
 #define MESH_MQTT_FILTER_NEEDED 50U
 

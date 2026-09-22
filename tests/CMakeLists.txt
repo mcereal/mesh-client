@@ -49,7 +49,6 @@ set(MESHCLIENT_TEST_SUITES
     suites/tile_image.c
     suites/message.c
     suites/mqtt_app.c
-    suites/mqtt_proxy.c
     suites/mqtt_session.c
     suites/mqtt_topic.c
     suites/radio_settings.c
@@ -141,4 +140,3 @@ set_tests_properties(meshclient_ca_roots_current PROPERTIES LABELS "unit")
 add_test(NAME meshclient_frames_codec
          COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/frames.py selftest)
 set_tests_properties(meshclient_frames_codec PROPERTIES LABELS "unit")
-

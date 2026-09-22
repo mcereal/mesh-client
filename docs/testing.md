@@ -121,12 +121,10 @@ allocator handed out whole: nothing faults and nothing is poisoned. The harness 
 counts by hand. The framing harness checks two identities: every byte pushed is accounted for
 once, and every byte handed to the text callback is counted as dropped.
 
-**The MQTT harness runs the proxy's own reader loop**, not just the decoder: decode a header,
-skip a body too large to hold, take one that fits, advance. The case worth finding there is a
-skip that miscounts, and it only exists in the loop — MQTT has no resynchronisation, so one
-packet read at the wrong offset makes every packet after it plausible nonsense. It checks that a
-decoded header describes a packet that fits, and that a PUBLISH's topic and payload both point
-inside the body they came from.
+**The MQTT state-machine harness lives in inkwell now.** Its loopback broker drives the real
+reader loop: decode a header, skip a body too large to hold, take one that fits, advance. The
+application suite keeps the policy tests: broker defaults, client-id derivation, Meshtastic
+filters, and translated state/failure text.
 
 The seed corpus is **generated, not committed** — `meshclient_fuzz_seeds` encodes one real
 message per FromRadio variant with the same nanopb encoders the client decodes with, so a
