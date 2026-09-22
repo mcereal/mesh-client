@@ -131,6 +131,19 @@ static bool mesh_ui_nav_click_row(struct mesh_ui_nav *nav, const struct mesh_ui_
     }
     const bool moved = *cursor != index;
     *cursor = index;
+    /*
+     * A cursor that moved has walked off whatever row a second press was armed on - which is
+     * what a d-pad step says by being a step. The click's own press is A, and A on the detail
+     * that armed a delete is the key that may confirm it, so the stand-downs in
+     * mesh_ui_nav_handle_key() cannot see the move: it has to be said here, before A arrives.
+     */
+    if (moved) {
+        nav->node_remove_armed = false;
+        nav->waypoint_delete_armed = false;
+        nav->message_delete_armed = false;
+        nav->messages_delete_armed = false;
+        nav->devices_forget_armed = false;
+    }
     /* The frame drew the row, so it was in range then; the store may have moved on since. */
     mesh_ui_nav_clamp(nav, store);
     if (!activate) {

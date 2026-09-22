@@ -22,7 +22,9 @@
 #include "mesh/ui/reactions.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
+#include "mesh/ui/waypoints.h"
 
+#include <stdio.h>
 #include <string.h>
 
 /* The frame as it stands, drawn until nothing on it is still moving - a box registered halfway
@@ -210,4 +212,90 @@ MESH_TEST_CASE(ui_click_a_heading_is_nothing_and_a_dialog_is_answered, unit) {
                                   action.number != (uint32_t)MESH_UI_SETTINGS_ACTION_REBOOT,
                               click_close(&store, capture), "a click on Reboot should reboot");
     click_close(&store, capture);
+}
+
+/* What presenting a frame does to the store: everything pending is now on the panel. */
+static void click_settle(struct mesh_ui_store *store) {
+    static struct mesh_ui_snapshot snapshot;
+    (void)mesh_ui_store_consume_updates(store, &snapshot);
+}
+
+/*
+ * A click that moves the cursor has walked off an armed row, as a d-pad step would have.
+ *
+ * The click's own press is A, and A on the detail that armed the delete is the key allowed to
+ * confirm it - so without the stand-down, clicking another row and then the delete row again
+ * carried the delete out on what the reader saw as its first press.
+ */
+MESH_TEST_CASE(ui_click_elsewhere_stands_an_armed_delete_down, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+    struct mesh_ui_waypoint_list list;
+    memset(&list, 0, sizeof list);
+    list.entries[0].id = 42U;
+    list.entries[0].editable = true;
+    snprintf(list.entries[0].name, sizeof list.entries[0].name, "%s", "Bridge");
+    list.count = 1U;
+    mesh_ui_store_set_waypoints(&store, &list);
+    struct mesh_ui_action action;
+
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_test_open_tab(&store, MESH_UI_SCREEN_WAYPOINTS),
+                              mesh_ui_store_shutdown(&store), "the test needs the Waypoints tab");
+    click_settle(&store);
+    (void)mesh_ui_store_handle_click(&store, (uint32_t)MESH_UI_FOCUS_ROWS + 0U, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(!store.nav.waypoint_detail_open, mesh_ui_store_shutdown(&store),
+                              "a click on a place should open it");
+    const uint32_t rows = mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_WAYPOINTS);
+    const uint32_t remove = (uint32_t)MESH_UI_FOCUS_ROWS + rows - 1U;
+
+    click_settle(&store);
+    (void)mesh_ui_store_handle_click(&store, remove, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !store.nav.waypoint_delete_armed || action.type != MESH_UI_ACTION_NONE,
+        mesh_ui_store_shutdown(&store), "the first click on delete should only arm it");
+    click_settle(&store);
+    (void)mesh_ui_store_handle_click(&store, (uint32_t)MESH_UI_FOCUS_ROWS + 0U, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.waypoint_delete_armed || action.type != MESH_UI_ACTION_NONE,
+                              mesh_ui_store_shutdown(&store),
+                              "a click on another row should stand the delete down");
+    click_settle(&store);
+    (void)mesh_ui_store_handle_click(&store, remove, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !store.nav.waypoint_delete_armed || action.type != MESH_UI_ACTION_NONE,
+        mesh_ui_store_shutdown(&store), "coming back to delete should ask again, not delete");
+    mesh_ui_store_shutdown(&store);
+}
+
+/*
+ * A click names a row by where it was on the frame, and a store that has changed since is not
+ * that frame. Dropped rather than answered: the radios re-sorting under the pointer would
+ * otherwise connect to whichever one moved into the row that was clicked.
+ */
+MESH_TEST_CASE(ui_click_against_a_frame_the_store_has_moved_past_is_dropped, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+    struct mesh_ui_action action;
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_test_open_tab(&store, MESH_UI_SCREEN_DEVICES),
+                              mesh_ui_store_shutdown(&store), "the test needs the Devices tab");
+    click_settle(&store);
+
+    const struct mesh_ui_device devices[2] = {
+        {.identifier = "AA:BB:CC:DD:EE:01", .name = "NodeOne", .rssi = -45, .connected = true},
+        {.identifier = "AA:BB:CC:DD:EE:09", .name = "NodeNine", .rssi = -50, .connected = false},
+    };
+    mesh_ui_store_set_discovery(&store, devices, 2U);
+    MESH_TEST_FAIL_IF_CLEANUP(
+        mesh_ui_store_handle_click(&store, (uint32_t)MESH_UI_FOCUS_ROWS + 1U, &action) ||
+            action.type != MESH_UI_ACTION_NONE,
+        mesh_ui_store_shutdown(&store), "a click on a frame the store has moved past should drop");
+
+    click_settle(&store);
+    (void)mesh_ui_store_handle_click(&store, (uint32_t)MESH_UI_FOCUS_ROWS + 1U, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(action.type != MESH_UI_ACTION_CONNECT ||
+                                  strcmp(action.identifier, "AA:BB:CC:DD:EE:09") != 0,
+                              mesh_ui_store_shutdown(&store),
+                              "once the frame is current again the click should land");
+    mesh_ui_store_shutdown(&store);
 }
