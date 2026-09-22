@@ -822,13 +822,21 @@ static int install_radio_firmware_ble(struct mesh_app *app,
 }
 
 static int install_radio_firmware(struct mesh_app *app, const char *target, const char *staging,
-                                  const char *serial_identifier) {
+                                  bool use_serial, const char *serial_identifier) {
     static struct cli_firmware_fetch fetched;
     const int got = fetch_radio_firmware(app, &fetched, target, staging);
     if (got < 0) {
         return got;
     }
     if (fetched.fetch.path == MESH_FIRMWARE_PATH_BLE) {
+        if (use_serial) {
+            fprintf(stderr,
+                    "%s is an ESP32 target and cannot be factory-installed over USB by "
+                    "meshclient yet; --serial will not be ignored. Bootstrap it with a "
+                    "factory flasher, then update it here over BLE.\n",
+                    target);
+            return -ENOTSUP;
+        }
         return install_radio_firmware_ble(app, &fetched);
     }
     if (fetched.fetch.path != MESH_FIRMWARE_PATH_USB) {
@@ -1252,7 +1260,7 @@ int main(int argc, char **argv) {
          * download has finished by the time anything is connected.
          */
         result = install_radio_firmware(&app, install_firmware_target, fetch_firmware_staging,
-                                        serial_identifier);
+                                        use_serial, serial_identifier);
         mesh_app_shutdown(&app);
         return result < 0 ? EXIT_FAILURE : EXIT_SUCCESS;
     }

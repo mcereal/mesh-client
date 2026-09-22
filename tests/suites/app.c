@@ -4254,3 +4254,36 @@ cleanup:
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
+
+MESH_TEST_CASE(app_settings_timeout_waits_for_a_reboot_notice, unit) {
+    struct mesh_app app;
+    memset(&app, 0, sizeof app);
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&app.ui_store) != 0, "store init failed");
+
+    struct mesh_radio_settings radio;
+    memset(&radio, 0, sizeof radio);
+    radio.writes_failed = 1U;
+    radio.last_write_error = MESH_RADIO_SETTINGS_WRITE_TIMEOUT;
+    app.settings_save_pending = true;
+    app.settings_save_started_ms = test_now_ms();
+    snprintf(app.settings_save_section, sizeof app.settings_save_section, "LoRa");
+
+    mesh_app_track_settings_save(&app, &radio, true);
+    const bool deferred = app.settings_save_pending;
+
+    app.session.reboot_notices = 1U;
+    mesh_app_track_settings_save(&app, &radio, true);
+    const bool reboot_won = !app.settings_save_pending;
+
+    app.settings_save_pending = true;
+    app.settings_save_started_ms = 0U;
+    app.settings_reboot_notices_seen = app.session.reboot_notices;
+    mesh_app_track_settings_save(&app, &radio, true);
+    const bool stale_timeout_failed = !app.settings_save_pending;
+
+    mesh_ui_store_shutdown(&app.ui_store);
+    MESH_TEST_FAIL_IF(!deferred, "a fresh local timeout was announced before a reboot could land");
+    MESH_TEST_FAIL_IF(!reboot_won, "the reboot notice did not settle the pending save");
+    MESH_TEST_FAIL_IF(!stale_timeout_failed, "a timeout past the reboot grace stayed pending");
+    record_success(test_name);
+}

@@ -38,6 +38,10 @@
  */
 #define MESH_LORA_FREQUENCY_MAX_MHZ 3000
 #define MESH_LORA_TRIM_MAX_HZ 1000000
+/* A local config write can restart an ESP32 before its acknowledgement reaches us. The Heltec
+   V4 reports that reboot about fifteen seconds after the write; beyond thirty, silence is the
+   more useful answer and the ordinary no-reply toast wins. */
+#define MESH_SETTINGS_REBOOT_GRACE_MS 30000U
 
 /* A fresh channel key. getrandom() blocks until the kernel pool is seeded, which on the Brick
    it long since is; anything else is an error we surface rather than a weak key. macOS has no
@@ -1319,6 +1323,8 @@ void mesh_app_save_fixed_position(struct mesh_app *app, const struct mesh_ui_act
         app->settings_save_pending = true;
         app->settings_writes_acked_seen = radio != NULL ? radio->writes_acked : 0U;
         app->settings_writes_failed_seen = radio != NULL ? radio->writes_failed : 0U;
+        app->settings_reboot_notices_seen = app->session.reboot_notices;
+        app->settings_save_started_ms = now;
         snprintf(app->settings_save_section, sizeof app->settings_save_section, "%s",
                  inkcell_str(clearing ? MESH_STR_SAVE_SECTION_FIXED_POS
                                       : MESH_STR_SAVE_SECTION_POSITION));
@@ -1434,6 +1440,8 @@ void mesh_app_save_settings(struct mesh_app *app, const struct mesh_ui_action *a
         app->settings_save_pending = true;
         app->settings_writes_acked_seen = radio != NULL ? radio->writes_acked : 0U;
         app->settings_writes_failed_seen = radio != NULL ? radio->writes_failed : 0U;
+        app->settings_reboot_notices_seen = app->session.reboot_notices;
+        app->settings_save_started_ms = now;
         snprintf(app->settings_save_section, sizeof app->settings_save_section, "%s", section_name);
         /* Only the edits this write carried: a coordinate typed in the Position section is
            written by its own row, and clearing it here would drop it unsaved. */
@@ -1467,7 +1475,20 @@ void mesh_app_track_settings_save(struct mesh_app *app, const struct mesh_radio_
     }
     char toast[MESH_UI_NAV_TOAST_MAX];
     const uint64_t now = inkwell_time_monotonic_ms();
-    if (radio != NULL && radio->writes_failed > app->settings_writes_failed_seen) {
+    const bool rebooted = app->session.reboot_notices > app->settings_reboot_notices_seen;
+    const bool timed_out = radio != NULL &&
+                           radio->writes_failed > app->settings_writes_failed_seen &&
+                           radio->last_write_error == MESH_RADIO_SETTINGS_WRITE_TIMEOUT;
+    /* A local SET_CONFIG commonly succeeds by rebooting before its Routing ack can get back.
+       The session's reboot notice is stronger evidence than the queue's five-second silence,
+       and a dropped link is the same signal on transports which do not survive the restart. */
+    if (rebooted || !link_connected) {
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_RESTARTING_APPLY));
+        inkwell_log_info("ui", "Radio restarted while saving %s; awaiting read-back",
+                         app->settings_save_section);
+    } else if (timed_out && now - app->settings_save_started_ms < MESH_SETTINGS_REBOOT_GRACE_MS) {
+        return; /* Give a rebooting radio time to say so before calling the save a failure. */
+    } else if (radio != NULL && radio->writes_failed > app->settings_writes_failed_seen) {
         switch (radio->last_write_error) {
         case meshtastic_Routing_Error_ADMIN_BAD_SESSION_KEY:
             inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_SAVE_SESSION_EXPIRED,
@@ -1492,10 +1513,6 @@ void mesh_app_track_settings_save(struct mesh_app *app, const struct mesh_radio_
         inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_SAVED_MAY_RESTART,
                            app->settings_save_section);
         inkwell_log_info("ui", "Save of %s acknowledged", app->settings_save_section);
-    } else if (!link_connected) {
-        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_RESTARTING_APPLY));
-        inkwell_log_info("ui", "Link dropped while saving %s; assuming reboot",
-                         app->settings_save_section);
     } else {
         return; /* still waiting */
     }

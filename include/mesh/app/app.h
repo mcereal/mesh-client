@@ -292,6 +292,8 @@ struct mesh_app {
     bool settings_save_pending;
     uint32_t settings_writes_acked_seen;
     uint32_t settings_writes_failed_seen;
+    uint32_t settings_reboot_notices_seen;
+    uint64_t settings_save_started_ms;
     char settings_save_section[MESH_UI_SETTINGS_LABEL_MAX];
 };
 

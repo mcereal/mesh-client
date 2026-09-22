@@ -2681,10 +2681,36 @@ uint8_t mesh_ui_nav_dialog_answer(const struct mesh_ui_store *store, enum inkcel
     const uint8_t other = (uint8_t)(here == 0U ? 1U : 0U);
     const struct inkcell_focus_map *const map = store != NULL ? store->focus : NULL;
     enum inkcell_focus_dir dir;
-    if (map == NULL || !inkcell_focus_dir_for_key(key, &dir)) {
+    const uint32_t here_id = (uint32_t)MESH_UI_FOCUS_DIALOG + here;
+    /*
+     * A backend can already have handed the controller a perfectly good map from the frame
+     * under a dialog which has only just opened.  That is not the same thing as a map of the
+     * dialog: neither answer is in it yet.  Treat it like the no-map case and keep the old
+     * toggle fallback, otherwise the safe default (Cancel) becomes a trap until another frame
+     * happens to replace the map.
+     */
+    if (map == NULL || !inkcell_focus_has(map, here_id) || !inkcell_focus_dir_for_key(key, &dir)) {
         return other;
     }
-    const uint32_t to = inkcell_focus_find(map, (uint32_t)MESH_UI_FOCUS_DIALOG + here, dir);
+    /*
+     * Resolve inside the modal, not against every box dimmed behind it. A wide settings row
+     * can cross the same horizontal band as these buttons; the general finder then quite
+     * reasonably chooses that nearer rectangle, and the range guard below quite reasonably
+     * refuses to let a modal cursor land there. Together those two correct local decisions
+     * trap the cursor on Cancel. A two-item map states the missing fact: while this question is
+     * up, its two answers are the whole focus world.
+     */
+    struct inkcell_focus_item items[2];
+    struct inkcell_focus_map dialog;
+    inkcell_focus_begin(&dialog, items, 2U);
+    for (uint8_t answer = 0U; answer < 2U; ++answer) {
+        const uint32_t id = (uint32_t)MESH_UI_FOCUS_DIALOG + answer;
+        struct inkcell_focus_rect rect;
+        if (inkcell_focus_rect_of(map, id, &rect)) {
+            (void)inkcell_focus_add(&dialog, id, rect.x, rect.y, rect.w, rect.h);
+        }
+    }
+    const uint32_t to = inkcell_focus_find(&dialog, here_id, dir);
     if (to == INKCELL_FOCUS_NONE) {
         /*
          * Nothing that way. On a dialog that is the edge of the panel and the press goes spare,
