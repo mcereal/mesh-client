@@ -509,6 +509,110 @@ cleanup:
     }
 }
 
+/*
+ * A tty that is slow to appear. The bind answers -EAGAIN instead of sleeping on the loop, and
+ * the connect is a link in BINDING that the tick carries into WAKING once the tty is there -
+ * with new_id written once however many times the tick asks.
+ */
+MESH_TEST_CASE(serial_transport_connect_waits_for_the_bind, unit) {
+    int pair[2] = {-1, -1};
+    MESH_TEST_FAIL_IF(socketpair(AF_UNIX, SOCK_STREAM, 0, pair) != 0, "socketpair failed");
+    (void)fcntl(pair[0], F_SETFL, O_NONBLOCK);
+    (void)fcntl(pair[1], F_SETFL, O_NONBLOCK);
+
+    const struct inkwell_serial_port_info devices[] = {mesh_test_serial_device()};
+    struct inkwell_serial_mock_config mock;
+    memset(&mock, 0, sizeof mock);
+    mock.ports = devices;
+    mock.port_count = 1U;
+    mock.bound_path = "/dev/ttyUSB0";
+    mock.bind_pending_polls = 2U;
+    mock.open_fd = pair[0];
+    inkwell_serial_mock_enable(&mock);
+
+    struct inkwell_loop loop;
+    MESH_TEST_FAIL_IF_CLEANUP(inkwell_loop_init(&loop) != 0,
+                              (inkwell_serial_mock_disable(), close(pair[0]), close(pair[1])),
+                              "event loop init failed");
+    struct mesh_transport *transport = mesh_serial_transport();
+    struct mesh_app_config config = mesh_app_config_default();
+    const int started = transport->ops->start(transport, &config, &loop);
+
+    const int connected = started == 0 ? mesh_serial_transport_connect(transport, "1-1:1.1") : -1;
+    const bool binding = mesh_serial_transport_is_connecting(transport) &&
+                         inkwell_serial_mock_line_state_calls() == 0U;
+    uint8_t burst[64];
+    const ssize_t early = read(pair[1], burst, sizeof burst);
+
+    transport->ops->tick(transport); /* still waiting */
+    const bool still_binding = inkwell_serial_mock_line_state_calls() == 0U;
+    transport->ops->tick(transport); /* the tty is there */
+    const size_t binds = inkwell_serial_mock_bind_calls();
+    const size_t line_states = inkwell_serial_mock_line_state_calls();
+    const bool waking = mesh_serial_transport_is_connecting(transport);
+    const ssize_t woken = mesh_test_serial_read(pair[1], burst, sizeof burst);
+
+    transport->ops->stop(transport);
+    inkwell_loop_shutdown(&loop);
+    inkwell_serial_mock_disable();
+    close(pair[0]);
+    close(pair[1]);
+
+    MESH_TEST_FAIL_IF(connected != 0,
+                      "a bind still waiting is a connect in progress, not a failure");
+    MESH_TEST_FAIL_IF(!binding, "the link should be connecting, with DTR not yet asserted");
+    MESH_TEST_FAIL_IF(early > 0, "nothing should be written before the tty exists");
+    MESH_TEST_FAIL_IF(!still_binding, "the first tick should still be waiting on the tty");
+    MESH_TEST_FAIL_IF(binds != 3U, "each tick should ask the bind again");
+    MESH_TEST_FAIL_IF(line_states != 1U || !waking,
+                      "once the tty appears the port opens and DTR is asserted once");
+    MESH_TEST_FAIL_IF(woken != 32, "the radio should get its resync burst once the port opens");
+
+    record_success(test_name);
+}
+
+/*
+ * A tty that never appears is given up on at the deadline, and says why.
+ */
+MESH_TEST_CASE(serial_transport_bind_gives_up, unit) {
+    const struct inkwell_serial_port_info devices[] = {mesh_test_serial_device()};
+    struct inkwell_serial_mock_config mock;
+    memset(&mock, 0, sizeof mock);
+    mock.ports = devices;
+    mock.port_count = 1U;
+    mock.bind_pending_polls = 1000U;
+    mock.open_fd = -1;
+    inkwell_serial_mock_enable(&mock);
+
+    struct inkwell_loop loop;
+    MESH_TEST_FAIL_IF_CLEANUP(inkwell_loop_init(&loop) != 0, inkwell_serial_mock_disable(),
+                              "event loop init failed");
+    struct mesh_transport *transport = mesh_serial_transport();
+    struct mesh_app_config config = mesh_app_config_default();
+    const int started = transport->ops->start(transport, &config, &loop);
+    const int connected = started == 0 ? mesh_serial_transport_connect(transport, "1-1:1.1") : -1;
+    transport->ops->tick(transport);
+    const bool waiting = mesh_serial_transport_is_connecting(transport);
+
+    mesh_test_serial_sleep_ms(1100);
+    transport->ops->tick(transport);
+    const bool gave_up = !mesh_serial_transport_is_connecting(transport);
+    char reason[MESH_TRANSPORT_ERROR_MAX] = {0};
+    const bool said_why = transport->ops->take_error(transport, reason, sizeof reason);
+    const int again = mesh_serial_transport_connect(transport, "1-1:1.1");
+
+    transport->ops->stop(transport);
+    inkwell_loop_shutdown(&loop);
+    inkwell_serial_mock_disable();
+
+    MESH_TEST_FAIL_IF(connected != 0 || !waiting, "the connect should be waiting on the bind");
+    MESH_TEST_FAIL_IF(!gave_up, "past the deadline the link should give up");
+    MESH_TEST_FAIL_IF(!said_why, "giving up should say why");
+    MESH_TEST_FAIL_IF(again != 0, "a new attempt should be accepted after giving up");
+
+    record_success(test_name);
+}
+
 /* ---- what is on the other end of the cable ----------------------------------------------------
  */
 

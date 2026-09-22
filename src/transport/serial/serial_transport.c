@@ -27,6 +27,9 @@
  */
 #define MESH_SERIAL_WAKE_BYTES 32U
 #define MESH_SERIAL_WAKE_SETTLE_MS 100U
+/* How long the generic driver gets to publish a tty after the bind. It has always been well
+   under this on the Brick; past it the node is not going to get one. */
+#define MESH_SERIAL_BIND_TIMEOUT_MS 1000U
 
 enum mesh_serial_state {
     MESH_SERIAL_STATE_DISABLED = 0,
@@ -36,6 +39,8 @@ enum mesh_serial_state {
 
 enum mesh_serial_link_state {
     MESH_SERIAL_LINK_DISCONNECTED = 0,
+    /* The bind is in and the tty has not appeared yet; `connected` is the port it is for. */
+    MESH_SERIAL_LINK_BINDING,
     MESH_SERIAL_LINK_WAKING,
     MESH_SERIAL_LINK_CONNECTED,
 };
@@ -53,6 +58,7 @@ struct mesh_serial_transport_state {
     struct mesh_stream_link link;
     struct inkwell_serial_port_info connected;
     uint64_t wake_done_at_ms;
+    uint64_t bind_deadline_ms;
 
     /* The Meshtastic conversation itself. The link attaches to it once the port is awake. */
     /* Owned only when nothing was injected; `session` is what the code uses. */
@@ -90,6 +96,9 @@ static const char *mesh_serial_state_to_string(enum mesh_serial_state state) {
 
 static void mesh_serial_reset_link(struct mesh_serial_transport_state *state, const char *reason);
 static size_t mesh_serial_scan_internal(struct mesh_serial_transport_state *state);
+static int mesh_serial_open_port(struct mesh_transport *transport,
+                                 struct mesh_serial_transport_state *state,
+                                 const struct inkwell_serial_port_info *device);
 
 /* ------------------------------------------------------------------ send */
 
@@ -165,6 +174,7 @@ static void mesh_serial_reset_link(struct mesh_serial_transport_state *state, co
              state->connected.path[0] != '\0' ? state->connected.path : "port");
     state->link_state = MESH_SERIAL_LINK_DISCONNECTED;
     state->wake_done_at_ms = 0U;
+    state->bind_deadline_ms = 0U;
     mesh_session_detach(state->session);
     /* Unwatches and closes the descriptor, resets the parser, and marks whatever was still
        queued FAILED in the message log - the three things this used to do by hand. */
@@ -233,15 +243,34 @@ int mesh_serial_transport_connect(struct mesh_transport *transport, const char *
         return -ENOTSUP;
     }
 
-    /* On the Brick the node has no driver until we ask for one, and no tty until it binds. */
+    /*
+     * On the Brick the node has no driver until we ask for one, and no tty until it binds -
+     * usually at once, and otherwise on a later tick: the bind answers -EAGAIN rather than
+     * sleeping on the loop, and the tick asks again until the deadline.
+     */
     if (!device->bound || device->path[0] == '\0') {
-        const int bind_result = inkwell_serial_bind(device);
+        state->connected = *device;
+        const int bind_result = inkwell_serial_bind(&state->connected);
+        if (bind_result == -EAGAIN) {
+            state->link_state = MESH_SERIAL_LINK_BINDING;
+            state->bind_deadline_ms = inkwell_time_monotonic_ms() + MESH_SERIAL_BIND_TIMEOUT_MS;
+            return 0;
+        }
+        const struct inkwell_serial_port_info bound = state->connected;
+        memset(&state->connected, 0, sizeof state->connected);
         if (bind_result < 0) {
             mesh_serial_set_error(state, MESH_STR_LINK_USB_NO_DRIVER, device->name, bind_result);
             return bind_result;
         }
+        *device = bound;
     }
+    return mesh_serial_open_port(transport, state, device);
+}
 
+/* The port has its tty: open it, assert DTR and start waking the radio. */
+static int mesh_serial_open_port(struct mesh_transport *transport,
+                                 struct mesh_serial_transport_state *state,
+                                 const struct inkwell_serial_port_info *device) {
     const int fd = inkwell_serial_open(device->path, MESH_SERIAL_BAUD);
     if (fd < 0) {
         inkwell_log_warn("serial", "Cannot open %s: %s", device->path, strerror(-fd));
@@ -289,6 +318,36 @@ int mesh_serial_transport_connect(struct mesh_transport *transport, const char *
     state->wake_done_at_ms = inkwell_time_monotonic_ms() + MESH_SERIAL_WAKE_SETTLE_MS;
     inkwell_log_info("serial", "Opened %s (%s); waking the radio", device->path, device->name);
     return 0;
+}
+
+/* Runs while BINDING: asks for the tty again, and gives up at the deadline. */
+static void mesh_serial_finish_bind(struct mesh_transport *transport,
+                                    struct mesh_serial_transport_state *state) {
+    int result = inkwell_serial_bind(&state->connected);
+    if (result == -EAGAIN && inkwell_time_monotonic_ms() < state->bind_deadline_ms) {
+        return;
+    }
+    if (result == -EAGAIN) {
+        inkwell_log_warn("serial", "No tty appeared for %s after %u ms", state->connected.id,
+                         MESH_SERIAL_BIND_TIMEOUT_MS);
+        result = -ENODEV;
+    }
+    const struct inkwell_serial_port_info device = state->connected;
+    /* Back to where a connect starts, quietly: nothing was opened, so there is nothing to
+       report as a disconnect. */
+    state->link_state = MESH_SERIAL_LINK_DISCONNECTED;
+    state->bind_deadline_ms = 0U;
+    memset(&state->connected, 0, sizeof state->connected);
+    if (result < 0) {
+        mesh_serial_set_error(state, MESH_STR_LINK_USB_NO_DRIVER, device.name, result);
+        return;
+    }
+    /* The scan's copy learns the tty too, so the next connect need not bind again. */
+    struct inkwell_serial_port_info *listed = mesh_serial_find_device(state, device.id);
+    if (listed != NULL) {
+        *listed = device;
+    }
+    (void)mesh_serial_open_port(transport, state, &device);
 }
 
 /* Runs while WAKING: once the radio has had its moment, start the conversation. */
@@ -393,7 +452,9 @@ static void mesh_serial_tick(struct mesh_transport *transport) {
 
     const uint64_t now = inkwell_time_monotonic_ms();
 
-    if (state->link_state == MESH_SERIAL_LINK_WAKING) {
+    if (state->link_state == MESH_SERIAL_LINK_BINDING) {
+        mesh_serial_finish_bind(transport, state);
+    } else if (state->link_state == MESH_SERIAL_LINK_WAKING) {
         mesh_serial_finish_wake(state);
     } else if (state->link_state == MESH_SERIAL_LINK_CONNECTED) {
         if (mesh_stream_link_flush(&state->link) == -EIO) {
@@ -484,6 +545,7 @@ static const char *mesh_serial_status(const struct mesh_transport *transport) {
     const struct mesh_serial_transport_state *state =
         (const struct mesh_serial_transport_state *)transport->state;
     switch (state->link_state) {
+    case MESH_SERIAL_LINK_BINDING:
     case MESH_SERIAL_LINK_WAKING:
         return inkcell_str(MESH_STR_TRANSPORT_CONNECTING);
     case MESH_SERIAL_LINK_CONNECTED:
@@ -560,7 +622,8 @@ bool mesh_serial_transport_is_connecting(struct mesh_transport *transport) {
     }
     const struct mesh_serial_transport_state *state =
         (const struct mesh_serial_transport_state *)transport->state;
-    return state->link_state == MESH_SERIAL_LINK_WAKING;
+    return state->link_state == MESH_SERIAL_LINK_BINDING ||
+           state->link_state == MESH_SERIAL_LINK_WAKING;
 }
 
 struct mesh_serial_transport_stats mesh_serial_transport_stats(struct mesh_transport *transport) {

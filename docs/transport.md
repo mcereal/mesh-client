@@ -162,7 +162,9 @@ At connect time:
 
 1. `inkwell_serial_bind()` writes `VID PID` to
    `/sys/bus/usb-serial/drivers/generic/new_id` — the generic driver refuses the control
-   interface ("no bulk out") and takes the data one as `/dev/ttyUSB0` — then waits for the tty.
+   interface ("no bulk out") and takes the data one as `/dev/ttyUSB0`. The bind answers
+   `-EAGAIN` until the tty is there, so the link sits in `BINDING` and the tick asks again for up
+   to a second rather than the connect sleeping on the loop.
 2. `inkwell_serial_set_line_state()` sends one CDC `SET_CONTROL_LINE_STATE` through usbfs,
    because the node discards output until DTR is asserted and the generic driver cannot assert it.
 
