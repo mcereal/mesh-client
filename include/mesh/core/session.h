@@ -579,6 +579,9 @@ struct mesh_session {
        handshake; the counter is what lets the UI say it happened rather than silently
        reloading. */
     uint32_t reboot_notices;
+    /* Unlike reboot_notices, this generation survives handshake and link resets so a pending
+       settings save can distinguish consecutive reboots on a serial link that stays open. */
+    uint64_t reboot_generation;
     mesh_session_send_fn send;
     void *send_ctx;
     /* Where a MqttClientProxyMessage goes. NULL - the default - means this client is not

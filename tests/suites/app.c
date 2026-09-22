@@ -4272,18 +4272,33 @@ MESH_TEST_CASE(app_settings_timeout_waits_for_a_reboot_notice, unit) {
     const bool deferred = app.settings_save_pending;
 
     app.session.reboot_notices = 1U;
+    app.session.reboot_generation = 1U;
     mesh_app_track_settings_save(&app, &radio, true);
-    const bool reboot_won = !app.settings_save_pending;
+    const bool first_reboot_won = !app.settings_save_pending;
+
+    /* A reboot-triggered handshake clears the per-link count, so the next reboot also leaves
+       reboot_notices at one. The persistent generation must still settle a second save. */
+    app.settings_save_pending = true;
+    app.settings_save_started_ms = test_now_ms();
+    app.settings_reboot_generation_seen = app.session.reboot_generation;
+    mesh_app_track_settings_save(&app, &radio, true);
+    const bool second_deferred = app.settings_save_pending;
+    app.session.reboot_notices = 1U;
+    app.session.reboot_generation = 2U;
+    mesh_app_track_settings_save(&app, &radio, true);
+    const bool second_reboot_won = !app.settings_save_pending;
 
     app.settings_save_pending = true;
     app.settings_save_started_ms = 0U;
-    app.settings_reboot_notices_seen = app.session.reboot_notices;
+    app.settings_reboot_generation_seen = app.session.reboot_generation;
     mesh_app_track_settings_save(&app, &radio, true);
     const bool stale_timeout_failed = !app.settings_save_pending;
 
     mesh_ui_store_shutdown(&app.ui_store);
     MESH_TEST_FAIL_IF(!deferred, "a fresh local timeout was announced before a reboot could land");
-    MESH_TEST_FAIL_IF(!reboot_won, "the reboot notice did not settle the pending save");
+    MESH_TEST_FAIL_IF(!first_reboot_won, "the first reboot did not settle the pending save");
+    MESH_TEST_FAIL_IF(!second_deferred, "the second save did not wait for its own reboot");
+    MESH_TEST_FAIL_IF(!second_reboot_won, "the second reboot did not settle the pending save");
     MESH_TEST_FAIL_IF(!stale_timeout_failed, "a timeout past the reboot grace stayed pending");
     record_success(test_name);
 }

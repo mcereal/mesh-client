@@ -1545,6 +1545,7 @@ void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t 
             mesh_session_forget_radio(session);
             (void)mesh_session_begin_handshake(session);
             session->reboot_notices++;
+            session->reboot_generation++;
         }
         break;
     default:

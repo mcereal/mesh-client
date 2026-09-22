@@ -1870,7 +1870,7 @@ static void on_import_channels(struct mesh_app *app, const struct mesh_ui_action
         app->settings_save_pending = true;
         app->settings_writes_acked_seen = radio != NULL ? radio->writes_acked : 0U;
         app->settings_writes_failed_seen = radio != NULL ? radio->writes_failed : 0U;
-        app->settings_reboot_notices_seen = app->session.reboot_notices;
+        app->settings_reboot_generation_seen = app->session.reboot_generation;
         app->settings_save_started_ms = now;
         snprintf(app->settings_save_section, sizeof app->settings_save_section, "%s",
                  inkcell_str(MESH_STR_SETTINGS_SECTION_CHANNELS));

@@ -1323,7 +1323,7 @@ void mesh_app_save_fixed_position(struct mesh_app *app, const struct mesh_ui_act
         app->settings_save_pending = true;
         app->settings_writes_acked_seen = radio != NULL ? radio->writes_acked : 0U;
         app->settings_writes_failed_seen = radio != NULL ? radio->writes_failed : 0U;
-        app->settings_reboot_notices_seen = app->session.reboot_notices;
+        app->settings_reboot_generation_seen = app->session.reboot_generation;
         app->settings_save_started_ms = now;
         snprintf(app->settings_save_section, sizeof app->settings_save_section, "%s",
                  inkcell_str(clearing ? MESH_STR_SAVE_SECTION_FIXED_POS
@@ -1440,7 +1440,7 @@ void mesh_app_save_settings(struct mesh_app *app, const struct mesh_ui_action *a
         app->settings_save_pending = true;
         app->settings_writes_acked_seen = radio != NULL ? radio->writes_acked : 0U;
         app->settings_writes_failed_seen = radio != NULL ? radio->writes_failed : 0U;
-        app->settings_reboot_notices_seen = app->session.reboot_notices;
+        app->settings_reboot_generation_seen = app->session.reboot_generation;
         app->settings_save_started_ms = now;
         snprintf(app->settings_save_section, sizeof app->settings_save_section, "%s", section_name);
         /* Only the edits this write carried: a coordinate typed in the Position section is
@@ -1475,7 +1475,7 @@ void mesh_app_track_settings_save(struct mesh_app *app, const struct mesh_radio_
     }
     char toast[MESH_UI_NAV_TOAST_MAX];
     const uint64_t now = inkwell_time_monotonic_ms();
-    const bool rebooted = app->session.reboot_notices > app->settings_reboot_notices_seen;
+    const bool rebooted = app->session.reboot_generation != app->settings_reboot_generation_seen;
     const bool timed_out = radio != NULL &&
                            radio->writes_failed > app->settings_writes_failed_seen &&
                            radio->last_write_error == MESH_RADIO_SETTINGS_WRITE_TIMEOUT;
