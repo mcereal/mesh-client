@@ -9,6 +9,7 @@
  * looking at. See src/ui/nav/nav_click.c for the rules.
  */
 
+#include "inkcell/ui/actions.h"
 #include "inkcell/ui/fb_capture.h"
 #include "inkcell/ui/fb_draw.h"
 #include "inkcell/ui/focus.h"
@@ -298,4 +299,72 @@ MESH_TEST_CASE(ui_click_against_a_frame_the_store_has_moved_past_is_dropped, uni
                               mesh_ui_store_shutdown(&store),
                               "once the frame is current again the click should land");
     mesh_ui_store_shutdown(&store);
+}
+
+/* A right-click on the middle of `id`'s box on a fresh frame - click_on()'s terms. */
+static bool click_context(struct mesh_ui_store *store, struct inkcell_capture *capture,
+                          uint32_t id) {
+    const struct inkcell_focus_map *const map = click_render(store, capture);
+    struct inkcell_focus_rect box;
+    if (!inkcell_focus_rect_of(map, id, &box)) {
+        return false;
+    }
+    const int x = box.x + box.w / 2;
+    const int y = box.y + box.h / 2;
+    if (inkcell_focus_hit(map, x, y) != id) {
+        return false;
+    }
+    (void)mesh_ui_store_handle_context(store, id, x, y);
+    return true;
+}
+
+MESH_TEST_CASE(ui_click_a_right_click_menu_is_the_rows_own_presses, unit) {
+    struct mesh_ui_store store;
+    struct inkcell_capture *capture = NULL;
+    MESH_TEST_FAIL_IF(click_open(&store, &capture) != 0, "store or capture failed to open");
+    struct mesh_ui_action action;
+
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_test_open_tab(&store, MESH_UI_SCREEN_DEVICES),
+                              click_close(&store, capture), "the test needs the Devices tab");
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !click_context(&store, capture, (uint32_t)MESH_UI_FOCUS_ROWS + 1U) ||
+            !store.nav.context_open || store.nav.cursor[MESH_UI_SCREEN_DEVICES] != 1U,
+        click_close(&store, capture), "a right-click on a row should select it and open its menu");
+
+    /* Anything but a verb puts it down and does nothing else - a key, or a click off it. */
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action) || store.nav.context_open ||
+            store.nav.cursor[MESH_UI_SCREEN_DEVICES] != 1U,
+        click_close(&store, capture), "a key should put the menu down and not move the cursor");
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !click_context(&store, capture, (uint32_t)MESH_UI_FOCUS_ROWS + 1U) ||
+            !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_MENU_DISMISS, &action) ||
+            store.nav.context_open || action.type != MESH_UI_ACTION_NONE,
+        click_close(&store, capture), "a click off the menu should put it down and press nothing");
+
+    /* NodeTwo is not connected, so its A is Connect - and the menu's first verb is that A. */
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !click_context(&store, capture, (uint32_t)MESH_UI_FOCUS_ROWS + 1U) ||
+            !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_MENU + INKCELL_BUTTON_A, &action),
+        click_close(&store, capture), "the menu should offer the row's A");
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.context_open || action.type != MESH_UI_ACTION_CONNECT ||
+                                  strcmp(action.identifier, "AA:BB:CC:DD:EE:02") != 0,
+                              click_close(&store, capture),
+                              "a verb in the menu should be its button's press on that row");
+    click_close(&store, capture);
+}
+
+MESH_TEST_CASE(ui_click_a_right_click_off_a_list_opens_nothing, unit) {
+    struct mesh_ui_store store;
+    struct inkcell_capture *capture = NULL;
+    MESH_TEST_FAIL_IF(click_open(&store, &capture) != 0, "store or capture failed to open");
+
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !click_context(&store, capture,
+                       (uint32_t)MESH_UI_FOCUS_TABS + (uint32_t)MESH_UI_SCREEN_NODES) ||
+            store.nav.context_open || store.nav.screen == MESH_UI_SCREEN_NODES,
+        click_close(&store, capture), "a tab has no menu, and a right-click is not a click");
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_store_handle_context(&store, INKCELL_FOCUS_NONE, 0, 0),
+                              click_close(&store, capture), "nothing under the pointer is nothing");
+    click_close(&store, capture);
 }

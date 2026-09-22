@@ -1974,6 +1974,14 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
         return false;
     }
 
+    /* A right-click menu is put down by any key, which then does nothing else: the reader
+       was looking at the menu, and a press meant for the screen behind it would land on a
+       screen they were not looking at. */
+    if (nav->context_open) {
+        nav->context_open = false;
+        return true;
+    }
+
     /* Any press dismisses a notice; whether the frame changes is decided below. */
     bool changed = false;
     if (nav->toast[0] != '\0') {

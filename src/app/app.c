@@ -231,6 +231,15 @@ void mesh_app_on_ui_click(void *userdata, uint32_t target, int x, int y) {
     mesh_ui_controller_handle_click(&app->ui_controller, target);
 }
 
+/* A right-click: where it landed is where the menu hangs, so here the point does matter. */
+void mesh_app_on_ui_context(void *userdata, uint32_t target, int x, int y) {
+    struct mesh_app *app = (struct mesh_app *)userdata;
+    if (app == NULL) {
+        return;
+    }
+    mesh_ui_controller_handle_context(&app->ui_controller, target, x, y);
+}
+
 static void mesh_app_select_cli(struct mesh_app *app, const struct inkcell_backend **backend,
                                 void **userdata) {
     if (backend != NULL) {
@@ -312,6 +321,7 @@ static bool mesh_app_select_sdl(struct mesh_app *app, const struct inkcell_backe
             .on_key = mesh_app_on_ui_key,
             .key_userdata = app,
             .on_click = mesh_app_on_ui_click,
+            .on_context = mesh_app_on_ui_context,
             .click_userdata = app,
             /* What the window manager puts on the title bar: the product's name, which is
                not a word anybody translates - the same fact mesh_crash_install() states

@@ -26,6 +26,8 @@
  *                          show the same screen in every theme
  *   pointer                draw the frame a window with a mouse gets: verbs as buttons, no
  *                          keycap letters, and nothing the wheel or the back arrow already does
+ *   context row N          right-click the middle of the screen list's row N on the last
+ *                          frame, as a window's mouse would - the row's menu, at the pointer
  *   tab NAME               walk Left/Right to messages|nodes|devices|status|settings
  *   config                 a radio that has answered the config handshake
  *   syncing                a config replay still running, partway through the roster
@@ -72,6 +74,7 @@
  * the script starts on is emitted before any of them.
  */
 
+#include "inkcell/ui/focus.h"
 #include "inkcell/ui/theme.h"
 #include "inkwell/base/env.h"
 #include "inkwell/base/text.h"
@@ -87,6 +90,7 @@
 #include "mesh/core/updater.h"
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/backends/fb_capture.h"
+#include "mesh/ui/focus.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/route.h"
 /* For the flag rows' masks: the fixture sets position_flags and the field table is what says
@@ -1320,6 +1324,28 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         for (unsigned i = 0U; i < count; ++i) {
             uicap_press(cap, key);
         }
+        return;
+    }
+
+    if (strcmp(command, "context") == 0) {
+        char *what = uicap_word(&rest);
+        char *index_text = uicap_word(&rest);
+        if (what == NULL || strcmp(what, "row") != 0 || index_text == NULL) {
+            fprintf(stderr, "uicap: line %u: 'context' needs 'row N'\n", line_number);
+            exit(1);
+        }
+        uicap_start(cap);
+        /* Where the last frame drew the row, which is where a reader would have clicked. */
+        const uint32_t id = (uint32_t)MESH_UI_FOCUS_ROWS + uicap_number(index_text, "row");
+        struct inkcell_focus_rect box;
+        if (!inkcell_focus_rect_of(inkcell_capture_state(cap->capture)->focus, id, &box)) {
+            fprintf(stderr, "uicap: line %u: the last frame drew no row %s\n", line_number,
+                    index_text);
+            exit(1);
+        }
+        (void)mesh_ui_store_handle_context(&cap->store, id, box.x + box.w / 3, box.y + box.h / 2);
+        uicap_emit(cap);
+        uicap_settle(cap);
         return;
     }
 

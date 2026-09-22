@@ -147,6 +147,8 @@ enum fb_overlay_id {
     FB_OVERLAY_NODE_ACTIONS,
     /* The faces one message can be answered with, over the transcript it is in. */
     FB_OVERLAY_REACTIONS,
+    /* A window's right-click menu: the verbs of the row under the cursor, at the pointer. */
+    FB_OVERLAY_CONTEXT,
 };
 
 /*

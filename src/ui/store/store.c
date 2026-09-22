@@ -123,6 +123,19 @@ bool mesh_ui_store_handle_click(struct mesh_ui_store *store, uint32_t target,
     return changed;
 }
 
+bool mesh_ui_store_handle_context(struct mesh_ui_store *store, uint32_t target, int x, int y) {
+    /* Dropped against a stale frame for the click's reason: it names a row by its place. */
+    if (store == NULL || store->pending_flags != MESH_UI_UPDATE_NONE) {
+        return false;
+    }
+    mesh_ui_nav_clamp(&store->nav, store);
+    const bool changed = mesh_ui_nav_handle_context(&store->nav, store, target, x, y);
+    if (changed) {
+        mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_NAV);
+    }
+    return changed;
+}
+
 void mesh_ui_store_set_toast(struct mesh_ui_store *store, uint64_t now_ms, const char *text) {
     if (store == NULL) {
         return;
