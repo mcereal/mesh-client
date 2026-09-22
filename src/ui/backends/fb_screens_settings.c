@@ -15,6 +15,7 @@
 #include "fb_screens_internal.h"
 
 #include "mesh/i18n/strings.h"
+#include "mesh/ui/focus.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/trust.h"
@@ -333,6 +334,7 @@ void fb_render_settings(struct inkcell_draw_state *state, const struct mesh_ui_s
     struct inkcell_fb_list list = inkcell_fb_list_begin_cards(
         layout, count, nav->cursor[MESH_UI_SCREEN_SETTINGS], heights, any_cards ? cards : NULL);
     inkcell_fb_list_glide(state, &list, FB_LIST_SETTINGS);
+    inkcell_fb_list_focus(&list, (uint32_t)MESH_UI_FOCUS_ROWS);
     uint32_t i;
     while (inkcell_fb_list_next(&list, &i)) {
         if (section_open) {

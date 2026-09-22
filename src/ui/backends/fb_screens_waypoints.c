@@ -17,6 +17,7 @@
 #include "fb_screens_internal.h"
 
 #include "mesh/i18n/strings.h"
+#include "mesh/ui/focus.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/waypoints.h"
 
@@ -79,6 +80,7 @@ static void fb_render_waypoint_detail(struct inkcell_draw_state *state,
     struct inkcell_fb_list list = inkcell_fb_list_begin_heights(
         layout, count, nav->cursor[MESH_UI_SCREEN_WAYPOINTS], heights);
     inkcell_fb_list_glide(state, &list, FB_LIST_WAYPOINT_DETAIL);
+    inkcell_fb_list_focus(&list, (uint32_t)MESH_UI_FOCUS_ROWS);
     uint32_t i;
     while (inkcell_fb_list_next(&list, &i)) {
         const struct mesh_ui_waypoint_item *item = &items[i];
@@ -175,6 +177,7 @@ void fb_render_waypoints(struct inkcell_draw_state *state, const struct mesh_ui_
     struct inkcell_fb_list list =
         inkcell_fb_list_begin_rows(layout, count, nav->cursor[MESH_UI_SCREEN_WAYPOINTS], 2U);
     inkcell_fb_list_glide(state, &list, FB_LIST_WAYPOINTS);
+    inkcell_fb_list_focus(&list, (uint32_t)MESH_UI_FOCUS_ROWS);
     uint32_t i;
     while (inkcell_fb_list_next(&list, &i)) {
         struct mesh_ui_waypoint_row waypoint;

@@ -938,6 +938,14 @@ bool mesh_ui_nav_close_verify_number(struct mesh_ui_nav *nav);
 bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                             enum inkcell_key key, struct mesh_ui_action *out_action);
 
+/*
+ * Applies one click on `target`, an id from include/mesh/ui/focus.h that the last frame drew.
+ * Returns and fills *out_action exactly as mesh_ui_nav_handle_key() does, because a click is
+ * answered as the presses it stands for - see src/ui/nav/nav_click.c.
+ */
+bool mesh_ui_nav_handle_click(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                              uint32_t target, struct mesh_ui_action *out_action);
+
 /* Keeps cursors inside their lists after the data changed. Returns true if anything moved. */
 bool mesh_ui_nav_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_store *store);
 

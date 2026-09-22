@@ -18,6 +18,7 @@
 
 #include "mesh/core/message.h"
 #include "mesh/i18n/strings.h"
+#include "mesh/ui/focus.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/reactions.h"
 #include "mesh/ui/settings.h"
@@ -78,6 +79,7 @@ void fb_render_reactions(struct inkcell_draw_state *state, const struct mesh_ui_
 
     struct inkcell_fb_list list = inkcell_fb_list_begin(&inner, count, nav->reaction_cursor);
     inkcell_fb_list_glide(state, &list, FB_LIST_REACTIONS);
+    inkcell_fb_list_focus(&list, (uint32_t)MESH_UI_FOCUS_SHEET_ROWS);
     uint32_t i;
     while (inkcell_fb_list_next(&list, &i)) {
         /* The delete takes an icon rather than an emoji, and the danger role rather than the
@@ -135,6 +137,7 @@ void fb_render_compose(struct inkcell_draw_state *state, const struct mesh_ui_sn
 
     struct inkcell_fb_list list =
         inkcell_fb_list_begin(layout, mesh_ui_nav_compose_row_count(), nav->compose_cursor);
+    inkcell_fb_list_focus(&list, (uint32_t)MESH_UI_FOCUS_ROWS);
     struct inkcell_line line;
     uint32_t i;
     while (inkcell_fb_list_next(&list, &i)) {
@@ -186,6 +189,7 @@ void fb_render_picker(struct inkcell_draw_state *state, const struct mesh_ui_sna
 
     struct inkcell_fb_list list = inkcell_fb_list_begin(layout, count, nav->picker_cursor);
     inkcell_fb_list_glide(state, &list, FB_LIST_PICKER);
+    inkcell_fb_list_focus(&list, (uint32_t)MESH_UI_FOCUS_ROWS);
     char name[96];
     char initials[MESH_UI_CONVERSATION_INITIALS_MAX];
     uint32_t i;

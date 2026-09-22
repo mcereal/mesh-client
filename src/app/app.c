@@ -219,6 +219,18 @@ void mesh_app_on_ui_key(void *userdata, enum inkcell_key key) {
     mesh_ui_controller_handle_key(&app->ui_controller, key);
 }
 
+/* A click the window could not answer as a key: a tab, a row, a dialog's answer. Where in the
+   box it landed says nothing a press does not. */
+void mesh_app_on_ui_click(void *userdata, uint32_t target, int x, int y) {
+    (void)x;
+    (void)y;
+    struct mesh_app *app = (struct mesh_app *)userdata;
+    if (app == NULL) {
+        return;
+    }
+    mesh_ui_controller_handle_click(&app->ui_controller, target);
+}
+
 static void mesh_app_select_cli(struct mesh_app *app, const struct inkcell_backend **backend,
                                 void **userdata) {
     if (backend != NULL) {
@@ -299,6 +311,8 @@ static bool mesh_app_select_sdl(struct mesh_app *app, const struct inkcell_backe
                      .request_stop = mesh_app_ui_request_stop},
             .on_key = mesh_app_on_ui_key,
             .key_userdata = app,
+            .on_click = mesh_app_on_ui_click,
+            .click_userdata = app,
             /* What the window manager puts on the title bar: the product's name, which is
                not a word anybody translates - the same fact mesh_crash_install() states
                about a crash report. */

@@ -3,6 +3,7 @@
 #include "mesh/ui/controller.h"
 
 #include "inkcell/ui/backend.h"
+#include "inkcell/ui/focus.h"
 #include "inkcell/ui/latency.h"
 #include "inkwell/base/log.h"
 #include "inkwell/runtime/loop.h"
@@ -180,14 +181,10 @@ void mesh_ui_controller_set_action_handler(struct mesh_ui_controller *controller
     controller->action_userdata = userdata;
 }
 
-void mesh_ui_controller_handle_key(struct mesh_ui_controller *controller, enum inkcell_key key) {
-    if (controller == NULL || controller->store == NULL || key == INKCELL_KEY_NONE) {
-        return;
-    }
-
-    /* The window the press is judged against is the one on the panel now, and so are the boxes
-       it is resolved against: both are facts about the frame the reader was looking at when
-       they pressed, and both are read back rather than guessed at. */
+/* The window the press is judged against is the one on the panel now, and so are the boxes it
+   is resolved against: both are facts about the frame the reader was looking at when they
+   pressed, and both are read back rather than guessed at. */
+static void mesh_ui_controller_read_frame(struct mesh_ui_controller *controller) {
     if (controller->backend != NULL && controller->backend->page_rows != NULL) {
         mesh_ui_store_set_page_rows(controller->store,
                                     controller->backend->page_rows(controller->backend_state,
@@ -198,6 +195,13 @@ void mesh_ui_controller_handle_key(struct mesh_ui_controller *controller, enum i
                                     controller->backend->focus_map(controller->backend_state,
                                                                    controller->backend_userdata));
     }
+}
+
+void mesh_ui_controller_handle_key(struct mesh_ui_controller *controller, enum inkcell_key key) {
+    if (controller == NULL || controller->store == NULL || key == INKCELL_KEY_NONE) {
+        return;
+    }
+    mesh_ui_controller_read_frame(controller);
     struct mesh_ui_action action;
     const bool repaints = mesh_ui_store_handle_key(controller->store, key, &action);
     /*
@@ -209,6 +213,19 @@ void mesh_ui_controller_handle_key(struct mesh_ui_controller *controller, enum i
      * latency nobody ever waited.
      */
     inkcell_latency_press_handled(repaints);
+    if (action.type != MESH_UI_ACTION_NONE && controller->on_action != NULL) {
+        controller->on_action(controller->action_userdata, &action);
+    }
+}
+
+void mesh_ui_controller_handle_click(struct mesh_ui_controller *controller, uint32_t target) {
+    if (controller == NULL || controller->store == NULL || target == INKCELL_FOCUS_NONE) {
+        return;
+    }
+    mesh_ui_controller_read_frame(controller);
+    struct mesh_ui_action action;
+    /* Confirmed here for the key's reason: only the store knows whether the click did anything. */
+    inkcell_latency_press_handled(mesh_ui_store_handle_click(controller->store, target, &action));
     if (action.type != MESH_UI_ACTION_NONE && controller->on_action != NULL) {
         controller->on_action(controller->action_userdata, &action);
     }
