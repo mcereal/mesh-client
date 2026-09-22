@@ -1,143 +1,47 @@
 #pragma once
 
+#include "inkwell/io/serial.h"
+
 #include <stdbool.h>
-#include <stddef.h>
-#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /*
- * Finding and opening a USB serial port on the Brick.
+ * Which USB serial ports are a radio.
  *
- * The Brick's kernel (TinaLinux 4.9.191) has CONFIG_USB_ACM off with no module, so a native-USB
- * node - a Heltec nRF52840 (239a:4405), say - enumerates as CDC-ACM and then gets no driver and
- * no /dev/ttyACM*. Only cp210x, ch341, ftdi_sio and the generic usbserial driver exist, which
- * cover UART-bridge boards but not native-USB nodes.
+ * inkwell's `io/serial.h` finds the ports - sysfs on the Brick, the I/O Registry on a Mac - and
+ * does the Brick's workaround for a kernel without CDC-ACM (the generic-driver bind, the usbfs
+ * DTR). It reports what the USB tree says about each port and nothing about what that makes it.
+ * This is that half.
  *
- * The workaround, verified end to end on the device: write "VID PID" to
- * /sys/bus/usb-serial/drivers/generic/new_id. The generic driver rejects the control interface
- * ("no bulk out") and attaches the data interface as /dev/ttyUSB*. The node then stays silent
- * until DTR is asserted, because TinyUSB discards output while the host has not set the line
- * state - and the generic driver cannot set it. So one CDC SET_CONTROL_LINE_STATE goes out
- * through usbfs (/dev/bus/usb/BBB/DDD) against the unbound control interface. Neither survives a
- * reboot, so the transport redoes both at start.
- *
- * UART-bridge boards (ESP32 dev kits) need none of this: their driver is present, the tty is
- * already there, and DTR is a normal TIOCMBIS.
- *
- * Everything here is mockable so tests never touch sysfs, usbfs or a real tty.
- */
-
-#define MESH_SERIAL_MAX_DEVICES 8U
-
-/*
- * What the USB device on the other end of this interface actually is.
- *
- * The scan matches two structurally different things and the difference decides whether a
- * bootloader is even a possibility. A UART bridge (CP2102, CH341, FTDI) is a separate chip: the
- * USB device is the adapter, the radio is on the far side of a UART, and USB can say nothing
- * about what is wired to it - so a bridge is never a bootloader, whatever the board behind it is
- * doing. A native-USB node is the MCU's own peripheral, and there the question is real: an
- * Adafruit UF2 bootloader presents a mass-storage endpoint beside its CDC pair, and that
- * sibling interface is the whole tell.
+ * The difference that matters is a bootloader. A UART bridge (CP2102, CH341, FTDI) is a separate
+ * chip: USB says nothing about what is wired to its far side, so a bridge is never a bootloader,
+ * whatever the board behind it is doing, and has to be assumed a radio. A native-USB node is the
+ * MCU's own peripheral, and there the question is real: an Adafruit UF2 bootloader presents a
+ * mass-storage endpoint beside its CDC pair, and that sibling interface is the whole tell.
  *
  * It matters because a bootloader speaks no protobuf and will never answer a handshake. Without
  * this the client binds one, asserts DTR, auto-connects and asks for a config sync that nothing
  * replies to, which reads on the frame as a connected radio with the progress bar turning
  * forever.
  */
-enum mesh_serial_device_role {
-    /* The MCU's own USB, running firmware: what a handshake can be attempted against. Also the
-       answer for a bridge, whose far side we cannot see and must assume is a radio. */
-    MESH_SERIAL_ROLE_NODE,
-    /* A UART bridge chip. Reported separately from a node because the two need different
-       treatment on the Brick - a bridge has a driver and normal DTR, a native node needs the
-       generic-usbserial bind and the usbfs line-state poke - and because only the other kind
-       can be a bootloader. */
-    MESH_SERIAL_ROLE_BRIDGE,
-    /* A UF2 bootloader: a CDC pair with a mass-storage interface (08/06/50) beside it. Not a
-       radio. Phase 3 writes a .uf2 to the drive this exposes; until then it is a row that says
-       what it is and refuses to be connected to. */
-    MESH_SERIAL_ROLE_BOOTLOADER,
-};
 
-struct mesh_serial_device_info {
-    /* Stable identifier for the UI and for reconnects: the sysfs interface name ("1-1:1.1"). */
-    char id[64];
-    /* "/dev/ttyUSB0"; empty until the interface has a driver bound. */
-    char path[64];
-    /* USB product string, falling back to "USB serial". */
-    char name[64];
-    uint16_t vendor_id;
-    uint16_t product_id;
-    uint8_t busnum;
-    uint8_t devnum;
-    /* bInterfaceNumber of the CDC control interface on the same device, or -1 when this is a
-       UART bridge with nothing to set the line state on. */
-    int control_interface;
-    /* A tty node exists for this interface right now. */
-    bool bound;
-    /* Bound by the generic usbserial driver, which cannot drive DTR: it has to go through
-       usbfs after the port is open. */
-    bool needs_line_state;
-    /* enum mesh_serial_device_role, read off the device's own interfaces during the scan.
-       Stored as the enum because nothing outside this header needs to widen it. */
-    enum mesh_serial_device_role role;
-};
+#define MESH_SERIAL_MAX_DEVICES 8U
 
-/* True when this device cannot carry a Meshtastic session - today, only a bootloader. Asked by
-   the transport before it opens a port and by auto-connect before it picks one, so that the two
-   cannot disagree about which devices are candidates. */
-bool mesh_serial_device_is_radio(const struct mesh_serial_device_info *device);
+/* The rate Meshtastic's serial API runs at. Meaningless over a native node's USB CDC; a bridge
+   passes it to the UART. */
+#define MESH_SERIAL_BAUD 115200U
 
-/* Scans /sys/bus/usb/devices (the I/O Registry on macOS) for USB serial candidates: interfaces
-   already bound to a usb-serial driver, plus unbound CDC-Data interfaces that could be bound. Fills
-   in `role` from the sibling interfaces of the device each one belongs to. Returns how many entries
-   were written (at most `capacity`). A bootloader is still returned - it is a row that says what it
-   is, not a device the list hides. */
-size_t mesh_serial_usb_scan(struct mesh_serial_device_info *out, size_t capacity);
+/* A UF2 bootloader: a native port with a mass-storage interface beside it. Not a radio - it is
+   the drive a .uf2 is written to. */
+bool mesh_serial_device_is_bootloader(const struct inkwell_serial_port_info *device);
 
-/* Binds an unbound CDC-Data interface to the generic usbserial driver and waits (up to about a
-   second) for its tty to appear, filling in `device->path` and `device->bound`. Returns 0, or a
-   negative errno. Already-bound devices return 0 immediately. */
-int mesh_serial_usb_bind(struct mesh_serial_device_info *device);
-
-/* Sends one CDC SET_CONTROL_LINE_STATE to the device's control interface through usbfs.
-   Returns 0, -ENOTSUP when the device has no control interface, or a negative errno. */
-int mesh_serial_usb_set_line_state(const struct mesh_serial_device_info *device, bool dtr,
-                                   bool rts);
-
-/* Opens the tty raw and non-blocking at 115200 (meaningless over USB CDC, honoured by bridges).
-   Returns the fd or a negative errno. */
-int mesh_serial_port_open(const char *path);
-void mesh_serial_port_close(int fd);
-
-/* TIOCMBIS/TIOCMBIC on the tty. Returns 0, or a negative errno; -ENOTTY when the fd is not a
-   tty, which is the case for the generic-driver ports that need the usbfs path instead. */
-int mesh_serial_port_set_dtr(int fd, bool on);
-
-struct mesh_serial_usb_mock_config {
-    const struct mesh_serial_device_info *devices;
-    size_t device_count;
-    int scan_result;       /* < 0 makes the scan report nothing */
-    int bind_result;       /* returned by mesh_serial_usb_bind */
-    int line_state_result; /* returned by mesh_serial_usb_set_line_state */
-    /* Path a successful bind reports for a device the scan found unbound. */
-    const char *bound_path;
-    /* When >= 0, mesh_serial_port_open dup()s this instead of opening a tty: tests hand it one
-       end of a socketpair and script the radio from the other. */
-    int open_fd;
-    int open_result; /* < 0 makes every open fail with this */
-};
-
-void mesh_serial_usb_mock_enable(const struct mesh_serial_usb_mock_config *config);
-void mesh_serial_usb_mock_disable(void);
-/* How many times the transport asked for a bind and a line-state assert; lets a test prove the
-   Brick workaround runs exactly once per connect. */
-size_t mesh_serial_usb_mock_bind_calls(void);
-size_t mesh_serial_usb_mock_line_state_calls(void);
+/* Everything else: what a handshake can be attempted against. Asked by the transport before it
+   opens a port and by auto-connect before it picks one, so that the two cannot disagree about
+   which devices are candidates. */
+bool mesh_serial_device_is_radio(const struct inkwell_serial_port_info *device);
 
 #ifdef __cplusplus
 }

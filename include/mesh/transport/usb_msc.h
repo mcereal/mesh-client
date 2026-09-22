@@ -73,7 +73,7 @@ struct mesh_usb_msc_target {
 /*
  * Finds the block device the bootloader named by `device` publishes, and what is mounted on it.
  *
- * `device` is the entry `mesh_serial_usb_scan()` returned - its `id` names a USB *interface*
+ * `device` is the entry `inkwell_serial_scan()` returned - its `id` names a USB *interface*
  * ("2-1:1.2"), and the drive belongs to the USB *device* that interface is part of ("2-1"), so
  * the match is on the device rather than on the interface. It does not have to be the
  * mass-storage interface: a UF2 bootloader publishes one drive and the CDC pair beside it
@@ -83,7 +83,7 @@ struct mesh_usb_msc_target {
  * (which is the ordinary answer for about a second after the board re-enumerates, and is what
  * the caller polls on), or another -errno.
  */
-int mesh_usb_msc_find(const struct mesh_serial_device_info *device,
+int mesh_usb_msc_find(const struct inkwell_serial_port_info *device,
                       struct mesh_usb_msc_target *out);
 
 /*

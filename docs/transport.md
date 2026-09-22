@@ -143,12 +143,15 @@ The parser is **incremental and resync-tolerant** because the firmware interleav
 with frames on the same port: anything that is not a well-formed header goes to a text callback
 and is skipped, and a frame split across reads is held.
 
-`serial_transport.c` scans sysfs every 3 s while idle (never while a port is held), binds and
+`serial_transport.c` scans for ports every 3 s while idle (never while a port is held), binds and
 asserts DTR, opens the tty raw at 115200, sends the 32-byte `0xC3` resync burst, waits 100 ms,
 then runs the same `want_config_id` handshake BLE uses.
 
-On a Mac the scan reads the I/O Registry instead (`serial_usb_iokit.c`), and the id is the
-callout device (`/dev/cu.usbserial-0001`). None of the Brick workaround below applies there:
+**The ports are inkwell's** (`inkwell/io/serial.h`): the scan, the bind, the usbfs line state,
+termios and DTR, and the mock. What stays here is which of those ports is a radio
+(`serial_usb.c`) and the rate Meshtastic talks at (`MESH_SERIAL_BAUD`).
+
+On a Mac the scan reads the I/O Registry instead of sysfs, and the id is the callout device (`/dev/cu.usbserial-0001`). None of the Brick workaround below applies there:
 macOS ships drivers for CDC-ACM and the common bridge chips, so every port is already bound and
 DTR is a plain `TIOCMBIS`.
 
@@ -157,21 +160,21 @@ DTR is a plain `TIOCMBIS`.
 **The Brick's kernel has `CONFIG_USB_ACM` off**, so a native-USB node gets no `/dev/ttyACM*`.
 At connect time:
 
-1. `mesh_serial_usb_bind()` writes `VID PID` to
+1. `inkwell_serial_bind()` writes `VID PID` to
    `/sys/bus/usb-serial/drivers/generic/new_id` — the generic driver refuses the control
    interface ("no bulk out") and takes the data one as `/dev/ttyUSB0` — then waits for the tty.
-2. `mesh_serial_usb_set_line_state()` sends one CDC `SET_CONTROL_LINE_STATE` through usbfs,
+2. `inkwell_serial_set_line_state()` sends one CDC `SET_CONTROL_LINE_STATE` through usbfs,
    because the node discards output until DTR is asserted and the generic driver cannot assert it.
 
 **Neither survives a reboot, so both happen on every connect.** UART-bridge boards
 (cp210x/ch341/ftdi_sio) skip both and take a normal `TIOCMBIS`.
 
-Note the `MESH_IOCTL_REQUEST` shim: glibc's `ioctl` takes `unsigned long`, musl's takes `int`, and
+Note inkwell's `inkwell_ioctl_request_of()`: glibc's `ioctl` takes `unsigned long`, musl's takes `int`, and
 the USBDEVFS codes have the high bit set. The release build is musl and the dev container glibc.
 
-### What is on the other end: `enum mesh_serial_device_role`
+### What is on the other end: a radio or a bootloader
 
-The scan matches two structurally different things:
+The scan reports two structurally different things as `enum inkwell_serial_kind`:
 
 - **a UART bridge** (the V3's CP2102, `10c4:ea60`) — the USB device is *the adapter*, the radio is
   behind a UART where USB cannot see it, so it says nothing about what is wired to it and can
@@ -180,9 +183,8 @@ The scan matches two structurally different things:
   for, and where the question is real.
 
 For the second kind an Adafruit UF2 bootloader answers structurally: it presents a **mass-storage
-Bulk-Only interface (`08/06/50`) beside its CDC pair**. `read_device_facts()` reads that in the
-same walk that finds the CDC control interface — one reading of one device, because two walks are
-how two answers come to disagree about which device they were reading.
+Bulk-Only interface (`08/06/50`) beside its CDC pair**, which inkwell reports as `mass_storage`
+on a native port. `mesh_serial_device_is_bootloader()` is that one reading.
 
 This is a bug fix before it is groundwork: a bootloader presents the same CDC pair the firmware
 did, so every step of a connect succeeds and the handshake is then asked of something that speaks
@@ -194,10 +196,10 @@ before binding anything, auto-connect skips one, and the Devices tab still lists
 A board behind a bridge chip has **no USB-side bootloader signal at all**: an ESP32 in ROM
 download mode leaves the CP2102 unchanged, so that question can only be answered over BLE.
 
-`MESHCLIENT_SYSFS_USB` overrides the sysfs root — nothing in the client sets it; it exists so the
-role reading can be tested against a fixture tree, which the mock cannot do because it replaces
-the scan whole. On a Mac, setting it also switches the scan from the I/O Registry
-back to sysfs, so those cases run on every host.
+`inkwell_serial_set_sysfs_root()` points the scan at a fixture tree — nothing in the client calls
+it outside a test. inkwell's `io_serial` suite reads the kinds off one laid out as the Brick's
+was measured, and `firmware_install.c` walks a radio into its bootloader through one. On a Mac it
+also switches the scan from the I/O Registry back to sysfs, so those cases run on every host.
 
 ## `stream_link.c` — the half both stream links share
 

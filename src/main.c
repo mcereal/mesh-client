@@ -95,7 +95,7 @@ static int select_ble_link(struct mesh_app *app, struct inkwell_ble_device *scra
                            struct mesh_cli_link *link);
 static size_t await_ble_discovery(struct mesh_app *app);
 static int select_serial_link(struct mesh_app *app, const char *requested,
-                              struct mesh_serial_device_info *scratch, size_t scratch_len,
+                              struct inkwell_serial_port_info *scratch, size_t scratch_len,
                               struct mesh_cli_link *link);
 static int select_tcp_link(struct mesh_app *app, struct mesh_cli_link *link);
 static int connect_and_sync(struct mesh_app *app, const struct mesh_cli_link *link);
@@ -281,7 +281,7 @@ static void list_all_devices(struct mesh_app *app) {
 
     struct mesh_transport *serial = mesh_serial_transport();
     const size_t serial_count = mesh_serial_transport_refresh_devices(serial);
-    const struct mesh_serial_device_info *ports = mesh_serial_transport_devices(serial, NULL);
+    const struct inkwell_serial_port_info *ports = mesh_serial_transport_devices(serial, NULL);
     printf("USB serial ports (%zu)\n", serial_count);
     for (size_t i = 0; i < serial_count && ports != NULL; ++i) {
         /* A port that cannot carry a session says so, exactly as the Devices tab badges it:
@@ -861,7 +861,7 @@ static int install_radio_firmware(struct mesh_app *app, const char *target, cons
         return result;
     }
 
-    struct mesh_serial_device_info serial_devices[MESH_SERIAL_MAX_DEVICES];
+    struct inkwell_serial_port_info serial_devices[MESH_SERIAL_MAX_DEVICES];
     struct mesh_cli_link link;
     memset(&link, 0, sizeof link);
     struct cli_firmware_install run;
@@ -1277,7 +1277,7 @@ int main(int argc, char **argv) {
         } else {
             /* The scratch arrays back the peer strings in `link`, so they outlive its use. */
             struct inkwell_ble_device ble_devices[16];
-            struct mesh_serial_device_info serial_devices[MESH_SERIAL_MAX_DEVICES];
+            struct inkwell_serial_port_info serial_devices[MESH_SERIAL_MAX_DEVICES];
             struct mesh_cli_link link;
             memset(&link, 0, sizeof link);
 
@@ -1418,7 +1418,7 @@ static int select_ble_link(struct mesh_app *app, struct inkwell_ble_device *scra
 /* Builds the serial half. `requested` is the --serial argument (NULL or empty means whatever
    --preferred-serial-device says, else the first port found). */
 static int select_serial_link(struct mesh_app *app, const char *requested,
-                              struct mesh_serial_device_info *scratch, size_t scratch_len,
+                              struct inkwell_serial_port_info *scratch, size_t scratch_len,
                               struct mesh_cli_link *link) {
     struct mesh_transport *serial = mesh_serial_transport();
     mesh_serial_transport_refresh_devices(serial);
@@ -1441,7 +1441,7 @@ static int select_serial_link(struct mesh_app *app, const char *requested,
      */
     const bool named = requested != NULL && requested[0] != '\0';
     const char *const wanted = named ? requested : app->config.preferred_serial_device;
-    const struct mesh_serial_device_info *target = NULL;
+    const struct inkwell_serial_port_info *target = NULL;
 
     if (wanted[0] != '\0') {
         for (size_t i = 0; i < count; ++i) {

@@ -100,7 +100,6 @@ add_library(meshclient_core
     src/transport/ble/ble_gatt.c
     src/transport/serial/serial_transport.c
     src/transport/serial/serial_usb.c
-    src/transport/serial/serial_usb_iokit.c
     src/transport/serial/usb_msc.c
     src/transport/tcp/tcp_transport.c
     src/proto/channel_url.c
@@ -276,11 +275,6 @@ target_link_libraries(meshclient_core
         Threads::Threads
         m
 )
-
-# The serial scan's macOS half reads the I/O Registry; see serial_usb_iokit.c.
-if(APPLE)
-    target_link_libraries(meshclient_core PUBLIC "-framework IOKit" "-framework CoreFoundation")
-endif()
 
 add_executable(meshclient src/main.c)
 

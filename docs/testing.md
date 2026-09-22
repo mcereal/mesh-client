@@ -52,7 +52,7 @@ found through constructors and a linker may drop unreferenced library members.
 
 ## Rules
 
-- **Never touch real BlueZ.** Use `inkwell_ble_mock_enable`; `mesh_serial_usb_mock_enable`
+- **Never touch real BlueZ.** Use `inkwell_ble_mock_enable`; `inkwell_serial_mock_enable`
   does the same for sysfs and usbfs, and its `open_fd` hands the link one end of a socketpair.
 - **A helper used by one suite stays `static` in it**, and moves to `support/` when a second
   suite needs it.

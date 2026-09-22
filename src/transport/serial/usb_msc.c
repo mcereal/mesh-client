@@ -223,7 +223,7 @@ static void read_mounts(struct mesh_usb_msc_target *target) {
     fclose(file);
 }
 
-int mesh_usb_msc_find(const struct mesh_serial_device_info *device,
+int mesh_usb_msc_find(const struct inkwell_serial_port_info *device,
                       struct mesh_usb_msc_target *out) {
     if (device == NULL || out == NULL) {
         return -EINVAL;

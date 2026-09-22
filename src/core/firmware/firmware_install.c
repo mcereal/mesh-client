@@ -109,7 +109,7 @@ static bool install_port_of(const char *interface_id, char *out, size_t out_len)
 }
 
 static bool install_on_our_port(const struct mesh_firmware_install *install,
-                                const struct mesh_serial_device_info *device) {
+                                const struct inkwell_serial_port_info *device) {
     if (install->port[0] == '\0') {
         return true;
     }
@@ -119,11 +119,11 @@ static bool install_on_our_port(const struct mesh_firmware_install *install,
 
 /* Finds the bootloader this install is waiting for, or NULL. */
 static bool install_find_bootloader(const struct mesh_firmware_install *install,
-                                    struct mesh_serial_device_info *out) {
-    struct mesh_serial_device_info devices[MESH_SERIAL_MAX_DEVICES];
-    const size_t count = mesh_serial_usb_scan(devices, MESH_SERIAL_MAX_DEVICES);
+                                    struct inkwell_serial_port_info *out) {
+    struct inkwell_serial_port_info devices[MESH_SERIAL_MAX_DEVICES];
+    const size_t count = inkwell_serial_scan(devices, MESH_SERIAL_MAX_DEVICES);
     for (size_t i = 0; i < count; ++i) {
-        if (devices[i].role == MESH_SERIAL_ROLE_BOOTLOADER &&
+        if (mesh_serial_device_is_bootloader(&devices[i]) &&
             install_on_our_port(install, &devices[i])) {
             *out = devices[i];
             return true;
@@ -134,11 +134,10 @@ static bool install_find_bootloader(const struct mesh_firmware_install *install,
 
 /* True while a radio - anything that is not a bootloader - is answering on our port. */
 static bool install_radio_present(const struct mesh_firmware_install *install) {
-    struct mesh_serial_device_info devices[MESH_SERIAL_MAX_DEVICES];
-    const size_t count = mesh_serial_usb_scan(devices, MESH_SERIAL_MAX_DEVICES);
+    struct inkwell_serial_port_info devices[MESH_SERIAL_MAX_DEVICES];
+    const size_t count = inkwell_serial_scan(devices, MESH_SERIAL_MAX_DEVICES);
     for (size_t i = 0; i < count; ++i) {
-        if (devices[i].role != MESH_SERIAL_ROLE_BOOTLOADER &&
-            install_on_our_port(install, &devices[i])) {
+        if (mesh_serial_device_is_radio(&devices[i]) && install_on_our_port(install, &devices[i])) {
             return true;
         }
     }
@@ -163,7 +162,8 @@ static void install_enter_waiting(struct mesh_firmware_install *install, uint64_
 }
 
 static void install_begin_write(struct mesh_firmware_install *install,
-                                const struct mesh_serial_device_info *bootloader, uint64_t now_ms) {
+                                const struct inkwell_serial_port_info *bootloader,
+                                uint64_t now_ms) {
     if (mesh_usb_msc_find(bootloader, &install->target) != 0 || install->target.device[0] == '\0') {
         /* The interface is there and `usb-storage` has not published the disk yet, which is the
            ordinary answer for about a second. Keep waiting rather than failing. */
@@ -205,7 +205,7 @@ static void install_tick_arming(struct mesh_firmware_install *install, uint64_t 
     }
     install->next_poll_ms = now_ms + INSTALL_POLL_MS;
 
-    struct mesh_serial_device_info bootloader;
+    struct inkwell_serial_port_info bootloader;
     if (install_find_bootloader(install, &bootloader)) {
         install_enter_waiting(install, now_ms);
         install_begin_write(install, &bootloader, now_ms);
@@ -228,7 +228,7 @@ static void install_tick_arming(struct mesh_firmware_install *install, uint64_t 
 static void install_tick_waiting(struct mesh_firmware_install *install, uint64_t now_ms) {
     if (now_ms >= install->next_poll_ms) {
         install->next_poll_ms = now_ms + INSTALL_POLL_MS;
-        struct mesh_serial_device_info bootloader;
+        struct inkwell_serial_port_info bootloader;
         if (install_find_bootloader(install, &bootloader)) {
             install_begin_write(install, &bootloader, now_ms);
             return;
@@ -264,7 +264,7 @@ static void install_tick_writing(struct mesh_firmware_install *install, uint64_t
          * A bootloader still sitting on the bus is the other case and keeps its own name: the
          * write really did fail and the recovery is to write it again.
          */
-        struct mesh_serial_device_info bootloader;
+        struct inkwell_serial_port_info bootloader;
         if (install_find_bootloader(install, &bootloader)) {
             install_fail(install, MESH_FIRMWARE_INSTALL_ERROR_WRITE);
             return;
@@ -288,7 +288,7 @@ static void install_tick_restarting(struct mesh_firmware_install *install, uint6
     }
     install->next_poll_ms = now_ms + INSTALL_POLL_MS;
 
-    struct mesh_serial_device_info bootloader;
+    struct inkwell_serial_port_info bootloader;
     const bool still_in_dfu = install_find_bootloader(install, &bootloader);
     if (!still_in_dfu && install_radio_present(install)) {
         /*
