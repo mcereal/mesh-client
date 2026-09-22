@@ -7,7 +7,7 @@ build would be delighted. The layering in docs/architecture.md - data one way, i
 is a rule the compiler cannot see, in exactly the way "no prose in a renderer" is. This is the
 check that does, and check-strings.py is its sibling.
 
-An area is the directory under src/ or include/mesh/, so src/transport/ble/bluez_client.c and
+An area is the directory under src/ or include/mesh/, so src/transport/ble/ble_transport.c and
 include/mesh/transport/transport.h are both `transport`. ALLOWED lists, per area, the areas it
 may include from; including from its own area is always fine, and so is a relative include of a
 file beside it. Both `"mesh/..."` and `<mesh/...>` are read, because both compile. An area missing from ALLOWED may include nothing but itself.

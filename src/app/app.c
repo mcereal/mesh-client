@@ -672,7 +672,7 @@ void mesh_app_autoconnect(struct mesh_app *app) {
                          tcp_target, tcp_result);
     }
 
-    struct mesh_bluez_device_info devices[MESH_UI_MAX_DEVICES];
+    struct inkwell_ble_device devices[MESH_UI_MAX_DEVICES];
     size_t device_count = mesh_ble_transport_get_devices(ble, devices, MESH_UI_MAX_DEVICES);
 
     /*
@@ -682,7 +682,7 @@ void mesh_app_autoconnect(struct mesh_app *app) {
      * outlives the radio being in the room - so a node left at home is in it all day, with the
      * saved address and the saved name and Paired set. Auto-connect used to take that as its
      * target and spend the whole session timing out against a radio in another building while
-     * the one in your pocket advertised into an empty list. See mesh_bluez_device_info.in_range.
+     * the one in your pocket advertised into an empty list. See inkwell_ble_device.in_range.
      */
     size_t in_range[MESH_UI_MAX_DEVICES];
     size_t in_range_count = 0U;
@@ -703,11 +703,11 @@ void mesh_app_autoconnect(struct mesh_app *app) {
         app->autoconnect_started_ms = now;
     }
 
-    const struct mesh_bluez_device_info *target = NULL;
+    const struct inkwell_ble_device *target = NULL;
     const char *preferred = app->config.preferred_ble_device;
     if (preferred[0] != '\0') {
         for (size_t i = 0; i < in_range_count; ++i) {
-            const struct mesh_bluez_device_info *device = &devices[in_range[i]];
+            const struct inkwell_ble_device *device = &devices[in_range[i]];
             if (strcasecmp(device->address, preferred) == 0 ||
                 strcasecmp(device->name, preferred) == 0) {
                 target = device;
@@ -721,10 +721,10 @@ void mesh_app_autoconnect(struct mesh_app *app) {
        using, and the loudest advertiser only decides between nodes you have never connected
        to. */
     if (target == NULL) {
-        const struct mesh_bluez_device_info *known = NULL;
+        const struct inkwell_ble_device *known = NULL;
         int best_rank = -1;
         for (size_t i = 0; i < in_range_count; ++i) {
-            const struct mesh_bluez_device_info *device = &devices[in_range[i]];
+            const struct inkwell_ble_device *device = &devices[in_range[i]];
             const int rank = mesh_ui_preferences_device_rank(&app->ui_preferences, device->address,
                                                              (uint8_t)MESH_UI_DEVICE_BLE);
             if (rank >= 0 && (best_rank < 0 || rank < best_rank)) {

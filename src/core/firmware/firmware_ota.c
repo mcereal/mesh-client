@@ -7,7 +7,7 @@
 #include "inkwell/base/text.h"
 
 #include "inkwell/codec/sha256.h"
-#include "mesh/transport/ble_bluez.h"
+#include "mesh/transport/ble_gatt.h"
 #include "mesh/transport/ble_hci.h"
 
 #include <errno.h>
@@ -127,27 +127,12 @@ enum mesh_firmware_ota_answer mesh_firmware_ota_classify(const char *text) {
     return MESH_FIRMWARE_OTA_ANSWER_UNRELATED;
 }
 
-/* "/org/bluez/hci0" + "9C:13:9E:9D:0A:DA" -> "/org/bluez/hci0/dev_9C_13_9E_9D_0A_DA" */
-static void ota_device_path(const char *adapter_path, const char *address, char *out,
-                            size_t out_len) {
-    const int written = snprintf(out, out_len, "%s/dev_%s", adapter_path, address);
-    if (written < 0 || (size_t)written >= out_len) {
-        out[0] = '\0';
-        return;
-    }
-    for (char *c = out + strlen(adapter_path); *c != '\0'; ++c) {
-        if (*c == ':') {
-            *c = '_';
-        }
-    }
-}
-
 /* ---- the shape every step ends in ----------------------------------------------------------
  */
 
 static void ota_discovery(struct mesh_firmware_ota *ota, bool on) {
     if (on && !ota->discovering) {
-        const int result = mesh_bluez_client_start_discovery(ota->client, ota->adapter_path);
+        const int result = inkwell_ble_start_discovery(ota->client);
         /* Discovery is counted per D-Bus client, so another client's scan does not make ours an
            error - but a failure here is a scan that never hears the loader, so say so. */
         if (result == 0) {
@@ -156,7 +141,7 @@ static void ota_discovery(struct mesh_firmware_ota *ota, bool on) {
             inkwell_log_warn("firmware", "Could not start a scan: %d", result);
         }
     } else if (!on && ota->discovering) {
-        (void)mesh_bluez_client_stop_discovery(ota->client, ota->adapter_path);
+        (void)inkwell_ble_stop_discovery(ota->client);
         ota->discovering = false;
     }
 }
@@ -164,9 +149,9 @@ static void ota_discovery(struct mesh_firmware_ota *ota, bool on) {
 /* Lets go of the loader: its notifications, any write in flight, and the link itself. */
 static void ota_release_loader(struct mesh_firmware_ota *ota) {
     mesh_ble_ota_detach(&ota->conversation);
-    mesh_bluez_client_connect_cancel(ota->client);
-    if (ota->connected && ota->loader_path[0] != '\0') {
-        (void)mesh_bluez_client_disconnect(ota->client, ota->loader_path);
+    inkwell_ble_connect_cancel(ota->client);
+    if (ota->connected && ota->loader_address[0] != '\0') {
+        (void)inkwell_ble_disconnect(ota->client, ota->loader_address);
     }
     ota->connected = false;
 }
@@ -257,9 +242,9 @@ static void ota_tick_arming(struct mesh_firmware_ota *ota, uint64_t now_ms) {
     ota_enter_waiting(ota, now_ms);
 }
 
-static const struct mesh_bluez_device_info *
-ota_pick_loader(struct mesh_firmware_ota *ota, const struct mesh_bluez_device_info *devices,
-                size_t count) {
+static const struct inkwell_ble_device *ota_pick_loader(struct mesh_firmware_ota *ota,
+                                                        const struct inkwell_ble_device *devices,
+                                                        size_t count) {
     char expected[MESH_FIRMWARE_OTA_ADDRESS_MAX] = {0};
     if (ota->loader_address[0] != '\0') {
         inkwell_str_copy(expected, sizeof expected, ota->loader_address);
@@ -267,7 +252,7 @@ ota_pick_loader(struct mesh_firmware_ota *ota, const struct mesh_bluez_device_in
         (void)mesh_firmware_ota_offset_address(ota->radio_address, 1, expected, sizeof expected);
     }
 
-    const struct mesh_bluez_device_info *heard = NULL;
+    const struct inkwell_ble_device *heard = NULL;
     size_t heard_count = 0U;
     for (size_t i = 0; i < count; ++i) {
         if (!devices[i].in_range) {
@@ -302,11 +287,9 @@ ota_pick_loader(struct mesh_firmware_ota *ota, const struct mesh_bluez_device_in
 }
 
 static void ota_begin_connect(struct mesh_firmware_ota *ota,
-                              const struct mesh_bluez_device_info *loader, uint64_t now_ms) {
+                              const struct inkwell_ble_device *loader, uint64_t now_ms) {
     ota->loader_seen = true;
     inkwell_str_copy(ota->loader_address, sizeof ota->loader_address, loader->address);
-    ota_device_path(ota->adapter_path, ota->loader_address, ota->loader_path,
-                    sizeof ota->loader_path);
     if (ota->radio_address[0] == '\0') {
         /* A board already in its loader, found without knowing whose it is. The rule runs
            backwards as well, and it is what the restart is then watched for. */
@@ -335,7 +318,7 @@ static void ota_begin_connect(struct mesh_firmware_ota *ota,
      * attempt below it re-scanned and won the race, so the install finished - which is what a
      * race looks like from the outside, and why this was worth ordering rather than retrying.
      */
-    const int result = mesh_bluez_client_connect_begin(ota->client, ota->loader_path);
+    const int result = inkwell_ble_connect_begin(ota->client, ota->loader_address);
     if (result < 0) {
         inkwell_log_warn("firmware", "Connect to the loader would not start: %d", result);
         /* The scan stays up for the retry, which is about to want it. */
@@ -348,12 +331,11 @@ static void ota_begin_connect(struct mesh_firmware_ota *ota,
 static void ota_tick_waiting(struct mesh_firmware_ota *ota, uint64_t now_ms) {
     if (now_ms >= ota->next_poll_ms) {
         ota->next_poll_ms = now_ms + OTA_POLL_MS;
-        struct mesh_bluez_device_info devices[OTA_SCAN_MAX];
+        struct inkwell_ble_device devices[OTA_SCAN_MAX];
         size_t count = 0U;
-        if (mesh_bluez_client_list_by_service(ota->client, MESH_BLE_OTA_SERVICE_UUID, devices,
-                                              OTA_SCAN_MAX, &count) == 0) {
-            const struct mesh_bluez_device_info *const loader =
-                ota_pick_loader(ota, devices, count);
+        if (inkwell_ble_list_by_service(ota->client, MESH_BLE_OTA_SERVICE_UUID, devices,
+                                        OTA_SCAN_MAX, &count) == 0) {
+            const struct inkwell_ble_device *const loader = ota_pick_loader(ota, devices, count);
             if (loader != NULL) {
                 ota_begin_connect(ota, loader, now_ms);
                 return;
@@ -368,7 +350,7 @@ static void ota_tick_waiting(struct mesh_firmware_ota *ota, uint64_t now_ms) {
 static void ota_tick_connecting(struct mesh_firmware_ota *ota, uint64_t now_ms) {
     if (!ota->connected) {
         int result = 0;
-        const int polled = mesh_bluez_client_connect_poll(ota->client, &result);
+        const int polled = inkwell_ble_connect_poll(ota->client, &result);
         if (polled == 1 && result < 0) {
             inkwell_log_warn("firmware", "The loader refused the connection: %d", result);
             ota_retry(ota, MESH_FIRMWARE_OTA_ERROR_CONNECT, now_ms);
@@ -393,10 +375,10 @@ static void ota_tick_connecting(struct mesh_firmware_ota *ota, uint64_t now_ms) 
     if (ota->connected && now_ms >= ota->next_poll_ms) {
         ota->next_poll_ms = now_ms + OTA_CONNECT_POLL_MS;
         bool resolved = false;
-        if (mesh_bluez_client_services_resolved(ota->client, ota->loader_path, &resolved) == 0 &&
+        if (inkwell_ble_services_resolved(ota->client, ota->loader_address, &resolved) == 0 &&
             resolved) {
             const int attached =
-                mesh_ble_ota_attach(&ota->conversation, ota->client, ota->loader_path);
+                mesh_ble_ota_attach(&ota->conversation, ota->client, ota->loader_address);
             if (attached < 0) {
                 ota_retry(ota, MESH_FIRMWARE_OTA_ERROR_CONNECT, now_ms);
                 return;
@@ -463,7 +445,7 @@ static void ota_tick_sending(struct mesh_firmware_ota *ota, uint64_t now_ms) {
     if (now_ms >= ota->next_poll_ms) {
         ota->next_poll_ms = now_ms + OTA_POLL_MS;
         bool connected = true;
-        if (mesh_bluez_client_device_connected(ota->client, ota->loader_path, &connected) == 0 &&
+        if (inkwell_ble_device_connected(ota->client, ota->loader_address, &connected) == 0 &&
             !connected) {
             inkwell_log_warn("firmware", "Lost the loader at %u%%",
                              mesh_ble_ota_progress(&ota->conversation));
@@ -482,10 +464,10 @@ static void ota_tick_restarting(struct mesh_firmware_ota *ota, uint64_t now_ms) 
     /* The radio advertising where it was, heard in this scan. Discovery was stopped for the
        transfer and started again for this, so an RSSI on the radio's address is an advertisement
        from the firmware the loader just wrote rather than one left over from before. */
-    struct mesh_bluez_device_info devices[OTA_SCAN_MAX];
+    struct inkwell_ble_device devices[OTA_SCAN_MAX];
     size_t count = 0U;
     bool back = false;
-    if (mesh_bluez_client_list_meshtastic(ota->client, devices, OTA_SCAN_MAX, &count) == 0) {
+    if (mesh_ble_list_meshtastic(ota->client, devices, OTA_SCAN_MAX, &count) == 0) {
         for (size_t i = 0; i < count && !back; ++i) {
             back = devices[i].in_range && strcasecmp(devices[i].address, ota->radio_address) == 0;
         }

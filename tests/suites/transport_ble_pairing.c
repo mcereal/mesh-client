@@ -85,7 +85,7 @@ MESH_TEST_CASE(ble_transport_pair_then_connect, unit) {
     if (!mesh_ble_transport_pairing_request(ble, &request)) {
         PAIR_TEST_FAIL("the agent should be waiting for a PIN");
     }
-    if (request.kind != (uint8_t)MESH_BLUEZ_AGENT_REQUEST_PASSKEY ||
+    if (request.kind != (uint8_t)INKWELL_BLE_AGENT_REQUEST_PASSKEY ||
         strcmp(request.address, rig.devices[0].address) != 0) {
         PAIR_TEST_FAIL("the request should name the node it is bonding");
     }

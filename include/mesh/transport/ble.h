@@ -3,7 +3,7 @@
 #include "mesh/core/message.h"
 #include "mesh/core/radio_settings.h"
 #include "mesh/core/session.h"
-#include "mesh/transport/ble_bluez.h"
+#include "mesh/transport/ble_gatt.h"
 #include "mesh/transport/transport.h"
 
 #include <stdbool.h>
@@ -13,10 +13,10 @@ extern "C" {
 #endif
 
 struct mesh_transport *mesh_ble_transport(void);
-const struct mesh_bluez_device_info *mesh_ble_transport_devices(struct mesh_transport *transport,
-                                                                size_t *count);
+const struct inkwell_ble_device *mesh_ble_transport_devices(struct mesh_transport *transport,
+                                                            size_t *count);
 size_t mesh_ble_transport_get_devices(struct mesh_transport *transport,
-                                      struct mesh_bluez_device_info *out, size_t capacity);
+                                      struct inkwell_ble_device *out, size_t capacity);
 size_t mesh_ble_transport_refresh_devices(struct mesh_transport *transport);
 /* Connects to a node BlueZ already holds a bond for (or one that needs none). An unpaired
    node in PIN mode gets as far as GATT and then fails on StartNotify: bonding is deliberate,
@@ -36,9 +36,9 @@ int mesh_ble_transport_disconnect(struct mesh_transport *transport);
  * Meshtastic node is the six-digit PIN it shows on its own screen while pairing.
  */
 struct mesh_ble_pairing_request {
-    uint8_t kind;     /* enum mesh_bluez_agent_request_kind */
-    char address[32]; /* the node BlueZ is bonding with */
-    char label[16];   /* its short form, e.g. "6D:DA", for a one-line prompt */
+    uint8_t kind;                          /* enum inkwell_ble_agent_request_kind */
+    char address[INKWELL_BLE_ADDRESS_MAX]; /* the node the stack is bonding with */
+    char label[16];                        /* its short form, e.g. "6D:DA", for a one-line prompt */
     uint32_t passkey; /* CONFIRM only: the number to check against the node's screen */
 };
 

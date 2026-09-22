@@ -5,8 +5,8 @@
 #include "inkwell/base/log.h"
 #include "inkwell/base/text.h"
 
+#include "inkwell/ble/central.h"
 #include "inkwell/codec/sha256.h"
-#include "mesh/transport/ble_bluez.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -153,8 +153,8 @@ static bool ota_pump(struct mesh_ble_ota *ota, uint64_t now_ms) {
     }
     /* The same call issues the write and, while its reply is pending, polls it - so it is made
        with the same bytes until it stops answering -EAGAIN. */
-    const int result = mesh_bluez_client_write(
-        ota->client, ota->write_path, MESH_BLE_OTA_WRITE_UUID, ota->write_data, ota->write_len);
+    const int result =
+        inkwell_ble_write(ota->client, ota->write_handle, ota->write_data, ota->write_len);
     if (result == -EAGAIN) {
         return true;
     }
@@ -288,41 +288,41 @@ static bool ota_handle(struct mesh_ble_ota *ota, const struct mesh_ble_ota_event
 /* ---- the public half -----------------------------------------------------------------------
  */
 
-int mesh_ble_ota_attach(struct mesh_ble_ota *ota, struct mesh_bluez_client *client,
-                        const char *device_path) {
-    if (ota == NULL || client == NULL || device_path == NULL) {
+int mesh_ble_ota_attach(struct mesh_ble_ota *ota, struct inkwell_ble_central *client,
+                        const char *address) {
+    if (ota == NULL || client == NULL || address == NULL) {
         return -EINVAL;
     }
     memset(ota, 0, sizeof *ota);
     ota->client = client;
 
-    int result = mesh_bluez_client_find_characteristic(client, device_path, MESH_BLE_OTA_WRITE_UUID,
-                                                       ota->write_path, sizeof ota->write_path);
+    int result = inkwell_ble_find_characteristic(client, address, MESH_BLE_OTA_WRITE_UUID,
+                                                 ota->write_handle, sizeof ota->write_handle);
     if (result < 0) {
-        inkwell_log_warn("ble_ota", "No OTA characteristic under %s: %d", device_path, result);
+        inkwell_log_warn("ble_ota", "No OTA characteristic on %s: %d", address, result);
         return result;
     }
-    result = mesh_bluez_client_find_characteristic(client, device_path, MESH_BLE_OTA_NOTIFY_UUID,
-                                                   ota->notify_path, sizeof ota->notify_path);
+    result = inkwell_ble_find_characteristic(client, address, MESH_BLE_OTA_NOTIFY_UUID,
+                                             ota->notify_handle, sizeof ota->notify_handle);
     if (result < 0) {
-        inkwell_log_warn("ble_ota", "No answer characteristic under %s: %d", device_path, result);
+        inkwell_log_warn("ble_ota", "No answer characteristic on %s: %d", address, result);
         return result;
     }
 
     uint16_t mtu = 0U;
-    result = mesh_bluez_client_characteristic_mtu(client, ota->write_path, &mtu);
+    result = inkwell_ble_characteristic_mtu(client, ota->write_handle, &mtu);
     ota->mtu = result == 0 ? mtu : 0U;
     ota->chunk = mesh_ble_ota_chunk_for_mtu(ota->mtu);
     if (result != 0) {
         /* Correct and slow: twenty bytes always fit a Write Request, so the cadence holds. */
-        inkwell_log_warn("ble_ota", "BlueZ reported no MTU (%d); writing %zu-byte chunks", result,
-                         ota->chunk);
+        inkwell_log_warn("ble_ota", "The stack reported no MTU (%d); writing %zu-byte chunks",
+                         result, ota->chunk);
     }
 
-    mesh_bluez_client_set_notification_handler(client, ota_notification, ota);
-    result = mesh_bluez_client_subscribe(client, ota->notify_path, MESH_BLE_OTA_NOTIFY_UUID);
+    inkwell_ble_set_notification_handler(client, ota_notification, ota);
+    result = inkwell_ble_subscribe(client, ota->notify_handle);
     if (result < 0) {
-        mesh_bluez_client_set_notification_handler(client, NULL, NULL);
+        inkwell_ble_set_notification_handler(client, NULL, NULL);
         inkwell_log_warn("ble_ota", "Could not subscribe to the loader's answers: %d", result);
         return result;
     }
@@ -333,7 +333,7 @@ int mesh_ble_ota_attach(struct mesh_ble_ota *ota, struct mesh_bluez_client *clie
 
 int mesh_ble_ota_begin(struct mesh_ble_ota *ota, const uint8_t *image, size_t image_len,
                        const uint8_t sha256[32], uint64_t now_ms) {
-    if (ota == NULL || ota->client == NULL || ota->write_path[0] == '\0' || image == NULL ||
+    if (ota == NULL || ota->client == NULL || ota->write_handle[0] == '\0' || image == NULL ||
         image_len == 0U || sha256 == NULL || ota->chunk == 0U) {
         return -EINVAL;
     }
@@ -395,8 +395,8 @@ void mesh_ble_ota_detach(struct mesh_ble_ota *ota) {
     if (ota == NULL || ota->client == NULL) {
         return;
     }
-    mesh_bluez_client_set_notification_handler(ota->client, NULL, NULL);
-    mesh_bluez_client_requests_cancel(ota->client);
+    inkwell_ble_set_notification_handler(ota->client, NULL, NULL);
+    inkwell_ble_requests_cancel(ota->client);
     ota->write_data = NULL;
 }
 

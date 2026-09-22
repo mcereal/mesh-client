@@ -8,13 +8,13 @@
 #include "support/proto_fixture.h"
 #include "support/serial_fixture.h"
 
+#include "inkwell/ble/central.h"
 #include "inkwell/runtime/loop.h"
 #include "mesh/app/app.h"
 #include "mesh/core/config.h"
 #include "mesh/core/session.h"
 #include "mesh/proto/stream_framing.h"
 #include "mesh/transport/ble.h"
-#include "mesh/transport/ble_bluez.h"
 #include "mesh/transport/tcp.h"
 #include "mesh/transport/transport.h"
 #include "mesh/ui/preferences.h"
@@ -1232,12 +1232,12 @@ MESH_TEST_CASE(tcp_link_leaves_the_bluetooth_grace_short, unit) {
     /* The preferred radio is the one left at home - an rssi of 0 is a bond with nothing
        advertising behind it - and the other is in earshot and ours, so it is what the short
        grace hands the slot to. */
-    struct mesh_bluez_device_info mock_devices[] = {
+    struct inkwell_ble_device mock_devices[] = {
         {.address = "AA:BB:CC:DD:EE:07", .name = "NodeSeven", .rssi = 0, .paired = true},
         {.address = "AA:BB:CC:DD:EE:06", .name = "NodeSix", .rssi = -70, .paired = true},
     };
-    struct mesh_bluez_mock_config mock_config = {
-        .adapter_path = "/org/bluez/hci0",
+    struct inkwell_ble_mock_config mock_config = {
+        .adapter_name = "/org/bluez/hci0",
         .devices = mock_devices,
         .device_count = 2U,
     };
@@ -1254,7 +1254,7 @@ MESH_TEST_CASE(tcp_link_leaves_the_bluetooth_grace_short, unit) {
     setenv("HOME", home_dir, 1);
     setenv("MESHCLIENT_UI_BACKEND", "stub", 1);
     unsetenv("MESHCLIENT_AUTOCONNECT");
-    mesh_bluez_client_mock_enable(&mock_config);
+    inkwell_ble_mock_enable(&mock_config);
     mock_enabled = true;
 
     struct mesh_app_config config = mesh_app_config_default();
@@ -1342,7 +1342,7 @@ cleanup:
         mesh_app_shutdown(&app);
     }
     if (mock_enabled) {
-        mesh_bluez_client_mock_disable();
+        inkwell_ble_mock_disable();
     }
     tcp_test_radio_close(&radio);
     unsetenv("MESHCLIENT_UI_BACKEND");

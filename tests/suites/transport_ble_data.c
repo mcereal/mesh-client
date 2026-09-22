@@ -6,6 +6,7 @@
 #include "support/ble_fixture.h"
 #include "support/proto_fixture.h"
 
+#include "inkwell/ble/central.h"
 #include "inkwell/runtime/loop.h"
 #include "mesh/app/app.h"
 #include "mesh/core/config.h"
@@ -13,7 +14,6 @@
 #include "mesh/core/radio_settings.h"
 #include "mesh/core/session.h"
 #include "mesh/transport/ble.h"
-#include "mesh/transport/ble_bluez.h"
 #include "mesh/transport/transport.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/settings.h"
@@ -150,7 +150,7 @@ MESH_TEST_CASE(ble_transport_messaging_mock, unit) {
     rig.read_payload_lengths[2] = 0U; /* empty read terminates the drain */
 
     rig.read_index = 0U;
-    mesh_bluez_client_mock_emit_notification(rig.fromnum_path, from_num, sizeof(from_num));
+    inkwell_ble_mock_emit_notification(rig.fromnum_path, from_num, sizeof(from_num));
     for (int spin = 0; spin < 20 && rig.read_index < 3U; ++spin) {
         inkwell_loop_run(&rig.loop, 10);
         ble->ops->tick(ble);
@@ -248,7 +248,7 @@ MESH_TEST_CASE(ble_transport_messaging_mock, unit) {
     rig.read_payload_lengths[2] = 0U;
 
     rig.read_index = 0U;
-    mesh_bluez_client_mock_emit_notification(rig.fromnum_path, from_num, sizeof(from_num));
+    inkwell_ble_mock_emit_notification(rig.fromnum_path, from_num, sizeof(from_num));
     for (int spin = 0; spin < 20 && rig.read_index < 2U; ++spin) {
         inkwell_loop_run(&rig.loop, 10);
         ble->ops->tick(ble);
@@ -507,7 +507,7 @@ MESH_TEST_CASE(ble_transport_admin_probe, unit) {
         ble->ops->tick(ble);
         inkwell_loop_run(&rig.loop, 10);
         if (mesh_ble_transport_connected_address(ble) != NULL && spin % 5 == 0) {
-            mesh_bluez_client_mock_emit_notification(rig.fromnum_path, from_num, sizeof from_num);
+            inkwell_ble_mock_emit_notification(rig.fromnum_path, from_num, sizeof from_num);
         }
     }
 
@@ -536,7 +536,7 @@ MESH_TEST_CASE(ble_transport_admin_probe, unit) {
     rig.read_index = 5U;
     mesh_test_ble_rig_script(&rig, 5U, &from_radio);
     const size_t writes_before = rig.write_call_count;
-    mesh_bluez_client_mock_emit_notification(rig.fromnum_path, from_num, sizeof from_num);
+    inkwell_ble_mock_emit_notification(rig.fromnum_path, from_num, sizeof from_num);
     for (int spin = 0; spin < 20 && rig.write_call_count == writes_before; ++spin) {
         inkwell_loop_run(&rig.loop, 10);
         ble->ops->tick(ble);
@@ -586,7 +586,7 @@ MESH_TEST_CASE(ble_transport_admin_probe, unit) {
     rig.read_index = 7U;
     mesh_test_ble_rig_script(&rig, 7U, &from_radio);
     const size_t writes_before_reply = rig.write_call_count;
-    mesh_bluez_client_mock_emit_notification(rig.fromnum_path, from_num, sizeof from_num);
+    inkwell_ble_mock_emit_notification(rig.fromnum_path, from_num, sizeof from_num);
     for (int spin = 0; spin < 20 && rig.write_call_count == writes_before_reply; ++spin) {
         inkwell_loop_run(&rig.loop, 10);
         ble->ops->tick(ble);
@@ -679,7 +679,7 @@ MESH_TEST_CASE(ble_transport_settings_write, unit) {
         ble->ops->tick(ble);
         inkwell_loop_run(&rig.loop, 10);
         if (mesh_ble_transport_connected_address(ble) != NULL && spin % 5 == 0) {
-            mesh_bluez_client_mock_emit_notification(rig.fromnum_path, from_num, sizeof from_num);
+            inkwell_ble_mock_emit_notification(rig.fromnum_path, from_num, sizeof from_num);
         }
     }
     const struct mesh_radio_settings *settings = mesh_ble_transport_settings(ble);
@@ -747,7 +747,7 @@ MESH_TEST_CASE(ble_transport_settings_write, unit) {
         }
         rig.read_index = slot;
         slot += 2U; /* leave an empty slot to end each drain */
-        mesh_bluez_client_mock_emit_notification(rig.fromnum_path, from_num, sizeof from_num);
+        inkwell_ble_mock_emit_notification(rig.fromnum_path, from_num, sizeof from_num);
         for (int spin = 0; spin < 5; ++spin) {
             inkwell_loop_run(&rig.loop, 10);
             ble->ops->tick(ble);
@@ -788,7 +788,7 @@ MESH_TEST_CASE(ble_transport_settings_write, unit) {
                                 &rig.read_payload_lengths[slot], NULL);
         rig.read_index = slot;
         slot += 2U;
-        mesh_bluez_client_mock_emit_notification(rig.fromnum_path, from_num, sizeof from_num);
+        inkwell_ble_mock_emit_notification(rig.fromnum_path, from_num, sizeof from_num);
         for (int spin = 0; spin < 5; ++spin) {
             inkwell_loop_run(&rig.loop, 10);
             ble->ops->tick(ble);
@@ -815,68 +815,67 @@ MESH_TEST_CASE(bluez_async_read_pending_cancel_timeout_and_bounds, unit) {
     const uint8_t *payloads[] = {payload, payload};
     const size_t lengths[] = {sizeof payload, sizeof payload};
     size_t index = 0U;
-    struct mesh_bluez_mock_config config = {
+    struct inkwell_ble_mock_config config = {
         .read_payloads = payloads,
         .read_payload_lengths = lengths,
         .read_payload_count = 2U,
         .read_index = &index,
         .read_pending_polls = 2U,
     };
-    mesh_bluez_client_mock_enable(&config);
-    struct mesh_bluez_client client = {0};
+    inkwell_ble_mock_enable(&config);
+    struct inkwell_ble_central client = {0};
     const char *failure = NULL;
-    if (mesh_bluez_client_init(&client) != 0) {
+    if (inkwell_ble_open(&client) != 0) {
         failure = "mock client init failed";
         goto cleanup;
     }
     unsigned ready = 0U;
     client.read_ready = test_read_ready;
-    client.read_userdata = &ready;
+    client.userdata = &ready;
     uint8_t buffer[16];
     size_t len = 99U;
-    if (mesh_bluez_client_read(&client, "/fromradio", buffer, sizeof buffer, &len) != -EAGAIN ||
+    if (inkwell_ble_read(&client, "/fromradio", buffer, sizeof buffer, &len) != -EAGAIN ||
         len != 0U || index != 0U) {
         failure = "starting a read must yield without consuming a payload";
         goto cleanup;
     }
-    mesh_bluez_client_process(&client);
+    inkwell_ble_process(&client);
     if (ready != 0U ||
-        mesh_bluez_client_read(&client, "/fromradio", buffer, sizeof buffer, &len) != -EAGAIN) {
+        inkwell_ble_read(&client, "/fromradio", buffer, sizeof buffer, &len) != -EAGAIN) {
         failure = "an unfinished read must stay pending";
         goto cleanup;
     }
-    mesh_bluez_client_process(&client);
-    if (ready != 1U ||
-        mesh_bluez_client_read(&client, "/fromradio", buffer, sizeof buffer, &len) != 0 ||
+    inkwell_ble_process(&client);
+    if (ready != 1U || inkwell_ble_read(&client, "/fromradio", buffer, sizeof buffer, &len) != 0 ||
         len != sizeof payload || memcmp(buffer, payload, len) != 0 || index != 1U) {
         failure = "completion must wake the caller and return exactly one packet";
         goto cleanup;
     }
-    (void)mesh_bluez_client_read(&client, "/fromradio", buffer, sizeof buffer, &len);
-    mesh_bluez_client_read_cancel(&client);
-    mesh_bluez_client_process(&client);
-    mesh_bluez_client_process(&client);
+    (void)inkwell_ble_read(&client, "/fromradio", buffer, sizeof buffer, &len);
+    inkwell_ble_read_cancel(&client);
+    inkwell_ble_process(&client);
+    inkwell_ble_process(&client);
     if (ready != 1U || index != 1U) {
         failure = "cancelled reads must not complete or consume another packet";
         goto cleanup;
     }
-    (void)mesh_bluez_client_read(&client, "/fromradio", buffer, sizeof buffer, &len);
+    (void)inkwell_ble_read(&client, "/fromradio", buffer, sizeof buffer, &len);
     client.read_deadline_ms = 0U;
-    mesh_bluez_client_process(&client);
+    inkwell_ble_process(&client);
     if (ready != 2U ||
-        mesh_bluez_client_read(&client, "/fromradio", buffer, sizeof buffer, &len) != -ETIMEDOUT) {
+        inkwell_ble_read(&client, "/fromradio", buffer, sizeof buffer, &len) != -ETIMEDOUT) {
         failure = "a missing reply must complete as a timeout";
         goto cleanup;
     }
-    (void)mesh_bluez_client_read(&client, "/fromradio", buffer, sizeof buffer, &len);
-    mesh_bluez_client_process(&client);
-    mesh_bluez_client_process(&client);
-    if (mesh_bluez_client_read(&client, "/fromradio", buffer, 1U, &len) != -EMSGSIZE || len != 0U) {
+    (void)inkwell_ble_read(&client, "/fromradio", buffer, sizeof buffer, &len);
+    inkwell_ble_process(&client);
+    inkwell_ble_process(&client);
+    if (inkwell_ble_read(&client, "/fromradio", buffer, 1U, &len) != -EMSGSIZE || len != 0U) {
         failure = "oversized replies must fail instead of being truncated";
     }
 cleanup:
-    mesh_bluez_client_shutdown(&client);
-    mesh_bluez_client_mock_disable();
+    inkwell_ble_close(&client);
+    inkwell_ble_mock_disable();
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }

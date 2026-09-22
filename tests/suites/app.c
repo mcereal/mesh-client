@@ -15,6 +15,7 @@
 #endif
 #include "inkwell/runtime/timer.h"
 
+#include "inkwell/ble/central.h"
 #include "mesh/app/app.h"
 #include "mesh/core/config.h"
 #include "mesh/core/message.h"
@@ -23,7 +24,6 @@
 #include "mesh/i18n/strings.h"
 #include "mesh/proto/stream_framing.h"
 #include "mesh/transport/ble.h"
-#include "mesh/transport/ble_bluez.h"
 #include "mesh/transport/serial.h"
 #include "mesh/transport/serial_usb.h"
 #include "mesh/transport/transport.h"
@@ -89,27 +89,27 @@ static uint64_t test_now_ms(void) {
 MESH_TEST_CASE(app_autoconnect_policy, unit) {
     const char *failure = NULL;
 
-    struct mesh_bluez_device_info mock_devices[] = {
+    struct inkwell_ble_device mock_devices[] = {
         {.address = "AA:BB:CC:DD:EE:06", .name = "NodeSix", .rssi = -30, .paired = true},
         {.address = "AA:BB:CC:DD:EE:07", .name = "NodeSeven", .rssi = -70, .paired = true},
     };
 
     uint8_t write_capture[64];
     size_t write_len = 0U;
-    struct mesh_bluez_mock_config mock_config = {
-        .adapter_path = "/org/bluez/hci0",
+    struct inkwell_ble_mock_config mock_config = {
+        .adapter_name = "/org/bluez/hci0",
         .devices = mock_devices,
         .device_count = 2U,
         .write_capture_buffer = write_capture,
         .write_capture_capacity = sizeof(write_capture),
         .write_capture_length = &write_len,
     };
-    mesh_bluez_client_mock_enable(&mock_config);
+    inkwell_ble_mock_enable(&mock_config);
 
     /* Keep the app's preference files out of the real $HOME. */
     char home_dir[APP_TEST_HOME_CAP];
     if (!app_test_home(home_dir, sizeof home_dir, "autoconnect")) {
-        mesh_bluez_client_mock_disable();
+        inkwell_ble_mock_disable();
         record_failure(test_name, "mkdtemp failed");
         return;
     }
@@ -184,7 +184,7 @@ cleanup:
     if (app_ready) {
         mesh_app_shutdown(&app);
     }
-    mesh_bluez_client_mock_disable();
+    inkwell_ble_mock_disable();
     unsetenv("MESHCLIENT_UI_BACKEND");
     {
         char path[256];
@@ -213,26 +213,26 @@ MESH_TEST_CASE(app_autoconnect_ignores_a_node_out_of_range, unit) {
 
     /* NodeSeven is the bond with nothing behind it: the 0 is what bluetoothd leaves when it
        has not heard a device in this scan. NodeSix is the radio in your pocket. */
-    struct mesh_bluez_device_info mock_devices[] = {
+    struct inkwell_ble_device mock_devices[] = {
         {.address = "AA:BB:CC:DD:EE:07", .name = "NodeSeven", .rssi = 0, .paired = true},
         {.address = "AA:BB:CC:DD:EE:06", .name = "NodeSix", .rssi = -70, .paired = true},
     };
 
     uint8_t write_capture[64];
     size_t write_len = 0U;
-    struct mesh_bluez_mock_config mock_config = {
-        .adapter_path = "/org/bluez/hci0",
+    struct inkwell_ble_mock_config mock_config = {
+        .adapter_name = "/org/bluez/hci0",
         .devices = mock_devices,
         .device_count = 2U,
         .write_capture_buffer = write_capture,
         .write_capture_capacity = sizeof(write_capture),
         .write_capture_length = &write_len,
     };
-    mesh_bluez_client_mock_enable(&mock_config);
+    inkwell_ble_mock_enable(&mock_config);
 
     char home_dir[APP_TEST_HOME_CAP];
     if (!app_test_home(home_dir, sizeof home_dir, "out_of_range")) {
-        mesh_bluez_client_mock_disable();
+        inkwell_ble_mock_disable();
         record_failure(test_name, "mkdtemp failed");
         return;
     }
@@ -304,7 +304,7 @@ cleanup:
     if (app_ready) {
         mesh_app_shutdown(&app);
     }
-    mesh_bluez_client_mock_disable();
+    inkwell_ble_mock_disable();
     unsetenv("MESHCLIENT_UI_BACKEND");
     {
         char path[256];
@@ -326,22 +326,22 @@ cleanup:
 MESH_TEST_CASE(app_autoconnect_prefers_a_radio_of_ours, unit) {
     const char *failure = NULL;
 
-    struct mesh_bluez_device_info mock_devices[] = {
+    struct inkwell_ble_device mock_devices[] = {
         {.address = "AA:BB:CC:DD:EE:20", .name = "Stranger", .rssi = -25, .paired = true},
         {.address = "AA:BB:CC:DD:EE:21", .name = "MineOlder", .rssi = -80, .paired = true},
         {.address = "AA:BB:CC:DD:EE:22", .name = "MineRecent", .rssi = -85, .paired = true},
     };
 
-    struct mesh_bluez_mock_config mock_config = {
-        .adapter_path = "/org/bluez/hci0",
+    struct inkwell_ble_mock_config mock_config = {
+        .adapter_name = "/org/bluez/hci0",
         .devices = mock_devices,
         .device_count = 3U,
     };
-    mesh_bluez_client_mock_enable(&mock_config);
+    inkwell_ble_mock_enable(&mock_config);
 
     char home_dir[APP_TEST_HOME_CAP];
     if (!app_test_home(home_dir, sizeof home_dir, "own_radio")) {
-        mesh_bluez_client_mock_disable();
+        inkwell_ble_mock_disable();
         record_failure(test_name, "mkdtemp failed");
         return;
     }
@@ -403,7 +403,7 @@ cleanup:
     if (app_ready) {
         mesh_app_shutdown(&app);
     }
-    mesh_bluez_client_mock_disable();
+    inkwell_ble_mock_disable();
     unsetenv("MESHCLIENT_UI_BACKEND");
     {
         char path[256];
@@ -435,21 +435,21 @@ cleanup:
 MESH_TEST_CASE(app_autoconnect_grace_survives_a_reconnect, unit) {
     const char *failure = NULL;
 
-    struct mesh_bluez_device_info mock_devices[] = {
+    struct inkwell_ble_device mock_devices[] = {
         {.address = "AA:BB:CC:DD:EE:07", .name = "NodeSeven", .rssi = 0, .paired = true},
         {.address = "AA:BB:CC:DD:EE:06", .name = "NodeSix", .rssi = -70, .paired = true},
     };
 
-    struct mesh_bluez_mock_config mock_config = {
-        .adapter_path = "/org/bluez/hci0",
+    struct inkwell_ble_mock_config mock_config = {
+        .adapter_name = "/org/bluez/hci0",
         .devices = mock_devices,
         .device_count = 2U,
     };
-    mesh_bluez_client_mock_enable(&mock_config);
+    inkwell_ble_mock_enable(&mock_config);
 
     char home_dir[APP_TEST_HOME_CAP];
     if (!app_test_home(home_dir, sizeof home_dir, "grace")) {
-        mesh_bluez_client_mock_disable();
+        inkwell_ble_mock_disable();
         record_failure(test_name, "mkdtemp failed");
         return;
     }
@@ -534,7 +534,7 @@ cleanup:
     if (app_ready) {
         mesh_app_shutdown(&app);
     }
-    mesh_bluez_client_mock_disable();
+    inkwell_ble_mock_disable();
     unsetenv("MESHCLIENT_UI_BACKEND");
     {
         char path[256];
@@ -564,21 +564,21 @@ cleanup:
 MESH_TEST_CASE(app_autoconnect_holds_the_slot_for_a_rebooting_radio, unit) {
     const char *failure = NULL;
 
-    struct mesh_bluez_device_info mock_devices[] = {
+    struct inkwell_ble_device mock_devices[] = {
         {.address = "AA:BB:CC:DD:EE:07", .name = "NodeSeven", .rssi = -40, .paired = true},
         {.address = "AA:BB:CC:DD:EE:06", .name = "NodeSix", .rssi = -70, .paired = true},
     };
 
-    struct mesh_bluez_mock_config mock_config = {
-        .adapter_path = "/org/bluez/hci0",
+    struct inkwell_ble_mock_config mock_config = {
+        .adapter_name = "/org/bluez/hci0",
         .devices = mock_devices,
         .device_count = 2U,
     };
-    mesh_bluez_client_mock_enable(&mock_config);
+    inkwell_ble_mock_enable(&mock_config);
 
     char home_dir[APP_TEST_HOME_CAP];
     if (!app_test_home(home_dir, sizeof home_dir, "reboot")) {
-        mesh_bluez_client_mock_disable();
+        inkwell_ble_mock_disable();
         record_failure(test_name, "mkdtemp failed");
         return;
     }
@@ -661,7 +661,7 @@ cleanup:
     if (app_ready) {
         mesh_app_shutdown(&app);
     }
-    mesh_bluez_client_mock_disable();
+    inkwell_ble_mock_disable();
     unsetenv("MESHCLIENT_UI_BACKEND");
     {
         char path[256];
@@ -1489,15 +1489,15 @@ MESH_TEST_CASE(app_link_routing, unit) {
     (void)fcntl(pair[0], F_SETFL, O_NONBLOCK);
     (void)fcntl(pair[1], F_SETFL, O_NONBLOCK);
 
-    struct mesh_bluez_device_info mock_devices[] = {
+    struct inkwell_ble_device mock_devices[] = {
         {.address = "AA:BB:CC:DD:EE:06", .name = "NodeSix", .rssi = -30, .paired = true},
     };
-    struct mesh_bluez_mock_config mock_config = {
-        .adapter_path = "/org/bluez/hci0",
+    struct inkwell_ble_mock_config mock_config = {
+        .adapter_name = "/org/bluez/hci0",
         .devices = mock_devices,
         .device_count = 1U,
     };
-    mesh_bluez_client_mock_enable(&mock_config);
+    inkwell_ble_mock_enable(&mock_config);
 
     const struct mesh_serial_device_info ports[] = {mesh_test_serial_device()};
     struct mesh_serial_usb_mock_config serial_mock;
@@ -1615,7 +1615,7 @@ cleanup:
     if (app_ready) {
         mesh_app_shutdown(&app);
     }
-    mesh_bluez_client_mock_disable();
+    inkwell_ble_mock_disable();
     mesh_serial_usb_mock_disable();
     unsetenv("MESHCLIENT_UI_BACKEND");
     if (pair[0] >= 0) {
@@ -1654,8 +1654,8 @@ MESH_TEST_CASE(app_assetless_release_says_why_it_cannot_install, unit) {
     (void)fcntl(pair[0], F_SETFL, O_NONBLOCK);
     (void)fcntl(pair[1], F_SETFL, O_NONBLOCK);
 
-    struct mesh_bluez_mock_config mock_config = {.adapter_path = "/org/bluez/hci0"};
-    mesh_bluez_client_mock_enable(&mock_config);
+    struct inkwell_ble_mock_config mock_config = {.adapter_name = "/org/bluez/hci0"};
+    inkwell_ble_mock_enable(&mock_config);
 
     const struct mesh_serial_device_info ports[] = {mesh_test_serial_device()};
     struct mesh_serial_usb_mock_config serial_mock;
@@ -1736,7 +1736,7 @@ cleanup:
     if (app_ready) {
         mesh_app_shutdown(&app);
     }
-    mesh_bluez_client_mock_disable();
+    inkwell_ble_mock_disable();
     mesh_serial_usb_mock_disable();
     unsetenv("MESHCLIENT_UI_BACKEND");
     if (pair[0] >= 0) {
@@ -1770,9 +1770,9 @@ MESH_TEST_CASE(app_drops_a_bond_its_own_update_invalidated, unit) {
     struct mesh_app app;
     memset(&app, 0, sizeof app);
 
-    struct mesh_bluez_mock_config mock_config = {.adapter_path = "/org/bluez/hci0",
-                                                 .remove_device_calls = &removed};
-    mesh_bluez_client_mock_enable(&mock_config);
+    struct inkwell_ble_mock_config mock_config = {.adapter_name = "/org/bluez/hci0",
+                                                  .forget_calls = &removed};
+    inkwell_ble_mock_enable(&mock_config);
 
     char home_dir[APP_TEST_HOME_CAP];
     if (!app_test_home(home_dir, sizeof home_dir, "bondwatch")) {
@@ -1879,8 +1879,8 @@ MESH_TEST_CASE(app_drops_a_bond_its_own_update_invalidated, unit) {
      * away has not lost the bond it persisted - so giving up on one would leave the stale key
      * in place and the reconnects failing, which is the state this exists to end.
      */
-    mock_config.remove_device_result = -ENOTCONN;
-    mesh_bluez_client_mock_enable(&mock_config);
+    mock_config.forget_result = -ENOTCONN;
+    inkwell_ble_mock_enable(&mock_config);
     mesh_app_firmware_watch_bond(&app, &update, 1000U);
     if (mesh_app_firmware_settle_bond(&app, NULL, 1000U + 61000U)) {
         failure = "a removal that did not happen is not a bond dropped";
@@ -1898,8 +1898,8 @@ MESH_TEST_CASE(app_drops_a_bond_its_own_update_invalidated, unit) {
     }
     /* Once the adapter is back, the retry lands. */
     removed = 0U;
-    mock_config.remove_device_result = 0;
-    mesh_bluez_client_mock_enable(&mock_config);
+    mock_config.forget_result = 0;
+    inkwell_ble_mock_enable(&mock_config);
     if (!mesh_app_firmware_settle_bond(&app, NULL, 1000U + 61000U + 6000U) || removed != 1U) {
         failure = "the retry drops the bond once the adapter answers";
         goto cleanup;
@@ -1910,8 +1910,8 @@ MESH_TEST_CASE(app_drops_a_bond_its_own_update_invalidated, unit) {
      * And a bond that is already gone settles rather than retrying for ever: DoesNotExist is
      * the state this was trying to reach, not a failure to reach it.
      */
-    mock_config.remove_device_result = -ENOENT;
-    mesh_bluez_client_mock_enable(&mock_config);
+    mock_config.forget_result = -ENOENT;
+    inkwell_ble_mock_enable(&mock_config);
     mesh_app_firmware_watch_bond(&app, &update, 1000U);
     if (mesh_app_firmware_settle_bond(&app, NULL, 1000U + 61000U)) {
         failure = "a bond that was already gone is not one this dropped";
@@ -1921,8 +1921,8 @@ MESH_TEST_CASE(app_drops_a_bond_its_own_update_invalidated, unit) {
         failure = "but it is settled, not retried for ever";
         goto cleanup;
     }
-    mock_config.remove_device_result = 0;
-    mesh_bluez_client_mock_enable(&mock_config);
+    mock_config.forget_result = 0;
+    inkwell_ble_mock_enable(&mock_config);
     removed = 0U;
 
     /* The radio that did not come back: silent past the grace, bond dropped once. */
@@ -1954,7 +1954,7 @@ cleanup:
     if (app_ready) {
         mesh_app_shutdown(&app);
     }
-    mesh_bluez_client_mock_disable();
+    inkwell_ble_mock_disable();
     unsetenv("MESHCLIENT_UI_BACKEND");
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
@@ -2046,8 +2046,8 @@ MESH_TEST_CASE(app_firmware_arm_reports_a_queued_verb_as_armed, unit) {
     (void)fcntl(pair[0], F_SETFL, O_NONBLOCK);
     (void)fcntl(pair[1], F_SETFL, O_NONBLOCK);
 
-    struct mesh_bluez_mock_config mock_config = {.adapter_path = "/org/bluez/hci0"};
-    mesh_bluez_client_mock_enable(&mock_config);
+    struct inkwell_ble_mock_config mock_config = {.adapter_name = "/org/bluez/hci0"};
+    inkwell_ble_mock_enable(&mock_config);
 
     const struct mesh_serial_device_info ports[] = {mesh_test_serial_device()};
     struct mesh_serial_usb_mock_config serial_mock;
@@ -2129,7 +2129,7 @@ cleanup:
     if (app_ready) {
         mesh_app_shutdown(&app);
     }
-    mesh_bluez_client_mock_disable();
+    inkwell_ble_mock_disable();
     mesh_serial_usb_mock_disable();
     unsetenv("MESHCLIENT_UI_BACKEND");
     if (pair[0] >= 0) {
@@ -2153,18 +2153,18 @@ MESH_TEST_CASE(app_connect_failure_toast, unit) {
     struct mesh_app app;
     memset(&app, 0, sizeof app);
 
-    struct mesh_bluez_device_info mock_devices[] = {
+    struct inkwell_ble_device mock_devices[] = {
         {.address = "AA:BB:CC:DD:EE:07", .name = "NodeSeven", .rssi = -40, .paired = true},
     };
-    struct mesh_bluez_mock_config mock_config = {
-        .adapter_path = "/org/bluez/hci0",
+    struct inkwell_ble_mock_config mock_config = {
+        .adapter_name = "/org/bluez/hci0",
         .devices = mock_devices,
         .device_count = 1U,
         /* The node answers Connect and resolves services, then refuses the subscription. */
         .connect_pending_polls = 1U,
         .subscribe_result = -EACCES,
     };
-    mesh_bluez_client_mock_enable(&mock_config);
+    inkwell_ble_mock_enable(&mock_config);
 
     char home_dir[APP_TEST_HOME_CAP];
     if (!app_test_home(home_dir, sizeof home_dir, "connect_fail")) {
@@ -2277,7 +2277,7 @@ cleanup:
     if (app_ready) {
         mesh_app_shutdown(&app);
     }
-    mesh_bluez_client_mock_disable();
+    inkwell_ble_mock_disable();
     unsetenv("MESHCLIENT_UI_BACKEND");
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
@@ -2750,8 +2750,8 @@ MESH_TEST_CASE(app_publish_cache_invalidates_data_dependencies, unit) {
         record_failure(test_name, "store init failed");
         return;
     }
-    struct mesh_bluez_mock_config mock = {0};
-    mesh_bluez_client_mock_enable(&mock);
+    struct inkwell_ble_mock_config mock = {0};
+    inkwell_ble_mock_enable(&mock);
     const char *failure = NULL;
     struct mesh_handshake_status *handshake = &app->session.handshake;
     handshake->has_my_info = true;
@@ -2805,7 +2805,7 @@ cleanup:
     free(app->publish_cache);
     mesh_ui_store_shutdown(&app->ui_store);
     free(app);
-    mesh_bluez_client_mock_disable();
+    inkwell_ble_mock_disable();
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
@@ -2827,8 +2827,8 @@ MESH_TEST_CASE(app_publish_reports_known_against_shown, unit) {
         record_failure(test_name, "store init failed");
         return;
     }
-    struct mesh_bluez_mock_config mock = {0};
-    mesh_bluez_client_mock_enable(&mock);
+    struct inkwell_ble_mock_config mock = {0};
+    inkwell_ble_mock_enable(&mock);
     const char *failure = NULL;
 
     struct mesh_handshake_status *handshake = &app->session.handshake;
@@ -2868,7 +2868,7 @@ cleanup:
     free(app->publish_cache);
     mesh_ui_store_shutdown(&app->ui_store);
     free(app);
-    mesh_bluez_client_mock_disable();
+    inkwell_ble_mock_disable();
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
@@ -2882,8 +2882,8 @@ MESH_TEST_CASE(app_init_from_dirty_storage, unit) {
     char *saved_backend = original_backend != NULL ? strdup(original_backend) : NULL;
     setenv("HOME", temp_dir, 1);
     setenv("MESHCLIENT_UI_BACKEND", "stub", 1);
-    struct mesh_bluez_mock_config mock = {0};
-    mesh_bluez_client_mock_enable(&mock);
+    struct inkwell_ble_mock_config mock = {0};
+    inkwell_ble_mock_enable(&mock);
     const char *failure = NULL;
     for (unsigned publish = 0U; publish < 2U; ++publish) {
         struct mesh_app app;
@@ -2919,7 +2919,7 @@ MESH_TEST_CASE(app_init_from_dirty_storage, unit) {
             break;
         }
     }
-    mesh_bluez_client_mock_disable();
+    inkwell_ble_mock_disable();
     if (saved_home != NULL) {
         setenv("HOME", saved_home, 1);
     } else {
@@ -3253,8 +3253,8 @@ MESH_TEST_CASE(app_direct_message_notice, unit) {
         record_failure(test_name, "store init failed");
         return;
     }
-    struct mesh_bluez_mock_config mock = {0};
-    mesh_bluez_client_mock_enable(&mock);
+    struct inkwell_ble_mock_config mock = {0};
+    inkwell_ble_mock_enable(&mock);
     const char *failure = NULL;
 
     app->config.run_mode = MESH_APP_RUN_FOREGROUND;
@@ -3380,7 +3380,7 @@ cleanup:
        and this app was never through mesh_app_shutdown() to have it released. */
     free(app->publish_cache);
     mesh_ui_store_shutdown(&app->ui_store);
-    mesh_bluez_client_mock_disable();
+    inkwell_ble_mock_disable();
     free(app);
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
@@ -3404,8 +3404,8 @@ MESH_TEST_CASE(app_unmute_reports_the_radios_mute, unit) {
         record_failure(test_name, "store init failed");
         return;
     }
-    struct mesh_bluez_mock_config mock = {0};
-    mesh_bluez_client_mock_enable(&mock);
+    struct inkwell_ble_mock_config mock = {0};
+    inkwell_ble_mock_enable(&mock);
     const char *failure = NULL;
 
     app->config.run_mode = MESH_APP_RUN_FOREGROUND;
@@ -3470,7 +3470,7 @@ MESH_TEST_CASE(app_unmute_reports_the_radios_mute, unit) {
 
 cleanup:
     mesh_ui_store_shutdown(&app->ui_store);
-    mesh_bluez_client_mock_disable();
+    inkwell_ble_mock_disable();
     free(app);
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
@@ -4185,8 +4185,8 @@ MESH_TEST_CASE(app_verify_press_reopens_a_dismissed_waiting_sheet, unit) {
     struct mesh_app app;
     memset(&app, 0, sizeof app);
 
-    struct mesh_bluez_mock_config mock_config = {.adapter_path = "/org/bluez/hci0"};
-    mesh_bluez_client_mock_enable(&mock_config);
+    struct inkwell_ble_mock_config mock_config = {.adapter_name = "/org/bluez/hci0"};
+    inkwell_ble_mock_enable(&mock_config);
 
     char home_dir[APP_TEST_HOME_CAP];
     if (!app_test_home(home_dir, sizeof home_dir, "verify")) {
@@ -4249,7 +4249,7 @@ cleanup:
     if (app_ready) {
         mesh_app_shutdown(&app);
     }
-    mesh_bluez_client_mock_disable();
+    inkwell_ble_mock_disable();
     unsetenv("MESHCLIENT_UI_BACKEND");
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);

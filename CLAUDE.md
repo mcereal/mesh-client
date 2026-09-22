@@ -106,7 +106,7 @@ runs the suite under both and cross-builds the pak on every pull request; see
 One binary with a name filter, not per-test CTest entries. Cases live in `tests/suites/<area>.c`
 and **register themselves** - write one with `MESH_TEST_CASE(name, category)` and it runs. A new
 suite file goes in `MESHCLIENT_TEST_SUITES` in `tests/CMakeLists.txt`. **Tests must not touch
-real BlueZ** - use `mesh_bluez_client_mock_enable`. A helper used by one suite stays `static` in
+real BlueZ** - use `inkwell_ble_mock_enable`. A helper used by one suite stays `static` in
 it and moves to `tests/support/` when a second suite needs it.
 
 ```bash
@@ -132,7 +132,7 @@ evdev -> inkcell_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 `third_party/inkwell`**, and it is the bottom of the stack: the epoll loop, the signals, the
 clock, the log, the environment knobs, the whole-file read, the UTF-8 helpers, semver ordering,
 the crash report, the codecs (base64, SHA-256, JSON, zip, HTTP/1.1, MQTT 3.1.1, deflate, PNG),
-the forked DNS resolver, the byte stream under a link (`inkwell/net/stream.h`), the TLS session
+the forked DNS resolver, the BLE central (`inkwell/ble/central.h`, BlueZ on Linux), the byte stream under a link (`inkwell/net/stream.h`), the TLS session
 on it (`inkwell/net/tls.h`), the HTTPS request over that (`inkwell/net/fetch.h`) and the
 vocabulary one fails in (`inkwell/net/reason.h`). None of it
 knows what a radio is - and none of it knows a word a user reads, which is what
@@ -190,7 +190,7 @@ the moment one of them reads a store record the client can no longer be driven h
 see every other, because assembling them is what it is for. A new *top-level* directory under
 `src/` needs an entry in that script's `ALLOWED` before it will compile clean; a group inside an
 existing area does not, because a file's area is its first directory - `src/ui/store/store.c` is
-`ui`, exactly as `src/transport/ble/bluez_client.c` is `transport`.
+`ui`, exactly as `src/transport/ble/ble_transport.c` is `transport`.
 
 The 42k lines of generated glyph tables that used to be a third of this tree are inkcell's now
 (`third_party/inkcell/src/generated/`), and so are the scripts that write them. Nothing under
@@ -216,7 +216,7 @@ publish and read back when that node's detail screen is opened. See
 | Area | Where |
 |---|---|
 | Event loop | inkwell's `src/runtime/loop.c` (`inkwell/runtime/loop.h`) - epoll (kqueue on a Mac), 32 fd sources, **no threads** |
-| Transports | `src/transport/` - registry, BLE (BlueZ/D-Bus), serial, TCP; `stream_link.c` is the half serial and TCP share, and is now the frame parser and the session over inkwell's `inkwell/net/stream.h`. A link records `struct inkwell_net_failure` and `take_error()` is where it becomes words - see [`docs/transport.md`](docs/transport.md#how-a-failure-reaches-the-user) |
+| Transports | `src/transport/` - registry, BLE (Meshtastic's GATT contract over inkwell's `inkwell/ble/central.h`, which is BlueZ on Linux), serial, TCP; `stream_link.c` is the half serial and TCP share, and is now the frame parser and the session over inkwell's `inkwell/net/stream.h`. A link records `struct inkwell_net_failure` and `take_error()` is where it becomes words - see [`docs/transport.md`](docs/transport.md#how-a-failure-reaches-the-user) |
 | Session | `src/core/session/session.c` - handshake, node roster, channels, message log, packet ids |
 | Admin protocol | `src/core/session/radio_settings.c` - `AdminMessage` get/set queue, passkeys, NodeDB verbs |
 | Messaging | `src/core/session/message.c`, `store_forward.c`, `waypoint.c` |

@@ -47,7 +47,7 @@
 extern "C" {
 #endif
 
-struct mesh_bluez_client;
+struct inkwell_ble_central;
 
 /* Well clear of the largest app partition an ESP32 ships with (3 MB on an 8 MB part). */
 #define MESH_FIRMWARE_OTA_IMAGE_MAX (8U * 1024U * 1024U)
@@ -117,8 +117,10 @@ typedef int (*mesh_firmware_ota_interval_fn)(int hci_dev, const char *address);
 typedef void (*mesh_firmware_ota_done_fn)(void *userdata, const struct mesh_firmware_ota *ota);
 
 struct mesh_firmware_ota_params {
-    struct mesh_bluez_client *client; /* borrowed; the install's own, not the transport's */
-    const char *adapter_path;         /* "/org/bluez/hci0" */
+    struct inkwell_ble_central *client; /* borrowed; the install's own, not the transport's */
+    /* The adapter as the central named it ("/org/bluez/hci0"), for the HCI index a fast
+       connection interval is asked for on. */
+    const char *adapter_path;
     const char *image_path;
     /* The connected board's architecture, in either spelling. The image is checked against
        the chip it names before the radio is asked anything. */
@@ -134,7 +136,7 @@ struct mesh_firmware_ota_params {
 };
 
 struct mesh_firmware_ota {
-    struct mesh_bluez_client *client;
+    struct inkwell_ble_central *client;
     char adapter_path[MESH_FIRMWARE_OTA_PATH_MAX];
     int hci_dev;
 
@@ -159,7 +161,6 @@ struct mesh_firmware_ota {
 
     char radio_address[MESH_FIRMWARE_OTA_ADDRESS_MAX];
     char loader_address[MESH_FIRMWARE_OTA_ADDRESS_MAX];
-    char loader_path[MESH_FIRMWARE_OTA_PATH_MAX];
 
     struct mesh_ble_ota conversation;
     unsigned attempts;

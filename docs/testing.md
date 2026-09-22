@@ -26,9 +26,9 @@ Five CTest entries are not in the suite binary: `meshclient_hardcoded_strings` r
 `scripts/check-layers.py`, which fails on an `#include` that crosses a layer the wrong way (see
 [`architecture.md`](architecture.md#layers)), `meshclient_vendored_files` re-checks
 vendored code against the digest its own README states, `meshclient_frames_codec` round-trips the
-GIF encoder in `scripts/frames.py` through an independent decoder, and `meshclient_bluez_bus`
-starts a private bus with a fake GATT service when `dbus-run-session` is installed. None of them
-contacts real BlueZ.
+GIF encoder in `scripts/frames.py` through an independent decoder. None of them contacts real
+BlueZ; the BlueZ backend's own D-Bus test, on a private bus with a fake GATT service, is
+inkwell's.
 
 ## Adding a test
 
@@ -52,7 +52,7 @@ found through constructors and a linker may drop unreferenced library members.
 
 ## Rules
 
-- **Never touch real BlueZ.** Use `mesh_bluez_client_mock_enable`; `mesh_serial_usb_mock_enable`
+- **Never touch real BlueZ.** Use `inkwell_ble_mock_enable`; `mesh_serial_usb_mock_enable`
   does the same for sysfs and usbfs, and its `open_fd` hands the link one end of a socketpair.
 - **A helper used by one suite stays `static` in it**, and moves to `support/` when a second
   suite needs it.

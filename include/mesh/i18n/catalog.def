@@ -2509,7 +2509,7 @@ MESH_STR_ENTRY(LINK_SUBSCRIBE_FAILED,     "%s: could not subscribe (%d)")
 MESH_STR_ENTRY(LINK_PAIRING_START_FAILED, "%s: could not start pairing (%d)")
 MESH_STR_ENTRY(LINK_PAIRING_TIMEOUT,      "%s: pairing timed out")
 MESH_STR_ENTRY(LINK_FORGET_FAILED,        "%s: could not be forgotten (%d)")
-/* The errnos bluez_client maps its D-Bus errors onto, in words. Each of these is the second
+/* The errnos inkwell's BLE central maps a stack's errors onto, in words. Each of these is the second
    half of LINK_DETAIL, so it reads as "6D:DA: is not in range". */
 MESH_STR_ENTRY(LINK_FAIL_NEEDS_PAIRING,   "needs pairing (PIN mode)")
 MESH_STR_ENTRY(LINK_FAIL_NO_ANSWER,       "did not answer; is it in range?")

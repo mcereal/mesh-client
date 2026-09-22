@@ -104,8 +104,8 @@ static void update_close_bluez(struct mesh_firmware_update *update) {
     if (!update->bluez_open) {
         return;
     }
-    mesh_bluez_client_shutdown(&update->bluez);
-    memset(&update->bluez, 0, sizeof update->bluez);
+    inkwell_ble_close(&update->central);
+    memset(&update->central, 0, sizeof update->central);
     update->bluez_open = false;
 }
 
@@ -271,11 +271,11 @@ static void update_begin_usb(struct mesh_firmware_update *update, const char *im
 
 static void update_begin_ble(struct mesh_firmware_update *update, const char *image_path) {
     char adapter[MESH_FIRMWARE_OTA_PATH_MAX];
-    int result = mesh_bluez_client_init_private(&update->bluez);
+    int result = inkwell_ble_open_private(&update->central);
     if (result == 0) {
         update->bluez_open = true;
-        (void)mesh_bluez_client_attach_loop(&update->bluez, update->loop);
-        result = mesh_bluez_client_find_adapter(&update->bluez, adapter, sizeof adapter);
+        (void)inkwell_ble_attach_loop(&update->central, update->loop);
+        result = inkwell_ble_find_adapter(&update->central, adapter, sizeof adapter);
     }
     if (result < 0) {
         update_close_bluez(update);
@@ -286,7 +286,7 @@ static void update_begin_ble(struct mesh_firmware_update *update, const char *im
 
     struct mesh_firmware_ota_params params;
     memset(&params, 0, sizeof params);
-    params.client = &update->bluez;
+    params.client = &update->central;
     params.adapter_path = adapter;
     params.image_path = image_path;
     params.architecture = update->board.architecture;
@@ -545,7 +545,7 @@ void mesh_firmware_update_tick(struct mesh_firmware_update *update, uint64_t now
         /* The loader's answers arrive on this client's own D-Bus connection, so somebody has to
            pop them; nothing else in the process is reading that socket. */
         if (update->bluez_open) {
-            (void)mesh_bluez_client_process(&update->bluez);
+            (void)inkwell_ble_process(&update->central);
         }
         mesh_firmware_ota_tick(&update->ble, now_ms);
         if (mesh_firmware_ota_busy(&update->ble)) {

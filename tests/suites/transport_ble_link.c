@@ -7,12 +7,12 @@
 #include "framework/mesh_test.h"
 #include "support/ble_fixture.h"
 
+#include "inkwell/ble/central.h"
 #include "inkwell/runtime/loop.h"
 #include "mesh/core/config.h"
 #include "mesh/core/message.h"
 #include "mesh/core/session.h"
 #include "mesh/transport/ble.h"
-#include "mesh/transport/ble_bluez.h"
 #include "mesh/transport/transport.h"
 
 #include <pb_decode.h>
@@ -99,7 +99,7 @@ MESH_TEST_CASE(ble_transport_discovery_mock, unit) {
         goto cleanup;
     }
 
-    struct mesh_bluez_device_info discovered[4];
+    struct inkwell_ble_device discovered[4];
     size_t count =
         mesh_ble_transport_get_devices(ble, discovered, sizeof(discovered) / sizeof(discovered[0]));
     if (count != rig.device_count) {
@@ -233,7 +233,7 @@ MESH_TEST_CASE(ble_transport_connect_mock, unit) {
     /* Rewind the scripted FIFO and poke FromNum. */
     rig.read_index = 0U;
     const uint8_t from_num[4] = {5U, 0U, 0U, 0U};
-    mesh_bluez_client_mock_emit_notification(rig.fromnum_path, from_num, sizeof(from_num));
+    inkwell_ble_mock_emit_notification(rig.fromnum_path, from_num, sizeof(from_num));
 
     /* The first turn reads its budget and must stop short of the end; the loop wake finishes it. */
     if (rig.read_index >= 6U) {
@@ -400,8 +400,8 @@ cleanup:
     record_success(test_name);
 }
 
-/* A Properties.Get(ServicesResolved) that does not come back inside
-   MESH_BLUEZ_PROPERTY_TIMEOUT_MS is bluetoothd being busy, not the GATT database being absent -
+/* A Properties.Get(ServicesResolved) that does not come back inside the central's property
+   deadline is bluetoothd being busy, not the GATT database being absent -
    the state it is busiest in being the connect it is still scanning through. The poll is retried
    and MESH_BLE_SERVICES_TIMEOUT_MS remains the only bound on discovery; treating the timeout as
    fatal instead ended every connect a second in and retried on the auto-connect timer for ever. */
@@ -689,7 +689,7 @@ MESH_TEST_CASE(ble_transport_recovers_when_bluez_arrives, unit) {
         failure = "the transport should come up once bluetoothd is on the bus";
         goto cleanup;
     }
-    struct mesh_bluez_device_info discovered[4];
+    struct inkwell_ble_device discovered[4];
     if (mesh_ble_transport_get_devices(ble, discovered, 4U) != 1U) {
         failure = "discovery should be running after the retry";
         goto cleanup;
@@ -728,7 +728,7 @@ MESH_TEST_CASE(ble_transport_demotes_when_bluez_leaves, unit) {
         failure = "losing bluetoothd should demote the transport";
         goto cleanup;
     }
-    struct mesh_bluez_device_info discovered[4];
+    struct inkwell_ble_device discovered[4];
     if (mesh_ble_transport_get_devices(ble, discovered, 4U) != 0U) {
         failure = "devices found through the old BlueZ should be dropped";
         goto cleanup;
@@ -757,7 +757,7 @@ MESH_TEST_CASE(ble_transport_pairing_survives_a_bluez_outage, unit) {
     rig.devices[0].paired = false;
     /* The bond never completes on its own, so it is still in flight when BlueZ goes. */
     rig.mock.pair_pending_polls = 64U;
-    rig.mock.register_agent_calls = &agent_registrations;
+    rig.mock.agent_register_calls = &agent_registrations;
     struct mesh_transport *const ble = rig.ble;
 
     if (mesh_test_ble_rig_start(&rig) != 0) {

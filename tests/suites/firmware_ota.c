@@ -15,7 +15,7 @@
 #include "inkwell/codec/sha256.h"
 #include "mesh/core/esp_image.h"
 #include "mesh/core/firmware_ota.h"
-#include "mesh/transport/ble_bluez.h"
+#include "mesh/transport/ble_gatt.h"
 #include "mesh/transport/ble_ota.h"
 
 #include <errno.h>
@@ -28,7 +28,6 @@
 #define RIG_RADIO "9C:13:9E:9D:0A:D9"
 #define RIG_LOADER "9C:13:9E:9D:0A:DA"
 #define RIG_ADAPTER "/org/bluez/hci0"
-#define RIG_LOADER_PATH RIG_ADAPTER "/dev_9C_13_9E_9D_0A_DA"
 #define RIG_IMAGE_LEN 2000U
 
 static const char *const k_services[] = {MESH_BLE_MESHTASTIC_SERVICE_UUID,
@@ -46,11 +45,11 @@ static int rig_request_interval(int hci_dev, const char *address) {
 }
 
 struct fw_rig {
-    struct mesh_bluez_client client;
+    struct inkwell_ble_central client;
     struct mesh_firmware_ota ota;
     struct mesh_test_ota_loader loader;
-    struct mesh_bluez_mock_config mock;
-    struct mesh_bluez_device_info devices[2]; /* the radio, then its loader */
+    struct inkwell_ble_mock_config mock;
+    struct inkwell_ble_device devices[2]; /* the radio, then its loader */
     unsigned start_discovery_calls;
     unsigned stop_discovery_calls;
     char image_path[PATH_MAX];
@@ -80,7 +79,7 @@ static bool rig_open_ex(struct fw_rig *rig, uint16_t chip, bool loader_dies_with
     memset(rig, 0, sizeof *rig);
     g_interval_calls = 0U;
     g_interval_address[0] = '\0';
-    mesh_test_ota_loader_init(&rig->loader, RIG_LOADER_PATH);
+    mesh_test_ota_loader_init(&rig->loader, RIG_LOADER);
 
     snprintf(rig->devices[0].address, sizeof rig->devices[0].address, "%s", RIG_RADIO);
     snprintf(rig->devices[0].name, sizeof rig->devices[0].name, "Meshtastic_0ad8");
@@ -91,15 +90,15 @@ static bool rig_open_ex(struct fw_rig *rig, uint16_t chip, bool loader_dies_with
     rig->mock.devices = rig->devices;
     rig->mock.device_count = 2U;
     rig->mock.device_service_uuids = k_services;
-    rig->mock.adapter_path = RIG_ADAPTER;
+    rig->mock.adapter_name = RIG_ADAPTER;
     rig->mock.mtu = 100U;
     rig->mock.write_hook = mesh_test_ota_loader_write;
     rig->mock.write_hook_userdata = &rig->loader;
     rig->mock.start_discovery_calls = &rig->start_discovery_calls;
     rig->mock.stop_discovery_calls = &rig->stop_discovery_calls;
     rig->mock.connect_needs_the_scan = loader_dies_with_the_scan;
-    mesh_bluez_client_mock_enable(&rig->mock);
-    if (mesh_bluez_client_init(&rig->client) != 0) {
+    inkwell_ble_mock_enable(&rig->mock);
+    if (inkwell_ble_open(&rig->client) != 0) {
         return false;
     }
 
@@ -129,8 +128,8 @@ static bool rig_open(struct fw_rig *rig, uint16_t chip) { return rig_open_ex(rig
 
 static void rig_close(struct fw_rig *rig) {
     mesh_firmware_ota_cancel(&rig->ota);
-    mesh_bluez_client_shutdown(&rig->client);
-    mesh_bluez_client_mock_disable();
+    inkwell_ble_close(&rig->client);
+    inkwell_ble_mock_disable();
     if (rig->image_path[0] != '\0') {
         unlink(rig->image_path);
     }

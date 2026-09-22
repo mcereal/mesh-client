@@ -80,9 +80,12 @@ Connect, wait for `Device1.ServicesResolved`, `StartNotify` on FromNum, and on e
 writes, so there is no client-side chunking either; packets cap at 512 bytes. Framing is a
 *stream* concern only.
 
-`bluez_client.c` is a raw libdbus wrapper for `org.bluez` with a mock
-(`mesh_bluez_client_mock_enable`) — **there is no real BlueZ in CI and tests must not touch one.**
-Without D-Bus headers the transport compiles out entirely and reports `disabled`.
+The Bluetooth stack is inkwell's: `inkwell/ble/central.h` is a BLE central that names a node by
+its address and a characteristic by an opaque handle, with BlueZ-over-libdbus as its Linux
+backend and a mock (`inkwell_ble_mock_enable`) — **there is no real BlueZ in CI and tests must
+not touch one.** What is Meshtastic's about it is `src/transport/ble/ble_gatt.c`: the service and
+characteristic UUIDs, and the lookup of all four at once. Built without D-Bus headers, inkwell
+links a backend that refuses every call and the transport reports `disabled`.
 
 `ble_transport.c` is the link: a state machine (`disabled` → `waiting-for-bluez` →
 `waiting-for-adapter` → `running`), service-UUID filtering, an outbound queue, and the
@@ -108,11 +111,11 @@ FromNum-notify → FromRadio-read drain.
 ### Pairing
 
 Firmware in FIXED/RANDOM PIN mode must be bonded before `StartNotify` will answer, so the app
-pairs itself rather than deferring to a system agent. `bluez_client.c` registers an
+pairs itself rather than deferring to a system agent. inkwell's BlueZ backend registers an
 `org.bluez.Agent1` with **KeyboardDisplay** capability, which is what makes a PIN-mode node (its
 own capability is DisplayOnly) choose passkey entry and ask *us* for the six digits on its screen.
-The agent's reply is **deferred** — the D-Bus message is held in `agent_pending_message` until the
-user types them — which is how a bond spans several event-loop turns without blocking.
+The agent's reply is **deferred** — the D-Bus message is held by the backend until the user types
+them — which is how a bond spans several event-loop turns without blocking.
 
 - **Only a connect the user asked for bonds** (`mesh_ble_transport_connect_and_pair`).
   Auto-connect raising a PIN prompt over whatever the user was doing is worse than a failed

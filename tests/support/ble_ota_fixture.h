@@ -55,8 +55,8 @@ struct mesh_test_ota_loader {
    magic 0xE9, seven segments, chip id 0x0009 at offset 12, the app descriptor's magic at 32. */
 extern const uint8_t mesh_test_esp_header[48];
 
-/* Everything zeroed; answers go to `device_path`'s notify characteristic as the mock names it. */
-void mesh_test_ota_loader_init(struct mesh_test_ota_loader *loader, const char *device_path);
+/* Everything zeroed; answers go to `address`'s notify characteristic as the mock names it. */
+void mesh_test_ota_loader_init(struct mesh_test_ota_loader *loader, const char *address);
 
 /* What a real loader does when the link drops: forgets the transfer, keeps its behaviour. */
 void mesh_test_ota_loader_restart(struct mesh_test_ota_loader *loader);

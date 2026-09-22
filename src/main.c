@@ -6,6 +6,7 @@
 #include "inkwell/base/text.h"
 #include "inkwell/base/time.h"
 
+#include "inkwell/ble/central.h"
 #include "inkwell/codec/sha256.h"
 #include "mesh/app/app.h"
 #include "mesh/core/config.h"
@@ -17,7 +18,6 @@
 #include "mesh/map/tile_image.h"
 #include "mesh/map/viewport.h"
 #include "mesh/transport/ble.h"
-#include "mesh/transport/ble_bluez.h"
 #include "mesh/transport/ble_hci.h"
 #include "mesh/transport/serial.h"
 #include "mesh/transport/tcp.h"
@@ -91,7 +91,7 @@ static int print_status(struct mesh_app *app, const struct mesh_cli_link *link, 
                         const char *output_path);
 static int send_text_message(struct mesh_app *app, const struct mesh_cli_link *link,
                              const char *text, uint32_t dest, uint8_t channel, bool want_ack);
-static int select_ble_link(struct mesh_app *app, struct mesh_bluez_device_info *scratch,
+static int select_ble_link(struct mesh_app *app, struct inkwell_ble_device *scratch,
                            struct mesh_cli_link *link);
 static size_t await_ble_discovery(struct mesh_app *app);
 static int select_serial_link(struct mesh_app *app, const char *requested,
@@ -104,9 +104,9 @@ static void print_messages_pretty(FILE *out, const struct mesh_message_log *log)
 static void print_messages_json(FILE *out, const struct mesh_message_log *log);
 static void print_cached_messages(FILE *out, const struct mesh_ui_message_list *messages);
 static void print_cached_messages_json(FILE *out, const struct mesh_ui_message_list *messages);
-static const struct mesh_bluez_device_info *
+static const struct inkwell_ble_device *
 select_preferred_device(const struct mesh_transport *ble, const struct mesh_app_config *config,
-                        struct mesh_bluez_device_info *scratch, size_t *count, bool heard_any);
+                        struct inkwell_ble_device *scratch, size_t *count, bool heard_any);
 static void json_print_string(FILE *out, const char *value);
 
 #define MESH_CLI_DISCOVERY_WAIT_MS 4000U
@@ -130,7 +130,7 @@ static size_t await_ble_discovery(struct mesh_app *app) {
         return 0U;
     }
 
-    struct mesh_bluez_device_info devices[16];
+    struct inkwell_ble_device devices[16];
     for (unsigned waited = 0U;; waited += MESH_CLI_DISCOVERY_POLL_MS) {
         const size_t count =
             mesh_ble_transport_get_devices(ble, devices, INKWELL_ARRAY_LEN(devices));
@@ -265,7 +265,7 @@ static void list_all_devices(struct mesh_app *app) {
     mesh_ble_transport_refresh_devices(ble);
     (void)await_ble_discovery(app);
     size_t count = 0U;
-    const struct mesh_bluez_device_info *devices = mesh_ble_transport_devices(ble, &count);
+    const struct inkwell_ble_device *devices = mesh_ble_transport_devices(ble, &count);
     printf("Meshtastic BLE devices (%zu)\n", count);
     for (size_t i = 0; i < count; ++i) {
         /* A bonded node BlueZ has not heard in this scan has no RSSI to report, and printing
@@ -585,7 +585,7 @@ static bool cli_settle_admin_queue(struct mesh_app *app, const struct mesh_cli_l
  * in its loader - absent by definition - would have a bystander picked instead of the resume path
  * looking for its loader. After the install, the confirmation would print the wrong radio.
  */
-static bool cli_select_named_ble_link(struct mesh_app *app, struct mesh_bluez_device_info *scratch,
+static bool cli_select_named_ble_link(struct mesh_app *app, struct inkwell_ble_device *scratch,
                                       struct mesh_cli_link *link) {
     if (select_ble_link(app, scratch, link) < 0) {
         return false;
@@ -618,7 +618,7 @@ static int install_radio_firmware_ble(struct mesh_app *app,
         return result;
     }
 
-    static struct mesh_bluez_device_info ble_devices[16];
+    static struct inkwell_ble_device ble_devices[16];
     struct mesh_cli_link link;
     memset(&link, 0, sizeof link);
     const bool have_radio =
@@ -671,16 +671,16 @@ static int install_radio_firmware_ble(struct mesh_app *app,
                radio_address[0] != '\0' ? " near " : "", radio_address);
     }
 
-    static struct mesh_bluez_client client;
-    result = mesh_bluez_client_init_private(&client);
+    static struct inkwell_ble_central client;
+    result = inkwell_ble_open_private(&client);
     char adapter[MESH_FIRMWARE_OTA_PATH_MAX];
     if (result == 0) {
-        (void)mesh_bluez_client_attach_loop(&client, &app->loop);
-        result = mesh_bluez_client_find_adapter(&client, adapter, sizeof adapter);
+        (void)inkwell_ble_attach_loop(&client, &app->loop);
+        result = inkwell_ble_find_adapter(&client, adapter, sizeof adapter);
     }
     if (result < 0) {
         fprintf(stderr, "Could not reach BlueZ for the install: %d\n", result);
-        mesh_bluez_client_shutdown(&client);
+        inkwell_ble_close(&client);
         if (have_radio) {
             (void)link.disconnect(link.transport);
             mesh_transport_registry_stop_all(&app->transport_registry);
@@ -713,7 +713,7 @@ static int install_radio_firmware_ble(struct mesh_app *app,
     if (result < 0) {
         fprintf(stderr, "Could not start the install: %s\n",
                 mesh_firmware_ota_error_name(ota.error));
-        mesh_bluez_client_shutdown(&client);
+        inkwell_ble_close(&client);
         if (have_radio) {
             (void)link.disconnect(link.transport);
             mesh_transport_registry_stop_all(&app->transport_registry);
@@ -750,7 +750,7 @@ static int install_radio_firmware_ble(struct mesh_app *app,
                 link_up = false;
             }
         }
-        (void)mesh_bluez_client_process(&client);
+        (void)inkwell_ble_process(&client);
         mesh_firmware_ota_tick(&ota, now);
 
         const unsigned progress = mesh_firmware_ota_progress(&ota);
@@ -787,7 +787,7 @@ static int install_radio_firmware_ble(struct mesh_app *app,
     char confirm_address[MESH_FIRMWARE_OTA_ADDRESS_MAX];
     inkwell_str_copy(confirm_address, sizeof confirm_address, ota.radio_address);
     mesh_firmware_ota_cancel(&ota);
-    mesh_bluez_client_shutdown(&client);
+    inkwell_ble_close(&client);
     if (link_up) {
         (void)link.disconnect(link.transport);
         mesh_transport_registry_stop_all(&app->transport_registry);
@@ -1276,7 +1276,7 @@ int main(int argc, char **argv) {
             mesh_transport_registry_stop_all(&app.transport_registry);
         } else {
             /* The scratch arrays back the peer strings in `link`, so they outlive its use. */
-            struct mesh_bluez_device_info ble_devices[16];
+            struct inkwell_ble_device ble_devices[16];
             struct mesh_serial_device_info serial_devices[MESH_SERIAL_MAX_DEVICES];
             struct mesh_cli_link link;
             memset(&link, 0, sizeof link);
@@ -1333,15 +1333,15 @@ int main(int argc, char **argv) {
  * command gets to try it and fail; what must not happen is a whole session spent on it, which
  * is why the foreground path does not have this fallback.
  */
-static const struct mesh_bluez_device_info *
+static const struct inkwell_ble_device *
 select_preferred_device(const struct mesh_transport *ble, const struct mesh_app_config *config,
-                        struct mesh_bluez_device_info *scratch, size_t *count, bool heard_any) {
+                        struct inkwell_ble_device *scratch, size_t *count, bool heard_any) {
     if (ble == NULL || config == NULL || scratch == NULL || count == NULL) {
         return NULL;
     }
 
     size_t device_count = mesh_ble_transport_refresh_devices((struct mesh_transport *)ble);
-    const struct mesh_bluez_device_info *devices =
+    const struct inkwell_ble_device *devices =
         mesh_ble_transport_devices((struct mesh_transport *)ble, &device_count);
     *count = device_count;
     if (device_count == 0U || devices == NULL) {
@@ -1377,8 +1377,8 @@ select_preferred_device(const struct mesh_transport *ble, const struct mesh_app_
 
     /* Otherwise the loudest node that answered - never a bond with no reading behind it, whose
        absent RSSI reads as a raw 0 and so beats every real measurement, all of which are
-       negative. See mesh_bluez_device_info.in_range. */
-    const struct mesh_bluez_device_info *best = NULL;
+       negative. See inkwell_ble_device.in_range. */
+    const struct inkwell_ble_device *best = NULL;
     for (size_t i = 0; i < device_count; ++i) {
         if ((scratch[i].in_range || !heard_any) && (best == NULL || scratch[i].rssi > best->rssi)) {
             best = &scratch[i];
@@ -1389,14 +1389,14 @@ select_preferred_device(const struct mesh_transport *ble, const struct mesh_app_
 
 /* Builds the BLE half of a CLI link. `scratch` must outlive the link: the peer names point
    into it. Returns 0, or -ENODEV when nothing was discovered. */
-static int select_ble_link(struct mesh_app *app, struct mesh_bluez_device_info *scratch,
+static int select_ble_link(struct mesh_app *app, struct inkwell_ble_device *scratch,
                            struct mesh_cli_link *link) {
     struct mesh_transport *ble = mesh_ble_transport();
     /* Discovery has only just been started, so give it a moment to hear something before
        asking which nodes are in range. */
     const bool heard_any = await_ble_discovery(app) > 0U;
     size_t device_count = 0U;
-    const struct mesh_bluez_device_info *target =
+    const struct inkwell_ble_device *target =
         select_preferred_device(ble, &app->config, scratch, &device_count, heard_any);
     if (target == NULL) {
         return -ENODEV;
