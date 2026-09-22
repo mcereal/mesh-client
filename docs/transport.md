@@ -134,6 +134,11 @@ and is skipped, and a frame split across reads is held.
 asserts DTR, opens the tty raw at 115200, sends the 32-byte `0xC3` resync burst, waits 100 ms,
 then runs the same `want_config_id` handshake BLE uses.
 
+On a Mac the scan reads the I/O Registry instead (`serial_usb_iokit.c`), and the id is the
+callout device (`/dev/cu.usbserial-0001`). None of the Brick workaround below applies there:
+macOS ships drivers for CDC-ACM and the common bridge chips, so every port is already bound and
+DTR is a plain `TIOCMBIS`.
+
 ### The Brick workaround
 
 **The Brick's kernel has `CONFIG_USB_ACM` off**, so a native-USB node gets no `/dev/ttyACM*`.
@@ -178,7 +183,8 @@ download mode leaves the CP2102 unchanged, so that question can only be answered
 
 `MESHCLIENT_SYSFS_USB` overrides the sysfs root — nothing in the client sets it; it exists so the
 role reading can be tested against a fixture tree, which the mock cannot do because it replaces
-the scan whole.
+the scan whole. On a Mac, setting it also switches the scan from the I/O Registry
+back to sysfs, so those cases run on every host.
 
 ## `stream_link.c` — the half both stream links share
 

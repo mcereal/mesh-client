@@ -92,11 +92,11 @@ struct mesh_serial_device_info {
    cannot disagree about which devices are candidates. */
 bool mesh_serial_device_is_radio(const struct mesh_serial_device_info *device);
 
-/* Scans /sys/bus/usb/devices for USB serial candidates: interfaces already bound to a usb-serial
-   driver, plus unbound CDC-Data interfaces that could be bound. Fills in `role` from the sibling
-   interfaces of the device each one belongs to. Returns how many entries were written (at most
-   `capacity`). A bootloader is still returned - it is a row that says what it is, not a device
-   the list hides. */
+/* Scans /sys/bus/usb/devices (the I/O Registry on macOS) for USB serial candidates: interfaces
+   already bound to a usb-serial driver, plus unbound CDC-Data interfaces that could be bound. Fills
+   in `role` from the sibling interfaces of the device each one belongs to. Returns how many entries
+   were written (at most `capacity`). A bootloader is still returned - it is a row that says what it
+   is, not a device the list hides. */
 size_t mesh_serial_usb_scan(struct mesh_serial_device_info *out, size_t capacity);
 
 /* Binds an unbound CDC-Data interface to the generic usbserial driver and waits (up to about a

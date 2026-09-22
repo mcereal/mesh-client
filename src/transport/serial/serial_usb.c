@@ -3,6 +3,8 @@
 
 #include "mesh/transport/serial_usb.h"
 
+#include "serial_usb_internal.h"
+
 #include "inkwell/base/ioctl.h"
 #include "inkwell/base/log.h"
 #include "inkwell/base/text.h"
@@ -21,8 +23,9 @@
 #include <time.h>
 #include <unistd.h>
 
-/* usbfs is Linux's. Off Linux the sysfs scan below finds no tree and so no device, and the one
-   call that needs usbfs refuses; a port named by path still opens through termios. */
+/* usbfs is Linux's. On a Mac the scan reads the I/O Registry instead (serial_usb_iokit.c);
+   elsewhere it finds no tree and so no device. The one call that needs usbfs refuses off Linux,
+   and termios opens a port the same way everywhere. */
 #if defined(__linux__)
 #include <linux/usbdevice_fs.h>
 #endif
@@ -37,9 +40,14 @@
  * and so tests everything about it except the reading. Nothing in the client sets this; it is a
  * test seam and the default is the real path.
  */
-static const char *sysfs_usb_root(void) {
+static const char *sysfs_usb_override(void) {
     const char *const from_env = getenv("MESHCLIENT_SYSFS_USB");
-    return (from_env != NULL && from_env[0] != '\0') ? from_env : MESH_SERIAL_SYSFS_USB_DEFAULT;
+    return (from_env != NULL && from_env[0] != '\0') ? from_env : NULL;
+}
+
+static const char *sysfs_usb_root(void) {
+    const char *const from_env = sysfs_usb_override();
+    return from_env != NULL ? from_env : MESH_SERIAL_SYSFS_USB_DEFAULT;
 }
 
 /* USB interface classes we care about. */
@@ -309,6 +317,13 @@ size_t mesh_serial_usb_scan(struct mesh_serial_device_info *out, size_t capacity
     if (g_mock_state.enabled) {
         return mock_scan(out, capacity);
     }
+#if defined(__APPLE__)
+    /* A Mac has no sysfs; its USB tree is the I/O Registry. The fixture seam still reads sysfs,
+       so the judgement below is tested on every host. */
+    if (sysfs_usb_override() == NULL) {
+        return mesh_serial_usb_scan_iokit(out, capacity);
+    }
+#endif
 
     DIR *dir = opendir(sysfs_usb_root());
     if (dir == NULL) {
