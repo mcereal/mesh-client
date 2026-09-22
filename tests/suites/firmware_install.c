@@ -5,9 +5,9 @@
  *
  * Three seams make the whole of it reachable from a suite, and all three are *readings* with a
  * default that is the real path: inkwell's `inkwell_serial_set_sysfs_root()` is the USB tree the
- * bootloader is found in, `MESHCLIENT_SYSFS_BLOCK` is where the drive it published appears, and
- * `MESHCLIENT_PROC_MOUNTS` is what the platform has mounted on it. The fourth,
- * `MESHCLIENT_DEV_ROOT`, is what turns "/dev/sda" into a file in a temporary directory - which
+ * bootloader is found in, `INKWELL_SYSFS_BLOCK` is where the drive it published appears, and
+ * `INKWELL_PROC_MOUNTS` is what the platform has mounted on it. The fourth,
+ * `INKWELL_DEV_ROOT`, is what turns "/dev/sda" into a file in a temporary directory - which
  * is the only reason the *write* can be tested at all, and it costs nothing in honesty because
  * a block device takes exactly the `open`, `write` and `fdatasync` a file does.
  *
@@ -27,10 +27,10 @@
 #include "support/fs_fixture.h"
 #include "support/uf2_fixture.h"
 
+#include "inkwell/io/usb_storage.h"
 #include "mesh/core/firmware_install.h"
 #include "mesh/core/uf2.h"
 #include "mesh/transport/serial_usb.h"
-#include "mesh/transport/usb_msc.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -135,14 +135,14 @@ static bool usb_radio(const char *root, const char *name) {
 }
 
 /*
- * The node under `MESHCLIENT_DEV_ROOT` that stands in for `/dev/sda`.
+ * The node under `INKWELL_DEV_ROOT` that stands in for `/dev/sda`.
  *
  * It has to exist before anything writes to it, because the claim creates nothing: on the
  * device this opens a node the kernel published, and an `O_CREAT` there would turn a drive that
  * vanished mid-install into a regular file sitting where the drive goes.
  */
 static bool drive_node(const char *name) {
-    const char *const root = getenv("MESHCLIENT_DEV_ROOT");
+    const char *const root = getenv("INKWELL_DEV_ROOT");
     char path[PATH_MAX];
     if (root == NULL || snprintf(path, sizeof path, "%s/%s", root, name) >= (int)sizeof path) {
         return false;
@@ -209,17 +209,17 @@ static bool fixture_open(struct install_fixture *fixture) {
     snprintf(fixture->dev, sizeof fixture->dev, "%s", dev);
     snprintf(fixture->mounts, sizeof fixture->mounts, "%s/mounts", dev);
     inkwell_serial_set_sysfs_root(fixture->usb);
-    return setenv("MESHCLIENT_SYSFS_BLOCK", fixture->block, 1) == 0 &&
-           setenv("MESHCLIENT_DEV_ROOT", fixture->dev, 1) == 0 &&
-           setenv("MESHCLIENT_PROC_MOUNTS", fixture->mounts, 1) == 0 &&
+    return setenv("INKWELL_SYSFS_BLOCK", fixture->block, 1) == 0 &&
+           setenv("INKWELL_DEV_ROOT", fixture->dev, 1) == 0 &&
+           setenv("INKWELL_PROC_MOUNTS", fixture->mounts, 1) == 0 &&
            fixture_put(fixture->mounts, "");
 }
 
 static void fixture_close(struct install_fixture *fixture) {
     inkwell_serial_set_sysfs_root(NULL);
-    (void)unsetenv("MESHCLIENT_SYSFS_BLOCK");
-    (void)unsetenv("MESHCLIENT_DEV_ROOT");
-    (void)unsetenv("MESHCLIENT_PROC_MOUNTS");
+    (void)unsetenv("INKWELL_SYSFS_BLOCK");
+    (void)unsetenv("INKWELL_DEV_ROOT");
+    (void)unsetenv("INKWELL_PROC_MOUNTS");
     (void)mesh_test_remove_tree(fixture->usb);
     (void)mesh_test_remove_tree(fixture->block);
     (void)mesh_test_remove_tree(fixture->dev);
@@ -264,8 +264,8 @@ MESH_TEST_CASE(usb_msc_finds_the_drive_the_bootloader_published, unit) {
     MESH_TEST_FAIL_IF_CLEANUP(!mesh_serial_device_is_bootloader(&device), fixture_close(&fixture),
                               "and should call it a bootloader");
 
-    struct mesh_usb_msc_target target;
-    const int found = mesh_usb_msc_find(&device, &target);
+    struct inkwell_usb_storage_target target;
+    const int found = inkwell_usb_storage_find(&device, &target);
     char expected[128];
     snprintf(expected, sizeof expected, "%s/sda", fixture.dev);
     const bool right = found == 0 && strcmp(target.device, expected) == 0;
@@ -273,10 +273,10 @@ MESH_TEST_CASE(usb_msc_finds_the_drive_the_bootloader_published, unit) {
 
     struct inkwell_serial_port_info sibling;
     const bool has_sibling = find_device("2-1.4:1.1", &sibling);
-    struct mesh_usb_msc_target other;
+    struct inkwell_usb_storage_target other;
     char expected_other[128];
     snprintf(expected_other, sizeof expected_other, "%s/sdb", fixture.dev);
-    const bool sibling_right = has_sibling && mesh_usb_msc_find(&sibling, &other) == 0 &&
+    const bool sibling_right = has_sibling && inkwell_usb_storage_find(&sibling, &other) == 0 &&
                                strcmp(other.device, expected_other) == 0;
     fixture_close(&fixture);
 
@@ -297,8 +297,8 @@ MESH_TEST_CASE(usb_msc_says_not_yet_before_the_drive_appears, unit) {
 
     struct inkwell_serial_port_info device;
     const bool have = find_device("2-1:1.1", &device);
-    struct mesh_usb_msc_target target;
-    const int found = have ? mesh_usb_msc_find(&device, &target) : 0;
+    struct inkwell_usb_storage_target target;
+    const int found = have ? inkwell_usb_storage_find(&device, &target) : 0;
     fixture_close(&fixture);
 
     MESH_TEST_FAIL_IF(!have, "the bootloader should still be in the scan");
@@ -332,9 +332,10 @@ MESH_TEST_CASE(usb_msc_lists_every_mount_of_the_drive_and_nothing_else, unit) {
     MESH_TEST_FAIL_IF_CLEANUP(!built, fixture_close(&fixture), "could not build the trees");
 
     struct inkwell_serial_port_info device;
-    struct mesh_usb_msc_target target;
+    struct inkwell_usb_storage_target target;
     memset(&target, 0, sizeof target);
-    const bool have = find_device("2-1:1.1", &device) && mesh_usb_msc_find(&device, &target) == 0;
+    const bool have =
+        find_device("2-1:1.1", &device) && inkwell_usb_storage_find(&device, &target) == 0;
     fixture_close(&fixture);
 
     MESH_TEST_FAIL_IF(!have, "the drive should be found");
@@ -385,11 +386,12 @@ MESH_TEST_CASE(usb_msc_knows_one_drive_spelled_two_ways, unit) {
     MESH_TEST_FAIL_IF_CLEANUP(!built, fixture_close(&fixture), "could not build the trees");
 
     struct inkwell_serial_port_info device;
-    struct mesh_usb_msc_target target;
+    struct inkwell_usb_storage_target target;
     memset(&target, 0, sizeof target);
-    const bool have = find_device("2-1:1.1", &device) && mesh_usb_msc_find(&device, &target) == 0;
+    const bool have =
+        find_device("2-1:1.1", &device) && inkwell_usb_storage_find(&device, &target) == 0;
     const size_t count = target.mount_count;
-    char point[MESH_USB_MSC_PATH_MAX];
+    char point[INKWELL_USB_STORAGE_PATH_MAX];
     inkwell_str_copy(point, sizeof point, count > 0U ? target.mounts[0] : "");
     fixture_close(&fixture);
 
@@ -410,7 +412,7 @@ MESH_TEST_CASE(usb_msc_refuses_a_drive_it_could_only_half_unmount, unit) {
        anything truncates - and then the next call gets an out-of-range pointer and a length
        that underflowed. Writing each line separately has no offset to get wrong. */
     char line[256];
-    for (unsigned i = 0; built && i < MESH_USB_MSC_MOUNTS_MAX + 1U; ++i) {
+    for (unsigned i = 0; built && i < INKWELL_USB_STORAGE_MOUNTS_MAX + 1U; ++i) {
         built = snprintf(line, sizeof line, "%s/sda /mnt/m%u vfat rw 0 0\n", fixture.dev, i) <
                 (int)sizeof line;
         built = built && fixture_append(fixture.mounts, line);
@@ -418,18 +420,19 @@ MESH_TEST_CASE(usb_msc_refuses_a_drive_it_could_only_half_unmount, unit) {
     MESH_TEST_FAIL_IF_CLEANUP(!built, fixture_close(&fixture), "could not build the trees");
 
     struct inkwell_serial_port_info device;
-    struct mesh_usb_msc_target target;
+    struct inkwell_usb_storage_target target;
     memset(&target, 0, sizeof target);
-    const bool have = find_device("2-1:1.1", &device) && mesh_usb_msc_find(&device, &target) == 0;
+    const bool have =
+        find_device("2-1:1.1", &device) && inkwell_usb_storage_find(&device, &target) == 0;
     const bool flagged = target.too_many_mounts;
-    const int unmounted = mesh_usb_msc_unmount(&target);
+    const int unmounted = inkwell_usb_storage_unmount(&target);
     const size_t left = target.mount_count;
     fixture_close(&fixture);
 
     MESH_TEST_FAIL_IF(!have, "the drive should still be found");
     MESH_TEST_FAIL_IF(!flagged, "a drive with more mountpoints than we can name says so");
     MESH_TEST_FAIL_IF(unmounted != -E2BIG, "and refuses rather than unmounting some of them");
-    MESH_TEST_FAIL_IF(left != MESH_USB_MSC_MOUNTS_MAX, "with nothing taken off");
+    MESH_TEST_FAIL_IF(left != INKWELL_USB_STORAGE_MOUNTS_MAX, "with nothing taken off");
     record_success(test_name);
 }
 
@@ -437,12 +440,13 @@ MESH_TEST_CASE(usb_msc_refuses_a_drive_it_could_only_half_unmount, unit) {
  */
 
 /* Drives a write to completion, or gives up. Real time, because the child is a real child. */
-static bool write_settle(struct mesh_usb_msc_write *write) {
+static bool write_settle(struct inkwell_usb_storage_write *write) {
     const uint64_t give_up = inkwell_time_monotonic_ms() + 10000U;
-    while (write->state == MESH_USB_MSC_WRITE_RUNNING && inkwell_time_monotonic_ms() < give_up) {
-        mesh_usb_msc_write_tick(write, inkwell_time_monotonic_ms());
+    while (write->state == INKWELL_USB_STORAGE_WRITE_RUNNING &&
+           inkwell_time_monotonic_ms() < give_up) {
+        inkwell_usb_storage_write_tick(write, inkwell_time_monotonic_ms());
     }
-    return write->state == MESH_USB_MSC_WRITE_DONE;
+    return write->state == INKWELL_USB_STORAGE_WRITE_DONE;
 }
 
 /*
@@ -473,10 +477,10 @@ MESH_TEST_CASE(usb_msc_write_lands_every_byte, unit) {
     MESH_TEST_FAIL_IF_CLEANUP(!drive_node("sda"), (free(image), fixture_close(&fixture)),
                               "could not publish the drive node");
 
-    struct mesh_usb_msc_write write;
-    memset(&write, 0, sizeof write);
-    const int started =
-        mesh_usb_msc_write_start(&write, NULL, image, len, path, inkwell_time_monotonic_ms());
+    struct inkwell_usb_storage_write write;
+    inkwell_usb_storage_write_init(&write);
+    const int started = inkwell_usb_storage_write_start(&write, NULL, image, len, path,
+                                                        inkwell_time_monotonic_ms());
     MESH_TEST_FAIL_IF_CLEANUP(started != 0, (free(image), fixture_close(&fixture)),
                               "the write should start");
     const bool done = write_settle(&write);
@@ -493,8 +497,8 @@ MESH_TEST_CASE(usb_msc_write_lands_every_byte, unit) {
         fclose(file);
     }
     const uint64_t written = write.written;
-    const unsigned progress = mesh_usb_msc_write_progress(&write);
-    mesh_usb_msc_write_cancel(&write);
+    const unsigned progress = inkwell_usb_storage_write_progress(&write);
+    inkwell_usb_storage_write_cancel(&write);
     free(image);
     fixture_close(&fixture);
 
@@ -509,28 +513,28 @@ MESH_TEST_CASE(usb_msc_write_lands_every_byte, unit) {
    which end refused. */
 MESH_TEST_CASE(usb_msc_write_reports_a_drive_it_cannot_open, unit) {
     const uint8_t image[64] = {0};
-    struct mesh_usb_msc_write write;
-    memset(&write, 0, sizeof write);
-    const int started = mesh_usb_msc_write_start(&write, NULL, image, sizeof image,
-                                                 "/proc/meshclient/definitely-not-here",
-                                                 inkwell_time_monotonic_ms());
-    const enum mesh_usb_msc_write_state state = write.state;
-    mesh_usb_msc_write_cancel(&write);
+    struct inkwell_usb_storage_write write;
+    inkwell_usb_storage_write_init(&write);
+    const int started = inkwell_usb_storage_write_start(&write, NULL, image, sizeof image,
+                                                        "/proc/meshclient/definitely-not-here",
+                                                        inkwell_time_monotonic_ms());
+    const enum inkwell_usb_storage_write_state state = write.state;
+    inkwell_usb_storage_write_cancel(&write);
 
     /* The open is the parent's now, because the claim it takes has to be held from before the
        fork. So a drive that will not open costs no child at all, and the caller is told why by
        the errno the open gave rather than by an exit code standing in for it. */
     MESH_TEST_FAIL_IF(started != -ENOENT, "a drive that will not open is refused by start");
-    MESH_TEST_FAIL_IF(state == MESH_USB_MSC_WRITE_RUNNING, "and nothing is left running");
+    MESH_TEST_FAIL_IF(state == INKWELL_USB_STORAGE_WRITE_RUNNING, "and nothing is left running");
     record_success(test_name);
 }
 
 /*
  * The claim creates nothing, and the flag pair that must never meet.
  *
- * `mesh_usb_msc_claim()` asks for `O_EXCL` - an exclusive claim on a block device, which is what
- * keeps the platform's hotplug mount off the drive for the length of the write - and asks for it
- * on its own. An `O_CREAT` beside it would be wrong twice over. It is the unrelated "fail if it
+ * `inkwell_usb_storage_claim()` asks for `O_EXCL` - an exclusive claim on a block device, which is
+ * what keeps the platform's hotplug mount off the drive for the length of the write - and asks for
+ * it on its own. An `O_CREAT` beside it would be wrong twice over. It is the unrelated "fail if it
  * exists" when the two meet, so the claim would silently stop working; and on its own it would
  * make a **regular file where the drive goes**. That second one is not hypothetical here: this
  * opens the one device on the system that disappears for a living, and the gap between finding
@@ -548,25 +552,25 @@ MESH_TEST_CASE(usb_msc_claim_opens_what_is_there_and_creates_nothing, unit) {
     (void)!write(seeded, "old", 3U);
     close(seeded);
 
-    const int first = mesh_usb_msc_claim(path);
+    const int first = inkwell_usb_storage_claim(path);
     if (first >= 0) {
         close(first);
     }
-    const int second = mesh_usb_msc_claim(path);
+    const int second = inkwell_usb_storage_claim(path);
     if (second >= 0) {
         close(second);
     }
     (void)unlink(path);
 
     /* And the drive that went away between being found and being opened. */
-    const int gone = mesh_usb_msc_claim(path);
+    const int gone = inkwell_usb_storage_claim(path);
     if (gone >= 0) {
         close(gone);
     }
     const bool made_one = access(path, F_OK) == 0;
     (void)unlink(path);
 
-    const int missing = mesh_usb_msc_claim("");
+    const int missing = inkwell_usb_storage_claim("");
 
     MESH_TEST_FAIL_IF(first < 0, "a file that is already there should be claimable");
     MESH_TEST_FAIL_IF(second < 0, "and claimable again - O_CREAT and O_EXCL must not meet");
@@ -577,28 +581,35 @@ MESH_TEST_CASE(usb_msc_claim_opens_what_is_there_and_creates_nothing, unit) {
 }
 
 /*
- * A cancel on a struct that was zeroed and never started.
+ * A cancel on a writer that was initialized but never started.
  *
- * This is the download's `kill(0)` bug asked of the second child: a zeroed struct holds 0 where
- * a pid goes and 0 where an fd goes, and 0 means "the whole process group" to kill() and
- * "stdin" to close(). An app that cleans up its modules cleans this one up too.
+ * An idle writer owns neither a child nor an fd. Cleanup must leave stdin and the process
+ * group untouched even when no write was started.
  */
 MESH_TEST_CASE(usb_msc_write_survives_a_cancel_it_never_started, unit) {
-    struct mesh_usb_msc_write write;
-    memset(&write, 0, sizeof write);
-    mesh_usb_msc_write_cancel(&write);
-    mesh_usb_msc_write_tick(&write, 1000U);
-    mesh_usb_msc_write_cancel(&write);
+    struct inkwell_usb_storage_write write;
+    inkwell_usb_storage_write_init(&write);
+    inkwell_usb_storage_write_cancel(&write);
+    inkwell_usb_storage_write_tick(&write, 1000U);
+    inkwell_usb_storage_write_cancel(&write);
 
     /* If stdin had been closed, this would fail. */
     MESH_TEST_FAIL_IF(fcntl(STDIN_FILENO, F_GETFD) < 0,
                       "a cancel must not close the client's stdin");
-    MESH_TEST_FAIL_IF(mesh_usb_msc_write_progress(&write) != 0U, "and nothing was written");
+    MESH_TEST_FAIL_IF(inkwell_usb_storage_write_progress(&write) != 0U, "and nothing was written");
     record_success(test_name);
 }
 
 /* ---- the install ---------------------------------------------------------------------------
  */
+
+MESH_TEST_CASE(install_cancel_before_start_keeps_stdin, unit) {
+    struct mesh_firmware_install install = {0};
+    mesh_firmware_install_cancel(&install);
+    MESH_TEST_FAIL_IF(fcntl(STDIN_FILENO, F_GETFD) < 0,
+                      "cancel on a zeroed install must leave stdin open");
+    record_success(test_name);
+}
 
 struct install_run {
     bool finished;

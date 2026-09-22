@@ -99,7 +99,6 @@ add_library(meshclient_core
     src/transport/ble/ble_gatt.c
     src/transport/serial/serial_transport.c
     src/transport/serial/serial_usb.c
-    src/transport/serial/usb_msc.c
     src/transport/tcp/tcp_transport.c
     src/proto/channel_url.c
     src/proto/contact_url.c

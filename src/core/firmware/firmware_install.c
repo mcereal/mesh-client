@@ -46,7 +46,7 @@ const char *mesh_firmware_install_error_name(enum mesh_firmware_install_error er
  */
 
 static void install_release(struct mesh_firmware_install *install) {
-    mesh_usb_msc_write_cancel(&install->write);
+    inkwell_usb_storage_write_cancel(&install->write);
     free(install->image);
     install->image = NULL;
     install->image_len = 0U;
@@ -164,7 +164,8 @@ static void install_enter_waiting(struct mesh_firmware_install *install, uint64_
 static void install_begin_write(struct mesh_firmware_install *install,
                                 const struct inkwell_serial_port_info *bootloader,
                                 uint64_t now_ms) {
-    if (mesh_usb_msc_find(bootloader, &install->target) != 0 || install->target.device[0] == '\0') {
+    if (inkwell_usb_storage_find(bootloader, &install->target) != 0 ||
+        install->target.device[0] == '\0') {
         /* The interface is there and `usb-storage` has not published the disk yet, which is the
            ordinary answer for about a second. Keep waiting rather than failing. */
         return;
@@ -177,15 +178,15 @@ static void install_begin_write(struct mesh_firmware_install *install,
      * the radio is safe either way, but it is not a thing to leave in. Taking the shadow off is
      * also what puts the SD card back, because it was stacked on top of it.
      */
-    const int unmounted = mesh_usb_msc_unmount(&install->target);
+    const int unmounted = inkwell_usb_storage_unmount(&install->target);
     if (unmounted != 0) {
         install_fail(install, MESH_FIRMWARE_INSTALL_ERROR_MOUNTED);
         return;
     }
 
     const int started =
-        mesh_usb_msc_write_start(&install->write, install->loop, install->image, install->image_len,
-                                 install->target.device, now_ms);
+        inkwell_usb_storage_write_start(&install->write, install->loop, install->image,
+                                        install->image_len, install->target.device, now_ms);
     if (started != 0) {
         /* -EBUSY is the claim being refused, which means the drive is mounted or held by
            something that is not us - the same fact `unmounted` reports, arriving a moment
@@ -246,11 +247,11 @@ static void install_enter_restarting(struct mesh_firmware_install *install, uint
 }
 
 static void install_tick_writing(struct mesh_firmware_install *install, uint64_t now_ms) {
-    mesh_usb_msc_write_tick(&install->write, now_ms);
-    if (install->write.state == MESH_USB_MSC_WRITE_RUNNING) {
+    inkwell_usb_storage_write_tick(&install->write, now_ms);
+    if (install->write.state == INKWELL_USB_STORAGE_WRITE_RUNNING) {
         return;
     }
-    if (install->write.state != MESH_USB_MSC_WRITE_DONE) {
+    if (install->write.state != INKWELL_USB_STORAGE_WRITE_DONE) {
         /*
          * A write that ended early because the drive went away is not a broken write: it is the
          * board saying it has counted `numBlocks` and reset, which happens partway through
@@ -337,6 +338,7 @@ int mesh_firmware_install_start(struct mesh_firmware_install *install, struct in
     /* From here every return fills in `state` and `error`, which is what lets a caller print
        why rather than "could not start the install: none". */
     memset(install, 0, sizeof *install);
+    inkwell_usb_storage_write_init(&install->write);
 
     /*
      * A family of 0 does not mean "any family". It means the architecture has no UF2 path at
@@ -432,7 +434,10 @@ void mesh_firmware_install_cancel(struct mesh_firmware_install *install) {
     if (install == NULL) {
         return;
     }
-    install_release(install);
+    /* A zeroed install is cancellable before start; its writer has not been initialized yet. */
+    if (install->state != MESH_FIRMWARE_INSTALL_IDLE) {
+        install_release(install);
+    }
     install->on_done = NULL;
     install->userdata = NULL;
     install->state = MESH_FIRMWARE_INSTALL_IDLE;
@@ -457,7 +462,7 @@ unsigned mesh_firmware_install_progress(const struct mesh_firmware_install *inst
     }
     switch (install->state) {
     case MESH_FIRMWARE_INSTALL_WRITING:
-        return mesh_usb_msc_write_progress(&install->write);
+        return inkwell_usb_storage_write_progress(&install->write);
     case MESH_FIRMWARE_INSTALL_RESTARTING:
     case MESH_FIRMWARE_INSTALL_DONE:
         /* The bytes are all out; what is left is the board's own second. A bar that fell back
