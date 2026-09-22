@@ -9,7 +9,7 @@
 #include <stdint.h>
 #include <sys/types.h>
 
-struct mesh_serial_device_info mesh_test_serial_device(void);
+struct inkwell_serial_port_info mesh_test_serial_device(void);
 
 ssize_t mesh_test_serial_read(int fd, uint8_t *out, size_t cap);
 

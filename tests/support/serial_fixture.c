@@ -14,8 +14,8 @@
 #include <unistd.h>
 
 /* One unbound native-USB node, as the Brick sees a Heltec nRF52840 before we bind it. */
-struct mesh_serial_device_info mesh_test_serial_device(void) {
-    struct mesh_serial_device_info device;
+struct inkwell_serial_port_info mesh_test_serial_device(void) {
+    struct inkwell_serial_port_info device;
     memset(&device, 0, sizeof device);
     snprintf(device.id, sizeof device.id, "%s", "1-1:1.1");
     snprintf(device.name, sizeof device.name, "%s", "Heltec Mesh Node");

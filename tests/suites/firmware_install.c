@@ -4,8 +4,8 @@
  * The USB handover, against fixture trees rather than a radio.
  *
  * Three seams make the whole of it reachable from a suite, and all three are *readings* with a
- * default that is the real path: `MESHCLIENT_SYSFS_USB` is the USB tree the bootloader is found
- * in, `MESHCLIENT_SYSFS_BLOCK` is where the drive it published appears, and
+ * default that is the real path: inkwell's `inkwell_serial_set_sysfs_root()` is the USB tree the
+ * bootloader is found in, `MESHCLIENT_SYSFS_BLOCK` is where the drive it published appears, and
  * `MESHCLIENT_PROC_MOUNTS` is what the platform has mounted on it. The fourth,
  * `MESHCLIENT_DEV_ROOT`, is what turns "/dev/sda" into a file in a temporary directory - which
  * is the only reason the *write* can be tested at all, and it costs nothing in honesty because
@@ -208,15 +208,15 @@ static bool fixture_open(struct install_fixture *fixture) {
     snprintf(fixture->block, sizeof fixture->block, "%s", block);
     snprintf(fixture->dev, sizeof fixture->dev, "%s", dev);
     snprintf(fixture->mounts, sizeof fixture->mounts, "%s/mounts", dev);
-    return setenv("MESHCLIENT_SYSFS_USB", fixture->usb, 1) == 0 &&
-           setenv("MESHCLIENT_SYSFS_BLOCK", fixture->block, 1) == 0 &&
+    inkwell_serial_set_sysfs_root(fixture->usb);
+    return setenv("MESHCLIENT_SYSFS_BLOCK", fixture->block, 1) == 0 &&
            setenv("MESHCLIENT_DEV_ROOT", fixture->dev, 1) == 0 &&
            setenv("MESHCLIENT_PROC_MOUNTS", fixture->mounts, 1) == 0 &&
            fixture_put(fixture->mounts, "");
 }
 
 static void fixture_close(struct install_fixture *fixture) {
-    (void)unsetenv("MESHCLIENT_SYSFS_USB");
+    inkwell_serial_set_sysfs_root(NULL);
     (void)unsetenv("MESHCLIENT_SYSFS_BLOCK");
     (void)unsetenv("MESHCLIENT_DEV_ROOT");
     (void)unsetenv("MESHCLIENT_PROC_MOUNTS");
@@ -226,9 +226,9 @@ static void fixture_close(struct install_fixture *fixture) {
 }
 
 /* The scan's entry for the bootloader's CDC-Data interface, which is what a caller holds. */
-static bool find_device(const char *id, struct mesh_serial_device_info *out) {
-    struct mesh_serial_device_info devices[MESH_SERIAL_MAX_DEVICES];
-    const size_t count = mesh_serial_usb_scan(devices, MESH_SERIAL_MAX_DEVICES);
+static bool find_device(const char *id, struct inkwell_serial_port_info *out) {
+    struct inkwell_serial_port_info devices[MESH_SERIAL_MAX_DEVICES];
+    const size_t count = inkwell_serial_scan(devices, MESH_SERIAL_MAX_DEVICES);
     for (size_t i = 0; i < count; ++i) {
         if (strcmp(devices[i].id, id) == 0) {
             *out = devices[i];
@@ -258,10 +258,10 @@ MESH_TEST_CASE(usb_msc_finds_the_drive_the_bootloader_published, unit) {
     built = built && block_device(fixture.block, "sdb", "2-1.4", "65801");
     MESH_TEST_FAIL_IF_CLEANUP(!built, fixture_close(&fixture), "could not build the trees");
 
-    struct mesh_serial_device_info device;
+    struct inkwell_serial_port_info device;
     MESH_TEST_FAIL_IF_CLEANUP(!find_device("2-1:1.1", &device), fixture_close(&fixture),
                               "the scan should offer the bootloader's CDC-Data interface");
-    MESH_TEST_FAIL_IF_CLEANUP(device.role != MESH_SERIAL_ROLE_BOOTLOADER, fixture_close(&fixture),
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_serial_device_is_bootloader(&device), fixture_close(&fixture),
                               "and should call it a bootloader");
 
     struct mesh_usb_msc_target target;
@@ -271,7 +271,7 @@ MESH_TEST_CASE(usb_msc_finds_the_drive_the_bootloader_published, unit) {
     const bool right = found == 0 && strcmp(target.device, expected) == 0;
     const uint64_t size = target.size_bytes;
 
-    struct mesh_serial_device_info sibling;
+    struct inkwell_serial_port_info sibling;
     const bool has_sibling = find_device("2-1.4:1.1", &sibling);
     struct mesh_usb_msc_target other;
     char expected_other[128];
@@ -295,7 +295,7 @@ MESH_TEST_CASE(usb_msc_says_not_yet_before_the_drive_appears, unit) {
     MESH_TEST_FAIL_IF_CLEANUP(!usb_bootloader(fixture.usb, "2-1"), fixture_close(&fixture),
                               "could not build the USB tree");
 
-    struct mesh_serial_device_info device;
+    struct inkwell_serial_port_info device;
     const bool have = find_device("2-1:1.1", &device);
     struct mesh_usb_msc_target target;
     const int found = have ? mesh_usb_msc_find(&device, &target) : 0;
@@ -331,7 +331,7 @@ MESH_TEST_CASE(usb_msc_lists_every_mount_of_the_drive_and_nothing_else, unit) {
     built = built && fixture_put(fixture.mounts, mounts);
     MESH_TEST_FAIL_IF_CLEANUP(!built, fixture_close(&fixture), "could not build the trees");
 
-    struct mesh_serial_device_info device;
+    struct inkwell_serial_port_info device;
     struct mesh_usb_msc_target target;
     memset(&target, 0, sizeof target);
     const bool have = find_device("2-1:1.1", &device) && mesh_usb_msc_find(&device, &target) == 0;
@@ -384,7 +384,7 @@ MESH_TEST_CASE(usb_msc_knows_one_drive_spelled_two_ways, unit) {
     built = built && fixture_put(fixture.mounts, mounts);
     MESH_TEST_FAIL_IF_CLEANUP(!built, fixture_close(&fixture), "could not build the trees");
 
-    struct mesh_serial_device_info device;
+    struct inkwell_serial_port_info device;
     struct mesh_usb_msc_target target;
     memset(&target, 0, sizeof target);
     const bool have = find_device("2-1:1.1", &device) && mesh_usb_msc_find(&device, &target) == 0;
@@ -417,7 +417,7 @@ MESH_TEST_CASE(usb_msc_refuses_a_drive_it_could_only_half_unmount, unit) {
     }
     MESH_TEST_FAIL_IF_CLEANUP(!built, fixture_close(&fixture), "could not build the trees");
 
-    struct mesh_serial_device_info device;
+    struct inkwell_serial_port_info device;
     struct mesh_usb_msc_target target;
     memset(&target, 0, sizeof target);
     const bool have = find_device("2-1:1.1", &device) && mesh_usb_msc_find(&device, &target) == 0;

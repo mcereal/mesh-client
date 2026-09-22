@@ -1499,14 +1499,14 @@ MESH_TEST_CASE(app_link_routing, unit) {
     };
     inkwell_ble_mock_enable(&mock_config);
 
-    const struct mesh_serial_device_info ports[] = {mesh_test_serial_device()};
-    struct mesh_serial_usb_mock_config serial_mock;
+    const struct inkwell_serial_port_info ports[] = {mesh_test_serial_device()};
+    struct inkwell_serial_mock_config serial_mock;
     memset(&serial_mock, 0, sizeof serial_mock);
-    serial_mock.devices = ports;
-    serial_mock.device_count = 1U;
+    serial_mock.ports = ports;
+    serial_mock.port_count = 1U;
     serial_mock.bound_path = "/dev/ttyUSB0";
     serial_mock.open_fd = pair[0];
-    mesh_serial_usb_mock_enable(&serial_mock);
+    inkwell_serial_mock_enable(&serial_mock);
 
     char home_dir[APP_TEST_HOME_CAP];
     if (!app_test_home(home_dir, sizeof home_dir, "link_routing")) {
@@ -1616,7 +1616,7 @@ cleanup:
         mesh_app_shutdown(&app);
     }
     inkwell_ble_mock_disable();
-    mesh_serial_usb_mock_disable();
+    inkwell_serial_mock_disable();
     unsetenv("MESHCLIENT_UI_BACKEND");
     if (pair[0] >= 0) {
         close(pair[0]);
@@ -1657,14 +1657,14 @@ MESH_TEST_CASE(app_assetless_release_says_why_it_cannot_install, unit) {
     struct inkwell_ble_mock_config mock_config = {.adapter_name = "/org/bluez/hci0"};
     inkwell_ble_mock_enable(&mock_config);
 
-    const struct mesh_serial_device_info ports[] = {mesh_test_serial_device()};
-    struct mesh_serial_usb_mock_config serial_mock;
+    const struct inkwell_serial_port_info ports[] = {mesh_test_serial_device()};
+    struct inkwell_serial_mock_config serial_mock;
     memset(&serial_mock, 0, sizeof serial_mock);
-    serial_mock.devices = ports;
-    serial_mock.device_count = 1U;
+    serial_mock.ports = ports;
+    serial_mock.port_count = 1U;
     serial_mock.bound_path = "/dev/ttyUSB0";
     serial_mock.open_fd = pair[0];
-    mesh_serial_usb_mock_enable(&serial_mock);
+    inkwell_serial_mock_enable(&serial_mock);
 
     char home_dir[APP_TEST_HOME_CAP];
     if (!app_test_home(home_dir, sizeof home_dir, "assetless")) {
@@ -1737,7 +1737,7 @@ cleanup:
         mesh_app_shutdown(&app);
     }
     inkwell_ble_mock_disable();
-    mesh_serial_usb_mock_disable();
+    inkwell_serial_mock_disable();
     unsetenv("MESHCLIENT_UI_BACKEND");
     if (pair[0] >= 0) {
         close(pair[0]);
@@ -2049,14 +2049,14 @@ MESH_TEST_CASE(app_firmware_arm_reports_a_queued_verb_as_armed, unit) {
     struct inkwell_ble_mock_config mock_config = {.adapter_name = "/org/bluez/hci0"};
     inkwell_ble_mock_enable(&mock_config);
 
-    const struct mesh_serial_device_info ports[] = {mesh_test_serial_device()};
-    struct mesh_serial_usb_mock_config serial_mock;
+    const struct inkwell_serial_port_info ports[] = {mesh_test_serial_device()};
+    struct inkwell_serial_mock_config serial_mock;
     memset(&serial_mock, 0, sizeof serial_mock);
-    serial_mock.devices = ports;
-    serial_mock.device_count = 1U;
+    serial_mock.ports = ports;
+    serial_mock.port_count = 1U;
     serial_mock.bound_path = "/dev/ttyUSB0";
     serial_mock.open_fd = pair[0];
-    mesh_serial_usb_mock_enable(&serial_mock);
+    inkwell_serial_mock_enable(&serial_mock);
 
     char home_dir[APP_TEST_HOME_CAP];
     if (!app_test_home(home_dir, sizeof home_dir, "armusb")) {
@@ -2130,7 +2130,7 @@ cleanup:
         mesh_app_shutdown(&app);
     }
     inkwell_ble_mock_disable();
-    mesh_serial_usb_mock_disable();
+    inkwell_serial_mock_disable();
     unsetenv("MESHCLIENT_UI_BACKEND");
     if (pair[0] >= 0) {
         close(pair[0]);

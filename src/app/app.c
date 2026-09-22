@@ -579,7 +579,7 @@ void mesh_app_autoconnect(struct mesh_app *app) {
      * lose, and is almost certainly why the cable is there. BLE keeps its own policy below for
      * when nothing is plugged in.
      */
-    struct mesh_serial_device_info all_ports[MESH_SERIAL_MAX_DEVICES];
+    struct inkwell_serial_port_info all_ports[MESH_SERIAL_MAX_DEVICES];
     struct mesh_transport *serial = mesh_serial_transport();
     const size_t all_port_count =
         mesh_serial_transport_get_devices(serial, all_ports, MESH_SERIAL_MAX_DEVICES);
@@ -592,7 +592,7 @@ void mesh_app_autoconnect(struct mesh_app *app) {
      * bootloader as the only thing plugged in, the right behaviour is to fall through to
      * Bluetooth exactly as an empty port list does.
      */
-    struct mesh_serial_device_info ports[MESH_SERIAL_MAX_DEVICES];
+    struct inkwell_serial_port_info ports[MESH_SERIAL_MAX_DEVICES];
     size_t port_count = 0U;
     for (size_t i = 0; i < all_port_count; ++i) {
         if (mesh_serial_device_is_radio(&all_ports[i])) {
@@ -601,7 +601,7 @@ void mesh_app_autoconnect(struct mesh_app *app) {
     }
 
     if (port_count > 0U) {
-        const struct mesh_serial_device_info *port = &ports[0];
+        const struct inkwell_serial_port_info *port = &ports[0];
         const char *preferred_port = app->config.preferred_serial_device;
         bool port_chosen = false;
         if (preferred_port[0] != '\0') {

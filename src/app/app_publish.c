@@ -2194,7 +2194,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
 
     /* USB ports first: a plugged-in node needs no pairing and no range, so it is the one you
        almost always want, and putting it at the top makes it the default cursor row. */
-    struct mesh_serial_device_info serial_devices[MESH_SERIAL_MAX_DEVICES];
+    struct inkwell_serial_port_info serial_devices[MESH_SERIAL_MAX_DEVICES];
     const size_t serial_count = mesh_serial_transport_get_devices(
         mesh_serial_transport(), serial_devices, MESH_SERIAL_MAX_DEVICES);
     for (size_t i = 0; i < serial_count && device_count < MESH_UI_MAX_DEVICES; ++i) {
