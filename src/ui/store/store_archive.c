@@ -15,6 +15,7 @@
  */
 
 #include "mesh/ui/store_archive.h"
+#include "inkwell/base/record_file.h"
 
 #include "inkwell/base/log.h"
 #include "inkwell/base/text.h"
@@ -322,6 +323,10 @@ static uint32_t archive_reader_finish(struct archive_reader *reader) {
  * unescape, same tolerance of a comment or a blank. Returns -ENOENT when there is no such file,
  * which every caller treats as an empty conversation rather than as a failure.
  */
+static void archive_read_line(void *context, const char *key, char *value) {
+    archive_reader_line(context, key, value);
+}
+
 static int archive_read_file(const char *path, struct mesh_ui_message *entries, uint32_t capacity,
                              uint32_t *out_count, uint32_t *out_dropped) {
     if (entries == NULL || capacity == 0U || out_count == NULL) {
@@ -338,22 +343,12 @@ static int archive_read_file(const char *path, struct mesh_ui_message *entries, 
     reader.capacity = capacity;
 
     char line[MESH_UI_ARCHIVE_LINE_MAX];
-    while (fgets(line, sizeof line, file) != NULL) {
-        line[strcspn(line, "\r\n")] = '\0';
-        if (line[0] == '\0' || line[0] == '#') {
-            continue;
-        }
-        char *equals = strchr(line, '=');
-        if (equals == NULL) {
-            continue;
-        }
-        *equals = '\0';
-        char *value = equals + 1;
-        mesh_ui_store_unescape_value(value);
-        archive_reader_line(&reader, line, value);
-    }
+    const int result = inkwell_record_read(file, line, sizeof line, archive_read_line, &reader);
 
     fclose(file);
+    if (result != 0) {
+        return result;
+    }
     *out_count = archive_reader_finish(&reader);
     if (out_dropped != NULL) {
         *out_dropped = reader.dropped;
@@ -372,35 +367,24 @@ static int archive_read_file(const char *path, struct mesh_ui_message *entries, 
  * for every section of it except the roster, which is the one record of the nodes a radio has
  * evicted and which no publish can rebuild.
  */
+struct archive_rewrite_context {
+    const struct mesh_ui_message *messages;
+    uint32_t count;
+};
+
+static void archive_write_replacement(FILE *file, void *context) {
+    const struct archive_rewrite_context *records = context;
+    for (uint32_t i = 0; i < records->count; ++i) {
+        mesh_ui_store_write_message(file, i, &records->messages[i]);
+    }
+}
+
 static int archive_rewrite(const char *path, const struct mesh_ui_message *messages,
                            uint32_t count) {
     char temp[sizeof(((struct mesh_ui_archive *)0)->dir) + 64];
-    const int named = snprintf(temp, sizeof temp, "%s.tmp", path);
-    if (named <= 0 || named >= (int)sizeof temp) {
-        return -ENAMETOOLONG;
-    }
-
-    FILE *file = fopen(temp, "w");
-    if (file == NULL) {
-        return -errno;
-    }
-    for (uint32_t i = 0; i < count; ++i) {
-        mesh_ui_store_write_message(file, i, &messages[i]);
-    }
-    int result = ferror(file) ? -EIO : 0;
-    if (fclose(file) != 0) {
-        result = -errno;
-    }
-    if (result != 0) {
-        (void)unlink(temp);
-        return result;
-    }
-    if (rename(temp, path) != 0) {
-        result = -errno;
-        (void)unlink(temp);
-        return result;
-    }
-    return 0;
+    struct archive_rewrite_context context = {messages, count};
+    return inkwell_record_replace(path, temp, sizeof temp, archive_write_replacement, &context,
+                                  false);
 }
 
 /*
@@ -436,27 +420,30 @@ static void archive_compact(const char *path) {
 }
 
 /* Appends whole records to a conversation's file, creating it if it is not there. */
+struct archive_append_context {
+    struct mesh_ui_archive *archive;
+    const struct mesh_ui_message *const *messages;
+    uint32_t count;
+};
+
+static void archive_write_append(FILE *file, void *context) {
+    struct archive_append_context *records = context;
+    for (uint32_t i = 0; i < records->count; ++i) {
+        mesh_ui_store_write_message(file, records->archive->next_index, records->messages[i]);
+        records->archive->next_index++;
+    }
+}
+
 static int archive_append_records(struct mesh_ui_archive *archive, const char *path,
                                   const struct mesh_ui_message *const *messages, uint32_t count) {
     if (count == 0U) {
         return 0;
     }
-    FILE *file = fopen(path, "a");
-    if (file == NULL) {
-        return -errno;
-    }
-    for (uint32_t i = 0; i < count; ++i) {
-        mesh_ui_store_write_message(file, archive->next_index, messages[i]);
-        archive->next_index++;
-    }
-    int result = ferror(file) ? -EIO : 0;
-    if (fclose(file) != 0) {
-        result = -errno;
-    }
+    struct archive_append_context context = {archive, messages, count};
+    const int result = inkwell_record_append(path, archive_write_append, &context);
     if (result != 0) {
         return result;
     }
-
     archive_compact(path);
     return (int)count;
 }

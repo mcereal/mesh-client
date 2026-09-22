@@ -7,6 +7,7 @@
  */
 
 #include "mesh/ui/store_keys.h"
+#include "inkwell/base/record_file.h"
 
 #include <errno.h>
 #include <stdarg.h>
@@ -160,38 +161,7 @@ enum mesh_ui_store_key mesh_ui_store_key_lookup(const char *key, uint32_t *index
  * A newline or an '=' inside a node's name would otherwise forge a second line, and the names
  * come off the air. The loader's unescape is its mirror.
  */
-static void write_escaped(FILE *file, const char *value) {
-    if (value == NULL) {
-        return;
-    }
-    for (const unsigned char *ptr = (const unsigned char *)value; *ptr != '\0'; ++ptr) {
-        if (*ptr < 0x20U || *ptr == '\\' || *ptr == '=') {
-            fprintf(file, "\\x%02x", *ptr);
-        } else {
-            fputc((int)*ptr, file);
-        }
-    }
-}
-
-void mesh_ui_store_unescape_value(char *value) {
-    if (value == NULL) {
-        return;
-    }
-
-    char *write_ptr = value;
-    for (char *read_ptr = value; *read_ptr != '\0'; ++read_ptr) {
-        if (*read_ptr == '\\') {
-            if (read_ptr[1] == 'x' && read_ptr[2] != '\0' && read_ptr[3] != '\0') {
-                char hex[3] = {read_ptr[2], read_ptr[3], '\0'};
-                *write_ptr++ = (char)strtol(hex, NULL, 16);
-                read_ptr += 3;
-            }
-        } else {
-            *write_ptr++ = *read_ptr;
-        }
-    }
-    *write_ptr = '\0';
-}
+void mesh_ui_store_unescape_value(char *value) { inkwell_record_unescape(value); }
 
 /* Every writer funnels through here, so a key that is not in the table writes nothing at all
    rather than a line the loader would skip. */
@@ -247,7 +217,7 @@ void mesh_ui_store_write_text(FILE *file, enum mesh_ui_store_key key, const char
         return;
     }
     fputc('=', file);
-    write_escaped(file, text);
+    inkwell_record_write_escaped(file, text);
     fputc('\n', file);
 }
 
@@ -257,7 +227,7 @@ void mesh_ui_store_write_row_text(FILE *file, enum mesh_ui_store_key key, uint32
         return;
     }
     fprintf(file, "[%u]=", index);
-    write_escaped(file, text);
+    inkwell_record_write_escaped(file, text);
     fputc('\n', file);
 }
 
@@ -267,6 +237,6 @@ void mesh_ui_store_write_slot_text(FILE *file, enum mesh_ui_store_key key, uint3
         return;
     }
     fprintf(file, "[%u.%u]=", index, slot);
-    write_escaped(file, text);
+    inkwell_record_write_escaped(file, text);
     fputc('\n', file);
 }

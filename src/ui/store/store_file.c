@@ -28,6 +28,7 @@
  */
 
 #include "inkwell/base/array.h"
+#include "inkwell/base/record_file.h"
 
 #include "mesh/ui/store.h"
 
@@ -384,22 +385,8 @@ static void mesh_ui_store_save_traceroutes(FILE *file, const struct mesh_ui_trac
  * cache; a cut near the start of it left an empty one, which reads back as handshake_valid=0 -
  * the whole roster, gone, from a radio that was only ever doing what its NodeDB does.
  */
-int mesh_ui_store_save(const struct mesh_ui_store *store, const char *path) {
-    if (store == NULL || path == NULL || path[0] == '\0') {
-        return -EINVAL;
-    }
-
-    char temp[MESH_UI_STORE_TEMP_PATH_MAX];
-    const int named = snprintf(temp, sizeof temp, "%s.tmp", path);
-    if (named <= 0 || named >= (int)sizeof temp) {
-        return -ENAMETOOLONG;
-    }
-
-    FILE *file = fopen(temp, "w");
-    if (file == NULL) {
-        return -errno;
-    }
-
+static void write_cache(FILE *file, void *context) {
+    const struct mesh_ui_store *store = context;
     mesh_ui_store_write(file, MESH_UI_STORE_KEY_HANDSHAKE_VALID, "%u",
                         store->handshake_valid ? 1U : 0U);
     if (store->handshake_valid) {
@@ -409,36 +396,14 @@ int mesh_ui_store_save(const struct mesh_ui_store *store, const char *path) {
     mesh_ui_store_save_read_state(file, &store->read_state);
     mesh_ui_store_save_history(file, &store->history);
     mesh_ui_store_save_traceroutes(file, &store->traceroutes);
+}
 
-    int result = ferror(file) ? -EIO : 0;
-    /*
-     * Flushed and on the card before the rename, not just handed to the kernel. A rename is
-     * atomic against the *directory*, which on its own only promises that a reader sees one
-     * name or the other - on the FAT volume a Brick keeps its userdata on, a rename that landed
-     * ahead of the data would publish the new name over blocks that are still the old file's,
-     * or zeros. This is the one place that ordering is worth a stall, because it is the one
-     * file here that cannot be rebuilt.
-     */
-    if (result == 0 && fflush(file) != 0) {
-        result = -errno;
+int mesh_ui_store_save(const struct mesh_ui_store *store, const char *path) {
+    if (store == NULL || path == NULL || path[0] == '\0') {
+        return -EINVAL;
     }
-    if (result == 0 && fsync(fileno(file)) != 0) {
-        result = -errno;
-    }
-    if (fclose(file) != 0 && result == 0) {
-        result = -errno;
-    }
-    if (result != 0) {
-        (void)unlink(temp);
-        return result;
-    }
-
-    if (rename(temp, path) != 0) {
-        result = -errno;
-        (void)unlink(temp);
-        return result;
-    }
-    return 0;
+    char temp[MESH_UI_STORE_TEMP_PATH_MAX];
+    return inkwell_record_replace(path, temp, sizeof temp, write_cache, (void *)store, true);
 }
 
 /* ---- loading ------------------------------------------------------------------------------- */
@@ -1482,6 +1447,10 @@ static void commit(struct mesh_ui_store *store, struct mesh_ui_store_cache *cach
     mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_HANDSHAKE | MESH_UI_UPDATE_MESSAGES);
 }
 
+static void load_cache_line(void *context, const char *key, char *value) {
+    load_line(context, key, value);
+}
+
 int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
     if (store == NULL || path == NULL || path[0] == '\0') {
         return -EINVAL;
@@ -1498,25 +1467,13 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
     memset(&cache, 0, sizeof cache);
 
     char line[1280];
-    while (fgets(line, sizeof line, file) != NULL) {
-        line[strcspn(line, "\r\n")] = '\0';
-        if (line[0] == '\0' || line[0] == '#') {
-            continue;
-        }
-
-        char *equals = strchr(line, '=');
-        if (equals == NULL) {
-            continue;
-        }
-
-        *equals = '\0';
-        char *value = equals + 1;
-        mesh_ui_store_unescape_value(value);
-        load_line(&cache, line, value);
-    }
+    const int result = inkwell_record_read(file, line, sizeof line, load_cache_line, &cache);
 
     fclose(file);
 
+    if (result != 0) {
+        return result;
+    }
     commit(store, &cache);
     return 0;
 }
