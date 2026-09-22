@@ -156,25 +156,42 @@ static bool pixel_is_role(const struct inkcell_capture *capture, const uint8_t *
     return pixel[0] == want.b && pixel[1] == want.g && pixel[2] == want.r;
 }
 
-/* The widest run of `role` on any scanline, as a fraction of the width, in percent. A card's
-   padding band is an unbroken run of its fill from edge to edge and its border is an unbroken
-   run of the rule colour, so both come out near 100; a glyph in that colour comes out at a few. */
-static unsigned widest_row_run(const struct inkcell_capture *capture, const uint8_t *pixels,
+/* The widest run of `role` on any scanline, as a fraction of the content column, in percent. A
+   card's padding band is an unbroken run of its fill from edge to edge of that column and its
+   border is an unbroken run of the rule colour, so both come out near 100; a glyph in that
+   colour comes out at a few. Takes the capture mutably only to ask it for the column - see the
+   note inside. */
+static unsigned widest_row_run(struct inkcell_capture *capture, const uint8_t *pixels,
                                uint32_t width, uint32_t height, size_t stride,
                                enum inkcell_color role) {
+    /*
+     * As a percentage of the *content column*, not of the panel.
+     *
+     * The two were the same number for as long as content was as wide as the surface. They stop
+     * being the same the moment a surface is wider than one column of text has any use for, and
+     * then the panel is the wrong denominator: a card spanning its column completely would
+     * score under half and this would report that the screen had stopped drawing cards. What
+     * the callers below are asking is "does this span most of the width it was given", and the
+     * width a card is given is inkcell_fb_content_w().
+     *
+     * The run itself is still measured across the whole frame, because where the column is is
+     * not this helper's business - only how wide it is.
+     */
+    const unsigned column = (unsigned)inkcell_fb_content_w(inkcell_capture_state(capture));
+    const unsigned span = column > 0U ? column : width;
     unsigned best = 0U;
     for (uint32_t y = 0U; y < height; ++y) {
         const uint8_t *row = pixels + (size_t)y * stride;
         unsigned run = 0U;
         for (uint32_t x = 0U; x < width; ++x) {
             run = pixel_is_role(capture, row + (size_t)x * 4U, role) ? run + 1U : 0U;
-            const unsigned pct = (unsigned)((uint64_t)run * 100U / width);
+            const unsigned pct = (unsigned)((uint64_t)run * 100U / span);
             if (pct > best) {
                 best = pct;
             }
         }
     }
-    return best;
+    return best > 100U ? 100U : best;
 }
 
 /*
@@ -1622,15 +1639,55 @@ MESH_TEST_CASE(ui_capture_dialog_actions_stay_inside_the_panel, unit) {
  * gives the label half the line instead. A test that assumed the stated width would pass at the
  * scales where it is right and accuse the renderer at the two where it is not.
  */
+/*
+ * How wide the content column is on a panel this size, at this scale.
+ *
+ * The denominator for every "does this span most of the width" sweep below. It used to be the
+ * panel's width, and that was the same number for as long as content was as wide as the
+ * surface; where the column is capped and centred it is not, and a sweep measured against the
+ * panel reports that a card spanning its whole column has stopped being a card.
+ *
+ * Asked of the toolkit rather than re-derived, for settings_label_right()'s reason.
+ */
+static uint32_t content_column_width(const struct inkcell_theme *theme, uint32_t width, int scale) {
+    struct inkcell_capture *capture = NULL;
+    if (mesh_ui_capture_open(&capture, width, INKCELL_CAPTURE_HEIGHT, scale) != 0) {
+        return width;
+    }
+    inkcell_capture_set_theme(capture, theme);
+    inkcell_capture_set_scale(capture, scale);
+    const uint32_t column = (uint32_t)inkcell_fb_content_w(inkcell_capture_state(capture));
+    inkcell_capture_close(capture);
+    return column > 0U ? column : width;
+}
+
 static uint32_t settings_label_right(const struct inkcell_theme *theme, uint32_t width, int scale) {
-    const struct inkcell_font *font = inkcell_font_by_id(theme->font_id);
-    const int advance = inkcell_font_advance(font, scale);
-    const int margin = (int)theme->metrics.margin;
-    const int usable = (int)width - 2 * margin;
-    const size_t cols = usable > 0 ? (size_t)(usable / advance) : 1U;
-    const size_t label_cols =
-        cols < theme->metrics.narrow_cols ? cols / 2U : theme->metrics.field_label_cols;
-    return (uint32_t)(margin + (int)label_cols * advance);
+    /*
+     * Asked of the toolkit rather than re-derived, which it used to be: the arithmetic here was
+     * `margin + label_cols * advance` over a count taken from the panel, and both halves of that
+     * stopped being true when content stopped being as wide as the surface. A row's label column
+     * starts at inkcell_fb_content_x() now, and how many columns it gets is
+     * inkcell_fb_field_label_cols() - the renderer's own answer, over the *body's* count.
+     *
+     * Re-deriving it was always the weaker version. It passed for as long as the two derivations
+     * happened to agree, which is exactly as long as nobody changed the layout - so the case it
+     * was guarding was the one case it could not survive.
+     */
+    struct inkcell_capture *capture = NULL;
+    if (mesh_ui_capture_open(&capture, width, INKCELL_CAPTURE_HEIGHT, scale) != 0) {
+        return 0U;
+    }
+    inkcell_capture_set_theme(capture, theme);
+    inkcell_capture_set_scale(capture, scale);
+
+    struct inkcell_draw_state *const state = inkcell_capture_state(capture);
+    const struct inkcell_fb_layout layout = inkcell_fb_layout_begin(state, true, true);
+    const int advance = inkcell_fb_char_adv(state, scale);
+    const size_t label_cols = inkcell_fb_field_label_cols(state, &layout, 0U);
+    const uint32_t right = (uint32_t)(inkcell_fb_content_x(state) + (int)label_cols * advance);
+
+    inkcell_capture_close(capture);
+    return right;
 }
 
 /* Renders `store` as it stands into a fresh capture at `scale`, and hands back a copy of the
@@ -5247,6 +5304,8 @@ MESH_TEST_CASE(ui_capture_a_verbs_disc_clears_its_cards_edges, unit) {
                     failure = "capture failed";
                     break;
                 }
+                /* Half the column, not half the panel - see content_column_width(). */
+                const uint32_t column = content_column_width(theme, width, scale);
                 uint32_t edges = 0U;
                 for (uint32_t y = 0U; y < height && failure == NULL; ++y) {
                     const uint8_t *line = frame + (size_t)y * stride;
@@ -5259,7 +5318,7 @@ MESH_TEST_CASE(ui_capture_a_verbs_disc_clears_its_cards_edges, unit) {
                             longest = run;
                         }
                     }
-                    if (longest < width / 2U) {
+                    if (longest < column / 2U) {
                         continue;
                     }
                     edges++;
