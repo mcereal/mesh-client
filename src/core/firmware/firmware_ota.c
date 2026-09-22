@@ -374,11 +374,16 @@ static void ota_tick_connecting(struct mesh_firmware_ota *ota, uint64_t now_ms) 
 
     if (ota->connected && now_ms >= ota->next_poll_ms) {
         ota->next_poll_ms = now_ms + OTA_CONNECT_POLL_MS;
-        bool resolved = false;
-        if (inkwell_ble_services_resolved(ota->client, ota->loader_address, &resolved) == 0 &&
-            resolved) {
+        /* Once attaching, the services are resolved and the subscribe is what is awaited. */
+        bool resolved = ota->conversation.attaching;
+        if (resolved ||
+            (inkwell_ble_services_resolved(ota->client, ota->loader_address, &resolved) == 0 &&
+             resolved)) {
             const int attached =
                 mesh_ble_ota_attach(&ota->conversation, ota->client, ota->loader_address);
+            if (attached == -EAGAIN) {
+                return;
+            }
             if (attached < 0) {
                 ota_retry(ota, MESH_FIRMWARE_OTA_ERROR_CONNECT, now_ms);
                 return;

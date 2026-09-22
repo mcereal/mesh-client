@@ -111,7 +111,9 @@ FromNum-notify → FromRadio-read drain.
   `ServicesResolved` (250 ms polls, 20 s cap) before wiring the characteristics; the GATT
   database is not on the bus yet when nothing is cached. FromRadio reads are async too: `-EAGAIN`
   means pending, and a reply or a three-second timeout wakes the drain through its eventfd.
-  Writes, property queries and `StartNotify` still block.
+  Writes, property queries and FromNum's `StartNotify` are the same shape - `-EAGAIN` until the
+  reply, each with its own deadline - and the device list is read from inkwell's copy of BlueZ's
+  object tree, so a refresh costs no round trip to `bluetoothd`.
 - **BlueZ never tells us about a dropped link**, so `tick()` reads `Device1.Connected` every 2 s
   while connected, and a failed GATT write also resets. Queued messages are marked FAILED; the
   message log survives and auto-connect reconnects.

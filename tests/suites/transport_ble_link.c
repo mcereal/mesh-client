@@ -537,6 +537,46 @@ cleanup:
     record_success(test_name);
 }
 
+/* FromNum's subscribe is waited for on later turns, not in the connect: a stack that takes its
+   time answering (a stale bond, or macOS's pairing dialog) leaves the link connecting, not
+   failed, and the handshake goes out once it has answered. */
+MESH_TEST_CASE(ble_transport_connect_waits_for_the_subscribe, unit) {
+    const char *failure = NULL;
+
+    struct mesh_test_ble_rig rig;
+    mesh_test_ble_rig_init(&rig, "AA:BB:CC:DD:EE:0B", "NodeEleven", -50);
+    rig.mock.subscribe_pending_polls = 2U;
+    struct mesh_transport *const ble = rig.ble;
+
+    if (mesh_test_ble_rig_start(&rig) != 0) {
+        failure = "ble start failed";
+        goto cleanup;
+    }
+    if (mesh_test_ble_rig_connect(&rig) != 0) {
+        failure = "connect should be accepted";
+        goto cleanup;
+    }
+    if (!mesh_ble_transport_is_connecting(ble) || rig.write_len != 0U) {
+        failure = "must stay connecting while the subscribe is unanswered";
+        goto cleanup;
+    }
+    ble->ops->tick(ble);
+    if (!mesh_ble_transport_is_connecting(ble) || rig.write_len != 0U) {
+        failure = "the subscribe was taken as answered too early";
+        goto cleanup;
+    }
+    ble->ops->tick(ble);
+    if (mesh_ble_transport_connected_address(ble) == NULL || rig.write_len == 0U) {
+        failure = "connect should complete once the subscribe is answered";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_test_ble_rig_close(&rig);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
 /* BlueZ says the device is gone: the link resets, the UI sees "running", and auto-connect can
    try again. Checked via the explicit probe tick() runs every couple of seconds. */
 MESH_TEST_CASE(ble_transport_link_drop, unit) {
