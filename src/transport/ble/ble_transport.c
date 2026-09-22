@@ -459,7 +459,8 @@ static void mesh_ble_teardown_refresh_timer(struct mesh_ble_transport_state *sta
     }
 }
 
-static const char k_ble_no_bluez[] = "BlueZ service not present; waiting for bluetoothd";
+/* bluetoothd not on the bus, or - on a Mac - the radio switched off. */
+static const char k_ble_no_bluez[] = "No Bluetooth stack answering; waiting for it";
 
 /* Parks the transport in a waiting state. The reason is logged only when it changes, because
    tick() retries every couple of seconds and the same warning every 2 s buries the log. */
@@ -549,6 +550,12 @@ static void mesh_ble_bring_up(struct mesh_transport *transport) {
             snprintf(reason, sizeof reason, "BlueZ client not connected");
         } else if (ready_result == -ENOSYS) {
             snprintf(reason, sizeof reason, "BlueZ readiness check unsupported on this build");
+        } else if (ready_result == -EAGAIN) {
+            /* CoreBluetooth before it has reported whether the radio is on. */
+            snprintf(reason, sizeof reason, "Bluetooth is starting");
+        } else if (ready_result == -EACCES) {
+            snprintf(reason, sizeof reason,
+                     "Bluetooth access denied; allow it under Privacy & Security > Bluetooth");
         } else {
             snprintf(reason, sizeof reason, "Error talking to BlueZ: %s", strerror(-ready_result));
         }

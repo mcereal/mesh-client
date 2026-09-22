@@ -15,7 +15,9 @@ Meshtastic protobufs.
 **Linux is the target; macOS is a development host.** On either, `make setup` provisions the
 prerequisites (`scripts/setup-linux.sh` or `scripts/setup-macos.sh`) and the plain targets work
 directly - `make test` passes natively on a Mac, and `MESHCLIENT_UI_BACKEND=sdl` puts the UI in a
-window. What a Mac does *not* have is the device half: the fb backend, evdev, BlueZ, usbfs and the
+window, talking to a real radio over USB serial (the I/O Registry finds the port) or Bluetooth
+(inkwell's CoreBluetooth backend; allow the terminal under Privacy & Security > Bluetooth). What a
+Mac does *not* have is the rest of the device half: the fb backend, evdev, BlueZ, usbfs and the
 mass-storage installer compile to refusals there, so a change to any of those is tested in the
 container (`make docker-test`) or on the Brick, and `make docker-pak` is still how the pak is
 built. `.claude/hooks/session-start.sh` runs the Linux setup automatically for remote sessions.
