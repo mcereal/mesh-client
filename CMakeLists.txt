@@ -97,7 +97,7 @@ add_library(meshclient_core
     src/transport/ble/ble_hci.c
     src/transport/ble/ble_ota.c
     src/transport/ble/ble_transport.c
-    src/transport/ble/bluez_client.c
+    src/transport/ble/ble_gatt.c
     src/transport/serial/serial_transport.c
     src/transport/serial/serial_usb.c
     src/transport/serial/serial_usb_iokit.c
@@ -255,15 +255,8 @@ else()
     set(NANOPB_GENERATOR_COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/third_party/nanopb/generator/nanopb_generator.py)
 endif()
 
-if(PkgConfig_FOUND)
-    pkg_check_modules(DBUS dbus-1)
-endif()
-
-if(DBUS_FOUND)
-    target_compile_definitions(meshclient_core PRIVATE MESH_HAVE_DBUS)
-    target_include_directories(meshclient_core PRIVATE ${DBUS_INCLUDE_DIRS})
-    target_link_libraries(meshclient_core PUBLIC ${DBUS_LIBRARIES})
-endif()
+# BlueZ, and the D-Bus it is reached over, are inkwell's: `inkwell/ble/central.h` is the
+# Bluetooth stack, and inkwell decides at configure time whether it has one.
 
 
 # libm, for the two files that need it, both in src/geo: vector.c turns two coordinates into a

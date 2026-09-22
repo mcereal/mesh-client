@@ -34,12 +34,12 @@
  * carrying the request that started it.
  */
 
+#include "inkwell/ble/central.h"
 #include "inkwell/net/fetch.h"
 #include "mesh/core/firmware_catalog.h"
 #include "mesh/core/firmware_fetch.h"
 #include "mesh/core/firmware_install.h"
 #include "mesh/core/firmware_ota.h"
-#include "mesh/transport/ble_bluez.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -202,7 +202,7 @@ struct mesh_firmware_update {
     struct mesh_firmware_ota ble;
     /* The install's own D-Bus connection, opened when the BLE handover starts and closed with
        it. `bluez_open` rather than testing the struct, which has no idle spelling. */
-    struct mesh_bluez_client bluez;
+    struct inkwell_ble_central central;
     bool bluez_open;
     bool link_released;
 

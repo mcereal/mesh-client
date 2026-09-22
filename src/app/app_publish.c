@@ -2217,7 +2217,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
         ++device_count;
     }
 
-    struct mesh_bluez_device_info ble_devices[MESH_UI_MAX_DEVICES];
+    struct inkwell_ble_device ble_devices[MESH_UI_MAX_DEVICES];
     const size_t ble_count = mesh_ble_transport_get_devices(ble, ble_devices, MESH_UI_MAX_DEVICES);
     /* Which row the link is working on. Not the same as connected: a BLE connect is several
        seconds of pairing and service discovery before it is a connection. */
@@ -2333,7 +2333,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
             }
             mesh_ui_store_open_passkey_prompt(&app->ui_store, label, request.passkey,
                                               request.kind ==
-                                                  (uint8_t)MESH_BLUEZ_AGENT_REQUEST_CONFIRM);
+                                                  (uint8_t)INKWELL_BLE_AGENT_REQUEST_CONFIRM);
         } else {
             mesh_ui_store_close_passkey_prompt(&app->ui_store);
         }

@@ -67,7 +67,7 @@ small static helpers over macros.
 Write new cases with `MESH_TEST_CASE(name, category)` in the `tests/suites/` file for the area —
 that macro is the registration, so there is no table to update — and finish every path with
 `record_failure` / `record_success` so failures reach the summary. Tests must never touch
-real BlueZ — use `mesh_bluez_client_mock_enable`. Prefer deterministic fixtures over live radio
+real BlueZ — use `inkwell_ble_mock_enable`. Prefer deterministic fixtures over live radio
 calls; tag anything needing hardware `HARDWARE` so CI can skip it. Cover the error paths,
 especially BLE reconnection and protobuf parsing, and give any new transport a golden protobuf
 frame test. Full guidance in [`docs/testing.md`](docs/testing.md).

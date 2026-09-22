@@ -7,7 +7,7 @@
 #   - cmake >= 3.21       CMakePresets.json is version 3; below that nothing configures
 #   - ninja               the generator every build tree here is configured with
 #   - git submodules      nanopb, meshtastic/protobufs (CMake FATAL_ERRORs without them)
-#   - libdbus-1-dev       sets MESH_HAVE_DBUS; without it the BLE transport compiles out
+#   - libdbus-1-dev       gives inkwell its BlueZ backend; without it the BLE transport reports disabled
 #   - libsdl2-dev         builds inkcell's window backend; without it MESHCLIENT_UI_BACKEND=sdl
 #                         reports itself unavailable and everything else is unchanged
 #   - python protobuf     needed by nanopb_generator to regenerate the .pb.c/.pb.h sources

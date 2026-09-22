@@ -190,7 +190,7 @@ static void uicap_scene_demo(struct uicap *cap) {
        every other node, and it has no signal reading to draw because nothing has heard it. It
        is in the fixture because it is the ordinary case for anyone who owns two radios, and
        because a row that says "0dBm" about it would claim to be the loudest node on the
-       screen - see mesh_bluez_device_info.in_range. */
+       screen - see inkwell_ble_device.in_range. */
     const struct mesh_ui_device devices[5] = {
         /* The USB port comes first because that is the order the client publishes them in - a
            plugged-in node needs no pairing and no range, so it is the row the cursor should

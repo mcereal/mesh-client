@@ -28,9 +28,11 @@
  * sent here, switched the boot partition and will restart two seconds later. On `ERR Hash
  * Mismatch` it has deliberately corrupted what it wrote and stays in the loader.
  *
- * It sits on the bluez client and not on mesh_session: a loader is not a Meshtastic node, speaks
- * no protobuf and has no node number.
+ * It sits on inkwell's BLE central and not on mesh_session: a loader is not a Meshtastic node,
+ * speaks no protobuf and has no node number.
  */
+
+#include "inkwell/ble/central.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -39,8 +41,6 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-struct mesh_bluez_client;
 
 #define MESH_BLE_OTA_SERVICE_UUID "4FAFC201-1FB5-459E-8FCC-C5C9C331914B"
 #define MESH_BLE_OTA_WRITE_UUID "62EC0272-3EC5-11EB-B378-0242AC130005"
@@ -51,7 +51,6 @@ struct mesh_bluez_client;
 #define MESH_BLE_OTA_CHUNK_MIN 20U
 
 #define MESH_BLE_OTA_TEXT_MAX 96U
-#define MESH_BLE_OTA_PATH_MAX 160U
 #define MESH_BLE_OTA_EVENTS 8U
 
 enum mesh_ble_ota_state {
@@ -100,9 +99,9 @@ struct mesh_ble_ota_event {
 };
 
 struct mesh_ble_ota {
-    struct mesh_bluez_client *client; /* borrowed */
-    char write_path[MESH_BLE_OTA_PATH_MAX];
-    char notify_path[MESH_BLE_OTA_PATH_MAX];
+    struct inkwell_ble_central *client; /* borrowed */
+    char write_handle[INKWELL_BLE_HANDLE_MAX];
+    char notify_handle[INKWELL_BLE_HANDLE_MAX];
     uint16_t mtu; /* 0 when BlueZ reported none */
     size_t chunk;
 
@@ -147,11 +146,11 @@ struct mesh_ble_ota {
 size_t mesh_ble_ota_chunk_for_mtu(uint16_t mtu);
 
 /*
- * Finds the loader's two characteristics under `device_path`, reads the link's MTU, subscribes
+ * Finds the loader's two characteristics on `address`, reads the link's MTU, subscribes
  * to the notifications and takes the client's notification handler. Returns 0 or -errno.
  */
-int mesh_ble_ota_attach(struct mesh_ble_ota *ota, struct mesh_bluez_client *client,
-                        const char *device_path);
+int mesh_ble_ota_attach(struct mesh_ble_ota *ota, struct inkwell_ble_central *client,
+                        const char *address);
 
 /*
  * Starts the conversation: VERSION, then the OTA command, then the stream. `image` is borrowed

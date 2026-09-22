@@ -2,7 +2,7 @@
 
 #include "inkwell/base/text.h"
 
-#include "mesh/transport/ble_bluez.h"
+#include "inkwell/ble/central.h"
 #include "mesh/transport/ble_ota.h"
 
 #include <stdio.h>
@@ -16,9 +16,9 @@ const uint8_t mesh_test_esp_header[48] = {
     0x32, 0x54, 0xCD, 0xAB, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 };
 
-void mesh_test_ota_loader_init(struct mesh_test_ota_loader *loader, const char *device_path) {
+void mesh_test_ota_loader_init(struct mesh_test_ota_loader *loader, const char *address) {
     memset(loader, 0, sizeof *loader);
-    snprintf(loader->notify_path, sizeof loader->notify_path, "%s/%s", device_path,
+    snprintf(loader->notify_path, sizeof loader->notify_path, "%s/%s", address,
              MESH_BLE_OTA_NOTIFY_UUID);
 }
 
@@ -144,8 +144,8 @@ void mesh_test_ota_loader_flush(struct mesh_test_ota_loader *loader) {
     const size_t queued = loader->queued;
     loader->queued = 0U;
     for (size_t i = 0; i < queued; ++i) {
-        mesh_bluez_client_mock_emit_notification(
-            loader->notify_path, (const uint8_t *)loader->queue[i], strlen(loader->queue[i]));
+        inkwell_ble_mock_emit_notification(loader->notify_path, (const uint8_t *)loader->queue[i],
+                                           strlen(loader->queue[i]));
     }
 }
 

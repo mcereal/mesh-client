@@ -49,7 +49,7 @@ Adding a *top-level* directory under `src/` means adding a row to `ALLOWED` in t
 the areas it may include from and why. An edge with no reason written next to it is one to delete.
 
 A **group** inside an area is not a layer and needs no row: a file's area is its first directory,
-so `src/ui/store/store.c` is `ui` and `src/transport/ble/bluez_client.c` is `transport`. Groups
+so `src/ui/store/store.c` is `ui` and `src/transport/ble/ble_transport.c` is `transport`. Groups
 are how `src/ui/` (51 sources) and `src/core/` (26) are kept navigable; they carry no rule of
 their own, and a source moving between two of them changes nothing a caller can see, because
 `include/mesh/<area>/` is flat.

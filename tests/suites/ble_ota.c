@@ -12,9 +12,9 @@
 #include "framework/mesh_test.h"
 #include "support/ble_ota_fixture.h"
 
+#include "inkwell/ble/central.h"
 #include "inkwell/codec/sha256.h"
 #include "mesh/core/esp_image.h"
-#include "mesh/transport/ble_bluez.h"
 #include "mesh/transport/ble_hci.h"
 #include "mesh/transport/ble_ota.h"
 
@@ -23,17 +23,17 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define RIG_LOADER_PATH "/org/bluez/hci0/dev_9C_13_9E_9D_0A_DA"
+#define RIG_LOADER "9C:13:9E:9D:0A:DA"
 #define RIG_IMAGE_LEN 1000U
 /* 97-byte chunks: ten full ones and a last of 30, so the short final write is exercised. */
 #define RIG_MTU 100U
 #define RIG_CHUNK 97U
 
 struct ota_rig {
-    struct mesh_bluez_client client;
+    struct inkwell_ble_central client;
     struct mesh_ble_ota ota;
     struct mesh_test_ota_loader loader;
-    struct mesh_bluez_mock_config mock;
+    struct inkwell_ble_mock_config mock;
     uint8_t *image;
     uint8_t sha256[INKWELL_SHA256_DIGEST_LEN];
     uint64_t now;
@@ -42,14 +42,14 @@ struct ota_rig {
 /* `write_fail_after`, when non-zero, has the mock refuse every write after that many. */
 static bool rig_open(struct ota_rig *rig, unsigned write_fail_after) {
     memset(rig, 0, sizeof *rig);
-    mesh_test_ota_loader_init(&rig->loader, RIG_LOADER_PATH);
+    mesh_test_ota_loader_init(&rig->loader, RIG_LOADER);
     rig->mock.mtu = RIG_MTU;
     rig->mock.write_hook = mesh_test_ota_loader_write;
     rig->mock.write_hook_userdata = &rig->loader;
     rig->mock.write_fail_after_calls = write_fail_after;
     rig->mock.write_result_late = -ENOTCONN;
-    mesh_bluez_client_mock_enable(&rig->mock);
-    if (mesh_bluez_client_init(&rig->client) != 0) {
+    inkwell_ble_mock_enable(&rig->mock);
+    if (inkwell_ble_open(&rig->client) != 0) {
         return false;
     }
     rig->image = mesh_test_esp_image(RIG_IMAGE_LEN, MESH_ESP_CHIP_ESP32_S3);
@@ -61,13 +61,13 @@ static bool rig_open(struct ota_rig *rig, unsigned write_fail_after) {
     inkwell_sha256_update(&hasher, rig->image, RIG_IMAGE_LEN);
     inkwell_sha256_final(&hasher, rig->sha256);
     rig->now = 1000U;
-    return mesh_ble_ota_attach(&rig->ota, &rig->client, RIG_LOADER_PATH) == 0;
+    return mesh_ble_ota_attach(&rig->ota, &rig->client, RIG_LOADER) == 0;
 }
 
 static void rig_close(struct ota_rig *rig) {
     mesh_ble_ota_detach(&rig->ota);
-    mesh_bluez_client_shutdown(&rig->client);
-    mesh_bluez_client_mock_disable();
+    inkwell_ble_close(&rig->client);
+    inkwell_ble_mock_disable();
     free(rig->image);
     rig->image = NULL;
 }

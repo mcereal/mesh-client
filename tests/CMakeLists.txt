@@ -142,13 +142,3 @@ add_test(NAME meshclient_frames_codec
          COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/frames.py selftest)
 set_tests_properties(meshclient_frames_codec PROPERTIES LABELS "unit")
 
-if(DBUS_FOUND)
-    find_program(DBUS_RUN_SESSION dbus-run-session)
-    if(DBUS_RUN_SESSION)
-        add_executable(meshclient_bluez_bus_tests bluez_bus.c)
-        target_include_directories(meshclient_bluez_bus_tests PRIVATE ${DBUS_INCLUDE_DIRS})
-        target_link_libraries(meshclient_bluez_bus_tests PRIVATE meshclient_core meshclient_options)
-        add_test(NAME meshclient_bluez_bus COMMAND ${DBUS_RUN_SESSION} -- $<TARGET_FILE:meshclient_bluez_bus_tests>)
-        set_tests_properties(meshclient_bluez_bus PROPERTIES LABELS integration TIMEOUT 15)
-    endif()
-endif()

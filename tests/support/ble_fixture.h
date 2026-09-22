@@ -6,16 +6,16 @@
  *
  * Three suites - transport_ble_link.c, transport_ble_data.c, transport_ble_pairing.c - each began
  * a case by declaring a one-device `mock_devices[]`, a write-capture quintet, a read-payload
- * script, and a `mesh_bluez_mock_config` whose first six fields were `= 0` (the designated
+ * script, and a `inkwell_ble_mock_config` whose first six fields were `= 0` (the designated
  * initializer's own default, so they said nothing), then enabling the mock, defaulting an app
  * config, initialising a loop and starting the transport. Seventeen cases opened that way and
  * fourteen closed with the same three-call teardown.
  *
- * What the duplication cost was not length. The three characteristic paths are
- * `<adapter>/dev_<address with colons as underscores>/service000a/char000{b,d,f}`, spelled out by
- * hand at every site: a path typed against the wrong device address gives a test that connects
- * and then reads nothing, and the failure it reports is about a missing packet. Deriving them
- * from the address is what this is for; the collapsed boilerplate comes along with it.
+ * What the duplication cost was not length. The three characteristic handles are
+ * `<address>/<characteristic UUID>`, the way the mock names them, and were spelled out by hand
+ * at every site: a handle typed against the wrong device address gives a test that connects and
+ * then reads nothing, and the failure it reports is about a missing packet. Deriving them from
+ * the address is what this is for; the collapsed boilerplate comes along with it.
  *
  * The rig owns its buffers, so it is a stack local in the test and `rig.mock` stays writable:
  * anything the fixture does not set - a pending-poll count, a late write failure, a second
@@ -23,9 +23,9 @@
  * calls rather than one.
  */
 
+#include "inkwell/ble/central.h"
 #include "inkwell/runtime/loop.h"
 #include "mesh/core/config.h"
-#include "mesh/transport/ble_bluez.h"
 #include "mesh/transport/transport.h"
 
 #include "meshtastic/mesh.pb.h"
@@ -47,9 +47,9 @@ struct mesh_test_ble_rig {
     struct mesh_transport *ble;
     struct mesh_app_config config;
     struct inkwell_loop loop;
-    struct mesh_bluez_mock_config mock;
+    struct inkwell_ble_mock_config mock;
 
-    struct mesh_bluez_device_info devices[MESH_TEST_BLE_MAX_DEVICES];
+    struct inkwell_ble_device devices[MESH_TEST_BLE_MAX_DEVICES];
     size_t device_count;
 
     /* The last ToRadio write, its path, and one length per call. */
@@ -102,7 +102,7 @@ bool mesh_test_ble_rig_add_device(struct mesh_test_ble_rig *rig, const char *add
 int mesh_test_ble_rig_start(struct mesh_test_ble_rig *rig);
 
 /*
- * Hands the mock the current `rig->mock` again. `mesh_bluez_client_mock_enable` copies the
+ * Hands the mock the current `rig->mock` again. `inkwell_ble_mock_enable` copies the
  * config by value, so a test that changes a field mid-case - failing writes, then allowing them
  * again - has to say so. Resets the mock's counters, exactly as a bare re-enable did.
  */

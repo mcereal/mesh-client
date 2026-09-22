@@ -165,8 +165,8 @@ if [[ "$(file "${BINARY}" | grep -c "statically linked" || true)" -eq 0 ]]; then
 fi
 
 # BLE is the transport this build could silently lose: with no dbus-1.pc on PKG_CONFIG_PATH
-# CMakeLists.txt compiles MESH_HAVE_DBUS out and carries on, so a libdbus step that quietly did
-# not take would publish a working binary that simply has no Bluetooth in it.
+# inkwell links its no-stack backend instead of BlueZ and carries on, so a libdbus step that
+# quietly did not take would publish a working binary that simply has no Bluetooth in it.
 if [[ "$(strings "${BINARY}" | grep -c "org\.bluez" || true)" -eq 0 ]]; then
     echo "${BINARY} has no BlueZ in it; the static libdbus step did not take." >&2
     exit 1
