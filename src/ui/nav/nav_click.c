@@ -31,6 +31,7 @@
 
 #include "mesh/ui/focus.h"
 #include "mesh/ui/nav.h"
+#include "mesh/ui/route.h"
 #include "mesh/ui/store.h"
 
 #include "nav_internal.h"
@@ -40,9 +41,22 @@
 
 /* Whether something is drawn over the tab's own screen that takes every press. */
 static bool mesh_ui_nav_click_modal(const struct mesh_ui_nav *nav) {
-    return nav->help_open || nav->verify_open || nav->confirm_open || nav->picker_open ||
-           nav->keyboard_open || nav->compose_open || nav->reaction_open || nav->share_open ||
-           nav->contact_open;
+    struct mesh_ui_route active;
+    mesh_ui_route_of(nav, &active);
+    switch ((enum mesh_ui_route_level)active.level) {
+    case MESH_UI_ROUTE_HELP:
+    case MESH_UI_ROUTE_VERIFY:
+    case MESH_UI_ROUTE_CONFIRM:
+    case MESH_UI_ROUTE_PICKER:
+    case MESH_UI_ROUTE_KEYBOARD:
+    case MESH_UI_ROUTE_COMPOSE:
+    case MESH_UI_ROUTE_REACTION:
+    case MESH_UI_ROUTE_SHARE:
+    case MESH_UI_ROUTE_CONTACT:
+        return true;
+    default:
+        return false;
+    }
 }
 
 /* A shoulder, pressed until `screen` is up or a press stops moving - whichever way round the

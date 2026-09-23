@@ -475,8 +475,12 @@ Four authoring rules hold across all of them, and breaking one compiles and look
   string (`MESH_STR_*`), an icon (`INKCELL_ICON_*`), a tone/family/role/shape. No English prose,
   colour, margin, glyph size or corner radius belongs in `src/ui/backends/`.
   `scripts/check-strings.py` fails the build on prose.
-- **Button hints are (button, string id) pairs** in `src/ui/tables/actions.c`, never a sentence. A
-  keycap is untranslated — it is what is printed on the case. A keycap that does nothing is a bug.
+- **Available operations are semantic commands** (`mesh/ui/commands.h`). Each currently carries
+  the Brick button that invokes it and the string id that names it; `mesh_ui_actions_for()`
+  projects those commands into the legacy action bar. A desktop button or future overflow menu
+  can therefore use the command without pretending to press the Brick key. The compatibility
+  builder remains in `src/ui/tables/actions.c` while dispatch is migrated. A keycap is
+  untranslated — it is what is printed on the case. A keycap that does nothing is a bug.
 - **A heading is `struct inkcell_fb_app_bar`**, with slots; the back arrow is *derived* from the action
   table, never declared.
 - **fb layout is measured in cells, not bytes.** A `strlen` or `%-Ns` there is a bug.

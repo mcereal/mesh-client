@@ -25,6 +25,7 @@
 /* For enum mesh_traceroute_state, which the UI's traceroute carries as a byte. */
 #include "mesh/core/session.h"
 #include "mesh/ui/actions.h"
+#include "mesh/ui/commands.h"
 #include "mesh/ui/history.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/node_detail.h"
@@ -67,6 +68,44 @@ static struct mesh_ui_device *actions_add_device(struct mesh_ui_snapshot *snapsh
     snapshot->nav.cursor[MESH_UI_SCREEN_DEVICES] = (uint32_t)snapshot->device_count;
     snapshot->device_count += 1U;
     return device;
+}
+
+MESH_TEST_CASE(commands_are_the_source_of_the_legacy_action_bar, unit) {
+    struct mesh_ui_snapshot snapshot;
+    actions_snapshot(&snapshot);
+
+    struct mesh_ui_command_set commands;
+    mesh_ui_commands_for(&snapshot, &commands);
+    const struct mesh_ui_command *open = mesh_ui_commands_find(&commands, MESH_UI_COMMAND_OPEN);
+    const struct mesh_ui_command *delete_command =
+        mesh_ui_commands_find_button(&commands, INKCELL_BUTTON_X);
+    MESH_TEST_FAIL_IF(open == NULL || open->button != INKCELL_BUTTON_A,
+                      "the conversation list should offer semantic OPEN on the Brick's A");
+    MESH_TEST_FAIL_IF(delete_command == NULL || delete_command->id != MESH_UI_COMMAND_DELETE,
+                      "the conversation list's X binding should identify DELETE");
+
+    struct inkcell_action_bar bar;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(bar.count != commands.count,
+                      "the legacy bar should be a projection of the command set");
+    for (size_t i = 0U; i < bar.count; ++i) {
+        MESH_TEST_FAIL_IF(commands.items[i].id == MESH_UI_COMMAND_NONE,
+                          "every advertised action should have a semantic command id");
+        MESH_TEST_FAIL_IF(bar.items[i].button != commands.items[i].button ||
+                              bar.items[i].label != commands.items[i].label,
+                          "the legacy bar should preserve command order, binding and label");
+    }
+
+    /* Route precedence is shared by dispatch and command discovery: VERIFY is above CONFIRM. */
+    snapshot.nav.confirm_open = true;
+    snapshot.nav.verify_open = true;
+    mesh_ui_commands_for(&snapshot, &commands);
+    MESH_TEST_FAIL_IF(mesh_ui_commands_find(&commands, MESH_UI_COMMAND_ANSWER) == NULL,
+                      "the top verification context should offer ANSWER");
+    MESH_TEST_FAIL_IF(mesh_ui_commands_find(&commands, MESH_UI_COMMAND_CONFIRM) != NULL,
+                      "the confirmation underneath verification must not leak a command");
+
+    record_success(test_name);
 }
 
 MESH_TEST_CASE(actions_screens_offer_their_own_presses, unit) {
