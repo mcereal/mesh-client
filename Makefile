@@ -68,8 +68,13 @@ help:
 	@echo "  make deploy-key     - Install your SSH public key on the device (SSH transport only)"
 	@echo "  (transport auto-detects USB when a cable is attached; force with BRICK_TRANSPORT=ssh|adb)"
 
+ifeq ($(OS),Windows_NT)
+setup:
+	wsl.exe --user root --exec make setup
+else
 setup:
 	@if [ "$$(uname -s)" = Darwin ]; then ./scripts/setup-macos.sh; else ./scripts/setup-linux.sh; fi
+endif
 
 build: debug
 

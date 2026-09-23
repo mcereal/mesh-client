@@ -2,3 +2,6 @@
 # whole directory rather than a file per line, so a fourth generated table is covered the day it
 # lands; without this the emoji table alone is 37k lines on top of every pull request.
 src/ui/generated/** linguist-generated=true -diff
+
+# Shell scripts are also run from WSL when Codex checks out the project on Windows.
+*.sh text eol=lf
