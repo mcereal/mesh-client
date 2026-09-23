@@ -18,7 +18,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 
 /*
  * How long a connect is given before it is called lost.
@@ -267,7 +266,7 @@ int mesh_tcp_transport_pump(struct mesh_transport *transport) {
 static int mesh_tcp_fd_callback(int fd, uint32_t events, void *userdata);
 
 /*
- * The generic connector finished. Hand its descriptor to the Meshtastic stream and start the
+ * The generic connector finished. Hand its socket to the Meshtastic stream and start the
  * application handshake, which is deliberately above that connector.
  *
  * There is no wake burst and no settle here, unlike the serial link: a socket that has just
@@ -276,7 +275,13 @@ static int mesh_tcp_fd_callback(int fd, uint32_t events, void *userdata);
  */
 static void mesh_tcp_on_connected(void *userdata, const struct inkwell_tcp_connect_result *result) {
     struct mesh_transport *transport = (struct mesh_transport *)userdata;
-    if (transport == NULL || transport->state == NULL || result == NULL) {
+    if (result == NULL) {
+        return;
+    }
+    if (transport == NULL || transport->state == NULL) {
+        if (result->socket != INKWELL_SOCKET_INVALID) {
+            (void)inkwell_socket_close(result->socket);
+        }
         return;
     }
     struct mesh_tcp_transport_state *state = (struct mesh_tcp_transport_state *)transport->state;
@@ -296,11 +301,11 @@ static void mesh_tcp_on_connected(void *userdata, const struct inkwell_tcp_conne
         return;
     }
 
-    const int opened = mesh_stream_link_open(&state->link, result->fd, MESH_STREAM_LINK_SOCKET,
-                                             state->loop, mesh_tcp_fd_callback, transport);
+    const int opened = mesh_stream_link_open_socket(&state->link, result->socket, state->loop,
+                                                    mesh_tcp_fd_callback, transport);
     if (opened < 0) {
         inkwell_log_warn("tcp", "Cannot watch %s: %d", state->target, opened);
-        close(result->fd);
+        (void)inkwell_socket_close(result->socket);
         mesh_tcp_reset_link(state, "could not watch the socket");
         return;
     }
@@ -686,11 +691,12 @@ struct mesh_handshake_status mesh_tcp_transport_handshake_status(struct mesh_tra
 }
 
 struct mesh_transport *mesh_tcp_transport(void) {
-    /* Both descriptors read as closed before start() runs; a zeroed struct would have fd 0,
-       which is stdin and is very much open. */
+    /* A zeroed stream would treat fd 0 (stdin) as open before start(). */
     static struct mesh_tcp_transport_state state = {
-        .connector = {.fd = -1, .resolve = {.child = -1, .child_fd = -1}},
-        .link = {.stream = {.fd = -1}},
+        .connector = {.socket = INKWELL_SOCKET_INVALID,
+                      .registration_token = -1,
+                      .resolve = {.child = -1, .child_fd = -1}},
+        .link = {.stream = {.fd = -1, .socket = INKWELL_SOCKET_INVALID, .registration_token = -1}},
     };
     static struct mesh_transport transport = {
         .name = "tcp",

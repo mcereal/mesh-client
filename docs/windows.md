@@ -34,10 +34,16 @@ shutdown and durable-file operations. The client uses host file wrappers for bin
 and store directories. The Unix UI-control socket reports `ENOTSUP` on Windows until a
 native IPC backend is added.
 
-The remaining work is primarily in Inkwell networking and device-facing backends:
+The Windows event loop, TCP connector and stream handoff now carry native pointer-sized Winsock
+sockets without passing them through `int` descriptors. Numeric TCP addresses can use that path;
+asynchronous hostname lookup still needs a Windows resolver. The full executable build still
+stops in POSIX-only Inkwell serial, USB, fetch and MQTT sources, before all client sources can be
+compiled.
 
-1. Extend the Windows loop to wait on Winsock events without treating socket values as Unix file
-   descriptors, then port TCP and asynchronous name resolution.
+The remaining work is primarily in platform backends:
+
+1. Port asynchronous name resolution and compile or stub the POSIX-only Inkwell facilities so
+   the native executable can link.
 2. Compile device-only facilities to explicit unavailable backends until their Windows versions
    arrive.
 3. Add SetupAPI/overlapped COM serial, then a Windows Runtime BLE backend.
