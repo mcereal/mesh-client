@@ -6,6 +6,7 @@
 #include "inkwell/base/log.h"
 #include "inkwell/base/version.h"
 
+#include "mesh/i18n/net_reason.h"
 #include "mesh/i18n/strings.h"
 
 #include "inkwell/codec/sha256.h"
@@ -451,7 +452,13 @@ static void updater_fetch_failed(struct mesh_updater *updater,
         snprintf(message, sizeof message, "%s", inkcell_str(MESH_STR_UPDATE_RESPONSE_TOO_LARGE));
         break;
     case INKWELL_FETCH_NETWORK:
-        snprintf(message, sizeof message, "%s", inkcell_str(MESH_STR_UPDATE_UNREACHABLE));
+        /* Which network failure, where inkwell could tell - "api.github.com: no such host" is
+           something a reader can act on - and the host is the hop's, which after a redirect is
+           not the one this file asked for. The sentence without a reason is the fallback. */
+        if (!mesh_net_reason_format(&result->failure, result->host, NULL, message,
+                                    sizeof message)) {
+            snprintf(message, sizeof message, "%s", inkcell_str(MESH_STR_UPDATE_UNREACHABLE));
+        }
         break;
     case INKWELL_FETCH_TLS:
         snprintf(message, sizeof message, "%s", inkcell_str(MESH_STR_UPDATE_TLS_UNVERIFIED));
@@ -472,9 +479,10 @@ static void updater_fetch_failed(struct mesh_updater *updater,
         snprintf(message, sizeof message, "%s", inkcell_str(MESH_STR_UPDATE_BAD_REPLY));
         break;
     }
-    inkwell_log_warn("update", "Fetch failed in state %s: %s (%s)",
+    inkwell_log_warn("update", "Fetch failed in state %s: %s/%s (%s)",
                      mesh_update_state_name(updater->state),
-                     inkwell_fetch_outcome_name(result->outcome), result->detail);
+                     inkwell_fetch_outcome_name(result->outcome),
+                     inkwell_net_reason_name(result->failure.reason), result->detail);
     updater_set(updater, MESH_UPDATE_FAILED, message);
 }
 

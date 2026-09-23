@@ -24,9 +24,11 @@
 
 #include "framework/mesh_test.h"
 
+#include "mesh/i18n/net_reason.h"
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/nav.h"
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -428,5 +430,43 @@ MESH_TEST_CASE(i18n_spanish_preference_and_environment, unit) {
     }
     (void)inkcell_i18n_set_locale(before);
     MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/* ---- a network failure, in words ---------------------------------------------------------- */
+
+/*
+ * mesh_net_reason_format() is the one place a reason's entry meets its arguments, for a caller
+ * that has a host rather than a link. The two entries that take a second argument are where an
+ * arity mistake would read garbage off the stack, so each is checked for the text it carries,
+ * and a reason with no sentence leaves the caller's buffer alone for its fallback to fill.
+ */
+MESH_TEST_CASE(i18n_net_reason_format_takes_each_entrys_arguments, unit) {
+    char out[128];
+    char want[128];
+
+    const struct inkwell_net_failure unknown = {INKWELL_NET_UNKNOWN_HOST, 0};
+    MESH_TEST_FAIL_IF(!mesh_net_reason_format(&unknown, "api.github.com", NULL, out, sizeof out),
+                      "an unknown host has a sentence");
+    (void)inkcell_str_format(want, sizeof want, MESH_STR_LINK_UNKNOWN_HOST, "api.github.com");
+    MESH_TEST_FAIL_IF(strcmp(out, want) != 0, "naming the host");
+
+    const struct inkwell_net_failure refused = {INKWELL_NET_UNREACHABLE, -ECONNREFUSED};
+    MESH_TEST_FAIL_IF(!mesh_net_reason_format(&refused, "github.com", NULL, out, sizeof out),
+                      "an unreachable host has a sentence");
+    (void)inkcell_str_format(want, sizeof want, MESH_STR_LINK_UNREACHABLE, "github.com",
+                             strerror(ECONNREFUSED));
+    MESH_TEST_FAIL_IF(strcmp(out, want) != 0, "carrying the errno's word as its second half");
+
+    const struct inkwell_net_failure tls = {INKWELL_NET_TLS, 0};
+    MESH_TEST_FAIL_IF(!mesh_net_reason_format(&tls, "github.com", "bad cert", out, sizeof out),
+                      "a TLS failure has a sentence");
+    MESH_TEST_FAIL_IF(strstr(out, "bad cert") == NULL, "carrying the TLS library's own words");
+
+    const struct inkwell_net_failure none = {INKWELL_NET_OK, 0};
+    snprintf(out, sizeof out, "%s", "untouched");
+    MESH_TEST_FAIL_IF(mesh_net_reason_format(&none, "github.com", NULL, out, sizeof out),
+                      "no failure has no sentence");
+    MESH_TEST_FAIL_IF(strcmp(out, "untouched") != 0, "and leaves the caller's buffer alone");
     record_success(test_name);
 }

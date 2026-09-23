@@ -1,5 +1,7 @@
 #include "mesh/i18n/net_reason.h"
 
+#include <string.h>
+
 bool mesh_net_reason_str(enum inkwell_net_reason reason, inkcell_str_id *out) {
     if (out == NULL) {
         return false;
@@ -33,4 +35,27 @@ bool mesh_net_reason_str(enum inkwell_net_reason reason, inkcell_str_id *out) {
         break;
     }
     return false;
+}
+
+bool mesh_net_reason_format(const struct inkwell_net_failure *failure, const char *subject,
+                            const char *tls_error, char *out, size_t out_len) {
+    inkcell_str_id text;
+    if (failure == NULL || out == NULL || out_len == 0U ||
+        !mesh_net_reason_str(failure->reason, &text)) {
+        return false;
+    }
+    const char *const host = subject != NULL ? subject : "";
+    /* The arity has to match the catalog entry; tests/suites/i18n.c holds the pairs together. */
+    switch (failure->reason) {
+    case INKWELL_NET_UNREACHABLE:
+        (void)inkcell_str_format(out, out_len, text, host, strerror(-failure->detail));
+        break;
+    case INKWELL_NET_TLS:
+        (void)inkcell_str_format(out, out_len, text, host, tls_error != NULL ? tls_error : "");
+        break;
+    default:
+        (void)inkcell_str_format(out, out_len, text, host);
+        break;
+    }
+    return true;
 }

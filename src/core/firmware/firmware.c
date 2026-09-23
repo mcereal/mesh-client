@@ -6,6 +6,7 @@
 #include "inkwell/base/text.h"
 #include "inkwell/base/time.h"
 
+#include "mesh/i18n/net_reason.h"
 #include "mesh/i18n/strings.h"
 
 #include <errno.h>
@@ -167,7 +168,11 @@ static void firmware_fetch_failed(struct mesh_firmware *firmware,
         inkwell_str_copy(message, sizeof message, inkcell_str(MESH_STR_FW_TIMED_OUT));
         break;
     case INKWELL_FETCH_NETWORK:
-        inkwell_str_copy(message, sizeof message, inkcell_str(MESH_STR_FW_UNREACHABLE));
+        /* Which network failure, where inkwell could tell; see updater_fetch_failed(). */
+        if (!mesh_net_reason_format(&result->failure, result->host, NULL, message,
+                                    sizeof message)) {
+            inkwell_str_copy(message, sizeof message, inkcell_str(MESH_STR_FW_UNREACHABLE));
+        }
         break;
     case INKWELL_FETCH_TLS:
         inkwell_str_copy(message, sizeof message, inkcell_str(MESH_STR_FW_TLS_UNVERIFIED));
@@ -190,8 +195,9 @@ static void firmware_fetch_failed(struct mesh_firmware *firmware,
     /* The whole of it in the log, where a sentence has room: the row gets the short form above,
        and which host and which error it was is the part that only ever helps somebody reading a
        log. */
-    inkwell_log_warn("firmware", "%s failed: %s (%s: %s)", inkcell_str(what), message,
-                     inkwell_fetch_outcome_name(result->outcome), result->detail);
+    inkwell_log_warn("firmware", "%s failed: %s (%s/%s: %s)", inkcell_str(what), message,
+                     inkwell_fetch_outcome_name(result->outcome),
+                     inkwell_net_reason_name(result->failure.reason), result->detail);
     firmware_set(firmware, MESH_FIRMWARE_FAILED, message);
 }
 

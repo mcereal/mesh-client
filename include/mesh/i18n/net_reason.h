@@ -43,6 +43,18 @@ extern "C" {
  */
 bool mesh_net_reason_str(enum inkwell_net_reason reason, inkcell_str_id *out);
 
+/*
+ * The whole sentence for `failure`, with `subject` - the host - as its first argument and
+ * whatever second argument that reason's entry takes: the C library's word for the errno for
+ * INKWELL_NET_UNREACHABLE, and `tls_error` (NULL for none) for INKWELL_NET_TLS. False, leaving
+ * `out` untouched, wherever mesh_net_reason_str() is.
+ *
+ * For a caller that has a host rather than a link: the updater and the firmware check, which
+ * get a failure back from inkwell's fetcher and the host of the hop it died on.
+ */
+bool mesh_net_reason_format(const struct inkwell_net_failure *failure, const char *subject,
+                            const char *tls_error, char *out, size_t out_len);
+
 #ifdef __cplusplus
 }
 #endif
