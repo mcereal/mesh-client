@@ -196,8 +196,10 @@ elif [ "$CHECK_ONLY" -eq 1 ]; then
 else
     say "installing via pip"
     # --break-system-packages: Debian/Ubuntu mark the system interpreter as externally
-    # managed (PEP 668). This mirrors what docker/Dockerfile does for the dev image.
-    python3 -m pip install --no-cache-dir --break-system-packages -q protobuf grpcio-tools \
+    # managed (PEP 668). --ignore-installed keeps pip from trying to uninstall Debian-owned
+    # dependencies, which have no pip RECORD file. This mirrors what docker/Dockerfile installs.
+    python3 -m pip install --no-cache-dir --break-system-packages --ignore-installed -q \
+        protobuf grpcio-tools \
         || python3 -m pip install --no-cache-dir -q protobuf grpcio-tools \
         || say "pip install failed"
 fi
@@ -212,7 +214,8 @@ elif [ "$CHECK_ONLY" -eq 1 ]; then
     say "missing: python jinja2/jsonschema (the TLS build will fail to generate sources)"
 else
     say "installing via pip"
-    python3 -m pip install --no-cache-dir --break-system-packages -q jinja2 jsonschema \
+    python3 -m pip install --no-cache-dir --break-system-packages --ignore-installed -q \
+        jinja2 jsonschema \
         || python3 -m pip install --no-cache-dir -q jinja2 jsonschema \
         || say "pip install failed"
 fi
