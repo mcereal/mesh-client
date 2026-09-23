@@ -482,8 +482,10 @@ Four authoring rules hold across all of them, and breaking one compiles and look
   `mesh_ui_controller_handle_command()` with the command id and, for paired controls, previous or
   next. The controller accepts only commands offered by the last presented frame and drops input
   while that frame is stale. Internally it still resolves the command to the Brick key path so
-  the existing navigation guards have one implementation. A keycap is untranslated — it is what
-  is printed on the case. A keycap that does nothing is a bug.
+  the existing navigation guards have one implementation. SDL action-hint clicks take the same
+  route through `mesh_ui_controller_handle_action_key()`; physical keyboard, gamepad and wheel
+  input remain ordinary navigation keys. A keycap is untranslated — it is what is printed on the
+  case. A keycap that does nothing is a bug.
 - **A heading is `struct inkcell_fb_app_bar`**, with slots; the back arrow is *derived* from the action
   table, never declared.
 - **fb layout is measured in cells, not bytes.** A `strlen` or `%-Ns` there is a bug.

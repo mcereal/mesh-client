@@ -219,6 +219,16 @@ void mesh_app_on_ui_key(void *userdata, enum inkcell_key key) {
     mesh_ui_controller_handle_key(&app->ui_controller, key);
 }
 
+/* A visible action hint names a command, even though inkcell can only name the generic keycap it
+   drew. Resolve that binding against the last frame rather than treating the click as hardware. */
+void mesh_app_on_ui_action_key(void *userdata, enum inkcell_key key) {
+    struct mesh_app *app = (struct mesh_app *)userdata;
+    if (app == NULL) {
+        return;
+    }
+    mesh_ui_controller_handle_action_key(&app->ui_controller, key);
+}
+
 /* A click the window could not answer as a key: a tab, a row, a dialog's answer. Where in the
    box it landed says nothing a press does not. */
 void mesh_app_on_ui_click(void *userdata, uint32_t target, int x, int y) {
@@ -319,6 +329,7 @@ static bool mesh_app_select_sdl(struct mesh_app *app, const struct inkcell_backe
                      .remove_fd = mesh_app_ui_remove_fd,
                      .request_stop = mesh_app_ui_request_stop},
             .on_key = mesh_app_on_ui_key,
+            .on_action_key = mesh_app_on_ui_action_key,
             .key_userdata = app,
             .on_click = mesh_app_on_ui_click,
             .on_context = mesh_app_on_ui_context,

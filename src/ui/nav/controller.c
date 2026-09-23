@@ -272,6 +272,36 @@ void mesh_ui_controller_handle_command(struct mesh_ui_controller *controller,
     mesh_ui_controller_handle_key(controller, key);
 }
 
+void mesh_ui_controller_handle_action_key(struct mesh_ui_controller *controller,
+                                          enum inkcell_key key) {
+    if (controller == NULL || !controller->snapshot_valid || key == INKCELL_KEY_NONE) {
+        return;
+    }
+
+    struct mesh_ui_command_set offered;
+    mesh_ui_commands_for(&controller->snapshot, &offered);
+    for (size_t i = 0U; i < offered.count; ++i) {
+        enum inkcell_key keys[2];
+        const size_t count = inkcell_button_keys(offered.items[i].button, keys);
+        if (count == 1U && keys[0] == key) {
+            mesh_ui_controller_handle_command(controller, offered.items[i].id,
+                                              MESH_UI_COMMAND_DIRECTION_NONE);
+            return;
+        }
+        if (count == 2U && keys[0] == key) {
+            mesh_ui_controller_handle_command(controller, offered.items[i].id,
+                                              MESH_UI_COMMAND_PREVIOUS);
+            return;
+        }
+        if (count == 2U && keys[1] == key) {
+            mesh_ui_controller_handle_command(controller, offered.items[i].id,
+                                              MESH_UI_COMMAND_NEXT);
+            return;
+        }
+    }
+    inkcell_latency_press_handled(false);
+}
+
 void mesh_ui_controller_handle_click(struct mesh_ui_controller *controller, uint32_t target) {
     if (controller == NULL || controller->store == NULL || target == INKCELL_FOCUS_NONE) {
         return;
