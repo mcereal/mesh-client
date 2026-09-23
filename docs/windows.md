@@ -51,12 +51,13 @@ shutdown and durable-file operations. The client uses host file wrappers for bin
 and store directories. The Unix UI-control socket reports `ENOTSUP` on Windows until a
 native IPC backend is added.
 
-The Windows event loop, TCP connector and stream handoff now carry native pointer-sized Winsock
-sockets without passing them through `int` descriptors. Numeric TCP addresses can use that path;
-asynchronous hostname lookup still needs a Windows resolver. The full executable build still
-links: HTTPS fetch and MQTT use explicit unavailable backends until their native socket ports
-arrive. Inkcell input and the client updater compile on Windows; the updater offers no install
-action because releases contain Linux binaries only.
+The Windows event loop, TCP connector and stream handoff carry native pointer-sized Winsock
+sockets without passing them through `int` descriptors. Hostnames use overlapped
+`GetAddrInfoExW`, whose completion event is watched by the same loop, so both names and numeric
+addresses can use that path without blocking the UI. The full executable build still links:
+HTTPS fetch and MQTT use explicit unavailable backends until their native socket ports arrive.
+Inkcell input and the client updater compile on Windows; the updater offers no install action
+because releases contain Linux binaries only.
 
 For a display-free smoke run after building, use PowerShell with the UCRT64 DLL directory on
 `PATH`:
@@ -81,7 +82,7 @@ the checkout. The Windows CI job runs this build and smoke check on every PR.
 
 The remaining work is primarily in platform backends:
 
-1. Port asynchronous name resolution, HTTPS fetch, MQTT and TLS to native Windows sockets.
+1. Port HTTPS fetch, MQTT and TLS to native Windows sockets.
 2. Replace the explicit unavailable device backends with native implementations.
 3. Add SetupAPI/overlapped COM serial, then a Windows Runtime BLE backend.
 4. Give the UI-control protocol a native IPC backend and settle Windows user-data paths.

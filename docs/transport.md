@@ -234,23 +234,26 @@ Three things it does that the serial link does not:
 - **`TCP_NODELAY` and keepalive.** The traffic is small request/reply pairs, exactly what Nagle
   delays; keepalive notices the network going away without anybody closing anything.
 
-### A name costs a fork
+### A name stays off the loop
 
 **`getaddrinfo()` blocks, and this client is one epoll loop with no threads.** There is no
 non-blocking resolver in POSIX (`getaddrinfo_a` starts threads), so the call cannot be made on the
 loop at all — for a long time that meant a target had to be a numeric literal and a name was
 refused in words.
 
-inkwell's `src/net/resolve.c` (`inkwell/net/resolve.h`) is the way out: fork a child, let *it*
-block in `getaddrinfo()`, read one fixed-size record back through the loop. The child does not exec —
-there is nothing worth exec'ing, since `getent` is not on the Brick and busybox's `nslookup`
-prints something different every version — so it inherits everything this process has open and
-must touch none of it before `_exit`.
+inkwell's resolver (`inkwell/net/resolve.h`) is the way out. On POSIX, `src/net/resolve.c` forks a
+child, lets *it* block in `getaddrinfo()`, and reads one fixed-size record back through the loop.
+The child does not exec—there is nothing worth exec'ing, since `getent` is not on the Brick and
+busybox's `nslookup` prints something different every version—so it inherits everything this
+process has open and must touch none of it before `_exit`. On Windows,
+`src/net/resolve_windows.c` starts overlapped `GetAddrInfoExW` and registers its event with the
+same loop; cancellation and the five-second deadline remain the resolver's rather than the UI's.
 
-A literal still costs nothing: `mesh_resolve_literal()` answers `192.168.1.50:4403` and
-`[fd00::1]:4403` with `inet_pton` and no child, which is both faster and what keeps an address
-behaving exactly as it did. So the link gained a state — `RESOLVING`, before `CONNECTING`, with
-no socket yet and nothing for epoll to watch — and a name now fails later and more usefully:
+A literal still costs nothing: `inkwell_resolve_literal()` answers `192.168.1.50:4403` and
+`[fd00::1]:4403` with the platform parser and no asynchronous request, which is both faster and
+what keeps an address behaving exactly as it did. So the link gained a state — `RESOLVING`,
+before `CONNECTING`, with no socket yet and nothing for epoll to watch — and a name now fails
+later and more usefully:
 "no such host" when it resolved to nothing, "could not look up the name" when the lookup itself
 did not work. The two are different sentences because they ask the reader for different things.
 
