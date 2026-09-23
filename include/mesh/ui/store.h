@@ -339,6 +339,8 @@ uint32_t mesh_ui_store_forget_message(struct mesh_ui_store *store, uint8_t kind,
    needs repainting; the store has already signalled its eventfd in that case. */
 bool mesh_ui_store_handle_key(struct mesh_ui_store *store, enum inkcell_key key,
                               struct mesh_ui_action *out_action);
+/* Committed desktop text uses the same draft policy as the grid and publishes a changed frame. */
+bool mesh_ui_store_insert_text(struct mesh_ui_store *store, const char *text);
 /* A click on `target`, an id the last frame registered (mesh/ui/focus.h). The same contract as
    the key above - see mesh_ui_nav_handle_click(). */
 bool mesh_ui_store_handle_click(struct mesh_ui_store *store, uint32_t target,

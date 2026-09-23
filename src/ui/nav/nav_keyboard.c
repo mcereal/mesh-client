@@ -22,6 +22,7 @@
 
 #include "mesh/ui/channel_share.h"
 #include "mesh/ui/contact_share.h"
+#include "mesh/ui/route.h"
 #include "mesh/ui/settings.h"
 
 #include <stdio.h>
@@ -576,4 +577,17 @@ bool mesh_ui_nav_keyboard_key(struct mesh_ui_nav *nav, const struct mesh_ui_stor
     default:
         return false;
     }
+}
+
+bool mesh_ui_nav_insert_text(struct mesh_ui_nav *nav, const char *text) {
+    if (nav == NULL) {
+        return false;
+    }
+    struct mesh_ui_route active;
+    mesh_ui_route_of(nav, &active);
+    if (active.level != MESH_UI_ROUTE_KEYBOARD) {
+        return false;
+    }
+    const struct inkcell_keyboard_layout layout = mesh_ui_nav_kb_layout(nav);
+    return inkcell_keyboard_insert_text(&layout, nav->draft, sizeof nav->draft, text);
 }

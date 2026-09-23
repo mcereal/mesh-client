@@ -28,6 +28,7 @@
 #include "mesh/ui/backends/fb.h"
 #include "mesh/ui/backends/stub.h"
 #include "mesh/ui/preferences.h"
+#include "mesh/ui/route.h"
 #include "mesh/utils/crash.h"
 
 #include <errno.h>
@@ -236,6 +237,23 @@ static void mesh_app_on_ui_shortcut(void *userdata, char letter) {
     }
 }
 
+static bool mesh_app_ui_text_active(void *userdata) {
+    const struct mesh_app *app = (const struct mesh_app *)userdata;
+    if (app == NULL) {
+        return false;
+    }
+    struct mesh_ui_route route;
+    mesh_ui_route_of(&app->ui_store.nav, &route);
+    return route.level == MESH_UI_ROUTE_KEYBOARD;
+}
+
+static void mesh_app_on_ui_text(void *userdata, const char *text) {
+    struct mesh_app *app = (struct mesh_app *)userdata;
+    if (app != NULL) {
+        mesh_ui_controller_handle_text(&app->ui_controller, text);
+    }
+}
+
 /* A click the window could not answer as a key: a tab, a row, a dialog's answer. Where in the
    box it landed says nothing a press does not. */
 void mesh_app_on_ui_click(void *userdata, uint32_t target, int x, int y) {
@@ -338,6 +356,8 @@ static bool mesh_app_select_sdl(struct mesh_app *app, const struct inkcell_backe
             .on_key = mesh_app_on_ui_key,
             .on_action_key = mesh_app_on_ui_action_key,
             .on_shortcut = mesh_app_on_ui_shortcut,
+            .text_input_active = mesh_app_ui_text_active,
+            .on_text_input = mesh_app_on_ui_text,
             .key_userdata = app,
             .on_click = mesh_app_on_ui_click,
             .on_context = mesh_app_on_ui_context,

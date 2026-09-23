@@ -225,6 +225,13 @@ void mesh_ui_controller_handle_key(struct mesh_ui_controller *controller, enum i
     mesh_ui_controller_dispatch_key(controller, key, false);
 }
 
+void mesh_ui_controller_handle_text(struct mesh_ui_controller *controller, const char *text) {
+    if (controller == NULL || controller->store == NULL) {
+        return;
+    }
+    inkcell_latency_press_handled(mesh_ui_store_insert_text(controller->store, text));
+}
+
 static void mesh_ui_controller_dispatch_command(struct mesh_ui_controller *controller,
                                                 enum mesh_ui_command_id command,
                                                 enum mesh_ui_command_direction direction,

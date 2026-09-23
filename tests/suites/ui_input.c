@@ -512,6 +512,45 @@ cleanup:
     record_success(test_name);
 }
 
+MESH_TEST_CASE(ui_host_text_uses_visible_keyboard_and_field_cap, unit) {
+    struct mesh_ui_store store;
+    if (mesh_ui_store_init(&store) != 0) {
+        record_failure(test_name, "store init failed");
+        return;
+    }
+    store.pending_flags = MESH_UI_UPDATE_NONE;
+    const char *failure = NULL;
+    if (mesh_ui_store_insert_text(&store, "outside") ||
+        store.pending_flags != MESH_UI_UPDATE_NONE) {
+        failure = "host text must be ignored outside the keyboard";
+        goto cleanup_text;
+    }
+
+    store.nav.keyboard_open = true;
+    store.nav.keyboard_passkey = true;
+    if (!mesh_ui_store_insert_text(&store, "1234") || strcmp(store.nav.draft, "1234") != 0 ||
+        (store.pending_flags & MESH_UI_UPDATE_NAV) == 0U) {
+        failure = "host text should update the same draft and publish a frame";
+        goto cleanup_text;
+    }
+    store.pending_flags = MESH_UI_UPDATE_NONE;
+    store.nav.help_open = true;
+    if (mesh_ui_store_insert_text(&store, "5") || strcmp(store.nav.draft, "1234") != 0) {
+        failure = "text must not reach a keyboard under a help sheet";
+        goto cleanup_text;
+    }
+    store.nav.help_open = false;
+    if (!mesh_ui_store_insert_text(&store, "56") || mesh_ui_store_insert_text(&store, "7") ||
+        strcmp(store.nav.draft, "123456") != 0) {
+        failure = "a passkey must keep its six-byte cap for host typing";
+    }
+
+cleanup_text:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(ui_controller_key_dispatch, unit) {
     const char *failure = NULL;
     mesh_ui_canned_reset();
