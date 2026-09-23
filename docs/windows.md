@@ -29,16 +29,19 @@ a worktree. This is independent of the runtime port and should not obscure its c
 ## Porting boundary
 
 Inkcell's SDL renderer is already platform-neutral outside its guarded Cocoa title-bar code. The
-remaining work is primarily in inkwell and the small number of mesh-client call sites which still
-use POSIX APIs directly:
+merged Inkwell runtime now provides waitable Windows handles, timers, wake events, console
+shutdown and durable-file operations. The client uses host file wrappers for binary map packs
+and store directories. The Unix UI-control socket reports `ENOTSUP` on Windows until a
+native IPC backend is added.
 
-1. Add a Windows inkwell loop which can wait on Winsock events, waitable timers, wake events and
-   overlapped handles without exposing them all as Unix `int` file descriptors.
-2. Port Winsock TCP and asynchronous name resolution.
-3. Add Windows file durability, paths and random-number implementations.
-4. Compile device-only facilities to explicit unavailable backends until their Windows versions
+The remaining work is primarily in Inkwell networking and device-facing backends:
+
+1. Extend the Windows loop to wait on Winsock events without treating socket values as Unix file
+   descriptors, then port TCP and asynchronous name resolution.
+2. Compile device-only facilities to explicit unavailable backends until their Windows versions
    arrive.
-5. Add SetupAPI/overlapped COM serial, then a Windows Runtime BLE backend.
+3. Add SetupAPI/overlapped COM serial, then a Windows Runtime BLE backend.
+4. Give the UI-control protocol a native IPC backend and settle Windows user-data paths.
 
 The build script intentionally stops at the first real unsupported API. It is the regression
 driver for this work: each platform slice moves that boundary forward without weakening the
