@@ -546,14 +546,14 @@ MESH_TEST_CASE(ui_controller_key_dispatch, unit) {
     const size_t presents_before = backend.present_calls;
 
     /*
-     * A backend can switch tabs without knowing that the Brick spells that command L1/R1.
-     * A paired command needs a direction, and a second command against the now-stale frame is
+     * An SDL action hint starts as the logical keycap inkcell drew, then resolves back to the
+     * semantic command and the half of its pair. A second hint against the now-stale frame is
      * discarded until the first command has been presented.
      */
     mesh_ui_controller_handle_command(&controller, MESH_UI_COMMAND_TABS,
                                       MESH_UI_COMMAND_DIRECTION_NONE);
-    mesh_ui_controller_handle_command(&controller, MESH_UI_COMMAND_TABS, MESH_UI_COMMAND_NEXT);
-    mesh_ui_controller_handle_command(&controller, MESH_UI_COMMAND_TABS, MESH_UI_COMMAND_PREVIOUS);
+    mesh_ui_controller_handle_action_key(&controller, INKCELL_KEY_R1);
+    mesh_ui_controller_handle_action_key(&controller, INKCELL_KEY_L1);
     inkwell_loop_run(&loop, 0);
     if (backend.present_calls <= presents_before ||
         backend.last_snapshot.nav.screen != MESH_UI_SCREEN_NODES ||
@@ -574,11 +574,11 @@ MESH_TEST_CASE(ui_controller_key_dispatch, unit) {
      * Back to Messages, open the primary channel semantically, and send its first canned reply.
      * OPEN has one binding, so adapters do not have to manufacture a direction for it.
      */
-    mesh_ui_controller_handle_command(&controller, MESH_UI_COMMAND_TABS, MESH_UI_COMMAND_PREVIOUS);
+    mesh_ui_controller_handle_action_key(&controller, INKCELL_KEY_L1);
     inkwell_loop_run(&loop, 0);
     mesh_ui_controller_handle_key(&controller, INKCELL_KEY_DOWN);
     inkwell_loop_run(&loop, 0);
-    mesh_ui_controller_handle_command(&controller, MESH_UI_COMMAND_OPEN, MESH_UI_COMMAND_NEXT);
+    mesh_ui_controller_handle_action_key(&controller, INKCELL_KEY_A);
     inkwell_loop_run(&loop, 0);
     mesh_ui_controller_handle_key(&controller, INKCELL_KEY_A);
     mesh_ui_controller_handle_key(&controller, INKCELL_KEY_A);

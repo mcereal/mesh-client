@@ -84,6 +84,16 @@ void mesh_ui_controller_handle_command(struct mesh_ui_controller *controller,
                                        enum mesh_ui_command_id command,
                                        enum mesh_ui_command_direction direction);
 
+/*
+ * Resolve a clicked legacy action hint through the last frame's semantic command set.
+ *
+ * SDL knows which logical key its generic action-bar widget drew, but command ids belong to the
+ * application. This is that boundary: physical keyboard/gamepad input keeps using handle_key(),
+ * while a visible action reaches handle_command() with the direction implied by its keycap.
+ */
+void mesh_ui_controller_handle_action_key(struct mesh_ui_controller *controller,
+                                          enum inkcell_key key);
+
 /* The same for a click on `target`, an id the last frame registered - a tab, a row, a dialog's
    answer (mesh/ui/focus.h). What a window's pointer hands on; see inkcell/ui/pointer.h. */
 void mesh_ui_controller_handle_click(struct mesh_ui_controller *controller, uint32_t target);
