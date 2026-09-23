@@ -19,12 +19,15 @@
 #include "mesh/i18n/strings.h"
 
 #include <errno.h>
+#include <limits.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#if !defined(__APPLE__)
+#if defined(_WIN32)
+#include <bcrypt.h>
+#elif !defined(__APPLE__)
 #include <sys/random.h>
 #endif
 
@@ -44,10 +47,17 @@
 #define MESH_SETTINGS_REBOOT_GRACE_MS 30000U
 
 /* A fresh channel key. getrandom() blocks until the kernel pool is seeded, which on the Brick
-   it long since is; anything else is an error we surface rather than a weak key. macOS has no
-   getrandom(), and arc4random_buf() is its kernel CSPRNG with no way to fail. */
+   it long since is; anything else is an error we surface rather than a weak key. macOS uses
+   arc4random_buf(), and Windows uses the system-preferred BCrypt generator. */
 static int mesh_app_random_key(uint8_t *out, size_t len) {
-#if defined(__APPLE__)
+#if defined(_WIN32)
+    if (len > ULONG_MAX) {
+        return -EOVERFLOW;
+    }
+    const NTSTATUS status =
+        BCryptGenRandom(NULL, out, (ULONG)len, BCRYPT_USE_SYSTEM_PREFERRED_RNG);
+    return status == 0 ? 0 : -EIO;
+#elif defined(__APPLE__)
     arc4random_buf(out, len);
     return 0;
 #else

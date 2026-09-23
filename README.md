@@ -78,7 +78,7 @@ It is not a general ARM CLI and a Pi will not run it.
 
 ## Building
 
-The core is Linux-only (`epoll`/`timerfd`/`eventfd`). On a Linux host:
+Linux is the shipping desktop/server target. On a Linux host:
 
 ```bash
 git submodule update --init --recursive   # inkwell, inkcell, nanopb, protobufs (Mbed TLS nests under inkwell)
@@ -97,6 +97,9 @@ ctest --preset debug
 
 Either route writes `build/debug/compile_commands.json`, which is what `.clangd` points at, so
 clangd indexes the tree after the build you were going to run anyway.
+
+The native Windows SDL target is being brought up with MSYS2's UCRT64 toolchain. Its current
+scope and setup commands are in [`docs/windows.md`](docs/windows.md).
 
 On macOS, or any host with Docker, use the container targets — they bind-mount the repo and build
 into `build/linux/`:

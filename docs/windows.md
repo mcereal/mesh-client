@@ -1,0 +1,45 @@
+# Native Windows port
+
+The Windows target is under active development. The first supported slice is an x64 UCRT
+executable with the SDL UI and TCP transport. Bluetooth, USB serial, firmware installation,
+self-update, TLS and the UI control socket are follow-up platform backends rather than promises
+of the first build.
+
+## Toolchain
+
+Install [MSYS2](https://www.msys2.org/) in `C:\msys64`, then run from PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/setup-windows.ps1
+powershell -ExecutionPolicy Bypass -File scripts/build-windows.ps1
+```
+
+Set `MSYS2_ROOT` before either command when MSYS2 is installed elsewhere. `-Check` makes the
+setup script report only, and `build-windows.ps1 -Configuration Release` selects another build
+type. Build trees are kept in `build/windows-<configuration>` so they cannot share a CMake cache
+with Linux, macOS or container builds.
+
+MSYS2 is the build and package environment only. The UCRT64 compiler produces an ordinary
+Windows executable and does not link `msys-2.0.dll`.
+
+TLS is temporarily disabled in this target. Recursive Mbed TLS initialization reaches deeply
+nested post-quantum submodules and can exceed Git for Windows' path limit when this repository is
+a worktree. This is independent of the runtime port and should not obscure its compiler errors.
+
+## Porting boundary
+
+Inkcell's SDL renderer is already platform-neutral outside its guarded Cocoa title-bar code. The
+remaining work is primarily in inkwell and the small number of mesh-client call sites which still
+use POSIX APIs directly:
+
+1. Add a Windows inkwell loop which can wait on Winsock events, waitable timers, wake events and
+   overlapped handles without exposing them all as Unix `int` file descriptors.
+2. Port Winsock TCP and asynchronous name resolution.
+3. Add Windows file durability, paths and random-number implementations.
+4. Compile device-only facilities to explicit unavailable backends until their Windows versions
+   arrive.
+5. Add SetupAPI/overlapped COM serial, then a Windows Runtime BLE backend.
+
+The build script intentionally stops at the first real unsupported API. It is the regression
+driver for this work: each platform slice moves that boundary forward without weakening the
+Linux or macOS builds.
