@@ -4,7 +4,8 @@
  * From "there is a newer release for this board" to "the image is on disk and it is the right
  * one", in one operation.
  *
- * firmware.c answers *whether* there is firmware; firmware_download.c gets *bytes*; this is the
+ * firmware.c answers *whether* there is firmware; inkwell's `net/zip_fetch.h` gets *bytes*,
+ * one member out of a zip by range requests at 0.6 MB instead of 58; this is the
  * piece between them that knows which zip and which member, and it exists because neither of those
  * questions can be answered without reading two more documents:
  *
@@ -22,13 +23,21 @@
  * and a repeated 64 KB tail window - about 65 KB against the 58 MB not being downloaded - and
  * buys never having invented a file name.
  *
- * **The radio link must be down for the duration**, for the reason firmware_download.h gives:
- * one antenna. This module does not take that hold either; the caller does.
+ * **The radio link must be down for the duration.** The Brick's Wi-Fi and its Bluetooth are
+ * one part behind one antenna, which is why mesh_updater_holds_the_radio() exists; a couple of
+ * megabytes of download was measured to break a live BLE link 36 ms in. This module does not
+ * take that hold itself; the caller does, exactly as the self-updater's does.
+ *
+ * The staging directory is the caller's too. On a Brick it is on /mnt/UDISK and deliberately
+ * **not** beside the client's own .update staging on /mnt/SDCARD: the USB path's bootloader
+ * mounts a ghost drive over that card the moment the radio reboots, so an image staged there
+ * vanishes from its own path between being written and being read.
  */
 
 #include "mesh/core/firmware_catalog.h"
-#include "mesh/core/firmware_download.h"
 #include "mesh/core/uf2.h"
+
+#include "inkwell/net/zip_fetch.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -89,11 +98,11 @@ typedef void (*mesh_firmware_fetch_done_fn)(void *userdata,
 
 struct mesh_firmware_fetch {
     struct inkwell_fetch *fetcher; /* borrowed */
-    struct mesh_firmware_download download;
+    struct inkwell_zip_fetch download;
 
     enum mesh_firmware_fetch_state state;
     enum mesh_firmware_fetch_error error;
-    enum mesh_firmware_download_error download_error;
+    enum inkwell_zip_fetch_error download_error;
     char message[MESH_FIRMWARE_FETCH_MESSAGE_MAX];
 
     /* What the caller asked for. */
@@ -105,7 +114,7 @@ struct mesh_firmware_fetch {
 
     /* What the documents answered. */
     char platform[MESH_FIRMWARE_ARCH_MAX];
-    char zip_url[MESH_FIRMWARE_DOWNLOAD_URL_MAX];
+    char zip_url[INKWELL_ZIP_FETCH_URL_MAX];
     char member[INKWELL_ZIP_NAME_MAX];
     struct mesh_firmware_manifest manifest;
     struct mesh_firmware_image image;

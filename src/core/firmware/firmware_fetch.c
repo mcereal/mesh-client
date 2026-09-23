@@ -13,8 +13,25 @@
    memory rather than staged, because nothing downstream wants it as a file. */
 #define FETCH_DOCUMENT_TIMEOUT_MS 20000U
 
+/* Per-step deadlines for the range reads. The image is half a megabyte over a handheld's Wi-Fi
+   and was measured at 1.8-3.0 s on a Brick; the rest are a few kilobytes each and a round
+   trip. */
+#define FETCH_STEP_TIMEOUT_MS 20000U
+#define FETCH_IMAGE_TIMEOUT_MS 120000U
+
+/*
+ * The most an image may claim to be, in or out of the zip. Both sizes come from a directory
+ * somebody else served and the uncompressed one is allocated and inflated into on the loop, so
+ * inkwell makes its caller say. No supported radio has more than 16 MB of flash, so no image can
+ * be bigger; twice that is headroom for a board that does, not for a real image.
+ */
+#define FETCH_IMAGE_MAX (32U * 1024U * 1024U)
+
+/* What the staged files are called: firmware.window, firmware.member, firmware.image ... */
+#define FETCH_STAGING_STEM "firmware"
+
 static void fetch_on_manifest(void *userdata, const struct inkwell_fetch_result *result);
-static void fetch_on_download(void *userdata, const struct mesh_firmware_download *download);
+static void fetch_on_download(void *userdata, const struct inkwell_zip_fetch *download);
 
 static void fetch_finish(struct mesh_firmware_fetch *fetch, enum mesh_firmware_fetch_state state,
                          enum mesh_firmware_fetch_error error, const char *message) {
@@ -64,10 +81,18 @@ static bool fetch_build_zip_url(struct mesh_firmware_fetch *fetch) {
 
 static bool fetch_start_download(struct mesh_firmware_fetch *fetch, const char *member) {
     inkwell_str_copy(fetch->member, sizeof fetch->member, member);
-    const int started =
-        mesh_firmware_download_start(&fetch->download, fetch->fetcher, fetch->zip_url,
-                                     fetch->member, fetch->staging, fetch_on_download, fetch);
-    return started == 0;
+    struct inkwell_zip_fetch_request request;
+    memset(&request, 0, sizeof request);
+    request.url = fetch->zip_url;
+    request.member = fetch->member;
+    request.staging_dir = fetch->staging;
+    request.stem = FETCH_STAGING_STEM;
+    request.max_member_bytes = FETCH_IMAGE_MAX;
+    request.step_timeout_ms = FETCH_STEP_TIMEOUT_MS;
+    request.member_timeout_ms = FETCH_IMAGE_TIMEOUT_MS;
+    request.on_done = fetch_on_download;
+    request.userdata = fetch;
+    return inkwell_zip_fetch_start(&fetch->download, fetch->fetcher, &request) == 0;
 }
 
 static void fetch_on_manifest(void *userdata, const struct inkwell_fetch_result *result) {
@@ -115,7 +140,7 @@ static void fetch_on_manifest(void *userdata, const struct inkwell_fetch_result 
 
 static void fetch_read_manifest(struct mesh_firmware_fetch *fetch) {
     char path[INKWELL_FETCH_PATH_MAX];
-    if (mesh_firmware_download_image_path(&fetch->download, path, sizeof path) == NULL) {
+    if (inkwell_zip_fetch_output_path(&fetch->download, path, sizeof path) == NULL) {
         fetch_fail(fetch, MESH_FIRMWARE_FETCH_ERROR_DOCUMENT, "the board manifest went missing");
         return;
     }
@@ -197,7 +222,7 @@ static void fetch_read_manifest(struct mesh_firmware_fetch *fetch) {
 /* ---- step four: is this the image for this board ------------------------------------------*/
 
 static void fetch_check_image(struct mesh_firmware_fetch *fetch) {
-    if (mesh_firmware_download_image_size(&fetch->download) != fetch->image.bytes) {
+    if (inkwell_zip_fetch_size(&fetch->download) != fetch->image.bytes) {
         /* The zip's central directory and the board's manifest disagree about how long the
            image is. Neither is more authoritative than the other, so this stops. */
         fetch_fail(fetch, MESH_FIRMWARE_FETCH_ERROR_WRONG_IMAGE,
@@ -213,7 +238,7 @@ static void fetch_check_image(struct mesh_firmware_fetch *fetch) {
     }
 
     char path[INKWELL_FETCH_PATH_MAX];
-    if (mesh_firmware_download_image_path(&fetch->download, path, sizeof path) == NULL) {
+    if (inkwell_zip_fetch_output_path(&fetch->download, path, sizeof path) == NULL) {
         fetch_fail(fetch, MESH_FIRMWARE_FETCH_ERROR_DOWNLOAD, "the image went missing");
         return;
     }
@@ -258,12 +283,12 @@ static void fetch_check_image(struct mesh_firmware_fetch *fetch) {
     fetch_finish(fetch, MESH_FIRMWARE_FETCH_READY, MESH_FIRMWARE_FETCH_ERROR_NONE, "");
 }
 
-static void fetch_on_download(void *userdata, const struct mesh_firmware_download *download) {
+static void fetch_on_download(void *userdata, const struct inkwell_zip_fetch *download) {
     struct mesh_firmware_fetch *const fetch = (struct mesh_firmware_fetch *)userdata;
-    if (download->state != MESH_FIRMWARE_DOWNLOAD_READY) {
+    if (download->state != INKWELL_ZIP_FETCH_READY) {
         fetch->download_error = download->error;
         fetch_fail(fetch, MESH_FIRMWARE_FETCH_ERROR_DOWNLOAD,
-                   download->error == MESH_FIRMWARE_DOWNLOAD_ERROR_NO_MEMBER
+                   download->error == INKWELL_ZIP_FETCH_ERROR_NO_MEMBER
                        ? "the release zip has no such file"
                        : "the download failed");
         return;
@@ -322,7 +347,7 @@ int mesh_firmware_fetch_start(struct mesh_firmware_fetch *fetch, struct inkwell_
 
 void mesh_firmware_fetch_tick(struct mesh_firmware_fetch *fetch, uint64_t now_ms) {
     if (fetch != NULL) {
-        mesh_firmware_download_tick(&fetch->download, now_ms);
+        inkwell_zip_fetch_tick(&fetch->download, now_ms);
     }
 }
 
@@ -330,7 +355,7 @@ void mesh_firmware_fetch_cancel(struct mesh_firmware_fetch *fetch) {
     if (fetch == NULL) {
         return;
     }
-    mesh_firmware_download_cancel(&fetch->download);
+    inkwell_zip_fetch_cancel(&fetch->download);
     if (fetch->fetcher != NULL) {
         inkwell_fetch_cancel(fetch->fetcher);
     }
@@ -358,7 +383,7 @@ unsigned mesh_firmware_fetch_progress(const struct mesh_firmware_fetch *fetch) {
        to 100 and back to 0 twice before the download started would be describing our work
        rather than theirs. */
     return fetch->state == MESH_FIRMWARE_FETCH_DOWNLOADING
-               ? mesh_firmware_download_progress(&fetch->download)
+               ? inkwell_zip_fetch_progress(&fetch->download)
                : 0U;
 }
 
@@ -367,7 +392,7 @@ const char *mesh_firmware_fetch_image_path(const struct mesh_firmware_fetch *fet
     if (fetch == NULL || fetch->state != MESH_FIRMWARE_FETCH_READY) {
         return NULL;
     }
-    return mesh_firmware_download_image_path(&fetch->download, out, out_len);
+    return inkwell_zip_fetch_output_path(&fetch->download, out, out_len);
 }
 
 const char *mesh_firmware_fetch_state_name(enum mesh_firmware_fetch_state state) {
