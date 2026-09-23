@@ -92,6 +92,17 @@ bool mesh_ui_store_handle_key(struct mesh_ui_store *store, enum inkcell_key key,
     return changed;
 }
 
+bool mesh_ui_store_insert_text(struct mesh_ui_store *store, const char *text) {
+    if (store == NULL) {
+        return false;
+    }
+    const bool changed = mesh_ui_nav_insert_text(&store->nav, text);
+    if (changed) {
+        mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_NAV);
+    }
+    return changed;
+}
+
 bool mesh_ui_store_handle_click(struct mesh_ui_store *store, uint32_t target,
                                 struct mesh_ui_action *out_action) {
     if (store == NULL) {

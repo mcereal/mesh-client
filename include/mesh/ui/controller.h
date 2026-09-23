@@ -71,6 +71,9 @@ void mesh_ui_controller_set_action_handler(struct mesh_ui_controller *controller
    the store's eventfd on the next loop turn; actions go to the handler above right away. */
 void mesh_ui_controller_handle_key(struct mesh_ui_controller *controller, enum inkcell_key key);
 
+/* Committed UTF-8 from a desktop text input backend, for the visible keyboard only. */
+void mesh_ui_controller_handle_text(struct mesh_ui_controller *controller, const char *text);
+
 /*
  * Execute a semantic command offered by the last frame.
  *

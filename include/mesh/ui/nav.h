@@ -950,6 +950,10 @@ bool mesh_ui_nav_close_verify_number(struct mesh_ui_nav *nav);
 bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                             enum inkcell_key key, struct mesh_ui_action *out_action);
 
+/* Insert committed host text only while the keyboard is the visible route. The grid and host
+   input share its field cap and draft; returns true only when text was appended. */
+bool mesh_ui_nav_insert_text(struct mesh_ui_nav *nav, const char *text);
+
 /*
  * Applies one click on `target`, an id from include/mesh/ui/focus.h that the last frame drew.
  * Returns and fills *out_action exactly as mesh_ui_nav_handle_key() does, because a click is

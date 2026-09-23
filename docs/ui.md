@@ -322,6 +322,12 @@ for New, S for Save, and R for Refresh. Each shortcut runs only when the current
 that command; for example, Save on a message list does nothing. Modified keys never also act as
 Brick face buttons, so Control+X cannot accidentally invoke X's current-screen verb.
 
+When the on-screen keyboard is visible, the window also accepts native text entry and paste
+(Command/Control+V). SDL's committed UTF-8 goes into the same draft with the same byte limit as
+the grid; a paste that does not fit is refused whole. Backspace deletes, Enter submits, and
+Escape leaves with the draft intact. The grid remains available for pointer and controller use,
+and typing is ignored while another sheet is on top of it.
+
 The mouse works too, and adds no second model of the screen: it clicks the boxes the frame
 already registers for the d-pad (`mesh/ui/focus.h`). A tab switches to it, a row is the cursor
 on it and A, and a dialog's answer is answered - `src/ui/nav/nav_click.c`, which turns each
