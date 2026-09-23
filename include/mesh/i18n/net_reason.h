@@ -49,8 +49,9 @@ bool mesh_net_reason_str(enum inkwell_net_reason reason, inkcell_str_id *out);
  * INKWELL_NET_UNREACHABLE, and `tls_error` (NULL for none) for INKWELL_NET_TLS. False, leaving
  * `out` untouched, wherever mesh_net_reason_str() is.
  *
- * For a caller that has a host rather than a link: the updater and the firmware check, which
- * get a failure back from inkwell's fetcher and the host of the hop it died on.
+ * Every caller goes through this rather than pairing an entry with its arguments itself: the
+ * TCP link, the MQTT proxy's status row, the updater and the firmware check. The arity is the
+ * one thing here that can go wrong silently, so it is written down once.
  */
 bool mesh_net_reason_format(const struct inkwell_net_failure *failure, const char *subject,
                             const char *tls_error, char *out, size_t out_len);
