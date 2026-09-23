@@ -63,10 +63,11 @@ serves. The pair also carries the three-spellings trap: `mcu` is `esp32s3` and `
 fixed bytes of its local file header, the 53-byte name and 28-byte extra field after it, and
 then all 486 bytes of its deflated payload. It is the T114's `.mt.json` rather than its `.uf2`
 because at 486 bytes it is a fixture and at 517,956 it is not, and it exercises exactly the same
-four steps. `tests/suites/firmware_download.c` serves it — and the tail window above it — at the
+four steps. `tests/suites/firmware_fetch.c` serves it — and the tail window above it — at the
 offsets the real zip keeps them at, so the whole chain runs against real bytes: range read, place
 the data, inflate it, check the length and CRC the central directory carried, and read the
-document that falls out.
+document that falls out. The range reads and the inflate are inkwell's `net/zip_fetch.h`, whose
+own suite serves inkwell's copy of these two fixtures for the download on its own.
 
 **`t114_2.7.26.uf2` is four blocks of 2,866** — the first two and the last two of the real
 image, cut and otherwise untouched, so 2 KB instead of 1.4 MB. Keeping both ends rather than a

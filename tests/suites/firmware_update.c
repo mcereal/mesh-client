@@ -10,7 +10,7 @@
  * the refusals that happen before anything starts, how a sub-module's failure is folded into the
  * one a row shows, and the antenna/radio split that the BLE path's reconnect depends on.
  *
- * The fake CDN is the firmware_download suite's, one directory over: an HTTPS server on loopback
+ * The fake CDN is the firmware_fetch suite's, one file over: an HTTPS server on loopback
  * (support/https_fixture.h) that serves ranges out of the committed 2.7.26 fixtures the way the
  * real CDN serves them out of a 46 MB zip. What it deliberately cannot serve is a whole `.uf2` - at
  * half a megabyte that is not a fixture - so every case here that gets as far as the image gets a
@@ -134,9 +134,9 @@ static struct mesh_firmware_update_hooks update_hooks(struct update_probe *probe
  * So this builds a small zip instead. Both members are real documents - the release's committed
  * board manifest with the one number that says how long the image is rewritten, and the
  * committed image's own blocks made into a whole file - and both are **stored** rather than
- * deflated, which is a shape src/utils/zip.c supports and the only one a suite can write
+ * deflated, which is a shape inkwell's codec/zip.h supports and the only one a suite can write
  * without a compressor. The deflated member with the bytes the CDN really serves is
- * tests/suites/firmware_download.c's job, one file over.
+ * inkwell's net_zip_fetch suite's job.
  */
 
 struct update_member {
