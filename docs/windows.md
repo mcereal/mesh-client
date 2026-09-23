@@ -5,6 +5,22 @@ executable with the SDL UI and TCP transport. Bluetooth, USB serial, firmware in
 self-update, TLS and the UI control socket are follow-up platform backends rather than promises
 of the first build.
 
+## See the UI
+
+After building, launch the native window from PowerShell:
+
+```powershell
+$env:Path = "C:\msys64\ucrt64\bin;$env:Path"
+.\build\windows-debug\meshclient.exe --foreground
+```
+
+Set `MSYS2_ROOT` and substitute its `ucrt64\bin` directory if MSYS2 is installed elsewhere.
+Windows now selects SDL by default; `--foreground` keeps the event loop and window open until
+you close it or press Escape. Without `--foreground`, the default single poll exits almost
+immediately. The SDL2 DLLs must remain on `PATH` until they are bundled with a release. A
+device is not required to see the window, though Bluetooth and USB serial are not connected
+yet. Set `$env:MESHCLIENT_UI_BACKEND = 'cli'` when a terminal-only run is intended.
+
 ## Toolchain
 
 Install [MSYS2](https://www.msys2.org/) in `C:\msys64`, then run from PowerShell:
@@ -48,7 +64,6 @@ For a display-free smoke run after building, use PowerShell with the UCRT64 DLL 
 ```powershell
 $env:Path = "C:\msys64\ucrt64\bin;$env:Path"
 $env:SDL_VIDEODRIVER = 'dummy'
-$env:MESHCLIENT_UI_BACKEND = 'sdl'
 $client = (Resolve-Path .\build\windows-debug\meshclient.exe).Path
 Push-Location $env:TEMP
 try {

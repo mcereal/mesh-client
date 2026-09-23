@@ -326,9 +326,8 @@ static void mesh_app_ui_request_frame(void *userdata) {
 /*
  * The window backend, where there is a window to open.
  *
- * Off unless it is asked for by name. On the device the framebuffer is the UI - it is what the
- * pak runs and the one that has been measured - and this is the backend for a development
- * host, where until now the only way to see a screen was to render it to a GIF.
+ * On the device the framebuffer is the UI - it is what the pak runs and the one that has been
+ * measured. Windows defaults to this window; other development hosts ask for it by name.
  *
  * Unlike the framebuffer's, this backend reads its own buttons: an SDL window's presses come
  * off the same queue as its resize and its close box, so the thing that owns the window owns
@@ -422,8 +421,13 @@ static const struct inkcell_backend *mesh_app_select_backend(struct mesh_app *ap
     }
 
     const char *requested = getenv("MESHCLIENT_UI_BACKEND");
-    if (requested != NULL && requested[0] == '\0') {
-        requested = NULL;
+    if (requested == NULL || requested[0] == '\0' || strcasecmp(requested, "auto") == 0) {
+        requested = MESHCLIENT_DEFAULT_UI_BACKEND;
+    } else if (strcasecmp(requested, "cli") != 0 && strcasecmp(requested, "stub") != 0 &&
+               strcasecmp(requested, "headless") != 0 && strcasecmp(requested, "sdl") != 0 &&
+               strcasecmp(requested, "fb") != 0) {
+        inkwell_log_warn("ui", "Unknown UI backend '%s'; using the default", requested);
+        requested = MESHCLIENT_DEFAULT_UI_BACKEND;
     }
 
     const struct inkcell_backend *backend = NULL;
@@ -431,12 +435,8 @@ static const struct inkcell_backend *mesh_app_select_backend(struct mesh_app *ap
 
     app->ui_backend_reads_input = false;
 
-    /* "cli", "stub", "headless" and "sdl" are asked for explicitly; everything else - including no
-       request at all - resolves to the framebuffer, which is what the pak runs, and falls back to
-       the CLI backend only where there is no /dev/fb0 to draw on (a container, or a dev host).
-       "sdl" is not in the fallback chain on purpose: a window is a thing somebody asks for, and
-       a client that silently opened one because the panel was missing would be a surprise on
-       any host with a display. */
+    /* The build selects the platform default above. Explicit requests still win, and when a
+       requested backend is unavailable the framebuffer-to-CLI fallback remains the last resort. */
     if (requested != NULL && strcasecmp(requested, "cli") == 0) {
         mesh_app_select_cli(app, &backend, &backend_userdata);
     } else if (requested != NULL && strcasecmp(requested, "stub") == 0) {
@@ -452,10 +452,6 @@ static const struct inkcell_backend *mesh_app_select_backend(struct mesh_app *ap
             }
         }
     } else {
-        if (requested != NULL && strcasecmp(requested, "fb") != 0 &&
-            strcasecmp(requested, "auto") != 0) {
-            inkwell_log_warn("ui", "Unknown UI backend '%s'; using the default", requested);
-        }
         if (!mesh_app_select_fb(app, &backend, &backend_userdata)) {
             mesh_app_select_cli(app, &backend, &backend_userdata);
         }
