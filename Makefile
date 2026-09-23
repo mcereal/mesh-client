@@ -70,7 +70,7 @@ help:
 
 ifeq ($(OS),Windows_NT)
 setup:
-	wsl.exe --user root --exec make setup
+	wsl.exe --user root --exec bash scripts/setup-linux.sh
 else
 setup:
 	@if [ "$$(uname -s)" = Darwin ]; then ./scripts/setup-macos.sh; else ./scripts/setup-linux.sh; fi
