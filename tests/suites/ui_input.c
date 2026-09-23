@@ -545,24 +545,41 @@ MESH_TEST_CASE(ui_controller_key_dispatch, unit) {
     inkwell_loop_run(&loop, 0);
     const size_t presents_before = backend.present_calls;
 
-    /* The right shoulder lands on Nodes; the repaint arrives through the eventfd on the next
-       turn. The shoulder is the tab switch from every row, where Right is the tab switch only
-       where the row under the cursor has no control on it. */
-    mesh_ui_controller_handle_key(&controller, INKCELL_KEY_R1);
+    /*
+     * A backend can switch tabs without knowing that the Brick spells that command L1/R1.
+     * A paired command needs a direction, and a second command against the now-stale frame is
+     * discarded until the first command has been presented.
+     */
+    mesh_ui_controller_handle_command(&controller, MESH_UI_COMMAND_TABS,
+                                      MESH_UI_COMMAND_DIRECTION_NONE);
+    mesh_ui_controller_handle_command(&controller, MESH_UI_COMMAND_TABS, MESH_UI_COMMAND_NEXT);
+    mesh_ui_controller_handle_command(&controller, MESH_UI_COMMAND_TABS, MESH_UI_COMMAND_PREVIOUS);
     inkwell_loop_run(&loop, 0);
     if (backend.present_calls <= presents_before ||
         backend.last_snapshot.nav.screen != MESH_UI_SCREEN_NODES ||
         (backend.last_snapshot.update_flags & MESH_UI_UPDATE_NAV) == 0U) {
-        failure = "key presses should repaint with the new tab";
+        failure = "semantic tab commands should repaint once with the requested direction";
         goto cleanup;
     }
 
-    /* Back to Messages, open the primary channel, and send its first canned reply: the action
-       reaches the handler once. A opens the conversation, A again the quick replies, A once
-       more sends the row the cursor starts on. */
-    mesh_ui_controller_handle_key(&controller, INKCELL_KEY_L1);
+    /* Commands absent from the presented frame do nothing. */
+    mesh_ui_controller_handle_command(&controller, MESH_UI_COMMAND_DELETE,
+                                      MESH_UI_COMMAND_DIRECTION_NONE);
+    if (store.pending_flags != MESH_UI_UPDATE_NONE) {
+        failure = "a command not offered by the frame should be ignored";
+        goto cleanup;
+    }
+
+    /*
+     * Back to Messages, open the primary channel semantically, and send its first canned reply.
+     * OPEN has one binding, so adapters do not have to manufacture a direction for it.
+     */
+    mesh_ui_controller_handle_command(&controller, MESH_UI_COMMAND_TABS, MESH_UI_COMMAND_PREVIOUS);
+    inkwell_loop_run(&loop, 0);
     mesh_ui_controller_handle_key(&controller, INKCELL_KEY_DOWN);
-    mesh_ui_controller_handle_key(&controller, INKCELL_KEY_A);
+    inkwell_loop_run(&loop, 0);
+    mesh_ui_controller_handle_command(&controller, MESH_UI_COMMAND_OPEN, MESH_UI_COMMAND_NEXT);
+    inkwell_loop_run(&loop, 0);
     mesh_ui_controller_handle_key(&controller, INKCELL_KEY_A);
     mesh_ui_controller_handle_key(&controller, INKCELL_KEY_A);
     if (actions.count != 1U || actions.last.type != MESH_UI_ACTION_SEND_TEXT ||
@@ -577,6 +594,22 @@ MESH_TEST_CASE(ui_controller_key_dispatch, unit) {
     mesh_ui_controller_handle_key(&controller, INKCELL_KEY_NONE);
     if (actions.count != 1U) {
         failure = "navigation keys must not produce actions";
+        goto cleanup;
+    }
+
+    /*
+     * Quit is the one offered command with no logical key: the input host normally consumes its
+     * physical binding, so semantic dispatch stops the controller's loop directly.
+     */
+    controller.snapshot.nav.screen = MESH_UI_SCREEN_STATUS;
+    controller.snapshot.device_count = 1U;
+    controller.snapshot.devices[0].connected = true;
+    store.pending_flags = MESH_UI_UPDATE_NONE;
+    loop.stop_requested = false;
+    mesh_ui_controller_handle_command(&controller, MESH_UI_COMMAND_QUIT,
+                                      MESH_UI_COMMAND_DIRECTION_NONE);
+    if (!loop.stop_requested) {
+        failure = "the semantic quit command should stop the UI loop";
         goto cleanup;
     }
 

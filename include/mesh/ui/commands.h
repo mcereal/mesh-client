@@ -74,6 +74,20 @@ enum mesh_ui_command_id {
     MESH_UI_COMMAND_COUNT
 };
 
+/*
+ * The half of a paired command to invoke.
+ *
+ * A command such as TABS, MOVE or SPAN is one affordance in the command set and two operations
+ * at dispatch: previous/next is L/R, left/right or up/down in the order the binding's keycap is
+ * printed. Single-button commands ignore the direction; paired commands reject NONE so an input
+ * adapter cannot silently guess which half the user meant.
+ */
+enum mesh_ui_command_direction {
+    MESH_UI_COMMAND_PREVIOUS = -1,
+    MESH_UI_COMMAND_DIRECTION_NONE = 0,
+    MESH_UI_COMMAND_NEXT = 1,
+};
+
 struct mesh_ui_command {
     enum mesh_ui_command_id id;
     inkcell_str_id label;
