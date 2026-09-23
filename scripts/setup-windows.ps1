@@ -61,6 +61,7 @@ if ($missing.Count -eq 0) {
 Push-Location $repoRoot
 try {
     $outOfSync = git submodule status 2>$null | Select-String '^[+-]'
+    $submodulesOutOfSync = $null -ne $outOfSync
     if ($outOfSync) {
         if ($Check) {
             Write-Host 'Submodules:'
@@ -83,7 +84,7 @@ try {
     Pop-Location
 }
 
-if ($Check -and $missing.Count -ne 0) {
+if ($Check -and ($missing.Count -ne 0 -or $submodulesOutOfSync)) {
     exit 1
 }
 
