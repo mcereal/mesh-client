@@ -328,7 +328,7 @@ void mesh_ui_controller_handle_click(struct mesh_ui_controller *controller, uint
         struct mesh_ui_command_set offered;
         mesh_ui_commands_for(&controller->snapshot, &offered);
         const struct mesh_ui_command *const binding = mesh_ui_commands_find(&offered, command);
-        if (mesh_ui_command_in_context_menu(binding)) {
+        if (mesh_ui_command_context_order(binding) >= 0) {
             mesh_ui_controller_dispatch_command(controller, command, MESH_UI_COMMAND_DIRECTION_NONE,
                                                 true);
             return;

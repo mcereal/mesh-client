@@ -13,7 +13,6 @@
 
 #include "inkcell/ui/actions.h"
 
-#include <stdbool.h>
 #include <stddef.h>
 
 struct mesh_ui_snapshot;
@@ -116,8 +115,10 @@ const struct mesh_ui_command *mesh_ui_commands_find(const struct mesh_ui_command
 const struct mesh_ui_command *mesh_ui_commands_find_button(const struct mesh_ui_command_set *set,
                                                            enum inkcell_button button);
 
-/* Whether a command acts on the selected row and therefore belongs in a pointer context menu.
-   Kept beside the command model so presentation and dispatch cannot disagree about the menu. */
-bool mesh_ui_command_in_context_menu(const struct mesh_ui_command *command);
+/* A context menu preserves the face-verb order readers already know: A, X, Y, Start. Returns
+   that zero-based display position, or -1 when the command is navigation or screen chrome rather
+   than a verb about the selected row. Presentation and dispatch share this answer. */
+int mesh_ui_command_context_order(const struct mesh_ui_command *command);
+#define MESH_UI_CONTEXT_COMMANDS_MAX 4U
 
 #endif /* MESH_UI_COMMANDS_H */

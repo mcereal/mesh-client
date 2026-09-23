@@ -377,6 +377,30 @@ MESH_TEST_CASE(ui_click_a_right_click_menu_is_the_rows_own_commands, unit) {
     MESH_TEST_FAIL_IF_CLEANUP(
         store.nav.context_open || action.type != MESH_UI_ACTION_NONE, click_close(&store, capture),
         "the store fallback should dismiss, leaving command dispatch to the controller");
+
+    /* Identity must not become presentation order. A conversation offers commands whose enum
+       values sort differently, but the menu retains the established A, X, Y, Start sequence. */
+    (void)click_render(&store, capture);
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !mesh_test_open_tab(&store, MESH_UI_SCREEN_MESSAGES) ||
+            !click_context(&store, capture, (uint32_t)MESH_UI_FOCUS_ROWS + 2U),
+        click_close(&store, capture), "a conversation should open its context menu");
+    const struct inkcell_focus_map *const ordered_map = click_render(&store, capture);
+    const enum mesh_ui_command_id ordered[] = {
+        MESH_UI_COMMAND_OPEN,
+        MESH_UI_COMMAND_DELETE,
+        MESH_UI_COMMAND_NEW,
+        MESH_UI_COMMAND_MUTE,
+    };
+    int previous_y = -1;
+    for (size_t i = 0U; i < sizeof ordered / sizeof ordered[0]; ++i) {
+        struct inkcell_focus_rect row;
+        const uint32_t id = (uint32_t)MESH_UI_FOCUS_MENU + (uint32_t)ordered[i];
+        MESH_TEST_FAIL_IF_CLEANUP(
+            !inkcell_focus_rect_of(ordered_map, id, &row) || row.y <= previous_y,
+            click_close(&store, capture), "context commands should remain in A, X, Y, Start order");
+        previous_y = row.y;
+    }
     click_close(&store, capture);
 }
 

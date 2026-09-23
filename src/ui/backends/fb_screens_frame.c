@@ -237,8 +237,8 @@ struct inkcell_fb_layout fb_layout_in(const struct inkcell_fb_layout *layout,
  *
  * The verbs are the active command set's row operations, so the menu cannot offer what the
  * screen would not do. B is a way back rather than a verb about the row, and help is about the
- * screen. Each item sits at its command id, which is what numbers it
- * (MESH_UI_FOCUS_MENU + command) and what the controller invokes when it is clicked.
+ * screen. The rows retain the established A, X, Y, Start order, while their explicit focus ids
+ * are `MESH_UI_FOCUS_MENU + command` - display position and command identity are independent.
  *
  * Drawn over everything, the action bar included, with one target under the whole panel first,
  * so a click that misses the menu lands on that and puts it down.
@@ -247,21 +247,25 @@ static void fb_render_context(struct inkcell_draw_state *state,
                               const struct mesh_ui_snapshot *snapshot) {
     struct mesh_ui_command_set commands;
     mesh_ui_commands_for(snapshot, &commands);
-    struct inkcell_fb_menu_item items[MESH_UI_COMMAND_COUNT];
+    struct inkcell_fb_menu_item items[MESH_UI_CONTEXT_COMMANDS_MAX];
+    uint32_t focus_ids[MESH_UI_CONTEXT_COMMANDS_MAX];
     memset(items, 0, sizeof items);
+    memset(focus_ids, 0, sizeof focus_ids);
     size_t offered = 0U;
     for (size_t i = 0; i < commands.count; ++i) {
         const struct mesh_ui_command *const command = &commands.items[i];
-        if (mesh_ui_command_in_context_menu(command)) {
-            items[command->id].label = inkcell_str(command->label);
+        const int order = mesh_ui_command_context_order(command);
+        if (order >= 0 && (size_t)order < MESH_UI_CONTEXT_COMMANDS_MAX) {
+            items[order].label = inkcell_str(command->label);
+            focus_ids[order] = (uint32_t)MESH_UI_FOCUS_MENU + (uint32_t)command->id;
             offered += 1U;
         }
     }
     const struct inkcell_fb_menu menu = {
         .items = items,
-        .count = MESH_UI_COMMAND_COUNT,
+        .count = MESH_UI_CONTEXT_COMMANDS_MAX,
         .cursor = UINT32_MAX,
-        .focus_base = (uint32_t)MESH_UI_FOCUS_MENU,
+        .focus_ids = focus_ids,
     };
     const struct inkcell_fb_rect panel = {
         .x = 0, .y = 0, .w = inkcell_fb_panel_width(state), .h = inkcell_fb_panel_height(state)};

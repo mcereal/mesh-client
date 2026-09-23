@@ -338,7 +338,8 @@ projected from, so the menu offers exactly what the active context can do. A ver
 command (`MESH_UI_FOCUS_MENU + command`) and reaches
 `mesh_ui_controller_handle_command()` without becoming a Brick button first; a key, or a click
 anywhere off the menu, puts it down and does nothing else. `context row N` in a capture scene
-opens one.
+opens one. Command identity does not reorder the rows: they retain the action bar's established
+A, X, Y, Start sequence.
 
 Two things to know before reaching for it:
 
