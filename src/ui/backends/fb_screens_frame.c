@@ -25,6 +25,7 @@
 #include "mesh/ui/focus.h"
 #include "mesh/ui/map.h"
 #include "mesh/ui/nav.h"
+#include "mesh/ui/route.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -504,21 +505,23 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
      * carried its own copy of that call - so anything drawn over the whole frame (the notice
      * below is the first) had to be added in five places or be missing from four screens.
      */
-    if (snapshot->nav.help_open) {
+    struct mesh_ui_route body;
+    mesh_ui_route_under_layers(&snapshot->nav, &body);
+    if (body.level == MESH_UI_ROUTE_HELP) {
         fb_render_help(state, snapshot, &layout);
-    } else if (snapshot->nav.picker_open) {
+    } else if (body.level == MESH_UI_ROUTE_PICKER) {
         fb_render_picker(state, snapshot, &layout);
-    } else if (snapshot->nav.keyboard_open) {
+    } else if (body.level == MESH_UI_ROUTE_KEYBOARD) {
         fb_render_keyboard(state, snapshot, &layout);
-    } else if (snapshot->nav.compose_open) {
+    } else if (body.level == MESH_UI_ROUTE_COMPOSE) {
         fb_render_compose(state, snapshot, &layout);
-    } else if (snapshot->nav.share_open) {
+    } else if (body.level == MESH_UI_ROUTE_SHARE) {
         /* Under every overlay above and over the tab's own screen, the same order nav.c takes
            the keys in: it is a level of the Settings tab raised by a row, not a question, and
            the two things above it that a radio can raise at any moment - a pairing PIN and a key
            verification - must not end up behind a code somebody is scanning. */
         fb_render_share(state, snapshot, &layout);
-    } else if (snapshot->nav.contact_open) {
+    } else if (body.level == MESH_UI_ROUTE_CONTACT) {
         /* Beside the share sheet and under the same overlays, for the same reason: it is a
            level of the Settings tab raised by a row, not a question. */
         fb_render_contact(state, snapshot, &layout);

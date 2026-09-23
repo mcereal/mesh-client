@@ -3,11 +3,13 @@
 #include "inkcell/ui/input_profile.h"
 
 #include "mesh/ui/actions.h"
+#include "mesh/ui/commands.h"
 #include "mesh/ui/devices.h"
 #include "mesh/ui/help.h"
 #include "mesh/ui/history.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/node_detail.h"
+#include "mesh/ui/route.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/status.h"
 #include "mesh/ui/store.h"
@@ -665,7 +667,8 @@ static void actions_status(const struct mesh_ui_snapshot *snapshot,
     bar_add_tabs(bar);
 }
 
-void mesh_ui_actions_for(const struct mesh_ui_snapshot *snapshot, struct inkcell_action_bar *out) {
+static void legacy_actions_for(const struct mesh_ui_snapshot *snapshot,
+                               struct inkcell_action_bar *out) {
     if (out == NULL) {
         return;
     }
@@ -675,10 +678,14 @@ void mesh_ui_actions_for(const struct mesh_ui_snapshot *snapshot, struct inkcell
     }
 
     const struct mesh_ui_nav *nav = &snapshot->nav;
+    struct mesh_ui_route active;
+    mesh_ui_route_of(nav, &active);
 
-    /* The overlays, in the order fb_render_snapshot() stacks them. A bar describing the screen
-       underneath one is a bar for presses that will not arrive. */
-    if (nav->help_open) {
+    /*
+     * The route owns overlay precedence. A bar describing the screen underneath its active
+     * level is a bar for presses that will not arrive.
+     */
+    if (active.level == MESH_UI_ROUTE_HELP) {
         /*
          * Two presses and no third. There is nothing on this screen to choose: every row is a
          * paragraph, so the cursor scrolls and B leaves, and the tab keys are left off because
@@ -697,26 +704,26 @@ void mesh_ui_actions_for(const struct mesh_ui_snapshot *snapshot, struct inkcell
      * somebody else's screen, and a keycap reading "confirm" over that question would be the
      * bar suggesting there is a right answer to press.
      */
-    if (nav->verify_open) {
+    if (active.level == MESH_UI_ROUTE_VERIFY) {
         bar_add(out, INKCELL_BUTTON_A, MESH_STR_ACTION_ANSWER);
         bar_add(out, INKCELL_BUTTON_B, MESH_STR_ACTION_BACK);
         bar_add(out, INKCELL_BUTTON_UP_DOWN, MESH_STR_ACTION_CHOOSE);
         return;
     }
-    if (nav->confirm_open) {
+    if (active.level == MESH_UI_ROUTE_CONFIRM) {
         bar_add(out, INKCELL_BUTTON_A, MESH_STR_ACTION_CONFIRM);
         bar_add(out, INKCELL_BUTTON_B, MESH_STR_ACTION_CANCEL);
         bar_add(out, INKCELL_BUTTON_UP_DOWN, MESH_STR_ACTION_CHOOSE);
         return;
     }
-    if (nav->picker_open) {
+    if (active.level == MESH_UI_ROUTE_PICKER) {
         bar_add(out, INKCELL_BUTTON_A, MESH_STR_ACTION_CHOOSE);
         bar_add(out, INKCELL_BUTTON_B, MESH_STR_ACTION_CANCEL);
         bar_add(out, INKCELL_BUTTON_SHOULDERS, MESH_STR_ACTION_JUMP);
         bar_add(out, INKCELL_BUTTON_UP_DOWN, MESH_STR_ACTION_MOVE);
         return;
     }
-    if (nav->keyboard_open) {
+    if (active.level == MESH_UI_ROUTE_KEYBOARD) {
         if (nav->keyboard_verify) {
             /* Four digits and nothing else: no Send, because the number does not go anywhere
                near the mesh, and "done" is the same word the grid's own key carries. */
@@ -766,7 +773,7 @@ void mesh_ui_actions_for(const struct mesh_ui_snapshot *snapshot, struct inkcell
         bar_add(out, INKCELL_BUTTON_SHOULDERS, MESH_STR_ACTION_KEYS);
         return;
     }
-    if (nav->compose_open) {
+    if (active.level == MESH_UI_ROUTE_COMPOSE) {
         /*
          * A sends the canned message the cursor is on - except on the draft row, where it opens
          * the keyboard instead (mesh_ui_nav_compose in nav.c). The sentence this replaced said
@@ -779,7 +786,7 @@ void mesh_ui_actions_for(const struct mesh_ui_snapshot *snapshot, struct inkcell
         bar_add(out, INKCELL_BUTTON_B, MESH_STR_ACTION_BACK);
         return;
     }
-    if (nav->reaction_open) {
+    if (active.level == MESH_UI_ROUTE_REACTION) {
         /*
          * The compose sheet's two presses, plus the one that says what an emoji on somebody's
          * message actually does - the question this overlay raises and cannot answer with a row
@@ -831,6 +838,138 @@ void mesh_ui_actions_for(const struct mesh_ui_snapshot *snapshot, struct inkcell
             actions_status(snapshot, out);
         }
         break;
+    }
+}
+
+/*
+ * The semantic identity behind each translated verb.
+ *
+ * This is the compatibility bridge for the first command-layer slice: the mature action table
+ * above still states the Brick binding and label together, and this turns that declaration into
+ * an application command. Keeping the conversion exhaustive makes a newly added verb fail into
+ * NONE in one obvious place until it is deliberately named here. The next slice can move these
+ * ids into the builders themselves without changing either public API.
+ */
+static enum mesh_ui_command_id command_for_label(inkcell_str_id label) {
+#define COMMAND(label_name, command_name)                                                          \
+    case label_name:                                                                               \
+        return MESH_UI_COMMAND_##command_name
+    switch (label) {
+        COMMAND(MESH_STR_ACTION_ADDRESS, ADDRESS);
+        COMMAND(MESH_STR_ACTION_ANSWER, ANSWER);
+        COMMAND(MESH_STR_ACTION_BACK, BACK);
+        COMMAND(MESH_STR_ACTION_CANCEL, CANCEL);
+        COMMAND(MESH_STR_ACTION_CHART, CHART);
+        COMMAND(MESH_STR_ACTION_CHOOSE, CHOOSE);
+        COMMAND(MESH_STR_ACTION_CONFIRM, CONFIRM);
+        COMMAND(MESH_STR_ACTION_CONFIRM_DELETE, CONFIRM_DELETE);
+        COMMAND(MESH_STR_ACTION_CONFIRM_DISCARD, CONFIRM_DISCARD);
+        COMMAND(MESH_STR_ACTION_CONFIRM_FORGET, CONFIRM_FORGET);
+        COMMAND(MESH_STR_ACTION_CONFIRM_REMOVE, CONFIRM_REMOVE);
+        COMMAND(MESH_STR_ACTION_CONNECT, CONNECT);
+        COMMAND(MESH_STR_ACTION_DELETE, DELETE);
+        COMMAND(MESH_STR_ACTION_DISCARD, DISCARD);
+        COMMAND(MESH_STR_ACTION_DISCONNECT, DISCONNECT);
+        COMMAND(MESH_STR_ACTION_DONE, DONE);
+        COMMAND(MESH_STR_ACTION_EDIT, EDIT);
+        COMMAND(MESH_STR_ACTION_FILTER, FILTER);
+        COMMAND(MESH_STR_ACTION_FIT, FIT);
+        COMMAND(MESH_STR_ACTION_FORGET, FORGET);
+        COMMAND(MESH_STR_ACTION_GROUPS, GROUPS);
+        COMMAND(MESH_STR_ACTION_HELP, HELP);
+        COMMAND(MESH_STR_ACTION_JUMP, JUMP);
+        COMMAND(MESH_STR_ACTION_KEYS, KEYS);
+        COMMAND(MESH_STR_ACTION_MOVE, MOVE);
+        COMMAND(MESH_STR_ACTION_MUTE, MUTE);
+        COMMAND(MESH_STR_ACTION_NEW, NEW);
+        COMMAND(MESH_STR_ACTION_OPEN, OPEN);
+        COMMAND(MESH_STR_ACTION_PAIR, PAIR);
+        COMMAND(MESH_STR_ACTION_PAN, PAN);
+        COMMAND(MESH_STR_ACTION_PIN, PIN);
+        COMMAND(MESH_STR_ACTION_QUIT, QUIT);
+        COMMAND(MESH_STR_ACTION_REACT, REACT);
+        COMMAND(MESH_STR_ACTION_READINGS, READINGS);
+        COMMAND(MESH_STR_ACTION_REFRESH, REFRESH);
+        COMMAND(MESH_STR_ACTION_REPLY, REPLY);
+        COMMAND(MESH_STR_ACTION_RESEND, RESEND);
+        COMMAND(MESH_STR_ACTION_RUN, RUN);
+        COMMAND(MESH_STR_ACTION_SAVE, SAVE);
+        COMMAND(MESH_STR_ACTION_SCROLL, SCROLL);
+        COMMAND(MESH_STR_ACTION_SELECT, SELECT);
+        COMMAND(MESH_STR_ACTION_SEND, SEND);
+        COMMAND(MESH_STR_ACTION_SHIFT, SHIFT);
+        COMMAND(MESH_STR_ACTION_SORT, SORT);
+        COMMAND(MESH_STR_ACTION_SPACE, SPACE);
+        COMMAND(MESH_STR_ACTION_SPAN, SPAN);
+        COMMAND(MESH_STR_ACTION_TABS, TABS);
+        COMMAND(MESH_STR_ACTION_TREND, TREND);
+        COMMAND(MESH_STR_ACTION_TYPE, TYPE);
+        COMMAND(MESH_STR_ACTION_UNMUTE, UNMUTE);
+        COMMAND(MESH_STR_ACTION_WRITE, WRITE);
+        COMMAND(MESH_STR_ACTION_ZOOM_IN, ZOOM_IN);
+        COMMAND(MESH_STR_ACTION_ZOOM_OUT, ZOOM_OUT);
+    default:
+        return MESH_UI_COMMAND_NONE;
+    }
+#undef COMMAND
+}
+
+void mesh_ui_commands_for(const struct mesh_ui_snapshot *snapshot,
+                          struct mesh_ui_command_set *out) {
+    if (out == NULL) {
+        return;
+    }
+    memset(out, 0, sizeof *out);
+
+    struct inkcell_action_bar legacy;
+    legacy_actions_for(snapshot, &legacy);
+    for (size_t i = 0U; i < legacy.count && out->count < MESH_UI_COMMANDS_MAX; ++i) {
+        const struct inkcell_button_action *action = &legacy.items[i];
+        struct mesh_ui_command *command = &out->items[out->count++];
+        command->id = command_for_label(action->label);
+        command->label = action->label;
+        command->button = action->button;
+    }
+}
+
+const struct mesh_ui_command *mesh_ui_commands_find(const struct mesh_ui_command_set *set,
+                                                    enum mesh_ui_command_id id) {
+    if (set == NULL || id == MESH_UI_COMMAND_NONE) {
+        return NULL;
+    }
+    for (size_t i = 0U; i < set->count; ++i) {
+        if (set->items[i].id == id) {
+            return &set->items[i];
+        }
+    }
+    return NULL;
+}
+
+const struct mesh_ui_command *mesh_ui_commands_find_button(const struct mesh_ui_command_set *set,
+                                                           enum inkcell_button button) {
+    if (set == NULL) {
+        return NULL;
+    }
+    for (size_t i = 0U; i < set->count; ++i) {
+        if (set->items[i].button == button) {
+            return &set->items[i];
+        }
+    }
+    return NULL;
+}
+
+void mesh_ui_actions_for(const struct mesh_ui_snapshot *snapshot, struct inkcell_action_bar *out) {
+    if (out == NULL) {
+        return;
+    }
+    memset(out, 0, sizeof *out);
+
+    struct mesh_ui_command_set commands;
+    mesh_ui_commands_for(snapshot, &commands);
+    for (size_t i = 0U; i < commands.count && out->count < INKCELL_ACTIONS_MAX; ++i) {
+        out->items[out->count].button = commands.items[i].button;
+        out->items[out->count].label = commands.items[i].label;
+        out->count++;
     }
 }
 

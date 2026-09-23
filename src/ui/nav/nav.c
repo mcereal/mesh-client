@@ -23,6 +23,7 @@
 #include "mesh/ui/node_detail.h"
 #include "mesh/ui/nodes.h"
 #include "mesh/ui/reactions.h"
+#include "mesh/ui/route.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/status.h"
 #include "mesh/ui/trend.h"
@@ -1990,9 +1991,14 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
         changed = true;
     }
 
-    /* Help first, because it is drawn over everything else: a key reaching the screen under an
-       overlay the user is looking at is a key doing something they cannot see. */
-    if (nav->help_open) {
+    struct mesh_ui_route active;
+    mesh_ui_route_of(nav, &active);
+
+    /*
+     * Help first, because the route places it over everything else: a key reaching the screen
+     * under an overlay the user is looking at is a key doing something they cannot see.
+     */
+    if (active.level == MESH_UI_ROUTE_HELP) {
         return mesh_ui_nav_help_key(nav, store, key) || changed;
     }
     /*
@@ -2014,42 +2020,29 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
     if (key == INKCELL_KEY_SELECT && mesh_ui_nav_open_help(nav, store)) {
         return true;
     }
-    /* Ahead of the confirm overlay, because this one is the more urgent of the two questions:
-       a settings confirm is waiting on the user and will wait, while a verification is waiting
-       on two people and a radio that gives up after five minutes. They cannot both be up in
-       practice - the app closes the sheet whenever the exchange ends - and this says which wins
-       if they ever are. */
-    if (nav->verify_open) {
-        return mesh_ui_nav_verify_key(nav, store, key, out_action) || changed;
-    }
-    if (nav->confirm_open) {
-        return mesh_ui_nav_confirm_key(nav, store, key, out_action) || changed;
-    }
-    if (nav->picker_open) {
-        return mesh_ui_nav_picker_key(nav, store, key) || changed;
-    }
-    if (nav->keyboard_open) {
-        return mesh_ui_nav_keyboard_key(nav, store, key, out_action) || changed;
-    }
-    if (nav->compose_open) {
-        return mesh_ui_nav_compose_key(nav, key, out_action) || changed;
-    }
-    if (nav->reaction_open) {
-        return mesh_ui_nav_reaction_key(nav, key, out_action) || changed;
-    }
     /*
-     * The share sheet, under every overlay above and over the tab's own screen.
-     *
-     * Below them rather than above, which is the opposite of where it is *raised* from: it is
-     * opened by a row, so it is a level of the Settings tab rather than a question - and the
-     * things above it are the two the *radio* raises at any moment, a pairing PIN and a key
-     * verification. A code being scanned is not a reason to make a PIN prompt unanswerable.
+     * The route is the one derivation of which active context is on top. In particular VERIFY
+     * outranks CONFIRM, and each replacement screen outranks the tab underneath it.
      */
-    if (nav->share_open) {
+    switch ((enum mesh_ui_route_level)active.level) {
+    case MESH_UI_ROUTE_VERIFY:
+        return mesh_ui_nav_verify_key(nav, store, key, out_action) || changed;
+    case MESH_UI_ROUTE_CONFIRM:
+        return mesh_ui_nav_confirm_key(nav, store, key, out_action) || changed;
+    case MESH_UI_ROUTE_PICKER:
+        return mesh_ui_nav_picker_key(nav, store, key) || changed;
+    case MESH_UI_ROUTE_KEYBOARD:
+        return mesh_ui_nav_keyboard_key(nav, store, key, out_action) || changed;
+    case MESH_UI_ROUTE_COMPOSE:
+        return mesh_ui_nav_compose_key(nav, key, out_action) || changed;
+    case MESH_UI_ROUTE_REACTION:
+        return mesh_ui_nav_reaction_key(nav, key, out_action) || changed;
+    case MESH_UI_ROUTE_SHARE:
         return mesh_ui_nav_share_key(nav, key) || changed;
-    }
-    if (nav->contact_open) {
+    case MESH_UI_ROUTE_CONTACT:
         return mesh_ui_nav_contact_key(nav, key) || changed;
+    default:
+        break;
     }
 
     /* One press arms Y on the Devices tab; anything else stands it back down. */
