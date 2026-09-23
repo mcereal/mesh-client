@@ -6,9 +6,9 @@
 
 #include "mesh/geo/coords.h"
 #include "mesh/geo/mercator.h"
+#include "mesh/utils/file.h"
 
 #include <errno.h>
-#include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -115,23 +115,6 @@ static uint64_t pack_u64(const uint8_t *at) {
 static void pack_text(char *out, size_t cap, const uint8_t *at) {
     memcpy(out, at, cap - 1U);
     out[cap - 1U] = '\0';
-}
-
-/* pread until the whole extent is in the buffer. Short reads are ordinary on a card that is
-   being pulled out, and they are exactly where a half-filled index would come from. */
-static bool pack_read_at(int fd, uint8_t *buffer, size_t len, uint64_t offset) {
-    size_t got = 0U;
-    while (got < len) {
-        const ssize_t n = pread(fd, buffer + got, len - got, (off_t)(offset + got));
-        if (n < 0 && errno == EINTR) {
-            continue;
-        }
-        if (n <= 0) {
-            return false;
-        }
-        got += (size_t)n;
-    }
-    return true;
 }
 
 /* (z, x, y) order, which is the order the index is sorted in and the order a bsearch compares
@@ -253,7 +236,7 @@ static int pack_read(struct mesh_map_source *source, struct mesh_map_tile_key ke
     if ((size_t)entry->length > cap) {
         return -EMSGSIZE;
     }
-    if (!pack_read_at(pack->fd, out, entry->length, entry->offset)) {
+    if (!mesh_file_read_at(pack->fd, out, entry->length, entry->offset)) {
         return -EIO;
     }
     return (int)entry->length;
@@ -292,9 +275,9 @@ int mesh_map_source_open_pack(const char *path, struct mesh_map_source *out) {
         return -EINVAL;
     }
 
-    const int fd = open(path, O_RDONLY | O_CLOEXEC);
+    const int fd = mesh_file_open_readonly(path);
     if (fd < 0) {
-        return -errno;
+        return fd;
     }
     struct stat info;
     if (fstat(fd, &info) != 0 || info.st_size < (off_t)PACK_HEADER_LEN) {
@@ -304,7 +287,7 @@ int mesh_map_source_open_pack(const char *path, struct mesh_map_source *out) {
     const uint64_t file_len = (uint64_t)info.st_size;
 
     uint8_t header[PACK_HEADER_LEN];
-    if (!pack_read_at(fd, header, sizeof header, 0U) ||
+    if (!mesh_file_read_at(fd, header, sizeof header, 0U) ||
         memcmp(header, PACK_MAGIC, PACK_MAGIC_LEN) != 0) {
         close(fd);
         return -EINVAL;
@@ -350,7 +333,7 @@ int mesh_map_source_open_pack(const char *path, struct mesh_map_source *out) {
     pack->count = count;
     pack->entries = entries;
 
-    if (!pack_read_at(fd, raw, (size_t)index_len, index_at)) {
+    if (!mesh_file_read_at(fd, raw, (size_t)index_len, index_at)) {
         free(raw);
         pack_free(pack);
         return -EIO;

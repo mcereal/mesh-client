@@ -64,10 +64,17 @@ if(MESHCLIENT_ENABLE_UBSAN)
     target_link_options(meshclient_options INTERFACE -fsanitize=undefined)
 endif()
 
+set(MESHCLIENT_APP_CONTROL_SOURCE src/app/app_control.c)
+if(WIN32)
+    # The UI control protocol currently uses a Unix-domain socket. Keep its unsupported
+    # Windows entry points explicit until a native IPC backend is added.
+    set(MESHCLIENT_APP_CONTROL_SOURCE src/app/app_control_windows.c)
+endif()
+
 add_library(meshclient_core
     src/app/app.c
     src/app/app_actions.c
-    src/app/app_control.c
+    ${MESHCLIENT_APP_CONTROL_SOURCE}
     src/app/app_mqtt.c
     src/app/app_publish.c
     src/app/app_settings.c
@@ -112,6 +119,7 @@ add_library(meshclient_core
     src/map/tile_image.c
     src/map/viewport.c
     src/utils/crash.c
+    src/utils/file.c
     src/i18n/net_reason.c
     src/i18n/strings.c
     src/i18n/locale_es.c
