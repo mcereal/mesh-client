@@ -6,8 +6,9 @@
  *
  * A command is deliberately not a key. The Brick may bind DELETE to X, a desktop toolbar may
  * draw a button labelled "Delete", and a future compact device may put it in an overflow menu;
- * all three are the same request. Keeping the command beside its current legacy button binding
- * lets the existing action bar remain unchanged while input backends are moved across this seam.
+ * all three are the same request. State tables declare that request directly, then keep its
+ * label and current legacy button binding beside it so the Brick action bar can be projected
+ * from the same answer while input backends move across this seam.
  */
 
 #include "inkcell/ui/actions.h"
