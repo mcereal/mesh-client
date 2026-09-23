@@ -326,9 +326,8 @@ static void mesh_app_ui_request_frame(void *userdata) {
 /*
  * The window backend, where there is a window to open.
  *
- * Off unless it is asked for by name. On the device the framebuffer is the UI - it is what the
- * pak runs and the one that has been measured - and this is the backend for a development
- * host, where until now the only way to see a screen was to render it to a GIF.
+ * On the device the framebuffer is the UI - it is what the pak runs and the one that has been
+ * measured. Windows defaults to this window; other development hosts ask for it by name.
  *
  * Unlike the framebuffer's, this backend reads its own buttons: an SDL window's presses come
  * off the same queue as its resize and its close box, so the thing that owns the window owns
@@ -425,18 +424,23 @@ static const struct inkcell_backend *mesh_app_select_backend(struct mesh_app *ap
     if (requested != NULL && requested[0] == '\0') {
         requested = NULL;
     }
+#ifdef _WIN32
+    /* A native Windows launch should show the UI without requiring an environment variable.
+       Explicit choices, including cli for scripts and headless for capture, still win. */
+    if (requested == NULL) {
+        requested = "sdl";
+    }
+#endif
 
     const struct inkcell_backend *backend = NULL;
     void *backend_userdata = NULL;
 
     app->ui_backend_reads_input = false;
 
-    /* "cli", "stub", "headless" and "sdl" are asked for explicitly; everything else - including no
-       request at all - resolves to the framebuffer, which is what the pak runs, and falls back to
-       the CLI backend only where there is no /dev/fb0 to draw on (a container, or a dev host).
-       "sdl" is not in the fallback chain on purpose: a window is a thing somebody asks for, and
-       a client that silently opened one because the panel was missing would be a surprise on
-       any host with a display. */
+    /* On Windows, no request resolves to SDL above. Elsewhere, no request resolves to the
+       framebuffer, which is what the pak runs, and falls back to CLI only where there is no
+       /dev/fb0. SDL is not in that fallback chain: a window on those hosts is something a
+       caller asks for, not a side effect of a missing panel. */
     if (requested != NULL && strcasecmp(requested, "cli") == 0) {
         mesh_app_select_cli(app, &backend, &backend_userdata);
     } else if (requested != NULL && strcasecmp(requested, "stub") == 0) {

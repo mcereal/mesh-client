@@ -151,7 +151,7 @@ from 2 s to 60 s; only an established link clears it. The USB and BLE preference
 | `MESHCLIENT_AUTOCONNECT` | `0` stops the foreground loop connecting on its own |
 | `MESHCLIENT_MQTT_PROXY` | `0` stops the client holding a broker connection for a radio that asks for one. The whole arrangement is otherwise the *radio's* decision — see [`mqtt.md`](mqtt.md) — so this is the only say the Brick has in it |
 | `MESHCLIENT_SCAN_RESUME_GRACE_MS` | how long a teardown keeps the BLE scan down, 0–60000, default 3000, so it is not restarted for the second between a drop and the reconnect |
-| `MESHCLIENT_UI_BACKEND` | `fb\|sdl\|headless\|cli\|stub`; `fb` unless there is no `/dev/fb0`, and then `cli`. `sdl` is never reached by falling back — a window is a thing you ask for. `headless` draws the device's frame into memory for a host with neither a panel nor a display; see [`ui.md`](ui.md#driving-the-running-client) |
+| `MESHCLIENT_UI_BACKEND` | `fb\|sdl\|headless\|cli\|stub`; Windows defaults to `sdl`. Elsewhere the default is `fb` unless there is no `/dev/fb0`, and then `cli`. `sdl` is never reached by fallback on those hosts — a window is a thing you ask for. `headless` draws the device's frame into memory for a host with neither a panel nor a display; see [`ui.md`](ui.md#driving-the-running-client) |
 | `MESHCLIENT_UI_CONTROL` | same as `--ui-control`: the control socket's path. Unset is off |
 | `MESHCLIENT_FB_SCALE` | font multiplier, 2–6; default is the theme's (4). Applies to whichever backend opened the panel, `sdl` included |
 | `MESHCLIENT_SDL_SIZE` | the window's geometry as `WxH`; default `1024x768`, which is the Brick's panel — so what comes up on a desktop is the geometry the device will draw |
