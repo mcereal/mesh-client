@@ -32,8 +32,8 @@ enum mesh_ui_focus_id {
     /* A dialog's answers, in the dialog's own numbering: 0 is accept and 1 is cancel, which is
        what nav.confirm_cursor and nav.verify_cursor already carry. */
     MESH_UI_FOCUS_DIALOG = 1,
-    /* A right-click menu's verbs, `base + enum inkcell_button` - the button, not the row, so a
-       click on one names the press it stands for without the nav keeping the menu's contents. */
+    /* A right-click menu's verbs, `base + enum mesh_ui_command_id`. The visible menu is a
+       desktop command surface, so its targets name operations rather than Brick buttons. */
     MESH_UI_FOCUS_MENU = 0x0400,
     /* Everything under an open menu, as one target: a click that lands off the menu puts it
        down rather than reaching whatever is drawn beneath. */

@@ -22,6 +22,7 @@
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/actions.h"
 #include "mesh/ui/chrome.h"
+#include "mesh/ui/commands.h"
 #include "mesh/ui/focus.h"
 #include "mesh/ui/map.h"
 #include "mesh/ui/nav.h"
@@ -234,32 +235,31 @@ struct inkcell_fb_layout fb_layout_in(const struct inkcell_fb_layout *layout,
 /*
  * A right-click menu: the row's own verbs, at the pointer.
  *
- * The verbs are the action bar's - `actions`, the one table's answer for the row the cursor is
- * on - so the menu cannot offer what a press would not do. Only the face buttons that act on
- * something: B is a way back, not a verb about the row, and help is about the screen. Each item
- * sits at its button's index, which is what numbers it (MESH_UI_FOCUS_MENU + button) and so
- * what the nav presses when it is clicked.
+ * The verbs are the active command set's row operations, so the menu cannot offer what the
+ * screen would not do. B is a way back rather than a verb about the row, and help is about the
+ * screen. Each item sits at its command id, which is what numbers it
+ * (MESH_UI_FOCUS_MENU + command) and what the controller invokes when it is clicked.
  *
  * Drawn over everything, the action bar included, with one target under the whole panel first,
  * so a click that misses the menu lands on that and puts it down.
  */
 static void fb_render_context(struct inkcell_draw_state *state,
-                              const struct mesh_ui_snapshot *snapshot,
-                              const struct inkcell_action_bar *actions) {
-    struct inkcell_fb_menu_item items[INKCELL_BUTTON_COUNT];
+                              const struct mesh_ui_snapshot *snapshot) {
+    struct mesh_ui_command_set commands;
+    mesh_ui_commands_for(snapshot, &commands);
+    struct inkcell_fb_menu_item items[MESH_UI_COMMAND_COUNT];
     memset(items, 0, sizeof items);
     size_t offered = 0U;
-    for (size_t i = 0; i < actions->count; ++i) {
-        const enum inkcell_button button = actions->items[i].button;
-        if (button == INKCELL_BUTTON_A || button == INKCELL_BUTTON_X ||
-            button == INKCELL_BUTTON_Y || button == INKCELL_BUTTON_START) {
-            items[button].label = inkcell_str(actions->items[i].label);
+    for (size_t i = 0; i < commands.count; ++i) {
+        const struct mesh_ui_command *const command = &commands.items[i];
+        if (mesh_ui_command_in_context_menu(command)) {
+            items[command->id].label = inkcell_str(command->label);
             offered += 1U;
         }
     }
     const struct inkcell_fb_menu menu = {
         .items = items,
-        .count = INKCELL_BUTTON_COUNT,
+        .count = MESH_UI_COMMAND_COUNT,
         .cursor = UINT32_MAX,
         .focus_base = (uint32_t)MESH_UI_FOCUS_MENU,
     };
@@ -608,7 +608,7 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
         .status_tone = summary_tone,
     };
     inkcell_fb_draw_action_bar(state, &layout, &bar);
-    fb_render_context(state, snapshot, &actions);
+    fb_render_context(state, snapshot);
 
     /*
      * Last, because it is over the UI rather than in it: a notice that a screen could paint

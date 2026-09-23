@@ -136,6 +136,15 @@ bool mesh_ui_store_handle_context(struct mesh_ui_store *store, uint32_t target, 
     return changed;
 }
 
+bool mesh_ui_store_dismiss_context(struct mesh_ui_store *store) {
+    if (store == NULL || !store->nav.context_open) {
+        return false;
+    }
+    store->nav.context_open = false;
+    mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_NAV);
+    return true;
+}
+
 void mesh_ui_store_set_toast(struct mesh_ui_store *store, uint64_t now_ms, const char *text) {
     if (store == NULL) {
         return;

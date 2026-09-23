@@ -18,6 +18,7 @@
 #include "support/ui_fixture.h"
 
 #include "mesh/ui/backends/fb_capture.h"
+#include "mesh/ui/commands.h"
 #include "mesh/ui/focus.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/reactions.h"
@@ -322,7 +323,7 @@ static bool click_context(struct mesh_ui_store *store, struct inkcell_capture *c
     return true;
 }
 
-MESH_TEST_CASE(ui_click_a_right_click_menu_is_the_rows_own_presses, unit) {
+MESH_TEST_CASE(ui_click_a_right_click_menu_is_the_rows_own_commands, unit) {
     struct mesh_ui_store store;
     struct inkcell_capture *capture = NULL;
     MESH_TEST_FAIL_IF(click_open(&store, &capture) != 0, "store or capture failed to open");
@@ -355,15 +356,27 @@ MESH_TEST_CASE(ui_click_a_right_click_menu_is_the_rows_own_presses, unit) {
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.context_open, click_close(&store, capture),
                               "a device list republished under the menu should put it down");
 
-    /* NodeTwo is not connected, so its A is Connect - and the menu's first verb is that A. */
+    /* NodeTwo is not connected, so its row command is Connect. The renderer registers the
+       semantic id rather than the A binding retained for the Brick action bar. */
+    MESH_TEST_FAIL_IF_CLEANUP(!click_context(&store, capture, (uint32_t)MESH_UI_FOCUS_ROWS + 1U),
+                              click_close(&store, capture), "the menu should open again");
+    const struct inkcell_focus_map *const menu_map = click_render(&store, capture);
+    struct inkcell_focus_rect legacy;
     MESH_TEST_FAIL_IF_CLEANUP(
-        !click_context(&store, capture, (uint32_t)MESH_UI_FOCUS_ROWS + 1U) ||
-            !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_MENU + INKCELL_BUTTON_A, &action),
-        click_close(&store, capture), "the menu should offer the row's A");
-    MESH_TEST_FAIL_IF_CLEANUP(store.nav.context_open || action.type != MESH_UI_ACTION_CONNECT ||
-                                  strcmp(action.identifier, "AA:BB:CC:DD:EE:02") != 0,
+        inkcell_focus_rect_of(menu_map, (uint32_t)MESH_UI_FOCUS_MENU + (uint32_t)INKCELL_BUTTON_A,
+                              &legacy),
+        click_close(&store, capture), "the menu should not expose a physical button target");
+    const uint32_t connect = (uint32_t)MESH_UI_FOCUS_MENU + (uint32_t)MESH_UI_COMMAND_CONNECT;
+    struct inkcell_focus_rect command;
+    MESH_TEST_FAIL_IF_CLEANUP(!inkcell_focus_rect_of(menu_map, connect, &command) ||
+                                  inkcell_focus_hit(menu_map, command.x + command.w / 2,
+                                                    command.y + command.h / 2) != connect,
                               click_close(&store, capture),
-                              "a verb in the menu should be its button's press on that row");
+                              "the menu should offer the row's Connect command");
+    (void)mesh_ui_store_handle_click(&store, connect, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(
+        store.nav.context_open || action.type != MESH_UI_ACTION_NONE, click_close(&store, capture),
+        "the store fallback should dismiss, leaving command dispatch to the controller");
     click_close(&store, capture);
 }
 

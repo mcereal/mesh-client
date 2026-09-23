@@ -13,6 +13,7 @@
 
 #include "inkcell/ui/actions.h"
 
+#include <stdbool.h>
 #include <stddef.h>
 
 struct mesh_ui_snapshot;
@@ -114,5 +115,9 @@ const struct mesh_ui_command *mesh_ui_commands_find(const struct mesh_ui_command
                                                     enum mesh_ui_command_id id);
 const struct mesh_ui_command *mesh_ui_commands_find_button(const struct mesh_ui_command_set *set,
                                                            enum inkcell_button button);
+
+/* Whether a command acts on the selected row and therefore belongs in a pointer context menu.
+   Kept beside the command model so presentation and dispatch cannot disagree about the menu. */
+bool mesh_ui_command_in_context_menu(const struct mesh_ui_command *command);
 
 #endif /* MESH_UI_COMMANDS_H */

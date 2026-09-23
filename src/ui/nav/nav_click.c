@@ -19,15 +19,14 @@
  *     not asked to write anything.
  *   - **A dialog's answer** is the dialog's cursor on it and A.
  *   - **A right-click on a row** is the cursor on it and that row's menu, at the pointer. The
- *     menu's verbs are the action bar's, so a click on one is the press the bar names for it.
+ *     controller consumes the menu's semantic command targets before an ordinary click reaches
+ *     this file; anything else merely dismisses the menu.
  *
  * A click on anything that is not the top of the frame goes nowhere. The screen's rows are
  * still registered under a sheet, because the sheet was drawn over them rather than instead of
  * them; a click that reached one would be a press on a list the reader has been told is not
  * the thing in front of them.
  */
-
-#include "inkcell/ui/actions.h"
 
 #include "mesh/ui/focus.h"
 #include "mesh/ui/nav.h"
@@ -201,21 +200,11 @@ bool mesh_ui_nav_handle_click(struct mesh_ui_nav *nav, const struct mesh_ui_stor
     }
     /*
      * An open menu takes the click whatever it landed on: the frame registered one target
-     * under the whole of it, so a click off its verbs is that target and puts it down. A verb
-     * is its button's press, made after the menu is down so the press meets the screen it was
-     * offered for.
+     * under the whole of it, so a click off its verbs is that target and puts it down. A valid
+     * verb is consumed by the controller as a semantic command before it reaches this fallback.
      */
     if (nav->context_open) {
         nav->context_open = false;
-        if (target >= (uint32_t)MESH_UI_FOCUS_MENU &&
-            target < (uint32_t)MESH_UI_FOCUS_MENU + (uint32_t)INKCELL_BUTTON_COUNT) {
-            enum inkcell_key keys[2];
-            const size_t count = inkcell_button_keys(
-                (enum inkcell_button)(target - (uint32_t)MESH_UI_FOCUS_MENU), keys);
-            if (count == 1U) {
-                (void)mesh_ui_nav_handle_key(nav, store, keys[0], out_action);
-            }
-        }
         return true;
     }
     if (target == (uint32_t)MESH_UI_FOCUS_DIALOG || target == (uint32_t)MESH_UI_FOCUS_DIALOG + 1U) {
