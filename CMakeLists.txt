@@ -179,6 +179,16 @@ add_library(meshclient_core
     src/ui/tables/trust.c
 )
 
+# Keep the host policy at the build boundary. Shared app code only consumes the selected
+# default; it does not need a growing list of platform conditionals.
+if(WIN32)
+    set(MESHCLIENT_DEFAULT_UI_BACKEND sdl)
+else()
+    set(MESHCLIENT_DEFAULT_UI_BACKEND fb)
+endif()
+target_compile_definitions(meshclient_core PRIVATE
+    MESHCLIENT_DEFAULT_UI_BACKEND="${MESHCLIENT_DEFAULT_UI_BACKEND}")
+
 target_include_directories(meshclient_core
     PUBLIC
         ${PROJECT_SOURCE_DIR}/include

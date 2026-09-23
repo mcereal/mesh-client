@@ -421,26 +421,22 @@ static const struct inkcell_backend *mesh_app_select_backend(struct mesh_app *ap
     }
 
     const char *requested = getenv("MESHCLIENT_UI_BACKEND");
-    if (requested != NULL && requested[0] == '\0') {
-        requested = NULL;
+    if (requested == NULL || requested[0] == '\0' || strcasecmp(requested, "auto") == 0) {
+        requested = MESHCLIENT_DEFAULT_UI_BACKEND;
+    } else if (strcasecmp(requested, "cli") != 0 && strcasecmp(requested, "stub") != 0 &&
+               strcasecmp(requested, "headless") != 0 && strcasecmp(requested, "sdl") != 0 &&
+               strcasecmp(requested, "fb") != 0) {
+        inkwell_log_warn("ui", "Unknown UI backend '%s'; using the default", requested);
+        requested = MESHCLIENT_DEFAULT_UI_BACKEND;
     }
-#ifdef _WIN32
-    /* A native Windows launch should show the UI without requiring an environment variable.
-       Explicit choices, including cli for scripts and headless for capture, still win. */
-    if (requested == NULL) {
-        requested = "sdl";
-    }
-#endif
 
     const struct inkcell_backend *backend = NULL;
     void *backend_userdata = NULL;
 
     app->ui_backend_reads_input = false;
 
-    /* On Windows, no request resolves to SDL above. Elsewhere, no request resolves to the
-       framebuffer, which is what the pak runs, and falls back to CLI only where there is no
-       /dev/fb0. SDL is not in that fallback chain: a window on those hosts is something a
-       caller asks for, not a side effect of a missing panel. */
+    /* The build selects the platform default above. Explicit requests still win, and when a
+       requested backend is unavailable the framebuffer-to-CLI fallback remains the last resort. */
     if (requested != NULL && strcasecmp(requested, "cli") == 0) {
         mesh_app_select_cli(app, &backend, &backend_userdata);
     } else if (requested != NULL && strcasecmp(requested, "stub") == 0) {
@@ -456,10 +452,6 @@ static const struct inkcell_backend *mesh_app_select_backend(struct mesh_app *ap
             }
         }
     } else {
-        if (requested != NULL && strcasecmp(requested, "fb") != 0 &&
-            strcasecmp(requested, "auto") != 0) {
-            inkwell_log_warn("ui", "Unknown UI backend '%s'; using the default", requested);
-        }
         if (!mesh_app_select_fb(app, &backend, &backend_userdata)) {
             mesh_app_select_cli(app, &backend, &backend_userdata);
         }

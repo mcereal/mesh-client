@@ -153,11 +153,18 @@ jobs:
           $client = (Resolve-Path ./build/windows-debug/meshclient.exe).Path
           Push-Location $env:RUNNER_TEMP
           try {
-            $smoke = & $client --disable-ble --disable-serial --disable-tcp -t 1 2>&1
-            $smoke | Out-Host
-            if ($LASTEXITCODE -ne 0) { throw 'Windows SDL smoke failed.' }
-            if (-not ($smoke | Where-Object { $_.ToString().Contains('SDL UI backend active') })) {
-              throw 'Windows smoke did not start the SDL backend.'
+            foreach ($backend in @('', 'auto', 'not-a-backend')) {
+              if ($backend -eq '') {
+                Remove-Item Env:MESHCLIENT_UI_BACKEND -ErrorAction SilentlyContinue
+              } else {
+                $env:MESHCLIENT_UI_BACKEND = $backend
+              }
+              $smoke = & $client --disable-ble --disable-serial --disable-tcp -t 1 2>&1
+              $smoke | Out-Host
+              if ($LASTEXITCODE -ne 0 -or
+                  -not ($smoke | Where-Object { $_.ToString().Contains('SDL UI backend active') })) {
+                throw "Windows smoke did not start SDL for backend '$backend'."
+              }
             }
           } finally {
             Pop-Location
