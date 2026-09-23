@@ -9,6 +9,7 @@
 #include "inkwell/runtime/loop.h"
 #include "mesh/core/updater.h"
 #include "mesh/core/version.h"
+#include "mesh/i18n/strings.h"
 
 #include <errno.h>
 #include <stdbool.h>
@@ -736,6 +737,62 @@ cleanup:
         inkwell_loop_shutdown(&loop);
     }
     https_fixture_stop(&server);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * A server that is not there at all says which way it is not there, and names the host.
+ *
+ * "Could not reach GitHub" is what this said for every network failure until inkwell's fetcher
+ * reported which one it was. A refused connect is the case a suite can produce on demand.
+ */
+MESH_TEST_CASE(updater_says_which_network_failure, unit) {
+    const char *failure = NULL;
+    struct inkwell_loop loop;
+    struct mesh_updater updater;
+    bool loop_up = false;
+    bool updater_up = false;
+
+    if (inkwell_loop_init(&loop) != 0) {
+        failure = "event loop init failed";
+        goto cleanup;
+    }
+    loop_up = true;
+    if (mesh_updater_init(&updater, &loop) != 0) {
+        failure = "updater init failed";
+        goto cleanup;
+    }
+    updater_up = true;
+    /* Nothing listens on port 1. */
+    inkwell_fetch_connect_to(&updater.fetch, "127.0.0.1", 1U);
+    snprintf(updater.install_path, sizeof updater.install_path, "%s", "/nonexistent/meshclient");
+    if (mesh_updater_check(&updater, 0U) != 0) {
+        failure = "check should start";
+        goto cleanup;
+    }
+    if (!updater_wait_past(&loop, &updater, MESH_UPDATE_CHECKING) ||
+        updater.state != MESH_UPDATE_FAILED) {
+        failure = "a refused connection should fail the check";
+        goto cleanup;
+    }
+    {
+        char want[MESH_UPDATE_MESSAGE_MAX];
+        (void)inkcell_str_format(want, sizeof want, MESH_STR_LINK_UNREACHABLE, "api.github.com",
+                                 strerror(ECONNREFUSED));
+        if (strcmp(updater.message, want) != 0) {
+            failure = "and say it was refused, by which host, rather than only that it failed";
+            goto cleanup;
+        }
+    }
+
+cleanup:
+    if (updater_up) {
+        mesh_updater_shutdown(&updater);
+    }
+    if (loop_up) {
+        inkwell_loop_shutdown(&loop);
+    }
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
