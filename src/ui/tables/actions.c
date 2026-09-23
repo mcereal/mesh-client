@@ -37,6 +37,24 @@ static void command_add(struct mesh_ui_command_set *commands, enum mesh_ui_comma
     ++commands->count;
 }
 
+int mesh_ui_command_context_order(const struct mesh_ui_command *command) {
+    if (command == NULL) {
+        return -1;
+    }
+    switch (command->button) {
+    case INKCELL_BUTTON_A:
+        return 0;
+    case INKCELL_BUTTON_X:
+        return 1;
+    case INKCELL_BUTTON_Y:
+        return 2;
+    case INKCELL_BUTTON_START:
+        return 3;
+    default:
+        return -1;
+    }
+}
+
 /* The press that moves between tabs, which is true on every screen that is not an overlay. */
 static void commands_add_tabs(struct mesh_ui_command_set *bar) {
     command_add(bar, MESH_UI_COMMAND_TABS, MESH_STR_ACTION_TABS, INKCELL_BUTTON_SHOULDERS);

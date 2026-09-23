@@ -9,6 +9,7 @@
 #include "inkwell/runtime/loop.h"
 #include "inkwell/runtime/timer.h"
 
+#include "mesh/ui/focus.h"
 #include "mesh/ui/nav.h"
 
 #include <errno.h>
@@ -197,10 +198,12 @@ static void mesh_ui_controller_read_frame(struct mesh_ui_controller *controller)
     }
 }
 
-void mesh_ui_controller_handle_key(struct mesh_ui_controller *controller, enum inkcell_key key) {
+static void mesh_ui_controller_dispatch_key(struct mesh_ui_controller *controller,
+                                            enum inkcell_key key, bool dismiss_context) {
     if (controller == NULL || controller->store == NULL || key == INKCELL_KEY_NONE) {
         return;
     }
+    const bool dismissed = dismiss_context && mesh_ui_store_dismiss_context(controller->store);
     mesh_ui_controller_read_frame(controller);
     struct mesh_ui_action action;
     const bool repaints = mesh_ui_store_handle_key(controller->store, key, &action);
@@ -212,15 +215,20 @@ void mesh_ui_controller_handle_key(struct mesh_ui_controller *controller, enum i
      * the map's fill loop asking for another turn. Charged to the press, that frame would be a
      * latency nobody ever waited.
      */
-    inkcell_latency_press_handled(repaints);
+    inkcell_latency_press_handled(repaints || dismissed);
     if (action.type != MESH_UI_ACTION_NONE && controller->on_action != NULL) {
         controller->on_action(controller->action_userdata, &action);
     }
 }
 
-void mesh_ui_controller_handle_command(struct mesh_ui_controller *controller,
-                                       enum mesh_ui_command_id command,
-                                       enum mesh_ui_command_direction direction) {
+void mesh_ui_controller_handle_key(struct mesh_ui_controller *controller, enum inkcell_key key) {
+    mesh_ui_controller_dispatch_key(controller, key, false);
+}
+
+static void mesh_ui_controller_dispatch_command(struct mesh_ui_controller *controller,
+                                                enum mesh_ui_command_id command,
+                                                enum mesh_ui_command_direction direction,
+                                                bool dismiss_context) {
     if (controller == NULL || controller->store == NULL || !controller->snapshot_valid ||
         command == MESH_UI_COMMAND_NONE) {
         return;
@@ -269,7 +277,13 @@ void mesh_ui_controller_handle_command(struct mesh_ui_controller *controller,
         inkcell_latency_press_handled(false);
         return;
     }
-    mesh_ui_controller_handle_key(controller, key);
+    mesh_ui_controller_dispatch_key(controller, key, dismiss_context);
+}
+
+void mesh_ui_controller_handle_command(struct mesh_ui_controller *controller,
+                                       enum mesh_ui_command_id command,
+                                       enum mesh_ui_command_direction direction) {
+    mesh_ui_controller_dispatch_command(controller, command, direction, false);
 }
 
 void mesh_ui_controller_handle_action_key(struct mesh_ui_controller *controller,
@@ -305,6 +319,20 @@ void mesh_ui_controller_handle_action_key(struct mesh_ui_controller *controller,
 void mesh_ui_controller_handle_click(struct mesh_ui_controller *controller, uint32_t target) {
     if (controller == NULL || controller->store == NULL || target == INKCELL_FOCUS_NONE) {
         return;
+    }
+    if (controller->snapshot_valid && controller->snapshot.nav.context_open &&
+        target > (uint32_t)MESH_UI_FOCUS_MENU &&
+        target < (uint32_t)MESH_UI_FOCUS_MENU + (uint32_t)MESH_UI_COMMAND_COUNT) {
+        const enum mesh_ui_command_id command =
+            (enum mesh_ui_command_id)(target - (uint32_t)MESH_UI_FOCUS_MENU);
+        struct mesh_ui_command_set offered;
+        mesh_ui_commands_for(&controller->snapshot, &offered);
+        const struct mesh_ui_command *const binding = mesh_ui_commands_find(&offered, command);
+        if (mesh_ui_command_context_order(binding) >= 0) {
+            mesh_ui_controller_dispatch_command(controller, command, MESH_UI_COMMAND_DIRECTION_NONE,
+                                                true);
+            return;
+        }
     }
     mesh_ui_controller_read_frame(controller);
     struct mesh_ui_action action;

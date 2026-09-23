@@ -345,6 +345,9 @@ bool mesh_ui_store_handle_click(struct mesh_ui_store *store, uint32_t target,
                                 struct mesh_ui_action *out_action);
 /* A secondary click there, at (x, y) in the frame's pixels - see mesh_ui_nav_handle_context(). */
 bool mesh_ui_store_handle_context(struct mesh_ui_store *store, uint32_t target, int x, int y);
+/* Put down an open pointer context menu without treating the dismiss as a key. Returns whether
+   the visible state changed and publishes that change. */
+bool mesh_ui_store_dismiss_context(struct mesh_ui_store *store);
 /* Show a transient one-line notice on the backends ("Sent to ABCD"). */
 void mesh_ui_store_set_toast(struct mesh_ui_store *store, uint64_t now_ms, const char *text);
 /* A notice about something that arrived, which queues rather than replacing - see

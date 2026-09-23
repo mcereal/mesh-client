@@ -333,10 +333,13 @@ clicked), the arrows (the wheel), quit (the close box), and Back wherever the he
 drawn, which is B to a click. `pointer` in a capture scene draws the same frame.
 
 A right-click (or a control-click) on a row of the screen's list selects it and opens that
-row's menu at the pointer: its A, X, Y and Start verbs, read off the same action table the bar
-is, so the menu offers exactly what a press would do. A verb is its button's press
-(`MESH_UI_FOCUS_MENU + button`); a key, or a click anywhere off the menu, puts it down and does
-nothing else. `context row N` in a capture scene opens one.
+row's menu at the pointer: its row commands, read from the same command set the action bar is
+projected from, so the menu offers exactly what the active context can do. A verb is its semantic
+command (`MESH_UI_FOCUS_MENU + command`) and reaches
+`mesh_ui_controller_handle_command()` without becoming a Brick button first; a key, or a click
+anywhere off the menu, puts it down and does nothing else. `context row N` in a capture scene
+opens one. Command identity does not reorder the rows: they retain the action bar's established
+A, X, Y, Start sequence.
 
 Two things to know before reaching for it:
 

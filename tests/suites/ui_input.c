@@ -16,6 +16,7 @@
 #include "mesh/ui/backends/cli.h"
 #include "mesh/ui/backends/stub.h"
 #include "mesh/ui/controller.h"
+#include "mesh/ui/focus.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/store.h"
 
@@ -610,6 +611,85 @@ MESH_TEST_CASE(ui_controller_key_dispatch, unit) {
                                       MESH_UI_COMMAND_DIRECTION_NONE);
     if (!loop.stop_requested) {
         failure = "the semantic quit command should stop the UI loop";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_controller_shutdown(&controller);
+    mesh_ui_store_shutdown(&store);
+    inkwell_loop_shutdown(&loop);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(ui_controller_context_menu_dispatches_semantic_commands, unit) {
+    const char *failure = NULL;
+    struct inkwell_loop loop;
+    if (inkwell_loop_init(&loop) != 0) {
+        record_failure(test_name, "event loop init failed");
+        return;
+    }
+    struct mesh_ui_store store;
+    if (mesh_ui_store_init(&store) != 0) {
+        inkwell_loop_shutdown(&loop);
+        record_failure(test_name, "store init failed");
+        return;
+    }
+    struct mesh_ui_backend_stub_context backend;
+    memset(&backend, 0, sizeof backend);
+    struct mesh_ui_controller controller;
+    if (mesh_ui_controller_init(&controller, &store, mesh_ui_backend_stub(), &backend, &loop) !=
+        0) {
+        mesh_ui_store_shutdown(&store);
+        inkwell_loop_shutdown(&loop);
+        record_failure(test_name, "controller init failed");
+        return;
+    }
+    struct test_action_capture actions;
+    memset(&actions, 0, sizeof actions);
+    mesh_ui_controller_set_action_handler(&controller, test_capture_action, &actions);
+
+    mesh_test_nav_populate(&store);
+    if (!mesh_test_open_tab(&store, MESH_UI_SCREEN_DEVICES)) {
+        failure = "the test needs the Devices tab";
+        goto cleanup;
+    }
+    inkwell_loop_run(&loop, 0);
+    if (!mesh_ui_store_handle_context(&store, (uint32_t)MESH_UI_FOCUS_ROWS + 1U, 40, 40)) {
+        failure = "the second device should open a context menu";
+        goto cleanup;
+    }
+    inkwell_loop_run(&loop, 0);
+    if (!controller.snapshot.nav.context_open) {
+        failure = "the controller should present the open context menu";
+        goto cleanup;
+    }
+
+    mesh_ui_controller_handle_click(&controller, (uint32_t)MESH_UI_FOCUS_MENU +
+                                                     (uint32_t)MESH_UI_COMMAND_CONNECT);
+    if (store.nav.context_open || actions.count != 1U ||
+        actions.last.type != MESH_UI_ACTION_CONNECT ||
+        strcmp(actions.last.identifier, "AA:BB:CC:DD:EE:02") != 0) {
+        failure = "a context verb should invoke its semantic command on the selected row";
+        goto cleanup;
+    }
+    inkwell_loop_run(&loop, 0);
+    if (backend.last_snapshot.nav.context_open) {
+        failure = "a chosen context command should repaint with the menu dismissed";
+        goto cleanup;
+    }
+
+    /* The former button-shaped target is not an alias. An unoffered command only dismisses the
+       menu and must not repeat the Connect action. */
+    if (!mesh_ui_store_handle_context(&store, (uint32_t)MESH_UI_FOCUS_ROWS + 1U, 40, 40)) {
+        failure = "the context menu should reopen";
+        goto cleanup;
+    }
+    inkwell_loop_run(&loop, 0);
+    mesh_ui_controller_handle_click(&controller,
+                                    (uint32_t)MESH_UI_FOCUS_MENU + (uint32_t)INKCELL_BUTTON_A);
+    if (store.nav.context_open || actions.count != 1U) {
+        failure = "a physical button target should dismiss without dispatching a command";
         goto cleanup;
     }
 
