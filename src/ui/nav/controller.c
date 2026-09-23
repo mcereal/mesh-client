@@ -286,6 +286,25 @@ void mesh_ui_controller_handle_command(struct mesh_ui_controller *controller,
     mesh_ui_controller_dispatch_command(controller, command, direction, false);
 }
 
+void mesh_ui_controller_handle_shortcut(struct mesh_ui_controller *controller, char letter) {
+    enum mesh_ui_command_id command = MESH_UI_COMMAND_NONE;
+    switch (letter) {
+    case 'n':
+        command = MESH_UI_COMMAND_NEW;
+        break;
+    case 'r':
+        command = MESH_UI_COMMAND_REFRESH;
+        break;
+    case 's':
+        command = MESH_UI_COMMAND_SAVE;
+        break;
+    default:
+        inkcell_latency_press_handled(false);
+        return;
+    }
+    mesh_ui_controller_handle_command(controller, command, MESH_UI_COMMAND_DIRECTION_NONE);
+}
+
 void mesh_ui_controller_handle_action_key(struct mesh_ui_controller *controller,
                                           enum inkcell_key key) {
     if (controller == NULL || !controller->snapshot_valid || key == INKCELL_KEY_NONE) {

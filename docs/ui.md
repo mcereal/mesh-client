@@ -317,6 +317,11 @@ quit - the same table a USB keyboard on the device goes through, so a keycap mea
 means there. No pad: SDL's controller mapping and inkcell's device profile would be two answers
 to the same question.
 
+The primary desktop modifier is Command on macOS and Control on Linux/Windows. With it, N asks
+for New, S for Save, and R for Refresh. Each shortcut runs only when the current screen offers
+that command; for example, Save on a message list does nothing. Modified keys never also act as
+Brick face buttons, so Control+X cannot accidentally invoke X's current-screen verb.
+
 The mouse works too, and adds no second model of the screen: it clicks the boxes the frame
 already registers for the d-pad (`mesh/ui/focus.h`). A tab switches to it, a row is the cursor
 on it and A, and a dialog's answer is answered - `src/ui/nav/nav_click.c`, which turns each

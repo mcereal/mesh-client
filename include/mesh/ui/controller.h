@@ -84,6 +84,10 @@ void mesh_ui_controller_handle_command(struct mesh_ui_controller *controller,
                                        enum mesh_ui_command_id command,
                                        enum mesh_ui_command_direction direction);
 
+/* Desktop primary-modifier shortcut, as a lowercase letter from the window backend.
+   The command dispatcher still checks whether the last frame offers that operation. */
+void mesh_ui_controller_handle_shortcut(struct mesh_ui_controller *controller, char letter);
+
 /*
  * Resolve a clicked legacy action hint through the last frame's semantic command set.
  *
