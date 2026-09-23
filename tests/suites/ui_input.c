@@ -544,6 +544,20 @@ MESH_TEST_CASE(ui_controller_key_dispatch, unit) {
 
     mesh_test_nav_populate(&store);
     inkwell_loop_run(&loop, 0);
+    mesh_ui_controller_handle_shortcut(&controller, 's');
+    mesh_ui_controller_handle_shortcut(&controller, 'x');
+    if (store.pending_flags != MESH_UI_UPDATE_NONE) {
+        failure = "unoffered and unknown shortcuts must not change the current screen";
+        goto cleanup;
+    }
+    mesh_ui_controller_handle_shortcut(&controller, 'n');
+    if (!store.nav.picker_open) {
+        failure = "New shortcut should open the message recipient picker";
+        goto cleanup;
+    }
+    inkwell_loop_run(&loop, 0);
+    mesh_ui_controller_handle_key(&controller, INKCELL_KEY_B);
+    inkwell_loop_run(&loop, 0);
     const size_t presents_before = backend.present_calls;
 
     /*
