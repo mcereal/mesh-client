@@ -287,7 +287,6 @@ static void update_begin_ble(struct mesh_firmware_update *update, const char *im
     struct mesh_firmware_ota_params params;
     memset(&params, 0, sizeof params);
     params.client = &update->central;
-    params.adapter_path = adapter;
     params.image_path = image_path;
     params.architecture = update->board.architecture;
     params.radio_address = update->where;

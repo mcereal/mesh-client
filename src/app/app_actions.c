@@ -55,11 +55,9 @@
  * That is the same split every other admin verb here lives with, and it is why the link is not
  * released until the handover has left arming.
  */
-/* The loader wants 7.5 ms and BlueZ has no D-Bus call for it, so it is a raw HCI command - see
-   mesh/transport/ble_hci.h. A wrapper because the hook's shape is (device, address) and the
-   parameters are this one connection's business rather than the caller's. */
-static int mesh_app_firmware_interval(int hci_dev, const char *address) {
-    return mesh_ble_hci_request_interval(hci_dev, address, &mesh_ble_hci_ota_params);
+/* The loader wants 7.5 ms. A wrapper keeps that policy out of the install state machine. */
+static int mesh_app_firmware_interval(struct inkwell_ble_central *central, const char *address) {
+    return mesh_ble_ota_request_interval(central, address);
 }
 
 /*
