@@ -534,6 +534,13 @@ MESH_TEST_CASE(ui_host_text_uses_visible_keyboard_and_field_cap, unit) {
         goto cleanup_text;
     }
     store.pending_flags = MESH_UI_UPDATE_NONE;
+    store.nav.context_open = true;
+    if (!mesh_ui_store_insert_text(&store, "5") || store.nav.context_open ||
+        strcmp(store.nav.draft, "1234") != 0 || (store.pending_flags & MESH_UI_UPDATE_NAV) == 0U) {
+        failure = "host text should dismiss a context menu without editing behind it";
+        goto cleanup_text;
+    }
+    store.pending_flags = MESH_UI_UPDATE_NONE;
     store.nav.help_open = true;
     if (mesh_ui_store_insert_text(&store, "5") || strcmp(store.nav.draft, "1234") != 0) {
         failure = "text must not reach a keyboard under a help sheet";

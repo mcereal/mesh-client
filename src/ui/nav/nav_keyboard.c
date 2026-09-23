@@ -583,6 +583,11 @@ bool mesh_ui_nav_insert_text(struct mesh_ui_nav *nav, const char *text) {
     if (nav == NULL) {
         return false;
     }
+    /* Match hardware keys: dismiss the menu without editing the screen behind it. */
+    if (nav->context_open) {
+        nav->context_open = false;
+        return true;
+    }
     struct mesh_ui_route active;
     mesh_ui_route_of(nav, &active);
     if (active.level != MESH_UI_ROUTE_KEYBOARD) {
