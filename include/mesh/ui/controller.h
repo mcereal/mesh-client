@@ -1,6 +1,7 @@
 #pragma once
 
 #include "inkwell/runtime/loop.h"
+#include "mesh/ui/commands.h"
 #include "mesh/ui/store.h"
 
 #ifdef __cplusplus
@@ -69,6 +70,19 @@ void mesh_ui_controller_set_action_handler(struct mesh_ui_controller *controller
 /* Feed one logical button press through the store's navigation model. Repaints happen via
    the store's eventfd on the next loop turn; actions go to the handler above right away. */
 void mesh_ui_controller_handle_key(struct mesh_ui_controller *controller, enum inkcell_key key);
+
+/*
+ * Execute a semantic command offered by the last frame.
+ *
+ * This is the input-independent entry point for a desktop toolbar, keyboard shortcut, touch
+ * action or compact device menu. During the compatibility migration it resolves the command's
+ * direct-controller binding and feeds the existing key path, preserving every guard and action.
+ * A command not offered by the last rendered frame is ignored. `direction` selects the half of
+ * a paired binding; single-button commands ignore it.
+ */
+void mesh_ui_controller_handle_command(struct mesh_ui_controller *controller,
+                                       enum mesh_ui_command_id command,
+                                       enum mesh_ui_command_direction direction);
 
 /* The same for a click on `target`, an id the last frame registered - a tab, a row, a dialog's
    answer (mesh/ui/focus.h). What a window's pointer hands on; see inkcell/ui/pointer.h. */

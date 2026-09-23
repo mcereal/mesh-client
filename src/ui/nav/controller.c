@@ -218,6 +218,60 @@ void mesh_ui_controller_handle_key(struct mesh_ui_controller *controller, enum i
     }
 }
 
+void mesh_ui_controller_handle_command(struct mesh_ui_controller *controller,
+                                       enum mesh_ui_command_id command,
+                                       enum mesh_ui_command_direction direction) {
+    if (controller == NULL || controller->store == NULL || !controller->snapshot_valid ||
+        command == MESH_UI_COMMAND_NONE) {
+        return;
+    }
+    /*
+     * Commands name the frame the user saw. Once the store has unpublished changes, its cursor
+     * or row may no longer name the same subject; this is the command equivalent of the stale
+     * click guard in mesh_ui_store_handle_click(). The next loop turn presents a fresh command
+     * set, so dropping it is safer than running a verb on a row that was never on screen.
+     */
+    if (controller->store->pending_flags != MESH_UI_UPDATE_NONE) {
+        inkcell_latency_press_handled(false);
+        return;
+    }
+
+    struct mesh_ui_command_set offered;
+    mesh_ui_commands_for(&controller->snapshot, &offered);
+    const struct mesh_ui_command *binding = mesh_ui_commands_find(&offered, command);
+    if (binding == NULL) {
+        inkcell_latency_press_handled(false);
+        return;
+    }
+
+    /*
+     * QUIT deliberately has no logical key: input hosts stop the loop before delivering one.
+     * A semantic menu still needs to invoke the offered command, at the same ownership layer.
+     */
+    if (binding->button == INKCELL_BUTTON_QUIT) {
+        if (controller->loop != NULL) {
+            inkwell_loop_request_stop(controller->loop);
+        }
+        return;
+    }
+
+    enum inkcell_key keys[2];
+    const size_t count = inkcell_button_keys(binding->button, keys);
+    enum inkcell_key key = INKCELL_KEY_NONE;
+    if (count == 1U) {
+        key = keys[0];
+    } else if (count == 2U && direction == MESH_UI_COMMAND_PREVIOUS) {
+        key = keys[0];
+    } else if (count == 2U && direction == MESH_UI_COMMAND_NEXT) {
+        key = keys[1];
+    }
+    if (key == INKCELL_KEY_NONE) {
+        inkcell_latency_press_handled(false);
+        return;
+    }
+    mesh_ui_controller_handle_key(controller, key);
+}
+
 void mesh_ui_controller_handle_click(struct mesh_ui_controller *controller, uint32_t target) {
     if (controller == NULL || controller->store == NULL || target == INKCELL_FOCUS_NONE) {
         return;
