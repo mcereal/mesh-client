@@ -4,8 +4,6 @@
 #include "mesh/i18n/net_reason.h"
 #include "mesh/i18n/strings.h"
 
-#include <string.h>
-
 const char *mesh_ui_mqtt_state_str(enum inkwell_mqtt_client_state state) {
     switch (state) {
     case INKWELL_MQTT_CLIENT_OFF:
@@ -79,27 +77,7 @@ void mesh_ui_mqtt_failure_text(const struct inkwell_mqtt_client *proxy, char *ou
         return;
     }
 
-    inkcell_str_id text = MESH_STR_LINK_UNREACHABLE;
-    if (!mesh_net_reason_str(failure.net.reason, &text)) {
-        return; /* no failure, or a reason with nothing to say about it */
-    }
-
-    /*
-     * The two sentences that take a second argument, and the only place the arity can go wrong.
-     * "%.24s: %.20s" is the host and the C library's word for the errno; "%.24s: %.64s" is the
-     * host and the TLS library's own account of the handshake. Neither second half is
-     * translated, for the same reason a channel key is shown as base64.
-     */
-    const char *const host = inkwell_mqtt_client_host(proxy);
-    switch (failure.net.reason) {
-    case INKWELL_NET_UNREACHABLE:
-        (void)inkcell_str_format(out, out_len, text, host, strerror(-failure.net.detail));
-        break;
-    case INKWELL_NET_TLS:
-        (void)inkcell_str_format(out, out_len, text, host, inkwell_mqtt_client_tls_error(proxy));
-        break;
-    default:
-        (void)inkcell_str_format(out, out_len, text, host);
-        break;
-    }
+    /* No failure, or a reason with nothing to say about it, leaves `out` empty. */
+    (void)mesh_net_reason_format(&failure.net, inkwell_mqtt_client_host(proxy),
+                                 inkwell_mqtt_client_tls_error(proxy), out, out_len);
 }

@@ -576,30 +576,18 @@ static bool mesh_tcp_take_error(struct mesh_transport *transport, char *out, siz
         return false;
     }
 
-    inkcell_str_id text = MESH_STR_LINK_TCP_DISABLED;
     if (state->own_failure_set) {
-        text = state->own_failure;
-    } else if (!mesh_net_reason_str(state->failure.reason, &text)) {
-        /* A reason with nothing to say about it. Unreachable today - every reason this file
-           records has a sentence - but a new one in inkwell would land here rather than print
-           whatever `text` was left holding. */
+        (void)inkcell_str_format(out, out_len, state->own_failure, state->failure_subject);
         mesh_tcp_clear_error(state);
-        return false;
+        return true;
     }
-
-    /*
-     * The one reason whose sentence takes a second argument. The arity has to match the catalog
-     * entry - "%.24s: %.20s" against a subject and the C library's word for the errno - and the
-     * cases in tests/suites/transport_tcp.c are what hold the pair together.
-     */
-    if (!state->own_failure_set && state->failure.reason == INKWELL_NET_UNREACHABLE) {
-        (void)inkcell_str_format(out, out_len, text, state->failure_subject,
-                                 strerror(-state->failure.detail));
-    } else {
-        (void)inkcell_str_format(out, out_len, text, state->failure_subject);
-    }
+    /* A plain TCP link has no TLS session, so no TLS text to pass. A reason with nothing to say
+       about it is unreachable today - every reason this file records has a sentence - but a new
+       one in inkwell would land here rather than print a stale buffer. */
+    const bool said =
+        mesh_net_reason_format(&state->failure, state->failure_subject, NULL, out, out_len);
     mesh_tcp_clear_error(state);
-    return true;
+    return said;
 }
 
 static const struct mesh_transport_ops k_tcp_ops = {
