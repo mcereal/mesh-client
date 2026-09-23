@@ -166,6 +166,13 @@ jobs:
                 throw "Windows smoke did not start SDL for backend '$backend'."
               }
             }
+            $env:MESHCLIENT_UI_BACKEND = 'cli'
+            $resolve = & $client --status --tcp-host localhost:4403 --disable-ble `
+              --disable-serial --timeout 2 --log-level debug 2>&1
+            $resolve | Out-Host
+            if (-not ($resolve | Where-Object { $_.ToString().Contains('Looking up localhost:4403') })) {
+              throw 'Windows asynchronous hostname lookup smoke failed.'
+            }
           } finally {
             Pop-Location
           }
