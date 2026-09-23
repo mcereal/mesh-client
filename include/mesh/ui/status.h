@@ -2,6 +2,7 @@
 #define MESH_UI_STATUS_H
 
 #include "mesh/i18n/strings.h"
+#include "mesh/ui/commands.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -87,8 +88,9 @@ enum mesh_ui_status_verb {
 };
 
 struct mesh_ui_status_action {
-    uint8_t card; /* enum mesh_ui_status_card - which card draws it */
-    uint8_t verb; /* enum mesh_ui_status_verb - what nav.c raises for it */
+    uint8_t card;                    /* enum mesh_ui_status_card - which card draws it */
+    uint8_t verb;                    /* enum mesh_ui_status_verb - what nav.c raises for it */
+    enum mesh_ui_command_id command; /* the input-independent request */
     inkcell_str_id label;
 };
 

@@ -476,13 +476,13 @@ Four authoring rules hold across all of them, and breaking one compiles and look
   colour, margin, glyph size or corner radius belongs in `src/ui/backends/`.
   `scripts/check-strings.py` fails the build on prose.
 - **Available operations are semantic commands** (`mesh/ui/commands.h`). Each currently carries
-  the Brick button that invokes it and the string id that names it; `mesh_ui_actions_for()`
-  projects those commands into the legacy action bar. A desktop button or future overflow menu
-  invokes `mesh_ui_controller_handle_command()` with the command id and, for paired controls,
-  previous or next. The controller accepts only commands offered by the last presented frame and
-  drops input while that frame is stale. Internally it still resolves the command to the Brick
-  key path so the existing navigation guards have one implementation; that compatibility step
-  leaves when the action builders emit commands directly. A keycap is untranslated — it is what
+  the Brick button that invokes it and the string id that names it. The state tables in
+  `src/ui/tables/actions.c` declare command ids directly; `mesh_ui_actions_for()` projects them
+  into the legacy action bar. A desktop button or future overflow menu invokes
+  `mesh_ui_controller_handle_command()` with the command id and, for paired controls, previous or
+  next. The controller accepts only commands offered by the last presented frame and drops input
+  while that frame is stale. Internally it still resolves the command to the Brick key path so
+  the existing navigation guards have one implementation. A keycap is untranslated — it is what
   is printed on the case. A keycap that does nothing is a bug.
 - **A heading is `struct inkcell_fb_app_bar`**, with slots; the back arrow is *derived* from the action
   table, never declared.

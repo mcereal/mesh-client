@@ -55,6 +55,13 @@ static inkcell_str_id actions_label_for(const struct inkcell_action_bar *bar,
     return INKCELL_STR_NONE;
 }
 
+/* The semantic command bound to a compatibility button, or NONE when it is absent. */
+static enum mesh_ui_command_id command_for_button(const struct mesh_ui_command_set *commands,
+                                                  enum inkcell_button button) {
+    const struct mesh_ui_command *command = mesh_ui_commands_find_button(commands, button);
+    return command != NULL ? command->id : MESH_UI_COMMAND_NONE;
+}
+
 /* One more row on the Devices tab, with the cursor left on it. */
 static struct mesh_ui_device *actions_add_device(struct mesh_ui_snapshot *snapshot,
                                                  const char *identifier,
@@ -104,6 +111,31 @@ MESH_TEST_CASE(commands_are_the_source_of_the_legacy_action_bar, unit) {
                       "the top verification context should offer ANSWER");
     MESH_TEST_FAIL_IF(mesh_ui_commands_find(&commands, MESH_UI_COMMAND_CONFIRM) != NULL,
                       "the confirmation underneath verification must not leak a command");
+
+    /* Dynamic rows declare their semantic identity directly rather than recovering it from the
+       translated label after the table is built. */
+    actions_snapshot(&snapshot);
+    snapshot.nav.screen = MESH_UI_SCREEN_NODES;
+    snapshot.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_FILTER_ROW;
+    mesh_ui_commands_for(&snapshot, &commands);
+    MESH_TEST_FAIL_IF(command_for_button(&commands, INKCELL_BUTTON_LEFT_RIGHT) !=
+                          MESH_UI_COMMAND_FILTER,
+                      "the Nodes filter row should declare FILTER");
+    snapshot.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_SORT_ROW;
+    mesh_ui_commands_for(&snapshot, &commands);
+    MESH_TEST_FAIL_IF(command_for_button(&commands, INKCELL_BUTTON_LEFT_RIGHT) !=
+                          MESH_UI_COMMAND_SORT,
+                      "the Nodes sort row should declare SORT");
+
+    actions_snapshot(&snapshot);
+    snapshot.nav.screen = MESH_UI_SCREEN_WAYPOINTS;
+    mesh_ui_commands_for(&snapshot, &commands);
+    MESH_TEST_FAIL_IF(command_for_button(&commands, INKCELL_BUTTON_A) != MESH_UI_COMMAND_NEW,
+                      "the empty Waypoints row should declare NEW");
+    snapshot.waypoints.count = 1U;
+    mesh_ui_commands_for(&snapshot, &commands);
+    MESH_TEST_FAIL_IF(command_for_button(&commands, INKCELL_BUTTON_A) != MESH_UI_COMMAND_OPEN,
+                      "an existing waypoint row should declare OPEN");
 
     record_success(test_name);
 }

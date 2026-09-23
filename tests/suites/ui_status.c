@@ -138,7 +138,8 @@ MESH_TEST_CASE(ui_status_verbs_follow_the_link, unit) {
     mesh_ui_status_actions(&actions, true, false, false);
     MESH_TEST_FAIL_IF(actions.count != 1U ||
                           actions.items[0].card != (uint8_t)MESH_UI_STATUS_CARD_LINK ||
-                          actions.items[0].verb != (uint8_t)MESH_UI_STATUS_VERB_DISCONNECT,
+                          actions.items[0].verb != (uint8_t)MESH_UI_STATUS_VERB_DISCONNECT ||
+                          actions.items[0].command != MESH_UI_COMMAND_DISCONNECT,
                       "an attached radio should offer disconnect on the Link card");
 
     /* A cached configuration and no radio is still no refresh. That one is a request over the
@@ -150,7 +151,8 @@ MESH_TEST_CASE(ui_status_verbs_follow_the_link, unit) {
     mesh_ui_status_actions(&actions, true, true, false);
     MESH_TEST_FAIL_IF(actions.count != 2U, "a connected, synced radio offers both verbs");
     MESH_TEST_FAIL_IF(actions.items[1].card != (uint8_t)MESH_UI_STATUS_CARD_RADIO ||
-                          actions.items[1].verb != (uint8_t)MESH_UI_STATUS_VERB_REFRESH,
+                          actions.items[1].verb != (uint8_t)MESH_UI_STATUS_VERB_REFRESH ||
+                          actions.items[1].command != MESH_UI_COMMAND_REFRESH,
                       "a synced radio should offer refresh on the Radio card");
 
     /*
@@ -165,7 +167,8 @@ MESH_TEST_CASE(ui_status_verbs_follow_the_link, unit) {
     mesh_ui_status_actions(&actions, true, true, true);
     MESH_TEST_FAIL_IF(actions.count != 3U, "readings to draw should offer the trend as well");
     MESH_TEST_FAIL_IF(actions.items[1].card != (uint8_t)MESH_UI_STATUS_CARD_MESH ||
-                          actions.items[1].verb != (uint8_t)MESH_UI_STATUS_VERB_TREND,
+                          actions.items[1].verb != (uint8_t)MESH_UI_STATUS_VERB_TREND ||
+                          actions.items[1].command != MESH_UI_COMMAND_TREND,
                       "the trend belongs to the Mesh card, whose readings it draws");
 
     /*
@@ -187,6 +190,8 @@ MESH_TEST_CASE(ui_status_verbs_follow_the_link, unit) {
     mesh_ui_status_actions(&actions, true, true, true);
     for (uint32_t i = 0U; i < actions.count; ++i) {
         MESH_TEST_FAIL_IF(actions.items[i].label == INKCELL_STR_NONE, "a verb with no word");
+        MESH_TEST_FAIL_IF(actions.items[i].command == MESH_UI_COMMAND_NONE,
+                          "a status verb with no semantic command");
     }
     record_success(test_name);
 }

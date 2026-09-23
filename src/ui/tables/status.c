@@ -49,17 +49,18 @@ enum status_need {
 struct status_entry {
     uint8_t card; /* enum mesh_ui_status_card */
     uint8_t verb; /* enum mesh_ui_status_verb */
+    enum mesh_ui_command_id command;
     inkcell_str_id label;
     uint8_t needs; /* enum status_need, ORed */
 };
 
 static const struct status_entry k_status_verbs[] = {
     {(uint8_t)MESH_UI_STATUS_CARD_LINK, (uint8_t)MESH_UI_STATUS_VERB_DISCONNECT,
-     MESH_STR_ACTION_DISCONNECT, STATUS_NEED_LINK},
-    {(uint8_t)MESH_UI_STATUS_CARD_MESH, (uint8_t)MESH_UI_STATUS_VERB_TREND, MESH_STR_ACTION_TREND,
-     STATUS_NEED_TREND},
+     MESH_UI_COMMAND_DISCONNECT, MESH_STR_ACTION_DISCONNECT, STATUS_NEED_LINK},
+    {(uint8_t)MESH_UI_STATUS_CARD_MESH, (uint8_t)MESH_UI_STATUS_VERB_TREND, MESH_UI_COMMAND_TREND,
+     MESH_STR_ACTION_TREND, STATUS_NEED_TREND},
     {(uint8_t)MESH_UI_STATUS_CARD_RADIO, (uint8_t)MESH_UI_STATUS_VERB_REFRESH,
-     MESH_STR_ACTION_REFRESH, STATUS_NEED_LINK | STATUS_NEED_SYNC},
+     MESH_UI_COMMAND_REFRESH, MESH_STR_ACTION_REFRESH, STATUS_NEED_LINK | STATUS_NEED_SYNC},
 };
 
 #define STATUS_VERB_TABLE_COUNT (sizeof k_status_verbs / sizeof k_status_verbs[0])
@@ -103,6 +104,7 @@ void mesh_ui_status_actions(struct mesh_ui_status_actions *out, bool connected, 
         }
         out->items[out->count].card = entry->card;
         out->items[out->count].verb = entry->verb;
+        out->items[out->count].command = entry->command;
         out->items[out->count].label = entry->label;
         ++out->count;
     }
