@@ -2,15 +2,15 @@ SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
 CMAKE_ARGS ?=
-# Build tree root. Container builds set BUILD_ROOT=build/linux so they never share a
-# CMake cache with a host configure (the core is Linux-only; macOS cannot build it natively).
+# Build tree root. Container builds set BUILD_ROOT=build/linux so they never share a CMake
+# cache with a host configure. The Windows bring-up has its own build/windows-* trees too.
 BUILD_ROOT ?= build
 export BUILD_ROOT
 
 DOCKER := ./scripts/docker.sh
 
 .PHONY: help setup debug release relwithdebinfo build test package proto clean distclean run format fuzz \
-        ui-capture ui-drive screenshots demo-pack linux-cli \
+        ui-capture ui-drive screenshots demo-pack linux-cli windows-debug \
         ship ship-beta ship-rc \
         docker-image docker-cross-image docker-shell docker-debug docker-test docker-run docker-pak \
         docker-clean docker-ui-capture docker-screenshots docker-fuzz \
@@ -18,7 +18,7 @@ DOCKER := ./scripts/docker.sh
         deploy-shell deploy-key brick
 
 help:
-	@echo "Host targets (Linux):"
+	@echo "Host targets (Linux, macOS, and Windows bring-up):"
 	@echo "  make setup          - Install build prerequisites natively (submodules, libdbus, protobuf)"
 	@echo "  make debug          - Configure and build a Debug build ($(BUILD_ROOT)/debug)"
 	@echo "  make release        - Configure and build a Release build"
@@ -26,6 +26,7 @@ help:
 	@echo "  make run            - Run the Debug binary in the foreground"
 	@echo "  make package        - Produce dist/MeshClient.pak.zip from a Release build"
 	@echo "  make linux-cli      - Static Linux CLI binary into dist/ (desktops, servers, a Pi)"
+	@echo "  make windows-debug  - Native Windows SDL bring-up build (MSYS2 UCRT64)"
 	@echo "  make proto          - Regenerate nanopb sources from proto/meshtastic"
 	@echo "  make format         - clang-format all tracked .c/.h files"
 	@echo "  make ui-capture     - Render a UI scene to a GIF without a device (ARGS=\"scene -o out.gif\")"
@@ -70,11 +71,14 @@ help:
 
 ifeq ($(OS),Windows_NT)
 setup:
-	wsl.exe --user root --exec bash scripts/setup-linux.sh
+	powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/setup-windows.ps1
 else
 setup:
 	@if [ "$$(uname -s)" = Darwin ]; then ./scripts/setup-macos.sh; else ./scripts/setup-linux.sh; fi
 endif
+
+windows-debug:
+	powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows.ps1
 
 build: debug
 

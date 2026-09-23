@@ -270,8 +270,13 @@ endif()
 target_link_libraries(meshclient_core
     PUBLIC
         Threads::Threads
-        m
 )
+if(WIN32)
+    # BCryptGenRandom is the Windows system CSPRNG used for newly generated channel keys.
+    target_link_libraries(meshclient_core PRIVATE bcrypt)
+else()
+    target_link_libraries(meshclient_core PUBLIC m)
+endif()
 
 add_executable(meshclient src/main.c)
 
