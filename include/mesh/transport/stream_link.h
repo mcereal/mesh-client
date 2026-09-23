@@ -91,8 +91,8 @@ void mesh_stream_link_set_session(struct mesh_stream_link *link, struct mesh_ses
  * Adopts `fd` - which must already be open and non-blocking - and watches it for readability.
  * The link owns the descriptor from here: close() is mesh_stream_link_close()'s to call.
  *
- * `kind` says what the descriptor is, which decides how writes are made; see above, and get it
- * wrong towards SOCKET and every write fails with ENOTSOCK.
+ * `kind` says what the descriptor is, which decides how writes are made. SOCKET here is for
+ * POSIX descriptor compatibility; use open_socket() for a native Windows socket.
  *
  * `callback` and `userdata` go to the event loop unchanged, so the transport keeps its own
  * dispatch. A NULL `loop` opens the link unwatched, which is what a test driving pump() by hand
@@ -101,6 +101,11 @@ void mesh_stream_link_set_session(struct mesh_stream_link *link, struct mesh_ses
 int mesh_stream_link_open(struct mesh_stream_link *link, int fd, enum mesh_stream_link_kind kind,
                           struct inkwell_loop *loop, inkwell_loop_callback callback,
                           void *userdata);
+/* Adopts a native nonblocking socket without narrowing a Windows SOCKET to int. On failure the
+ * socket remains caller-owned. Like open(), this resets parser and receive statistics. */
+int mesh_stream_link_open_socket(struct mesh_stream_link *link, inkwell_socket socket,
+                                 struct inkwell_loop *loop, inkwell_loop_callback callback,
+                                 void *userdata);
 /* Unwatches and closes the descriptor, resets the parser, and fails every queued packet against
    the session. Safe on a closed link. */
 void mesh_stream_link_close(struct mesh_stream_link *link);

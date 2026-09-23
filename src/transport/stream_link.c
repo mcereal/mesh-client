@@ -150,6 +150,21 @@ int mesh_stream_link_open(struct mesh_stream_link *link, int fd, enum mesh_strea
     return 0;
 }
 
+int mesh_stream_link_open_socket(struct mesh_stream_link *link, inkwell_socket socket,
+                                 struct inkwell_loop *loop, inkwell_loop_callback callback,
+                                 void *userdata) {
+    if (link == NULL) {
+        return -EINVAL;
+    }
+    const int opened = inkwell_stream_open_socket(&link->stream, socket, loop, callback, userdata);
+    if (opened < 0) {
+        return opened;
+    }
+    mesh_stream_parser_reset(&link->parser);
+    link->frames_received = 0U;
+    return 0;
+}
+
 void mesh_stream_link_close(struct mesh_stream_link *link) {
     if (link == NULL) {
         return;

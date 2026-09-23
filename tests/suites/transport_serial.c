@@ -102,7 +102,7 @@ MESH_TEST_CASE(stream_link_fails_what_it_could_not_send, unit) {
 
     struct mesh_stream_link link;
     mesh_stream_link_init(&link, "test", &session);
-    if (mesh_stream_link_open(&link, fds[0], MESH_STREAM_LINK_SOCKET, NULL, NULL, NULL) != 0) {
+    if (mesh_stream_link_open_socket(&link, (inkwell_socket)fds[0], NULL, NULL, NULL) != 0) {
         record_failure(test_name, "could not open the link");
         goto cleanup;
     }
