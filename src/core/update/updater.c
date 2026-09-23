@@ -15,13 +15,15 @@
 #include "mesh/core/version.h"
 
 #include <errno.h>
-#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
-#include <sys/wait.h>
+#if defined(_WIN32)
+#include <io.h>
+#else
 #include <unistd.h>
+#endif
 
 #ifndef MESHCLIENT_UPDATE_REPO
 #define MESHCLIENT_UPDATE_REPO "mcereal/mesh-client"
@@ -502,10 +504,8 @@ int mesh_updater_init(struct mesh_updater *updater, struct inkwell_loop *loop) {
     /* The binary to replace. Without this there is nothing to install over, so the About
        screen offers only the version rather than a broken update row.
 
-       /proc is Linux's, and off Linux that is the answer on purpose rather than an omission: a
-       macOS build is a development host, and every asset a release publishes is a Linux binary.
-       One installed over the running client would leave a program the next launch cannot
-       exec. */
+       /proc is Linux's. On macOS and Windows this is deliberately unavailable.
+       Releases contain Linux binaries, which could not run on either host. */
 #if defined(__linux__)
     const ssize_t len =
         readlink("/proc/self/exe", updater->install_path, sizeof updater->install_path - 1U);

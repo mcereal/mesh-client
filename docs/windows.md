@@ -37,8 +37,9 @@ native IPC backend is added.
 The Windows event loop, TCP connector and stream handoff now carry native pointer-sized Winsock
 sockets without passing them through `int` descriptors. Numeric TCP addresses can use that path;
 asynchronous hostname lookup still needs a Windows resolver. The full executable build still
-stops in POSIX-only Inkwell serial, USB, fetch and MQTT sources, before all client sources can be
-compiled.
+stops in POSIX-only Inkwell fetch and MQTT sources. Inkcell input and the client updater now
+compile on Windows; the updater still offers no install action because releases contain Linux
+binaries only.
 
 The remaining work is primarily in platform backends:
 
