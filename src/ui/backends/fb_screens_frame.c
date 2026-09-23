@@ -150,6 +150,8 @@ struct inkcell_fb_render_cache {
     int width, height; /* the panel the memo was measured against */
     time_t second;
     bool valid;
+    /* Whether the last frame was part of a move between two places - see fb_render_begin(). */
+    bool moved;
     /* And what the layers were last told to say, which is a memo of a different kind: the one
        above is this frame compared with the last, and these outlive the answer that closed
        them. One per enum fb_overlay_id, indexed by it. See struct fb_overlay_memo. */
@@ -351,11 +353,27 @@ static void fb_render_begin(struct inkcell_draw_state *state,
     struct inkcell_fb_render_cache *cache = state->render_cache;
     if (!state->partial_disabled && cache != NULL) {
         const time_t second = (time_t)inkwell_time_wall_s();
+        /*
+         * A move between two places is never drawn under the band, and neither is the frame
+         * that lands it.
+         *
+         * A slide runs on a snapshot that is not changing, so the comparison below would pass
+         * on every frame of one - and it does enter the clip whenever a layer on the panel (a
+         * snackbar, a dialog walking out) carried its box into this frame as damage. The clear
+         * is then cut to that box, and the arriving screen, which declares the whole body as
+         * damage and is let through the band because of it, is drawn over the screen it is
+         * replacing rather than over the ground: every word of both, until something repaints
+         * the panel. The frame after the last one is the same case with the body one small
+         * step out of place, which is why the memo is kept.
+         */
+        const bool moving = inkcell_fb_transition_offset(state) != 0;
+        const bool moved = cache->moved;
+        cache->moved = moving;
         cache->snapshot.update_flags = snapshot->update_flags;
         state->clip_active =
-            cache->valid && state->animation_damage.valid && cache->theme == state->theme &&
-            cache->locale == inkcell_i18n_locale() && cache->scale == state->scale &&
-            cache->width == inkcell_fb_panel_width(state) &&
+            !moving && !moved && cache->valid && state->animation_damage.valid &&
+            cache->theme == state->theme && cache->locale == inkcell_i18n_locale() &&
+            cache->scale == state->scale && cache->width == inkcell_fb_panel_width(state) &&
             cache->height == inkcell_fb_panel_height(state) && cache->second == second &&
             memcmp(&cache->snapshot, snapshot, sizeof *snapshot) == 0;
         state->clip = state->animation_damage;
@@ -468,9 +486,10 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
      * transform - the screen progress bar and the banner - stays put for the same reason, being
      * about the client rather than about the screen that is arriving.
      *
-     * It is also declared as animation damage, so the frame after this one repaints the whole
-     * band. Everything in there is a function of the clock while a move is running, and the
-     * partial-redraw path assumes the opposite of anything it has not been told about.
+     * It is also declared as animation damage, so the rows it moves through are presented.
+     * Everything in there is a function of the clock while a move is running, and the
+     * partial-redraw path assumes the opposite of anything it has not been told about - which
+     * is why fb_render_begin() does not enter the band at all while one is.
      */
     const int slide = inkcell_fb_transition_offset(state);
     if (slide != 0) {

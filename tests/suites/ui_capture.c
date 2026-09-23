@@ -2621,6 +2621,63 @@ cleanup:
 }
 
 /*
+ * A screen sliding in while a layer is on the panel, under the partial-composition clip.
+ *
+ * The field report: pairing raised the passkey keyboard, and it came up with every word of the
+ * Devices list still showing through it until the next press repainted the screen - then the
+ * same again on the way back. A layer (here the snackbar) carries its last box into the next
+ * frame as damage, which is enough to enter the clip on a snapshot that is not changing; a slide
+ * is exactly such a run of frames. It has to be drawn through the app, not
+ * fb_render_snapshot(), because the app is what starts the slide.
+ */
+MESH_TEST_CASE(fb_transition_under_layer_matches_full_composition, unit) {
+    struct inkcell_capture *clipped = NULL, *reference = NULL;
+    struct mesh_ui_snapshot *snapshot = calloc(1U, sizeof *snapshot);
+    const char *failure = NULL;
+    if (snapshot == NULL || mesh_ui_capture_open(&clipped, 1024U, 768U, INKCELL_SCALE(4)) != 0 ||
+        mesh_ui_capture_open(&reference, 1024U, 768U, INKCELL_SCALE(4)) != 0) {
+        failure = "capture allocation failed";
+        goto cleanup;
+    }
+    inkcell_capture_set_reference(reference, true);
+    snapshot->nav.screen = MESH_UI_SCREEN_DEVICES;
+    snprintf(snapshot->nav.toast, sizeof snapshot->nav.toast, "Pairing");
+    snapshot->nav.toast_until_ms = 60000U;
+    bool clip_seen = false;
+    for (unsigned frame = 0U; frame < 60U; ++frame) {
+        if (frame == 10U) {
+            snapshot->nav.keyboard_open = true;
+            snapshot->nav.keyboard_passkey = true;
+        }
+        if (frame == 35U) {
+            snapshot->nav.keyboard_open = false;
+            snapshot->nav.keyboard_passkey = false;
+        }
+        inkcell_capture_advance(clipped, 16U);
+        inkcell_capture_advance(reference, 16U);
+        inkcell_capture_render(clipped, snapshot);
+        inkcell_capture_render(reference, snapshot);
+        if (inkcell_capture_state(clipped)->clip_active) {
+            clip_seen = true;
+        }
+        if (memcmp(inkcell_capture_pixels(clipped, NULL, NULL, NULL),
+                   inkcell_capture_pixels(reference, NULL, NULL, NULL), 1024U * 768U * 4U) != 0) {
+            failure = "a screen sliding in under a clip band drew over the screen it replaced";
+            break;
+        }
+    }
+    if (failure == NULL && !clip_seen) {
+        failure = "comparison did not exercise partial drawing";
+    }
+cleanup:
+    inkcell_capture_close(clipped);
+    inkcell_capture_close(reference);
+    free(snapshot);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
  * The screen progress bar under the partial-composition clip.
  *
  * fb_animation_clip_matches_full_composition covers the two animated things a body can hold; the
