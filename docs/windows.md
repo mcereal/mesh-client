@@ -51,7 +51,14 @@ $env:SDL_VIDEODRIVER = 'dummy'
 $env:MESHCLIENT_UI_BACKEND = 'sdl'
 $client = (Resolve-Path .\build\windows-debug\meshclient.exe).Path
 Push-Location $env:TEMP
-try { & $client --disable-ble --disable-serial --disable-tcp -t 1 } finally { Pop-Location }
+try {
+    $smoke = & $client --disable-ble --disable-serial --disable-tcp -t 1 2>&1
+    $smoke | Out-Host
+    if ($LASTEXITCODE -ne 0 -or
+        -not ($smoke | Where-Object { $_.ToString().Contains('SDL UI backend active') })) {
+        throw 'SDL did not start.'
+    }
+} finally { Pop-Location }
 ```
 
 The temporary working directory keeps the current fallback `.meshclient` preferences out of
