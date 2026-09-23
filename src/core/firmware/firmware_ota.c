@@ -8,7 +8,6 @@
 
 #include "inkwell/codec/sha256.h"
 #include "mesh/transport/ble_gatt.h"
-#include "mesh/transport/ble_hci.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -90,10 +89,31 @@ unsigned mesh_firmware_ota_progress(const struct mesh_firmware_ota *ota) {
     }
 }
 
+static int address_hex_value(int c) {
+    if (c >= '0' && c <= '9') {
+        return c - '0';
+    }
+    if (c >= 'A' && c <= 'F') {
+        return c - 'A' + 10;
+    }
+    if (c >= 'a' && c <= 'f') {
+        return c - 'a' + 10;
+    }
+    return -1;
+}
+
 bool mesh_firmware_ota_offset_address(const char *address, int delta, char *out, size_t out_len) {
     uint8_t bytes[6];
-    if (out == NULL || out_len < 18U || !mesh_ble_hci_parse_address(address, bytes)) {
+    if (out == NULL || out_len < 18U || address == NULL || strlen(address) != 17U) {
         return false;
+    }
+    for (size_t i = 0; i < 6U; ++i) {
+        const int hi = address_hex_value((unsigned char)address[i * 3U]);
+        const int lo = address_hex_value((unsigned char)address[i * 3U + 1U]);
+        if (hi < 0 || lo < 0 || (i < 5U && address[i * 3U + 2U] != ':')) {
+            return false;
+        }
+        bytes[5U - i] = (uint8_t)(hi << 4 | lo);
     }
     /* Forty-eight bits, least significant octet first, so a carry out of the last octet runs
        into the one before it and 00 minus one borrows from it. */
@@ -361,7 +381,7 @@ static void ota_tick_connecting(struct mesh_firmware_ota *ota, uint64_t now_ms) 
             /* Before the service discovery rather than after it: at the Brick's 30 ms that
                discovery is itself slow, and there is nothing to lose by asking now. */
             if (ota->request_interval != NULL) {
-                const int asked = ota->request_interval(ota->hci_dev, ota->loader_address);
+                const int asked = ota->request_interval(ota->client, ota->loader_address);
                 if (asked != 0) {
                     inkwell_log_warn("firmware",
                                      "Could not ask for a fast connection interval (%d); the "
@@ -500,8 +520,8 @@ int mesh_firmware_ota_start(struct mesh_firmware_ota *ota,
         return -EBUSY;
     }
     memset(ota, 0, sizeof *ota);
-    if (params == NULL || params->client == NULL || params->adapter_path == NULL ||
-        params->image_path == NULL || params->image_path[0] == '\0') {
+    if (params == NULL || params->client == NULL || params->image_path == NULL ||
+        params->image_path[0] == '\0') {
         ota_refuse(ota, MESH_FIRMWARE_OTA_ERROR_UNAVAILABLE);
         return -EINVAL;
     }
@@ -538,8 +558,6 @@ int mesh_firmware_ota_start(struct mesh_firmware_ota *ota,
     inkwell_sha256_final(&hasher, ota->sha256);
 
     ota->client = params->client;
-    inkwell_str_copy(ota->adapter_path, sizeof ota->adapter_path, params->adapter_path);
-    ota->hci_dev = mesh_ble_hci_adapter_index(params->adapter_path);
     if (params->radio_address != NULL && params->radio_address[0] != '\0') {
         inkwell_str_copy(ota->radio_address, sizeof ota->radio_address, params->radio_address);
     }

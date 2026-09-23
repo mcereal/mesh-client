@@ -16,9 +16,9 @@
  *   waiting     scanning for the loader's service. It is a different peripheral from the radio
  *               - its address is conventionally the radio's plus one - so it is looked for by
  *               what it offers, and the address is corroboration.
- *   connecting  connect, ask for a 7.5 ms connection interval (mesh/transport/ble_hci.h: the
- *               Brick would hold the loader at 30 ms, which is a seventeen-minute transfer), wait
- *               for services, find the two characteristics.
+ *   connecting  connect, ask for a 7.5 ms connection interval (the Brick would hold the loader
+ *               at 30 ms, which is a seventeen-minute transfer), wait for services, find the two
+ *               characteristics.
  *   sending     the loader conversation (mesh/transport/ble_ota.h), which ends with the loader
  *               saying the hash matched and the boot partition is switched.
  *   restarting  the radio advertising again where it was: the loader restarts itself two
@@ -114,14 +114,12 @@ struct mesh_firmware_ota;
 typedef int (*mesh_firmware_ota_arm_fn)(void *userdata, const uint8_t sha256[32]);
 /* Asks for a fast connection interval on the open link to `address`. The result is logged and
    nothing waits on it: a link that stays slow is a slow transfer, not a broken one. */
-typedef int (*mesh_firmware_ota_interval_fn)(int hci_dev, const char *address);
+typedef int (*mesh_firmware_ota_interval_fn)(struct inkwell_ble_central *central,
+                                             const char *address);
 typedef void (*mesh_firmware_ota_done_fn)(void *userdata, const struct mesh_firmware_ota *ota);
 
 struct mesh_firmware_ota_params {
     struct inkwell_ble_central *client; /* borrowed; the install's own, not the transport's */
-    /* The adapter as the central named it ("/org/bluez/hci0"), for the HCI index a fast
-       connection interval is asked for on. */
-    const char *adapter_path;
     const char *image_path;
     /* The connected board's architecture, in either spelling. The image is checked against
        the chip it names before the radio is asked anything. */
@@ -138,9 +136,6 @@ struct mesh_firmware_ota_params {
 
 struct mesh_firmware_ota {
     struct inkwell_ble_central *client;
-    char adapter_path[MESH_FIRMWARE_OTA_PATH_MAX];
-    int hci_dev;
-
     enum mesh_firmware_ota_state state;
     enum mesh_firmware_ota_error error;
     /* The radio's words or the loader's, whichever refused - untranslated, like a log line. */

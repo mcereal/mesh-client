@@ -37,8 +37,8 @@ static const char *const k_services[] = {MESH_BLE_MESHTASTIC_SERVICE_UUID,
 static unsigned g_interval_calls;
 static char g_interval_address[32];
 
-static int rig_request_interval(int hci_dev, const char *address) {
-    (void)hci_dev;
+static int rig_request_interval(struct inkwell_ble_central *central, const char *address) {
+    (void)central;
     g_interval_calls += 1U;
     snprintf(g_interval_address, sizeof g_interval_address, "%s", address);
     return 0;
@@ -141,7 +141,6 @@ static struct mesh_firmware_ota_params rig_params(struct fw_rig *rig, bool arm) 
     struct mesh_firmware_ota_params params;
     memset(&params, 0, sizeof params);
     params.client = &rig->client;
-    params.adapter_path = RIG_ADAPTER;
     params.image_path = rig->image_path;
     params.architecture = "esp32-s3";
     params.radio_address = arm ? RIG_RADIO : NULL;
@@ -225,9 +224,12 @@ MESH_TEST_CASE(firmware_ota_offsets_addresses, unit) {
     MESH_TEST_FAIL_IF(!mesh_firmware_ota_offset_address("ff:ff:ff:ff:ff:ff", 1, out, sizeof out) ||
                           strcmp(out, "00:00:00:00:00:00") != 0,
                       "forty-eight bits wrap");
-    MESH_TEST_FAIL_IF(mesh_firmware_ota_offset_address("radio", 1, out, sizeof out) ||
-                          mesh_firmware_ota_offset_address(RIG_RADIO, 1, out, 8U),
-                      "text that is not an address, or no room for one, is refused");
+    MESH_TEST_FAIL_IF(
+        mesh_firmware_ota_offset_address("radio", 1, out, sizeof out) ||
+            mesh_firmware_ota_offset_address("9G:13:9E:9D:0A:FE", 1, out, sizeof out) ||
+            mesh_firmware_ota_offset_address("9C-13-9E-9D-0A-FE", 1, out, sizeof out) ||
+            mesh_firmware_ota_offset_address(RIG_RADIO, 1, out, 8U),
+        "malformed addresses, or no room for one, are refused");
     record_success(test_name);
 }
 

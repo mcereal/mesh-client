@@ -515,8 +515,8 @@ static int cli_ota_arm(void *userdata, const uint8_t sha256[32]) {
     return queued < 0 ? queued : 0;
 }
 
-static int cli_ota_interval(int hci_dev, const char *address) {
-    return mesh_ble_hci_request_interval(hci_dev, address, &mesh_ble_hci_ota_params);
+static int cli_ota_interval(struct inkwell_ble_central *central, const char *address) {
+    return mesh_ble_ota_request_interval(central, address);
 }
 
 static void cli_ota_done(void *userdata, const struct mesh_firmware_ota *ota) {
@@ -661,8 +661,9 @@ static int install_radio_firmware_ble(struct mesh_app *app,
             return -EBUSY;
         }
     } else {
-        uint8_t scratch[6];
-        if (mesh_ble_hci_parse_address(app->config.preferred_ble_device, scratch)) {
+        char scratch[INKWELL_BLE_ADDRESS_MAX];
+        if (mesh_firmware_ota_offset_address(app->config.preferred_ble_device, 0, scratch,
+                                             sizeof scratch)) {
             inkwell_str_copy(radio_address, sizeof radio_address, app->config.preferred_ble_device);
         }
         /* Nothing to arm, so the transport has nothing to do and must not scan beside us. */
@@ -698,7 +699,6 @@ static int install_radio_firmware_ble(struct mesh_app *app,
     struct mesh_firmware_ota_params params;
     memset(&params, 0, sizeof params);
     params.client = &client;
-    params.adapter_path = adapter;
     params.image_path = image_path;
     params.architecture = fetched->fetch.manifest.architecture;
     params.radio_address = radio_address;
