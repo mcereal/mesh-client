@@ -1,9 +1,9 @@
 # Native Windows port
 
 The Windows target is under active development. The first supported slice is an x64 UCRT
-executable with the SDL UI, the TCP transport and plaintext MQTT. Bluetooth, USB serial, firmware installation,
-self-update, TLS and the UI control socket are follow-up platform backends rather than promises
-of the first build.
+executable with the SDL UI, the USB serial and TCP transports and plaintext MQTT. Bluetooth,
+firmware installation, self-update, TLS and the UI control socket are follow-up platform backends
+rather than promises of the first build.
 
 ## See the UI
 
@@ -18,8 +18,9 @@ Set `MSYS2_ROOT` and substitute its `ucrt64\bin` directory if MSYS2 is installed
 Windows now selects SDL by default; `--foreground` keeps the event loop and window open until
 you close it or press Escape. Without `--foreground`, the default single poll exits almost
 immediately. The SDL2 DLLs must remain on `PATH` until they are bundled with a release. A
-device is not required to see the window, though Bluetooth and USB serial are not connected
-yet. Set `$env:MESHCLIENT_UI_BACKEND = 'cli'` when a terminal-only run is intended.
+device is not required to see the window. A radio plugged in over USB is found and connected
+to on its own; Bluetooth is not connected yet. Set `$env:MESHCLIENT_UI_BACKEND = 'cli'` when a
+terminal-only run is intended.
 
 ## Toolchain
 
@@ -57,6 +58,12 @@ sockets without passing them through `int` descriptors. Hostnames use overlapped
 addresses can use that path without blocking the UI. The MQTT client is on the same native
 sockets, so a plaintext broker (port 1883) works; one with TLS turned on is refused by name
 until TLS is ported. HTTPS fetch still uses an explicit unavailable backend.
+
+USB serial is inkwell's SetupAPI scan and overlapped COM I/O: a port is found by its USB vendor
+and product, named by the product string the device reports, and opened as `COM4` or
+`\\.\COM10`. A port another program holds (a serial terminal, a flasher) is exclusive on Windows
+and fails to open with `EBUSY` until that program lets go.
+
 Inkcell input and the client updater compile on Windows; the updater offers no install action
 because releases contain Linux binaries only.
 
@@ -85,7 +92,7 @@ The remaining work is primarily in platform backends:
 
 1. Port TLS and HTTPS fetch to native Windows sockets.
 2. Replace the explicit unavailable device backends with native implementations.
-3. Add SetupAPI/overlapped COM serial, then a Windows Runtime BLE backend.
+3. Add a Windows Runtime BLE backend.
 4. Give the UI-control protocol a native IPC backend and settle Windows user-data paths.
 
 The build and CI smoke check are the regression driver for this first slice. A successful link
