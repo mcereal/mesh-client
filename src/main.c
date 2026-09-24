@@ -1220,7 +1220,7 @@ int main(int argc, char **argv) {
                             "MESHCLIENT_UI_CONTROL\n");
             return EXIT_FAILURE;
         }
-        const int sent = mesh_app_control_send(config.ui_control_path, ui_send_commands, stdout);
+        const int sent = inkstand_control_send(config.ui_control_path, ui_send_commands, stdout);
         if (sent < 0 && sent != -EPROTO) {
             fprintf(stderr, "%s: %s\n", config.ui_control_path, strerror(-sent));
         }
