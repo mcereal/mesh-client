@@ -514,6 +514,19 @@ Four authoring rules hold across all of them, and breaking one compiles and look
 - **A heading is `struct inkcell_fb_app_bar`**, with slots; the back arrow is *derived* from the action
   table, never declared.
 - **fb layout is measured in cells, not bytes.** A `strlen` or `%-Ns` there is a bug.
+- **A list names its role, never its look.** `fb_list_look()` in `fb_screens_frame.c` is the
+  one answer: a *menu* (places to go, verbs to choose) and a *form* (a section's fields) stand in
+  inset sections with comfortable rows; a *feed* (nodes, conversations, waypoints) stays on the
+  panel, compact on the compact width class and comfortable above it. Every list takes the accent
+  cursor - a lift and a leading capsule, the row's own inks kept - and tiered type, and the
+  frame's travelling ring stays off an accent row, going to dialogs and cards instead. A uniform
+  list opens through `fb_list_begin_steps()`.
+
+The foot of the frame is inkcell's one-row compact action bar: the screen's own verbs, then the
+link's state at the row's end (the radio's name in the success tone, or what the transport is
+doing). `mesh_ui_actions_compact()` drops only what the chrome already says - `L/R tabs` and a `B
+back` the heading's arrow stands for - and no verb, because the help screen explains settings,
+not buttons, so a verb the bar hid would be one nothing on the device names.
 
 The tables a screen reads instead of deciding for itself: `actions.c` (button verbs), `status.c`
 (card verbs), `help.c`, `devices.c`, `nodes.c`, `delivery.c`, `trust.c`, `chrome.c`, `trend.c`,
