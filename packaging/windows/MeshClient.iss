@@ -76,3 +76,67 @@ Name: "{autodesktop}\MeshClient"; Filename: "{app}\meshclient.exe"; Parameters: 
 
 [Run]
 Filename: "{app}\meshclient.exe"; Parameters: "--foreground"; WorkingDir: "{localappdata}\MeshClient"; Description: "{cm:LaunchProgram,MeshClient}"; Flags: nowait postinstall skipifsilent
+
+[CustomMessages]
+ClientWillClose=MeshClient is running, and will be closed so that it can be uninstalled.
+ClientStillRunning=MeshClient is still running. Close it, then run the uninstaller again.
+
+[Code]
+{ Setup closes a running client through the Restart Manager (CloseApplications above), but the
+  uninstaller has none. Left alone, it cannot delete a meshclient.exe that is running, or the
+  DLLs that copy holds, and reports success with them still installed. So each copy running
+  from this install is asked to close first - by taskkill without /F, which posts the same
+  WM_CLOSE as the window's close button. Not killed: a client killed outright leaves the serial
+  port's lines to Windows, which can reset a USB radio into its bootloader (docs/windows.md).
+  A copy running from anywhere else, such as a development build, is not this install's. }
+
+function ClientsRunningFrom(Path: String): Variant;
+var
+  Locator, Service: Variant;
+begin
+  Locator := CreateOleObject('WbemScripting.SWbemLocator');
+  Service := Locator.ConnectServer('.', 'root\CIMV2');
+  { A WQL string doubles its backslashes. It is quoted with ", which no path can contain, so
+    an apostrophe in a profile name (O'Brien) needs nothing. }
+  StringChangeEx(Path, '\', '\\', True);
+  Result := Service.ExecQuery('SELECT ProcessId FROM Win32_Process WHERE ExecutablePath = "' +
+    Path + '"');
+end;
+
+function InitializeUninstall(): Boolean;
+var
+  Path: String;
+  Clients: Variant;
+  I, ResultCode: Integer;
+begin
+  Result := True;
+  Path := ExpandConstant('{app}\meshclient.exe');
+  try
+    Clients := ClientsRunningFrom(Path);
+    if Clients.Count = 0 then
+      Exit;
+    { This runs before the uninstaller's own "are you sure", so a client is not closed for an
+      uninstall that is then cancelled. Silent, the answer is OK. }
+    if SuppressibleMsgBox(CustomMessage('ClientWillClose'), mbConfirmation, MB_OKCANCEL,
+      IDOK) <> IDOK then begin
+      Result := False;
+      Exit;
+    end;
+    for I := 0 to Clients.Count - 1 do
+      Exec(ExpandConstant('{sys}\taskkill.exe'),
+        '/PID ' + IntToStr(Clients.ItemIndex(I).ProcessId), '', SW_HIDE,
+        ewWaitUntilTerminated, ResultCode);
+    { A client closing its radio link and saving its caches takes a moment. Each turn is the
+      sleep plus a WMI query of about as long, so this waits some ten seconds. }
+    for I := 1 to 50 do begin
+      if ClientsRunningFrom(Path).Count = 0 then
+        Exit;
+      Sleep(100);
+    end;
+  except
+    { No WMI to ask: uninstall as Inno Setup would without this. }
+    Exit;
+  end;
+  SuppressibleMsgBox(CustomMessage('ClientStillRunning'), mbError, MB_OK, IDOK);
+  Result := False;
+end;

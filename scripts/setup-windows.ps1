@@ -90,6 +90,24 @@ try {
     Pop-Location
 }
 
+# Only scripts/package-windows.ps1 needs Inno Setup, so it is reported and not installed: a build
+# is ready without it. The places looked in are the ones that script looks in.
+$iscc = (Get-Command ISCC.exe -ErrorAction SilentlyContinue).Source
+foreach ($candidate in @(
+        (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'),
+        (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe'),
+        (Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe'))) {
+    if (-not $iscc -and (Test-Path -LiteralPath $candidate)) {
+        $iscc = $candidate
+    }
+}
+Write-Host 'Inno Setup 6 (the installer only):'
+if ($iscc) {
+    Write-Host "  $iscc"
+} else {
+    Write-Host '  not installed: winget install JRSoftware.InnoSetup'
+}
+
 if ($Check -and ($missing.Count -ne 0 -or $submodulesOutOfSync)) {
     exit 1
 }

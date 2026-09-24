@@ -19,6 +19,10 @@ A Program Files install would need an administrator for that.
 - The Start menu shortcut passes `--foreground` and starts the client in
   `%LOCALAPPDATA%\MeshClient`, which is where its settings and history land, since Windows has no
   `HOME`. An uninstall leaves that directory alone.
+- Setup closes a running client through the Restart Manager before it replaces the files. The
+  uninstaller has no Restart Manager, so it finds any copy running from the install directory,
+  says it will close it, and asks it to close as its close button would, rather than killing it.
+  A copy that has not exited within about ten seconds stops the uninstall with nothing removed.
 - A `--foreground` run releases a console that no other process shares, so a launch from the
   Start menu shows only the window. Run from a terminal, the console is kept.
 - An update renames the running `meshclient.exe` to `meshclient.exe.old`, moves the download into
@@ -48,7 +52,8 @@ $env:Path = "C:\msys64\ucrt64\bin;$env:Path"
 Set `MSYS2_ROOT` and substitute its `ucrt64\bin` directory if MSYS2 is installed elsewhere.
 Windows now selects SDL by default; `--foreground` keeps the event loop and window open until
 you close it or press Escape. Without `--foreground`, the default single poll exits almost
-immediately. The SDL2 DLLs must remain on `PATH` until they are bundled with a release. A
+immediately. A build tree's executable finds SDL2's DLLs on `PATH`; the installer carries its
+own. A
 device is not required to see the window. A radio in Bluetooth range or plugged in over USB is
 found and connected to on its own. Set `$env:MESHCLIENT_UI_BACKEND = 'cli'` when a terminal-only
 run is intended.
