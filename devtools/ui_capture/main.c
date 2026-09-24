@@ -14,11 +14,11 @@
  * that ship; only the radio at the other end is invented, and only far enough to give the
  * screens something to draw.
  *
- * The script itself is played by scene.c, which names nothing of this client's: the store is
- * handed to it as a host, and the verbs below that are not its own - everything but `scene`,
- * `scale`, `delay`, `clock`, `theme`, `pointer`, `key`, `frame` and `hold` - are rows in this
- * file's verb table. That split is the seam inkstand's scene runner is cut along; see its
- * docs/extraction.md.
+ * The script itself is played by inkstand's scene runner (inkstand/app/scene.h), which names
+ * nothing of this client's: the store is handed to it as a host, and the verbs below that are not
+ * the runner's own - everything but `scene`, `scale`, `delay`, `clock`, `theme`, `pointer`, `key`,
+ * `frame` and `hold` - are rows in this file's verb table. The runner also answers
+ * `expect screen ID`, against the same screen ids a crash report and the control socket use.
  *
  * Scene script (one command per line, '#' starts a comment):
  *
@@ -81,7 +81,7 @@
  * the script starts on is emitted before any of them.
  */
 
-#include "scene.h"
+#include "inkstand/app/scene.h"
 
 #include "inkcell/ui/focus.h"
 #include "inkcell/ui/theme.h"
@@ -177,7 +177,7 @@ static void uicap_route_hop_name(const struct mesh_ui_handshake_state *handshake
     snprintf(out, out_len, "!%08x", node_id);
 }
 
-static int uicap_seed_demo(struct uicap_scene *scene, void *userdata) {
+static int uicap_seed_demo(struct inkstand_scene *scene, void *userdata) {
     struct uicap *cap = userdata;
     (void)scene;
     /* The last of these is the radio that is not here: BlueZ holds its bond and lists it with
@@ -643,7 +643,7 @@ static int uicap_seed_demo(struct uicap_scene *scene, void *userdata) {
 }
 
 /* Nothing connected: what the HUD looks like before a radio is found. */
-static int uicap_seed_empty(struct uicap_scene *scene, void *userdata) {
+static int uicap_seed_empty(struct inkstand_scene *scene, void *userdata) {
     struct uicap *cap = userdata;
     (void)scene;
     mesh_ui_store_set_transport_status(&cap->store, "scanning");
@@ -704,22 +704,22 @@ static int uicap_screen_from_name(const char *name) {
  * for a tab is asking for a tab; a scene that wants to prove what the d-pad does on a given row
  * presses `key left`/`key right` itself, which is what the two node scenes do.
  */
-static int uicap_tab(struct uicap_scene *scene, struct uicap *cap, int screen) {
+static int uicap_tab(struct inkstand_scene *scene, struct uicap *cap, int screen) {
     for (int guard = 0; guard < (int)MESH_UI_SCREEN_COUNT; ++guard) {
         const int current = (int)cap->store.nav.screen;
         if (current == screen) {
             return 0;
         }
         const int status =
-            uicap_scene_press(scene, current < screen ? INKCELL_KEY_R1 : INKCELL_KEY_L1);
+            inkstand_scene_press(scene, current < screen ? INKCELL_KEY_R1 : INKCELL_KEY_L1);
         if (status < 0) {
             return status;
         }
     }
-    return uicap_scene_fail(scene, "tab: could not reach that tab (an overlay is open)");
+    return inkstand_scene_fail(scene, "tab: could not reach that tab (an overlay is open)");
 }
 
-static int uicap_append_message(struct uicap_scene *scene, struct uicap *cap, bool outbound,
+static int uicap_append_message(struct inkstand_scene *scene, struct uicap *cap, bool outbound,
                                 enum mesh_message_kind kind, const char *name, const char *text,
                                 bool threaded) {
     struct mesh_ui_message_list messages = cap->store.messages;
@@ -740,7 +740,7 @@ static int uicap_append_message(struct uicap_scene *scene, struct uicap *cap, bo
         }
     }
     if (peer == 0U) {
-        return uicap_scene_fail(scene, "message: no node in the scene has that short name");
+        return inkstand_scene_fail(scene, "message: no node in the scene has that short name");
     }
 
     struct mesh_ui_message *entry = &messages.entries[messages.count++];
@@ -768,7 +768,7 @@ static int uicap_append_message(struct uicap_scene *scene, struct uicap *cap, bo
             }
         }
         if (entry->reply_id == 0U) {
-            return uicap_scene_fail(scene, "reply: nothing in the log to answer");
+            return inkstand_scene_fail(scene, "reply: nothing in the log to answer");
         }
     }
     mesh_ui_store_set_messages(&cap->store, &messages);
@@ -783,12 +783,12 @@ static int uicap_append_message(struct uicap_scene *scene, struct uicap *cap, bo
  * of the same roster, so what the capture shows is the arithmetic the device would do rather
  * than two numbers that were typed to agree.
  */
-static int uicap_append_waypoint(struct uicap_scene *scene, struct uicap *cap,
+static int uicap_append_waypoint(struct inkstand_scene *scene, struct uicap *cap,
                                  const char *node_name, const char *label,
                                  const char *description) {
     struct mesh_ui_waypoint_list list = cap->store.waypoints;
     if (list.count >= MESH_UI_MAX_WAYPOINTS) {
-        return uicap_scene_fail(scene, "waypoint: the book is full");
+        return inkstand_scene_fail(scene, "waypoint: the book is full");
     }
 
     const struct mesh_ui_node_summary *node = NULL;
@@ -799,10 +799,10 @@ static int uicap_append_waypoint(struct uicap_scene *scene, struct uicap *cap,
         }
     }
     if (node == NULL) {
-        return uicap_scene_fail(scene, "waypoint: no node in the scene has that short name");
+        return inkstand_scene_fail(scene, "waypoint: no node in the scene has that short name");
     }
     if (!node->position.valid) {
-        return uicap_scene_fail(scene, "waypoint: that node has no fix to put a place at");
+        return inkstand_scene_fail(scene, "waypoint: that node has no fix to put a place at");
     }
 
     const uint32_t me =
@@ -840,8 +840,8 @@ static int uicap_append_waypoint(struct uicap_scene *scene, struct uicap *cap,
  * the whole reason a reason is not a corner mark - are unfilmable, which is another way of
  * saying unreviewable.
  */
-static int uicap_mark_ack(struct uicap_scene *scene, struct uicap *cap, enum mesh_message_ack ack,
-                          uint8_t error) {
+static int uicap_mark_ack(struct inkstand_scene *scene, struct uicap *cap,
+                          enum mesh_message_ack ack, uint8_t error) {
     struct mesh_ui_message_list messages = cap->store.messages;
     uint32_t at = messages.count;
     while (at > 0U) {
@@ -850,11 +850,11 @@ static int uicap_mark_ack(struct uicap_scene *scene, struct uicap *cap, enum mes
             break;
         }
         if (at == 0U) {
-            return uicap_scene_fail(scene, "ack: the scene has sent nothing to answer");
+            return inkstand_scene_fail(scene, "ack: the scene has sent nothing to answer");
         }
     }
     if (messages.count == 0U) {
-        return uicap_scene_fail(scene, "ack: the scene has sent nothing to answer");
+        return inkstand_scene_fail(scene, "ack: the scene has sent nothing to answer");
     }
     messages.entries[at].ack = (uint8_t)ack;
     messages.entries[at].ack_error = error;
@@ -867,11 +867,11 @@ static int uicap_mark_ack(struct uicap_scene *scene, struct uicap *cap, enum mes
  * just said produces. It is appended like any other message and flagged; the transcript
  * filters it out of the bubbles and draws it on the one it names.
  */
-static int uicap_append_reaction(struct uicap_scene *scene, struct uicap *cap, const char *name,
+static int uicap_append_reaction(struct inkstand_scene *scene, struct uicap *cap, const char *name,
                                  const char *emoji) {
     struct mesh_ui_message_list messages = cap->store.messages;
     if (messages.count == 0U || messages.count >= MESH_UI_MAX_MESSAGES) {
-        return uicap_scene_fail(scene, "react: needs a message to react to, and room for it");
+        return inkstand_scene_fail(scene, "react: needs a message to react to, and room for it");
     }
 
     uint32_t peer = 0U;
@@ -882,7 +882,7 @@ static int uicap_append_reaction(struct uicap_scene *scene, struct uicap *cap, c
         }
     }
     if (peer == 0U) {
-        return uicap_scene_fail(scene, "react: no node in the scene has that short name");
+        return inkstand_scene_fail(scene, "react: no node in the scene has that short name");
     }
 
     /* The newest message that is not itself a reaction: reacting to a reaction is not a thing
@@ -895,7 +895,7 @@ static int uicap_append_reaction(struct uicap_scene *scene, struct uicap *cap, c
         }
     }
     if (target == NULL) {
-        return uicap_scene_fail(scene, "react: nothing in the log to react to");
+        return inkstand_scene_fail(scene, "react: nothing in the log to react to");
     }
 
     struct mesh_ui_message *entry = &messages.entries[messages.count++];
@@ -972,67 +972,67 @@ static void uicap_geometry(const char *text, uint32_t *out_width, uint32_t *out_
  * The tiles then fill one per frame exactly as they do on the device, so the frames a press
  * settles over are a view filling in - which is the thing this scene is a picture of.
  */
-static int verb_map(struct uicap_scene *scene, char *rest, void *userdata) {
+static int verb_map(struct inkstand_scene *scene, char *rest, void *userdata) {
     (void)userdata;
-    char *what = uicap_scene_word(&rest);
-    const char *path = uicap_scene_tail(rest);
+    char *what = inkstand_scene_word(&rest);
+    const char *path = inkstand_scene_tail(rest);
     if (what == NULL || strcmp(what, "pack") != 0 || path == NULL || path[0] == '\0') {
-        return uicap_scene_fail(scene, "'map' takes 'pack <path>'");
+        return inkstand_scene_fail(scene, "'map' takes 'pack <path>'");
     }
-    const int opened = mesh_ui_capture_open_map_pack(uicap_scene_capture(scene), path);
+    const int opened = mesh_ui_capture_open_map_pack(inkstand_scene_capture(scene), path);
     if (opened < 0) {
-        return uicap_scene_fail(scene, "could not open the tile pack %s: %s", path,
-                                strerror(-opened));
+        return inkstand_scene_fail(scene, "could not open the tile pack %s: %s", path,
+                                   strerror(-opened));
     }
     return 0;
 }
 
-static int verb_context(struct uicap_scene *scene, char *rest, void *userdata) {
+static int verb_context(struct inkstand_scene *scene, char *rest, void *userdata) {
     struct uicap *cap = userdata;
-    char *what = uicap_scene_word(&rest);
-    char *index_text = uicap_scene_word(&rest);
+    char *what = inkstand_scene_word(&rest);
+    char *index_text = inkstand_scene_word(&rest);
     if (what == NULL || strcmp(what, "row") != 0 || index_text == NULL) {
-        return uicap_scene_fail(scene, "'context' needs 'row N'");
+        return inkstand_scene_fail(scene, "'context' needs 'row N'");
     }
     unsigned row = 0U;
-    const int parsed = uicap_scene_number(scene, index_text, "row", &row);
+    const int parsed = inkstand_scene_number(scene, index_text, "row", &row);
     if (parsed < 0) {
         return parsed;
     }
     /* Where the last frame drew the row, which is where a reader would have clicked. */
     const uint32_t id = (uint32_t)MESH_UI_FOCUS_ROWS + row;
     struct inkcell_focus_rect box;
-    if (!inkcell_focus_rect_of(inkcell_capture_state(uicap_scene_capture(scene))->focus, id,
+    if (!inkcell_focus_rect_of(inkcell_capture_state(inkstand_scene_capture(scene))->focus, id,
                                &box)) {
-        return uicap_scene_fail(scene, "the last frame drew no row %s", index_text);
+        return inkstand_scene_fail(scene, "the last frame drew no row %s", index_text);
     }
     (void)mesh_ui_store_handle_context(&cap->store, id, box.x + box.w / 3, box.y + box.h / 2);
     return 0;
 }
 
-static int verb_tab(struct uicap_scene *scene, char *rest, void *userdata) {
+static int verb_tab(struct inkstand_scene *scene, char *rest, void *userdata) {
     struct uicap *cap = userdata;
-    char *name = uicap_scene_word(&rest);
+    char *name = inkstand_scene_word(&rest);
     if (name == NULL) {
-        return uicap_scene_fail(scene, "'tab' needs a name");
+        return inkstand_scene_fail(scene, "'tab' needs a name");
     }
     const int screen = uicap_screen_from_name(name);
     if (screen < 0) {
-        return uicap_scene_fail(scene, "no tab called '%s'", name);
+        return inkstand_scene_fail(scene, "no tab called '%s'", name);
     }
     return uicap_tab(scene, cap, screen);
 }
 
-static int verb_toast(struct uicap_scene *scene, char *rest, void *userdata) {
+static int verb_toast(struct inkstand_scene *scene, char *rest, void *userdata) {
     struct uicap *cap = userdata;
-    mesh_ui_store_set_toast(&cap->store, uicap_scene_now(scene), uicap_scene_tail(rest));
+    mesh_ui_store_set_toast(&cap->store, inkstand_scene_now(scene), inkstand_scene_tail(rest));
     return 0;
 }
 
-static int verb_status(struct uicap_scene *scene, char *rest, void *userdata) {
+static int verb_status(struct inkstand_scene *scene, char *rest, void *userdata) {
     struct uicap *cap = userdata;
     (void)scene;
-    mesh_ui_store_set_transport_status(&cap->store, uicap_scene_tail(rest));
+    mesh_ui_store_set_transport_status(&cap->store, inkstand_scene_tail(rest));
     return 0;
 }
 
@@ -1041,12 +1041,12 @@ static int verb_status(struct uicap_scene *scene, char *rest, void *userdata) {
  * read-modify-write of the settings view, because the store replaces it wholesale and the
  * demo scene has already put a radio behind it.
  */
-static int verb_ack(struct uicap_scene *scene, char *rest, void *userdata) {
+static int verb_ack(struct inkstand_scene *scene, char *rest, void *userdata) {
     struct uicap *cap = userdata;
-    char *state = uicap_scene_word(&rest);
-    char *reason = uicap_scene_word(&rest);
+    char *state = inkstand_scene_word(&rest);
+    char *reason = inkstand_scene_word(&rest);
     if (state == NULL) {
-        return uicap_scene_fail(scene, "'ack' needs sending|delivered|failed");
+        return inkstand_scene_fail(scene, "'ack' needs sending|delivered|failed");
     }
     enum mesh_message_ack ack = MESH_MESSAGE_ACK_PENDING;
     if (strcmp(state, "delivered") == 0) {
@@ -1054,7 +1054,7 @@ static int verb_ack(struct uicap_scene *scene, char *rest, void *userdata) {
     } else if (strcmp(state, "failed") == 0) {
         ack = MESH_MESSAGE_ACK_FAILED;
     } else if (strcmp(state, "sending") != 0) {
-        return uicap_scene_fail(scene, "'ack' state is sending, delivered or failed");
+        return inkstand_scene_fail(scene, "'ack' state is sending, delivered or failed");
     }
     /* The Routing_Error number rather than a word: the reasons are upstream's enum, and a
        scene naming one by number is naming exactly what the radio would have sent. */
@@ -1062,13 +1062,13 @@ static int verb_ack(struct uicap_scene *scene, char *rest, void *userdata) {
     return uicap_mark_ack(scene, cap, ack, error);
 }
 
-static int verb_react(struct uicap_scene *scene, char *rest, void *userdata) {
+static int verb_react(struct inkstand_scene *scene, char *rest, void *userdata) {
     struct uicap *cap = userdata;
-    char *name = uicap_scene_word(&rest);
+    char *name = inkstand_scene_word(&rest);
     if (name == NULL) {
-        return uicap_scene_fail(scene, "'react' needs a short name and an emoji");
+        return inkstand_scene_fail(scene, "'react' needs a short name and an emoji");
     }
-    return uicap_append_reaction(scene, cap, name, uicap_scene_tail(rest));
+    return uicap_append_reaction(scene, cap, name, inkstand_scene_tail(rest));
 }
 
 /* A pinned node. Its own verb for the same reason `offradio` is: X on the Nodes tab raises
@@ -1083,11 +1083,11 @@ static int verb_react(struct uicap_scene *scene, char *rest, void *userdata) {
  * the press asks the app and the app is what writes. This is the app's half, and without it
  * a muted row is unfilmable, which for a UI change is another way of saying unreviewable.
  */
-static int verb_mute(struct uicap_scene *scene, char *rest, void *userdata) {
+static int verb_mute(struct inkstand_scene *scene, char *rest, void *userdata) {
     struct uicap *cap = userdata;
-    char *name = uicap_scene_word(&rest);
+    char *name = inkstand_scene_word(&rest);
     if (name == NULL) {
-        return uicap_scene_fail(scene, "'mute' needs a short name or #channel");
+        return inkstand_scene_fail(scene, "'mute' needs a short name or #channel");
     }
     const struct mesh_ui_handshake_state *handshake = &cap->store.handshake;
     bool matched = false;
@@ -1111,7 +1111,7 @@ static int verb_mute(struct uicap_scene *scene, char *rest, void *userdata) {
         }
     }
     if (!matched) {
-        return uicap_scene_fail(scene, "no conversation in the scene called '%s'", name);
+        return inkstand_scene_fail(scene, "no conversation in the scene called '%s'", name);
     }
     return 0;
 }
@@ -1125,11 +1125,11 @@ static int verb_mute(struct uicap_scene *scene, char *rest, void *userdata) {
  * its own user something - so a scene that pressed "Verify this key" would film a toast and
  * then nothing at all.
  */
-static int verb_verified(struct uicap_scene *scene, char *rest, void *userdata) {
+static int verb_verified(struct inkstand_scene *scene, char *rest, void *userdata) {
     struct uicap *cap = userdata;
-    char *name = uicap_scene_word(&rest);
+    char *name = inkstand_scene_word(&rest);
     if (name == NULL) {
-        return uicap_scene_fail(scene, "'verified' needs a short name");
+        return inkstand_scene_fail(scene, "'verified' needs a short name");
     }
     struct mesh_ui_handshake_state handshake = cap->store.handshake;
     bool matched = false;
@@ -1141,19 +1141,20 @@ static int verb_verified(struct uicap_scene *scene, char *rest, void *userdata) 
         }
     }
     if (!matched) {
-        return uicap_scene_fail(scene, "no node in the scene called '%s'", name);
+        return inkstand_scene_fail(scene, "no node in the scene called '%s'", name);
     }
     mesh_ui_store_set_handshake(&cap->store, &handshake);
     return 0;
 }
 
-static int verb_verify(struct uicap_scene *scene, char *rest, void *userdata) {
+static int verb_verify(struct inkstand_scene *scene, char *rest, void *userdata) {
     struct uicap *cap = userdata;
-    char *stage = uicap_scene_word(&rest);
-    char *name = uicap_scene_word(&rest);
+    char *stage = inkstand_scene_word(&rest);
+    char *name = inkstand_scene_word(&rest);
     if (stage == NULL || name == NULL) {
-        return uicap_scene_fail(scene, "'verify' needs a stage "
-                                       "(waiting|show|enter|compare|checked|off) and a short name");
+        return inkstand_scene_fail(scene,
+                                   "'verify' needs a stage "
+                                   "(waiting|show|enter|compare|checked|off) and a short name");
     }
     struct mesh_ui_verification verification;
     memset(&verification, 0, sizeof verification);
@@ -1168,7 +1169,7 @@ static int verb_verify(struct uicap_scene *scene, char *rest, void *userdata) {
             }
         }
         if (verification.remote_node == 0U) {
-            return uicap_scene_fail(scene, "no node in the scene called '%s'", name);
+            return inkstand_scene_fail(scene, "no node in the scene called '%s'", name);
         }
     }
     /* The digits and the code are the radio's, so they are invented here exactly as a
@@ -1192,7 +1193,7 @@ static int verb_verify(struct uicap_scene *scene, char *rest, void *userdata) {
            rather than ask for a comparison against a blank headline. */
         verification.stage = (uint8_t)MESH_UI_VERIFY_COMPARE;
     } else if (strcmp(stage, "off") != 0) {
-        return uicap_scene_fail(scene, "unknown verification stage '%s'", stage);
+        return inkstand_scene_fail(scene, "unknown verification stage '%s'", stage);
     }
     mesh_ui_store_set_verification(&cap->store, &verification);
     /* Which overlay a stage raises is the app's decision (mesh_app_report_key_verification),
@@ -1210,11 +1211,11 @@ static int verb_verify(struct uicap_scene *scene, char *rest, void *userdata) {
     return 0;
 }
 
-static int verb_pin(struct uicap_scene *scene, char *rest, void *userdata) {
+static int verb_pin(struct inkstand_scene *scene, char *rest, void *userdata) {
     struct uicap *cap = userdata;
-    char *name = uicap_scene_word(&rest);
+    char *name = inkstand_scene_word(&rest);
     if (name == NULL) {
-        return uicap_scene_fail(scene, "'pin' needs a short name");
+        return inkstand_scene_fail(scene, "'pin' needs a short name");
     }
     struct mesh_ui_handshake_state handshake = cap->store.handshake;
     bool matched = false;
@@ -1231,7 +1232,7 @@ static int verb_pin(struct uicap_scene *scene, char *rest, void *userdata) {
         }
     }
     if (!matched) {
-        return uicap_scene_fail(scene, "no node in the scene called '%s'", name);
+        return inkstand_scene_fail(scene, "no node in the scene called '%s'", name);
     }
     /* A pinned node survives a forget, so it leaves the counts the Settings rows offer -
        the same arithmetic `offradio` below makes for the same reason. */
@@ -1263,15 +1264,15 @@ static int verb_pin(struct uicap_scene *scene, char *rest, void *userdata) {
  * when the telemetry group changes, so a node repeating the same percentage twice is one
  * report on the wire and one point on the line. See mesh_ui_store_set_handshake().
  */
-static int verb_battery(struct uicap_scene *scene, char *rest, void *userdata) {
+static int verb_battery(struct inkstand_scene *scene, char *rest, void *userdata) {
     struct uicap *cap = userdata;
-    char *name = uicap_scene_word(&rest);
-    char *percent = uicap_scene_word(&rest);
+    char *name = inkstand_scene_word(&rest);
+    char *percent = inkstand_scene_word(&rest);
     if (name == NULL || percent == NULL) {
-        return uicap_scene_fail(scene, "'battery' needs a short name and a percentage");
+        return inkstand_scene_fail(scene, "'battery' needs a short name and a percentage");
     }
     unsigned level = 0U;
-    const int parsed = uicap_scene_number(scene, percent, "battery", &level);
+    const int parsed = inkstand_scene_number(scene, percent, "battery", &level);
     if (parsed < 0) {
         return parsed;
     }
@@ -1290,7 +1291,7 @@ static int verb_battery(struct uicap_scene *scene, char *rest, void *userdata) {
         matched = true;
     }
     if (!matched) {
-        return uicap_scene_fail(scene, "no node in the scene called '%s'", name);
+        return inkstand_scene_fail(scene, "no node in the scene called '%s'", name);
     }
     mesh_ui_store_set_handshake(&cap->store, &handshake);
     return 0;
@@ -1306,21 +1307,21 @@ static int verb_battery(struct uicap_scene *scene, char *rest, void *userdata) {
  * for: a sensor reporting air while its battery holds still. The uptime bump `battery`
  * makes has no counterpart here for the same reason; the reading itself is what moves.
  */
-static int verb_environment(struct uicap_scene *scene, char *rest, void *userdata) {
+static int verb_environment(struct inkstand_scene *scene, char *rest, void *userdata) {
     struct uicap *cap = userdata;
-    char *name = uicap_scene_word(&rest);
-    char *celsius = uicap_scene_word(&rest);
-    char *humidity = uicap_scene_word(&rest);
+    char *name = inkstand_scene_word(&rest);
+    char *celsius = inkstand_scene_word(&rest);
+    char *humidity = inkstand_scene_word(&rest);
     if (name == NULL || celsius == NULL) {
-        return uicap_scene_fail(scene,
-                                "'environment' needs a short name, a temperature in C and an "
-                                "optional humidity");
+        return inkstand_scene_fail(scene,
+                                   "'environment' needs a short name, a temperature in C and an "
+                                   "optional humidity");
     }
     unsigned degrees = 0U;
     unsigned relative = 0U;
-    int parsed = uicap_scene_number(scene, celsius, "environment", &degrees);
+    int parsed = inkstand_scene_number(scene, celsius, "environment", &degrees);
     if (parsed == 0 && humidity != NULL) {
-        parsed = uicap_scene_number(scene, humidity, "environment", &relative);
+        parsed = inkstand_scene_number(scene, humidity, "environment", &relative);
     }
     if (parsed < 0) {
         return parsed;
@@ -1342,7 +1343,7 @@ static int verb_environment(struct uicap_scene *scene, char *rest, void *userdat
         matched = true;
     }
     if (!matched) {
-        return uicap_scene_fail(scene, "no node in the scene called '%s'", name);
+        return inkstand_scene_fail(scene, "no node in the scene called '%s'", name);
     }
     mesh_ui_store_set_handshake(&cap->store, &handshake);
     return 0;
@@ -1361,20 +1362,21 @@ static int verb_environment(struct uicap_scene *scene, char *rest, void *userdat
  * The client refuses to draw a bar or keep a trend on anything else, so a scene that left
  * them alone would be a scene that produces no picture and no hint as to why.
  */
-static int verb_signal(struct uicap_scene *scene, char *rest, void *userdata) {
+static int verb_signal(struct inkstand_scene *scene, char *rest, void *userdata) {
     struct uicap *cap = userdata;
-    char *name = uicap_scene_word(&rest);
-    char *snr = uicap_scene_word(&rest);
-    char *rssi = uicap_scene_word(&rest);
+    char *name = inkstand_scene_word(&rest);
+    char *snr = inkstand_scene_word(&rest);
+    char *rssi = inkstand_scene_word(&rest);
     if (name == NULL || snr == NULL) {
-        return uicap_scene_fail(scene, "'signal' needs a short name, an SNR in dB and an optional "
-                                       "RSSI in dBm");
+        return inkstand_scene_fail(scene,
+                                   "'signal' needs a short name, an SNR in dB and an optional "
+                                   "RSSI in dBm");
     }
     int snr_db = 0;
     int rssi_dbm = 0;
-    int parsed = uicap_scene_signed(scene, snr, "signal", &snr_db);
+    int parsed = inkstand_scene_signed(scene, snr, "signal", &snr_db);
     if (parsed == 0 && rssi != NULL) {
-        parsed = uicap_scene_signed(scene, rssi, "signal", &rssi_dbm);
+        parsed = inkstand_scene_signed(scene, rssi, "signal", &rssi_dbm);
     }
     if (parsed < 0) {
         return parsed;
@@ -1426,7 +1428,7 @@ static int verb_signal(struct uicap_scene *scene, char *rest, void *userdata) {
         matched = true;
     }
     if (!matched) {
-        return uicap_scene_fail(scene, "no node in the scene called '%s'", name);
+        return inkstand_scene_fail(scene, "no node in the scene called '%s'", name);
     }
     mesh_ui_store_set_handshake(&cap->store, &handshake);
     return 0;
@@ -1441,7 +1443,7 @@ static int verb_signal(struct uicap_scene *scene, char *rest, void *userdata) {
  * about. Its own verb because nothing a scene can press removes a fix: a position arrives
  * off the air, and there is no air behind the harness.
  */
-static int verb_nofix(struct uicap_scene *scene, char *rest, void *userdata) {
+static int verb_nofix(struct inkstand_scene *scene, char *rest, void *userdata) {
     struct uicap *cap = userdata;
     (void)rest;
     struct mesh_ui_handshake_state handshake = cap->store.handshake;
@@ -1456,7 +1458,7 @@ static int verb_nofix(struct uicap_scene *scene, char *rest, void *userdata) {
         break;
     }
     if (!cleared) {
-        return uicap_scene_fail(scene, "'nofix' needs a scene with our own radio in it");
+        return inkstand_scene_fail(scene, "'nofix' needs a scene with our own radio in it");
     }
     mesh_ui_store_set_handshake(&cap->store, &handshake);
     return 0;
@@ -1466,11 +1468,11 @@ static int verb_nofix(struct uicap_scene *scene, char *rest, void *userdata) {
    has stopped carrying them. Its own verb because no key press can reach it - the reset
    goes out over the air and the answer comes back on the next sync, neither of which
    exists behind the harness. */
-static int verb_offradio(struct uicap_scene *scene, char *rest, void *userdata) {
+static int verb_offradio(struct inkstand_scene *scene, char *rest, void *userdata) {
     struct uicap *cap = userdata;
-    char *name = uicap_scene_word(&rest);
+    char *name = inkstand_scene_word(&rest);
     if (name == NULL) {
-        return uicap_scene_fail(scene, "'offradio' needs a short name or 'all'");
+        return inkstand_scene_fail(scene, "'offradio' needs a short name or 'all'");
     }
     struct mesh_ui_handshake_state handshake = cap->store.handshake;
     const bool all = strcmp(name, "all") == 0;
@@ -1486,7 +1488,7 @@ static int verb_offradio(struct uicap_scene *scene, char *rest, void *userdata) 
         }
     }
     if (!matched) {
-        return uicap_scene_fail(scene, "no node in the scene called '%s'", name);
+        return inkstand_scene_fail(scene, "no node in the scene called '%s'", name);
     }
     /* What the Settings rows offer to drop. Pinned nodes and our own record survive a
        forget, so they are not in either count - the same arithmetic the app publishes. */
@@ -1510,11 +1512,11 @@ static int verb_offradio(struct uicap_scene *scene, char *rest, void *userdata) 
     return 0;
 }
 
-static int verb_notice(struct uicap_scene *scene, char *rest, void *userdata) {
+static int verb_notice(struct inkstand_scene *scene, char *rest, void *userdata) {
     struct uicap *cap = userdata;
-    char *level = uicap_scene_word(&rest);
+    char *level = inkstand_scene_word(&rest);
     if (level == NULL) {
-        return uicap_scene_fail(scene, "'notice' needs info|warn|error and text");
+        return inkstand_scene_fail(scene, "'notice' needs info|warn|error and text");
     }
     struct mesh_ui_settings settings = cap->store.settings;
     /* python logging's scale, which is what LogRecord.Level is. */
@@ -1525,11 +1527,11 @@ static int verb_notice(struct uicap_scene *scene, char *rest, void *userdata) {
     } else if (strcmp(level, "info") == 0) {
         settings.notice.level = 20U;
     } else {
-        return uicap_scene_fail(scene, "'notice' level is info, warn or error");
+        return inkstand_scene_fail(scene, "'notice' level is info, warn or error");
     }
     settings.notice.seq++;
     settings.notice.received = inkwell_time_wall_s();
-    snprintf(settings.notice.text, sizeof settings.notice.text, "%s", uicap_scene_tail(rest));
+    snprintf(settings.notice.text, sizeof settings.notice.text, "%s", inkstand_scene_tail(rest));
     mesh_ui_store_set_settings(&cap->store, &settings);
     return 0;
 }
@@ -1541,7 +1543,7 @@ static int verb_notice(struct uicap_scene *scene, char *rest, void *userdata) {
  * behind it - so the one tab whose rows are all controls was the one tab a capture could
  * not show. The values are plausible rather than meaningful: what is on show is the rows.
  */
-static int verb_config(struct uicap_scene *scene, char *rest, void *userdata) {
+static int verb_config(struct inkstand_scene *scene, char *rest, void *userdata) {
     struct uicap *cap = userdata;
     (void)scene;
     (void)rest;
@@ -1954,19 +1956,19 @@ static int verb_config(struct uicap_scene *scene, char *rest, void *userdata) {
     return 0;
 }
 
-static int verb_queue(struct uicap_scene *scene, char *rest, void *userdata) {
+static int verb_queue(struct inkstand_scene *scene, char *rest, void *userdata) {
     struct uicap *cap = userdata;
-    char *free_slots = uicap_scene_word(&rest);
-    char *maxlen = uicap_scene_word(&rest);
+    char *free_slots = inkstand_scene_word(&rest);
+    char *maxlen = inkstand_scene_word(&rest);
     if (free_slots == NULL || maxlen == NULL) {
-        return uicap_scene_fail(scene, "'queue' needs FREE and MAXLEN");
+        return inkstand_scene_fail(scene, "'queue' needs FREE and MAXLEN");
     }
-    const char *refused = uicap_scene_word(&rest);
+    const char *refused = inkstand_scene_word(&rest);
     unsigned free_count = 0U;
     unsigned max_count = 0U;
-    int parsed = uicap_scene_number(scene, free_slots, "queue", &free_count);
+    int parsed = inkstand_scene_number(scene, free_slots, "queue", &free_count);
     if (parsed == 0) {
-        parsed = uicap_scene_number(scene, maxlen, "queue", &max_count);
+        parsed = inkstand_scene_number(scene, maxlen, "queue", &max_count);
     }
     if (parsed < 0) {
         return parsed;
@@ -2005,11 +2007,11 @@ static int verb_queue(struct uicap_scene *scene, char *rest, void *userdata) {
  * that only said "in progress" could not tell a sync that was working from one that had
  * stalled - which, on a link dropping mid-roster, is the question being asked.
  */
-static int verb_syncing(struct uicap_scene *scene, char *rest, void *userdata) {
+static int verb_syncing(struct inkstand_scene *scene, char *rest, void *userdata) {
     struct uicap *cap = userdata;
-    const char *value = uicap_scene_word(&rest);
+    const char *value = inkstand_scene_word(&rest);
     if (value != NULL && strcmp(value, "on") != 0 && strcmp(value, "off") != 0) {
-        return uicap_scene_fail(scene, "'syncing' takes on, off or nothing");
+        return inkstand_scene_fail(scene, "'syncing' takes on, off or nothing");
     }
     struct mesh_ui_handshake_state handshake = cap->store.handshake;
     /* `off` is the replay finishing, which leaves the roster it delivered where it is - exactly
@@ -2041,11 +2043,11 @@ static int verb_syncing(struct uicap_scene *scene, char *rest, void *userdata) {
  * it was made to - so a verb that also cleared them would be filming a state this client is
  * never in.
  */
-static int verb_link(struct uicap_scene *scene, char *rest, void *userdata) {
+static int verb_link(struct inkstand_scene *scene, char *rest, void *userdata) {
     struct uicap *cap = userdata;
-    char *state = uicap_scene_word(&rest);
+    char *state = inkstand_scene_word(&rest);
     if (state == NULL || (strcmp(state, "up") != 0 && strcmp(state, "down") != 0)) {
-        return uicap_scene_fail(scene, "'link' takes up or down");
+        return inkstand_scene_fail(scene, "'link' takes up or down");
     }
     struct mesh_ui_handshake_state handshake = cap->store.handshake;
     handshake.link_up = strcmp(state, "up") == 0;
@@ -2061,11 +2063,11 @@ static int verb_link(struct uicap_scene *scene, char *rest, void *userdata) {
  * connection at all, so a proxy that is failing looks exactly like one that is working from
  * anywhere else on the client.
  */
-static int verb_broker(struct uicap_scene *scene, char *rest, void *userdata) {
+static int verb_broker(struct inkstand_scene *scene, char *rest, void *userdata) {
     struct uicap *cap = userdata;
-    const char *what = uicap_scene_word(&rest);
+    const char *what = inkstand_scene_word(&rest);
     if (what == NULL) {
-        return uicap_scene_fail(scene, "'broker' needs a state");
+        return inkstand_scene_fail(scene, "'broker' needs a state");
     }
     struct mesh_ui_mqtt_state mqtt;
     memset(&mqtt, 0, sizeof mqtt);
@@ -2112,14 +2114,14 @@ static int verb_broker(struct uicap_scene *scene, char *rest, void *userdata) {
         mqtt.subscriptions = 0U;
         mqtt.unhandled = 57U;
     } else if (strcmp(what, "off") != 0) {
-        return uicap_scene_fail(scene, "'broker' takes off|connected|flapping|refused|silent|"
-                                       "disabled");
+        return inkstand_scene_fail(scene, "'broker' takes off|connected|flapping|refused|silent|"
+                                          "disabled");
     }
     mesh_ui_store_set_mqtt(&cap->store, &mqtt);
     return 0;
 }
 
-static int verb_stats(struct uicap_scene *scene, char *rest, void *userdata) {
+static int verb_stats(struct inkstand_scene *scene, char *rest, void *userdata) {
     struct uicap *cap = userdata;
     (void)scene;
     (void)rest;
@@ -2150,11 +2152,11 @@ static int verb_stats(struct uicap_scene *scene, char *rest, void *userdata) {
  * the meter under them are the same number, and a scene that could only set one of them
  * could not show them agreeing.
  */
-static int verb_airtime(struct uicap_scene *scene, char *rest, void *userdata) {
+static int verb_airtime(struct inkstand_scene *scene, char *rest, void *userdata) {
     struct uicap *cap = userdata;
-    char *busy = uicap_scene_word(&rest);
+    char *busy = inkstand_scene_word(&rest);
     if (busy == NULL) {
-        return uicap_scene_fail(scene, "'airtime' needs a busy percentage");
+        return inkstand_scene_fail(scene, "'airtime' needs a busy percentage");
     }
     /*
      * `airtime history MINUTES`: that many minutes of the radio's once-a-minute DeviceMetrics,
@@ -2165,12 +2167,12 @@ static int verb_airtime(struct uicap_scene *scene, char *rest, void *userdata) {
      * and our own share as the smooth rolling hour the firmware reports it as.
      */
     if (strcmp(busy, "history") == 0) {
-        const char *minutes_word = uicap_scene_word(&rest);
+        const char *minutes_word = inkstand_scene_word(&rest);
         if (minutes_word == NULL) {
-            return uicap_scene_fail(scene, "'airtime history' needs a minute count");
+            return inkstand_scene_fail(scene, "'airtime history' needs a minute count");
         }
         unsigned minutes = 0U;
-        const int parsed = uicap_scene_number(scene, minutes_word, "airtime history", &minutes);
+        const int parsed = inkstand_scene_number(scene, minutes_word, "airtime history", &minutes);
         if (parsed < 0) {
             return parsed;
         }
@@ -2195,12 +2197,12 @@ static int verb_airtime(struct uicap_scene *scene, char *rest, void *userdata) {
         mesh_ui_store_request_refresh(&cap->store);
         return 0;
     }
-    const char *tx = uicap_scene_word(&rest);
+    const char *tx = inkstand_scene_word(&rest);
     unsigned busy_percent = 0U;
     unsigned tx_percent = 0U;
-    int parsed = uicap_scene_number(scene, busy, "airtime", &busy_percent);
+    int parsed = inkstand_scene_number(scene, busy, "airtime", &busy_percent);
     if (parsed == 0 && tx != NULL) {
-        parsed = uicap_scene_number(scene, tx, "airtime", &tx_percent);
+        parsed = inkstand_scene_number(scene, tx, "airtime", &tx_percent);
     }
     if (parsed < 0) {
         return parsed;
@@ -2231,11 +2233,11 @@ static int verb_airtime(struct uicap_scene *scene, char *rest, void *userdata) {
  * what mesh_app_publish_ui_state() would have published: the state, and the progress read
  * off the staged file.
  */
-static int verb_update(struct uicap_scene *scene, char *rest, void *userdata) {
+static int verb_update(struct inkstand_scene *scene, char *rest, void *userdata) {
     struct uicap *cap = userdata;
-    char *step = uicap_scene_word(&rest);
+    char *step = inkstand_scene_word(&rest);
     if (step == NULL) {
-        return uicap_scene_fail(scene, "'update' needs check, download, available or ready");
+        return inkstand_scene_fail(scene, "'update' needs check, download, available or ready");
     }
     const bool downloading = strcmp(step, "download") == 0;
     const bool checking = strcmp(step, "check") == 0;
@@ -2246,12 +2248,12 @@ static int verb_update(struct uicap_scene *scene, char *rest, void *userdata) {
     const bool available = strcmp(step, "available") == 0;
     const bool ready = strcmp(step, "ready") == 0;
     if (!downloading && !checking && !available && !ready) {
-        return uicap_scene_fail(scene, "'update' takes check, download, available or ready");
+        return inkstand_scene_fail(scene, "'update' takes check, download, available or ready");
     }
-    const char *percent = uicap_scene_word(&rest);
+    const char *percent = inkstand_scene_word(&rest);
     unsigned progress = 0U;
     if (downloading && percent != NULL) {
-        const int parsed = uicap_scene_number(scene, percent, "update", &progress);
+        const int parsed = inkstand_scene_number(scene, percent, "update", &progress);
         if (parsed < 0) {
             return parsed;
         }
@@ -2285,11 +2287,11 @@ static int verb_update(struct uicap_scene *scene, char *rest, void *userdata) {
  * reads, and the path the About rows show. The path is a plausible one rather than a real
  * file, because nothing here opens it.
  */
-static int verb_crash(struct uicap_scene *scene, char *rest, void *userdata) {
+static int verb_crash(struct inkstand_scene *scene, char *rest, void *userdata) {
     struct uicap *cap = userdata;
-    char *state = uicap_scene_word(&rest);
+    char *state = inkstand_scene_word(&rest);
     if (state == NULL || (strcmp(state, "on") != 0 && strcmp(state, "off") != 0)) {
-        return uicap_scene_fail(scene, "'crash' needs on or off");
+        return inkstand_scene_fail(scene, "'crash' needs on or off");
     }
     struct mesh_ui_settings settings = cap->store.settings;
     settings.client.crash_report_waiting = strcmp(state, "on") == 0;
@@ -2317,7 +2319,7 @@ static int verb_crash(struct uicap_scene *scene, char *rest, void *userdata) {
  * across the tabs, standing down inside About radio, and the sheet naming the node once the
  * banner has been taken by the modal.
  */
-static int verb_remote(struct uicap_scene *scene, char *rest, void *userdata) {
+static int verb_remote(struct inkstand_scene *scene, char *rest, void *userdata) {
     struct uicap *cap = userdata;
     /* The rest of the line rather than a word, because a node's long name has spaces in it
        and the name is the whole of what the banner and the About radio row are showing. */
@@ -2326,7 +2328,7 @@ static int verb_remote(struct uicap_scene *scene, char *rest, void *userdata) {
         name++;
     }
     if (*name == '\0') {
-        return uicap_scene_fail(scene, "'remote' needs a node name or off");
+        return inkstand_scene_fail(scene, "'remote' needs a node name or off");
     }
     struct mesh_ui_settings settings = cap->store.settings;
     const bool off = strcmp(name, "off") == 0;
@@ -2343,11 +2345,11 @@ static int verb_remote(struct uicap_scene *scene, char *rest, void *userdata) {
  *
  *   firmware-channel stable|alpha
  */
-static int verb_firmware_channel(struct uicap_scene *scene, char *rest, void *userdata) {
+static int verb_firmware_channel(struct inkstand_scene *scene, char *rest, void *userdata) {
     struct uicap *cap = userdata;
-    char *which = uicap_scene_word(&rest);
+    char *which = inkstand_scene_word(&rest);
     if (which == NULL || (strcmp(which, "stable") != 0 && strcmp(which, "alpha") != 0)) {
-        return uicap_scene_fail(scene, "'firmware-channel' takes stable or alpha");
+        return inkstand_scene_fail(scene, "'firmware-channel' takes stable or alpha");
     }
     struct mesh_ui_settings settings = cap->store.settings;
     settings.fw_supported = true;
@@ -2367,20 +2369,20 @@ static int verb_firmware_channel(struct uicap_scene *scene, char *rest, void *us
  *
  *   firmware checking|behind|current|failed [usb|ble|ambiguous|nopath|unknown]
  */
-static int verb_firmware(struct uicap_scene *scene, char *rest, void *userdata) {
+static int verb_firmware(struct inkstand_scene *scene, char *rest, void *userdata) {
     struct uicap *cap = userdata;
-    char *step = uicap_scene_word(&rest);
+    char *step = inkstand_scene_word(&rest);
     if (step == NULL) {
-        return uicap_scene_fail(scene, "'firmware' needs checking, behind, current or failed");
+        return inkstand_scene_fail(scene, "'firmware' needs checking, behind, current or failed");
     }
     const bool checking = strcmp(step, "checking") == 0;
     const bool behind = strcmp(step, "behind") == 0;
     const bool current = strcmp(step, "current") == 0;
     const bool failed = strcmp(step, "failed") == 0;
     if (!checking && !behind && !current && !failed) {
-        return uicap_scene_fail(scene, "'firmware' takes checking, behind, current or failed");
+        return inkstand_scene_fail(scene, "'firmware' takes checking, behind, current or failed");
     }
-    const char *why = uicap_scene_word(&rest);
+    const char *why = inkstand_scene_word(&rest);
     struct mesh_ui_settings settings = cap->store.settings;
     settings.fw_supported = true;
     settings.fw_busy = checking;
@@ -2422,7 +2424,7 @@ static int verb_firmware(struct uicap_scene *scene, char *rest, void *userdata) 
         } else if (strcmp(why, "unknown") == 0) {
             reason = MESH_STR_FW_BLOCK_UNKNOWN_BOARD;
         } else {
-            return uicap_scene_fail(scene, "unknown firmware reason '%s'", why);
+            return inkstand_scene_fail(scene, "unknown firmware reason '%s'", why);
         }
     }
     inkwell_str_copy(settings.fw_blocker_reason, sizeof settings.fw_blocker_reason,
@@ -2444,7 +2446,7 @@ static int verb_firmware(struct uicap_scene *scene, char *rest, void *userdata) 
  *   firmware-install idle|resolving|downloading|ready|arming|waiting|writing|restarting|
  *                    done|failed [usb|ble] [percent]
  */
-static int verb_firmware_install(struct uicap_scene *scene, char *rest, void *userdata) {
+static int verb_firmware_install(struct inkstand_scene *scene, char *rest, void *userdata) {
     struct uicap *cap = userdata;
     static const struct {
         const char *name;
@@ -2461,7 +2463,7 @@ static int verb_firmware_install(struct uicap_scene *scene, char *rest, void *us
         {"done", MESH_FIRMWARE_UPDATE_DONE},
         {"failed", MESH_FIRMWARE_UPDATE_FAILED},
     };
-    char *const step = uicap_scene_word(&rest);
+    char *const step = inkstand_scene_word(&rest);
     enum mesh_firmware_update_state state = MESH_FIRMWARE_UPDATE_STATE_COUNT;
     for (size_t i = 0; step != NULL && i < sizeof k_steps / sizeof k_steps[0]; ++i) {
         if (strcmp(step, k_steps[i].name) == 0) {
@@ -2469,10 +2471,10 @@ static int verb_firmware_install(struct uicap_scene *scene, char *rest, void *us
         }
     }
     if (state == MESH_FIRMWARE_UPDATE_STATE_COUNT) {
-        return uicap_scene_fail(scene, "'firmware-install' needs a step name");
+        return inkstand_scene_fail(scene, "'firmware-install' needs a step name");
     }
-    const char *const bus = uicap_scene_word(&rest);
-    const char *const percent = uicap_scene_word(&rest);
+    const char *const bus = inkstand_scene_word(&rest);
+    const char *const percent = inkstand_scene_word(&rest);
     struct mesh_ui_settings settings = cap->store.settings;
     settings.fw_supported = true;
     settings.fw_state = (uint8_t)MESH_FIRMWARE_AVAILABLE;
@@ -2518,11 +2520,11 @@ static int verb_firmware_install(struct uicap_scene *scene, char *rest, void *us
  * length on every screen follows this one byte, so the way to review a change to any of them
  * is to run the same scene twice with the two values and put the strips side by side.
  */
-static int verb_units(struct uicap_scene *scene, char *rest, void *userdata) {
+static int verb_units(struct inkstand_scene *scene, char *rest, void *userdata) {
     struct uicap *cap = userdata;
-    char *value = uicap_scene_word(&rest);
+    char *value = inkstand_scene_word(&rest);
     if (value == NULL || (strcmp(value, "metric") != 0 && strcmp(value, "imperial") != 0)) {
-        return uicap_scene_fail(scene, "'units' is metric or imperial");
+        return inkstand_scene_fail(scene, "'units' is metric or imperial");
     }
     struct mesh_ui_settings settings = cap->store.settings;
     settings.has_display = true;
@@ -2531,14 +2533,14 @@ static int verb_units(struct uicap_scene *scene, char *rest, void *userdata) {
     return 0;
 }
 
-static int verb_reboots(struct uicap_scene *scene, char *rest, void *userdata) {
+static int verb_reboots(struct inkstand_scene *scene, char *rest, void *userdata) {
     struct uicap *cap = userdata;
-    char *count_text = uicap_scene_word(&rest);
+    char *count_text = inkstand_scene_word(&rest);
     if (count_text == NULL) {
-        return uicap_scene_fail(scene, "'reboots' needs a count");
+        return inkstand_scene_fail(scene, "'reboots' needs a count");
     }
     unsigned reboots = 0U;
-    const int parsed = uicap_scene_number(scene, count_text, "reboots", &reboots);
+    const int parsed = inkstand_scene_number(scene, count_text, "reboots", &reboots);
     if (parsed < 0) {
         return parsed;
     }
@@ -2548,41 +2550,41 @@ static int verb_reboots(struct uicap_scene *scene, char *rest, void *userdata) {
     return 0;
 }
 
-static int verb_message(struct uicap_scene *scene, char *rest, void *userdata) {
+static int verb_message(struct inkstand_scene *scene, char *rest, void *userdata) {
     struct uicap *cap = userdata;
-    char *direction = uicap_scene_word(&rest);
-    char *name = uicap_scene_word(&rest);
+    char *direction = inkstand_scene_word(&rest);
+    char *name = inkstand_scene_word(&rest);
     if (direction == NULL || name == NULL) {
-        return uicap_scene_fail(scene, "'message' needs in|out, a short name and text");
+        return inkstand_scene_fail(scene, "'message' needs in|out, a short name and text");
     }
     if (strcmp(direction, "in") != 0 && strcmp(direction, "out") != 0) {
-        return uicap_scene_fail(scene, "'message' direction is in or out");
+        return inkstand_scene_fail(scene, "'message' direction is in or out");
     }
     return uicap_append_message(scene, cap, strcmp(direction, "out") == 0, MESH_MESSAGE_KIND_TEXT,
-                                name, uicap_scene_tail(rest), false);
+                                name, inkstand_scene_tail(rest), false);
 }
 
 /* The same, threaded onto the newest bubble - what A on a message produces. Its own verb
    rather than a flag on `message` because the quote line it draws is the thing being
    filmed, and a scene should say so. */
-static int verb_reply(struct uicap_scene *scene, char *rest, void *userdata) {
+static int verb_reply(struct inkstand_scene *scene, char *rest, void *userdata) {
     struct uicap *cap = userdata;
-    char *direction = uicap_scene_word(&rest);
-    char *name = uicap_scene_word(&rest);
+    char *direction = inkstand_scene_word(&rest);
+    char *name = inkstand_scene_word(&rest);
     if (direction == NULL || name == NULL ||
         (strcmp(direction, "in") != 0 && strcmp(direction, "out") != 0)) {
-        return uicap_scene_fail(scene, "'reply' needs in|out, a short name and text");
+        return inkstand_scene_fail(scene, "'reply' needs in|out, a short name and text");
     }
     return uicap_append_message(scene, cap, strcmp(direction, "out") == 0, MESH_MESSAGE_KIND_TEXT,
-                                name, uicap_scene_tail(rest), true);
+                                name, inkstand_scene_tail(rest), true);
 }
 
-static int verb_waypoint(struct uicap_scene *scene, char *rest, void *userdata) {
+static int verb_waypoint(struct inkstand_scene *scene, char *rest, void *userdata) {
     struct uicap *cap = userdata;
-    char *node_name = uicap_scene_word(&rest);
-    char *label = (node_name != NULL) ? uicap_scene_tail(rest) : NULL;
+    char *node_name = inkstand_scene_word(&rest);
+    char *label = (node_name != NULL) ? inkstand_scene_tail(rest) : NULL;
     if (node_name == NULL || label == NULL || label[0] == '\0') {
-        return uicap_scene_fail(scene, "'waypoint' needs a short name and a label");
+        return inkstand_scene_fail(scene, "'waypoint' needs a short name and a label");
     }
     /* The rest of the line is the label, and a '|' splits the sharer's note off the end of
        it - because both are prose with spaces in, and a word count cannot tell them apart. */
@@ -2603,20 +2605,20 @@ static int verb_waypoint(struct uicap_scene *scene, char *rest, void *userdata) 
 }
 
 /* The two ports that are "same as Text Message" upstream and were never accepted here. */
-static int uicap_broadcast(struct uicap_scene *scene, struct uicap *cap, const char *command,
+static int uicap_broadcast(struct inkstand_scene *scene, struct uicap *cap, const char *command,
                            enum mesh_message_kind kind, char *rest) {
-    char *name = uicap_scene_word(&rest);
+    char *name = inkstand_scene_word(&rest);
     if (name == NULL) {
-        return uicap_scene_fail(scene, "'%s' needs a short name and text", command);
+        return inkstand_scene_fail(scene, "'%s' needs a short name and text", command);
     }
-    return uicap_append_message(scene, cap, false, kind, name, uicap_scene_tail(rest), false);
+    return uicap_append_message(scene, cap, false, kind, name, inkstand_scene_tail(rest), false);
 }
 
-static int verb_alert(struct uicap_scene *scene, char *rest, void *userdata) {
+static int verb_alert(struct inkstand_scene *scene, char *rest, void *userdata) {
     return uicap_broadcast(scene, userdata, "alert", MESH_MESSAGE_KIND_ALERT, rest);
 }
 
-static int verb_detection(struct uicap_scene *scene, char *rest, void *userdata) {
+static int verb_detection(struct inkstand_scene *scene, char *rest, void *userdata) {
     return uicap_broadcast(scene, userdata, "detection", MESH_MESSAGE_KIND_DETECTION, rest);
 }
 
@@ -2640,6 +2642,12 @@ static void uicap_press(void *userdata, enum inkcell_key key, uint32_t page_rows
     (void)mesh_ui_store_handle_key(&cap->store, key, &action);
 }
 
+/* The screen that is up, by the untranslated id route.c gives it - what `expect screen` checks. */
+static const char *uicap_screen(void *userdata) {
+    const struct uicap *cap = userdata;
+    return mesh_ui_screen_id(cap->store.nav.screen);
+}
+
 /* The housekeeping the event loop does on every turn, which for the store is one thing: a
    transient notice expiring. */
 static void uicap_tick(void *userdata, uint64_t now_ms) {
@@ -2647,15 +2655,15 @@ static void uicap_tick(void *userdata, uint64_t now_ms) {
     mesh_ui_store_tick(&cap->store, now_ms);
 }
 
-static const struct uicap_scene_seed uicap_seeds[] = {
+static const struct inkstand_scene_seed uicap_seeds[] = {
     {"demo", uicap_seed_demo},
     {"empty", uicap_seed_empty},
 };
 
-static const struct uicap_scene_verb uicap_verbs[] = {
-    {"map", UICAP_SCENE_NO_FRAME, verb_map},
+static const struct inkstand_scene_verb uicap_verbs[] = {
+    {"map", INKSTAND_SCENE_NO_FRAME, verb_map},
     {"context", 0U, verb_context},
-    {"tab", UICAP_SCENE_NO_FRAME, verb_tab},
+    {"tab", INKSTAND_SCENE_NO_FRAME, verb_tab},
     {"toast", 0U, verb_toast},
     {"status", 0U, verb_status},
     {"ack", 0U, verb_ack},
@@ -2759,7 +2767,7 @@ int main(int argc, char **argv) {
     static struct uicap cap;
     cap.next_packet_id = 0x5A0001U;
     struct uicap_files files = {.out_dir = "capture", .prefix = "frame"};
-    struct uicap_scene_config config = {
+    struct inkstand_scene_config config = {
         .frame_ms = 33U,
         .delay_ms = UICAP_DEFAULT_DELAY_MS,
         .settle_frames = 40U,
@@ -2831,13 +2839,14 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    const struct uicap_scene_host host = {
+    const struct inkstand_scene_host host = {
         .capture = cap.capture,
         .snapshot = &cap.snapshot,
         .drain = uicap_drain,
         .refresh = uicap_refresh,
         .press = uicap_press,
         .tick = uicap_tick,
+        .screen = uicap_screen,
         .themed = uicap_publish_theme,
         .seeds = uicap_seeds,
         .seed_count = sizeof uicap_seeds / sizeof uicap_seeds[0],
@@ -2845,28 +2854,28 @@ int main(int argc, char **argv) {
         .verb_count = sizeof uicap_verbs / sizeof uicap_verbs[0],
         .userdata = &cap,
     };
-    const struct uicap_scene_sink sink = {
+    const struct inkstand_scene_sink sink = {
         .frame = uicap_files_frame,
         .delay = uicap_files_delay,
         .userdata = &files,
     };
-    static struct uicap_scene scene;
-    if (uicap_scene_init(&scene, &host, &sink, &config) != 0) {
-        fprintf(stderr, "uicap: %s\n", uicap_scene_error(&scene));
+    static struct inkstand_scene scene;
+    if (inkstand_scene_init(&scene, &host, &sink, &config) != 0) {
+        fprintf(stderr, "uicap: %s\n", inkstand_scene_error(&scene));
         return 1;
     }
 
-    int status = uicap_scene_run_file(&scene, script);
+    int status = inkstand_scene_run_file(&scene, script);
     /* A script that only set up the scene still owes one frame. */
     if (status == 0) {
-        status = uicap_scene_finish(&scene);
+        status = inkstand_scene_finish(&scene);
     }
     if (script != stdin) {
         fclose(script);
     }
     if (status != 0) {
-        fprintf(stderr, "uicap: line %u: %s\n", uicap_scene_error_line(&scene),
-                uicap_scene_error(&scene));
+        fprintf(stderr, "uicap: line %u: %s\n", inkstand_scene_error_line(&scene),
+                inkstand_scene_error(&scene));
         return 1;
     }
     if (fclose(files.manifest) != 0) {
