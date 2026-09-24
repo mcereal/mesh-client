@@ -15,10 +15,15 @@
  * the case you forgot. What the switch cannot see, the ui_store_cache_keys_round_trip test does:
  * it walks this enum and holds every key to being written and read.
  *
+ * The mechanism under the table - what a key's brackets carry, what the lookup refuses, how a
+ * writer escapes - is store_key_table.h, which names none of these keys. Each function below is
+ * that one over this table.
+ *
  * See docs/ui.md for what the cache is for and what it deliberately does not hold.
  */
 
 #include "inkwell/base/log.h"
+#include "mesh/ui/store_key_table.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -38,13 +43,6 @@ enum mesh_ui_store_key {
 #undef MESH_STORE_KEY_ROW
 #undef MESH_STORE_KEY_SLOT
     MESH_UI_STORE_KEY_COUNT
-};
-
-/* What a key carries between its brackets, if anything. */
-enum mesh_ui_store_key_kind {
-    MESH_UI_STORE_KEY_KIND_PLAIN = 0, /* name=          */
-    MESH_UI_STORE_KEY_KIND_ROW,       /* name[3]=       */
-    MESH_UI_STORE_KEY_KIND_SLOT,      /* name[3.1]=     */
 };
 
 /* The key's spelling on disk. NULL for NONE and for anything out of range. */

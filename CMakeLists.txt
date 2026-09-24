@@ -128,6 +128,7 @@ add_library(meshclient_core
     src/ui/store/store.c
     src/ui/store/store_fields.c
     src/ui/store/store_file.c
+    src/ui/store/store_key_table.c
     src/ui/store/store_keys.c
     src/ui/store/store_trends.c
     src/ui/store/history.c
