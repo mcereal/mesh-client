@@ -524,6 +524,9 @@ void mesh_app_note_connected_device(struct mesh_app *app, const char *identifier
  * that really has gone - carried out of range mid-session - holding the slot for half a minute.
  */
 #define MESH_APP_AUTOCONNECT_KNOWN_GRACE_MS 5000U
+/* Straight failures against a preferred radio that *is* advertising before another of ours in
+   range gets a turn. Enough that a radio still booting from a settings write keeps its slot. */
+#define MESH_APP_AUTOCONNECT_PREFERRED_TRIES 3U
 
 /*
  * Whether the link that is up is the preferred node's, over the air - the only one whose
@@ -549,6 +552,17 @@ static bool mesh_app_preferred_ble_link_up(const struct mesh_app *app, struct me
 /* Exponential backoff, shared by the two ways a connect can fail: the errno connect() handed
    back, and the failure that only surfaces later from tick(). Returns the delay it scheduled. */
 static uint64_t mesh_app_backoff_autoconnect(struct mesh_app *app) {
+    /* Which radio failed decides who goes next when the preferred one is refusing: its failure
+       counts toward handing the turn on, and a stand-in's failure hands it back for exactly one
+       more try, so the two alternate rather than the stand-in keeping the slot. */
+    if (app->autoconnect_tried_preferred) {
+        if (app->autoconnect_preferred_failures < 8U) {
+            app->autoconnect_preferred_failures++;
+        }
+    } else if (app->autoconnect_preferred_failures >= MESH_APP_AUTOCONNECT_PREFERRED_TRIES) {
+        app->autoconnect_preferred_failures = MESH_APP_AUTOCONNECT_PREFERRED_TRIES - 1U;
+    }
+    app->autoconnect_tried_preferred = false;
     if (app->autoconnect_failures < 8U) {
         app->autoconnect_failures++;
     }
@@ -595,6 +609,8 @@ void mesh_app_autoconnect(struct mesh_app *app) {
            reboots the radio, and a preferred node that is a few seconds from advertising again
            must not lose its slot to the second radio on the desk. */
         app->autoconnect_failures = 0U;
+        app->autoconnect_preferred_failures = 0U;
+        app->autoconnect_tried_preferred = false;
         app->autoconnect_started_ms = 0U;
         app->autoconnect_tcp_retry_at_ms = 0U;
         app->autoconnect_waiting_logged = false;
@@ -750,6 +766,44 @@ void mesh_app_autoconnect(struct mesh_app *app) {
             }
         }
     }
+
+    /*
+     * A preferred radio that is in range and refusing every connect.
+     *
+     * Advertising is not answering: a radio at the edge of range is heard by the scan and then
+     * aborts every LE connection, and on the Brick this sat retrying MPC5 at -70 dBm while the
+     * radio the user had in hand advertised at -35. Past a few straight failures, another radio
+     * of ours that is in range gets a turn - only one we have connected to before, never a
+     * stranger - and the preferred one gets the turn after, so it is still reached the moment
+     * it answers. See mesh_app_backoff_autoconnect() for the alternation.
+     */
+    if (target != NULL &&
+        app->autoconnect_preferred_failures >= MESH_APP_AUTOCONNECT_PREFERRED_TRIES) {
+        const struct inkwell_ble_device *other = NULL;
+        int best_rank = -1;
+        for (size_t i = 0; i < in_range_count; ++i) {
+            const struct inkwell_ble_device *device = &devices[in_range[i]];
+            if (device == target) {
+                continue;
+            }
+            const int rank = mesh_ui_preferences_device_rank(&app->ui_preferences, device->address,
+                                                             (uint8_t)MESH_UI_DEVICE_BLE);
+            if (rank >= 0 && (best_rank < 0 || rank < best_rank)) {
+                best_rank = rank;
+                other = device;
+            }
+        }
+        if (other != NULL) {
+            inkwell_log_info("app",
+                             "Preferred device %s keeps refusing to connect; trying your other "
+                             "node %s (%s, %d dBm)",
+                             target->address, other->name, other->address, (int)other->rssi);
+            target = other;
+        }
+    }
+    app->autoconnect_tried_preferred =
+        target != NULL && preferred[0] != '\0' &&
+        (strcasecmp(target->address, preferred) == 0 || strcasecmp(target->name, preferred) == 0);
 
     /* Failing that, the radio of ours that is in earshot and was used most recently. Rank order
        is the whole point: with three of your own nodes on the table you get the one you were

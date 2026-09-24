@@ -64,11 +64,20 @@ static void mesh_ui_backend_cli_print_devices(struct mesh_ui_backend_cli_context
                 context, "  - %s (%s) network%s\n",
                 device->name[0] != '\0' ? device->name : "<unknown>",
                 device->identifier[0] != '\0' ? device->identifier : "<unknown>", badge);
-        } else if (!device->in_range) {
+        } else if (device->reading == (uint8_t)MESH_UI_READING_LAST_SCAN) {
+            mesh_ui_backend_cli_write(context, "  - %s (%s) RSSI=%d at last scan%s\n",
+                                      device->name[0] != '\0' ? device->name : "<unknown>",
+                                      device->identifier[0] != '\0' ? device->identifier
+                                                                    : "<unknown>",
+                                      (int)device->rssi, badge);
+        } else if (device->reading != (uint8_t)MESH_UI_READING_LIVE) {
+            const char *where = device->connected ? "Bluetooth"
+                                : device->reading == (uint8_t)MESH_UI_READING_SCAN_HELD
+                                    ? "scan paused"
+                                    : "not in range";
             mesh_ui_backend_cli_write(
-                context, "  - %s (%s) not in range%s\n",
-                device->name[0] != '\0' ? device->name : "<unknown>",
-                device->identifier[0] != '\0' ? device->identifier : "<unknown>", badge);
+                context, "  - %s (%s) %s%s\n", device->name[0] != '\0' ? device->name : "<unknown>",
+                device->identifier[0] != '\0' ? device->identifier : "<unknown>", where, badge);
         } else {
             mesh_ui_backend_cli_write(context, "  - %s (%s) RSSI=%d%s\n",
                                       device->name[0] != '\0' ? device->name : "<unknown>",

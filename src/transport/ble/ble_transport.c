@@ -23,6 +23,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -91,10 +92,38 @@ struct mesh_ble_logged_device {
     bool in_range;
 };
 
+/*
+ * How long a radio a running scan has stopped hearing keeps the reading it was last heard at.
+ *
+ * An advertisement every second or so is not one every reload, and a scan that has just resumed
+ * after a link has heard nobody at all: without this every row read "not in range" for the first
+ * several seconds after each disconnect, the radio in your hand included.
+ */
+#define MESH_BLE_HEARD_WINDOW_MS 15000U
+
+/*
+ * How long a connect waits for the kernel to let go of the link before it.
+ *
+ * Linux 4.9 on the Brick can miss a disconnect: switching radios within a second or two left the
+ * old link in BT_DISCONN with bluetoothd already calling it gone, the next link reused its handle
+ * (dmesg: a duplicate hci0:0), and every connect to the old radio failed "already in progress"
+ * until the controller was reset. A clean release takes well under a second, so a connect waits
+ * for it - and one still not released after this long is stranded, which only a reset ends.
+ */
+#define MESH_BLE_RELEASE_WAIT_MS 5000U
+/* And the breath a controller gets after a reset before a Connect is put to it. */
+#define MESH_BLE_RESET_SETTLE_MS 1000U
+
+/* How long a StartDiscovery gets to land before the adapter's own state is held against it. */
+#define MESH_BLE_DISCOVERY_SETTLE_MS 5000U
+
 struct mesh_ble_transport_state {
     enum mesh_ble_state state;
     bool client_initialised;
-    bool discovery_active;
+    bool discovery_active; /* asked for; the adapter's own word is inkwell_ble_discovering() */
+    uint64_t discovery_requested_ms;      /* when discovery_active last changed */
+    uint64_t discovery_settle_ms;         /* MESH_BLE_DISCOVERY_SETTLE_MS, or the knob */
+    unsigned discovery_restarts;          /* in a row, each waiting twice as long as the last */
     char adapter[INKWELL_BLE_HANDLE_MAX]; /* for the log: what the stack called it */
     struct inkwell_ble_central central;
     struct inkwell_ble_device devices[16];
@@ -104,6 +133,16 @@ struct mesh_ble_transport_state {
        inkwell_ble_device: the reading that drifts is exactly what is left out. */
     struct mesh_ble_logged_device logged[16];
     size_t logged_count;
+    /* What running scans have heard, and when: the readings a held scan leaves behind are all
+       gone, and a scan that has just resumed has not heard anybody yet, so these are what
+       mesh_ble_transport_last_heard() answers from in both. */
+    struct {
+        char address[INKWELL_BLE_ADDRESS_MAX];
+        int16_t rssi;
+        uint64_t heard_ms;
+    } scanned[16];
+    size_t scanned_count;
+    bool scanned_ever;
     int refresh_timer_fd;
     struct inkwell_wake drain_wake; /* continue a FromRadio drain on the next loop turn */
     uint64_t last_refresh_ms;
@@ -118,6 +157,13 @@ struct mesh_ble_transport_state {
     uint64_t next_services_poll_ms; /* earliest next ServicesResolved poll */
     bool services_wait_logged;
     bool connect_pending; /* Device1.Connect sent, reply not yet seen */
+    /* CONNECTING, but Connect not sent yet: waiting on the kernel to release the link before
+       (released_address) or on a controller reset to settle. See MESH_BLE_RELEASE_WAIT_MS. */
+    bool connect_waiting;
+    char released_address[INKWELL_BLE_ADDRESS_MAX]; /* the last link to end, until it is gone */
+    uint64_t released_at_ms;
+    uint64_t connect_not_before_ms; /* after a controller reset */
+    uint64_t release_wait_ms;       /* MESH_BLE_RELEASE_WAIT_MS, or the knob */
     /* The characteristics are found and FromNum's subscribe is waiting on the stack - which on
        a node whose bond went stale can be a pairing, and on macOS the user answering a dialog. */
     bool subscribe_pending;
@@ -198,6 +244,7 @@ static const char *mesh_ble_connect_failure_text(int err) {
     case -ETIMEDOUT:
         return inkcell_str(MESH_STR_LINK_FAIL_NO_ANSWER);
     case -EBUSY:
+    case -EALREADY:
         return inkcell_str(MESH_STR_LINK_FAIL_BUSY);
     case -ENOENT:
         return inkcell_str(MESH_STR_LINK_FAIL_NOT_IN_RANGE);
@@ -242,6 +289,7 @@ static int mesh_ble_begin_pair(struct mesh_ble_transport_state *state, const cha
                                bool then_connect, bool attended);
 static void mesh_ble_service_agent(struct mesh_ble_transport_state *state);
 static int mesh_ble_complete_connect(struct mesh_ble_transport_state *state);
+static int mesh_ble_send_connect(struct mesh_ble_transport_state *state);
 static int mesh_ble_do_connect(struct mesh_ble_transport_state *state, const char *address,
                                bool allow_pair);
 static void mesh_ble_bring_up(struct mesh_transport *transport);
@@ -519,10 +567,42 @@ static void mesh_ble_sync_discovery(struct mesh_ble_transport_state *state) {
     if (state == NULL || state->state != MESH_BLE_STATE_READY || state->adapter[0] == '\0') {
         return;
     }
-    const bool wanted = state->link_state == MESH_BLE_LINK_DISCONNECTED &&
-                        inkwell_time_monotonic_ms() >= state->scan_resume_at_ms;
-    if (wanted == state->discovery_active) {
-        return;
+    const uint64_t now = inkwell_time_monotonic_ms();
+    const bool wanted =
+        state->link_state == MESH_BLE_LINK_DISCONNECTED && now >= state->scan_resume_at_ms;
+    if (wanted != state->discovery_active) {
+        state->discovery_restarts = 0U; /* a change of mind, not a retry */
+    } else {
+        /*
+         * Asked is not scanning. StartDiscovery is sent and not waited for, and BlueZ answers
+         * InProgress to one that lands on a stop still settling - a quick disconnect and
+         * reconnect does exactly that. The refusal was only logged, discovery_active said
+         * scanning, nothing was ever heard again and auto-connect waited on an empty list for
+         * the rest of the session. So a scan we want is checked against the adapter's own word
+         * once the request has had time to land, and asked for again when the two disagree.
+         *
+         * Only this way round: a stop that did not take costs throughput, and asking again
+         * would fight any other client of the adapter that is scanning for its own reasons.
+         * And backing off, doubling to 16x: a controller that has stopped answering altogether
+         * (the Brick's has, and only a reboot brought it back) is otherwise two warnings every
+         * few seconds for the rest of the session.
+         */
+        const unsigned shift = state->discovery_restarts < 4U ? state->discovery_restarts : 4U;
+        if (!wanted || now - state->discovery_requested_ms < state->discovery_settle_ms << shift) {
+            return;
+        }
+        if (inkwell_ble_discovering(&state->central) != 0) {
+            state->discovery_restarts = 0U;
+            return;
+        }
+        state->discovery_restarts++;
+        /* Stopped first, because of how BlueZ refuses: a start from a client already on the
+           adapter's list of discovery sessions answers InProgress whether or not the adapter is
+           scanning, and the refused start that got us here left us on it. The stop takes us off
+           and the start after it - same connection, so in order - is a fresh session. */
+        inkwell_log_info("ble", "%s is not scanning though it was asked to; restarting the scan",
+                         state->adapter);
+        (void)inkwell_ble_stop_discovery(&state->central);
     }
     const int result = wanted ? inkwell_ble_start_discovery(&state->central)
                               : inkwell_ble_stop_discovery(&state->central);
@@ -535,6 +615,14 @@ static void mesh_ble_sync_discovery(struct mesh_ble_transport_state *state) {
         return;
     }
     state->discovery_active = wanted;
+    state->discovery_requested_ms = now;
+    if (wanted) {
+        /* However long the hold was, the new scan gets the whole window to hear each radio
+           again before its last reading stops standing in. */
+        for (size_t k = 0; k < state->scanned_count; ++k) {
+            state->scanned[k].heard_ms = now;
+        }
+    }
     inkwell_log_debug("ble", wanted ? "Scanning resumed" : "Scanning held while the link is up");
 }
 
@@ -611,6 +699,7 @@ static void mesh_ble_bring_up(struct mesh_transport *transport) {
     }
 
     state->discovery_active = true;
+    state->discovery_requested_ms = inkwell_time_monotonic_ms();
     state->state = MESH_BLE_STATE_READY;
     state->waiting_reason[0] = '\0';
     mesh_ble_refresh_devices_internal(transport);
@@ -652,6 +741,8 @@ static void mesh_ble_demote(struct mesh_ble_transport_state *state) {
     state->adapter[0] = '\0';
     state->device_count = 0U;
     state->logged_count = 0U;
+    state->scanned_count = 0U;
+    state->scanned_ever = false;
     state->state = MESH_BLE_STATE_WAITING_FOR_BLUEZ;
     /* The first attempt to come back happens on the next loop turn rather than a poll later:
        BlueZ restarting is exactly the case where it may already be back. */
@@ -685,6 +776,16 @@ static int mesh_ble_start(struct mesh_transport *transport, const struct mesh_ap
        turn the hold off outright. */
     state->scan_resume_grace_ms = (uint64_t)inkwell_env_int("SCAN_RESUME_GRACE_MS", 0, 60000,
                                                             (long)MESH_BLE_SCAN_RESUME_GRACE_MS);
+    /* A knob for the same reason: a test cannot wait five seconds, and a bench may want it. */
+    state->discovery_settle_ms = (uint64_t)inkwell_env_int("DISCOVERY_SETTLE_MS", 0, 60000,
+                                                           (long)MESH_BLE_DISCOVERY_SETTLE_MS);
+    state->discovery_requested_ms = 0U;
+    state->discovery_restarts = 0U;
+    state->release_wait_ms =
+        (uint64_t)inkwell_env_int("BLE_RELEASE_WAIT_MS", 0, 60000, (long)MESH_BLE_RELEASE_WAIT_MS);
+    state->connect_waiting = false;
+    state->released_address[0] = '\0';
+    state->connect_not_before_ms = 0U;
     state->waiting_reason[0] = '\0';
     state->drain_retry_at_ms = 0U;
     state->drain_failures = 0U;
@@ -878,6 +979,42 @@ size_t mesh_ble_transport_get_devices(struct mesh_transport *transport,
     return to_copy;
 }
 
+bool mesh_ble_transport_scan_held(struct mesh_transport *transport) {
+    if (transport == NULL || transport->state == NULL) {
+        return false;
+    }
+    const struct mesh_ble_transport_state *state =
+        (const struct mesh_ble_transport_state *)transport->state;
+    return state->state == MESH_BLE_STATE_READY && !state->discovery_active && state->scanned_ever;
+}
+
+bool mesh_ble_transport_last_heard(struct mesh_transport *transport, const char *address,
+                                   int16_t *rssi) {
+    if (transport == NULL || transport->state == NULL || address == NULL || address[0] == '\0') {
+        return false;
+    }
+    const struct mesh_ble_transport_state *state =
+        (const struct mesh_ble_transport_state *)transport->state;
+    if (state->state != MESH_BLE_STATE_READY) {
+        return false;
+    }
+    /* Held, every remembered reading stands; scanning, only those inside the window. */
+    const bool held = !state->discovery_active;
+    const uint64_t now = inkwell_time_monotonic_ms();
+    for (size_t i = 0; i < state->scanned_count; ++i) {
+        if (!held && now - state->scanned[i].heard_ms > MESH_BLE_HEARD_WINDOW_MS) {
+            continue;
+        }
+        if (strcasecmp(state->scanned[i].address, address) == 0) {
+            if (rssi != NULL) {
+                *rssi = state->scanned[i].rssi;
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
 const struct inkwell_ble_device *mesh_ble_transport_devices(struct mesh_transport *transport,
                                                             size_t *count) {
     if (transport == NULL || count == NULL) {
@@ -897,6 +1034,48 @@ const struct inkwell_ble_device *mesh_ble_transport_devices(struct mesh_transpor
 _Static_assert(INKWELL_ARRAY_LEN(((struct mesh_ble_transport_state *)0)->logged) >=
                    INKWELL_ARRAY_LEN(((struct mesh_ble_transport_state *)0)->devices),
                "the logged roster must hold as many devices as the enumeration can find");
+
+/* Folds what a running scan hears into the remembered roster, and ages out what it has not heard
+   for the window above. Only a running scan's readings mean anything: a held one has none. */
+static void mesh_ble_note_heard(struct mesh_ble_transport_state *state) {
+    const uint64_t now = inkwell_time_monotonic_ms();
+    for (size_t i = 0; i < state->device_count; ++i) {
+        const struct inkwell_ble_device *device = &state->devices[i];
+        if (!device->in_range) {
+            continue;
+        }
+        size_t slot = state->scanned_count;
+        size_t oldest = 0U;
+        for (size_t k = 0; k < state->scanned_count; ++k) {
+            if (strcasecmp(state->scanned[k].address, device->address) == 0) {
+                slot = k;
+                break;
+            }
+            if (state->scanned[k].heard_ms < state->scanned[oldest].heard_ms) {
+                oldest = k;
+            }
+        }
+        if (slot == state->scanned_count) {
+            if (state->scanned_count < INKWELL_ARRAY_LEN(state->scanned)) {
+                state->scanned_count++;
+            } else {
+                slot = oldest;
+            }
+            inkwell_str_copy(state->scanned[slot].address, sizeof state->scanned[slot].address,
+                             device->address);
+        }
+        state->scanned[slot].rssi = device->rssi;
+        state->scanned[slot].heard_ms = now;
+    }
+    size_t kept = 0U;
+    for (size_t k = 0; k < state->scanned_count; ++k) {
+        if (now - state->scanned[k].heard_ms <= MESH_BLE_HEARD_WINDOW_MS) {
+            state->scanned[kept++] = state->scanned[k];
+        }
+    }
+    state->scanned_count = kept;
+    state->scanned_ever = true;
+}
 
 static size_t mesh_ble_reload_devices(struct mesh_ble_transport_state *state) {
     if (state == NULL) {
@@ -925,6 +1104,10 @@ static size_t mesh_ble_reload_devices(struct mesh_ble_transport_state *state) {
         inkwell_log_info("ble", "Discovered %zu meshtastic device(s)", device_count);
     }
     state->device_count = device_count;
+
+    if (state->discovery_active) {
+        mesh_ble_note_heard(state);
+    }
 
     /*
      * The per-device lines are the *changes* to the roster, not its current contents.
@@ -1259,26 +1442,80 @@ static int mesh_ble_do_connect(struct mesh_ble_transport_state *state, const cha
     /* Before Connect rather than on the next tick: the connection request needs the radio too,
        and leaving the scan up across it is the one window the derivation would otherwise miss. */
     mesh_ble_sync_discovery(state);
-    int result = inkwell_ble_connect_begin(&state->central, address);
-    if (result < 0) {
-        state->link_state = MESH_BLE_LINK_DISCONNECTED;
-        mesh_ble_set_error(state, MESH_STR_LINK_DETAIL, mesh_ble_short_label(address),
-                           mesh_ble_connect_failure_text(result));
-        return result;
-    }
-
     snprintf(state->connected_address, sizeof(state->connected_address), "%s", address);
     snprintf(state->link_address, sizeof(state->link_address), "%s", address);
-    state->connect_pending = true;
+    state->connect_pending = false;
     state->subscribe_pending = false;
+    state->connect_waiting = true;
     state->connect_started_ms = inkwell_time_monotonic_ms();
-    state->next_services_poll_ms = 0U;
-    state->services_wait_logged = false;
-
+    const int result = mesh_ble_send_connect(state);
+    if (result < 0) {
+        return result;
+    }
     /* Device1.Connect can take BlueZ many seconds (or the full 25 s D-Bus timeout when the node
        does not answer), so the reply is collected from tick(). With the mock it completes here,
        and so does a bonded node whose GATT database BlueZ already holds. */
     mesh_ble_poll_connecting(state);
+    return 0;
+}
+
+/*
+ * Whether the link before this one is gone from the kernel, resetting the controller when it has
+ * been stranded there. True when a Connect may go out now. See MESH_BLE_RELEASE_WAIT_MS.
+ */
+static bool mesh_ble_link_released(struct mesh_ble_transport_state *state, uint64_t now) {
+    if (now < state->connect_not_before_ms) {
+        return false;
+    }
+    if (state->released_address[0] == '\0') {
+        return true;
+    }
+    /* An error is a stack that cannot say (no HCI socket, no CAP_NET_RAW), and not knowing is
+       no reason to hold a connect up. */
+    if (inkwell_ble_link_held(&state->central, state->released_address) <= 0) {
+        inkwell_log_debug("ble", "The link to %s is released (%llu ms)", state->released_address,
+                          (unsigned long long)(now - state->released_at_ms));
+        state->released_address[0] = '\0';
+        return true;
+    }
+    if (now - state->released_at_ms < state->release_wait_ms) {
+        return false;
+    }
+    inkwell_log_warn("ble",
+                     "The kernel still holds the link to %s %llu ms after it ended; resetting "
+                     "the controller",
+                     state->released_address, (unsigned long long)(now - state->released_at_ms));
+    state->released_address[0] = '\0';
+    if (inkwell_ble_reset_adapter(&state->central) < 0) {
+        return true; /* nothing more to try; the connect may yet work */
+    }
+    state->connect_not_before_ms = now + MESH_BLE_RESET_SETTLE_MS;
+    return false;
+}
+
+/* Sends Device1.Connect for the attempt do_connect() set up, once the link before it is gone.
+   0 while it waits or once sent; a negative errno when the send itself fails, with the link
+   dropped back to DISCONNECTED. */
+static int mesh_ble_send_connect(struct mesh_ble_transport_state *state) {
+    const uint64_t now = inkwell_time_monotonic_ms();
+    if (!mesh_ble_link_released(state, now)) {
+        return 0;
+    }
+    state->connect_waiting = false;
+    inkwell_log_debug("ble", "Connect sent to %s", state->link_address);
+    const int result = inkwell_ble_connect_begin(&state->central, state->link_address);
+    if (result < 0) {
+        mesh_ble_set_error(state, MESH_STR_LINK_DETAIL, mesh_ble_short_label(state->link_address),
+                           mesh_ble_connect_failure_text(result));
+        state->link_state = MESH_BLE_LINK_DISCONNECTED;
+        state->connected_address[0] = '\0';
+        state->link_address[0] = '\0';
+        return result;
+    }
+    state->connect_pending = true;
+    state->connect_started_ms = now;
+    state->next_services_poll_ms = 0U;
+    state->services_wait_logged = false;
     return 0;
 }
 
@@ -1290,6 +1527,12 @@ static void mesh_ble_poll_connecting(struct mesh_ble_transport_state *state) {
     }
 
     uint64_t now = inkwell_time_monotonic_ms();
+
+    if (state->connect_waiting) {
+        if (mesh_ble_send_connect(state) < 0 || state->connect_waiting) {
+            return;
+        }
+    }
 
     if (state->connect_pending) {
         int connect_result = 0;
@@ -1305,6 +1548,16 @@ static void mesh_ble_poll_connecting(struct mesh_ble_transport_state *state) {
             return;
         }
         state->connect_pending = false;
+        /* The stranded link again, found the other way: a Connect to a radio the kernel still
+           holds a dead link to. Nothing short of a reset gets that radio back. */
+        if (connect_result == -EALREADY &&
+            inkwell_ble_link_held(&state->central, state->connected_address) == 1) {
+            inkwell_log_warn("ble", "The kernel holds a stale link to %s; resetting the controller",
+                             state->connected_address);
+            if (inkwell_ble_reset_adapter(&state->central) == 0) {
+                state->connect_not_before_ms = now + MESH_BLE_RESET_SETTLE_MS;
+            }
+        }
         if (poll < 0 || connect_result < 0) {
             mesh_ble_set_error(state, MESH_STR_LINK_DETAIL,
                                mesh_ble_short_label(state->connected_address),
@@ -1450,12 +1703,26 @@ static int mesh_ble_complete_connect(struct mesh_ble_transport_state *state) {
     return 0;
 }
 
+/* The link to `address` has ended here; the next connect waits for the kernel to agree. */
+static void mesh_ble_note_released(struct mesh_ble_transport_state *state, const char *address) {
+    if (address == NULL || address[0] == '\0') {
+        return;
+    }
+    inkwell_str_copy(state->released_address, sizeof state->released_address, address);
+    state->released_at_ms = inkwell_time_monotonic_ms();
+}
+
 static void mesh_ble_reset_link(struct mesh_ble_transport_state *state, const char *reason) {
     if (state == NULL) {
         return;
     }
     inkwell_ble_read_cancel(&state->central);
     inkwell_ble_requests_cancel(&state->central);
+    /* A Connect that never went out left nothing in the kernel to wait for. */
+    if (state->connect_waiting) {
+        state->link_address[0] = '\0';
+    }
+    mesh_ble_note_released(state, state->link_address);
     if (state->client_initialised && state->link_address[0] != '\0') {
         int result = inkwell_ble_disconnect(&state->central, state->link_address);
         if (result < 0) {
@@ -1467,6 +1734,7 @@ static void mesh_ble_reset_link(struct mesh_ble_transport_state *state, const ch
     }
     state->link_state = MESH_BLE_LINK_DISCONNECTED;
     state->connect_pending = false;
+    state->connect_waiting = false;
     state->subscribe_pending = false;
     state->next_link_poll_ms = 0U;
     /* Every way a link ends comes through here, which is why the scan hold is armed here rather
@@ -1836,6 +2104,7 @@ int mesh_ble_transport_disconnect(struct mesh_transport *transport) {
     if (result < 0) {
         return result;
     }
+    mesh_ble_note_released(state, state->link_address);
     state->link_address[0] = '\0'; /* already disconnected; reset_link must not repeat it */
     mesh_ble_reset_link(state, "requested");
     /* The hold exists to keep the scan out of an imminent reconnect's way, and nothing is coming

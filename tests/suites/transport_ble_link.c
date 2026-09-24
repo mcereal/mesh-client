@@ -992,6 +992,200 @@ cleanup:
     record_success(test_name);
 }
 
+/*
+ * Asked is not scanning. StartDiscovery is sent and not waited for, and BlueZ refuses one that
+ * lands on a stop still settling - after the call has returned 0. The transport used to believe
+ * its own request, hear nothing for the rest of the session and never auto-connect again. Once a
+ * request has had time to land, a scan it wants and the adapter does not have is asked for again;
+ * one the adapter does have is left alone.
+ */
+MESH_TEST_CASE(ble_transport_asks_again_for_a_scan_that_did_not_start, unit) {
+    const char *failure = NULL;
+
+    setenv("MESHCLIENT_DISCOVERY_SETTLE_MS", "60", 1);
+    unsigned starts = 0U;
+    unsigned stops = 0U;
+    struct mesh_test_ble_rig rig;
+    mesh_test_ble_rig_init(&rig, "AA:BB:CC:DD:EE:0C", "NodeTwelve", -50);
+    rig.mock.start_discovery_calls = &starts;
+    rig.mock.stop_discovery_calls = &stops;
+    rig.mock.start_discovery_lost = true;
+    struct mesh_transport *const ble = rig.ble;
+
+    if (mesh_test_ble_rig_start(&rig) != 0) {
+        failure = "ble start failed";
+        goto cleanup;
+    }
+    ble->ops->tick(ble);
+    if (starts != 1U) {
+        failure = "a request should get time to land before it is doubted";
+        goto cleanup;
+    }
+    test_sleep_ms(120U);
+    ble->ops->tick(ble);
+    if (starts != 2U || stops != 1U) {
+        failure = "a scan the adapter never started should be stopped and started again";
+        goto cleanup;
+    }
+    test_sleep_ms(80U);
+    ble->ops->tick(ble);
+    if (starts != 2U) {
+        failure = "a second restart should wait twice as long as the first";
+        goto cleanup;
+    }
+    test_sleep_ms(80U);
+    ble->ops->tick(ble);
+    if (starts != 3U) {
+        failure = "the second restart should come once the doubled wait is up";
+        goto cleanup;
+    }
+    mesh_test_ble_rig_close(&rig);
+
+    /* The same wait with a scan that did start: nothing to ask for. */
+    starts = 0U;
+    mesh_test_ble_rig_init(&rig, "AA:BB:CC:DD:EE:0C", "NodeTwelve", -50);
+    rig.mock.start_discovery_calls = &starts;
+    if (mesh_test_ble_rig_start(&rig) != 0) {
+        failure = "ble restart failed";
+        goto cleanup;
+    }
+    test_sleep_ms(120U);
+    rig.ble->ops->tick(rig.ble);
+    if (starts != 1U) {
+        failure = "a scan the adapter is running must not be asked for again";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_test_ble_rig_close(&rig);
+    unsetenv("MESHCLIENT_DISCOVERY_SETTLE_MS");
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * A connect waits for the kernel to let go of the link before it. Linux 4.9 on the Brick can miss
+ * a disconnect when radios are switched quickly, and the next link then reuses a handle the
+ * kernel still holds (a duplicate hci0:0 in dmesg) and strands the old radio "already in
+ * progress" until the controller is reset. A clean release is waited out; one that never comes is
+ * reset, once, rather than connected over.
+ */
+MESH_TEST_CASE(ble_transport_connect_waits_for_the_last_link_to_go, unit) {
+    const char *failure = NULL;
+
+    struct mesh_test_ble_rig rig;
+    mesh_test_ble_rig_init(&rig, "AA:BB:CC:DD:EE:0D", "NodeThirteen", -50);
+    rig.mock.link_held_queries = 2U; /* the kernel takes two looks to let go */
+    struct mesh_transport *const ble = rig.ble;
+
+    if (mesh_test_ble_rig_start(&rig) != 0 || mesh_test_ble_rig_connect(&rig) != 0) {
+        failure = "first connect failed";
+        goto cleanup;
+    }
+    for (int turn = 0; turn < 4 && mesh_ble_transport_connected_address(ble) == NULL; ++turn) {
+        ble->ops->tick(ble);
+    }
+    if (mesh_ble_transport_connected_address(ble) == NULL) {
+        failure = "the first link should come up with nothing before it";
+        goto cleanup;
+    }
+    if (mesh_ble_transport_disconnect(ble) != 0) {
+        failure = "disconnect failed";
+        goto cleanup;
+    }
+    if (mesh_test_ble_rig_connect(&rig) != 0) {
+        failure = "second connect should be accepted";
+        goto cleanup;
+    }
+    if (!mesh_ble_transport_is_connecting(ble) || mesh_ble_transport_connected_address(ble)) {
+        failure = "the connect should wait while the kernel still holds the last link";
+        goto cleanup;
+    }
+    for (int turn = 0; turn < 6 && mesh_ble_transport_connected_address(ble) == NULL; ++turn) {
+        ble->ops->tick(ble);
+    }
+    if (mesh_ble_transport_connected_address(ble) == NULL) {
+        failure = "the connect should go out once the kernel has let go";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_test_ble_rig_close(&rig);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(ble_transport_resets_a_controller_holding_a_dead_link, unit) {
+    const char *failure = NULL;
+
+    setenv("MESHCLIENT_BLE_RELEASE_WAIT_MS", "40", 1);
+    unsigned resets = 0U;
+    struct mesh_test_ble_rig rig;
+    mesh_test_ble_rig_init(&rig, "AA:BB:CC:DD:EE:0E", "NodeFourteen", -50);
+    rig.mock.link_held_queries = 1000U; /* never lets go */
+    rig.mock.reset_adapter_calls = &resets;
+    struct mesh_transport *const ble = rig.ble;
+
+    if (mesh_test_ble_rig_start(&rig) != 0 || mesh_test_ble_rig_connect(&rig) != 0) {
+        failure = "first connect failed";
+        goto cleanup;
+    }
+    for (int turn = 0; turn < 4 && mesh_ble_transport_connected_address(ble) == NULL; ++turn) {
+        ble->ops->tick(ble);
+    }
+    if (mesh_ble_transport_disconnect(ble) != 0 || mesh_test_ble_rig_connect(&rig) != 0) {
+        failure = "disconnect and reconnect should be accepted";
+        goto cleanup;
+    }
+    ble->ops->tick(ble);
+    if (resets != 0U) {
+        failure = "a release should get its wait before the controller is reset";
+        goto cleanup;
+    }
+    test_sleep_ms(80U);
+    ble->ops->tick(ble);
+    ble->ops->tick(ble);
+    if (resets != 1U || !mesh_ble_transport_is_connecting(ble)) {
+        failure = "a link never released should reset the controller once and keep connecting";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_test_ble_rig_close(&rig);
+    unsetenv("MESHCLIENT_BLE_RELEASE_WAIT_MS");
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/* The same stranded link met the other way round: no link came before this one in this process,
+   and the Connect itself answers "already in progress" for a radio the kernel says it holds. */
+MESH_TEST_CASE(ble_transport_resets_when_connect_finds_a_stranded_link, unit) {
+    const char *failure = NULL;
+
+    unsigned resets = 0U;
+    struct mesh_test_ble_rig rig;
+    mesh_test_ble_rig_init(&rig, "AA:BB:CC:DD:EE:0F", "NodeFifteen", -50);
+    rig.mock.connect_result = -EALREADY;
+    rig.mock.link_held_queries = 1000U;
+    rig.mock.reset_adapter_calls = &resets;
+    struct mesh_transport *const ble = rig.ble;
+
+    if (mesh_test_ble_rig_start(&rig) != 0 || mesh_test_ble_rig_connect(&rig) != 0) {
+        failure = "connect should be accepted";
+        goto cleanup;
+    }
+    ble->ops->tick(ble);
+    if (mesh_ble_transport_is_connecting(ble) || resets != 1U) {
+        failure = "a connect refused over a stranded link should fail and reset the controller";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_test_ble_rig_close(&rig);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
 /* Enumeration is a blocking GetManagedObjects, and tick() used to make one every second whether
    or not there was a link - so a roster sync spent a blocking second per second in the loop that
    was supposed to be reading it. With the scan held from the connect onward the answer cannot

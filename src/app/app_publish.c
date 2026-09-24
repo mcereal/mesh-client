@@ -37,6 +37,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <unistd.h>
 
 /* A fixed two-second batching window, not a sliding debounce: a busy radio must still
@@ -2231,7 +2232,24 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
         inkwell_str_copy(slot->identifier, sizeof slot->identifier, ble_devices[i].address);
         inkwell_str_copy(slot->name, sizeof slot->name, ble_devices[i].name);
         slot->kind = (uint8_t)MESH_UI_DEVICE_BLE;
+        /* While a link holds the scan down no reading is live: the listing is not re-read
+           for the length of a link, so what it still carries is frozen at the connect, and
+           what BlueZ had already dropped the last scan's record stands in for. Either way the
+           row says it is the last scan's. See enum mesh_ui_device_reading. */
         int16_t rssi = ble_devices[i].rssi;
+        const bool held = mesh_ble_transport_scan_held(ble);
+        bool last_scan = false;
+        if (ble_devices[i].in_range && !held) {
+            slot->reading = (uint8_t)MESH_UI_READING_LIVE;
+        } else if (ble_devices[i].in_range ||
+                   mesh_ble_transport_last_heard(ble, ble_devices[i].address, &rssi)) {
+            slot->reading = (uint8_t)MESH_UI_READING_LAST_SCAN;
+            last_scan = true;
+        } else {
+            rssi = 0;
+            slot->reading =
+                held ? (uint8_t)MESH_UI_READING_SCAN_HELD : (uint8_t)MESH_UI_READING_NONE;
+        }
         if (rssi < INT8_MIN) {
             rssi = INT8_MIN;
         } else if (rssi > INT8_MAX) {
@@ -2249,7 +2267,11 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
            flight is not evidence of anything: pressing A on a row for a radio that is at home
            would otherwise turn it "in range" with a 0 dBm reading for the whole of the
            connect timeout, and count it on the Status card while it did. */
-        slot->in_range = ble_devices[i].in_range || slot->connected;
+        slot->in_range = ble_devices[i].in_range || last_scan || slot->connected;
+        const char *const preferred = app->config.preferred_ble_device;
+        slot->preferred =
+            preferred[0] != '\0' && (strcasecmp(preferred, ble_devices[i].address) == 0 ||
+                                     strcasecmp(preferred, ble_devices[i].name) == 0);
         if (slot->connected) {
             connected_address_seen = true;
         }

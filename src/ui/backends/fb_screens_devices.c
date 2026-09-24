@@ -119,7 +119,7 @@ void fb_render_devices(struct inkcell_draw_state *state, const struct mesh_ui_sn
         layout, rows + (nothing_found ? 1U : 0U), nav->cursor[MESH_UI_SCREEN_DEVICES], 2U);
     inkcell_fb_list_glide(state, &list, FB_LIST_DEVICES);
     inkcell_fb_list_focus(&list, (uint32_t)MESH_UI_FOCUS_ROWS);
-    char attach[16];
+    char attach[48]; /* "%ddBm at last scan", and room for a language longer than English */
     uint32_t i;
     while (inkcell_fb_list_next(&list, &i)) {
         struct mesh_ui_devices_row entry;
@@ -181,7 +181,10 @@ void fb_render_devices(struct inkcell_draw_state *state, const struct mesh_ui_sn
             status = inkcell_str(MESH_STR_DEVICES_BADGE_NEEDS_PAIR);
             status_family = INKCELL_FAMILY_WARNING;
         } else if (device->kind == (uint8_t)MESH_UI_DEVICE_BLE) {
-            status = inkcell_str(MESH_STR_DEVICES_BADGE_PAIRED);
+            /* The radio a launch reconnects to says so in the same quiet slot: it is the answer
+               to "why did it pick that one", and it is still a resting state, not news. */
+            status = inkcell_str(device->preferred ? MESH_STR_DEVICES_BADGE_AUTO
+                                                   : MESH_STR_DEVICES_BADGE_PAIRED);
             status_badge = false;
         }
 
@@ -194,13 +197,25 @@ void fb_render_devices(struct inkcell_draw_state *state, const struct mesh_ui_sn
                answer "not in range" - a sentence about earshot, said of the one link that has
                none to be outside of. */
             inkwell_str_copy(attach, sizeof attach, inkcell_str(MESH_STR_DEVICES_TRAILING_NETWORK));
-        } else if (!device->in_range) {
+        } else if (device->reading == (uint8_t)MESH_UI_READING_LIVE) {
+            inkcell_str_format(attach, sizeof attach, MESH_STR_DEVICES_TRAILING_RSSI,
+                               (int)device->rssi);
+        } else if (device->reading == (uint8_t)MESH_UI_READING_LAST_SCAN) {
+            /* The scan is held for a link and this is what it last measured - a reading, but
+               one that has stopped moving, and the row says which. */
+            inkcell_str_format(attach, sizeof attach, MESH_STR_DEVICES_TRAILING_RSSI_LAST,
+                               (int)device->rssi);
+        } else if (device->connected) {
+            /* A Bluetooth link reports no signal once it is up. The 0 left in the struct drew as
+               "0dBm", the strongest reading there is, about the one radio nothing measured. */
+            inkwell_str_copy(attach, sizeof attach, inkcell_str(MESH_STR_DEVICES_TRAILING_BLE));
+        } else if (device->reading == (uint8_t)MESH_UI_READING_SCAN_HELD) {
+            /* Unheard by a scan that is not running is not out of range: it is unknown. */
+            inkwell_str_copy(attach, sizeof attach, inkcell_str(MESH_STR_DEVICES_TRAILING_HELD));
+        } else {
             /* A bond BlueZ holds for a radio it cannot hear has no reading behind it, and the
                0 that leaves in the struct would draw as the strongest node on the screen. */
             inkwell_str_copy(attach, sizeof attach, inkcell_str(MESH_STR_DEVICES_TRAILING_AWAY));
-        } else {
-            inkcell_str_format(attach, sizeof attach, MESH_STR_DEVICES_TRAILING_RSSI,
-                               (int)device->rssi);
         }
 
         const bool armed = nav->devices_forget_armed && nav->devices_forget_row == i;

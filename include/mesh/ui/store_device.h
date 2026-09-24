@@ -46,6 +46,22 @@ enum mesh_ui_device_kind {
     MESH_UI_DEVICE_TCP,
 };
 
+/*
+ * Where a Bluetooth row's `rssi` came from, which is a different question from `in_range`.
+ *
+ * A link holds the scan down, and BlueZ drops every reading the moment it stops - so for the
+ * whole of a connection the radio on the desk beside the one we are on has no reading, and the
+ * connected radio has none either. Neither is "not in range" and neither is "0dBm", and a row
+ * that can only say one of those two says something false. NONE is the zero so a USB port or a
+ * network host, which never state it, have no reading to print.
+ */
+enum mesh_ui_device_reading {
+    MESH_UI_READING_NONE = 0,  /* nothing to print: the running scan did not hear it */
+    MESH_UI_READING_LIVE,      /* `rssi` is what the running scan hears now */
+    MESH_UI_READING_LAST_SCAN, /* the scan is held; `rssi` is what the last one heard */
+    MESH_UI_READING_SCAN_HELD, /* the scan is held and the last one did not hear it */
+};
+
 struct mesh_ui_device {
     char identifier[64];
     char name[64];
@@ -58,7 +74,13 @@ struct mesh_ui_device {
        answers from anywhere and so is evidence of no distance at all - the Status card counts
        this field and means earshot by it. */
     bool in_range;
+    /* enum mesh_ui_device_reading. A radio the last scan heard before it was held is in_range,
+       since that is the last evidence there is; this is what says the reading is not live. */
+    uint8_t reading;
     bool connected;
+    /* The radio a launch reconnects to: the one connected to last, which connecting to another
+       moves. Without it on the row, "why did it pick that one" had no answer anywhere. */
+    bool preferred;
     /* BLE only: BlueZ holds a bond for this node. A node in PIN mode that is not paired
        connects and then fails, so the row says so before the user presses A. Always true for
        a USB port, which has nothing to pair. */

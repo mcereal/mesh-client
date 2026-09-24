@@ -151,6 +151,8 @@ from 2 s to 60 s; only an established link clears it. The USB and BLE preference
 | `MESHCLIENT_TCP_HOST` | the node to reach over the network. Not named `PREFERRED_`: the other two pick one of several things the client found, and this one *is* the link |
 | `MESHCLIENT_AUTOCONNECT` | `0` stops the foreground loop connecting on its own |
 | `MESHCLIENT_MQTT_PROXY` | `0` stops the client holding a broker connection for a radio that asks for one. The whole arrangement is otherwise the *radio's* decision — see [`mqtt.md`](mqtt.md) — so this is the only say the Brick has in it |
+| `MESHCLIENT_BLE_RELEASE_WAIT_MS` | how long a BLE connect waits for the kernel to release the previous link, 0–60000, default 5000; a link still held after that is stranded, and the controller is reset |
+| `MESHCLIENT_DISCOVERY_SETTLE_MS` | how long a BLE scan request gets to take effect, 0–60000, default 5000, before an adapter that is still not scanning is asked again (each further try waits twice as long, up to 16x) |
 | `MESHCLIENT_SCAN_RESUME_GRACE_MS` | how long a teardown keeps the BLE scan down, 0–60000, default 3000, so it is not restarted for the second between a drop and the reconnect |
 | `MESHCLIENT_UI_BACKEND` | `fb\|sdl\|headless\|cli\|stub`; Windows defaults to `sdl`. Elsewhere the default is `fb` unless there is no `/dev/fb0`, and then `cli`. `sdl` is never reached by fallback on those hosts — a window is a thing you ask for. `headless` draws the device's frame into memory for a host with neither a panel nor a display; see [`ui.md`](ui.md#driving-the-running-client) |
 | `MESHCLIENT_UI_CONTROL` | same as `--ui-control`: the control socket's path. Unset is off |
