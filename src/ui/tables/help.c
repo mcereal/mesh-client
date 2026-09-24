@@ -152,6 +152,10 @@ static const struct mesh_ui_help_entry k_help_devices[] = {
     /* The last row of the list, and the one thing on this screen a reader cannot work out by
        pressing: why the address has to be numbers, and where the port went. */
     {MESH_STR_HELP_LABEL_DEVICES_NETWORK, MESH_STR_HELP_NOTE_DEVICES_NETWORK},
+    /* The two things a row says that the client decided rather than measured: which radio it
+       reaches for, and why the others' readings stop moving while a link is up. */
+    {MESH_STR_HELP_LABEL_DEVICES_AUTO, MESH_STR_HELP_NOTE_DEVICES_AUTO},
+    {MESH_STR_HELP_LABEL_DEVICES_SIGNAL, MESH_STR_HELP_NOTE_DEVICES_SIGNAL},
 };
 
 /*

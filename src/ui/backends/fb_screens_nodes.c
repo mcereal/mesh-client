@@ -799,7 +799,13 @@ void fb_render_nodes(struct inkcell_draw_state *state, const struct mesh_ui_snap
          * describes something else is unhelpful where drawing it is a claim.
          */
         bool direct = false;
-        if (!node->in_nodedb) {
+        const bool is_me = (me != 0U && node->node_id == me);
+        if (is_me) {
+            /* Ourselves, ahead of every signal arm: a radio does not hear its own packets, so
+               the 0.0 its NodeDB entry carries is no reading, and how long ago it last heard
+               itself is not an age. The detail screen says the same thing the same way. */
+            inkwell_str_copy(right, sizeof right, inkcell_str(MESH_STR_NODES_ROW_SELF));
+        } else if (!node->in_nodedb) {
             inkcell_str_format(right, sizeof right, MESH_STR_NODES_ROW_OFF_RADIO, age);
         } else if (node->has_hops_away && node->hops_away > 0U) {
             inkcell_str_format(right, sizeof right, MESH_STR_NODES_ROW_HOPS,
@@ -823,7 +829,14 @@ void fb_render_nodes(struct inkcell_draw_state *state, const struct mesh_ui_snap
             /* Hops the firmware never reported, or no reading behind the figure. Exactly the
                column this list drew before, which is why MESH_STR_NODES_ROW_SNR keeps its
                entry - and what the CLI backend, which has no staircase, draws throughout. */
-            inkcell_str_format(right, sizeof right, MESH_STR_NODES_ROW_SNR, (double)node->snr, age);
+            if (node->snr != 0.0f) {
+                inkcell_str_format(right, sizeof right, MESH_STR_NODES_ROW_SNR, (double)node->snr,
+                                   age);
+            } else {
+                /* 0.0 is the session layer's "no reading", and "0.0dB" printed would claim
+                   one - a packet arriving exactly at the noise floor. The age is all there is. */
+                inkwell_str_copy(right, sizeof right, age);
+            }
         }
 
         /*
@@ -841,7 +854,6 @@ void fb_render_nodes(struct inkcell_draw_state *state, const struct mesh_ui_snap
          * the name: a node list is read by scanning the left edge, which is exactly where the
          * disc already is.
          */
-        const bool is_me = (me != 0U && node->node_id == me);
         uint32_t tint = 0U;
         mesh_ui_nav_target_avatar(&view, node->node_id, 0U, initials, sizeof initials, &tint);
 

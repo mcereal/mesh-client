@@ -171,6 +171,13 @@ struct mesh_app {
     uint64_t autoconnect_started_ms;
     uint64_t autoconnect_retry_at_ms;
     unsigned autoconnect_failures;
+    /* Consecutive failures against the preferred radio while it was advertising, and whether
+       the attempt in flight is one of those. See MESH_APP_AUTOCONNECT_PREFERRED_TRIES. */
+    unsigned autoconnect_preferred_failures;
+    bool autoconnect_tried_preferred;
+    /* When a run of those failures first found the preferred radio missing; 0 while it is
+       heard. See mesh_app_age_preferred_failures(). */
+    uint64_t autoconnect_preferred_missing_ms;
     /*
      * When the network arm of auto-connect may try again.
      *

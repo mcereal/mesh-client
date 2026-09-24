@@ -15,6 +15,7 @@
 #endif
 #include "inkwell/runtime/timer.h"
 
+#include "inkwell/base/array.h"
 #include "inkwell/ble/central.h"
 #include "mesh/app/app.h"
 #include "mesh/core/config.h"
@@ -415,6 +416,302 @@ cleanup:
         rmdir(path);
         rmdir(home_dir);
     }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/* Removes what app_test_home() and a preferences save leave behind. */
+static void app_test_home_remove(const char *home_dir) {
+    char path[256];
+    snprintf(path, sizeof path, "%s/.meshclient/ui_prefs.handshake", home_dir);
+    unlink(path);
+    snprintf(path, sizeof path, "%s/.meshclient/ui_prefs", home_dir);
+    unlink(path);
+    snprintf(path, sizeof path, "%s/.meshclient", home_dir);
+    rmdir(path);
+    rmdir(home_dir);
+}
+
+static const struct mesh_ui_device *app_test_device_row(const struct mesh_app *app,
+                                                        const char *address) {
+    for (size_t i = 0; i < app->ui_store.device_count; ++i) {
+        if (strcmp(app->ui_store.devices[i].identifier, address) == 0) {
+            return &app->ui_store.devices[i];
+        }
+    }
+    return NULL;
+}
+
+/*
+ * A link holds the scan down and BlueZ drops every reading when it stops, so the radios beside
+ * the one we are on read as out of range and the one we are on as 0 dBm. The rows keep what the
+ * last running scan heard instead, say that it is the last scan's, and a radio that scan did not
+ * hear is "unknown while paused" rather than "away". The radio a launch would reconnect to is
+ * marked on its row.
+ */
+MESH_TEST_CASE(app_devices_keep_the_last_scan_while_a_link_holds_it, unit) {
+    const char *failure = NULL;
+
+    struct inkwell_ble_device mock_devices[] = {
+        {.address = "AA:BB:CC:DD:EE:30", .name = "OnDesk", .rssi = -35, .paired = true},
+        {.address = "AA:BB:CC:DD:EE:31", .name = "Beside", .rssi = -60, .paired = true},
+        {.address = "AA:BB:CC:DD:EE:32", .name = "AtHome", .rssi = 0, .paired = true},
+    };
+    struct inkwell_ble_mock_config mock_config = {
+        .adapter_name = "/org/bluez/hci0",
+        .devices = mock_devices,
+        .device_count = 3U,
+    };
+    inkwell_ble_mock_enable(&mock_config);
+
+    /* No hold after the link, so the scan is back on the turn it ends. */
+    setenv("MESHCLIENT_SCAN_RESUME_GRACE_MS", "0", 1);
+    char home_dir[APP_TEST_HOME_CAP];
+    if (!app_test_home(home_dir, sizeof home_dir, "held_scan")) {
+        unsetenv("MESHCLIENT_SCAN_RESUME_GRACE_MS");
+        inkwell_ble_mock_disable();
+        record_failure(test_name, "mkdtemp failed");
+        return;
+    }
+
+    struct mesh_app_config config = mesh_app_config_default();
+    config.run_mode = MESH_APP_RUN_FOREGROUND;
+    config.enable_serial = false;
+
+    struct mesh_app app;
+    memset(&app, 0, sizeof app);
+    bool app_ready = false;
+    if (mesh_app_init(&app, &config) != 0) {
+        failure = "app init failed";
+        goto cleanup;
+    }
+    app_ready = true;
+
+    struct mesh_transport *ble = mesh_ble_transport();
+    if (mesh_transport_registry_start_all(&app.transport_registry, &app.config, &app.loop) < 0) {
+        failure = "transport start failed";
+        goto cleanup;
+    }
+    mesh_transport_registry_tick(&app.transport_registry); /* the scan starts */
+    mesh_ble_transport_refresh_devices(ble);
+
+    /* Scanning: every reading is live, and one nobody heard is simply away. */
+    mesh_app_publish_ui_state(&app);
+    const struct mesh_ui_device *beside = app_test_device_row(&app, mock_devices[1].address);
+    const struct mesh_ui_device *home = app_test_device_row(&app, mock_devices[2].address);
+    if (beside == NULL || beside->reading != (uint8_t)MESH_UI_READING_LIVE || home == NULL ||
+        home->reading != (uint8_t)MESH_UI_READING_NONE || home->in_range) {
+        failure = "a running scan should report live readings, and away for an unheard bond";
+        goto cleanup;
+    }
+
+    if (mesh_ble_transport_connect(ble, mock_devices[0].address) != 0) {
+        failure = "connect should be accepted";
+        goto cleanup;
+    }
+    for (int turn = 0; turn < 8 && mesh_ble_transport_connected_address(ble) == NULL; ++turn) {
+        mesh_transport_registry_tick(&app.transport_registry);
+    }
+    if (mesh_ble_transport_connected_address(ble) == NULL) {
+        failure = "the link should come up";
+        goto cleanup;
+    }
+    if (!mesh_ble_transport_scan_held(ble)) {
+        failure = "a link should hold the scan";
+        goto cleanup;
+    }
+
+    /* What BlueZ does once discovery stops: the RSSI properties go - though not all at once,
+       so the radio beside the link still carries one, frozen at the connect. */
+    mock_devices[0].rssi = 0;
+    mesh_ble_transport_refresh_devices(ble);
+    mesh_app_publish_ui_state(&app);
+    mesh_app_publish_ui_state(&app); /* the second sees the preference the first recorded */
+
+    const struct mesh_ui_device *desk = app_test_device_row(&app, mock_devices[0].address);
+    beside = app_test_device_row(&app, mock_devices[1].address);
+    home = app_test_device_row(&app, mock_devices[2].address);
+    if (desk == NULL || beside == NULL || home == NULL) {
+        failure = "every bond should still be a row";
+        goto cleanup;
+    }
+    if (!desk->connected || desk->reading != (uint8_t)MESH_UI_READING_LAST_SCAN ||
+        desk->rssi != -35) {
+        failure = "the connected radio should keep its last-scan reading, not read 0 dBm";
+        goto cleanup;
+    }
+    if (!beside->in_range || beside->reading != (uint8_t)MESH_UI_READING_LAST_SCAN ||
+        beside->rssi != -60) {
+        failure = "a reading left over from before the hold is the last scan's, not live";
+        goto cleanup;
+    }
+    if (home->in_range || home->reading != (uint8_t)MESH_UI_READING_SCAN_HELD) {
+        failure = "a radio the last scan missed is unknown while the scan is held, not away";
+        goto cleanup;
+    }
+    if (!desk->preferred || beside->preferred || home->preferred) {
+        failure = "only the radio a launch reconnects to should be marked";
+        goto cleanup;
+    }
+
+    /* The link ends and the scan resumes, having heard nobody yet. For its first seconds a
+       radio the last scan heard keeps that reading rather than flashing "not in range". */
+    if (mesh_ble_transport_disconnect(ble) != 0) {
+        failure = "disconnect failed";
+        goto cleanup;
+    }
+    mesh_transport_registry_tick(&app.transport_registry);
+    if (mesh_ble_transport_scan_held(ble)) {
+        failure = "the scan should be back once the link is gone";
+        goto cleanup;
+    }
+    mesh_ble_transport_refresh_devices(ble);
+    mesh_app_publish_ui_state(&app);
+    desk = app_test_device_row(&app, mock_devices[0].address);
+    home = app_test_device_row(&app, mock_devices[2].address);
+    if (desk == NULL || !desk->in_range || desk->reading != (uint8_t)MESH_UI_READING_LAST_SCAN ||
+        desk->rssi != -35) {
+        failure = "a resumed scan should keep the last reading while it has not heard it yet";
+        goto cleanup;
+    }
+    if (home == NULL || home->in_range || home->reading != (uint8_t)MESH_UI_READING_NONE) {
+        failure = "a radio no scan has heard is away once scanning again";
+        goto cleanup;
+    }
+
+cleanup:
+    if (app_ready) {
+        mesh_app_shutdown(&app);
+    }
+    inkwell_ble_mock_disable();
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    unsetenv("MESHCLIENT_SCAN_RESUME_GRACE_MS");
+    app_test_home_remove(home_dir);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * A preferred radio that advertises and then refuses every connect - one at the edge of range -
+ * does not hold the slot forever against another radio of ours in the room. After a few straight
+ * failures the other one gets a turn, and the two then alternate, so the preferred radio is
+ * still reached the moment it answers. A stranger never gets the turn.
+ */
+MESH_TEST_CASE(app_autoconnect_steps_past_a_refusing_preferred_radio, unit) {
+    const char *failure = NULL;
+
+    struct inkwell_ble_device mock_devices[] = {
+        {.address = "AA:BB:CC:DD:EE:40", .name = "Preferred", .rssi = -70, .paired = true},
+        {.address = "AA:BB:CC:DD:EE:41", .name = "Stranger", .rssi = -20, .paired = true},
+        {.address = "AA:BB:CC:DD:EE:42", .name = "OtherMine", .rssi = -35, .paired = true},
+    };
+    struct inkwell_ble_mock_config mock_config = {
+        .adapter_name = "/org/bluez/hci0",
+        .devices = mock_devices,
+        .device_count = 3U,
+        .connect_result = -EIO,
+        .connect_pending_polls = 1U, /* so the attempt is still in flight to be asked about */
+    };
+    inkwell_ble_mock_enable(&mock_config);
+
+    char home_dir[APP_TEST_HOME_CAP];
+    if (!app_test_home(home_dir, sizeof home_dir, "refusing")) {
+        inkwell_ble_mock_disable();
+        record_failure(test_name, "mkdtemp failed");
+        return;
+    }
+
+    struct mesh_app_config config = mesh_app_config_default();
+    config.run_mode = MESH_APP_RUN_FOREGROUND;
+    config.enable_serial = false;
+
+    struct mesh_app app;
+    memset(&app, 0, sizeof app);
+    bool app_ready = false;
+    if (mesh_app_init(&app, &config) != 0) {
+        failure = "app init failed";
+        goto cleanup;
+    }
+    app_ready = true;
+
+    struct mesh_transport *ble = mesh_ble_transport();
+    if (mesh_transport_registry_start_all(&app.transport_registry, &app.config, &app.loop) < 0) {
+        failure = "transport start failed";
+        goto cleanup;
+    }
+    mesh_ble_transport_refresh_devices(ble);
+
+    (void)mesh_ui_preferences_note_device(&app.ui_preferences, mock_devices[2].address,
+                                          (uint8_t)MESH_UI_DEVICE_BLE);
+    (void)mesh_ui_preferences_note_device(&app.ui_preferences, mock_devices[0].address,
+                                          (uint8_t)MESH_UI_DEVICE_BLE);
+    snprintf(app.config.preferred_ble_device, sizeof app.config.preferred_ble_device, "%s",
+             mock_devices[0].address);
+
+    /* Preferred x3, then the other radio of ours, then preferred, then the other again. */
+    static const size_t expected[] = {0U, 0U, 0U, 2U, 0U, 2U};
+    for (size_t attempt = 0; attempt < INKWELL_ARRAY_LEN(expected); ++attempt) {
+        app.autoconnect_retry_at_ms = 0U;
+        mesh_app_autoconnect(&app);
+        const char *pending = mesh_ble_transport_pending_address(ble);
+        if (pending == NULL || strcmp(pending, mock_devices[expected[attempt]].address) != 0) {
+            failure = attempt < 3U ? "the preferred radio should get the first attempts"
+                      : expected[attempt] == 2U
+                          ? "a refusing preferred radio should hand a turn to another of ours"
+                          : "the preferred radio should get the turn back";
+            goto cleanup;
+        }
+        for (int turn = 0; turn < 4 && mesh_ble_transport_is_connecting(ble); ++turn) {
+            mesh_transport_registry_tick(&app.transport_registry);
+        }
+        if (!mesh_app_report_link_errors(&app)) {
+            failure = "each refused connect should be reported to auto-connect";
+            goto cleanup;
+        }
+    }
+
+    /*
+     * A streak is about the radio refusing now. Once it has been gone past the grace, the
+     * failures are forgotten, and when it comes back it gets the first attempt again rather
+     * than finding its old failures handing the turn to the other radio.
+     */
+    app.autoconnect_preferred_failures = 3U;
+    mock_devices[0].rssi = 0;
+    mock_devices[1].rssi = 0;
+    mock_devices[2].rssi = 0;
+    mesh_ble_transport_refresh_devices(ble);
+    app.autoconnect_retry_at_ms = 0U;
+    mesh_app_autoconnect(&app); /* first miss: noted, not forgotten */
+    if (app.autoconnect_preferred_failures != 3U) {
+        failure = "one miss - a held scan hears nobody - must not forget the streak";
+        goto cleanup;
+    }
+    app.autoconnect_preferred_missing_ms -= 31000U;
+    mesh_app_autoconnect(&app);
+    if (app.autoconnect_preferred_failures != 0U) {
+        failure = "a preferred radio gone past the grace should have its failures forgotten";
+        goto cleanup;
+    }
+    mock_devices[0].rssi = -70;
+    mock_devices[2].rssi = -35;
+    mesh_ble_transport_refresh_devices(ble);
+    app.autoconnect_retry_at_ms = 0U;
+    mesh_app_autoconnect(&app);
+    {
+        const char *pending = mesh_ble_transport_pending_address(ble);
+        if (pending == NULL || strcmp(pending, mock_devices[0].address) != 0) {
+            failure = "a preferred radio back from away should get the first attempt again";
+            goto cleanup;
+        }
+    }
+
+cleanup:
+    if (app_ready) {
+        mesh_app_shutdown(&app);
+    }
+    inkwell_ble_mock_disable();
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    app_test_home_remove(home_dir);
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }

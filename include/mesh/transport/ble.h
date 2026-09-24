@@ -18,6 +18,24 @@ const struct inkwell_ble_device *mesh_ble_transport_devices(struct mesh_transpor
 size_t mesh_ble_transport_get_devices(struct mesh_transport *transport,
                                       struct inkwell_ble_device *out, size_t capacity);
 size_t mesh_ble_transport_refresh_devices(struct mesh_transport *transport);
+/*
+ * What the last scan heard, for the stretch the scan is held down.
+ *
+ * A link holds discovery off (see mesh_ble_sync_discovery()), and BlueZ drops every RSSI the
+ * moment it stops, so the listing above says `in_range = false` about the radio beside the one
+ * we are on. That is the stack's answer to "heard in the current scan", which there is none of,
+ * and it is the answer auto-connect needs; it is not the answer a screen should give about where
+ * a radio is. These are that second answer.
+ *
+ * held: discovery is off after having run at least once, so a missing reading says nothing
+ * about range. Never true before the first scan, when a missing reading means "not heard yet".
+ * last_heard: `address` was heard by a running scan, at *rssi - while the scan is held, by the
+ * last one that ran; while it runs, within the last few seconds, which is what carries a row
+ * across the gaps between advertisements and the first seconds of a resumed scan.
+ */
+bool mesh_ble_transport_scan_held(struct mesh_transport *transport);
+bool mesh_ble_transport_last_heard(struct mesh_transport *transport, const char *address,
+                                   int16_t *rssi);
 /* Connects to a node BlueZ already holds a bond for (or one that needs none). An unpaired
    node in PIN mode gets as far as GATT and then fails on StartNotify: bonding is deliberate,
    so it is not started from here. This is the path auto-connect uses. */

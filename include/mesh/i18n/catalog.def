@@ -488,6 +488,8 @@ MESH_STR_ENTRY(NODES_ROW_OFF_RADIO,       "off radio %s")
 MESH_STR_ENTRY(NODES_ROW_HOPS,            "%uhop %s")
 MESH_STR_ENTRY(NODES_ROW_MQTT,            "mqtt %s")
 MESH_STR_ENTRY(NODES_ROW_SNR,             "%.1fdB %s")
+/* Our own row, where the others say how they were heard: a radio has no signal to itself. */
+MESH_STR_ENTRY(NODES_ROW_SELF,            "this radio")
 
 /* ---- compose, the picker and the keyboard --------------------------------------------------- */
 
@@ -578,6 +580,9 @@ MESH_STR_ENTRY(DEVICES_BADGE_CONNECTED,   "connected")
 MESH_STR_ENTRY(DEVICES_BADGE_WORKING,     "working...")
 MESH_STR_ENTRY(DEVICES_BADGE_NEEDS_PAIR,  "needs pairing")
 MESH_STR_ENTRY(DEVICES_BADGE_PAIRED,      "paired")
+/* In place of "paired" on the one radio a launch reconnects to - the last one connected to. A
+   state, not a button: it says what the client will do, and connecting to another moves it. */
+MESH_STR_ENTRY(DEVICES_BADGE_AUTO,        "auto-connect")
 /* A USB node in its UF2 bootloader. A warning rather than a fault: the board is healthy and one
    press of reset runs it again - and phase 3 is what makes this row the start of an install
    rather than only an explanation. */
@@ -590,6 +595,16 @@ MESH_STR_ENTRY(DEVICES_TRAILING_USB,      "USB")
    there is no reading to put there. */
 MESH_STR_ENTRY(DEVICES_TRAILING_AWAY,     "not in range")
 MESH_STR_ENTRY(DEVICES_TRAILING_RSSI,     "%ddBm")
+/* The signal strength as the last scan measured it. Scanning pauses while a radio is connected,
+   so this is what the other radios show for the length of a link - a reading, but not a live one. */
+MESH_STR_ENTRY(DEVICES_TRAILING_RSSI_LAST, "%ddBm at last scan")
+/* A paired radio the last scan did not hear, said while scanning is paused for a link: whether it
+   is in range cannot be known until the scan runs again, so this says why there is no reading
+   rather than guessing "not in range". */
+MESH_STR_ENTRY(DEVICES_TRAILING_HELD,     "scan paused")
+/* The connected radio when there is no reading for it: a Bluetooth link reports no signal
+   strength once it is up. Names the bus, as "USB" and "network" do for theirs. */
+MESH_STR_ENTRY(DEVICES_TRAILING_BLE,      "Bluetooth")
 /* Said of a node reached over the network. Stands where the signal strength would be, for the
    opposite reason to "not in range": there is no reading to put there because there is no
    distance to measure, not because we failed to measure one. */
@@ -1514,6 +1529,10 @@ MESH_STR_ENTRY(HELP_NOTE_DEVICES,         "The radios this Brick can reach: Blue
 MESH_STR_ENTRY(HELP_NOTE_DEVICES_PAIR,    "A Bluetooth radio wants pairing the first time. The radio shows a six-digit code on its own screen and this client asks for it; the pairing is then kept until one side forgets it.")
 MESH_STR_ENTRY(HELP_NOTE_DEVICES_FORGET,  "Y twice drops a radio's pairing from this Brick. Connecting again needs the code again, which is what to do when a radio was re-flashed and no longer knows this client.")
 MESH_STR_ENTRY(HELP_LABEL_DEVICES_NETWORK, "The network radio")
+MESH_STR_ENTRY(HELP_LABEL_DEVICES_AUTO,   "Which radio it picks")
+MESH_STR_ENTRY(HELP_NOTE_DEVICES_AUTO,    "At launch it reconnects to the radio marked auto-connect: the one you last connected to. Connecting to another moves the mark. If that radio keeps failing, your others in range are tried.")
+MESH_STR_ENTRY(HELP_LABEL_DEVICES_SIGNAL, "Signal while connected")
+MESH_STR_ENTRY(HELP_NOTE_DEVICES_SIGNAL,  "Scanning pauses while a radio is connected, so the link has the antenna to itself. The other radios keep the signal the last scan measured until it runs again.")
 MESH_STR_ENTRY(HELP_NOTE_DEVICES_NETWORK, "The last row reaches a node over WiFi. It takes an address like 192.168.1.50 or a name like meshtastic.local; add :4403 only for another port. Y edits, clearing forgets.")
 
 /* Status. */
