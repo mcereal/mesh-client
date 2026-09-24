@@ -19,8 +19,8 @@ delay 220
 
 # ---- open the node first ----------------------------------------------------------------------
 #
-# The Nodes list has three rows before its first node - the filter row, the sort row and the Map
-# (MESH_UI_NODES_LEAD_ROWS) - so Echo Repeater is seeds[5] and row 8, exactly as node-trend.scene
+# The Nodes list has four rows before its first node - the filter row, the sort row, the Map and Waypoints
+# (MESH_UI_NODES_LEAD_ROWS) - so Echo Repeater is seeds[5] and row 9, exactly as node-trend.scene
 # counts it.
 #
 # It is opened *before* the packets arrive, and that ordering is the point rather than a
@@ -30,7 +30,7 @@ delay 220
 # (see `node_detail_node` on struct mesh_ui_nav). A scene that counted rows afterwards would be
 # counting a list that had reordered itself seven times.
 tab nodes
-key down 8
+key down 9
 key a
 hold 400
 

@@ -95,8 +95,7 @@ MESH_TEST_CASE(ui_click_a_tab_is_that_tab, unit) {
 
     /* Every tab, from wherever the last click left the strip - both directions and the wrap. */
     const enum mesh_ui_screen order[] = {MESH_UI_SCREEN_SETTINGS, MESH_UI_SCREEN_NODES,
-                                         MESH_UI_SCREEN_RADIO, MESH_UI_SCREEN_MESSAGES,
-                                         MESH_UI_SCREEN_WAYPOINTS};
+                                         MESH_UI_SCREEN_RADIO, MESH_UI_SCREEN_MESSAGES};
     for (size_t i = 0; i < sizeof order / sizeof order[0]; ++i) {
         MESH_TEST_FAIL_IF_CLEANUP(
             !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_TABS + (uint32_t)order[i], &action),
@@ -247,13 +246,13 @@ MESH_TEST_CASE(ui_click_elsewhere_stands_an_armed_delete_down, unit) {
     mesh_ui_store_set_waypoints(&store, &list);
     struct mesh_ui_action action;
 
-    MESH_TEST_FAIL_IF_CLEANUP(!mesh_test_open_tab(&store, MESH_UI_SCREEN_WAYPOINTS),
-                              mesh_ui_store_shutdown(&store), "the test needs the Waypoints tab");
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_test_open_waypoints(&store), mesh_ui_store_shutdown(&store),
+                              "the test needs the places list");
     click_settle(&store);
     (void)mesh_ui_store_handle_click(&store, (uint32_t)MESH_UI_FOCUS_ROWS + 0U, &action);
     MESH_TEST_FAIL_IF_CLEANUP(!store.nav.waypoint_detail_open, mesh_ui_store_shutdown(&store),
                               "a click on a place should open it");
-    const uint32_t rows = mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_WAYPOINTS);
+    const uint32_t rows = mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_NODES);
     const uint32_t remove = (uint32_t)MESH_UI_FOCUS_ROWS + rows - 1U;
 
     click_settle(&store);

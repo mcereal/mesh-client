@@ -743,6 +743,17 @@ void fb_render_node_list(struct inkcell_draw_state *state, const struct mesh_ui_
            explains nothing to the reader wondering where the map went. */
         inkwell_str_copy(map_line, sizeof map_line, inkcell_str(MESH_STR_MAP_ROW_EMPTY));
     }
+    const uint32_t places = snapshot->waypoints.count > MESH_UI_MAX_WAYPOINTS
+                                ? MESH_UI_MAX_WAYPOINTS
+                                : snapshot->waypoints.count;
+    char places_line[48];
+    if (places > 0U) {
+        inkcell_str_format_plural(places_line, sizeof places_line, MESH_STR_WAYPOINTS_ROW_COUNT_ONE,
+                                  places, places);
+    } else {
+        inkwell_str_copy(places_line, sizeof places_line,
+                         inkcell_str(MESH_STR_WAYPOINTS_ROW_EMPTY));
+    }
 
     uint32_t i;
     while (inkcell_fb_list_next(&list, &i)) {
@@ -779,7 +790,7 @@ void fb_render_node_list(struct inkcell_draw_state *state, const struct mesh_ui_
             inkcell_fb_list_item(state, &list, i, &sort_row);
             continue;
         }
-        if (nothing_matched && i > MESH_UI_NODES_MAP_ROW) {
+        if (nothing_matched && i > MESH_UI_NODES_WAYPOINTS_ROW) {
             /* The row that is not a row: what the filter did, where the nodes would be. Dim
                because it is not something to press - the same tone the map row takes when it
                has nothing to open. */
@@ -799,6 +810,19 @@ void fb_render_node_list(struct inkcell_draw_state *state, const struct mesh_ui_
                 .supporting_quiet = true,
             };
             inkcell_fb_list_item(state, &list, i, &map_row);
+            continue;
+        }
+        if (i == MESH_UI_NODES_WAYPOINTS_ROW) {
+            /* Never dim, unlike the map row above it: the list always ends in the row that
+               makes a place, so there is always something to press it for. */
+            const struct inkcell_fb_list_item places_row = {
+                .leading = {.kind = INKCELL_FB_LEADING_ICON, .icon = INKCELL_ICON_POSITION},
+                .text = inkcell_str(MESH_STR_TAB_WAYPOINTS),
+                .trailing = {.kind = INKCELL_FB_TRAILING_ICON, .icon = INKCELL_ICON_CHEVRON},
+                .supporting = places_line,
+                .supporting_quiet = true,
+            };
+            inkcell_fb_list_item(state, &list, i, &places_row);
             continue;
         }
         /* Through the view, never by subtracting from the raw roster: the row-to-node mapping

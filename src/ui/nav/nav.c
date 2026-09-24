@@ -39,8 +39,6 @@ const char *mesh_ui_screen_name(enum mesh_ui_screen screen) {
         return inkcell_str(MESH_STR_TAB_MESSAGES);
     case MESH_UI_SCREEN_NODES:
         return inkcell_str(MESH_STR_TAB_NODES);
-    case MESH_UI_SCREEN_WAYPOINTS:
-        return inkcell_str(MESH_STR_TAB_WAYPOINTS);
     case MESH_UI_SCREEN_RADIO:
         return inkcell_str(MESH_STR_TAB_RADIO);
     case MESH_UI_SCREEN_SETTINGS:
@@ -48,6 +46,11 @@ const char *mesh_ui_screen_name(enum mesh_ui_screen screen) {
     default:
         return inkcell_str(INKCELL_STR_COMMON_UNKNOWN_SHORT);
     }
+}
+
+bool mesh_ui_nav_waypoints_showing(const struct mesh_ui_nav *nav) {
+    return nav != NULL && nav->screen == MESH_UI_SCREEN_NODES && !nav->node_detail_open &&
+           (nav->waypoints_open || nav->waypoint_detail_open);
 }
 
 bool mesh_ui_nav_devices_showing(const struct mesh_ui_nav *nav) {
@@ -333,7 +336,7 @@ static bool mesh_ui_nav_nodes_control_step(struct mesh_ui_nav *nav, uint32_t cur
 static bool mesh_ui_nav_nodes_list_showing(const struct mesh_ui_nav *nav,
                                            const struct mesh_ui_store *store) {
     return nav != NULL && nav->screen == MESH_UI_SCREEN_NODES && !nav->node_detail_open &&
-           !nav->map_open &&
+           !nav->map_open && !mesh_ui_nav_waypoints_showing(nav) &&
            nav->cursor[MESH_UI_SCREEN_NODES] <
                mesh_ui_nav_row_count(nav, store, MESH_UI_SCREEN_NODES);
 }
@@ -541,6 +544,15 @@ uint32_t mesh_ui_nav_row_count(const struct mesh_ui_nav *nav, const struct mesh_
         }
         return mesh_ui_nav_filter_messages(nav, mesh_ui_store_message_view(store, nav), NULL, 0U);
     case MESH_UI_SCREEN_NODES: {
+        /* The places first: they are drawn over the roster or over the map, and neither of
+           those counts while one is up. Asked of the flags rather than of
+           mesh_ui_nav_waypoints_showing(), because this is also the clamp's question about a tab
+           that is not on the panel - and a place left open behind a change of tab is still the
+           thing this tab's cursor is about. */
+        if (nav != NULL && !nav->node_detail_open &&
+            (nav->waypoints_open || nav->waypoint_detail_open)) {
+            return mesh_ui_nav_waypoint_row_count(nav, store);
+        }
         if (!store->handshake_valid) {
             return 0U;
         }
@@ -602,8 +614,6 @@ uint32_t mesh_ui_nav_row_count(const struct mesh_ui_nav *nav, const struct mesh_
             node != NULL ? mesh_ui_store_traceroute_view(store, node->node_id) : NULL,
             &store->handshake);
     }
-    case MESH_UI_SCREEN_WAYPOINTS:
-        return mesh_ui_nav_waypoint_row_count(nav, store);
     case MESH_UI_SCREEN_SETTINGS:
         if (nav->settings_section == MESH_UI_SETTINGS_NO_SECTION) {
             return mesh_ui_settings_root_count();
@@ -1637,6 +1647,9 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
         return true;
     }
     case MESH_UI_SCREEN_NODES: {
+        if (mesh_ui_nav_waypoints_showing(nav)) {
+            return mesh_ui_nav_waypoint_confirm(nav, store, cursor, action);
+        }
         if (cursor >= rows) {
             return false;
         }
@@ -1654,12 +1667,19 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
             if (mesh_ui_nav_nodes_control_step(nav, cursor, INKCELL_KEY_A)) {
                 return true;
             }
+            if (cursor == MESH_UI_NODES_WAYPOINTS_ROW) {
+                /* The places, one level in. Never refused: the list always ends in its "New
+                   waypoint here" row, so there is something to stand on even on a mesh that has
+                   shared nothing. */
+                mesh_ui_nav_open_waypoints(nav);
+                return true;
+            }
             if (cursor == MESH_UI_NODES_MAP_ROW) {
                 /*
                  * The map, framed on everything the client can place. It cannot be pressed when
                  * there is nothing to place, and it says so out loud rather than doing nothing:
                  * a row that swallows a press is the client telling the reader their Brick is
-                 * broken. The Waypoints tab's "New waypoint here" row settled this rule.
+                 * broken. The places list's "New waypoint here" row settled this rule.
                  */
                 if (!mesh_ui_map_has_markers(store)) {
                     mesh_ui_nav_raise_toast(nav, inkcell_str(MESH_STR_TOAST_MAP_NO_FIXES));
@@ -1721,8 +1741,6 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
         }
         return false;
     }
-    case MESH_UI_SCREEN_WAYPOINTS:
-        return mesh_ui_nav_waypoint_confirm(nav, store, cursor, action);
     case MESH_UI_SCREEN_SETTINGS: {
         if (nav->settings_section == MESH_UI_SETTINGS_CHANNELS &&
             nav->settings_channel == MESH_UI_SETTINGS_NO_CHANNEL) {
@@ -2096,7 +2114,7 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
     /* The same again for the open place's delete row: only A on that row may re-arm it, and
        moving off it stands it down, so the arming cannot outlive the row it was made on. */
     if (nav->waypoint_delete_armed &&
-        (key != INKCELL_KEY_A || nav->screen != MESH_UI_SCREEN_WAYPOINTS ||
+        (key != INKCELL_KEY_A || !mesh_ui_nav_waypoints_showing(nav) ||
          !nav->waypoint_detail_open)) {
         nav->waypoint_delete_armed = false;
         changed = true;
@@ -2420,14 +2438,19 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
         if (nav->screen == MESH_UI_SCREEN_SETTINGS) {
             return mesh_ui_nav_settings_back(nav) || changed;
         }
+        if (mesh_ui_nav_waypoints_showing(nav)) {
+            /* The open place first, which lands on whatever it was opened from - the list or
+               the map - and then the list, which lands on the roster at its own row. */
+            if (mesh_ui_nav_close_waypoint(nav)) {
+                return true;
+            }
+            return mesh_ui_nav_close_waypoints(nav) || changed;
+        }
         if (nav->screen == MESH_UI_SCREEN_NODES) {
             /* The detail first, because it is the level on top - and when it was opened from
                the map, closing it lands back on the map with the view where it was left rather
                than on the list the reader was never on. The map's own B is taken above. */
             return mesh_ui_nav_close_node_detail(nav) || changed;
-        }
-        if (nav->screen == MESH_UI_SCREEN_WAYPOINTS) {
-            return mesh_ui_nav_close_waypoint(nav) || changed;
         }
         if (mesh_ui_nav_devices_showing(nav)) {
             /* Back to the cards, and the forget question with it: an armed Y is about a row
@@ -2472,7 +2495,7 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
             }
             return changed;
         }
-        if (nav->screen == MESH_UI_SCREEN_NODES) {
+        if (nav->screen == MESH_UI_SCREEN_NODES && !mesh_ui_nav_waypoints_showing(nav)) {
             /* The one-press version of the detail's "Pinned to top" row, from either level -
                pinning a node you can see in the list should not cost a drill-down. */
             const struct mesh_ui_node_summary *node =
@@ -2542,7 +2565,7 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
             }
             return true;
         }
-        if (nav->screen == MESH_UI_SCREEN_NODES) {
+        if (nav->screen == MESH_UI_SCREEN_NODES && !mesh_ui_nav_waypoints_showing(nav)) {
             /* Straight from a contact into writing to it, from the list or from inside the
                node's detail. Which cursor names the node depends on which level is showing. */
             const struct mesh_ui_node_summary *node =

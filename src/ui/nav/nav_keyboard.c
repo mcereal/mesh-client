@@ -188,7 +188,8 @@ void mesh_ui_nav_keyboard_close(struct mesh_ui_nav *nav) {
             if (nav->keyboard_field != MESH_UI_FIELD_NONE) {
                 nav->screen = MESH_UI_SCREEN_SETTINGS;
             } else if (nav->keyboard_waypoint) {
-                nav->screen = MESH_UI_SCREEN_WAYPOINTS;
+                /* The places list and the node detail that raise it are both the Nodes tab. */
+                nav->screen = MESH_UI_SCREEN_NODES;
             } else if (nav->keyboard_network) {
                 /* Survives the prompt untouched, exactly as `keyboard_waypoint` does - and it
                    is the one flavour a passkey prompt can plausibly land on, since both are
@@ -237,10 +238,9 @@ void mesh_ui_nav_keyboard_close(struct mesh_ui_nav *nav) {
         nav->waypoint_source_node = 0U;
         snprintf(nav->draft, sizeof nav->draft, "%s", nav->draft_saved);
         nav->draft_saved[0] = '\0';
-        /* Back to the list the place was going to appear on, whichever screen raised the
-           keyboard - the node detail's "Save this place" row opens it from the Nodes tab, and
-           landing back there would leave the user looking for what they just made. */
-        nav->screen = MESH_UI_SCREEN_WAYPOINTS;
+        /* Back where it was raised: the places list and the node detail's "Save this place"
+           row are both levels of the Nodes tab, so the level underneath is still standing. */
+        nav->screen = MESH_UI_SCREEN_NODES;
     }
 }
 

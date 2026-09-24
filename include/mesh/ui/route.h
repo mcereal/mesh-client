@@ -81,6 +81,8 @@ enum mesh_ui_route_level {
     MESH_UI_ROUTE_CONTACT,
     /* The radios this client could attach to, over the Radio tab's Status cards. */
     MESH_UI_ROUTE_DEVICES,
+    /* The shared places, over the Nodes roster. One place's detail is MESH_UI_ROUTE_WAYPOINT. */
+    MESH_UI_ROUTE_WAYPOINTS,
     MESH_UI_ROUTE_COUNT
 };
 

@@ -1,8 +1,8 @@
 #define _POSIX_C_SOURCE 200809L
 
 /*
- * The Waypoints tab's own key handling: the list, the place opened from it, and the keyboard
- * that names a new one.
+ * The places' own key handling: the list (a level of the Nodes tab, opened from its row), the
+ * place opened from it or from the map, and the keyboard that names a new one.
  *
  * The shape is the Nodes tab's, deliberately - a list, one of its rows opened over it, and
  * actions inside the open row - because a place and a node are the same kind of thing to
@@ -18,15 +18,39 @@
 #include <stdio.h>
 #include <string.h>
 
+void mesh_ui_nav_open_waypoints(struct mesh_ui_nav *nav) {
+    if (!nav->waypoints_open) {
+        nav->waypoints_nodes_cursor = nav->cursor[MESH_UI_SCREEN_NODES];
+        nav->cursor[MESH_UI_SCREEN_NODES] = 0U;
+    }
+    nav->waypoints_open = true;
+    nav->screen = MESH_UI_SCREEN_NODES;
+}
+
+bool mesh_ui_nav_close_waypoints(struct mesh_ui_nav *nav) {
+    if (!nav->waypoints_open) {
+        return false;
+    }
+    mesh_ui_nav_close_waypoint(nav);
+    nav->waypoints_open = false;
+    nav->cursor[MESH_UI_SCREEN_NODES] = nav->waypoints_nodes_cursor;
+    return true;
+}
+
+/*
+ * One place, over whatever it was opened from: the places list, or the map. Its rows take the
+ * Nodes cursor and the position underneath is parked in `waypoint_list_cursor` - the list's row,
+ * or the map's 0 - so B puts the reader back where they pressed.
+ */
 void mesh_ui_nav_open_waypoint(struct mesh_ui_nav *nav, uint32_t id) {
     if (!nav->waypoint_detail_open) {
-        nav->waypoint_list_cursor = nav->cursor[MESH_UI_SCREEN_WAYPOINTS];
+        nav->waypoint_list_cursor = nav->cursor[MESH_UI_SCREEN_NODES];
     }
     nav->waypoint_detail_id = id;
     nav->waypoint_detail_open = true;
     nav->waypoint_delete_armed = false;
-    nav->screen = MESH_UI_SCREEN_WAYPOINTS;
-    nav->cursor[MESH_UI_SCREEN_WAYPOINTS] = 0U;
+    nav->screen = MESH_UI_SCREEN_NODES;
+    nav->cursor[MESH_UI_SCREEN_NODES] = 0U;
 }
 
 bool mesh_ui_nav_close_waypoint(struct mesh_ui_nav *nav) {
@@ -36,7 +60,7 @@ bool mesh_ui_nav_close_waypoint(struct mesh_ui_nav *nav) {
     nav->waypoint_detail_open = false;
     nav->waypoint_detail_id = 0U;
     nav->waypoint_delete_armed = false;
-    nav->cursor[MESH_UI_SCREEN_WAYPOINTS] = nav->waypoint_list_cursor;
+    nav->cursor[MESH_UI_SCREEN_NODES] = nav->waypoint_list_cursor;
     return true;
 }
 
@@ -55,7 +79,6 @@ void mesh_ui_nav_open_waypoint_keyboard(struct mesh_ui_nav *nav, uint32_t source
     /* Upper case first: a place is a proper noun far more often than a message is a sentence,
        and the layer falls back to lower after the first letter the way a phone's does. */
     nav->kb.layer = (uint8_t)INKCELL_KB_UPPER;
-    nav->screen = MESH_UI_SCREEN_WAYPOINTS;
 }
 
 bool mesh_ui_nav_commit_waypoint(struct mesh_ui_nav *nav, struct mesh_ui_action *action) {
@@ -73,8 +96,9 @@ bool mesh_ui_nav_commit_waypoint(struct mesh_ui_nav *nav, struct mesh_ui_action 
     }
     nav->draft[0] = '\0';
     mesh_ui_nav_keyboard_close(nav);
-    /* Land on the list, where the new place is about to appear. */
-    nav->screen = MESH_UI_SCREEN_WAYPOINTS;
+    /* Back where the keyboard was raised: the places list, where the new place is about to
+       appear, or the node detail whose fix it took, which the toast answers for. Both are the
+       Nodes tab now, so there is no tab to jump to. */
     return true;
 }
 

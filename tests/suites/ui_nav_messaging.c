@@ -303,13 +303,18 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
     mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
     mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action); /* Nodes */
 
-    /* Waypoints sits between Nodes and Radio, and its list is never empty - the row that
-       makes a place is always there, so Right lands on a screen with something under the
-       cursor even on a mesh that has shared nothing. */
-    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
-    if (store.nav.screen != MESH_UI_SCREEN_WAYPOINTS ||
-        mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_WAYPOINTS) != 1U) {
-        failure = "RIGHT from Nodes should reach Waypoints, which always offers its new row";
+    /* The places are a row of the Nodes list, and their list is never empty - the row that
+       makes a place is always there, so A lands on a screen with something under the cursor
+       even on a mesh that has shared nothing. B goes back to the roster, on the row it left. */
+    if (!mesh_test_open_waypoints(&store) ||
+        mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_NODES) != 1U) {
+        failure = "the Waypoints row should open the places, which always offer their new row";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
+    if (mesh_ui_nav_waypoints_showing(&store.nav) ||
+        store.nav.cursor[MESH_UI_SCREEN_NODES] != MESH_UI_NODES_WAYPOINTS_ROW) {
+        failure = "B on the places should land on the roster's Waypoints row";
         goto cleanup;
     }
 
@@ -323,7 +328,7 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
     if (store.nav.screen != MESH_UI_SCREEN_RADIO ||
         mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_RADIO) != 3U ||
         store.nav.status_verb != (uint8_t)MESH_UI_STATUS_VERB_DEVICES) {
-        failure = "RIGHT from Waypoints should reach the Radio tab's cards, on Devices";
+        failure = "RIGHT from Nodes should reach the Radio tab's cards, on Devices";
         goto cleanup;
     }
 
