@@ -14,6 +14,12 @@
  * that ship; only the radio at the other end is invented, and only far enough to give the
  * screens something to draw.
  *
+ * The script itself is played by scene.c, which names nothing of this client's: the store is
+ * handed to it as a host, and the verbs below that are not its own - everything but `scene`,
+ * `scale`, `delay`, `clock`, `theme`, `pointer`, `key`, `frame` and `hold` - are rows in this
+ * file's verb table. That split is the seam inkstand's scene runner is cut along; see its
+ * docs/extraction.md.
+ *
  * Scene script (one command per line, '#' starts a comment):
  *
  *   scene demo|empty       which invented radio to start from     (setup, default demo)
@@ -30,7 +36,8 @@
  *                          frame, as a window's mouse would - the row's menu, at the pointer
  *   tab NAME               walk Left/Right to messages|nodes|devices|status|settings
  *   config                 a radio that has answered the config handshake
- *   syncing                a config replay still running, partway through the roster
+ *   syncing [on|off]       a config replay still running, partway through the roster; `off`
+ *                          finishes it
  *   stats                  the radio's own LocalStats report - packet counters, online nodes and
  *                          the airtime pair, which the Status tab's Mesh card reads
  *   airtime BUSY [TX]      one LocalStats airtime report, in percent
@@ -74,6 +81,8 @@
  * the script starts on is emitted before any of them.
  */
 
+#include "scene.h"
+
 #include "inkcell/ui/focus.h"
 #include "inkcell/ui/theme.h"
 #include "inkwell/base/env.h"
@@ -110,28 +119,11 @@
 #include <time.h>
 
 #define UICAP_DEFAULT_DELAY_MS 140U
-#define UICAP_LINE_MAX 512U
 
 struct uicap {
     struct mesh_ui_store store;
-    struct inkcell_capture *capture;
     struct mesh_ui_snapshot snapshot;
-    const char *out_dir;
-    const char *prefix;
-    unsigned delay_ms;
-    /* One delay per frame, so `hold` can lengthen the frame already written. The manifest is
-       assembled from this at the end rather than appended to as we go. */
-    unsigned *delays;
-    unsigned frame_count;
-    unsigned delay_capacity;
-    int scale;
-    const char *theme_id;
-    bool started;
-    bool quiet;
-    const char *scene;
-    /* A monotonic-ish clock for toasts. Nothing ticks it forward on its own: a captured toast
-       should still be on screen in the frame after the one that raised it. */
-    uint64_t now_ms;
+    struct inkcell_capture *capture;
     uint32_t next_packet_id;
 };
 
@@ -185,7 +177,9 @@ static void uicap_route_hop_name(const struct mesh_ui_handshake_state *handshake
     snprintf(out, out_len, "!%08x", node_id);
 }
 
-static void uicap_scene_demo(struct uicap *cap) {
+static int uicap_seed_demo(struct uicap_scene *scene, void *userdata) {
+    struct uicap *cap = userdata;
+    (void)scene;
     /* The last of these is the radio that is not here: BlueZ holds its bond and lists it with
        every other node, and it has no signal reading to draw because nothing has heard it. It
        is in the fixture because it is the ordinary case for anyone who owns two radios, and
@@ -645,120 +639,17 @@ static void uicap_scene_demo(struct uicap *cap) {
     }
     mesh_ui_store_set_messages(&cap->store, &messages);
     mesh_ui_store_set_transport_status(&cap->store, "running");
+    return 0;
 }
 
 /* Nothing connected: what the HUD looks like before a radio is found. */
-static void uicap_scene_empty(struct uicap *cap) {
+static int uicap_seed_empty(struct uicap_scene *scene, void *userdata) {
+    struct uicap *cap = userdata;
+    (void)scene;
     mesh_ui_store_set_transport_status(&cap->store, "scanning");
+    return 0;
 }
 
-/* ---- frames ------------------------------------------------------------------------------ */
-
-/*
- * Steps the clock every frame is drawn against.
- *
- * The scene's own clock and the renderer's are the same clock: a `hold` is the frame sitting on
- * screen for that long, so a knob that was mid-slide when it started has moved by the time the
- * next line runs. Anything else would film the HUD with a stopped watch.
- */
-static void uicap_advance(struct uicap *cap, unsigned ms) {
-    cap->now_ms += ms;
-    inkcell_capture_advance(cap->capture, ms);
-    /* The housekeeping the event loop does on every turn, which for the store is one thing: a
-       transient notice expiring. Without it the scene's clock ran but nothing timed out, so a
-       `toast` stayed up for the rest of the script and a notice sliding *away* - the half of
-       that transition a still cannot show - was not filmable at all. */
-    mesh_ui_store_tick(&cap->store, cap->now_ms);
-}
-
-/*
- * The interval a frame carries while something on it is still moving: 30 fps, the rate the
- * event loop's frame timer wakes the backend at on the device.
- */
-#define UICAP_FRAME_MS 33U
-
-static void uicap_emit_delay(struct uicap *cap, unsigned delay_ms) {
-    if (!mesh_ui_store_consume_updates(&cap->store, &cap->snapshot)) {
-        /* Nothing changed - a press the screen ignores, say. Draw it anyway: a clip that
-           silently drops the frames where nothing happened is a clip that lies about what the
-           button did. */
-        mesh_ui_store_request_refresh(&cap->store);
-        (void)mesh_ui_store_consume_updates(&cap->store, &cap->snapshot);
-    }
-    inkcell_capture_render(cap->capture, &cap->snapshot);
-
-    char path[1024];
-    cap->frame_count++;
-    snprintf(path, sizeof path, "%s/%s-%04u.ppm", cap->out_dir, cap->prefix, cap->frame_count);
-    const int status = inkcell_capture_write_ppm(cap->capture, path);
-    if (status != 0) {
-        fprintf(stderr, "uicap: cannot write %s: %s\n", path, strerror(-status));
-        exit(1);
-    }
-
-    if (cap->frame_count > cap->delay_capacity) {
-        const unsigned grown = cap->delay_capacity == 0U ? 64U : cap->delay_capacity * 2U;
-        unsigned *delays = realloc(cap->delays, (size_t)grown * sizeof *delays);
-        if (delays == NULL) {
-            die("out of memory");
-        }
-        cap->delays = delays;
-        cap->delay_capacity = grown;
-    }
-    /*
-     * A frame that leaves something mid-transition carries the animation's interval, whatever
-     * the scene asked for. The scene's delay is for a frame somebody is meant to read, and the
-     * frame a press emits is not one: the knob has not moved yet, so holding it for the scene's
-     * delay froze the old state for a third of a second before every slide - a pause the device
-     * does not have and the clip should not invent. The frame the transition lands on is not
-     * animating any more, so it keeps the scene's delay and a `hold` after it still works.
-     */
-    if (inkcell_capture_animating(cap->capture) && delay_ms > UICAP_FRAME_MS) {
-        delay_ms = UICAP_FRAME_MS;
-    }
-    cap->delays[cap->frame_count - 1U] = delay_ms;
-    if (!cap->quiet) {
-        printf("  frame %u  %s-%04u.ppm\n", cap->frame_count, cap->prefix, cap->frame_count);
-    }
-}
-
-static void uicap_emit(struct uicap *cap) { uicap_emit_delay(cap, cap->delay_ms); }
-
-/*
- * Plays out whatever the last frame left moving.
- *
- * A press that flips a switch does not finish on the frame that handled it - the knob is a few
- * pixels into a slide. The renderer says so (inkcell_capture_animating), so the harness keeps
- * stepping the clock and drawing until it stops, exactly as the event loop's frame timer does
- * on the device. That is what makes an animation reviewable in a GIF without a single scene
- * script having to know an animation exists.
- *
- * Each frame's delay is uicap_emit_delay()'s decision, not this loop's: a frame that is still
- * moving takes the animation's interval and the one it lands on takes the scene's.
- *
- * The cap was a guard against a widget that never settles - a bug, but not one that should hang
- * a capture - and it is now also the length of one legitimate case: an *indeterminate* meter
- * loops for as long as it is on screen and has no landing frame to reach, so it films until the
- * cap and stops. That is the right amount of it to put in a clip, and a scene that wants more
- * asks for it with another `frame`.
- */
-#define UICAP_MAX_ANIM_FRAMES 40U
-
-static void uicap_settle(struct uicap *cap) {
-    for (unsigned i = 0U; i < UICAP_MAX_ANIM_FRAMES; ++i) {
-        if (!inkcell_capture_animating(cap->capture)) {
-            return;
-        }
-        uicap_advance(cap, UICAP_FRAME_MS);
-        uicap_emit(cap);
-    }
-}
-
-/*
- * Picks the theme by name, and re-applies the scale because a theme carries one of its own.
- * `scale` of 0 means "whatever this theme asks for", which is what makes `theme light` alone do
- * the right thing and `scale 5` still win when a script says both.
- */
 /*
  * Publishes the capture's theme as the client info a real app would.
  *
@@ -766,7 +657,8 @@ static void uicap_settle(struct uicap *cap) {
  * drawn from what the app says it is drawing with - and there is no app here. This is the one
  * client fact the harness genuinely owns, so it fills that one and leaves the rest alone.
  */
-static void uicap_publish_theme(struct uicap *cap) {
+static void uicap_publish_theme(void *userdata) {
+    struct uicap *cap = userdata;
     const struct inkcell_theme *theme = inkcell_capture_theme(cap->capture);
     if (theme == NULL) {
         return;
@@ -786,56 +678,6 @@ static void uicap_publish_theme(struct uicap *cap) {
     mesh_ui_store_set_settings(&cap->store, &settings);
 }
 
-static void uicap_apply_theme(struct uicap *cap, const char *name, unsigned line_number) {
-    const struct inkcell_theme *theme = inkcell_theme_by_id(name);
-    if (theme == NULL) {
-        fprintf(stderr, "uicap: line %u: no theme called '%s'. Try:", line_number, name);
-        for (size_t i = 0; i < inkcell_theme_count(); ++i) {
-            fprintf(stderr, " %s", inkcell_theme_at(i)->id);
-        }
-        fputc('\n', stderr);
-        exit(1);
-    }
-    inkcell_capture_set_theme(cap->capture, theme);
-    inkcell_capture_set_scale(cap->capture, cap->scale);
-    uicap_publish_theme(cap);
-}
-
-static void uicap_start(struct uicap *cap) {
-    if (cap->started) {
-        return;
-    }
-    cap->started = true;
-    if (cap->theme_id != NULL) {
-        uicap_apply_theme(cap, cap->theme_id, 0U);
-    }
-    inkcell_capture_set_scale(cap->capture, cap->scale);
-    if (strcmp(cap->scene, "demo") == 0) {
-        uicap_scene_demo(cap);
-    } else if (strcmp(cap->scene, "empty") == 0) {
-        uicap_scene_empty(cap);
-    } else {
-        die("scene: expected demo or empty");
-    }
-    /* After the scene, which is free to publish settings of its own. */
-    uicap_publish_theme(cap);
-    mesh_ui_store_request_refresh(&cap->store);
-    uicap_emit(cap);
-}
-
-/* Lengthens the frame just emitted rather than emitting a duplicate: a still moment in a clip
-   is one frame that lingers, not twenty identical ones. */
-static void uicap_hold(struct uicap *cap, unsigned extra_ms) {
-    if (cap->frame_count == 0U) {
-        die("hold: nothing has been captured yet");
-    }
-    unsigned *delay = &cap->delays[cap->frame_count - 1U];
-    /* GIF carries the delay in centiseconds in a 16-bit field, so 655350 ms is the ceiling
-       anything downstream can express. */
-    *delay = *delay + extra_ms > 600000U ? 600000U : *delay + extra_ms;
-    uicap_advance(cap, extra_ms);
-}
-
 /* ---- the script -------------------------------------------------------------------------- */
 
 /* The ids come from src/ui/nav/route.c rather than from a copy here: a scene file naming a tab and
@@ -851,15 +693,6 @@ static int uicap_screen_from_name(const char *name) {
     return -1;
 }
 
-static void uicap_press(struct uicap *cap, enum inkcell_key key) {
-    struct mesh_ui_action action;
-    memset(&action, 0, sizeof action);
-    mesh_ui_store_set_page_rows(&cap->store, inkcell_capture_page_rows(cap->capture));
-    (void)mesh_ui_store_handle_key(&cap->store, key, &action);
-    uicap_emit(cap);
-    uicap_settle(cap);
-}
-
 /*
  * Walks the tabs with the buttons rather than assigning nav.screen, so a scene can only ever
  * reach a screen the device can reach.
@@ -871,19 +704,24 @@ static void uicap_press(struct uicap *cap, enum inkcell_key key) {
  * for a tab is asking for a tab; a scene that wants to prove what the d-pad does on a given row
  * presses `key left`/`key right` itself, which is what the two node scenes do.
  */
-static void uicap_tab(struct uicap *cap, int screen) {
+static int uicap_tab(struct uicap_scene *scene, struct uicap *cap, int screen) {
     for (int guard = 0; guard < (int)MESH_UI_SCREEN_COUNT; ++guard) {
         const int current = (int)cap->store.nav.screen;
         if (current == screen) {
-            return;
+            return 0;
         }
-        uicap_press(cap, current < screen ? INKCELL_KEY_R1 : INKCELL_KEY_L1);
+        const int status =
+            uicap_scene_press(scene, current < screen ? INKCELL_KEY_R1 : INKCELL_KEY_L1);
+        if (status < 0) {
+            return status;
+        }
     }
-    die("tab: could not reach that tab (an overlay is open)");
+    return uicap_scene_fail(scene, "tab: could not reach that tab (an overlay is open)");
 }
 
-static void uicap_append_message(struct uicap *cap, bool outbound, enum mesh_message_kind kind,
-                                 const char *name, const char *text, bool threaded) {
+static int uicap_append_message(struct uicap_scene *scene, struct uicap *cap, bool outbound,
+                                enum mesh_message_kind kind, const char *name, const char *text,
+                                bool threaded) {
     struct mesh_ui_message_list messages = cap->store.messages;
     if (messages.count >= MESH_UI_MAX_MESSAGES) {
         memmove(&messages.entries[0], &messages.entries[1],
@@ -902,7 +740,7 @@ static void uicap_append_message(struct uicap *cap, bool outbound, enum mesh_mes
         }
     }
     if (peer == 0U) {
-        die("message: no node in the scene has that short name");
+        return uicap_scene_fail(scene, "message: no node in the scene has that short name");
     }
 
     struct mesh_ui_message *entry = &messages.entries[messages.count++];
@@ -930,11 +768,11 @@ static void uicap_append_message(struct uicap *cap, bool outbound, enum mesh_mes
             }
         }
         if (entry->reply_id == 0U) {
-            die("reply: nothing in the log to answer");
+            return uicap_scene_fail(scene, "reply: nothing in the log to answer");
         }
     }
     mesh_ui_store_set_messages(&cap->store, &messages);
-    uicap_emit(cap);
+    return 0;
 }
 
 /*
@@ -945,11 +783,12 @@ static void uicap_append_message(struct uicap *cap, bool outbound, enum mesh_mes
  * of the same roster, so what the capture shows is the arithmetic the device would do rather
  * than two numbers that were typed to agree.
  */
-static void uicap_append_waypoint(struct uicap *cap, const char *node_name, const char *label,
-                                  const char *description) {
+static int uicap_append_waypoint(struct uicap_scene *scene, struct uicap *cap,
+                                 const char *node_name, const char *label,
+                                 const char *description) {
     struct mesh_ui_waypoint_list list = cap->store.waypoints;
     if (list.count >= MESH_UI_MAX_WAYPOINTS) {
-        die("waypoint: the book is full");
+        return uicap_scene_fail(scene, "waypoint: the book is full");
     }
 
     const struct mesh_ui_node_summary *node = NULL;
@@ -960,10 +799,10 @@ static void uicap_append_waypoint(struct uicap *cap, const char *node_name, cons
         }
     }
     if (node == NULL) {
-        die("waypoint: no node in the scene has that short name");
+        return uicap_scene_fail(scene, "waypoint: no node in the scene has that short name");
     }
     if (!node->position.valid) {
-        die("waypoint: that node has no fix to put a place at");
+        return uicap_scene_fail(scene, "waypoint: that node has no fix to put a place at");
     }
 
     const uint32_t me =
@@ -988,7 +827,7 @@ static void uicap_append_waypoint(struct uicap *cap, const char *node_name, cons
     snprintf(entry->from_name, sizeof entry->from_name, "%s", node->short_name);
 
     mesh_ui_store_set_waypoints(&cap->store, &list);
-    uicap_emit(cap);
+    return 0;
 }
 
 /*
@@ -1001,7 +840,8 @@ static void uicap_append_waypoint(struct uicap *cap, const char *node_name, cons
  * the whole reason a reason is not a corner mark - are unfilmable, which is another way of
  * saying unreviewable.
  */
-static void uicap_mark_ack(struct uicap *cap, enum mesh_message_ack ack, uint8_t error) {
+static int uicap_mark_ack(struct uicap_scene *scene, struct uicap *cap, enum mesh_message_ack ack,
+                          uint8_t error) {
     struct mesh_ui_message_list messages = cap->store.messages;
     uint32_t at = messages.count;
     while (at > 0U) {
@@ -1010,16 +850,16 @@ static void uicap_mark_ack(struct uicap *cap, enum mesh_message_ack ack, uint8_t
             break;
         }
         if (at == 0U) {
-            die("ack: the scene has sent nothing to answer");
+            return uicap_scene_fail(scene, "ack: the scene has sent nothing to answer");
         }
     }
     if (messages.count == 0U) {
-        die("ack: the scene has sent nothing to answer");
+        return uicap_scene_fail(scene, "ack: the scene has sent nothing to answer");
     }
     messages.entries[at].ack = (uint8_t)ack;
     messages.entries[at].ack_error = error;
     mesh_ui_store_set_messages(&cap->store, &messages);
-    uicap_emit(cap);
+    return 0;
 }
 
 /*
@@ -1027,10 +867,11 @@ static void uicap_mark_ack(struct uicap *cap, enum mesh_message_ack ack, uint8_t
  * just said produces. It is appended like any other message and flagged; the transcript
  * filters it out of the bubbles and draws it on the one it names.
  */
-static void uicap_append_reaction(struct uicap *cap, const char *name, const char *emoji) {
+static int uicap_append_reaction(struct uicap_scene *scene, struct uicap *cap, const char *name,
+                                 const char *emoji) {
     struct mesh_ui_message_list messages = cap->store.messages;
     if (messages.count == 0U || messages.count >= MESH_UI_MAX_MESSAGES) {
-        die("react: needs a message to react to, and room for it");
+        return uicap_scene_fail(scene, "react: needs a message to react to, and room for it");
     }
 
     uint32_t peer = 0U;
@@ -1041,7 +882,7 @@ static void uicap_append_reaction(struct uicap *cap, const char *name, const cha
         }
     }
     if (peer == 0U) {
-        die("react: no node in the scene has that short name");
+        return uicap_scene_fail(scene, "react: no node in the scene has that short name");
     }
 
     /* The newest message that is not itself a reaction: reacting to a reaction is not a thing
@@ -1054,7 +895,7 @@ static void uicap_append_reaction(struct uicap *cap, const char *name, const cha
         }
     }
     if (target == NULL) {
-        die("react: nothing in the log to react to");
+        return uicap_scene_fail(scene, "react: nothing in the log to react to");
     }
 
     struct mesh_ui_message *entry = &messages.entries[messages.count++];
@@ -1073,64 +914,10 @@ static void uicap_append_reaction(struct uicap *cap, const char *name, const cha
     entry->is_reaction = true;
     entry->reply_id = reply_id;
     mesh_ui_store_set_messages(&cap->store, &messages);
-    uicap_emit(cap);
+    return 0;
 }
 
 /* Splits off the next whitespace-delimited word, leaving *rest on what follows. */
-static char *uicap_word(char **rest) {
-    char *cursor = *rest;
-    while (*cursor == ' ' || *cursor == '\t') {
-        cursor++;
-    }
-    if (*cursor == '\0') {
-        *rest = cursor;
-        return NULL;
-    }
-    char *start = cursor;
-    while (*cursor != '\0' && *cursor != ' ' && *cursor != '\t') {
-        cursor++;
-    }
-    if (*cursor != '\0') {
-        *cursor++ = '\0';
-    }
-    *rest = cursor;
-    return start;
-}
-
-static char *uicap_tail(char *rest) {
-    while (*rest == ' ' || *rest == '\t') {
-        rest++;
-    }
-    return rest;
-}
-
-/*
- * The same, for a reading that lives below zero: a signal-to-noise ratio and a received
- * strength, which are negative almost everywhere a mesh is actually used.
- *
- * Its own parser rather than a sign bolted onto the unsigned one, because the bound is the whole
- * point of that function - it is a typo guard - and a guard written as "or negative, sometimes"
- * stops guarding anything.
- */
-static int uicap_signed(const char *text, const char *what) {
-    char *end = NULL;
-    const long value = strtol(text, &end, 10);
-    if (end == text || *end != '\0' || value < -600000L || value > 600000L) {
-        fprintf(stderr, "uicap: %s: '%s' is not a number I can use\n", what, text);
-        exit(1);
-    }
-    return (int)value;
-}
-
-static unsigned uicap_number(const char *text, const char *what) {
-    char *end = NULL;
-    const unsigned long value = strtoul(text, &end, 10);
-    if (end == text || *end != '\0' || value > 600000UL) {
-        fprintf(stderr, "uicap: %s: '%s' is not a number I can use\n", what, text);
-        exit(1);
-    }
-    return (unsigned)value;
-}
 
 /*
  * "1280x800" - the panel to render into.
@@ -1171,1891 +958,1769 @@ static void uicap_geometry(const char *text, uint32_t *out_width, uint32_t *out_
     *out_height = (uint32_t)height;
 }
 
-static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) {
-    char *rest = line;
-    char *command = uicap_word(&rest);
-    if (command == NULL || command[0] == '#') {
-        return;
-    }
+/* ---- the verbs --------------------------------------------------------------------------- */
 
-    if (strcmp(command, "scene") == 0 || strcmp(command, "scale") == 0 ||
-        strcmp(command, "delay") == 0) {
-        if (cap->started) {
-            fprintf(stderr, "uicap: line %u: '%s' has to come before the first frame\n",
-                    line_number, command);
-            exit(1);
-        }
-        char *value = uicap_word(&rest);
-        if (value == NULL) {
-            fprintf(stderr, "uicap: line %u: '%s' needs a value\n", line_number, command);
-            exit(1);
-        }
-        if (strcmp(command, "scene") == 0) {
-            cap->scene = strdup(value);
-        } else if (strcmp(command, "scale") == 0) {
-            /* In whole steps, as the usage above says. A scale counts quarters of one
-               inside - the conversion belongs where the outside world states a number. */
-            cap->scale = INKCELL_SCALE((int)uicap_number(value, "scale"));
-        } else {
-            cap->delay_ms = uicap_number(value, "delay");
-        }
-        return;
+/*
+ * The pictures under the map - "map pack build/demo.mctp".
+ *
+ * Named by the scene rather than found in the environment, for the reason
+ * mesh_ui_capture_open_map_pack() gives: a frame that quietly picked up whatever pack the
+ * developer had installed would render differently on two machines, which is the one thing a
+ * reviewable picture may not do. A missing pack is a mistake in the scene and says so, rather
+ * than a map that comes out bare for a reason nobody can see.
+ *
+ * The tiles then fill one per frame exactly as they do on the device, so the frames a press
+ * settles over are a view filling in - which is the thing this scene is a picture of.
+ */
+static int verb_map(struct uicap_scene *scene, char *rest, void *userdata) {
+    (void)userdata;
+    char *what = uicap_scene_word(&rest);
+    const char *path = uicap_scene_tail(rest);
+    if (what == NULL || strcmp(what, "pack") != 0 || path == NULL || path[0] == '\0') {
+        return uicap_scene_fail(scene, "'map' takes 'pack <path>'");
     }
-
-    /*
-     * A fixed wall clock, as local time - "clock 2026-01-12 19:12".
-     *
-     * The scene seeds its message log and its last-heard times against this, and the renderer
-     * draws its "18:47", its "3m" and its "Yesterday" from the same value, so a scene renders
-     * the same frames on any host at any hour. That is what a checked-in screenshot needs:
-     * without it, running `make screenshots` an hour later rewrote every pixel of the clock
-     * column, and running it either side of midnight moved the day separators and changed which
-     * rows fit.
-     *
-     * Local rather than UTC because it is read back through localtime_r: a time written here is
-     * the time on the panel, whatever zone the machine rendering it is in.
-     */
-    if (strcmp(command, "clock") == 0) {
-        if (cap->started) {
-            fprintf(stderr, "uicap: line %u: 'clock' has to come before the first frame\n",
-                    line_number);
-            exit(1);
-        }
-        const char *when = uicap_tail(rest);
-        int year = 0;
-        int month = 0;
-        int day = 0;
-        int hour = 0;
-        int minute = 0;
-        /* sscanf rather than strptime: the format is fixed, and strptime is behind a feature
-           macro this file would otherwise have no reason to raise. */
-        if (when == NULL ||
-            sscanf(when, "%4d-%2d-%2d %2d:%2d", &year, &month, &day, &hour, &minute) != 5) {
-            fprintf(stderr, "uicap: line %u: 'clock' needs a local time as YYYY-MM-DD HH:MM\n",
-                    line_number);
-            exit(1);
-        }
-        struct tm parts;
-        memset(&parts, 0, sizeof parts);
-        parts.tm_year = year - 1900;
-        parts.tm_mon = month - 1;
-        parts.tm_mday = day;
-        parts.tm_hour = hour;
-        parts.tm_min = minute;
-        parts.tm_isdst = -1; /* let mktime work out the offset in force on that date */
-        const time_t pinned = mktime(&parts);
-        if (pinned <= 0) {
-            fprintf(stderr, "uicap: line %u: 'clock' cannot represent that time here\n",
-                    line_number);
-            exit(1);
-        }
-        inkwell_time_wall_set_fixed((uint32_t)pinned);
-        return;
+    const int opened = mesh_ui_capture_open_map_pack(uicap_scene_capture(scene), path);
+    if (opened < 0) {
+        return uicap_scene_fail(scene, "could not open the tile pack %s: %s", path,
+                                strerror(-opened));
     }
+    return 0;
+}
 
-    /* A theme before the first frame chooses the look; after it, switching is itself the thing
-       worth filming, so it emits a frame like every other command. */
-    if (strcmp(command, "theme") == 0) {
-        char *value = uicap_word(&rest);
-        if (value == NULL) {
-            fprintf(stderr, "uicap: line %u: 'theme' needs a name\n", line_number);
-            exit(1);
-        }
-        if (!cap->started) {
-            cap->theme_id = strdup(value);
-            return;
-        }
-        uicap_apply_theme(cap, value, line_number);
-        uicap_emit(cap);
-        return;
+static int verb_context(struct uicap_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    char *what = uicap_scene_word(&rest);
+    char *index_text = uicap_scene_word(&rest);
+    if (what == NULL || strcmp(what, "row") != 0 || index_text == NULL) {
+        return uicap_scene_fail(scene, "'context' needs 'row N'");
     }
-
-    if (strcmp(command, "pointer") == 0) {
-        inkcell_capture_state(cap->capture)->pointer = true;
-        if (cap->started) {
-            uicap_emit(cap);
-        }
-        return;
+    unsigned row = 0U;
+    const int parsed = uicap_scene_number(scene, index_text, "row", &row);
+    if (parsed < 0) {
+        return parsed;
     }
-
-    /*
-     * The pictures under the map - "map pack build/demo.mctp".
-     *
-     * Named by the scene rather than found in the environment, for the reason
-     * mesh_ui_capture_open_map_pack() gives: a frame that quietly picked up whatever pack the
-     * developer had installed would render differently on two machines, which is the one thing a
-     * reviewable picture may not do. A missing pack is a mistake in the scene and says so, rather
-     * than a map that comes out bare for a reason nobody can see.
-     *
-     * The tiles then fill one per frame exactly as they do on the device, so the frames a press
-     * settles over are a view filling in - which is the thing this scene is a picture of.
-     */
-    if (strcmp(command, "map") == 0) {
-        char *what = uicap_word(&rest);
-        const char *path = uicap_tail(rest);
-        if (what == NULL || strcmp(what, "pack") != 0 || path == NULL || path[0] == '\0') {
-            fprintf(stderr, "uicap: line %u: 'map' takes 'pack <path>'\n", line_number);
-            exit(1);
-        }
-        uicap_start(cap);
-        const int opened = mesh_ui_capture_open_map_pack(cap->capture, path);
-        if (opened < 0) {
-            fprintf(stderr, "uicap: line %u: could not open the tile pack %s: %s\n", line_number,
-                    path, strerror(-opened));
-            exit(1);
-        }
-        return;
+    /* Where the last frame drew the row, which is where a reader would have clicked. */
+    const uint32_t id = (uint32_t)MESH_UI_FOCUS_ROWS + row;
+    struct inkcell_focus_rect box;
+    if (!inkcell_focus_rect_of(inkcell_capture_state(uicap_scene_capture(scene))->focus, id,
+                               &box)) {
+        return uicap_scene_fail(scene, "the last frame drew no row %s", index_text);
     }
+    (void)mesh_ui_store_handle_context(&cap->store, id, box.x + box.w / 3, box.y + box.h / 2);
+    return 0;
+}
 
-    if (strcmp(command, "key") == 0) {
-        char *name = uicap_word(&rest);
-        char *count_text = uicap_word(&rest);
-        if (name == NULL) {
-            fprintf(stderr, "uicap: line %u: 'key' needs a button\n", line_number);
-            exit(1);
-        }
-        const enum inkcell_key key = inkcell_key_from_name(name);
-        if (key == INKCELL_KEY_NONE) {
-            fprintf(stderr, "uicap: line %u: no button called '%s'\n", line_number, name);
-            exit(1);
-        }
-        const unsigned count = count_text != NULL ? uicap_number(count_text, "key count") : 1U;
-        uicap_start(cap);
-        for (unsigned i = 0U; i < count; ++i) {
-            uicap_press(cap, key);
-        }
-        return;
+static int verb_tab(struct uicap_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    char *name = uicap_scene_word(&rest);
+    if (name == NULL) {
+        return uicap_scene_fail(scene, "'tab' needs a name");
     }
-
-    if (strcmp(command, "context") == 0) {
-        char *what = uicap_word(&rest);
-        char *index_text = uicap_word(&rest);
-        if (what == NULL || strcmp(what, "row") != 0 || index_text == NULL) {
-            fprintf(stderr, "uicap: line %u: 'context' needs 'row N'\n", line_number);
-            exit(1);
-        }
-        uicap_start(cap);
-        /* Where the last frame drew the row, which is where a reader would have clicked. */
-        const uint32_t id = (uint32_t)MESH_UI_FOCUS_ROWS + uicap_number(index_text, "row");
-        struct inkcell_focus_rect box;
-        if (!inkcell_focus_rect_of(inkcell_capture_state(cap->capture)->focus, id, &box)) {
-            fprintf(stderr, "uicap: line %u: the last frame drew no row %s\n", line_number,
-                    index_text);
-            exit(1);
-        }
-        (void)mesh_ui_store_handle_context(&cap->store, id, box.x + box.w / 3, box.y + box.h / 2);
-        uicap_emit(cap);
-        uicap_settle(cap);
-        return;
+    const int screen = uicap_screen_from_name(name);
+    if (screen < 0) {
+        return uicap_scene_fail(scene, "no tab called '%s'", name);
     }
+    return uicap_tab(scene, cap, screen);
+}
 
-    if (strcmp(command, "tab") == 0) {
-        char *name = uicap_word(&rest);
-        if (name == NULL) {
-            fprintf(stderr, "uicap: line %u: 'tab' needs a name\n", line_number);
-            exit(1);
-        }
-        const int screen = uicap_screen_from_name(name);
-        if (screen < 0) {
-            fprintf(stderr, "uicap: line %u: no tab called '%s'\n", line_number, name);
-            exit(1);
-        }
-        uicap_start(cap);
-        uicap_tab(cap, screen);
-        return;
+static int verb_toast(struct uicap_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    mesh_ui_store_set_toast(&cap->store, uicap_scene_now(scene), uicap_scene_tail(rest));
+    return 0;
+}
+
+static int verb_status(struct uicap_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    (void)scene;
+    mesh_ui_store_set_transport_status(&cap->store, uicap_scene_tail(rest));
+    return 0;
+}
+
+/*
+ * The three Status rows that describe the radio rather than the traffic. Each is a
+ * read-modify-write of the settings view, because the store replaces it wholesale and the
+ * demo scene has already put a radio behind it.
+ */
+static int verb_ack(struct uicap_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    char *state = uicap_scene_word(&rest);
+    char *reason = uicap_scene_word(&rest);
+    if (state == NULL) {
+        return uicap_scene_fail(scene, "'ack' needs sending|delivered|failed");
     }
-
-    if (strcmp(command, "frame") == 0) {
-        uicap_start(cap);
-        uicap_emit(cap);
-        /* Whatever the clock has started since the last frame - a notice that timed out during
-           a `hold` is the case - plays out here, the same way a press's does. */
-        uicap_settle(cap);
-        return;
+    enum mesh_message_ack ack = MESH_MESSAGE_ACK_PENDING;
+    if (strcmp(state, "delivered") == 0) {
+        ack = MESH_MESSAGE_ACK_DELIVERED;
+    } else if (strcmp(state, "failed") == 0) {
+        ack = MESH_MESSAGE_ACK_FAILED;
+    } else if (strcmp(state, "sending") != 0) {
+        return uicap_scene_fail(scene, "'ack' state is sending, delivered or failed");
     }
+    /* The Routing_Error number rather than a word: the reasons are upstream's enum, and a
+       scene naming one by number is naming exactly what the radio would have sent. */
+    const uint8_t error = reason != NULL ? (uint8_t)strtoul(reason, NULL, 10) : 0U;
+    return uicap_mark_ack(scene, cap, ack, error);
+}
 
-    if (strcmp(command, "hold") == 0) {
-        char *value = uicap_word(&rest);
-        if (value == NULL) {
-            fprintf(stderr, "uicap: line %u: 'hold' needs a duration in ms\n", line_number);
-            exit(1);
+static int verb_react(struct uicap_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    char *name = uicap_scene_word(&rest);
+    if (name == NULL) {
+        return uicap_scene_fail(scene, "'react' needs a short name and an emoji");
+    }
+    return uicap_append_reaction(scene, cap, name, uicap_scene_tail(rest));
+}
+
+/* A pinned node. Its own verb for the same reason `offradio` is: X on the Nodes tab raises
+   a mesh_ui_action and the store stops there, so the press this harness can make does not
+   reach the flag. Without it the marker gutter's star has nothing to draw and the one row
+   shape that carries it cannot be looked at. */
+/*
+ * What START on the conversation list does on a device.
+ *
+ * A verb rather than a press, for the reason the header gives about actions: the harness
+ * cannot act on a `mesh_ui_action`, and muting is one - the nav is handed a const store, so
+ * the press asks the app and the app is what writes. This is the app's half, and without it
+ * a muted row is unfilmable, which for a UI change is another way of saying unreviewable.
+ */
+static int verb_mute(struct uicap_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    char *name = uicap_scene_word(&rest);
+    if (name == NULL) {
+        return uicap_scene_fail(scene, "'mute' needs a short name or #channel");
+    }
+    const struct mesh_ui_handshake_state *handshake = &cap->store.handshake;
+    bool matched = false;
+    if (name[0] == '#') {
+        for (uint32_t i = 0; i < handshake->channel_count && i < MESH_UI_MAX_CHANNELS; ++i) {
+            if (strcmp(handshake->channels[i].name, name + 1) == 0) {
+                matched = mesh_ui_store_set_conversation_mute(
+                    &cap->store, (uint8_t)MESH_UI_CONVERSATION_CHANNEL, MESH_MESSAGE_BROADCAST_ADDR,
+                    handshake->channels[i].index, true);
+                break;
+            }
         }
-        uicap_start(cap);
-        uicap_hold(cap, uicap_number(value, "hold"));
-        return;
-    }
-
-    if (strcmp(command, "toast") == 0) {
-        uicap_start(cap);
-        mesh_ui_store_set_toast(&cap->store, cap->now_ms, uicap_tail(rest));
-        uicap_emit(cap);
-        uicap_settle(cap);
-        return;
-    }
-
-    if (strcmp(command, "status") == 0) {
-        uicap_start(cap);
-        mesh_ui_store_set_transport_status(&cap->store, uicap_tail(rest));
-        uicap_emit(cap);
-        return;
-    }
-
-    /*
-     * The three Status rows that describe the radio rather than the traffic. Each is a
-     * read-modify-write of the settings view, because the store replaces it wholesale and the
-     * demo scene has already put a radio behind it.
-     */
-    if (strcmp(command, "ack") == 0) {
-        char *state = uicap_word(&rest);
-        char *reason = uicap_word(&rest);
-        if (state == NULL) {
-            fprintf(stderr, "uicap: line %u: 'ack' needs sending|delivered|failed\n", line_number);
-            exit(1);
+    } else {
+        for (uint32_t i = 0; i < handshake->node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
+            if (strcmp(handshake->nodes[i].short_name, name) == 0) {
+                matched = mesh_ui_store_set_conversation_mute(
+                    &cap->store, (uint8_t)MESH_UI_CONVERSATION_DIRECT, handshake->nodes[i].node_id,
+                    0U, true);
+                break;
+            }
         }
-        enum mesh_message_ack ack = MESH_MESSAGE_ACK_PENDING;
-        if (strcmp(state, "delivered") == 0) {
-            ack = MESH_MESSAGE_ACK_DELIVERED;
-        } else if (strcmp(state, "failed") == 0) {
-            ack = MESH_MESSAGE_ACK_FAILED;
-        } else if (strcmp(state, "sending") != 0) {
-            fprintf(stderr, "uicap: line %u: 'ack' state is sending, delivered or failed\n",
-                    line_number);
-            exit(1);
-        }
-        /* The Routing_Error number rather than a word: the reasons are upstream's enum, and a
-           scene naming one by number is naming exactly what the radio would have sent. */
-        const uint8_t error = reason != NULL ? (uint8_t)strtoul(reason, NULL, 10) : 0U;
-        uicap_start(cap);
-        uicap_mark_ack(cap, ack, error);
-        return;
     }
-
-    if (strcmp(command, "react") == 0) {
-        char *name = uicap_word(&rest);
-        if (name == NULL) {
-            fprintf(stderr, "uicap: line %u: 'react' needs a short name and an emoji\n",
-                    line_number);
-            exit(1);
-        }
-        uicap_start(cap);
-        uicap_append_reaction(cap, name, uicap_tail(rest));
-        return;
+    if (!matched) {
+        return uicap_scene_fail(scene, "no conversation in the scene called '%s'", name);
     }
+    return 0;
+}
 
-    /* A pinned node. Its own verb for the same reason `offradio` is: X on the Nodes tab raises
-       a mesh_ui_action and the store stops there, so the press this harness can make does not
-       reach the flag. Without it the marker gutter's star has nothing to draw and the one row
-       shape that carries it cannot be looked at. */
-    /*
-     * What START on the conversation list does on a device.
-     *
-     * A verb rather than a press, for the reason the header gives about actions: the harness
-     * cannot act on a `mesh_ui_action`, and muting is one - the nav is handed a const store, so
-     * the press asks the app and the app is what writes. This is the app's half, and without it
-     * a muted row is unfilmable, which for a UI change is another way of saying unreviewable.
-     */
-    if (strcmp(command, "mute") == 0) {
-        char *name = uicap_word(&rest);
-        if (name == NULL) {
-            fprintf(stderr, "uicap: line %u: 'mute' needs a short name or #channel\n", line_number);
-            exit(1);
+/*
+ * A node whose key somebody has proved, and the sheet that proves one.
+ *
+ * Two verbs rather than presses, for the reason `offradio` is one: neither can be reached
+ * from this harness. The verified bit is set by the *radio* after a ceremony this side only
+ * asks for, and the ceremony's stages are raised by ClientNotifications - the radio asking
+ * its own user something - so a scene that pressed "Verify this key" would film a toast and
+ * then nothing at all.
+ */
+static int verb_verified(struct uicap_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    char *name = uicap_scene_word(&rest);
+    if (name == NULL) {
+        return uicap_scene_fail(scene, "'verified' needs a short name");
+    }
+    struct mesh_ui_handshake_state handshake = cap->store.handshake;
+    bool matched = false;
+    for (uint32_t i = 0; i < handshake.node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
+        struct mesh_ui_node_summary *node = &handshake.nodes[i];
+        if (strcmp(node->short_name, name) == 0) {
+            node->key_verified = true;
+            matched = true;
         }
-        uicap_start(cap);
+    }
+    if (!matched) {
+        return uicap_scene_fail(scene, "no node in the scene called '%s'", name);
+    }
+    mesh_ui_store_set_handshake(&cap->store, &handshake);
+    return 0;
+}
+
+static int verb_verify(struct uicap_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    char *stage = uicap_scene_word(&rest);
+    char *name = uicap_scene_word(&rest);
+    if (stage == NULL || name == NULL) {
+        return uicap_scene_fail(scene, "'verify' needs a stage "
+                                       "(waiting|show|enter|compare|checked|off) and a short name");
+    }
+    struct mesh_ui_verification verification;
+    memset(&verification, 0, sizeof verification);
+    if (strcmp(stage, "off") != 0) {
         const struct mesh_ui_handshake_state *handshake = &cap->store.handshake;
-        bool matched = false;
-        if (name[0] == '#') {
-            for (uint32_t i = 0; i < handshake->channel_count && i < MESH_UI_MAX_CHANNELS; ++i) {
-                if (strcmp(handshake->channels[i].name, name + 1) == 0) {
-                    matched = mesh_ui_store_set_conversation_mute(
-                        &cap->store, (uint8_t)MESH_UI_CONVERSATION_CHANNEL,
-                        MESH_MESSAGE_BROADCAST_ADDR, handshake->channels[i].index, true);
-                    break;
-                }
-            }
-        } else {
-            for (uint32_t i = 0; i < handshake->node_count && i < MESH_UI_MAX_HANDSHAKE_NODES;
-                 ++i) {
-                if (strcmp(handshake->nodes[i].short_name, name) == 0) {
-                    matched = mesh_ui_store_set_conversation_mute(
-                        &cap->store, (uint8_t)MESH_UI_CONVERSATION_DIRECT,
-                        handshake->nodes[i].node_id, 0U, true);
-                    break;
-                }
+        for (uint32_t i = 0; i < handshake->node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
+            if (strcmp(handshake->nodes[i].short_name, name) == 0) {
+                verification.remote_node = handshake->nodes[i].node_id;
+                snprintf(verification.remote_name, sizeof verification.remote_name, "%s",
+                         handshake->nodes[i].long_name);
+                break;
             }
         }
-        if (!matched) {
-            fprintf(stderr, "uicap: line %u: no conversation in the scene called '%s'\n",
-                    line_number, name);
-            exit(1);
+        if (verification.remote_node == 0U) {
+            return uicap_scene_fail(scene, "no node in the scene called '%s'", name);
         }
-        uicap_emit(cap);
-        return;
     }
-
-    /*
-     * A node whose key somebody has proved, and the sheet that proves one.
-     *
-     * Two verbs rather than presses, for the reason `offradio` is one: neither can be reached
-     * from this harness. The verified bit is set by the *radio* after a ceremony this side only
-     * asks for, and the ceremony's stages are raised by ClientNotifications - the radio asking
-     * its own user something - so a scene that pressed "Verify this key" would film a toast and
-     * then nothing at all.
-     */
-    if (strcmp(command, "verified") == 0) {
-        char *name = uicap_word(&rest);
-        if (name == NULL) {
-            fprintf(stderr, "uicap: line %u: 'verified' needs a short name\n", line_number);
-            exit(1);
-        }
-        uicap_start(cap);
-        struct mesh_ui_handshake_state handshake = cap->store.handshake;
-        bool matched = false;
-        for (uint32_t i = 0; i < handshake.node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
-            struct mesh_ui_node_summary *node = &handshake.nodes[i];
-            if (strcmp(node->short_name, name) == 0) {
-                node->key_verified = true;
-                matched = true;
-            }
-        }
-        if (!matched) {
-            fprintf(stderr, "uicap: line %u: no node in the scene called '%s'\n", line_number,
-                    name);
-            exit(1);
-        }
-        mesh_ui_store_set_handshake(&cap->store, &handshake);
-        uicap_emit(cap);
-        return;
+    /* The digits and the code are the radio's, so they are invented here exactly as a
+       message body is - what is on show is the panel, not the cryptography. */
+    if (strcmp(stage, "waiting") == 0) {
+        verification.stage = (uint8_t)MESH_UI_VERIFY_WAITING;
+        verification.we_initiated = true;
+    } else if (strcmp(stage, "show") == 0) {
+        verification.stage = (uint8_t)MESH_UI_VERIFY_SHOW_NUMBER;
+        verification.security_number = 48172U;
+    } else if (strcmp(stage, "enter") == 0) {
+        verification.stage = (uint8_t)MESH_UI_VERIFY_ENTER_NUMBER;
+        verification.we_initiated = true;
+    } else if (strcmp(stage, "compare") == 0) {
+        verification.stage = (uint8_t)MESH_UI_VERIFY_COMPARE;
+        snprintf(verification.characters, sizeof verification.characters, "%s", "K7Q2");
+    } else if (strcmp(stage, "checked") == 0) {
+        /* The same stage as the radio actually delivers it. No firmware populates
+           KeyVerificationFinal.verification_characters, so the code is empty - which is
+           the case worth having a picture of, because the sheet has to ask something else
+           rather than ask for a comparison against a blank headline. */
+        verification.stage = (uint8_t)MESH_UI_VERIFY_COMPARE;
+    } else if (strcmp(stage, "off") != 0) {
+        return uicap_scene_fail(scene, "unknown verification stage '%s'", stage);
     }
-
-    if (strcmp(command, "verify") == 0) {
-        char *stage = uicap_word(&rest);
-        char *name = uicap_word(&rest);
-        if (stage == NULL || name == NULL) {
-            fprintf(stderr,
-                    "uicap: line %u: 'verify' needs a stage "
-                    "(waiting|show|enter|compare|checked|off) and a short name\n",
-                    line_number);
-            exit(1);
-        }
-        uicap_start(cap);
-        struct mesh_ui_verification verification;
-        memset(&verification, 0, sizeof verification);
-        if (strcmp(stage, "off") != 0) {
-            const struct mesh_ui_handshake_state *handshake = &cap->store.handshake;
-            for (uint32_t i = 0; i < handshake->node_count && i < MESH_UI_MAX_HANDSHAKE_NODES;
-                 ++i) {
-                if (strcmp(handshake->nodes[i].short_name, name) == 0) {
-                    verification.remote_node = handshake->nodes[i].node_id;
-                    snprintf(verification.remote_name, sizeof verification.remote_name, "%s",
-                             handshake->nodes[i].long_name);
-                    break;
-                }
-            }
-            if (verification.remote_node == 0U) {
-                fprintf(stderr, "uicap: line %u: no node in the scene called '%s'\n", line_number,
-                        name);
-                exit(1);
-            }
-        }
-        /* The digits and the code are the radio's, so they are invented here exactly as a
-           message body is - what is on show is the panel, not the cryptography. */
-        if (strcmp(stage, "waiting") == 0) {
-            verification.stage = (uint8_t)MESH_UI_VERIFY_WAITING;
-            verification.we_initiated = true;
-        } else if (strcmp(stage, "show") == 0) {
-            verification.stage = (uint8_t)MESH_UI_VERIFY_SHOW_NUMBER;
-            verification.security_number = 48172U;
-        } else if (strcmp(stage, "enter") == 0) {
-            verification.stage = (uint8_t)MESH_UI_VERIFY_ENTER_NUMBER;
-            verification.we_initiated = true;
-        } else if (strcmp(stage, "compare") == 0) {
-            verification.stage = (uint8_t)MESH_UI_VERIFY_COMPARE;
-            snprintf(verification.characters, sizeof verification.characters, "%s", "K7Q2");
-        } else if (strcmp(stage, "checked") == 0) {
-            /* The same stage as the radio actually delivers it. No firmware populates
-               KeyVerificationFinal.verification_characters, so the code is empty - which is
-               the case worth having a picture of, because the sheet has to ask something else
-               rather than ask for a comparison against a blank headline. */
-            verification.stage = (uint8_t)MESH_UI_VERIFY_COMPARE;
-        } else if (strcmp(stage, "off") != 0) {
-            fprintf(stderr, "uicap: line %u: unknown verification stage '%s'\n", line_number,
-                    stage);
-            exit(1);
-        }
-        mesh_ui_store_set_verification(&cap->store, &verification);
-        /* Which overlay a stage raises is the app's decision (mesh_app_report_key_verification),
-           and this is the harness standing in for it - the same half `mute` stands in for. */
-        if (verification.stage == (uint8_t)MESH_UI_VERIFY_ENTER_NUMBER) {
-            mesh_ui_store_close_verify_sheet(&cap->store);
-            mesh_ui_store_open_verify_number(&cap->store);
-        } else if (verification.stage != (uint8_t)MESH_UI_VERIFY_IDLE) {
-            mesh_ui_store_close_verify_number(&cap->store);
-            mesh_ui_store_open_verify_sheet(&cap->store);
-        } else {
-            mesh_ui_store_close_verify_number(&cap->store);
-            mesh_ui_store_close_verify_sheet(&cap->store);
-        }
-        uicap_emit(cap);
-        return;
+    mesh_ui_store_set_verification(&cap->store, &verification);
+    /* Which overlay a stage raises is the app's decision (mesh_app_report_key_verification),
+       and this is the harness standing in for it - the same half `mute` stands in for. */
+    if (verification.stage == (uint8_t)MESH_UI_VERIFY_ENTER_NUMBER) {
+        mesh_ui_store_close_verify_sheet(&cap->store);
+        mesh_ui_store_open_verify_number(&cap->store);
+    } else if (verification.stage != (uint8_t)MESH_UI_VERIFY_IDLE) {
+        mesh_ui_store_close_verify_number(&cap->store);
+        mesh_ui_store_open_verify_sheet(&cap->store);
+    } else {
+        mesh_ui_store_close_verify_number(&cap->store);
+        mesh_ui_store_close_verify_sheet(&cap->store);
     }
+    return 0;
+}
 
-    if (strcmp(command, "pin") == 0) {
-        char *name = uicap_word(&rest);
-        if (name == NULL) {
-            fprintf(stderr, "uicap: line %u: 'pin' needs a short name\n", line_number);
-            exit(1);
-        }
-        uicap_start(cap);
-        struct mesh_ui_handshake_state handshake = cap->store.handshake;
-        bool matched = false;
-        for (uint32_t i = 0; i < handshake.node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
-            struct mesh_ui_node_summary *node = &handshake.nodes[i];
-            /* Our own node is never pinned - nav.c and node_detail.c both refuse it - so the
-               harness refuses it too rather than drawing a star no press could clear. */
-            if (node->node_id == handshake.my_info.node_num) {
-                continue;
-            }
-            if (strcmp(node->short_name, name) == 0) {
-                node->is_favorite = true;
-                matched = true;
-            }
-        }
-        if (!matched) {
-            fprintf(stderr, "uicap: line %u: no node in the scene called '%s'\n", line_number,
-                    name);
-            exit(1);
-        }
-        /* A pinned node survives a forget, so it leaves the counts the Settings rows offer -
-           the same arithmetic `offradio` below makes for the same reason. */
-        handshake.nodes_forgettable_off_radio = 0U;
-        handshake.nodes_forgettable_all = 0U;
-        for (uint32_t i = 0; i < handshake.node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
-            const struct mesh_ui_node_summary *node = &handshake.nodes[i];
-            if (node->is_favorite || node->node_id == handshake.my_info.node_num) {
-                continue;
-            }
-            ++handshake.nodes_forgettable_all;
-            if (!node->in_nodedb) {
-                ++handshake.nodes_forgettable_off_radio;
-            }
-        }
-        mesh_ui_store_set_handshake(&cap->store, &handshake);
-        uicap_emit(cap);
-        return;
+static int verb_pin(struct uicap_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    char *name = uicap_scene_word(&rest);
+    if (name == NULL) {
+        return uicap_scene_fail(scene, "'pin' needs a short name");
     }
-
-    /*
-     * One node's next telemetry report: a battery level, and the uptime that moves with it.
-     *
-     * Its own verb for the reason `airtime` is one - the reading arrives from the mesh and no
-     * key press can produce it - and it takes one figure at a time on purpose. A trend is what
-     * several of these lines make, and a command that took the whole series would let a scene
-     * declare a shape the client could not actually have been told.
-     *
-     * The uptime moves because that is what makes it a *report*: the store records a reading
-     * when the telemetry group changes, so a node repeating the same percentage twice is one
-     * report on the wire and one point on the line. See mesh_ui_store_set_handshake().
-     */
-    if (strcmp(command, "battery") == 0) {
-        char *name = uicap_word(&rest);
-        char *percent = uicap_word(&rest);
-        if (name == NULL || percent == NULL) {
-            fprintf(stderr, "uicap: line %u: 'battery' needs a short name and a percentage\n",
-                    line_number);
-            exit(1);
+    struct mesh_ui_handshake_state handshake = cap->store.handshake;
+    bool matched = false;
+    for (uint32_t i = 0; i < handshake.node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
+        struct mesh_ui_node_summary *node = &handshake.nodes[i];
+        /* Our own node is never pinned - nav.c and node_detail.c both refuse it - so the
+           harness refuses it too rather than drawing a star no press could clear. */
+        if (node->node_id == handshake.my_info.node_num) {
+            continue;
         }
-        uicap_start(cap);
-        struct mesh_ui_handshake_state handshake = cap->store.handshake;
-        bool matched = false;
-        for (uint32_t i = 0; i < handshake.node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
-            struct mesh_ui_node_summary *node = &handshake.nodes[i];
-            if (strcmp(node->short_name, name) != 0) {
-                continue;
-            }
-            node->metrics.valid = true;
-            node->metrics.has_battery = true;
-            node->metrics.battery_level = (uint8_t)uicap_number(percent, "battery");
-            node->metrics.has_uptime = true;
-            node->metrics.uptime_seconds += 1800U;
+        if (strcmp(node->short_name, name) == 0) {
+            node->is_favorite = true;
             matched = true;
         }
-        if (!matched) {
-            fprintf(stderr, "uicap: line %u: no node in the scene called '%s'\n", line_number,
-                    name);
-            exit(1);
-        }
-        mesh_ui_store_set_handshake(&cap->store, &handshake);
-        uicap_emit(cap);
-        return;
     }
-
-    /*
-     * One EnvironmentMetrics report for a node: a temperature in whole degrees and, optionally,
-     * a humidity.
-     *
-     * Its own verb rather than an argument to `battery`, because on the wire they are two
-     * Telemetry variants on two schedules - and the store keys each on its own struct having
-     * changed, so a scene that fed them together could not produce the ordinary case this is
-     * for: a sensor reporting air while its battery holds still. The uptime bump `battery`
-     * makes has no counterpart here for the same reason; the reading itself is what moves.
-     */
-    if (strcmp(command, "environment") == 0) {
-        char *name = uicap_word(&rest);
-        char *celsius = uicap_word(&rest);
-        char *humidity = uicap_word(&rest);
-        if (name == NULL || celsius == NULL) {
-            fprintf(stderr,
-                    "uicap: line %u: 'environment' needs a short name, a temperature in C and an "
-                    "optional humidity\n",
-                    line_number);
-            exit(1);
+    if (!matched) {
+        return uicap_scene_fail(scene, "no node in the scene called '%s'", name);
+    }
+    /* A pinned node survives a forget, so it leaves the counts the Settings rows offer -
+       the same arithmetic `offradio` below makes for the same reason. */
+    handshake.nodes_forgettable_off_radio = 0U;
+    handshake.nodes_forgettable_all = 0U;
+    for (uint32_t i = 0; i < handshake.node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
+        const struct mesh_ui_node_summary *node = &handshake.nodes[i];
+        if (node->is_favorite || node->node_id == handshake.my_info.node_num) {
+            continue;
         }
-        uicap_start(cap);
-        struct mesh_ui_handshake_state handshake = cap->store.handshake;
-        bool matched = false;
-        for (uint32_t i = 0; i < handshake.node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
-            struct mesh_ui_node_summary *node = &handshake.nodes[i];
-            if (strcmp(node->short_name, name) != 0) {
-                continue;
-            }
-            node->environment.valid = true;
-            node->environment.has_temperature = true;
-            node->environment.temperature = (float)uicap_number(celsius, "environment");
-            if (humidity != NULL) {
-                node->environment.has_humidity = true;
-                node->environment.relative_humidity = (float)uicap_number(humidity, "environment");
-            }
+        ++handshake.nodes_forgettable_all;
+        if (!node->in_nodedb) {
+            ++handshake.nodes_forgettable_off_radio;
+        }
+    }
+    mesh_ui_store_set_handshake(&cap->store, &handshake);
+    return 0;
+}
+
+/*
+ * One node's next telemetry report: a battery level, and the uptime that moves with it.
+ *
+ * Its own verb for the reason `airtime` is one - the reading arrives from the mesh and no
+ * key press can produce it - and it takes one figure at a time on purpose. A trend is what
+ * several of these lines make, and a command that took the whole series would let a scene
+ * declare a shape the client could not actually have been told.
+ *
+ * The uptime moves because that is what makes it a *report*: the store records a reading
+ * when the telemetry group changes, so a node repeating the same percentage twice is one
+ * report on the wire and one point on the line. See mesh_ui_store_set_handshake().
+ */
+static int verb_battery(struct uicap_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    char *name = uicap_scene_word(&rest);
+    char *percent = uicap_scene_word(&rest);
+    if (name == NULL || percent == NULL) {
+        return uicap_scene_fail(scene, "'battery' needs a short name and a percentage");
+    }
+    unsigned level = 0U;
+    const int parsed = uicap_scene_number(scene, percent, "battery", &level);
+    if (parsed < 0) {
+        return parsed;
+    }
+    struct mesh_ui_handshake_state handshake = cap->store.handshake;
+    bool matched = false;
+    for (uint32_t i = 0; i < handshake.node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
+        struct mesh_ui_node_summary *node = &handshake.nodes[i];
+        if (strcmp(node->short_name, name) != 0) {
+            continue;
+        }
+        node->metrics.valid = true;
+        node->metrics.has_battery = true;
+        node->metrics.battery_level = (uint8_t)level;
+        node->metrics.has_uptime = true;
+        node->metrics.uptime_seconds += 1800U;
+        matched = true;
+    }
+    if (!matched) {
+        return uicap_scene_fail(scene, "no node in the scene called '%s'", name);
+    }
+    mesh_ui_store_set_handshake(&cap->store, &handshake);
+    return 0;
+}
+
+/*
+ * One EnvironmentMetrics report for a node: a temperature in whole degrees and, optionally,
+ * a humidity.
+ *
+ * Its own verb rather than an argument to `battery`, because on the wire they are two
+ * Telemetry variants on two schedules - and the store keys each on its own struct having
+ * changed, so a scene that fed them together could not produce the ordinary case this is
+ * for: a sensor reporting air while its battery holds still. The uptime bump `battery`
+ * makes has no counterpart here for the same reason; the reading itself is what moves.
+ */
+static int verb_environment(struct uicap_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    char *name = uicap_scene_word(&rest);
+    char *celsius = uicap_scene_word(&rest);
+    char *humidity = uicap_scene_word(&rest);
+    if (name == NULL || celsius == NULL) {
+        return uicap_scene_fail(scene,
+                                "'environment' needs a short name, a temperature in C and an "
+                                "optional humidity");
+    }
+    unsigned degrees = 0U;
+    unsigned relative = 0U;
+    int parsed = uicap_scene_number(scene, celsius, "environment", &degrees);
+    if (parsed == 0 && humidity != NULL) {
+        parsed = uicap_scene_number(scene, humidity, "environment", &relative);
+    }
+    if (parsed < 0) {
+        return parsed;
+    }
+    struct mesh_ui_handshake_state handshake = cap->store.handshake;
+    bool matched = false;
+    for (uint32_t i = 0; i < handshake.node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
+        struct mesh_ui_node_summary *node = &handshake.nodes[i];
+        if (strcmp(node->short_name, name) != 0) {
+            continue;
+        }
+        node->environment.valid = true;
+        node->environment.has_temperature = true;
+        node->environment.temperature = (float)degrees;
+        if (humidity != NULL) {
+            node->environment.has_humidity = true;
+            node->environment.relative_humidity = (float)relative;
+        }
+        matched = true;
+    }
+    if (!matched) {
+        return uicap_scene_fail(scene, "no node in the scene called '%s'", name);
+    }
+    mesh_ui_store_set_handshake(&cap->store, &handshake);
+    return 0;
+}
+
+/*
+ * One packet heard from a node: how far above the noise it was, and optionally how loud.
+ *
+ * Its own verb rather than an argument to `environment`, and for a sharper version of that
+ * verb's reason: these two are not telemetry at all. They are measured off the packet header
+ * by the radio in your hand, and what says a new one arrived is `last_heard` moving rather
+ * than any reading changing - a node sitting still reports the same ratio every time. So the
+ * verb bumps the clock, which is the whole of what an arrival is.
+ *
+ * It also sets the two flags that make the reading this node's own: zero hops and no bridge.
+ * The client refuses to draw a bar or keep a trend on anything else, so a scene that left
+ * them alone would be a scene that produces no picture and no hint as to why.
+ */
+static int verb_signal(struct uicap_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    char *name = uicap_scene_word(&rest);
+    char *snr = uicap_scene_word(&rest);
+    char *rssi = uicap_scene_word(&rest);
+    if (name == NULL || snr == NULL) {
+        return uicap_scene_fail(scene, "'signal' needs a short name, an SNR in dB and an optional "
+                                       "RSSI in dBm");
+    }
+    int snr_db = 0;
+    int rssi_dbm = 0;
+    int parsed = uicap_scene_signed(scene, snr, "signal", &snr_db);
+    if (parsed == 0 && rssi != NULL) {
+        parsed = uicap_scene_signed(scene, rssi, "signal", &rssi_dbm);
+    }
+    if (parsed < 0) {
+        return parsed;
+    }
+    struct mesh_ui_handshake_state handshake = cap->store.handshake;
+    bool matched = false;
+    for (uint32_t i = 0; i < handshake.node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
+        struct mesh_ui_node_summary *node = &handshake.nodes[i];
+        if (strcmp(node->short_name, name) != 0) {
+            continue;
+        }
+        node->snr = (float)snr_db;
+        node->via_mqtt = false;
+        node->has_hops_away = true;
+        node->hops_away = 0U;
+        /*
+         * An eighth of the distance to the clock, and never less than a second.
+         *
+         * Both ends of that matter. The store keys an arrival on `last_heard` having changed,
+         * so a stamp that stood still is a packet it does not record; and
+         * mesh_ui_format_age() answers "unknown" for a stamp ahead of the clock, so a fixed
+         * bump that overshot would freshen the trend while the row above it stopped saying
+         * when. Closing on the present rather than stepping toward it satisfies both, and
+         * reads the way a scene means it: each packet is more recent than the last.
+         *
+         * An eighth rather than a half because of how many readings a series holds. Halving,
+         * a node seeded two hours back is at the clock inside thirteen pushes and every
+         * packet after that is dropped as a repeat - a scene that silently stops recording
+         * half way through, and a list that is mysteriously short. An eighth still has room
+         * to move after two dozen, which is INKCELL_SERIES_MAX.
+         *
+         * A node already at the clock cannot be freshened, and that is the honest answer
+         * rather than a gap: nothing is more recent than now.
+         */
+        const uint32_t heard_now = inkwell_time_wall_s();
+        const uint32_t behind = node->last_heard < heard_now ? heard_now - node->last_heard : 0U;
+        if (behind > 0U) {
+            node->last_heard += behind / 8U > 0U ? behind / 8U : 1U;
+        }
+        /* And when the ratio was taken, which is what the client's signal trend is keyed on
+           rather than the arrival - see `snr_time`. A scene that moved only `last_heard`
+           would draw the rows and record nothing behind them. */
+        node->snr_time = node->last_heard;
+        if (rssi != NULL) {
+            node->has_rssi = true;
+            node->rx_rssi = (int16_t)rssi_dbm;
+            node->rssi_time = node->last_heard;
+        }
+        matched = true;
+    }
+    if (!matched) {
+        return uicap_scene_fail(scene, "no node in the scene called '%s'", name);
+    }
+    mesh_ui_store_set_handshake(&cap->store, &handshake);
+    return 0;
+}
+
+/*
+ * Take our own radio's fix away.
+ *
+ * `scene demo` gives it one because every range on the Waypoints tab is measured from it,
+ * but a Brick's radio usually has no GPS and no fixed position set - and that state is the
+ * whole of what the "New waypoint here" row's supporting line and its refused press are
+ * about. Its own verb because nothing a scene can press removes a fix: a position arrives
+ * off the air, and there is no air behind the harness.
+ */
+static int verb_nofix(struct uicap_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    (void)rest;
+    struct mesh_ui_handshake_state handshake = cap->store.handshake;
+    bool cleared = false;
+    for (uint32_t i = 0; i < handshake.node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
+        struct mesh_ui_node_summary *node = &handshake.nodes[i];
+        if (node->node_id != handshake.my_info.node_num) {
+            continue;
+        }
+        memset(&node->position, 0, sizeof node->position);
+        cleared = true;
+        break;
+    }
+    if (!cleared) {
+        return uicap_scene_fail(scene, "'nofix' needs a scene with our own radio in it");
+    }
+    mesh_ui_store_set_handshake(&cap->store, &handshake);
+    return 0;
+}
+
+/* The state a NodeDB reset leaves the roster in: the nodes are still ours, and the radio
+   has stopped carrying them. Its own verb because no key press can reach it - the reset
+   goes out over the air and the answer comes back on the next sync, neither of which
+   exists behind the harness. */
+static int verb_offradio(struct uicap_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    char *name = uicap_scene_word(&rest);
+    if (name == NULL) {
+        return uicap_scene_fail(scene, "'offradio' needs a short name or 'all'");
+    }
+    struct mesh_ui_handshake_state handshake = cap->store.handshake;
+    const bool all = strcmp(name, "all") == 0;
+    bool matched = false;
+    for (uint32_t i = 0; i < handshake.node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
+        struct mesh_ui_node_summary *node = &handshake.nodes[i];
+        if (node->node_id == handshake.my_info.node_num) {
+            continue; /* our own radio is never a node its own database has forgotten */
+        }
+        if (all || strcmp(node->short_name, name) == 0) {
+            node->in_nodedb = false;
             matched = true;
         }
-        if (!matched) {
-            fprintf(stderr, "uicap: line %u: no node in the scene called '%s'\n", line_number,
-                    name);
-            exit(1);
+    }
+    if (!matched) {
+        return uicap_scene_fail(scene, "no node in the scene called '%s'", name);
+    }
+    /* What the Settings rows offer to drop. Pinned nodes and our own record survive a
+       forget, so they are not in either count - the same arithmetic the app publishes. */
+    const uint32_t off_radio = mesh_ui_handshake_off_radio(&handshake);
+    handshake.nodes_forgettable_off_radio = 0U;
+    handshake.nodes_forgettable_all = 0U;
+    for (uint32_t i = 0; i < handshake.node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
+        const struct mesh_ui_node_summary *node = &handshake.nodes[i];
+        if (node->is_favorite || node->node_id == handshake.my_info.node_num) {
+            continue;
         }
-        mesh_ui_store_set_handshake(&cap->store, &handshake);
-        uicap_emit(cap);
-        return;
+        ++handshake.nodes_forgettable_all;
+        if (!node->in_nodedb) {
+            ++handshake.nodes_forgettable_off_radio;
+        }
+    }
+    /* The radio's own count goes with them: after a reset its database holds what it has
+       re-heard, which is what makes the Status screen and the Nodes tab disagree. */
+    handshake.my_info.nodedb_entries = handshake.node_count - off_radio;
+    mesh_ui_store_set_handshake(&cap->store, &handshake);
+    return 0;
+}
+
+static int verb_notice(struct uicap_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    char *level = uicap_scene_word(&rest);
+    if (level == NULL) {
+        return uicap_scene_fail(scene, "'notice' needs info|warn|error and text");
+    }
+    struct mesh_ui_settings settings = cap->store.settings;
+    /* python logging's scale, which is what LogRecord.Level is. */
+    if (strcmp(level, "error") == 0) {
+        settings.notice.level = 40U;
+    } else if (strcmp(level, "warn") == 0) {
+        settings.notice.level = 30U;
+    } else if (strcmp(level, "info") == 0) {
+        settings.notice.level = 20U;
+    } else {
+        return uicap_scene_fail(scene, "'notice' level is info, warn or error");
+    }
+    settings.notice.seq++;
+    settings.notice.received = inkwell_time_wall_s();
+    snprintf(settings.notice.text, sizeof settings.notice.text, "%s", uicap_scene_tail(rest));
+    mesh_ui_store_set_settings(&cap->store, &settings);
+    return 0;
+}
+
+/*
+ * A radio that has answered the config handshake.
+ *
+ * Without it every Settings section says "not loaded", because the demo scene has no radio
+ * behind it - so the one tab whose rows are all controls was the one tab a capture could
+ * not show. The values are plausible rather than meaningful: what is on show is the rows.
+ */
+static int verb_config(struct uicap_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    (void)scene;
+    (void)rest;
+    /*
+     * The link, first: a radio that has answered the config handshake is a radio this
+     * client is attached to, and every row that asks the radio to *do* something reads the
+     * link rather than the config. Without this the sections drawn by this command showed
+     * their controls and then said "not connected" on every press.
+     */
+    struct mesh_ui_handshake_state handshake = cap->store.handshake;
+    handshake.link_up = true;
+    mesh_ui_store_set_handshake(&cap->store, &handshake);
+    struct mesh_ui_settings settings = cap->store.settings;
+    settings.loaded = true;
+    settings.admin_ok = true;
+    /* A session that has answered is a session with replies behind it; "ok (0 replies)" is
+       the one pair of words on that row that cannot both be true. */
+    settings.admin_replies = 4U;
+    settings.has_owner = true;
+    /* The owner rows name the radio we are attached to, so they are our own node's names
+       rather than a second identity for the same node: "Brick" here and "Home Base" on the
+       Status card was one radio answering to two names. */
+    snprintf(settings.long_name, sizeof settings.long_name, "%s", "Home Base");
+    snprintf(settings.short_name, sizeof settings.short_name, "%s", "HOME");
+
+    /*
+     * And this radio's own identity as a contact link, which is what the contact code screen
+     * at the foot of the User section draws.
+     *
+     * Built here from the names above and our own node number rather than invented, for the
+     * reason the channel link below is: a code in a capture that decoded to something other
+     * than the screen says would be a picture of a bug nobody could see. The key is filler -
+     * a capture has no key pair - but it is a full-length one, so the code comes out the
+     * size a real one would.
+     */
+    {
+        meshtastic_SharedContact me = meshtastic_SharedContact_init_zero;
+        me.node_num = cap->store.handshake.my_info.node_num;
+        me.has_user = true;
+        snprintf(me.user.id, sizeof me.user.id, "!%08x", (unsigned)me.node_num);
+        snprintf(me.user.long_name, sizeof me.user.long_name, "%s", settings.long_name);
+        snprintf(me.user.short_name, sizeof me.user.short_name, "%s", settings.short_name);
+        me.user.hw_model = meshtastic_HardwareModel_TBEAM;
+        me.user.public_key.size = 32U;
+        for (unsigned i = 0; i < 32U; ++i) {
+            me.user.public_key.bytes[i] = (uint8_t)(0x10U + i);
+        }
+        (void)mesh_contact_url_encode(&me, settings.contact_url, sizeof settings.contact_url);
+    }
+    settings.has_device = true;
+    settings.node_info_broadcast_secs = 10800U;
+    settings.led_heartbeat_disabled = false;
+    settings.double_tap_as_button_press = true;
+    settings.has_display = true;
+    settings.screen_on_secs = 600U;
+    settings.carousel_secs = 0U;
+    settings.use_12h_clock = true;
+    settings.flip_screen = false;
+    settings.has_lora = true;
+    settings.use_preset = true;
+    settings.tx_enabled = true;
+    settings.hop_limit = 3U;
+    settings.has_bluetooth = true;
+    settings.bluetooth_enabled = true;
+    settings.pairing_mode = 0U; /* a random PIN, which is the firmware's default */
+
+    /*
+     * The channel table, in full rather than as the handshake summary.
+     *
+     * The difference is what the Channels section *is*: with only the summary every slot is
+     * a read-only line, and with the table each one opens and the two sharing rows appear
+     * under them. The same two channels the handshake advertises, so the tab and the message
+     * list do not disagree about what this radio is on.
+     */
+    settings.has_channels = true;
+    /* Every slot answered for and the LoRa config with them, which is what both sharing
+       rows wait on: `config` is a radio that has *finished* the handshake. */
+    settings.channels_settled = true;
+    settings.channels[0].present = true;
+    settings.channels[0].index = 0U;
+    settings.channels[0].role = 1U; /* primary */
+    snprintf(settings.channels[0].name, sizeof settings.channels[0].name, "%s", "LongFast");
+    settings.channels[0].psk_len = 1U;
+    settings.channels[0].psk[0] = 1U; /* the default key's shorthand */
+    settings.channels[1].present = true;
+    settings.channels[1].index = 1U;
+    settings.channels[1].role = 2U; /* secondary */
+    snprintf(settings.channels[1].name, sizeof settings.channels[1].name, "%s", "Trail");
+    settings.channels[1].psk_len = 16U;
+    for (unsigned i = 0; i < 16U; ++i) {
+        settings.channels[1].psk[i] = (uint8_t)(0xA0U + i);
+    }
+    settings.channels[2].present = true; /* an empty slot, which is how one is added */
+    settings.channels[2].index = 2U;
+    for (unsigned i = 3U; i < MESH_UI_MAX_CHANNELS; ++i) {
+        /* The five disabled slots after it. A finished sync answers for every index, so a
+           capture that stopped at three would be filming a radio mid-handshake. */
+        settings.channels[i].present = true;
+        settings.channels[i].index = (uint8_t)i;
     }
 
     /*
-     * One packet heard from a node: how far above the noise it was, and optionally how loud.
-     *
-     * Its own verb rather than an argument to `environment`, and for a sharper version of that
-     * verb's reason: these two are not telemetry at all. They are measured off the packet header
-     * by the radio in your hand, and what says a new one arrived is `last_heard` moving rather
-     * than any reading changing - a node sitting still reports the same ratio every time. So the
-     * verb bumps the clock, which is the whole of what an arrival is.
-     *
-     * It also sets the two flags that make the reading this node's own: zero hops and no bridge.
-     * The client refuses to draw a bar or keep a trend on anything else, so a scene that left
-     * them alone would be a scene that produces no picture and no hint as to why.
+     * And the link the publish boundary would have built from them, which is what the share
+     * screen draws as a QR code. Assembled here from the same two channels rather than
+     * invented: a code in a capture that decoded to something else would be a picture of a
+     * bug nobody could see.
      */
-    if (strcmp(command, "signal") == 0) {
-        char *name = uicap_word(&rest);
-        char *snr = uicap_word(&rest);
-        char *rssi = uicap_word(&rest);
-        if (name == NULL || snr == NULL) {
-            fprintf(stderr,
-                    "uicap: line %u: 'signal' needs a short name, an SNR in dB and an optional "
-                    "RSSI in dBm\n",
-                    line_number);
-            exit(1);
+    {
+        meshtastic_ChannelSet set = meshtastic_ChannelSet_init_zero;
+        for (unsigned i = 0; i < 2U; ++i) {
+            meshtastic_ChannelSettings *slot = &set.settings[set.settings_count++];
+            snprintf(slot->name, sizeof slot->name, "%s", settings.channels[i].name);
+            slot->psk.size = settings.channels[i].psk_len;
+            memcpy(slot->psk.bytes, settings.channels[i].psk, slot->psk.size);
         }
-        uicap_start(cap);
-        struct mesh_ui_handshake_state handshake = cap->store.handshake;
-        bool matched = false;
-        for (uint32_t i = 0; i < handshake.node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
-            struct mesh_ui_node_summary *node = &handshake.nodes[i];
-            if (strcmp(node->short_name, name) != 0) {
-                continue;
-            }
-            node->snr = (float)uicap_signed(snr, "signal");
-            node->via_mqtt = false;
-            node->has_hops_away = true;
-            node->hops_away = 0U;
-            /*
-             * An eighth of the distance to the clock, and never less than a second.
-             *
-             * Both ends of that matter. The store keys an arrival on `last_heard` having changed,
-             * so a stamp that stood still is a packet it does not record; and
-             * mesh_ui_format_age() answers "unknown" for a stamp ahead of the clock, so a fixed
-             * bump that overshot would freshen the trend while the row above it stopped saying
-             * when. Closing on the present rather than stepping toward it satisfies both, and
-             * reads the way a scene means it: each packet is more recent than the last.
-             *
-             * An eighth rather than a half because of how many readings a series holds. Halving,
-             * a node seeded two hours back is at the clock inside thirteen pushes and every
-             * packet after that is dropped as a repeat - a scene that silently stops recording
-             * half way through, and a list that is mysteriously short. An eighth still has room
-             * to move after two dozen, which is INKCELL_SERIES_MAX.
-             *
-             * A node already at the clock cannot be freshened, and that is the honest answer
-             * rather than a gap: nothing is more recent than now.
-             */
-            const uint32_t heard_now = inkwell_time_wall_s();
-            const uint32_t behind =
-                node->last_heard < heard_now ? heard_now - node->last_heard : 0U;
-            if (behind > 0U) {
-                node->last_heard += behind / 8U > 0U ? behind / 8U : 1U;
-            }
-            /* And when the ratio was taken, which is what the client's signal trend is keyed on
-               rather than the arrival - see `snr_time`. A scene that moved only `last_heard`
-               would draw the rows and record nothing behind them. */
-            node->snr_time = node->last_heard;
-            if (rssi != NULL) {
-                node->has_rssi = true;
-                node->rx_rssi = (int16_t)uicap_signed(rssi, "signal");
-                node->rssi_time = node->last_heard;
-            }
-            matched = true;
-        }
-        if (!matched) {
-            fprintf(stderr, "uicap: line %u: no node in the scene called '%s'\n", line_number,
-                    name);
-            exit(1);
-        }
-        mesh_ui_store_set_handshake(&cap->store, &handshake);
-        uicap_emit(cap);
-        return;
+        set.has_lora_config = true;
+        set.lora_config.use_preset = true;
+        set.lora_config.region = meshtastic_Config_LoRaConfig_RegionCode_EU_868;
+        set.lora_config.hop_limit = 3U;
+        (void)mesh_channel_url_encode(&set, false, settings.share_url, sizeof settings.share_url);
     }
 
     /*
-     * Take our own radio's fix away.
-     *
-     * `scene demo` gives it one because every range on the Waypoints tab is measured from it,
-     * but a Brick's radio usually has no GPS and no fixed position set - and that state is the
-     * whole of what the "New waypoint here" row's supporting line and its refused press are
-     * about. Its own verb because nothing a scene can press removes a fix: a position arrives
-     * off the air, and there is no air behind the harness.
+     * The network the radio was told to join, which is what the read-only Network section
+     * draws. A static address rather than DHCP, so the four rows that only appear under
+     * Static are on screen: a section whose shape depends on one row above it is worth
+     * filming in the shape that has the rows.
      */
-    if (strcmp(command, "nofix") == 0) {
-        uicap_start(cap);
-        struct mesh_ui_handshake_state handshake = cap->store.handshake;
-        bool cleared = false;
-        for (uint32_t i = 0; i < handshake.node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
-            struct mesh_ui_node_summary *node = &handshake.nodes[i];
-            if (node->node_id != handshake.my_info.node_num) {
-                continue;
-            }
-            memset(&node->position, 0, sizeof node->position);
-            cleared = true;
-            break;
-        }
-        if (!cleared) {
-            fprintf(stderr, "uicap: line %u: 'nofix' needs a scene with our own radio in it\n",
-                    line_number);
-            exit(1);
-        }
-        mesh_ui_store_set_handshake(&cap->store, &handshake);
-        uicap_emit(cap);
-        return;
-    }
-
-    /* The state a NodeDB reset leaves the roster in: the nodes are still ours, and the radio
-       has stopped carrying them. Its own verb because no key press can reach it - the reset
-       goes out over the air and the answer comes back on the next sync, neither of which
-       exists behind the harness. */
-    if (strcmp(command, "offradio") == 0) {
-        char *name = uicap_word(&rest);
-        if (name == NULL) {
-            fprintf(stderr, "uicap: line %u: 'offradio' needs a short name or 'all'\n",
-                    line_number);
-            exit(1);
-        }
-        uicap_start(cap);
-        struct mesh_ui_handshake_state handshake = cap->store.handshake;
-        const bool all = strcmp(name, "all") == 0;
-        bool matched = false;
-        for (uint32_t i = 0; i < handshake.node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
-            struct mesh_ui_node_summary *node = &handshake.nodes[i];
-            if (node->node_id == handshake.my_info.node_num) {
-                continue; /* our own radio is never a node its own database has forgotten */
-            }
-            if (all || strcmp(node->short_name, name) == 0) {
-                node->in_nodedb = false;
-                matched = true;
-            }
-        }
-        if (!matched) {
-            fprintf(stderr, "uicap: line %u: no node in the scene called '%s'\n", line_number,
-                    name);
-            exit(1);
-        }
-        /* What the Settings rows offer to drop. Pinned nodes and our own record survive a
-           forget, so they are not in either count - the same arithmetic the app publishes. */
-        const uint32_t off_radio = mesh_ui_handshake_off_radio(&handshake);
-        handshake.nodes_forgettable_off_radio = 0U;
-        handshake.nodes_forgettable_all = 0U;
-        for (uint32_t i = 0; i < handshake.node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
-            const struct mesh_ui_node_summary *node = &handshake.nodes[i];
-            if (node->is_favorite || node->node_id == handshake.my_info.node_num) {
-                continue;
-            }
-            ++handshake.nodes_forgettable_all;
-            if (!node->in_nodedb) {
-                ++handshake.nodes_forgettable_off_radio;
-            }
-        }
-        /* The radio's own count goes with them: after a reset its database holds what it has
-           re-heard, which is what makes the Status screen and the Nodes tab disagree. */
-        handshake.my_info.nodedb_entries = handshake.node_count - off_radio;
-        mesh_ui_store_set_handshake(&cap->store, &handshake);
-        uicap_emit(cap);
-        return;
-    }
-
-    if (strcmp(command, "notice") == 0) {
-        char *level = uicap_word(&rest);
-        if (level == NULL) {
-            fprintf(stderr, "uicap: line %u: 'notice' needs info|warn|error and text\n",
-                    line_number);
-            exit(1);
-        }
-        uicap_start(cap);
-        struct mesh_ui_settings settings = cap->store.settings;
-        /* python logging's scale, which is what LogRecord.Level is. */
-        if (strcmp(level, "error") == 0) {
-            settings.notice.level = 40U;
-        } else if (strcmp(level, "warn") == 0) {
-            settings.notice.level = 30U;
-        } else if (strcmp(level, "info") == 0) {
-            settings.notice.level = 20U;
-        } else {
-            fprintf(stderr, "uicap: line %u: 'notice' level is info, warn or error\n", line_number);
-            exit(1);
-        }
-        settings.notice.seq++;
-        settings.notice.received = inkwell_time_wall_s();
-        snprintf(settings.notice.text, sizeof settings.notice.text, "%s", uicap_tail(rest));
-        mesh_ui_store_set_settings(&cap->store, &settings);
-        uicap_emit(cap);
-        return;
-    }
+    settings.has_network = true;
+    settings.wifi_enabled = true;
+    /* The same network and address the connection rows on About radio report, because this
+       radio is on the network it was configured for - the two screens disagreeing is the
+       case the section exists for, not the case a demo should quietly show. */
+    snprintf(settings.wifi_ssid, sizeof settings.wifi_ssid, "%s", "shed");
+    settings.address_mode = 1U;          /* STATIC */
+    settings.ipv4_ip = 0x2801A8C0U;      /* 192.168.1.40 */
+    settings.ipv4_gateway = 0x0101A8C0U; /* 192.168.1.1 */
+    settings.ipv4_subnet = 0x00FFFFFFU;  /* 255.255.255.0 */
+    settings.ipv4_dns = 0x0101A8C0U;
+    snprintf(settings.ntp_server, sizeof settings.ntp_server, "%s", "meshtastic.pool.ntp.org");
+    settings.enabled_protocols = 1U; /* UDP_BROADCAST */
 
     /*
-     * A radio that has answered the config handshake.
-     *
-     * Without it every Settings section says "not loaded", because the demo scene has no radio
-     * behind it - so the one tab whose rows are all controls was the one tab a capture could
-     * not show. The values are plausible rather than meaningful: what is on show is the rows.
+     * DeviceMetadata, which is a reply of its own rather than a config block - and the whole
+     * of Settings > About radio above the node number. Portduino because this radio is the
+     * Linux host the demo's own node reports host telemetry for; a board that cannot cut its
+     * own power, which is why "Can shut down" is the one capability that is off.
      */
-    if (strcmp(command, "config") == 0) {
-        uicap_start(cap);
-        /*
-         * The link, first: a radio that has answered the config handshake is a radio this
-         * client is attached to, and every row that asks the radio to *do* something reads the
-         * link rather than the config. Without this the sections drawn by this command showed
-         * their controls and then said "not connected" on every press.
-         */
-        struct mesh_ui_handshake_state handshake = cap->store.handshake;
-        handshake.link_up = true;
-        mesh_ui_store_set_handshake(&cap->store, &handshake);
-        struct mesh_ui_settings settings = cap->store.settings;
-        settings.loaded = true;
-        settings.admin_ok = true;
-        /* A session that has answered is a session with replies behind it; "ok (0 replies)" is
-           the one pair of words on that row that cannot both be true. */
-        settings.admin_replies = 4U;
-        settings.has_owner = true;
-        /* The owner rows name the radio we are attached to, so they are our own node's names
-           rather than a second identity for the same node: "Brick" here and "Home Base" on the
-           Status card was one radio answering to two names. */
-        snprintf(settings.long_name, sizeof settings.long_name, "%s", "Home Base");
-        snprintf(settings.short_name, sizeof settings.short_name, "%s", "HOME");
+    settings.has_metadata = true;
+    snprintf(settings.firmware_version, sizeof settings.firmware_version, "%s", "2.7.6.f1a4c39");
+    settings.hw_model = 37U; /* meshtastic_HardwareModel_PORTDUINO */
+    settings.has_bluetooth_radio = true;
+    settings.has_wifi = true;
+    settings.has_ethernet = true;
+    settings.has_pkc = true;
+    settings.can_shutdown = false;
+    /*
+     * And the firmware rows under them, in the state a device with curl on it actually
+     * boots into: a fetcher exists and nobody has pressed anything yet. Left false, the
+     * default row would be "unavailable" and the press would not be drawn at all - which is
+     * the one state of this screen a Brick will almost never be in. The `firmware` verb
+     * moves it on from here.
+     */
+    settings.fw_supported = true;
+    inkwell_str_copy(settings.fw_channel, sizeof settings.fw_channel,
+                     mesh_firmware_channel_name(MESH_FIRMWARE_CHANNEL_STABLE));
 
-        /*
-         * And this radio's own identity as a contact link, which is what the contact code screen
-         * at the foot of the User section draws.
-         *
-         * Built here from the names above and our own node number rather than invented, for the
-         * reason the channel link below is: a code in a capture that decoded to something other
-         * than the screen says would be a picture of a bug nobody could see. The key is filler -
-         * a capture has no key pair - but it is a full-length one, so the code comes out the
-         * size a real one would.
-         */
-        {
-            meshtastic_SharedContact me = meshtastic_SharedContact_init_zero;
-            me.node_num = cap->store.handshake.my_info.node_num;
-            me.has_user = true;
-            snprintf(me.user.id, sizeof me.user.id, "!%08x", (unsigned)me.node_num);
-            snprintf(me.user.long_name, sizeof me.user.long_name, "%s", settings.long_name);
-            snprintf(me.user.short_name, sizeof me.user.short_name, "%s", settings.short_name);
-            me.user.hw_model = meshtastic_HardwareModel_TBEAM;
-            me.user.public_key.size = 32U;
-            for (unsigned i = 0; i < 32U; ++i) {
-                me.user.public_key.bytes[i] = (uint8_t)(0x10U + i);
-            }
-            (void)mesh_contact_url_encode(&me, settings.contact_url, sizeof settings.contact_url);
-        }
-        settings.has_device = true;
-        settings.node_info_broadcast_secs = 10800U;
-        settings.led_heartbeat_disabled = false;
-        settings.double_tap_as_button_press = true;
-        settings.has_display = true;
-        settings.screen_on_secs = 600U;
-        settings.carousel_secs = 0U;
-        settings.use_12h_clock = true;
-        settings.flip_screen = false;
-        settings.has_lora = true;
-        settings.use_preset = true;
-        settings.tx_enabled = true;
-        settings.hop_limit = 3U;
-        settings.has_bluetooth = true;
-        settings.bluetooth_enabled = true;
-        settings.pairing_mode = 0U; /* a random PIN, which is the firmware's default */
-
-        /*
-         * The channel table, in full rather than as the handshake summary.
-         *
-         * The difference is what the Channels section *is*: with only the summary every slot is
-         * a read-only line, and with the table each one opens and the two sharing rows appear
-         * under them. The same two channels the handshake advertises, so the tab and the message
-         * list do not disagree about what this radio is on.
-         */
-        settings.has_channels = true;
-        /* Every slot answered for and the LoRa config with them, which is what both sharing
-           rows wait on: `config` is a radio that has *finished* the handshake. */
-        settings.channels_settled = true;
-        settings.channels[0].present = true;
-        settings.channels[0].index = 0U;
-        settings.channels[0].role = 1U; /* primary */
-        snprintf(settings.channels[0].name, sizeof settings.channels[0].name, "%s", "LongFast");
-        settings.channels[0].psk_len = 1U;
-        settings.channels[0].psk[0] = 1U; /* the default key's shorthand */
-        settings.channels[1].present = true;
-        settings.channels[1].index = 1U;
-        settings.channels[1].role = 2U; /* secondary */
-        snprintf(settings.channels[1].name, sizeof settings.channels[1].name, "%s", "Trail");
-        settings.channels[1].psk_len = 16U;
-        for (unsigned i = 0; i < 16U; ++i) {
-            settings.channels[1].psk[i] = (uint8_t)(0xA0U + i);
-        }
-        settings.channels[2].present = true; /* an empty slot, which is how one is added */
-        settings.channels[2].index = 2U;
-        for (unsigned i = 3U; i < MESH_UI_MAX_CHANNELS; ++i) {
-            /* The five disabled slots after it. A finished sync answers for every index, so a
-               capture that stopped at three would be filming a radio mid-handshake. */
-            settings.channels[i].present = true;
-            settings.channels[i].index = (uint8_t)i;
-        }
-
-        /*
-         * And the link the publish boundary would have built from them, which is what the share
-         * screen draws as a QR code. Assembled here from the same two channels rather than
-         * invented: a code in a capture that decoded to something else would be a picture of a
-         * bug nobody could see.
-         */
-        {
-            meshtastic_ChannelSet set = meshtastic_ChannelSet_init_zero;
-            for (unsigned i = 0; i < 2U; ++i) {
-                meshtastic_ChannelSettings *slot = &set.settings[set.settings_count++];
-                snprintf(slot->name, sizeof slot->name, "%s", settings.channels[i].name);
-                slot->psk.size = settings.channels[i].psk_len;
-                memcpy(slot->psk.bytes, settings.channels[i].psk, slot->psk.size);
-            }
-            set.has_lora_config = true;
-            set.lora_config.use_preset = true;
-            set.lora_config.region = meshtastic_Config_LoRaConfig_RegionCode_EU_868;
-            set.lora_config.hop_limit = 3U;
-            (void)mesh_channel_url_encode(&set, false, settings.share_url,
-                                          sizeof settings.share_url);
-        }
-
-        /*
-         * The network the radio was told to join, which is what the read-only Network section
-         * draws. A static address rather than DHCP, so the four rows that only appear under
-         * Static are on screen: a section whose shape depends on one row above it is worth
-         * filming in the shape that has the rows.
-         */
-        settings.has_network = true;
-        settings.wifi_enabled = true;
-        /* The same network and address the connection rows on About radio report, because this
-           radio is on the network it was configured for - the two screens disagreeing is the
-           case the section exists for, not the case a demo should quietly show. */
-        snprintf(settings.wifi_ssid, sizeof settings.wifi_ssid, "%s", "shed");
-        settings.address_mode = 1U;          /* STATIC */
-        settings.ipv4_ip = 0x2801A8C0U;      /* 192.168.1.40 */
-        settings.ipv4_gateway = 0x0101A8C0U; /* 192.168.1.1 */
-        settings.ipv4_subnet = 0x00FFFFFFU;  /* 255.255.255.0 */
-        settings.ipv4_dns = 0x0101A8C0U;
-        snprintf(settings.ntp_server, sizeof settings.ntp_server, "%s", "meshtastic.pool.ntp.org");
-        settings.enabled_protocols = 1U; /* UDP_BROADCAST */
-
-        /*
-         * DeviceMetadata, which is a reply of its own rather than a config block - and the whole
-         * of Settings > About radio above the node number. Portduino because this radio is the
-         * Linux host the demo's own node reports host telemetry for; a board that cannot cut its
-         * own power, which is why "Can shut down" is the one capability that is off.
-         */
-        settings.has_metadata = true;
-        snprintf(settings.firmware_version, sizeof settings.firmware_version, "%s",
-                 "2.7.6.f1a4c39");
-        settings.hw_model = 37U; /* meshtastic_HardwareModel_PORTDUINO */
-        settings.has_bluetooth_radio = true;
-        settings.has_wifi = true;
-        settings.has_ethernet = true;
-        settings.has_pkc = true;
-        settings.can_shutdown = false;
-        /*
-         * And the firmware rows under them, in the state a device with curl on it actually
-         * boots into: a fetcher exists and nobody has pressed anything yet. Left false, the
-         * default row would be "unavailable" and the press would not be drawn at all - which is
-         * the one state of this screen a Brick will almost never be in. The `firmware` verb
-         * moves it on from here.
-         */
-        settings.fw_supported = true;
-        inkwell_str_copy(settings.fw_channel, sizeof settings.fw_channel,
-                         mesh_firmware_channel_name(MESH_FIRMWARE_CHANNEL_STABLE));
-
-        /* The two LoRa rows that read as unconfigured rather than as defaults: a region of
-           "Unset" is a radio that will not transmit, and an empty timezone is the row's dash. */
-        settings.region = 1U;       /* meshtastic_Config_LoRaConfig_RegionCode_US */
-        settings.modem_preset = 0U; /* LONG_FAST, which is what the primary channel is named for */
-        /* The three the preset decides. A radio reports what it is actually running, so leaving
-           them zeroed drew a modem at 0 kHz on a link that was carrying traffic; these are
-           LONG_FAST's own numbers. */
-        settings.bandwidth = 250U;
-        settings.spread_factor = 11U;
-        settings.coding_rate = 5U;
-        /*
-         * And the firmware's own table of which presets each region will take, which a real
-         * radio streams in the handshake. Without it the preset row is unconstrained and the
-         * pair of rows draws exactly as it did before the table existed - which is a true
-         * picture of an old firmware and the wrong one to show by default.
-         *
-         * Two entries is enough for the shape: the region the demo is on, with the ordinary
-         * list, and one amateur band with a single preset and the licence flag set. Stepping
-         * from the first to the second is what puts a warning on both rows.
-         */
-        settings.region_presets.loaded = true;
-        settings.region_presets.region[1U] = (struct mesh_ui_region_preset){
-            /* The standard list: LONG_FAST, the medium and short pairs, LONG_MODERATE and the
-               three turbos - with the two upstream deprecated (LONG_SLOW and VERY_LONG_SLOW)
-               left out, which is both what a current firmware reports and what makes the row
-               visibly skip something. */
-            .presets = (1U << 0) | (1U << 3) | (1U << 4) | (1U << 5) | (1U << 6) | (1U << 7) |
-                       (1U << 8) | (1U << 9) | (1U << 16),
-        };
-        /* ITU1_2M, an amateur band: one preset, and a licence to be on it at all. */
-        settings.region_presets.region[27U] = (struct mesh_ui_region_preset){
-            .presets = 1U << 7, /* LONG_MODERATE alone */
-            .licensed_only = true,
-        };
-        snprintf(settings.tzdef, sizeof settings.tzdef, "%s", "PST8PDT,M3.2.0,M11.1.0");
-        /*
-         * LoRa's advanced group, and the values that give each of its three shapes something to
-         * show: a slot the radio worked out for itself, a frequency typed over it, a trim that
-         * is not zero, and one of the three ignore slots used so the empty ones read as empty
-         * beside it. The node is not licensed, which is why the call sign row starts blank.
-         */
-        settings.sx126x_rx_boosted_gain = true;
-        settings.channel_num = 20U;
-        settings.override_frequency_scaled = 9068750; /* 906.8750 MHz */
-        settings.frequency_offset_scaled = -125;      /* -12.5 Hz */
-        settings.ignore_incoming[0] = 0x433D1B2CU;
-
-        /*
-         * Position, Power and Security: three sections that said "not loaded" on a radio that had
-         * answered everything else, because nothing here filled them.
-         *
-         * The position is fixed rather than surveyed, which is both what a base station on a roof
-         * has and the state that gives the section something to show in every row: coordinates,
-         * the flag the firmware sets itself, and the clear verb underneath.
-         */
-        settings.has_position = true;
-        settings.gps_mode = 2U; /* not present - the coordinates below were set, not surveyed */
-        settings.position_broadcast_secs = 900U;
-        settings.position_broadcast_smart_enabled = true;
-        settings.smart_minimum_distance = 100U;
-        settings.smart_minimum_interval_secs = 30U;
-        settings.gps_update_interval = 120U;
-        /* Altitude, the fix's precision and its timestamp: the default a radio ships with,
-           which is also the mix that gives the flag rows something to show - some of the set
-           ticked and some not. */
-        settings.position_flags =
-            mesh_ui_settings_field_bit(MESH_UI_FIELD_POSITION_FLAG_ALTITUDE) |
-            mesh_ui_settings_field_bit(MESH_UI_FIELD_POSITION_FLAG_ALTITUDE_MSL) |
-            mesh_ui_settings_field_bit(MESH_UI_FIELD_POSITION_FLAG_DOP) |
-            mesh_ui_settings_field_bit(MESH_UI_FIELD_POSITION_FLAG_TIMESTAMP);
-        settings.fixed_position = true;
-        settings.has_own_position = true;
-        settings.own_latitude_i = 476205000; /* fixed-point 1e-7 degrees, as the wire carries */
-        settings.own_longitude_i = -1223350000;
-        settings.has_own_altitude = true;
-        settings.own_altitude = 84;
-
-        settings.has_power = true;
-        settings.is_power_saving = false;
-        settings.ls_secs = 300U;
-        settings.min_wake_secs = 10U;
-        settings.wait_bluetooth_secs = 60U;
-        settings.on_battery_shutdown_after_secs = 0U;
-
-        /*
-         * Keys are bytes rather than a string: the rows render them, so what matters is that they
-         * are the right length and not all one value. One admin key, which is the ordinary state
-         * for a radio somebody administers from a phone as well.
-         */
-        settings.has_security = true;
-        settings.public_key_len = 32U;
-        settings.has_private_key = true;
-        settings.private_key_len = 32U;
-        settings.admin_key_count = 1U;
-        settings.admin_key_lens[0] = 32U;
-        for (uint8_t i = 0U; i < 32U; ++i) {
-            settings.public_key[i] = (uint8_t)(0x40U + i * 5U);
-            settings.private_key[i] = (uint8_t)(0x11U + i * 7U);
-            settings.admin_keys[0][i] = (uint8_t)(0x9BU - i * 3U);
-        }
-        settings.packet_signature_policy = 0U;
-        settings.is_managed = false;
-        settings.serial_enabled = true;
-        settings.debug_log_api_enabled = false;
-        settings.admin_channel_enabled = false;
-
-        /*
-         * And the module table, every row of which said "not loaded".
-         *
-         * A radio answers for all of them whether or not it runs any, so the demo does too - and
-         * the point of filling them is the mix rather than the values: the Modules list is a
-         * column of on and off, which is what it looks like on a device and what a list of
-         * twelve identical "not loaded" rows could not show. The three that are on are the three
-         * this mesh visibly uses - telemetry behind the node detail's reading groups, neighbour
-         * info behind its two neighbour lists, and a status message.
-         */
-        settings.has_mqtt = true;
-        settings.mqtt_enabled = false;
-        snprintf(settings.mqtt_address, sizeof settings.mqtt_address, "%s", "mqtt.meshtastic.org");
-        snprintf(settings.mqtt_root, sizeof settings.mqtt_root, "%s", "msh/US");
-        settings.mqtt_encryption_enabled = true;
-        settings.mqtt_map_publish_interval_secs = 3600U;
-        /* A rounded map report rather than an exact one, which is both what the row's own note
-           recommends and the only value that gives the row something to *say*: "precise" is a
-           state, and the ladder of footprints is what the setting is for. */
-        settings.mqtt_map_position_precision = 14U;
-
-        settings.has_store_forward = true;
-        settings.store_forward_enabled = false;
-        settings.store_forward_records = 0U;
-        settings.store_forward_history_return_max = 25U;
-        settings.store_forward_history_return_window = 7200U;
-        /*
-         * And a router that has already answered once, because the interesting half of this
-         * section is the half that is not configuration - and a request that has never been
-         * made draws two rows saying nothing. The counts are the pair that matters: the router
-         * replayed its whole window and three of those messages were new to this client.
-         */
-        settings.store_forward.state = (uint8_t)MESH_STORE_FORWARD_DONE;
-        settings.store_forward.router = 0x8F21B008U;
-        snprintf(settings.store_forward.router_name, sizeof settings.store_forward.router_name,
-                 "%s", "ECHO");
-        settings.store_forward.expected = 18U;
-        settings.store_forward.received = 18U;
-        settings.store_forward.stored = 3U;
-        settings.store_forward.seq = 1U;
-
-        settings.has_telemetry = true;
-        settings.device_telemetry_enabled = true;
-        settings.device_update_interval = 1800U;
-        settings.environment_measurement_enabled = true;
-        settings.environment_update_interval = 3600U;
-        settings.environment_screen_enabled = true;
-
-        settings.has_neighbor_info = true;
-        settings.neighbor_info_enabled = true;
-        settings.neighbor_info_interval = 14400U; /* the interval Echo Repeater reports */
-
-        settings.has_range_test = true;
-        settings.range_test_enabled = false;
-
-        settings.has_paxcounter = true;
-        settings.paxcounter_enabled = false;
-        settings.paxcounter_interval = 300U;
-        settings.paxcounter_wifi_threshold = -80;
-        settings.paxcounter_ble_threshold = -80;
-
-        settings.has_ambient_lighting = true;
-        settings.ambient_led_state = false;
-        settings.ambient_current = 10U;
-
-        settings.has_status_message = true;
-        snprintf(settings.status_message, sizeof settings.status_message, "%s",
-                 "Base station, up on solar");
-
-        settings.has_tak = true;
-        settings.has_detection_sensor = true;
-        settings.detection_enabled = false;
-        settings.detection_minimum_broadcast_secs = 30U;
-        settings.detection_state_broadcast_secs = 900U;
-        snprintf(settings.detection_name, sizeof settings.detection_name, "%s", "Gate");
-
-        settings.has_external_notification = true;
-        settings.extnotif_enabled = false;
-        settings.extnotif_output_ms = 1000U;
-
-        settings.has_traffic_management = true;
-
-        /*
-         * Mesh beacon, set up the way the section is meant to be read: listening and
-         * broadcasting, an invitation with a name and a key on it, and one of the four targets
-         * naming a preset while the other three stand empty. The empty ones are the point of
-         * filming it - they are how a target is added, and what they say when they hold nothing
-         * is the decision the section's three absent values were written for.
-         */
-        settings.has_mesh_beacon = true;
-        settings.beacon_flags = 0x0003U; /* listen | broadcast */
-        settings.beacon_interval_secs = 10800U;
-        snprintf(settings.beacon_message, sizeof settings.beacon_message, "%s",
-                 "Shed mesh - say hello");
-        snprintf(settings.beacon_offer_name, sizeof settings.beacon_offer_name, "%s", "Welcome");
-        settings.beacon_offer_psk_len = 16U;
-        for (size_t i = 0; i < settings.beacon_offer_psk_len; ++i) {
-            settings.beacon_offer_psk[i] = (uint8_t)(0x11U * (i + 1U));
-        }
-        settings.beacon_offer_region = 1U; /* US, the region the demo radio is on */
-        settings.beacon_offer_preset = 2U; /* one past itself: ModemPreset 1 */
-        settings.beacon_targets[0].preset = 4U;
-        settings.beacon_targets[0].channel = 1U; /* one past itself: channel 0 */
-
-        /* The four the radio keeps outside Config and ModuleConfig. The demo radio is a
-           WiFi-capable board on a bench, which is the case that makes About radio's interface
-           rows worth filming at all - a Brick's usual radio reports Bluetooth and nothing
-           else, and a scene of one heading says less about the layout than three do. */
-        settings.has_ui_config = true;
-        settings.ui_theme = 0U; /* DARK */
-        settings.ui_brightness = 153U;
-        settings.ui_screen_timeout = 60U;
-        settings.ui_alert_enabled = true;
-        settings.ui_ring_tone_id = 1U;
-        settings.ui_compass_mode = 0U;
-        settings.ui_gps_format = 0U;
-        settings.ui_language = 0U;
-
-        settings.has_canned_messages = true;
-        snprintf(settings.canned_messages, sizeof settings.canned_messages, "%s",
-                 "On my way|Roger|Standing by|Need a hand?");
-
-        settings.has_ringtone = true;
-        snprintf(settings.ringtone, sizeof settings.ringtone, "%s",
-                 "24:d=32,o=5,b=565:f6,p,f6,4p,p,f6,p,f6");
-
-        settings.connection.valid = true;
-        settings.connection.has_wifi = true;
-        settings.connection.wifi_connected = true;
-        snprintf(settings.connection.wifi_ssid, sizeof settings.connection.wifi_ssid, "%s", "shed");
-        settings.connection.wifi_rssi = -57;
-        settings.connection.wifi_ip = 0x2801A8C0U; /* 192.168.1.40, network byte order */
-        settings.connection.has_bluetooth = true;
-        settings.connection.bluetooth_connected = true;
-        settings.connection.bluetooth_rssi = -44;
-
-        mesh_ui_store_set_settings(&cap->store, &settings);
-        uicap_emit(cap);
-        return;
-    }
-
-    if (strcmp(command, "queue") == 0) {
-        char *free_slots = uicap_word(&rest);
-        char *maxlen = uicap_word(&rest);
-        if (free_slots == NULL || maxlen == NULL) {
-            fprintf(stderr, "uicap: line %u: 'queue' needs FREE and MAXLEN\n", line_number);
-            exit(1);
-        }
-        const char *refused = uicap_word(&rest);
-        uicap_start(cap);
-        struct mesh_ui_settings settings = cap->store.settings;
-        settings.queue.valid = true;
-        settings.queue.free = (uint8_t)uicap_number(free_slots, "queue");
-        settings.queue.maxlen = (uint8_t)uicap_number(maxlen, "queue");
-        /* Any Routing_Error will do: the row says "refused", not which error it was. */
-        settings.queue.res = (refused != NULL && strcmp(refused, "refused") == 0) ? 1 : 0;
-        mesh_ui_store_set_settings(&cap->store, &settings);
-        uicap_emit(cap);
-        return;
-    }
+    /* The two LoRa rows that read as unconfigured rather than as defaults: a region of
+       "Unset" is a radio that will not transmit, and an empty timezone is the row's dash. */
+    settings.region = 1U;       /* meshtastic_Config_LoRaConfig_RegionCode_US */
+    settings.modem_preset = 0U; /* LONG_FAST, which is what the primary channel is named for */
+    /* The three the preset decides. A radio reports what it is actually running, so leaving
+       them zeroed drew a modem at 0 kHz on a link that was carrying traffic; these are
+       LONG_FAST's own numbers. */
+    settings.bandwidth = 250U;
+    settings.spread_factor = 11U;
+    settings.coding_rate = 5U;
+    /*
+     * And the firmware's own table of which presets each region will take, which a real
+     * radio streams in the handshake. Without it the preset row is unconstrained and the
+     * pair of rows draws exactly as it did before the table existed - which is a true
+     * picture of an old firmware and the wrong one to show by default.
+     *
+     * Two entries is enough for the shape: the region the demo is on, with the ordinary
+     * list, and one amateur band with a single preset and the licence flag set. Stepping
+     * from the first to the second is what puts a warning on both rows.
+     */
+    settings.region_presets.loaded = true;
+    settings.region_presets.region[1U] = (struct mesh_ui_region_preset){
+        /* The standard list: LONG_FAST, the medium and short pairs, LONG_MODERATE and the
+           three turbos - with the two upstream deprecated (LONG_SLOW and VERY_LONG_SLOW)
+           left out, which is both what a current firmware reports and what makes the row
+           visibly skip something. */
+        .presets = (1U << 0) | (1U << 3) | (1U << 4) | (1U << 5) | (1U << 6) | (1U << 7) |
+                   (1U << 8) | (1U << 9) | (1U << 16),
+    };
+    /* ITU1_2M, an amateur band: one preset, and a licence to be on it at all. */
+    settings.region_presets.region[27U] = (struct mesh_ui_region_preset){
+        .presets = 1U << 7, /* LONG_MODERATE alone */
+        .licensed_only = true,
+    };
+    snprintf(settings.tzdef, sizeof settings.tzdef, "%s", "PST8PDT,M3.2.0,M11.1.0");
+    /*
+     * LoRa's advanced group, and the values that give each of its three shapes something to
+     * show: a slot the radio worked out for itself, a frequency typed over it, a trim that
+     * is not zero, and one of the three ignore slots used so the empty ones read as empty
+     * beside it. The node is not licensed, which is why the call sign row starts blank.
+     */
+    settings.sx126x_rx_boosted_gain = true;
+    settings.channel_num = 20U;
+    settings.override_frequency_scaled = 9068750; /* 906.8750 MHz */
+    settings.frequency_offset_scaled = -125;      /* -12.5 Hz */
+    settings.ignore_incoming[0] = 0x433D1B2CU;
 
     /*
-     * LocalStats: what the radio says about its own traffic.
+     * Position, Power and Security: three sections that said "not loaded" on a radio that had
+     * answered everything else, because nothing here filled them.
      *
-     * It arrives on the radio's own schedule rather than through the config handshake, which is
-     * why it is a verb rather than part of `scene demo` - and why it is not part of `config`
-     * either. It costs the Status tab four steps (the airtime row, the meter under it, and the
-     * two counter rows), and those come off the bottom of the last card, so a scene about the
-     * queue or about what the radio last said wants the room more than it wants the counters.
-     * A scene showing the Status tab at rest wants them.
-     *
-     * Plausible figures rather than meaningful ones, exactly as `config`'s are: what is on show
-     * is the rows. `airtime` overwrites the two airtime figures, so the two compose in either
-     * order - and calling `stats` first is what stops `airtime` alone from drawing a counter row
-     * of zeroes.
-     *
-     * No heap figure: that is an ESP32's number, and this radio is the Linux host whose own
-     * telemetry group already reports the memory it actually has.
+     * The position is fixed rather than surveyed, which is both what a base station on a roof
+     * has and the state that gives the section something to show in every row: coordinates,
+     * the flag the firmware sets itself, and the clear verb underneath.
      */
+    settings.has_position = true;
+    settings.gps_mode = 2U; /* not present - the coordinates below were set, not surveyed */
+    settings.position_broadcast_secs = 900U;
+    settings.position_broadcast_smart_enabled = true;
+    settings.smart_minimum_distance = 100U;
+    settings.smart_minimum_interval_secs = 30U;
+    settings.gps_update_interval = 120U;
+    /* Altitude, the fix's precision and its timestamp: the default a radio ships with,
+       which is also the mix that gives the flag rows something to show - some of the set
+       ticked and some not. */
+    settings.position_flags = mesh_ui_settings_field_bit(MESH_UI_FIELD_POSITION_FLAG_ALTITUDE) |
+                              mesh_ui_settings_field_bit(MESH_UI_FIELD_POSITION_FLAG_ALTITUDE_MSL) |
+                              mesh_ui_settings_field_bit(MESH_UI_FIELD_POSITION_FLAG_DOP) |
+                              mesh_ui_settings_field_bit(MESH_UI_FIELD_POSITION_FLAG_TIMESTAMP);
+    settings.fixed_position = true;
+    settings.has_own_position = true;
+    settings.own_latitude_i = 476205000; /* fixed-point 1e-7 degrees, as the wire carries */
+    settings.own_longitude_i = -1223350000;
+    settings.has_own_altitude = true;
+    settings.own_altitude = 84;
+
+    settings.has_power = true;
+    settings.is_power_saving = false;
+    settings.ls_secs = 300U;
+    settings.min_wake_secs = 10U;
+    settings.wait_bluetooth_secs = 60U;
+    settings.on_battery_shutdown_after_secs = 0U;
+
     /*
-     * A replay still running. The Status sync row counts nodes delivered against the number the
-     * radio says it holds, because on a 135-node radio the replay is seventeen seconds and a row
-     * that only said "in progress" could not tell a sync that was working from one that had
-     * stalled - which, on a link dropping mid-roster, is the question being asked.
+     * Keys are bytes rather than a string: the rows render them, so what matters is that they
+     * are the right length and not all one value. One admin key, which is the ordinary state
+     * for a radio somebody administers from a phone as well.
      */
-    if (strcmp(command, "syncing") == 0) {
-        uicap_start(cap);
-        struct mesh_ui_handshake_state handshake = cap->store.handshake;
+    settings.has_security = true;
+    settings.public_key_len = 32U;
+    settings.has_private_key = true;
+    settings.private_key_len = 32U;
+    settings.admin_key_count = 1U;
+    settings.admin_key_lens[0] = 32U;
+    for (uint8_t i = 0U; i < 32U; ++i) {
+        settings.public_key[i] = (uint8_t)(0x40U + i * 5U);
+        settings.private_key[i] = (uint8_t)(0x11U + i * 7U);
+        settings.admin_keys[0][i] = (uint8_t)(0x9BU - i * 3U);
+    }
+    settings.packet_signature_policy = 0U;
+    settings.is_managed = false;
+    settings.serial_enabled = true;
+    settings.debug_log_api_enabled = false;
+    settings.admin_channel_enabled = false;
+
+    /*
+     * And the module table, every row of which said "not loaded".
+     *
+     * A radio answers for all of them whether or not it runs any, so the demo does too - and
+     * the point of filling them is the mix rather than the values: the Modules list is a
+     * column of on and off, which is what it looks like on a device and what a list of
+     * twelve identical "not loaded" rows could not show. The three that are on are the three
+     * this mesh visibly uses - telemetry behind the node detail's reading groups, neighbour
+     * info behind its two neighbour lists, and a status message.
+     */
+    settings.has_mqtt = true;
+    settings.mqtt_enabled = false;
+    snprintf(settings.mqtt_address, sizeof settings.mqtt_address, "%s", "mqtt.meshtastic.org");
+    snprintf(settings.mqtt_root, sizeof settings.mqtt_root, "%s", "msh/US");
+    settings.mqtt_encryption_enabled = true;
+    settings.mqtt_map_publish_interval_secs = 3600U;
+    /* A rounded map report rather than an exact one, which is both what the row's own note
+       recommends and the only value that gives the row something to *say*: "precise" is a
+       state, and the ladder of footprints is what the setting is for. */
+    settings.mqtt_map_position_precision = 14U;
+
+    settings.has_store_forward = true;
+    settings.store_forward_enabled = false;
+    settings.store_forward_records = 0U;
+    settings.store_forward_history_return_max = 25U;
+    settings.store_forward_history_return_window = 7200U;
+    /*
+     * And a router that has already answered once, because the interesting half of this
+     * section is the half that is not configuration - and a request that has never been
+     * made draws two rows saying nothing. The counts are the pair that matters: the router
+     * replayed its whole window and three of those messages were new to this client.
+     */
+    settings.store_forward.state = (uint8_t)MESH_STORE_FORWARD_DONE;
+    settings.store_forward.router = 0x8F21B008U;
+    snprintf(settings.store_forward.router_name, sizeof settings.store_forward.router_name, "%s",
+             "ECHO");
+    settings.store_forward.expected = 18U;
+    settings.store_forward.received = 18U;
+    settings.store_forward.stored = 3U;
+    settings.store_forward.seq = 1U;
+
+    settings.has_telemetry = true;
+    settings.device_telemetry_enabled = true;
+    settings.device_update_interval = 1800U;
+    settings.environment_measurement_enabled = true;
+    settings.environment_update_interval = 3600U;
+    settings.environment_screen_enabled = true;
+
+    settings.has_neighbor_info = true;
+    settings.neighbor_info_enabled = true;
+    settings.neighbor_info_interval = 14400U; /* the interval Echo Repeater reports */
+
+    settings.has_range_test = true;
+    settings.range_test_enabled = false;
+
+    settings.has_paxcounter = true;
+    settings.paxcounter_enabled = false;
+    settings.paxcounter_interval = 300U;
+    settings.paxcounter_wifi_threshold = -80;
+    settings.paxcounter_ble_threshold = -80;
+
+    settings.has_ambient_lighting = true;
+    settings.ambient_led_state = false;
+    settings.ambient_current = 10U;
+
+    settings.has_status_message = true;
+    snprintf(settings.status_message, sizeof settings.status_message, "%s",
+             "Base station, up on solar");
+
+    settings.has_tak = true;
+    settings.has_detection_sensor = true;
+    settings.detection_enabled = false;
+    settings.detection_minimum_broadcast_secs = 30U;
+    settings.detection_state_broadcast_secs = 900U;
+    snprintf(settings.detection_name, sizeof settings.detection_name, "%s", "Gate");
+
+    settings.has_external_notification = true;
+    settings.extnotif_enabled = false;
+    settings.extnotif_output_ms = 1000U;
+
+    settings.has_traffic_management = true;
+
+    /*
+     * Mesh beacon, set up the way the section is meant to be read: listening and
+     * broadcasting, an invitation with a name and a key on it, and one of the four targets
+     * naming a preset while the other three stand empty. The empty ones are the point of
+     * filming it - they are how a target is added, and what they say when they hold nothing
+     * is the decision the section's three absent values were written for.
+     */
+    settings.has_mesh_beacon = true;
+    settings.beacon_flags = 0x0003U; /* listen | broadcast */
+    settings.beacon_interval_secs = 10800U;
+    snprintf(settings.beacon_message, sizeof settings.beacon_message, "%s",
+             "Shed mesh - say hello");
+    snprintf(settings.beacon_offer_name, sizeof settings.beacon_offer_name, "%s", "Welcome");
+    settings.beacon_offer_psk_len = 16U;
+    for (size_t i = 0; i < settings.beacon_offer_psk_len; ++i) {
+        settings.beacon_offer_psk[i] = (uint8_t)(0x11U * (i + 1U));
+    }
+    settings.beacon_offer_region = 1U; /* US, the region the demo radio is on */
+    settings.beacon_offer_preset = 2U; /* one past itself: ModemPreset 1 */
+    settings.beacon_targets[0].preset = 4U;
+    settings.beacon_targets[0].channel = 1U; /* one past itself: channel 0 */
+
+    /* The four the radio keeps outside Config and ModuleConfig. The demo radio is a
+       WiFi-capable board on a bench, which is the case that makes About radio's interface
+       rows worth filming at all - a Brick's usual radio reports Bluetooth and nothing
+       else, and a scene of one heading says less about the layout than three do. */
+    settings.has_ui_config = true;
+    settings.ui_theme = 0U; /* DARK */
+    settings.ui_brightness = 153U;
+    settings.ui_screen_timeout = 60U;
+    settings.ui_alert_enabled = true;
+    settings.ui_ring_tone_id = 1U;
+    settings.ui_compass_mode = 0U;
+    settings.ui_gps_format = 0U;
+    settings.ui_language = 0U;
+
+    settings.has_canned_messages = true;
+    snprintf(settings.canned_messages, sizeof settings.canned_messages, "%s",
+             "On my way|Roger|Standing by|Need a hand?");
+
+    settings.has_ringtone = true;
+    snprintf(settings.ringtone, sizeof settings.ringtone, "%s",
+             "24:d=32,o=5,b=565:f6,p,f6,4p,p,f6,p,f6");
+
+    settings.connection.valid = true;
+    settings.connection.has_wifi = true;
+    settings.connection.wifi_connected = true;
+    snprintf(settings.connection.wifi_ssid, sizeof settings.connection.wifi_ssid, "%s", "shed");
+    settings.connection.wifi_rssi = -57;
+    settings.connection.wifi_ip = 0x2801A8C0U; /* 192.168.1.40, network byte order */
+    settings.connection.has_bluetooth = true;
+    settings.connection.bluetooth_connected = true;
+    settings.connection.bluetooth_rssi = -44;
+
+    mesh_ui_store_set_settings(&cap->store, &settings);
+    return 0;
+}
+
+static int verb_queue(struct uicap_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    char *free_slots = uicap_scene_word(&rest);
+    char *maxlen = uicap_scene_word(&rest);
+    if (free_slots == NULL || maxlen == NULL) {
+        return uicap_scene_fail(scene, "'queue' needs FREE and MAXLEN");
+    }
+    const char *refused = uicap_scene_word(&rest);
+    unsigned free_count = 0U;
+    unsigned max_count = 0U;
+    int parsed = uicap_scene_number(scene, free_slots, "queue", &free_count);
+    if (parsed == 0) {
+        parsed = uicap_scene_number(scene, maxlen, "queue", &max_count);
+    }
+    if (parsed < 0) {
+        return parsed;
+    }
+    struct mesh_ui_settings settings = cap->store.settings;
+    settings.queue.valid = true;
+    settings.queue.free = (uint8_t)free_count;
+    settings.queue.maxlen = (uint8_t)max_count;
+    /* Any Routing_Error will do: the row says "refused", not which error it was. */
+    settings.queue.res = (refused != NULL && strcmp(refused, "refused") == 0) ? 1 : 0;
+    mesh_ui_store_set_settings(&cap->store, &settings);
+    return 0;
+}
+
+/*
+ * LocalStats: what the radio says about its own traffic.
+ *
+ * It arrives on the radio's own schedule rather than through the config handshake, which is
+ * why it is a verb rather than part of `scene demo` - and why it is not part of `config`
+ * either. It costs the Status tab four steps (the airtime row, the meter under it, and the
+ * two counter rows), and those come off the bottom of the last card, so a scene about the
+ * queue or about what the radio last said wants the room more than it wants the counters.
+ * A scene showing the Status tab at rest wants them.
+ *
+ * Plausible figures rather than meaningful ones, exactly as `config`'s are: what is on show
+ * is the rows. `airtime` overwrites the two airtime figures, so the two compose in either
+ * order - and calling `stats` first is what stops `airtime` alone from drawing a counter row
+ * of zeroes.
+ *
+ * No heap figure: that is an ESP32's number, and this radio is the Linux host whose own
+ * telemetry group already reports the memory it actually has.
+ */
+/*
+ * A replay still running. The Status sync row counts nodes delivered against the number the
+ * radio says it holds, because on a 135-node radio the replay is seventeen seconds and a row
+ * that only said "in progress" could not tell a sync that was working from one that had
+ * stalled - which, on a link dropping mid-roster, is the question being asked.
+ */
+static int verb_syncing(struct uicap_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    const char *value = uicap_scene_word(&rest);
+    if (value != NULL && strcmp(value, "on") != 0 && strcmp(value, "off") != 0) {
+        return uicap_scene_fail(scene, "'syncing' takes on, off or nothing");
+    }
+    struct mesh_ui_handshake_state handshake = cap->store.handshake;
+    /* `off` is the replay finishing, which leaves the roster it delivered where it is - exactly
+       as the real one does. It used to be a second `syncing` verb that the first always matched
+       before it, so `syncing off` put the radio back into a replay rather than out of one. */
+    if (value != NULL && strcmp(value, "off") == 0) {
+        handshake.config_complete = true;
+        handshake.request_in_flight = false;
+    } else {
         handshake.config_complete = false;
         handshake.request_in_flight = true;
         handshake.sync_nodes = 37U;
         handshake.my_info.nodedb_entries = 135U;
-        mesh_ui_store_set_handshake(&cap->store, &handshake);
-        uicap_emit(cap);
-        return;
     }
+    mesh_ui_store_set_handshake(&cap->store, &handshake);
+    return 0;
+}
 
+/*
+ * The link, up or down, without touching anything else the radio has told us.
+ *
+ * `config` brings a radio up and there was no way back down, so the half of the UI that is
+ * about *losing* a radio could be photographed but not filmed: Radio actions withdrawing
+ * every one of its verbs, the transport line changing, the auto-connect notice. A scene
+ * could only start from one state or the other.
+ *
+ * Deliberately only the link. The roster, the channels and the config outlive a drop on the
+ * real client - that is the point of the cache, and `has_my_info` has survived a drop since
+ * it was made to - so a verb that also cleared them would be filming a state this client is
+ * never in.
+ */
+static int verb_link(struct uicap_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    char *state = uicap_scene_word(&rest);
+    if (state == NULL || (strcmp(state, "up") != 0 && strcmp(state, "down") != 0)) {
+        return uicap_scene_fail(scene, "'link' takes up or down");
+    }
+    struct mesh_ui_handshake_state handshake = cap->store.handshake;
+    handshake.link_up = strcmp(state, "up") == 0;
+    mesh_ui_store_set_handshake(&cap->store, &handshake);
+    return 0;
+}
+
+/*
+ * The broker card: the connection this client holds on a radio's behalf.
+ *
+ * Named states rather than a pile of numbers, because what the card is for is telling four
+ * situations apart that every other screen draws identically - the radio cannot see this
+ * connection at all, so a proxy that is failing looks exactly like one that is working from
+ * anywhere else on the client.
+ */
+static int verb_broker(struct uicap_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    const char *what = uicap_scene_word(&rest);
+    if (what == NULL) {
+        return uicap_scene_fail(scene, "'broker' needs a state");
+    }
+    struct mesh_ui_mqtt_state mqtt;
+    memset(&mqtt, 0, sizeof mqtt);
+    if (strcmp(what, "off") != 0) {
+        /* Every state below is a radio that asked, which is what the card is drawn on. */
+        mqtt.wanted = true;
+        snprintf(mqtt.host, sizeof mqtt.host, "%s", "mqtt.meshtastic.org");
+        mqtt.subscriptions = 3U;
+    }
+    if (strcmp(what, "connected") == 0) {
+        snprintf(mqtt.state, sizeof mqtt.state, "%s", inkcell_str(MESH_STR_MQTT_STATE_READY));
+        mqtt.connected = true;
+        mqtt.connections = 1U;
+        mqtt.published = 412U;
+        mqtt.received = 168U;
+    } else if (strcmp(what, "flapping") == 0) {
+        /* Connected *now*, and for the ninth time. The one state a single frame cannot
+           otherwise show, since every frame of it says "Connected". */
+        snprintf(mqtt.state, sizeof mqtt.state, "%s", inkcell_str(MESH_STR_MQTT_STATE_READY));
+        mqtt.connected = true;
+        mqtt.connections = 9U;
+        mqtt.published = 96U;
+        mqtt.received = 14U;
+        mqtt.dropped = 71U;
+        snprintf(mqtt.last_error, sizeof mqtt.last_error, "%s",
+                 "mqtt.meshtastic.org closed the connection");
+    } else if (strcmp(what, "refused") == 0) {
+        snprintf(mqtt.state, sizeof mqtt.state, "%s", inkcell_str(MESH_STR_MQTT_STATE_WAITING));
+        mqtt.failing = true;
+        mqtt.dropped = 23U;
+        snprintf(mqtt.last_error, sizeof mqtt.last_error, "%s",
+                 "broker.example.net rejected the username or password");
+    } else if (strcmp(what, "silent") == 0) {
+        /* The fault with no error behind it: connected, publishing, and subscribed to
+           nothing because every channel has downlink off. */
+        snprintf(mqtt.state, sizeof mqtt.state, "%s", inkcell_str(MESH_STR_MQTT_STATE_READY));
+        mqtt.connected = true;
+        mqtt.connections = 1U;
+        mqtt.subscriptions = 0U;
+        mqtt.published = 340U;
+    } else if (strcmp(what, "disabled") == 0) {
+        snprintf(mqtt.state, sizeof mqtt.state, "%s", inkcell_str(MESH_STR_MQTT_STATE_OFF));
+        mqtt.disabled = true;
+        mqtt.subscriptions = 0U;
+        mqtt.unhandled = 57U;
+    } else if (strcmp(what, "off") != 0) {
+        return uicap_scene_fail(scene, "'broker' takes off|connected|flapping|refused|silent|"
+                                       "disabled");
+    }
+    mesh_ui_store_set_mqtt(&cap->store, &mqtt);
+    return 0;
+}
+
+static int verb_stats(struct uicap_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    (void)scene;
+    (void)rest;
+    struct mesh_ui_settings settings = cap->store.settings;
+    settings.stats.valid = true;
+    settings.stats.time = inkwell_time_wall_s();
+    settings.stats.uptime_seconds = 806400U;
+    settings.stats.channel_utilization = 11.5F;
+    settings.stats.air_util_tx = 3.2F;
+    settings.stats.num_packets_tx = 1462U;
+    settings.stats.num_packets_rx = 5871U;
+    settings.stats.num_packets_rx_bad = 12U;
+    settings.stats.num_rx_dupe = 431U;
+    settings.stats.num_tx_relay = 268U;
+    settings.stats.num_tx_relay_canceled = 41U;
+    settings.stats.num_tx_dropped = 3U;
+    settings.stats.num_online_nodes = 9U;
+    settings.stats.num_total_nodes = cap->store.handshake.my_info.nodedb_entries;
+    settings.stats.has_noise_floor = true;
+    settings.stats.noise_floor = -101;
+    mesh_ui_store_set_settings(&cap->store, &settings);
+    return 0;
+}
+
+/*
+ * The radio's own airtime report: how much of the channel is busy, and how much of that is
+ * ours. Two figures because they are the pair the Status card draws - the row's words and
+ * the meter under them are the same number, and a scene that could only set one of them
+ * could not show them agreeing.
+ */
+static int verb_airtime(struct uicap_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    char *busy = uicap_scene_word(&rest);
+    if (busy == NULL) {
+        return uicap_scene_fail(scene, "'airtime' needs a busy percentage");
+    }
     /*
-     * The link, up or down, without touching anything else the radio has told us.
-     *
-     * `config` brings a radio up and there was no way back down, so the half of the UI that is
-     * about *losing* a radio could be photographed but not filmed: Radio actions withdrawing
-     * every one of its verbs, the transport line changing, the auto-connect notice. A scene
-     * could only start from one state or the other.
-     *
-     * Deliberately only the link. The roster, the channels and the config outlive a drop on the
-     * real client - that is the point of the cache, and `has_my_info` has survived a drop since
-     * it was made to - so a verb that also cleared them would be filming a state this client is
-     * never in.
+     * `airtime history MINUTES`: that many minutes of the radio's once-a-minute DeviceMetrics,
+     * already behind us - the only way a capture can show the chart a device shows after an
+     * afternoon, since the harness clock runs for seconds. A fixed generator rather than
+     * anything random, so a checked-in still does not change between runs: a quiet channel
+     * that is mostly nothing, bursts of a few minutes every so often, a busier second half,
+     * and our own share as the smooth rolling hour the firmware reports it as.
      */
-    if (strcmp(command, "link") == 0) {
-        char *state = uicap_word(&rest);
-        if (state == NULL || (strcmp(state, "up") != 0 && strcmp(state, "down") != 0)) {
-            fprintf(stderr, "uicap: line %u: 'link' takes up or down\n", line_number);
-            exit(1);
+    if (strcmp(busy, "history") == 0) {
+        const char *minutes_word = uicap_scene_word(&rest);
+        if (minutes_word == NULL) {
+            return uicap_scene_fail(scene, "'airtime history' needs a minute count");
         }
-        uicap_start(cap);
-        struct mesh_ui_handshake_state handshake = cap->store.handshake;
-        handshake.link_up = strcmp(state, "up") == 0;
-        mesh_ui_store_set_handshake(&cap->store, &handshake);
-        uicap_emit(cap);
-        return;
-    }
-
-    /*
-     * The broker card: the connection this client holds on a radio's behalf.
-     *
-     * Named states rather than a pile of numbers, because what the card is for is telling four
-     * situations apart that every other screen draws identically - the radio cannot see this
-     * connection at all, so a proxy that is failing looks exactly like one that is working from
-     * anywhere else on the client.
-     */
-    if (strcmp(command, "broker") == 0) {
-        const char *what = uicap_word(&rest);
-        if (what == NULL) {
-            fprintf(stderr, "uicap: line %u: 'broker' needs a state\n", line_number);
-            exit(1);
+        unsigned minutes = 0U;
+        const int parsed = uicap_scene_number(scene, minutes_word, "airtime history", &minutes);
+        if (parsed < 0) {
+            return parsed;
         }
-        uicap_start(cap);
-        struct mesh_ui_mqtt_state mqtt;
-        memset(&mqtt, 0, sizeof mqtt);
-        if (strcmp(what, "off") != 0) {
-            /* Every state below is a radio that asked, which is what the card is drawn on. */
-            mqtt.wanted = true;
-            snprintf(mqtt.host, sizeof mqtt.host, "%s", "mqtt.meshtastic.org");
-            mqtt.subscriptions = 3U;
-        }
-        if (strcmp(what, "connected") == 0) {
-            snprintf(mqtt.state, sizeof mqtt.state, "%s", inkcell_str(MESH_STR_MQTT_STATE_READY));
-            mqtt.connected = true;
-            mqtt.connections = 1U;
-            mqtt.published = 412U;
-            mqtt.received = 168U;
-        } else if (strcmp(what, "flapping") == 0) {
-            /* Connected *now*, and for the ninth time. The one state a single frame cannot
-               otherwise show, since every frame of it says "Connected". */
-            snprintf(mqtt.state, sizeof mqtt.state, "%s", inkcell_str(MESH_STR_MQTT_STATE_READY));
-            mqtt.connected = true;
-            mqtt.connections = 9U;
-            mqtt.published = 96U;
-            mqtt.received = 14U;
-            mqtt.dropped = 71U;
-            snprintf(mqtt.last_error, sizeof mqtt.last_error, "%s",
-                     "mqtt.meshtastic.org closed the connection");
-        } else if (strcmp(what, "refused") == 0) {
-            snprintf(mqtt.state, sizeof mqtt.state, "%s", inkcell_str(MESH_STR_MQTT_STATE_WAITING));
-            mqtt.failing = true;
-            mqtt.dropped = 23U;
-            snprintf(mqtt.last_error, sizeof mqtt.last_error, "%s",
-                     "broker.example.net rejected the username or password");
-        } else if (strcmp(what, "silent") == 0) {
-            /* The fault with no error behind it: connected, publishing, and subscribed to
-               nothing because every channel has downlink off. */
-            snprintf(mqtt.state, sizeof mqtt.state, "%s", inkcell_str(MESH_STR_MQTT_STATE_READY));
-            mqtt.connected = true;
-            mqtt.connections = 1U;
-            mqtt.subscriptions = 0U;
-            mqtt.published = 340U;
-        } else if (strcmp(what, "disabled") == 0) {
-            snprintf(mqtt.state, sizeof mqtt.state, "%s", inkcell_str(MESH_STR_MQTT_STATE_OFF));
-            mqtt.disabled = true;
-            mqtt.subscriptions = 0U;
-            mqtt.unhandled = 57U;
-        } else if (strcmp(what, "off") != 0) {
-            fprintf(stderr,
-                    "uicap: line %u: 'broker' takes off|connected|flapping|refused|silent|"
-                    "disabled\n",
-                    line_number);
-            exit(1);
-        }
-        mesh_ui_store_set_mqtt(&cap->store, &mqtt);
-        uicap_emit(cap);
-        return;
-    }
-
-    if (strcmp(command, "stats") == 0) {
-        uicap_start(cap);
-        struct mesh_ui_settings settings = cap->store.settings;
-        settings.stats.valid = true;
-        settings.stats.time = inkwell_time_wall_s();
-        settings.stats.uptime_seconds = 806400U;
-        settings.stats.channel_utilization = 11.5F;
-        settings.stats.air_util_tx = 3.2F;
-        settings.stats.num_packets_tx = 1462U;
-        settings.stats.num_packets_rx = 5871U;
-        settings.stats.num_packets_rx_bad = 12U;
-        settings.stats.num_rx_dupe = 431U;
-        settings.stats.num_tx_relay = 268U;
-        settings.stats.num_tx_relay_canceled = 41U;
-        settings.stats.num_tx_dropped = 3U;
-        settings.stats.num_online_nodes = 9U;
-        settings.stats.num_total_nodes = cap->store.handshake.my_info.nodedb_entries;
-        settings.stats.has_noise_floor = true;
-        settings.stats.noise_floor = -101;
-        mesh_ui_store_set_settings(&cap->store, &settings);
-        uicap_emit(cap);
-        return;
-    }
-
-    /*
-     * The radio's own airtime report: how much of the channel is busy, and how much of that is
-     * ours. Two figures because they are the pair the Status card draws - the row's words and
-     * the meter under them are the same number, and a scene that could only set one of them
-     * could not show them agreeing.
-     */
-    if (strcmp(command, "airtime") == 0) {
-        char *busy = uicap_word(&rest);
-        if (busy == NULL) {
-            fprintf(stderr, "uicap: line %u: 'airtime' needs a busy percentage\n", line_number);
-            exit(1);
-        }
-        /*
-         * `airtime history MINUTES`: that many minutes of the radio's once-a-minute DeviceMetrics,
-         * already behind us - the only way a capture can show the chart a device shows after an
-         * afternoon, since the harness clock runs for seconds. A fixed generator rather than
-         * anything random, so a checked-in still does not change between runs: a quiet channel
-         * that is mostly nothing, bursts of a few minutes every so often, a busier second half,
-         * and our own share as the smooth rolling hour the firmware reports it as.
-         */
-        if (strcmp(busy, "history") == 0) {
-            const char *minutes_word = uicap_word(&rest);
-            if (minutes_word == NULL) {
-                fprintf(stderr, "uicap: line %u: 'airtime history' needs a minute count\n",
-                        line_number);
-                exit(1);
+        uint32_t seed = 0x2545F491U;
+        for (unsigned i = 0U; i < minutes; ++i) {
+            seed = seed * 1103515245U + 12345U;
+            const unsigned roll = (seed >> 16) % 100U;
+            const bool busier = i * 2U >= minutes;
+            const unsigned phase = i % 23U;
+            int32_t utilization = 0;
+            if (phase < (busier ? 5U : 3U)) {
+                utilization = (int32_t)(18U + (roll % 40U) + (busier ? 12U : 0U));
+            } else if (roll < (busier ? 45U : 25U)) {
+                utilization = (int32_t)(4U + roll % 14U);
             }
-            const unsigned minutes = uicap_number(minutes_word, "airtime history");
-            uicap_start(cap);
-            uint32_t seed = 0x2545F491U;
-            for (unsigned i = 0U; i < minutes; ++i) {
-                seed = seed * 1103515245U + 12345U;
-                const unsigned roll = (seed >> 16) % 100U;
-                const bool busier = i * 2U >= minutes;
-                const unsigned phase = i % 23U;
-                int32_t utilization = 0;
-                if (phase < (busier ? 5U : 3U)) {
-                    utilization = (int32_t)(18U + (roll % 40U) + (busier ? 12U : 0U));
-                } else if (roll < (busier ? 45U : 25U)) {
-                    utilization = (int32_t)(4U + roll % 14U);
-                }
-                const unsigned wave = i % 120U;
-                const int32_t tx = (int32_t)(3U + (wave < 60U ? wave : 120U - wave) / 12U);
-                mesh_ui_history_restore_airtime(&cap->store.history, i * 60U * 1000U, utilization,
-                                                tx, false);
-            }
-            mesh_ui_history_resume(&cap->store.history, MESH_UI_HISTORY_RADIO_REPORT_MS);
-            mesh_ui_store_request_refresh(&cap->store);
-            uicap_emit(cap);
-            return;
+            const unsigned wave = i % 120U;
+            const int32_t tx = (int32_t)(3U + (wave < 60U ? wave : 120U - wave) / 12U);
+            mesh_ui_history_restore_airtime(&cap->store.history, i * 60U * 1000U, utilization, tx,
+                                            false);
         }
-        const char *tx = uicap_word(&rest);
-        uicap_start(cap);
-        struct mesh_ui_settings settings = cap->store.settings;
-        settings.stats.valid = true;
-        settings.stats.channel_utilization = (float)uicap_number(busy, "airtime");
-        settings.stats.air_util_tx = tx != NULL ? (float)uicap_number(tx, "airtime") : 0.0f;
-        mesh_ui_store_set_settings(&cap->store, &settings);
-        uicap_emit(cap);
-        /* The bar eases to the new reading rather than jumping to it, so the frames between the
-           two figures are the point - the same reason a press settles. */
-        uicap_settle(cap);
-        /* Two `airtime` lines are a few hundred milliseconds apart on the harness clock, whatever
-           the scene's comment says they stand for, so the trend they build is always unbroken
-           here and a series that breaks at the cadence a radio actually reports on looks exactly
-           the same in a capture. That is a device question, and it is pinned as one:
-           history_draws_a_line_at_the_radios_own_cadence in tests/suites/ui_history.c. */
-        return;
+        mesh_ui_history_resume(&cap->store.history, MESH_UI_HISTORY_RADIO_REPORT_MS);
+        mesh_ui_store_request_refresh(&cap->store);
+        return 0;
     }
-
-    /*
-     * A self-update in flight, which the About screen draws as a meter.
-     *
-     * `update check` is the step with no length - the request is out and its reply has no size
-     * until it lands - and `update download PERCENT` is the one that has a fraction, because
-     * the release metadata said how big the asset would be. There is no updater behind the
-     * harness (it forks curl and reaches the network, which a capture must not), so this sets
-     * what mesh_app_publish_ui_state() would have published: the state, and the progress read
-     * off the staged file.
-     */
-    if (strcmp(command, "update") == 0) {
-        char *step = uicap_word(&rest);
-        if (step == NULL) {
-            fprintf(stderr, "uicap: line %u: 'update' needs check, download, available or ready\n",
-                    line_number);
-            exit(1);
-        }
-        const bool downloading = strcmp(step, "download") == 0;
-        const bool checking = strcmp(step, "check") == 0;
-        /* The two settled states, which is what a banner is for: a check that has finished and
-           found something, and an install that has finished and is waiting for a restart.
-           Neither is busy - the bar and the banner are the moving half and the settled half of
-           the same story, and a scene has to be able to show them apart. */
-        const bool available = strcmp(step, "available") == 0;
-        const bool ready = strcmp(step, "ready") == 0;
-        if (!downloading && !checking && !available && !ready) {
-            fprintf(stderr, "uicap: line %u: 'update' takes check, download, available or ready\n",
-                    line_number);
-            exit(1);
-        }
-        const char *percent = uicap_word(&rest);
-        uicap_start(cap);
-        struct mesh_ui_settings settings = cap->store.settings;
-        settings.client.update_supported = true;
-        settings.client.update_busy = downloading || checking;
-        /* A build that may install what it finds. mesh_ui_chrome_banner() gates the "available"
-           banner on it, because an update a build cannot install is a notice nothing clears. */
-        settings.client.update_can_install = true;
-        settings.client.update_state = (uint8_t)(downloading ? MESH_UPDATE_DOWNLOADING
-                                                 : checking  ? MESH_UPDATE_CHECKING
-                                                 : available ? MESH_UPDATE_AVAILABLE
-                                                             : MESH_UPDATE_READY);
-        settings.client.update_progress_known = downloading && percent != NULL;
-        settings.client.update_progress =
-            (uint16_t)(settings.client.update_progress_known ? uicap_number(percent, "update") * 10U
-                                                             : 0U);
-        snprintf(settings.client.update_latest, sizeof settings.client.update_latest, "%s",
-                 "999.0.0");
-        mesh_ui_store_set_settings(&cap->store, &settings);
-        uicap_emit(cap);
-        uicap_settle(cap);
-        return;
+    const char *tx = uicap_scene_word(&rest);
+    unsigned busy_percent = 0U;
+    unsigned tx_percent = 0U;
+    int parsed = uicap_scene_number(scene, busy, "airtime", &busy_percent);
+    if (parsed == 0 && tx != NULL) {
+        parsed = uicap_scene_number(scene, tx, "airtime", &tx_percent);
     }
-
-    /*
-     * A crash report left by a previous run.
-     *
-     *   crash on|off
-     *
-     * There is no crash handler behind the harness and there had better not be - a capture that
-     * faulted would be a capture of nothing - so this sets what mesh_app_publish_ui_state()
-     * publishes after mesh_crash_install() has found a report on the card: the flag the banner
-     * reads, and the path the About rows show. The path is a plausible one rather than a real
-     * file, because nothing here opens it.
-     */
-    if (strcmp(command, "crash") == 0) {
-        char *state = uicap_word(&rest);
-        if (state == NULL || (strcmp(state, "on") != 0 && strcmp(state, "off") != 0)) {
-            fprintf(stderr, "uicap: line %u: 'crash' needs on or off\n", line_number);
-            exit(1);
-        }
-        struct mesh_ui_settings settings = cap->store.settings;
-        settings.client.crash_report_waiting = strcmp(state, "on") == 0;
-        snprintf(settings.client.crash_report_path, sizeof settings.client.crash_report_path, "%s",
-                 "/mnt/SDCARD/.userdata/tg5040/MeshClient/.meshclient/crash.txt");
-        /* The data directory with it, because About draws the two together: the Data row points
-           at the directory and the crash row names the file in it. A capture showing one without
-           the other would be a picture of a screen the client never draws - the app publishes
-           both or neither, since they come from the same preferences path. */
-        snprintf(settings.client.data_dir, sizeof settings.client.data_dir, "%s",
-                 "/mnt/SDCARD/.userdata/tg5040/MeshClient/.meshclient");
-        mesh_ui_store_set_settings(&cap->store, &settings);
-        uicap_emit(cap);
-        uicap_settle(cap);
-        return;
+    if (parsed < 0) {
+        return parsed;
     }
+    struct mesh_ui_settings settings = cap->store.settings;
+    settings.stats.valid = true;
+    settings.stats.channel_utilization = (float)busy_percent;
+    settings.stats.air_util_tx = (float)tx_percent;
+    mesh_ui_store_set_settings(&cap->store, &settings);
+    /* The bar eases to the new reading rather than jumping to it, so the frames between the
+       two figures are the point - the same reason a press settles, and the runner settles
+       after every verb for it. */
+    /* Two `airtime` lines are a few hundred milliseconds apart on the harness clock, whatever
+       the scene's comment says they stand for, so the trend they build is always unbroken
+       here and a series that breaks at the cadence a radio actually reports on looks exactly
+       the same in a capture. That is a device question, and it is pinned as one:
+       history_draws_a_line_at_the_radios_own_cadence in tests/suites/ui_history.c. */
+    return 0;
+}
 
-    /*
-     * The Settings tab pointed at another node's radio.
-     *
-     *   remote <name>|off
-     *
-     * Sets what mesh_app_publish_ui_state() publishes once mesh_session_set_admin_dest() has
-     * taken - the node number and the name off the roster - rather than driving the press that
-     * gets there, because that press is on the Nodes tab and the thing worth looking at is every
-     * *other* screen afterwards. What a capture then shows is the banner following the user
-     * across the tabs, standing down inside About radio, and the sheet naming the node once the
-     * banner has been taken by the modal.
-     */
-    if (strcmp(command, "remote") == 0) {
-        /* The rest of the line rather than a word, because a node's long name has spaces in it
-           and the name is the whole of what the banner and the About radio row are showing. */
-        char *name = rest;
-        while (*name == ' ' || *name == '\t') {
-            name++;
-        }
-        if (*name == '\0') {
-            fprintf(stderr, "uicap: line %u: 'remote' needs a node name or off\n", line_number);
-            exit(1);
-        }
-        struct mesh_ui_settings settings = cap->store.settings;
-        const bool off = strcmp(name, "off") == 0;
-        settings.admin_dest = off ? 0U : 0x7001bd4cU;
-        snprintf(settings.admin_dest_name, sizeof settings.admin_dest_name, "%s", off ? "" : name);
-        mesh_ui_store_set_settings(&cap->store, &settings);
-        uicap_emit(cap);
-        uicap_settle(cap);
-        return;
+/*
+ * A self-update in flight, which the About screen draws as a meter.
+ *
+ * `update check` is the step with no length - the request is out and its reply has no size
+ * until it lands - and `update download PERCENT` is the one that has a fraction, because
+ * the release metadata said how big the asset would be. There is no updater behind the
+ * harness (it forks curl and reaches the network, which a capture must not), so this sets
+ * what mesh_app_publish_ui_state() would have published: the state, and the progress read
+ * off the staged file.
+ */
+static int verb_update(struct uicap_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    char *step = uicap_scene_word(&rest);
+    if (step == NULL) {
+        return uicap_scene_fail(scene, "'update' needs check, download, available or ready");
     }
-
-    /*
-     * Which of upstream's two release lists the firmware rows say they are reading. Its own
-     * verb rather than an argument to `firmware`, because the channel is a setting that
-     * outlives any one check - the same split the screen itself draws.
-     *
-     *   firmware-channel stable|alpha
-     */
-    if (strcmp(command, "firmware-channel") == 0) {
-        char *which = uicap_word(&rest);
-        if (which == NULL || (strcmp(which, "stable") != 0 && strcmp(which, "alpha") != 0)) {
-            fprintf(stderr, "uicap: line %u: 'firmware-channel' takes stable or alpha\n",
-                    line_number);
-            exit(1);
-        }
-        uicap_start(cap);
-        struct mesh_ui_settings settings = cap->store.settings;
-        settings.fw_supported = true;
-        inkwell_str_copy(settings.fw_channel, sizeof settings.fw_channel, which);
-        mesh_ui_store_set_settings(&cap->store, &settings);
-        uicap_emit(cap);
-        uicap_settle(cap);
-        return;
+    const bool downloading = strcmp(step, "download") == 0;
+    const bool checking = strcmp(step, "check") == 0;
+    /* The two settled states, which is what a banner is for: a check that has finished and
+       found something, and an install that has finished and is waiting for a restart.
+       Neither is busy - the bar and the banner are the moving half and the settled half of
+       the same story, and a scene has to be able to show them apart. */
+    const bool available = strcmp(step, "available") == 0;
+    const bool ready = strcmp(step, "ready") == 0;
+    if (!downloading && !checking && !available && !ready) {
+        return uicap_scene_fail(scene, "'update' takes check, download, available or ready");
     }
+    const char *percent = uicap_scene_word(&rest);
+    unsigned progress = 0U;
+    if (downloading && percent != NULL) {
+        const int parsed = uicap_scene_number(scene, percent, "update", &progress);
+        if (parsed < 0) {
+            return parsed;
+        }
+    }
+    struct mesh_ui_settings settings = cap->store.settings;
+    settings.client.update_supported = true;
+    settings.client.update_busy = downloading || checking;
+    /* A build that may install what it finds. mesh_ui_chrome_banner() gates the "available"
+       banner on it, because an update a build cannot install is a notice nothing clears. */
+    settings.client.update_can_install = true;
+    settings.client.update_state = (uint8_t)(downloading ? MESH_UPDATE_DOWNLOADING
+                                             : checking  ? MESH_UPDATE_CHECKING
+                                             : available ? MESH_UPDATE_AVAILABLE
+                                                         : MESH_UPDATE_READY);
+    settings.client.update_progress_known = downloading && percent != NULL;
+    settings.client.update_progress =
+        (uint16_t)(settings.client.update_progress_known ? progress * 10U : 0U);
+    snprintf(settings.client.update_latest, sizeof settings.client.update_latest, "%s", "999.0.0");
+    mesh_ui_store_set_settings(&cap->store, &settings);
+    return 0;
+}
 
-    /*
-     * The *radio's* firmware, which is the other update this client can talk about.
-     *
-     * Its own verb rather than a flag on `update` because the two are different binaries on
-     * different computers, and because this one has a second axis: what the check found and
-     * why it cannot be acted on are separate answers, so the scene names them separately.
-     * There is no firmware module behind the harness - it forks curl and reaches the network -
-     * so this sets what the app would have published.
-     *
-     *   firmware checking|behind|current|failed [usb|ble|ambiguous|nopath|unknown]
-     */
-    if (strcmp(command, "firmware") == 0) {
-        char *step = uicap_word(&rest);
-        if (step == NULL) {
-            fprintf(stderr,
-                    "uicap: line %u: 'firmware' needs checking, behind, current or failed\n",
-                    line_number);
-            exit(1);
-        }
-        const bool checking = strcmp(step, "checking") == 0;
-        const bool behind = strcmp(step, "behind") == 0;
-        const bool current = strcmp(step, "current") == 0;
-        const bool failed = strcmp(step, "failed") == 0;
-        if (!checking && !behind && !current && !failed) {
-            fprintf(stderr,
-                    "uicap: line %u: 'firmware' takes checking, behind, current or failed\n",
-                    line_number);
-            exit(1);
-        }
-        const char *why = uicap_word(&rest);
-        uicap_start(cap);
-        struct mesh_ui_settings settings = cap->store.settings;
-        settings.fw_supported = true;
-        settings.fw_busy = checking;
-        /* The channel the rows read. Left at the harness's default unless a scene says
-           otherwise - see the `firmware-channel` verb. */
-        if (settings.fw_channel[0] == '\0') {
-            inkwell_str_copy(settings.fw_channel, sizeof settings.fw_channel,
-                             mesh_firmware_channel_name(MESH_FIRMWARE_CHANNEL_STABLE));
-        }
-        settings.fw_state = (uint8_t)(checking  ? MESH_FIRMWARE_CHECKING
-                                      : behind  ? MESH_FIRMWARE_AVAILABLE
-                                      : current ? MESH_FIRMWARE_UP_TO_DATE
-                                                : MESH_FIRMWARE_FAILED);
-        inkwell_str_copy(settings.fw_latest, sizeof settings.fw_latest, "2.7.26.54e0d8d");
-        inkwell_str_copy(settings.fw_board, sizeof settings.fw_board, "Heltec Mesh Node T114");
-        /* The value column's value, exactly as the module would have set it: the state's own
-           word, or - once there is a release worth having - the version on its own. */
-        if (behind) {
-            inkwell_str_copy(settings.fw_message, sizeof settings.fw_message, settings.fw_latest);
-        } else if (failed) {
-            inkwell_str_copy(settings.fw_message, sizeof settings.fw_message,
-                             inkcell_str(MESH_STR_FW_INDEX_UNREADABLE));
+/*
+ * A crash report left by a previous run.
+ *
+ *   crash on|off
+ *
+ * There is no crash handler behind the harness and there had better not be - a capture that
+ * faulted would be a capture of nothing - so this sets what mesh_app_publish_ui_state()
+ * publishes after mesh_crash_install() has found a report on the card: the flag the banner
+ * reads, and the path the About rows show. The path is a plausible one rather than a real
+ * file, because nothing here opens it.
+ */
+static int verb_crash(struct uicap_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    char *state = uicap_scene_word(&rest);
+    if (state == NULL || (strcmp(state, "on") != 0 && strcmp(state, "off") != 0)) {
+        return uicap_scene_fail(scene, "'crash' needs on or off");
+    }
+    struct mesh_ui_settings settings = cap->store.settings;
+    settings.client.crash_report_waiting = strcmp(state, "on") == 0;
+    snprintf(settings.client.crash_report_path, sizeof settings.client.crash_report_path, "%s",
+             "/mnt/SDCARD/.userdata/tg5040/MeshClient/.meshclient/crash.txt");
+    /* The data directory with it, because About draws the two together: the Data row points
+       at the directory and the crash row names the file in it. A capture showing one without
+       the other would be a picture of a screen the client never draws - the app publishes
+       both or neither, since they come from the same preferences path. */
+    snprintf(settings.client.data_dir, sizeof settings.client.data_dir, "%s",
+             "/mnt/SDCARD/.userdata/tg5040/MeshClient/.meshclient");
+    mesh_ui_store_set_settings(&cap->store, &settings);
+    return 0;
+}
+
+/*
+ * The Settings tab pointed at another node's radio.
+ *
+ *   remote <name>|off
+ *
+ * Sets what mesh_app_publish_ui_state() publishes once mesh_session_set_admin_dest() has
+ * taken - the node number and the name off the roster - rather than driving the press that
+ * gets there, because that press is on the Nodes tab and the thing worth looking at is every
+ * *other* screen afterwards. What a capture then shows is the banner following the user
+ * across the tabs, standing down inside About radio, and the sheet naming the node once the
+ * banner has been taken by the modal.
+ */
+static int verb_remote(struct uicap_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    /* The rest of the line rather than a word, because a node's long name has spaces in it
+       and the name is the whole of what the banner and the About radio row are showing. */
+    char *name = rest;
+    while (*name == ' ' || *name == '\t') {
+        name++;
+    }
+    if (*name == '\0') {
+        return uicap_scene_fail(scene, "'remote' needs a node name or off");
+    }
+    struct mesh_ui_settings settings = cap->store.settings;
+    const bool off = strcmp(name, "off") == 0;
+    settings.admin_dest = off ? 0U : 0x7001bd4cU;
+    snprintf(settings.admin_dest_name, sizeof settings.admin_dest_name, "%s", off ? "" : name);
+    mesh_ui_store_set_settings(&cap->store, &settings);
+    return 0;
+}
+
+/*
+ * Which of upstream's two release lists the firmware rows say they are reading. Its own
+ * verb rather than an argument to `firmware`, because the channel is a setting that
+ * outlives any one check - the same split the screen itself draws.
+ *
+ *   firmware-channel stable|alpha
+ */
+static int verb_firmware_channel(struct uicap_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    char *which = uicap_scene_word(&rest);
+    if (which == NULL || (strcmp(which, "stable") != 0 && strcmp(which, "alpha") != 0)) {
+        return uicap_scene_fail(scene, "'firmware-channel' takes stable or alpha");
+    }
+    struct mesh_ui_settings settings = cap->store.settings;
+    settings.fw_supported = true;
+    inkwell_str_copy(settings.fw_channel, sizeof settings.fw_channel, which);
+    mesh_ui_store_set_settings(&cap->store, &settings);
+    return 0;
+}
+
+/*
+ * The *radio's* firmware, which is the other update this client can talk about.
+ *
+ * Its own verb rather than a flag on `update` because the two are different binaries on
+ * different computers, and because this one has a second axis: what the check found and
+ * why it cannot be acted on are separate answers, so the scene names them separately.
+ * There is no firmware module behind the harness - it forks curl and reaches the network -
+ * so this sets what the app would have published.
+ *
+ *   firmware checking|behind|current|failed [usb|ble|ambiguous|nopath|unknown]
+ */
+static int verb_firmware(struct uicap_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    char *step = uicap_scene_word(&rest);
+    if (step == NULL) {
+        return uicap_scene_fail(scene, "'firmware' needs checking, behind, current or failed");
+    }
+    const bool checking = strcmp(step, "checking") == 0;
+    const bool behind = strcmp(step, "behind") == 0;
+    const bool current = strcmp(step, "current") == 0;
+    const bool failed = strcmp(step, "failed") == 0;
+    if (!checking && !behind && !current && !failed) {
+        return uicap_scene_fail(scene, "'firmware' takes checking, behind, current or failed");
+    }
+    const char *why = uicap_scene_word(&rest);
+    struct mesh_ui_settings settings = cap->store.settings;
+    settings.fw_supported = true;
+    settings.fw_busy = checking;
+    /* The channel the rows read. Left at the harness's default unless a scene says
+       otherwise - see the `firmware-channel` verb. */
+    if (settings.fw_channel[0] == '\0') {
+        inkwell_str_copy(settings.fw_channel, sizeof settings.fw_channel,
+                         mesh_firmware_channel_name(MESH_FIRMWARE_CHANNEL_STABLE));
+    }
+    settings.fw_state = (uint8_t)(checking  ? MESH_FIRMWARE_CHECKING
+                                  : behind  ? MESH_FIRMWARE_AVAILABLE
+                                  : current ? MESH_FIRMWARE_UP_TO_DATE
+                                            : MESH_FIRMWARE_FAILED);
+    inkwell_str_copy(settings.fw_latest, sizeof settings.fw_latest, "2.7.26.54e0d8d");
+    inkwell_str_copy(settings.fw_board, sizeof settings.fw_board, "Heltec Mesh Node T114");
+    /* The value column's value, exactly as the module would have set it: the state's own
+       word, or - once there is a release worth having - the version on its own. */
+    if (behind) {
+        inkwell_str_copy(settings.fw_message, sizeof settings.fw_message, settings.fw_latest);
+    } else if (failed) {
+        inkwell_str_copy(settings.fw_message, sizeof settings.fw_message,
+                         inkcell_str(MESH_STR_FW_INDEX_UNREADABLE));
+    } else {
+        inkwell_str_copy(settings.fw_message, sizeof settings.fw_message,
+                         mesh_firmware_state_name((enum mesh_firmware_state)settings.fw_state));
+    }
+    /* The refusal, which is a different answer from the state above it and is the half a
+       picture of this screen is actually for. */
+    inkcell_str_id reason = INKCELL_STR_NONE;
+    if (why != NULL) {
+        if (strcmp(why, "usb") == 0) {
+            reason = MESH_STR_FW_BLOCK_CONNECT_USB;
+        } else if (strcmp(why, "ble") == 0) {
+            reason = MESH_STR_FW_BLOCK_CONNECT_BLE;
+        } else if (strcmp(why, "ambiguous") == 0) {
+            reason = MESH_STR_FW_BLOCK_AMBIGUOUS;
+        } else if (strcmp(why, "nopath") == 0) {
+            reason = MESH_STR_FW_BLOCK_NO_PATH;
+        } else if (strcmp(why, "unknown") == 0) {
+            reason = MESH_STR_FW_BLOCK_UNKNOWN_BOARD;
         } else {
-            inkwell_str_copy(settings.fw_message, sizeof settings.fw_message,
-                             mesh_firmware_state_name((enum mesh_firmware_state)settings.fw_state));
+            return uicap_scene_fail(scene, "unknown firmware reason '%s'", why);
         }
-        /* The refusal, which is a different answer from the state above it and is the half a
-           picture of this screen is actually for. */
-        inkcell_str_id reason = INKCELL_STR_NONE;
-        if (why != NULL) {
-            if (strcmp(why, "usb") == 0) {
-                reason = MESH_STR_FW_BLOCK_CONNECT_USB;
-            } else if (strcmp(why, "ble") == 0) {
-                reason = MESH_STR_FW_BLOCK_CONNECT_BLE;
-            } else if (strcmp(why, "ambiguous") == 0) {
-                reason = MESH_STR_FW_BLOCK_AMBIGUOUS;
-            } else if (strcmp(why, "nopath") == 0) {
-                reason = MESH_STR_FW_BLOCK_NO_PATH;
-            } else if (strcmp(why, "unknown") == 0) {
-                reason = MESH_STR_FW_BLOCK_UNKNOWN_BOARD;
-            } else {
-                fprintf(stderr, "uicap: line %u: unknown firmware reason '%s'\n", line_number, why);
-                exit(1);
-            }
-        }
-        inkwell_str_copy(settings.fw_blocker_reason, sizeof settings.fw_blocker_reason,
-                         reason != INKCELL_STR_NONE ? inkcell_str(reason) : "");
-        mesh_ui_store_set_settings(&cap->store, &settings);
-        uicap_emit(cap);
-        uicap_settle(cap);
-        return;
     }
+    inkwell_str_copy(settings.fw_blocker_reason, sizeof settings.fw_blocker_reason,
+                     reason != INKCELL_STR_NONE ? inkcell_str(reason) : "");
+    mesh_ui_store_set_settings(&cap->store, &settings);
+    return 0;
+}
 
-    /*
-     * Installing it, which is the half of this screen no picture could reach any other way: the
-     * states below need a radio in a bootloader, an image on the way down, or a loader on the
-     * air, and none of the three is a thing a harness has.
-     *
-     * `idle` is the settled screen with the press offered, which is also what a scene needs to
-     * film the confirm sheet - the row has to exist before A can open the question in front of
-     * it. The rest are the ladder, and `percent` fills the meter for the two steps that have a
-     * fraction.
-     *
-     *   firmware-install idle|resolving|downloading|ready|arming|waiting|writing|restarting|
-     *                    done|failed [usb|ble] [percent]
-     */
-    if (strcmp(command, "firmware-install") == 0) {
-        static const struct {
-            const char *name;
-            enum mesh_firmware_update_state state;
-        } k_steps[] = {
-            {"idle", MESH_FIRMWARE_UPDATE_IDLE},
-            {"resolving", MESH_FIRMWARE_UPDATE_RESOLVING},
-            {"downloading", MESH_FIRMWARE_UPDATE_DOWNLOADING},
-            {"ready", MESH_FIRMWARE_UPDATE_READY},
-            {"arming", MESH_FIRMWARE_UPDATE_ARMING},
-            {"waiting", MESH_FIRMWARE_UPDATE_WAITING},
-            {"writing", MESH_FIRMWARE_UPDATE_WRITING},
-            {"restarting", MESH_FIRMWARE_UPDATE_RESTARTING},
-            {"done", MESH_FIRMWARE_UPDATE_DONE},
-            {"failed", MESH_FIRMWARE_UPDATE_FAILED},
-        };
-        char *const step = uicap_word(&rest);
-        enum mesh_firmware_update_state state = MESH_FIRMWARE_UPDATE_STATE_COUNT;
-        for (size_t i = 0; step != NULL && i < sizeof k_steps / sizeof k_steps[0]; ++i) {
-            if (strcmp(step, k_steps[i].name) == 0) {
-                state = k_steps[i].state;
-            }
+/*
+ * Installing it, which is the half of this screen no picture could reach any other way: the
+ * states below need a radio in a bootloader, an image on the way down, or a loader on the
+ * air, and none of the three is a thing a harness has.
+ *
+ * `idle` is the settled screen with the press offered, which is also what a scene needs to
+ * film the confirm sheet - the row has to exist before A can open the question in front of
+ * it. The rest are the ladder, and `percent` fills the meter for the two steps that have a
+ * fraction.
+ *
+ *   firmware-install idle|resolving|downloading|ready|arming|waiting|writing|restarting|
+ *                    done|failed [usb|ble] [percent]
+ */
+static int verb_firmware_install(struct uicap_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    static const struct {
+        const char *name;
+        enum mesh_firmware_update_state state;
+    } k_steps[] = {
+        {"idle", MESH_FIRMWARE_UPDATE_IDLE},
+        {"resolving", MESH_FIRMWARE_UPDATE_RESOLVING},
+        {"downloading", MESH_FIRMWARE_UPDATE_DOWNLOADING},
+        {"ready", MESH_FIRMWARE_UPDATE_READY},
+        {"arming", MESH_FIRMWARE_UPDATE_ARMING},
+        {"waiting", MESH_FIRMWARE_UPDATE_WAITING},
+        {"writing", MESH_FIRMWARE_UPDATE_WRITING},
+        {"restarting", MESH_FIRMWARE_UPDATE_RESTARTING},
+        {"done", MESH_FIRMWARE_UPDATE_DONE},
+        {"failed", MESH_FIRMWARE_UPDATE_FAILED},
+    };
+    char *const step = uicap_scene_word(&rest);
+    enum mesh_firmware_update_state state = MESH_FIRMWARE_UPDATE_STATE_COUNT;
+    for (size_t i = 0; step != NULL && i < sizeof k_steps / sizeof k_steps[0]; ++i) {
+        if (strcmp(step, k_steps[i].name) == 0) {
+            state = k_steps[i].state;
         }
-        if (state == MESH_FIRMWARE_UPDATE_STATE_COUNT) {
-            fprintf(stderr, "uicap: line %u: 'firmware-install' needs a step name\n", line_number);
-            exit(1);
-        }
-        const char *const bus = uicap_word(&rest);
-        const char *const percent = uicap_word(&rest);
-        uicap_start(cap);
-        struct mesh_ui_settings settings = cap->store.settings;
-        settings.fw_supported = true;
-        settings.fw_state = (uint8_t)MESH_FIRMWARE_AVAILABLE;
-        if (settings.fw_latest[0] == '\0') {
-            inkwell_str_copy(settings.fw_latest, sizeof settings.fw_latest, "2.7.26.54e0d8d");
-            inkwell_str_copy(settings.fw_message, sizeof settings.fw_message, settings.fw_latest);
-            inkwell_str_copy(settings.fw_board, sizeof settings.fw_board, "Heltec Mesh Node T114");
-        }
-        if (settings.fw_channel[0] == '\0') {
-            inkwell_str_copy(settings.fw_channel, sizeof settings.fw_channel,
-                             mesh_firmware_channel_name(MESH_FIRMWARE_CHANNEL_STABLE));
-        }
-        settings.fw_blocker_reason[0] = '\0';
-        settings.fw_bus =
-            (uint8_t)((bus != NULL && strcmp(bus, "ble") == 0) ? MESH_FIRMWARE_PATH_BLE
-                                                               : MESH_FIRMWARE_PATH_USB);
-        settings.fw_update_state = (uint8_t)state;
-        settings.fw_update_progress =
-            percent != NULL ? (uint8_t)strtoul(percent, NULL, 10) : (uint8_t)0U;
-        /* The press is offered exactly when nothing is running, which is what the app derives
-           and what the row reads - so the harness derives it the same way rather than taking
-           it as a third argument nobody could get wrong quietly. */
-        settings.fw_can_install = !mesh_firmware_update_state_busy(state);
-        /* A failure carries a line of its own, because the row that reports one shows the
-           radio's words rather than the category. */
-        if (state == MESH_FIRMWARE_UPDATE_FAILED) {
-            settings.fw_update_error = (uint8_t)MESH_FIRMWARE_UPDATE_ERROR_REFUSED;
-            inkwell_str_copy(settings.fw_update_detail, sizeof settings.fw_update_detail,
-                             "No OTA partition");
-        }
-        /* And a radio left in its loader is what raises the banner, which is the one state of
-           this feature that is visible from every other screen. */
-        settings.fw_radio_in_loader = state == MESH_FIRMWARE_UPDATE_FAILED &&
-                                      settings.fw_bus == (uint8_t)MESH_FIRMWARE_PATH_BLE;
-        mesh_ui_store_set_settings(&cap->store, &settings);
-        uicap_emit(cap);
-        uicap_settle(cap);
-        return;
     }
-
-    /*
-     * A radio that has not finished answering, which is what the screen progress bar reports.
-     *
-     * The demo scene starts with the handshake complete, because every screen in it needs a
-     * roster - so the one state the bar exists for is the one state a capture could not reach.
-     * `syncing on` puts the handshake back in flight without touching the nodes it has already
-     * published, exactly as a reconnect does.
-     */
-    if (strcmp(command, "syncing") == 0) {
-        char *value = uicap_word(&rest);
-        if (value == NULL || (strcmp(value, "on") != 0 && strcmp(value, "off") != 0)) {
-            fprintf(stderr, "uicap: line %u: 'syncing' takes on or off\n", line_number);
-            exit(1);
-        }
-        uicap_start(cap);
-        struct mesh_ui_handshake_state handshake = cap->store.handshake;
-        const bool on = strcmp(value, "on") == 0;
-        handshake.request_in_flight = on;
-        handshake.config_complete = !on;
-        mesh_ui_store_set_handshake(&cap->store, &handshake);
-        uicap_emit(cap);
-        uicap_settle(cap);
-        return;
+    if (state == MESH_FIRMWARE_UPDATE_STATE_COUNT) {
+        return uicap_scene_fail(scene, "'firmware-install' needs a step name");
     }
-
-    /*
-     * The radio's metric/imperial preference, which is the client's too - a reader who set their
-     * radio to miles is not asked to set the Brick to miles as well.
-     *
-     * A verb rather than part of `scene demo` because it is the whole point of a capture: every
-     * length on every screen follows this one byte, so the way to review a change to any of them
-     * is to run the same scene twice with the two values and put the strips side by side.
-     */
-    if (strcmp(command, "units") == 0) {
-        char *value = uicap_word(&rest);
-        if (value == NULL || (strcmp(value, "metric") != 0 && strcmp(value, "imperial") != 0)) {
-            fprintf(stderr, "uicap: line %u: 'units' is metric or imperial\n", line_number);
-            exit(1);
-        }
-        uicap_start(cap);
-        struct mesh_ui_settings settings = cap->store.settings;
-        settings.has_display = true;
-        settings.units = (uint8_t)(strcmp(value, "imperial") == 0 ? 1U : 0U);
-        mesh_ui_store_set_settings(&cap->store, &settings);
-        uicap_emit(cap);
-        return;
+    const char *const bus = uicap_scene_word(&rest);
+    const char *const percent = uicap_scene_word(&rest);
+    struct mesh_ui_settings settings = cap->store.settings;
+    settings.fw_supported = true;
+    settings.fw_state = (uint8_t)MESH_FIRMWARE_AVAILABLE;
+    if (settings.fw_latest[0] == '\0') {
+        inkwell_str_copy(settings.fw_latest, sizeof settings.fw_latest, "2.7.26.54e0d8d");
+        inkwell_str_copy(settings.fw_message, sizeof settings.fw_message, settings.fw_latest);
+        inkwell_str_copy(settings.fw_board, sizeof settings.fw_board, "Heltec Mesh Node T114");
     }
-
-    if (strcmp(command, "reboots") == 0) {
-        char *count_text = uicap_word(&rest);
-        if (count_text == NULL) {
-            fprintf(stderr, "uicap: line %u: 'reboots' needs a count\n", line_number);
-            exit(1);
-        }
-        uicap_start(cap);
-        struct mesh_ui_settings settings = cap->store.settings;
-        settings.reboot_notices = uicap_number(count_text, "reboots");
-        mesh_ui_store_set_settings(&cap->store, &settings);
-        uicap_emit(cap);
-        return;
+    if (settings.fw_channel[0] == '\0') {
+        inkwell_str_copy(settings.fw_channel, sizeof settings.fw_channel,
+                         mesh_firmware_channel_name(MESH_FIRMWARE_CHANNEL_STABLE));
     }
-
-    if (strcmp(command, "message") == 0) {
-        char *direction = uicap_word(&rest);
-        char *name = uicap_word(&rest);
-        if (direction == NULL || name == NULL) {
-            fprintf(stderr, "uicap: line %u: 'message' needs in|out, a short name and text\n",
-                    line_number);
-            exit(1);
-        }
-        if (strcmp(direction, "in") != 0 && strcmp(direction, "out") != 0) {
-            fprintf(stderr, "uicap: line %u: 'message' direction is in or out\n", line_number);
-            exit(1);
-        }
-        uicap_start(cap);
-        uicap_append_message(cap, strcmp(direction, "out") == 0, MESH_MESSAGE_KIND_TEXT, name,
-                             uicap_tail(rest), false);
-        return;
+    settings.fw_blocker_reason[0] = '\0';
+    settings.fw_bus = (uint8_t)((bus != NULL && strcmp(bus, "ble") == 0) ? MESH_FIRMWARE_PATH_BLE
+                                                                         : MESH_FIRMWARE_PATH_USB);
+    settings.fw_update_state = (uint8_t)state;
+    settings.fw_update_progress =
+        percent != NULL ? (uint8_t)strtoul(percent, NULL, 10) : (uint8_t)0U;
+    /* The press is offered exactly when nothing is running, which is what the app derives
+       and what the row reads - so the harness derives it the same way rather than taking
+       it as a third argument nobody could get wrong quietly. */
+    settings.fw_can_install = !mesh_firmware_update_state_busy(state);
+    /* A failure carries a line of its own, because the row that reports one shows the
+       radio's words rather than the category. */
+    if (state == MESH_FIRMWARE_UPDATE_FAILED) {
+        settings.fw_update_error = (uint8_t)MESH_FIRMWARE_UPDATE_ERROR_REFUSED;
+        inkwell_str_copy(settings.fw_update_detail, sizeof settings.fw_update_detail,
+                         "No OTA partition");
     }
+    /* And a radio left in its loader is what raises the banner, which is the one state of
+       this feature that is visible from every other screen. */
+    settings.fw_radio_in_loader =
+        state == MESH_FIRMWARE_UPDATE_FAILED && settings.fw_bus == (uint8_t)MESH_FIRMWARE_PATH_BLE;
+    mesh_ui_store_set_settings(&cap->store, &settings);
+    return 0;
+}
 
-    /* The same, threaded onto the newest bubble - what A on a message produces. Its own verb
-       rather than a flag on `message` because the quote line it draws is the thing being
-       filmed, and a scene should say so. */
-    if (strcmp(command, "reply") == 0) {
-        char *direction = uicap_word(&rest);
-        char *name = uicap_word(&rest);
-        if (direction == NULL || name == NULL ||
-            (strcmp(direction, "in") != 0 && strcmp(direction, "out") != 0)) {
-            fprintf(stderr, "uicap: line %u: 'reply' needs in|out, a short name and text\n",
-                    line_number);
-            exit(1);
-        }
-        uicap_start(cap);
-        uicap_append_message(cap, strcmp(direction, "out") == 0, MESH_MESSAGE_KIND_TEXT, name,
-                             uicap_tail(rest), true);
-        return;
+/*
+ * The radio's metric/imperial preference, which is the client's too - a reader who set their
+ * radio to miles is not asked to set the Brick to miles as well.
+ *
+ * A verb rather than part of `scene demo` because it is the whole point of a capture: every
+ * length on every screen follows this one byte, so the way to review a change to any of them
+ * is to run the same scene twice with the two values and put the strips side by side.
+ */
+static int verb_units(struct uicap_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    char *value = uicap_scene_word(&rest);
+    if (value == NULL || (strcmp(value, "metric") != 0 && strcmp(value, "imperial") != 0)) {
+        return uicap_scene_fail(scene, "'units' is metric or imperial");
     }
+    struct mesh_ui_settings settings = cap->store.settings;
+    settings.has_display = true;
+    settings.units = (uint8_t)(strcmp(value, "imperial") == 0 ? 1U : 0U);
+    mesh_ui_store_set_settings(&cap->store, &settings);
+    return 0;
+}
 
-    if (strcmp(command, "waypoint") == 0) {
-        char *node_name = uicap_word(&rest);
-        char *label = (node_name != NULL) ? uicap_tail(rest) : NULL;
-        if (node_name == NULL || label == NULL || label[0] == '\0') {
-            fprintf(stderr, "uicap: line %u: 'waypoint' needs a short name and a label\n",
-                    line_number);
-            exit(1);
-        }
-        /* The rest of the line is the label, and a '|' splits the sharer's note off the end of
-           it - because both are prose with spaces in, and a word count cannot tell them apart. */
-        char *description = strchr(label, '|');
-        if (description != NULL) {
-            char *end = description;
-            *description++ = '\0';
-            while (end > label && (end[-1] == ' ' || end[-1] == '\t')) {
-                *--end = '\0';
-            }
-            while (*description == ' ' || *description == '\t') {
-                description++;
-            }
-        }
-        uicap_start(cap);
-        uicap_append_waypoint(cap, node_name, label,
-                              (description != NULL && description[0] != '\0') ? description : NULL);
-        return;
+static int verb_reboots(struct uicap_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    char *count_text = uicap_scene_word(&rest);
+    if (count_text == NULL) {
+        return uicap_scene_fail(scene, "'reboots' needs a count");
     }
-
-    /* The two ports that are "same as Text Message" upstream and were never accepted here. */
-    if (strcmp(command, "alert") == 0 || strcmp(command, "detection") == 0) {
-        char *name = uicap_word(&rest);
-        if (name == NULL) {
-            fprintf(stderr, "uicap: line %u: '%s' needs a short name and text\n", line_number,
-                    command);
-            exit(1);
-        }
-        uicap_start(cap);
-        uicap_append_message(cap, false,
-                             strcmp(command, "alert") == 0 ? MESH_MESSAGE_KIND_ALERT
-                                                           : MESH_MESSAGE_KIND_DETECTION,
-                             name, uicap_tail(rest), false);
-        return;
+    unsigned reboots = 0U;
+    const int parsed = uicap_scene_number(scene, count_text, "reboots", &reboots);
+    if (parsed < 0) {
+        return parsed;
     }
+    struct mesh_ui_settings settings = cap->store.settings;
+    settings.reboot_notices = reboots;
+    mesh_ui_store_set_settings(&cap->store, &settings);
+    return 0;
+}
 
-    fprintf(stderr, "uicap: line %u: unknown command '%s'\n", line_number, command);
-    exit(1);
+static int verb_message(struct uicap_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    char *direction = uicap_scene_word(&rest);
+    char *name = uicap_scene_word(&rest);
+    if (direction == NULL || name == NULL) {
+        return uicap_scene_fail(scene, "'message' needs in|out, a short name and text");
+    }
+    if (strcmp(direction, "in") != 0 && strcmp(direction, "out") != 0) {
+        return uicap_scene_fail(scene, "'message' direction is in or out");
+    }
+    return uicap_append_message(scene, cap, strcmp(direction, "out") == 0, MESH_MESSAGE_KIND_TEXT,
+                                name, uicap_scene_tail(rest), false);
+}
+
+/* The same, threaded onto the newest bubble - what A on a message produces. Its own verb
+   rather than a flag on `message` because the quote line it draws is the thing being
+   filmed, and a scene should say so. */
+static int verb_reply(struct uicap_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    char *direction = uicap_scene_word(&rest);
+    char *name = uicap_scene_word(&rest);
+    if (direction == NULL || name == NULL ||
+        (strcmp(direction, "in") != 0 && strcmp(direction, "out") != 0)) {
+        return uicap_scene_fail(scene, "'reply' needs in|out, a short name and text");
+    }
+    return uicap_append_message(scene, cap, strcmp(direction, "out") == 0, MESH_MESSAGE_KIND_TEXT,
+                                name, uicap_scene_tail(rest), true);
+}
+
+static int verb_waypoint(struct uicap_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    char *node_name = uicap_scene_word(&rest);
+    char *label = (node_name != NULL) ? uicap_scene_tail(rest) : NULL;
+    if (node_name == NULL || label == NULL || label[0] == '\0') {
+        return uicap_scene_fail(scene, "'waypoint' needs a short name and a label");
+    }
+    /* The rest of the line is the label, and a '|' splits the sharer's note off the end of
+       it - because both are prose with spaces in, and a word count cannot tell them apart. */
+    char *description = strchr(label, '|');
+    if (description != NULL) {
+        char *end = description;
+        *description++ = '\0';
+        while (end > label && (end[-1] == ' ' || end[-1] == '\t')) {
+            *--end = '\0';
+        }
+        while (*description == ' ' || *description == '\t') {
+            description++;
+        }
+    }
+    return uicap_append_waypoint(scene, cap, node_name, label,
+                                 (description != NULL && description[0] != '\0') ? description
+                                                                                 : NULL);
+}
+
+/* The two ports that are "same as Text Message" upstream and were never accepted here. */
+static int uicap_broadcast(struct uicap_scene *scene, struct uicap *cap, const char *command,
+                           enum mesh_message_kind kind, char *rest) {
+    char *name = uicap_scene_word(&rest);
+    if (name == NULL) {
+        return uicap_scene_fail(scene, "'%s' needs a short name and text", command);
+    }
+    return uicap_append_message(scene, cap, false, kind, name, uicap_scene_tail(rest), false);
+}
+
+static int verb_alert(struct uicap_scene *scene, char *rest, void *userdata) {
+    return uicap_broadcast(scene, userdata, "alert", MESH_MESSAGE_KIND_ALERT, rest);
+}
+
+static int verb_detection(struct uicap_scene *scene, char *rest, void *userdata) {
+    return uicap_broadcast(scene, userdata, "detection", MESH_MESSAGE_KIND_DETECTION, rest);
+}
+
+/* ---- the host ---------------------------------------------------------------------------- */
+
+static bool uicap_drain(void *userdata, void *snapshot) {
+    struct uicap *cap = userdata;
+    return mesh_ui_store_consume_updates(&cap->store, snapshot);
+}
+
+static void uicap_refresh(void *userdata) {
+    struct uicap *cap = userdata;
+    mesh_ui_store_request_refresh(&cap->store);
+}
+
+static void uicap_press(void *userdata, enum inkcell_key key, uint32_t page_rows) {
+    struct uicap *cap = userdata;
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    mesh_ui_store_set_page_rows(&cap->store, page_rows);
+    (void)mesh_ui_store_handle_key(&cap->store, key, &action);
+}
+
+/* The housekeeping the event loop does on every turn, which for the store is one thing: a
+   transient notice expiring. */
+static void uicap_tick(void *userdata, uint64_t now_ms) {
+    struct uicap *cap = userdata;
+    mesh_ui_store_tick(&cap->store, now_ms);
+}
+
+static const struct uicap_scene_seed uicap_seeds[] = {
+    {"demo", uicap_seed_demo},
+    {"empty", uicap_seed_empty},
+};
+
+static const struct uicap_scene_verb uicap_verbs[] = {
+    {"map", UICAP_SCENE_NO_FRAME, verb_map},
+    {"context", 0U, verb_context},
+    {"tab", UICAP_SCENE_NO_FRAME, verb_tab},
+    {"toast", 0U, verb_toast},
+    {"status", 0U, verb_status},
+    {"ack", 0U, verb_ack},
+    {"react", 0U, verb_react},
+    {"mute", 0U, verb_mute},
+    {"verified", 0U, verb_verified},
+    {"verify", 0U, verb_verify},
+    {"pin", 0U, verb_pin},
+    {"battery", 0U, verb_battery},
+    {"environment", 0U, verb_environment},
+    {"signal", 0U, verb_signal},
+    {"nofix", 0U, verb_nofix},
+    {"offradio", 0U, verb_offradio},
+    {"notice", 0U, verb_notice},
+    {"config", 0U, verb_config},
+    {"queue", 0U, verb_queue},
+    {"syncing", 0U, verb_syncing},
+    {"link", 0U, verb_link},
+    {"broker", 0U, verb_broker},
+    {"stats", 0U, verb_stats},
+    {"airtime", 0U, verb_airtime},
+    {"update", 0U, verb_update},
+    {"crash", 0U, verb_crash},
+    {"remote", 0U, verb_remote},
+    {"firmware-channel", 0U, verb_firmware_channel},
+    {"firmware", 0U, verb_firmware},
+    {"firmware-install", 0U, verb_firmware_install},
+    {"units", 0U, verb_units},
+    {"reboots", 0U, verb_reboots},
+    {"message", 0U, verb_message},
+    {"reply", 0U, verb_reply},
+    {"waypoint", 0U, verb_waypoint},
+    {"alert", 0U, verb_alert},
+    {"detection", 0U, verb_detection},
+};
+
+/* ---- the files --------------------------------------------------------------------------- */
+
+/* DIR/PREFIX-NNNN.ppm per frame, and DIR/frames.txt naming each with its delay - what
+   scripts/frames.py reads to encode the strip. */
+struct uicap_files {
+    const char *out_dir;
+    const char *prefix;
+    FILE *manifest;
+    bool quiet;
+};
+
+static int uicap_files_frame(void *userdata, unsigned index,
+                             const struct inkcell_capture *capture) {
+    struct uicap_files *files = userdata;
+    char path[1024];
+    snprintf(path, sizeof path, "%s/%s-%04u.ppm", files->out_dir, files->prefix, index + 1U);
+    const int status = inkcell_capture_write_ppm(capture, path);
+    if (status == 0 && !files->quiet) {
+        printf("  frame %u  %s-%04u.ppm\n", index + 1U, files->prefix, index + 1U);
+    }
+    return status;
+}
+
+static int uicap_files_delay(void *userdata, unsigned index, unsigned delay_ms) {
+    struct uicap_files *files = userdata;
+    if (fprintf(files->manifest, "%s-%04u.ppm\t%u\n", files->prefix, index + 1U, delay_ms) < 0) {
+        return -EIO;
+    }
+    return 0;
 }
 
 static void uicap_usage(void) {
@@ -3066,6 +2731,17 @@ static void uicap_usage(void) {
           "DIR/frames.txt. See devtools/ui_capture/scenes/ for examples.\n\n"
           "--geometry is the panel to draw into; the default is the Brick's 1024x768.\n",
           stderr);
+}
+
+/* A number on the command line, where the scene's own bound is the one that applies. */
+static unsigned uicap_flag_number(const char *text, const char *what) {
+    char *end = NULL;
+    const unsigned long value = strtoul(text, &end, 10);
+    if (end == text || *end != '\0' || value > 600000UL) {
+        fprintf(stderr, "uicap: %s: '%s' is not a number I can use\n", what, text);
+        exit(1);
+    }
+    return (unsigned)value;
 }
 
 int main(int argc, char **argv) {
@@ -3079,14 +2755,16 @@ int main(int argc, char **argv) {
     inkwell_env_set_prefix("MESHCLIENT");
     mesh_i18n_register();
     inkcell_i18n_init();
-    struct uicap cap;
-    memset(&cap, 0, sizeof cap);
-    cap.out_dir = "capture";
-    cap.prefix = "frame";
-    cap.delay_ms = UICAP_DEFAULT_DELAY_MS;
-    cap.scene = "demo";
-    cap.now_ms = 1000U;
+
+    static struct uicap cap;
     cap.next_packet_id = 0x5A0001U;
+    struct uicap_files files = {.out_dir = "capture", .prefix = "frame"};
+    struct uicap_scene_config config = {
+        .frame_ms = 33U,
+        .delay_ms = UICAP_DEFAULT_DELAY_MS,
+        .settle_frames = 40U,
+        .start_ms = 1000U,
+    };
 
     bool reference = false;
     const char *script_path = NULL;
@@ -3098,21 +2776,21 @@ int main(int argc, char **argv) {
         if (strcmp(arg, "--script") == 0 && value != NULL) {
             script_path = argv[++i];
         } else if (strcmp(arg, "--out") == 0 && value != NULL) {
-            cap.out_dir = argv[++i];
+            files.out_dir = argv[++i];
         } else if (strcmp(arg, "--prefix") == 0 && value != NULL) {
-            cap.prefix = argv[++i];
+            files.prefix = argv[++i];
         } else if (strcmp(arg, "--scale") == 0 && value != NULL) {
-            cap.scale = INKCELL_SCALE((int)uicap_number(argv[++i], "--scale"));
+            config.scale = INKCELL_SCALE((int)uicap_flag_number(argv[++i], "--scale"));
         } else if (strcmp(arg, "--delay") == 0 && value != NULL) {
-            cap.delay_ms = uicap_number(argv[++i], "--delay");
+            config.delay_ms = uicap_flag_number(argv[++i], "--delay");
         } else if (strcmp(arg, "--geometry") == 0 && value != NULL) {
             uicap_geometry(argv[++i], &width, &height);
         } else if (strcmp(arg, "--theme") == 0 && value != NULL) {
-            cap.theme_id = argv[++i];
+            config.theme = argv[++i];
         } else if (strcmp(arg, "--reference") == 0) {
             reference = true;
         } else if (strcmp(arg, "--quiet") == 0) {
-            cap.quiet = true;
+            files.quiet = true;
         } else if (strcmp(arg, "--help") == 0 || strcmp(arg, "-h") == 0) {
             uicap_usage();
             return 0;
@@ -3123,18 +2801,17 @@ int main(int argc, char **argv) {
         }
     }
 
-    if (mkdir(cap.out_dir, 0755) != 0 && errno != EEXIST) {
-        fprintf(stderr, "uicap: cannot create %s: %s\n", cap.out_dir, strerror(errno));
+    if (mkdir(files.out_dir, 0755) != 0 && errno != EEXIST) {
+        fprintf(stderr, "uicap: cannot create %s: %s\n", files.out_dir, strerror(errno));
         return 1;
     }
 
     if (mesh_ui_store_init(&cap.store) != 0) {
         die("cannot initialise the UI store");
     }
-    if (mesh_ui_capture_open(&cap.capture, width, height, cap.scale) != 0) {
+    if (mesh_ui_capture_open(&cap.capture, width, height, config.scale) != 0) {
         die("cannot allocate the off-screen page");
     }
-
     inkcell_capture_set_reference(cap.capture, reference);
 
     FILE *script = stdin;
@@ -3146,39 +2823,63 @@ int main(int argc, char **argv) {
         }
     }
 
-    char line[UICAP_LINE_MAX];
-    unsigned line_number = 0U;
-    while (fgets(line, (int)sizeof line, script) != NULL) {
-        line_number++;
-        line[strcspn(line, "\r\n")] = '\0';
-        uicap_run_line(&cap, line, line_number);
+    char manifest_path[1024];
+    snprintf(manifest_path, sizeof manifest_path, "%s/frames.txt", files.out_dir);
+    files.manifest = fopen(manifest_path, "w");
+    if (files.manifest == NULL) {
+        fprintf(stderr, "uicap: cannot write %s: %s\n", manifest_path, strerror(errno));
+        return 1;
+    }
+
+    const struct uicap_scene_host host = {
+        .capture = cap.capture,
+        .snapshot = &cap.snapshot,
+        .drain = uicap_drain,
+        .refresh = uicap_refresh,
+        .press = uicap_press,
+        .tick = uicap_tick,
+        .themed = uicap_publish_theme,
+        .seeds = uicap_seeds,
+        .seed_count = sizeof uicap_seeds / sizeof uicap_seeds[0],
+        .verbs = uicap_verbs,
+        .verb_count = sizeof uicap_verbs / sizeof uicap_verbs[0],
+        .userdata = &cap,
+    };
+    const struct uicap_scene_sink sink = {
+        .frame = uicap_files_frame,
+        .delay = uicap_files_delay,
+        .userdata = &files,
+    };
+    static struct uicap_scene scene;
+    if (uicap_scene_init(&scene, &host, &sink, &config) != 0) {
+        fprintf(stderr, "uicap: %s\n", uicap_scene_error(&scene));
+        return 1;
+    }
+
+    int status = uicap_scene_run_file(&scene, script);
+    /* A script that only set up the scene still owes one frame. */
+    if (status == 0) {
+        status = uicap_scene_finish(&scene);
     }
     if (script != stdin) {
         fclose(script);
     }
-
-    /* A script that only set up the scene still owes one frame. */
-    uicap_start(&cap);
-
-    char manifest_path[1024];
-    snprintf(manifest_path, sizeof manifest_path, "%s/frames.txt", cap.out_dir);
-    FILE *manifest = fopen(manifest_path, "w");
-    if (manifest == NULL) {
+    if (status != 0) {
+        fprintf(stderr, "uicap: line %u: %s\n", uicap_scene_error_line(&scene),
+                uicap_scene_error(&scene));
+        return 1;
+    }
+    if (fclose(files.manifest) != 0) {
         fprintf(stderr, "uicap: cannot write %s: %s\n", manifest_path, strerror(errno));
         return 1;
     }
-    for (unsigned i = 0U; i < cap.frame_count; ++i) {
-        fprintf(manifest, "%s-%04u.ppm\t%u\n", cap.prefix, i + 1U, cap.delays[i]);
-    }
-    fclose(manifest);
 
-    free(cap.delays);
     inkcell_capture_close(cap.capture);
     mesh_ui_store_shutdown(&cap.store);
 
-    if (!cap.quiet) {
-        printf("uicap: %u frame%s at %ux%u in %s\n", cap.frame_count,
-               cap.frame_count == 1U ? "" : "s", width, height, cap.out_dir);
+    if (!files.quiet) {
+        printf("uicap: %u frame%s at %ux%u in %s\n", scene.frames, scene.frames == 1U ? "" : "s",
+               width, height, files.out_dir);
     }
     return 0;
 }
