@@ -31,12 +31,14 @@
  * cheapest way to make that checkable by reading this function. The cursor is a verb now, so
  * the honest condition is also the safe one.
  *
- * The Mesh card offers one verb and for most of this screen's life it offered none. What
- * changed is that the card acquired a picture: the airtime bar is a reading somebody can now
- * want to see properly, and a chart is a screen rather than a row. Every *other* verb about the
- * mesh still belongs somewhere else - trace a node, ask it for a fix, or one of the destructive
- * ones that wants the confirmation dialog and is tied to a settings section. A card with no
- * verb is simply skipped by the cursor, which is what makes the flat list work.
+ * The Mesh card offers two verbs and for most of this screen's life it offered none. The trend
+ * arrived with the airtime bar - a reading somebody can want to see properly, and a chart is a
+ * screen rather than a row. The node lists arrived when the Radio tab took in Settings' Radio
+ * actions: the card already counts the radio's NodeDB and this client's roster, so it is where
+ * somebody looking to empty either one is already standing. The Radio card's details page is
+ * the same move for About radio and the verbs done to the radio itself. Every *other* verb about
+ * the mesh still belongs somewhere else - trace a node, ask it for a fix. A card with no verb is
+ * simply skipped by the cursor, which is what makes the flat list work.
  */
 
 /* What a row needs to be true before it is offered, as the three facts the caller holds. */
@@ -63,6 +65,13 @@ static const struct status_entry k_status_verbs[] = {
      MESH_UI_COMMAND_DISCONNECT, MESH_STR_ACTION_DISCONNECT, STATUS_NEED_LINK},
     {(uint8_t)MESH_UI_STATUS_CARD_MESH, (uint8_t)MESH_UI_STATUS_VERB_TREND, MESH_UI_COMMAND_TREND,
      MESH_STR_ACTION_TREND, STATUS_NEED_TREND},
+    /* The two pages, which need what the trend does not ask for either: nothing. Both are
+       most of the way readable with no link - a roster to forget, a firmware check that talks
+       to upstream rather than to the radio - and each says row by row what waits on one. */
+    {(uint8_t)MESH_UI_STATUS_CARD_MESH, (uint8_t)MESH_UI_STATUS_VERB_NODE_LISTS,
+     MESH_UI_COMMAND_OPEN, MESH_STR_ACTION_NODE_LISTS, 0U},
+    {(uint8_t)MESH_UI_STATUS_CARD_RADIO, (uint8_t)MESH_UI_STATUS_VERB_DETAILS, MESH_UI_COMMAND_OPEN,
+     MESH_STR_ACTION_DETAILS, 0U},
     {(uint8_t)MESH_UI_STATUS_CARD_RADIO, (uint8_t)MESH_UI_STATUS_VERB_REFRESH,
      MESH_UI_COMMAND_REFRESH, MESH_STR_ACTION_REFRESH, STATUS_NEED_LINK | STATUS_NEED_SYNC},
 };

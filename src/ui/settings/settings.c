@@ -69,6 +69,8 @@ static const inkcell_str_id k_section_labels[MESH_UI_SETTINGS_SECTION_COUNT] = {
     [MESH_UI_SETTINGS_CANNED] = MESH_STR_SETTINGS_SECTION_CANNED,
     [MESH_UI_SETTINGS_NETWORK] = MESH_STR_SETTINGS_SECTION_NETWORK,
     [MESH_UI_SETTINGS_BEACON] = MESH_STR_SETTINGS_SECTION_BEACON,
+    [MESH_UI_SETTINGS_RADIO_DETAILS] = MESH_STR_SETTINGS_SECTION_RADIO_DETAILS,
+    [MESH_UI_SETTINGS_NODE_LISTS] = MESH_STR_SETTINGS_SECTION_NODE_LISTS,
 };
 
 inkcell_str_id mesh_ui_settings_section_label(enum mesh_ui_settings_section section) {
@@ -108,6 +110,9 @@ static const enum inkcell_icon k_section_icons[MESH_UI_SETTINGS_SECTION_COUNT] =
     [MESH_UI_SETTINGS_STORE_FORWARD] = INKCELL_ICON_STORE_FWD,
     [MESH_UI_SETTINGS_TELEMETRY] = INKCELL_ICON_TELEMETRY,
     [MESH_UI_SETTINGS_ACTIONS] = INKCELL_ICON_ACTIONS,
+    /* The Radio tab's two pages wear the icons of the cards that open them. */
+    [MESH_UI_SETTINGS_RADIO_DETAILS] = INKCELL_ICON_RADIO,
+    [MESH_UI_SETTINGS_NODE_LISTS] = INKCELL_ICON_NODES,
     [MESH_UI_SETTINGS_MODULES] = INKCELL_ICON_MODULES,
     [MESH_UI_SETTINGS_NEIGHBOR_INFO] = INKCELL_ICON_NEIGHBORS,
     [MESH_UI_SETTINGS_RANGE_TEST] = INKCELL_ICON_RANGE_TEST,
@@ -412,6 +417,8 @@ static const inkcell_str_id k_section_notes[MESH_UI_SETTINGS_SECTION_COUNT] = {
     [MESH_UI_SETTINGS_CANNED] = MESH_STR_SETTINGS_NOTE_CANNED,
     [MESH_UI_SETTINGS_NETWORK] = MESH_STR_SETTINGS_NOTE_NETWORK,
     [MESH_UI_SETTINGS_BEACON] = MESH_STR_SETTINGS_NOTE_BEACON,
+    [MESH_UI_SETTINGS_RADIO_DETAILS] = MESH_STR_SETTINGS_NOTE_RADIO_DETAILS,
+    [MESH_UI_SETTINGS_NODE_LISTS] = MESH_STR_SETTINGS_NOTE_NODE_LISTS,
 };
 
 inkcell_str_id mesh_ui_settings_section_note(enum mesh_ui_settings_section section) {
@@ -472,10 +479,34 @@ static const enum mesh_ui_settings_section k_modules[] = {
     MESH_UI_SETTINGS_CANNED,
 };
 
-uint32_t mesh_ui_settings_root_count(void) { return (uint32_t)INKWELL_ARRAY_LEN(k_root); }
+/* The rows of k_root that only a remote node's administration lists: see the header. The radio
+   on the link keeps both on the Radio tab, as MESH_UI_SETTINGS_RADIO_DETAILS. */
+static bool root_row_is_remote_only(enum mesh_ui_settings_section section) {
+    return section == MESH_UI_SETTINGS_RADIO || section == MESH_UI_SETTINGS_ACTIONS;
+}
 
-enum mesh_ui_settings_section mesh_ui_settings_root_at(uint32_t row) {
-    return row < INKWELL_ARRAY_LEN(k_root) ? k_root[row] : MESH_UI_SETTINGS_ABOUT;
+uint32_t mesh_ui_settings_root_count(const struct mesh_ui_settings *settings) {
+    const bool remote = settings != NULL && settings->admin_dest != 0U;
+    uint32_t count = 0U;
+    for (size_t i = 0; i < INKWELL_ARRAY_LEN(k_root); ++i) {
+        count += (remote || !root_row_is_remote_only(k_root[i])) ? 1U : 0U;
+    }
+    return count;
+}
+
+enum mesh_ui_settings_section mesh_ui_settings_root_at(const struct mesh_ui_settings *settings,
+                                                       uint32_t row) {
+    const bool remote = settings != NULL && settings->admin_dest != 0U;
+    uint32_t at = 0U;
+    for (size_t i = 0; i < INKWELL_ARRAY_LEN(k_root); ++i) {
+        if (!remote && root_row_is_remote_only(k_root[i])) {
+            continue;
+        }
+        if (at++ == row) {
+            return k_root[i];
+        }
+    }
+    return MESH_UI_SETTINGS_ABOUT;
 }
 
 uint32_t mesh_ui_settings_module_count(void) { return (uint32_t)INKWELL_ARRAY_LEN(k_modules); }
@@ -603,6 +634,13 @@ bool mesh_ui_settings_section_loaded(const struct mesh_ui_settings *settings,
            the one thing an AdminMessage cannot be addressed without: our own node number. A
            cached roster with no link opens it too, for the two rows that drop that roster and
            send nothing - the rest then render as "not connected". */
+        return handshake != NULL && (handshake->has_my_info || handshake->node_count > 0U);
+    /* The union of the two it is made of: About radio's facts, or enough to address the verbs
+       under them. The node lists wait on what Radio actions did, for the same two rows. */
+    case MESH_UI_SETTINGS_RADIO_DETAILS:
+        return settings->has_metadata ||
+               (handshake != NULL && (handshake->has_my_info || handshake->node_count > 0U));
+    case MESH_UI_SETTINGS_NODE_LISTS:
         return handshake != NULL && (handshake->has_my_info || handshake->node_count > 0U);
     case MESH_UI_SETTINGS_MODULES:
         /* A folder, not a fragment. It lists every module whether or not the radio has sent

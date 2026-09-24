@@ -45,9 +45,10 @@ enum mesh_ui_settings_section {
     MESH_UI_SETTINGS_MQTT,
     MESH_UI_SETTINGS_STORE_FORWARD,
     MESH_UI_SETTINGS_TELEMETRY,
-    /* Things the radio does rather than keeps: reboot, shutdown, the resets. Last because a
-       cursor that overshoots the list should land on nothing worse than the row above it, and
-       grouped under headings that say whose node list each row would empty. */
+    /* Things the radio does rather than keeps: reboot, shutdown, the resets. On the Settings tab
+       only while it is administering another node - the radio on the link has these on the
+       Radio tab (RADIO_DETAILS below). Last because a cursor that overshoots the list should
+       land on nothing worse than the row above it. */
     MESH_UI_SETTINGS_ACTIONS,
     /* Not a config section: the list of the ones that are modules, with each module's enabled
        state as its value. A row here opens that module the way a Channels row opens a slot.
@@ -114,6 +115,24 @@ enum mesh_ui_settings_section {
      * mesh_ui_settings_module_at()'s business.
      */
     MESH_UI_SETTINGS_BEACON,
+    /*
+     * The two pages the Radio tab opens from its cards, which are sections because they are
+     * made of exactly the rows a section is made of - facts, verbs, headings, a confirm sheet in
+     * front of the costly ones - and a second row model for the same rows would be a second
+     * opinion about how a withdrawn reboot looks.
+     *
+     * RADIO_DETAILS is the Radio card's: what About radio says, and under it the things done *to*
+     * the radio - power, backup, the factory resets. NODE_LISTS is the Mesh card's: the radio's
+     * node database and this client's longer roster, the two lists "42 nodes" on that card is
+     * counting. Neither is in mesh_ui_settings_root_at(): the Settings tab keeps what a radio
+     * *keeps*, and the Radio tab what it *is* and what can be done to it.
+     *
+     * Both describe the radio on the end of the link, always. While the Settings tab is pointed
+     * at somebody else's node they say so and offer the way back rather than acting on it - see
+     * mesh_ui_settings_root_at() for where that node's own About and actions go instead.
+     */
+    MESH_UI_SETTINGS_RADIO_DETAILS,
+    MESH_UI_SETTINGS_NODE_LISTS,
     MESH_UI_SETTINGS_SECTION_COUNT,
 };
 
@@ -136,9 +155,17 @@ enum mesh_ui_settings_section {
  * the top level is a curated order and the Modules list is another. Keeping them as accessors
  * lets the enum above stay in declaration order - which is what every switch in the client is
  * written against - while the rows are ordered for the person reading them.
+ *
+ * The top level depends on one fact, which is why it takes the settings: whether the tab is
+ * administering another node. About radio and Radio actions are listed only then. For the
+ * radio on the link both live on the Radio tab, where the cards describing that radio are; a
+ * remote node has no cards, so its facts and its reboot stay here under the banner that names
+ * it - a Reboot on the Radio tab that took down somebody else's repeater would be a trap.
+ * NULL answers for the radio on the link.
  */
-uint32_t mesh_ui_settings_root_count(void);
-enum mesh_ui_settings_section mesh_ui_settings_root_at(uint32_t row);
+uint32_t mesh_ui_settings_root_count(const struct mesh_ui_settings *settings);
+enum mesh_ui_settings_section mesh_ui_settings_root_at(const struct mesh_ui_settings *settings,
+                                                       uint32_t row);
 uint32_t mesh_ui_settings_module_count(void);
 enum mesh_ui_settings_section mesh_ui_settings_module_at(uint32_t row);
 /* True for a section that lives under Modules rather than at the top level. */
@@ -804,10 +831,12 @@ enum mesh_ui_psk_choice {
 
 #define MESH_UI_SETTINGS_LABEL_MAX 24U
 #define MESH_UI_SETTINGS_VALUE_MAX 48U
-/* Telemetry is fifteen fields plus five headings; External notification will be worse. The
-   list is built onto the stack every frame, so this is ~4.9 KB in a loop that has no threads
-   to share it with. */
-#define MESH_UI_SETTINGS_ITEMS_MAX 32U
+/* Telemetry is fifteen fields plus five headings; External notification will be worse, and the
+   Radio tab's details page - About radio with the power, backup and factory verbs under it -
+   is 40 rows when a radio reports every interface it has
+   (ui_settings_radio_details_fits_at_its_longest). The list is built onto the stack every frame,
+   so this is ~7 KB in a loop that has no threads to share it with. */
+#define MESH_UI_SETTINGS_ITEMS_MAX 48U
 
 struct mesh_ui_settings_item {
     char label[MESH_UI_SETTINGS_LABEL_MAX];

@@ -15,7 +15,7 @@ tab settings
 
 # Down to Position and open it. The section's own rows first, so the two controls are on screen
 # together before the heading separates them.
-key down 6
+key down 5
 key a
 hold 900
 

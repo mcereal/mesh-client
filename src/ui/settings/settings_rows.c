@@ -2163,36 +2163,29 @@ static void build_beacon(const struct mesh_ui_settings *s, struct item_list *lis
  * "Forget off-radio nodes" is 22 - so the row reads across as one sentence rather than as a
  * clipped one: "Forget off-radio > 7 nodes".
  */
-static void build_actions(const struct mesh_ui_settings *s,
-                          const struct mesh_ui_handshake_state *handshake, struct item_list *list) {
-    /* With no link every row here but the two forget rows is unpressable. They say so rather
-       than disappearing: a section whose length changes when the radio drops moves the cursor
-       out from under the user, and "not connected" is the answer they were about to press A to
-       find out.
-       This asks whether the session can *send*, not whether we know our own node number. The
-       two were the same question only while a drop cleared has_my_info; spelled that way now,
-       every row here would stay pressable over a dead link and fail with -ENOTCONN after the
-       confirm dialog - and would already have done so on a cold start with a restored roster,
-       because the handshake is persisted. */
-    const bool connected = handshake != NULL && handshake->link_up;
+/*
+ * The verbs done *to* a radio, a group at a time.
+ *
+ * Groups rather than one list because two pages and a section share them and take different
+ * ones: the Radio tab's details page ends with power, backup and the factory resets; its node
+ * lists page is the node database and the two forget rows; and Settings' Radio actions, which
+ * exists only while another node is being administered, is everything that reaches the radio.
+ * Each group is written once, so a withdrawn Reboot looks the same wherever it is drawn.
+ *
+ * `connected` asks whether the session can *send*, not whether we know our own node number.
+ * The two were the same question only while a drop cleared has_my_info; spelled that way now,
+ * every row here would stay pressable over a dead link and fail with -ENOTCONN after the
+ * confirm dialog - and would already have done so on a cold start with a restored roster,
+ * because the handshake is persisted. With no link a row says so rather than disappearing: a
+ * page whose length changes when the radio drops moves the cursor out from under the user, and
+ * "not connected" is the answer they were about to press A to find out.
+ */
+static bool actions_connected(const struct mesh_ui_handshake_state *handshake) {
+    return handshake != NULL && handshake->link_up;
+}
 
-    /*
-     * Whose radio these rows would act on, first, the way About radio states it.
-     *
-     * The only section besides that one where getting the answer wrong costs something: with a
-     * remote target, "Reboot" takes somebody else's repeater down. The banner says so on every
-     * frame up to the moment the confirm sheet opens, and the sheet says it too - this is the
-     * line the reader passes on the way to the press.
-     *
-     * A statement rather than the way back, which stays in About radio: this section is a list
-     * of things to do *to a radio*, and a row that changed which radio would be the one press
-     * here that is not one of those.
-     */
-    if (s->admin_dest != 0U) {
-        item_heading(list, MESH_STR_RADIO_ADMIN_REMOTE_HEAD);
-        item_text(list, MESH_STR_RADIO_ADMIN_REMOTE_NODE, MESH_UI_SETTING_INFO, s->admin_dest_name);
-    }
-
+static void build_power_verbs(const struct mesh_ui_settings *s, bool connected,
+                              struct item_list *list) {
     item_heading(list, MESH_STR_HEAD_POWER);
     item_radio_action(list, MESH_STR_ACTION_REBOOT, MESH_UI_SETTINGS_ACTION_REBOOT, connected);
     /* DeviceMetadata says whether the hardware can cut its own power; on a board that cannot,
@@ -2205,13 +2198,20 @@ static void build_actions(const struct mesh_ui_settings *s,
         item_radio_action(list, MESH_STR_ACTION_SHUTDOWN, MESH_UI_SETTINGS_ACTION_SHUTDOWN,
                           connected);
     }
+}
+
+static void build_nodedb_verbs(bool connected, struct item_list *list) {
     item_heading(list, MESH_STR_HEAD_NODES_RADIO);
     item_radio_action(list, MESH_STR_ACTION_RESET_NODEDB, MESH_UI_SETTINGS_ACTION_RESET_NODEDB,
                       connected);
+}
 
-    /* Both numbers are what the press would remove, not what is cached or stale: a forget
-       keeps our own record and every pin, so a roster of eighty nodes that are all pinned has
-       nothing to drop and both rows say so. */
+/* Not radio verbs at all: they drop this client's own roster, which a NodeDB reset deliberately
+   leaves standing, so they send nothing and work with no link. Both numbers are what the press
+   would remove, not what is cached or stale: a forget keeps our own record and every pin, so a
+   roster of eighty nodes that are all pinned has nothing to drop and both rows say so. */
+static void build_forget_verbs(const struct mesh_ui_handshake_state *handshake,
+                               struct item_list *list) {
     item_heading(list, MESH_STR_HEAD_NODES_CACHED);
     forget_row(list, MESH_STR_ACTION_FORGET_OFF_RADIO,
                handshake != NULL ? handshake->nodes_forgettable_off_radio : 0U,
@@ -2219,9 +2219,11 @@ static void build_actions(const struct mesh_ui_settings *s,
     forget_row(list, MESH_STR_ACTION_FORGET_ALL,
                handshake != NULL ? handshake->nodes_forgettable_all : 0U,
                MESH_UI_SETTINGS_ACTION_FORGET_ALL_NODES);
+}
 
-    /* Before the factory resets, which is the order the whole section runs in: least to most
-       destructive, and a backup is the thing you want to have pressed before the row below. */
+/* Backup before the factory resets, which is the order every list of these runs in: least to
+   most destructive, and a backup is the thing you want to have pressed before the row below. */
+static void build_backup_verbs(bool connected, struct item_list *list) {
     item_heading(list, MESH_STR_HEAD_BACKUP);
     item_radio_action(list, MESH_STR_ACTION_BACKUP_CONFIG, MESH_UI_SETTINGS_ACTION_BACKUP_CONFIG,
                       connected);
@@ -2229,12 +2231,78 @@ static void build_actions(const struct mesh_ui_settings *s,
                       connected);
     item_radio_action(list, MESH_STR_ACTION_REMOVE_BACKUP, MESH_UI_SETTINGS_ACTION_REMOVE_BACKUP,
                       connected);
-
     item_heading(list, MESH_STR_HEAD_FACTORY_RESET);
     item_radio_action(list, MESH_STR_ACTION_FACTORY_CONFIG,
                       MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG, connected);
     item_radio_action(list, MESH_STR_ACTION_FACTORY_DEVICE,
                       MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE, connected);
+}
+
+/* Whose radio the Settings tab is pointed at, when it is not this one - the statement every
+   remote-facing list opens with. */
+static void build_remote_head(const struct mesh_ui_settings *s, struct item_list *list) {
+    item_heading(list, MESH_STR_RADIO_ADMIN_REMOTE_HEAD);
+    item_text(list, MESH_STR_RADIO_ADMIN_REMOTE_NODE, MESH_UI_SETTING_INFO, s->admin_dest_name);
+}
+
+/*
+ * Settings' Radio actions: the verbs for a node administered over the mesh.
+ *
+ * Listed only while there is one (mesh_ui_settings_root_at()), which is the only time getting
+ * "whose radio" wrong costs something: with a remote target, "Reboot" takes somebody else's
+ * repeater down. So the target is stated first, the way About radio states it - the line the
+ * reader passes on the way to the press. The forget rows are not here: they are about this
+ * client's roster whatever the tab is pointed at, and live with the node lists on the Radio tab.
+ */
+static void build_actions(const struct mesh_ui_settings *s,
+                          const struct mesh_ui_handshake_state *handshake, struct item_list *list) {
+    const bool connected = actions_connected(handshake);
+    if (s->admin_dest != 0U) {
+        build_remote_head(s, list);
+    }
+    build_power_verbs(s, connected, list);
+    build_nodedb_verbs(connected, list);
+    build_backup_verbs(connected, list);
+}
+
+/*
+ * The Radio tab's details page: About radio, and under it what can be done to the radio.
+ *
+ * Always the radio on the link. While the Settings tab is administering somebody else's node
+ * the settings behind these rows are *that* node's, so the page says whose they are and offers
+ * the way back instead of drawing another radio's firmware under this tab's name - and instead
+ * of a Reboot that would reach across the mesh. The remote node's own facts and verbs are on the
+ * Settings tab for as long as it is the target.
+ */
+static void build_radio_details(const struct mesh_ui_settings *s,
+                                const struct mesh_ui_handshake_state *handshake,
+                                struct item_list *list) {
+    if (s->admin_dest != 0U) {
+        build_remote_head(s, list);
+        item_verb(list, MESH_STR_RADIO_ADMIN_REMOTE_RETURN, MESH_UI_SETTINGS_ACTION_ADMIN_LOCAL);
+        return;
+    }
+    const bool connected = actions_connected(handshake);
+    build_radio(s, handshake, list);
+    build_power_verbs(s, connected, list);
+    build_backup_verbs(connected, list);
+}
+
+/*
+ * The Mesh card's node lists: the radio's database, and this client's longer roster.
+ *
+ * The reset is the radio's verb, so it is offered only for the radio on the link - while
+ * another node is administered it would empty *that* node's database, and Settings' Radio
+ * actions is where that press is made. The forget rows are always here: they touch nothing but
+ * this client.
+ */
+static void build_node_lists(const struct mesh_ui_settings *s,
+                             const struct mesh_ui_handshake_state *handshake,
+                             struct item_list *list) {
+    if (s->admin_dest == 0U) {
+        build_nodedb_verbs(actions_connected(handshake), list);
+    }
+    build_forget_verbs(handshake, list);
 }
 
 static void build_section(const struct mesh_ui_settings *settings,
@@ -2307,6 +2375,12 @@ static void build_section(const struct mesh_ui_settings *settings,
         break;
     case MESH_UI_SETTINGS_TELEMETRY:
         build_telemetry(settings, list);
+        break;
+    case MESH_UI_SETTINGS_RADIO_DETAILS:
+        build_radio_details(settings, handshake, list);
+        break;
+    case MESH_UI_SETTINGS_NODE_LISTS:
+        build_node_lists(settings, handshake, list);
         break;
     case MESH_UI_SETTINGS_ACTIONS:
         build_actions(settings, handshake, list);

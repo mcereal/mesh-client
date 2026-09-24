@@ -375,10 +375,12 @@ static bool help_section_open(const struct mesh_ui_route *route, const struct me
     if (route->level != MESH_UI_ROUTE_SECTION && route->level != MESH_UI_ROUTE_CHANNEL) {
         return false;
     }
-    if (nav->settings_section == MESH_UI_SETTINGS_NO_SECTION) {
+    /* On either tab that opens one: a Radio tab page is a section and explains itself as one. */
+    const uint8_t section = mesh_ui_nav_open_section(nav);
+    if (section == MESH_UI_SETTINGS_NO_SECTION) {
         return false;
     }
-    *out = (enum mesh_ui_settings_section)nav->settings_section;
+    *out = (enum mesh_ui_settings_section)section;
     return *out < MESH_UI_SETTINGS_SECTION_COUNT;
 }
 
@@ -395,8 +397,8 @@ static uint32_t help_section_items(const struct mesh_ui_settings *settings,
                                    const struct mesh_ui_nav *nav,
                                    enum mesh_ui_settings_section section,
                                    struct mesh_ui_settings_item *items) {
-    return mesh_ui_settings_items(settings, handshake, NULL, 0U, section, nav->settings_channel,
-                                  items, MESH_UI_SETTINGS_ITEMS_MAX);
+    return mesh_ui_settings_items(settings, handshake, NULL, 0U, section,
+                                  mesh_ui_nav_open_channel(nav), items, MESH_UI_SETTINGS_ITEMS_MAX);
 }
 
 /* The note for one row, or INKCELL_STR_NONE. A row that is not a field - a heading, a read-only

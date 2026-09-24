@@ -13,7 +13,7 @@ config
 
 tab settings
 hold 700
-key down 4
+key down 3
 key a
 hold 900
 key right

@@ -173,9 +173,9 @@ MESH_TEST_CASE(actions_screens_offer_their_own_presses, unit) {
     mesh_ui_actions_for(&snapshot, &bar);
     MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_QUIT) != INKCELL_STR_NONE,
                       "Status should not repeat the quit hint while nothing is connected");
-    /* And A is the one verb the cards carry with no radio: the way to the device list. */
+    /* And A is the first verb the cards carry with no radio: the way to the device list. */
     MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_A) != MESH_STR_ACTION_DEVICES,
-                      "Status with no radio should offer the device list and nothing else");
+                      "Status with no radio should stand on the device list");
 
     snapshot.device_count = 1U;
     snapshot.devices[0].connected = true;
@@ -196,11 +196,12 @@ MESH_TEST_CASE(actions_screens_offer_their_own_presses, unit) {
     MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_A) != MESH_STR_ACTION_DISCONNECT,
                       "A on the Link card's other verb should say disconnect");
 
-    /* With no radio there is only the one verb, and nothing to choose between. */
+    /* With no radio the two pages stay - neither needs a link to open - so there is still
+       something to choose between, and the bar still says how. */
     snapshot.devices[0].connected = false;
     mesh_ui_actions_for(&snapshot, &bar);
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_UP_DOWN) != INKCELL_STR_NONE,
-                      "one verb needs no gesture for choosing between verbs");
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_UP_DOWN) != MESH_STR_ACTION_CHOOSE,
+                      "the device list and the two pages want a way to choose between them");
     snapshot.devices[0].connected = true;
 
     /* A radio that has answered the handshake adds the Radio card's refresh, and the bar

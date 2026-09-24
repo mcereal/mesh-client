@@ -123,6 +123,10 @@ void fb_render_settings(struct inkcell_draw_state *state, const struct mesh_ui_s
 void fb_render_settings_list(struct inkcell_draw_state *state,
                              const struct mesh_ui_snapshot *snapshot,
                              struct inkcell_fb_layout *layout);
+/* A Radio tab page (nav.radio_page): the settings section it is built from, drawn full width, as
+   the Settings tab draws an open section, over the tab's own cursor. */
+void fb_render_radio_page(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
+                          struct inkcell_fb_layout *layout);
 
 /* What to call a device: the advertised name when it has one, otherwise whatever we addressed
    it by. The Devices tab's rows and the line under the keycaps name a radio the same way, which
@@ -185,6 +189,7 @@ enum fb_list_id {
     FB_LIST_WAYPOINT_DETAIL,
     FB_LIST_DEVICES,
     FB_LIST_SETTINGS,
+    FB_LIST_RADIO_PAGE,
     FB_LIST_HELP,
     FB_LIST_PICKER,
     FB_LIST_REACTIONS,

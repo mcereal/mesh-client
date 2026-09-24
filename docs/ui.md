@@ -434,7 +434,7 @@ a padding width, that belongs in a component instead.
 | `fb_screens_waypoints.c` | the places, and one of them open |
 | `fb_screens_devices.c` | every radio this client can see, and the row for typing an address |
 | `fb_screens_status.c` | the link, the radio and the mesh, as three cards |
-| `fb_screens_settings.c` | the sections, and one section's rows |
+| `fb_screens_settings.c` | the sections, and one section's rows - on the Settings tab, and as the Radio tab's two pages |
 | `fb_screens_overlays.c` | help, a confirm, the key-verification sheet |
 | `fb_screens_code.c` | the two QR sheets: this radio's channels, this radio's contact |
 | `fb_screens_chart.c` | one chart, opened from the Status cards and from a node's detail |
@@ -690,6 +690,16 @@ the tab, and left the handful of rows that really do open one saying nothing the
 The Nodes list's filter and sort rows answer the same table, which is why they are drawn as
 settings rows at all: the filter is a segmented button and says nothing, the sort is five orders
 and one word and takes the stepper.
+
+### A section on the Radio tab
+
+The Radio tab's two pages - the Radio card's *details* and the Mesh card's *nodes* - are settings
+sections (`MESH_UI_SETTINGS_RADIO_DETAILS`, `_NODE_LISTS`) opened over the cards as
+`nav.radio_page`. They are sections because their rows are: facts and verbs under headings, with
+the confirm sheet in front of the costly ones. So everything that answers for "the open section"
+asks `mesh_ui_nav_open_section()` rather than reading `settings_section`, and the rows, the A
+press, the sheet, the bar and help serve both tabs. What stays the Settings tab's is its pending
+edits: a page has no fields, and a Reboot pressed there carries none of them.
 
 ### A settings row that is a verb
 

@@ -66,17 +66,38 @@ static bool settings_row_slider(const struct mesh_ui_settings_item *item,
  * Modules and a channel under Channels, so the row is the open section's top-level one. What a
  * split frame's list pane puts under its cursor while the section stands beside it.
  */
-static uint32_t settings_open_root_row(const struct mesh_ui_nav *nav) {
+static uint32_t settings_open_root_row(const struct mesh_ui_nav *nav,
+                                       const struct mesh_ui_settings *settings) {
     const uint8_t top = nav->settings_parent != MESH_UI_SETTINGS_NO_SECTION ? nav->settings_parent
                                                                             : nav->settings_section;
-    const uint32_t count = mesh_ui_settings_root_count();
+    const uint32_t count = mesh_ui_settings_root_count(settings);
     for (uint32_t r = 0U; r < count; ++r) {
-        if ((uint8_t)mesh_ui_settings_root_at(r) == top) {
+        if ((uint8_t)mesh_ui_settings_root_at(settings, r) == top) {
             return r;
         }
     }
     return nav->settings_list_cursor;
 }
+
+/*
+ * Which section a pane draws, and from where: the Settings tab's own, or a Radio tab page.
+ *
+ * Everything the pane reads off the nav about "the open section" is here, so the two tabs
+ * cannot draw the same rows differently. A page has no channel, no parent and no edits - those
+ * are the Settings tab's - and a list of its own to glide, because its window is not the
+ * Settings tab's and inheriting that one would glide from a place it was never at.
+ */
+struct settings_view {
+    uint8_t section;
+    uint8_t channel;
+    uint8_t parent;
+    uint32_t cursor;
+    const struct mesh_ui_setting_edit *edits;
+    uint8_t edit_count;
+    enum fb_list_id glide;
+    /* The list pane of a split frame, beside the section it opened, rather than the section. */
+    bool roster;
+};
 
 /*
  * The screen, or with `roster` the section list alone whatever is open - the leading pane of a
@@ -85,16 +106,17 @@ static uint32_t settings_open_root_row(const struct mesh_ui_nav *nav) {
  */
 static void fb_render_settings_pane(struct inkcell_draw_state *state,
                                     const struct mesh_ui_snapshot *snapshot,
-                                    struct inkcell_fb_layout *layout, bool roster) {
+                                    struct inkcell_fb_layout *layout,
+                                    const struct settings_view *view) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
     const struct mesh_ui_settings *settings = &snapshot->settings;
     const struct mesh_ui_handshake_state *handshake =
         snapshot->handshake_valid ? &snapshot->handshake : NULL;
+    const bool roster = view->roster;
     /* A section open beside this list rather than in place of it. */
-    const bool beside = roster && nav->settings_section != MESH_UI_SETTINGS_NO_SECTION;
-    const bool section_open = !roster && nav->settings_section != MESH_UI_SETTINGS_NO_SECTION;
-    const enum mesh_ui_settings_section section =
-        (enum mesh_ui_settings_section)nav->settings_section;
+    const bool beside = roster && view->section != MESH_UI_SETTINGS_NO_SECTION;
+    const bool section_open = !roster && view->section != MESH_UI_SETTINGS_NO_SECTION;
+    const enum mesh_ui_settings_section section = (enum mesh_ui_settings_section)view->section;
 
     /*
      * The breadcrumb, as slots rather than as a sentence.
@@ -121,18 +143,18 @@ static void fb_render_settings_pane(struct inkcell_draw_state *state,
          * "Channels" over one channel - which is exactly where the breadcrumb was earning its
          * keep and nowhere else.
          */
-        if (nav->settings_channel != MESH_UI_SETTINGS_NO_CHANNEL) {
+        if (view->channel != MESH_UI_SETTINGS_NO_CHANNEL) {
             /* One channel out of the Channels list: the list is the level above it, and unlike
                Modules it is not in settings_parent - a channel is identified by its number
                rather than by a section of its own. */
             bar.trail[bar.trail_count++] = mesh_ui_settings_section_name(MESH_UI_SETTINGS_CHANNELS);
             inkcell_str_format(title, sizeof title, MESH_STR_SETTINGS_TITLE_CHANNEL,
-                               (unsigned)nav->settings_channel);
+                               (unsigned)view->channel);
             bar.title = title;
         } else {
-            if (nav->settings_parent != MESH_UI_SETTINGS_NO_SECTION) {
-                bar.trail[bar.trail_count++] = mesh_ui_settings_section_name(
-                    (enum mesh_ui_settings_section)nav->settings_parent);
+            if (view->parent != MESH_UI_SETTINGS_NO_SECTION) {
+                bar.trail[bar.trail_count++] =
+                    mesh_ui_settings_section_name((enum mesh_ui_settings_section)view->parent);
             }
             bar.title = mesh_ui_settings_section_name(section);
         }
@@ -141,9 +163,9 @@ static void fb_render_settings_pane(struct inkcell_draw_state *state,
          * rather than about a row. The warning family because that is what it is: the radio
          * does not know about these yet, and leaving the section is what loses them.
          */
-        if (nav->settings_edit_count > 0U) {
+        if (view->edit_count > 0U) {
             inkcell_str_format(unsaved, sizeof unsaved, MESH_STR_SETTINGS_UNSAVED,
-                               (unsigned)nav->settings_edit_count);
+                               (unsigned)view->edit_count);
             bar.badge = unsaved;
             bar.badge_family = INKCELL_FAMILY_WARNING;
         }
@@ -156,7 +178,8 @@ static void fb_render_settings_pane(struct inkcell_draw_state *state,
        reason the section list itself is - it is a list of what exists, not a read of the
        radio, and each of its rows says "not loaded" on its own. */
     if (!settings->loaded && (handshake == NULL || !handshake->has_my_info) && section_open &&
-        section != MESH_UI_SETTINGS_ABOUT && section != MESH_UI_SETTINGS_MODULES) {
+        section != MESH_UI_SETTINGS_ABOUT && section != MESH_UI_SETTINGS_MODULES &&
+        section != MESH_UI_SETTINGS_NODE_LISTS) {
         inkcell_fb_draw_empty(state, layout, INKCELL_ICON_SETTINGS,
                               inkcell_str(MESH_STR_SETTINGS_EMPTY_DISCONNECT));
         return;
@@ -178,10 +201,9 @@ static void fb_render_settings_pane(struct inkcell_draw_state *state,
     struct mesh_ui_settings_item items[MESH_UI_SETTINGS_ITEMS_MAX];
     const uint32_t count =
         section_open
-            ? mesh_ui_settings_items(settings, handshake, nav->settings_edits,
-                                     nav->settings_edit_count, section, nav->settings_channel,
-                                     items, MESH_UI_SETTINGS_ITEMS_MAX)
-            : mesh_ui_settings_root_count();
+            ? mesh_ui_settings_items(settings, handshake, view->edits, view->edit_count, section,
+                                     view->channel, items, MESH_UI_SETTINGS_ITEMS_MAX)
+            : mesh_ui_settings_root_count(settings);
     if (count == 0U) {
         /* Which of the two empty sections this is: one a refresh may fill in, and one it never
            will. Asked of the same predicate the section list asks, so the row and the screen
@@ -357,12 +379,11 @@ static void fb_render_settings_pane(struct inkcell_draw_state *state,
     /* With a section open beside the list, the tab's cursor indexes the section's rows and the
        list's own place is the open section's row. The list is then neither the glide's nor the
        click's: the section beside it is both. */
-    const uint32_t cursor =
-        beside ? settings_open_root_row(nav) : nav->cursor[MESH_UI_SCREEN_SETTINGS];
+    const uint32_t cursor = beside ? settings_open_root_row(nav, settings) : view->cursor;
     struct inkcell_fb_list list = inkcell_fb_list_begin_styled(
         state, layout, count, cursor, heights, any_cards ? cards : NULL, &look);
     if (!beside) {
-        inkcell_fb_list_glide(state, &list, FB_LIST_SETTINGS);
+        inkcell_fb_list_glide(state, &list, view->glide);
         inkcell_fb_list_focus(&list, (uint32_t)MESH_UI_FOCUS_ROWS);
     }
     uint32_t i;
@@ -610,8 +631,7 @@ static void fb_render_settings_pane(struct inkcell_draw_state *state,
              */
             if (item.kind == MESH_UI_SETTING_FLAG) {
                 struct inkcell_fb_selection sel = {
-                    .id = 0x06000000U | ((uint32_t)nav->settings_channel << 16) |
-                          (uint32_t)item.field,
+                    .id = 0x06000000U | ((uint32_t)view->channel << 16) | (uint32_t)item.field,
                     .on = item.number != 0U,
                     .dim = item.field == MESH_UI_FIELD_NONE,
                 };
@@ -634,8 +654,7 @@ static void fb_render_settings_pane(struct inkcell_draw_state *state,
             if (item.kind == MESH_UI_SETTING_TOGGLE) {
                 struct inkcell_fb_switch sw = {
                     .id = item.field != MESH_UI_FIELD_NONE
-                              ? 0x01000000U | ((uint32_t)nav->settings_channel << 16) |
-                                    (uint32_t)item.field
+                              ? 0x01000000U | ((uint32_t)view->channel << 16) | (uint32_t)item.field
                               : 0x02000000U | i,
                     .on = item.number != 0U,
                     .dim = item.field == MESH_UI_FIELD_NONE,
@@ -674,8 +693,7 @@ static void fb_render_settings_pane(struct inkcell_draw_state *state,
             struct mesh_ui_settings_track track;
             if (settings_row_slider(&item, &track)) {
                 struct inkcell_fb_slider slider = {
-                    .id = 0x05000000U | ((uint32_t)nav->settings_channel << 16) |
-                          (uint32_t)item.field,
+                    .id = 0x05000000U | ((uint32_t)view->channel << 16) | (uint32_t)item.field,
                     .position = track.position,
                     .stops = track.stops,
                     .unplaced = track.unplaced,
@@ -755,7 +773,7 @@ static void fb_render_settings_pane(struct inkcell_draw_state *state,
             };
             inkcell_fb_list_item(state, &list, i, &row);
         } else {
-            const enum mesh_ui_settings_section section_row = mesh_ui_settings_root_at(i);
+            const enum mesh_ui_settings_section section_row = mesh_ui_settings_root_at(settings, i);
             const enum mesh_ui_settings_availability available =
                 mesh_ui_settings_section_availability(settings, handshake, section_row);
             const bool loaded = available == MESH_UI_SETTINGS_SECTION_READY;
@@ -780,13 +798,44 @@ static void fb_render_settings_pane(struct inkcell_draw_state *state,
    pending edit in place of the radio's value, marked with a dot until Y saves it. */
 /* Takes the state mutably, unlike its neighbours: the switches on the toggle rows step an
    animation kept on it. Nothing else here writes to the state. */
+static struct settings_view settings_tab_view(const struct mesh_ui_nav *nav, bool roster) {
+    return (struct settings_view){
+        .section = nav->settings_section,
+        .channel = nav->settings_channel,
+        .parent = nav->settings_parent,
+        .cursor = nav->cursor[MESH_UI_SCREEN_SETTINGS],
+        .edits = nav->settings_edits,
+        .edit_count = nav->settings_edit_count,
+        .glide = FB_LIST_SETTINGS,
+        .roster = roster,
+    };
+}
+
 void fb_render_settings(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
                         struct inkcell_fb_layout *layout) {
-    fb_render_settings_pane(state, snapshot, layout, false);
+    const struct settings_view view = settings_tab_view(&snapshot->nav, false);
+    fb_render_settings_pane(state, snapshot, layout, &view);
 }
 
 void fb_render_settings_list(struct inkcell_draw_state *state,
                              const struct mesh_ui_snapshot *snapshot,
                              struct inkcell_fb_layout *layout) {
-    fb_render_settings_pane(state, snapshot, layout, true);
+    const struct settings_view view = settings_tab_view(&snapshot->nav, true);
+    fb_render_settings_pane(state, snapshot, layout, &view);
+}
+
+void fb_render_radio_page(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
+                          struct inkcell_fb_layout *layout) {
+    const struct mesh_ui_nav *nav = &snapshot->nav;
+    const struct settings_view view = {
+        .section = mesh_ui_nav_radio_page_section(nav->radio_page),
+        .channel = MESH_UI_SETTINGS_NO_CHANNEL,
+        .parent = MESH_UI_SETTINGS_NO_SECTION,
+        .cursor = nav->cursor[MESH_UI_SCREEN_RADIO],
+        .edits = NULL,
+        .edit_count = 0U,
+        .glide = FB_LIST_RADIO_PAGE,
+        .roster = false,
+    };
+    fb_render_settings_pane(state, snapshot, layout, &view);
 }

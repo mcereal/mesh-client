@@ -439,6 +439,22 @@ MESH_TEST_CASE(ui_route_the_chart_is_a_level_of_the_status_tab, unit) {
     mesh_ui_route_of(&nav, &moved);
     MESH_TEST_FAIL_IF(!mesh_ui_route_same(&cards, &moved),
                       "walking the verbs is not a change of place");
+
+    /* A page from a card is a level too, named the way a Settings section is - by the section it
+       is built from - so help, the bar and a scene read it with the words they already have. And
+       the two pages are two places, which is what makes moving between them a slide. */
+    nav.radio_page = MESH_UI_RADIO_PAGE_DETAILS;
+    struct mesh_ui_route details;
+    mesh_ui_route_of(&nav, &details);
+    MESH_TEST_FAIL_IF(details.depth != 1U || details.level != MESH_UI_ROUTE_SECTION ||
+                          details.slot != (uint8_t)MESH_UI_SETTINGS_RADIO_DETAILS,
+                      "the Radio card's details are one level in, as a section");
+    nav.radio_page = MESH_UI_RADIO_PAGE_NODE_LISTS;
+    struct mesh_ui_route lists;
+    mesh_ui_route_of(&nav, &lists);
+    MESH_TEST_FAIL_IF(mesh_ui_route_same(&details, &lists), "the two pages are two places");
+    MESH_TEST_FAIL_IF(mesh_ui_route_move(&lists, &cards) != INKCELL_TRANSITION_BACK,
+                      "leaving a page should slide back");
     record_success(test_name);
 }
 

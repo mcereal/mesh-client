@@ -32,7 +32,7 @@ MESH_TEST_CASE(ui_nav_settings, unit) {
     if (store.nav.screen != MESH_UI_SCREEN_SETTINGS ||
         store.nav.settings_section != MESH_UI_SETTINGS_NO_SECTION ||
         mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS) !=
-            mesh_ui_settings_root_count()) {
+            mesh_ui_settings_root_count(&store.settings)) {
         failure = "Settings tab should open on the section list";
         goto cleanup;
     }
@@ -75,7 +75,7 @@ MESH_TEST_CASE(ui_nav_settings, unit) {
     }
     mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
     if (store.nav.settings_section != MESH_UI_SETTINGS_NO_SECTION ||
-        mesh_ui_settings_root_at(store.nav.cursor[MESH_UI_SCREEN_SETTINGS]) !=
+        mesh_ui_settings_root_at(&store.settings, store.nav.cursor[MESH_UI_SCREEN_SETTINGS]) !=
             MESH_UI_SETTINGS_LORA ||
         store.nav.screen != MESH_UI_SCREEN_SETTINGS) {
         failure = "B should return to the section list at the same row";
@@ -179,7 +179,7 @@ MESH_TEST_CASE(ui_nav_modules, unit) {
     mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
     if (store.nav.settings_section != MESH_UI_SETTINGS_NO_SECTION ||
         store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != modules_row ||
-        mesh_ui_settings_root_at(store.nav.cursor[MESH_UI_SCREEN_SETTINGS]) !=
+        mesh_ui_settings_root_at(&store.settings, store.nav.cursor[MESH_UI_SCREEN_SETTINGS]) !=
             MESH_UI_SETTINGS_MODULES) {
         failure = "a second B should return to the top level at the Modules row";
         goto cleanup;
@@ -861,10 +861,32 @@ MESH_TEST_CASE(ui_settings_clear_row_follows_every_cleared_field, unit) {
 }
 
 /*
- * The Radio actions section as the user walks it: A opens the question rather than doing the
- * thing, Cancel is where the cursor starts, and only the answer emits an action. The section
- * needs no config fragment, so it is reachable as soon as the handshake has told us our own
- * node number.
+ * The row a verb is on in a section as built, or MESH_UI_SETTINGS_ITEMS_MAX when it is not there.
+ * The details page leads with whatever About radio has to say, so how far down Reboot sits is a
+ * fact about the fixture's metadata rather than something a test should count to.
+ */
+static uint32_t settings_row_of(const struct mesh_ui_store *store,
+                                enum mesh_ui_settings_section section,
+                                enum mesh_ui_settings_action verb) {
+    struct mesh_ui_settings_item item;
+    for (uint32_t row = 0U; row < MESH_UI_SETTINGS_ITEMS_MAX; ++row) {
+        if (!mesh_ui_settings_item(&store->settings, &store->handshake, NULL, 0U, section,
+                                   MESH_UI_SETTINGS_NO_CHANNEL, row, &item)) {
+            break;
+        }
+        if ((item.kind == MESH_UI_SETTING_ACTION || item.kind == MESH_UI_SETTING_ACTION_OFF) &&
+            item.field == MESH_UI_FIELD_NONE && item.number == (uint32_t)verb) {
+            return row;
+        }
+    }
+    return MESH_UI_SETTINGS_ITEMS_MAX;
+}
+
+/*
+ * The verbs done to a radio, as the user walks them on the Radio tab: A opens the question
+ * rather than doing the thing, Cancel is where the cursor starts, and only the answer emits an
+ * action. The node lists need no config fragment, so they are reachable as soon as the
+ * handshake has told us our own node number.
  */
 MESH_TEST_CASE(ui_nav_radio_actions, unit) {
     const char *failure = NULL;
@@ -880,61 +902,57 @@ MESH_TEST_CASE(ui_nav_radio_actions, unit) {
     mesh_ui_store_set_settings(&store, &settings);
 
     if (!mesh_ui_settings_section_loaded(&store.settings, &store.handshake,
-                                         MESH_UI_SETTINGS_ACTIONS) ||
-        mesh_ui_settings_section_loaded(&store.settings, NULL, MESH_UI_SETTINGS_ACTIONS)) {
-        failure = "Radio actions needs our node number or a roster to drop";
+                                         MESH_UI_SETTINGS_NODE_LISTS) ||
+        mesh_ui_settings_section_loaded(&store.settings, NULL, MESH_UI_SETTINGS_NODE_LISTS)) {
+        failure = "the node lists need our node number or a roster to drop";
         goto cleanup;
     }
     /* A cached roster with no link opens it too - for the forget rows, which send nothing. */
     struct mesh_ui_handshake_state offline = store.handshake;
     offline.has_my_info = false;
-    if (!mesh_ui_settings_section_loaded(&store.settings, &offline, MESH_UI_SETTINGS_ACTIONS)) {
-        failure = "a cached roster should open Radio actions with no link";
+    if (!mesh_ui_settings_section_loaded(&store.settings, &offline, MESH_UI_SETTINGS_NODE_LISTS)) {
+        failure = "a cached roster should open the node lists with no link";
         goto cleanup;
     }
     offline.node_count = 0U;
-    if (mesh_ui_settings_section_loaded(&store.settings, &offline, MESH_UI_SETTINGS_ACTIONS)) {
-        failure = "with no link and no roster there is nothing in Radio actions to press";
+    if (mesh_ui_settings_section_loaded(&store.settings, &offline, MESH_UI_SETTINGS_NODE_LISTS)) {
+        failure = "with no link and no roster there is nothing in the node lists to press";
         goto cleanup;
     }
 
+    /* The node lists open on the reset, not on the heading above it: a heading is not a row the
+       cursor may stand on, so the walk steps over it, and Up from there stays put rather than
+       parking on a row where A would do nothing and the action bar would still promise it. */
     struct mesh_ui_action action;
-    (void)mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS);
-    mesh_test_settings_open(&store, MESH_UI_SETTINGS_ACTIONS);
-    if (store.nav.settings_section != MESH_UI_SETTINGS_ACTIONS ||
-        mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS) != 15U) {
-        failure = "the Radio actions section should open with ten rows under five headings";
-        goto cleanup;
-    }
-
-    /* Row 0 is the "Power" heading, as Telemetry's row 0 is "Device" - and a section that
-       groups its rows no longer opens *on* one: a heading is not a row the cursor may stand on,
-       so the walk steps over it and the section opens on Reboot underneath. */
     struct mesh_ui_settings_item item;
-    if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
-                               MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL, 0U, &item) ||
-        item.kind != MESH_UI_SETTING_HEADING || strcmp(item.label, "Power") != 0) {
-        failure = "the section should open on the Power heading";
+    if (!mesh_test_open_radio_page(&store, MESH_UI_SETTINGS_NODE_LISTS) ||
+        !mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
+                               MESH_UI_SETTINGS_NODE_LISTS, MESH_UI_SETTINGS_NO_CHANNEL, 0U,
+                               &item) ||
+        item.kind != MESH_UI_SETTING_HEADING) {
+        failure = "the node lists should open under their first heading";
         goto cleanup;
     }
-    if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
-                               MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL, 1U, &item) ||
-        item.kind != MESH_UI_SETTING_ACTION ||
-        item.number != (uint32_t)MESH_UI_SETTINGS_ACTION_REBOOT ||
-        strcmp(item.label, "Reboot") != 0) {
-        failure = "Reboot should be the first row under it";
-        goto cleanup;
-    }
-    /* The heading is unreachable rather than merely inert, which is the stronger half of the
-       same rule: the cursor opens on Reboot, and UP from there stays put rather than parking on
-       a row where A would do nothing and the action bar would still promise it. */
-    if (store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != 1U) {
-        failure = "the section should open on Reboot rather than on the heading above it";
+    if (store.nav.cursor[MESH_UI_SCREEN_RADIO] != 1U ||
+        settings_row_of(&store, MESH_UI_SETTINGS_NODE_LISTS,
+                        MESH_UI_SETTINGS_ACTION_RESET_NODEDB) != 1U) {
+        failure = "the node lists should open on the reset rather than on the heading above it";
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
-    if (store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != 1U) {
+    if (store.nav.cursor[MESH_UI_SCREEN_RADIO] != 1U) {
         failure = "UP off the first real row should not land on a heading";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
+
+    /* Reboot, on the Radio card's details page. */
+    const uint32_t reboot =
+        settings_row_of(&store, MESH_UI_SETTINGS_RADIO_DETAILS, MESH_UI_SETTINGS_ACTION_REBOOT);
+    if (reboot >= MESH_UI_SETTINGS_ITEMS_MAX ||
+        !mesh_test_open_radio_page(&store, MESH_UI_SETTINGS_RADIO_DETAILS) ||
+        !mesh_test_settings_cursor_to(&store, reboot)) {
+        failure = "Reboot should be a row of the Radio card's details";
         goto cleanup;
     }
 
@@ -954,24 +972,35 @@ MESH_TEST_CASE(ui_nav_radio_actions, unit) {
     }
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
-    if (store.nav.confirm_open || action.type != MESH_UI_ACTION_NONE) {
-        failure = "B should back out of the overlay";
+    if (store.nav.confirm_open || action.type != MESH_UI_ACTION_NONE ||
+        mesh_ui_nav_open_section(&store.nav) != (uint8_t)MESH_UI_SETTINGS_RADIO_DETAILS) {
+        failure = "B should back out of the overlay and no further";
         goto cleanup;
     }
 
-    /* Open it again, move onto the verb, and answer: that is the only press that acts. */
+    /*
+     * Open it again, move onto the verb, and answer: that is the only press that acts.
+     *
+     * With an edit waiting on the Settings tab, which is the case a shared confirm sheet has to
+     * get right: a pending edit is carried by a radio action because "Set fixed position" reads
+     * the rows above it, and a Reboot pressed on another tab carrying half-typed coordinates
+     * would be a write nobody made.
+     */
+    store.nav.settings_edits[0].field = (uint8_t)MESH_UI_FIELD_POSITION_SMART;
+    store.nav.settings_edits[0].number = 1U;
+    store.nav.settings_edit_count = 1U;
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (store.nav.confirm_open || action.type != MESH_UI_ACTION_RADIO_ACTION ||
         action.number != (uint32_t)MESH_UI_SETTINGS_ACTION_REBOOT ||
-        action.section != MESH_UI_SETTINGS_ACTIONS || action.edit_count != 0U) {
-        failure = "confirming should emit the reboot and carry no edits";
+        action.section != MESH_UI_SETTINGS_RADIO_DETAILS || action.edit_count != 0U) {
+        failure = "confirming should emit the reboot and carry none of the Settings tab's edits";
         goto cleanup;
     }
 
     char text[96];
-    mesh_ui_settings_confirm_title(MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL,
+    mesh_ui_settings_confirm_title(MESH_UI_SETTINGS_RADIO_DETAILS, MESH_UI_SETTINGS_NO_CHANNEL,
                                    MESH_UI_SETTINGS_ACTION_REBOOT, text, sizeof text);
     if (strcmp(text, "Reboot the radio?") != 0 ||
         strcmp(mesh_ui_settings_confirm_accept(MESH_UI_SETTINGS_ACTION_REBOOT), "Reboot now") !=
@@ -994,7 +1023,8 @@ MESH_TEST_CASE(ui_nav_radio_actions, unit) {
     settings.can_shutdown = false;
     mesh_ui_store_set_settings(&store, &settings);
     if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
-                               MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL, 2U, &item) ||
+                               MESH_UI_SETTINGS_RADIO_DETAILS, MESH_UI_SETTINGS_NO_CHANNEL,
+                               reboot + 1U, &item) ||
         item.kind != MESH_UI_SETTING_ACTION_OFF || strcmp(item.value, "not supported") != 0) {
         failure = "Shutdown should be a withdrawn verb on a board that cannot shut down";
         goto cleanup;
@@ -1007,9 +1037,9 @@ cleanup:
 }
 
 /*
- * The two rows in Radio actions that are not radio actions: they drop this client's own cached
- * roster and send nothing at all. They are here rather than in About because a NodeDB reset
- * leaves that roster standing on purpose, and this is the screen the user is on when the Nodes
+ * The two rows of the node lists that are not radio actions: they drop this client's own cached
+ * roster and send nothing at all. They sit under the radio's own reset because a NodeDB reset
+ * leaves that roster standing on purpose, and this is the page the user is on when the Nodes
  * tab keeps saying eighty-one after the radio's database says two.
  */
 MESH_TEST_CASE(ui_nav_forget_nodes, unit) {
@@ -1039,14 +1069,16 @@ MESH_TEST_CASE(ui_nav_forget_nodes, unit) {
        fixture publishes no forget counts, which is the state before the first sync fills them. */
     struct mesh_ui_settings_item item;
     if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
-                               MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL, 6U, &item) ||
+                               MESH_UI_SETTINGS_NODE_LISTS, MESH_UI_SETTINGS_NO_CHANNEL, 3U,
+                               &item) ||
         strcmp(item.label, "Forget off-radio") != 0 || item.kind != MESH_UI_SETTING_ACTION_OFF ||
         strcmp(item.value, "nothing to drop") != 0) {
         failure = "with nothing off-radio the first forget row should be a withdrawn verb";
         goto cleanup;
     }
     if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
-                               MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL, 7U, &item) ||
+                               MESH_UI_SETTINGS_NODE_LISTS, MESH_UI_SETTINGS_NO_CHANNEL, 4U,
+                               &item) ||
         strcmp(item.label, "Forget all cached") != 0 || item.kind != MESH_UI_SETTING_ACTION_OFF ||
         strcmp(item.value, "nothing to drop") != 0) {
         failure = "an empty forget count should not draw as a press";
@@ -1064,7 +1096,8 @@ MESH_TEST_CASE(ui_nav_forget_nodes, unit) {
     mesh_ui_store_set_handshake(&store, &handshake);
 
     if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
-                               MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL, 6U, &item) ||
+                               MESH_UI_SETTINGS_NODE_LISTS, MESH_UI_SETTINGS_NO_CHANNEL, 3U,
+                               &item) ||
         item.kind != MESH_UI_SETTING_ACTION || strcmp(item.value, "2 nodes") != 0 ||
         item.number != (uint32_t)MESH_UI_SETTINGS_ACTION_FORGET_OFF_RADIO_NODES) {
         failure = "the row should say how many nodes it would forget";
@@ -1081,7 +1114,8 @@ MESH_TEST_CASE(ui_nav_forget_nodes, unit) {
     pinned.nodes_forgettable_all = 0U;
     mesh_ui_store_set_handshake(&store, &pinned);
     if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
-                               MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL, 6U, &item) ||
+                               MESH_UI_SETTINGS_NODE_LISTS, MESH_UI_SETTINGS_NO_CHANNEL, 3U,
+                               &item) ||
         item.kind != MESH_UI_SETTING_ACTION_OFF || strcmp(item.value, "nothing to drop") != 0) {
         failure = "a roster of pinned orphans should offer no press at all";
         goto cleanup;
@@ -1094,21 +1128,16 @@ MESH_TEST_CASE(ui_nav_forget_nodes, unit) {
     mesh_ui_store_set_handshake(&store, &handshake);
 
     struct mesh_ui_action action;
-    (void)mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS);
-    if (!mesh_test_settings_open(&store, MESH_UI_SETTINGS_ACTIONS)) {
-        failure = "Radio actions did not open";
+    if (!mesh_test_open_radio_page(&store, MESH_UI_SETTINGS_NODE_LISTS)) {
+        failure = "the node lists did not open";
         goto cleanup;
     }
-    /* Down to the first forget row, which is row 6: Reboot and Shutdown under the "Power"
-       heading, then "Nodes on the radio" and its one row, then "Nodes cached here". The section
-       opens on Reboot rather than on the heading above it and the walk steps over the two
-       headings between, so this walks to the row rather than counting presses - what the test
-       is about is which row the forget verb is on, not how many times DOWN was pressed. */
-    while (store.nav.cursor[MESH_UI_SCREEN_SETTINGS] < 6U &&
-           mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action)) {
-    }
-    if (store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != 6U) {
-        failure = "six presses should land on the first forget row";
+    /* Down to the first forget row, which is row 3: "Nodes on the radio" and its one row, then
+       "Nodes cached here". The page opens on the reset rather than on the heading above it and
+       the walk steps over the heading between, so this walks to the row rather than counting
+       presses - what the test is about is which row the forget verb is on. */
+    if (!mesh_test_settings_cursor_to(&store, 3U)) {
+        failure = "the walk should land on the first forget row";
         goto cleanup;
     }
 
@@ -1139,14 +1168,14 @@ MESH_TEST_CASE(ui_nav_forget_nodes, unit) {
     }
 
     char text[160];
-    mesh_ui_settings_confirm_title(MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL,
+    mesh_ui_settings_confirm_title(MESH_UI_SETTINGS_NODE_LISTS, MESH_UI_SETTINGS_NO_CHANNEL,
                                    MESH_UI_SETTINGS_ACTION_FORGET_OFF_RADIO_NODES, text,
                                    sizeof text);
     if (strcmp(text, "Forget off-radio nodes?") != 0) {
         failure = "the overlay should name what it is about to forget";
         goto cleanup;
     }
-    mesh_ui_settings_confirm_text(MESH_UI_SETTINGS_ACTIONS,
+    mesh_ui_settings_confirm_text(MESH_UI_SETTINGS_NODE_LISTS,
                                   MESH_UI_SETTINGS_ACTION_FORGET_OFF_RADIO_NODES, text,
                                   sizeof text);
     if (strstr(text, "radio") == NULL) {
@@ -1155,19 +1184,21 @@ MESH_TEST_CASE(ui_nav_forget_nodes, unit) {
     }
 
     /* With the link gone the roster is still ours to drop, so the rows stay pressable while
-       the five that need an AdminMessage say why they cannot be.
+       the reset, which needs an AdminMessage, says why it cannot be.
        The link is what goes, not our knowledge of the radio: has_my_info now survives a drop,
        so clearing that here would be describing a state the client is never in. */
     handshake.link_up = false;
     mesh_ui_store_set_handshake(&store, &handshake);
     if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
-                               MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL, 1U, &item) ||
+                               MESH_UI_SETTINGS_NODE_LISTS, MESH_UI_SETTINGS_NO_CHANNEL, 1U,
+                               &item) ||
         item.kind != MESH_UI_SETTING_ACTION_OFF || strcmp(item.value, "not connected") != 0) {
-        failure = "Reboot should say why it cannot be pressed with no link";
+        failure = "the reset should say why it cannot be pressed with no link";
         goto cleanup;
     }
     if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
-                               MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL, 6U, &item) ||
+                               MESH_UI_SETTINGS_NODE_LISTS, MESH_UI_SETTINGS_NO_CHANNEL, 3U,
+                               &item) ||
         item.kind != MESH_UI_SETTING_ACTION) {
         failure = "forgetting cached nodes needs no radio";
         goto cleanup;
@@ -1517,15 +1548,15 @@ cleanup:
 }
 
 /*
- * Settings > Actions is gated on the session having a send path, not on knowing our own node
- * number.
+ * The verbs done to a radio are gated on the session having a send path, not on knowing our own
+ * node number.
  *
  * Those were the same question only while a drop cleared has_my_info. They stopped being the
  * same when what the radio *is* began surviving a reconnect, and the rows here are the ones
  * that matter: reboot, shutdown, NodeDB reset, backup/restore and the two factory resets all
  * send an AdminMessage, so offering them over a dead link means a confirm dialog followed by
- * -ENOTCONN. The section still opens - the two forget rows are local and always work - and the
- * rest render as "not connected" rather than disappearing, because a section whose length
+ * -ENOTCONN. The Radio tab's pages still open - the two forget rows are local and always work -
+ * and the rest render as "not connected" rather than disappearing, because a page whose length
  * changes when the radio drops moves the cursor out from under the user.
  *
  * The persisted handshake is why this was worth a test of its own: has_my_info is written to
@@ -1558,35 +1589,71 @@ MESH_TEST_CASE(ui_settings_actions_need_a_live_link, unit) {
         goto cleanup;
     }
 
-    /* The section still opens, because the forget rows send nothing. */
-    if (!mesh_ui_settings_section_loaded(&store.settings, &dropped, MESH_UI_SETTINGS_ACTIONS)) {
-        failure = "a cached roster should still open Radio actions";
-        goto cleanup;
-    }
-
-    /* Every AdminMessage row reads "not connected" and cannot be pressed. */
-    const uint32_t count = mesh_ui_settings_item_count(
-        &store.settings, &dropped, MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL);
-    unsigned pressable = 0U;
+    /*
+     * Both Radio tab pages, which are where these rows live now: the details page's power,
+     * backup and factory rows, and the node lists' reset and forget rows. Counted together
+     * because the claim is about the rows, not the page - and counted by what a row *sends*,
+     * because the details page also carries the firmware rows, which talk to upstream rather
+     * than to the radio and are rightly pressable with nothing attached.
+     */
+    static const enum mesh_ui_settings_section k_pages[] = {
+        MESH_UI_SETTINGS_RADIO_DETAILS,
+        MESH_UI_SETTINGS_NODE_LISTS,
+    };
+    unsigned radio_pressable = 0U;
+    unsigned forget_pressable = 0U;
     unsigned not_connected = 0U;
-    for (uint32_t row = 0; row < count; ++row) {
-        struct mesh_ui_settings_item item;
-        if (!mesh_ui_settings_item(&store.settings, &dropped, NULL, 0U, MESH_UI_SETTINGS_ACTIONS,
-                                   MESH_UI_SETTINGS_NO_CHANNEL, row, &item)) {
-            failure = "row should exist";
+    unsigned live_radio_pressable = 0U;
+    for (size_t p = 0; p < sizeof k_pages / sizeof k_pages[0]; ++p) {
+        const enum mesh_ui_settings_section page = k_pages[p];
+        /* The page still opens, because the forget rows send nothing. */
+        if (!mesh_ui_settings_section_loaded(&store.settings, &dropped, page)) {
+            failure = "a cached roster should still open both pages";
             goto cleanup;
         }
-        if (item.kind == MESH_UI_SETTING_ACTION) {
-            ++pressable;
+        const uint32_t count = mesh_ui_settings_item_count(&store.settings, &dropped, page,
+                                                           MESH_UI_SETTINGS_NO_CHANNEL);
+        for (uint32_t row = 0; row < count; ++row) {
+            struct mesh_ui_settings_item item;
+            if (!mesh_ui_settings_item(&store.settings, &dropped, NULL, 0U, page,
+                                       MESH_UI_SETTINGS_NO_CHANNEL, row, &item)) {
+                failure = "row should exist";
+                goto cleanup;
+            }
+            const enum mesh_ui_settings_action which = (enum mesh_ui_settings_action)item.number;
+            if (item.kind == MESH_UI_SETTING_ACTION && item.field == MESH_UI_FIELD_NONE) {
+                radio_pressable += mesh_ui_settings_action_is_radio(which) ? 1U : 0U;
+                forget_pressable += mesh_ui_settings_action_is_forget(which) ? 1U : 0U;
+            }
+            if (item.kind == MESH_UI_SETTING_ACTION_OFF &&
+                strcmp(item.value, inkcell_str(MESH_STR_SETTINGS_NOT_CONNECTED)) == 0) {
+                ++not_connected;
+            }
         }
-        if (item.kind == MESH_UI_SETTING_ACTION_OFF &&
-            strcmp(item.value, inkcell_str(MESH_STR_SETTINGS_NOT_CONNECTED)) == 0) {
-            ++not_connected;
+
+        /* And with the link back, the same rows are pressable again - the gate is the link,
+           not something that latched - on a page that has not changed length under the
+           reader. */
+        struct mesh_ui_handshake_state live = dropped;
+        live.link_up = true;
+        if (mesh_ui_settings_item_count(&store.settings, &live, page,
+                                        MESH_UI_SETTINGS_NO_CHANNEL) != count) {
+            failure = "a page must not change length when the radio drops";
+            goto cleanup;
+        }
+        for (uint32_t row = 0; row < count; ++row) {
+            struct mesh_ui_settings_item item;
+            if (mesh_ui_settings_item(&store.settings, &live, NULL, 0U, page,
+                                      MESH_UI_SETTINGS_NO_CHANNEL, row, &item) &&
+                item.kind == MESH_UI_SETTING_ACTION && item.field == MESH_UI_FIELD_NONE &&
+                mesh_ui_settings_action_is_radio((enum mesh_ui_settings_action)item.number)) {
+                ++live_radio_pressable;
+            }
         }
     }
     /* The two forget rows are local - they drop our own cache and send nothing - so they stay
-       pressable with no radio in sight. Nothing else here may be. */
-    if (pressable != 2U) {
+       pressable with no radio in sight. No row that sends an AdminMessage may be. */
+    if (radio_pressable != 0U || forget_pressable != 2U) {
         failure = "only the two local forget rows may be pressable with no link";
         goto cleanup;
     }
@@ -1594,27 +1661,7 @@ MESH_TEST_CASE(ui_settings_actions_need_a_live_link, unit) {
         failure = "the AdminMessage rows should say why they cannot be pressed";
         goto cleanup;
     }
-
-    /* And with the link back, the same rows are pressable again - the gate is the link, not
-       something that latched. */
-    struct mesh_ui_handshake_state live = dropped;
-    live.link_up = true;
-    unsigned live_pressable = 0U;
-    const uint32_t live_count = mesh_ui_settings_item_count(
-        &store.settings, &live, MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL);
-    if (live_count != count) {
-        failure = "the section must not change length when the radio drops";
-        goto cleanup;
-    }
-    for (uint32_t row = 0; row < live_count; ++row) {
-        struct mesh_ui_settings_item item;
-        if (mesh_ui_settings_item(&store.settings, &live, NULL, 0U, MESH_UI_SETTINGS_ACTIONS,
-                                  MESH_UI_SETTINGS_NO_CHANNEL, row, &item) &&
-            item.kind == MESH_UI_SETTING_ACTION) {
-            ++live_pressable;
-        }
-    }
-    if (live_pressable <= pressable) {
+    if (live_radio_pressable == 0U) {
         failure = "a live link should make the AdminMessage rows pressable again";
         goto cleanup;
     }
@@ -1849,9 +1896,10 @@ cleanup:
  *     heading" implementation gets wrong.
  *   - back again, from the top of a group, crosses into the one before it.
  *
- * Radio actions rather than a section built here, because the rule is about what the renderer
- * cards on and this is the screen it was written for - and the cursor is walked with presses so
- * the case cannot drift from what the row order actually is.
+ * The Radio card's details rather than a section built here, because the rule is about what the
+ * renderer cards on and that page is the verbs this was written for, now on the Radio tab - so
+ * it also holds that the shoulders cross cards there as they do on the Settings tab. The cursor
+ * is walked with presses so the case cannot drift from what the row order actually is.
  */
 MESH_TEST_CASE(ui_nav_settings_shoulders_walk_the_cards, unit) {
     struct mesh_ui_store store;
@@ -1860,9 +1908,8 @@ MESH_TEST_CASE(ui_nav_settings_shoulders_walk_the_cards, unit) {
     const char *failure = NULL;
     char message[160];
 
-    (void)mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS);
-    if (!mesh_test_settings_open(&store, MESH_UI_SETTINGS_ACTIONS)) {
-        failure = "Radio actions could not be opened";
+    if (!mesh_test_open_radio_page(&store, MESH_UI_SETTINGS_RADIO_DETAILS)) {
+        failure = "the Radio card's details could not be opened";
     }
 
     struct mesh_ui_action action;
@@ -1870,12 +1917,12 @@ MESH_TEST_CASE(ui_nav_settings_shoulders_walk_the_cards, unit) {
     uint32_t groups = 0U;
     if (failure == NULL) {
         /* Forward to the end, recording where each press lands. */
-        seen[groups++] = store.nav.cursor[MESH_UI_SCREEN_SETTINGS];
+        seen[groups++] = store.nav.cursor[MESH_UI_SCREEN_RADIO];
         for (;;) {
-            const uint32_t before = store.nav.cursor[MESH_UI_SCREEN_SETTINGS];
+            const uint32_t before = store.nav.cursor[MESH_UI_SCREEN_RADIO];
             memset(&action, 0, sizeof action);
             (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_R2, &action);
-            const uint32_t after = store.nav.cursor[MESH_UI_SCREEN_SETTINGS];
+            const uint32_t after = store.nav.cursor[MESH_UI_SCREEN_RADIO];
             if (after == before) {
                 break; /* refused: no group that way */
             }
@@ -1886,9 +1933,9 @@ MESH_TEST_CASE(ui_nav_settings_shoulders_walk_the_cards, unit) {
             /* Read through mesh_ui_settings_item() rather than the nav's own accessor, which
                lives in the group's private header - the rule this file follows above. */
             struct mesh_ui_settings_item item;
-            if (mesh_ui_settings_item(&store.settings, &store.handshake, store.nav.settings_edits,
-                                      store.nav.settings_edit_count, MESH_UI_SETTINGS_ACTIONS,
-                                      MESH_UI_SETTINGS_NO_CHANNEL, after, &item) &&
+            if (mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
+                                      MESH_UI_SETTINGS_RADIO_DETAILS, MESH_UI_SETTINGS_NO_CHANNEL,
+                                      after, &item) &&
                 item.kind == MESH_UI_SETTING_HEADING) {
                 failure = "a card jump parked the cursor on a group title";
                 break;
@@ -1902,7 +1949,7 @@ MESH_TEST_CASE(ui_nav_settings_shoulders_walk_the_cards, unit) {
     }
     if (failure == NULL && groups < 3U) {
         snprintf(message, sizeof message,
-                 "Radio actions crossed %u groups, which is too few to be testing anything",
+                 "the details page crossed %u groups, which is too few to be testing anything",
                  (unsigned)groups);
         failure = message;
     }
@@ -1911,19 +1958,19 @@ MESH_TEST_CASE(ui_nav_settings_shoulders_walk_the_cards, unit) {
        group - the asymmetry the pair is built on. Stepping down first is what puts the cursor
        inside rather than at the top, and a group of one row has nowhere to step. */
     if (failure == NULL) {
-        const uint32_t top = store.nav.cursor[MESH_UI_SCREEN_SETTINGS];
+        const uint32_t top = store.nav.cursor[MESH_UI_SCREEN_RADIO];
         memset(&action, 0, sizeof action);
         (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
-        if (store.nav.cursor[MESH_UI_SCREEN_SETTINGS] == top) {
+        if (store.nav.cursor[MESH_UI_SCREEN_RADIO] == top) {
             failure = "the last group is one row, so there is no 'inside' to come back from";
         } else {
             memset(&action, 0, sizeof action);
             (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_L2, &action);
-            if (store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != top) {
+            if (store.nav.cursor[MESH_UI_SCREEN_RADIO] != top) {
                 snprintf(message, sizeof message,
                          "back from inside a group landed on row %u rather than on its first row "
                          "%u",
-                         (unsigned)store.nav.cursor[MESH_UI_SCREEN_SETTINGS], (unsigned)top);
+                         (unsigned)store.nav.cursor[MESH_UI_SCREEN_RADIO], (unsigned)top);
                 failure = message;
             }
         }
@@ -1935,11 +1982,11 @@ MESH_TEST_CASE(ui_nav_settings_shoulders_walk_the_cards, unit) {
         memset(&action, 0, sizeof action);
         (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_L2, &action);
         const uint32_t want = seen[groups - 2U];
-        if (store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != want) {
+        if (store.nav.cursor[MESH_UI_SCREEN_RADIO] != want) {
             snprintf(message, sizeof message,
                      "back from the top of a group landed on row %u rather than on the previous "
                      "group's first row %u",
-                     (unsigned)store.nav.cursor[MESH_UI_SCREEN_SETTINGS], (unsigned)want);
+                     (unsigned)store.nav.cursor[MESH_UI_SCREEN_RADIO], (unsigned)want);
             failure = message;
         }
     }
@@ -1971,14 +2018,21 @@ MESH_TEST_CASE(ui_nav_a_chevron_is_a_promise_the_nav_keeps, unit) {
     unsigned opened = 0U;
     unsigned acted = 0U;
 
-    /* Every section that has a verb in it, which is the root list and the modules under it. */
-    for (uint32_t s = 0U;
-         s < mesh_ui_settings_root_count() + mesh_ui_settings_module_count() && failure == NULL;
-         ++s) {
-        const enum mesh_ui_settings_section section =
-            s < mesh_ui_settings_root_count()
-                ? mesh_ui_settings_root_at(s)
-                : mesh_ui_settings_module_at(s - mesh_ui_settings_root_count());
+    /* Every section that has a verb in it: the root list, the modules under it, and the Radio
+       tab's two pages - which are the rows Radio actions and About radio used to be. */
+    static const enum mesh_ui_settings_section k_pages[] = {
+        MESH_UI_SETTINGS_RADIO_DETAILS,
+        MESH_UI_SETTINGS_NODE_LISTS,
+    };
+    const uint32_t roots = mesh_ui_settings_root_count(NULL);
+    const uint32_t modules = mesh_ui_settings_module_count();
+    const uint32_t pages = (uint32_t)(sizeof k_pages / sizeof k_pages[0]);
+    for (uint32_t s = 0U; s < roots + modules + pages && failure == NULL; ++s) {
+        const enum mesh_ui_settings_section section = s < roots ? mesh_ui_settings_root_at(NULL, s)
+                                                      : s < roots + modules
+                                                          ? mesh_ui_settings_module_at(s - roots)
+                                                          : k_pages[s - roots - modules];
+        const bool page = s >= roots + modules;
         /* Modules is a list of subjects rather than of settings - its rows are ACTION and are
            not verbs - and opening one from here would walk into the section it names. */
         if (section == MESH_UI_SETTINGS_MODULES) {
@@ -2018,8 +2072,10 @@ MESH_TEST_CASE(ui_nav_a_chevron_is_a_promise_the_nav_keeps, unit) {
             mesh_ui_store_set_settings(&store, &settings);
 
             struct mesh_ui_settings_item item;
-            if (!mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS) ||
-                !mesh_test_settings_open(&store, section) ||
+            const bool reached = page ? mesh_test_open_radio_page(&store, section)
+                                      : mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS) &&
+                                            mesh_test_settings_open(&store, section);
+            if (!reached ||
                 !mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U, section,
                                        MESH_UI_SETTINGS_NO_CHANNEL, row, &item)) {
                 mesh_ui_store_shutdown(&store);
@@ -2065,6 +2121,116 @@ MESH_TEST_CASE(ui_nav_a_chevron_is_a_promise_the_nav_keeps, unit) {
         failure = detail;
     }
 
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * The Radio tab's pages are about the radio in your hand, whatever the Settings tab is pointed at.
+ *
+ * The choice this holds: while another node is administered over the mesh, a Reboot on the Radio
+ * tab - whose cards describe the radio on the link - would reach across the mesh and take
+ * somebody else's repeater down. So the verbs done to a *remote* radio stay on the Settings tab,
+ * under the banner naming it, as About radio and Radio actions; those two are listed there only
+ * while there is a remote target, and the Radio tab's pages say whose radio the tab is pointed at
+ * and offer the way back instead of acting on it.
+ */
+MESH_TEST_CASE(ui_nav_radio_pages_stay_on_the_radio_in_hand, unit) {
+    const char *failure = NULL;
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+    struct mesh_ui_settings settings = store.settings;
+    settings.loaded = true;
+    settings.has_metadata = true;
+    settings.can_shutdown = true;
+    mesh_ui_store_set_settings(&store, &settings);
+
+    /* The radio on the link: neither Settings section is listed - both are on the Radio tab. */
+    const uint32_t local_rows = mesh_ui_settings_root_count(&store.settings);
+    for (uint32_t i = 0; i < local_rows; ++i) {
+        const enum mesh_ui_settings_section section = mesh_ui_settings_root_at(&store.settings, i);
+        if (section == MESH_UI_SETTINGS_RADIO || section == MESH_UI_SETTINGS_ACTIONS) {
+            failure = "About radio and Radio actions belong to the Radio tab for our own radio";
+            goto cleanup;
+        }
+    }
+
+    /* Pointed at another node, both are listed, and Radio actions opens on whose radio it is. */
+    settings.admin_dest = 0x7001U;
+    snprintf(settings.admin_dest_name, sizeof settings.admin_dest_name, "%s", "Hill repeater");
+    mesh_ui_store_set_settings(&store, &settings);
+    if (mesh_ui_settings_root_count(&store.settings) != local_rows + 2U ||
+        mesh_ui_settings_root_at(&store.settings, 1U) != MESH_UI_SETTINGS_RADIO) {
+        failure = "a remote target should list About radio and Radio actions on the Settings tab";
+        goto cleanup;
+    }
+    struct mesh_ui_settings_item item;
+    if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
+                               MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL, 0U, &item) ||
+        item.kind != MESH_UI_SETTING_HEADING ||
+        settings_row_of(&store, MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_ACTION_REBOOT) >=
+            MESH_UI_SETTINGS_ITEMS_MAX ||
+        settings_row_of(&store, MESH_UI_SETTINGS_ACTIONS,
+                        MESH_UI_SETTINGS_ACTION_FORGET_ALL_NODES) < MESH_UI_SETTINGS_ITEMS_MAX) {
+        failure = "Radio actions should name the remote radio and hold its verbs, not our roster's";
+        goto cleanup;
+    }
+
+    /* The Radio tab's details: the target and the way back, and no verb that would reach it. */
+    if (mesh_ui_settings_item_count(&store.settings, &store.handshake,
+                                    MESH_UI_SETTINGS_RADIO_DETAILS,
+                                    MESH_UI_SETTINGS_NO_CHANNEL) != 3U ||
+        settings_row_of(&store, MESH_UI_SETTINGS_RADIO_DETAILS,
+                        MESH_UI_SETTINGS_ACTION_ADMIN_LOCAL) != 2U) {
+        failure = "the details page should say whose radio the tab is on and offer the way back";
+        goto cleanup;
+    }
+    /* The node lists keep the forget rows - they touch only this client - and drop the reset,
+       which would empty the remote node's database. */
+    if (settings_row_of(&store, MESH_UI_SETTINGS_NODE_LISTS, MESH_UI_SETTINGS_ACTION_RESET_NODEDB) <
+            MESH_UI_SETTINGS_ITEMS_MAX ||
+        settings_row_of(&store, MESH_UI_SETTINGS_NODE_LISTS,
+                        MESH_UI_SETTINGS_ACTION_FORGET_ALL_NODES) >= MESH_UI_SETTINGS_ITEMS_MAX) {
+        failure = "the node lists should keep the forget rows and drop the remote reset";
+        goto cleanup;
+    }
+
+    /* The way back, pressed on the Settings tab, lands on the list rather than inside a section
+       the list is about to stop having. */
+    struct mesh_ui_action action;
+    if (!mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS) ||
+        !mesh_test_settings_open(&store, MESH_UI_SETTINGS_RADIO) ||
+        !mesh_test_settings_cursor_to(&store, 2U)) {
+        failure = "Settings > About radio should open on a remote target";
+        goto cleanup;
+    }
+    memset(&action, 0, sizeof action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (action.type != MESH_UI_ACTION_SET_ADMIN_TARGET || action.dest != 0U ||
+        store.nav.settings_section != MESH_UI_SETTINGS_NO_SECTION) {
+        failure = "coming back to our own radio should land on the section list";
+        goto cleanup;
+    }
+
+    /* And B on a page is the page's: with an edit waiting on the Settings tab it goes back to
+       the cards rather than arming a discard of somebody else's typing. */
+    store.nav.settings_edits[0].field = (uint8_t)MESH_UI_FIELD_POSITION_SMART;
+    store.nav.settings_edits[0].number = 1U;
+    store.nav.settings_edit_count = 1U;
+    if (!mesh_test_open_radio_page(&store, MESH_UI_SETTINGS_NODE_LISTS)) {
+        failure = "the node lists should open";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
+    if (!mesh_ui_nav_status_showing(&store.nav) || store.nav.settings_discard_armed ||
+        store.nav.settings_edit_count != 1U) {
+        failure = "B on a page should leave it and leave the Settings tab's edits alone";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }

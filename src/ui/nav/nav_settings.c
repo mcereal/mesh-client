@@ -24,18 +24,58 @@ const struct mesh_ui_handshake_state *mesh_ui_nav_handshake(const struct mesh_ui
     return store->handshake_valid ? &store->handshake : NULL;
 }
 
+/*
+ * Whether the pending edits belong to the section on the panel.
+ *
+ * They are the Settings tab's: a Radio tab page has no fields to edit, and a Reboot pressed there
+ * carrying whatever was half-typed into Position on the other tab would be a write nobody made.
+ */
+static bool mesh_ui_nav_edits_apply(const struct mesh_ui_nav *nav, bool with_edits) {
+    return with_edits && nav->screen == MESH_UI_SCREEN_SETTINGS;
+}
+
 /* The row under the cursor in the open section, with (or without) the pending edits. */
 bool mesh_ui_nav_settings_current(const struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                                   bool with_edits, struct mesh_ui_settings_item *out) {
-    if (nav->screen != MESH_UI_SCREEN_SETTINGS ||
-        nav->settings_section == MESH_UI_SETTINGS_NO_SECTION) {
+    const uint8_t section = mesh_ui_nav_open_section(nav);
+    if (section == MESH_UI_SETTINGS_NO_SECTION) {
         return false;
     }
-    return mesh_ui_settings_item(&store->settings, mesh_ui_nav_handshake(store),
-                                 with_edits ? nav->settings_edits : NULL,
-                                 with_edits ? nav->settings_edit_count : 0U,
-                                 (enum mesh_ui_settings_section)nav->settings_section,
-                                 nav->settings_channel, nav->cursor[MESH_UI_SCREEN_SETTINGS], out);
+    const bool edits = mesh_ui_nav_edits_apply(nav, with_edits);
+    return mesh_ui_settings_item(
+        &store->settings, mesh_ui_nav_handshake(store), edits ? nav->settings_edits : NULL,
+        edits ? nav->settings_edit_count : 0U, (enum mesh_ui_settings_section)section,
+        mesh_ui_nav_open_channel(nav), nav->cursor[nav->screen], out);
+}
+
+uint32_t mesh_ui_nav_section_items(const struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                                   bool with_edits, struct mesh_ui_settings_item *items,
+                                   uint32_t max) {
+    const uint8_t section = mesh_ui_nav_open_section(nav);
+    if (section == MESH_UI_SETTINGS_NO_SECTION) {
+        return 0U;
+    }
+    const bool edits = mesh_ui_nav_edits_apply(nav, with_edits);
+    return mesh_ui_settings_items(
+        &store->settings, mesh_ui_nav_handshake(store), edits ? nav->settings_edits : NULL,
+        edits ? nav->settings_edit_count : 0U, (enum mesh_ui_settings_section)section,
+        mesh_ui_nav_open_channel(nav), items, max);
+}
+
+void mesh_ui_nav_open_radio_page(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                                 enum mesh_ui_radio_page page) {
+    nav->radio_devices_cursor = nav->cursor[MESH_UI_SCREEN_RADIO];
+    nav->radio_page = (uint8_t)page;
+    mesh_ui_nav_cursor_to_first_row(nav, store, MESH_UI_SCREEN_RADIO);
+}
+
+bool mesh_ui_nav_close_radio_page(struct mesh_ui_nav *nav) {
+    if (nav->radio_page == MESH_UI_RADIO_PAGE_NONE) {
+        return false;
+    }
+    nav->radio_page = MESH_UI_RADIO_PAGE_NONE;
+    nav->cursor[MESH_UI_SCREEN_RADIO] = nav->radio_devices_cursor;
+    return true;
 }
 
 static void mesh_ui_nav_edit_remove(struct mesh_ui_nav *nav, enum mesh_ui_setting_field field) {
@@ -264,14 +304,14 @@ void mesh_ui_nav_fill_settings_action(const struct mesh_ui_nav *nav,
      */
     if (which == MESH_UI_SETTINGS_ACTION_IMPORT_CHANNELS) {
         action->type = MESH_UI_ACTION_IMPORT_CHANNELS;
-        action->section = nav->settings_section;
+        action->section = mesh_ui_nav_open_section(nav);
         snprintf(action->text, sizeof action->text, "%s", nav->channel_url);
         return;
     }
     /* And the contact link, the same shape: the characters travel, the app parses them. */
     if (which == MESH_UI_SETTINGS_ACTION_IMPORT_CONTACT) {
         action->type = MESH_UI_ACTION_IMPORT_CONTACT;
-        action->section = nav->settings_section;
+        action->section = mesh_ui_nav_open_section(nav);
         snprintf(action->text, sizeof action->text, "%s", nav->contact_url);
         return;
     }
@@ -286,7 +326,7 @@ void mesh_ui_nav_fill_settings_action(const struct mesh_ui_nav *nav,
      */
     if (which == MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL) {
         action->type = MESH_UI_ACTION_SAVE_SETTINGS;
-        action->section = nav->settings_section;
+        action->section = mesh_ui_nav_open_section(nav);
         action->channel = nav->settings_channel;
         action->number = (uint32_t)which;
         action->edit_count = 0U;
@@ -294,7 +334,7 @@ void mesh_ui_nav_fill_settings_action(const struct mesh_ui_nav *nav,
     }
     if (mesh_ui_settings_action_is_forget(which)) {
         action->type = MESH_UI_ACTION_FORGET_NODES;
-        action->section = nav->settings_section;
+        action->section = mesh_ui_nav_open_section(nav);
         action->number = which == MESH_UI_SETTINGS_ACTION_FORGET_ALL_NODES ? 1U : 0U;
         return;
     }
@@ -308,15 +348,17 @@ void mesh_ui_nav_fill_settings_action(const struct mesh_ui_nav *nav,
      */
     if (mesh_ui_settings_action_is_install_firmware(which)) {
         action->type = MESH_UI_ACTION_INSTALL_RADIO_FIRMWARE;
-        action->section = nav->settings_section;
+        action->section = mesh_ui_nav_open_section(nav);
         action->number = which == MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE ? 1U : 0U;
         return;
     }
     action->type = MESH_UI_ACTION_RADIO_ACTION;
-    action->section = nav->settings_section;
+    action->section = mesh_ui_nav_open_section(nav);
     action->number = (uint32_t)which;
-    action->edit_count = nav->settings_edit_count;
-    memcpy(action->edits, nav->settings_edits, sizeof action->edits);
+    if (mesh_ui_nav_edits_apply(nav, true)) {
+        action->edit_count = nav->settings_edit_count;
+        memcpy(action->edits, nav->settings_edits, sizeof action->edits);
+    }
 }
 
 bool mesh_ui_nav_confirm_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
@@ -374,6 +416,10 @@ bool mesh_ui_nav_confirm_key(struct mesh_ui_nav *nav, const struct mesh_ui_store
 }
 
 bool mesh_ui_nav_settings_back(struct mesh_ui_nav *nav) {
+    /* A Radio tab page goes back to the cards, and holds no edits to drop on the way. */
+    if (nav->screen == MESH_UI_SCREEN_RADIO) {
+        return mesh_ui_nav_close_radio_page(nav);
+    }
     if (nav->settings_section == MESH_UI_SETTINGS_NO_SECTION) {
         return false;
     }
@@ -403,9 +449,17 @@ bool mesh_ui_nav_settings_section_key(struct mesh_ui_nav *nav, const struct mesh
                                       enum inkcell_key key, struct mesh_ui_action *action,
                                       bool *handled) {
     *handled = true;
+    /* The pending edits are the Settings tab's, so on a Radio tab page Y has nothing to save and
+       B nothing to discard - and Left and Right, with no row to step, keep walking the tabs as
+       they do on the cards under it. */
+    const bool settings_tab = nav->screen == MESH_UI_SCREEN_SETTINGS;
     switch (key) {
     case INKCELL_KEY_LEFT:
     case INKCELL_KEY_RIGHT:
+        if (!settings_tab) {
+            *handled = false;
+            return false;
+        }
         return mesh_ui_nav_settings_edit_key(nav, store, key);
     /* A card at a time, where the section has cards. The d-pad walks rows and Left/Right are
        spoken for by the editor, so the crossing the cards draw is the shoulder pair's - see
@@ -416,7 +470,7 @@ bool mesh_ui_nav_settings_section_key(struct mesh_ui_nav *nav, const struct mesh
     case INKCELL_KEY_R2:
         return mesh_ui_nav_cursor_group(nav, store, +1);
     case INKCELL_KEY_Y:
-        if (nav->settings_edit_count == 0U) {
+        if (!settings_tab || nav->settings_edit_count == 0U) {
             return false;
         }
         if (mesh_ui_settings_section_needs_confirm(
@@ -429,7 +483,7 @@ bool mesh_ui_nav_settings_section_key(struct mesh_ui_nav *nav, const struct mesh
         mesh_ui_nav_fill_save(nav, action);
         return false; /* the app clears the edits once the write is queued */
     case INKCELL_KEY_B:
-        if (nav->settings_edit_count > 0U && !nav->settings_discard_armed) {
+        if (settings_tab && nav->settings_edit_count > 0U && !nav->settings_discard_armed) {
             nav->settings_discard_armed = true; /* the footer now says "B again to discard" */
             return true;
         }

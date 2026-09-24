@@ -70,13 +70,15 @@ static bool mesh_ui_chrome_on_about(const struct mesh_ui_nav *nav) {
            nav->settings_section == (uint8_t)MESH_UI_SETTINGS_ABOUT;
 }
 
-/* The same rule for the radio's firmware, one section over: About radio is where the install
-   lives, so standing in it is already reading the thing the banner would point at. Two
-   predicates rather than one taking a section, because the pair they answer for is two
-   different banners and a shared one would be a table that had to be read to be believed. */
+/* The same rule for the radio's firmware: the Radio tab's details page is where the install
+   lives (and About radio, for a node administered over the mesh), so standing in it is already
+   reading the thing the banner would point at. Two predicates rather than one taking a section,
+   because the pair they answer for is two different banners and a shared one would be a table that
+   had to be read to be believed. */
 static bool mesh_ui_chrome_on_about_radio(const struct mesh_ui_nav *nav) {
-    return nav->screen == MESH_UI_SCREEN_SETTINGS &&
-           nav->settings_section == (uint8_t)MESH_UI_SETTINGS_RADIO;
+    const uint8_t section = mesh_ui_nav_open_section(nav);
+    return section == (uint8_t)MESH_UI_SETTINGS_RADIO ||
+           section == (uint8_t)MESH_UI_SETTINGS_RADIO_DETAILS;
 }
 
 bool mesh_ui_chrome_banner(const struct mesh_ui_snapshot *snapshot, struct mesh_ui_banner *out) {

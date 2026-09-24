@@ -15,7 +15,7 @@ tab settings
 # used to say "Random PIN" and give no sign that there were two more behind it. Left and Right
 # still step the field - the control takes no input of its own - so what moves here is the fill
 # travelling the set, and the divider that vanishes beside whichever segment is filled.
-key down 8
+key down 7
 key a
 key down 1
 hold 700

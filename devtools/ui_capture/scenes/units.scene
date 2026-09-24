@@ -35,7 +35,7 @@ hold 300
 # Settings > Position: the smart broadcast threshold, which is a length the reader picks off a
 # list rather than one the mesh reported.
 tab settings
-key down 6
+key down 5
 key a
 key down 4
 hold 2200
@@ -83,7 +83,7 @@ key b
 hold 300
 
 tab settings
-key down 6
+key down 5
 key a
 key down 4
 hold 2200

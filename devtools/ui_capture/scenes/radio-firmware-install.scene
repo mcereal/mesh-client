@@ -1,4 +1,4 @@
-# Settings > About radio, installing what the check found.
+# Radio > details, installing what the check found.
 #
 # The half of this screen no picture could reach any other way: every state below needs a radio
 # in a bootloader, half a megabyte on the way down, or a loader advertising on the air. What is
@@ -10,13 +10,18 @@ clock 2026-09-09 14:20
 delay 1800
 config
 
-tab settings
-key down 1
+# The Radio card's details: the cards' verbs end on its refresh, and details is the one above.
+tab radio
+key down 9
+key up
 key a
 
 # The press, on a radio attached by cable. The row above it is the check's answer and the row
-# below is what to do about it, which is the pair this whole section is built around.
+# below is what to do about it, which is the pair this whole section is built around. It is the
+# sixth row - under the firmware, the board, the channel, what the check found and the check -
+# and the cursor walks to it rather than the scene pressing A on the first.
 firmware-install idle usb
+key down 5
 hold 2000
 
 # The question in front of it, which is not optional and is not "OK/Cancel": over USB the worst
@@ -58,8 +63,8 @@ hold 1800
 
 # And the failure that leaves a radio somewhere it cannot leave on its own. The row carries the
 # radio's own words, and the banner is what says the same thing from every other screen - so the
-# scene walks off this tab to show it, since About radio is precisely where it stands down.
+# scene walks off this tab to show it, since the details page is precisely where it stands down.
 firmware-install failed ble
 hold 2400
-tab radio
+tab messages
 hold 3000

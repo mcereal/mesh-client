@@ -192,6 +192,8 @@ MESH_STR_ENTRY(ACTION_REFRESH,            "refresh")
    being opened is the trend, and the chart is only how it is shown. */
 MESH_STR_ENTRY(ACTION_TREND,              "trend")
 MESH_STR_ENTRY(ACTION_DEVICES,            "devices")
+MESH_STR_ENTRY(ACTION_DETAILS,            "details")
+MESH_STR_ENTRY(ACTION_NODE_LISTS,         "nodes")
 /* The chart's span picker, on the d-pad's Left and Right. The one screen in the client where
    those two are not the tab switch - the shoulders still are, which is what pays for it. */
 MESH_STR_ENTRY(ACTION_SPAN,               "span")
@@ -1128,6 +1130,9 @@ MESH_STR_ENTRY(SETTINGS_SECTION_RADIO_UI,                 "Radio UI")
 MESH_STR_ENTRY(SETTINGS_SECTION_CANNED,                   "Canned messages")
 MESH_STR_ENTRY(SETTINGS_SECTION_NETWORK,                  "Network")
 MESH_STR_ENTRY(SETTINGS_SECTION_BEACON,                   "Mesh beacon")
+/* The Radio tab's two pages, opened from its Radio and Mesh cards. */
+MESH_STR_ENTRY(SETTINGS_SECTION_RADIO_DETAILS,            "Radio details")
+MESH_STR_ENTRY(SETTINGS_SECTION_NODE_LISTS,               "Node lists")
 
 /* ---- the help screen -------------------------------------------------------------------------- */
 
@@ -1169,7 +1174,9 @@ MESH_STR_ENTRY(SETTINGS_NOTE_POWER,                       "How the radio sleeps.
 MESH_STR_ENTRY(SETTINGS_NOTE_MQTT,                        "Bridges this radio's traffic to an internet MQTT broker, joining a local mesh to a wider one. Uplink sends your traffic out; downlink brings other traffic in.")
 MESH_STR_ENTRY(SETTINGS_NOTE_STORE_FORWARD,               "Asks a router on the mesh for messages that arrived while this client was off. Only a node configured as a Store & Forward router has anything to replay.")
 MESH_STR_ENTRY(SETTINGS_NOTE_TELEMETRY,                   "What the radio measures - its own battery and channel use, a weather sensor, air quality, power rails, health - and how often it tells the mesh. Each one is another broadcast.")
-MESH_STR_ENTRY(SETTINGS_NOTE_ACTIONS,                     "Things the radio does rather than settings it keeps: reboot, shutdown and the resets. The two forget rows are different - they clear this client's own node list.")
+MESH_STR_ENTRY(SETTINGS_NOTE_ACTIONS,                     "Things the node being administered does rather than settings it keeps: reboot, shutdown and the resets. Listed only while that node is not your own radio; your own radio's are on the Radio tab.")
+MESH_STR_ENTRY(SETTINGS_NOTE_RADIO_DETAILS,               "What the radio on the link says about itself, the firmware upstream publishes for its board, and the things it can be asked to do. A reboot comes back on its own; the factory resets do not.")
+MESH_STR_ENTRY(SETTINGS_NOTE_NODE_LISTS,                  "Two lists of nodes. The radio's own database is short and trims itself; resetting it empties the radio. This client keeps a longer one, and the forget rows clear only that.")
 MESH_STR_ENTRY(SETTINGS_NOTE_MODULES,                     "The optional features this radio's firmware can run. Each row opens that module's own settings, and its value says whether the module is currently enabled.")
 MESH_STR_ENTRY(SETTINGS_NOTE_NEIGHBOR_INFO,               "Reports which nodes this radio hears directly, so the mesh can map its own shape. The firmware floors the interval at four hours because it is a lot of traffic.")
 MESH_STR_ENTRY(SETTINGS_NOTE_RANGE_TEST,                  "Sends numbered packets on a timer so you can walk away and find where reception stops. It transmits to everyone on the channel, so turn it off when you are done.")
@@ -1182,7 +1189,7 @@ MESH_STR_ENTRY(SETTINGS_NOTE_EXT_NOTIFICATION,            "Drives a buzzer, a vi
 MESH_STR_ENTRY(SETTINGS_NOTE_TRAFFIC,                     "Limits how much other nodes may push through this one. There is no enabled switch: every row here is off at 0, and any other value turns that limit on.")
 MESH_STR_ENTRY(SETTINGS_NOTE_RADIO_UI,                    "The graphical interface drawn on the radio's own screen. Not the same as Display: that section is the panel itself, this is what gets drawn on it.")
 MESH_STR_ENTRY(SETTINGS_NOTE_CANNED,                      "Short replies stored on the radio for its own buttons. Six slots of 32 characters, because the wire carries the whole list as a single 200-byte string.")
-MESH_STR_ENTRY(SETTINGS_NOTE_NETWORK,                     "The radio's own WiFi or Ethernet, which is how it reaches an MQTT broker or an NTP server. Shown and not editable from here; About radio says what the interface is actually doing.")
+MESH_STR_ENTRY(SETTINGS_NOTE_NETWORK,                     "The radio's own WiFi or Ethernet, which is how it reaches an MQTT broker or an NTP server. Shown and not editable from here; the Radio tab's details say what the interface is actually doing.")
 MESH_STR_ENTRY(SETTINGS_NOTE_BEACON_LISTEN,               "Take in beacons other nodes send. Their text arrives in the message list and the channel they offer is kept for this client to act on.")
 MESH_STR_ENTRY(SETTINGS_NOTE_BEACON_BROADCAST,            "Send a beacon on the timer below. Off leaves the rows under it set but silent, which is how a beacon is prepared before it is switched on.")
 MESH_STR_ENTRY(SETTINGS_NOTE_BEACON_LEGACY_SPLIT,         "Send the text as an ordinary message alongside the beacon, so firmware that does not know about beacons still shows it. Two packets rather than one.")
@@ -1478,7 +1485,7 @@ MESH_STR_ENTRY(HELP_NOTE_NODES,           "Everyone this client has heard of, th
 MESH_STR_ENTRY(HELP_NOTE_NODES_FILTER,    "The first row decides what is under it: all of the roster, the nodes heard with no relay in the way, or the ones you pinned. Left and Right move between them, and the heading counts what is shown.")
 MESH_STR_ENTRY(HELP_NOTE_NODES_SORT,      "The second row is the order: the client's own ranking, most recently heard, by name, nearest, or fewest hops. Left and Right step it. Distance needs a fix of your own, and says so when it has none.")
 MESH_STR_ENTRY(HELP_NOTE_NODES_PIN,       "X pins a node to the top of the list and keeps it there. Pins are this client's own and are kept across a restart; they change nothing on the radio.")
-MESH_STR_ENTRY(HELP_NOTE_NODES_CACHED,    "The radio holds about eighty nodes and drops the oldest, so this list is deliberately longer than its NodeDB and marks what the radio no longer carries. Settings > Radio actions clears them.")
+MESH_STR_ENTRY(HELP_NOTE_NODES_CACHED,    "The radio holds about eighty nodes and drops the oldest, so this list is deliberately longer than its NodeDB and marks what the radio no longer carries. Radio > Mesh > nodes clears them.")
 
 /* One node's detail. */
 MESH_STR_ENTRY(HELP_LABEL_NODE_FIX,       "Fix and Fix heard")
@@ -3099,7 +3106,7 @@ MESH_STR_ENTRY(TOAST_FIRMWARE_FAILED,     "Firmware install failed: %s")
  * computer in the world, so there is nothing the client has to promise to come back for.
  */
 MESH_STR_ENTRY(BANNER_RADIO_IN_LOADER,    "The radio is in update mode")
-MESH_STR_ENTRY(BANNER_RADIO_IN_LOADER_HINT, "It stays off the mesh until an update finishes. Settings > About radio > Install firmware")
+MESH_STR_ENTRY(BANNER_RADIO_IN_LOADER_HINT, "It stays off the mesh until an update finishes. Radio > details > Install firmware")
 
 /* ---- language ------------------------------------------------------------------------------------ */
 

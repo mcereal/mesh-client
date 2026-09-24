@@ -22,13 +22,14 @@ hold 1800
 tab radio
 hold 1800
 
-# Settings > Radio actions. The row that clears them says how many there are, and sits under
-# the reset that left them behind.
-tab settings
-key down 14
+# The Mesh card's node lists, one press from the counts that just parted. The row that clears
+# them says how many there are, and sits under the reset that left them behind. The cards' verbs
+# end on the Radio card's refresh, so the walk goes to the bottom and back up two.
+key down 9
+key up 2
 key a
 hold 900
-key down 3
+key down 1
 hold 1600
 key a
 hold 2200

@@ -1,9 +1,9 @@
 # The radio's network, read-only, and the pair of screens it only means anything against.
 #
 # Filmed rather than described because the section is an argument about *where* a fact belongs
-# rather than about any one row: About radio says what the interface is doing (connected, at
-# this address, syslog on), and this says what it was told to do. The scene walks past the
-# first to reach the second, which is the comparison somebody makes when a radio is configured
+# rather than about any one row: the Radio tab's details say what the interface is doing
+# (connected, at this address, syslog on), and this says what it was told to do. The scene looks
+# at this one, which is the comparison somebody makes when a radio is configured
 # for a network it never joined. The demo radio is on the network it was told to join, so the
 # two agree here; what the scene shows is that both are now askable.
 #
@@ -16,7 +16,7 @@ config
 
 tab settings
 hold 400
-key down 10
+key down 9
 hold 600
 key a
 hold 1100

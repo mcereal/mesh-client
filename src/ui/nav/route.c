@@ -79,11 +79,13 @@ static uint8_t route_screen_depth(const struct mesh_ui_nav *nav) {
         return depth;
     }
     case MESH_UI_SCREEN_RADIO:
-        /* One level, either of two: the device list, or the airtime chart - a picture rather
-           than a list of something. The chart still counts, because what a depth buys is the
-           slide, the back arrow and the B keycap - none of which care what is being drawn at the
-           bottom of it. */
-        return (nav->devices_open || nav->trend_open) ? 1U : 0U;
+        /* One level, any of three: the device list, a page from a card, or the airtime chart - a
+           picture rather than a list of something. The chart still counts, because what a depth
+           buys is the slide, the back arrow and the B keycap - none of which care what is being
+           drawn at the bottom of it. */
+        return (nav->devices_open || nav->trend_open || nav->radio_page != MESH_UI_RADIO_PAGE_NONE)
+                   ? 1U
+                   : 0U;
     default:
         return 0U;
     }
@@ -187,12 +189,21 @@ static void route_screen_place(const struct mesh_ui_nav *nav, struct mesh_ui_rou
             return;
         }
         if (nav->trend_open) {
+            /* No subject and no slot: there is one trend, and it is the radio we are attached
+               to. The Nodes tab's charts are the same level with both fields filled - a node in
+               `subject` and the reading in `slot` - which is what keeps them distinct from this
+               one and from each other. */
             out->level = MESH_UI_ROUTE_TREND;
+            return;
         }
-        /* No subject and no slot: there is one trend, and it is the radio we are attached to.
-           The Nodes tab's charts are the same level with both fields filled - a node in
-           `subject` and the reading in `slot` - which is what keeps them distinct from this one
-           and from each other. */
+        /* A page is a section like the Settings tab's, and named the same way - the level and
+           the section in `slot` - so help, the bar and a scene read it with the words they
+           already have. */
+        if (nav->radio_page != MESH_UI_RADIO_PAGE_NONE) {
+            out->level = MESH_UI_ROUTE_SECTION;
+            out->slot = mesh_ui_nav_radio_page_section(nav->radio_page);
+            return;
+        }
         return;
     default:
         return;

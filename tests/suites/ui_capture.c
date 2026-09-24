@@ -4835,11 +4835,18 @@ static const char *render_section(enum mesh_ui_settings_section section,
         return "store init failed";
     }
     mesh_test_nav_populate(store);
-    if (!mesh_test_open_tab(store, MESH_UI_SCREEN_SETTINGS)) {
-        return "the Settings tab could not be reached";
-    }
-    if (!mesh_test_settings_open(store, section)) {
-        return "the section could not be opened";
+    /* The Radio tab's pages are sections drawn by the same pane, reached from their cards. */
+    if (section == MESH_UI_SETTINGS_RADIO_DETAILS || section == MESH_UI_SETTINGS_NODE_LISTS) {
+        if (!mesh_test_open_radio_page(store, section)) {
+            return "the page could not be opened";
+        }
+    } else {
+        if (!mesh_test_open_tab(store, MESH_UI_SCREEN_SETTINGS)) {
+            return "the Settings tab could not be reached";
+        }
+        if (!mesh_test_settings_open(store, section)) {
+            return "the section could not be opened";
+        }
     }
     struct mesh_ui_snapshot snapshot;
     memset(&snapshot, 0, sizeof snapshot);
@@ -4900,7 +4907,7 @@ MESH_TEST_CASE(ui_capture_an_ungrouped_section_draws_no_card, unit) {
 MESH_TEST_CASE(ui_capture_a_grouped_section_draws_its_groups, unit) {
     struct mesh_ui_store store;
     struct inkcell_capture *capture = NULL;
-    const char *failure = render_section(MESH_UI_SETTINGS_ACTIONS, &store, &capture);
+    const char *failure = render_section(MESH_UI_SETTINGS_RADIO_DETAILS, &store, &capture);
     if (failure == NULL) {
         uint32_t width = 0U;
         uint32_t height = 0U;
@@ -4955,7 +4962,7 @@ MESH_TEST_CASE(ui_capture_a_grouped_section_draws_its_groups, unit) {
 MESH_TEST_CASE(ui_capture_a_verb_keeps_the_ordinary_ink, unit) {
     struct mesh_ui_store store;
     struct inkcell_capture *capture = NULL;
-    const char *failure = render_section(MESH_UI_SETTINGS_ACTIONS, &store, &capture);
+    const char *failure = render_section(MESH_UI_SETTINGS_RADIO_DETAILS, &store, &capture);
     char message[160];
     if (failure == NULL) {
         uint32_t width = 0U;
@@ -5253,7 +5260,9 @@ MESH_TEST_CASE(ui_capture_a_section_starts_every_row_in_one_column, unit) {
  * Four sections, chosen to be the four shapes that used to disagree: one that holds a verb
  * *and* fields (Position), one that holds only fields and draws cards (Radio UI), one that
  * holds only fields and draws none (Device), and About radio, which is mostly readings with a
- * press among them. A section list is deliberately not among them - the root and
+ * press among them. About radio is on this tab only while another node is being administered -
+ * the radio on the link has it on the Radio tab, whose column is that tab's - so the fixture
+ * points the tab at one. A section list is deliberately not among them - the root and
  * Modules are lists of subjects that fill a narrower icon slot on every row, which is a
  * different list and says so.
  *
@@ -5305,6 +5314,8 @@ MESH_TEST_CASE(ui_capture_every_section_starts_in_the_same_column, unit) {
                 snprintf(settings.firmware_version, sizeof settings.firmware_version, "%s",
                          "2.7.6");
                 snprintf(settings.fw_channel, sizeof settings.fw_channel, "%s", "stable");
+                settings.admin_dest = 0x8F21B005U;
+                snprintf(settings.admin_dest_name, sizeof settings.admin_dest_name, "%s", "BRVO");
                 mesh_ui_store_set_settings(&store, &settings);
 
                 uint8_t *frame = NULL;
@@ -5387,11 +5398,11 @@ MESH_TEST_CASE(ui_capture_every_section_starts_in_the_same_column, unit) {
  * for edges simply finds one fewer. The first version of this case looked only at row 0 and
  * passed against exactly that.
  *
- * About radio is the fixture because it is the section that mixes the two hardest: fourteen
- * facts and two verbs among them, so the discs land in the middle of a card of readings rather
- * than in a column of their own. It is also the shape that used to be drawn a third way - the
- * verbs stood on the bare panel under the card holding the fields - and a case that still passes
- * here would have caught that change breaking either edge it moved.
+ * The Radio card's details page is the fixture because it is the section that mixes the two
+ * hardest: About radio's fourteen facts with two verbs among them, so the discs land in the middle
+ * of a card of readings rather than in a column of their own. It is also the shape that used to be
+ * drawn a third way - the verbs stood on the bare panel under the card holding the fields - and a
+ * case that still passes here would have caught that change breaking either edge it moved.
  *
  * The walk stops short of the window, so every frame shows the same cards and the counts are
  * comparable, and it starts one row down. The very first row of the body is a case of its own
@@ -5434,9 +5445,8 @@ MESH_TEST_CASE(ui_capture_a_verbs_disc_clears_its_sections_edges, unit) {
                      "shed");
             mesh_ui_store_set_settings(&store, &settings);
 
-            if (!mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS) ||
-                !mesh_test_settings_open(&store, MESH_UI_SETTINGS_RADIO)) {
-                failure = "Settings > About radio could not be opened";
+            if (!mesh_test_open_radio_page(&store, MESH_UI_SETTINGS_RADIO_DETAILS)) {
+                failure = "Radio > details could not be opened";
                 mesh_ui_store_shutdown(&store);
                 break;
             }
@@ -5454,9 +5464,9 @@ MESH_TEST_CASE(ui_capture_a_verbs_disc_clears_its_sections_edges, unit) {
             (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &act);
             for (uint32_t row = 0U; row < 4U && failure == NULL; ++row) {
                 if (row > 0U) {
-                    const uint32_t before = store.nav.cursor[MESH_UI_SCREEN_SETTINGS];
+                    const uint32_t before = store.nav.cursor[store.nav.screen];
                     (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &act);
-                    if (store.nav.cursor[MESH_UI_SCREEN_SETTINGS] == before) {
+                    if (store.nav.cursor[store.nav.screen] == before) {
                         break;
                     }
                 }
@@ -5584,7 +5594,7 @@ MESH_TEST_CASE(ui_capture_a_verbs_disc_clears_its_sections_edges, unit) {
 
             if (failure == NULL && (frames < 2U || seen[0] < 2U)) {
                 snprintf(detail, sizeof detail,
-                         "About radio gave %u frames and %u section edges at glyph scale %d - "
+                         "the details page gave %u frames and %u section edges at glyph scale %d - "
                          "there is nothing here to stand on",
                          frames, frames > 0U ? seen[0] : 0U, scale);
                 failure = detail;

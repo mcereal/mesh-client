@@ -11,7 +11,7 @@ config
 
 tab settings
 hold 500
-key down 8
+key down 7
 hold 400
 key a
 hold 700

@@ -61,12 +61,43 @@ void mesh_ui_nav_land_on_devices(struct mesh_ui_nav *nav) {
     nav->screen = MESH_UI_SCREEN_RADIO;
     nav->devices_open = true;
     nav->trend_open = false;
+    nav->radio_page = MESH_UI_RADIO_PAGE_NONE;
 }
 
-/* The cards themselves: the tab's own list, with neither of its levels open over it. */
+/* The cards themselves: the tab's own list, with none of its levels open over it. */
 bool mesh_ui_nav_status_showing(const struct mesh_ui_nav *nav) {
     return nav != NULL && nav->screen == MESH_UI_SCREEN_RADIO && !nav->devices_open &&
-           !nav->trend_open;
+           !nav->trend_open && nav->radio_page == MESH_UI_RADIO_PAGE_NONE;
+}
+
+uint8_t mesh_ui_nav_open_section(const struct mesh_ui_nav *nav) {
+    if (nav == NULL) {
+        return MESH_UI_SETTINGS_NO_SECTION;
+    }
+    if (nav->screen == MESH_UI_SCREEN_SETTINGS) {
+        return nav->settings_section;
+    }
+    if (nav->screen == MESH_UI_SCREEN_RADIO && !nav->devices_open && !nav->trend_open) {
+        return mesh_ui_nav_radio_page_section(nav->radio_page);
+    }
+    return MESH_UI_SETTINGS_NO_SECTION;
+}
+
+uint8_t mesh_ui_nav_radio_page_section(uint8_t page) {
+    switch ((enum mesh_ui_radio_page)page) {
+    case MESH_UI_RADIO_PAGE_DETAILS:
+        return (uint8_t)MESH_UI_SETTINGS_RADIO_DETAILS;
+    case MESH_UI_RADIO_PAGE_NODE_LISTS:
+        return (uint8_t)MESH_UI_SETTINGS_NODE_LISTS;
+    case MESH_UI_RADIO_PAGE_NONE:
+    default:
+        return MESH_UI_SETTINGS_NO_SECTION;
+    }
+}
+
+uint8_t mesh_ui_nav_open_channel(const struct mesh_ui_nav *nav) {
+    return nav != NULL && nav->screen == MESH_UI_SCREEN_SETTINGS ? nav->settings_channel
+                                                                 : MESH_UI_SETTINGS_NO_CHANNEL;
 }
 
 static void mesh_ui_nav_refresh_target_name(struct mesh_ui_nav *nav,
@@ -371,6 +402,7 @@ void mesh_ui_nav_init(struct mesh_ui_nav *nav) {
     nav->settings_section = MESH_UI_SETTINGS_NO_SECTION;
     nav->settings_parent = MESH_UI_SETTINGS_NO_SECTION;
     nav->settings_channel = MESH_UI_SETTINGS_NO_CHANNEL;
+    nav->radio_page = MESH_UI_RADIO_PAGE_NONE;
     /* Not zero, which is the narrowest span: a chart opens on everything it has, which is what
        it drew before there was a picker - see `trend_span`. */
     nav->trend_span = (uint8_t)INKCELL_TREND_SPAN_ALL;
@@ -616,7 +648,7 @@ uint32_t mesh_ui_nav_row_count(const struct mesh_ui_nav *nav, const struct mesh_
     }
     case MESH_UI_SCREEN_SETTINGS:
         if (nav->settings_section == MESH_UI_SETTINGS_NO_SECTION) {
-            return mesh_ui_settings_root_count();
+            return mesh_ui_settings_root_count(&store->settings);
         }
         return mesh_ui_settings_item_count(
             &store->settings, store->handshake_valid ? &store->handshake : NULL,
@@ -625,6 +657,15 @@ uint32_t mesh_ui_nav_row_count(const struct mesh_ui_nav *nav, const struct mesh_
     default: {
         if (nav->devices_open) {
             return mesh_ui_devices_row_count(store->devices, store->device_count);
+        }
+        /* A page over the cards is rows like any settings section, and answers the same way.
+           Asked of the flag rather than of mesh_ui_nav_open_section(), which is about the panel:
+           the clamp asks this of every tab, including the ones that are not up. */
+        if (!nav->trend_open && nav->radio_page != MESH_UI_RADIO_PAGE_NONE) {
+            return mesh_ui_settings_item_count(
+                &store->settings, store->handshake_valid ? &store->handshake : NULL,
+                (enum mesh_ui_settings_section)mesh_ui_nav_radio_page_section(nav->radio_page),
+                MESH_UI_SETTINGS_NO_CHANNEL);
         }
         /* Status has no list. Its "rows" are the verbs its cards offer, walked as one flat
            set - a card is focused because the cursor is on one of its buttons, and a card with
@@ -803,11 +844,14 @@ bool mesh_ui_nav_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_store *stor
     }
 
     for (int screen = 0; screen < MESH_UI_SCREEN_COUNT; ++screen) {
-        /* The Radio tab's row cursor is its device list's whichever level is up - the cards walk
-           `status_verb`, repaired above - so it is held against the list, not the verbs. Held
-           against the verbs it would be clipped to two or three every time the cards were
-           showing, and the list would reopen on a row the reader never left it on. */
-        const uint32_t rows = screen == (int)MESH_UI_SCREEN_RADIO
+        /* The Radio tab's row cursor is its device list's unless a page is open over the cards
+           - the cards walk `status_verb`, repaired above - so it is held against the list, not
+           the verbs. Held against the verbs it would be clipped to two or three every time the
+           cards were showing, and the list would reopen on a row the reader never left it on.
+           A page parks the list's row in `radio_devices_cursor` and has the cursor to itself. */
+        const bool radio_list = screen == (int)MESH_UI_SCREEN_RADIO &&
+                                (nav->trend_open || nav->radio_page == MESH_UI_RADIO_PAGE_NONE);
+        const uint32_t rows = radio_list
                                   ? mesh_ui_devices_row_count(store->devices, store->device_count)
                                   : mesh_ui_nav_row_count(nav, store, (enum mesh_ui_screen)screen);
         uint32_t *cursor = &nav->cursor[screen];
@@ -925,14 +969,10 @@ bool mesh_ui_nav_row_is_heading(const struct mesh_ui_nav *nav, const struct mesh
             items, MESH_UI_NODE_ITEMS_MAX);
         return row < count && items[row].kind == MESH_UI_NODE_ROW_HEADING;
     }
-    if (nav->screen == MESH_UI_SCREEN_SETTINGS &&
-        nav->settings_section != MESH_UI_SETTINGS_NO_SECTION) {
+    if (mesh_ui_nav_open_section(nav) != MESH_UI_SETTINGS_NO_SECTION) {
         struct mesh_ui_settings_item items[MESH_UI_SETTINGS_ITEMS_MAX];
-        const uint32_t count = mesh_ui_settings_items(
-            &store->settings, store->handshake_valid ? &store->handshake : NULL,
-            nav->settings_edits, nav->settings_edit_count,
-            (enum mesh_ui_settings_section)nav->settings_section, nav->settings_channel, items,
-            MESH_UI_SETTINGS_ITEMS_MAX);
+        const uint32_t count =
+            mesh_ui_nav_section_items(nav, store, true, items, MESH_UI_SETTINGS_ITEMS_MAX);
         return row < count && items[row].kind == MESH_UI_SETTING_HEADING;
     }
     return false;
@@ -981,7 +1021,8 @@ void mesh_ui_nav_cursor_to_first_row(struct mesh_ui_nav *nav, const struct mesh_
 
 static bool mesh_ui_nav_move_cursor(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                                     int delta) {
-    if (nav->screen == MESH_UI_SCREEN_RADIO && !nav->devices_open) {
+    if (nav->screen == MESH_UI_SCREEN_RADIO && !nav->devices_open &&
+        nav->radio_page == MESH_UI_RADIO_PAGE_NONE) {
         /* Status has no rows to walk. Its cursor is a verb, so a press moves along the list on
            offer and names what it lands on rather than counting how far it got - see
            include/mesh/ui/status.h. */
@@ -1058,14 +1099,10 @@ static uint32_t mesh_ui_nav_heading_map(const struct mesh_ui_nav *nav,
         }
         return rows;
     }
-    if (nav->screen == MESH_UI_SCREEN_SETTINGS &&
-        nav->settings_section != MESH_UI_SETTINGS_NO_SECTION) {
+    if (mesh_ui_nav_open_section(nav) != MESH_UI_SETTINGS_NO_SECTION) {
         struct mesh_ui_settings_item items[MESH_UI_SETTINGS_ITEMS_MAX];
-        const uint32_t count = mesh_ui_settings_items(
-            &store->settings, store->handshake_valid ? &store->handshake : NULL,
-            nav->settings_edits, nav->settings_edit_count,
-            (enum mesh_ui_settings_section)nav->settings_section, nav->settings_channel, items,
-            MESH_UI_SETTINGS_ITEMS_MAX);
+        const uint32_t count =
+            mesh_ui_nav_section_items(nav, store, true, items, MESH_UI_SETTINGS_ITEMS_MAX);
         const uint32_t rows = count < max ? count : max;
         for (uint32_t r = 0; r < rows; ++r) {
             out[r] = items[r].kind == MESH_UI_SETTING_HEADING;
@@ -1567,6 +1604,104 @@ static bool mesh_ui_nav_node_actions_key(struct mesh_ui_nav *nav, const struct m
     }
 }
 
+/*
+ * A on a row of the open section, on whichever tab shows one: a verb row asks for what it does,
+ * and any other row is edited as A edits it. The Settings tab's sections and the Radio tab's
+ * pages share this, so a Reboot is the same press wherever it is drawn.
+ */
+static bool mesh_ui_nav_section_press(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                                      struct mesh_ui_action *action) {
+    /* An ACTION row asks the app to do something rather than editing a value, so it
+       is answered here where out_action is in hand. It carries what it does in
+       `number`, which keeps the nav from needing to know what any section means. */
+    struct mesh_ui_settings_item item;
+    if (mesh_ui_nav_settings_current(nav, store, true, &item) &&
+        item.kind == MESH_UI_SETTING_ACTION && item.field == MESH_UI_FIELD_NONE) {
+        /* A destructive radio action is never done on the press that selected it: the
+           row opens the question, and the answer to that is what goes out. The rest go
+           straight through. */
+        const enum mesh_ui_settings_action which = (enum mesh_ui_settings_action)item.number;
+        if (mesh_ui_settings_action_needs_confirm(which)) {
+            nav->confirm_open = true;
+            nav->confirm_cursor = 1U; /* Cancel, so a repeated press changes nothing */
+            nav->confirm_action = (uint8_t)which;
+            return true;
+        }
+        if (mesh_ui_settings_action_is_radio(which)) {
+            mesh_ui_nav_fill_settings_action(nav, which, action);
+            return false; /* the rows redraw when the read-back lands */
+        }
+        /*
+         * The two channel-sharing rows, which reach neither the app nor the radio on
+         * this press: one opens a screen and the other opens the keyboard. What the
+         * radio hears about is the answer to the sheet the keyboard raises.
+         */
+        if (which == MESH_UI_SETTINGS_ACTION_SHARE_CHANNELS) {
+            nav->share_open = true;
+            return true;
+        }
+        if (which == MESH_UI_SETTINGS_ACTION_IMPORT_CHANNELS) {
+            mesh_ui_nav_open_channel_url_keyboard(nav);
+            return true;
+        }
+        /* And the contact pair, which are the same two presses one section over. */
+        if (which == MESH_UI_SETTINGS_ACTION_SHARE_CONTACT) {
+            nav->contact_open = true;
+            return true;
+        }
+        if (which == MESH_UI_SETTINGS_ACTION_IMPORT_CONTACT) {
+            mesh_ui_nav_open_contact_url_keyboard(nav);
+            return true;
+        }
+        /* The way back from remote administration. Not a radio action - nothing goes
+           over the air - and it carries `dest` 0, which is the verb's spelling of "the
+           radio on the end of the link". */
+        if (which == MESH_UI_SETTINGS_ACTION_ADMIN_LOCAL) {
+            if (action != NULL) {
+                action->type = MESH_UI_ACTION_SET_ADMIN_TARGET;
+                action->dest = 0U;
+            }
+            /* The row it was pressed on is about to stop existing, so the cursor is put
+               somewhere that will still be a row when the section redraws. */
+            nav->cursor[nav->screen] = 0U;
+            /* On the Settings tab the section it was pressed in goes too: About radio is listed
+               only while another node is the target (mesh_ui_settings_root_at()), so the press
+               lands on the list, at its top, rather than inside a section the list no longer
+               has. */
+            if (nav->screen == MESH_UI_SCREEN_SETTINGS) {
+                nav->settings_section = MESH_UI_SETTINGS_NO_SECTION;
+                nav->settings_parent = MESH_UI_SETTINGS_NO_SECTION;
+                nav->settings_list_cursor = 0U;
+            }
+            return true;
+        }
+        if (action != NULL) {
+            if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CHECK_UPDATE) {
+                action->type = MESH_UI_ACTION_CHECK_UPDATE;
+            } else if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_INSTALL_UPDATE) {
+                action->type = MESH_UI_ACTION_INSTALL_UPDATE;
+            } else if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CYCLE_UPDATE_CHANNEL) {
+                action->type = MESH_UI_ACTION_CYCLE_UPDATE_CHANNEL;
+            } else if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_TOGGLE_DEV_UPDATES) {
+                action->type = MESH_UI_ACTION_TOGGLE_DEV_UPDATES;
+            } else if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CYCLE_LANGUAGE) {
+                action->type = MESH_UI_ACTION_CYCLE_LANGUAGE;
+            } else if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CYCLE_THEME) {
+                action->type = MESH_UI_ACTION_CYCLE_THEME;
+            } else if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_DISCARD_CRASH_REPORT) {
+                action->type = MESH_UI_ACTION_DISCARD_CRASH_REPORT;
+            } else if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CHECK_RADIO_FIRMWARE) {
+                action->type = MESH_UI_ACTION_CHECK_RADIO_FIRMWARE;
+            } else if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CYCLE_FIRMWARE_CHANNEL) {
+                action->type = MESH_UI_ACTION_CYCLE_FIRMWARE_CHANNEL;
+            }
+        }
+        /* The row itself does not change; the app's reply comes back as new state. */
+        return false;
+    }
+    return mesh_ui_nav_settings_edit_key(nav, store, INKCELL_KEY_A);
+}
+
 /* A on a row of the device list: connect to it, or type an address for the network row. */
 static bool mesh_ui_nav_devices_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                                         uint32_t cursor, uint32_t rows,
@@ -1773,99 +1908,14 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
             return true;
         }
         if (nav->settings_section != MESH_UI_SETTINGS_NO_SECTION) {
-            /* An ACTION row asks the app to do something rather than editing a value, so it
-               is answered here where out_action is in hand. It carries what it does in
-               `number`, which keeps the nav from needing to know what any section means. */
-            struct mesh_ui_settings_item item;
-            if (mesh_ui_nav_settings_current(nav, store, true, &item) &&
-                item.kind == MESH_UI_SETTING_ACTION && item.field == MESH_UI_FIELD_NONE) {
-                /* A destructive radio action is never done on the press that selected it: the
-                   row opens the question, and the answer to that is what goes out. The rest go
-                   straight through. */
-                const enum mesh_ui_settings_action which =
-                    (enum mesh_ui_settings_action)item.number;
-                if (mesh_ui_settings_action_needs_confirm(which)) {
-                    nav->confirm_open = true;
-                    nav->confirm_cursor = 1U; /* Cancel, so a repeated press changes nothing */
-                    nav->confirm_action = (uint8_t)which;
-                    return true;
-                }
-                if (mesh_ui_settings_action_is_radio(which)) {
-                    mesh_ui_nav_fill_settings_action(nav, which, action);
-                    return false; /* the rows redraw when the read-back lands */
-                }
-                /*
-                 * The two channel-sharing rows, which reach neither the app nor the radio on
-                 * this press: one opens a screen and the other opens the keyboard. What the
-                 * radio hears about is the answer to the sheet the keyboard raises.
-                 */
-                if (which == MESH_UI_SETTINGS_ACTION_SHARE_CHANNELS) {
-                    nav->share_open = true;
-                    return true;
-                }
-                if (which == MESH_UI_SETTINGS_ACTION_IMPORT_CHANNELS) {
-                    mesh_ui_nav_open_channel_url_keyboard(nav);
-                    return true;
-                }
-                /* And the contact pair, which are the same two presses one section over. */
-                if (which == MESH_UI_SETTINGS_ACTION_SHARE_CONTACT) {
-                    nav->contact_open = true;
-                    return true;
-                }
-                if (which == MESH_UI_SETTINGS_ACTION_IMPORT_CONTACT) {
-                    mesh_ui_nav_open_contact_url_keyboard(nav);
-                    return true;
-                }
-                /* The way back from remote administration. Not a radio action - nothing goes
-                   over the air - and it carries `dest` 0, which is the verb's spelling of "the
-                   radio on the end of the link". */
-                if (which == MESH_UI_SETTINGS_ACTION_ADMIN_LOCAL) {
-                    if (action != NULL) {
-                        action->type = MESH_UI_ACTION_SET_ADMIN_TARGET;
-                        action->dest = 0U;
-                    }
-                    /* The row it was pressed on is about to stop existing, so the cursor is put
-                       somewhere that will still be a row when the section redraws. */
-                    nav->cursor[MESH_UI_SCREEN_SETTINGS] = 0U;
-                    return true;
-                }
-                if (action != NULL) {
-                    if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CHECK_UPDATE) {
-                        action->type = MESH_UI_ACTION_CHECK_UPDATE;
-                    } else if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_INSTALL_UPDATE) {
-                        action->type = MESH_UI_ACTION_INSTALL_UPDATE;
-                    } else if (item.number ==
-                               (uint32_t)MESH_UI_SETTINGS_ACTION_CYCLE_UPDATE_CHANNEL) {
-                        action->type = MESH_UI_ACTION_CYCLE_UPDATE_CHANNEL;
-                    } else if (item.number ==
-                               (uint32_t)MESH_UI_SETTINGS_ACTION_TOGGLE_DEV_UPDATES) {
-                        action->type = MESH_UI_ACTION_TOGGLE_DEV_UPDATES;
-                    } else if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CYCLE_LANGUAGE) {
-                        action->type = MESH_UI_ACTION_CYCLE_LANGUAGE;
-                    } else if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CYCLE_THEME) {
-                        action->type = MESH_UI_ACTION_CYCLE_THEME;
-                    } else if (item.number ==
-                               (uint32_t)MESH_UI_SETTINGS_ACTION_DISCARD_CRASH_REPORT) {
-                        action->type = MESH_UI_ACTION_DISCARD_CRASH_REPORT;
-                    } else if (item.number ==
-                               (uint32_t)MESH_UI_SETTINGS_ACTION_CHECK_RADIO_FIRMWARE) {
-                        action->type = MESH_UI_ACTION_CHECK_RADIO_FIRMWARE;
-                    } else if (item.number ==
-                               (uint32_t)MESH_UI_SETTINGS_ACTION_CYCLE_FIRMWARE_CHANNEL) {
-                        action->type = MESH_UI_ACTION_CYCLE_FIRMWARE_CHANNEL;
-                    }
-                }
-                /* The row itself does not change; the app's reply comes back as new state. */
-                return false;
-            }
-            return mesh_ui_nav_settings_edit_key(nav, store, INKCELL_KEY_A);
+            return mesh_ui_nav_section_press(nav, store, action);
         }
-        if (cursor >= mesh_ui_settings_root_count()) {
+        if (cursor >= mesh_ui_settings_root_count(&store->settings)) {
             return false;
         }
         nav->settings_list_cursor = cursor;
         nav->settings_parent = MESH_UI_SETTINGS_NO_SECTION;
-        nav->settings_section = (uint8_t)mesh_ui_settings_root_at(cursor);
+        nav->settings_section = (uint8_t)mesh_ui_settings_root_at(&store->settings, cursor);
         mesh_ui_nav_cursor_to_first_row(nav, store, MESH_UI_SCREEN_SETTINGS);
         return true;
     }
@@ -1873,6 +1923,9 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
     default: {
         if (nav->devices_open) {
             return mesh_ui_nav_devices_confirm(nav, store, cursor, rows, action);
+        }
+        if (nav->radio_page != MESH_UI_RADIO_PAGE_NONE) {
+            return mesh_ui_nav_section_press(nav, store, action);
         }
         struct mesh_ui_status_actions actions;
         mesh_ui_nav_status_actions(store, &actions);
@@ -1915,6 +1968,14 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
                for mesh_app to do. It returns true rather than false for exactly that reason -
                the nav changed, and nobody else is going to say so. */
             nav->trend_open = true;
+            return true;
+        /* The two pages, which are places like the two above: opening either asks for nothing,
+           and what is on them is already in the snapshot. */
+        case MESH_UI_STATUS_VERB_DETAILS:
+            mesh_ui_nav_open_radio_page(nav, store, MESH_UI_RADIO_PAGE_DETAILS);
+            return true;
+        case MESH_UI_STATUS_VERB_NODE_LISTS:
+            mesh_ui_nav_open_radio_page(nav, store, MESH_UI_RADIO_PAGE_NODE_LISTS);
             return true;
         case MESH_UI_STATUS_VERB_REFRESH:
         default:
@@ -2327,8 +2388,7 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
         return true;
     }
 
-    if (nav->screen == MESH_UI_SCREEN_SETTINGS &&
-        nav->settings_section != MESH_UI_SETTINGS_NO_SECTION) {
+    if (mesh_ui_nav_open_section(nav) != MESH_UI_SETTINGS_NO_SECTION) {
         /* A second press of anything but B stands the discard question down. */
         const bool was_armed = nav->settings_discard_armed;
         if (key != INKCELL_KEY_B) {
@@ -2515,6 +2575,14 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
                    confuse; a refresh that reports nothing reads like a save that did
                    nothing. The edits themselves are not needed, only the count. */
                 out_action->edit_count = nav->settings_edit_count;
+            }
+            return changed;
+        }
+        /* The same re-read from a Radio tab page, which is the Radio card's refresh one level
+           in - and with no count, because the edits waiting are the Settings tab's. */
+        if (mesh_ui_nav_open_section(nav) != MESH_UI_SETTINGS_NO_SECTION) {
+            if (out_action != NULL) {
+                out_action->type = MESH_UI_ACTION_REFRESH_SETTINGS;
             }
             return changed;
         }

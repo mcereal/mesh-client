@@ -84,6 +84,8 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_ACTION_REFRESH] = "recargar",
     [MESH_STR_ACTION_TREND] = "tendencia",
     [MESH_STR_ACTION_DEVICES] = "equipos",
+    [MESH_STR_ACTION_DETAILS] = "detalles",
+    [MESH_STR_ACTION_NODE_LISTS] = "nodos",
     [MESH_STR_ACTION_SPAN] = "periodo",
     /* Y on a node's chart, naming the face the press turns to rather than the one that is up. */
     [MESH_STR_ACTION_READINGS] = "lecturas",
@@ -601,6 +603,8 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_SETTINGS_SECTION_CANNED] = "Mensajes rápidos",
     [MESH_STR_SETTINGS_SECTION_NETWORK] = "Red",
     [MESH_STR_SETTINGS_SECTION_BEACON] = "Baliza de malla",
+    [MESH_STR_SETTINGS_SECTION_RADIO_DETAILS] = "Detalles de la radio",
+    [MESH_STR_SETTINGS_SECTION_NODE_LISTS] = "Listas de nodos",
     [MESH_STR_HELP_TITLE] = "Ayuda",
     [MESH_STR_HELP_OVERVIEW] = "Sobre esta pantalla",
     /* The help screen's subjects and paragraph headings. The paragraphs themselves are notes and
@@ -1675,7 +1679,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_TOAST_FIRMWARE_FAILED] = "Falló la instalación del firmware: %s",
     [MESH_STR_BANNER_RADIO_IN_LOADER] = "La radio está en modo de actualización",
     [MESH_STR_BANNER_RADIO_IN_LOADER_HINT] =
-        "Sigue fuera de la malla hasta que termine una actualización. Ajustes > Sobre la radio > "
+        "Sigue fuera de la malla hasta que termine una actualización. Radio > detalles > "
         "Instalar firmware",
     [MESH_STR_ABOUT_LANGUAGE] = "Idioma",
     [MESH_STR_DATE_SUN] = "dom",

@@ -225,8 +225,8 @@ MESH_TEST_CASE(ui_settings_edits, unit) {
 MESH_TEST_CASE(ui_settings_modules, unit) {
     /* Nothing on the top level is a module, and Modules itself is on it exactly once. */
     uint32_t modules_rows = 0U;
-    for (uint32_t i = 0; i < mesh_ui_settings_root_count(); ++i) {
-        const enum mesh_ui_settings_section section = mesh_ui_settings_root_at(i);
+    for (uint32_t i = 0; i < mesh_ui_settings_root_count(NULL); ++i) {
+        const enum mesh_ui_settings_section section = mesh_ui_settings_root_at(NULL, i);
         MESH_TEST_FAIL_IF(mesh_ui_settings_section_is_module(section),
                           "a module should not be on the top-level list");
         modules_rows += (section == MESH_UI_SETTINGS_MODULES) ? 1U : 0U;
@@ -4828,5 +4828,60 @@ MESH_TEST_CASE(ui_settings_confirm_names_the_remote_radio, unit) {
     mesh_ui_settings_confirm_add_subject(&settings, MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB,
                                          text, sizeof text);
     MESH_TEST_FAIL_IF(strlen(text) != local, "and firmware goes over a bus, not over the mesh");
+    record_success(test_name);
+}
+
+/*
+ * The Radio card's details page fits the item list at its longest.
+ *
+ * It is About radio with the verbs done to a radio under it, and About radio was already the
+ * section a row added to the top could push past MESH_UI_SETTINGS_ITEMS_MAX - the list is built
+ * onto the stack every frame and anything past the cap is dropped without a word, which here
+ * would be the factory resets falling off the bottom of the page. So the longest it can be: a
+ * radio reporting every interface it has, a firmware check that found something to install, and
+ * a link up so every verb is live.
+ */
+MESH_TEST_CASE(ui_settings_radio_details_fits_at_its_longest, unit) {
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.has_my_info = true;
+    handshake.link_up = true;
+    handshake.my_info.node_num = 0x1111U;
+
+    settings.loaded = true;
+    settings.has_metadata = true;
+    settings.can_shutdown = true;
+    settings.admin_ok = true;
+    settings.has_bluetooth_radio = true;
+    settings.has_wifi = true;
+    settings.has_ethernet = true;
+    settings.has_pkc = true;
+    settings.fw_supported = true;
+    settings.fw_can_install = true;
+    snprintf(settings.fw_latest, sizeof settings.fw_latest, "2.7.7");
+    snprintf(settings.fw_board, sizeof settings.fw_board, "Heltec Mesh Node T114");
+    snprintf(settings.firmware_version, sizeof settings.firmware_version, "2.7.6");
+    snprintf(settings.fw_channel, sizeof settings.fw_channel, "stable");
+    settings.connection.valid = true;
+    settings.connection.has_wifi = true;
+    settings.connection.wifi_connected = true;
+    settings.connection.has_ethernet = true;
+    settings.connection.has_bluetooth = true;
+    settings.connection.bluetooth_pin = 123456U;
+    settings.connection.has_serial = true;
+
+    const uint32_t count = mesh_ui_settings_item_count(
+        &settings, &handshake, MESH_UI_SETTINGS_RADIO_DETAILS, MESH_UI_SETTINGS_NO_CHANNEL);
+    MESH_TEST_FAIL_IF(count > MESH_UI_SETTINGS_ITEMS_MAX,
+                      "the details page has to fit the item list with every interface reported");
+    /* And the last row is the one that must not be the one dropped. */
+    struct mesh_ui_settings_item item;
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, &handshake, NULL, 0U,
+                                             MESH_UI_SETTINGS_RADIO_DETAILS,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, count - 1U, &item) ||
+                          item.number != (uint32_t)MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE,
+                      "the page ends on the factory reset, not wherever the cap cut it off");
     record_success(test_name);
 }

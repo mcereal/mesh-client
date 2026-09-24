@@ -195,6 +195,16 @@ bool mesh_ui_nav_settings_edit_key(struct mesh_ui_nav *nav, const struct mesh_ui
 bool mesh_ui_nav_settings_commit_text(struct mesh_ui_nav *nav, const struct mesh_ui_store *store);
 /* B out of an open section, or off the section list. False when there is nowhere to go. */
 bool mesh_ui_nav_settings_back(struct mesh_ui_nav *nav);
+/* The open section's rows as built, on whichever tab shows one (mesh_ui_nav_open_section());
+   0 when none is. Pending edits are applied only on the Settings tab, which is whose they are. */
+uint32_t mesh_ui_nav_section_items(const struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                                   bool with_edits, struct mesh_ui_settings_item *items,
+                                   uint32_t max);
+/* A Radio tab page over the cards, opened on its first row with the device list's row parked;
+   closing puts the row back. Close answers false when no page was open. */
+void mesh_ui_nav_open_radio_page(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                                 enum mesh_ui_radio_page page);
+bool mesh_ui_nav_close_radio_page(struct mesh_ui_nav *nav);
 /* A on the settings section list: opens a section or a channel slot. */
 bool mesh_ui_nav_settings_section_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                                       enum inkcell_key key, struct mesh_ui_action *action,

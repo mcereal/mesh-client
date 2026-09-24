@@ -31,7 +31,7 @@ hold 500
 
 # Into Channels: eight slots, which is what a finished sync looks like - the firmware answers
 # for every index, disabled ones included. The two rows this change adds are under them.
-key down 11
+key down 10
 key a
 hold 1200
 key down 8

@@ -24,6 +24,8 @@ bool mesh_test_open_tab(struct mesh_ui_store *store, enum mesh_ui_screen screen)
 bool mesh_test_open_devices(struct mesh_ui_store *store);
 /* The Nodes tab's places list, opened from its Waypoints row with A. */
 bool mesh_test_open_waypoints(struct mesh_ui_store *store);
+/* A Radio tab page - MESH_UI_SETTINGS_RADIO_DETAILS or _NODE_LISTS - opened from its card. */
+bool mesh_test_open_radio_page(struct mesh_ui_store *store, enum mesh_ui_settings_section section);
 
 /*
  * Walks the Settings tab to `section` and opens it, from wherever the cursor is.
@@ -36,7 +38,8 @@ bool mesh_test_open_waypoints(struct mesh_ui_store *store);
 bool mesh_test_settings_open(struct mesh_ui_store *store, enum mesh_ui_settings_section section);
 
 /*
- * Puts the Settings cursor on `row` of whatever list is open, pressing nothing else.
+ * Puts the tab's cursor on `row` of whatever list is open, pressing nothing else - a Settings
+ * section or a Radio tab page.
  *
  * The counterpart of the rule above, one level in: a heading is a row the cursor steps over,
  * so a test that presses Down n times to reach row n lands somewhere else the moment the

@@ -19,7 +19,7 @@ config
 tab settings
 
 # Down to LoRa and open it, so the section's own rows are on screen before the groups start.
-key down 8
+key down 7
 key a
 hold 900
 

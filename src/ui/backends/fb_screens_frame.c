@@ -893,13 +893,15 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
             break;
         case MESH_UI_SCREEN_RADIO:
         default:
-            /* The device list or the chart over the cards, the way the map is drawn over the
-               node list - and the screen is tested as well as the flag for the same reason: the
+            /* The device list, the chart or a page over the cards, the way the map is drawn over
+               the node list - and the screen is tested as well as the flag for the same reason: the
                flags say where the Radio tab is standing, not what is on the panel. */
             if (snapshot->nav.devices_open) {
                 fb_render_devices(state, snapshot, &layout);
             } else if (snapshot->nav.trend_open) {
                 fb_render_trend(state, snapshot, &layout);
+            } else if (snapshot->nav.radio_page != MESH_UI_RADIO_PAGE_NONE) {
+                fb_render_radio_page(state, snapshot, &layout);
             } else {
                 fb_render_status(state, snapshot, &layout);
             }

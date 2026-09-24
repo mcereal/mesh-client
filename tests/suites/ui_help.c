@@ -63,6 +63,11 @@ static bool help_store_open(struct mesh_ui_store *store, enum mesh_ui_settings_s
        Telemetry is the only one of those with a row the phases explain. */
     settings.has_telemetry = true;
     mesh_ui_store_set_settings(store, &settings);
+    /* The Radio tab's two pages are sections too, reached from their cards rather than from the
+       Settings list. */
+    if (section == MESH_UI_SETTINGS_RADIO_DETAILS || section == MESH_UI_SETTINGS_NODE_LISTS) {
+        return mesh_test_open_radio_page(store, section);
+    }
     return mesh_test_open_tab(store, MESH_UI_SCREEN_SETTINGS) &&
            mesh_test_settings_open(store, section);
 }
@@ -567,8 +572,9 @@ MESH_TEST_CASE(help_is_a_route_level, unit) {
  */
 MESH_TEST_CASE(help_keycap_and_press_agree, unit) {
     static const enum mesh_ui_settings_section k_sections[] = {
-        MESH_UI_SETTINGS_LORA,   MESH_UI_SETTINGS_ABOUT,  MESH_UI_SETTINGS_MODULES,
-        MESH_UI_SETTINGS_DEVICE, MESH_UI_SETTINGS_CANNED, MESH_UI_SETTINGS_ACTIONS,
+        MESH_UI_SETTINGS_LORA,          MESH_UI_SETTINGS_ABOUT,  MESH_UI_SETTINGS_MODULES,
+        MESH_UI_SETTINGS_DEVICE,        MESH_UI_SETTINGS_CANNED, MESH_UI_SETTINGS_NODE_LISTS,
+        MESH_UI_SETTINGS_RADIO_DETAILS,
     };
     /* Pristine, one edit in hand, and the discard question armed over that edit. */
     static const char *const k_states[] = {"pristine", "edited", "discard armed"};
@@ -580,8 +586,12 @@ MESH_TEST_CASE(help_keycap_and_press_agree, unit) {
 
             if (state > 0) {
                 /* Step a value to make an edit. Not every section has an editable row - About
-                   and Radio actions have none - so a state that could not be reached is skipped
-                   rather than asserted into existence. */
+                   and the Radio tab's pages have none - so a state that could not be reached is
+                   skipped rather than asserted into existence. A page is skipped outright: Right
+                   there walks the tabs, so stepping would leave the screen under test. */
+                if (store.nav.screen != MESH_UI_SCREEN_SETTINGS) {
+                    continue;
+                }
                 for (uint32_t row = 0;
                      row < mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS) &&
                      store.nav.settings_edit_count == 0U;
@@ -921,17 +931,17 @@ MESH_TEST_CASE(help_is_not_offered_over_an_overlay_on_a_section, unit) {
     MESH_TEST_FAIL_IF(keyboard.nav.help_open, "SELECT opened help over the keyboard");
     MESH_TEST_FAIL_IF(!keyboard.nav.keyboard_open, "SELECT closed the keyboard instead");
 
-    /* And the confirm dialog, over Radio actions. Same shape, different overlay: the question is
-       waiting for A or B, and a third press that drew a screen over it would be answering
-       something nobody asked. */
+    /* And the confirm dialog, over the Radio tab's node lists. Same shape, different overlay:
+       the question is waiting for A or B, and a third press that drew a screen over it would be
+       answering something nobody asked. */
     struct mesh_ui_store confirm;
-    MESH_TEST_FAIL_IF(!help_store_open(&confirm, MESH_UI_SETTINGS_ACTIONS),
-                      "Radio actions did not open");
+    MESH_TEST_FAIL_IF(!help_store_open(&confirm, MESH_UI_SETTINGS_NODE_LISTS),
+                      "the node lists did not open");
     MESH_TEST_FAIL_IF(!bar_offers_help(&confirm), "the section did not offer help to begin with");
     /* Walked rather than aimed at row 0: which rows are actions depends on what the radio has
        told us, and a test that pressed a fixed row would be asserting the section's order. */
     for (uint32_t row = 0;
-         row < mesh_ui_nav_row_count(&confirm.nav, &confirm, MESH_UI_SCREEN_SETTINGS) &&
+         row < mesh_ui_nav_row_count(&confirm.nav, &confirm, confirm.nav.screen) &&
          !confirm.nav.confirm_open;
          ++row) {
         press(&confirm, INKCELL_KEY_A);
@@ -1037,9 +1047,9 @@ MESH_TEST_CASE(help_does_not_offer_a_key_that_does_nothing, unit) {
                 }
             }
 
-            const uint32_t before = store.nav.cursor[MESH_UI_SCREEN_SETTINGS];
+            const uint32_t before = store.nav.cursor[store.nav.screen];
             press(&store, INKCELL_KEY_R2);
-            const bool key_moves = store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != before;
+            const bool key_moves = store.nav.cursor[store.nav.screen] != before;
 
             if (offers_hint != key_moves) {
                 snprintf(

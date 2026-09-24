@@ -2,8 +2,8 @@
 #
 # Watch the action row rather than the panel: exactly one button carries a fill and it is always
 # the one the cursor is on. The dialog opens on Cancel deliberately, so the first frame shows the
-# safe answer filled and "Reboot now" as an accent-labelled text button - then Right moves the
-# fill across. That is the whole of how it says which answer A would press, and it is a fill
+# safe answer filled and "Reset the node database" as an accent-labelled text button - then Right
+# moves the fill across. That is the whole of how it says which answer A would press, and it is a fill
 # rather than a pair of fills because the high-contrast palette has only one yellow to spend.
 
 scene demo
@@ -11,15 +11,18 @@ scale 4
 delay 200
 config
 
-tab settings
-key down 14
+# The Radio tab's node lists, from the Mesh card's "nodes" button: the cards' verbs end on the
+# Radio card's refresh, so the walk goes to the bottom and back up two.
+tab radio
+key down 9
+key up 2
 key a
 hold 700
 
-# Radio actions: the first row under the "Power" heading is Reboot, whose confirmation is
-# destructive - the warning icon and the headline take the bad tone rather than the accent. It
-# rises over the section rather than replacing it, and the rows behind it stay legible under the
-# scrim: what is being asked about is still on the panel.
+# The first row is the reset of the radio's node database, whose confirmation is destructive -
+# the warning icon and the headline take the bad tone rather than the accent. It rises over the
+# page rather than replacing it, and the rows behind it stay legible under the scrim: what is
+# being asked about is still on the panel.
 key a
 hold 1200
 key right
