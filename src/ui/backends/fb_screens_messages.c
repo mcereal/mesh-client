@@ -63,10 +63,10 @@ void fb_render_conversations(struct inkcell_draw_state *state,
     /* All traffic, the channels, a peer per direct thread and New message. */
     uint8_t steps[2U + MESH_UI_MAX_CHANNELS + MESH_UI_MAX_MESSAGES];
     /* With a thread open - which is only drawn beside it, on a split frame - the tab's cursor
-       indexes the thread's messages, and the list's own place is the one parked when it opened:
-       the conversation the thread came from. */
-    const uint32_t cursor =
-        nav->thread_open ? nav->conversation_list_cursor : nav->cursor[MESH_UI_SCREEN_MESSAGES];
+       indexes the thread's messages, and the list's own place is the thread's conversation,
+       found by what it is: see mesh_ui_nav_open_conversation_row(). */
+    const uint32_t cursor = nav->thread_open ? mesh_ui_nav_open_conversation_row(nav, &view)
+                                             : nav->cursor[MESH_UI_SCREEN_MESSAGES];
     struct inkcell_fb_list list = fb_list_begin_steps(state, layout, count, cursor, 2U, steps,
                                                       sizeof steps, FB_LIST_ROLE_FEED);
     inkcell_fb_list_glide(state, &list, FB_LIST_CONVERSATIONS);
