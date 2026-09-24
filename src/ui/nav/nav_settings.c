@@ -145,7 +145,7 @@ static bool mesh_ui_nav_edit_set(struct mesh_ui_nav *nav, const struct mesh_ui_s
     return true;
 }
 
-static void mesh_ui_nav_edits_clear(struct mesh_ui_nav *nav) {
+void mesh_ui_nav_edits_clear(struct mesh_ui_nav *nav) {
     memset(nav->settings_edits, 0, sizeof nav->settings_edits);
     nav->settings_edit_count = 0U;
     nav->settings_discard_armed = false;

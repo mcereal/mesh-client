@@ -2196,9 +2196,35 @@ MESH_TEST_CASE(ui_nav_radio_pages_stay_on_the_radio_in_hand, unit) {
         goto cleanup;
     }
 
+    struct mesh_ui_action action;
+    /* The way back from the Radio tab's details page, with a Settings section open and an edit
+       typed against the remote node: the edit goes with the target rather than staying to be
+       drawn as - and saved as - a change to the radio in hand. */
+    if (!mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS) ||
+        !mesh_test_settings_open(&store, MESH_UI_SETTINGS_USER)) {
+        failure = "Settings > User should open on a remote target";
+        goto cleanup;
+    }
+    store.nav.settings_edits[0].field = (uint8_t)MESH_UI_FIELD_USER_LICENSED;
+    store.nav.settings_edits[0].number = 1U;
+    store.nav.settings_edit_count = 1U;
+    if (!mesh_test_open_radio_page(&store, MESH_UI_SETTINGS_RADIO_DETAILS) ||
+        !mesh_test_settings_cursor_to(&store, 2U)) {
+        failure = "the details page's way back should be reachable";
+        goto cleanup;
+    }
+    memset(&action, 0, sizeof action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (action.type != MESH_UI_ACTION_SET_ADMIN_TARGET || action.dest != 0U ||
+        store.nav.settings_edit_count != 0U ||
+        store.nav.settings_section != MESH_UI_SETTINGS_NO_SECTION) {
+        failure = "leaving the remote node should drop the edits typed against it";
+        goto cleanup;
+    }
+    mesh_ui_store_set_settings(&store, &settings); /* the target is still set for the next check */
+
     /* The way back, pressed on the Settings tab, lands on the list rather than inside a section
        the list is about to stop having. */
-    struct mesh_ui_action action;
     if (!mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS) ||
         !mesh_test_settings_open(&store, MESH_UI_SETTINGS_RADIO) ||
         !mesh_test_settings_cursor_to(&store, 2U)) {

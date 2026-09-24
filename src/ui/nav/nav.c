@@ -1664,15 +1664,21 @@ static bool mesh_ui_nav_section_press(struct mesh_ui_nav *nav, const struct mesh
             /* The row it was pressed on is about to stop existing, so the cursor is put
                somewhere that will still be a row when the section redraws. */
             nav->cursor[nav->screen] = 0U;
-            /* On the Settings tab the section it was pressed in goes too: About radio is listed
-               only while another node is the target (mesh_ui_settings_root_at()), so the press
-               lands on the list, at its top, rather than inside a section the list no longer
-               has. */
-            if (nav->screen == MESH_UI_SCREEN_SETTINGS) {
-                nav->settings_section = MESH_UI_SETTINGS_NO_SECTION;
-                nav->settings_parent = MESH_UI_SETTINGS_NO_SECTION;
-                nav->settings_list_cursor = 0U;
-            }
+            /*
+             * And the Settings tab goes back to its list, from whichever tab the press was made
+             * on, with its pending edits dropped. Those edits were typed against the node being
+             * left: kept, they would draw as changes to the radio in hand and the next Y would
+             * write the remote node's values onto it - and the Radio tab's details page can end
+             * remote administration while a Settings section stands open with edits in it.
+             * About radio is listed only while there is a target (mesh_ui_settings_root_at()),
+             * so the list is also the one place left to land.
+             */
+            mesh_ui_nav_edits_clear(nav);
+            nav->settings_section = MESH_UI_SETTINGS_NO_SECTION;
+            nav->settings_parent = MESH_UI_SETTINGS_NO_SECTION;
+            nav->settings_channel = MESH_UI_SETTINGS_NO_CHANNEL;
+            nav->settings_list_cursor = 0U;
+            nav->cursor[MESH_UI_SCREEN_SETTINGS] = 0U;
             return true;
         }
         if (action != NULL) {

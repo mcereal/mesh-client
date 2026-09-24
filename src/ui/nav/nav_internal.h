@@ -195,6 +195,8 @@ bool mesh_ui_nav_settings_edit_key(struct mesh_ui_nav *nav, const struct mesh_ui
 bool mesh_ui_nav_settings_commit_text(struct mesh_ui_nav *nav, const struct mesh_ui_store *store);
 /* B out of an open section, or off the section list. False when there is nowhere to go. */
 bool mesh_ui_nav_settings_back(struct mesh_ui_nav *nav);
+/* Drops every pending settings edit and stands the discard question down. */
+void mesh_ui_nav_edits_clear(struct mesh_ui_nav *nav);
 /* The open section's rows as built, on whichever tab shows one (mesh_ui_nav_open_section());
    0 when none is. Pending edits are applied only on the Settings tab, which is whose they are. */
 uint32_t mesh_ui_nav_section_items(const struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
