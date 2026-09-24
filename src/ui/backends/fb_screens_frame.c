@@ -517,7 +517,7 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
      * partial-redraw path assumes nothing it has not been told about is moving, which is why
      * fb_render_begin() does not enter the band at all while a move is running.
      */
-    (void)inkcell_fb_scaffold_transition(state, &frame);
+    const int slide = inkcell_fb_scaffold_transition(state, &frame);
 
     /*
      * One tail for every path through this function, which is what lets the chrome below it be
