@@ -545,8 +545,12 @@ uint32_t mesh_ui_nav_row_count(const struct mesh_ui_nav *nav, const struct mesh_
         return mesh_ui_nav_filter_messages(nav, mesh_ui_store_message_view(store, nav), NULL, 0U);
     case MESH_UI_SCREEN_NODES: {
         /* The places first: they are drawn over the roster or over the map, and neither of
-           those counts while one is up. */
-        if (mesh_ui_nav_waypoints_showing(nav)) {
+           those counts while one is up. Asked of the flags rather than of
+           mesh_ui_nav_waypoints_showing(), because this is also the clamp's question about a tab
+           that is not on the panel - and a place left open behind a change of tab is still the
+           thing this tab's cursor is about. */
+        if (nav != NULL && !nav->node_detail_open &&
+            (nav->waypoints_open || nav->waypoint_detail_open)) {
             return mesh_ui_nav_waypoint_row_count(nav, store);
         }
         if (!store->handshake_valid) {

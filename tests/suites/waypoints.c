@@ -19,6 +19,7 @@
 #include "mesh/core/waypoint.h"
 #include "mesh/geo/vector.h"
 #include "mesh/ui/nav.h"
+#include "mesh/ui/nodes.h"
 #include "mesh/ui/route.h"
 #include "mesh/ui/store.h"
 #include "mesh/ui/units.h"
@@ -1182,6 +1183,56 @@ MESH_TEST_CASE(waypoint_list_is_a_level_of_the_nodes_tab, unit) {
     if (mesh_ui_nav_waypoints_showing(&store.nav) ||
         store.nav.cursor[MESH_UI_SCREEN_NODES] != MESH_UI_NODES_WAYPOINTS_ROW) {
         failure = "B on the list should land on the roster's Waypoints row";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * A place left open behind a change of tab keeps its row.
+ *
+ * The clamp runs on every publish for every tab, including the ones not on the panel, and asks
+ * each for its row count. The Nodes tab's count once asked whether a place was *showing* - which
+ * includes whether the tab is up - so with Radio on the panel it measured the places cursor
+ * against the roster, or against the map's nothing, and the reader came back to the top.
+ */
+MESH_TEST_CASE(waypoint_cursor_survives_a_change_of_tab, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "the store should start");
+    const char *failure = NULL;
+    mesh_test_nav_populate(&store);
+
+    struct mesh_ui_waypoint_list list;
+    memset(&list, 0, sizeof list);
+    for (uint32_t p = 0U; p < 12U; ++p) {
+        wp_list_add(&list, 40U + p, "Place", true, WP_EAST_LAT, WP_EAST_LON, WP_NOW);
+    }
+    mesh_ui_store_set_waypoints(&store, &list);
+
+    struct mesh_ui_action action;
+    struct mesh_ui_snapshot snapshot;
+    if (!mesh_test_open_waypoints(&store)) {
+        failure = "the places should open from the Nodes list";
+        goto cleanup;
+    }
+    /* Past the end of the roster behind it, which is the row a clamp against the roster
+       would take away. */
+    const uint32_t roster = mesh_ui_node_filter_count(&store.handshake, MESH_UI_NODE_FILTER_ALL) +
+                            MESH_UI_NODES_LEAD_ROWS;
+    for (uint32_t i = 0U; i < roster + 2U; ++i) {
+        mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_R1, &action);
+    mesh_ui_store_request_refresh(&store);
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_L1, &action);
+    if (!mesh_ui_nav_waypoints_showing(&store.nav) ||
+        store.nav.cursor[MESH_UI_SCREEN_NODES] != roster + 2U) {
+        failure = "coming back to Nodes should find the places on the row they were left on";
         goto cleanup;
     }
 
