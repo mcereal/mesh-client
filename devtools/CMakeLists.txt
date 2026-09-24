@@ -3,7 +3,7 @@
 #
 # Off by default when cross-compiling, because the aarch64 pak build has no use for them.
 
-add_executable(meshclient_uicap ui_capture/main.c ui_capture/scene.c)
+add_executable(meshclient_uicap ui_capture/main.c)
 
 target_link_libraries(meshclient_uicap PRIVATE meshclient_core meshclient_options)
 
