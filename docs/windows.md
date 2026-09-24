@@ -1,7 +1,7 @@
 # Native Windows port
 
 The Windows target is under active development. The first supported slice is an x64 UCRT
-executable with the SDL UI and TCP transport. Bluetooth, USB serial, firmware installation,
+executable with the SDL UI, the TCP transport and plaintext MQTT. Bluetooth, USB serial, firmware installation,
 self-update, TLS and the UI control socket are follow-up platform backends rather than promises
 of the first build.
 
@@ -54,8 +54,9 @@ native IPC backend is added.
 The Windows event loop, TCP connector and stream handoff carry native pointer-sized Winsock
 sockets without passing them through `int` descriptors. Hostnames use overlapped
 `GetAddrInfoExW`, whose completion event is watched by the same loop, so both names and numeric
-addresses can use that path without blocking the UI. The full executable build still links:
-HTTPS fetch and MQTT use explicit unavailable backends until their native socket ports arrive.
+addresses can use that path without blocking the UI. The MQTT client is on the same native
+sockets, so a plaintext broker (port 1883) works; one with TLS turned on is refused by name
+until TLS is ported. HTTPS fetch still uses an explicit unavailable backend.
 Inkcell input and the client updater compile on Windows; the updater offers no install action
 because releases contain Linux binaries only.
 
@@ -82,7 +83,7 @@ the checkout. The Windows CI job runs this build and smoke check on every PR.
 
 The remaining work is primarily in platform backends:
 
-1. Port HTTPS fetch, MQTT and TLS to native Windows sockets.
+1. Port TLS and HTTPS fetch to native Windows sockets.
 2. Replace the explicit unavailable device backends with native implementations.
 3. Add SetupAPI/overlapped COM serial, then a Windows Runtime BLE backend.
 4. Give the UI-control protocol a native IPC backend and settle Windows user-data paths.

@@ -12,7 +12,7 @@
 #include <string.h>
 
 static void mesh_ui_backend_cli_write(struct mesh_ui_backend_cli_context *context, const char *fmt,
-                                      ...) __attribute__((format(printf, 2, 3)));
+                                      ...) __attribute__((format(INKWELL_PRINTF_ARCHETYPE, 2, 3)));
 
 static void mesh_ui_backend_cli_write(struct mesh_ui_backend_cli_context *context, const char *fmt,
                                       ...) {
