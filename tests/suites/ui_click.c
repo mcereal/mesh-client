@@ -23,6 +23,7 @@
 #include "mesh/ui/nav.h"
 #include "mesh/ui/reactions.h"
 #include "mesh/ui/settings.h"
+#include "mesh/ui/status.h"
 #include "mesh/ui/store.h"
 #include "mesh/ui/waypoints.h"
 
@@ -624,5 +625,36 @@ MESH_TEST_CASE(ui_click_a_right_click_off_a_list_opens_nothing, unit) {
         click_close(&store, capture), "a tab has no menu, and a right-click is not a click");
     MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_store_handle_context(&store, INKCELL_FOCUS_NONE, 0, 0),
                               click_close(&store, capture), "nothing under the pointer is nothing");
+    click_close(&store, capture);
+}
+
+/*
+ * The Status cards' buttons answer a pointer, and the Link card's "devices" is the one that
+ * matters: the device list is only reachable through it, and a window has no d-pad. The id is
+ * the verb's place in the flat list, so the Link card's first button is the rows block's 0 and
+ * its second is 1.
+ */
+MESH_TEST_CASE(ui_click_a_card_button_runs_its_verb, unit) {
+    struct mesh_ui_store store;
+    struct inkcell_capture *capture = NULL;
+    MESH_TEST_FAIL_IF(click_open(&store, &capture) != 0, "store or capture failed to open");
+    struct mesh_ui_action action;
+
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_test_open_tab(&store, MESH_UI_SCREEN_RADIO),
+                              click_close(&store, capture), "the test needs the Radio tab");
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_ROWS + 1U, &action),
+        click_close(&store, capture), "the Link card drew no box for its second button");
+    MESH_TEST_FAIL_IF_CLEANUP(action.type != MESH_UI_ACTION_DISCONNECT ||
+                                  store.nav.status_verb != (uint8_t)MESH_UI_STATUS_VERB_DISCONNECT,
+                              click_close(&store, capture),
+                              "a click on disconnect should drop the link, as A on it does");
+
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_ROWS + 0U, &action),
+        click_close(&store, capture), "the Link card drew no box for its devices button");
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !mesh_ui_nav_devices_showing(&store.nav) || action.type != MESH_UI_ACTION_NONE,
+        click_close(&store, capture), "a click on devices should open the device list");
     click_close(&store, capture);
 }

@@ -519,8 +519,8 @@ static void mesh_ui_nav_fill_resend(struct mesh_ui_action *action,
  * parallel structs, because it is asked the same question from three places holding different
  * ones - here with a store, and from actions.c and the renderer with a snapshot.
  */
-static void mesh_ui_nav_status_actions(const struct mesh_ui_store *store,
-                                       struct mesh_ui_status_actions *out) {
+void mesh_ui_nav_status_actions(const struct mesh_ui_store *store,
+                                struct mesh_ui_status_actions *out) {
     bool connected = false;
     for (size_t i = 0; i < store->device_count; ++i) {
         connected = connected || store->devices[i].connected;
