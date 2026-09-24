@@ -4,9 +4,9 @@
  * The Devices tab: every radio this client can see, on whichever bus it was found on, and the
  * row for typing in the one address that is never discovered.
  *
- * What a device is *called* is decided here and read from the frame's status line too - see
+ * What a device is *called* is decided here and read by the heading's link mark too - see
  * fb_device_label() in fb_screens_internal.h. A radio named one way on its row and another way
- * under the keycaps would be two radios as far as the reader is concerned.
+ * in the heading would be two radios as far as the reader is concerned.
  */
 
 #include "inkcell/ui/widgets.h"
@@ -95,7 +95,7 @@ void fb_render_devices(struct inkcell_draw_state *state, const struct mesh_ui_sn
     char title[96];
     inkcell_fb_title_count(title, sizeof title, inkcell_str(MESH_STR_TAB_DEVICES),
                            (uint32_t)snapshot->device_count, 0U);
-    inkcell_fb_draw_app_bar(state, layout, &(const struct inkcell_fb_app_bar){.title = title});
+    fb_draw_app_bar(state, layout, &(const struct inkcell_fb_app_bar){.title = title});
 
     /*
      * Two body rows an item: the radio's name with how it is attached against the right edge,

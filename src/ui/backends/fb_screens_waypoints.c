@@ -39,7 +39,7 @@ static void fb_render_waypoint_detail(struct inkcell_draw_state *state,
     const struct mesh_ui_waypoint *waypoint =
         mesh_ui_waypoint_find(&snapshot->waypoints, nav->waypoint_detail_id);
     if (waypoint == NULL) {
-        inkcell_fb_draw_app_bar(
+        fb_draw_app_bar(
             state, layout,
             &(const struct inkcell_fb_app_bar){.title = inkcell_str(MESH_STR_TAB_WAYPOINTS)});
         inkcell_fb_draw_empty(state, layout, INKCELL_ICON_POSITION,
@@ -49,7 +49,7 @@ static void fb_render_waypoint_detail(struct inkcell_draw_state *state,
 
     /* The place's own name has the whole title line, exactly as a node's does: the tab is up
        there in the navigation bar already, so a trail would be repeating it. */
-    inkcell_fb_draw_app_bar(
+    fb_draw_app_bar(
         state, layout,
         &(const struct inkcell_fb_app_bar){.title = waypoint->name[0] != '\0'
                                                         ? waypoint->name
@@ -166,7 +166,7 @@ void fb_render_waypoints(struct inkcell_draw_state *state, const struct mesh_ui_
     } else {
         inkwell_str_copy(title, sizeof title, inkcell_str(MESH_STR_TAB_WAYPOINTS));
     }
-    inkcell_fb_draw_app_bar(state, layout, &(const struct inkcell_fb_app_bar){.title = title});
+    fb_draw_app_bar(state, layout, &(const struct inkcell_fb_app_bar){.title = title});
 
     /*
      * The empty state still draws the list, because the list is never empty: the last row makes

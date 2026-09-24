@@ -183,13 +183,13 @@ void fb_render_status(struct inkcell_draw_state *state, const struct mesh_ui_sna
      * saying them.
      *
      * This is the banner's rule arriving on a card row, and it is the same two expressions
-     * rather than the same two facts: fb_link_summary() builds the line under the keycaps from
-     * `transport_status` and fb_device_label() of the connected device, on every frame of every
-     * screen. With a radio attached that line reads "running: Home Base" and these two rows say
-     * it again a dozen rows further up, at the top of the one column on this client that runs
-     * out of room - so they were being paid for twice and read once.
+     * rather than the same two facts: fb_link_status() names the connected device with
+     * fb_device_label() on every frame of every screen - in the heading's link mark, and on this
+     * screen, which has no heading, at the end of the keycap row. With a radio attached these two
+     * rows would say it again a few rows away, at the top of the one column on this client that
+     * runs out of room - so they were being paid for twice and read once.
      *
-     * With no radio the line says the quit hint instead of a device, so the rows are back and
+     * With no radio the mark says only what the transport is doing, so the rows are back and
      * the card is where "not connected" is written. Which is the whole of the rule: a row says
      * only what nothing else on the frame says, and whether anything else is saying it is a
      * question about the state rather than about the row.

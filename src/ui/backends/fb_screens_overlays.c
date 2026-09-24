@@ -58,7 +58,7 @@ void fb_render_help(struct inkcell_draw_state *state, const struct mesh_ui_snaps
                             snapshot->handshake_valid ? &snapshot->handshake : NULL, nav, &topic)) {
         /* Reachable only if the section emptied under an open help screen - a disconnect
            between the press and this frame. Saying so beats drawing an empty list. */
-        inkcell_fb_draw_app_bar(
+        fb_draw_app_bar(
             state, layout,
             &(const struct inkcell_fb_app_bar){.title = inkcell_str(MESH_STR_HELP_TITLE)});
         inkcell_fb_draw_empty(state, layout, INKCELL_ICON_ABOUT, inkcell_str(MESH_STR_HELP_TITLE));

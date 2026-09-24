@@ -10,8 +10,12 @@
  */
 
 #include "inkcell/ui/actions.h"
+#include "inkcell/ui/icon.h"
+
+#include "mesh/ui/commands.h"
 
 #include <stdbool.h>
+#include <stddef.h>
 
 struct mesh_ui_snapshot;
 
@@ -41,5 +45,44 @@ bool mesh_ui_action_bar_goes_back(const struct inkcell_action_bar *bar);
  * does them.
  */
 void mesh_ui_actions_drop_tabs(struct inkcell_action_bar *bar);
+
+/*
+ * The verbs a pointer finds in the heading rather than as keycaps at the foot.
+ *
+ * A window with a mouse has no use for "X pin" printed under the panel: a keycap is what a d-pad
+ * reader is told, and a pointer reader wants the verb itself where every desktop app keeps it.
+ * So the same command set the bar is projected from is projected a second time, into the app
+ * bar's actions - one answer, two presentations, and the two cannot offer different things.
+ *
+ * Not every command belongs there, and the rule is the symbol. A command with no entry in the
+ * icon table below stays off the heading, which is what keeps out the ones a pointer already has
+ * somewhere better: back (the arrow), the tabs (clicked), a row's own A (the row is clicked), the
+ * paired moves (the wheel, the controls themselves), and the keyboard's keys (typed). Help is
+ * always last and never the emphasized one - it is about the screen, not what the screen is for.
+ */
+struct mesh_ui_heading_action {
+    enum mesh_ui_command_id id;
+    inkcell_str_id label;
+    enum inkcell_icon icon;
+    /* A verb that throws something away, drawn in the error family when it is the one
+       emphasized. */
+    bool destructive;
+    /* A verb a screen can be *for* - one that makes, sends or keeps something. The first of
+       these on a heading is its tonal pill; a heading with none has no pill, which is better than
+       dressing "pin" up as the reason a node's detail was opened. */
+    bool primary;
+};
+
+#define MESH_UI_HEADING_ACTIONS_MAX 6U
+
+/* The symbol `id` is drawn with in the heading, or INKCELL_ICON_NONE for a command that is not
+   offered there. The controller asks the same question before it acts on a click, so a verb the
+   heading could not have drawn cannot be reached through it. */
+enum inkcell_icon mesh_ui_command_icon(enum mesh_ui_command_id id);
+
+/* Fills `out` with at most `max` heading verbs for `snapshot`, in the command set's priority
+   order with help moved to the end, and returns how many. */
+size_t mesh_ui_actions_heading(const struct mesh_ui_snapshot *snapshot,
+                               struct mesh_ui_heading_action *out, size_t max);
 
 #endif /* MESH_UI_ACTIONS_H */

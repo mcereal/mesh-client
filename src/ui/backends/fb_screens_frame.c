@@ -119,28 +119,49 @@ static const struct inkcell_fb_chip *fb_tab_chips(const struct mesh_ui_snapshot 
 }
 
 /*
- * The line under the keycaps: what the transport is doing, and either the radio it found or
- * how to leave.
+ * The link, as the heading's status mark: the radio's name in the success tone while one is
+ * attached, and what the transport is doing, dimmed, while none is.
  *
- * `tone` is the second half of the same sentence - a link that is up is worth saying in the
- * success colour, and one that is not is not worth shouting about - so the two are decided
- * together here rather than by the widget, which has no idea what the words mean.
+ * This used to be a line of its own under the keycaps - "running: Home Base" on every frame, a
+ * whole row of the panel for a fact that is usually "fine". The heading's mark says the same in
+ * one symbol and a word, where a phone says it, and the row goes back to the body.
+ *
+ * The quit hint that line carried while no radio was attached is not lost: Status offers the
+ * press in its own bar, and help lists it.
  */
-static void fb_link_summary(const struct mesh_ui_snapshot *snapshot, struct inkcell_line *line,
-                            enum inkcell_tone *tone) {
-    inkcell_line_reset(line);
-    const char *status = snapshot->transport_status[0] != '\0'
-                             ? snapshot->transport_status
-                             : inkcell_str(MESH_STR_HEADER_TRANSPORT_STARTING);
+static struct inkcell_fb_bar_status fb_link_status(const struct mesh_ui_snapshot *snapshot) {
     const struct mesh_ui_device *device = mesh_ui_snapshot_connected_device(snapshot);
     if (device != NULL) {
-        inkcell_line_str(line, MESH_STR_HEADER_STATUS_CONNECTED, status, fb_device_label(device));
-        *tone = INKCELL_TONE_SUCCESS;
-        return;
+        return (struct inkcell_fb_bar_status){.icon = INKCELL_ICON_LINK,
+                                              .tone = INKCELL_TONE_SUCCESS,
+                                              .text = fb_device_label(device)};
     }
-    inkcell_line_str(line, MESH_STR_HEADER_STATUS_QUIT, status, inkcell_input_quit_hint());
-    *tone = INKCELL_TONE_DIM;
+    return (struct inkcell_fb_bar_status){
+        .icon = INKCELL_ICON_LINK,
+        .tone = INKCELL_TONE_DIM,
+        .text = snapshot->transport_status[0] != '\0'
+                    ? snapshot->transport_status
+                    : inkcell_str(MESH_STR_HEADER_TRANSPORT_STARTING),
+    };
 }
+
+/*
+ * What the frame hands the first heading drawn on it: the link's state, and - for a pointer -
+ * the screen's verbs. See fb_draw_app_bar().
+ *
+ * Worked out once per frame, before any screen draws, because both are facts about the frame
+ * rather than about a screen: the link is the client's, and the verbs are the command set every
+ * other presentation of them is projected from. A screen renderer says its title and nothing
+ * else, as it always has.
+ */
+struct fb_heading {
+    /* A heading has taken these already this frame - a sheet's bar over a list's is the second
+       one drawn, and the verbs and the link are said once. */
+    bool claimed;
+    struct inkcell_fb_bar_status status;
+    struct inkcell_fb_bar_action actions[MESH_UI_HEADING_ACTIONS_MAX];
+    size_t count;
+};
 
 /* The same snapshot and geometry can only move inside the bounds declared by animated
    widgets. Re-run composition through a clip so overlapping chrome is restored in draw order. */
@@ -175,6 +196,8 @@ struct inkcell_fb_render_cache {
     /* Where the last frame's content stood: the panel less the tab rail, when the width class
        put one beside it. See fb_render_content(). */
     struct inkcell_box content;
+    /* Rebuilt every frame, like the focus map: see struct fb_heading. */
+    struct fb_heading heading;
 };
 
 struct inkcell_box fb_render_content(const struct inkcell_draw_state *state) {
@@ -184,6 +207,73 @@ struct inkcell_box fb_render_content(const struct inkcell_draw_state *state) {
                                     inkcell_fb_panel_height(state)};
     }
     return cache->content;
+}
+
+/*
+ * Whether something is drawn over the screen that answers for itself - a dialog, a sheet, the
+ * tapbacks, a menu. The command set is that layer's then, and its answers are on it; the same
+ * verbs in the heading under its scrim would be a second copy of the dialog nobody can press.
+ */
+static bool fb_layer_up(const struct mesh_ui_nav *nav) {
+    return nav->confirm_open || nav->verify_open || nav->reaction_open || nav->context_open ||
+           nav->node_actions_open || nav->help_open;
+}
+
+/*
+ * Whether the screen under the layers draws an app bar for the verbs to go into. Status is the
+ * one that does not - its cards are its heading, and each card carries its own verb - and help
+ * draws a large title of its own. A pointer on either keeps the keycap bar, which is the only
+ * other place those verbs are said.
+ */
+static bool fb_route_headed(const struct mesh_ui_nav *nav) {
+    struct mesh_ui_route body;
+    mesh_ui_route_under_layers(nav, &body);
+    return body.level != MESH_UI_ROUTE_HELP &&
+           !(body.level == MESH_UI_ROUTE_LIST && nav->screen == MESH_UI_SCREEN_STATUS);
+}
+
+static void fb_heading_begin(struct fb_heading *heading, const struct inkcell_draw_state *state,
+                             const struct mesh_ui_snapshot *snapshot) {
+    memset(heading, 0, sizeof *heading);
+    heading->status = fb_link_status(snapshot);
+    if (!state->pointer || fb_layer_up(&snapshot->nav) || !fb_route_headed(&snapshot->nav)) {
+        return;
+    }
+    struct mesh_ui_heading_action verbs[MESH_UI_HEADING_ACTIONS_MAX];
+    heading->count = mesh_ui_actions_heading(snapshot, verbs, MESH_UI_HEADING_ACTIONS_MAX);
+    bool emphasized = false;
+    for (size_t i = 0U; i < heading->count; ++i) {
+        /* The first verb the screen can be for is its pill - see mesh_ui_heading_action. */
+        const bool pill = verbs[i].primary && !emphasized;
+        emphasized = emphasized || pill;
+        heading->actions[i] = (struct inkcell_fb_bar_action){
+            .icon = verbs[i].icon,
+            .label = inkcell_str(verbs[i].label),
+            .emphasized = pill,
+            .family = verbs[i].destructive ? INKCELL_FAMILY_ERROR : INKCELL_FAMILY_PRIMARY,
+            .focus_id = (uint32_t)MESH_UI_FOCUS_BAR + (uint32_t)verbs[i].id,
+        };
+    }
+}
+
+struct inkcell_fb_app_bar_fit fb_draw_app_bar(const struct inkcell_draw_state *state,
+                                              struct inkcell_fb_layout *layout,
+                                              const struct inkcell_fb_app_bar *bar) {
+    struct inkcell_fb_render_cache *const cache = state != NULL ? state->render_cache : NULL;
+    if (cache == NULL || bar == NULL || cache->heading.claimed ||
+        bar->mode != INKCELL_FB_APP_BAR_NORMAL) {
+        return inkcell_fb_draw_app_bar(state, layout, bar);
+    }
+    struct inkcell_fb_app_bar drawn = *bar;
+    if (drawn.status.icon == INKCELL_ICON_NONE) {
+        drawn.status = cache->heading.status;
+    }
+    if (drawn.action_count == 0U) {
+        drawn.actions = cache->heading.actions;
+        drawn.action_count = cache->heading.count;
+    }
+    cache->heading.claimed = true;
+    return inkcell_fb_draw_app_bar(state, layout, &drawn);
 }
 
 struct fb_overlay_memo *fb_overlay_memo(struct inkcell_draw_state *state, enum fb_overlay_id id) {
@@ -454,6 +544,23 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
     if (state->pointer) {
         mesh_ui_actions_drop_tabs(&actions);
     }
+    if (cache != NULL) {
+        fb_heading_begin(&cache->heading, state, snapshot);
+    }
+    /*
+     * The foot of the frame, which is the part of it that read as a handheld's HUD.
+     *
+     * On the device it is one row of keycaps: they are the only place a d-pad reader learns what
+     * the buttons do, so they stay, but the line under them that said which radio was attached
+     * moved up into the heading's status mark (see fb_link_status()). With a pointer there is no
+     * foot at all - the verbs are in the heading, where a pointer reader looks for them, and a
+     * row of keycaps would be a legend for buttons the reader is not holding.
+     *
+     * A layer the heading does not speak for - a dialog, a sheet, the tapbacks, help - keeps the
+     * bar for a pointer too: its answers are what the bar says, and they are not in the heading.
+     */
+    const bool heading_verbs = cache != NULL && cache->heading.count > 0U;
+    const bool footless = state->pointer && heading_verbs;
 
     /*
      * The two things the *client* says about itself, rather than what any screen says about
@@ -494,7 +601,8 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
         .count = MESH_UI_SCREEN_COUNT,
         .active = (size_t)snapshot->nav.screen,
         .compact_nav = INKCELL_FB_COMPACT_NAV_TOP,
-        .footer = true,
+        .footer = !footless,
+        .footer_kind = footless ? INKCELL_FB_FOOTER_NONE : INKCELL_FB_FOOTER_COMPACT,
         .back = back,
         .busy = mesh_ui_chrome_busy(snapshot),
         .banner = has_banner ? &drawn_banner : NULL,
@@ -641,16 +749,17 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
                                               : inkcell_focus_marked(&cache->focus));
     }
 
-    struct inkcell_line summary;
-    enum inkcell_tone summary_tone = INKCELL_TONE_DIM;
-    fb_link_summary(snapshot, &summary, &summary_tone);
+    /* The link rides the end of the keycap row only on a frame whose screen drew no heading to
+       carry it - Status, whose first card is the link anyway, and the keyboard. */
+    const bool status_said = cache != NULL && cache->heading.claimed;
+    const struct inkcell_fb_bar_status link = fb_link_status(snapshot);
     const struct inkcell_fb_action_bar bar = {
         .items = actions.items,
         .count = actions.count,
-        .status = inkcell_line_text(&summary),
-        .status_tone = summary_tone,
+        .status = status_said ? NULL : link.text,
+        .status_tone = link.tone,
     };
-    inkcell_fb_scaffold_end(state, &frame, &bar);
+    inkcell_fb_scaffold_end(state, &frame, footless ? NULL : &bar);
     fb_render_context(state, snapshot);
 
     /*

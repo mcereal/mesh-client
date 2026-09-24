@@ -6,6 +6,7 @@
 #include "inkcell/ui/latency.h"
 #include "inkwell/runtime/loop.h"
 
+#include "mesh/ui/actions.h"
 #include "mesh/ui/focus.h"
 #include "mesh/ui/nav.h"
 
@@ -246,6 +247,27 @@ void mesh_ui_controller_handle_click(struct mesh_ui_controller *controller, uint
                                                 true);
             return;
         }
+    }
+    /*
+     * A verb in the heading. Answered whenever it is drawn, unlike the menu's, and held to the
+     * same two checks: the command is on offer right now, and it is one the heading draws at
+     * all - so a stale frame or a forged id cannot reach a verb the reader was never shown.
+     */
+    if (inkstand_frame_scheduler_presented(&controller->frames) &&
+        target > (uint32_t)MESH_UI_FOCUS_BAR &&
+        target < (uint32_t)MESH_UI_FOCUS_BAR + (uint32_t)MESH_UI_COMMAND_COUNT) {
+        const enum mesh_ui_command_id command =
+            (enum mesh_ui_command_id)(target - (uint32_t)MESH_UI_FOCUS_BAR);
+        struct mesh_ui_command_set offered;
+        mesh_ui_commands_for(&controller->snapshot, &offered);
+        if (mesh_ui_commands_find(&offered, command) != NULL &&
+            mesh_ui_command_icon(command) != INKCELL_ICON_NONE) {
+            mesh_ui_controller_dispatch_command(controller, command, MESH_UI_COMMAND_DIRECTION_NONE,
+                                                false);
+            return;
+        }
+        inkcell_latency_press_handled(false);
+        return;
     }
     mesh_ui_controller_read_frame(controller);
     struct mesh_ui_action action;

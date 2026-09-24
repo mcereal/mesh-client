@@ -860,7 +860,7 @@ void fb_render_map(struct inkcell_draw_state *state, const struct mesh_ui_snapsh
      * the frame crying wolf.
      */
     bar.badge_family = INKCELL_FAMILY_PRIMARY;
-    inkcell_fb_draw_app_bar(state, layout, &bar);
+    fb_draw_app_bar(state, layout, &bar);
 
     if (body.w <= 0 || body.h <= 0) {
         return;

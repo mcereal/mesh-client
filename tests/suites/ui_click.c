@@ -404,6 +404,43 @@ MESH_TEST_CASE(ui_click_a_right_click_menu_is_the_rows_own_commands, unit) {
     click_close(&store, capture);
 }
 
+/*
+ * Where the verbs are, by who is holding what.
+ *
+ * On the device they are keycaps at the foot and the heading carries none: the keycaps are the
+ * only place a d-pad reader learns the buttons. With a pointer they are the heading's actions -
+ * each a box a click lands on, named by its command - and there is no foot, since a legend for
+ * buttons the reader is not holding is the handheld HUD this frame is leaving behind.
+ */
+MESH_TEST_CASE(ui_click_the_heading_carries_the_verbs_for_a_pointer, unit) {
+    struct mesh_ui_store store;
+    struct inkcell_capture *capture = NULL;
+    MESH_TEST_FAIL_IF(click_open(&store, &capture) != 0, "store or capture failed to open");
+    const uint32_t new_verb = (uint32_t)MESH_UI_FOCUS_BAR + (uint32_t)MESH_UI_COMMAND_NEW;
+    const uint32_t y_cap = INKCELL_FOCUS_ACTION_KEY(INKCELL_KEY_Y);
+    struct inkcell_focus_rect box;
+
+    const struct inkcell_focus_map *device = click_render(&store, capture);
+    MESH_TEST_FAIL_IF_CLEANUP(inkcell_focus_rect_of(device, new_verb, &box),
+                              click_close(&store, capture),
+                              "the device heading should carry no verbs");
+    MESH_TEST_FAIL_IF_CLEANUP(!inkcell_focus_rect_of(device, y_cap, &box),
+                              click_close(&store, capture),
+                              "the device foot should still name Y's verb as a keycap");
+
+    inkcell_capture_state(capture)->pointer = true;
+    const struct inkcell_focus_map *pointer = click_render(&store, capture);
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !inkcell_focus_rect_of(pointer, new_verb, &box) ||
+            inkcell_focus_hit(pointer, box.x + box.w / 2, box.y + box.h / 2) != new_verb,
+        click_close(&store, capture),
+        "a pointer should find New in the heading, where it can be clicked");
+    MESH_TEST_FAIL_IF_CLEANUP(inkcell_focus_rect_of(pointer, y_cap, &box),
+                              click_close(&store, capture),
+                              "a pointer frame with its verbs in the heading should draw no foot");
+    click_close(&store, capture);
+}
+
 MESH_TEST_CASE(ui_click_a_right_click_off_a_list_opens_nothing, unit) {
     struct mesh_ui_store store;
     struct inkcell_capture *capture = NULL;

@@ -113,7 +113,7 @@ void fb_render_settings(struct inkcell_draw_state *state, const struct mesh_ui_s
                         struct inkcell_fb_layout *layout);
 
 /* What to call a device: the advertised name when it has one, otherwise whatever we addressed
-   it by. The Devices tab's rows and the line under the keycaps name a radio the same way, which
+   it by. The Devices tab's rows and the heading's link mark name a radio the same way, which
    is not a coincidence worth leaving to two functions. */
 const char *fb_device_label(const struct mesh_ui_device *device);
 

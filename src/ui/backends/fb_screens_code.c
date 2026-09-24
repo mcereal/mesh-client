@@ -119,9 +119,8 @@ static void fb_draw_code_body(struct inkcell_draw_state *state, struct inkcell_f
 /* The share sheet: this radio's channel set as a code, for a phone that is about to join. */
 void fb_render_share(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
                      struct inkcell_fb_layout *layout) {
-    inkcell_fb_draw_app_bar(
-        state, layout,
-        &(const struct inkcell_fb_app_bar){.title = inkcell_str(MESH_STR_SHARE_TITLE)});
+    fb_draw_app_bar(state, layout,
+                    &(const struct inkcell_fb_app_bar){.title = inkcell_str(MESH_STR_SHARE_TITLE)});
 
     const char *const url = snapshot->settings.share_url;
     char summary[96];
@@ -140,7 +139,7 @@ void fb_render_share(struct inkcell_draw_state *state, const struct mesh_ui_snap
    of why the body is a function and this is four lines. */
 void fb_render_contact(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
                        struct inkcell_fb_layout *layout) {
-    inkcell_fb_draw_app_bar(
+    fb_draw_app_bar(
         state, layout,
         &(const struct inkcell_fb_app_bar){.title = inkcell_str(MESH_STR_CONTACT_TITLE)});
 

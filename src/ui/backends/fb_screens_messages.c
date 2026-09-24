@@ -48,7 +48,7 @@ void fb_render_conversations(struct inkcell_draw_state *state,
     char title[96];
     inkcell_fb_title_count(title, sizeof title, inkcell_str(MESH_STR_TAB_MESSAGES), count,
                            snapshot->messages.dropped);
-    inkcell_fb_draw_app_bar(state, layout, &(const struct inkcell_fb_app_bar){.title = title});
+    fb_draw_app_bar(state, layout, &(const struct inkcell_fb_app_bar){.title = title});
     if (count == 0U) {
         inkcell_fb_draw_empty(state, layout, INKCELL_ICON_MESSAGES,
                               inkcell_str(MESH_STR_MESSAGES_EMPTY));
@@ -683,7 +683,7 @@ void fb_render_thread(struct inkcell_draw_state *state, const struct mesh_ui_sna
     /* No overline. Which kind of conversation this is stays in the title, because a channel's
        name already starts with a '#' and every bubble under it is tagged - so a trail would be
        spending a body row of transcript to repeat what two other things on the frame say. */
-    inkcell_fb_draw_app_bar(state, layout, &(const struct inkcell_fb_app_bar){.title = title});
+    fb_draw_app_bar(state, layout, &(const struct inkcell_fb_app_bar){.title = title});
 
     if (count == 0U) {
         inkcell_fb_draw_empty(

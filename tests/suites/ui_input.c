@@ -761,6 +761,74 @@ cleanup:
     record_success(test_name);
 }
 
+/*
+ * A verb in the heading is its command, the way a verb in the right-click menu is - but answered
+ * whenever it is drawn rather than only while a menu is open, and only for a command the screen
+ * offers and the heading could have drawn. A stale or forged id presses nothing.
+ */
+MESH_TEST_CASE(ui_controller_heading_verbs_dispatch_semantic_commands, unit) {
+    const char *failure = NULL;
+    struct inkwell_loop loop;
+    if (inkwell_loop_init(&loop) != 0) {
+        record_failure(test_name, "event loop init failed");
+        return;
+    }
+    struct mesh_ui_store store;
+    if (mesh_ui_store_init(&store) != 0) {
+        inkwell_loop_shutdown(&loop);
+        record_failure(test_name, "store init failed");
+        return;
+    }
+    struct mesh_ui_backend_stub_context backend;
+    memset(&backend, 0, sizeof backend);
+    struct mesh_ui_controller controller;
+    if (mesh_ui_controller_init(&controller, &store, mesh_ui_backend_stub(), &backend, &loop) !=
+        0) {
+        mesh_ui_store_shutdown(&store);
+        inkwell_loop_shutdown(&loop);
+        record_failure(test_name, "controller init failed");
+        return;
+    }
+    struct test_action_capture actions;
+    memset(&actions, 0, sizeof actions);
+    mesh_ui_controller_set_action_handler(&controller, test_capture_action, &actions);
+
+    mesh_test_nav_populate(&store);
+    if (!mesh_test_open_tab(&store, MESH_UI_SCREEN_DEVICES)) {
+        failure = "the test needs the Devices tab";
+        goto cleanup;
+    }
+    /* NodeTwo, which is not connected, so the row's verb is Connect. */
+    struct mesh_ui_action ignored;
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &ignored);
+    inkwell_loop_run(&loop, 0);
+
+    /* Not offered here, and not a heading verb at all: neither presses anything. */
+    mesh_ui_controller_handle_click(&controller,
+                                    (uint32_t)MESH_UI_FOCUS_BAR + (uint32_t)MESH_UI_COMMAND_REPLY);
+    mesh_ui_controller_handle_click(&controller,
+                                    (uint32_t)MESH_UI_FOCUS_BAR + (uint32_t)MESH_UI_COMMAND_MOVE);
+    if (actions.count != 0U) {
+        failure = "a heading id for a verb this screen does not offer should press nothing";
+        goto cleanup;
+    }
+
+    mesh_ui_controller_handle_click(&controller, (uint32_t)MESH_UI_FOCUS_BAR +
+                                                     (uint32_t)MESH_UI_COMMAND_CONNECT);
+    if (actions.count != 1U || actions.last.type != MESH_UI_ACTION_CONNECT ||
+        strcmp(actions.last.identifier, "AA:BB:CC:DD:EE:02") != 0) {
+        failure = "a heading verb should invoke its command on the row the cursor is on";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_controller_shutdown(&controller);
+    mesh_ui_store_shutdown(&store);
+    inkwell_loop_shutdown(&loop);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
 /* The app turns a save into a full-section write from the radio's own copy. */
 /* The clock push: shaped like a write on the wire, deliberately invisible to the save
    accounting so it never toasts over the user's own save. */

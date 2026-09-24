@@ -127,7 +127,7 @@ void fb_render_compose(struct inkcell_draw_state *state, const struct mesh_ui_sn
                                        : MESH_STR_COMPOSE_SUFFIX_DIRECT));
     /* The badge is the one thing on the sheet that says this answers a message rather than the
        conversation - which is the whole difference between the press that opened it and Y. */
-    inkcell_fb_draw_app_bar(
+    fb_draw_app_bar(
         state, layout,
         &(const struct inkcell_fb_app_bar){
             .title = title,
@@ -180,7 +180,7 @@ void fb_render_picker(struct inkcell_draw_state *state, const struct mesh_ui_sna
     const uint32_t count = mesh_ui_nav_picker_count(&view);
     char title[96];
     inkcell_fb_title_count(title, sizeof title, inkcell_str(MESH_STR_PICKER_TITLE), count, 0U);
-    inkcell_fb_draw_app_bar(state, layout, &(const struct inkcell_fb_app_bar){.title = title});
+    fb_draw_app_bar(state, layout, &(const struct inkcell_fb_app_bar){.title = title});
     if (count == 0U) {
         inkcell_fb_draw_empty(state, layout, INKCELL_ICON_MESSAGES,
                               inkcell_str(MESH_STR_PICKER_EMPTY));
@@ -306,13 +306,12 @@ void fb_render_keyboard(const struct inkcell_draw_state *state,
     const bool replying = (!for_passkey && !for_verify && !for_setting && !nav->keyboard_network &&
                            !nav->keyboard_waypoint && !nav->keyboard_channel_url &&
                            !nav->keyboard_contact_url && nav->reply_to != 0U);
-    inkcell_fb_draw_app_bar(
-        state, layout,
-        &(const struct inkcell_fb_app_bar){
-            .title = title,
-            .badge = replying ? inkcell_str(MESH_STR_COMPOSE_BADGE_REPLY) : NULL,
-            .badge_family = INKCELL_FAMILY_TERTIARY,
-        });
+    fb_draw_app_bar(state, layout,
+                    &(const struct inkcell_fb_app_bar){
+                        .title = title,
+                        .badge = replying ? inkcell_str(MESH_STR_COMPOSE_BADGE_REPLY) : NULL,
+                        .badge_family = INKCELL_FAMILY_TERTIARY,
+                    });
 
     int y = layout->body_y;
 
