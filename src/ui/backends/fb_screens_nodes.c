@@ -135,7 +135,7 @@ void fb_render_node_detail(struct inkcell_draw_state *state,
     const struct mesh_ui_handshake_state *hs = &snapshot->handshake;
     const struct mesh_ui_node_summary *node = mesh_ui_node_detail_find(hs, nav->node_detail_node);
     if (node == NULL) {
-        inkcell_fb_draw_app_bar(
+        fb_draw_app_bar(
             state, layout,
             &(const struct inkcell_fb_app_bar){.title = inkcell_str(MESH_STR_TAB_NODES)});
         inkcell_fb_draw_empty(state, layout, INKCELL_ICON_NODES, inkcell_str(MESH_STR_NODES_GONE));
@@ -173,11 +173,10 @@ void fb_render_node_detail(struct inkcell_draw_state *state,
            two screens cannot report the node's age in two different spellings. */
         inkcell_fb_format_age(node->last_heard, heard, sizeof heard);
     }
-    inkcell_fb_draw_app_bar(
-        state, layout,
-        &(const struct inkcell_fb_app_bar){.title = title,
-                                           .badge = heard[0] != '\0' ? heard : NULL,
-                                           .badge_family = INKCELL_FAMILY_SECONDARY});
+    fb_draw_app_bar(state, layout,
+                    &(const struct inkcell_fb_app_bar){.title = title,
+                                                       .badge = heard[0] != '\0' ? heard : NULL,
+                                                       .badge_family = INKCELL_FAMILY_SECONDARY});
 
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
     const uint32_t count = mesh_ui_node_detail_build(
@@ -511,7 +510,7 @@ void fb_render_nodes(struct inkcell_draw_state *state, const struct mesh_ui_snap
         return;
     }
     if (!snapshot->handshake_valid || snapshot->handshake.node_count == 0U) {
-        inkcell_fb_draw_app_bar(
+        fb_draw_app_bar(
             state, layout,
             &(const struct inkcell_fb_app_bar){.title = inkcell_str(MESH_STR_TAB_NODES)});
         inkcell_fb_draw_empty(state, layout, INKCELL_ICON_NODES,
@@ -577,7 +576,7 @@ void fb_render_nodes(struct inkcell_draw_state *state, const struct mesh_ui_snap
     } else {
         inkcell_fb_title_count(title, sizeof title, inkcell_str(MESH_STR_TAB_NODES), count, 0U);
     }
-    inkcell_fb_draw_app_bar(state, layout, &(const struct inkcell_fb_app_bar){.title = title});
+    fb_draw_app_bar(state, layout, &(const struct inkcell_fb_app_bar){.title = title});
 
     const uint32_t me = hs->has_my_info ? hs->my_info.node_num : 0U;
     /* The discs come from the nav layer, which wants a store rather than the handshake alone -

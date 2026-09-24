@@ -95,7 +95,7 @@ void fb_render_devices(struct inkcell_draw_state *state, const struct mesh_ui_sn
     char title[96];
     inkcell_fb_title_count(title, sizeof title, inkcell_str(MESH_STR_TAB_DEVICES),
                            (uint32_t)snapshot->device_count, 0U);
-    inkcell_fb_draw_app_bar(state, layout, &(const struct inkcell_fb_app_bar){.title = title});
+    fb_draw_app_bar(state, layout, &(const struct inkcell_fb_app_bar){.title = title});
 
     /*
      * Two body rows an item: the radio's name with how it is attached against the right edge,

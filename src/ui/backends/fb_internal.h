@@ -19,6 +19,7 @@
  */
 
 #include "inkcell/ui/fb_draw.h"
+#include "inkcell/ui/widgets/chrome.h"
 
 #include "mesh/map/source.h"
 #include "mesh/map/tile_cache.h"
@@ -156,6 +157,20 @@ void fb_render_cache_free(struct inkcell_draw_state *state);
 /* The box the last frame's content stood in - the panel, less the rail when a wider width class
    put the tabs down the leading edge. The whole panel before anything has been drawn. */
 struct inkcell_box fb_render_content(const struct inkcell_draw_state *state);
+
+/*
+ * A screen's heading. Every screen - the map included - draws its app bar through this rather than
+ * inkcell's call, and says only what it always said - its title, its trail, its badge.
+ *
+ * The first heading on a frame is also handed what the frame knows and the screen does not: for
+ * a pointer, the screen's verbs as app bar actions and the link's status mark, since that frame
+ * has no foot to say them (see fb_heading_begin() in fb_screens_frame.c). A bar that sets either
+ * itself keeps its own; a second heading on the same frame - a sheet's over a list's - gets
+ * neither, so the link and the verbs are said once.
+ */
+struct inkcell_fb_app_bar_fit fb_draw_app_bar(const struct inkcell_draw_state *state,
+                                              struct inkcell_fb_layout *layout,
+                                              const struct inkcell_fb_app_bar *bar);
 
 /* ---- fb_screens_frame.c -------------------------------------------------------------------- */
 

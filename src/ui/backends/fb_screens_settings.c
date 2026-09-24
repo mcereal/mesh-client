@@ -127,7 +127,7 @@ void fb_render_settings(struct inkcell_draw_state *state, const struct mesh_ui_s
             bar.badge_family = INKCELL_FAMILY_WARNING;
         }
     }
-    inkcell_fb_draw_app_bar(state, layout, &bar);
+    fb_draw_app_bar(state, layout, &bar);
 
     /* Every other section describes the radio, but About describes this client, so the tab
        stays usable with nothing connected: the section list still draws (About is the only
