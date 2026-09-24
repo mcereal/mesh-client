@@ -1002,7 +1002,9 @@ cleanup:
 MESH_TEST_CASE(ble_transport_asks_again_for_a_scan_that_did_not_start, unit) {
     const char *failure = NULL;
 
-    setenv("MESHCLIENT_DISCOVERY_SETTLE_MS", "60", 1);
+    /* Wide enough that a slow runner's first turns land inside it: only the "not yet" checks can be
+       upset by a late turn, since a sleep can overrun but never come up short. */
+    setenv("MESHCLIENT_DISCOVERY_SETTLE_MS", "250", 1);
     unsigned starts = 0U;
     unsigned stops = 0U;
     struct mesh_test_ble_rig rig;
@@ -1021,19 +1023,19 @@ MESH_TEST_CASE(ble_transport_asks_again_for_a_scan_that_did_not_start, unit) {
         failure = "a request should get time to land before it is doubted";
         goto cleanup;
     }
-    test_sleep_ms(120U);
+    test_sleep_ms(320U);
     ble->ops->tick(ble);
     if (starts != 2U || stops != 1U) {
         failure = "a scan the adapter never started should be stopped and started again";
         goto cleanup;
     }
-    test_sleep_ms(80U);
+    test_sleep_ms(150U); /* of the 500 the doubled wait needs */
     ble->ops->tick(ble);
     if (starts != 2U) {
         failure = "a second restart should wait twice as long as the first";
         goto cleanup;
     }
-    test_sleep_ms(80U);
+    test_sleep_ms(400U);
     ble->ops->tick(ble);
     if (starts != 3U) {
         failure = "the second restart should come once the doubled wait is up";
@@ -1049,7 +1051,7 @@ MESH_TEST_CASE(ble_transport_asks_again_for_a_scan_that_did_not_start, unit) {
         failure = "ble restart failed";
         goto cleanup;
     }
-    test_sleep_ms(120U);
+    test_sleep_ms(320U);
     rig.ble->ops->tick(rig.ble);
     if (starts != 1U) {
         failure = "a scan the adapter is running must not be asked for again";
@@ -1118,7 +1120,7 @@ cleanup:
 MESH_TEST_CASE(ble_transport_resets_a_controller_holding_a_dead_link, unit) {
     const char *failure = NULL;
 
-    setenv("MESHCLIENT_BLE_RELEASE_WAIT_MS", "40", 1);
+    setenv("MESHCLIENT_BLE_RELEASE_WAIT_MS", "300", 1); /* headroom for a slow runner */
     unsigned resets = 0U;
     struct mesh_test_ble_rig rig;
     mesh_test_ble_rig_init(&rig, "AA:BB:CC:DD:EE:0E", "NodeFourteen", -50);
@@ -1142,7 +1144,7 @@ MESH_TEST_CASE(ble_transport_resets_a_controller_holding_a_dead_link, unit) {
         failure = "a release should get its wait before the controller is reset";
         goto cleanup;
     }
-    test_sleep_ms(80U);
+    test_sleep_ms(350U);
     ble->ops->tick(ble);
     ble->ops->tick(ble);
     if (resets != 1U || !mesh_ble_transport_is_connecting(ble)) {
