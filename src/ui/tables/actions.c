@@ -1074,11 +1074,17 @@ size_t mesh_ui_actions_heading(const struct mesh_ui_snapshot *snapshot,
     /* Help's slot is kept before anything is placed, so a screen with more verbs than room
        loses its last verb rather than its way to the explanation of the rest. */
     const struct mesh_ui_command *help = mesh_ui_commands_find(&commands, MESH_UI_COMMAND_HELP);
+    /* The keyboard's delete is a key, and a window's reader has it under a finger: on a heading
+       it is a bin over the draft, which reads as throwing the whole draft away. */
+    struct mesh_ui_route active;
+    mesh_ui_route_of(&snapshot->nav, &active);
+    const bool typing = active.level == MESH_UI_ROUTE_KEYBOARD;
     size_t count = 0U;
     for (size_t i = 0U; i < commands.count; ++i) {
         const struct mesh_ui_command *command = &commands.items[i];
         const enum inkcell_icon icon = mesh_ui_command_icon(command->id);
-        if (icon == INKCELL_ICON_NONE || command->id == MESH_UI_COMMAND_HELP) {
+        if (icon == INKCELL_ICON_NONE || command->id == MESH_UI_COMMAND_HELP ||
+            (typing && command->id == MESH_UI_COMMAND_DELETE)) {
             continue;
         }
         /* The same verb offered twice - a row's A and a screen's Y both saying "New" - is one

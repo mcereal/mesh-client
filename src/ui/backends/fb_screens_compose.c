@@ -26,6 +26,11 @@
 #include <stdio.h>
 #include <string.h>
 
+/* The most lines a window's text field grows to. The longest draft any keyboard here takes is a
+   channel link of a few hundred characters, which wraps to about this many on a desktop-width
+   field; past it a tall window would only be drawing an empty box. */
+#define MESH_UI_KB_FIELD_LINES_MAX 8U
+
 /*
  * The bubble sheet: the fixed emoji set one per row, then the delete, aimed at the message X
  * was pressed on.
@@ -327,12 +332,35 @@ void fb_render_keyboard(const struct inkcell_draw_state *state,
      */
     char meter[32];
     snprintf(meter, sizeof meter, "%zu/%zu", strlen(nav->draft), draft_cap);
-    const struct inkcell_fb_text_field field = {
+    struct inkcell_fb_text_field field = {
         .value = nav->draft,
         .caret = true,
         .lines = 2U,
         .counter = meter,
     };
+
+    /*
+     * A window has a keyboard of its own. The grid below is how a d-pad types, and on a desktop
+     * it is a picture of the keyboard the reader's hands are already on - so a frame drawn for a
+     * pointer (the SDL window, the only backend that sets it) leaves the grid out and gives its
+     * room to the field. The characters arrive as text from the window (inkcell/ui/sdl.h), with
+     * Return, Backspace and Escape as the grid's submit, delete and back; an emoji comes from
+     * the system's own picker. The field grows by whole lines so its height still does not
+     * change as somebody types.
+     */
+    if (state->pointer) {
+        const int two = inkcell_fb_text_field_height(state, layout, &field);
+        field.lines = 3U;
+        const int line = inkcell_fb_text_field_height(state, layout, &field) - two;
+        field.lines = 2U;
+        const int room = layout->footer_y - y;
+        if (line > 0 && room > two) {
+            const uint32_t fits = 2U + (uint32_t)((room - two) / line);
+            field.lines = fits < MESH_UI_KB_FIELD_LINES_MAX ? fits : MESH_UI_KB_FIELD_LINES_MAX;
+        }
+        inkcell_fb_draw_text_field(state, layout, &y, &field);
+        return;
+    }
     inkcell_fb_draw_text_field(state, layout, &y, &field);
 
     /*

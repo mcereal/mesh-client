@@ -861,3 +861,21 @@ MESH_TEST_CASE(actions_heading_is_what_a_pointer_has_nowhere_else, unit) {
     MESH_TEST_FAIL_IF(mesh_ui_actions_heading(NULL, verbs, 0U) != 0U, "no room is no verbs");
     record_success(test_name);
 }
+
+/* The keyboard's delete is Backspace to a pointer reader; on the heading it would be a bin over
+   the draft, which says the whole draft goes. Send stays - it is what the screen is for. */
+MESH_TEST_CASE(actions_heading_leaves_the_keyboard_delete_to_backspace, unit) {
+    struct mesh_ui_snapshot snapshot;
+    actions_snapshot(&snapshot);
+    snapshot.nav.keyboard_open = true;
+    struct mesh_ui_heading_action verbs[MESH_UI_HEADING_ACTIONS_MAX];
+    const size_t count = mesh_ui_actions_heading(&snapshot, verbs, MESH_UI_HEADING_ACTIONS_MAX);
+    bool send = false;
+    for (size_t i = 0U; i < count; ++i) {
+        MESH_TEST_FAIL_IF(verbs[i].id == MESH_UI_COMMAND_DELETE,
+                          "the keyboard's delete should not be a bin on the heading");
+        send = send || verbs[i].id == MESH_UI_COMMAND_SEND;
+    }
+    MESH_TEST_FAIL_IF(!send, "the message keyboard's heading should still offer send");
+    record_success(test_name);
+}

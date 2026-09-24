@@ -325,11 +325,14 @@ for New, S for Save, and R for Refresh. Each shortcut runs only when the current
 that command; for example, Save on a message list does nothing. Modified keys never also act as
 Brick face buttons, so Control+X cannot accidentally invoke X's current-screen verb.
 
-When the on-screen keyboard is visible, the window also accepts native text entry and paste
-(Command/Control+V). SDL's committed UTF-8 goes into the same draft with the same byte limit as
-the grid; a paste that does not fit is refused whole. Backspace deletes, Enter submits, and
-Escape leaves with the draft intact. The grid remains available for pointer and controller use,
-and typing is ignored while another sheet is on top of it.
+Where the device opens the on-screen keyboard, the window opens a text field and no grid: the
+reader's hands are on a real keyboard, and a picture of one under the field was only something
+to type past. The field takes the room the grid had (up to eight lines). Typing and paste
+(Command/Control+V) arrive as SDL's committed UTF-8, into the same draft with the same byte limit
+the grid has; a paste that does not fit is refused whole, and an emoji comes from the system's
+picker. Backspace deletes, Enter submits, and Escape leaves with the draft intact; the arrows,
+Tab and Page Up/Down, which only walk the grid, do nothing there. Typing is ignored while another
+sheet is on top of it. `fb_keyboard_grid_is_left_out_of_a_window` holds the frame.
 
 The mouse works too, and adds no second model of the screen: it clicks the boxes the frame
 already registers for the d-pad (`mesh/ui/focus.h`). A tab switches to it, a row is the cursor

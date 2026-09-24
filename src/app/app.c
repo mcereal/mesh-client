@@ -16,6 +16,7 @@
 
 #include "app_internal.h"
 
+#include "inkcell/ui/latency.h"
 #include "inkwell/net/fetch.h"
 #include "inkwell/runtime/crash.h"
 #include "mesh/core/ca_roots.h"
@@ -247,6 +248,23 @@ static bool mesh_app_ui_text_active(void *userdata) {
     return route.level == MESH_UI_ROUTE_KEYBOARD;
 }
 
+/*
+ * The window's keys, on their way to the same place. While something is being typed the window
+ * draws no grid (fb_render_keyboard()), so the keys that walk one - the arrows, the shoulders
+ * Tab and Page Up/Down stand in for, the A that presses a cell - would be moving a cursor
+ * nobody can see. Return, Backspace and Escape are the grid's submit, delete and back, and
+ * carry on; the characters themselves never came this way (mesh_app_on_ui_text()).
+ */
+static void mesh_app_on_ui_window_key(void *userdata, enum inkcell_key key) {
+    if (mesh_app_ui_text_active(userdata) && key != INKCELL_KEY_START && key != INKCELL_KEY_X &&
+        key != INKCELL_KEY_B) {
+        /* The window counted it as a press; nothing is drawn for it. */
+        inkcell_latency_press_handled(false);
+        return;
+    }
+    mesh_app_on_ui_key(userdata, key);
+}
+
 static void mesh_app_on_ui_text(void *userdata, const char *text) {
     struct mesh_app *app = (struct mesh_app *)userdata;
     if (app != NULL) {
@@ -357,7 +375,7 @@ static bool mesh_app_select_sdl(struct mesh_app *app, const struct inkcell_backe
                      .add_fd = mesh_app_ui_add_fd,
                      .remove_fd = mesh_app_ui_remove_fd,
                      .request_stop = mesh_app_ui_request_stop},
-            .on_key = mesh_app_on_ui_key,
+            .on_key = mesh_app_on_ui_window_key,
             .on_action_key = mesh_app_on_ui_action_key,
             .on_shortcut = mesh_app_on_ui_shortcut,
             .text_input_active = mesh_app_ui_text_active,

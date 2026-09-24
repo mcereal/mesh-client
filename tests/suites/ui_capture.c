@@ -5892,3 +5892,63 @@ MESH_TEST_CASE(ui_capture_focus_ring_follows_the_dialog_cursor, unit) {
     MESH_TEST_FAIL_IF(!landed, "the ring should land on the answer the cursor moved to");
     record_success(test_name);
 }
+
+/* Whether rows [top, bottom) of the frame are one colour - a band nothing was drawn in. */
+static bool capture_band_is_blank(const struct inkcell_capture *capture, uint32_t top,
+                                  uint32_t bottom) {
+    uint32_t width = 0U, height = 0U;
+    size_t stride = 0U;
+    const uint8_t *pixels = inkcell_capture_pixels(capture, &width, &height, &stride);
+    if (pixels == NULL || bottom > height) {
+        return false;
+    }
+    const uint8_t *first = pixels + (size_t)top * stride;
+    for (uint32_t y = top; y < bottom; ++y) {
+        const uint8_t *row = pixels + (size_t)y * stride;
+        for (uint32_t x = 0U; x < width; ++x) {
+            if (memcmp(row + (size_t)x * 4U, first, 4U) != 0) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+/*
+ * A window types on the keyboard under the reader's hands, so the frame drawn for it leaves the
+ * grid out: on the device the lower half of the screen is keys, in a window it is empty. The
+ * field is what stays, and it is taller than the device's two lines.
+ */
+MESH_TEST_CASE(fb_keyboard_grid_is_left_out_of_a_window, unit) {
+    struct inkcell_capture *capture = NULL;
+    struct mesh_ui_snapshot *snapshot = calloc(1U, sizeof *snapshot);
+    const char *failure = NULL;
+    if (snapshot == NULL || mesh_ui_capture_open(&capture, 1024U, 768U, INKCELL_SCALE(4)) != 0) {
+        failure = "capture allocation failed";
+        goto cleanup;
+    }
+    snapshot->nav.screen = MESH_UI_SCREEN_MESSAGES;
+    snapshot->nav.keyboard_open = true;
+    snprintf(snapshot->nav.target_name, sizeof snapshot->nav.target_name, "BRVO");
+    snprintf(snapshot->nav.draft, sizeof snapshot->nav.draft, "ok");
+
+    inkcell_capture_render(capture, snapshot);
+    if (capture_band_is_blank(capture, 600U, 700U)) {
+        failure = "the device frame should draw the grid under the field";
+        goto cleanup;
+    }
+    inkcell_capture_state(capture)->pointer = true;
+    inkcell_capture_render(capture, snapshot);
+    if (!capture_band_is_blank(capture, 600U, 700U)) {
+        failure = "a window's frame should not draw a grid the reader types past";
+        goto cleanup;
+    }
+    if (capture_band_is_blank(capture, 200U, 260U)) {
+        failure = "a window's field should grow into the room the grid left";
+    }
+cleanup:
+    inkcell_capture_close(capture);
+    free(snapshot);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
