@@ -36,7 +36,8 @@
  *                          frame, as a window's mouse would - the row's menu, at the pointer
  *   tab NAME               walk Left/Right to messages|nodes|devices|status|settings
  *   config                 a radio that has answered the config handshake
- *   syncing                a config replay still running, partway through the roster
+ *   syncing [on|off]       a config replay still running, partway through the roster; `off`
+ *                          finishes it
  *   stats                  the radio's own LocalStats report - packet counters, online nodes and
  *                          the airtime pair, which the Status tab's Mesh card reads
  *   airtime BUSY [TX]      one LocalStats airtime report, in percent
@@ -2006,13 +2007,23 @@ static int verb_queue(struct uicap_scene *scene, char *rest, void *userdata) {
  */
 static int verb_syncing(struct uicap_scene *scene, char *rest, void *userdata) {
     struct uicap *cap = userdata;
-    (void)scene;
-    (void)rest;
+    const char *value = uicap_scene_word(&rest);
+    if (value != NULL && strcmp(value, "on") != 0 && strcmp(value, "off") != 0) {
+        return uicap_scene_fail(scene, "'syncing' takes on, off or nothing");
+    }
     struct mesh_ui_handshake_state handshake = cap->store.handshake;
-    handshake.config_complete = false;
-    handshake.request_in_flight = true;
-    handshake.sync_nodes = 37U;
-    handshake.my_info.nodedb_entries = 135U;
+    /* `off` is the replay finishing, which leaves the roster it delivered where it is - exactly
+       as the real one does. It used to be a second `syncing` verb that the first always matched
+       before it, so `syncing off` put the radio back into a replay rather than out of one. */
+    if (value != NULL && strcmp(value, "off") == 0) {
+        handshake.config_complete = true;
+        handshake.request_in_flight = false;
+    } else {
+        handshake.config_complete = false;
+        handshake.request_in_flight = true;
+        handshake.sync_nodes = 37U;
+        handshake.my_info.nodedb_entries = 135U;
+    }
     mesh_ui_store_set_handshake(&cap->store, &handshake);
     return 0;
 }
