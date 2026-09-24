@@ -680,8 +680,9 @@ static int install_radio_firmware_ble(struct mesh_app *app,
         (void)inkwell_ble_attach_loop(&client, &app->loop);
         /* CoreBluetooth and Windows find their adapter after the open returns, on a later turn
            of the loop; asked at once, there is none yet. Before the radio is armed, because a
-           radio sent into its loader with nothing left to stream to it is off the mesh. */
-        for (int turn = 0; turn < 250 && inkwell_ble_check_ready(&client) == -EAGAIN; ++turn) {
+           radio sent into its loader with nothing left to stream to it is off the mesh. Any
+           refusal is waited on, as the transport waits on one; find_adapter names what is left. */
+        for (int turn = 0; turn < 250 && inkwell_ble_check_ready(&client) < 0; ++turn) {
             if (have_radio) {
                 mesh_transport_registry_tick(&app->transport_registry);
             }
@@ -994,7 +995,8 @@ static void print_usage(const char *program) {
             "                            an ESP32 over Bluetooth (OTA request, loader, stream),\n"
             "                            and with no radio answering it resumes one already in\n"
             "                            its loader - name it with -p. Changes the radio\n"
-            "      --staging DIR         Where the two above stage (default: /tmp, %%TEMP%%\n"
+            "      --staging DIR         Where the two above stage (default:\n"
+            "                            MESHCLIENT_FIRMWARE_STAGING, else /tmp, or %%TEMP%%\n"
             "                            on Windows; use\n"
             "                            /mnt/UDISK on a Brick, because a bootloader's drive\n"
             "                            gets mounted over /mnt/SDCARD)\n"
@@ -1061,7 +1063,7 @@ int main(int argc, char **argv) {
     /* /mnt/UDISK on a Brick, deliberately not the SD card: on the USB path the
        bootloader's ghost drive is mounted over /mnt/SDCARD the moment the radio
        reboots, so an image staged there vanishes from its own path. */
-    const char *fetch_firmware_staging = mesh_firmware_update_staging_default();
+    const char *fetch_firmware_staging = mesh_firmware_update_staging();
     const char *install_firmware_target = NULL;
     const char *map_pack_path = NULL;
     const char *ui_send_commands = NULL;

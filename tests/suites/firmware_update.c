@@ -961,6 +961,17 @@ MESH_TEST_CASE(firmware_update_arms_a_ble_radio_only_once_bluetooth_is_up, unit)
         failure = "a stack still starting is waited for, not failed";
         goto cleanup;
     }
+    /* bluetoothd restarting after the download: BlueZ says -ENODEV until it has an owner on the
+       bus again, and the transport's own bring-up waits that out too. */
+    mock.check_ready_result = -ENODEV;
+    inkwell_ble_mock_enable(&mock);
+    for (int turn = 0; turn < 10; ++turn) {
+        mesh_firmware_update_tick(&harness.update, 2000U + (uint64_t)turn * 100U);
+    }
+    if (probe.calls != 0U || harness.update.state != MESH_FIRMWARE_UPDATE_READY) {
+        failure = "a stack that is briefly gone is waited for until READY's deadline";
+        goto cleanup;
+    }
     if (probe.armed_ble != 0U) {
         failure = "and the radio is not asked into its loader while it starts";
         goto cleanup;
