@@ -298,9 +298,10 @@ target_link_libraries(meshclient PRIVATE meshclient_core meshclient_options)
 if(WIN32)
     enable_language(RC)
     set(MESHCLIENT_MANIFEST ${CMAKE_CURRENT_SOURCE_DIR}/src/app/meshclient.manifest)
+    set(MESHCLIENT_ICON ${CMAKE_CURRENT_SOURCE_DIR}/packaging/windows/meshclient.ico)
     configure_file(src/app/meshclient.rc.in ${CMAKE_CURRENT_BINARY_DIR}/meshclient.rc @ONLY)
     target_sources(meshclient PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/meshclient.rc)
-    set_property(TARGET meshclient APPEND PROPERTY LINK_DEPENDS ${MESHCLIENT_MANIFEST})
+    set_property(TARGET meshclient APPEND PROPERTY LINK_DEPENDS ${MESHCLIENT_MANIFEST} ${MESHCLIENT_ICON})
 endif()
 
 # A bare binary on macOS has no bundle, so the Info.plist that says why it wants Bluetooth is

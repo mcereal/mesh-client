@@ -2,3 +2,7 @@
 // executable's own. Configured by CMakeLists.txt so the path is absolute: windres resolves a
 // relative one against its working directory, not against this file.
 1 24 "@MESHCLIENT_MANIFEST@"
+
+// The application icon, drawn by scripts/gen-icons.py. Explorer and the shortcuts show the
+// executable's first icon group, and SDL gives the window the same one, so nothing else names it.
+1 ICON "@MESHCLIENT_ICON@"

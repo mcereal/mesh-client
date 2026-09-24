@@ -42,6 +42,8 @@ WizardStyle=modern
 LicenseFile={#SourceDir}\licenses\LICENSE-MeshClient.txt
 UninstallDisplayName=MeshClient
 UninstallDisplayIcon={app}\meshclient.exe
+; The executable carries the same icon as a resource, so its shortcuts need none of their own.
+SetupIconFile=meshclient.ico
 ; A running client holds meshclient.exe open; the Restart Manager closes it before the files go.
 CloseApplications=yes
 

@@ -338,7 +338,7 @@ The few that bite soonest:
   hand; the release workflow rewrites that line.
 - **`launch.sh` does not ship through self-update.** Only the bare binary does, so treat it as a
   compatibility boundary - which is why the CA roots are compiled in rather than shipped beside it.
-- **`scripts/gen-{locale,ca-roots}.py` are not part of the build.** Run by hand, commit the
+- **`scripts/gen-{locale,ca-roots,icons}.py` are not part of the build.** Run by hand, commit the
   result. The glyph generators went with the glyphs: emoji, icons and the `ui` face are
   inkcell's, and so are the scripts that rasterise them.
 - **`devtools/` is not `Tools/`** - macOS filesystems are case-insensitive.

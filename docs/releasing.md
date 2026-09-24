@@ -92,6 +92,15 @@ certificates this repository does not have yet. Until the Mac build has a stable
 macOS may ask for Bluetooth permission again after an update: it keys that permission to an ad
 hoc binary's hash.
 
+**The icon is one image, drawn two ways.** `packaging/icon/meshclient.png` is the artwork;
+[`scripts/gen-icons.py`](../scripts/gen-icons.py) (by hand, needs Pillow, output committed) cuts
+it into the layer of `packaging/macos/MeshClient.icon` and draws `packaging/windows/meshclient.ico`.
+The Mac's is an Icon Composer icon rather than an `.icns` because macOS 26 shrinks a finished
+`.icns` into a grey tile; `package-macos.sh` compiles it with `actool` into an `Assets.car`
+(macOS 26) and an `.icns` (macOS 11 to 15), which is why it needs Xcode 26 or later installed -
+it finds one even when an older Xcode is selected. Windows embeds the `.ico` in `meshclient.exe`
+through `src/app/meshclient.rc.in`, and Inno Setup uses it for the installer.
+
 Both scripts run on every pull request (the `macos-package` and `windows-package` CI jobs) as
 unstamped development builds, so a packaging break shows in review, not at release time.
 

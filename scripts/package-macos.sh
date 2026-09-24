@@ -34,6 +34,11 @@ fi
 
 VERSION="${1:-}"
 
+# A download is built from this script's flags alone. A shell that exports a Homebrew
+# toolchain's (LDFLAGS=-L/opt/homebrew/opt/llvm/lib is the usual one) hands the linker a
+# single-architecture libunwind, and the x86_64 slice fails to link.
+unset CFLAGS CXXFLAGS OBJCFLAGS CPPFLAGS LDFLAGS LIBRARY_PATH CPATH PKG_CONFIG_PATH
+
 SDL_VERSION="2.32.10"
 SDL_SHA256="5f5993c530f084535c65a6879e9b26ad441169b3e25d789d83287040a9ca5165"
 ARCHS="${MESHCLIENT_MACOS_ARCHS:-arm64;x86_64}"
@@ -59,6 +64,31 @@ fi
 if [[ ! "${NUMERIC}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     echo "Cannot derive a numeric bundle version from '${VERSION:-CMakeLists.txt}'." >&2
     exit 1
+fi
+
+# actool compiles the .icon, and only Xcode 26's knows the format. xcrun's is whichever Xcode is
+# selected, which on a CI image is not always the newest installed, so an installed Xcode 26 or
+# later is looked for before giving up.
+actool_major() {
+    "$@" --version 2>/dev/null |
+        awk -F'[<>.]' '/short-bundle-version/ { getline; print $3; exit }'
+}
+ACTOOL=(xcrun actool)
+major=$(actool_major "${ACTOOL[@]}")
+if [[ -z "${major}" || "${major}" -lt 26 ]]; then
+    ACTOOL=()
+    for xcode in $(ls -d /Applications/Xcode*.app 2>/dev/null | sort -rV); do
+        candidate=(env DEVELOPER_DIR="${xcode}/Contents/Developer" xcrun actool)
+        major=$(actool_major "${candidate[@]}")
+        if [[ -n "${major}" && "${major}" -ge 26 ]]; then
+            ACTOOL=("${candidate[@]}")
+            break
+        fi
+    done
+    if [[ ${#ACTOOL[@]} -eq 0 ]]; then
+        echo "The app icon needs actool from Xcode 26 or later, and none is installed." >&2
+        exit 1
+    fi
 fi
 
 PYTHON=python3
@@ -150,6 +180,24 @@ mkdir -p "${APP}/Contents/MacOS" "${APP}/Contents/Frameworks" "${APP}/Contents/R
 sed -e "s/@VERSION@/${NUMERIC}/g" -e "s/@MIN_MACOS@/${MIN_MACOS}/g" \
     packaging/macos/Info.plist.in > "${APP}/Contents/Info.plist"
 printf 'APPL????' > "${APP}/Contents/PkgInfo"
+# The icon: an Icon Composer .icon compiled into Assets.car, which macOS 26 masks into its own
+# squircle, and MeshClient.icns, which actool draws for macOS 11 to 15. An .icns on its own would
+# be shown shrunk inside a grey tile on macOS 26. Info.plist names both (CFBundleIconName,
+# CFBundleIconFile). The layer is drawn by scripts/gen-icons.py and committed.
+# Absolute paths: actool does not resolve a relative one against this script's directory.
+ICON_OUT="${REPO_ROOT}/${BUILD_DIR}/icon"
+rm -rf "${ICON_OUT}"
+mkdir -p "${ICON_OUT}"
+"${ACTOOL[@]}" "${REPO_ROOT}/packaging/macos/MeshClient.icon" --compile "${ICON_OUT}" \
+    --platform macosx --minimum-deployment-target "${MIN_MACOS}" --app-icon MeshClient \
+    --output-partial-info-plist "${ICON_OUT}/partial.plist" --output-format human-readable-text
+for f in Assets.car MeshClient.icns; do
+    if [[ ! -s "${ICON_OUT}/${f}" ]]; then
+        echo "actool did not write ${f} from packaging/macos/MeshClient.icon." >&2
+        exit 1
+    fi
+    cp "${ICON_OUT}/${f}" "${APP}/Contents/Resources/${f}"
+done
 cp "${BINARY}" "${APP}/Contents/MacOS/meshclient"
 cp -L "${SDL_PREFIX}/lib/${SDL_LIB_FILE}" "${APP}/Contents/Frameworks/${SDL_LIB_FILE}"
 chmod 0644 "${APP}/Contents/Frameworks/${SDL_LIB_FILE}"

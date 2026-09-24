@@ -21,6 +21,10 @@
     <string>MeshClient</string>
     <key>CFBundleDisplayName</key>
     <string>MeshClient</string>
+    <key>CFBundleIconName</key>
+    <string>MeshClient</string>
+    <key>CFBundleIconFile</key>
+    <string>MeshClient</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleInfoDictionaryVersion</key>
