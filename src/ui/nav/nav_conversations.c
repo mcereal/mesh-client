@@ -591,6 +591,44 @@ bool mesh_ui_nav_conversation_at(const struct mesh_ui_store *store, uint32_t ind
     return false;
 }
 
+uint32_t mesh_ui_nav_open_conversation_row(const struct mesh_ui_nav *nav,
+                                           const struct mesh_ui_store *store) {
+    if (nav == NULL) {
+        return 0U;
+    }
+    if (!nav->thread_open || store == NULL) {
+        return nav->conversation_list_cursor;
+    }
+    const uint32_t count = mesh_ui_nav_conversation_count(store);
+    for (uint32_t i = 0U; i < count; ++i) {
+        struct mesh_ui_conversation conversation;
+        if (!mesh_ui_nav_conversation_at(store, i, &conversation)) {
+            break;
+        }
+        bool open = false;
+        switch ((enum mesh_ui_conversation_kind)conversation.kind) {
+        case MESH_UI_CONVERSATION_ALL:
+            open = nav->inbox;
+            break;
+        case MESH_UI_CONVERSATION_CHANNEL:
+            open = !nav->inbox && nav->target_node == MESH_MESSAGE_BROADCAST_ADDR &&
+                   nav->target_channel == conversation.channel;
+            break;
+        case MESH_UI_CONVERSATION_DIRECT:
+            open = !nav->inbox && nav->target_node != MESH_MESSAGE_BROADCAST_ADDR &&
+                   nav->target_node == conversation.node;
+            break;
+        case MESH_UI_CONVERSATION_NEW:
+        default:
+            break;
+        }
+        if (open) {
+            return i;
+        }
+    }
+    return nav->conversation_list_cursor;
+}
+
 bool mesh_ui_nav_conversation_is_armed(const struct mesh_ui_nav *nav,
                                        const struct mesh_ui_conversation *conversation) {
     if (nav == NULL || conversation == NULL || !nav->messages_delete_armed ||

@@ -60,7 +60,9 @@ static void fb_app_render(struct inkcell_draw_state *state, const void *snapshot
         app->route = route;
         app->route_valid = true;
     } else {
-        const enum inkcell_transition move = mesh_ui_route_move(&app->route, &route);
+        const enum inkcell_transition move = fb_render_split_pair(state, &app->route, &route)
+                                                 ? INKCELL_TRANSITION_NONE
+                                                 : mesh_ui_route_move(&app->route, &route);
         app->route = route;
         inkcell_fb_transition_begin(state, move);
     }

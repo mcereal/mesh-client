@@ -393,6 +393,16 @@ moves the tabs into a rail down the leading edge and gives the body the rest. On
 any window that is still compact, it is the tab strip across the top - kept there on purpose,
 because L1 and R1 are on the top edge of the case - and the frame is the one it always was.
 
+A window with room for a whole measure of detail beside a list - 1920x1080 at the Brick's scale is
+the first - stands the two side by side. Messages is the screen that does so far: the
+conversations in the leading pane, and beside them the open thread, or a note saying where it will
+be. The nav is the one-pane nav, unchanged: A opens, every press is the thread's while it is open,
+and B closes it. What the width buys is that the list stays put, the conversation the thread came
+from still under its cursor, and the back arrow moves to the thread's heading. Opening and closing
+is not a move either, so nothing slides (`fb_render_split_pair()`). A screen says it has two
+halves in `fb_route_split()`; whether there is room is inkcell's scaffold's to decide.
+`ui_click_a_wide_window_opens_a_thread_beside_its_list` holds it.
+
 `make ui-capture` is still the way to *review* a UI change, because a picture in a pull request
 is reviewable and a window on somebody's desk is not.
 

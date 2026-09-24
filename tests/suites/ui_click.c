@@ -441,6 +441,61 @@ MESH_TEST_CASE(ui_click_the_heading_carries_the_verbs_for_a_pointer, unit) {
     click_close(&store, capture);
 }
 
+/*
+ * A window wide enough for two panes stands the thread beside the conversations rather than in
+ * their place, and opening one is not a move: the list was already on the panel and stays put.
+ *
+ * The nav is the one-pane nav either way, so what this holds is the drawing: the list's rows are
+ * the click targets until a thread opens, the thread's bubbles are after it, and every bubble is
+ * to the right of where the list was - in the other pane, not over it.
+ */
+MESH_TEST_CASE(ui_click_a_wide_window_opens_a_thread_beside_its_list, unit) {
+    struct mesh_ui_store store;
+    struct inkcell_capture *capture = NULL;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store failed to open");
+    mesh_test_nav_populate(&store);
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, 1920U, 1080U, INKCELL_SCALE(4)) != 0,
+                              mesh_ui_store_shutdown(&store), "capture failed to open");
+    struct mesh_ui_action action;
+
+    const struct inkcell_focus_map *map = click_render(&store, capture);
+    struct inkcell_focus_rect row;
+    MESH_TEST_FAIL_IF_CLEANUP(!inkcell_focus_rect_of(map, (uint32_t)MESH_UI_FOCUS_ROWS + 2U, &row),
+                              click_close(&store, capture), "the list should register its rows");
+    const int list_right = row.x + row.w;
+    MESH_TEST_FAIL_IF_CLEANUP(list_right > 1920 / 2, click_close(&store, capture),
+                              "the list should stand in the narrower, leading pane");
+
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_ROWS + 2U, &action) ||
+            !store.nav.thread_open,
+        click_close(&store, capture), "a click on a conversation should open it");
+
+    /* One frame, not settled: a slide would be running now if opening were a move. */
+    struct mesh_ui_snapshot snapshot;
+    memset(&snapshot, 0, sizeof snapshot);
+    mesh_ui_store_request_refresh(&store);
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    inkcell_capture_render(capture, &snapshot);
+    MESH_TEST_FAIL_IF_CLEANUP(inkcell_fb_transition_offset(inkcell_capture_state(capture)) != 0,
+                              click_close(&store, capture),
+                              "a thread opening beside its list should not slide the frame");
+
+    map = click_render(&store, capture);
+    struct inkcell_focus_rect bubble;
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !inkcell_focus_rect_of(map, (uint32_t)MESH_UI_FOCUS_ROWS + 0U, &bubble),
+        click_close(&store, capture), "the thread should register its bubbles");
+    for (uint32_t i = 0U; i < 64U; ++i) {
+        if (inkcell_focus_rect_of(map, (uint32_t)MESH_UI_FOCUS_ROWS + i, &bubble)) {
+            MESH_TEST_FAIL_IF_CLEANUP(bubble.x < list_right, click_close(&store, capture),
+                                      "every target in the rows block should be the thread's, "
+                                      "in the detail pane beside the list");
+        }
+    }
+    click_close(&store, capture);
+}
+
 MESH_TEST_CASE(ui_click_a_right_click_off_a_list_opens_nothing, unit) {
     struct mesh_ui_store store;
     struct inkcell_capture *capture = NULL;

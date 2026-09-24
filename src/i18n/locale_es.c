@@ -103,6 +103,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_MESSAGES_EMPTY] = "Conecta a un nodo para ver los chats.",
     [MESH_STR_MESSAGES_NEW] = "Nuevo mensaje",
     [MESH_STR_MESSAGES_NEW_PREVIEW] = "Elige un canal o un nodo",
+    [MESH_STR_MESSAGES_PICK] = "Abre una conversación para leerla aquí.",
     [MESH_STR_MESSAGES_ALL_TRAFFIC] = "Todo el tráfico",
     [MESH_STR_CHANNEL_PRIMARY] = "#Principal",
     [MESH_STR_CHANNEL_NUMBERED] = "#Can%u",

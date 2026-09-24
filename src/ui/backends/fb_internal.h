@@ -159,6 +159,15 @@ void fb_render_cache_free(struct inkcell_draw_state *state);
 struct inkcell_box fb_render_content(const struct inkcell_draw_state *state);
 
 /*
+ * Whether a move from `from` to `to` stays inside the two panes the last frame drew side by side
+ * - the conversations and a thread, on a window wide enough for both. Such a move is not a place
+ * arriving: both halves were already on the panel, so fb_app.c starts no slide for it, which
+ * would carry the list that stayed put across the window with the thread that changed.
+ */
+bool fb_render_split_pair(const struct inkcell_draw_state *state, const struct mesh_ui_route *from,
+                          const struct mesh_ui_route *to);
+
+/*
  * A screen's heading. Every screen - the map included - draws its app bar through this rather than
  * inkcell's call, and says only what it always said - its title, its trail, its badge.
  *

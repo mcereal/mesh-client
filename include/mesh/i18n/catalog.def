@@ -256,6 +256,8 @@ MESH_STR_ENTRY(MESSAGES_EMPTY,            "Connect to a node to see conversation
 /* The placeholder row at the top of the conversation list, which opens a new message. */
 MESH_STR_ENTRY(MESSAGES_NEW,              "New message")
 MESH_STR_ENTRY(MESSAGES_NEW_PREVIEW,      "Pick a channel or a node")
+/* The detail pane beside the conversations, on a window wide enough for two, before one is open. */
+MESH_STR_ENTRY(MESSAGES_PICK,             "Open a conversation to read it here.")
 /* The pseudo-conversation carrying every channel at once. */
 MESH_STR_ENTRY(MESSAGES_ALL_TRAFFIC,      "All traffic")
 /* A channel's name on a row, which is its own name behind a '#'. Slot 0 with no name is the

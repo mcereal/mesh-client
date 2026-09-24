@@ -513,6 +513,96 @@ cleanup:
 }
 
 /*
+ * The open thread's row in the conversation list is found by what the thread is, not by where the
+ * list was parked - the list beside a thread on a wide window reads it, and a peer's row moves
+ * with every message that re-ranks the peers.
+ */
+MESH_TEST_CASE(ui_nav_open_conversation_row_follows_the_thread, unit) {
+    const char *failure = NULL;
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    /* Where each kind of conversation actually is. */
+    uint32_t brvo = UINT32_MAX;
+    uint32_t primary = UINT32_MAX;
+    const uint32_t count = mesh_ui_nav_conversation_count(&store);
+    for (uint32_t i = 0U; i < count; ++i) {
+        struct mesh_ui_conversation conversation;
+        if (!mesh_ui_nav_conversation_at(&store, i, &conversation)) {
+            break;
+        }
+        if (conversation.kind == MESH_UI_CONVERSATION_DIRECT && conversation.node == 0x3000U) {
+            brvo = i;
+        }
+        if (conversation.kind == MESH_UI_CONVERSATION_CHANNEL && conversation.channel == 0U) {
+            primary = i;
+        }
+    }
+    if (brvo == UINT32_MAX || primary == UINT32_MAX) {
+        failure = "the fixture should list BRVO and the primary channel";
+        goto cleanup;
+    }
+
+    /* A thread opened from somewhere else - the Nodes tab's "Message this node" - with the list
+       parked on the primary channel: the row is BRVO's, not the parked one. */
+    struct mesh_ui_action action;
+    while (store.nav.cursor[MESH_UI_SCREEN_MESSAGES] < primary) {
+        mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
+    for (uint32_t lead = 0; lead < MESH_UI_NODES_LEAD_ROWS + 2U; ++lead) {
+        mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action); /* the detail */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action); /* its "Actions" row */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action); /* "Message this node" */
+    if (!store.nav.thread_open || store.nav.target_node != 0x3000U ||
+        store.nav.conversation_list_cursor != primary) {
+        failure = "the test needs BRVO's thread open over a list parked on the channel";
+        goto cleanup;
+    }
+    if (mesh_ui_nav_open_conversation_row(&store.nav, &store) != brvo) {
+        failure = "a direct thread's row should be its peer's, wherever the list was parked";
+        goto cleanup;
+    }
+
+    /* B back to the list, and A on the channel it was parked on. */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (!store.nav.thread_open ||
+        mesh_ui_nav_open_conversation_row(&store.nav, &store) != primary) {
+        failure = "a channel thread's row should be that channel's";
+        goto cleanup;
+    }
+
+    /* And all traffic, which is the first row. */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
+    while (store.nav.cursor[MESH_UI_SCREEN_MESSAGES] > 0U) {
+        mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (!store.nav.thread_open || !store.nav.inbox ||
+        mesh_ui_nav_open_conversation_row(&store.nav, &store) != 0U) {
+        failure = "all traffic is the first row";
+        goto cleanup;
+    }
+
+    /* With nothing open it is the parked row, whatever that is. */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
+    if (mesh_ui_nav_open_conversation_row(&store.nav, &store) !=
+        store.nav.conversation_list_cursor) {
+        failure = "with no thread open the row is the parked one";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
  * Unread badges: inbound messages count until the conversation they belong to is opened, the
  * count survives a save/load of the cache, and the all-traffic row totals the others rather
  * than keeping a mark of its own.

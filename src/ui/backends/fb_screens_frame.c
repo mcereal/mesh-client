@@ -184,6 +184,9 @@ struct fb_heading {
     /* A heading has taken these already this frame - a sheet's bar over a list's is the second
        one drawn, and the verbs and the link are said once. */
     bool claimed;
+    /* Headings to let by before claiming: the list pane's, on a split frame whose detail is
+       where the reader is - the verbs are the thread's then, not the list's. */
+    uint8_t pass;
     struct inkcell_fb_bar_status status;
     struct inkcell_fb_bar_action actions[MESH_UI_HEADING_ACTIONS_MAX];
     size_t count;
@@ -220,10 +223,14 @@ struct inkcell_fb_render_cache {
     struct inkcell_focus_item focus_storage[MESH_UI_FOCUS_MAX];
     struct inkcell_focus_map focus;
     /* Where the last frame's content stood: the panel less the tab rail, when the width class
-       put one beside it. See fb_render_content(). */
+       put one beside it - and on a split frame, the pane the reader is in. See
+       fb_render_content(). */
     struct inkcell_box content;
     /* Rebuilt every frame, like the focus map: see struct fb_heading. */
     struct fb_heading heading;
+    /* Whether the last frame stood its list and detail side by side - see fb_render_split_pair().
+     */
+    bool split;
 };
 
 struct inkcell_box fb_render_content(const struct inkcell_draw_state *state) {
@@ -291,6 +298,10 @@ struct inkcell_fb_app_bar_fit fb_draw_app_bar(const struct inkcell_draw_state *s
     struct inkcell_fb_render_cache *const cache = state != NULL ? state->render_cache : NULL;
     if (cache == NULL || bar == NULL || cache->heading.claimed ||
         bar->mode != INKCELL_FB_APP_BAR_NORMAL) {
+        return inkcell_fb_draw_app_bar(state, layout, bar);
+    }
+    if (cache->heading.pass > 0U) {
+        cache->heading.pass--;
         return inkcell_fb_draw_app_bar(state, layout, bar);
     }
     struct inkcell_fb_app_bar drawn = *bar;
@@ -568,6 +579,69 @@ static void fb_render_begin(struct inkcell_draw_state *state,
     state->animation_damage.valid = false;
 }
 
+/*
+ * Whether the place the reader is standing has a list and a detail that could stand side by side.
+ *
+ * Messages is the one so far: the conversations and the thread open from one of them. The scaffold
+ * decides whether there is room (inkcell/ui/widgets/scaffold.h); this only says the screen has
+ * the two halves.
+ */
+static bool fb_route_split(const struct mesh_ui_route *body) {
+    return body->screen == MESH_UI_SCREEN_MESSAGES &&
+           (body->level == MESH_UI_ROUTE_LIST || body->level == MESH_UI_ROUTE_THREAD);
+}
+
+bool fb_render_split_pair(const struct inkcell_draw_state *state, const struct mesh_ui_route *from,
+                          const struct mesh_ui_route *to) {
+    const struct inkcell_fb_render_cache *const cache = state != NULL ? state->render_cache : NULL;
+    return cache != NULL && cache->split && from != NULL && to != NULL &&
+           from->screen == to->screen && fb_route_split(from) && fb_route_split(to);
+}
+
+/*
+ * The Messages tab in two panes: the conversations, and beside them the open thread or a note
+ * saying where it will be.
+ *
+ * The nav is the one-pane nav, unchanged, and that is the whole design. With no thread open the
+ * d-pad walks the conversations and A opens one; with one open every press is the thread's, and B
+ * closes it - exactly as on the Brick, where the thread replaces the list. What the width buys is
+ * that the list does not go anywhere: it stays in its pane, the conversation the thread came from
+ * still under its cursor, so the reader can see where they are and where B will take them.
+ *
+ * So the back arrow moves with the reader. With a thread open it is the thread's heading that
+ * leaves, and the list's heading - one level up, and still in view - draws none.
+ */
+static void fb_render_messages_split(struct inkcell_draw_state *state,
+                                     const struct mesh_ui_snapshot *snapshot,
+                                     const struct inkcell_fb_scaffold_frame *frame,
+                                     struct inkcell_fb_layout *layout, bool back) {
+    struct inkcell_fb_render_cache *const cache = state->render_cache;
+    const bool reading = snapshot->nav.thread_open;
+    if (cache != NULL && reading) {
+        cache->heading.pass = 1U;
+    }
+    layout->back = back && !reading;
+    fb_render_conversations(state, snapshot, layout);
+
+    /* Where the reader is, for whatever reads the frame's body back - the pane they are in. */
+    if (cache != NULL) {
+        const struct inkcell_box pane = reading ? frame->detail : frame->list;
+        cache->content.x = pane.x;
+        cache->content.w = pane.w;
+    }
+    struct inkcell_fb_layout detail = inkcell_fb_scaffold_detail(state, frame, NULL);
+    if (reading) {
+        detail.back = back;
+        fb_render_thread(state, snapshot, &detail);
+    } else {
+        inkcell_fb_draw_empty(state, &detail, INKCELL_ICON_MESSAGES,
+                              inkcell_str(MESH_STR_MESSAGES_PICK));
+    }
+    /* The layers that follow - a message's faces, a question - are about the thread, so they
+       stand over its pane rather than over the list beside it. */
+    *layout = detail;
+}
+
 void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot) {
     /* The theme and the move are settled before this call, and what the *last* frame wanted of
        the basemap has already been forgotten: all three are inkcell calling up into fb_app.c,
@@ -656,8 +730,12 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
      * keeps the rest, which is the room a medium window has to spare. On the Brick this is the
      * frame the hand-built sequence it replaced drew, to the pixel.
      *
-     * No screen says it has a detail yet, so an expanded window is one pane beside the rail.
+     * A screen with a list and a detail says so (fb_route_split()), and a window with room for a
+     * measured detail beside the list then draws both. Everywhere else - the Brick above all -
+     * it is one pane, and the nav is the same either way: see fb_render_messages_split().
      */
+    struct mesh_ui_route body;
+    mesh_ui_route_under_layers(&snapshot->nav, &body);
     const struct inkcell_fb_scaffold scaffold = {
         .destinations = fb_tab_chips(snapshot),
         .count = MESH_UI_SCREEN_COUNT,
@@ -669,6 +747,7 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
            frame that read as a launcher's HUD rather than an app. */
         .footer_kind = footless ? INKCELL_FB_FOOTER_NONE : INKCELL_FB_FOOTER_COMPACT,
         .back = back,
+        .split = fb_route_split(&body),
         .busy = mesh_ui_chrome_busy(snapshot),
         .banner = has_banner ? &drawn_banner : NULL,
     };
@@ -698,9 +777,12 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
      * carried its own copy of that call - so anything drawn over the whole frame (the notice
      * below is the first) had to be added in five places or be missing from four screens.
      */
-    struct mesh_ui_route body;
-    mesh_ui_route_under_layers(&snapshot->nav, &body);
-    if (body.level == MESH_UI_ROUTE_HELP) {
+    if (cache != NULL) {
+        cache->split = frame.split;
+    }
+    if (frame.split && body.screen == MESH_UI_SCREEN_MESSAGES) {
+        fb_render_messages_split(state, snapshot, &frame, &layout, back);
+    } else if (body.level == MESH_UI_ROUTE_HELP) {
         fb_render_help(state, snapshot, &layout);
     } else if (body.level == MESH_UI_ROUTE_PICKER) {
         fb_render_picker(state, snapshot, &layout);
