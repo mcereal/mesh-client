@@ -291,11 +291,13 @@ static const struct help_feature k_help_features[] = {
        the airtime one two rows down. */
     HELP_FEATURE(MESH_UI_SCREEN_NODES, MESH_UI_ROUTE_TREND, MESH_STR_HELP_SUBJECT_NODE_CHART,
                  k_help_node_chart),
-    HELP_FEATURE(MESH_UI_SCREEN_WAYPOINTS, MESH_UI_ROUTE_LIST, MESH_STR_TAB_WAYPOINTS,
+    /* The places, a level of this tab since they stopped being a tab of their own, and keeping
+       the subject they had then. */
+    HELP_FEATURE(MESH_UI_SCREEN_NODES, MESH_UI_ROUTE_WAYPOINTS, MESH_STR_TAB_WAYPOINTS,
                  k_help_waypoints),
     /* One open place, answered by the list's paragraphs: it is the same feature one level in,
        and the four things worth knowing about a waypoint do not change with the depth. */
-    HELP_FEATURE(MESH_UI_SCREEN_WAYPOINTS, MESH_UI_ROUTE_WAYPOINT, MESH_STR_HELP_SUBJECT_WAYPOINT,
+    HELP_FEATURE(MESH_UI_SCREEN_NODES, MESH_UI_ROUTE_WAYPOINT, MESH_STR_HELP_SUBJECT_WAYPOINT,
                  k_help_waypoints),
     /* The Radio tab's three places: the cards it opens on, and the two levels those open. Each
        keeps the subject it had while it was a tab of its own, because each is still answering

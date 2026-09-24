@@ -1070,12 +1070,13 @@ MESH_TEST_CASE(map_opens_a_marker_and_comes_back_to_the_map, unit) {
     MESH_TEST_FAIL_IF(store.nav.node_detail_open, "B closes the detail");
     MESH_TEST_FAIL_IF(!store.nav.map_open, "back onto the map it was opened from");
 
-    /* A place goes to the tab that owns places, which is a change of tab and does not come
-       back - the node detail's "Message this node" makes the same move for the same reason. */
+    /* A place opens over the map the way a node does: the places are a level of this tab now,
+       so there is no tab to jump to and B comes back to the view that was left. */
     (void)mesh_map_viewport_center_on(&store.nav.map_viewport, MAP_TEST_LATITUDE - 20000,
                                       MAP_TEST_LONGITUDE + 10000);
     (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
-    MESH_TEST_FAIL_IF(store.nav.screen != MESH_UI_SCREEN_WAYPOINTS, "a place opens on its own tab");
+    MESH_TEST_FAIL_IF(store.nav.screen != MESH_UI_SCREEN_NODES || !store.nav.map_open,
+                      "a place opens over the map, on the Nodes tab");
     MESH_TEST_FAIL_IF(!store.nav.waypoint_detail_open || store.nav.waypoint_detail_id != 7U,
                       "showing that place");
 
@@ -1187,7 +1188,7 @@ MESH_TEST_CASE(map_hands_the_keys_over_when_a_place_opens, unit) {
     (void)mesh_map_viewport_center_on(&store.nav.map_viewport, MAP_TEST_LATITUDE - 20000,
                                       MAP_TEST_LONGITUDE + 10000);
     (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
-    MESH_TEST_FAIL_IF(store.nav.screen != MESH_UI_SCREEN_WAYPOINTS, "the place opened on its tab");
+    MESH_TEST_FAIL_IF(!mesh_ui_nav_waypoints_showing(&store.nav), "the place opened over the map");
     MESH_TEST_FAIL_IF(!store.nav.waypoint_detail_open, "showing that place");
 
     (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);

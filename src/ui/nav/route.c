@@ -34,6 +34,14 @@ static uint8_t route_screen_depth(const struct mesh_ui_nav *nav) {
         if (nav->map_open) {
             depth++;
         }
+        /* The places list, the map's neighbour one row down, and a place opened from either of
+           them - over the list or over the map, as a node's detail is. */
+        if (nav->waypoints_open) {
+            depth++;
+        }
+        if (nav->waypoint_detail_open) {
+            depth++;
+        }
         if (nav->node_detail_open) {
             depth++;
         }
@@ -51,8 +59,6 @@ static uint8_t route_screen_depth(const struct mesh_ui_nav *nav) {
         }
         return depth;
     }
-    case MESH_UI_SCREEN_WAYPOINTS:
-        return nav->waypoint_detail_open ? 1U : 0U;
     case MESH_UI_SCREEN_SETTINGS: {
         if (nav->settings_section == MESH_UI_SETTINGS_NO_SECTION) {
             return 0U;
@@ -131,6 +137,16 @@ static void route_screen_place(const struct mesh_ui_nav *nav, struct mesh_ui_rou
             out->level = MESH_UI_ROUTE_NODE;
             return;
         }
+        /* A place next, over the list or the map it was opened from, and then the list of them. */
+        if (nav->waypoint_detail_open) {
+            out->level = MESH_UI_ROUTE_WAYPOINT;
+            out->subject = nav->waypoint_detail_id;
+            return;
+        }
+        if (nav->waypoints_open) {
+            out->level = MESH_UI_ROUTE_WAYPOINTS;
+            return;
+        }
         if (nav->map_open) {
             /*
              * One place, however far it has been panned. The centre and the zoom are
@@ -139,12 +155,6 @@ static void route_screen_place(const struct mesh_ui_nav *nav, struct mesh_ui_rou
              * them would restart the slide under the reader's thumb on every press of Left.
              */
             out->level = MESH_UI_ROUTE_MAP;
-        }
-        return;
-    case MESH_UI_SCREEN_WAYPOINTS:
-        if (nav->waypoint_detail_open) {
-            out->level = MESH_UI_ROUTE_WAYPOINT;
-            out->subject = nav->waypoint_detail_id;
         }
         return;
     case MESH_UI_SCREEN_SETTINGS:
@@ -383,8 +393,9 @@ enum inkcell_transition mesh_ui_route_move(const struct mesh_ui_route *from,
  */
 
 static const char *const k_screen_names[MESH_UI_SCREEN_COUNT] = {
-    [MESH_UI_SCREEN_MESSAGES] = "messages",   [MESH_UI_SCREEN_NODES] = "nodes",
-    [MESH_UI_SCREEN_WAYPOINTS] = "waypoints", [MESH_UI_SCREEN_RADIO] = "radio",
+    [MESH_UI_SCREEN_MESSAGES] = "messages",
+    [MESH_UI_SCREEN_NODES] = "nodes",
+    [MESH_UI_SCREEN_RADIO] = "radio",
     [MESH_UI_SCREEN_SETTINGS] = "settings",
 };
 
@@ -408,6 +419,7 @@ static const char *const k_level_names[MESH_UI_ROUTE_COUNT] = {
     [MESH_UI_ROUTE_SHARE] = "share",
     [MESH_UI_ROUTE_CONTACT] = "contact",
     [MESH_UI_ROUTE_DEVICES] = "devices",
+    [MESH_UI_ROUTE_WAYPOINTS] = "waypoints",
 };
 
 const char *mesh_ui_screen_id(enum mesh_ui_screen screen) {

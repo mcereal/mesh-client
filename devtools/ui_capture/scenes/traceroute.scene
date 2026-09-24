@@ -9,16 +9,16 @@
 # slot is still holding and Echo's route comes back out of the log. The two screens here are the
 # two halves of that: under the old single slot the first of them was blank.
 #
-# The Nodes list has three rows before its first node - the filter row, the sort row and the Map
-# (MESH_UI_NODES_LEAD_ROWS) - so a node's row is its index in the demo roster plus three. Echo
-# Repeater is seeds[5] and row 8; Golf Cabin is seeds[7] and row 10.
+# The Nodes list has four rows before its first node - the filter row, the sort row, the Map and Waypoints
+# (MESH_UI_NODES_LEAD_ROWS) - so a node's row is its index in the demo roster plus four. Echo
+# Repeater is seeds[5] and row 9; Golf Cabin is seeds[7] and row 11.
 
 scene demo
 tab nodes
 
 # Echo Repeater, traced first. Right walks the detail a card at a time, and the two route cards
 # are the first groups after the verbs: the way out, the way back, and when it was measured.
-key down 8
+key down 9
 key a
 hold 1200
 key right

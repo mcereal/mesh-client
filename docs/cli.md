@@ -194,7 +194,7 @@ accumulation across runs. `MESHCLIENT_LOG_FILE` names the file when it is somewh
 
 ## On-device controls
 
-Five tabs: **Messages, Nodes, Waypoints, Radio, Settings.**
+Four tabs: **Messages, Nodes, Radio, Settings.**
 
 | Key | Action |
 |---|---|
@@ -226,7 +226,8 @@ the grid is showing: `abc`, `ABC`, symbols, then three pages of forty emoji. The
 of the grid steps the same ring, so everything is reachable without the shoulders.
 
 **Nodes** is the contact list; A opens a node's detail, where rows appear only for what the node
-has actually reported. **Radio** opens on the link, mesh and radio cards; the Link card's
+has actually reported. Above the nodes are the filter, the sort, the *Map* and the *Waypoints*
+row, which opens the shared places (and the row that marks a new one here); B goes back. **Radio** opens on the link, mesh and radio cards; the Link card's
 *devices* button opens the device list, which shows USB ports first (no pairing, so they sort to
 the top), then BLE advertisers; A connects and bonds, X disconnects and holds auto-connect off, Y
 twice forgets a bond, B goes back to the cards. **Settings** reads the radio's configuration over the admin protocol and edits it

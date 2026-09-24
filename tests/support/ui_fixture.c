@@ -118,6 +118,31 @@ bool mesh_test_open_tab(struct mesh_ui_store *store, enum mesh_ui_screen screen)
 }
 
 /*
+ * The places list, reached the way a reader reaches it: the Nodes tab, down to its Waypoints row,
+ * then A. The row is one of the list's lead rows, so it is only there when the roster is - which
+ * mesh_test_nav_populate() gives every store that calls this.
+ */
+bool mesh_test_open_waypoints(struct mesh_ui_store *store) {
+    if (!mesh_test_open_tab(store, MESH_UI_SCREEN_NODES)) {
+        return false;
+    }
+    if (mesh_ui_nav_waypoints_showing(&store->nav)) {
+        return true;
+    }
+    struct mesh_ui_action action;
+    for (unsigned guard = 0;
+         guard < 16U && store->nav.cursor[MESH_UI_SCREEN_NODES] != MESH_UI_NODES_WAYPOINTS_ROW;
+         ++guard) {
+        const enum inkcell_key key =
+            store->nav.cursor[MESH_UI_SCREEN_NODES] < MESH_UI_NODES_WAYPOINTS_ROW ? INKCELL_KEY_DOWN
+                                                                                  : INKCELL_KEY_UP;
+        mesh_ui_store_handle_key(store, key, &action);
+    }
+    mesh_ui_store_handle_key(store, INKCELL_KEY_A, &action);
+    return mesh_ui_nav_waypoints_showing(&store->nav);
+}
+
+/*
  * The device list, reached the way a reader reaches it: the Radio tab, then A on the Link card's
  * "devices" verb. The verb is asked for by name rather than trusted to be under the cursor, so
  * a test that walked the cards before calling this still lands on the list.

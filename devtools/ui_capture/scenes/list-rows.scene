@@ -12,12 +12,12 @@ delay 220
 
 # Foxtrot Mobile: a handheld on a weak link with a battery running down, so every reading on it
 # has something to say. Rows 0 and 1 of the Nodes list are the filter chips and the Map, so a
-# node's row is its index in the demo roster plus two - Foxtrot Mobile is seeds[6] and row 8.
+# node's row is its index in the demo roster plus two - Foxtrot Mobile is seeds[6] and row 10.
 tab nodes
-# The Nodes list has three rows before its first node - the filter row, the sort row and
-# the Map (MESH_UI_NODES_LEAD_ROWS) - so a node's row is its index in the demo roster plus
-# three. Foxtrot Mobile is seeds[6] and row 9.
-key down 9
+# The Nodes list has four rows before its first node - the filter row, the sort row, the Map and
+# Waypoints (MESH_UI_NODES_LEAD_ROWS) - so a node's row is its index in the demo roster plus
+# four. Foxtrot Mobile is seeds[6] and row 10.
+key down 10
 key a
 hold 1000
 

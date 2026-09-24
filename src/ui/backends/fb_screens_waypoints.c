@@ -87,8 +87,8 @@ static void fb_render_waypoint_detail(struct inkcell_draw_state *state,
     for (uint32_t r = 0; r < count; ++r) {
         heights[r] = items[r].kind == MESH_UI_WAYPOINT_ITEM_NOTE ? 2U : 1U;
     }
-    struct inkcell_fb_list list = inkcell_fb_list_begin_heights(
-        layout, count, nav->cursor[MESH_UI_SCREEN_WAYPOINTS], heights);
+    struct inkcell_fb_list list =
+        inkcell_fb_list_begin_heights(layout, count, nav->cursor[MESH_UI_SCREEN_NODES], heights);
     inkcell_fb_list_glide(state, &list, FB_LIST_WAYPOINT_DETAIL);
     inkcell_fb_list_focus(&list, (uint32_t)MESH_UI_FOCUS_ROWS);
     uint32_t i;
@@ -187,7 +187,7 @@ void fb_render_waypoints(struct inkcell_draw_state *state, const struct mesh_ui_
     /* Every place, and the row that makes one. */
     uint8_t steps[MESH_UI_MAX_WAYPOINTS + 1U];
     struct inkcell_fb_list list =
-        fb_list_begin_steps(state, layout, count, nav->cursor[MESH_UI_SCREEN_WAYPOINTS], 2U, steps,
+        fb_list_begin_steps(state, layout, count, nav->cursor[MESH_UI_SCREEN_NODES], 2U, steps,
                             sizeof steps, FB_LIST_ROLE_FEED);
     inkcell_fb_list_glide(state, &list, FB_LIST_WAYPOINTS);
     inkcell_fb_list_focus(&list, (uint32_t)MESH_UI_FOCUS_ROWS);

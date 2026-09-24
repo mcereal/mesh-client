@@ -11,13 +11,13 @@
 scene demo
 tab nodes
 
-# The Nodes list has three rows before its first node - the filter row, the sort row and
-# the Map (MESH_UI_NODES_LEAD_ROWS) - so a node's row is its index in the demo roster plus
-# three. Echo Repeater is seeds[5] and row 8, Delta Camp is
-# seeds[4] and row 7.
+# The Nodes list has four rows before its first node - the filter row, the sort row, the Map and
+# Waypoints (MESH_UI_NODES_LEAD_ROWS) - so a node's row is its index in the demo roster plus
+# four. Echo Repeater is seeds[5] and row 9, Delta Camp is
+# seeds[4] and row 8.
 
 # Echo Repeater: hears three, and two of those report hearing it back.
-key down 8
+key down 9
 key a
 key down 34
 hold 1600

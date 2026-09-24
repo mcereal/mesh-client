@@ -460,6 +460,11 @@ MESH_STR_PLURAL_ENTRY(MAP_ROW_MARKERS,    "%u position", "%u positions")
 /* ...and what that row says instead when nothing on the mesh has ever reported a position. The
    row stays and says why, rather than disappearing: a row that vanishes explains nothing. */
 MESH_STR_ENTRY(MAP_ROW_EMPTY,             "Nothing has reported a position yet")
+/* The row under it, which opens the shared places; its title is TAB_WAYPOINTS, the name the
+   places had as a tab. The count is places held, and with none the row says what it is for,
+   since pressing it is how the first one is made. */
+MESH_STR_PLURAL_ENTRY(WAYPOINTS_ROW_COUNT, "%u place", "%u places")
+MESH_STR_ENTRY(WAYPOINTS_ROW_EMPTY,       "Nothing shared yet; mark a place here")
 /* Raised when the row is pressed anyway - the reader who most needs the reason is the one who
    just pressed A without reading it. */
 MESH_STR_ENTRY(TOAST_MAP_NO_FIXES,        "Nothing on the mesh has a position yet")
