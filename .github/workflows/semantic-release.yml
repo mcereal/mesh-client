@@ -283,7 +283,7 @@ jobs:
         run: |
           gh release upload "v${VERSION}" --repo "${GITHUB_REPOSITORY}" --clobber \
             dist/MeshClient-macos.dmg dist/MeshClient-macos.dmg.sha256 \
-            dist/meshclient-macos-universal dist/meshclient-macos-universal.sha256
+            dist/MeshClient-macos-app.zip dist/MeshClient-macos-app.zip.sha256
 
   windows:
     name: Windows download

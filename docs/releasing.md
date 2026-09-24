@@ -48,8 +48,8 @@ since the last tag, not anything about your working tree.
      the bare static binary its in-app updater downloads;
    - `meshclient-linux-x86_64`, the same client built static against musl for a desktop or a
      server;
-   - `MeshClient-macos.dmg` for a fresh install on a Mac, and `meshclient-macos-universal`, the
-     binary inside the bundle, which the Mac's updater downloads;
+   - `MeshClient-macos.dmg` for a fresh install on a Mac, and `MeshClient-macos-app.zip`, the
+     same signed bundle as a zip, which the Mac's updater downloads;
    - `MeshClient-windows-x86_64-setup.exe` for a fresh install on Windows, and
      `meshclient-windows-x86_64.exe`, which the Windows updater downloads.
 
@@ -70,13 +70,20 @@ build with [`scripts/package-macos.sh`](../scripts/package-macos.sh) and
 assets are attached. A desktop client that checks in that window reads "No usable release asset"
 and finds the update on its next check. Re-running either job is safe.
 
-Each package is one fresh-install file around one updatable binary, the same shape as the pak:
+Each package is one fresh-install file and one file the updater swaps in:
 
 | | Fresh install | What the updater replaces | What it leaves alone |
 |---|---|---|---|
 | Handheld | `MeshClient.pak.zip` | `bin/shared/meshclient` | `launch.sh` |
-| macOS | `MeshClient-macos.dmg` | `MeshClient.app/Contents/MacOS/meshclient` | the bundled SDL2, `Info.plist` |
+| macOS | `MeshClient-macos.dmg` | the whole `MeshClient.app`, from `MeshClient-macos-app.zip` | nothing |
 | Windows | `MeshClient-windows-x86_64-setup.exe` | `meshclient.exe` | `SDL2.dll` and the other DLLs |
+
+A Mac replaces the bundle rather than its executable because the executable is signed in the
+bundle's context: its signature seals the bundle's `Info.plist` and resources, so a newer
+executable in an older bundle fails `codesign --verify`, and macOS may refuse to launch it. The
+updater unpacks the zip beside the installed bundle with `ditto -x -k`, parks the running bundle
+as `MeshClient.app.old` and renames the new one into place. `package-macos.sh` makes the same
+round trip and verifies the signature at the far end.
 
 Signing is ad hoc on macOS and absent on Windows, so Gatekeeper and SmartScreen both warn on a
 first install (README.md says how to get past each). `MACOS_SIGN_IDENTITY` switches the macOS

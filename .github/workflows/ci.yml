@@ -210,7 +210,7 @@ jobs:
           name: MeshClient-macos
           path: |
             dist/MeshClient-macos.dmg
-            dist/meshclient-macos-universal
+            dist/MeshClient-macos-app.zip
           if-no-files-found: error
 
   windows-package:

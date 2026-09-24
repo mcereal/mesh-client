@@ -165,9 +165,9 @@ MESH_TEST_CASE(updater_lifecycle, unit) {
         return;
     }
     /* init asks the system for the running binary, so the staged name must sit beside it - the
-       rename that installs it is only atomic within one directory. Linux, macOS and Windows each
-       have a way to ask; anywhere else there is no binary to replace: see updater_find_binary(). */
-#if defined(__linux__) || defined(__APPLE__) || defined(_WIN32)
+       rename that installs it is only atomic within one directory. On macOS the target is the
+       .app around the binary, and a test binary is in none: see updater_find_install_target(). */
+#if defined(__linux__) || defined(_WIN32)
     const bool placed =
         updater.install_path[0] != '\0' &&
         strncmp(updater.staged_path, updater.install_path, strlen(updater.install_path)) == 0;

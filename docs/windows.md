@@ -25,6 +25,10 @@ A Program Files install would need an administrator for that.
   its place and deletes the `.old` on the next launch: Windows refuses to overwrite a running
   executable but allows one to be renamed. Only the executable is updated; `SDL2.dll` and the
   other bundled DLLs stay as the installer left them, so a change to those needs the installer.
+- `meshclient.exe` carries a manifest (`src/app/meshclient.manifest`) that makes the process's
+  code page UTF-8. Every path this client and inkwell hand Windows is a `char` string in that
+  code page, so without it a profile folder named outside the system's legacy code page would
+  reach the updater, and every file call, mangled. Windows 10 1903 and later honour it.
 - Neither the installer nor the executable is code-signed, so SmartScreen shows "Windows
   protected your PC" on first run until the download has a reputation. **More info > Run
   anyway** installs it.

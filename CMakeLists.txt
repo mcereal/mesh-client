@@ -292,6 +292,17 @@ add_executable(meshclient src/main.c)
 
 target_link_libraries(meshclient PRIVATE meshclient_core meshclient_options)
 
+# Windows: the application manifest, whose job is to make the process's ANSI code page UTF-8 so
+# that a path outside the system's legacy code page survives every char-based file call. See
+# src/app/meshclient.manifest.
+if(WIN32)
+    enable_language(RC)
+    set(MESHCLIENT_MANIFEST ${CMAKE_CURRENT_SOURCE_DIR}/src/app/meshclient.manifest)
+    configure_file(src/app/meshclient.rc.in ${CMAKE_CURRENT_BINARY_DIR}/meshclient.rc @ONLY)
+    target_sources(meshclient PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/meshclient.rc)
+    set_property(TARGET meshclient APPEND PROPERTY LINK_DEPENDS ${MESHCLIENT_MANIFEST})
+endif()
+
 # A bare binary on macOS has no bundle, so the Info.plist that says why it wants Bluetooth is
 # linked into its __TEXT segment instead. CoreBluetooth is refused without a usage string, and
 # macOS asks the user about the app that launched the binary - Terminal, usually - with this

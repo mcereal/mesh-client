@@ -1,0 +1,4 @@
+// The manifest as resource 1 of type RT_MANIFEST (24), which is where the loader looks for an
+// executable's own. Configured by CMakeLists.txt so the path is absolute: windres resolves a
+// relative one against its working directory, not against this file.
+1 24 "@MESHCLIENT_MANIFEST@"

@@ -22,11 +22,11 @@
  * itself. Windows refuses to replace a running executable but allows renaming one, so there
  * the running binary steps aside to "<name>.old" first and the next launch deletes it.
  *
- * Every platform updates the same way: one bare binary per platform in each release, named by
- * MESHCLIENT_UPDATE_ASSET at build time. The handheld's is inside the pak, the Mac's inside
- * MeshClient.app, and the Windows one in the installer's directory. The files packaged around
- * it (the pak's launch.sh, the bundle's SDL2 library, the installer's DLLs) stay as they were
- * installed, so a change to one of those needs a fresh install rather than an update.
+ * Each platform's release asset is named by MESHCLIENT_UPDATE_ASSET at build time. The handheld
+ * and Windows replace one bare executable, and the files installed around it (the pak's
+ * launch.sh, the installer's DLLs) stay as they were, so a change to one of those needs a fresh
+ * install. A Mac replaces the whole MeshClient.app from a zip of it, because the executable's
+ * signature seals the rest of the bundle and cannot be swapped alone.
  */
 
 #include "inkwell/net/fetch.h"
@@ -141,8 +141,8 @@ struct mesh_updater {
      * smoothness belongs.
      */
     uint64_t downloaded;
-    /* The binary being replaced (the running executable, symlinks resolved) and the temporary
-       name next to it. */
+    /* What an install replaces - the running executable, symlinks resolved, or on macOS the
+       .app around it - and the name the download is staged under next to it. */
     char install_path[MESH_UPDATE_PATH_MAX];
     /* Room for install_path plus the ".update" suffix, so staging can never truncate. */
     char staged_path[MESH_UPDATE_PATH_MAX + 16U];

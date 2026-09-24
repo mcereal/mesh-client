@@ -7,15 +7,16 @@
 #
 # Writes to dist/:
 #   MeshClient-macos.dmg              what a person downloads and drags to Applications
-#   meshclient-macos-universal        the bundle's binary alone, which the in-app updater
-#                                     downloads and renames over Contents/MacOS/meshclient -
-#                                     the Mac's equivalent of the handheld's bare binary
+#   MeshClient-macos-app.zip          the same signed bundle as a `ditto` zip, which the in-app
+#                                     updater downloads, unpacks beside the installed bundle and
+#                                     swaps in whole. Not the executable alone: its signature
+#                                     seals the bundle's Info.plist and resources, so a newer one
+#                                     in an older bundle is a broken seal.
 #   *.sha256                          `shasum -a 256` of each, in sha256sum's format
 #
 # SDL2 is built here from a pinned source release rather than taken from Homebrew, because
 # Homebrew's is one architecture and a universal binary cannot link a thin library. It is bundled
-# as a dylib in Contents/Frameworks. An update replaces only the binary, which is fine because
-# SDL2 keeps its ABI stable across 2.x.
+# as a dylib in Contents/Frameworks, and an update carries it along with everything else.
 #
 # Signing is ad hoc (`codesign -s -`) unless MACOS_SIGN_IDENTITY names a Developer ID. Apple
 # silicon will not run an unsigned binary at all, and ad hoc signing is enough for that. It is
@@ -38,7 +39,7 @@ SDL_SHA256="5f5993c530f084535c65a6879e9b26ad441169b3e25d789d83287040a9ca5165"
 ARCHS="${MESHCLIENT_MACOS_ARCHS:-arm64;x86_64}"
 MIN_MACOS="${MACOSX_DEPLOYMENT_TARGET:-11.0}"
 SIGN_IDENTITY="${MACOS_SIGN_IDENTITY:--}"
-ASSET_NAME="meshclient-macos-universal"
+ASSET_NAME="MeshClient-macos-app.zip"
 
 BUILD_DIR="build/macos-release"
 SDL_DIR="build/macos-sdl2-${SDL_VERSION}"
@@ -185,8 +186,19 @@ codesign --verify --strict --verbose=2 "${APP}"
 
 # ---------------------------------------------------------------------------------------------
 # The downloads.
-cp "${EXE}" "${DIST_DIR}/${ASSET_NAME}"
-chmod +x "${DIST_DIR}/${ASSET_NAME}"
+#
+# The update zip, made the way src/core/update/updater.c takes it apart (`ditto -x -k`), and
+# taken apart here too: what the updater installs has to come out of the zip with its seal
+# intact, and this is where that is proved rather than assumed. No resource forks, extended
+# attributes or ACLs - a quarantine or provenance attribute from the build host is not something
+# to ship.
+rm -f "${DIST_DIR}/${ASSET_NAME}"
+ditto -c -k --norsrc --noextattr --noacl --keepParent "${APP}" "${DIST_DIR}/${ASSET_NAME}"
+ROUND_TRIP="${BUILD_DIR}/unzipped"
+rm -rf "${ROUND_TRIP}"
+ditto -x -k "${DIST_DIR}/${ASSET_NAME}" "${ROUND_TRIP}"
+codesign --verify --strict --verbose=2 "${ROUND_TRIP}/MeshClient.app"
+"${ROUND_TRIP}/MeshClient.app/Contents/MacOS/meshclient" --version
 
 STAGE="${BUILD_DIR}/dmg"
 rm -rf "${STAGE}" "${DMG}"
