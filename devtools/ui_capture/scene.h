@@ -50,9 +50,6 @@ struct uicap_scene;
 #define UICAP_SCENE_SETUP 0x1U
 /* Emits its own frames, or none: the runner neither emits nor settles after it. */
 #define UICAP_SCENE_NO_FRAME 0x2U
-/* Emits one frame and leaves whatever it set moving where it is. Only here while the verbs that
-   always did that are carried across unchanged. */
-#define UICAP_SCENE_NO_SETTLE 0x4U
 
 /*
  * One of the application's verbs. `args` is the rest of the line, writable, for

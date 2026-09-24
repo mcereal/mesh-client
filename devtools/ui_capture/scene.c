@@ -539,7 +539,7 @@ int uicap_scene_run_line(struct uicap_scene *scene, char *line) {
     if ((verb->flags & (UICAP_SCENE_SETUP | UICAP_SCENE_NO_FRAME)) != 0U) {
         return 0;
     }
-    if ((status = uicap_scene_emit(scene)) < 0 || (verb->flags & UICAP_SCENE_NO_SETTLE) != 0U) {
+    if ((status = uicap_scene_emit(scene)) < 0) {
         return status;
     }
     return uicap_scene_settle(scene);
