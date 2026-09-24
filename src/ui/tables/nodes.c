@@ -3,10 +3,13 @@
 #include "mesh/ui/nodes.h"
 
 #include "inkcell/ui/theme.h"
+#include "inkwell/base/text.h"
 
+#include "mesh/i18n/strings.h"
 #include "mesh/ui/node_detail.h"
 #include "mesh/ui/store_handshake.h"
 #include "mesh/ui/store_node.h"
+#include "mesh/ui/units.h"
 
 #include "mesh/geo/vector.h"
 
@@ -130,15 +133,19 @@ static const inkcell_str_id k_sort_labels[MESH_UI_NODE_SORT_COUNT] = {
 /*
  * The name this sort compares, which is the one the row draws first.
  *
+ * The long name, falling back to the short one - the row's first line since the short name
+ * moved to the quiet line under it. A list sorted on a column it is not showing looks unsorted,
+ * so this follows the row wherever the row puts its name.
+ *
  * Never NULL: a node that has said neither name is placed by its `group` rather than by its
  * letters, and handing the comparison an empty string keeps the two arms of the key builder
  * from needing a null check each.
  */
 static const char *node_sort_name(const struct mesh_ui_node_summary *node) {
-    if (node->short_name[0] != '\0') {
-        return node->short_name;
+    if (node->long_name[0] != '\0') {
+        return node->long_name;
     }
-    return node->long_name;
+    return node->short_name;
 }
 
 /*
@@ -331,4 +338,81 @@ inkcell_str_id mesh_ui_node_sort_label(enum mesh_ui_node_sort sort) {
         return k_sort_labels[MESH_UI_NODE_SORT_DEFAULT];
     }
     return k_sort_labels[sort];
+}
+
+/* One fact onto the line, with the separator in front of every fact but the first. */
+static void node_fact_append(char *out, size_t out_len, const char *fact) {
+    if (fact[0] == '\0') {
+        return;
+    }
+    size_t used = strlen(out);
+    if (used != 0U) {
+        (void)inkwell_str_copy(out + used, out_len - used,
+                               inkcell_str(MESH_STR_NODES_ROW_SEPARATOR));
+        used = strlen(out);
+    }
+    (void)inkwell_str_copy(out + used, out_len - used, fact);
+}
+
+void mesh_ui_node_row_facts(const struct mesh_ui_handshake_state *handshake,
+                            const struct mesh_ui_node_summary *node, bool imperial, char *out,
+                            size_t out_len) {
+    if (out == NULL || out_len == 0U) {
+        return;
+    }
+    out[0] = '\0';
+    if (node == NULL) {
+        return;
+    }
+    char fact[40];
+
+    if (node->long_name[0] != '\0' && node->short_name[0] != '\0') {
+        node_fact_append(out, out_len, node->short_name);
+    }
+
+    const bool is_me = handshake != NULL && handshake->has_my_info &&
+                       handshake->my_info.node_num != 0U &&
+                       node->node_id == handshake->my_info.node_num;
+    if (!is_me) {
+        fact[0] = '\0';
+        if (!node->in_nodedb) {
+            inkwell_str_copy(fact, sizeof fact, inkcell_str(MESH_STR_NODES_ROW_OFF_RADIO));
+        } else if (node->has_hops_away && node->hops_away == 1U) {
+            inkwell_str_copy(fact, sizeof fact, inkcell_str(MESH_STR_NODES_ROW_HOP));
+        } else if (node->has_hops_away && node->hops_away > 1U) {
+            inkcell_str_format(fact, sizeof fact, MESH_STR_NODES_ROW_HOPS,
+                               (unsigned)node->hops_away);
+        } else if (node->via_mqtt) {
+            inkwell_str_copy(fact, sizeof fact, inkcell_str(MESH_STR_NODES_ROW_MQTT));
+        } else if (!mesh_ui_node_signal_heard(node) && node->snr != 0.0f) {
+            /* Heard directly with a reading says nothing here: the signal bars in the right-hand
+               column already say it, and "direct" beside them would be the same fact twice.
+               What is left is a figure with no hops behind it - and 0.0 is the session layer's
+               "no reading", which "0.0 dB" would claim was one. */
+            inkcell_str_format(fact, sizeof fact, MESH_STR_NODES_ROW_SNR, (double)node->snr);
+        }
+        node_fact_append(out, out_len, fact);
+
+        int32_t self_lat = 0;
+        int32_t self_lon = 0;
+        struct mesh_geo_vector vector;
+        if (node->position.valid && handshake != NULL &&
+            mesh_ui_node_our_fix(handshake, &self_lat, &self_lon) &&
+            mesh_geo_vector_between(self_lat, self_lon, node->position.latitude_i,
+                                    node->position.longitude_i, &vector)) {
+            mesh_ui_format_distance(vector.distance_m, imperial, fact, sizeof fact);
+            node_fact_append(out, out_len, fact);
+        }
+    }
+
+    if (node->metrics.has_battery) {
+        /* 101 is upstream's "running off USB", not a 101% battery. */
+        if (node->metrics.battery_level > 100U) {
+            inkwell_str_copy(fact, sizeof fact, inkcell_str(MESH_STR_NODES_ROW_PLUGGED_IN));
+        } else {
+            inkcell_str_format(fact, sizeof fact, MESH_STR_NODES_ROW_BATTERY,
+                               (unsigned)node->metrics.battery_level);
+        }
+        node_fact_append(out, out_len, fact);
+    }
 }

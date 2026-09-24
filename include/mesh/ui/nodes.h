@@ -161,16 +161,16 @@ enum mesh_ui_node_sort {
     /*
      * By name, A to Z, folding ASCII case.
      *
-     * The name compared is the one the row *draws first* - the short name, falling back to the
-     * long one - and that is worth stating because the row draws both. A list sorted on a column
-     * it is not showing is a list that looks unsorted, and the short name is the four cells at
-     * the left edge that the eye runs down. A node that has said neither sorts to the end, for
+     * The name compared is the one the row *draws first* - the long name, falling back to the
+     * short one - and that is worth stating because the row draws both. A list sorted on a
+     * column it is not showing is a list that looks unsorted, and the long name is the row's
+     * first line, the one the eye runs down. A node that has said neither sorts to the end, for
      * the reason an unheard node does: it has not answered the question, so it cannot be placed
      * by the answer.
      *
      * ASCII case only, which is what strcasecmp folds. Accented and non-Latin names therefore
      * sort by their bytes rather than by the reader's alphabet - a real limitation, honestly a
-     * small one on a roster of four-character radio names, and the alternative is a collation
+     * small one on a roster of mostly-ASCII radio names, and the alternative is a collation
      * table this client has no room for.
      */
     MESH_UI_NODE_SORT_NAME,
@@ -257,6 +257,30 @@ inkcell_str_id mesh_ui_node_sort_label(enum mesh_ui_node_sort sort);
  */
 bool mesh_ui_node_sort_available(const struct mesh_ui_handshake_state *handshake,
                                  enum mesh_ui_node_sort sort);
+
+/*
+ * A node row's second line: "ALFA · 2 hops · 1.2 km · 87% battery".
+ *
+ * The first line is the node's name and the right-hand column is how long ago it was heard, so
+ * this is everything else a reader scans a roster for, quietest first to loudest last: which
+ * four-letter radio it is, how it reaches us, how far away it is, and whether it is about to go
+ * quiet. A fact the node has not given is left out rather than drawn as a dash - a line of
+ * placeholders is noise on exactly the rows that have least to say.
+ *
+ * How it reaches us is one fact with several answers, in the order that decides it. "Off radio"
+ * wins, because a node the radio's NodeDB no longer holds is one a DM cannot reach whatever the
+ * rest says; then hops, then MQTT. A node heard directly says nothing here, because the signal
+ * bars in the row's right-hand column already say it - which needs mesh_ui_node_signal_heard(),
+ * not `hops_away == 0`, for the reason the Direct chip gives. A figure in decibels is the last
+ * resort, for a node whose hops were never reported but whose SNR was.
+ *
+ * The short name is left off when it is the first line - a node with no long name - and so is
+ * everything about the route on our own row, which has none. The distance needs a fix at both
+ * ends. Empty is a valid answer; `out` is always terminated.
+ */
+void mesh_ui_node_row_facts(const struct mesh_ui_handshake_state *handshake,
+                            const struct mesh_ui_node_summary *node, bool imperial, char *out,
+                            size_t out_len);
 
 #ifdef __cplusplus
 }
