@@ -751,7 +751,7 @@ void fb_render_thread(struct inkcell_draw_state *state, const struct mesh_ui_sna
     int y = layout->body_y + (int)window.pad * layout->line;
     for (uint32_t i = window.first; i < window.first + window.count && i < count; ++i) {
         fb_thread_row_get(snapshot, messages, indices, i, settled && i == named, cache, &row);
-        row.bubble.selected = (i == cursor);
+        row.bubble.focused = (i == cursor);
         inkcell_fb_draw_bubble(state, layout, y, &row.bubble);
         /* A click selects a bubble - see src/ui/nav/nav_click.c. The whole band it stands in
            rather than the bubble's own box, so the air beside a short message is still it. */
