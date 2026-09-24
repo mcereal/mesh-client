@@ -1340,7 +1340,7 @@ void mesh_app_shutdown(struct mesh_app *app) {
     mesh_firmware_shutdown(&app->firmware);
     mesh_firmware_update_shutdown(&app->firmware_update);
     /* Before the controller it presses keys on. */
-    mesh_app_control_close(&app->control);
+    inkstand_control_close(&app->control);
     mesh_ui_controller_shutdown(&app->ui_controller);
     mesh_app_close_ui_cache_timer(app);
     if (app->ui_handshake_cache_path[0] != '\0') {
@@ -1429,14 +1429,14 @@ int mesh_app_run(struct mesh_app *app) {
         inkcell_input_set_handler(&app->ui_input, mesh_app_on_ui_key, app);
     }
     if (app->config.ui_control_path[0] != '\0') {
-        const struct mesh_app_control_host host = {
+        const struct inkstand_control_host host = {
             .frames = &app->ui_controller.frames,
             .press = mesh_app_on_ui_key,
             .screen = mesh_app_control_screen,
             .userdata = app,
         };
         const int opened =
-            mesh_app_control_open(&app->control, &app->loop, &host, app->config.ui_control_path);
+            inkstand_control_open(&app->control, &app->loop, &host, app->config.ui_control_path);
         if (opened < 0) {
             inkwell_log_warn("app", "UI control socket at %s did not open: %s",
                              app->config.ui_control_path, strerror(-opened));

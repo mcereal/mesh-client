@@ -2,8 +2,8 @@
 # Drive a running MeshClient by its keys and look at what it drew - in a window on a Mac, with no
 # display at all in a container or a cloud session, or on a Brick over adb/ssh.
 #
-# The client listens on a control socket (include/mesh/app/control.h); this starts one that does,
-# sends it commands, and turns every `shot` into a PNG on this machine.
+# The client listens on a control socket (inkstand's include/inkstand/app/control.h); this
+# starts one that does, sends it commands, and turns every `shot` into a PNG on this machine.
 #
 # Usage: scripts/ui-drive.sh [--brick] <command> [args]
 #

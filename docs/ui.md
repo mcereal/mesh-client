@@ -1112,8 +1112,8 @@ catch whatever is actually on the panel — see [`device.md`](device.md#screensh
 client does - its transports, its caches, the radio on the desk - drive that instead:
 `--ui-control PATH` (or `MESHCLIENT_UI_CONTROL`) opens a Unix socket that takes a key by name, a
 wait, and a `shot` that writes the frame as a PPM once nothing on the panel is moving. The
-protocol is in `include/mesh/app/control.h`; `meshclient --ui-send 'key r1; shot /tmp/x.ppm'` is
-its other end, which is what lets a Brick be driven with only the binary it already has.
+protocol is in inkstand's `include/inkstand/app/control.h`; `meshclient --ui-send 'key r1; shot
+/tmp/x.ppm'` is its other end, which is what lets a Brick be driven with only the binary it already has.
 
 `scripts/ui-drive.sh` puts the three places it runs behind one command, and brings every shot
 back as a PNG on this machine:
