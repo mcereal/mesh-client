@@ -164,10 +164,10 @@ MESH_TEST_CASE(updater_lifecycle, unit) {
         record_failure(test_name, "a fresh updater should be idle");
         return;
     }
-    /* init reads /proc/self/exe, so the staged name must sit beside the running binary - the
-       rename that installs it is only atomic within one directory. Off Linux there is no
-       binary to replace, deliberately: see mesh_updater_init(). */
-#if defined(__linux__)
+    /* init asks the system for the running binary, so the staged name must sit beside it - the
+       rename that installs it is only atomic within one directory. Linux, macOS and Windows each
+       have a way to ask; anywhere else there is no binary to replace: see updater_find_binary(). */
+#if defined(__linux__) || defined(__APPLE__) || defined(_WIN32)
     const bool placed =
         updater.install_path[0] != '\0' &&
         strncmp(updater.staged_path, updater.install_path, strlen(updater.install_path)) == 0;

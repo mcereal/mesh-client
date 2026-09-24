@@ -161,9 +161,11 @@ cp licenses/*.txt "${APP}/Contents/Resources/licenses/"
 cp "${SDL_DIR}/src/LICENSE.txt" "${APP}/Contents/Resources/licenses/Zlib-SDL2.txt"
 
 EXE="${APP}/Contents/MacOS/meshclient"
+# `otool -l` on a universal binary lists every load command once per architecture, and one
+# -delete_rpath removes a path from all of them - so each distinct path is deleted once.
 while read -r rpath; do
     install_name_tool -delete_rpath "${rpath}" "${EXE}"
-done < <(otool -l "${EXE}" | awk '/cmd LC_RPATH/ { getline; getline; print $2 }')
+done < <(otool -l "${EXE}" | awk '/cmd LC_RPATH/ { getline; getline; print $2 }' | sort -u)
 install_name_tool -add_rpath "@executable_path/../Frameworks" "${EXE}"
 
 # Inside out: the library, then the bundle, which signs its main executable in the bundle's
