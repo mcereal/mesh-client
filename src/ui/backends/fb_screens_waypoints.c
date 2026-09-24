@@ -69,7 +69,17 @@ static void fb_render_waypoint_detail(struct inkcell_draw_state *state,
         return;
     }
 
-    const size_t label_cols = inkcell_fb_field_label_cols(state, layout, 12U);
+    /* The widest fact's label, measured: the node detail's rule one tab over. */
+    const char *labels[MESH_UI_WAYPOINT_ITEMS_MAX];
+    size_t labelled = 0U;
+    for (uint32_t r = 0U; r < count; ++r) {
+        if (items[r].kind != MESH_UI_WAYPOINT_ITEM_HEADING &&
+            items[r].kind != MESH_UI_WAYPOINT_ITEM_NOTE &&
+            items[r].kind != MESH_UI_WAYPOINT_ITEM_ACTION) {
+            labels[labelled++] = items[r].label;
+        }
+    }
+    const size_t label_cols = inkcell_fb_field_label_cols_fit(state, layout, labels, labelled);
     /* The note is the one row here that is a sentence rather than a fact, so it takes a second
        step and puts the sharer's words on it. Measured from the same `kind` the loop draws
        from, and handed to the model before anything is placed - the node detail's rule. */

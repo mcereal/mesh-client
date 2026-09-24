@@ -51,8 +51,24 @@ static void fb_draw_code_body(struct inkcell_draw_state *state, struct inkcell_f
      * modules this particular link came out as - and a caption whose position moved with that
      * would sit at a different height on every radio.
      */
-    const int text_rows = 5;
+    /*
+     * As many rows as the words wrap to at this width, measured: the summary's (two at most, as
+     * it is drawn) and the link's. A wide window holds the link on fewer lines than the Brick
+     * does, and those lines go to the code. The five-row budget is the most the words may take,
+     * whatever the width - a link that wraps further is cut there, as it always was, because the
+     * code above is what the reader was meant to use.
+     */
+    enum { CODE_TEXT_ROWS_MAX = 5 };
+    const uint32_t summary_rows =
+        inkcell_fb_wrapped_lines(state, summary, (size_t)layout->body_w, state->scale);
+    const uint32_t url_rows =
+        inkcell_fb_wrapped_lines(state, url, (size_t)layout->body_w, state->scale);
+    int text_rows = (int)(summary_rows > 2U ? 2U : summary_rows) + (int)url_rows;
+    text_rows = text_rows > CODE_TEXT_ROWS_MAX ? CODE_TEXT_ROWS_MAX : text_rows;
     const int text_y = layout->footer_y - text_rows * layout->line;
+    /* From the content column's edge rather than the panel's margin: beside a rail the two are
+       not the same place, and words at the margin run under the rail. */
+    const int text_x = inkcell_fb_row_box(state).text_x;
 
     /*
      * The code is built here rather than carried on the snapshot, and that is the right place
@@ -98,21 +114,22 @@ static void fb_draw_code_body(struct inkcell_draw_state *state, struct inkcell_f
         /* No code: say so where the code would have been. Both bounds are tested
            (tests/suites/channel_share.c, tests/suites/contact_share.c), so this is a frame that
            should not happen rather than one the screen pretends cannot. */
-        (void)inkcell_fb_draw_wrapped(state, layout->body_y, no_code, (size_t)layout->body_w, 2,
-                                      inkcell_fb_tone_color(state, INKCELL_TONE_DIM),
-                                      inkcell_fb_color(state, INKCELL_COLOR_BG));
+        (void)inkcell_fb_draw_wrapped_at(state, text_x, layout->body_y, no_code,
+                                         (size_t)layout->body_w, 2,
+                                         inkcell_fb_tone_color(state, INKCELL_TONE_DIM),
+                                         inkcell_fb_color(state, INKCELL_COLOR_BG));
     }
 
     int y = text_y;
-    y += inkcell_fb_draw_wrapped(state, y, summary, (size_t)layout->body_w, 2,
-                                 inkcell_fb_tone_color(state, INKCELL_TONE_NORMAL),
-                                 inkcell_fb_color(state, INKCELL_COLOR_BG)) *
+    y += inkcell_fb_draw_wrapped_at(state, text_x, y, summary, (size_t)layout->body_w, 2,
+                                    inkcell_fb_tone_color(state, INKCELL_TONE_NORMAL),
+                                    inkcell_fb_color(state, INKCELL_COLOR_BG)) *
          layout->line;
     const int left = (layout->footer_y - y) / layout->line;
     if (left > 0) {
-        (void)inkcell_fb_draw_wrapped(state, y, url, (size_t)layout->body_w, left,
-                                      inkcell_fb_tone_color(state, INKCELL_TONE_DIM),
-                                      inkcell_fb_color(state, INKCELL_COLOR_BG));
+        (void)inkcell_fb_draw_wrapped_at(state, text_x, y, url, (size_t)layout->body_w, left,
+                                         inkcell_fb_tone_color(state, INKCELL_TONE_DIM),
+                                         inkcell_fb_color(state, INKCELL_COLOR_BG));
     }
 }
 

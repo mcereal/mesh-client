@@ -190,7 +190,16 @@ void fb_render_node_detail(struct inkcell_draw_state *state,
         return;
     }
 
-    const size_t label_cols = inkcell_fb_field_label_cols(state, layout, 16U);
+    /* The label column holds the widest question this node is answered for, measured - not a
+       count tuned to one language's words. Headings and the action row do not use it. */
+    const char *labels[MESH_UI_NODE_ITEMS_MAX];
+    size_t labelled = 0U;
+    for (uint32_t r = 0U; r < count; ++r) {
+        if (items[r].kind != MESH_UI_NODE_ROW_HEADING && items[r].kind != MESH_UI_NODE_ROW_ACTION) {
+            labels[labelled++] = items[r].label;
+        }
+    }
+    const size_t label_cols = inkcell_fb_field_label_cols_fit(state, layout, labels, labelled);
     /*
      * The one list on the device whose rows are not all the same height, and the reason the
      * window learned to count steps: a reading gets a bar with the row to itself, so the
@@ -682,7 +691,10 @@ void fb_render_node_list(struct inkcell_draw_state *state, const struct mesh_ui_
      * One label column for both rows, measured from the longer of the two words, so the group
      * reads as one block rather than as two rows that happen to adjoin.
      */
-    const size_t control_label_cols = inkcell_fb_field_label_cols(state, layout, 6U);
+    const char *const control_labels[] = {inkcell_str(MESH_STR_NODES_FILTER_ROW),
+                                          inkcell_str(MESH_STR_NODES_SORT_ROW)};
+    const size_t control_label_cols =
+        inkcell_fb_field_label_cols_fit(state, layout, control_labels, 2U);
     /*
      * The filter gets the whole set and the sort gets the chosen word, and that split is a
      * measurement rather than a preference - it is INKCELL_FB_SEGMENTED_MAX, stated once in the
