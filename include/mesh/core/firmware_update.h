@@ -57,6 +57,8 @@ struct inkwell_loop;
    must not be the SD card: plugging an nRF52 bootloader in gets its ghost FAT mounted over
    /mnt/SDCARD, taking the pak and everything in it with it. */
 #define MESH_FIRMWARE_UPDATE_STAGING_DEFAULT "/tmp"
+/* That default, or %TEMP% on Windows, which has no /tmp. */
+const char *mesh_firmware_update_staging_default(void);
 
 /*
  * Where the job has got to, as a row says it.

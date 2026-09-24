@@ -22,9 +22,12 @@
 
 #include "framework/mesh_test.h"
 
+#include "support/ble_ota_fixture.h"
 #include "support/data_fixture.h"
 #include "support/uf2_fixture.h"
 
+#include "inkwell/ble/central.h"
+#include "inkwell/codec/esp_image.h"
 #include "inkwell/runtime/loop.h"
 #include "mesh/core/firmware_update.h"
 
@@ -253,13 +256,13 @@ static bool update_write_zip(const char *path, const struct update_member *membe
  * document is the one upstream published apart from the single field a shorter image makes
  * untrue, so what the parser is read against is still real bytes.
  */
-static char *update_manifest_for(size_t image_len, size_t *out_len) {
-    /* The uf2's length in the real release, and distinct from the other three files' - a
-       second occurrence would mean this is rewriting something else and is refused below. */
-    static const char k_bytes[] = "1467392";
-    const size_t key_len = sizeof k_bytes - 1U;
+static char *update_manifest_for(const char *document, const char *k_bytes, size_t image_len,
+                                 size_t *out_len) {
+    /* `k_bytes` is the image's length in the real release, and distinct from the other files' -
+       a second occurrence would mean this is rewriting something else and is refused below. */
+    const size_t key_len = strlen(k_bytes);
     size_t len = 0U;
-    char *const text = mesh_test_data_read("t114_2.7.26.mt.json", &len);
+    char *const text = mesh_test_data_read(document, &len);
     if (text == NULL) {
         return NULL;
     }
@@ -298,7 +301,8 @@ static bool update_stage_zip(const char *dir) {
         return false;
     }
     size_t manifest_len = 0U;
-    char *const manifest = update_manifest_for(image_len, &manifest_len);
+    char *const manifest =
+        update_manifest_for("t114_2.7.26.mt.json", "1467392", image_len, &manifest_len);
     if (manifest == NULL) {
         free(image);
         return false;
@@ -309,6 +313,33 @@ static bool update_stage_zip(const char *dir) {
         {"nrf52840/firmware-heltec-mesh-node-t114-2.7.26.54e0d8d.mt.json",
          (const uint8_t *)manifest, (uint32_t)manifest_len},
         {"nrf52840/firmware-heltec-mesh-node-t114-2.7.26.54e0d8d.uf2", image, (uint32_t)image_len},
+    };
+    char path[512];
+    snprintf(path, sizeof path, "%s/firmware.zip", dir);
+    const bool written = update_write_zip(path, members, 2U);
+    free(manifest);
+    free(image);
+    return written;
+}
+
+/* The same zip for the BLE path: a Heltec V3's manifest and an ESP32-S3 application as app0. */
+static bool update_stage_esp_zip(const char *dir) {
+    const size_t image_len = 4096U;
+    uint8_t *const image = mesh_test_esp_image(image_len, INKWELL_ESP_CHIP_ESP32_S3);
+    if (image == NULL) {
+        return false;
+    }
+    size_t manifest_len = 0U;
+    char *const manifest =
+        update_manifest_for("heltec_v3_2.7.26.mt.json", "2109248", image_len, &manifest_len);
+    if (manifest == NULL) {
+        free(image);
+        return false;
+    }
+    const struct update_member members[2] = {
+        {"esp32s3/firmware-heltec-v3-2.7.26.54e0d8d.mt.json", (const uint8_t *)manifest,
+         (uint32_t)manifest_len},
+        {"esp32s3/firmware-heltec-v3-2.7.26.54e0d8d.bin", image, (uint32_t)image_len},
     };
     char path[512];
     snprintf(path, sizeof path, "%s/firmware.zip", dir);
@@ -878,6 +909,74 @@ MESH_TEST_CASE(firmware_update_carries_the_image_into_the_handover, unit) {
 
 cleanup:
     update_harness_down(&harness);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * The BLE handover leaves the radio alone until Bluetooth has an adapter to hand.
+ *
+ * CoreBluetooth and Windows find theirs a turn or more after the open returns. Asked at once,
+ * there was none, and the install failed - which is harmless only because it failed *before*
+ * arming. A radio armed first is in its loader, off the mesh, with nothing coming to finish it.
+ */
+MESH_TEST_CASE(firmware_update_arms_a_ble_radio_only_once_bluetooth_is_up, unit) {
+    struct update_harness harness;
+    struct update_probe probe;
+    const char *failure = NULL;
+    memset(&probe, 0, sizeof probe);
+    probe.radio_ready = true;
+    struct inkwell_ble_mock_config mock;
+    memset(&mock, 0, sizeof mock);
+    mock.check_ready_result = -EAGAIN;
+    inkwell_ble_mock_enable(&mock);
+    if (!update_harness_up_whole(&harness) || !update_stage_esp_zip(harness.dir)) {
+        failure = "the harness should come up with an ESP32 zip to serve";
+        goto cleanup;
+    }
+    struct mesh_firmware_update_hooks hooks = update_hooks(&probe);
+    struct mesh_firmware_board board;
+    memset(&board, 0, sizeof board);
+    board.hw_model = 43U;
+    snprintf(board.target, sizeof board.target, "%s", "heltec-v3");
+    snprintf(board.name, sizeof board.name, "%s", "Heltec V3");
+    snprintf(board.architecture, sizeof board.architecture, "%s", "esp32-s3");
+    board.actively_supported = true;
+    board.path = MESH_FIRMWARE_PATH_BLE;
+    const struct mesh_firmware_release release = update_release();
+    if (mesh_firmware_update_start(&harness.update, &board, &release, "F8:5B:1B:A5:99:C9", &hooks,
+                                   update_probe_done, &probe) != 0) {
+        failure = "the press should start";
+        goto cleanup;
+    }
+    if (!update_settle_at(&harness, &probe, MESH_FIRMWARE_UPDATE_READY)) {
+        failure = probe.calls > 0U ? "the download should not have failed"
+                                   : "a staged image should reach the handover";
+        goto cleanup;
+    }
+    for (int turn = 0; turn < 20; ++turn) {
+        mesh_firmware_update_tick(&harness.update, 1000U + (uint64_t)turn * 100U);
+    }
+    if (probe.calls != 0U || harness.update.state != MESH_FIRMWARE_UPDATE_READY) {
+        failure = "a stack still starting is waited for, not failed";
+        goto cleanup;
+    }
+    if (probe.armed_ble != 0U) {
+        failure = "and the radio is not asked into its loader while it starts";
+        goto cleanup;
+    }
+    mock.check_ready_result = 0;
+    inkwell_ble_mock_enable(&mock);
+    mesh_firmware_update_tick(&harness.update, 3000U);
+    if (probe.armed_ble != 1U || probe.calls != 0U) {
+        failure = "once it is up, the radio is armed exactly once";
+        goto cleanup;
+    }
+    mesh_firmware_update_cancel(&harness.update);
+
+cleanup:
+    update_harness_down(&harness);
+    inkwell_ble_mock_disable();
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
