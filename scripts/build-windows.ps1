@@ -29,7 +29,7 @@ $buildDir = Join-Path $repoRoot "build\windows-$($Configuration.ToLowerInvariant
     "-DCMAKE_C_COMPILER=$($compiler.Replace('\', '/'))" `
     "-DCMAKE_MAKE_PROGRAM=$($ninja.Replace('\', '/'))" `
     "-DPython3_EXECUTABLE=$($python.Replace('\', '/'))" `
-    -DINKWELL_WITH_TLS=OFF `
+    -DINKWELL_WITH_TLS=ON `
     -DBUILD_TESTING=OFF `
     -DMESHCLIENT_BUILD_DEVTOOLS=OFF
 if ($LASTEXITCODE -ne 0) {
