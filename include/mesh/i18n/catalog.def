@@ -403,6 +403,7 @@ MESH_STR_ENTRY(VALUE_ALTITUDE_FT,         "%lld ft")
 MESH_STR_ENTRY(NODES_EMPTY_WAITING,       "Waiting for the node list...")
 MESH_STR_ENTRY(NODES_EMPTY_DISCONNECTED,  "Connect to a node to see the mesh.")
 MESH_STR_ENTRY(NODES_GONE,                "That node is no longer in the list.")
+MESH_STR_ENTRY(NODES_PICK,                "Open a node to see it here.")
 MESH_STR_ENTRY(NODES_DETAIL_EMPTY,        "Nothing reported for this node yet.")
 /* Titles: how many of the radio's NodeDB we hold, or how many we keep that it has evicted. */
 MESH_STR_ENTRY(NODES_TITLE_OF,            "Nodes (%u of %u)")

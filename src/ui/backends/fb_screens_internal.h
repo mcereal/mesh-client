@@ -73,6 +73,13 @@ void fb_render_keyboard(const struct inkcell_draw_state *state,
 /* The roster, or one node's detail over it. The map is fb_render_map() in fb_internal.h. */
 void fb_render_nodes(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
                      struct inkcell_fb_layout *layout);
+/* The two halves of it, which a split frame draws side by side: the roster, with the open node's
+   row under its cursor when there is one, and whatever is open over one node - its detail, a chart
+   of one of its readings, and the sheet of its verbs. */
+void fb_render_node_list(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
+                         struct inkcell_fb_layout *layout);
+void fb_render_node_pane(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
+                         struct inkcell_fb_layout *layout);
 
 /*
  * One node's detail. Drawn by the renderer above, and again by the chart below it: a chart whose

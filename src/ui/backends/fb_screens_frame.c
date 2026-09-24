@@ -582,13 +582,32 @@ static void fb_render_begin(struct inkcell_draw_state *state,
 /*
  * Whether the place the reader is standing has a list and a detail that could stand side by side.
  *
- * Messages is the one so far: the conversations and the thread open from one of them. The scaffold
- * decides whether there is room (inkcell/ui/widgets/scaffold.h); this only says the screen has
- * the two halves.
+ * Messages (the conversations and the thread open from one of them) and Nodes (the roster and
+ * whatever is open over one node: its detail, a chart of a reading, the sheet of its verbs). The
+ * scaffold decides whether there is room (inkcell/ui/widgets/scaffold.h); this only says the
+ * screen has the two halves.
  */
 static bool fb_route_split(const struct mesh_ui_route *body) {
-    return body->screen == MESH_UI_SCREEN_MESSAGES &&
-           (body->level == MESH_UI_ROUTE_LIST || body->level == MESH_UI_ROUTE_THREAD);
+    switch (body->screen) {
+    case MESH_UI_SCREEN_MESSAGES:
+        return body->level == MESH_UI_ROUTE_LIST || body->level == MESH_UI_ROUTE_THREAD;
+    case MESH_UI_SCREEN_NODES:
+        return body->level == MESH_UI_ROUTE_LIST || body->level == MESH_UI_ROUTE_NODE ||
+               body->level == MESH_UI_ROUTE_NODE_ACTIONS || body->level == MESH_UI_ROUTE_TREND;
+    default:
+        return false;
+    }
+}
+
+/*
+ * And whether this frame is one: the route's answer, less a node opened from the map. That detail
+ * is the same route as one opened from the list, but B takes it back to the map rather than to the
+ * roster, so the roster beside it would be a place the reader did not come from and cannot reach.
+ */
+static bool fb_frame_split(const struct mesh_ui_snapshot *snapshot,
+                           const struct mesh_ui_route *body) {
+    return fb_route_split(body) &&
+           !(body->screen == MESH_UI_SCREEN_NODES && snapshot->nav.map_open);
 }
 
 bool fb_render_split_pair(const struct inkcell_draw_state *state, const struct mesh_ui_route *from,
@@ -599,29 +618,34 @@ bool fb_render_split_pair(const struct inkcell_draw_state *state, const struct m
 }
 
 /*
- * The Messages tab in two panes: the conversations, and beside them the open thread or a note
- * saying where it will be.
+ * A tab in two panes: its list, and beside it whatever is open from the list or a note saying
+ * where it will be.
  *
- * The nav is the one-pane nav, unchanged, and that is the whole design. With no thread open the
- * d-pad walks the conversations and A opens one; with one open every press is the thread's, and B
- * closes it - exactly as on the Brick, where the thread replaces the list. What the width buys is
- * that the list does not go anywhere: it stays in its pane, the conversation the thread came from
- * still under its cursor, so the reader can see where they are and where B will take them.
+ * The nav is the one-pane nav, unchanged, and that is the whole design. With nothing open the
+ * d-pad walks the list and A opens a row; with one open every press is the detail's, and B
+ * closes it - exactly as on the Brick, where the detail replaces the list. What the width buys is
+ * that the list does not go anywhere: it stays in its pane, the row the detail came from still
+ * under its cursor, so the reader can see where they are and where B will take them.
  *
- * So the back arrow moves with the reader. With a thread open it is the thread's heading that
+ * So the back arrow moves with the reader. With a detail open it is the detail's heading that
  * leaves, and the list's heading - one level up, and still in view - draws none.
  */
-static void fb_render_messages_split(struct inkcell_draw_state *state,
-                                     const struct mesh_ui_snapshot *snapshot,
-                                     const struct inkcell_fb_scaffold_frame *frame,
-                                     struct inkcell_fb_layout *layout, bool back) {
+static void fb_render_split(struct inkcell_draw_state *state,
+                            const struct mesh_ui_snapshot *snapshot,
+                            const struct inkcell_fb_scaffold_frame *frame,
+                            struct inkcell_fb_layout *layout, bool back) {
     struct inkcell_fb_render_cache *const cache = state->render_cache;
-    const bool reading = snapshot->nav.thread_open;
+    const bool nodes = snapshot->nav.screen == MESH_UI_SCREEN_NODES;
+    const bool reading = nodes ? snapshot->nav.node_detail_open : snapshot->nav.thread_open;
     if (cache != NULL && reading) {
         cache->heading.pass = 1U;
     }
     layout->back = back && !reading;
-    fb_render_conversations(state, snapshot, layout);
+    if (nodes) {
+        fb_render_node_list(state, snapshot, layout);
+    } else {
+        fb_render_conversations(state, snapshot, layout);
+    }
 
     /* Where the reader is, for whatever reads the frame's body back - the pane they are in. */
     if (cache != NULL) {
@@ -632,12 +656,16 @@ static void fb_render_messages_split(struct inkcell_draw_state *state,
     struct inkcell_fb_layout detail = inkcell_fb_scaffold_detail(state, frame, NULL);
     if (reading) {
         detail.back = back;
-        fb_render_thread(state, snapshot, &detail);
+        if (nodes) {
+            fb_render_node_pane(state, snapshot, &detail);
+        } else {
+            fb_render_thread(state, snapshot, &detail);
+        }
     } else {
-        inkcell_fb_draw_empty(state, &detail, INKCELL_ICON_MESSAGES,
-                              inkcell_str(MESH_STR_MESSAGES_PICK));
+        inkcell_fb_draw_empty(state, &detail, nodes ? INKCELL_ICON_NODES : INKCELL_ICON_MESSAGES,
+                              inkcell_str(nodes ? MESH_STR_NODES_PICK : MESH_STR_MESSAGES_PICK));
     }
-    /* The layers that follow - a message's faces, a question - are about the thread, so they
+    /* The layers that follow - a message's faces, a question - are about the detail, so they
        stand over its pane rather than over the list beside it. */
     *layout = detail;
 }
@@ -732,7 +760,7 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
      *
      * A screen with a list and a detail says so (fb_route_split()), and a window with room for a
      * measured detail beside the list then draws both. Everywhere else - the Brick above all -
-     * it is one pane, and the nav is the same either way: see fb_render_messages_split().
+     * it is one pane, and the nav is the same either way: see fb_render_split().
      */
     struct mesh_ui_route body;
     mesh_ui_route_under_layers(&snapshot->nav, &body);
@@ -747,7 +775,7 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
            frame that read as a launcher's HUD rather than an app. */
         .footer_kind = footless ? INKCELL_FB_FOOTER_NONE : INKCELL_FB_FOOTER_COMPACT,
         .back = back,
-        .split = fb_route_split(&body),
+        .split = fb_frame_split(snapshot, &body),
         .busy = mesh_ui_chrome_busy(snapshot),
         .banner = has_banner ? &drawn_banner : NULL,
     };
@@ -780,8 +808,8 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
     if (cache != NULL) {
         cache->split = frame.split;
     }
-    if (frame.split && body.screen == MESH_UI_SCREEN_MESSAGES) {
-        fb_render_messages_split(state, snapshot, &frame, &layout, back);
+    if (frame.split) {
+        fb_render_split(state, snapshot, &frame, &layout, back);
     } else if (body.level == MESH_UI_ROUTE_HELP) {
         fb_render_help(state, snapshot, &layout);
     } else if (body.level == MESH_UI_ROUTE_PICKER) {
