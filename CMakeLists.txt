@@ -126,9 +126,7 @@ add_library(meshclient_core
     src/ui/tables/duration.c
     src/ui/store/store_archive.c
     src/ui/store/store.c
-    src/ui/store/store_fields.c
     src/ui/store/store_file.c
-    src/ui/store/store_key_table.c
     src/ui/store/store_keys.c
     src/ui/store/store_trends.c
     src/ui/store/history.c
@@ -358,8 +356,10 @@ target_link_libraries(meshclient_core PUBLIC inkstand::inkstand)
 # its own rather than riding along with an extraction.
 target_link_libraries(inkwell PRIVATE meshclient_options)
 # inkstand for the same reason: the frame scheduler was a file in meshclient_core, and the
-# sanitizer job was checking it there.
+# sanitizer job was checking it there. inkstand_core too - the cache's key table and field
+# reader were, and the reader parses a file a user can edit.
 target_link_libraries(inkstand PRIVATE meshclient_options)
+target_link_libraries(inkstand_core PRIVATE meshclient_options)
 
 add_subdirectory(third_party/nanopb)
 target_link_libraries(meshclient_core PUBLIC protobuf-nanopb-static)

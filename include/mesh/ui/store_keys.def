@@ -22,7 +22,7 @@
  *     the field any more.
  *   - Widen by adding a key, never by adding a field to an existing one. The reader matches
  *     most lines on an exact field count - the length of the field list it reads them into, in
- *     include/mesh/ui/store_fields.h - so a build that predates a widened line drops the whole
+ *     inkstand/persist/fields.h - so a build that predates a widened line drops the whole
  *     record rather than the one value it does not know. A field appended *last*, and read by
  *     comparing against the length the key had before, is the exception; the reader says so
  *     where it does it.

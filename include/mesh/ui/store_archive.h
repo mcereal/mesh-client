@@ -19,8 +19,8 @@
  *   here                     the archive          - a file per conversation, appended to
  *
  * They share their line syntax, their escaping and their readers on purpose (the writers in
- * store_keys.h, the field lists in store_fields.h), so a record means the same thing in both
- * and a person reading either file is reading one format. What they do not share is the
+ * store_keys.h, the field lists in inkstand/persist/fields.h), so a record means the same thing in
+ * both and a person reading either file is reading one format. What they do not share is the
  * compatibility rule: the cache is rewritten every save, so a key it stops writing is simply
  * gone, while an archive file holds records written by every build that ever ran on this card.
  *
