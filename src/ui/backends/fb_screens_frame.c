@@ -328,6 +328,10 @@ static void fb_render_context(struct inkcell_draw_state *state,
                                                  .w = 0,
                                                  .h = 0},
                                       .modal = true,
+                                      /* Over the body and not of it, and the menu's own corner
+                                         - inkcell_fb_draw_menu() fills with SHAPE_MD. */
+                                      .elevation = INKCELL_ELEVATION_FLOATING,
+                                      .shape = INKCELL_SHAPE_MD,
                                   },
                                   &frame)) {
         return;
@@ -372,6 +376,12 @@ bool fb_sheet_begin(struct inkcell_draw_state *state, const struct inkcell_fb_la
                                       .bounds = body,
                                       .scrim = true,
                                       .modal = true,
+                                      /* Over everything and waiting on an answer, which is
+                                         the modal level. The sheet's top corners are
+                                         inkcell_fb_draw_sheet()'s SHAPE_LG; its square foot
+                                         is off the bottom of the body anyway. */
+                                      .elevation = INKCELL_ELEVATION_MODAL,
+                                      .shape = INKCELL_SHAPE_LG,
                                   },
                                   frame)) {
         return false;

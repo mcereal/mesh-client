@@ -4532,13 +4532,18 @@ MESH_TEST_CASE(ui_capture_node_detail_verbs_wear_their_colour_in_a_disc, unit) {
          * panel at every glyph scale - at the largest, this card is taller than the window and a
          * row stepped off is a row that has scrolled away.
          *
-         * Which means the family's BASE rather than its container: a disc on the cursor's own
-         * fill commits to full strength, because a container and that fill are both quiet fills
-         * on the body ground and therefore near each other. The marker bar down the same row is
-         * drawn in that colour too, but it is one scale wide - narrower than `min_run` by
-         * construction - so what this finds is the disc.
+         * The sheet is a menu set with the accent cursor, which keeps the row's own inks - so
+         * the disc under the cursor is in the family's container, as it is on every other row.
+         * The base is looked for as well, for a theme or a list that lifts the cursor's row with
+         * a fill: there a disc commits to full strength, because a container and that fill are
+         * both quiet fills on the body ground and therefore near each other. Either way it is
+         * the *error* family, which is what the case is about. The marker capsule down the row
+         * is one scale wide - narrower than `min_run` by construction - so what this finds is
+         * the disc.
          */
         const uint32_t danger =
+            bands_of(capture, pixels, width, height, stride, INKCELL_COLOR_ERROR_CONTAINER,
+                     min_run) +
             bands_of(capture, pixels, width, height, stride, INKCELL_COLOR_ERROR, min_run);
         /* Four, because one of the accent's bands is the navigation bar's own tab pill and the
            sheet this is about holds several verbs. The sheet's own heading is a title and a
