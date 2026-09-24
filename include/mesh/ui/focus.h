@@ -38,6 +38,10 @@ enum mesh_ui_focus_id {
     /* Everything under an open menu, as one target: a click that lands off the menu puts it
        down rather than reaching whatever is drawn beneath. */
     MESH_UI_FOCUS_MENU_DISMISS = 0x04FF,
+    /* The heading's verbs, `base + enum mesh_ui_command_id`: the command set drawn as app bar
+       actions for a pointer. A block of its own rather than the menu's, because the menu's ids
+       are only answered while the menu is open and these are answered whenever they are drawn. */
+    MESH_UI_FOCUS_BAR = 0x0500,
     /* The tab strip, `base + enum mesh_ui_screen`. */
     MESH_UI_FOCUS_TABS = 0x0800,
     /* The rows of the list the screen drew, `base + index` - the index the list's own cursor

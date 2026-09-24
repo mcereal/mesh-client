@@ -1078,6 +1078,19 @@ bool mesh_ui_nav_conversation_at(const struct mesh_ui_store *store, uint32_t ind
 bool mesh_ui_nav_conversation_is_armed(const struct mesh_ui_nav *nav,
                                        const struct mesh_ui_conversation *conversation);
 
+/*
+ * Which row of the conversation list the open thread is, found by what the thread is rather than
+ * by where the list was: all traffic, a channel slot, or a peer. The row is the list's own order,
+ * and a direct peer's place in it moves with every message that re-ranks the peers - so the index
+ * parked when the thread opened can name somebody else by the time the list is drawn beside the
+ * thread, and a thread opened from the Nodes tab or the picker was never at that index at all.
+ *
+ * Returns `nav->conversation_list_cursor` when no thread is open or the thread's conversation is
+ * not listed yet - a peer written to for the first time, before anything has been said.
+ */
+uint32_t mesh_ui_nav_open_conversation_row(const struct mesh_ui_nav *nav,
+                                           const struct mesh_ui_store *store);
+
 /* Inbound messages across every channel and peer that have not been read. */
 uint32_t mesh_ui_nav_unread_total(const struct mesh_ui_store *store);
 

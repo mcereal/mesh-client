@@ -13,6 +13,7 @@
 #include "mesh/core/firmware_fetch.h"
 #include "mesh/core/firmware_install.h"
 #include "mesh/core/firmware_ota.h"
+#include "mesh/core/firmware_update.h"
 #include "mesh/core/version.h"
 #include "mesh/map/source.h"
 #include "mesh/map/tile_image.h"
@@ -677,10 +678,20 @@ static int install_radio_firmware_ble(struct mesh_app *app,
     char adapter[MESH_FIRMWARE_OTA_PATH_MAX];
     if (result == 0) {
         (void)inkwell_ble_attach_loop(&client, &app->loop);
+        /* CoreBluetooth and Windows find their adapter after the open returns, on a later turn
+           of the loop; asked at once, there is none yet. Before the radio is armed, because a
+           radio sent into its loader with nothing left to stream to it is off the mesh. Any
+           refusal is waited on, as the transport waits on one; find_adapter names what is left. */
+        for (int turn = 0; turn < 250 && inkwell_ble_check_ready(&client) < 0; ++turn) {
+            if (have_radio) {
+                mesh_transport_registry_tick(&app->transport_registry);
+            }
+            (void)inkwell_loop_run(&app->loop, 20);
+        }
         result = inkwell_ble_find_adapter(&client, adapter, sizeof adapter);
     }
     if (result < 0) {
-        fprintf(stderr, "Could not reach BlueZ for the install: %d\n", result);
+        fprintf(stderr, "Could not reach Bluetooth for the install: %d\n", result);
         inkwell_ble_close(&client);
         if (have_radio) {
             (void)link.disconnect(link.transport);
@@ -984,7 +995,9 @@ static void print_usage(const char *program) {
             "                            an ESP32 over Bluetooth (OTA request, loader, stream),\n"
             "                            and with no radio answering it resumes one already in\n"
             "                            its loader - name it with -p. Changes the radio\n"
-            "      --staging DIR         Where the two above stage (default: /tmp; use\n"
+            "      --staging DIR         Where the two above stage (default:\n"
+            "                            MESHCLIENT_FIRMWARE_STAGING, else /tmp, or %%TEMP%%\n"
+            "                            on Windows; use\n"
             "                            /mnt/UDISK on a Brick, because a bootloader's drive\n"
             "                            gets mounted over /mnt/SDCARD)\n"
             "      --map-pack PATH       Print what a raster tile pack holds - its\n"
@@ -1050,7 +1063,7 @@ int main(int argc, char **argv) {
     /* /mnt/UDISK on a Brick, deliberately not the SD card: on the USB path the
        bootloader's ghost drive is mounted over /mnt/SDCARD the moment the radio
        reboots, so an image staged there vanishes from its own path. */
-    const char *fetch_firmware_staging = "/tmp";
+    const char *fetch_firmware_staging = mesh_firmware_update_staging();
     const char *install_firmware_target = NULL;
     const char *map_pack_path = NULL;
     const char *ui_send_commands = NULL;
@@ -1220,7 +1233,7 @@ int main(int argc, char **argv) {
                             "MESHCLIENT_UI_CONTROL\n");
             return EXIT_FAILURE;
         }
-        const int sent = mesh_app_control_send(config.ui_control_path, ui_send_commands, stdout);
+        const int sent = inkstand_control_send(config.ui_control_path, ui_send_commands, stdout);
         if (sent < 0 && sent != -EPROTO) {
             fprintf(stderr, "%s: %s\n", config.ui_control_path, strerror(-sent));
         }

@@ -239,6 +239,11 @@ const struct mesh_ui_node_summary *
 mesh_ui_node_view_at(const struct mesh_ui_handshake_state *handshake,
                      const struct mesh_ui_node_view *view, uint32_t index);
 
+/* Where in the view one node is, by its id: the index mesh_ui_node_view_at() would take, or
+   `view->count` when the filter left it out or the roster no longer holds it. */
+uint32_t mesh_ui_node_view_find(const struct mesh_ui_handshake_state *handshake,
+                                const struct mesh_ui_node_view *view, uint32_t node_id);
+
 /* The next sort along, wrapping. What A on the sort row does, the way A on the filter row steps
    the chips above it. */
 enum mesh_ui_node_sort mesh_ui_node_sort_step(enum mesh_ui_node_sort sort, int delta);

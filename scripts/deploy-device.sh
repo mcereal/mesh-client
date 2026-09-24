@@ -43,7 +43,7 @@
 #                      waiting for Enter), -k (keep the raw capture directory).
 #   ui-send -- CMDS    Send UI commands to a client started with `start -- --ui-control
 #                      /tmp/meshclient-ui.sock` and print the answers - `key down a; shot
-#                      /tmp/x.ppm`. See include/mesh/app/control.h; scripts/ui-drive.sh --brick
+#                      /tmp/x.ppm`. See inkstand's include/inkstand/app/control.h; scripts/ui-drive.sh --brick
 #                      is the front end that also brings the shots back as PNGs.
 #   pull -- [--rm] REMOTE LOCAL
 #                      Copy one file off the device; --rm deletes it there afterwards.

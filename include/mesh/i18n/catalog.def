@@ -247,7 +247,6 @@ MESH_STR_ENTRY(ACTION_CONFIRM_DISCARD,    "confirm discard")
 /* The transport has not said anything yet: the very first frame after launch. */
 MESH_STR_ENTRY(HEADER_TRANSPORT_STARTING, "starting")
 /* "<transport state>: <node we are talking to>" along the top. */
-MESH_STR_ENTRY(HEADER_STATUS_CONNECTED,   "%s: %s")
 /* "<transport state> | <how to quit>", when nothing is connected. */
 MESH_STR_ENTRY(HEADER_STATUS_QUIT,        "%s | %s")
 
@@ -257,6 +256,8 @@ MESH_STR_ENTRY(MESSAGES_EMPTY,            "Connect to a node to see conversation
 /* The placeholder row at the top of the conversation list, which opens a new message. */
 MESH_STR_ENTRY(MESSAGES_NEW,              "New message")
 MESH_STR_ENTRY(MESSAGES_NEW_PREVIEW,      "Pick a channel or a node")
+/* The detail pane beside the conversations, on a window wide enough for two, before one is open. */
+MESH_STR_ENTRY(MESSAGES_PICK,             "Open a conversation to read it here.")
 /* The pseudo-conversation carrying every channel at once. */
 MESH_STR_ENTRY(MESSAGES_ALL_TRAFFIC,      "All traffic")
 /* A channel's name on a row, which is its own name behind a '#'. Slot 0 with no name is the
@@ -402,6 +403,7 @@ MESH_STR_ENTRY(VALUE_ALTITUDE_FT,         "%lld ft")
 MESH_STR_ENTRY(NODES_EMPTY_WAITING,       "Waiting for the node list...")
 MESH_STR_ENTRY(NODES_EMPTY_DISCONNECTED,  "Connect to a node to see the mesh.")
 MESH_STR_ENTRY(NODES_GONE,                "That node is no longer in the list.")
+MESH_STR_ENTRY(NODES_PICK,                "Open a node to see it here.")
 MESH_STR_ENTRY(NODES_DETAIL_EMPTY,        "Nothing reported for this node yet.")
 /* Titles: how many of the radio's NodeDB we hold, or how many we keep that it has evicted. */
 MESH_STR_ENTRY(NODES_TITLE_OF,            "Nodes (%u of %u)")
@@ -2033,6 +2035,7 @@ MESH_STR_ENTRY(SETTINGS_NOT_CONNECTED,    "not connected")
    from "not loaded" because the answer to one is to wait and the answer to the other is not. */
 MESH_STR_ENTRY(SETTINGS_NOT_IN_FIRMWARE,  "not in firmware")
 MESH_STR_ENTRY(SETTINGS_EMPTY_DISCONNECT, "Connect to a radio to read its settings")
+MESH_STR_ENTRY(SETTINGS_PICK,             "Open a section to change it here.")
 MESH_STR_ENTRY(SETTINGS_EMPTY_SECTION,    "Not sent by the radio yet; X to refresh")
 MESH_STR_ENTRY(SETTINGS_EMPTY_EXCLUDED,   "This radio's firmware was built without it")
 /* Titles down the Settings tree. Each is one level's *name* and nothing else: the breadcrumb

@@ -135,7 +135,7 @@ void fb_render_node_detail(struct inkcell_draw_state *state,
     const struct mesh_ui_handshake_state *hs = &snapshot->handshake;
     const struct mesh_ui_node_summary *node = mesh_ui_node_detail_find(hs, nav->node_detail_node);
     if (node == NULL) {
-        inkcell_fb_draw_app_bar(
+        fb_draw_app_bar(
             state, layout,
             &(const struct inkcell_fb_app_bar){.title = inkcell_str(MESH_STR_TAB_NODES)});
         inkcell_fb_draw_empty(state, layout, INKCELL_ICON_NODES, inkcell_str(MESH_STR_NODES_GONE));
@@ -173,11 +173,10 @@ void fb_render_node_detail(struct inkcell_draw_state *state,
            two screens cannot report the node's age in two different spellings. */
         inkcell_fb_format_age(node->last_heard, heard, sizeof heard);
     }
-    inkcell_fb_draw_app_bar(
-        state, layout,
-        &(const struct inkcell_fb_app_bar){.title = title,
-                                           .badge = heard[0] != '\0' ? heard : NULL,
-                                           .badge_family = INKCELL_FAMILY_SECONDARY});
+    fb_draw_app_bar(state, layout,
+                    &(const struct inkcell_fb_app_bar){.title = title,
+                                                       .badge = heard[0] != '\0' ? heard : NULL,
+                                                       .badge_family = INKCELL_FAMILY_SECONDARY});
 
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
     const uint32_t count = mesh_ui_node_detail_build(
@@ -191,7 +190,16 @@ void fb_render_node_detail(struct inkcell_draw_state *state,
         return;
     }
 
-    const size_t label_cols = inkcell_fb_field_label_cols(state, layout, 16U);
+    /* The label column holds the widest question this node is answered for, measured - not a
+       count tuned to one language's words. Headings and the action row do not use it. */
+    const char *labels[MESH_UI_NODE_ITEMS_MAX];
+    size_t labelled = 0U;
+    for (uint32_t r = 0U; r < count; ++r) {
+        if (items[r].kind != MESH_UI_NODE_ROW_HEADING && items[r].kind != MESH_UI_NODE_ROW_ACTION) {
+            labels[labelled++] = items[r].label;
+        }
+    }
+    const size_t label_cols = inkcell_fb_field_label_cols_fit(state, layout, labels, labelled);
     /*
      * The one list on the device whose rows are not all the same height, and the reason the
      * window learned to count steps: a reading gets a bar with the row to itself, so the
@@ -472,11 +480,12 @@ void fb_render_node_actions(struct inkcell_draw_state *state,
     }
     const uint32_t cursor =
         nav->node_actions_cursor < count ? nav->node_actions_cursor : count - 1U;
-    /* The cursor is a row here and never a card, so the span is the row itself: a verb is a
-       control and gets the row highlight, which is the `card` half of the detail's span being
-       false for exactly the rows this screen is made of. */
+    /* The cursor is a row here and never a card: a verb is a control and gets the row's own
+       cue, which is the `card` half of the detail's span being false for exactly the rows this
+       screen is made of. A list of verbs to choose from is a menu, and is set as one. */
+    const struct inkcell_fb_list_style look = fb_list_look(state, FB_LIST_ROLE_MENU);
     struct inkcell_fb_list list =
-        inkcell_fb_list_begin_focus(&inner, count, cursor, heights, cards, cursor, cursor, false);
+        inkcell_fb_list_begin_styled(state, &inner, count, cursor, heights, cards, &look);
     inkcell_fb_list_glide(state, &list, FB_LIST_NODE_ACTIONS);
     inkcell_fb_list_focus(&list, (uint32_t)MESH_UI_FOCUS_SHEET_ROWS);
     uint32_t i;
@@ -486,31 +495,42 @@ void fb_render_node_actions(struct inkcell_draw_state *state,
     fb_sheet_end(state, &frame);
 }
 
+void fb_render_node_pane(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
+                         struct inkcell_fb_layout *layout) {
+    const struct mesh_ui_nav *nav = &snapshot->nav;
+    /* The chart over the detail, the way the detail is drawn over the list. The reading is
+       checked rather than a flag because it *is* the flag: MESH_UI_HISTORY_NONE is closed. */
+    if (nav->node_trend != MESH_UI_HISTORY_NONE) {
+        fb_render_node_trend(state, snapshot, layout);
+    } else {
+        fb_render_node_detail(state, snapshot, layout);
+    }
+    /*
+     * And the verbs, on a layer over whichever of the two is up rather than in place of
+     * the detail. Called on every frame because a sheet that is leaving is not in the
+     * snapshot any more - the dialogs above it work the same way and for the same reason.
+     *
+     * Below the chart rather than above it because the two cannot both be up - a chart
+     * opens from a reading and the sheet from the one action row - so what this order
+     * states is which is the deeper level rather than a race being resolved.
+     */
+    fb_render_node_actions(state, snapshot, layout);
+}
+
 void fb_render_nodes(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
                      struct inkcell_fb_layout *layout) {
-    const struct mesh_ui_nav *nav = &snapshot->nav;
-    if (nav->node_detail_open) {
-        /* The chart over the detail, the way the detail is drawn over the list. The reading is
-           checked rather than a flag because it *is* the flag: MESH_UI_HISTORY_NONE is closed. */
-        if (nav->node_trend != MESH_UI_HISTORY_NONE) {
-            fb_render_node_trend(state, snapshot, layout);
-        } else {
-            fb_render_node_detail(state, snapshot, layout);
-        }
-        /*
-         * And the verbs, on a layer over whichever of the two is up rather than in place of
-         * the detail. Called on every frame because a sheet that is leaving is not in the
-         * snapshot any more - the dialogs above it work the same way and for the same reason.
-         *
-         * Below the chart rather than above it because the two cannot both be up - a chart
-         * opens from a reading and the sheet from the one action row - so what this order
-         * states is which is the deeper level rather than a race being resolved.
-         */
-        fb_render_node_actions(state, snapshot, layout);
-        return;
+    if (snapshot->nav.node_detail_open) {
+        fb_render_node_pane(state, snapshot, layout);
+    } else {
+        fb_render_node_list(state, snapshot, layout);
     }
+}
+
+void fb_render_node_list(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
+                         struct inkcell_fb_layout *layout) {
+    const struct mesh_ui_nav *nav = &snapshot->nav;
     if (!snapshot->handshake_valid || snapshot->handshake.node_count == 0U) {
-        inkcell_fb_draw_app_bar(
+        fb_draw_app_bar(
             state, layout,
             &(const struct inkcell_fb_app_bar){.title = inkcell_str(MESH_STR_TAB_NODES)});
         inkcell_fb_draw_empty(state, layout, INKCELL_ICON_NODES,
@@ -576,7 +596,7 @@ void fb_render_nodes(struct inkcell_draw_state *state, const struct mesh_ui_snap
     } else {
         inkcell_fb_title_count(title, sizeof title, inkcell_str(MESH_STR_TAB_NODES), count, 0U);
     }
-    inkcell_fb_draw_app_bar(state, layout, &(const struct inkcell_fb_app_bar){.title = title});
+    fb_draw_app_bar(state, layout, &(const struct inkcell_fb_app_bar){.title = title});
 
     const uint32_t me = hs->has_my_info ? hs->my_info.node_num : 0U;
     /* The discs come from the nav layer, which wants a store rather than the handshake alone -
@@ -632,10 +652,24 @@ void fb_render_nodes(struct inkcell_draw_state *state, const struct mesh_ui_snap
     for (uint32_t r = 0; r < rows && r < (uint32_t)(sizeof node_heights); ++r) {
         node_heights[r] = (r == MESH_UI_NODES_FILTER_ROW || r == MESH_UI_NODES_SORT_ROW) ? 1U : 2U;
     }
-    struct inkcell_fb_list list = inkcell_fb_list_begin_heights(
-        layout, rows, nav->cursor[MESH_UI_SCREEN_NODES], node_heights);
-    inkcell_fb_list_glide(state, &list, FB_LIST_NODES);
-    inkcell_fb_list_focus(&list, (uint32_t)MESH_UI_FOCUS_ROWS);
+    /* With a node open - which is only drawn beside it, on a split frame - the tab's cursor
+       indexes the detail's rows, and the list's own place is the open node's row, found by
+       which node it is: the roster re-ranks under an open detail on every publish. */
+    uint32_t cursor = nav->cursor[MESH_UI_SCREEN_NODES];
+    if (nav->node_detail_open) {
+        const uint32_t at = mesh_ui_node_view_find(hs, &view_rows, nav->node_detail_node);
+        cursor = at < count ? at + MESH_UI_NODES_LEAD_ROWS : nav->node_list_cursor;
+    }
+    const struct inkcell_fb_list_style look = fb_list_look(state, FB_LIST_ROLE_FEED);
+    struct inkcell_fb_list list =
+        inkcell_fb_list_begin_styled(state, layout, rows, cursor, node_heights, NULL, &look);
+    /* The rows glide and are click targets only while they are what the reader is on. A detail
+       open beside them glides its own window - there is one glide slot, and two lists taking it
+       in turn every frame would leave neither gliding - and registers its own rows. */
+    if (!nav->node_detail_open) {
+        inkcell_fb_list_glide(state, &list, FB_LIST_NODES);
+        inkcell_fb_list_focus(&list, (uint32_t)MESH_UI_FOCUS_ROWS);
+    }
     /*
      * The filter and the sort are one control group, drawn as two Settings field rows.
      *
@@ -657,7 +691,10 @@ void fb_render_nodes(struct inkcell_draw_state *state, const struct mesh_ui_snap
      * One label column for both rows, measured from the longer of the two words, so the group
      * reads as one block rather than as two rows that happen to adjoin.
      */
-    const size_t control_label_cols = inkcell_fb_field_label_cols(state, layout, 6U);
+    const char *const control_labels[] = {inkcell_str(MESH_STR_NODES_FILTER_ROW),
+                                          inkcell_str(MESH_STR_NODES_SORT_ROW)};
+    const size_t control_label_cols =
+        inkcell_fb_field_label_cols_fit(state, layout, control_labels, 2U);
     /*
      * The filter gets the whole set and the sort gets the chosen word, and that split is a
      * measurement rather than a preference - it is INKCELL_FB_SEGMENTED_MAX, stated once in the

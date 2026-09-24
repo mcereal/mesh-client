@@ -404,6 +404,214 @@ MESH_TEST_CASE(ui_click_a_right_click_menu_is_the_rows_own_commands, unit) {
     click_close(&store, capture);
 }
 
+/*
+ * Where the verbs are, by who is holding what.
+ *
+ * On the device they are keycaps at the foot and the heading carries none: the keycaps are the
+ * only place a d-pad reader learns the buttons. With a pointer they are the heading's actions -
+ * each a box a click lands on, named by its command - and there is no foot, since a legend for
+ * buttons the reader is not holding is the handheld HUD this frame is leaving behind.
+ */
+MESH_TEST_CASE(ui_click_the_heading_carries_the_verbs_for_a_pointer, unit) {
+    struct mesh_ui_store store;
+    struct inkcell_capture *capture = NULL;
+    MESH_TEST_FAIL_IF(click_open(&store, &capture) != 0, "store or capture failed to open");
+    const uint32_t new_verb = (uint32_t)MESH_UI_FOCUS_BAR + (uint32_t)MESH_UI_COMMAND_NEW;
+    const uint32_t y_cap = INKCELL_FOCUS_ACTION_KEY(INKCELL_KEY_Y);
+    struct inkcell_focus_rect box;
+
+    const struct inkcell_focus_map *device = click_render(&store, capture);
+    MESH_TEST_FAIL_IF_CLEANUP(inkcell_focus_rect_of(device, new_verb, &box),
+                              click_close(&store, capture),
+                              "the device heading should carry no verbs");
+    MESH_TEST_FAIL_IF_CLEANUP(!inkcell_focus_rect_of(device, y_cap, &box),
+                              click_close(&store, capture),
+                              "the device foot should still name Y's verb as a keycap");
+
+    inkcell_capture_state(capture)->pointer = true;
+    const struct inkcell_focus_map *pointer = click_render(&store, capture);
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !inkcell_focus_rect_of(pointer, new_verb, &box) ||
+            inkcell_focus_hit(pointer, box.x + box.w / 2, box.y + box.h / 2) != new_verb,
+        click_close(&store, capture),
+        "a pointer should find New in the heading, where it can be clicked");
+    MESH_TEST_FAIL_IF_CLEANUP(inkcell_focus_rect_of(pointer, y_cap, &box),
+                              click_close(&store, capture),
+                              "a pointer frame with its verbs in the heading should draw no foot");
+    click_close(&store, capture);
+}
+
+/*
+ * A window wide enough for two panes stands the thread beside the conversations rather than in
+ * their place, and opening one is not a move: the list was already on the panel and stays put.
+ *
+ * The nav is the one-pane nav either way, so what this holds is the drawing: the list's rows are
+ * the click targets until a thread opens, the thread's bubbles are after it, and every bubble is
+ * to the right of where the list was - in the other pane, not over it.
+ */
+MESH_TEST_CASE(ui_click_a_wide_window_opens_a_thread_beside_its_list, unit) {
+    struct mesh_ui_store store;
+    struct inkcell_capture *capture = NULL;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store failed to open");
+    mesh_test_nav_populate(&store);
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, 1920U, 1080U, INKCELL_SCALE(4)) != 0,
+                              mesh_ui_store_shutdown(&store), "capture failed to open");
+    struct mesh_ui_action action;
+
+    const struct inkcell_focus_map *map = click_render(&store, capture);
+    struct inkcell_focus_rect row;
+    MESH_TEST_FAIL_IF_CLEANUP(!inkcell_focus_rect_of(map, (uint32_t)MESH_UI_FOCUS_ROWS + 2U, &row),
+                              click_close(&store, capture), "the list should register its rows");
+    const int list_right = row.x + row.w;
+    MESH_TEST_FAIL_IF_CLEANUP(list_right > 1920 / 2, click_close(&store, capture),
+                              "the list should stand in the narrower, leading pane");
+
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_ROWS + 2U, &action) ||
+            !store.nav.thread_open,
+        click_close(&store, capture), "a click on a conversation should open it");
+
+    /* One frame, not settled: a slide would be running now if opening were a move. */
+    struct mesh_ui_snapshot snapshot;
+    memset(&snapshot, 0, sizeof snapshot);
+    mesh_ui_store_request_refresh(&store);
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    inkcell_capture_render(capture, &snapshot);
+    MESH_TEST_FAIL_IF_CLEANUP(inkcell_fb_transition_offset(inkcell_capture_state(capture)) != 0,
+                              click_close(&store, capture),
+                              "a thread opening beside its list should not slide the frame");
+
+    map = click_render(&store, capture);
+    struct inkcell_focus_rect bubble;
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !inkcell_focus_rect_of(map, (uint32_t)MESH_UI_FOCUS_ROWS + 0U, &bubble),
+        click_close(&store, capture), "the thread should register its bubbles");
+    for (uint32_t i = 0U; i < 64U; ++i) {
+        if (inkcell_focus_rect_of(map, (uint32_t)MESH_UI_FOCUS_ROWS + i, &bubble)) {
+            MESH_TEST_FAIL_IF_CLEANUP(bubble.x < list_right, click_close(&store, capture),
+                                      "every target in the rows block should be the thread's, "
+                                      "in the detail pane beside the list");
+        }
+    }
+    click_close(&store, capture);
+}
+
+/* The same split on the Nodes tab: the roster stays, and the node opened from it stands beside
+   it without a slide. */
+MESH_TEST_CASE(ui_click_a_wide_window_opens_a_node_beside_its_roster, unit) {
+    struct mesh_ui_store store;
+    struct inkcell_capture *capture = NULL;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store failed to open");
+    mesh_test_nav_populate(&store);
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, 1920U, 1080U, INKCELL_SCALE(4)) != 0,
+                              mesh_ui_store_shutdown(&store), "capture failed to open");
+    struct mesh_ui_action action;
+
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_TABS + (uint32_t)MESH_UI_SCREEN_NODES,
+                  &action) ||
+            store.nav.screen != MESH_UI_SCREEN_NODES,
+        click_close(&store, capture), "a click on the tab should open the roster");
+    click_settle(&store);
+
+    const uint32_t alfa = (uint32_t)MESH_UI_FOCUS_ROWS + MESH_UI_NODES_LEAD_ROWS + 1U;
+    const struct inkcell_focus_map *map = click_render(&store, capture);
+    struct inkcell_focus_rect row;
+    MESH_TEST_FAIL_IF_CLEANUP(!inkcell_focus_rect_of(map, alfa, &row), click_close(&store, capture),
+                              "the roster should register its rows");
+    const int list_right = row.x + row.w;
+    MESH_TEST_FAIL_IF_CLEANUP(list_right > 1920 / 2, click_close(&store, capture),
+                              "the roster should stand in the narrower, leading pane");
+
+    MESH_TEST_FAIL_IF_CLEANUP(!click_on(&store, capture, alfa, &action) ||
+                                  !store.nav.node_detail_open ||
+                                  store.nav.node_detail_node != 0x2000U,
+                              click_close(&store, capture), "a click on a node should open it");
+
+    struct mesh_ui_snapshot snapshot;
+    memset(&snapshot, 0, sizeof snapshot);
+    mesh_ui_store_request_refresh(&store);
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    inkcell_capture_render(capture, &snapshot);
+    MESH_TEST_FAIL_IF_CLEANUP(inkcell_fb_transition_offset(inkcell_capture_state(capture)) != 0,
+                              click_close(&store, capture),
+                              "a node opening beside its roster should not slide the frame");
+
+    /* With a node open the rows block is the detail's - the tab's cursor indexes its rows - so
+       the roster beside it stops registering: a click there would move a cursor it is not. */
+    map = click_render(&store, capture);
+    struct inkcell_focus_rect item;
+    for (uint32_t i = 0U; i < 64U; ++i) {
+        if (inkcell_focus_rect_of(map, (uint32_t)MESH_UI_FOCUS_ROWS + i, &item)) {
+            MESH_TEST_FAIL_IF_CLEANUP(item.x < list_right, click_close(&store, capture),
+                                      "nothing in the rows block should be the roster's while a "
+                                      "node is open beside it");
+        }
+    }
+    click_close(&store, capture);
+}
+
+/* And on Settings: the section list stays, the section opened from it stands beside it, and a
+   module one level down keeps it there - the list is the top-level level, whatever is open. */
+MESH_TEST_CASE(ui_click_a_wide_window_opens_a_section_beside_the_sections, unit) {
+    struct mesh_ui_store store;
+    struct inkcell_capture *capture = NULL;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store failed to open");
+    mesh_test_nav_populate(&store);
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    mesh_ui_store_set_settings(&store, &settings);
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, 1920U, 1080U, INKCELL_SCALE(4)) != 0,
+                              mesh_ui_store_shutdown(&store), "capture failed to open");
+    struct mesh_ui_action action;
+    (void)mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS);
+    click_settle(&store);
+
+    uint32_t modules = 0U;
+    while (mesh_ui_settings_root_at(modules) != MESH_UI_SETTINGS_MODULES) {
+        ++modules;
+    }
+    const uint32_t row_id = (uint32_t)MESH_UI_FOCUS_ROWS + modules;
+    const struct inkcell_focus_map *map = click_render(&store, capture);
+    struct inkcell_focus_rect row;
+    MESH_TEST_FAIL_IF_CLEANUP(!inkcell_focus_rect_of(map, row_id, &row),
+                              click_close(&store, capture), "the sections should be click targets");
+    const int list_right = row.x + row.w;
+    MESH_TEST_FAIL_IF_CLEANUP(list_right > 1920 / 2, click_close(&store, capture),
+                              "the sections should stand in the narrower, leading pane");
+
+    MESH_TEST_FAIL_IF_CLEANUP(!click_on(&store, capture, row_id, &action) ||
+                                  store.nav.settings_section != MESH_UI_SETTINGS_MODULES,
+                              click_close(&store, capture), "a click on Modules should open it");
+    struct mesh_ui_snapshot snapshot;
+    memset(&snapshot, 0, sizeof snapshot);
+    mesh_ui_store_request_refresh(&store);
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    inkcell_capture_render(capture, &snapshot);
+    MESH_TEST_FAIL_IF_CLEANUP(inkcell_fb_transition_offset(inkcell_capture_state(capture)) != 0,
+                              click_close(&store, capture),
+                              "a section opening beside the sections should not slide the frame");
+
+    /* A module, from the Modules list now in the detail pane: its rows are that pane's. */
+    map = click_render(&store, capture);
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !inkcell_focus_rect_of(map, (uint32_t)MESH_UI_FOCUS_ROWS, &row) || row.x < list_right,
+        click_close(&store, capture), "the Modules list should be the detail pane's targets");
+    MESH_TEST_FAIL_IF_CLEANUP(!click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_ROWS, &action) ||
+                                  store.nav.settings_parent != MESH_UI_SETTINGS_MODULES,
+                              click_close(&store, capture), "a click on a module should open it");
+    map = click_render(&store, capture);
+    for (uint32_t i = 0U; i < 64U; ++i) {
+        if (inkcell_focus_rect_of(map, (uint32_t)MESH_UI_FOCUS_ROWS + i, &row)) {
+            MESH_TEST_FAIL_IF_CLEANUP(row.x < list_right, click_close(&store, capture),
+                                      "nothing in the rows block should be the section list's "
+                                      "while a section is open beside it");
+        }
+    }
+    click_close(&store, capture);
+}
+
 MESH_TEST_CASE(ui_click_a_right_click_off_a_list_opens_nothing, unit) {
     struct mesh_ui_store store;
     struct inkcell_capture *capture = NULL;

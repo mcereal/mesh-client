@@ -957,3 +957,119 @@ void mesh_ui_actions_drop_tabs(struct inkcell_action_bar *bar) {
     }
     bar->count = kept;
 }
+
+void mesh_ui_actions_compact(struct inkcell_action_bar *bar, bool back) {
+    if (bar == NULL) {
+        return;
+    }
+    mesh_ui_actions_drop_tabs(bar);
+    if (!back) {
+        return;
+    }
+    size_t kept = 0U;
+    for (size_t i = 0; i < bar->count; ++i) {
+        if (bar->items[i].label != MESH_STR_ACTION_BACK) {
+            bar->items[kept++] = bar->items[i];
+        }
+    }
+    bar->count = kept;
+}
+
+enum inkcell_icon mesh_ui_command_icon(enum mesh_ui_command_id id) {
+    switch (id) {
+    case MESH_UI_COMMAND_REPLY:
+        return INKCELL_ICON_REPLY;
+    case MESH_UI_COMMAND_NEW:
+    case MESH_UI_COMMAND_WRITE:
+        return INKCELL_ICON_COMPOSE;
+    case MESH_UI_COMMAND_SEND:
+    case MESH_UI_COMMAND_RESEND:
+        return INKCELL_ICON_SEND;
+    case MESH_UI_COMMAND_REACT:
+        return INKCELL_ICON_EMOJI;
+    case MESH_UI_COMMAND_DELETE:
+    case MESH_UI_COMMAND_CONFIRM_DELETE:
+    case MESH_UI_COMMAND_FORGET:
+    case MESH_UI_COMMAND_CONFIRM_FORGET:
+    case MESH_UI_COMMAND_CONFIRM_REMOVE:
+        return INKCELL_ICON_DELETE;
+    case MESH_UI_COMMAND_REFRESH:
+        return INKCELL_ICON_REFRESH;
+    case MESH_UI_COMMAND_PIN:
+        return INKCELL_ICON_PINNED;
+    case MESH_UI_COMMAND_MUTE:
+    case MESH_UI_COMMAND_UNMUTE:
+        return INKCELL_ICON_MUTED;
+    case MESH_UI_COMMAND_CONNECT:
+    case MESH_UI_COMMAND_DISCONNECT:
+        return INKCELL_ICON_LINK;
+    case MESH_UI_COMMAND_PAIR:
+        return INKCELL_ICON_BLUETOOTH;
+    case MESH_UI_COMMAND_CHART:
+    case MESH_UI_COMMAND_READINGS:
+        return INKCELL_ICON_TELEMETRY;
+    case MESH_UI_COMMAND_SAVE:
+    case MESH_UI_COMMAND_DONE:
+        return INKCELL_ICON_CHECK;
+    case MESH_UI_COMMAND_ADDRESS:
+        return INKCELL_ICON_EDIT;
+    case MESH_UI_COMMAND_HELP:
+        return INKCELL_ICON_ABOUT;
+    default:
+        return INKCELL_ICON_NONE;
+    }
+}
+
+static bool command_destroys(enum mesh_ui_command_id id) {
+    return id == MESH_UI_COMMAND_DELETE || id == MESH_UI_COMMAND_CONFIRM_DELETE ||
+           id == MESH_UI_COMMAND_FORGET || id == MESH_UI_COMMAND_CONFIRM_FORGET ||
+           id == MESH_UI_COMMAND_CONFIRM_REMOVE;
+}
+
+static bool command_is_primary(enum mesh_ui_command_id id) {
+    return id == MESH_UI_COMMAND_REPLY || id == MESH_UI_COMMAND_NEW ||
+           id == MESH_UI_COMMAND_WRITE || id == MESH_UI_COMMAND_SEND ||
+           id == MESH_UI_COMMAND_SAVE || id == MESH_UI_COMMAND_CONNECT ||
+           id == MESH_UI_COMMAND_PAIR || id == MESH_UI_COMMAND_DONE;
+}
+
+size_t mesh_ui_actions_heading(const struct mesh_ui_snapshot *snapshot,
+                               struct mesh_ui_heading_action *out, size_t max) {
+    if (out == NULL || max == 0U) {
+        return 0U;
+    }
+    struct mesh_ui_command_set commands;
+    mesh_ui_commands_for(snapshot, &commands);
+    /* Help's slot is kept before anything is placed, so a screen with more verbs than room
+       loses its last verb rather than its way to the explanation of the rest. */
+    const struct mesh_ui_command *help = mesh_ui_commands_find(&commands, MESH_UI_COMMAND_HELP);
+    size_t count = 0U;
+    for (size_t i = 0U; i < commands.count; ++i) {
+        const struct mesh_ui_command *command = &commands.items[i];
+        const enum inkcell_icon icon = mesh_ui_command_icon(command->id);
+        if (icon == INKCELL_ICON_NONE || command->id == MESH_UI_COMMAND_HELP) {
+            continue;
+        }
+        /* The same verb offered twice - a row's A and a screen's Y both saying "New" - is one
+           button on a heading. */
+        bool seen = false;
+        for (size_t k = 0U; k < count; ++k) {
+            seen = seen || out[k].id == command->id;
+        }
+        if (seen || count + (help != NULL ? 1U : 0U) >= max) {
+            continue;
+        }
+        out[count++] = (struct mesh_ui_heading_action){
+            .id = command->id,
+            .label = command->label,
+            .icon = icon,
+            .destructive = command_destroys(command->id),
+            .primary = command_is_primary(command->id),
+        };
+    }
+    if (help != NULL && count < max) {
+        out[count++] = (struct mesh_ui_heading_action){
+            .id = help->id, .label = help->label, .icon = INKCELL_ICON_ABOUT};
+    }
+    return count;
+}

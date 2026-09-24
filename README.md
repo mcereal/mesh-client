@@ -81,7 +81,7 @@ It is not a general ARM CLI and a Pi will not run it.
 Linux is the shipping desktop/server target. On a Linux host:
 
 ```bash
-git submodule update --init --recursive   # inkwell, inkcell, nanopb, protobufs (Mbed TLS nests under inkwell)
+git submodule update --init --recursive   # inkwell, inkcell, inkstand, nanopb, protobufs (Mbed TLS nests under inkwell)
 make setup                                # libdbus-1-dev + the Python protobuf packages
 make debug                                # needs CMake >= 3.21, Ninja and a C17 toolchain
 make test

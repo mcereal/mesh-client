@@ -39,7 +39,7 @@ static void fb_render_waypoint_detail(struct inkcell_draw_state *state,
     const struct mesh_ui_waypoint *waypoint =
         mesh_ui_waypoint_find(&snapshot->waypoints, nav->waypoint_detail_id);
     if (waypoint == NULL) {
-        inkcell_fb_draw_app_bar(
+        fb_draw_app_bar(
             state, layout,
             &(const struct inkcell_fb_app_bar){.title = inkcell_str(MESH_STR_TAB_WAYPOINTS)});
         inkcell_fb_draw_empty(state, layout, INKCELL_ICON_POSITION,
@@ -49,7 +49,7 @@ static void fb_render_waypoint_detail(struct inkcell_draw_state *state,
 
     /* The place's own name has the whole title line, exactly as a node's does: the tab is up
        there in the navigation bar already, so a trail would be repeating it. */
-    inkcell_fb_draw_app_bar(
+    fb_draw_app_bar(
         state, layout,
         &(const struct inkcell_fb_app_bar){.title = waypoint->name[0] != '\0'
                                                         ? waypoint->name
@@ -69,7 +69,17 @@ static void fb_render_waypoint_detail(struct inkcell_draw_state *state,
         return;
     }
 
-    const size_t label_cols = inkcell_fb_field_label_cols(state, layout, 12U);
+    /* The widest fact's label, measured: the node detail's rule one tab over. */
+    const char *labels[MESH_UI_WAYPOINT_ITEMS_MAX];
+    size_t labelled = 0U;
+    for (uint32_t r = 0U; r < count; ++r) {
+        if (items[r].kind != MESH_UI_WAYPOINT_ITEM_HEADING &&
+            items[r].kind != MESH_UI_WAYPOINT_ITEM_NOTE &&
+            items[r].kind != MESH_UI_WAYPOINT_ITEM_ACTION) {
+            labels[labelled++] = items[r].label;
+        }
+    }
+    const size_t label_cols = inkcell_fb_field_label_cols_fit(state, layout, labels, labelled);
     /* The note is the one row here that is a sentence rather than a fact, so it takes a second
        step and puts the sharer's words on it. Measured from the same `kind` the loop draws
        from, and handed to the model before anything is placed - the node detail's rule. */
@@ -166,7 +176,7 @@ void fb_render_waypoints(struct inkcell_draw_state *state, const struct mesh_ui_
     } else {
         inkwell_str_copy(title, sizeof title, inkcell_str(MESH_STR_TAB_WAYPOINTS));
     }
-    inkcell_fb_draw_app_bar(state, layout, &(const struct inkcell_fb_app_bar){.title = title});
+    fb_draw_app_bar(state, layout, &(const struct inkcell_fb_app_bar){.title = title});
 
     /*
      * The empty state still draws the list, because the list is never empty: the last row makes
@@ -174,8 +184,11 @@ void fb_render_waypoints(struct inkcell_draw_state *state, const struct mesh_ui_
      * there is to do here. The picture goes above the one row instead - which is why this is a
      * banner-shaped sentence rather than inkcell_fb_draw_empty()'s full-body one.
      */
+    /* Every place, and the row that makes one. */
+    uint8_t steps[MESH_UI_MAX_WAYPOINTS + 1U];
     struct inkcell_fb_list list =
-        inkcell_fb_list_begin_rows(layout, count, nav->cursor[MESH_UI_SCREEN_WAYPOINTS], 2U);
+        fb_list_begin_steps(state, layout, count, nav->cursor[MESH_UI_SCREEN_WAYPOINTS], 2U, steps,
+                            sizeof steps, FB_LIST_ROLE_FEED);
     inkcell_fb_list_glide(state, &list, FB_LIST_WAYPOINTS);
     inkcell_fb_list_focus(&list, (uint32_t)MESH_UI_FOCUS_ROWS);
     uint32_t i;

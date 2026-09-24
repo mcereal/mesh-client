@@ -48,7 +48,7 @@ void fb_render_conversations(struct inkcell_draw_state *state,
     char title[96];
     inkcell_fb_title_count(title, sizeof title, inkcell_str(MESH_STR_TAB_MESSAGES), count,
                            snapshot->messages.dropped);
-    inkcell_fb_draw_app_bar(state, layout, &(const struct inkcell_fb_app_bar){.title = title});
+    fb_draw_app_bar(state, layout, &(const struct inkcell_fb_app_bar){.title = title});
     if (count == 0U) {
         inkcell_fb_draw_empty(state, layout, INKCELL_ICON_MESSAGES,
                               inkcell_str(MESH_STR_MESSAGES_EMPTY));
@@ -60,10 +60,22 @@ void fb_render_conversations(struct inkcell_draw_state *state,
      * the last thing said with the unread count as a pill. The cell owns every pixel of that -
      * this loop only says which strings go in it and what each one means.
      */
-    struct inkcell_fb_list list =
-        inkcell_fb_list_begin_rows(layout, count, nav->cursor[MESH_UI_SCREEN_MESSAGES], 2U);
+    /* All traffic, the channels, a peer per direct thread and New message. */
+    uint8_t steps[2U + MESH_UI_MAX_CHANNELS + MESH_UI_MAX_MESSAGES];
+    /* With a thread open - which is only drawn beside it, on a split frame - the tab's cursor
+       indexes the thread's messages, and the list's own place is the thread's conversation,
+       found by what it is: see mesh_ui_nav_open_conversation_row(). */
+    const uint32_t cursor = nav->thread_open ? mesh_ui_nav_open_conversation_row(nav, &view)
+                                             : nav->cursor[MESH_UI_SCREEN_MESSAGES];
+    struct inkcell_fb_list list = fb_list_begin_steps(state, layout, count, cursor, 2U, steps,
+                                                      sizeof steps, FB_LIST_ROLE_FEED);
     inkcell_fb_list_glide(state, &list, FB_LIST_CONVERSATIONS);
-    inkcell_fb_list_focus(&list, (uint32_t)MESH_UI_FOCUS_ROWS);
+    /* The rows are the click targets only while they are what the reader is on. A thread open
+       beside them on a split frame registers its own bubbles in the same block, and a list that
+       went on registering would be two things answering one id. */
+    if (!nav->thread_open) {
+        inkcell_fb_list_focus(&list, (uint32_t)MESH_UI_FOCUS_ROWS);
+    }
     char age[8];
     char badge[8];
     uint32_t i;
@@ -683,7 +695,7 @@ void fb_render_thread(struct inkcell_draw_state *state, const struct mesh_ui_sna
     /* No overline. Which kind of conversation this is stays in the title, because a channel's
        name already starts with a '#' and every bubble under it is tagged - so a trail would be
        spending a body row of transcript to repeat what two other things on the frame say. */
-    inkcell_fb_draw_app_bar(state, layout, &(const struct inkcell_fb_app_bar){.title = title});
+    fb_draw_app_bar(state, layout, &(const struct inkcell_fb_app_bar){.title = title});
 
     if (count == 0U) {
         inkcell_fb_draw_empty(

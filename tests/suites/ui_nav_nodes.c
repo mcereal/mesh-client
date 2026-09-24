@@ -2124,6 +2124,12 @@ MESH_TEST_CASE(ui_nav_nodes_sort_by_distance_and_the_fix_it_needs, unit) {
         MESH_TEST_FAIL_IF(node == NULL || node->node_id != expected[i],
                           "nearest first, and the node with no fix last rather than at zero");
     }
+    /* And back the other way, which is how a list drawn beside an open node finds its row: by
+       the node, in the order the sort put it, and past the end for one the view does not hold. */
+    MESH_TEST_FAIL_IF(mesh_ui_node_view_find(&handshake, &view, 0x2001U) != 2U,
+                      "a node is found at the row the sort put it on");
+    MESH_TEST_FAIL_IF(mesh_ui_node_view_find(&handshake, &view, 0x4242U) != view.count,
+                      "a node the view does not hold is past its end");
     MESH_TEST_FAIL_IF(!mesh_ui_node_sort_available(&handshake, MESH_UI_NODE_SORT_DISTANCE),
                       "with a fix of our own the sort has something to say");
 

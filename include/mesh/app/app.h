@@ -6,10 +6,10 @@
 #include "inkcell/ui/sdl.h"
 #include "inkcell/ui/theme.h"
 
+#include "inkstand/app/control.h"
 #include "inkwell/net/mqtt.h"
 #include "inkwell/runtime/loop.h"
 #include "inkwell/runtime/signals.h"
-#include "mesh/app/control.h"
 #include "mesh/core/config.h"
 #include "mesh/core/firmware.h"
 #include "mesh/core/firmware_update.h"
@@ -66,7 +66,7 @@ struct mesh_app {
     struct inkcell_backend_sdl_context ui_sdl_context;
     struct inkcell_backend_headless_context ui_headless_context;
     /* The control socket, when --ui-control or MESHCLIENT_UI_CONTROL named one. */
-    struct mesh_app_control control;
+    struct inkstand_control control;
     struct mesh_ui_preferences ui_preferences;
     /* Conversation loaded from the cache at startup. The transport's log starts empty every
        run, so this is merged back in on publish; without it the first publish would erase the

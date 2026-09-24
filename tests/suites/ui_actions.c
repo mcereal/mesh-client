@@ -493,6 +493,53 @@ MESH_TEST_CASE(actions_back_arrow_follows_the_verb_not_the_key, unit) {
 }
 
 /*
+ * The compact footer keeps every verb and drops only what the chrome already says: the tabs, and
+ * B where the heading's arrow was derived from it. Where B is anything else - discarding edits
+ * here - the arrow is not drawn and the keycap is the only thing saying what B does, so it stays.
+ */
+static bool actions_bar_has(const struct inkcell_action_bar *bar, inkcell_str_id label) {
+    for (size_t i = 0; i < bar->count; ++i) {
+        if (bar->items[i].label == label) {
+            return true;
+        }
+    }
+    return false;
+}
+
+MESH_TEST_CASE(actions_compact_drops_only_what_the_chrome_says, unit) {
+    struct mesh_ui_snapshot snapshot;
+    struct inkcell_action_bar bar;
+
+    actions_snapshot(&snapshot);
+    snapshot.nav.thread_open = true;
+    mesh_ui_actions_for(&snapshot, &bar);
+    const size_t full = bar.count;
+    mesh_ui_actions_compact(&bar, mesh_ui_action_bar_goes_back(&bar));
+    MESH_TEST_FAIL_IF(actions_bar_has(&bar, MESH_STR_ACTION_TABS), "the tab strip is the tabs");
+    MESH_TEST_FAIL_IF(actions_bar_has(&bar, MESH_STR_ACTION_BACK), "the arrow is the way back");
+    MESH_TEST_FAIL_IF(bar.count != full - 2U, "nothing but those two should go");
+    MESH_TEST_FAIL_IF(!actions_bar_has(&bar, MESH_STR_ACTION_REPLY) ||
+                          !actions_bar_has(&bar, MESH_STR_ACTION_REACT) ||
+                          !actions_bar_has(&bar, MESH_STR_ACTION_WRITE),
+                      "every verb about the thread should stay");
+    MESH_TEST_FAIL_IF(bar.items[0].label != MESH_STR_ACTION_REPLY,
+                      "the screen's first verb should still lead");
+
+    actions_snapshot(&snapshot);
+    snapshot.nav.screen = MESH_UI_SCREEN_SETTINGS;
+    snapshot.nav.settings_section = MESH_UI_SETTINGS_DISPLAY;
+    snapshot.nav.settings_edit_count = 2U;
+    mesh_ui_actions_for(&snapshot, &bar);
+    const bool b_before = actions_bar_has(&bar, MESH_STR_ACTION_DISCARD);
+    mesh_ui_actions_compact(&bar, mesh_ui_action_bar_goes_back(&bar));
+    MESH_TEST_FAIL_IF(!b_before || !actions_bar_has(&bar, MESH_STR_ACTION_DISCARD),
+                      "B as discard has no arrow to stand in for it and should stay");
+
+    mesh_ui_actions_compact(NULL, true);
+    record_success(test_name);
+}
+
+/*
  * Every state the bar can be in, walked exhaustively rather than by hand.
  *
  * The bar drops actions it cannot fit, and it drops them silently - so a table that overran
@@ -750,5 +797,49 @@ MESH_TEST_CASE(actions_devices_ask_the_row_under_the_cursor, unit) {
     MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_Y) != MESH_STR_ACTION_FORGET,
                       "a bonded radio can still be forgotten while it is the one we are on");
 
+    record_success(test_name);
+}
+
+/*
+ * The verbs a pointer finds in the heading: the same command set the keycaps are projected from,
+ * less what a pointer already has somewhere better.
+ *
+ * The conversation list is the case with every kind of verb on it: a row's own A (the row is
+ * clicked), a creation verb (the pill), a destructive one, a verb that names the row (mute), help
+ * and the tabs.
+ */
+MESH_TEST_CASE(actions_heading_is_what_a_pointer_has_nowhere_else, unit) {
+    struct mesh_ui_snapshot snapshot;
+    actions_snapshot(&snapshot);
+    struct mesh_ui_heading_action verbs[MESH_UI_HEADING_ACTIONS_MAX];
+    const size_t count = mesh_ui_actions_heading(&snapshot, verbs, MESH_UI_HEADING_ACTIONS_MAX);
+
+    MESH_TEST_FAIL_IF(count < 3U, "the conversation list should offer new, delete and help");
+    for (size_t i = 0U; i < count; ++i) {
+        MESH_TEST_FAIL_IF(verbs[i].id == MESH_UI_COMMAND_OPEN ||
+                              verbs[i].id == MESH_UI_COMMAND_TABS,
+                          "a row's own A and the tabs are clicked, not offered in the heading");
+        MESH_TEST_FAIL_IF(verbs[i].icon == INKCELL_ICON_NONE,
+                          "every heading verb should be drawn with a symbol");
+    }
+    MESH_TEST_FAIL_IF(verbs[0].id != MESH_UI_COMMAND_NEW || !verbs[0].primary,
+                      "New should lead the heading, as the verb the list is for");
+    MESH_TEST_FAIL_IF(verbs[1].id != MESH_UI_COMMAND_DELETE || !verbs[1].destructive ||
+                          verbs[1].primary,
+                      "Delete should follow, marked as the verb that throws something away");
+    MESH_TEST_FAIL_IF(verbs[count - 1U].id != MESH_UI_COMMAND_HELP || verbs[count - 1U].primary,
+                      "help should close the heading and never be its pill");
+
+    /* Help's slot survives a heading too short for everything - it is kept, not trimmed. */
+    const size_t two = mesh_ui_actions_heading(&snapshot, verbs, 2U);
+    MESH_TEST_FAIL_IF(two != 2U || verbs[0].id != MESH_UI_COMMAND_NEW ||
+                          verbs[1].id != MESH_UI_COMMAND_HELP,
+                      "a short heading should give up its last verb before its help");
+
+    MESH_TEST_FAIL_IF(mesh_ui_command_icon(MESH_UI_COMMAND_BACK) != INKCELL_ICON_NONE ||
+                          mesh_ui_command_icon(MESH_UI_COMMAND_MOVE) != INKCELL_ICON_NONE ||
+                          mesh_ui_command_icon(MESH_UI_COMMAND_QUIT) != INKCELL_ICON_NONE,
+                      "back, the paired moves and quit have a better home than the heading");
+    MESH_TEST_FAIL_IF(mesh_ui_actions_heading(NULL, verbs, 0U) != 0U, "no room is no verbs");
     record_success(test_name);
 }

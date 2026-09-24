@@ -18,7 +18,10 @@ evdev -> inkcell_input -> mesh_ui_controller_handle_key -> mesh_ui_store_handle_
 ```
 
 - **`src/ui/store/store.c`** owns `mesh_ui_snapshot` and signals the loop via an eventfd.
-- **`src/ui/nav/controller.c`** drains the store and calls `backend->present(snapshot)`.
+- **`src/ui/nav/controller.c`** is what a press means: keys, commands and clicks, resolved
+  against the last snapshot. Presenting is inkstand's frame scheduler
+  (`inkstand/nav/frame_scheduler.h`), which drains the store, calls `backend->present(snapshot)`
+  and keeps a frame timer armed only while the backend reports it is still animating.
 - **Backends** implement the three-function `struct inkcell_backend` (`init`, `shutdown`,
   `present`): `fb.c` (the device UI), `cli.c` (a terminal fallback), `stub.c` (tests).
   **Backends are stateless** — they draw the cursor from `snapshot->nav`. A new platform
@@ -337,11 +340,21 @@ goes nowhere. The wheel is Up and Down, a hint in the action bar is its key, and
 back button is B (inkcell's `inkcell/ui/pointer.h`). `tests/suites/ui_click.c` clicks the
 real frame.
 
-A window draws that action bar as a toolbar rather than as keycaps (inkcell's
-`inkcell_draw_state.pointer`): each face-button verb is a button of its own, with no letter on
-it, and whatever the pointer already has somewhere else is left out - "L/R tabs" (the tabs are
-clicked), the arrows (the wheel), quit (the close box), and Back wherever the header's arrow is
-drawn, which is B to a click. `pointer` in a capture scene draws the same frame.
+A window puts the screen's verbs in its heading rather than as keycaps at the foot (inkcell's
+`inkcell_draw_state.pointer`), and draws no foot at all; the link's state that the foot ended in
+moves up with them as the heading's status mark. The verbs are the same command set the keycaps
+are projected from, projected a second time into the app bar's actions
+(`mesh_ui_actions_heading()` in `src/ui/tables/actions.c`): each is a symbol, the first verb that
+makes, sends or keeps something is the tonal pill with its word beside it, and help is last. A
+command with no symbol in that table stays off the heading, which is how whatever the pointer
+already has somewhere better is left out - a row's own A (the row is clicked), the tabs, the
+arrows (the wheel), quit (the close box), and Back (the heading's arrow). A verb is its command
+(`MESH_UI_FOCUS_BAR + command`) and reaches `mesh_ui_controller_handle_click()`, which runs it
+only if the screen offers it right now. A screen draws its heading through `fb_draw_app_bar()`,
+which hands the first heading on a pointer frame the verbs and the mark. Two places keep the bar
+for a pointer: Status, whose cards are its heading, and any layer the heading does not speak for -
+a dialog, a sheet, help - where it is the toolbar it always was. `pointer` in a capture scene
+draws the same frame.
 
 A right-click (or a control-click) on a row of the screen's list selects it and opens that
 row's menu at the pointer: its row commands, read from the same command set the action bar is
@@ -379,6 +392,27 @@ The frame is placed by inkcell's scaffold (`fb_render_snapshot()` in
 moves the tabs into a rail down the leading edge and gives the body the rest. On the Brick, and on
 any window that is still compact, it is the tab strip across the top - kept there on purpose,
 because L1 and R1 are on the top edge of the case - and the frame is the one it always was.
+
+A window with room for a whole measure of detail beside a list - 1920x1080 at the Brick's scale is
+the first - stands the two side by side. Three screens do so:
+
+- **Messages**: the conversations, and beside them the open thread.
+- **Nodes**: the roster, and beside it whatever is open over one node - its detail, a chart of a
+  reading, or the sheet of its verbs.
+- **Settings**: the section list, and beside it the open section - a module or a channel slot
+  included, with the list keeping the top-level row (Modules, Channels) they are under. The share
+  and contact sheets a row raises still take the body, as on the Brick.
+
+With nothing open, the detail pane holds a note saying what will appear there. The nav is the
+one-pane nav, unchanged: A opens, every press is the detail's while it is open, and B closes it.
+What the width buys is that the list stays put, with the row the detail came from still under its
+cursor (found by what that row is, since the list re-ranks under an open detail), and the back
+arrow moves to the detail's heading. Opening and closing is not a move either, so nothing slides
+(`fb_render_split_pair()`). A node opened from the map is one pane, as it is on the Brick: B takes
+it back to the map, not the roster. A screen says it has two halves in `fb_route_split()`; whether
+there is room is inkcell's scaffold's to decide. `ui_click_a_wide_window_opens_a_thread_beside_its_list`,
+`ui_click_a_wide_window_opens_a_node_beside_its_roster` and
+`ui_click_a_wide_window_opens_a_section_beside_the_sections` hold it.
 
 `make ui-capture` is still the way to *review* a UI change, because a picture in a pull request
 is reviewable and a window on somebody's desk is not.
@@ -511,6 +545,19 @@ Four authoring rules hold across all of them, and breaking one compiles and look
 - **A heading is `struct inkcell_fb_app_bar`**, with slots; the back arrow is *derived* from the action
   table, never declared.
 - **fb layout is measured in cells, not bytes.** A `strlen` or `%-Ns` there is a bug.
+- **A list names its role, never its look.** `fb_list_look()` in `fb_screens_frame.c` is the
+  one answer: a *menu* (places to go, verbs to choose) and a *form* (a section's fields) stand in
+  inset sections with comfortable rows; a *feed* (nodes, conversations, waypoints) stays on the
+  panel, compact on the compact width class and comfortable above it. Every list takes the accent
+  cursor - a lift and a leading capsule, the row's own inks kept - and tiered type, and the
+  frame's travelling ring stays off an accent row, going to dialogs and cards instead. A uniform
+  list opens through `fb_list_begin_steps()`.
+
+The foot of the frame is inkcell's one-row compact action bar: the screen's own verbs, then the
+link's state at the row's end (the radio's name in the success tone, or what the transport is
+doing). `mesh_ui_actions_compact()` drops only what the chrome already says - `L/R tabs` and a `B
+back` the heading's arrow stands for - and no verb, because the help screen explains settings,
+not buttons, so a verb the bar hid would be one nothing on the device names.
 
 The tables a screen reads instead of deciding for itself: `actions.c` (button verbs), `status.c`
 (card verbs), `help.c`, `devices.c`, `nodes.c`, `delivery.c`, `trust.c`, `chrome.c`, `trend.c`,
@@ -1109,8 +1156,8 @@ catch whatever is actually on the panel — see [`device.md`](device.md#screensh
 client does - its transports, its caches, the radio on the desk - drive that instead:
 `--ui-control PATH` (or `MESHCLIENT_UI_CONTROL`) opens a Unix socket that takes a key by name, a
 wait, and a `shot` that writes the frame as a PPM once nothing on the panel is moving. The
-protocol is in `include/mesh/app/control.h`; `meshclient --ui-send 'key r1; shot /tmp/x.ppm'` is
-its other end, which is what lets a Brick be driven with only the binary it already has.
+protocol is in inkstand's `include/inkstand/app/control.h`; `meshclient --ui-send 'key r1; shot
+/tmp/x.ppm'` is its other end, which is what lets a Brick be driven with only the binary it already has.
 
 `scripts/ui-drive.sh` puts the three places it runs behind one command, and brings every shot
 back as a PNG on this machine:

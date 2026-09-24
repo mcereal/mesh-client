@@ -160,7 +160,7 @@ static void fb_render_chart(struct inkcell_draw_state *state,
                             const struct mesh_ui_snapshot *snapshot,
                             struct inkcell_fb_layout *layout,
                             const struct fb_chart_screen *screen) {
-    inkcell_fb_draw_app_bar(state, layout, &screen->bar);
+    fb_draw_app_bar(state, layout, &screen->bar);
 
     const uint8_t span_choice = snapshot->nav.trend_span;
     /* The whole width the frame has, rather than the reading column: a chart is not text. */

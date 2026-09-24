@@ -1,5 +1,6 @@
 #pragma once
 
+#include "inkstand/nav/frame_scheduler.h"
 #include "inkwell/runtime/loop.h"
 #include "mesh/ui/commands.h"
 #include "mesh/ui/store.h"
@@ -27,21 +28,21 @@ typedef void (*mesh_ui_action_handler)(void *userdata, const struct mesh_ui_acti
  */
 #define MESH_UI_FRAME_INTERVAL_MS 33U
 
+/*
+ * What a press means, over the frames it is resolved against.
+ *
+ * Presenting is inkstand/nav/frame_scheduler.h's: it drains the store, draws, and keeps a frame
+ * timer armed only while the backend is moving. What is here is the half that knows this client's
+ * vocabulary - a key through the nav, a command offered by the last frame, a click on a box it
+ * registered - and the action handler a press can reach.
+ */
 struct mesh_ui_controller {
     struct mesh_ui_store *store;
+    /* The frame the reader is looking at: what the scheduler last presented, and what every
+       command and click is resolved against. */
     struct mesh_ui_snapshot snapshot;
-    bool snapshot_valid;
-    const struct inkcell_backend *backend;
-    void *backend_state;
-    void *backend_userdata;
+    struct inkstand_frame_scheduler frames;
     struct inkwell_loop *loop;
-    bool registered;
-    /* Armed after a frame the backend says is still moving, disarmed the moment it settles.
-       -1 when the timer could not be created, which costs animation and nothing else. */
-    int frame_timer_fd;
-    /* Whether that timer holds a deadline that has not fired - what lets a request for a
-       frame join one already on its way rather than push it back. */
-    bool frame_armed;
     mesh_ui_action_handler on_action;
     void *action_userdata;
 };
