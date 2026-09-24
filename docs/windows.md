@@ -2,8 +2,9 @@
 
 The Windows target is under active development. The first supported slice is an x64 UCRT
 executable with the SDL UI, the Bluetooth, USB serial and TCP transports, MQTT and HTTPS, with
-TLS through Mbed TLS. Bluetooth bonding, firmware installation, self-update and the UI control
-socket are follow-up platform backends rather than promises of the first build.
+TLS through Mbed TLS, and radio firmware installation for ESP32 boards over Bluetooth. Bluetooth
+bonding, firmware installation over USB, self-update and the UI control socket are follow-up
+platform backends rather than promises of the first build.
 
 ## See the UI
 
@@ -77,6 +78,15 @@ yet**, in either pairing mode: Settings > Add device takes the PIN, the radio re
 passkey authenticated, and Windows fails the pairing a moment later. A node set to **No PIN**
 connects and works normally; one set to Fixed PIN or Random PIN refuses the first write, which
 the client reports as needing to be paired. Use USB serial for those until bonding works.
+
+An ESP32 radio's firmware installs over Bluetooth as it does on the Brick: `--install-firmware
+heltec-v4 -p ADDRESS`. The radio is asked into its OTA loader over the ordinary link, so a
+PIN-protected radio has to be switched to No PIN first - or be sent into the loader from
+elsewhere, after which the same command resumes it. Windows does not take the 7.5 ms connection
+interval the install asks for, and the image goes at about 13 KB/s: a Heltec V4's 2.1 MB takes
+under three minutes. The image stages in `%TEMP%` unless `--staging`
+or `MESHCLIENT_FIRMWARE_STAGING` names another directory. An nRF52 or RP2040 installs by writing
+its UF2 to the bootloader's drive, and there is no Windows backend for that yet.
 
 Inkcell input and the client updater compile on Windows; the updater offers no install action
 because releases contain Linux binaries only.
