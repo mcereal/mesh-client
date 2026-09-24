@@ -20,9 +20,15 @@
 #include <string.h>
 #include <sys/stat.h>
 #if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
 #include <io.h>
+#include <windows.h>
 #else
 #include <unistd.h>
+#endif
+#if defined(__APPLE__)
+#include <limits.h>
+#include <mach-o/dyld.h>
 #endif
 
 #ifndef MESHCLIENT_UPDATE_REPO
@@ -488,6 +494,105 @@ static void updater_fetch_failed(struct mesh_updater *updater,
     updater_set(updater, MESH_UPDATE_FAILED, message);
 }
 
+/* ---- the binary we are ----------------------------------------------------------------- */
+
+/*
+ * Where the running executable lives, which is the file an install replaces.
+ *
+ * Each system says so its own way. Linux's /proc link is already the resolved path. macOS
+ * returns whatever path the process was started through - a symlink from a shell, or the one
+ * inside MeshClient.app/Contents/MacOS when Finder opened the bundle - so it is resolved here;
+ * the rename has to land on the real file, beside which the staged download is written.
+ * Windows names the module directly.
+ *
+ * False leaves the updater with nothing to install over, and the About screen then shows the
+ * version without an update row rather than a row that cannot work.
+ */
+static bool updater_find_binary(char *out, size_t out_len) {
+#if defined(__linux__)
+    const ssize_t len = readlink("/proc/self/exe", out, out_len - 1U);
+    if (len <= 0) {
+        return false;
+    }
+    out[len] = '\0';
+    return true;
+#elif defined(__APPLE__)
+    char launched[PATH_MAX];
+    uint32_t size = (uint32_t)sizeof launched;
+    if (_NSGetExecutablePath(launched, &size) != 0) {
+        return false;
+    }
+    char resolved[PATH_MAX];
+    if (realpath(launched, resolved) == NULL) {
+        return false;
+    }
+    return (size_t)snprintf(out, out_len, "%s", resolved) < out_len;
+#elif defined(_WIN32)
+    const DWORD len = GetModuleFileNameA(NULL, out, (DWORD)out_len);
+    /* A result that fills the buffer is a truncated path, not a short one. */
+    return len > 0U && (size_t)len < out_len;
+#else
+    (void)out;
+    (void)out_len;
+    return false;
+#endif
+}
+
+#if defined(_WIN32)
+/* Where the binary an install replaced is parked until the process that ran from it is gone. */
+static void updater_retired_path(const struct mesh_updater *updater, char *out, size_t out_len) {
+    snprintf(out, out_len, "%s.old", updater->install_path);
+}
+
+static int updater_windows_errno(DWORD error) {
+    switch (error) {
+    case ERROR_ACCESS_DENIED:
+        return EACCES;
+    case ERROR_SHARING_VIOLATION:
+    case ERROR_LOCK_VIOLATION:
+        return EBUSY;
+    case ERROR_FILE_NOT_FOUND:
+    case ERROR_PATH_NOT_FOUND:
+        return ENOENT;
+    default:
+        return EIO;
+    }
+}
+#endif
+
+/*
+ * Put the verified download where the running binary is. Returns 0, or -errno.
+ *
+ * On Linux and macOS this is one rename(): atomic within the directory, and the running image
+ * lives on through its inode. Windows will not let anything replace or delete an executable
+ * that is running, but it will let it be *renamed* - the loader holds the file open with
+ * delete sharing, and a rename is a delete from the old name. So the running binary steps aside
+ * to "<name>.old", the download takes its name, and the next launch removes the old one. If the
+ * second step fails the first is undone, so there is always a binary at the path the Start
+ * menu points at.
+ */
+static int updater_replace_binary(const struct mesh_updater *updater) {
+#if defined(_WIN32)
+    char retired[sizeof updater->staged_path];
+    updater_retired_path(updater, retired, sizeof retired);
+    (void)DeleteFileA(retired);
+    if (MoveFileExA(updater->install_path, retired, MOVEFILE_REPLACE_EXISTING) == 0) {
+        return -updater_windows_errno(GetLastError());
+    }
+    if (MoveFileExA(updater->staged_path, updater->install_path, MOVEFILE_REPLACE_EXISTING) == 0) {
+        const int error = updater_windows_errno(GetLastError());
+        if (MoveFileExA(retired, updater->install_path, MOVEFILE_REPLACE_EXISTING) == 0) {
+            inkwell_log_error("update", "Could not put %s back after a failed install",
+                              updater->install_path);
+        }
+        return -error;
+    }
+    return 0;
+#else
+    return rename(updater->staged_path, updater->install_path) == 0 ? 0 : -errno;
+#endif
+}
+
 /* ---- steps ------------------------------------------------------------------------------ */
 
 int mesh_updater_init(struct mesh_updater *updater, struct inkwell_loop *loop) {
@@ -502,20 +607,16 @@ int mesh_updater_init(struct mesh_updater *updater, struct inkwell_loop *loop) {
     }
 
     /* The binary to replace. Without this there is nothing to install over, so the About
-       screen offers only the version rather than a broken update row.
-
-       /proc is Linux's. On macOS and Windows this is deliberately unavailable.
-       Releases contain Linux binaries, which could not run on either host. */
-#if defined(__linux__)
-    const ssize_t len =
-        readlink("/proc/self/exe", updater->install_path, sizeof updater->install_path - 1U);
-#else
-    const ssize_t len = -1;
-#endif
-    if (len > 0) {
-        updater->install_path[len] = '\0';
+       screen offers only the version rather than a broken update row. */
+    if (updater_find_binary(updater->install_path, sizeof updater->install_path)) {
         snprintf(updater->staged_path, sizeof updater->staged_path, "%s.update",
                  updater->install_path);
+#if defined(_WIN32)
+        /* The binary the last install stepped aside from, now that nothing is running it. */
+        char retired[sizeof updater->staged_path];
+        updater_retired_path(updater, retired, sizeof retired);
+        (void)DeleteFileA(retired);
+#endif
     } else {
         updater->install_path[0] = '\0';
     }
@@ -877,17 +978,18 @@ static void updater_on_download_done(void *userdata, const struct inkwell_fetch_
         return;
     }
 
+#if !defined(_WIN32)
     if (chmod(updater->staged_path, 0755) != 0) {
         updater_set(updater, MESH_UPDATE_FAILED, inkcell_str(MESH_STR_UPDATE_CHMOD_FAILED));
         (void)unlink(updater->staged_path);
         return;
     }
-    /* Atomic within the directory: readers see the old binary or the new one. The running
-       image lives on through its inode, so this is safe under ourselves. */
-    if (rename(updater->staged_path, updater->install_path) != 0) {
+#endif
+    const int replaced = updater_replace_binary(updater);
+    if (replaced != 0) {
         char message[MESH_UPDATE_MESSAGE_MAX];
         inkcell_str_format(message, sizeof message, MESH_STR_UPDATE_INSTALL_FAILED,
-                           strerror(errno));
+                           strerror(-replaced));
         updater_set(updater, MESH_UPDATE_FAILED, message);
         (void)unlink(updater->staged_path);
         return;
