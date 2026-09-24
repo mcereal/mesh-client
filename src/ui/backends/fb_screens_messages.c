@@ -62,11 +62,20 @@ void fb_render_conversations(struct inkcell_draw_state *state,
      */
     /* All traffic, the channels, a peer per direct thread and New message. */
     uint8_t steps[2U + MESH_UI_MAX_CHANNELS + MESH_UI_MAX_MESSAGES];
-    struct inkcell_fb_list list =
-        fb_list_begin_steps(state, layout, count, nav->cursor[MESH_UI_SCREEN_MESSAGES], 2U, steps,
-                            sizeof steps, FB_LIST_ROLE_FEED);
+    /* With a thread open - which is only drawn beside it, on a split frame - the tab's cursor
+       indexes the thread's messages, and the list's own place is the one parked when it opened:
+       the conversation the thread came from. */
+    const uint32_t cursor =
+        nav->thread_open ? nav->conversation_list_cursor : nav->cursor[MESH_UI_SCREEN_MESSAGES];
+    struct inkcell_fb_list list = fb_list_begin_steps(state, layout, count, cursor, 2U, steps,
+                                                      sizeof steps, FB_LIST_ROLE_FEED);
     inkcell_fb_list_glide(state, &list, FB_LIST_CONVERSATIONS);
-    inkcell_fb_list_focus(&list, (uint32_t)MESH_UI_FOCUS_ROWS);
+    /* The rows are the click targets only while they are what the reader is on. A thread open
+       beside them on a split frame registers its own bubbles in the same block, and a list that
+       went on registering would be two things answering one id. */
+    if (!nav->thread_open) {
+        inkcell_fb_list_focus(&list, (uint32_t)MESH_UI_FOCUS_ROWS);
+    }
     char age[8];
     char badge[8];
     uint32_t i;

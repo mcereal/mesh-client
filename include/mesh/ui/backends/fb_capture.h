@@ -19,7 +19,9 @@ int mesh_ui_capture_open(struct inkcell_capture **out, uint32_t width, uint32_t 
 
 /*
  * Where the last frame drew its content: the page, less the tab rail when the page was wide
- * enough - or its text small enough - to leave the compact width class.
+ * enough - or its text small enough - to leave the compact width class. On a frame that stood a
+ * list and its detail side by side, it is the pane the reader is in: the detail while one is
+ * open, the list otherwise.
  *
  * For a test that reads pixels against the body. A scan that starts at the panel's margin starts
  * inside the rail on such a frame, and finds the rail's labels rather than the body's first word.
