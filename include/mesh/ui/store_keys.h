@@ -18,6 +18,8 @@
  * See docs/ui.md for what the cache is for and what it deliberately does not hold.
  */
 
+#include "inkwell/base/log.h"
+
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -89,11 +91,13 @@ enum mesh_ui_store_key mesh_ui_store_key_lookup(const char *key, uint32_t *index
  * numbers.
  */
 void mesh_ui_store_write(FILE *file, enum mesh_ui_store_key key, const char *fmt, ...)
-    __attribute__((format(printf, 3, 4)));
+    __attribute__((format(INKWELL_PRINTF_ARCHETYPE, 3, 4)));
 void mesh_ui_store_write_row(FILE *file, enum mesh_ui_store_key key, uint32_t index,
-                             const char *fmt, ...) __attribute__((format(printf, 4, 5)));
+                             const char *fmt, ...)
+    __attribute__((format(INKWELL_PRINTF_ARCHETYPE, 4, 5)));
 void mesh_ui_store_write_slot(FILE *file, enum mesh_ui_store_key key, uint32_t index, uint32_t slot,
-                              const char *fmt, ...) __attribute__((format(printf, 5, 6)));
+                              const char *fmt, ...)
+    __attribute__((format(INKWELL_PRINTF_ARCHETYPE, 5, 6)));
 void mesh_ui_store_write_text(FILE *file, enum mesh_ui_store_key key, const char *text);
 void mesh_ui_store_write_row_text(FILE *file, enum mesh_ui_store_key key, uint32_t index,
                                   const char *text);
